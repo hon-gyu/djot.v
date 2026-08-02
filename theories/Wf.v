@@ -204,37 +204,76 @@ The parser produces well-formed output
 ======================================
 *)
 
-Lemma parse_lines_wf :
-  forall lines cur,
-    forallb nonblank cur = true ->
-    wf_blocks (parse_lines lines cur) = true.
+(* Fenced blocks are always well-formed, whatever the info and content. *)
+Lemma fence_block_wf :
+  forall f content, wf_block (node_contents (fence_block f content)) = true.
 Proof.
-  induction lines as [|l rest IH]; intros cur Hcur.
-  - destruct cur as [|c cur']; [reflexivity|].
-    rewrite parse_lines_nil_cons.
-    apply flush_para_wf; [exact Hcur | reflexivity].
-  - destruct (classify l) eqn:E.
-    + (* blank: flush *)
-      destruct cur as [|c cur'].
-      * rewrite parse_lines_blank_nil by exact E. apply IH. reflexivity.
-      * rewrite parse_lines_blank_cons by exact E.
-        apply flush_para_wf; [exact Hcur |].
-        apply IH. reflexivity.
-    + (* thematic: new block, or paragraph continuation *)
-      destruct cur as [|c cur'].
-      * rewrite parse_lines_thematic_nil by exact E.
-        rewrite wf_blocks_cons. simpl. apply IH. reflexivity.
-      * rewrite parse_lines_cont by (rewrite E; discriminate).
+  intros f content. unfold fence_block.
+  destruct (f_info f) as [|c info]; [reflexivity|].
+  destruct (Ascii.eqb c "=")%char eqn:E.
+  - apply Ascii.eqb_eq in E. subst c. reflexivity.
+  - (* CodeBlock branch: the match on c is a 256-way character match;
+       wf_block is true for both CodeBlock and RawBlock, so conversion
+       closes it after destructing c's bits *)
+    destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+Qed.
+
+Definition state_wf (st : pstate) : bool :=
+  match st with
+  | PPara cur => forallb nonblank cur
+  | PFence _ _ => true
+  end.
+
+Lemma parse_lines_wf :
+  forall lines st,
+    state_wf st = true ->
+    wf_blocks (parse_lines lines st) = true.
+Proof.
+  induction lines as [|l rest IH]; intros st Hst.
+  - destruct st as [cur|f acc].
+    + destruct cur as [|c cur']; [reflexivity|].
+      rewrite parse_lines_nil_cons.
+      apply flush_para_wf; [exact Hst | reflexivity].
+    + rewrite parse_lines_fence_eof.
+      rewrite wf_blocks_cons, fence_block_wf. reflexivity.
+  - destruct st as [cur|f acc].
+    + destruct (classify l) eqn:E.
+      * (* blank: flush *)
+        destruct cur as [|c cur'].
+        -- rewrite parse_lines_blank_nil by exact E. apply IH. reflexivity.
+        -- rewrite parse_lines_blank_cons by exact E.
+           apply flush_para_wf; [exact Hst |].
+           apply IH. reflexivity.
+      * (* thematic: new block, or paragraph continuation *)
+        destruct cur as [|c cur'].
+        -- rewrite parse_lines_thematic_nil by exact E.
+           rewrite wf_blocks_cons. simpl. apply IH. reflexivity.
+        -- rewrite parse_lines_cont by (rewrite E; discriminate).
+           apply IH.
+           assert (Hl : is_blank l = false)
+             by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
+           simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
+      * (* fence open, or paragraph continuation *)
+        destruct cur as [|c cur'].
+        -- rewrite (parse_lines_fence_open _ _ _ E).
+           apply IH. reflexivity.
+        -- rewrite parse_lines_cont by (rewrite E; discriminate).
+           apply IH.
+           assert (Hl : is_blank l = false)
+             by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
+           simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
+      * (* text: accumulate *)
+        rewrite parse_lines_text by exact E.
         apply IH.
         assert (Hl : is_blank l = false)
           by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
-        simpl. unfold nonblank. rewrite Hl. simpl. exact Hcur.
-    + (* text: accumulate *)
-      rewrite parse_lines_text by exact E.
-      apply IH.
-      assert (Hl : is_blank l = false)
-        by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
-      simpl. unfold nonblank. rewrite Hl. simpl. exact Hcur.
+        simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
+    + destruct (fence_close f l) eqn:E.
+      * rewrite parse_lines_fence_close by exact E.
+        rewrite wf_blocks_cons, fence_block_wf.
+        apply IH. reflexivity.
+      * rewrite parse_lines_fence_content by exact E.
+        apply IH. reflexivity.
 Qed.
 
 Theorem wf_parse : forall s, wf_doc (parse_doc s) = true.

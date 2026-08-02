@@ -24,20 +24,25 @@ Canonical blocks
 
 Inductive cblock : Type :=
   | CPara (ls : list string)
-  | CThematic.
+  | CThematic
+  | CCode (info : string) (content : list string).
 
 Definition thematic_line : string := "* * * *".
+Definition code_close : string := "```".
+Definition code_open (info : string) : string := "```" ++ info.
 
 Definition cb_lines (cb : cblock) : list string :=
   match cb with
   | CPara ls => ls
   | CThematic => [thematic_line]
+  | CCode info content => (code_open info :: content ++ [code_close])%list
   end.
 
 Definition cb_ast (cb : cblock) : node block :=
   match cb with
   | CPara ls => mk (Para (para_inlines ls))
   | CThematic => mk ThematicBreak
+  | CCode info content => fence_block (Fence "`"%char 3 info) content
   end.
 
 Definition doc_of_cblocks (cbs : list cblock) : doc :=
@@ -62,10 +67,20 @@ Definition para_ok (ls : list string) : bool :=
            (last ls EmptyString)
   end.
 
+(* A canonical code block: valid info string, and content lines that are
+   newline-free and do not close a 3-backtick fence.  Content lines may
+   be blank or look like any other construct — fences are verbatim. *)
+Definition code_ok (info : string) (content : list string) : bool :=
+  all_info_chars info
+  && forallb
+       (fun l => no_nl l && negb (fence_close (Fence "`"%char 3 info) l))
+       content.
+
 Definition cb_ok (cb : cblock) : bool :=
   match cb with
   | CPara ls => para_ok ls
   | CThematic => true
+  | CCode info content => code_ok info content
   end.
 
 (*
@@ -89,6 +104,8 @@ Definition render_block_djot (b : block) : string :=
   match b with
   | Para ils => String.concat nl (inline_lines ils EmptyString)
   | ThematicBreak => thematic_line
+  | CodeBlock lang text => "```" ++ lang ++ nl ++ text ++ code_close
+  | RawBlock fmt text => "```=" ++ fmt ++ nl ++ text ++ code_close
   | _ => ""   (* TODO: extend with the parser, construct by construct *)
   end.
 

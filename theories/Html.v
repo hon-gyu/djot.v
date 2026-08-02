@@ -87,8 +87,13 @@ Fixpoint render_block (b : block) : string :=
   | Heading _ _ => ""         (* TODO Phase 1 *)
   | BlockQuote bs =>
       "<blockquote>" ++ nl ++ render_bs bs ++ "</blockquote>" ++ nl
-  | CodeBlock _ code =>
-      "<pre><code>" ++ escape code ++ "</code></pre>" ++ nl
+  | CodeBlock lang code =>
+      "<pre><code"
+      ++ (match lang with
+          | EmptyString => ""
+          | _ => " class=""language-" ++ lang ++ """"
+          end)
+      ++ ">" ++ escape code ++ "</code></pre>" ++ nl
   | Div bs => "<div>" ++ nl ++ render_bs bs ++ "</div>" ++ nl
   | OrderedList _ _ _ => ""   (* TODO Phase 1 *)
   | BulletList _ _ => ""      (* TODO Phase 1 *)
@@ -96,7 +101,8 @@ Fixpoint render_block (b : block) : string :=
   | DefinitionList _ _ => ""  (* TODO Phase 1 *)
   | ThematicBreak => "<hr>" ++ nl
   | Table _ _ => ""           (* TODO Phase 1 *)
-  | RawBlock _ _ => ""        (* TODO Phase 1 *)
+  | RawBlock fmt contents =>
+      if String.eqb fmt "html" then contents else ""
   end.
 
 Definition render_blocks (bs : blocks) : string :=

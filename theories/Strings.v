@@ -285,38 +285,100 @@ Lemma split_lines_cons_nl :
 Proof. reflexivity. Qed.
 
 (*
-Joined nonblank lines split back exactly
-----------------------------------------
-*)
+Joined newline-free lines split back exactly
+--------------------------------------------
+
+Interior lines may be blank (code-block content); only the final line
+must be nonempty, because split_lines drops a trailing empty line. *)
 
 Lemma split_join_last :
-  forall a ls, forallb line_ok (a :: ls) = true ->
-  split_lines (String.concat nl (a :: ls)) = a :: ls.
+  forall a ls,
+    forallb no_nl (a :: ls) = true ->
+    last (a :: ls) EmptyString <> EmptyString ->
+    split_lines (String.concat nl (a :: ls)) = a :: ls.
 Proof.
   intros a ls. revert a.
-  induction ls as [|b ls IH]; intros a H; simpl in H;
+  induction ls as [|b ls IH]; intros a H Hlast; simpl in H;
     apply andb_true_iff in H as [Ha Hrest].
-  - simpl. apply split_lines_single.
-    + apply line_ok_no_nl; exact Ha.
-    + apply line_ok_nonempty; exact Ha.
+  - simpl. apply split_lines_single; [exact Ha | exact Hlast].
   - change (String.concat nl (a :: b :: ls))
       with (a ++ String "010" (String.concat nl (b :: ls))).
-    rewrite split_lines_line by (apply line_ok_no_nl; exact Ha).
-    f_equal. apply IH. exact Hrest.
+    rewrite split_lines_line by exact Ha.
+    f_equal. apply IH; [exact Hrest | exact Hlast].
 Qed.
 
 Lemma split_join_line :
-  forall a ls r, forallb line_ok (a :: ls) = true ->
+  forall a ls r, forallb no_nl (a :: ls) = true ->
   split_lines (String.concat nl (a :: ls) ++ String "010" r) =
   ((a :: ls) ++ split_lines r)%list.
 Proof.
   intros a ls. revert a.
   induction ls as [|b ls IH]; intros a r H; simpl in H;
     apply andb_true_iff in H as [Ha Hrest].
-  - simpl. apply split_lines_line. apply line_ok_no_nl; exact Ha.
+  - simpl. apply split_lines_line. exact Ha.
   - change (String.concat nl (a :: b :: ls))
       with (a ++ String "010" (String.concat nl (b :: ls))).
     rewrite append_assoc. simpl.
-    rewrite split_lines_line by (apply line_ok_no_nl; exact Ha).
+    rewrite split_lines_line by exact Ha.
     simpl. f_equal. apply IH. exact Hrest.
+Qed.
+
+(*
+Small helpers for the roundtrip hypotheses
+------------------------------------------
+*)
+
+Lemma no_nl_append :
+  forall a b, no_nl (a ++ b) = (no_nl a && no_nl b)%bool.
+Proof.
+  induction a as [|c a IH]; intros b; simpl.
+  - reflexivity.
+  - rewrite IH. rewrite andb_assoc. reflexivity.
+Qed.
+
+Lemma forallb_last :
+  forall (f : string -> bool) a ls,
+    forallb f (a :: ls) = true -> f (last (a :: ls) EmptyString) = true.
+Proof.
+  intros f a ls. revert a.
+  induction ls as [|b ls IH]; intros a H; simpl in H;
+    apply andb_true_iff in H as [Ha Hrest].
+  - exact Ha.
+  - apply IH. exact Hrest.
+Qed.
+
+(* Join lines, each with a trailing newline (code-block content shape). *)
+Fixpoint join_nl (ls : list string) : string :=
+  match ls with
+  | [] => EmptyString
+  | l :: rest => l ++ nl ++ join_nl rest
+  end.
+
+Lemma concat_cons_ne :
+  forall sep x l, l <> [] ->
+  String.concat sep (x :: l) = x ++ sep ++ String.concat sep l.
+Proof. intros sep x l H. destruct l; [congruence | reflexivity]. Qed.
+
+(* Content lines followed by a final line: the newline-terminated join
+   against the final line is the same as concat over all of them. *)
+Lemma join_nl_last :
+  forall content x,
+    (join_nl content ++ x)%string = String.concat nl (content ++ [x])%list.
+Proof.
+  induction content as [|c cont IH]; intros x; simpl join_nl.
+  - reflexivity.
+  - rewrite !append_assoc.
+    change ((c :: cont) ++ [x])%list with (c :: (cont ++ [x]))%list.
+    rewrite concat_cons_ne by (destruct cont; discriminate).
+    rewrite <- IH. reflexivity.
+Qed.
+
+Lemma last_app_singleton :
+  forall {A : Type} (l : list A) (x d : A), last (l ++ [x])%list d = x.
+Proof.
+  induction l as [|a l IH]; intros x d; simpl.
+  - reflexivity.
+  - destruct (l ++ [x])%list eqn:E.
+    + exfalso. destruct l; discriminate.
+    + rewrite <- E. apply IH.
 Qed.

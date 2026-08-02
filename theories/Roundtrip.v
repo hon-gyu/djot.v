@@ -25,8 +25,17 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
   | ls :: rest => (ls ++ EmptyString :: sep_lines rest)%list
   end.
 
+(* What the split/join inversion needs of each block's lines: newline-free
+   throughout, and a nonempty final line (split_lines drops a trailing
+   empty line).  Interior lines may be blank — code content is verbatim. *)
 Definition lines_ok (ls : list string) : bool :=
-  nonempty ls && forallb line_ok ls.
+  nonempty ls
+  && forallb no_nl ls
+  && nonempty_str (last ls EmptyString).
+
+Lemma nonempty_str_neq :
+  forall s, nonempty_str s = true -> s <> EmptyString.
+Proof. destruct s; [discriminate | congruence]. Qed.
 
 Lemma split_render :
   forall lss, forallb lines_ok lss = true ->
@@ -35,17 +44,20 @@ Proof.
   induction lss as [|ls rest IH]; intros H; simpl in H.
   - reflexivity.
   - apply andb_true_iff in H as [Hls Hrest].
-    unfold lines_ok in Hls. apply andb_true_iff in Hls as [Hne Hlok].
+    unfold lines_ok in Hls.
+    apply andb_true_iff in Hls as [Hls Hlast].
+    apply andb_true_iff in Hls as [Hne Hnl].
     destruct ls as [|a ls']; [discriminate|].
     destruct rest as [|ls2 rest'].
-    + simpl. apply split_join_last. exact Hlok.
+    + simpl. apply split_join_last;
+        [exact Hnl | apply nonempty_str_neq; exact Hlast].
     + change (render_paras ((a :: ls') :: ls2 :: rest'))
         with (String.concat nl (a :: ls')
               ++ (nl ++ nl) ++ render_paras (ls2 :: rest')).
       change ((nl ++ nl) ++ render_paras (ls2 :: rest'))
         with (String "010"%char
                 (String "010"%char (render_paras (ls2 :: rest')))).
-      rewrite split_join_line by exact Hlok.
+      rewrite split_join_line by exact Hnl.
       rewrite split_lines_cons_nl.
       rewrite IH by exact Hrest.
       reflexivity.
@@ -81,14 +93,73 @@ Proof.
   - apply String.eqb_eq. exact Hlast.
 Qed.
 
+Lemma forallb_weaken :
+  forall {A : Type} (f g : A -> bool),
+    (forall x, f x = true -> g x = true) ->
+    forall l, forallb f l = true -> forallb g l = true.
+Proof.
+  intros A f g Hfg.
+  induction l as [|x l IH]; intros H; simpl in *; [reflexivity|].
+  apply andb_true_iff in H as [Hx Hl].
+  rewrite (Hfg _ Hx). simpl. apply IH. exact Hl.
+Qed.
+
+Lemma info_no_nl :
+  forall info, all_info_chars info = true -> no_nl info = true.
+Proof.
+  induction info as [|c info IH]; intros H; simpl in *; [reflexivity|].
+  apply andb_true_iff in H as [Hc Hinfo].
+  apply info_char_parts in Hc as (_ & _ & Hn).
+  rewrite Hn. simpl. apply IH. exact Hinfo.
+Qed.
+
+Lemma code_ok_parts :
+  forall info content, code_ok info content = true ->
+  all_info_chars info = true
+  /\ forallb no_nl content = true
+  /\ forallb (fun l => negb (fence_close (Fence "`"%char 3 info) l)) content
+     = true.
+Proof.
+  intros info content H. unfold code_ok in H.
+  apply andb_true_iff in H as [Hinfo Hcontent].
+  repeat split; [exact Hinfo | ..].
+  - refine (forallb_weaken _ _ _ _ Hcontent).
+    intros l Hl. apply andb_true_iff in Hl as [Hl _]. exact Hl.
+  - refine (forallb_weaken _ _ _ _ Hcontent).
+    intros l Hl. apply andb_true_iff in Hl as [_ Hl]. exact Hl.
+Qed.
+
+Lemma last_cons_app :
+  forall {A : Type} (a : A) (l : list A) (x d : A),
+    last (a :: l ++ [x])%list d = x.
+Proof.
+  intros A a l x d.
+  change (a :: l ++ [x])%list with ((a :: l) ++ [x])%list.
+  apply last_app_singleton.
+Qed.
+
 Lemma cb_ok_lines_ok :
   forall cb, cb_ok cb = true -> lines_ok (cb_lines cb) = true.
 Proof.
-  intros cb H. destruct cb as [ls|].
-  - destruct ls as [|a ls']; [discriminate|].
+  intros cb H. destruct cb as [ls| |info content].
+  - (* paragraph: line_ok everywhere implies the split conditions *)
+    destruct ls as [|a ls']; [discriminate|].
     apply para_ok_parts in H as (_ & Hlok & _).
-    unfold lines_ok. simpl cb_lines. rewrite Hlok. reflexivity.
+    unfold lines_ok. simpl cb_lines.
+    rewrite (forallb_weaken _ _ line_ok_no_nl _ Hlok).
+    pose proof (forallb_last _ _ _ Hlok) as Hl.
+    apply line_ok_nonblank, nonblank_nonempty in Hl.
+    rewrite Hl. reflexivity.
   - reflexivity.
+  - (* code block: open/content/close all newline-free; close is last *)
+    apply code_ok_parts in H as (Hinfo & Hnl & _).
+    unfold lines_ok. cbn [cb_lines].
+    apply andb_true_iff. split; [apply andb_true_iff; split|].
+    + reflexivity.
+    + cbn [forallb].
+      unfold code_open. rewrite no_nl_append, (info_no_nl _ Hinfo).
+      simpl. rewrite forallb_app, Hnl. reflexivity.
+    + rewrite last_cons_app. reflexivity.
 Qed.
 
 Lemma forallb_cb_lines_ok :
@@ -122,11 +193,11 @@ Case analysis over the head cblock — extend here for new constructs.
 
 Lemma parse_sep :
   forall cbs, forallb cb_ok cbs = true ->
-  parse_lines (sep_lines (map cb_lines cbs)) [] = map cb_ast cbs.
+  parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
 Proof.
   induction cbs as [|cb rest IH]; intros H; simpl in H; [reflexivity|].
   apply andb_true_iff in H as [Hcb Hrest].
-  destruct cb as [ls|].
+  destruct cb as [ls| |info content].
   - (* paragraph *)
     destruct ls as [|a ls']; [discriminate|].
     apply para_ok_parts in Hcb as (Htext & Hlok & _).
@@ -150,6 +221,28 @@ Proof.
     + reflexivity.
     + cbn [map sep_lines cb_lines app].
       rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
+      rewrite parse_lines_blank_nil by reflexivity.
+      cbn [map cb_ast]. f_equal.
+      apply IH. exact Hrest.
+  - (* code block *)
+    apply code_ok_parts in Hcb as (Hinfo & _ & Hnc).
+    destruct rest as [|cb2 rest'].
+    + cbn [map sep_lines cb_lines].
+      rewrite (parse_lines_fence_open _ _ _
+                 (classify_backtick_fence info Hinfo)).
+      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite app_nil_r.
+      rewrite parse_lines_fence_close by apply fence_close_canonical.
+      rewrite rev_involutive.
+      reflexivity.
+    + cbn [map sep_lines cb_lines app].
+      rewrite (parse_lines_fence_open _ _ _
+                 (classify_backtick_fence info Hinfo)).
+      rewrite <- app_assoc.
+      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite app_nil_r. cbn [app].
+      rewrite parse_lines_fence_close by apply fence_close_canonical.
+      rewrite rev_involutive.
       rewrite parse_lines_blank_nil by reflexivity.
       cbn [map cb_ast]. f_equal.
       apply IH. exact Hrest.
@@ -183,6 +276,33 @@ Proof.
     exact Hlast.
 Qed.
 
+(* The rendered fence: open line, newline, content lines each with their
+   newline, close line. *)
+Lemma render_fence_line :
+  forall open content,
+    (open ++ nl ++ join_nl content ++ code_close)%string =
+    String.concat nl (open :: content ++ [code_close])%list.
+Proof.
+  intros open content.
+  rewrite concat_cons_ne by (destruct content; discriminate).
+  rewrite <- join_nl_last. reflexivity.
+Qed.
+
+(* fence_block inverts to the canonical fence rendering, whether the info
+   string makes it a code block or (starting with '=') a raw block.  The
+   256-way destruct reduces the character match in fence_block; each
+   branch closes by conversion because the fence prefix is a literal. *)
+Lemma render_fence_block :
+  forall info content,
+    render_block_djot
+      (node_contents (fence_block (Fence "`"%char 3 info) content)) =
+    (code_open info ++ nl ++ join_nl content ++ code_close)%string.
+Proof.
+  intros info content. unfold fence_block. cbn [f_info].
+  destruct info as [|c info']; [reflexivity|].
+  destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+Qed.
+
 Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
   render_djot (doc_of_cblocks cbs) = render_paras (map cb_lines cbs).
@@ -193,12 +313,16 @@ Proof.
   induction cbs as [|cb rest IH]; simpl in *; [reflexivity|].
   apply andb_true_iff in H as [Hcb Hrest].
   f_equal; [| apply IH; exact Hrest].
-  destruct cb as [ls|]; [| reflexivity].
-  destruct ls as [|a ls']; [discriminate|].
-  apply para_ok_parts in Hcb as (_ & Hlok & Hlast).
-  cbn [cb_ast cb_lines node_contents mk render_block_djot].
-  rewrite inline_lines_para by (assumption || discriminate).
-  reflexivity.
+  destruct cb as [ls| |info content].
+  - destruct ls as [|a ls']; [discriminate|].
+    apply para_ok_parts in Hcb as (_ & Hlok & Hlast).
+    cbn [cb_ast cb_lines node_contents mk render_block_djot].
+    rewrite inline_lines_para by (assumption || discriminate).
+    reflexivity.
+  - reflexivity.
+  - cbn [cb_ast cb_lines].
+    rewrite render_fence_block.
+    apply render_fence_line.
 Qed.
 
 (*
