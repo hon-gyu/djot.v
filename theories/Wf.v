@@ -1,36 +1,23 @@
-(* Well-formedness of the djot AST, as a decidable boolean predicate.
+(* Well-formedness of the djot AST, as a decidable boolean predicate,
+   plus the theorem that the parser only produces well-formed output.
 
-   This is the Phase 1 `wf_block` deliverable in its first (extrinsic)
-   form: conditions the parser's output always satisfies and the renderer
-   may rely on.  The conditions mirror the runtime predicates of the QCheck
-   generator work (no empty paragraphs, no empty containers, no empty
-   lists) plus a canonicality condition (no adjacent plain Str nodes) that
-   djoths maintains via its Inlines Semigroup and that exact-equality
-   roundtrip will need.
+   Conditions mirror the QCheck generator predicates (no empty
+   paragraphs, no empty containers, no empty lists) plus a canonicality
+   condition (no adjacent plain Str nodes) that exact-equality roundtrip
+   needs. *)
 
-   The first theorem, `wf_parse`, proves the toy parser total *and*
-   well-formed on every input.  It is stated over the full AST, so it only
-   grows stronger as the parser gains constructs. *)
-
-From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From DjotV Require Import Ast Parser.
+From Stdlib Require Import String Ascii List Bool PeanoNat.
+From DjotV Require Import Strings Line Ast Parser.
 Import ListNotations.
 
 Local Open Scope string_scope.
 
 (*
-Basic shape predicates
-======================
-*)
+Canonicality of inline sequences
+================================
 
-Definition nonempty {A : Type} (l : list A) : bool :=
-  match l with [] => false | _ => true end.
-
-Definition nonempty_str (s : string) : bool :=
-  match s with EmptyString => false | _ => true end.
-
-(* Canonicality: two adjacent attribute-less Str nodes should have been
-   merged into one (djoths's Inlines Semigroup does this on append). *)
+Two adjacent attribute-less Str nodes should have been merged into one
+(djoths's Inlines Semigroup does this on append). *)
 
 Definition plain_str (n : node inline) : bool :=
   match n with Node _ [] (Str _) => true | _ => false end.
@@ -128,118 +115,21 @@ Definition wf_doc (d : doc) : bool :=
   && forallb (fun p => wf_blocks (snd p)) (doc_footnotes d).
 
 (*
-Auxiliary lemmas about the line functions
-=========================================
+Equation lemmas
+===============
 *)
-
-Lemma rev_aux_blank :
-  forall s acc, is_blank (rev_string_aux s acc) = is_blank s && is_blank acc.
-Proof.
-  induction s as [|c s IH]; intros acc; simpl.
-  - reflexivity.
-  - rewrite IH. simpl.
-    destruct (is_ws c), (is_blank s), (is_blank acc); reflexivity.
-Qed.
-
-Lemma rev_blank : forall s, is_blank (rev_string s) = is_blank s.
-Proof.
-  intros s. unfold rev_string. rewrite rev_aux_blank. simpl.
-  apply andb_true_r.
-Qed.
-
-Lemma rev_aux_length :
-  forall s acc,
-    String.length (rev_string_aux s acc) =
-    (String.length s + String.length acc)%nat.
-Proof.
-  induction s as [|c s IH]; intros acc; simpl.
-  - reflexivity.
-  - rewrite IH. simpl. lia.
-Qed.
-
-Lemma rev_length :
-  forall s, String.length (rev_string s) = String.length s.
-Proof.
-  intros s. unfold rev_string. rewrite rev_aux_length. simpl. lia.
-Qed.
-
-Lemma is_blank_cons :
-  forall c s, is_blank (String c s) = is_ws c && is_blank s.
-Proof. reflexivity. Qed.
-
-Lemma drop_leading_ws_nonempty :
-  forall s, is_blank s = false -> drop_leading_ws s <> EmptyString.
-Proof.
-  induction s as [|c s IH]; intros H.
-  - discriminate.
-  - rewrite is_blank_cons in H. cbn [drop_leading_ws].
-    destruct (is_ws c) eqn:E.
-    + apply IH. rewrite andb_true_l in H. exact H.
-    + discriminate.
-Qed.
-
-Lemma nonempty_str_length :
-  forall s, s <> EmptyString -> nonempty_str s = true.
-Proof.
-  destruct s; [congruence | reflexivity].
-Qed.
-
-Lemma strip_trailing_ws_nonempty :
-  forall s, is_blank s = false -> nonempty_str (strip_trailing_ws s) = true.
-Proof.
-  intros s H. unfold strip_trailing_ws.
-  apply nonempty_str_length.
-  intros Hrev.
-  assert (Hd : drop_leading_ws (rev_string s) <> EmptyString).
-  { apply drop_leading_ws_nonempty. rewrite rev_blank. exact H. }
-  apply Hd.
-  apply (f_equal String.length) in Hrev.
-  rewrite rev_length in Hrev. simpl in Hrev.
-  destruct (drop_leading_ws (rev_string s)); [reflexivity | discriminate].
-Qed.
-
-Lemma nonblank_nonempty :
-  forall s, is_blank s = false -> nonempty_str s = true.
-Proof.
-  destruct s; simpl; [congruence | reflexivity].
-Qed.
-
-Lemma forallb_rev :
-  forall {A : Type} (f : A -> bool) (l : list A),
-    forallb f (rev l) = forallb f l.
-Proof.
-  intros A f l.
-  induction l as [|x l IH]; simpl.
-  - reflexivity.
-  - rewrite forallb_app, IH. simpl.
-    destruct (f x), (forallb f l); reflexivity.
-Qed.
-
-(*
-The parser produces well-formed output
-======================================
-*)
-
-Definition nonblank (l : string) : bool := negb (is_blank l).
-
-(* Definitional equations, used instead of simpl/cbn to keep goals from
-   over-reducing into nested matches. *)
-
-Lemma para_inlines_one :
-  forall x, para_inlines [x] = [mk (Str (strip_trailing_ws x))].
-Proof. reflexivity. Qed.
-
-Lemma para_inlines_cons2 :
-  forall x y rest,
-    para_inlines (x :: y :: rest) =
-    mk (Str x) :: mk SoftBreak :: para_inlines (y :: rest).
-Proof. reflexivity. Qed.
 
 Lemma wf_inlines_cons :
   forall n ns,
     wf_inlines (n :: ns) =
-    (wf_inline (node_contents n) && forallb (fun m => wf_inline (node_contents m)) ns
+    (wf_inline (node_contents n)
+     && forallb (fun m => wf_inline (node_contents m)) ns
      && no_adjacent_str (n :: ns))%bool.
+Proof. reflexivity. Qed.
+
+Lemma wf_blocks_cons :
+  forall n bs,
+    wf_blocks (n :: bs) = (wf_block (node_contents n) && wf_blocks bs)%bool.
 Proof. reflexivity. Qed.
 
 Lemma no_adjacent_cons_false :
@@ -261,6 +151,11 @@ Proof.
   simpl in Hns. rewrite H in Hns. simpl in Hns.
   destruct ns as [|n3 ns']; [reflexivity | exact Hns].
 Qed.
+
+(*
+Paragraph assembly is well-formed
+=================================
+*)
 
 Lemma para_inlines_nonempty :
   forall ls, ls <> [] -> nonempty (para_inlines ls) = true.
@@ -290,54 +185,61 @@ Proof.
         apply no_adjacent_cons_false; [reflexivity|]. exact IHadj.
 Qed.
 
-Lemma nonempty_app_singleton :
-  forall {A : Type} (l : list A) (x : A), nonempty (l ++ [x]) = true.
-Proof.
-  intros A l x. destruct l; reflexivity.
-Qed.
-
-Lemma wf_blocks_para :
-  forall ils rest,
-    wf_blocks (mk (Para ils) :: rest) =
-    (nonempty ils && wf_inlines ils && wf_blocks rest)%bool.
-Proof. reflexivity. Qed.
-
-Lemma group_paras_flush_wf :
+Lemma flush_para_wf :
   forall c cur' k,
     forallb nonblank (c :: cur') = true ->
     wf_blocks k = true ->
     wf_blocks (mk (Para (para_inlines (rev (c :: cur')))) :: k) = true.
 Proof.
   intros c cur' k Hcur Hk.
-  rewrite wf_blocks_para.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
   rewrite para_inlines_wf by (rewrite forallb_rev; exact Hcur).
   rewrite Hk.
   rewrite para_inlines_nonempty; [reflexivity|].
   simpl rev. destruct (rev cur'); discriminate.
 Qed.
 
-Lemma group_paras_wf :
+(*
+The parser produces well-formed output
+======================================
+*)
+
+Lemma parse_lines_wf :
   forall lines cur,
     forallb nonblank cur = true ->
-    wf_blocks (group_paras lines cur) = true.
+    wf_blocks (parse_lines lines cur) = true.
 Proof.
   induction lines as [|l rest IH]; intros cur Hcur.
-  - (* end of input: flush *)
-    destruct cur as [|c cur']; [reflexivity|].
-    apply group_paras_flush_wf; [exact Hcur | reflexivity].
-  - cbn [group_paras]. destruct (is_blank l) eqn:E.
-    + (* blank line: flush, restart with empty accumulator *)
+  - destruct cur as [|c cur']; [reflexivity|].
+    rewrite parse_lines_nil_cons.
+    apply flush_para_wf; [exact Hcur | reflexivity].
+  - destruct (classify l) eqn:E.
+    + (* blank: flush *)
       destruct cur as [|c cur'].
-      * apply IH. reflexivity.
-      * apply group_paras_flush_wf; [exact Hcur |].
+      * rewrite parse_lines_blank_nil by exact E. apply IH. reflexivity.
+      * rewrite parse_lines_blank_cons by exact E.
+        apply flush_para_wf; [exact Hcur |].
         apply IH. reflexivity.
-    + (* nonblank line: accumulate *)
-      apply IH. simpl. unfold nonblank. rewrite E. simpl. exact Hcur.
+    + (* thematic: new block, or paragraph continuation *)
+      destruct cur as [|c cur'].
+      * rewrite parse_lines_thematic_nil by exact E.
+        rewrite wf_blocks_cons. simpl. apply IH. reflexivity.
+      * rewrite parse_lines_cont by (rewrite E; discriminate).
+        apply IH.
+        assert (Hl : is_blank l = false)
+          by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
+        simpl. unfold nonblank. rewrite Hl. simpl. exact Hcur.
+    + (* text: accumulate *)
+      rewrite parse_lines_text by exact E.
+      apply IH.
+      assert (Hl : is_blank l = false)
+        by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
+      simpl. unfold nonblank. rewrite Hl. simpl. exact Hcur.
 Qed.
 
 Theorem wf_parse : forall s, wf_doc (parse_doc s) = true.
 Proof.
   intros s. unfold wf_doc, parse_doc. simpl.
   rewrite andb_true_r.
-  apply group_paras_wf. reflexivity.
+  apply parse_lines_wf. reflexivity.
 Qed.

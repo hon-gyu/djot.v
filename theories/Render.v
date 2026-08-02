@@ -1,54 +1,77 @@
-(* Djot rendering (AST -> djot source), modeled on djoths's Djot.hs.
+(* Djot rendering (AST -> djot source), modeled on djoths's Djot.hs,
+   together with the canonical form it inverts.
 
-   Phase 1 scope: the paragraph fragment the parser currently covers.
-   `renderable` captures the canonical form this renderer inverts; the
-   roundtrip theorem is in Roundtrip.v. *)
+   `cblock` is the canonical (renderable) view of a block: the parser's
+   image, described by the data that determines it.  Renderability of a
+   paragraph is phrased through the line classifier: the first line must
+   *classify* as text (so the parse re-opens a paragraph there), interior
+   lines merely nonblank (paragraphs cannot be interrupted), the last
+   line pre-stripped (the parser strips it, so a roundtripping AST cannot
+   carry trailing whitespace).  Each new construct added to Line.v gets a
+   cblock constructor, a canonical rendering, and a cb_ok obligation —
+   that is the whole roundtrip extension recipe. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Ast Parser.
+From DjotV Require Import Strings Line Ast Parser.
 Import ListNotations.
 
 Local Open Scope string_scope.
 
 (*
-Renderability of the paragraph fragment
-=======================================
-
-A canonical paragraph is `para_inlines lines` for a list of lines that
-are nonblank, newline-free, and whose last line carries no trailing
-whitespace (the parser strips it, so a roundtripping AST cannot have it).
+Canonical blocks
+================
 *)
 
-Fixpoint no_nl (s : string) : bool :=
-  match s with
-  | EmptyString => true
-  | String c s' => negb (Ascii.eqb c "010") && no_nl s'
+Inductive cblock : Type :=
+  | CPara (ls : list string)
+  | CThematic.
+
+Definition thematic_line : string := "* * * *".
+
+Definition cb_lines (cb : cblock) : list string :=
+  match cb with
+  | CPara ls => ls
+  | CThematic => [thematic_line]
   end.
 
-Definition line_ok (l : string) : bool :=
-  negb (is_blank l) && no_nl l.
-
-Definition para_ok (ls : list string) : bool :=
-  match ls with
-  | [] => false
-  | _ => forallb line_ok ls
-         && String.eqb (strip_trailing_ws (last ls EmptyString))
-              (last ls EmptyString)
+Definition cb_ast (cb : cblock) : node block :=
+  match cb with
+  | CPara ls => mk (Para (para_inlines ls))
+  | CThematic => mk ThematicBreak
   end.
 
-Definition doc_of_paras (lss : list (list string)) : doc :=
-  {| doc_blocks := map (fun ls => mk (Para (para_inlines ls))) lss
+Definition doc_of_cblocks (cbs : list cblock) : doc :=
+  {| doc_blocks := map cb_ast cbs
    ; doc_footnotes := []
    ; doc_references := []
    ; doc_auto_references := []
    ; doc_auto_identifiers := [] |}.
 
 (*
-The renderer
-------------
+Renderability
+-------------
 *)
 
-Definition nl : string := String "010"%char EmptyString.
+Definition para_ok (ls : list string) : bool :=
+  match ls with
+  | [] => false
+  | a :: _ =>
+      is_text a
+      && forallb line_ok ls
+      && String.eqb (strip_trailing_ws (last ls EmptyString))
+           (last ls EmptyString)
+  end.
+
+Definition cb_ok (cb : cblock) : bool :=
+  match cb with
+  | CPara ls => para_ok ls
+  | CThematic => true
+  end.
+
+(*
+The renderer
+============
+*)
 
 (* Recover the lines of a paragraph from its inlines: Str extends the
    current line, SoftBreak ends it.  (Other inline constructors don't
@@ -65,6 +88,7 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
 Definition render_block_djot (b : block) : string :=
   match b with
   | Para ils => String.concat nl (inline_lines ils EmptyString)
+  | ThematicBreak => thematic_line
   | _ => ""   (* TODO: extend with the parser, construct by construct *)
   end.
 
@@ -72,9 +96,7 @@ Definition render_djot (d : doc) : string :=
   String.concat (nl ++ nl)
     (map (fun n => render_block_djot (node_contents n)) (doc_blocks d)).
 
-(* Rendering of paragraph line lists, the form the roundtrip proof uses. *)
-
-Definition render_para (ls : list string) : string := String.concat nl ls.
+(* Rendering of line lists, the form the roundtrip proof composes over. *)
 
 Definition render_paras (lss : list (list string)) : string :=
-  String.concat (nl ++ nl) (map render_para lss).
+  String.concat (nl ++ nl) (map (String.concat nl) lss).
