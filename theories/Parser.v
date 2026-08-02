@@ -72,20 +72,20 @@ Definition strip_trailing_ws (s : string) : string :=
 
 (* Interleave SoftBreak between the lines of one paragraph. *)
 
-Fixpoint para_inlines (l : list string) : list inline :=
+Fixpoint para_inlines (l : list string) : inlines :=
   match l with
   | [] => []
-  | [x] => [Str (strip_trailing_ws x)]
-  | x :: rest => Str x :: SoftBreak :: para_inlines rest
+  | [x] => [mk (Str (strip_trailing_ws x))]
+  | x :: rest => mk (Str x) :: mk SoftBreak :: para_inlines rest
   end.
 
 (* Group consecutive non-blank lines into paragraphs. *)
 
-Fixpoint group_paras (lines : list string) (cur : list string) : doc :=
-  let flush := fun (k : doc) =>
+Fixpoint group_paras (lines : list string) (cur : list string) : blocks :=
+  let flush := fun (k : blocks) =>
     match cur with
     | [] => k
-    | _ => Para (para_inlines (rev cur)) :: k
+    | _ => mk (Para (para_inlines (rev cur))) :: k
     end in
   match lines with
   | [] => flush []
@@ -95,7 +95,12 @@ Fixpoint group_paras (lines : list string) (cur : list string) : doc :=
       else group_paras rest (l :: cur)
   end.
 
-Definition parse_doc (s : string) : doc := group_paras (split_lines s) [].
+Definition parse_doc (s : string) : doc :=
+  {| doc_blocks := group_paras (split_lines s) []
+   ; doc_footnotes := []
+   ; doc_references := []
+   ; doc_auto_references := []
+   ; doc_auto_identifiers := [] |}.
 
 (*
 Sanity lemmas
@@ -106,13 +111,14 @@ Small facts that double as regression tests for the definitions. *)
 Lemma split_lines_empty : split_lines "" = [].
 Proof. reflexivity. Qed.
 
-Lemma parse_doc_blank : parse_doc "  " = [].
+Lemma parse_doc_blank : doc_blocks (parse_doc "  ") = [].
 Proof. reflexivity. Qed.
 
 Example parse_two_paras :
-  parse_doc "hi
+  doc_blocks (parse_doc "hi
 there
 
-bye" =
-  [ Para [Str "hi"; SoftBreak; Str "there"]; Para [Str "bye"] ].
+bye") =
+  [ mk (Para [mk (Str "hi"); mk SoftBreak; mk (Str "there")])
+  ; mk (Para [mk (Str "bye")]) ].
 Proof. reflexivity. Qed.

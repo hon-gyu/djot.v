@@ -1,6 +1,11 @@
-(* HTML rendering for the Phase 0 fragment, matching what djot.js and
-   djoths emit for plain paragraphs: "<p>...</p>\n" with soft breaks
-   preserved as newlines and &, <, > escaped. *)
+(* HTML rendering, targeting byte-identical agreement with djot.js's
+   renderer (the authority; see .project/oracle-disagreements.md — djoths's
+   serialization diverges on attribute order, section wrapping, and task
+   items, and we follow djot.js on all three).
+
+   Phase 1 status: paragraphs are rendered faithfully; the remaining
+   constructors have placeholder output (empty or skeletal) that will be
+   filled in alongside the parser, driven by the corpus diff. *)
 
 From Stdlib Require Import String Ascii List.
 From DjotV Require Import Ast Parser.
@@ -24,19 +29,80 @@ Fixpoint escape (s : string) : string :=
 
 Definition nl : string := String "010"%char EmptyString.
 
-Definition render_inline (il : inline) : string :=
+(*
+Inlines
+=======
+*)
+
+Fixpoint render_inline (il : inline) : string :=
+  let render_ils :=
+    fix go (ns : list (node inline)) : string :=
+      match ns with
+      | [] => ""
+      | Node _ _ x :: rest => render_inline x ++ go rest
+      end in
   match il with
   | Str s => escape s
+  | Emph ils => "<em>" ++ render_ils ils ++ "</em>"
+  | Strong ils => "<strong>" ++ render_ils ils ++ "</strong>"
+  | Highlight ils => "<mark>" ++ render_ils ils ++ "</mark>"
+  | Insert ils => "<ins>" ++ render_ils ils ++ "</ins>"
+  | Delete ils => "<del>" ++ render_ils ils ++ "</del>"
+  | Superscript ils => "<sup>" ++ render_ils ils ++ "</sup>"
+  | Subscript ils => "<sub>" ++ render_ils ils ++ "</sub>"
+  | Verbatim s => "<code>" ++ escape s ++ "</code>"
+  | Symbol s => ":" ++ escape s ++ ":"
+  | Math _ _ => ""            (* TODO Phase 1 *)
+  | Link _ _ => ""            (* TODO Phase 1 *)
+  | Image _ _ => ""           (* TODO Phase 1 *)
+  | Span ils => "<span>" ++ render_ils ils ++ "</span>"
+  | FootnoteReference _ => "" (* TODO Phase 1 *)
+  | UrlLink _ => ""           (* TODO Phase 1 *)
+  | EmailLink _ => ""         (* TODO Phase 1 *)
+  | RawInline _ _ => ""       (* TODO Phase 1 *)
+  | NonBreakingSpace => "&nbsp;"
+  | Quoted _ _ => ""          (* TODO Phase 1 *)
   | SoftBreak => nl
+  | HardBreak => "<br>" ++ nl
   end.
 
-Definition render_block (b : block) : string :=
+Definition render_inlines (ils : inlines) : string :=
+  String.concat "" (map (fun n => render_inline (node_contents n)) ils).
+
+(*
+Blocks
+======
+*)
+
+Fixpoint render_block (b : block) : string :=
+  let render_bs :=
+    fix go (ns : list (node block)) : string :=
+      match ns with
+      | [] => ""
+      | Node _ _ x :: rest => render_block x ++ go rest
+      end in
   match b with
-  | Para ils => "<p>" ++ String.concat "" (map render_inline ils) ++ "</p>" ++ nl
+  | Para ils => "<p>" ++ render_inlines ils ++ "</p>" ++ nl
+  | Section bs => "<section>" ++ nl ++ render_bs bs ++ "</section>" ++ nl
+  | Heading _ _ => ""         (* TODO Phase 1 *)
+  | BlockQuote bs =>
+      "<blockquote>" ++ nl ++ render_bs bs ++ "</blockquote>" ++ nl
+  | CodeBlock _ code =>
+      "<pre><code>" ++ escape code ++ "</code></pre>" ++ nl
+  | Div bs => "<div>" ++ nl ++ render_bs bs ++ "</div>" ++ nl
+  | OrderedList _ _ _ => ""   (* TODO Phase 1 *)
+  | BulletList _ _ => ""      (* TODO Phase 1 *)
+  | TaskList _ _ => ""        (* TODO Phase 1 *)
+  | DefinitionList _ _ => ""  (* TODO Phase 1 *)
+  | ThematicBreak => "<hr>" ++ nl
+  | Table _ _ => ""           (* TODO Phase 1 *)
+  | RawBlock _ _ => ""        (* TODO Phase 1 *)
   end.
 
-Definition render_html (d : doc) : string :=
-  String.concat "" (map render_block d).
+Definition render_blocks (bs : blocks) : string :=
+  String.concat "" (map (fun n => render_block (node_contents n)) bs).
+
+Definition render_html (d : doc) : string := render_blocks (doc_blocks d).
 
 (* The single entry point the harness extracts: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
