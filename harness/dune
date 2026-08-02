@@ -1,0 +1,9 @@
+(coq.extraction
+ (prelude Extract)
+ (extracted_modules core)
+ (theories DjotV Stdlib))
+
+(executable
+ (name main)
+ (modules main corpus core)
+ (libraries unix))
