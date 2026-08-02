@@ -62,13 +62,14 @@ Fixpoint is_blank (s : string) : bool :=
 (* Trailing whitespace is stripped at the end of a paragraph (but kept on
    interior lines) — observed djot.js/djoths behavior on para.test. *)
 
+Fixpoint drop_leading_ws (s : string) : string :=
+  match s with
+  | String c s' => if is_ws c then drop_leading_ws s' else s
+  | EmptyString => EmptyString
+  end.
+
 Definition strip_trailing_ws (s : string) : string :=
-  rev_string
-    ((fix drop (r : string) : string :=
-        match r with
-        | String c r' => if is_ws c then drop r' else r
-        | EmptyString => EmptyString
-        end) (rev_string s)).
+  rev_string (drop_leading_ws (rev_string s)).
 
 (* Interleave SoftBreak between the lines of one paragraph. *)
 
