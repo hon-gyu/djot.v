@@ -14,9 +14,12 @@ Whitespace and blank lines
 ==========================
 *)
 
+(* Intra-line whitespace: space, tab, CR.  Deliberately excludes LF —
+   newlines are line separators, never content. *)
 Definition is_ws (c : ascii) : bool :=
   Ascii.eqb c " " || Ascii.eqb c "009" || Ascii.eqb c "013".
 
+(* A line is blank when it is empty or all whitespace. *)
 Fixpoint is_blank (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -29,10 +32,16 @@ Proof. reflexivity. Qed.
 
 Definition nonblank (l : string) : bool := negb (is_blank l).
 
+(* Note: nonblank is about *content*, nonempty_str below about *length*.
+   A line of spaces is nonempty but blank. *)
+
 (*
 Shape helpers
 =============
 *)
+
+(* Decidable "has at least one element", for lists and for strings.  Used
+   pervasively in the well-formedness predicate, which is boolean. *)
 
 Definition nonempty {A : Type} (l : list A) : bool :=
   match l with [] => false | _ => true end.
@@ -42,15 +51,24 @@ Definition nonempty_str (s : string) : bool :=
 
 Lemma nonempty_str_intro :
   forall s, s <> EmptyString -> nonempty_str s = true.
-Proof. destruct s; [congruence | reflexivity]. Qed.
+Proof. 
+    destruct s. (* String has two constructors: String and EmptyString *)
+    - congruence.
+    - reflexivity.
+Qed.
 
 Lemma nonblank_nonempty :
   forall s, is_blank s = false -> nonempty_str s = true.
-Proof. destruct s; simpl; [congruence | reflexivity]. Qed.
+Proof. 
+    destruct s.
+    all: simpl.
+    all: try congruence.
+Qed.
+
 
 Lemma nonempty_app_singleton :
   forall {A : Type} (l : list A) (x : A), nonempty (l ++ [x])%list = true.
-Proof. intros A l x. destruct l; reflexivity. Qed.
+Proof. intros A l x. destruct l. all: reflexivity. Qed.
 
 Lemma forallb_rev :
   forall {A : Type} (f : A -> bool) (l : list A),
@@ -77,6 +95,10 @@ Lemma append_assoc : forall a b c, (a ++ b) ++ c = a ++ (b ++ c).
 Proof.
   induction a as [|x a IH]; intros; simpl; [reflexivity | rewrite IH; reflexivity].
 Qed.
+
+(* String reversal, accumulator-style so it is structurally recursive.
+   Its only real job here is to give strip_trailing_ws in terms of
+   drop_leading_ws, and to let split_lines build lines front-to-back. *)
 
 Fixpoint rev_string_aux (s acc : string) : string :=
   match s with
@@ -152,12 +174,16 @@ Trailing-whitespace stripping
 =============================
 *)
 
+(* Drop a leading run of whitespace. *)
 Fixpoint drop_leading_ws (s : string) : string :=
   match s with
   | String c s' => if is_ws c then drop_leading_ws s' else s
   | EmptyString => EmptyString
   end.
 
+(* ...and the same at the other end, by reversing.  The parser applies
+   this to a paragraph's last line; Render.v's para_ok demands it be the
+   identity there, which is what makes the roundtrip exact. *)
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 
@@ -191,7 +217,12 @@ Lines: splitting and joining
 ============================
 *)
 
+(* The newline, as a one-character string. *)
 Definition nl : string := String "010" EmptyString.
+
+(* Split on LF.  A trailing newline does NOT yield a final empty line
+   ("a\n" splits to ["a"], not ["a"; ""]) — hence the "last line must be
+   nonempty" side condition that follows split_lines around. *)
 
 Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
   match s with
@@ -208,6 +239,8 @@ Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
 
 Definition split_lines (s : string) : list string := split_lines_aux s EmptyString.
 
+(* No embedded newline: the precondition for a string to survive a
+   split/join round trip as a single line. *)
 Fixpoint no_nl (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -291,6 +324,7 @@ Joined newline-free lines split back exactly
 Interior lines may be blank (code-block content); only the final line
 must be nonempty, because split_lines drops a trailing empty line. *)
 
+(* concat then split is the identity, when the last line is nonempty. *)
 Lemma split_join_last :
   forall a ls,
     forallb no_nl (a :: ls) = true ->
@@ -307,6 +341,8 @@ Proof.
     f_equal. apply IH; [exact Hrest | exact Hlast].
 Qed.
 
+(* ...and the same when more input follows the join: the joined lines
+   come off the front and the remainder splits independently. *)
 Lemma split_join_line :
   forall a ls r, forallb no_nl (a :: ls) = true ->
   split_lines (String.concat nl (a :: ls) ++ String "010" r) =

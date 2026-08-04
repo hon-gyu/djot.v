@@ -30,6 +30,7 @@ Recognizers
 ===========
 *)
 
+(* A thematic-break marker character. *)
 Definition is_marker (c : ascii) : bool :=
   Ascii.eqb c "-" || Ascii.eqb c "*".
 
@@ -53,6 +54,7 @@ Definition is_thematic (l : string) : bool := thematic_count l 0.
    The fence may be indented.  A close line is the same char, at least
    the open length, and nothing else but whitespace. *)
 
+(* Length of the leading run of c, and the rest of the string. *)
 Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   match s with
   | String c' s' =>
@@ -62,9 +64,11 @@ Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   | EmptyString => (O, s)
   end.
 
+(* Characters admissible in a fence info string. *)
 Definition is_info_char (c : ascii) : bool :=
   negb (is_ws c || Ascii.eqb c "`" || Ascii.eqb c "010").
 
+(* Split off the leading info token from the rest of the line. *)
 Fixpoint take_info (s : string) : string * string :=
   match s with
   | String c s' =>
@@ -74,6 +78,7 @@ Fixpoint take_info (s : string) : string * string :=
   | EmptyString => (EmptyString, s)
   end.
 
+(* Does this line open a fence, and if so which one? *)
 Definition fence_open (l : string) : option fence :=
   match drop_leading_ws l with
   | String c _ as l' =>
@@ -89,10 +94,16 @@ Definition fence_open (l : string) : option fence :=
   | EmptyString => None
   end.
 
+(* Does this line close the given open fence?  Note this is the *only*
+   test applied to a line inside a fence — content is never classified. *)
 Definition fence_close (f : fence) (l : string) : bool :=
   let (n, r) := count_run (f_ch f) (drop_leading_ws l) in
   Nat.leb (f_len f) n && is_blank r.
 
+(* The classifier: one line in, one kind out, no lookahead.  Blank first,
+   then fences, then thematic breaks; anything unrecognized falls through
+   to paragraph text, so KText is the catch-all.  Adding a block
+   construct starts by adding a case here. *)
 Definition classify (l : string) : line_kind :=
   if is_blank l then KBlank
   else match fence_open l with
@@ -137,6 +148,7 @@ Qed.
 Lemma classify_canonical_thematic : classify "* * * *" = KThematic.
 Proof. reflexivity. Qed.
 
+(* Boolean form of `classify l = KText`, so it can sit inside cb_ok. *)
 Definition is_text (l : string) : bool :=
   match classify l with KText => true | _ => false end.
 
@@ -154,6 +166,7 @@ Canonical code fences
 The renderer emits backtick fences of length 3; these lemmas say such
 lines classify as intended. *)
 
+(* An info string the renderer can emit verbatim and get back. *)
 Fixpoint all_info_chars (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -206,6 +219,8 @@ Lemma drop_head_nonws :
   forall c s, is_ws c = false -> drop_leading_ws (String c s) = String c s.
 Proof. intros c s H. cbn [drop_leading_ws]. rewrite H. reflexivity. Qed.
 
+(* The two facts the roundtrip proof actually consumes: the renderer's
+   "```INFO" opener and "```" closer behave as intended. *)
 Lemma fence_open_backtick :
   forall info, all_info_chars info = true ->
   fence_open ("```" ++ info) = Some (Fence "`" 3 info).

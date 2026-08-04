@@ -21,6 +21,8 @@ Attributes and positions
 ========================
 *)
 
+(* Attributes are key/value pairs in source order (djoths uses a Map;
+   an alist keeps the representation extraction-friendly). *)
 Definition attr : Type := list (string * string).
 
 Fixpoint lookup_attr (k : string) (a : attr) : option string :=
@@ -43,6 +45,7 @@ Definition integrate (kv : string * string) (kvs : attr) : attr :=
       else kvs
   end.
 
+(* Merge two attribute sets, integrating a's bindings into b one by one. *)
 Definition attr_union (a b : attr) : attr := fold_right integrate b a.
 
 (* Source positions: start line/col, end line/col.  Carried for fidelity
@@ -53,11 +56,15 @@ Inductive pos : Type :=
   | NoPos
   | SomePos (sl sc el ec : nat).
 
+(* Every AST element is wrapped in a node carrying its position and
+   attributes; `inline` and `block` below are the payloads. *)
 Inductive node (A : Type) : Type :=
   | Node (p : pos) (a : attr) (x : A).
 
 Arguments Node {A} p a x.
 
+(* The bare node: no position, no attributes.  Everything the parser
+   currently builds is `mk`-wrapped, so proofs can compute through it. *)
 Definition mk {A : Type} (x : A) : node A := Node NoPos [] x.
 
 Definition node_contents {A : Type} (n : node A) : A :=
@@ -73,12 +80,17 @@ Inline elements
 
 Inductive math_style : Type := DisplayMath | InlineMath.
 
+(* A link/image target: an inline URL, or a label resolved against the
+   document's reference_map. *)
 Inductive target : Type :=
   | Direct (url : string)
   | Reference (label : string).
 
 Inductive quote_type : Type := SingleQuotes | DoubleQuotes.
 
+(* Inline content.  Only Str and SoftBreak are produced so far — the
+   parser has no inline pass yet; paragraphs become one Str per source
+   line, separated by SoftBreak (see Parser.para_inlines). *)
 Inductive inline : Type :=
   | Str (s : string)
   | Emph (ils : list (node inline))
@@ -110,6 +122,7 @@ Block elements
 ==============
 *)
 
+(* Tight lists render item contents inline; loose ones wrap in paragraphs. *)
 Inductive list_spacing : Type := Tight | Loose.
 
 Inductive ordered_list_style : Type :=
@@ -132,6 +145,9 @@ Inductive cell_type : Type := HeadCell | BodyCell.
 Inductive cell : Type :=
   | Cell (ct : cell_type) (al : align) (ils : inlines).
 
+(* Block content.  Produced so far: Para, ThematicBreak, CodeBlock,
+   RawBlock (see Parser.parse_lines); the rest are transcribed from the
+   oracles ahead of the parser reaching them. *)
 Inductive block : Type :=
   | Para (ils : inlines)
   | Section (bs : list (node block))
@@ -181,6 +197,9 @@ Fixpoint words_aux (s : string) (cur : string) (acc : list string)
 Definition normalize_label (s : string) : string :=
   String.concat " " (rev (words_aux s EmptyString [])).
 
+(* Footnote bodies and link references, keyed by normalized label.  Look
+   them up through lookup_note / lookup_reference, which normalize the
+   key first — never with alist_lookup directly. *)
 Definition note_map : Type := list (string * blocks).
 Definition reference_map : Type := list (string * (string * attr)).
 
@@ -199,6 +218,8 @@ Definition lookup_reference (label : string) (m : reference_map)
   : option (string * attr) :=
   alist_lookup (normalize_label label) m.
 
+(* A whole document: the block tree plus the side tables the inline pass
+   will resolve against (auto_* are the ones djot derives from headings). *)
 Record doc : Type := Doc
   { doc_blocks : blocks
   ; doc_footnotes : note_map

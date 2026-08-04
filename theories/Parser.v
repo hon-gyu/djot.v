@@ -24,6 +24,8 @@ Paragraph assembly
 (* Trailing whitespace is stripped at the end of a paragraph (but kept on
    interior lines) — observed djot.js/djoths behavior on para.test. *)
 
+(* Turn a paragraph's source lines (in order) into inlines: one Str per
+   line, SoftBreak between.  Render.inline_lines is the inverse. *)
 Fixpoint para_inlines (l : list string) : inlines :=
   match l with
   | [] => []
@@ -52,10 +54,15 @@ The line fold
 =============
 *)
 
+(* The fold's state.  Both variants accumulate lines in *reverse* source
+   order, hence the `rev` at every use site. *)
 Inductive pstate : Type :=
   | PPara (cur : list string)             (* [] = no open block *)
   | PFence (f : fence) (acc : list string).
 
+(* The parser: fold the classified lines, emitting blocks as they close.
+   Structurally recursive on `lines`, so it always terminates and proofs
+   can step it one line at a time. *)
 Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
   match lines with
   | [] =>
@@ -87,6 +94,8 @@ Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
       end
   end.
 
+(* Entry point: split the source into lines and fold from the idle state.
+   The side tables stay empty until there is an inline pass. *)
 Definition parse_doc (s : string) : doc :=
   {| doc_blocks := parse_lines (split_lines s) (PPara [])
    ; doc_footnotes := []
@@ -97,7 +106,11 @@ Definition parse_doc (s : string) : doc :=
 (*
 Equation lemmas
 ===============
-*)
+
+One lemma per branch of parse_lines, each proved by `cbn` + `rewrite` on
+the classification.  Downstream proofs rewrite with these instead of
+calling `simpl` on parse_lines, which otherwise unfolds into an
+unusable match tower. *)
 
 Lemma para_inlines_one :
   forall x, para_inlines [x] = [mk (Str (strip_trailing_ws x))].

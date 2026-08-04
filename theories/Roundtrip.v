@@ -8,7 +8,7 @@
    touches the three case analyses marked below and nothing else. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Parser Render Wf.
+From DjotV Require Import Strings Line Ast Parser Render.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -18,6 +18,9 @@ Splitting a rendered document
 =============================
 *)
 
+(* Flatten per-block line lists into one line list, with a single blank
+   line between blocks (and none at either end).  This is exactly what
+   split_lines returns for a rendered document. *)
 Fixpoint sep_lines (lss : list (list string)) : list string :=
   match lss with
   | [] => []
@@ -37,6 +40,8 @@ Lemma nonempty_str_neq :
   forall s, nonempty_str s = true -> s <> EmptyString.
 Proof. destruct s; [discriminate | congruence]. Qed.
 
+(* Half one of the roundtrip: rendering then splitting recovers the
+   per-block lines, laid out by sep_lines. *)
 Lemma split_render :
   forall lss, forallb lines_ok lss = true ->
   split_lines (render_paras lss) = sep_lines lss.
@@ -138,6 +143,8 @@ Proof.
   apply last_app_singleton.
 Qed.
 
+(* cb_ok is stated per construct; lines_ok is what split_render needs.
+   This is the bridge between them. *)
 Lemma cb_ok_lines_ok :
   forall cb, cb_ok cb = true -> lines_ok (cb_lines cb) = true.
 Proof.
@@ -191,6 +198,9 @@ Parsing the separated lines
 Case analysis over the head cblock — extend here for new constructs.
 *)
 
+(* Half two: the parser folds those lines back into the intended blocks.
+   Each case feeds the block's lines with a seed lemma, then closes it
+   on the following blank line (or on end of input). *)
 Lemma parse_sep :
   forall cbs, forallb cb_ok cbs = true ->
   parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
@@ -253,6 +263,7 @@ The renderer emits exactly the canonical lines
 ==============================================
 *)
 
+(* inline_lines inverts para_inlines on canonical input. *)
 Lemma inline_lines_para :
   forall ls,
     ls <> [] ->
@@ -303,6 +314,8 @@ Proof.
   destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
 Qed.
 
+(* Rendering a canonical document is the same as joining its cb_lines —
+   this is what lets split_render/parse_sep take over. *)
 Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
   render_djot (doc_of_cblocks cbs) = render_paras (map cb_lines cbs).
@@ -330,6 +343,7 @@ The theorem
 ===========
 *)
 
+(* Main result: render then parse is the identity on canonical blocks. *)
 Theorem roundtrip_blocks :
   forall cbs, forallb cb_ok cbs = true ->
   parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.

@@ -19,9 +19,12 @@ Canonicality of inline sequences
 Two adjacent attribute-less Str nodes should have been merged into one
 (djoths's Inlines Semigroup does this on append). *)
 
+(* An attribute-less Str node — the kind that would have been merged
+   with a neighbour.  A Str *with* attributes is a distinct node. *)
 Definition plain_str (n : node inline) : bool :=
   match n with Node _ [] (Str _) => true | _ => false end.
 
+(* No two plain Str nodes sit next to each other. *)
 Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
   match ns with
   | n1 :: ((n2 :: _) as rest) =>
@@ -34,6 +37,9 @@ Inline well-formedness
 ======================
 *)
 
+(* Well-formedness of one inline.  The inner fixpoints are inlined by
+   hand because `inline` is nested through `list (node _)`, which Rocq's
+   guard checker will not accept as a plain mutual recursion. *)
 Fixpoint wf_inline (il : inline) : bool :=
   let wf_ils :=
     fix go (ns : list (node inline)) : bool :=
@@ -62,6 +68,9 @@ Block well-formedness
 =====================
 *)
 
+(* Well-formedness of one block; same hand-inlined-fixpoint shape as
+   wf_inline, one helper per container flavour.  A new block construct
+   gets its case in the final match. *)
 Fixpoint wf_block (b : block) : bool :=
   let wf_bs :=
     fix go (ns : list (node block)) : bool :=
@@ -110,6 +119,8 @@ Fixpoint wf_block (b : block) : bool :=
 Definition wf_blocks (bs : blocks) : bool :=
   forallb (fun n => wf_block (node_contents n)) bs.
 
+(* The top-level predicate: body and footnote bodies are well-formed.
+   (Reference maps carry no blocks, so nothing to check there.) *)
 Definition wf_doc (d : doc) : bool :=
   wf_blocks (doc_blocks d)
   && forallb (fun p => wf_blocks (snd p)) (doc_footnotes d).
@@ -218,6 +229,10 @@ Proof.
     destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
 Qed.
 
+(* The fold's invariant: an open paragraph only ever holds nonblank
+   lines (a blank line flushes it), which is what makes the emitted Para
+   well-formed.  A fence accumulator needs no invariant — its content is
+   verbatim and CodeBlock/RawBlock are unconditionally well-formed. *)
 Definition state_wf (st : pstate) : bool :=
   match st with
   | PPara cur => forallb nonblank cur
@@ -276,6 +291,7 @@ Proof.
         apply IH. reflexivity.
 Qed.
 
+(* Main result: the parser cannot produce a malformed document. *)
 Theorem wf_parse : forall s, wf_doc (parse_doc s) = true.
 Proof.
   intros s. unfold wf_doc, parse_doc. simpl.

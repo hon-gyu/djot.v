@@ -22,15 +22,21 @@ Canonical blocks
 ================
 *)
 
+(* A block described by the source data that determines it — a paragraph
+   by its lines, a code block by its info string and content lines.  One
+   constructor per block construct the roundtrip covers. *)
 Inductive cblock : Type :=
   | CPara (ls : list string)
   | CThematic
   | CCode (info : string) (content : list string).
 
+(* The renderer's canonical spellings, fixed once so both the rendering
+   and the classification lemmas can refer to them. *)
 Definition thematic_line : string := "* * * *".
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
 
+(* The two projections a cblock sits between: its source lines... *)
 Definition cb_lines (cb : cblock) : list string :=
   match cb with
   | CPara ls => ls
@@ -38,6 +44,8 @@ Definition cb_lines (cb : cblock) : list string :=
   | CCode info content => (code_open info :: content ++ [code_close])%list
   end.
 
+(* ...and the AST node the parser builds from those lines.  Roundtrip is
+   then: cb_lines, rendered and reparsed, gives back cb_ast. *)
 Definition cb_ast (cb : cblock) : node block :=
   match cb with
   | CPara ls => mk (Para (para_inlines ls))
@@ -57,6 +65,10 @@ Renderability
 -------------
 *)
 
+(* A canonical paragraph: nonempty; its first line classifies as text (so
+   reparsing opens a paragraph there rather than another block); every
+   line is nonblank and newline-free; and the last line already has no
+   trailing whitespace, since the parser would strip it. *)
 Definition para_ok (ls : list string) : bool :=
   match ls with
   | [] => false
@@ -76,6 +88,8 @@ Definition code_ok (info : string) (content : list string) : bool :=
        (fun l => no_nl l && negb (fence_close (Fence "`"%char 3 info) l))
        content.
 
+(* The roundtrip hypothesis: this cblock renders to lines that parse back
+   to it.  A new construct adds its obligation here. *)
 Definition cb_ok (cb : cblock) : bool :=
   match cb with
   | CPara ls => para_ok ls
@@ -100,6 +114,8 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   | _ :: rest => inline_lines rest cur
   end.
 
+(* Render one block to djot source (no trailing newline; the document
+   renderer supplies the blank-line separators). *)
 Definition render_block_djot (b : block) : string :=
   match b with
   | Para ils => String.concat nl (inline_lines ils EmptyString)
@@ -109,6 +125,8 @@ Definition render_block_djot (b : block) : string :=
   | _ => ""   (* TODO: extend with the parser, construct by construct *)
   end.
 
+(* Blocks separated by a blank line — the separator the parser reads back
+   as "end the current block". *)
 Definition render_djot (d : doc) : string :=
   String.concat (nl ++ nl)
     (map (fun n => render_block_djot (node_contents n)) (doc_blocks d)).
