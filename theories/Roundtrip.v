@@ -343,7 +343,7 @@ The theorem
 ===========
 *)
 
-(* Main result: render then parse is the identity on canonical blocks. *)
+(** Render then parse is the identity on canonical blocks. *)
 Theorem roundtrip_blocks :
   forall cbs, forallb cb_ok cbs = true ->
   parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.

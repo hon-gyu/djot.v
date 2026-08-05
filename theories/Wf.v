@@ -292,7 +292,7 @@ Proof.
         apply IH. reflexivity.
 Qed.
 
-(* Main result: the parser cannot produce a malformed document. *)
+(** The parser cannot produce a malformed document. *)
 Theorem wf_parse : forall s, wf_doc (parse_doc s) = true.
 Proof.
   intros s. unfold wf_doc, parse_doc. simpl.
@@ -305,7 +305,7 @@ Completeness
 ============
 *)
 
-(* wf = image(parse_doc): the converse of wf_parse, which alone permits
+(** wf = image(parse_doc): the converse of wf_parse, which alone permits
    any weaker predicate.  Asserted nowhere: false as stated, see
    wf_complete_false. *)
 Definition wf_complete : Prop :=
