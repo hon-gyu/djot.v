@@ -6,10 +6,7 @@
      native OCaml strings via ExtrOcamlNativeString)
    - Seq a -> list a
    - Map  -> association list keyed by normalized labels
-   - Int  -> nat
-
-   Well-formedness will be layered on top as an inductive family (wf_block)
-   rather than baked into these types; see the Phase 1 plan. *)
+   - Int  -> nat *)
 
 From Stdlib Require Import String Ascii List Bool.
 Import ListNotations.
@@ -24,6 +21,8 @@ Attributes and positions
 (* Attributes are key/value pairs in source order (djoths uses a Map;
    an alist keeps the representation extraction-friendly). *)
 Definition attr : Type := list (string * string).
+
+(* CR: what does it mean that it's "extraction-friendly"? Extracting to OCaml? *)
 
 Fixpoint lookup_attr (k : string) (a : attr) : option string :=
   match a with
