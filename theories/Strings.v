@@ -187,6 +187,15 @@ Fixpoint drop_leading_ws (s : string) : string :=
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 
+(* Dropping whitespace never lengthens: the measure that makes container
+   prefix stripping terminate (Line.quote_prefix_length). *)
+Lemma drop_leading_ws_length :
+  forall s, String.length (drop_leading_ws s) <= String.length s.
+Proof.
+  induction s as [|c s IH]; simpl; [lia|].
+  destruct (is_ws c); [lia | simpl; lia].
+Qed.
+
 Lemma drop_leading_ws_nonempty :
   forall s, is_blank s = false -> drop_leading_ws s <> EmptyString.
 Proof.

@@ -99,7 +99,11 @@ Fixpoint wf_block (b : block) : bool :=
       end in
   match b with
   | Para ils => nonempty ils && wf_inlines ils
-  | Section bs | BlockQuote bs | Div bs => nonempty bs && wf_bs bs
+  | Section bs | Div bs => nonempty bs && wf_bs bs
+  (* A block quote may be empty: a bare ">" line is a valid, contentless
+     quote (djot.js emits <blockquote></blockquote> for it), so this is
+     the one container without a nonempty obligation. *)
+  | BlockQuote bs => wf_bs bs
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
   | OrderedList _ _ items => nonempty items && wf_items items
@@ -143,6 +147,28 @@ Lemma wf_blocks_cons :
   forall n bs,
     wf_blocks (n :: bs) = (wf_block (node_contents n) && wf_blocks bs)%bool.
 Proof. reflexivity. Qed.
+
+(* wf_block's hand-inlined block-list fixpoint is wf_blocks.  Stated for
+   the one container that carries no side condition, so the equation is
+   an identity rather than an implication. *)
+Lemma wf_block_quote :
+  forall bs, wf_block (BlockQuote bs) = wf_blocks bs.
+Proof.
+  induction bs as [|n bs IH]; [reflexivity|].
+  destruct n as [p a x].
+  change (wf_block (BlockQuote (Node p a x :: bs)))
+    with (wf_block x && wf_block (BlockQuote bs))%bool.
+  rewrite IH. reflexivity.
+Qed.
+
+Lemma wf_blocks_app :
+  forall bs1 bs2,
+    wf_blocks (bs1 ++ bs2)%list = (wf_blocks bs1 && wf_blocks bs2)%bool.
+Proof. intros bs1 bs2. unfold wf_blocks. apply forallb_app. Qed.
+
+Lemma wf_blocks_rev :
+  forall bs, wf_blocks (rev bs) = wf_blocks bs.
+Proof. intros bs. unfold wf_blocks. apply forallb_rev. Qed.
 
 Lemma no_adjacent_cons_false :
   forall n ns,
@@ -232,13 +258,150 @@ Qed.
 
 (* The fold's invariant: an open paragraph only ever holds nonblank
    lines (a blank line flushes it), which is what makes the emitted Para
-   well-formed.  A fence accumulator needs no invariant — its content is
-   verbatim and CodeBlock/RawBlock are unconditionally well-formed. *)
-Definition state_wf (st : pstate) : bool :=
+   well-formed; a quote's already-closed blocks are well-formed, and so
+   is its contents' state, recursively.  A fence accumulator needs no
+   invariant — its content is verbatim and CodeBlock/RawBlock are
+   unconditionally well-formed. *)
+Fixpoint state_wf (st : pstate) : bool :=
   match st with
   | PPara cur => forallb nonblank cur
   | PFence _ _ => true
+  | PQuote done inner => wf_blocks done && state_wf inner
   end.
+
+(* Closing the stack at end of input preserves the invariant. *)
+Lemma finish_wf :
+  forall st, state_wf st = true -> wf_blocks (finish st) = true.
+Proof.
+  induction st as [cur|f acc|done inner IH]; intros H.
+  - destruct cur as [|c cur']; [reflexivity|].
+    cbn [finish]. apply flush_para_wf; [exact H | reflexivity].
+  - cbn [finish]. rewrite wf_blocks_cons, fence_block_wf. reflexivity.
+  - cbn [state_wf] in H. apply andb_true_iff in H as [Hd Hi].
+    cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
+    rewrite wf_block_quote, wf_blocks_app, wf_blocks_rev, Hd, (IH Hi).
+    reflexivity.
+Qed.
+
+(* Pushing a nonblank line onto a paragraph accumulator is invisible to
+   the invariant.  Stated as a lemma because `unfold nonblank` under
+   forallb's function argument leaves nothing to rewrite. *)
+Lemma forallb_nonblank_cons :
+  forall l cur,
+    is_blank l = false ->
+    forallb nonblank (l :: cur) = forallb nonblank cur.
+Proof.
+  intros l cur H. cbn [forallb]. unfold nonblank. rewrite H. reflexivity.
+Qed.
+
+(* The line a KText classification describes is nonblank. *)
+Lemma classify_ktext_nonblank :
+  forall l, classify l = KText -> is_blank l = false.
+Proof.
+  intros l H. apply classify_not_kblank_nonblank. rewrite H. discriminate.
+Qed.
+
+(* A lazy line joins the innermost paragraph; nonblank is all that
+   paragraph accumulator needs. *)
+Lemma feed_lazy_wf :
+  forall l st,
+    is_blank l = false -> state_wf st = true ->
+    state_wf (feed_lazy l st) = true.
+Proof.
+  induction st as [cur|f acc|done inner IH]; intros Hl H.
+  - cbn [feed_lazy state_wf] in *. rewrite forallb_nonblank_cons by exact Hl.
+    exact H.
+  - reflexivity.
+  - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
+    rewrite Hd, (IH Hl Hi). reflexivity.
+Qed.
+
+(* Opening a block from an idle state. *)
+Lemma open_kind_wf :
+  forall l k,
+    classify l = k ->
+    wf_blocks (fst (open_kind l k)) = true
+    /\ state_wf (snd (open_kind l k)) = true.
+Proof.
+  intros l k H. destruct k; cbn [open_kind fst snd]; try (split; reflexivity).
+  (* KText: the accumulator gains one line, which must be nonblank *)
+  split; [reflexivity|].
+  cbn [state_wf].
+  rewrite forallb_nonblank_cons by (apply classify_ktext_nonblank; exact H).
+  reflexivity.
+Qed.
+
+(* One transition preserves the invariant and emits only well-formed
+   blocks.  Proved on fuel, since that is what `step` recurses on. *)
+Lemma step_fuel_wf :
+  forall n l st,
+    state_wf st = true ->
+    wf_blocks (fst (step_fuel n l st)) = true
+    /\ state_wf (snd (step_fuel n l st)) = true.
+Proof.
+  induction n as [|n IH]; intros l st H; [split; [reflexivity | exact H]|].
+  cbn [step_fuel].
+  destruct st as [cur|f acc|done inner].
+  - (* idle, or an open paragraph *)
+    destruct cur as [|c cur'].
+    + destruct (classify l) as [| |g|rest|] eqn:E;
+        try (apply open_kind_wf; exact E).
+      (* KQuote: descend into the enclosed line *)
+      destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+      destruct (step_fuel n rest (PPara [])) as [bs inner].
+      cbn [fst snd] in Hb, Hs |- *.
+      split; [reflexivity|].
+      cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs.
+    + destruct (classify l) as [| |g|rest|] eqn:E; cbn [fst snd].
+      1: (split; [| reflexivity];
+          apply flush_para_wf; [exact H | reflexivity]).
+      all: split; [reflexivity|];
+           cbn [state_wf];
+           rewrite forallb_nonblank_cons
+             by (apply classify_not_kblank_nonblank; rewrite E; discriminate);
+           exact H.
+  - (* inside a fence: only the close test *)
+    destruct (fence_close f l); cbn [fst snd].
+    + rewrite wf_blocks_cons, fence_block_wf. split; reflexivity.
+    + split; reflexivity.
+  - (* inside a quote *)
+    pose proof H as H0. cbn [state_wf] in H0.
+    apply andb_true_iff in H0 as [Hd Hi].
+    assert (Hbq : wf_block (BlockQuote (rev done ++ finish inner)%list) = true).
+    { rewrite wf_block_quote, wf_blocks_app, wf_blocks_rev, Hd, (finish_wf _ Hi).
+      reflexivity. }
+    destruct (classify l) as [| |g|rest|] eqn:E.
+    4: { (* quote prefix: descend into the enclosed line *)
+      destruct (IH rest inner Hi) as [Hb Hs].
+      destruct (step_fuel n rest inner) as [bs inner'].
+      cbn [fst snd] in Hb, Hs |- *.
+      split; [reflexivity|].
+      cbn [state_wf]. rewrite wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs. }
+    4: { (* text without the prefix: lazy continuation, or close *)
+      cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [open_kind fst snd].
+      - split; [reflexivity|].
+        cbn [state_wf]. rewrite Hd. cbn [andb].
+        apply feed_lazy_wf;
+          [apply classify_ktext_nonblank; exact E | exact Hi].
+      - split.
+        + rewrite wf_blocks_cons. cbn [node_contents mk]. rewrite Hbq.
+          cbn [andb]. reflexivity.
+        + cbn [state_wf].
+          rewrite forallb_nonblank_cons
+            by (apply classify_ktext_nonblank; exact E).
+          reflexivity. }
+    (* every other kind closes the quote and reopens outside it *)
+    all: cbn [is_lazy open_kind fst snd]; split;
+         [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
+           cbn [andb]; reflexivity
+         | reflexivity ].
+Qed.
+
+Lemma step_wf :
+  forall l st,
+    state_wf st = true ->
+    wf_blocks (fst (step l st)) = true /\ state_wf (snd (step l st)) = true.
+Proof. intros l st H. apply step_fuel_wf. exact H. Qed.
 
 Lemma parse_lines_wf :
   forall lines st,
@@ -246,50 +409,12 @@ Lemma parse_lines_wf :
     wf_blocks (parse_lines lines st) = true.
 Proof.
   induction lines as [|l rest IH]; intros st Hst.
-  - destruct st as [cur|f acc].
-    + destruct cur as [|c cur']; [reflexivity|].
-      rewrite parse_lines_nil_cons.
-      apply flush_para_wf; [exact Hst | reflexivity].
-    + rewrite parse_lines_fence_eof.
-      rewrite wf_blocks_cons, fence_block_wf. reflexivity.
-  - destruct st as [cur|f acc].
-    + destruct (classify l) eqn:E.
-      * (* blank: flush *)
-        destruct cur as [|c cur'].
-        -- rewrite parse_lines_blank_nil by exact E. apply IH. reflexivity.
-        -- rewrite parse_lines_blank_cons by exact E.
-           apply flush_para_wf; [exact Hst |].
-           apply IH. reflexivity.
-      * (* thematic: new block, or paragraph continuation *)
-        destruct cur as [|c cur'].
-        -- rewrite parse_lines_thematic_nil by exact E.
-           rewrite wf_blocks_cons. simpl. apply IH. reflexivity.
-        -- rewrite parse_lines_cont by (rewrite E; discriminate).
-           apply IH.
-           assert (Hl : is_blank l = false)
-             by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
-           simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
-      * (* fence open, or paragraph continuation *)
-        destruct cur as [|c cur'].
-        -- rewrite (parse_lines_fence_open _ _ _ E).
-           apply IH. reflexivity.
-        -- rewrite parse_lines_cont by (rewrite E; discriminate).
-           apply IH.
-           assert (Hl : is_blank l = false)
-             by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
-           simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
-      * (* text: accumulate *)
-        rewrite parse_lines_text by exact E.
-        apply IH.
-        assert (Hl : is_blank l = false)
-          by (apply classify_not_kblank_nonblank; rewrite E; discriminate).
-        simpl. unfold nonblank. rewrite Hl. simpl. exact Hst.
-    + destruct (fence_close f l) eqn:E.
-      * rewrite parse_lines_fence_close by exact E.
-        rewrite wf_blocks_cons, fence_block_wf.
-        apply IH. reflexivity.
-      * rewrite parse_lines_fence_content by exact E.
-        apply IH. reflexivity.
+  - apply finish_wf. exact Hst.
+  - destruct (step_wf l st Hst) as [Hb Hs].
+    destruct (step l st) as [bs st'] eqn:Es.
+    cbn [fst snd] in Hb, Hs.
+    rewrite (parse_lines_step _ _ _ _ _ Es), wf_blocks_app, Hb.
+    apply IH. exact Hs.
 Qed.
 
 (** The parser cannot produce a malformed document. *)
@@ -312,10 +437,18 @@ Definition wf_complete : Prop :=
   forall d, wf_doc d = true -> exists s, parse_doc s = d.
 
 (* The block constructs Parser.v has a rule for.  The rest of `block` is
-   transcribed from djoths and unreachable. *)
-Definition supported (b : block) : bool :=
+   transcribed from djoths and unreachable.  Recursive, so a quote whose
+   contents are unreachable is itself unreachable. *)
+Fixpoint supported (b : block) : bool :=
+  let sup_bs :=
+    fix go (ns : list (node block)) : bool :=
+      match ns with
+      | [] => true
+      | Node _ _ x :: rest => supported x && go rest
+      end in
   match b with
   | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ => true
+  | BlockQuote bs => sup_bs bs
   | _ => false
   end.
 
@@ -328,6 +461,26 @@ Lemma supported_blocks_cons :
     = (supported (node_contents n) && supported_blocks bs)%bool.
 Proof. reflexivity. Qed.
 
+Lemma supported_blocks_app :
+  forall bs1 bs2,
+    supported_blocks (bs1 ++ bs2)%list
+    = (supported_blocks bs1 && supported_blocks bs2)%bool.
+Proof. intros bs1 bs2. unfold supported_blocks. apply forallb_app. Qed.
+
+Lemma supported_blocks_rev :
+  forall bs, supported_blocks (rev bs) = supported_blocks bs.
+Proof. intros bs. unfold supported_blocks. apply forallb_rev. Qed.
+
+Lemma supported_quote :
+  forall bs, supported (BlockQuote bs) = supported_blocks bs.
+Proof.
+  induction bs as [|n bs IH]; [reflexivity|].
+  destruct n as [p a x].
+  change (supported (BlockQuote (Node p a x :: bs)))
+    with (supported x && supported (BlockQuote bs))%bool.
+  rewrite IH. reflexivity.
+Qed.
+
 Lemma fence_block_supported :
   forall f content, supported (node_contents (fence_block f content)) = true.
 Proof.
@@ -338,35 +491,99 @@ Proof.
   - destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
 Qed.
 
-(* Same case analysis as parse_lines_wf, with no state invariant to
-   thread: the emitted constructors are supported unconditionally. *)
-Lemma parse_lines_supported :
-  forall lines st, supported_blocks (parse_lines lines st) = true.
+(* The same shape as state_wf: only a quote's closed blocks carry an
+   obligation. *)
+Fixpoint state_supported (st : pstate) : bool :=
+  match st with
+  | PPara _ | PFence _ _ => true
+  | PQuote done inner => supported_blocks done && state_supported inner
+  end.
+
+Lemma finish_supported :
+  forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
-  induction lines as [|l rest IH]; intros st.
-  - destruct st as [cur|f acc].
-    + destruct cur as [|c cur']; [reflexivity|].
-      rewrite parse_lines_nil_cons. reflexivity.
-    + rewrite parse_lines_fence_eof.
-      rewrite supported_blocks_cons, fence_block_supported. reflexivity.
-  - destruct st as [cur|f acc].
-    + destruct (classify l) eqn:E.
-      * destruct cur as [|c cur'].
-        -- rewrite parse_lines_blank_nil by exact E. apply IH.
-        -- rewrite parse_lines_blank_cons by exact E.
-           rewrite supported_blocks_cons. apply IH.
-      * destruct cur as [|c cur'].
-        -- rewrite parse_lines_thematic_nil by exact E.
-           rewrite supported_blocks_cons. apply IH.
-        -- rewrite parse_lines_cont by (rewrite E; discriminate). apply IH.
-      * destruct cur as [|c cur'].
-        -- rewrite (parse_lines_fence_open _ _ _ E). apply IH.
-        -- rewrite parse_lines_cont by (rewrite E; discriminate). apply IH.
-      * rewrite parse_lines_text by exact E. apply IH.
-    + destruct (fence_close f l) eqn:E.
-      * rewrite parse_lines_fence_close by exact E.
-        rewrite supported_blocks_cons, fence_block_supported. apply IH.
-      * rewrite parse_lines_fence_content by exact E. apply IH.
+  induction st as [cur|f acc|done inner IH]; intros H.
+  - destruct cur as [|c cur']; reflexivity.
+  - cbn [finish]. rewrite supported_blocks_cons, fence_block_supported.
+    reflexivity.
+  - cbn [state_supported] in H. apply andb_true_iff in H as [Hd Hi].
+    cbn [finish]. rewrite supported_blocks_cons. cbn [node_contents mk].
+    rewrite supported_quote, supported_blocks_app, supported_blocks_rev, Hd,
+      (IH Hi).
+    reflexivity.
+Qed.
+
+Lemma feed_lazy_supported :
+  forall l st,
+    state_supported st = true -> state_supported (feed_lazy l st) = true.
+Proof.
+  induction st as [cur|f acc|done inner IH]; intros H; [reflexivity | reflexivity |].
+  cbn [feed_lazy state_supported] in *.
+  apply andb_true_iff in H as [Hd Hi]. rewrite Hd, (IH Hi). reflexivity.
+Qed.
+
+(* Same case analysis as step_fuel_wf: the emitted constructors are
+   supported unconditionally, so only the quote accumulator is threaded. *)
+Lemma step_fuel_supported :
+  forall n l st,
+    state_supported st = true ->
+    supported_blocks (fst (step_fuel n l st)) = true
+    /\ state_supported (snd (step_fuel n l st)) = true.
+Proof.
+  induction n as [|n IH]; intros l st H; [split; [reflexivity | exact H]|].
+  cbn [step_fuel].
+  destruct st as [cur|f acc|done inner].
+  - destruct cur as [|c cur'].
+    + destruct (classify l) as [| |g|rest|] eqn:E;
+        try (cbn [open_kind fst snd]; split; reflexivity).
+      destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+      destruct (step_fuel n rest (PPara [])) as [bs inner].
+      cbn [fst snd] in Hb, Hs |- *.
+      split; [reflexivity|].
+      cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs.
+    + destruct (classify l); cbn [fst snd]; split; reflexivity.
+  - destruct (fence_close f l); cbn [fst snd].
+    + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
+    + split; reflexivity.
+  - pose proof H as H0. cbn [state_supported] in H0.
+    apply andb_true_iff in H0 as [Hd Hi].
+    assert (Hbq : supported (BlockQuote (rev done ++ finish inner)%list) = true).
+    { rewrite supported_quote, supported_blocks_app, supported_blocks_rev, Hd,
+        (finish_supported _ Hi).
+      reflexivity. }
+    destruct (classify l) as [| |g|rest|] eqn:E.
+    4: { destruct (IH rest inner Hi) as [Hb Hs].
+         destruct (step_fuel n rest inner) as [bs inner'].
+         cbn [fst snd] in Hb, Hs |- *.
+         split; [reflexivity|].
+         cbn [state_supported].
+         rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd. exact Hs. }
+    4: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [open_kind fst snd].
+         - split; [reflexivity|].
+           cbn [state_supported]. rewrite Hd. cbn [andb].
+           apply feed_lazy_supported. exact Hi.
+         - split; [| reflexivity].
+           rewrite supported_blocks_cons. cbn [node_contents mk].
+           rewrite Hbq. cbn [andb]. reflexivity. }
+    all: cbn [is_lazy open_kind fst snd]; split;
+         [ rewrite supported_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
+           cbn [andb]; reflexivity
+         | reflexivity ].
+Qed.
+
+Lemma parse_lines_supported :
+  forall lines st,
+    state_supported st = true ->
+    supported_blocks (parse_lines lines st) = true.
+Proof.
+  induction lines as [|l rest IH]; intros st Hst.
+  - apply finish_supported. exact Hst.
+  - destruct (step_fuel_supported (S (String.length l)) l st Hst) as [Hb Hs].
+    change (step_fuel (S (String.length l)) l st) with (step l st) in Hb, Hs.
+    destruct (step l st) as [bs st'] eqn:Es.
+    cbn [fst snd] in Hb, Hs.
+    rewrite (parse_lines_step _ _ _ _ _ Es), supported_blocks_app, Hb.
+    apply IH. exact Hs.
 Qed.
 
 (* Counterexample: a `Section` doc, well-formed and unreachable.  The gap
@@ -381,7 +598,7 @@ Proof.
                 ; doc_references := []
                 ; doc_auto_references := []
                 ; doc_auto_identifiers := [] |} eq_refl) as [s Hs].
-  pose proof (parse_lines_supported (split_lines s) (PPara [])) as Hsup.
+  pose proof (parse_lines_supported (split_lines s) (PPara []) eq_refl) as Hsup.
   change (parse_lines (split_lines s) (PPara []))
     with (doc_blocks (parse_doc s)) in Hsup.
   rewrite Hs in Hsup. discriminate.

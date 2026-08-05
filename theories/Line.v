@@ -8,7 +8,7 @@
    added.  Renderability (Render.v) is phrased as "each rendered line
    classifies as intended", which is what makes roundtrip proofs local. *)
 
-From Stdlib Require Import String Ascii Bool PeanoNat.
+From Stdlib Require Import String Ascii Bool PeanoNat Lia.
 From DjotV Require Import Strings.
 
 Local Open Scope string_scope.
@@ -20,10 +20,11 @@ Record fence : Type := Fence
   { f_ch : ascii; f_len : nat; f_info : string }.
 
 Inductive line_kind : Type :=
-  | KBlank              (* only whitespace *)
-  | KThematic           (* thematic break: 3+ of - or * (mixed ok), ws between *)
-  | KFence (f : fence)  (* code fence opener *)
-  | KText.              (* anything else: paragraph text *)
+  | KBlank                (* only whitespace *)
+  | KThematic             (* thematic break: 3+ of - or * (mixed ok), ws between *)
+  | KFence (f : fence)    (* code fence opener *)
+  | KQuote (rest : string)(* block-quote prefix, with the line it encloses *)
+  | KText.                (* anything else: paragraph text *)
 
 (*
 Recognizers
@@ -100,15 +101,56 @@ Definition fence_close (f : fence) (l : string) : bool :=
   let (n, r) := count_run (f_ch f) (drop_leading_ws l) in
   Nat.leb (f_len f) n && is_blank r.
 
+(* Block quotes, per djot.js pattBlockquotePrefix (`[>][ \t\r\n]`): a
+   '>' that is followed by whitespace or ends the line.  The prefix is
+   the '>' plus at most one whitespace character; what remains is the
+   enclosed line, which the parser classifies again (so nesting and
+   uniformity both come from re-entering `classify`).
+
+   `>x` is *not* a quote — the whitespace is required.  Indentation
+   before the '>' is allowed. *)
+Definition quote_prefix (l : string) : option string :=
+  match drop_leading_ws l with
+  | String c rest =>
+      if Ascii.eqb c ">"
+      then match rest with
+           | EmptyString => Some EmptyString
+           | String c' rest' => if is_ws c' then Some rest' else None
+           end
+      else None
+  | EmptyString => None
+  end.
+
+(* The enclosed line is strictly shorter, which is what makes the
+   parser's descent into nested quotes terminate. *)
+Lemma quote_prefix_length :
+  forall l rest,
+    quote_prefix l = Some rest -> String.length rest < String.length l.
+Proof.
+  intros l rest H. unfold quote_prefix in H.
+  pose proof (drop_leading_ws_length l) as Hle.
+  destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
+  destruct (Ascii.eqb c ">"); [|discriminate].
+  simpl in Hle.
+  destruct r as [|c' r'].
+  - injection H as <-. simpl. lia.
+  - destruct (is_ws c'); [|discriminate].
+    injection H as <-. simpl in *. lia.
+Qed.
+
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
-   then fences, then thematic breaks; anything unrecognized falls through
-   to paragraph text, so KText is the catch-all.  Adding a block
-   construct starts by adding a case here. *)
+   then block quotes, then fences, then thematic breaks; anything
+   unrecognized falls through to paragraph text, so KText is the
+   catch-all.  Adding a block construct starts by adding a case here. *)
 Definition classify (l : string) : line_kind :=
   if is_blank l then KBlank
-  else match fence_open l with
-       | Some f => KFence f
-       | None => if is_thematic l then KThematic else KText
+  else match quote_prefix l with
+       | Some rest => KQuote rest
+       | None =>
+           match fence_open l with
+           | Some f => KFence f
+           | None => if is_thematic l then KThematic else KText
+           end
        end.
 
 (*
@@ -125,8 +167,24 @@ Lemma classify_kblank_blank :
 Proof.
   intros l H. unfold classify in H.
   destruct (is_blank l); [reflexivity|].
+  destruct (quote_prefix l); [discriminate|].
   destruct (fence_open l); [discriminate|].
   destruct (is_thematic l); discriminate.
+Qed.
+
+(* The measure fact, restated at the classifier: the parser only ever
+   sees KQuote, never quote_prefix directly. *)
+Lemma classify_quote_length :
+  forall l rest,
+    classify l = KQuote rest -> String.length rest < String.length l.
+Proof.
+  intros l rest H. apply quote_prefix_length.
+  unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l) as [r|].
+  - injection H as <-. reflexivity.
+  - destruct (fence_open l); [discriminate|].
+    destruct (is_thematic l); discriminate.
 Qed.
 
 Lemma classify_not_kblank_nonblank :
@@ -138,10 +196,11 @@ Qed.
 
 Lemma classify_ktext :
   forall l,
-    is_blank l = false -> fence_open l = None -> is_thematic l = false ->
+    is_blank l = false -> quote_prefix l = None -> fence_open l = None ->
+    is_thematic l = false ->
     classify l = KText.
 Proof.
-  intros l Hb Hf Ht. unfold classify. rewrite Hb, Hf, Ht. reflexivity.
+  intros l Hb Hq Hf Ht. unfold classify. rewrite Hb, Hq, Hf, Ht. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -245,7 +304,22 @@ Lemma classify_backtick_fence :
 Proof.
   intros info H. unfold classify.
   change (is_blank ("```" ++ info)) with false.
+  change (quote_prefix ("```" ++ info)) with (@None string).
   rewrite (fence_open_backtick info H). reflexivity.
+Qed.
+
+(* Canonical block-quote prefixing, the renderer's spelling: "> " in
+   front of every line, including blank ones. *)
+Lemma quote_prefix_canonical :
+  forall l, quote_prefix ("> " ++ l) = Some l.
+Proof. reflexivity. Qed.
+
+Lemma classify_canonical_quote :
+  forall l, classify ("> " ++ l) = KQuote l.
+Proof.
+  intros l. unfold classify.
+  change (is_blank ("> " ++ l)) with false.
+  rewrite quote_prefix_canonical. reflexivity.
 Qed.
 
 Lemma fence_close_canonical :
