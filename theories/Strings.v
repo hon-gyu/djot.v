@@ -427,3 +427,55 @@ Proof.
     + exfalso. destruct l; discriminate.
     + rewrite <- E. apply IH.
 Qed.
+
+Lemma last_cons_nonnil :
+  forall {A : Type} (a : A) (l : list A) (d : A),
+    l <> [] -> last (a :: l) d = last l d.
+Proof. intros A a l d H. destruct l; [congruence | reflexivity]. Qed.
+
+Lemma last_app_nonnil :
+  forall {A : Type} (l1 l2 : list A) (d : A),
+    l2 <> [] -> last (l1 ++ l2)%list d = last l2 d.
+Proof.
+  induction l1 as [|a l1 IH]; intros l2 d H; cbn [app]; [reflexivity|].
+  rewrite last_cons_nonnil
+    by (destruct l1; cbn [app]; [exact H | discriminate]).
+  apply IH. exact H.
+Qed.
+
+(* The default only shows through on the empty list. *)
+Lemma last_default :
+  forall {A : Type} (l : list A) (d d' : A), l <> [] -> last l d = last l d'.
+Proof.
+  intros A l. induction l as [|a l IH]; intros d d' H; [congruence|].
+  destruct l as [|b l']; [reflexivity|].
+  change (last (a :: b :: l') d) with (last (b :: l') d).
+  change (last (a :: b :: l') d') with (last (b :: l') d').
+  apply IH. discriminate.
+Qed.
+
+Lemma last_map :
+  forall {A B : Type} (f : A -> B) (l : list A) (d : A),
+    l <> [] -> last (map f l) (f d) = f (last l d).
+Proof.
+  intros A B f l. induction l as [|a l IH]; intros d H; [congruence|].
+  destruct l as [|b l']; [reflexivity|].
+  change (last (map f (a :: b :: l')) (f d))
+    with (last (map f (b :: l')) (f d)).
+  change (last (a :: b :: l') d) with (last (b :: l') d).
+  apply IH. discriminate.
+Qed.
+
+(* join_nl is inverted by split_lines outright: every line carries its
+   own newline, so there is no "last line nonempty" side condition. *)
+Lemma split_join_nl :
+  forall ls, forallb no_nl ls = true -> split_lines (join_nl ls) = ls.
+Proof.
+  induction ls as [|l ls IH]; intros H; [reflexivity|].
+  cbn [forallb] in H. apply andb_true_iff in H as [Hl Hls].
+  cbn [join_nl].
+  change (l ++ nl ++ join_nl ls)%string
+    with (l ++ String "010" (join_nl ls))%string.
+  rewrite split_lines_line by exact Hl.
+  f_equal. apply IH. exact Hls.
+Qed.

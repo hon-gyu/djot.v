@@ -492,6 +492,92 @@ Proof.
 Qed.
 
 (*
+Uniformity of block quotes
+--------------------------
+
+The payoff of routing a quote's contents back through `step`: prefixing
+every line of a document with "> " parses to exactly that document,
+wrapped in a quote.  Nothing about the contents is assumed — this holds
+for every construct the parser knows, including future ones and nested
+quotes. *)
+
+(* Inside an open quote, the prefixed lines drive the inner state and
+   the blank line that follows closes the quote. *)
+Lemma parse_lines_quote_cont :
+  forall lines tail done inner,
+    parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
+                (PQuote done inner)
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines tail (PPara []).
+Proof.
+  induction lines as [|l lines IH]; intros tail done inner.
+  - cbn [map app].
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_close _ KBlank _ _ _ _
+                  (classify_blank EmptyString eq_refl) eq_refl eq_refl eq_refl)).
+    reflexivity.
+  - cbn [map app].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Es)).
+    cbn [app]. rewrite IH.
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+(* ...and the same when the input simply ends. *)
+Lemma parse_lines_quote_cont_eof :
+  forall lines done inner,
+    parse_lines (map (fun l => ("> " ++ l)%string) lines) (PQuote done inner)
+    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
+Proof.
+  induction lines as [|l lines IH]; intros done inner.
+  - reflexivity.
+  - cbn [map].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Es)).
+    cbn [app]. rewrite IH.
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+Lemma parse_lines_quote :
+  forall l lines tail,
+    parse_lines
+      (map (fun x => ("> " ++ x)%string) (l :: lines) ++ EmptyString :: tail)%list
+      (PPara [])
+    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros l lines tail. cbn [map app].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
+  cbn [app]. rewrite parse_lines_quote_cont, rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  reflexivity.
+Qed.
+
+(** Uniformity for block quotes: a quote's contents parse exactly as
+    they would at top level.  One proof, every construct. *)
+Theorem quote_uniformity :
+  forall l lines,
+    parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros l lines. cbn [map].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
+  cbn [app]. rewrite parse_lines_quote_cont_eof, rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  reflexivity.
+Qed.
+
+(*
 Sanity checks
 =============
 *)

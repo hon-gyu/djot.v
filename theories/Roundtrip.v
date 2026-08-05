@@ -18,16 +18,6 @@ Splitting a rendered document
 =============================
 *)
 
-(* Flatten per-block line lists into one line list, with a single blank
-   line between blocks (and none at either end).  This is exactly what
-   split_lines returns for a rendered document. *)
-Fixpoint sep_lines (lss : list (list string)) : list string :=
-  match lss with
-  | [] => []
-  | [ls] => ls
-  | ls :: rest => (ls ++ EmptyString :: sep_lines rest)%list
-  end.
-
 (* What the split/join inversion needs of each block's lines: newline-free
    throughout, and a nonempty final line (split_lines drops a trailing
    empty line).  Interior lines may be blank — code content is verbatim. *)
@@ -40,32 +30,77 @@ Lemma nonempty_str_neq :
   forall s, nonempty_str s = true -> s <> EmptyString.
 Proof. destruct s; [discriminate | congruence]. Qed.
 
+Lemma lines_ok_parts :
+  forall ls, lines_ok ls = true ->
+  ls <> [] /\ forallb no_nl ls = true /\ last ls EmptyString <> EmptyString.
+Proof.
+  intros ls H. unfold lines_ok in H.
+  apply andb_true_iff in H as [H Hlast].
+  apply andb_true_iff in H as [Hne Hnl].
+  repeat split; [| exact Hnl | apply nonempty_str_neq; exact Hlast].
+  destruct ls; [discriminate | congruence].
+Qed.
+
+(*
+sep_lines is itself a well-formed line list
+-------------------------------------------
+
+Which is what lets a block quote's contents be laid out by exactly the
+same function as a document's, and inverted by the same lemma. *)
+
+Lemma sep_lines_nonempty :
+  forall ls rest, lines_ok ls = true -> sep_lines (ls :: rest) <> [].
+Proof.
+  intros ls rest H. apply lines_ok_parts in H as (Hne & _ & _).
+  destruct rest as [|ls2 rest'].
+  - exact Hne.
+  - cbn [sep_lines]. destruct ls; [congruence | discriminate].
+Qed.
+
+Lemma sep_lines_no_nl :
+  forall lss,
+    forallb lines_ok lss = true -> forallb no_nl (sep_lines lss) = true.
+Proof.
+  induction lss as [|ls rest IH]; intros H; [reflexivity|].
+  cbn [forallb] in H. apply andb_true_iff in H as [Hls Hrest].
+  apply lines_ok_parts in Hls as (_ & Hnl & _).
+  destruct rest as [|ls2 rest']; [exact Hnl|].
+  cbn [sep_lines]. rewrite forallb_app, Hnl.
+  cbn [forallb no_nl andb]. apply IH. exact Hrest.
+Qed.
+
+Lemma sep_lines_last :
+  forall ls rest,
+    forallb lines_ok (ls :: rest) = true ->
+    last (sep_lines (ls :: rest)) EmptyString <> EmptyString.
+Proof.
+  intros ls rest. revert ls.
+  induction rest as [|ls2 rest' IH]; intros ls H;
+    cbn [forallb] in H; apply andb_true_iff in H as [Hls Hrest].
+  - apply lines_ok_parts in Hls as (_ & _ & Hlast). exact Hlast.
+  - cbn [sep_lines].
+    rewrite last_app_nonnil by discriminate.
+    rewrite last_cons_nonnil
+      by (apply sep_lines_nonempty;
+          cbn [forallb] in Hrest; apply andb_true_iff in Hrest as [H2 _];
+          exact H2).
+    apply IH. exact Hrest.
+Qed.
+
 (* Half one of the roundtrip: rendering then splitting recovers the
    per-block lines, laid out by sep_lines. *)
 Lemma split_render :
   forall lss, forallb lines_ok lss = true ->
-  split_lines (render_paras lss) = sep_lines lss.
+  split_lines (String.concat nl (sep_lines lss)) = sep_lines lss.
 Proof.
-  induction lss as [|ls rest IH]; intros H; simpl in H.
-  - reflexivity.
-  - apply andb_true_iff in H as [Hls Hrest].
-    unfold lines_ok in Hls.
-    apply andb_true_iff in Hls as [Hls Hlast].
-    apply andb_true_iff in Hls as [Hne Hnl].
-    destruct ls as [|a ls']; [discriminate|].
-    destruct rest as [|ls2 rest'].
-    + simpl. apply split_join_last;
-        [exact Hnl | apply nonempty_str_neq; exact Hlast].
-    + change (render_paras ((a :: ls') :: ls2 :: rest'))
-        with (String.concat nl (a :: ls')
-              ++ (nl ++ nl) ++ render_paras (ls2 :: rest')).
-      change ((nl ++ nl) ++ render_paras (ls2 :: rest'))
-        with (String "010"%char
-                (String "010"%char (render_paras (ls2 :: rest')))).
-      rewrite split_join_line by exact Hnl.
-      rewrite split_lines_cons_nl.
-      rewrite IH by exact Hrest.
-      reflexivity.
+  intros lss H. destruct lss as [|ls rest]; [reflexivity|].
+  pose proof H as H0. cbn [forallb] in H0.
+  apply andb_true_iff in H0 as [Hls _].
+  pose proof (sep_lines_no_nl _ H) as Hnl.
+  pose proof (sep_lines_last _ _ H) as Hlast.
+  destruct (sep_lines (ls :: rest)) as [|a ls'] eqn:E.
+  - exfalso. apply (sep_lines_nonempty ls rest Hls). exact E.
+  - apply split_join_last; assumption.
 Qed.
 
 (*
@@ -143,13 +178,45 @@ Proof.
   apply last_app_singleton.
 Qed.
 
+(* Prefixing preserves everything split_render cares about, and makes
+   the last line unconditionally nonempty. *)
+Lemma no_nl_quote_line :
+  forall l, no_nl (quote_line l) = no_nl l.
+Proof.
+  intros l. unfold quote_line, quote_open.
+  rewrite no_nl_append. reflexivity.
+Qed.
+
+Lemma lines_ok_quote :
+  forall ls, ls <> [] -> forallb no_nl ls = true ->
+  lines_ok (map quote_line ls) = true.
+Proof.
+  intros ls Hne Hnl. unfold lines_ok.
+  apply andb_true_iff. split; [apply andb_true_iff; split|].
+  - destruct ls; [congruence | reflexivity].
+  - clear Hne. induction ls as [|l ls IH]; [reflexivity|].
+    cbn [forallb] in Hnl. apply andb_true_iff in Hnl as [Hl Hls].
+    cbn [map forallb]. rewrite no_nl_quote_line, Hl. cbn [andb].
+    apply IH. exact Hls.
+  - rewrite (last_default (map quote_line ls) EmptyString (quote_line EmptyString))
+      by (destruct ls; [congruence | discriminate]).
+    rewrite (last_map quote_line ls EmptyString Hne).
+    unfold quote_line, quote_open. reflexivity.
+Qed.
+
 (* cb_ok is stated per construct; lines_ok is what split_render needs.
-   This is the bridge between them. *)
+   This is the bridge between them.  The quote case needs the same fact
+   about its contents' layout, hence the two-predicate induction. *)
 Lemma cb_ok_lines_ok :
   forall cb, cb_ok cb = true -> lines_ok (cb_lines cb) = true.
 Proof.
-  intros cb H. destruct cb as [ls| |info content].
+  refine (cblock_ind2
+            (fun cb => cb_ok cb = true -> lines_ok (cb_lines cb) = true)
+            (fun cbs => forallb cb_ok cbs = true ->
+                        forallb lines_ok (map cb_lines cbs) = true)
+            _ _ _ _ _ _).
   - (* paragraph: line_ok everywhere implies the split conditions *)
+    intros ls H.
     destruct ls as [|a ls']; [discriminate|].
     apply para_ok_parts in H as (_ & Hlok & _).
     unfold lines_ok. simpl cb_lines.
@@ -159,6 +226,7 @@ Proof.
     rewrite Hl. reflexivity.
   - reflexivity.
   - (* code block: open/content/close all newline-free; close is last *)
+    intros info content H.
     apply code_ok_parts in H as (Hinfo & Hnl & _).
     unfold lines_ok. cbn [cb_lines].
     apply andb_true_iff. split; [apply andb_true_iff; split|].
@@ -167,6 +235,20 @@ Proof.
       unfold code_open. rewrite no_nl_append, (info_no_nl _ Hinfo).
       simpl. rewrite forallb_app, Hnl. reflexivity.
     + rewrite last_cons_app. reflexivity.
+  - (* quote: its contents lay out exactly as a document's would *)
+    intros inner IH H.
+    rewrite cb_ok_quote in H. apply andb_true_iff in H as [Hne Hok].
+    rewrite cb_lines_quote.
+    apply lines_ok_quote.
+    + destruct inner as [|c rest]; [discriminate|].
+      apply sep_lines_nonempty.
+      cbn [map forallb] in IH |- *.
+      specialize (IH Hok). apply andb_true_iff in IH as [Hc _]. exact Hc.
+    + apply sep_lines_no_nl. apply IH. exact Hok.
+  - reflexivity.
+  - intros c rest Hc Hrest H.
+    cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
+    cbn [map forallb]. rewrite (Hc H1). cbn [andb]. apply Hrest. exact H2.
 Qed.
 
 Lemma forallb_cb_lines_ok :
@@ -198,64 +280,107 @@ Parsing the separated lines
 Case analysis over the head cblock — extend here for new constructs.
 *)
 
-(* Half two: the parser folds those lines back into the intended blocks.
-   Each case feeds the block's lines with a seed lemma, then closes it
-   on the following blank line (or on end of input). *)
-Lemma parse_sep :
-  forall cbs, forallb cb_ok cbs = true ->
-  parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
+(* Half two, per block: feeding a canonical block's lines re-emits it and
+   returns the parser to idle, whether a blank line follows (the
+   in-document case) or the input ends.  Proved for a block and a list of
+   blocks together, because a quote's contents are the latter. *)
+Lemma parse_cblock :
+  forall cb,
+    (forall tail, cb_ok cb = true ->
+       parse_lines (cb_lines cb ++ EmptyString :: tail)%list (PPara [])
+       = cb_ast cb :: parse_lines tail (PPara []))
+    /\ (cb_ok cb = true ->
+        parse_lines (cb_lines cb) (PPara []) = [cb_ast cb]).
 Proof.
-  induction cbs as [|cb rest IH]; intros H; simpl in H; [reflexivity|].
-  apply andb_true_iff in H as [Hcb Hrest].
-  destruct cb as [ls| |info content].
+  refine (cblock_ind2 _
+            (fun cbs => forallb cb_ok cbs = true ->
+                        parse_lines (sep_lines (map cb_lines cbs)) (PPara [])
+                        = map cb_ast cbs)
+            _ _ _ _ _ _).
   - (* paragraph *)
-    destruct ls as [|a ls']; [discriminate|].
-    apply para_ok_parts in Hcb as (Htext & Hlok & _).
-    pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb.
-    simpl in Hnb. apply andb_true_iff in Hnb as [_ Hnb'].
-    destruct (rev_cons_shape a ls') as [c [cur' Erev]].
-    destruct rest as [|cb2 rest'].
-    + cbn [map sep_lines cb_lines].
-      rewrite <- (app_nil_r (a :: ls')) at 1.
+    intros ls. split; [intros tail H | intros H];
+      change (cb_ok (CPara ls)) with (para_ok ls) in H;
+      destruct ls as [|a ls']; try discriminate;
+      apply para_ok_parts in H as (Htext & Hlok & _);
+      pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
+      cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [_ Hnb'];
+      destruct (rev_cons_shape a ls') as [c [cur' Erev]];
+      cbn [cb_lines].
+    + rewrite parse_lines_para_seed by assumption.
+      rewrite Erev, parse_lines_blank_cons by reflexivity.
+      rewrite <- Erev, rev_involutive. reflexivity.
+    + rewrite <- (app_nil_r (a :: ls')) at 1.
       rewrite parse_lines_para_seed by assumption.
       rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive.
       reflexivity.
-    + cbn [map sep_lines cb_lines].
-      rewrite parse_lines_para_seed by assumption.
-      rewrite Erev, parse_lines_blank_cons by reflexivity.
-      rewrite <- Erev, rev_involutive.
-      cbn [map cb_ast]. f_equal.
-      apply IH. exact Hrest.
   - (* thematic break *)
-    destruct rest as [|cb2 rest'].
-    + reflexivity.
-    + cbn [map sep_lines cb_lines app].
-      rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
-      rewrite parse_lines_blank_nil by reflexivity.
-      cbn [map cb_ast]. f_equal.
-      apply IH. exact Hrest.
-  - (* code block *)
-    apply code_ok_parts in Hcb as (Hinfo & _ & Hnc).
-    destruct rest as [|cb2 rest'].
-    + cbn [map sep_lines cb_lines].
-      rewrite (parse_lines_fence_open _ _ _
-                 (classify_backtick_fence info Hinfo)).
-      rewrite parse_lines_fence_seed by exact Hnc.
-      rewrite app_nil_r.
-      rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive.
+    split; intros; cbn [cb_lines app].
+    + rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
+      rewrite parse_lines_blank_nil by reflexivity. reflexivity.
+    + rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
       reflexivity.
-    + cbn [map sep_lines cb_lines app].
-      rewrite (parse_lines_fence_open _ _ _
+  - (* code block *)
+    intros info content. split; [intros tail H | intros H];
+      change (cb_ok (CCode info content)) with (code_ok info content) in H;
+      apply code_ok_parts in H as (Hinfo & _ & Hnc); cbn [cb_lines app].
+    + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence info Hinfo)).
       rewrite <- app_assoc.
       rewrite parse_lines_fence_seed by exact Hnc.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
       rewrite rev_involutive.
-      rewrite parse_lines_blank_nil by reflexivity.
-      cbn [map cb_ast]. f_equal.
-      apply IH. exact Hrest.
+      rewrite parse_lines_blank_nil by reflexivity. reflexivity.
+    + rewrite (parse_lines_fence_open _ _ _
+                 (classify_backtick_fence info Hinfo)).
+      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite app_nil_r.
+      rewrite parse_lines_fence_close by apply fence_close_canonical.
+      rewrite rev_involutive. reflexivity.
+  - (* quote: the contents parse at top level, then get wrapped *)
+    intros inner IH.
+    assert (Hsplit : cb_ok (CQuote inner) = true ->
+                     exists l L, sep_lines (map cb_lines inner) = l :: L
+                                 /\ forallb cb_ok inner = true).
+    { intros H. rewrite cb_ok_quote in H.
+      apply andb_true_iff in H as [Hne Hok].
+      destruct inner as [|c rest]; [discriminate|].
+      assert (Hc : lines_ok (cb_lines c) = true).
+      { apply cb_ok_lines_ok. cbn [forallb] in Hok.
+        apply andb_true_iff in Hok as [H1 _]. exact H1. }
+      destruct (sep_lines (map cb_lines (c :: rest))) as [|l L] eqn:E.
+      - exfalso. apply (sep_lines_nonempty (cb_lines c) (map cb_lines rest) Hc).
+        exact E.
+      - eauto. }
+    split; [intros tail H | intros H];
+      destruct (Hsplit H) as [l [L [E Hok]]];
+      rewrite cb_lines_quote, cb_ast_quote, E;
+      unfold quote_line, quote_open.
+    + rewrite parse_lines_quote, <- E, (IH Hok). reflexivity.
+    + rewrite quote_uniformity, <- E, (IH Hok). reflexivity.
+  - (* the list side: nothing to parse *)
+    reflexivity.
+  - (* the list side: one block, then the rest after a blank line *)
+    intros c rest [Hc1 Hc2] Hrest H.
+    cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
+    destruct rest as [|c2 rest'].
+    + cbn [map sep_lines]. rewrite (Hc2 H1). reflexivity.
+    + cbn [map sep_lines]. rewrite (Hc1 _ H1).
+      cbn [map cb_ast]. f_equal. apply Hrest. exact H2.
+Qed.
+
+(* Half two: the parser folds a document's lines back into its blocks. *)
+Lemma parse_sep :
+  forall cbs, forallb cb_ok cbs = true ->
+  parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
+Proof.
+  induction cbs as [|cb rest IH]; intros H; [reflexivity|].
+  cbn [forallb] in H. apply andb_true_iff in H as [Hcb Hrest].
+  destruct (parse_cblock cb) as [Hc1 Hc2].
+  destruct rest as [|cb2 rest'].
+  - cbn [map sep_lines]. rewrite (Hc2 Hcb). reflexivity.
+  - cbn [map sep_lines]. rewrite (Hc1 _ Hcb).
+    cbn [map cb_ast]. f_equal. apply IH. exact Hrest.
 Qed.
 
 (*
@@ -287,55 +412,78 @@ Proof.
     exact Hlast.
 Qed.
 
-(* The rendered fence: open line, newline, content lines each with their
-   newline, close line. *)
-Lemma render_fence_line :
-  forall open content,
-    (open ++ nl ++ join_nl content ++ code_close)%string =
-    String.concat nl (open :: content ++ [code_close])%list.
-Proof.
-  intros open content.
-  rewrite concat_cons_ne by (destruct content; discriminate).
-  rewrite <- join_nl_last. reflexivity.
-Qed.
-
-(* fence_block inverts to the canonical fence rendering, whether the info
-   string makes it a code block or (starting with '=') a raw block.  The
-   256-way destruct reduces the character match in fence_block; each
-   branch closes by conversion because the fence prefix is a literal. *)
+(* fence_block renders back to the canonical fence lines, whether the
+   info string makes it a code block or (starting with '=') a raw block.
+   The 256-way destruct reduces the character match in fence_block. *)
 Lemma render_fence_block :
   forall info content,
-    render_block_djot
+    forallb no_nl content = true ->
+    render_block_lines
       (node_contents (fence_block (Fence "`"%char 3 info) content)) =
-    (code_open info ++ nl ++ join_nl content ++ code_close)%string.
+    (code_open info :: content ++ [code_close])%list.
 Proof.
-  intros info content. unfold fence_block. cbn [f_info].
-  destruct info as [|c info']; [reflexivity|].
-  destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+  intros info content H. unfold fence_block. cbn [f_info].
+  destruct info as [|c info'].
+  - cbn [render_block_lines node_contents mk].
+    rewrite split_join_nl by exact H. reflexivity.
+  - destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]];
+      cbn [render_block_lines node_contents mk];
+      rewrite split_join_nl by exact H; reflexivity.
+Qed.
+
+(* The renderer emits exactly a cblock's canonical lines.  Same
+   two-predicate induction as cb_ok_lines_ok, for the same reason. *)
+Lemma render_cb_lines :
+  forall cb, cb_ok cb = true ->
+  render_block_lines (node_contents (cb_ast cb)) = cb_lines cb.
+Proof.
+  refine (cblock_ind2
+            (fun cb => cb_ok cb = true ->
+                       render_block_lines (node_contents (cb_ast cb))
+                       = cb_lines cb)
+            (fun cbs => forallb cb_ok cbs = true ->
+                        render_blocks_lines (map cb_ast cbs)
+                        = map cb_lines cbs)
+            _ _ _ _ _ _).
+  - (* paragraph: inline_lines inverts para_inlines *)
+    intros ls H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
+    destruct ls as [|a ls']; [discriminate|].
+    apply para_ok_parts in H as (_ & Hlok & Hlast).
+    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    rewrite inline_lines_para by (assumption || discriminate).
+    reflexivity.
+  - reflexivity.
+  - (* code block *)
+    intros info content H.
+    change (cb_ok (CCode info content)) with (code_ok info content) in H.
+    apply code_ok_parts in H as (_ & Hnl & _).
+    cbn [cb_lines]. apply render_fence_block. exact Hnl.
+  - (* quote: prefix the contents' layout *)
+    intros inner IH H.
+    rewrite cb_ok_quote in H. apply andb_true_iff in H as [_ Hok].
+    rewrite cb_ast_quote. cbn [node_contents mk].
+    rewrite render_block_quote, (IH Hok), cb_lines_quote.
+    reflexivity.
+  - reflexivity.
+  - intros c rest Hc Hrest H.
+    cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
+    unfold render_blocks_lines in *. cbn [map].
+    rewrite (Hc H1), (Hrest H2). reflexivity.
 Qed.
 
 (* Rendering a canonical document is the same as joining its cb_lines —
    this is what lets split_render/parse_sep take over. *)
 Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
-  render_djot (doc_of_cblocks cbs) = render_paras (map cb_lines cbs).
+  render_djot (doc_of_cblocks cbs)
+  = String.concat nl (sep_lines (map cb_lines cbs)).
 Proof.
-  intros cbs H.
-  unfold render_djot, doc_of_cblocks, render_paras. simpl.
-  f_equal. rewrite !map_map.
-  induction cbs as [|cb rest IH]; simpl in *; [reflexivity|].
-  apply andb_true_iff in H as [Hcb Hrest].
-  f_equal; [| apply IH; exact Hrest].
-  destruct cb as [ls| |info content].
-  - destruct ls as [|a ls']; [discriminate|].
-    apply para_ok_parts in Hcb as (_ & Hlok & Hlast).
-    cbn [cb_ast cb_lines node_contents mk render_block_djot].
-    rewrite inline_lines_para by (assumption || discriminate).
-    reflexivity.
-  - reflexivity.
-  - cbn [cb_ast cb_lines].
-    rewrite render_fence_block.
-    apply render_fence_line.
+  intros cbs H. unfold render_djot, doc_of_cblocks. cbn [doc_blocks].
+  f_equal. f_equal.
+  induction cbs as [|cb rest IH]; [reflexivity|].
+  cbn [forallb] in H. apply andb_true_iff in H as [Hcb Hrest].
+  unfold render_blocks_lines in *. cbn [map].
+  rewrite (render_cb_lines _ Hcb), (IH Hrest). reflexivity.
 Qed.
 
 (*
@@ -355,3 +503,37 @@ Proof.
   rewrite split_render by (apply forallb_cb_lines_ok; exact H).
   apply parse_sep. exact H.
 Qed.
+
+(*
+Worked examples
+===============
+
+The theorem quantifies over cb_ok cblocks; these check that quotes are
+really in that set, and that the rendering is the one a human would
+write. *)
+
+Definition quote_example : list cblock :=
+  [ CQuote [CPara ["a"]; CThematic]; CPara ["after"] ].
+
+Example quote_example_ok : forallb cb_ok quote_example = true.
+Proof. reflexivity. Qed.
+
+(* Spelled with explicit nl rather than a multi-line literal: the blank
+   line inside the quote renders as "> ", prefix and all, and a literal
+   would hide that trailing space. *)
+Example quote_example_render :
+  render_djot (doc_of_cblocks quote_example)
+  = ("> a" ++ nl ++ "> " ++ nl ++ "> * * * *" ++ nl ++ nl ++ "after")%string.
+Proof. reflexivity. Qed.
+
+Example quote_example_roundtrip :
+  parse_doc (render_djot (doc_of_cblocks quote_example))
+  = doc_of_cblocks quote_example.
+Proof. apply roundtrip_blocks. reflexivity. Qed.
+
+(* Nesting roundtrips too, with no extra hypotheses. *)
+Example nested_quote_roundtrip :
+  let cbs := [CQuote [CQuote [CPara ["deep"]]]] in
+  render_djot (doc_of_cblocks cbs) = "> > deep"
+  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
