@@ -7,7 +7,7 @@
    constructors have placeholder output (empty or skeletal) that will be
    filled in alongside the parser, driven by the corpus diff. *)
 
-From Stdlib Require Import String Ascii List.
+From Stdlib Require Import String Ascii List DecimalString Decimal.
 From DjotV Require Import Ast Parser.
 Import ListNotations.
 
@@ -28,6 +28,8 @@ Fixpoint escape (s : string) : string :=
   end.
 
 Definition nl : string := String "010"%char EmptyString.
+
+Definition nat_str (n : nat) : string := NilZero.string_of_uint (Nat.to_uint n).
 
 (*
 Inlines
@@ -84,7 +86,13 @@ Fixpoint render_block (b : block) : string :=
   match b with
   | Para ils => "<p>" ++ render_inlines ils ++ "</p>" ++ nl
   | Section bs => "<section>" ++ nl ++ render_bs bs ++ "</section>" ++ nl
-  | Heading _ _ => ""         (* TODO Phase 1 *)
+  (* The <hN> element is faithful; the `id` attribute and the enclosing
+     <section> both come from the whole-document pass (auto-identifiers,
+     level-driven section nesting) that does not exist yet, so heading
+     output still differs from djot.js. *)
+  | Heading lvl ils =>
+      "<h" ++ nat_str lvl ++ ">" ++ render_inlines ils
+      ++ "</h" ++ nat_str lvl ++ ">" ++ nl
   | BlockQuote bs =>
       "<blockquote>" ++ nl ++ render_bs bs ++ "</blockquote>" ++ nl
   | CodeBlock lang code =>

@@ -62,6 +62,7 @@ Inductive cblock : Type :=
   | CPara (ls : list string)
   | CThematic
   | CCode (info : string) (content : list string)
+  | CHeading (level : nat) (ls : list string)
   | CQuote (inner : list cblock).
 
 (* The two projections a cblock sits between: its source lines... *)
@@ -77,6 +78,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CPara ls => ls
   | CThematic => [thematic_line]
   | CCode info content => (code_open info :: content ++ [code_close])%list
+  | CHeading lvl ls => map (heading_line lvl) ls
   | CQuote inner => quoted inner
   end.
 
@@ -90,6 +92,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CPara ls => mk (Para (para_inlines ls))
   | CThematic => mk ThematicBreak
   | CCode info content => fence_block (Fence "`"%char 3 info) content
+  | CHeading lvl ls => mk (Heading lvl (para_inlines ls))
   | CQuote inner => mk (BlockQuote (asts inner))
   end.
 
@@ -135,6 +138,7 @@ Definition cblock_ind2
   (hpara : forall ls, P (CPara ls))
   (hthem : P CThematic)
   (hcode : forall info content, P (CCode info content))
+  (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
@@ -144,6 +148,7 @@ Definition cblock_ind2
     | CPara ls => hpara ls
     | CThematic => hthem
     | CCode info content => hcode info content
+    | CHeading lvl ls => hhead lvl ls
     | CQuote inner =>
         hquote inner
           ((fix golist (cs : list cblock) : Q cs :=
@@ -188,6 +193,18 @@ Definition code_ok (info : string) (content : list string) : bool :=
        (fun l => no_nl l && negb (fence_close (Fence "`"%char 3 info) l))
        content.
 
+(* A canonical heading: a real level, and text lines that are nonblank
+   and newline-free with the last one pre-stripped (the parser strips
+   it).  Unlike a paragraph there is no first-line classification
+   condition — the hashes make every rendered line a heading line, and
+   the text is never reclassified.  Nonempty for the same reason a quote
+   is: `Heading lvl []` renders to no lines at all. *)
+Definition heading_ok (lvl : nat) (ls : list string) : bool :=
+  Nat.leb 1 lvl
+  && nonempty ls
+  && forallb line_ok ls
+  && String.eqb (strip_trailing_ws (last ls EmptyString)) (last ls EmptyString).
+
 (* The roundtrip hypothesis: this cblock renders to lines that parse back
    to it.  A new construct adds its obligation here.
 
@@ -207,6 +224,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CPara ls => para_ok ls
   | CThematic => true
   | CCode info content => code_ok info content
+  | CHeading lvl ls => heading_ok lvl ls
   | CQuote inner => inner_ok inner
   end.
 
@@ -256,6 +274,7 @@ Fixpoint render_block_lines (b : block) : list string :=
       end in
   match b with
   | Para ils => inline_lines ils EmptyString
+  | Heading lvl ils => map (heading_line lvl) (inline_lines ils EmptyString)
   | ThematicBreak => [thematic_line]
   | CodeBlock lang text =>
       (code_open lang :: split_lines text ++ [code_close])%list

@@ -265,17 +265,35 @@ Qed.
 Fixpoint state_wf (st : pstate) : bool :=
   match st with
   | PPara cur => forallb nonblank cur
+  (* A heading additionally carries its level, which `Heading` requires
+     to be at least 1. *)
+  | PHeading lvl cur => Nat.leb 1 lvl && forallb nonblank cur
   | PFence _ _ => true
   | PQuote done inner => wf_blocks done && state_wf inner
   end.
 
 (* Closing the stack at end of input preserves the invariant. *)
+(* A heading block is well-formed as soon as its level is and its lines
+   are nonblank; unlike a paragraph it may be empty. *)
+Lemma heading_block_wf :
+  forall lvl cur,
+    Nat.leb 1 lvl = true -> forallb nonblank cur = true ->
+    wf_blocks [heading_block lvl cur] = true.
+Proof.
+  intros lvl cur Hl Hc. unfold heading_block.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite Hl, para_inlines_wf by (rewrite forallb_rev; exact Hc).
+  reflexivity.
+Qed.
+
 Lemma finish_wf :
   forall st, state_wf st = true -> wf_blocks (finish st) = true.
 Proof.
-  induction st as [cur|f acc|done inner IH]; intros H.
+  induction st as [cur|lvl hcur|f acc|done inner IH]; intros H.
   - destruct cur as [|c cur']; [reflexivity|].
     cbn [finish]. apply flush_para_wf; [exact H | reflexivity].
+  - cbn [state_wf] in H. apply andb_true_iff in H as [Hl Hc].
+    cbn [finish]. apply heading_block_wf; assumption.
   - cbn [finish]. rewrite wf_blocks_cons, fence_block_wf. reflexivity.
   - cbn [state_wf] in H. apply andb_true_iff in H as [Hd Hi].
     cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
@@ -308,12 +326,26 @@ Lemma feed_lazy_wf :
     is_blank l = false -> state_wf st = true ->
     state_wf (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|f acc|done inner IH]; intros Hl H.
+  induction st as [cur|lvl hcur|f acc|done inner IH]; intros Hl H.
   - cbn [feed_lazy state_wf] in *. rewrite forallb_nonblank_cons by exact Hl.
     exact H.
+  - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hlv Hc].
+    apply andb_true_iff. split; [exact Hlv|].
+    rewrite forallb_nonblank_cons by exact Hl. exact Hc.
   - reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
     rewrite Hd, (IH Hl Hi). reflexivity.
+Qed.
+
+(* push_text only ever adds a nonblank line, by construction. *)
+Lemma forallb_nonblank_push_text :
+  forall txt cur,
+    forallb nonblank cur = true ->
+    forallb nonblank (push_text txt cur) = true.
+Proof.
+  intros txt cur H. unfold push_text.
+  destruct (is_blank txt) eqn:E; [exact H|].
+  rewrite forallb_nonblank_cons by exact E. exact H.
 Qed.
 
 (* Opening a block from an idle state. *)
@@ -324,11 +356,15 @@ Lemma open_kind_wf :
     /\ state_wf (snd (open_kind l k)) = true.
 Proof.
   intros l k H. destruct k; cbn [open_kind fst snd]; try (split; reflexivity).
-  (* KText: the accumulator gains one line, which must be nonblank *)
-  split; [reflexivity|].
-  cbn [state_wf].
-  rewrite forallb_nonblank_cons by (apply classify_ktext_nonblank; exact H).
-  reflexivity.
+  - (* KHeading: the level comes from the classifier *)
+    split; [reflexivity|].
+    cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). cbn [andb].
+    apply forallb_nonblank_push_text. reflexivity.
+  - (* KText: the accumulator gains one line, which must be nonblank *)
+    split; [reflexivity|].
+    cbn [state_wf].
+    rewrite forallb_nonblank_cons by (apply classify_ktext_nonblank; exact H).
+    reflexivity.
 Qed.
 
 (* One transition preserves the invariant and emits only well-formed
@@ -341,10 +377,10 @@ Lemma step_fuel_wf :
 Proof.
   induction n as [|n IH]; intros l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel].
-  destruct st as [cur|f acc|done inner].
+  destruct st as [cur|hlvl hcur|f acc|done inner].
   - (* idle, or an open paragraph *)
     destruct cur as [|c cur'].
-    + destruct (classify l) as [| |g|rest|] eqn:E;
+    + destruct (classify l) as [| |g|rest|kl kr|] eqn:E;
         try (apply open_kind_wf; exact E).
       (* KQuote: descend into the enclosed line *)
       destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
@@ -352,7 +388,7 @@ Proof.
       cbn [fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs.
-    + destruct (classify l) as [| |g|rest|] eqn:E; cbn [fst snd].
+    + destruct (classify l) as [| |g|rest|kl kr|] eqn:E; cbn [fst snd].
       1: (split; [| reflexivity];
           apply flush_para_wf; [exact H | reflexivity]).
       all: split; [reflexivity|];
@@ -360,6 +396,38 @@ Proof.
            rewrite forallb_nonblank_cons
              by (apply classify_not_kblank_nonblank; rewrite E; discriminate);
            exact H.
+  - (* an open heading *)
+    cbn [state_wf] in H. apply andb_true_iff in H as [Hlv Hc].
+    assert (Hhb : wf_blocks [heading_block hlvl hcur] = true)
+      by (apply heading_block_wf; assumption).
+    destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
+    4: { (* quote: close the heading, then descend *)
+      destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+      destruct (step_fuel n rest (PPara [])) as [bs inner].
+      cbn [fst snd] in Hb, Hs |- *.
+      split; [exact Hhb|].
+      cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs. }
+    4: { (* matching or differing level *)
+      destruct (Nat.eqb kl hlvl) eqn:Elv; cbn [fst snd].
+      - split; [reflexivity|].
+        cbn [state_wf]. rewrite Hlv. cbn [andb].
+        apply forallb_nonblank_push_text. exact Hc.
+      - split; [exact Hhb|].
+        cbn [state_wf]. rewrite (classify_heading_level _ _ _ E). cbn [andb].
+        apply forallb_nonblank_push_text. reflexivity. }
+    4: { (* lazy text *)
+      cbn [fst snd]. split; [reflexivity|].
+      cbn [state_wf]. rewrite Hlv. cbn [andb].
+      rewrite forallb_nonblank_cons
+        by (apply classify_ktext_nonblank; exact E).
+      exact Hc. }
+    (* blank, thematic, fence: close the heading and reopen outside it *)
+    all: cbn [open_kind fst snd]; split;
+         [ rewrite wf_blocks_cons in Hhb |- *;
+           cbn [node_contents] in Hhb |- *;
+           apply andb_true_iff in Hhb as [Hhb _]; rewrite Hhb; cbn [andb];
+           reflexivity
+         | reflexivity ].
   - (* inside a fence: only the close test *)
     destruct (fence_close f l); cbn [fst snd].
     + rewrite wf_blocks_cons, fence_block_wf. split; reflexivity.
@@ -370,14 +438,14 @@ Proof.
     assert (Hbq : wf_block (BlockQuote (rev done ++ finish inner)%list) = true).
     { rewrite wf_block_quote, wf_blocks_app, wf_blocks_rev, Hd, (finish_wf _ Hi).
       reflexivity. }
-    destruct (classify l) as [| |g|rest|] eqn:E.
+    destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
     4: { (* quote prefix: descend into the enclosed line *)
       destruct (IH rest inner Hi) as [Hb Hs].
       destruct (step_fuel n rest inner) as [bs inner'].
       cbn [fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_wf]. rewrite wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs. }
-    4: { (* text without the prefix: lazy continuation, or close *)
+    5: { (* text without the prefix: lazy continuation, or close *)
       cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [open_kind fst snd].
       - split; [reflexivity|].
         cbn [state_wf]. rewrite Hd. cbn [andb].
@@ -390,11 +458,16 @@ Proof.
           rewrite forallb_nonblank_cons
             by (apply classify_ktext_nonblank; exact E).
           reflexivity. }
-    (* every other kind closes the quote and reopens outside it *)
-    all: cbn [is_lazy open_kind fst snd]; split;
+    (* every other kind closes the quote and reopens outside it, on
+       exactly the transition open_kind_wf already describes *)
+    all: destruct (open_kind_wf l _ E) as [Hob Hos];
+         cbn [is_lazy];
+         destruct (open_kind l _) as [obs ost] eqn:Eo;
+         cbn [fst snd] in Hob, Hos |- *;
+         split;
          [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
-           cbn [andb]; reflexivity
-         | reflexivity ].
+           cbn [andb]; exact Hob
+         | exact Hos ].
 Qed.
 
 Lemma step_wf :
@@ -447,7 +520,7 @@ Fixpoint supported (b : block) : bool :=
       | Node _ _ x :: rest => supported x && go rest
       end in
   match b with
-  | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ => true
+  | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ | Heading _ _ => true
   | BlockQuote bs => sup_bs bs
   | _ => false
   end.
@@ -495,15 +568,16 @@ Qed.
    obligation. *)
 Fixpoint state_supported (st : pstate) : bool :=
   match st with
-  | PPara _ | PFence _ _ => true
+  | PPara _ | PHeading _ _ | PFence _ _ => true
   | PQuote done inner => supported_blocks done && state_supported inner
   end.
 
 Lemma finish_supported :
   forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
-  induction st as [cur|f acc|done inner IH]; intros H.
+  induction st as [cur|lvl hcur|f acc|done inner IH]; intros H.
   - destruct cur as [|c cur']; reflexivity.
+  - reflexivity.
   - cbn [finish]. rewrite supported_blocks_cons, fence_block_supported.
     reflexivity.
   - cbn [state_supported] in H. apply andb_true_iff in H as [Hd Hi].
@@ -517,7 +591,8 @@ Lemma feed_lazy_supported :
   forall l st,
     state_supported st = true -> state_supported (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|f acc|done inner IH]; intros H; [reflexivity | reflexivity |].
+  induction st as [cur|lvl hcur|f acc|done inner IH]; intros H;
+    [reflexivity | reflexivity | reflexivity |].
   cbn [feed_lazy state_supported] in *.
   apply andb_true_iff in H as [Hd Hi]. rewrite Hd, (IH Hi). reflexivity.
 Qed.
@@ -532,9 +607,9 @@ Lemma step_fuel_supported :
 Proof.
   induction n as [|n IH]; intros l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel].
-  destruct st as [cur|f acc|done inner].
+  destruct st as [cur|hlvl hcur|f acc|done inner].
   - destruct cur as [|c cur'].
-    + destruct (classify l) as [| |g|rest|] eqn:E;
+    + destruct (classify l) as [| |g|rest|kl kr|] eqn:E;
         try (cbn [open_kind fst snd]; split; reflexivity).
       destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n rest (PPara [])) as [bs inner].
@@ -542,6 +617,16 @@ Proof.
       split; [reflexivity|].
       cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs.
     + destruct (classify l); cbn [fst snd]; split; reflexivity.
+  - (* an open heading: Heading is supported, so only the quote branch
+       carries anything to prove *)
+    destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
+    4: { destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+         destruct (step_fuel n rest (PPara [])) as [bs inner].
+         cbn [fst snd] in Hb, Hs |- *.
+         split; [reflexivity|].
+         cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
+    4: { destruct (Nat.eqb kl hlvl); cbn [fst snd]; split; reflexivity. }
+    all: cbn [open_kind fst snd]; split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
     + split; reflexivity.
@@ -551,14 +636,14 @@ Proof.
     { rewrite supported_quote, supported_blocks_app, supported_blocks_rev, Hd,
         (finish_supported _ Hi).
       reflexivity. }
-    destruct (classify l) as [| |g|rest|] eqn:E.
+    destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
     4: { destruct (IH rest inner Hi) as [Hb Hs].
          destruct (step_fuel n rest inner) as [bs inner'].
          cbn [fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported].
          rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd. exact Hs. }
-    4: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [open_kind fst snd].
+    5: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [open_kind fst snd].
          - split; [reflexivity|].
            cbn [state_supported]. rewrite Hd. cbn [andb].
            apply feed_lazy_supported. exact Hi.

@@ -20,11 +20,12 @@ Record fence : Type := Fence
   { f_ch : ascii; f_len : nat; f_info : string }.
 
 Inductive line_kind : Type :=
-  | KBlank                (* only whitespace *)
-  | KThematic             (* thematic break: 3+ of - or * (mixed ok), ws between *)
-  | KFence (f : fence)    (* code fence opener *)
-  | KQuote (rest : string)(* block-quote prefix, with the line it encloses *)
-  | KText.                (* anything else: paragraph text *)
+  | KBlank                 (* only whitespace *)
+  | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)
+  | KFence (f : fence)     (* code fence opener *)
+  | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
+  | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
+  | KText.                 (* anything else: paragraph text *)
 
 (*
 Recognizers
@@ -138,8 +139,22 @@ Proof.
     injection H as <-. simpl in *. lia.
 Qed.
 
+(* Headings, per djot.js's `pattBangs` plus a whitespace test: one or
+   more '#' followed by whitespace or end of line.  Shaped exactly like
+   quote_prefix — marker, then at most one whitespace character — but the
+   text that follows is *not* reclassified: a heading's content is
+   inline, so `# > q` is a heading containing "> q", not a quote. *)
+Definition heading_open (l : string) : option (nat * string) :=
+  let (n, r) := count_run "#" (drop_leading_ws l) in
+  if Nat.leb 1 n
+  then match r with
+       | EmptyString => Some (n, EmptyString)
+       | String c r' => if is_ws c then Some (n, r') else None
+       end
+  else None.
+
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
-   then block quotes, then fences, then thematic breaks; anything
+   then block quotes, headings, fences, thematic breaks; anything
    unrecognized falls through to paragraph text, so KText is the
    catch-all.  Adding a block construct starts by adding a case here. *)
 Definition classify (l : string) : line_kind :=
@@ -147,11 +162,34 @@ Definition classify (l : string) : line_kind :=
   else match quote_prefix l with
        | Some rest => KQuote rest
        | None =>
-           match fence_open l with
-           | Some f => KFence f
-           | None => if is_thematic l then KThematic else KText
+           match heading_open l with
+           | Some (lvl, rest) => KHeading lvl rest
+           | None =>
+               match fence_open l with
+               | Some f => KFence f
+               | None => if is_thematic l then KThematic else KText
+               end
            end
        end.
+
+(* Headings always have a level, which is what wf_block requires of the
+   `Heading` it builds. *)
+Lemma classify_heading_level :
+  forall l lvl rest, classify l = KHeading lvl rest -> Nat.leb 1 lvl = true.
+Proof.
+  intros l lvl rest H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  unfold heading_open in H.
+  destruct (count_run "#" (drop_leading_ws l)) as [n r].
+  destruct (Nat.leb 1 n) eqn:E.
+  - destruct r as [|c r']; [injection H as <- <-; exact E|].
+    destruct (is_ws c); [injection H as <- <-; exact E|].
+    destruct (fence_open l); [discriminate|].
+    destruct (is_thematic l); discriminate.
+  - destruct (fence_open l); [discriminate|].
+    destruct (is_thematic l); discriminate.
+Qed.
 
 (*
 Classification facts
@@ -168,6 +206,7 @@ Proof.
   intros l H. unfold classify in H.
   destruct (is_blank l); [reflexivity|].
   destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[lvl rest]|]; [discriminate|].
   destruct (fence_open l); [discriminate|].
   destruct (is_thematic l); discriminate.
 Qed.
@@ -183,7 +222,8 @@ Proof.
   destruct (is_blank l); [discriminate|].
   destruct (quote_prefix l) as [r|].
   - injection H as <-. reflexivity.
-  - destruct (fence_open l); [discriminate|].
+  - destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
+    destruct (fence_open l); [discriminate|].
     destruct (is_thematic l); discriminate.
 Qed.
 
@@ -196,11 +236,12 @@ Qed.
 
 Lemma classify_ktext :
   forall l,
-    is_blank l = false -> quote_prefix l = None -> fence_open l = None ->
-    is_thematic l = false ->
+    is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
+    fence_open l = None -> is_thematic l = false ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hf Ht. unfold classify. rewrite Hb, Hq, Hf, Ht. reflexivity.
+  intros l Hb Hq Hh Hf Ht. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Ht. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -305,6 +346,7 @@ Proof.
   intros info H. unfold classify.
   change (is_blank ("```" ++ info)) with false.
   change (quote_prefix ("```" ++ info)) with (@None string).
+  change (heading_open ("```" ++ info)) with (@None (nat * string)).
   rewrite (fence_open_backtick info H). reflexivity.
 Qed.
 
@@ -320,6 +362,79 @@ Proof.
   intros l. unfold classify.
   change (is_blank ("> " ++ l)) with false.
   rewrite quote_prefix_canonical. reflexivity.
+Qed.
+
+(*
+Canonical headings
+==================
+
+The renderer prefixes every line of a heading with its hashes and one
+space, so a multi-line heading reparses line by line as continuations of
+itself — the same trick as block quotes, without the reclassification. *)
+
+Fixpoint hashes (n : nat) : string :=
+  match n with O => EmptyString | S n' => "#" ++ hashes n' end.
+
+Definition heading_line (lvl : nat) (l : string) : string :=
+  hashes lvl ++ " " ++ l.
+
+(* The hashes are consumed exactly: the renderer's space stops the run,
+   so the level comes back out unchanged however long the text is. *)
+Lemma count_run_hashes_space :
+  forall n l, count_run "#" (hashes n ++ " " ++ l) = (n, " " ++ l).
+Proof.
+  induction n as [|n IH]; intros l; [reflexivity|].
+  cbn [hashes]. rewrite append_assoc.
+  change ("#" ++ (hashes n ++ " " ++ l))%string
+    with (String "#" (hashes n ++ " " ++ l))%string.
+  cbn [count_run]. rewrite IH. reflexivity.
+Qed.
+
+Lemma drop_leading_ws_hashes :
+  forall n l, 1 <= n -> drop_leading_ws (hashes n ++ " " ++ l) = (hashes n ++ " " ++ l).
+Proof.
+  intros n l H. destruct n as [|n']; [lia|].
+  cbn [hashes]. rewrite append_assoc.
+  change ("#" ++ (hashes n' ++ " " ++ l))%string
+    with (String "#" (hashes n' ++ " " ++ l))%string.
+  apply drop_head_nonws. reflexivity.
+Qed.
+
+Lemma no_nl_hashes : forall n, no_nl (hashes n) = true.
+Proof.
+  induction n as [|n IH]; [reflexivity|].
+  cbn [hashes]. change ("#" ++ hashes n)%string with (String "#" (hashes n)).
+  cbn [no_nl]. exact IH.
+Qed.
+
+Lemma heading_line_no_nl :
+  forall lvl l, no_nl (heading_line lvl l) = no_nl l.
+Proof.
+  intros lvl l. unfold heading_line.
+  rewrite !no_nl_append, no_nl_hashes. reflexivity.
+Qed.
+
+Lemma heading_line_nonempty :
+  forall lvl l, 1 <= lvl -> heading_line lvl l <> EmptyString.
+Proof.
+  intros lvl l H. unfold heading_line.
+  destruct lvl as [|n]; [lia|].
+  cbn [hashes]. rewrite append_assoc. discriminate.
+Qed.
+
+Lemma classify_canonical_heading :
+  forall lvl l, 1 <= lvl -> classify (heading_line lvl l) = KHeading lvl l.
+Proof.
+  intros lvl l H. unfold classify, heading_line.
+  assert (Hb : is_blank (hashes lvl ++ " " ++ l) = false).
+  { destruct lvl as [|n]; [lia|]. reflexivity. }
+  assert (Hq : quote_prefix (hashes lvl ++ " " ++ l) = None).
+  { unfold quote_prefix. rewrite drop_leading_ws_hashes by exact H.
+    destruct lvl as [|n]; [lia | reflexivity]. }
+  rewrite Hb, Hq.
+  unfold heading_open. rewrite drop_leading_ws_hashes by exact H.
+  rewrite count_run_hashes_space.
+  destruct lvl as [|n]; [lia|]. reflexivity.
 Qed.
 
 Lemma fence_close_canonical :

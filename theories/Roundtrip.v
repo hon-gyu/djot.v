@@ -7,7 +7,7 @@
    back via its equation lemmas (Parser.v).  Extending to a new construct
    touches the three case analyses marked below and nothing else. *)
 
-From Stdlib Require Import String Ascii List Bool.
+From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Parser Render.
 Import ListNotations.
 
@@ -178,8 +178,10 @@ Proof.
   apply last_app_singleton.
 Qed.
 
-(* Prefixing preserves everything split_render cares about, and makes
-   the last line unconditionally nonempty. *)
+(* Marker-prefixed lines: every construct whose rendering puts a fixed
+   marker in front of each line (quotes, headings) needs exactly this —
+   newline-freedom survives, and the last line is nonempty because the
+   marker is. *)
 Lemma no_nl_quote_line :
   forall l, no_nl (quote_line l) = no_nl l.
 Proof.
@@ -187,21 +189,49 @@ Proof.
   rewrite no_nl_append. reflexivity.
 Qed.
 
-Lemma lines_ok_quote :
-  forall ls, ls <> [] -> forallb no_nl ls = true ->
-  lines_ok (map quote_line ls) = true.
+Lemma lines_ok_map :
+  forall (f : string -> string) ls,
+    (forall l, no_nl l = true -> no_nl (f l) = true) ->
+    (forall l, f l <> EmptyString) ->
+    ls <> [] -> forallb no_nl ls = true ->
+    lines_ok (map f ls) = true.
 Proof.
-  intros ls Hne Hnl. unfold lines_ok.
+  intros f ls Hnlf Hnef Hne Hnl. unfold lines_ok.
   apply andb_true_iff. split; [apply andb_true_iff; split|].
   - destruct ls; [congruence | reflexivity].
   - clear Hne. induction ls as [|l ls IH]; [reflexivity|].
     cbn [forallb] in Hnl. apply andb_true_iff in Hnl as [Hl Hls].
-    cbn [map forallb]. rewrite no_nl_quote_line, Hl. cbn [andb].
+    cbn [map forallb]. rewrite (Hnlf _ Hl). cbn [andb].
     apply IH. exact Hls.
-  - rewrite (last_default (map quote_line ls) EmptyString (quote_line EmptyString))
+  - rewrite (last_default (map f ls) EmptyString (f EmptyString))
       by (destruct ls; [congruence | discriminate]).
-    rewrite (last_map quote_line ls EmptyString Hne).
-    unfold quote_line, quote_open. reflexivity.
+    rewrite (last_map f ls EmptyString Hne).
+    apply nonempty_str_intro, Hnef.
+Qed.
+
+Lemma lines_ok_quote :
+  forall ls, ls <> [] -> forallb no_nl ls = true ->
+  lines_ok (map quote_line ls) = true.
+Proof.
+  intros ls Hne Hnl. apply lines_ok_map; try assumption.
+  - intros l Hl. rewrite no_nl_quote_line. exact Hl.
+  - intros l. unfold quote_line, quote_open. discriminate.
+Qed.
+
+Lemma heading_ok_parts :
+  forall lvl ls, heading_ok lvl ls = true ->
+  1 <= lvl /\ ls <> [] /\ forallb line_ok ls = true
+  /\ strip_trailing_ws (last ls EmptyString) = last ls EmptyString.
+Proof.
+  intros lvl ls H. unfold heading_ok in H.
+  apply andb_true_iff in H as [H Hlast].
+  apply andb_true_iff in H as [H Hlok].
+  apply andb_true_iff in H as [Hlvl Hne].
+  repeat split.
+  - apply Nat.leb_le. exact Hlvl.
+  - destruct ls; [discriminate | congruence].
+  - exact Hlok.
+  - apply String.eqb_eq. exact Hlast.
 Qed.
 
 (* cb_ok is stated per construct; lines_ok is what split_render needs.
@@ -214,7 +244,7 @@ Proof.
             (fun cb => cb_ok cb = true -> lines_ok (cb_lines cb) = true)
             (fun cbs => forallb cb_ok cbs = true ->
                         forallb lines_ok (map cb_lines cbs) = true)
-            _ _ _ _ _ _).
+            _ _ _ _ _ _ _).
   - (* paragraph: line_ok everywhere implies the split conditions *)
     intros ls H.
     destruct ls as [|a ls']; [discriminate|].
@@ -235,6 +265,16 @@ Proof.
       unfold code_open. rewrite no_nl_append, (info_no_nl _ Hinfo).
       simpl. rewrite forallb_app, Hnl. reflexivity.
     + rewrite last_cons_app. reflexivity.
+  - (* heading: every rendered line carries the hashes, so the last one
+       is nonempty whatever the text is *)
+    intros lvl ls H.
+    change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H.
+    apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _).
+    cbn [cb_lines]. apply lines_ok_map.
+    + intros l Hl. rewrite heading_line_no_nl. exact Hl.
+    + intros l. apply heading_line_nonempty. exact Hlvl.
+    + exact Hne.
+    + exact (forallb_weaken _ _ line_ok_no_nl _ Hlok).
   - (* quote: its contents lay out exactly as a document's would *)
     intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [Hne Hok].
@@ -296,7 +336,7 @@ Proof.
             (fun cbs => forallb cb_ok cbs = true ->
                         parse_lines (sep_lines (map cb_lines cbs)) (PPara [])
                         = map cb_ast cbs)
-            _ _ _ _ _ _).
+            _ _ _ _ _ _ _).
   - (* paragraph *)
     intros ls. split; [intros tail H | intros H];
       change (cb_ok (CPara ls)) with (para_ok ls) in H;
@@ -337,6 +377,30 @@ Proof.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
       rewrite rev_involutive. reflexivity.
+  - (* heading: open on the first line, accumulate the rest, close on the
+       blank line or at end of input.  No first-line classification
+       condition — the hashes make every rendered line a heading line. *)
+    intros lvl ls. split; [intros tail H | intros H];
+      change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H;
+      apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _);
+      destruct ls as [|a ls']; [congruence| |congruence|];
+      pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
+      cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [Hna Hnb'];
+      unfold nonblank in Hna; apply negb_true_iff in Hna;
+      cbn [cb_lines cb_ast map app];
+      rewrite (parse_lines_heading_open _ _ _ a
+                 (classify_canonical_heading lvl a Hlvl));
+      replace (push_text a []) with [a]
+        by (unfold push_text; rewrite Hna; reflexivity).
+    + rewrite parse_lines_heading_seed by assumption.
+      rewrite parse_lines_heading_close by reflexivity.
+      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      reflexivity.
+    + rewrite <- (app_nil_r (map (heading_line lvl) ls')).
+      rewrite parse_lines_heading_seed by assumption.
+      rewrite parse_lines_nil. cbn [finish].
+      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      reflexivity.
   - (* quote: the contents parse at top level, then get wrapped *)
     intros inner IH.
     assert (Hsplit : cb_ok (CQuote inner) = true ->
@@ -444,7 +508,7 @@ Proof.
             (fun cbs => forallb cb_ok cbs = true ->
                         render_blocks_lines (map cb_ast cbs)
                         = map cb_lines cbs)
-            _ _ _ _ _ _).
+            _ _ _ _ _ _ _).
   - (* paragraph: inline_lines inverts para_inlines *)
     intros ls H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
     destruct ls as [|a ls']; [discriminate|].
@@ -458,6 +522,13 @@ Proof.
     change (cb_ok (CCode info content)) with (code_ok info content) in H.
     apply code_ok_parts in H as (_ & Hnl & _).
     cbn [cb_lines]. apply render_fence_block. exact Hnl.
+  - (* heading: the same inline inversion as a paragraph, prefixed *)
+    intros lvl ls H.
+    change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H.
+    apply heading_ok_parts in H as (_ & Hne & Hlok & Hlast).
+    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    rewrite inline_lines_para by assumption.
+    reflexivity.
   - (* quote: prefix the contents' layout *)
     intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [_ Hok].
@@ -530,6 +601,23 @@ Example quote_example_roundtrip :
   parse_doc (render_djot (doc_of_cblocks quote_example))
   = doc_of_cblocks quote_example.
 Proof. apply roundtrip_blocks. reflexivity. Qed.
+
+(* A multi-line heading renders with the hashes repeated on every line,
+   which is what makes it reparse as a continuation of itself. *)
+Example heading_example_roundtrip :
+  let cbs := [CHeading 2 ["a"; "b"]; CPara ["p"]] in
+  render_djot (doc_of_cblocks cbs)
+    = ("## a" ++ nl ++ "## b" ++ nl ++ nl ++ "p")%string
+  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* Headings nest inside quotes with no extra machinery. *)
+Example heading_in_quote_roundtrip :
+  let cbs := [CQuote [CHeading 1 ["h"]; CPara ["t"]]] in
+  render_djot (doc_of_cblocks cbs)
+    = ("> # h" ++ nl ++ "> " ++ nl ++ "> t")%string
+  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 (* Nesting roundtrips too, with no extra hypotheses. *)
 Example nested_quote_roundtrip :

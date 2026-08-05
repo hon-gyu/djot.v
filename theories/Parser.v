@@ -67,27 +67,37 @@ The line fold
    items in *reverse* order, hence the `rev` at each use site. *)
 Inductive pstate : Type :=
   | PPara (cur : list string)              (* [] = no open block *)
+  | PHeading (level : nat) (cur : list string)
   | PFence (f : fence) (acc : list string)
   | PQuote (done : blocks) (inner : pstate).
 
 (* End of input (or of an enclosing container): close everything still
    open, outermost result first. *)
+(* A heading's text lines become its inlines exactly as a paragraph's do
+   — same assembly, different wrapper. *)
+Definition heading_block (lvl : nat) (cur : list string) : node block :=
+  mk (Heading lvl (para_inlines (rev cur))).
+
 Fixpoint finish (st : pstate) : blocks :=
   match st with
   | PPara [] => []
   | PPara cur => [mk (Para (para_inlines (rev cur)))]
+  | PHeading lvl cur => [heading_block lvl cur]
   | PFence f acc => [fence_block f (rev acc)]
   | PQuote done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
   end.
 
 (* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise
    featureless line that is missing its container prefixes still
-   continues the innermost open *paragraph* — but nothing else, which is
-   why fence content is excluded. *)
+   continues the innermost open *inline* container — a paragraph or a
+   heading — but nothing else, which is why fence content is excluded.
+   An empty PPara is the idle state, not an open block; a PHeading is
+   always open, even with no text yet. *)
 Fixpoint lazy_ok (st : pstate) : bool :=
   match st with
   | PPara [] => false
   | PPara (_ :: _) => true
+  | PHeading _ _ => true
   | PFence _ _ => false
   | PQuote _ inner => lazy_ok inner
   end.
@@ -99,9 +109,16 @@ Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
 Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   match st with
   | PPara cur => PPara (l :: cur)
+  | PHeading lvl cur => PHeading lvl (l :: cur)
   | PFence f acc => PFence f acc      (* excluded by lazy_ok *)
   | PQuote done inner => PQuote done (feed_lazy l inner)
   end.
+
+(* A heading's text, pushed onto its accumulator.  `# ` with nothing
+   after it opens a heading with no text rather than a blank line of it,
+   which is what keeps the accumulator's nonblank invariant. *)
+Definition push_text (rest : string) (cur : list string) : list string :=
+  if is_blank rest then cur else rest :: cur.
 
 (* What a line does at an idle state, for every kind but KQuote — which
    needs `step`'s recursive descent and is handled there.  Factored out
@@ -112,6 +129,7 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KBlank => ([], PPara [])
   | KThematic => ([mk ThematicBreak], PPara [])
   | KFence f => ([], PFence f [])
+  | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
   | KText => ([], PPara [l])
   | KQuote _ => ([], PPara [])        (* unreachable: see step *)
   end.
@@ -141,6 +159,23 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) : blocks * pstate :=
           match classify l with
           | KBlank => ([mk (Para (para_inlines (rev (c :: cur'))))], PPara [])
           | _ => ([], PPara (l :: c :: cur'))   (* paragraphs never interrupt *)
+          end
+      | PHeading lvl cur =>
+          (* Unlike a paragraph, a heading *is* interruptible: only a
+             matching-level marker or a lazy text line continues it. *)
+          match classify l with
+          | KHeading lvl' rest =>
+              if Nat.eqb lvl' lvl
+              then ([], PHeading lvl (push_text rest cur))
+              else ([heading_block lvl cur],
+                    PHeading lvl' (push_text rest []))
+          | KText => ([], PHeading lvl (l :: cur))
+          | KQuote rest =>
+              let (bs, inner) := step_fuel n' rest (PPara []) in
+              ([heading_block lvl cur], PQuote (rev bs) inner)
+          | k =>
+              let (bs, st') := open_kind l k in
+              (heading_block lvl cur :: bs, st')
           end
       | PQuote done inner =>
           match classify l with
@@ -206,16 +241,22 @@ Proof.
   induction bound as [|bound IH]; intros n l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel].
-  destruct st as [cur|f acc|done inner].
+  destruct st as [cur|hlvl hcur|f acc|done inner].
   - destruct cur as [|c cur'].
-    + destruct (classify l) as [| |f|rest|] eqn:E; try reflexivity.
+    + destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
       pose proof (classify_quote_length _ _ E) as Hlt.
       rewrite (IH n' rest (PPara [])) by lia.
       rewrite (IH (String.length l) rest (PPara [])) by lia.
       reflexivity.
     + destruct (classify l); reflexivity.
+  - (* an open heading: only its KQuote branch recurses *)
+    destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
+    pose proof (classify_quote_length _ _ E) as Hlt.
+    rewrite (IH n' rest (PPara [])) by lia.
+    rewrite (IH (String.length l) rest (PPara [])) by lia.
+    reflexivity.
   - destruct (fence_close f l); reflexivity.
-  - destruct (classify l) as [| |f|rest|] eqn:E; try reflexivity.
+  - destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
     pose proof (classify_quote_length _ _ E) as Hlt.
     rewrite (IH n' rest inner) by lia.
     rewrite (IH (String.length l) rest inner) by lia.
@@ -492,6 +533,81 @@ Proof.
 Qed.
 
 (*
+Heading equations
+-----------------
+*)
+
+Lemma step_heading_cont :
+  forall l lvl txt cur,
+    classify l = KHeading lvl txt ->
+    step l (PHeading lvl cur) = ([], PHeading lvl (push_text txt cur)).
+Proof.
+  intros l lvl txt cur H. unfold step. cbn [step_fuel]. rewrite H.
+  rewrite Nat.eqb_refl. reflexivity.
+Qed.
+
+Lemma step_heading_close :
+  forall l lvl cur,
+    classify l = KBlank ->
+    step l (PHeading lvl cur) = ([heading_block lvl cur], PPara []).
+Proof.
+  intros l lvl cur H. unfold step. cbn [step_fuel]. rewrite H. reflexivity.
+Qed.
+
+Lemma parse_lines_heading_open :
+  forall l rest lvl txt,
+    classify l = KHeading lvl txt ->
+    parse_lines (l :: rest) (PPara []) =
+    parse_lines rest (PHeading lvl (push_text txt [])).
+Proof.
+  intros l rest lvl txt H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
+Qed.
+
+Lemma parse_lines_heading_cont :
+  forall l rest lvl txt cur,
+    classify l = KHeading lvl txt ->
+    parse_lines (l :: rest) (PHeading lvl cur) =
+    parse_lines rest (PHeading lvl (push_text txt cur)).
+Proof.
+  intros l rest lvl txt cur H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_heading_cont _ _ _ _ H)).
+  reflexivity.
+Qed.
+
+Lemma parse_lines_heading_close :
+  forall l rest lvl cur,
+    classify l = KBlank ->
+    parse_lines (l :: rest) (PHeading lvl cur) =
+    heading_block lvl cur :: parse_lines rest (PPara []).
+Proof.
+  intros l rest lvl cur H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_heading_close _ _ _ H)).
+  reflexivity.
+Qed.
+
+(* A run of canonically-rendered heading lines accumulates (reversed)
+   onto the open heading, exactly as paragraph lines do. *)
+Lemma parse_lines_heading_seed :
+  forall lvl ls tail cur,
+    1 <= lvl ->
+    forallb nonblank ls = true ->
+    parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
+    parse_lines tail (PHeading lvl (rev ls ++ cur)%list).
+Proof.
+  intros lvl ls. induction ls as [|a ls IH]; intros tail cur Hlvl H.
+  - reflexivity.
+  - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
+    unfold nonblank in Ha. apply negb_true_iff in Ha.
+    cbn [map app].
+    rewrite (parse_lines_heading_cont _ _ _ a _
+               (classify_canonical_heading lvl a Hlvl)).
+    unfold push_text. rewrite Ha.
+    rewrite IH by assumption.
+    cbn [rev]. rewrite <- app_assoc. reflexivity.
+Qed.
+
+(*
 Uniformity of block quotes
 --------------------------
 
@@ -708,6 +824,75 @@ Example parse_quote_closed_by_thematic :
   doc_blocks (parse_doc "> a
 * * * *") =
   [ mk (BlockQuote [mk (Para [mk (Str "a")])]); mk ThematicBreak ].
+Proof. reflexivity. Qed.
+
+(*
+Headings
+--------
+
+Pinned against djot.js probes, as above.  Section wrapping and
+auto-identifiers are deliberately absent: they are a whole-document
+pass, not part of the line fold. *)
+
+Example parse_heading_basic :
+  doc_blocks (parse_doc "## hi") = [mk (Heading 2 [mk (Str "hi")])].
+Proof. reflexivity. Qed.
+
+(* The whitespace after the hashes is required. *)
+Example parse_heading_needs_ws :
+  doc_blocks (parse_doc "#hi") = [mk (Para [mk (Str "#hi")])].
+Proof. reflexivity. Qed.
+
+Example parse_heading_empty :
+  doc_blocks (parse_doc "#") = [mk (Heading 1 [])].
+Proof. reflexivity. Qed.
+
+(* Same level continues the heading; the text joins with a SoftBreak. *)
+Example parse_heading_multiline :
+  doc_blocks (parse_doc "# a
+# b") =
+  [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* ...and so does a bare text line, lazily. *)
+Example parse_heading_lazy :
+  doc_blocks (parse_doc "# a
+b") =
+  [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* A different level starts a new heading rather than continuing. *)
+Example parse_heading_level_change :
+  doc_blocks (parse_doc "# a
+## b") =
+  [mk (Heading 1 [mk (Str "a")]); mk (Heading 2 [mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* Unlike a paragraph, a heading *is* interrupted by a block start. *)
+Example parse_heading_interrupted :
+  doc_blocks (parse_doc "# a
+* * * *") =
+  [mk (Heading 1 [mk (Str "a")]); mk ThematicBreak].
+Proof. reflexivity. Qed.
+
+Example parse_heading_interrupted_quote :
+  doc_blocks (parse_doc "# a
+> q") =
+  [ mk (Heading 1 [mk (Str "a")])
+  ; mk (BlockQuote [mk (Para [mk (Str "q")])]) ].
+Proof. reflexivity. Qed.
+
+(* Heading content is inline: it is never reclassified, so a quote
+   marker inside one is just text. *)
+Example parse_heading_content_not_reclassified :
+  doc_blocks (parse_doc "# > q") = [mk (Heading 1 [mk (Str "> q")])].
+Proof. reflexivity. Qed.
+
+(* Containers compose for free: the quote strips, then the classifier
+   sees a heading. *)
+Example parse_heading_in_quote :
+  doc_blocks (parse_doc "> # a") =
+  [mk (BlockQuote [mk (Heading 1 [mk (Str "a")])])].
 Proof. reflexivity. Qed.
 
 (* Paragraphs are never interrupted, quotes included. *)
