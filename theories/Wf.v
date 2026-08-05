@@ -1,10 +1,11 @@
 (* Well-formedness of the djot AST, as a decidable boolean predicate,
    plus the theorem that the parser only produces well-formed output.
 
-   Conditions mirror the QCheck generator predicates (no empty
-   paragraphs, no empty containers, no empty lists) plus a canonicality
-   condition (no adjacent plain Str nodes) that exact-equality roundtrip
-   needs. *)
+   Two kinds of condition:
+   - Structural: no empty containers, no empty containers, no empty lists
+     - record what the parser can emit
+   - Canonicality: _
+*)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Parser.
@@ -122,8 +123,8 @@ Definition wf_blocks (bs : blocks) : bool :=
 (* The top-level predicate: body and footnote bodies are well-formed.
    (Reference maps carry no blocks, so nothing to check there.) *)
 Definition wf_doc (d : doc) : bool :=
-  wf_blocks (doc_blocks d)
-  && forallb (fun p => wf_blocks (snd p)) (doc_footnotes d).
+  wf_blocks (doc_blocks d) && 
+  forallb (fun p : string * blocks => wf_blocks (snd p)) (doc_footnotes d).
 
 (*
 Equation lemmas
@@ -297,4 +298,91 @@ Proof.
   intros s. unfold wf_doc, parse_doc. simpl.
   rewrite andb_true_r.
   apply parse_lines_wf. reflexivity.
+Qed.
+
+(*
+Completeness
+============
+*)
+
+(* wf = image(parse_doc): the converse of wf_parse, which alone permits
+   any weaker predicate.  Asserted nowhere: false as stated, see
+   wf_complete_false. *)
+Definition wf_complete : Prop :=
+  forall d, wf_doc d = true -> exists s, parse_doc s = d.
+
+(* The block constructs Parser.v has a rule for.  The rest of `block` is
+   transcribed from djoths and unreachable. *)
+Definition supported (b : block) : bool :=
+  match b with
+  | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ => true
+  | _ => false
+  end.
+
+Definition supported_blocks (bs : blocks) : bool :=
+  forallb (fun n => supported (node_contents n)) bs.
+
+Lemma supported_blocks_cons :
+  forall n bs,
+    supported_blocks (n :: bs)
+    = (supported (node_contents n) && supported_blocks bs)%bool.
+Proof. reflexivity. Qed.
+
+Lemma fence_block_supported :
+  forall f content, supported (node_contents (fence_block f content)) = true.
+Proof.
+  intros f content. unfold fence_block.
+  destruct (f_info f) as [|c info]; [reflexivity|].
+  destruct (Ascii.eqb c "=")%char eqn:E.
+  - apply Ascii.eqb_eq in E. subst c. reflexivity.
+  - destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+Qed.
+
+(* Same case analysis as parse_lines_wf, with no state invariant to
+   thread: the emitted constructors are supported unconditionally. *)
+Lemma parse_lines_supported :
+  forall lines st, supported_blocks (parse_lines lines st) = true.
+Proof.
+  induction lines as [|l rest IH]; intros st.
+  - destruct st as [cur|f acc].
+    + destruct cur as [|c cur']; [reflexivity|].
+      rewrite parse_lines_nil_cons. reflexivity.
+    + rewrite parse_lines_fence_eof.
+      rewrite supported_blocks_cons, fence_block_supported. reflexivity.
+  - destruct st as [cur|f acc].
+    + destruct (classify l) eqn:E.
+      * destruct cur as [|c cur'].
+        -- rewrite parse_lines_blank_nil by exact E. apply IH.
+        -- rewrite parse_lines_blank_cons by exact E.
+           rewrite supported_blocks_cons. apply IH.
+      * destruct cur as [|c cur'].
+        -- rewrite parse_lines_thematic_nil by exact E.
+           rewrite supported_blocks_cons. apply IH.
+        -- rewrite parse_lines_cont by (rewrite E; discriminate). apply IH.
+      * destruct cur as [|c cur'].
+        -- rewrite (parse_lines_fence_open _ _ _ E). apply IH.
+        -- rewrite parse_lines_cont by (rewrite E; discriminate). apply IH.
+      * rewrite parse_lines_text by exact E. apply IH.
+    + destruct (fence_close f l) eqn:E.
+      * rewrite parse_lines_fence_close by exact E.
+        rewrite supported_blocks_cons, fence_block_supported. apply IH.
+      * rewrite parse_lines_fence_content by exact E. apply IH.
+Qed.
+
+(* Counterexample: a `Section` doc, well-formed and unreachable.  The gap
+   is coverage, not a missing wf condition, so completeness has to be
+   restated over the parser's fragment in canonical form, i.e. Render.v's
+   cb_ok cblocks. *)
+Theorem wf_complete_false : ~ wf_complete.
+Proof.
+  intros Hc.
+  destruct (Hc {| doc_blocks := [mk (Section [mk ThematicBreak])]
+                ; doc_footnotes := []
+                ; doc_references := []
+                ; doc_auto_references := []
+                ; doc_auto_identifiers := [] |} eq_refl) as [s Hs].
+  pose proof (parse_lines_supported (split_lines s) (PPara [])) as Hsup.
+  change (parse_lines (split_lines s) (PPara []))
+    with (doc_blocks (parse_doc s)) in Hsup.
+  rewrite Hs in Hsup. discriminate.
 Qed.
