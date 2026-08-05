@@ -1,11 +1,11 @@
 ---
 ai-disclosure: ai-generated
-date: 2026-08-02
+date: 2026-08-05
 ---
-# Handover: djot.v state as of 2026-08-02
+# Handover: djot.v state as of 2026-08-05
 
-Where the verified-djot project stands after its first working day, for
-whoever (human or agent) picks it up next. The research background is
+Where the verified-djot project stands, for whoever (human or agent)
+picks it up next. The research background is
 `reference/Formalizing djot in Rocq.v2.md`; the staged plan is
 `.project/260802-plan.ai-generated.md`. This file records what actually
 exists, how to drive it, and what to watch out for.
@@ -14,19 +14,27 @@ exists, how to drive it, and what to watch out for.
 
 - Phase 0 (infrastructure) **done**; Phase 1 (wf AST, renderer, roundtrip)
   **core done**, growing construct by construct.
-- Parser covers: paragraphs, thematic breaks, fenced code/raw blocks.
+- Parser covers: paragraphs, thematic breaks, fenced code/raw blocks,
+  **block quotes** (nested, with lazy continuation).
 - Theorems, all axiom-free (`Print Assumptions` closed), zero `Admitted`:
   - `wf_parse` (Wf.v): every parser output is well-formed, for all inputs.
+  - `wf_complete_false` (Wf.v): wf is *not* the image of `parse_doc` — the
+    gap is construct coverage, not a missing wf condition.
   - `roundtrip_blocks` (Roundtrip.v): `parse (render (doc_of_cblocks cbs))
     = doc_of_cblocks cbs` — exact equality on canonical blocks.
+  - `quote_uniformity` (Parser.v): prefixing every line with `"> "` parses
+    to that document wrapped in a quote. No hypotheses, every construct.
+    This is Phase 2's uniformity statement, arriving early.
   - `many_fuel_stable` (Spike.v): the Spike A verdict — fuel + discharge
     lemmas, not well-founded recursion.
-- Differential corpus (djot.js's 287 usable cases): gallina 38, djot.js
+- Differential corpus (djot.js's 287 usable cases): gallina 47, djot.js
   287 (its own corpus), djoths 262. The 25 djoths divergences are
   adjudicated in `.project/oracle-disagreements.md` — djot.js is the sole
   authority (upstream README: djoths is not kept up to date).
 - Corpus numbers are a health check, not the goal — the standing priority
   is good code and proof engineering over conformance chasing.
+  `block_quote.test` is 12/15; the 3 misses need inline emphasis and
+  headings, and the block structure is right in all of them.
 
 ## How to drive it
 
@@ -52,20 +60,40 @@ Dependency chain, one concern per file:
 ```
 Strings.v   byte-string utilities + all their lemmas (split/join inversion)
   └ Line.v      line_kind classifier — THE prefix-determinism seam
-      └ Parser.v    fold over classified lines; pstate = PPara | PFence;
-                    equation lemmas are the proof interface
+      └ Parser.v    step (per-line transition) + finish; parse_lines folds
+                    them; pstate = PPara | PFence | PQuote (container
+                    stack); equation lemmas are the proof interface
           ├ Wf.v        wf predicate + state_wf invariant + wf_parse
           ├ Html.v      HTML renderer (djot.js serialization is authority)
-          └ Render.v    cblock canonical view + cb_ok renderability
-              └ Roundtrip.v  split_render / parse_sep / render agreement
+          └ Render.v    cblock canonical view + cb_ok + line renderer
+              └ Roundtrip.v  split_render / parse_cblock / render agreement
 ```
 
 Load-bearing decisions:
 
 - **Proofs never unfold the parser.** Wf/Roundtrip only rewrite with
-  Parser.v's equation lemmas (`parse_lines_text`, `_cont_seed`,
-  `_para_seed`, `_fence_*`). This is why re-proving after refactors has
-  been mechanical. Keep it that way.
+  Parser.v's equation lemmas (`step_*`, `parse_lines_step`,
+  `parse_lines_text`, `_cont_seed`, `_para_seed`, `_fence_*`). This is
+  why re-proving after refactors has been mechanical. Keep it that way.
+- **The state is a container stack, and `step` is its transition.** This
+  is deliberately Phase 2's `BlockSpec` shape (`continue`/`close`/
+  `finalize` rolled into one function) so that phase is a refactor of a
+  working design, not a rewrite.
+- **Nesting and uniformity come from re-entering `classify`.** A quote
+  strips its prefix and runs `step` on the enclosed line, so a
+  container's contents take the same path as the top level. That is
+  what makes `quote_uniformity` hypothesis-free — and what a new
+  container should copy.
+- **Fuel exists but never escapes.** Quote descent recurses on the
+  *line*, not the state, so it is not structural. `step_fuel` takes
+  fuel; `step` fixes it at the line's length (enough by
+  `classify_quote_length`) and `step_fuel_enough` discharges it. No
+  statement outside Parser.v mentions fuel — keep it that way when the
+  next container lands.
+- **The djot renderer is line-valued** (`render_block_lines`), because
+  block structure *is* line structure: a quote's rendering is its
+  contents' lines with a prefix. `sep_lines` is the one layout function,
+  shared by documents and container contents.
 - **Renderability is phrased through the classifier**: a canonical
   paragraph's first line must `classify` as `KText`; interior lines merely
   nonblank (= the no-interruption rule); last line pre-stripped. A
@@ -77,16 +105,22 @@ Load-bearing decisions:
 - The split/join inversion needs only: all lines newline-free, final line
   nonempty. (Weakened for blank code-content lines; don't re-strengthen.)
 
-## The extension recipe (proven twice: thematic breaks, code fences)
+## The extension recipe (proven three times: thematic breaks, code fences, block quotes)
 
 To add a block construct:
 
 1. `Line.v` — recognizer + `line_kind` case (+ canonical-form lemmas).
-2. `Parser.v` — parser branch + its equation/seed lemmas.
-3. `Wf.v` — case in `parse_lines_wf` (and `wf_block` if new AST shape).
-4. `Render.v` — `cblock` constructor, canonical rendering, `cb_ok`.
-5. `Roundtrip.v` — one case each in `cb_ok_lines_ok`, `parse_sep`,
-   `render_djot_cblocks`.
+2. `Parser.v` — `step` branch + its equation/seed lemmas.
+3. `Wf.v` — case in `step_fuel_wf` (and `wf_block` if new AST shape),
+   plus the matching case in `step_fuel_supported`.
+4. `Render.v` — `cblock` constructor, `cb_lines`/`cb_ast`/`cb_ok` case,
+   `render_block_lines` case.
+5. `Roundtrip.v` — one case each in `cb_ok_lines_ok`, `parse_cblock`,
+   `render_cb_lines`.
+
+For a *container* specifically, add to that: a `pstate` constructor, its
+cases in `finish`/`lazy_ok`/`feed_lazy`, and the `state_wf` clause.
+Block quotes are the worked example throughout.
 
 ## Rocq gotchas already paid for (do not rediscover)
 
@@ -98,7 +132,18 @@ To add a block construct:
   [whitelist]`. When a rewrite fails mysteriously, the head is often an
   `app` that needs `cbn [app]` to become a `cons`.
 - With `string_scope` open, `++` on lists silently parses as
-  `String.append` — annotate list appends `%list`.
+  `String.append` — annotate list appends `%list`. The reverse bites too:
+  a `%list` annotation scopes the *whole* expression, so a string `++`
+  inside a lambda under it needs its own `%string`.
+- **Mutual `Fixpoint ... with ...` is rejected** for both `block` (through
+  `list (node block)`) and `cblock` (through `list cblock`): the cross-call
+  argument is not a subterm of the *other* function's principal argument.
+  Verified, not assumed. Hence the hand-inlined fixpoints everywhere, each
+  paired with an equation lemma proved by `change` + induction, and
+  `cblock_ind2` for the induction the generated principle cannot do.
+- `rewrite last_map` needs the default to match syntactically; `last l d`
+  is default-independent on nonempty `l` (`last_default`) — rewrite with
+  that first.
 - Literal-headed appends make associativity definitional ("``` ++ x`"
   reduces), which lets 256-way ascii destructs close by `reflexivity`
   (`fence_block_wf`, `render_fence_block`).
@@ -119,41 +164,59 @@ To add a block construct:
 ## Open threads, in rough priority order
 
 1. **Next construct — pick one:**
-   - *Block quotes*: first true container; starts turning `pstate` into
-     the Phase 2 container stack. Structurally the most valuable.
    - *Headings*: forces the whole-document auto-identifier/section pass —
      the first thing that must live outside the locality boundary (keep it
      a separate pass after `parse_lines`; do not thread it through the
-     fold).
+     fold). Also unblocks 2 of the 3 remaining `block_quote.test` cases
+     when paired with inlines.
+   - *Lists*: the second container, and the one that will force real
+     indent handling (see thread 3). Would properly exercise the
+     `step`/`finish` design under a container whose prefix is not a
+     fixed string.
 2. **SPEC-GAP findings** (also in oracle-disagreements.md): tilde fences
    are undocumented in the prose spec; table separator-cell trimming is
    ambiguous (djot.js does not trim). The formalized spec decides both
    djot.js's way; consider filing upstream doc issues.
-3. **Indented code fences**: recognizer accepts leading ws but content is
-   not de-indented (djot.js strips the fence's indent). Known-incomplete;
-   revisit when containers introduce indent handling properly.
-4. **Inline parsing** is untouched: paragraphs are Str/SoftBreak only.
+3. **Indentation is the one known-incomplete area.** Two instances:
+   - Indented code fences: the recognizer accepts leading ws but content
+     is not de-indented (djot.js strips the fence's indent).
+   - Block quotes strip `>` plus *at most one* whitespace, so `>     a`
+     keeps four spaces where djot.js's `skipSpace` drops them for
+     paragraph (Inline) content while *preserving* relative indent for
+     verbatim (Text) content. The current rule is right for `"> "` and
+     for fence content, wrong for over-indented paragraph lines.
+   Both want the same fix: an indent notion on the container stack, which
+   is what lists will force. Deliberately not patched piecemeal.
+
+4. **Empty block quotes sit outside the canonical view.** `>` parses to
+   `BlockQuote []` (correct — djot.js agrees, and `wf_block` allows it),
+   but `cb_ok (CQuote [])` is false because an empty quote has no
+   rendering. Harmless today; revisit if the roundtrip fragment is ever
+   claimed to be the parser's whole image.
+6. **Inline parsing** is untouched: paragraphs are Str/SoftBreak only.
    Phase 3 formalizes djot.js's opener-stack single pass (not djoths's
    backtracking combinators) — see the plan.
-5. **Deferred render details**: HTML for lists/tables/headings are TODO
+7. **Deferred render details**: HTML for lists/tables/headings are TODO
    stubs in Html.v; raw block passthrough is html-only.
-6. Corpus gains now come mostly from constructs with inline content, so
+8. Corpus gains now come mostly from constructs with inline content, so
    expect the number to plateau until Phase 3 starts.
 
 ## File-by-file (theories/)
 
 | File | Contents | Key theorem/lemma |
 |---|---|---|
-| Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `join_nl_last` |
-| Line.v | `line_kind`, thematic + fence recognizers | `classify_backtick_fence` |
-| Parser.v | `pstate`, `parse_lines`, equations, examples | `parse_lines_para_seed`, `_fence_seed` |
+| Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `split_join_nl` |
+| Line.v | `line_kind`, thematic/fence/quote recognizers | `classify_backtick_fence`, `classify_quote_length` |
+| Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
 | Ast.v | full AST (djoths AST.hs transcription) | — |
-| Wf.v | wf predicate, canonicality, `state_wf` | `wf_parse` |
-| Render.v | `cblock`, `cb_ok`, djot renderer | — |
+| Wf.v | wf predicate, canonicality, `state_wf` | `wf_parse`, `wf_complete_false` |
+| Render.v | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2` | — |
 | Roundtrip.v | split/parse/render agreement | `roundtrip_blocks` |
 | Html.v | HTML renderer (djot.js-faithful) | — |
 | Spike.v | Spike A: fuel + discharge lemmas | `many_fuel_stable` |
 
 Commit history tells the story: `7104129` scaffold → `c220897`
 adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
-`fc1237a` restructure/classifier/thematic → `376ea05` code fences.
+`fc1237a` restructure/classifier/thematic → `376ea05` code fences →
+`2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
+`1978716` quote roundtrip + line renderer.
