@@ -15,7 +15,8 @@ exists, how to drive it, and what to watch out for.
 - Phase 0 (infrastructure) **done**; Phase 1 (wf AST, renderer, roundtrip)
   **core done**, growing construct by construct.
 - Parser covers: paragraphs, thematic breaks, fenced code/raw blocks,
-  **block quotes** (nested, with lazy continuation).
+  **block quotes** (nested, with lazy continuation), **headings**
+  (multi-line, interruptible; no section/id pass yet).
 - Theorems, all axiom-free (`Print Assumptions` closed), zero `Admitted`:
   - `wf_parse` (Wf.v): every parser output is well-formed, for all inputs.
   - `wf_complete_false` (Wf.v): wf is *not* the image of `parse_doc` — the
@@ -34,7 +35,9 @@ exists, how to drive it, and what to watch out for.
 - Corpus numbers are a health check, not the goal — the standing priority
   is good code and proof engineering over conformance chasing.
   `block_quote.test` is 12/15; the 3 misses need inline emphasis and
-  headings, and the block structure is right in all of them.
+  heading ids, and the block structure is right in all of them.
+  Headings moved the number by zero on purpose: their HTML cannot match
+  djot.js until section wrapping and auto-identifiers exist.
 
 ## How to drive it
 
@@ -105,7 +108,7 @@ Load-bearing decisions:
 - The split/join inversion needs only: all lines newline-free, final line
   nonempty. (Weakened for blank code-content lines; don't re-strengthen.)
 
-## The extension recipe (proven three times: thematic breaks, code fences, block quotes)
+## The extension recipe (proven four times: thematic breaks, code fences, block quotes, headings)
 
 To add a block construct:
 
@@ -163,21 +166,36 @@ Block quotes are the worked example throughout.
 
 ## Open threads, in rough priority order
 
-1. **Next construct — pick one:**
-   - *Headings*: forces the whole-document auto-identifier/section pass —
-     the first thing that must live outside the locality boundary (keep it
-     a separate pass after `parse_lines`; do not thread it through the
-     fold). Also unblocks 2 of the 3 remaining `block_quote.test` cases
-     when paired with inlines.
-   - *Lists*: the second container, and the one that will force real
-     indent handling (see thread 3). Would properly exercise the
-     `step`/`finish` design under a container whose prefix is not a
-     fixed string.
-2. **SPEC-GAP findings** (also in oracle-disagreements.md): tilde fences
+1. **The whole-document pass.** Headings parse but produce no `Section`
+   wrapping and no `id`s. Both are order-dependent computations over the
+   finished block list — level-driven section nesting, and identifier
+   dedup with `-1`/`-2` suffixes. Reference definitions and footnotes
+   want the same pass (they are block syntax that produces no block, only
+   side-table entries), so build it once for all four. It must sit
+   *after* `parse_lines`, never inside the fold: that separation is what
+   Phase 3's locality theorem depends on.
+   Note djot.js only wraps sections at the top level — inside a quote a
+   heading gets a bare `<h1 id=...>`. Check that before designing.
+
+2. **Lists** — the last real container, and bigger than the plan's
+   one-liner. Budget it as four sub-problems, not one:
+   - indent-based continuation (`indent > list.indent`, or blank), which
+     is what finally forces an indent notion on `pstate`;
+   - `list` + `list_item` as *two* nested containers;
+   - tight/loose, which is a stateful rule: a blank line sets a flag on
+     the enclosing list, and any later event that is not a list boundary
+     turns the list loose (djot.js `parse.ts` ~line 1237). Our fold can
+     carry this in `PList` state since the list is only emitted on close
+     — no retroactivity needed.
+   - marker styles and their narrowing across items (`i.` is roman *and*
+     alpha until a sibling disambiguates). The plan already files this
+     under Phase 3's "small combinatorial specs"; it can be deferred by
+     doing bullet lists first.
+3. **SPEC-GAP findings** (also in oracle-disagreements.md): tilde fences
    are undocumented in the prose spec; table separator-cell trimming is
    ambiguous (djot.js does not trim). The formalized spec decides both
    djot.js's way; consider filing upstream doc issues.
-3. **Indentation is the one known-incomplete area.** Two instances:
+4. **Indentation is the one known-incomplete area.** Two instances:
    - Indented code fences: the recognizer accepts leading ws but content
      is not de-indented (djot.js strips the fence's indent).
    - Block quotes strip `>` plus *at most one* whitespace, so `>     a`
@@ -185,20 +203,22 @@ Block quotes are the worked example throughout.
      paragraph (Inline) content while *preserving* relative indent for
      verbatim (Text) content. The current rule is right for `"> "` and
      for fence content, wrong for over-indented paragraph lines.
+   - Headings strip the hashes plus at most one whitespace, so `#   a`
+     has the same over-indent behaviour as `>   a`.
    Both want the same fix: an indent notion on the container stack, which
    is what lists will force. Deliberately not patched piecemeal.
 
-4. **Empty block quotes sit outside the canonical view.** `>` parses to
-   `BlockQuote []` (correct — djot.js agrees, and `wf_block` allows it),
-   but `cb_ok (CQuote [])` is false because an empty quote has no
-   rendering. Harmless today; revisit if the roundtrip fragment is ever
-   claimed to be the parser's whole image.
-6. **Inline parsing** is untouched: paragraphs are Str/SoftBreak only.
+5. **Empty containers sit outside the canonical view.** `>` parses to
+   `BlockQuote []` and `#` to `Heading _ []` (both correct — djot.js
+   agrees, and `wf_block` allows them), but `cb_ok` rejects both because
+   neither has a rendering to invert. Harmless today; revisit if the
+   roundtrip fragment is ever claimed to be the parser's whole image.
+7. **Inline parsing** is untouched: paragraphs are Str/SoftBreak only.
    Phase 3 formalizes djot.js's opener-stack single pass (not djoths's
    backtracking combinators) — see the plan.
-7. **Deferred render details**: HTML for lists/tables/headings are TODO
+8. **Deferred render details**: HTML for lists/tables/headings are TODO
    stubs in Html.v; raw block passthrough is html-only.
-8. Corpus gains now come mostly from constructs with inline content, so
+9. Corpus gains now come mostly from constructs with inline content, so
    expect the number to plateau until Phase 3 starts.
 
 ## File-by-file (theories/)
@@ -206,7 +226,7 @@ Block quotes are the worked example throughout.
 | File | Contents | Key theorem/lemma |
 |---|---|---|
 | Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `split_join_nl` |
-| Line.v | `line_kind`, thematic/fence/quote recognizers | `classify_backtick_fence`, `classify_quote_length` |
+| Line.v | `line_kind`, thematic/fence/quote/heading recognizers | `classify_canonical_heading`, `classify_quote_length` |
 | Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
 | Ast.v | full AST (djoths AST.hs transcription) | — |
 | Wf.v | wf predicate, canonicality, `state_wf` | `wf_parse`, `wf_complete_false` |
@@ -219,4 +239,4 @@ Commit history tells the story: `7104129` scaffold → `c220897`
 adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
 `fc1237a` restructure/classifier/thematic → `376ea05` code fences →
 `2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
-`1978716` quote roundtrip + line renderer.
+`1978716` quote roundtrip + line renderer → `b54876a` headings.
