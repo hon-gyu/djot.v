@@ -267,6 +267,42 @@ Fixpoint close_ge (lvl : nat) (pending : blocks) (stk : sect_state)
       else ((l, a, (pending ++ acc)%list) :: outer)
   end.
 
+(* Equation lemmas, as everywhere else in this development: `cbn` on
+   close_ge reduces the *recursive* call as well, and an induction
+   hypothesis about it then no longer matches. *)
+Lemma close_ge_singleton :
+  forall lvl pending l a acc,
+    close_ge lvl pending [(l, a, acc)] = [(l, a, (pending ++ acc)%list)].
+Proof. reflexivity. Qed.
+
+Lemma close_ge_cons :
+  forall lvl pending l a acc outer,
+    outer <> [] ->
+    close_ge lvl pending ((l, a, acc) :: outer)
+    = if Nat.leb lvl l
+      then close_ge lvl [Node NoPos a (Section (rev (pending ++ acc)))] outer
+      else ((l, a, (pending ++ acc)%list) :: outer).
+Proof. intros lvl pending l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
+
+(* End of input closes every open section, whatever its level.  Testing
+   levels here would be wrong as well as unnecessary: a level-0 heading
+   would leave its entry open, and sect_bottom would then drop it and
+   everything it had collected. *)
+Fixpoint close_all (pending : blocks) (stk : sect_state) : sect_state :=
+  match stk with
+  | [] => []
+  | [(l, a, acc)] => [(l, a, (pending ++ acc)%list)]
+  | (l, a, acc) :: outer =>
+      close_all [Node NoPos a (Section (rev (pending ++ acc)))] outer
+  end.
+
+Lemma close_all_cons :
+  forall pending l a acc outer,
+    outer <> [] ->
+    close_all pending ((l, a, acc) :: outer)
+    = close_all [Node NoPos a (Section (rev (pending ++ acc)))] outer.
+Proof. intros pending l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
+
 Definition sect_push (b : node block) (stk : sect_state) : sect_state :=
   match stk with
   | [] => []
@@ -292,7 +328,7 @@ Fixpoint sect_bottom (stk : sect_state) : blocks :=
   end.
 
 Definition sectionize (bs : blocks) : blocks :=
-  sect_bottom (close_ge 1 [] (fold_left sect_step bs sect_init)).
+  sect_bottom (close_all [] (fold_left sect_step bs sect_init)).
 
 (*
 The pass
@@ -309,6 +345,514 @@ Definition doc_pass (bs : blocks) : doc :=
 
 (** Parse a djot document: the line fold, then the whole-document pass. *)
 Definition parse_doc (s : string) : doc := doc_pass (parse_blocks s).
+
+(*
+Erasure
+=======
+
+The pass only adds, and what it adds is recoverable: a section is
+exactly its heading plus the blocks that followed it, and an
+auto-identifier is exactly an "id" attribute on a heading that carried
+none.  `undo_pass` takes both back out in one traversal, and
+`pass_erase` says it takes out precisely what the pass put in.
+
+That is what keeps Roundtrip.v's theorem meaningful above the block
+layer: render, parse, erase is the identity.  It is also the guard on
+this file's future — reference definitions and footnotes will add
+side-table entries here, and each should either extend `undo_pass` or
+be shown not to touch the block tree.
+*)
+
+(* Oriented like lookup_attr, so the two compose without an eqb flip. *)
+Definition strip_id (a : attr) : attr :=
+  filter (fun kv => negb (String.eqb "id" (fst kv))) a.
+
+Lemma strip_id_absent :
+  forall a, lookup_attr "id" a = None -> strip_id a = a.
+Proof.
+  induction a as [|[k v] rest IH]; intros H; [reflexivity|].
+  cbn [lookup_attr] in H. cbn [strip_id filter fst].
+  destruct (String.eqb "id" k); [discriminate|].
+  cbn [negb]. f_equal. apply IH. exact H.
+Qed.
+
+Lemma strip_id_cons :
+  forall v a, lookup_attr "id" a = None -> strip_id (("id", v) :: a) = a.
+Proof.
+  intros v a H. cbn [strip_id filter fst].
+  rewrite String.eqb_refl. cbn [negb].
+  apply strip_id_absent. exact H.
+Qed.
+
+(* A section's attributes came off the heading that opened it, which
+   sectionize left as its first child. *)
+Definition set_first (a : attr) (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node p _ x :: rest => Node p a x :: rest
+  end.
+
+(* Stripping the id *before* handing the attributes back is what makes
+   one traversal enough: the identifier the pass added rides on the
+   section, so it has to come off there. *)
+Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
+  : blocks :=
+  let go :=
+    fix go (ns : blocks) : blocks :=
+      match ns with
+      | [] => []
+      | Node p' a' x :: rest => (undo_pass_block x p' a' ++ go rest)%list
+      end in
+  match b with
+  | Section inner => set_first (strip_id a) (go inner)
+  | Heading lvl ils => [Node p (strip_id a) (Heading lvl ils)]
+  | BlockQuote inner => [Node p a (BlockQuote (go inner))]
+  | _ => [Node p a b]
+  end.
+
+Fixpoint undo_pass (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node p a b :: rest => (undo_pass_block b p a ++ undo_pass rest)%list
+  end.
+
+Lemma undo_pass_section :
+  forall inner p a,
+    undo_pass_block (Section inner) p a
+    = set_first (strip_id a) (undo_pass inner).
+Proof.
+  assert (H : forall ns,
+             (fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) ns = undo_pass ns).
+  { induction ns as [|[p' a' x] rest IH]; [reflexivity|].
+    cbn [undo_pass]. rewrite IH. reflexivity. }
+  intros inner p a.
+  change (undo_pass_block (Section inner) p a)
+    with (set_first (strip_id a)
+            ((fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) inner)).
+  rewrite H. reflexivity.
+Qed.
+
+Lemma undo_pass_quote :
+  forall inner p a,
+    undo_pass_block (BlockQuote inner) p a
+    = [Node p a (BlockQuote (undo_pass inner))].
+Proof.
+  assert (H : forall ns,
+             (fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) ns = undo_pass ns).
+  { induction ns as [|[p' a' x] rest IH]; [reflexivity|].
+    cbn [undo_pass]. rewrite IH. reflexivity. }
+  intros inner p a.
+  change (undo_pass_block (BlockQuote inner) p a)
+    with [Node p a (BlockQuote
+            ((fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) inner))].
+  rewrite H. reflexivity.
+Qed.
+
+Definition undo_pass_node (n : node block) : blocks :=
+  match n with Node p a b => undo_pass_block b p a end.
+
+Lemma undo_pass_cons :
+  forall n rest, undo_pass (n :: rest) = (undo_pass_node n ++ undo_pass rest)%list.
+Proof. intros [p a b] rest. reflexivity. Qed.
+
+Lemma undo_pass_single : forall n, undo_pass [n] = undo_pass_node n.
+Proof. intros [p a b]. cbn [undo_pass undo_pass_node]. apply app_nil_r. Qed.
+
+(* Input the pass has not already run on: no sections, and no heading
+   carrying an explicit id.  Checked exactly where undo_pass looks — the
+   top level and block-quote contents — because those are the only
+   places either half of the pass reaches. *)
+Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
+  let go :=
+    fix go (ns : blocks) : bool :=
+      match ns with
+      | [] => true
+      | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
+      end in
+  match b with
+  | Section _ => false
+  | Heading _ _ =>
+      match lookup_attr "id" a with Some _ => false | None => true end
+  | BlockQuote inner => go inner
+  | _ => true
+  end.
+
+Fixpoint pristine (bs : blocks) : bool :=
+  match bs with
+  | [] => true
+  | Node _ a b :: rest => (pristine_block b a && pristine rest)%bool
+  end.
+
+Lemma pristine_quote :
+  forall inner a, pristine_block (BlockQuote inner) a = pristine inner.
+Proof.
+  assert (H : forall ns,
+             (fix go (l : blocks) : bool :=
+                match l with
+                | [] => true
+                | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
+                end) ns = pristine ns).
+  { induction ns as [|[p' a' x] rest IH]; [reflexivity|].
+    cbn [pristine]. rewrite IH. reflexivity. }
+  intros inner a.
+  change (pristine_block (BlockQuote inner) a)
+    with ((fix go (l : blocks) : bool :=
+             match l with
+             | [] => true
+             | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
+             end) inner).
+  rewrite H. reflexivity.
+Qed.
+
+Lemma pristine_cons :
+  forall p a b rest,
+    pristine (Node p a b :: rest) = (pristine_block b a && pristine rest)%bool.
+Proof. reflexivity. Qed.
+
+Definition pristine_node (n : node block) : bool :=
+  match n with Node _ a b => pristine_block b a end.
+
+Lemma pristine_cons_node :
+  forall n rest, pristine (n :: rest) = (pristine_node n && pristine rest)%bool.
+Proof. intros [p a b] rest. reflexivity. Qed.
+
+(*
+Undoing the identifiers
+-----------------------
+*)
+
+Lemma undo_assign_ids :
+  forall b p a st,
+    pristine_block b a = true ->
+    undo_pass_node (snd (assign_ids b p a st)) = [Node p a b].
+Proof.
+  intros b.
+  induction b using block_ind2 with
+    (Q := fun bs => forall st,
+            pristine bs = true ->
+            undo_pass (snd (assign_ids_list bs st)) = bs);
+    intros; try reflexivity.
+  - (* Section: excluded by pristine *)
+    discriminate.
+  - (* Heading *)
+    cbn [pristine_block] in H.
+    unfold assign_ids, assign_heading_id.
+    destruct (lookup_attr "id" a) as [v|] eqn:Eid; [discriminate|].
+    cbn [snd undo_pass_node undo_pass_block].
+    rewrite strip_id_cons by exact Eid. reflexivity.
+  - (* BlockQuote *)
+    rewrite pristine_quote in H.
+    rewrite assign_ids_quote.
+    destruct (assign_ids_list bs st) as [st' bs'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_quote.
+    change bs' with (snd (st', bs')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
+  - (* Node p a b :: rest ([] is closed by reflexivity above) *)
+    rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
+    cbn [assign_ids_list assign_ids_node].
+    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd]. rewrite undo_pass_cons.
+    replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hb.
+    replace rest1 with (snd (assign_ids_list rest st1))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+Qed.
+
+(* The list version, as in Wf.v: block_ind2 proves it as its Q, but the
+   principle does not hand it back as a lemma. *)
+Lemma undo_assign_ids_list :
+  forall bs st,
+    pristine bs = true -> undo_pass (snd (assign_ids_list bs st)) = bs.
+Proof.
+  induction bs as [|[p a b] rest IH]; intros st H; [reflexivity|].
+  rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
+  cbn [assign_ids_list assign_ids_node].
+  destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+  destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+  cbn [snd]. rewrite undo_pass_cons.
+  replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
+  rewrite undo_assign_ids by exact Hb.
+  replace rest1 with (snd (assign_ids_list rest st1))
+    by (rewrite E2; reflexivity).
+  rewrite IH by exact Hrest. reflexivity.
+Qed.
+
+(*
+Undoing the sections
+--------------------
+
+Unconditional: sectionize only ever wraps, and undo_pass unwraps.  A
+`Section` already present in the input is flattened the same way on both
+sides, so it needs no hypothesis — only the identifier half cares what
+the input looked like.
+*)
+
+Lemma undo_pass_app :
+  forall l1 l2, undo_pass (l1 ++ l2)%list = (undo_pass l1 ++ undo_pass l2)%list.
+Proof.
+  induction l1 as [|[p a b] rest IH]; intros l2; [reflexivity|].
+  cbn [app undo_pass]. rewrite IH, app_assoc. reflexivity.
+Qed.
+
+Lemma set_first_app :
+  forall z X Y,
+    nonempty X = true -> set_first z (X ++ Y)%list = (set_first z X ++ Y)%list.
+Proof. intros z [|[p a b] X'] Y H; [discriminate|reflexivity]. Qed.
+
+(* The blocks the stack has consumed so far, recovered.  Entries hold
+   their accumulators reversed, and every entry above the document's
+   carries the attributes that came off its heading — hence the
+   set_first, which is why those entries have to erase to something
+   nonempty.  That, plus "only the document sits at level 0", is the
+   whole invariant. *)
+Fixpoint stack_erase (stk : sect_state) : blocks :=
+  match stk with
+  | [] => []
+  | [(_, _, acc)] => undo_pass (rev acc)
+  | (_, a, acc) :: outer =>
+      (stack_erase outer ++ set_first (strip_id a) (undo_pass (rev acc)))%list
+  end.
+
+(* The only thing erasure needs of the stack: every entry above the
+   document's erases to something nonempty, so that set_first has a node
+   to put the section's attributes back on.  True by construction — such
+   an entry always starts with the heading that opened it. *)
+Fixpoint sect_ok (stk : sect_state) : bool :=
+  match stk with
+  | [] => false
+  | [_] => true
+  | (_, _, acc) :: outer => (nonempty (undo_pass (rev acc)) && sect_ok outer)%bool
+  end.
+
+Lemma stack_erase_cons :
+  forall l a acc outer,
+    outer <> [] ->
+    stack_erase ((l, a, acc) :: outer)
+    = (stack_erase outer ++ set_first (strip_id a) (undo_pass (rev acc)))%list.
+Proof. intros l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
+
+Lemma sect_ok_cons :
+  forall l a acc outer,
+    outer <> [] ->
+    sect_ok ((l, a, acc) :: outer)
+    = (nonempty (undo_pass (rev acc)) && sect_ok outer)%bool.
+Proof. intros l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
+
+Lemma sect_ok_nonnil : forall stk, sect_ok stk = true -> stk <> [].
+Proof. intros [|e stk] H; [discriminate|congruence]. Qed.
+
+Lemma close_ge_ok :
+  forall stk lvl pending,
+    sect_ok stk = true -> sect_ok (close_ge lvl pending stk) = true.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros lvl pending Hs;
+    [discriminate|].
+  destruct outer as [|e outer']; [exact Hs|].
+  rewrite sect_ok_cons in Hs by discriminate.
+  apply andb_true_iff in Hs as [Hne Houter].
+  rewrite close_ge_cons by discriminate. destruct (Nat.leb lvl l).
+  - apply IH. exact Houter.
+  - rewrite sect_ok_cons by discriminate.
+    rewrite Houter, andb_true_r.
+    rewrite rev_app_distr, undo_pass_app.
+    destruct (undo_pass (rev acc)) as [|x r]; [discriminate|reflexivity].
+Qed.
+
+Lemma close_ge_erase :
+  forall stk lvl pending,
+    sect_ok stk = true ->
+    stack_erase (close_ge lvl pending stk)
+    = (stack_erase stk ++ undo_pass (rev pending))%list.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros lvl pending Hs;
+    [discriminate|].
+  destruct outer as [|e outer'].
+  - rewrite close_ge_singleton. cbn [stack_erase].
+    rewrite rev_app_distr, undo_pass_app. reflexivity.
+  - rewrite sect_ok_cons in Hs by discriminate.
+    apply andb_true_iff in Hs as [Hne Houter].
+    rewrite stack_erase_cons by discriminate.
+    rewrite close_ge_cons by discriminate. destruct (Nat.leb lvl l).
+    + rewrite (IH _ _ Houter).
+      cbn [undo_pass rev app]. rewrite app_nil_r.
+      rewrite undo_pass_section, rev_app_distr, undo_pass_app.
+      rewrite set_first_app by exact Hne.
+      rewrite app_assoc. reflexivity.
+    + rewrite stack_erase_cons by discriminate.
+      rewrite rev_app_distr, undo_pass_app.
+      rewrite set_first_app by exact Hne.
+      rewrite app_assoc. reflexivity.
+Qed.
+
+(* close_all always lands on the document entry alone — which is what
+   lets sect_bottom read the answer off. *)
+Lemma close_all_singleton :
+  forall stk pending,
+    stk <> [] -> exists l a acc, close_all pending stk = [(l, a, acc)].
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros pending H; [contradiction|].
+  destruct outer as [|e outer'].
+  - exists l, a, (pending ++ acc)%list. reflexivity.
+  - rewrite close_all_cons by discriminate. apply IH. discriminate.
+Qed.
+
+Lemma close_all_erase :
+  forall stk pending,
+    sect_ok stk = true ->
+    stack_erase (close_all pending stk)
+    = (stack_erase stk ++ undo_pass (rev pending))%list.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros pending Hs; [discriminate|].
+  destruct outer as [|e outer'].
+  - cbn [close_all stack_erase].
+    rewrite rev_app_distr, undo_pass_app. reflexivity.
+  - rewrite sect_ok_cons in Hs by discriminate.
+    apply andb_true_iff in Hs as [Hne Houter].
+    rewrite stack_erase_cons by discriminate.
+    rewrite close_all_cons by discriminate.
+    rewrite (IH _ Houter).
+    cbn [undo_pass rev app]. rewrite app_nil_r.
+    rewrite undo_pass_section, rev_app_distr, undo_pass_app.
+    rewrite set_first_app by exact Hne.
+    rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma sect_push_ok :
+  forall stk n, sect_ok stk = true -> sect_ok (sect_push n stk) = true.
+Proof.
+  intros [|[[l a] acc] outer] n Hs; [discriminate|].
+  cbn [sect_push]. destruct outer as [|e outer']; [exact Hs|].
+  rewrite sect_ok_cons in Hs |- * by discriminate.
+  apply andb_true_iff in Hs as [Hne Houter].
+  rewrite Houter, andb_true_r.
+  cbn [rev]. rewrite undo_pass_app.
+  destruct (undo_pass (rev acc)) as [|x r]; [discriminate|reflexivity].
+Qed.
+
+Lemma sect_push_erase :
+  forall stk n,
+    sect_ok stk = true ->
+    stack_erase (sect_push n stk) = (stack_erase stk ++ undo_pass_node n)%list.
+Proof.
+  intros [|[[l a] acc] outer] n Hs; [discriminate|].
+  cbn [sect_push]. destruct outer as [|e outer'].
+  - cbn [stack_erase rev]. rewrite undo_pass_app, undo_pass_single.
+    reflexivity.
+  - rewrite sect_ok_cons in Hs by discriminate.
+    apply andb_true_iff in Hs as [Hne _].
+    rewrite !stack_erase_cons by discriminate.
+    cbn [rev]. rewrite undo_pass_app, undo_pass_single.
+    rewrite set_first_app by exact Hne.
+    rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma sect_step_ok :
+  forall stk n, sect_ok stk = true -> sect_ok (sect_step stk n) = true.
+Proof.
+  intros stk [p a b] Hs. destruct b; try (apply sect_push_ok; exact Hs).
+  cbn [sect_step].
+  pose proof (close_ge_ok stk level [] Hs) as Hc.
+  destruct (close_ge level [] stk) as [|e rest] eqn:E; [discriminate|].
+  rewrite sect_ok_cons by discriminate.
+  rewrite Hc, andb_true_r.
+  (* a heading erases to exactly one block, so the entry is nonempty *)
+  cbn [rev undo_pass undo_pass_block app nonempty]. reflexivity.
+Qed.
+
+Lemma sect_step_erase :
+  forall stk n,
+    sect_ok stk = true ->
+    stack_erase (sect_step stk n) = (stack_erase stk ++ undo_pass_node n)%list.
+Proof.
+  intros stk [p a b] Hs. destruct b; try (apply sect_push_erase; exact Hs).
+  cbn [sect_step].
+  pose proof (close_ge_ok stk level [] Hs) as Hc.
+  pose proof (close_ge_erase stk level [] Hs) as He.
+  destruct (close_ge level [] stk) as [|e rest] eqn:E; [discriminate|].
+  rewrite stack_erase_cons by discriminate.
+  rewrite He. cbn [rev undo_pass]. rewrite app_nil_r.
+  cbn [rev undo_pass undo_pass_node undo_pass_block strip_id filter
+       set_first app].
+  reflexivity.
+Qed.
+
+Lemma fold_sect_step_ok :
+  forall bs stk,
+    sect_ok stk = true -> sect_ok (fold_left sect_step bs stk) = true.
+Proof.
+  induction bs as [|n rest IH]; intros stk Hs; [exact Hs|].
+  cbn [fold_left]. apply IH. apply sect_step_ok. exact Hs.
+Qed.
+
+Lemma fold_sect_step_erase :
+  forall bs stk,
+    sect_ok stk = true ->
+    stack_erase (fold_left sect_step bs stk)
+    = (stack_erase stk ++ undo_pass bs)%list.
+Proof.
+  induction bs as [|n rest IH]; intros stk Hs.
+  - cbn [fold_left undo_pass]. rewrite app_nil_r. reflexivity.
+  - cbn [fold_left]. rewrite IH by (apply sect_step_ok; exact Hs).
+    rewrite sect_step_erase by exact Hs.
+    rewrite undo_pass_cons, app_assoc. reflexivity.
+Qed.
+
+(** Sectioning is invisible to erasure: it only wraps, and undo_pass
+    unwraps exactly what it wrapped. *)
+Lemma undo_sectionize :
+  forall bs, undo_pass (sectionize bs) = undo_pass bs.
+Proof.
+  intros bs. unfold sectionize.
+  pose proof (fold_sect_step_ok bs sect_init eq_refl) as Hok.
+  pose proof (fold_sect_step_erase bs sect_init eq_refl) as Her.
+  cbn [stack_erase rev undo_pass] in Her.
+  destruct (close_all_singleton _ [] (sect_ok_nonnil _ Hok)) as [l [a [acc E]]].
+  pose proof (close_all_erase _ [] Hok) as Hc.
+  rewrite E in Hc. cbn [stack_erase rev undo_pass] in Hc.
+  rewrite app_nil_r in Hc.
+  rewrite E. cbn [sect_bottom].
+  rewrite Hc, Her. reflexivity.
+Qed.
+
+(*
+The theorem
+-----------
+*)
+
+(** The whole-document pass adds only structure that erasure recovers:
+    on input the pass has not already run on, undoing it is exact. *)
+Theorem pass_erase :
+  forall bs, pristine bs = true -> undo_pass (doc_blocks (doc_pass bs)) = bs.
+Proof.
+  intros bs H. unfold doc_pass.
+  destruct (assign_ids_list bs id_state_init) as [st bs'] eqn:E.
+  cbn [doc_blocks]. rewrite undo_sectionize.
+  replace bs' with (snd (assign_ids_list bs id_state_init))
+    by (rewrite E; reflexivity).
+  apply undo_assign_ids_list. exact H.
+Qed.
 
 (*
 Examples

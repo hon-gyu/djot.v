@@ -33,8 +33,16 @@ exists, how to drive it, and what to watch out for.
     (sections only come from the document pass, which runs after it).
   - `roundtrip_blocks` (Roundtrip.v): `parse_blocks (render_djot
     (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs` — exact equality on
-    canonical blocks. Stated at the block layer, below the document pass;
-    a doc-level corollary is an open item (see below).
+    canonical blocks, at the line-fold layer.
+  - `pass_erase` (Document.v): the whole-document pass adds only
+    structure erasure recovers — `undo_pass (doc_blocks (doc_pass bs))
+    = bs` for input the pass has not already run on (`pristine`: no
+    sections, no heading carrying an explicit id). Two halves:
+    `undo_sectionize` is unconditional (sectionize only wraps), and
+    `undo_assign_ids` is where `pristine` is actually needed.
+  - `roundtrip_doc` (Roundtrip.v): the roundtrip at the real entry point
+    — render, `parse_doc`, `undo_pass`, and you are back at the same
+    blocks.
   - `quote_uniformity` (Parser.v): prefixing every line with `"> "` parses
     to that document wrapped in a quote. No hypotheses, every construct.
     This is Phase 2's uniformity statement, arriving early.
@@ -123,6 +131,13 @@ Load-bearing decisions:
   canonical code block's content must not close a 3-backtick fence.
   Canonicality-in-the-hypothesis is what makes roundtrip *exact* equality
   with no quotient.
+- **The pass is erasable, and that is a standing obligation.**
+  `Document.undo_pass` inverts it, and `pass_erase` says so. Anything
+  new added to the pass must either extend `undo_pass` or be shown not
+  to touch the block tree — otherwise `roundtrip_doc` silently stops
+  covering it. Note `undo_pass` strips the id *before* handing a
+  section's attributes back to its heading; that ordering is what lets
+  one traversal undo both halves.
 - **The whole-document pass is a separate file, run after the fold.**
   Anything order-dependent over the finished block list lives in
   Document.v: identifier uniqueness, implicit heading references, section
@@ -192,8 +207,19 @@ Block quotes are the worked example throughout.
 - Literal-headed appends make associativity definitional ("``` ++ x`"
   reduces), which lets 256-way ascii destructs close by `reflexivity`
   (`fence_block_wf`, `render_fence_block`).
+- **`cbn` on a recursive definition reduces the recursive call too**, so
+  an induction hypothesis about it stops matching. This is the same trap
+  as `simpl` over-reducing, and the same fix: an equation lemma per
+  branch (`close_ge_singleton`/`close_ge_cons`, `stack_erase_cons`,
+  `sect_ok_cons`), rewritten with rather than computed through. Watch for
+  it whenever a definition has both a `[x]` and an `x :: rest` pattern —
+  `cbn` will happily unfold two levels.
 - Debugging: replay a failing rewrite chain in a scratch `.v` against
   `_build/default/theories` with `match goal with |- ?G => idtac G end`.
+  The rocq-mcp server's *interactive* tools (`rocq_start`, `rocq_check`,
+  `rocq_step_multi`) need `pet`/coq-lsp, which is not installed here —
+  they return `reason: "unavailable"`. Only `rocq_compile_file` works,
+  which is what `dune build` already gives you.
 
 ## Toolchain facts
 
@@ -208,17 +234,12 @@ Block quotes are the worked example throughout.
 
 ## Open threads, in rough priority order
 
-1. **Finish what the document pass left open.** The pass itself is done
-   (Document.v), but three things around it are not:
+1. **Two loose ends around the document pass.**
    - `unique_id`'s fuel has no discharge lemma. The argument is in the
      comment (n taken ids, n+2 distinct candidates); proving it needs
      pigeonhole plus injectivity of `nat_str`, and would buy the real
      statement — the assigned identifier is fresh. Compare
      `Parser.step_fuel_enough`.
-   - No doc-level roundtrip. `roundtrip_blocks` is stated below the pass.
-     The corollary wants `unsectionize (sectionize bs) = bs`: the pass
-     adds only structure that erasure recovers. Worth having before more
-     passes land on top.
    - `Ast.block_ind2` has no induction hypotheses for the list and table
      constructors. Mechanical to fill in; do it when lists land, not
      before.
@@ -279,10 +300,10 @@ Block quotes are the worked example throughout.
 | Line.v | `line_kind`, thematic/fence/quote/heading recognizers | `classify_canonical_heading`, `classify_quote_length` |
 | Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
 | Ast.v | full AST (djoths AST.hs transcription) | `block_ind2` |
-| Document.v | ids, auto-references, sections; `parse_doc` | `assign_ids_quote` |
+| Document.v | ids, auto-references, sections; `parse_doc`; erasure | `pass_erase`, `undo_sectionize` |
 | Wf.v | wf predicate, canonicality, `state_wf`, pass preservation | `wf_parse`, `wf_parse_doc`, `wf_complete_false` |
 | Render.v | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2` | — |
-| Roundtrip.v | split/parse/render agreement | `roundtrip_blocks` |
+| Roundtrip.v | split/parse/render agreement | `roundtrip_blocks`, `roundtrip_doc` |
 | Html.v | HTML renderer (djot.js-faithful) | — |
 | Spike.v | Spike A: fuel + discharge lemmas | `many_fuel_stable` |
 
@@ -291,4 +312,5 @@ adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
 `fc1237a` restructure/classifier/thematic → `376ea05` code fences →
 `2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
 `1978716` quote roundtrip + line renderer → `b54876a` headings →
-whole-document pass (sections, identifiers, implicit references).
+whole-document pass (sections, identifiers, implicit references) →
+erasure + doc-level roundtrip.

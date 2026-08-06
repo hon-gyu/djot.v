@@ -8,7 +8,7 @@
    touches the three case analyses marked below and nothing else. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
-From DjotV Require Import Strings Line Ast Parser Render.
+From DjotV Require Import Strings Line Ast Parser Document Render.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -625,3 +625,66 @@ Example nested_quote_roundtrip :
   render_djot (blocks_of_cblocks cbs) = "> > deep"
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(*
+Above the block layer
+=====================
+
+roundtrip_blocks is about `parse_blocks`, the line fold.  The parser's
+actual entry point is `Document.parse_doc`, which runs the
+whole-document pass on top — so the theorem only reaches the entry point
+once the pass is shown to add nothing that erasure cannot take back
+(Document.pass_erase).  The canonical fragment is exactly the kind of
+input that theorem wants: cb_ast builds bare `mk` nodes, so no heading
+carries an explicit id, and it builds no sections.
+*)
+
+Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
+Proof.
+  intros cb.
+  induction cb using cblock_ind2 with
+    (Q := fun cbs => pristine (map cb_ast cbs) = true);
+    try reflexivity.
+  - (* CCode: raw or code block, depending on the info string *)
+    unfold cb_ast, fence_block. cbn [f_info].
+    destruct info as [|c info']; [reflexivity|].
+    (* the "=FORMAT" test is a match on the leading byte; both arms build
+       a bare mk node, so all 256 close alike *)
+    destruct c as [[][][][][][][][]]; reflexivity.
+  - (* CQuote *)
+    rewrite cb_ast_quote. cbn [pristine_node mk].
+    rewrite pristine_quote. exact IHcb.
+  - (* c :: rest *)
+    cbn [map]. rewrite pristine_cons_node, IHcb, IHcb0. reflexivity.
+Qed.
+
+Lemma blocks_of_cblocks_pristine :
+  forall cbs, pristine (blocks_of_cblocks cbs) = true.
+Proof.
+  induction cbs as [|cb rest IH]; [reflexivity|].
+  unfold blocks_of_cblocks in *. cbn [map].
+  rewrite pristine_cons_node, cb_ast_pristine, IH. reflexivity.
+Qed.
+
+(** The roundtrip at the parser's entry point: render, parse, undo the
+    whole-document pass, and you are back where you started. *)
+Theorem roundtrip_doc :
+  forall cbs, forallb cb_ok cbs = true ->
+  undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
+  = blocks_of_cblocks cbs.
+Proof.
+  intros cbs H. unfold parse_doc.
+  rewrite (roundtrip_blocks _ H).
+  apply pass_erase, blocks_of_cblocks_pristine.
+Qed.
+
+(* The sections and identifiers the pass adds are exactly what the
+   erasure above takes back out. *)
+Example heading_roundtrip_doc :
+  let cbs := [CHeading 1 ["h"]; CPara ["p"]] in
+  doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs)))
+  = [ Node NoPos [("id", "h")]
+        (Section [ mk (Heading 1 [mk (Str "h")]); mk (Para [mk (Str "p")]) ]) ]
+  /\ undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
+     = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_doc; reflexivity]. Qed.

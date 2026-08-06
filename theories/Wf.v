@@ -820,6 +820,29 @@ Proof.
       destruct pending as [|q pending']; [exact Hne|reflexivity].
 Qed.
 
+(* Same shape as close_ge_wf, minus the level test. *)
+Lemma close_all_wf :
+  forall stk pending,
+    wf_blocks pending = true ->
+    sect_state_wf stk = true ->
+    sect_state_wf (close_all pending stk) = true.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros pending Hp Hs;
+    [discriminate|].
+  destruct outer as [|e outer'].
+  - cbn [close_all sect_state_wf] in Hs |- *.
+    rewrite wf_blocks_app, Hp, Hs. reflexivity.
+  - cbn [sect_state_wf] in Hs.
+    apply andb_true_iff in Hs as [Hhd Houter].
+    apply andb_true_iff in Hhd as [Hne Hacc].
+    rewrite close_all_cons by discriminate.
+    apply IH; [|exact Houter].
+    rewrite wf_blocks_cons. cbn [node_contents].
+    rewrite wf_block_section, wf_blocks_rev, wf_blocks_app, Hp, Hacc.
+    cbn [andb]. rewrite andb_true_r.
+    rewrite nonempty_rev, andb_true_r. apply nonempty_app_r. exact Hne.
+Qed.
+
 Lemma sect_push_wf :
   forall stk n,
     wf_block (node_contents n) = true ->
@@ -894,7 +917,7 @@ Lemma sectionize_wf :
   forall bs, wf_blocks bs = true -> wf_blocks (sectionize bs) = true.
 Proof.
   intros bs H. unfold sectionize.
-  apply sect_bottom_wf, close_ge_wf; [reflexivity|].
+  apply sect_bottom_wf, close_all_wf; [reflexivity|].
   apply fold_sect_step_wf; [exact H | reflexivity].
 Qed.
 
