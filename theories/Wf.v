@@ -355,7 +355,7 @@ Lemma open_kind_wf :
     wf_blocks (fst (open_kind l k)) = true
     /\ state_wf (snd (open_kind l k)) = true.
 Proof.
-  intros l k H. destruct k; cbn [open_kind fst snd]; try (split; reflexivity).
+  intros l k H. destruct k; cbn [close_reopen open_quote finish app open_kind fst snd]; try (split; reflexivity).
   - (* KHeading: the level comes from the classifier *)
     split; [reflexivity|].
     cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). cbn [andb].
@@ -385,7 +385,7 @@ Proof.
       (* KQuote: descend into the enclosed line *)
       destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n rest (PPara [])) as [bs inner].
-      cbn [fst snd] in Hb, Hs |- *.
+      cbn [open_quote fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs.
     + destruct (classify l) as [| |g|rest|kl kr|] eqn:E; cbn [fst snd].
@@ -404,11 +404,12 @@ Proof.
     4: { (* quote: close the heading, then descend *)
       destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n rest (PPara [])) as [bs inner].
-      cbn [fst snd] in Hb, Hs |- *.
+      cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
       split; [exact Hhb|].
       cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs. }
     4: { (* matching or differing level *)
-      destruct (Nat.eqb kl hlvl) eqn:Elv; cbn [fst snd].
+      destruct (Nat.eqb kl hlvl) eqn:Elv;
+        cbn [close_reopen open_kind finish app fst snd].
       - split; [reflexivity|].
         cbn [state_wf]. rewrite Hlv. cbn [andb].
         apply forallb_nonblank_push_text. exact Hc.
@@ -422,7 +423,7 @@ Proof.
         by (apply classify_ktext_nonblank; exact E).
       exact Hc. }
     (* blank, thematic, fence: close the heading and reopen outside it *)
-    all: cbn [open_kind fst snd]; split;
+    all: cbn [close_reopen open_quote finish app open_kind fst snd]; split;
          [ rewrite wf_blocks_cons in Hhb |- *;
            cbn [node_contents] in Hhb |- *;
            apply andb_true_iff in Hhb as [Hhb _]; rewrite Hhb; cbn [andb];
@@ -442,11 +443,11 @@ Proof.
     4: { (* quote prefix: descend into the enclosed line *)
       destruct (IH rest inner Hi) as [Hb Hs].
       destruct (step_fuel n rest inner) as [bs inner'].
-      cbn [fst snd] in Hb, Hs |- *.
+      cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_wf]. rewrite wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs. }
     5: { (* text without the prefix: lazy continuation, or close *)
-      cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [open_kind fst snd].
+      cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [close_reopen open_quote finish app open_kind fst snd].
       - split; [reflexivity|].
         cbn [state_wf]. rewrite Hd. cbn [andb].
         apply feed_lazy_wf;
@@ -463,7 +464,7 @@ Proof.
     all: destruct (open_kind_wf l _ E) as [Hob Hos];
          cbn [is_lazy];
          destruct (open_kind l _) as [obs ost] eqn:Eo;
-         cbn [fst snd] in Hob, Hos |- *;
+         cbn [close_reopen open_quote finish app fst snd] in Hob, Hos |- *;
          split;
          [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
            cbn [andb]; exact Hob
@@ -608,10 +609,10 @@ Proof.
   destruct st as [cur|hlvl hcur|f acc|done inner].
   - destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|rest|kl kr|] eqn:E;
-        try (cbn [open_kind fst snd]; split; reflexivity).
+        try (cbn [close_reopen open_quote finish app open_kind fst snd]; split; reflexivity).
       destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n rest (PPara [])) as [bs inner].
-      cbn [fst snd] in Hb, Hs |- *.
+      cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs.
     + destruct (classify l); cbn [fst snd]; split; reflexivity.
@@ -620,11 +621,11 @@ Proof.
     destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
     4: { destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
          destruct (step_fuel n rest (PPara [])) as [bs inner].
-         cbn [fst snd] in Hb, Hs |- *.
+         cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
     4: { destruct (Nat.eqb kl hlvl); cbn [fst snd]; split; reflexivity. }
-    all: cbn [open_kind fst snd]; split; reflexivity.
+    all: cbn [close_reopen open_quote finish app open_kind fst snd]; split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
     + split; reflexivity.
@@ -637,18 +638,18 @@ Proof.
     destruct (classify l) as [| |g|rest|kl kr|] eqn:E.
     4: { destruct (IH rest inner Hi) as [Hb Hs].
          destruct (step_fuel n rest inner) as [bs inner'].
-         cbn [fst snd] in Hb, Hs |- *.
+         cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported].
          rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd. exact Hs. }
-    5: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [open_kind fst snd].
+    5: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [close_reopen open_quote finish app open_kind fst snd].
          - split; [reflexivity|].
            cbn [state_supported]. rewrite Hd. cbn [andb].
            apply feed_lazy_supported. exact Hi.
          - split; [| reflexivity].
            rewrite supported_blocks_cons. cbn [node_contents mk].
            rewrite Hbq. cbn [andb]. reflexivity. }
-    all: cbn [is_lazy open_kind fst snd]; split;
+    all: cbn [is_lazy close_reopen open_quote finish app open_kind fst snd]; split;
          [ rewrite supported_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
            cbn [andb]; reflexivity
          | reflexivity ].

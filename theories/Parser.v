@@ -120,10 +120,11 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
 Definition push_text (rest : string) (cur : list string) : list string :=
   if is_blank rest then cur else rest :: cur.
 
-(* What a line does at an idle state, for every kind but KQuote — which
-   needs `step`'s recursive descent and is handled there.  Factored out
-   because both "idle at top level" and "a quote just closed, now
-   reprocess the line outside it" need exactly this. *)
+(* What a line opens, for every kind but KQuote — a quote has to parse
+   the line it encloses, which is the parser's one recursion, so it stays
+   inside `step_fuel`.  The split is deliberate: every equation lemma
+   downstream is stated over `open_kind`, which is exactly why no
+   statement outside this file mentions fuel. *)
 Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KBlank => ([], PPara [])
@@ -131,33 +132,56 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KFence f => ([], PFence f [])
   | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
   | KText => ([], PPara [l])
-  | KQuote _ => ([], PPara [])        (* unreachable: see step *)
+  | KQuote _ => ([], PPara [])        (* unreachable: see open_line *)
   end.
+
+(* The other half of the per-line rule: this line does not continue the
+   open container, so the container's blocks close and the line is
+   reprocessed at the enclosing level.  Every state answers a line one of
+   these two ways — continue, or close-and-reopen — which is the
+   `continue`/`close`/`finalize` split of Phase 2's BlockSpec, with
+   `finish` supplying finalize.  A new container gets its continuation
+   rule and nothing else; this rule it inherits.
+
+   Both wrappers take the opening *already computed* rather than
+   computing it, so neither joins the recursion — which is what keeps
+   `step`'s fuel decrementing once per nesting level and no more. *)
+Definition close_reopen (st : pstate) (opened : blocks * pstate)
+  : blocks * pstate :=
+  let (bs, st') := opened in ((finish st ++ bs)%list, st').
+
+(* A quote prefix opens a fresh quote around whatever its enclosed line
+   parsed to. *)
+Definition open_quote (descended : blocks * pstate) : blocks * pstate :=
+  let (bs, inner) := descended in ([], PQuote (rev bs) inner).
 
 (* The per-line transition, on fuel.  The only recursion is into a
    stripped quote prefix, and `classify_quote_length` says that line is
    strictly shorter — so the line's own length is always enough fuel.
    `step` below fixes it there, and `step_fuel_enough` retires it, so no
    downstream statement mentions fuel. *)
-Fixpoint step_fuel (n : nat) (l : string) (st : pstate) : blocks * pstate :=
+Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
+  : blocks * pstate :=
   match n with
   | O => ([], st)                     (* unreachable from step *)
   | S n' =>
       match st with
       | PFence f acc =>
+          (* Verbatim: only the close test, and the closing line is
+             consumed rather than reprocessed — the one state that is
+             not "continue or close-and-reopen". *)
           if fence_close f l
           then ([fence_block f (rev acc)], PPara [])
           else ([], PFence f (l :: acc))
       | PPara [] =>
+          (* Idle: nothing to close, so the line just opens its block. *)
           match classify l with
-          | KQuote rest =>
-              let (bs, inner) := step_fuel n' rest (PPara []) in
-              ([], PQuote (rev bs) inner)
+          | KQuote rest => open_quote (step_fuel n' rest (PPara []))
           | k => open_kind l k
           end
       | PPara (c :: cur') =>
           match classify l with
-          | KBlank => ([mk (Para (para_inlines (rev (c :: cur'))))], PPara [])
+          | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
           | _ => ([], PPara (l :: c :: cur'))   (* paragraphs never interrupt *)
           end
       | PHeading lvl cur =>
@@ -167,27 +191,25 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) : blocks * pstate :=
           | KHeading lvl' rest =>
               if Nat.eqb lvl' lvl
               then ([], PHeading lvl (push_text rest cur))
-              else ([heading_block lvl cur],
-                    PHeading lvl' (push_text rest []))
+              else close_reopen (PHeading lvl cur)
+                     (open_kind l (KHeading lvl' rest))
           | KText => ([], PHeading lvl (l :: cur))
           | KQuote rest =>
-              let (bs, inner) := step_fuel n' rest (PPara []) in
-              ([heading_block lvl cur], PQuote (rev bs) inner)
-          | k =>
-              let (bs, st') := open_kind l k in
-              (heading_block lvl cur :: bs, st')
+              close_reopen (PHeading lvl cur)
+                (open_quote (step_fuel n' rest (PPara [])))
+          | k => close_reopen (PHeading lvl cur) (open_kind l k)
           end
       | PQuote done inner =>
           match classify l with
           | KQuote rest =>
+              (* continue: descend into the quote already open, keeping
+                 what it has closed so far *)
               let (bs, inner') := step_fuel n' rest inner in
               ([], PQuote (rev bs ++ done)%list inner')
           | k =>
               if is_lazy k inner
               then ([], PQuote done (feed_lazy l inner))
-              else
-                let (bs, st') := open_kind l k in
-                (mk (BlockQuote (rev done ++ finish inner)%list) :: bs, st')
+              else close_reopen (PQuote done inner) (open_kind l k)
           end
       end
   end.

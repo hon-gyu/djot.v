@@ -110,6 +110,19 @@ Load-bearing decisions:
   is deliberately Phase 2's `BlockSpec` shape (`continue`/`close`/
   `finalize` rolled into one function) so that phase is a refactor of a
   working design, not a rewrite.
+- **Every state answers a line one of two ways: continue, or
+  close-and-reopen.** `close_reopen st opened` is that second answer,
+  shared by every state — `finish` supplies finalize, `open_kind` the
+  reopening. A new container writes its *continuation* rule and inherits
+  the rest. The one exception is `PFence`, which consumes its closing
+  line rather than reprocessing it; that is what verbatim means.
+- **The two wrappers take the opening already computed.** `close_reopen`
+  and `open_quote` are deliberately not recursive: an earlier attempt
+  made the opener mutually recursive with `step_fuel`, which cost a
+  second unit of fuel per nesting level and broke `step`'s bound of
+  `S (String.length l)` — `> > deep` no longer had enough. Fuel must
+  decrement exactly once per level. `step_fuel_stable` is what catches
+  this; if it starts failing after a change here, that is the reason.
 - **Nesting and uniformity come from re-entering `classify`.** A quote
   strips its prefix and runs `step` on the enclosed line, so a
   container's contents take the same path as the top level. That is
@@ -170,7 +183,8 @@ in Document.v, plus the matching wf-preservation lemma in Wf.v's
 To add a block construct:
 
 1. `Line.v` — recognizer + `line_kind` case (+ canonical-form lemmas).
-2. `Parser.v` — `step` branch + its equation/seed lemmas.
+2. `Parser.v` — `step` branch + its equation/seed lemmas. A container
+   writes only its continuation rule; `close_reopen` handles the rest.
 3. `Wf.v` — case in `step_fuel_wf` (and `wf_block` if new AST shape),
    plus the matching case in `step_fuel_supported`.
 4. `Render.v` — `cblock` constructor, `cb_lines`/`cb_ast`/`cb_ok` case,
@@ -313,4 +327,4 @@ adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
 `2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
 `1978716` quote roundtrip + line renderer → `b54876a` headings →
 whole-document pass (sections, identifiers, implicit references) →
-erasure + doc-level roundtrip.
+erasure + doc-level roundtrip → `close_reopen`/`open_quote` factoring.
