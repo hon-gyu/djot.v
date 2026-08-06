@@ -4,6 +4,7 @@
    block structure. *)
 
 From Stdlib Require Import String Ascii List Bool Lia.
+From Stdlib Require DecimalString.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -48,6 +49,10 @@ Definition nonempty {A : Type} (l : list A) : bool :=
 
 Definition nonempty_str (s : string) : bool :=
   match s with EmptyString => false | _ => true end.
+
+(* Decimal rendering, for heading levels and identifier disambiguators. *)
+Definition nat_str (n : nat) : string :=
+  DecimalString.NilZero.string_of_uint (Nat.to_uint n).
 
 Lemma nonempty_str_intro :
   forall s, s <> EmptyString -> nonempty_str s = true.

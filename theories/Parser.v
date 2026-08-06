@@ -207,14 +207,12 @@ Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
       (bs ++ parse_lines rest st')%list
   end.
 
-(* Entry point: split the source into lines and fold from the idle state.
-   The side tables stay empty until there is an inline pass. *)
-Definition parse_doc (s : string) : doc :=
-  {| doc_blocks := parse_lines (split_lines s) (PPara [])
-   ; doc_footnotes := []
-   ; doc_references := []
-   ; doc_auto_references := []
-   ; doc_auto_identifiers := [] |}.
+(* Entry point of the line fold: split the source into lines and fold from
+   the idle state.  This is the whole block structure, and the layer every
+   theorem in Wf.v and Roundtrip.v is stated against.  Document.parse_doc
+   composes the whole-document pass on top to build the `doc` record. *)
+Definition parse_blocks (s : string) : blocks :=
+  parse_lines (split_lines s) (PPara []).
 
 (*
 Equation lemmas
@@ -699,20 +697,20 @@ Sanity checks
 *)
 
 Example parse_two_paras :
-  doc_blocks (parse_doc "hi
+  parse_blocks "hi
 there
 
-bye") =
+bye" =
   [ mk (Para [mk (Str "hi"); mk SoftBreak; mk (Str "there")])
   ; mk (Para [mk (Str "bye")]) ].
 Proof. reflexivity. Qed.
 
 Example parse_thematic :
-  doc_blocks (parse_doc "one
+  parse_blocks "one
 
   * * * *
 
-two") =
+two" =
   [ mk (Para [mk (Str "one")])
   ; mk ThematicBreak
   ; mk (Para [mk (Str "two")]) ].
@@ -721,34 +719,34 @@ Proof. reflexivity. Qed.
 (* Paragraphs are never interrupted: thematic-break- or fence-shaped
    lines inside a paragraph are text. *)
 Example parse_no_interrupt :
-  doc_blocks (parse_doc "one
----") =
+  parse_blocks "one
+---" =
   [ mk (Para [mk (Str "one"); mk SoftBreak; mk (Str "---")]) ].
 Proof. reflexivity. Qed.
 
 Example parse_code_block :
-  doc_blocks (parse_doc "``` ruby
+  parse_blocks "``` ruby
 x = 5
-```") =
+```" =
   [ mk (CodeBlock "ruby" ("x = 5" ++ nl)) ].
 Proof. reflexivity. Qed.
 
 Example parse_raw_block :
-  doc_blocks (parse_doc "``` =html
+  parse_blocks "``` =html
 <hr>
-```") =
+```" =
   [ mk (RawBlock "html" ("<hr>" ++ nl)) ].
 Proof. reflexivity. Qed.
 
 (* Unclosed fences extend to end of input; content is never classified. *)
 Example parse_unclosed_fence :
-  doc_blocks (parse_doc "~~~
+  parse_blocks "~~~
 * * *
-para") =
+para" =
   [ mk (CodeBlock "" ("* * *" ++ nl ++ "para" ++ nl)) ].
 Proof. reflexivity. Qed.
 
-Example parse_blank_only : doc_blocks (parse_doc "  ") = [].
+Example parse_blank_only : parse_blocks "  " = [].
 Proof. reflexivity. Qed.
 
 (*
@@ -759,43 +757,43 @@ Each example is a case from djot.js/test/block_quote.test or a probe
 against djot.js; the comment gives the behaviour being pinned. *)
 
 Example parse_quote_basic :
-  doc_blocks (parse_doc "> Basic
-> quote.") =
+  parse_blocks "> Basic
+> quote." =
   [ mk (BlockQuote [mk (Para [mk (Str "Basic"); mk SoftBreak; mk (Str "quote.")])]) ].
 Proof. reflexivity. Qed.
 
 (* A bare ">" is a quote with no content — the reason wf_block lets
    BlockQuote be empty. *)
 Example parse_quote_empty :
-  doc_blocks (parse_doc ">") = [mk (BlockQuote [])].
+  parse_blocks ">" = [mk (BlockQuote [])].
 Proof. reflexivity. Qed.
 
 (* ">" without following whitespace is not a prefix at all. *)
 Example parse_quote_needs_ws :
-  doc_blocks (parse_doc ">not a quote") =
+  parse_blocks ">not a quote" =
   [ mk (Para [mk (Str ">not a quote")]) ].
 Proof. reflexivity. Qed.
 
 (* A blank prefixed line ends the inner paragraph without ending the
    quote; a truly blank line ends the quote. *)
 Example parse_quote_two_paras :
-  doc_blocks (parse_doc "> a
+  parse_blocks "> a
 >
-> b") =
+> b" =
   [ mk (BlockQuote [ mk (Para [mk (Str "a")]); mk (Para [mk (Str "b")]) ]) ].
 Proof. reflexivity. Qed.
 
 Example parse_quote_split :
-  doc_blocks (parse_doc "> a
+  parse_blocks "> a
 
-> b") =
+> b" =
   [ mk (BlockQuote [mk (Para [mk (Str "a")])])
   ; mk (BlockQuote [mk (Para [mk (Str "b")])]) ].
 Proof. reflexivity. Qed.
 
 (* Nesting comes from re-entering the classifier on the stripped line. *)
 Example parse_quote_nested :
-  doc_blocks (parse_doc "> > > deep") =
+  parse_blocks "> > > deep" =
   [ mk (BlockQuote [mk (BlockQuote [mk (BlockQuote
       [mk (Para [mk (Str "deep")])])])]) ].
 Proof. reflexivity. Qed.
@@ -803,8 +801,8 @@ Proof. reflexivity. Qed.
 (* Lazy continuation: a prefix-less text line still joins the innermost
    open paragraph, at any depth. *)
 Example parse_quote_lazy :
-  doc_blocks (parse_doc "> > deep
-lazy") =
+  parse_blocks "> > deep
+lazy" =
   [ mk (BlockQuote [mk (BlockQuote
       [mk (Para [mk (Str "deep"); mk SoftBreak; mk (Str "lazy")])])]) ].
 Proof. reflexivity. Qed.
@@ -812,17 +810,17 @@ Proof. reflexivity. Qed.
 (* ...but only into a paragraph.  Verbatim content is not lazily
    continued, so the quote closes and a new paragraph starts. *)
 Example parse_quote_no_lazy_fence :
-  doc_blocks (parse_doc "> ```
+  parse_blocks "> ```
 > x
-y") =
+y" =
   [ mk (BlockQuote [mk (CodeBlock "" ("x" ++ nl))])
   ; mk (Para [mk (Str "y")]) ].
 Proof. reflexivity. Qed.
 
 (* Nor is a line that starts a block of its own: the quote closes. *)
 Example parse_quote_closed_by_thematic :
-  doc_blocks (parse_doc "> a
-* * * *") =
+  parse_blocks "> a
+* * * *" =
   [ mk (BlockQuote [mk (Para [mk (Str "a")])]); mk ThematicBreak ].
 Proof. reflexivity. Qed.
 
@@ -835,49 +833,49 @@ auto-identifiers are deliberately absent: they are a whole-document
 pass, not part of the line fold. *)
 
 Example parse_heading_basic :
-  doc_blocks (parse_doc "## hi") = [mk (Heading 2 [mk (Str "hi")])].
+  parse_blocks "## hi" = [mk (Heading 2 [mk (Str "hi")])].
 Proof. reflexivity. Qed.
 
 (* The whitespace after the hashes is required. *)
 Example parse_heading_needs_ws :
-  doc_blocks (parse_doc "#hi") = [mk (Para [mk (Str "#hi")])].
+  parse_blocks "#hi" = [mk (Para [mk (Str "#hi")])].
 Proof. reflexivity. Qed.
 
 Example parse_heading_empty :
-  doc_blocks (parse_doc "#") = [mk (Heading 1 [])].
+  parse_blocks "#" = [mk (Heading 1 [])].
 Proof. reflexivity. Qed.
 
 (* Same level continues the heading; the text joins with a SoftBreak. *)
 Example parse_heading_multiline :
-  doc_blocks (parse_doc "# a
-# b") =
+  parse_blocks "# a
+# b" =
   [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
 Proof. reflexivity. Qed.
 
 (* ...and so does a bare text line, lazily. *)
 Example parse_heading_lazy :
-  doc_blocks (parse_doc "# a
-b") =
+  parse_blocks "# a
+b" =
   [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
 Proof. reflexivity. Qed.
 
 (* A different level starts a new heading rather than continuing. *)
 Example parse_heading_level_change :
-  doc_blocks (parse_doc "# a
-## b") =
+  parse_blocks "# a
+## b" =
   [mk (Heading 1 [mk (Str "a")]); mk (Heading 2 [mk (Str "b")])].
 Proof. reflexivity. Qed.
 
 (* Unlike a paragraph, a heading *is* interrupted by a block start. *)
 Example parse_heading_interrupted :
-  doc_blocks (parse_doc "# a
-* * * *") =
+  parse_blocks "# a
+* * * *" =
   [mk (Heading 1 [mk (Str "a")]); mk ThematicBreak].
 Proof. reflexivity. Qed.
 
 Example parse_heading_interrupted_quote :
-  doc_blocks (parse_doc "# a
-> q") =
+  parse_blocks "# a
+> q" =
   [ mk (Heading 1 [mk (Str "a")])
   ; mk (BlockQuote [mk (Para [mk (Str "q")])]) ].
 Proof. reflexivity. Qed.
@@ -885,19 +883,19 @@ Proof. reflexivity. Qed.
 (* Heading content is inline: it is never reclassified, so a quote
    marker inside one is just text. *)
 Example parse_heading_content_not_reclassified :
-  doc_blocks (parse_doc "# > q") = [mk (Heading 1 [mk (Str "> q")])].
+  parse_blocks "# > q" = [mk (Heading 1 [mk (Str "> q")])].
 Proof. reflexivity. Qed.
 
 (* Containers compose for free: the quote strips, then the classifier
    sees a heading. *)
 Example parse_heading_in_quote :
-  doc_blocks (parse_doc "> # a") =
+  parse_blocks "> # a" =
   [mk (BlockQuote [mk (Heading 1 [mk (Str "a")])])].
 Proof. reflexivity. Qed.
 
 (* Paragraphs are never interrupted, quotes included. *)
 Example parse_quote_no_interrupt :
-  doc_blocks (parse_doc "a
-> b") =
+  parse_blocks "a
+> b" =
   [ mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "> b")]) ].
 Proof. reflexivity. Qed.

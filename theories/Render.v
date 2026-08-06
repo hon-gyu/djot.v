@@ -158,12 +158,7 @@ Definition cblock_ind2
               end) inner)
     end.
 
-Definition doc_of_cblocks (cbs : list cblock) : doc :=
-  {| doc_blocks := map cb_ast cbs
-   ; doc_footnotes := []
-   ; doc_references := []
-   ; doc_auto_references := []
-   ; doc_auto_identifiers := [] |}.
+Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
 
 (*
 Renderability
@@ -305,8 +300,8 @@ Qed.
 
 (* Blocks separated by a blank line — the separator the parser reads back
    as "end the current block". *)
-Definition render_djot (d : doc) : string :=
-  String.concat nl (sep_lines (render_blocks_lines (doc_blocks d))).
+Definition render_djot (bs : blocks) : string :=
+  String.concat nl (sep_lines (render_blocks_lines bs)).
 
 (* Rendering is now a single join over one flat line list, so the
    roundtrip's split side is just split/join inversion (Strings.v) —

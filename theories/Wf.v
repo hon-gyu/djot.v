@@ -8,7 +8,7 @@
 *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
-From DjotV Require Import Strings Line Ast Parser.
+From DjotV Require Import Strings Line Ast Parser Document.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -490,12 +490,10 @@ Proof.
     apply IH. exact Hs.
 Qed.
 
-(** The parser cannot produce a malformed document. *)
-Theorem wf_parse : forall s, wf_doc (parse_doc s) = true.
+(** The line fold cannot produce a malformed block list. *)
+Theorem wf_parse : forall s, wf_blocks (parse_blocks s) = true.
 Proof.
-  intros s. unfold wf_doc, parse_doc. simpl.
-  rewrite andb_true_r.
-  apply parse_lines_wf. reflexivity.
+  intros s. unfold parse_blocks. apply parse_lines_wf. reflexivity.
 Qed.
 
 (*
@@ -503,11 +501,11 @@ Completeness
 ============
 *)
 
-(** wf = image(parse_doc): the converse of wf_parse, which alone permits
+(** wf = image(parse_blocks): the converse of wf_parse, which alone permits
    any weaker predicate.  Asserted nowhere: false as stated, see
    wf_complete_false. *)
 Definition wf_complete : Prop :=
-  forall d, wf_doc d = true -> exists s, parse_doc s = d.
+  forall bs, wf_blocks bs = true -> exists s, parse_blocks s = bs.
 
 (* The block constructs Parser.v has a rule for.  The rest of `block` is
    transcribed from djoths and unreachable.  Recursive, so a quote whose
@@ -671,20 +669,253 @@ Proof.
     apply IH. exact Hs.
 Qed.
 
-(* Counterexample: a `Section` doc, well-formed and unreachable.  The gap
-   is coverage, not a missing wf condition, so completeness has to be
-   restated over the parser's fragment in canonical form, i.e. Render.v's
-   cb_ok cblocks. *)
+(* Counterexample: a `Section`, well-formed and unreachable from the line
+   fold — sections only ever come from Document.sectionize, which runs
+   after it.  The gap is coverage, not a missing wf condition, so
+   completeness has to be restated over the parser's fragment in
+   canonical form, i.e. Render.v's cb_ok cblocks. *)
 Theorem wf_complete_false : ~ wf_complete.
 Proof.
   intros Hc.
-  destruct (Hc {| doc_blocks := [mk (Section [mk ThematicBreak])]
-                ; doc_footnotes := []
-                ; doc_references := []
-                ; doc_auto_references := []
-                ; doc_auto_identifiers := [] |} eq_refl) as [s Hs].
+  destruct (Hc [mk (Section [mk ThematicBreak])] eq_refl) as [s Hs].
   pose proof (parse_lines_supported (split_lines s) (PPara []) eq_refl) as Hsup.
   change (parse_lines (split_lines s) (PPara []))
-    with (doc_blocks (parse_doc s)) in Hsup.
+    with (parse_blocks s) in Hsup.
   rewrite Hs in Hsup. discriminate.
 Qed.
+
+(*
+The whole-document pass
+=======================
+
+wf_parse is about the line fold alone.  Document.parse_doc runs the
+whole-document pass on top of it, so well-formedness has to survive that
+too, or the guarantee no longer covers the parser's actual entry point.
+
+Two obligations, one per half of the pass:
+- assigning identifiers rewrites attributes and nothing else, and wf_block
+  never inspects a block's attributes;
+- sectionize introduces `Section` nodes, which do carry a nonempty
+  obligation — discharged because every section starts with the heading
+  that opened it.
+*)
+
+Lemma wf_block_section :
+  forall bs, wf_block (Section bs) = (nonempty bs && wf_blocks bs)%bool.
+Proof.
+  intros bs.
+  change (wf_block (Section bs))
+    with (nonempty bs && wf_block (BlockQuote bs))%bool.
+  rewrite wf_block_quote. reflexivity.
+Qed.
+
+(*
+Identifiers
+-----------
+*)
+
+Lemma assign_ids_wf :
+  forall b p a st,
+    wf_block b = true ->
+    wf_block (node_contents (snd (assign_ids b p a st))) = true.
+Proof.
+  intros b.
+  induction b using block_ind2 with
+    (Q := fun bs => forall st,
+            wf_blocks bs = true ->
+            wf_blocks (snd (assign_ids_list bs st)) = true);
+    intros; try exact H.
+  (* Section, Div, and the list/table constructors are unreachable from
+     the line fold, but the lemma is stated for every block, so they are
+     discharged by the identity branch of assign_ids above. *)
+  - (* Heading *)
+    unfold assign_ids, assign_heading_id.
+    destruct (lookup_attr "id" a) as [v|]; exact H.
+  - (* BlockQuote *)
+    rewrite assign_ids_quote.
+    destruct (assign_ids_list bs st) as [st' bs'] eqn:E.
+    cbn [snd node_contents].
+    rewrite wf_block_quote in H |- *.
+    change bs' with (snd (st', bs')). rewrite <- E.
+    apply IHb. exact H.
+  - (* Node p a b :: rest *)
+    rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
+    cbn [assign_ids_list assign_ids_node].
+    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd]. rewrite wf_blocks_cons.
+    apply andb_true_iff. split.
+    + change n1 with (snd (st1, n1)). rewrite <- E1. apply IHb. exact Hx.
+    + change rest1 with (snd (st2, rest1)). rewrite <- E2.
+      apply IHb0. exact Hrest.
+Qed.
+
+Lemma assign_ids_list_wf :
+  forall bs st,
+    wf_blocks bs = true -> wf_blocks (snd (assign_ids_list bs st)) = true.
+Proof.
+  induction bs as [|[p a x] rest IH]; intros st H; [reflexivity|].
+  rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
+  cbn [assign_ids_list assign_ids_node].
+  destruct (assign_ids x p a st) as [st1 n1] eqn:E1.
+  destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+  cbn [snd]. rewrite wf_blocks_cons. apply andb_true_iff. split.
+  - change n1 with (snd (st1, n1)). rewrite <- E1.
+    apply assign_ids_wf. exact Hx.
+  - change rest1 with (snd (st2, rest1)). rewrite <- E2.
+    apply IH. exact Hrest.
+Qed.
+
+(*
+Sections
+--------
+*)
+
+(* The invariant the section stack maintains: every accumulator is
+   well-formed, and every entry above the document's has a nonempty one —
+   which is what discharges Section's nonempty obligation on close.  The
+   bottom entry may be empty: an empty document is well-formed. *)
+Fixpoint sect_state_wf (stk : sect_state) : bool :=
+  match stk with
+  | [] => false                      (* the document entry is never popped *)
+  | [(_, _, acc)] => wf_blocks acc
+  | (_, _, acc) :: outer => nonempty acc && wf_blocks acc && sect_state_wf outer
+  end.
+
+Lemma nonempty_rev :
+  forall (A : Type) (l : list A), nonempty (rev l) = nonempty l.
+Proof.
+  intros A l. destruct l as [|x l']; [reflexivity|].
+  cbn [rev nonempty]. destruct (rev l') as [|y r]; reflexivity.
+Qed.
+
+Lemma nonempty_app_r :
+  forall (A : Type) (l1 l2 : list A),
+    nonempty l2 = true -> nonempty (l1 ++ l2)%list = true.
+Proof. intros A [|x l1] l2 H; [exact H|reflexivity]. Qed.
+
+Lemma close_ge_wf :
+  forall stk lvl pending,
+    wf_blocks pending = true ->
+    sect_state_wf stk = true ->
+    sect_state_wf (close_ge lvl pending stk) = true.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros lvl pending Hp Hs;
+    [discriminate|].
+  destruct outer as [|e outer'].
+  - cbn in Hs |- *. rewrite wf_blocks_app, Hp, Hs. reflexivity.
+  - cbn [sect_state_wf] in Hs.
+    apply andb_true_iff in Hs as [Hhd Houter].
+    apply andb_true_iff in Hhd as [Hne Hacc].
+    cbn [close_ge]. destruct (Nat.leb lvl l).
+    + apply IH; [|exact Houter].
+      rewrite wf_blocks_cons. cbn [node_contents].
+      rewrite wf_block_section, wf_blocks_rev, wf_blocks_app, Hp, Hacc.
+      cbn [andb]. rewrite andb_true_r.
+      (* the closed section is nonempty: its accumulator already was *)
+      rewrite nonempty_rev, andb_true_r. apply nonempty_app_r. exact Hne.
+    + cbn [sect_state_wf].
+      rewrite wf_blocks_app, Hp, Hacc, Houter, andb_true_r.
+      cbn [andb]. rewrite andb_true_r.
+      destruct pending as [|q pending']; [exact Hne|reflexivity].
+Qed.
+
+Lemma sect_push_wf :
+  forall stk n,
+    wf_block (node_contents n) = true ->
+    sect_state_wf stk = true ->
+    sect_state_wf (sect_push n stk) = true.
+Proof.
+  intros [|[[l a] acc] outer] n Hn Hs; [discriminate|].
+  cbn [sect_push]. destruct outer as [|e outer'];
+    cbn [sect_state_wf] in Hs |- *.
+  - rewrite wf_blocks_cons, Hn, Hs. reflexivity.
+  - apply andb_true_iff in Hs as [Hhd Houter].
+    apply andb_true_iff in Hhd as [_ Hacc].
+    rewrite wf_blocks_cons, Hn, Hacc, Houter. reflexivity.
+Qed.
+
+(* Stated separately because sect_state_wf's two list patterns make `cbn`
+   unfold one step too many: it reduces the recursive call as well, and
+   the induction hypothesis then no longer matches. *)
+Lemma sect_state_wf_cons :
+  forall l a acc stk,
+    nonempty acc = true -> wf_blocks acc = true -> sect_state_wf stk = true ->
+    sect_state_wf ((l, a, acc) :: stk) = true.
+Proof.
+  intros l a acc [|e outer] Hne Hacc Hstk; [discriminate|].
+  change (sect_state_wf ((l, a, acc) :: e :: outer))
+    with (nonempty acc && wf_blocks acc && sect_state_wf (e :: outer))%bool.
+  rewrite Hne, Hacc, Hstk. reflexivity.
+Qed.
+
+Lemma sect_step_wf :
+  forall stk n,
+    wf_block (node_contents n) = true ->
+    sect_state_wf stk = true ->
+    sect_state_wf (sect_step stk n) = true.
+Proof.
+  intros stk [p a b] Hn Hs. destruct b; try (apply sect_push_wf; assumption).
+  (* A heading opens a section whose accumulator already holds it, so the
+     nonempty half of the invariant holds by construction. *)
+  cbn [sect_step]. cbn [node_contents] in Hn.
+  apply sect_state_wf_cons.
+  - reflexivity.
+  - unfold wf_blocks. cbn [forallb node_contents].
+    rewrite andb_true_r. exact Hn.
+  - apply close_ge_wf; [reflexivity | exact Hs].
+Qed.
+
+Lemma sect_bottom_wf :
+  forall stk, sect_state_wf stk = true -> wf_blocks (sect_bottom stk) = true.
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; intros Hs; [discriminate|].
+  destruct outer as [|e outer'].
+  - cbn [sect_state_wf sect_bottom] in Hs |- *.
+    rewrite wf_blocks_rev. exact Hs.
+  - cbn [sect_state_wf] in Hs. apply andb_true_iff in Hs as [_ Houter].
+    apply IH. exact Houter.
+Qed.
+
+(* The fold that drives the stack, carrying the invariant. *)
+Lemma fold_sect_step_wf :
+  forall bs stk,
+    wf_blocks bs = true ->
+    sect_state_wf stk = true ->
+    sect_state_wf (fold_left sect_step bs stk) = true.
+Proof.
+  induction bs as [|n rest IH]; intros stk H Hstk; [exact Hstk|].
+  rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hn Hrest].
+  cbn [fold_left]. apply IH; [exact Hrest|].
+  apply sect_step_wf; assumption.
+Qed.
+
+Lemma sectionize_wf :
+  forall bs, wf_blocks bs = true -> wf_blocks (sectionize bs) = true.
+Proof.
+  intros bs H. unfold sectionize.
+  apply sect_bottom_wf, close_ge_wf; [reflexivity|].
+  apply fold_sect_step_wf; [exact H | reflexivity].
+Qed.
+
+(*
+The theorem
+-----------
+*)
+
+(** The whole-document pass cannot turn a well-formed block list into a
+    malformed document. *)
+Theorem wf_doc_pass :
+  forall bs, wf_blocks bs = true -> wf_doc (doc_pass bs) = true.
+Proof.
+  intros bs H. unfold wf_doc, doc_pass.
+  destruct (assign_ids_list bs id_state_init) as [st bs'] eqn:E.
+  cbn [doc_blocks doc_footnotes]. rewrite andb_true_r.
+  apply sectionize_wf.
+  change bs' with (snd (st, bs')). rewrite <- E.
+  apply assign_ids_list_wf. exact H.
+Qed.
+
+(** The parser cannot produce a malformed document. *)
+Theorem wf_parse_doc : forall s, wf_doc (parse_doc s) = true.
+Proof. intros s. apply wf_doc_pass, wf_parse. Qed.

@@ -7,8 +7,8 @@
    constructors have placeholder output (empty or skeletal) that will be
    filled in alongside the parser, driven by the corpus diff. *)
 
-From Stdlib Require Import String Ascii List DecimalString Decimal.
-From DjotV Require Import Ast Parser.
+From Stdlib Require Import String Ascii List.
+From DjotV Require Import Strings Ast Parser Document.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -27,9 +27,24 @@ Fixpoint escape (s : string) : string :=
   | String c s' => escape_char c ++ escape s'
   end.
 
-Definition nl : string := String "010"%char EmptyString.
+(* Attribute values escape the quote as well (djot.js escapeAttribute). *)
+Definition escape_attr_char (c : ascii) : string :=
+  match c with
+  | """"%char => "&quot;"
+  | _ => escape_char c
+  end.
 
-Definition nat_str (n : nat) : string := NilZero.string_of_uint (Nat.to_uint n).
+Fixpoint escape_attr (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => escape_attr_char c ++ escape_attr s'
+  end.
+
+(* Rendered in source order, each as ` key="value"`, so that the empty
+   attribute set contributes nothing to a tag. *)
+Definition render_attrs (a : attr) : string :=
+  String.concat ""
+    (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
 (*
 Inlines
@@ -76,45 +91,52 @@ Blocks
 ======
 *)
 
-Fixpoint render_block (b : block) : string :=
+(* The node's attributes ride alongside its payload: they belong on the
+   opening tag (today only the auto-identifiers the whole-document pass
+   puts on sections and quoted headings), but recursion still has to be
+   on `block` — `list (node block)` is two type constructors deep, which
+   the guard checker will not follow from a `node block` argument. *)
+Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
   let render_bs :=
     fix go (ns : list (node block)) : string :=
       match ns with
       | [] => ""
-      | Node _ _ x :: rest => render_block x ++ go rest
+      | Node _ a' x :: rest => render_block x a' ++ go rest
       end in
+  let ats := render_attrs a in
   match b with
-  | Para ils => "<p>" ++ render_inlines ils ++ "</p>" ++ nl
-  | Section bs => "<section>" ++ nl ++ render_bs bs ++ "</section>" ++ nl
-  (* The <hN> element is faithful; the `id` attribute and the enclosing
-     <section> both come from the whole-document pass (auto-identifiers,
-     level-driven section nesting) that does not exist yet, so heading
-     output still differs from djot.js. *)
+  | Para ils => "<p" ++ ats ++ ">" ++ render_inlines ils ++ "</p>" ++ nl
+  | Section bs =>
+      "<section" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</section>" ++ nl
   | Heading lvl ils =>
-      "<h" ++ nat_str lvl ++ ">" ++ render_inlines ils
+      "<h" ++ nat_str lvl ++ ats ++ ">" ++ render_inlines ils
       ++ "</h" ++ nat_str lvl ++ ">" ++ nl
   | BlockQuote bs =>
-      "<blockquote>" ++ nl ++ render_bs bs ++ "</blockquote>" ++ nl
+      "<blockquote" ++ ats ++ ">" ++ nl ++ render_bs bs
+      ++ "</blockquote>" ++ nl
   | CodeBlock lang code =>
-      "<pre><code"
+      "<pre" ++ ats ++ "><code"
       ++ (match lang with
           | EmptyString => ""
           | _ => " class=""language-" ++ lang ++ """"
           end)
       ++ ">" ++ escape code ++ "</code></pre>" ++ nl
-  | Div bs => "<div>" ++ nl ++ render_bs bs ++ "</div>" ++ nl
+  | Div bs => "<div" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</div>" ++ nl
   | OrderedList _ _ _ => ""   (* TODO Phase 1 *)
   | BulletList _ _ => ""      (* TODO Phase 1 *)
   | TaskList _ _ => ""        (* TODO Phase 1 *)
   | DefinitionList _ _ => ""  (* TODO Phase 1 *)
-  | ThematicBreak => "<hr>" ++ nl
+  | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
   | Table _ _ => ""           (* TODO Phase 1 *)
   | RawBlock fmt contents =>
       if String.eqb fmt "html" then contents else ""
   end.
 
+Definition render_node (n : node block) : string :=
+  match n with Node _ a b => render_block b a end.
+
 Definition render_blocks (bs : blocks) : string :=
-  String.concat "" (map (fun n => render_block (node_contents n)) bs).
+  String.concat "" (map render_node bs).
 
 Definition render_html (d : doc) : string := render_blocks (doc_blocks d).
 

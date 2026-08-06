@@ -1,4 +1,4 @@
-(* Roundtrip:  parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs
+(* Roundtrip:  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs
    for canonical blocks (Render.v).  Exact equality — canonicality is in
    the cb_ok hypothesis, so no quotient is needed.
 
@@ -546,10 +546,10 @@ Qed.
    this is what lets split_render/parse_sep take over. *)
 Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
-  render_djot (doc_of_cblocks cbs)
+  render_djot (blocks_of_cblocks cbs)
   = String.concat nl (sep_lines (map cb_lines cbs)).
 Proof.
-  intros cbs H. unfold render_djot, doc_of_cblocks. cbn [doc_blocks].
+  intros cbs H. unfold render_djot, blocks_of_cblocks. cbn [doc_blocks].
   f_equal. f_equal.
   induction cbs as [|cb rest IH]; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hcb Hrest].
@@ -565,11 +565,11 @@ The theorem
 (** Render then parse is the identity on canonical blocks. *)
 Theorem roundtrip_blocks :
   forall cbs, forallb cb_ok cbs = true ->
-  parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof.
   intros cbs H.
   rewrite render_djot_cblocks by exact H.
-  unfold parse_doc, doc_of_cblocks.
+  unfold parse_blocks, blocks_of_cblocks.
   f_equal.
   rewrite split_render by (apply forallb_cb_lines_ok; exact H).
   apply parse_sep. exact H.
@@ -593,35 +593,35 @@ Proof. reflexivity. Qed.
    line inside the quote renders as "> ", prefix and all, and a literal
    would hide that trailing space. *)
 Example quote_example_render :
-  render_djot (doc_of_cblocks quote_example)
+  render_djot (blocks_of_cblocks quote_example)
   = ("> a" ++ nl ++ "> " ++ nl ++ "> * * * *" ++ nl ++ nl ++ "after")%string.
 Proof. reflexivity. Qed.
 
 Example quote_example_roundtrip :
-  parse_doc (render_djot (doc_of_cblocks quote_example))
-  = doc_of_cblocks quote_example.
+  parse_blocks (render_djot (blocks_of_cblocks quote_example))
+  = blocks_of_cblocks quote_example.
 Proof. apply roundtrip_blocks. reflexivity. Qed.
 
 (* A multi-line heading renders with the hashes repeated on every line,
    which is what makes it reparse as a continuation of itself. *)
 Example heading_example_roundtrip :
   let cbs := [CHeading 2 ["a"; "b"]; CPara ["p"]] in
-  render_djot (doc_of_cblocks cbs)
+  render_djot (blocks_of_cblocks cbs)
     = ("## a" ++ nl ++ "## b" ++ nl ++ nl ++ "p")%string
-  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 (* Headings nest inside quotes with no extra machinery. *)
 Example heading_in_quote_roundtrip :
   let cbs := [CQuote [CHeading 1 ["h"]; CPara ["t"]]] in
-  render_djot (doc_of_cblocks cbs)
+  render_djot (blocks_of_cblocks cbs)
     = ("> # h" ++ nl ++ "> " ++ nl ++ "> t")%string
-  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 (* Nesting roundtrips too, with no extra hypotheses. *)
 Example nested_quote_roundtrip :
   let cbs := [CQuote [CQuote [CPara ["deep"]]]] in
-  render_djot (doc_of_cblocks cbs) = "> > deep"
-  /\ parse_doc (render_djot (doc_of_cblocks cbs)) = doc_of_cblocks cbs.
+  render_djot (blocks_of_cblocks cbs) = "> > deep"
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.

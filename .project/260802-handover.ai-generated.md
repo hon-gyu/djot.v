@@ -1,8 +1,8 @@
 ---
 ai-disclosure: ai-generated
-date: 2026-08-05
+date: 2026-08-06
 ---
-# Handover: djot.v state as of 2026-08-05
+# Handover: djot.v state as of 2026-08-06
 
 Where the verified-djot project stands, for whoever (human or agent)
 picks it up next. The research background is
@@ -16,28 +16,40 @@ exists, how to drive it, and what to watch out for.
   **core done**, growing construct by construct.
 - Parser covers: paragraphs, thematic breaks, fenced code/raw blocks,
   **block quotes** (nested, with lazy continuation), **headings**
-  (multi-line, interruptible; no section/id pass yet).
+  (multi-line, interruptible), and the **whole-document pass** over the
+  finished block list: auto-identifiers, implicit heading references,
+  level-driven section nesting.
 - Theorems, all axiom-free (`Print Assumptions` closed), zero `Admitted`:
-  - `wf_parse` (Wf.v): every parser output is well-formed, for all inputs.
-  - `wf_complete_false` (Wf.v): wf is *not* the image of `parse_doc` — the
-    gap is construct coverage, not a missing wf condition.
-  - `roundtrip_blocks` (Roundtrip.v): `parse (render (doc_of_cblocks cbs))
-    = doc_of_cblocks cbs` — exact equality on canonical blocks.
+  - `wf_parse` (Wf.v): every output of the line fold is well-formed, for
+    all inputs.
+  - `wf_doc_pass` / `wf_parse_doc` (Wf.v): the whole-document pass carries
+    well-formedness through, so the guarantee still covers the real entry
+    point. The section half needs a stack invariant (every open section's
+    accumulator is nonempty, because it starts with its own heading);
+    the identifier half needs `Ast.block_ind2`.
+  - `wf_complete_false` (Wf.v): wf is *not* the image of `parse_blocks` —
+    the gap is construct coverage, not a missing wf condition. The
+    counterexample is a `Section`, which the line fold cannot emit
+    (sections only come from the document pass, which runs after it).
+  - `roundtrip_blocks` (Roundtrip.v): `parse_blocks (render_djot
+    (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs` — exact equality on
+    canonical blocks. Stated at the block layer, below the document pass;
+    a doc-level corollary is an open item (see below).
   - `quote_uniformity` (Parser.v): prefixing every line with `"> "` parses
     to that document wrapped in a quote. No hypotheses, every construct.
     This is Phase 2's uniformity statement, arriving early.
   - `many_fuel_stable` (Spike.v): the Spike A verdict — fuel + discharge
     lemmas, not well-founded recursion.
-- Differential corpus (djot.js's 287 usable cases): gallina 47, djot.js
+- Differential corpus (djot.js's 287 usable cases): gallina 59, djot.js
   287 (its own corpus), djoths 262. The 25 djoths divergences are
   adjudicated in `.project/oracle-disagreements.md` — djot.js is the sole
   authority (upstream README: djoths is not kept up to date).
 - Corpus numbers are a health check, not the goal — the standing priority
   is good code and proof engineering over conformance chasing.
-  `block_quote.test` is 12/15; the 3 misses need inline emphasis and
-  heading ids, and the block structure is right in all of them.
-  Headings moved the number by zero on purpose: their HTML cannot match
-  djot.js until section wrapping and auto-identifiers exist.
+  `block_quote.test` is 13/15; both misses need inline emphasis.
+  `headings.test` is 12/18; the 6 misses need block attributes
+  (`{#id}`), footnotes, inline links, and the shared over-indentation
+  fix — none is a section-nesting or identifier problem.
 
 ## How to drive it
 
@@ -64,13 +76,21 @@ Dependency chain, one concern per file:
 Strings.v   byte-string utilities + all their lemmas (split/join inversion)
   └ Line.v      line_kind classifier — THE prefix-determinism seam
       └ Parser.v    step (per-line transition) + finish; parse_lines folds
-                    them; pstate = PPara | PFence | PQuote (container
-                    stack); equation lemmas are the proof interface
-          ├ Wf.v        wf predicate + state_wf invariant + wf_parse
-          ├ Html.v      HTML renderer (djot.js serialization is authority)
+                    them; parse_blocks is the entry point; pstate = PPara
+                    | PHeading | PFence | PQuote (container stack);
+                    equation lemmas are the proof interface
+          ├ Document.v  the whole-document pass: parse_doc = doc_pass ∘
+          │             parse_blocks; ids, auto-references, sections
+          │   ├ Wf.v      wf predicate + state_wf + wf_parse + wf_parse_doc
+          │   └ Html.v    HTML renderer (djot.js serialization is authority)
           └ Render.v    cblock canonical view + cb_ok + line renderer
               └ Roundtrip.v  split_render / parse_cblock / render agreement
 ```
+
+Two entry points, deliberately: `Parser.parse_blocks : string -> blocks`
+is the line fold and the layer every structural theorem is stated
+against; `Document.parse_doc : string -> doc` composes the pass on top
+and is what Html.convert and the harness use.
 
 Load-bearing decisions:
 
@@ -103,12 +123,34 @@ Load-bearing decisions:
   canonical code block's content must not close a 3-backtick fence.
   Canonicality-in-the-hypothesis is what makes roundtrip *exact* equality
   with no quotient.
+- **The whole-document pass is a separate file, run after the fold.**
+  Anything order-dependent over the finished block list lives in
+  Document.v: identifier uniqueness, implicit heading references, section
+  nesting — and reference definitions and footnotes when they land, since
+  they are the same shape (block syntax producing no block, only
+  side-table entries). Keeping it out of the fold is what Phase 3's
+  locality theorem needs. Sectioning is top-level only, matching djot.js;
+  identifiers are assigned everywhere and share one counter.
+- **`Ast.block_ind2` is the induction principle for the AST.** Rocq's
+  generated `block_ind` will not descend through `list (node block)`, so
+  every proof over blocks needs it. Its list/table cases carry no
+  hypothesis for the blocks they hold — unsound to use there, and
+  unprovable rather than silently wrong, which is the point.
+- **Recursion over the AST goes on `block`, not `node block`.** The guard
+  checker will not follow `list (node block)` from a `node block`
+  argument, so `Html.render_block` and `Document.assign_ids` both take the
+  payload with the node's attributes passed alongside. Learned twice;
+  reach for this shape first.
 - **Fence content is never classified** — only close-tested. Verbatimness
   is structural, not a side condition.
 - The split/join inversion needs only: all lines newline-free, final line
   nonempty. (Weakened for blank code-content lines; don't re-strengthen.)
 
 ## The extension recipe (proven four times: thematic breaks, code fences, block quotes, headings)
+
+A construct with a whole-document component adds a sixth step: its case
+in Document.v, plus the matching wf-preservation lemma in Wf.v's
+"whole-document pass" section.
 
 To add a block construct:
 
@@ -166,16 +208,20 @@ Block quotes are the worked example throughout.
 
 ## Open threads, in rough priority order
 
-1. **The whole-document pass.** Headings parse but produce no `Section`
-   wrapping and no `id`s. Both are order-dependent computations over the
-   finished block list — level-driven section nesting, and identifier
-   dedup with `-1`/`-2` suffixes. Reference definitions and footnotes
-   want the same pass (they are block syntax that produces no block, only
-   side-table entries), so build it once for all four. It must sit
-   *after* `parse_lines`, never inside the fold: that separation is what
-   Phase 3's locality theorem depends on.
-   Note djot.js only wraps sections at the top level — inside a quote a
-   heading gets a bare `<h1 id=...>`. Check that before designing.
+1. **Finish what the document pass left open.** The pass itself is done
+   (Document.v), but three things around it are not:
+   - `unique_id`'s fuel has no discharge lemma. The argument is in the
+     comment (n taken ids, n+2 distinct candidates); proving it needs
+     pigeonhole plus injectivity of `nat_str`, and would buy the real
+     statement — the assigned identifier is fresh. Compare
+     `Parser.step_fuel_enough`.
+   - No doc-level roundtrip. `roundtrip_blocks` is stated below the pass.
+     The corollary wants `unsectionize (sectionize bs) = bs`: the pass
+     adds only structure that erasure recovers. Worth having before more
+     passes land on top.
+   - `Ast.block_ind2` has no induction hypotheses for the list and table
+     constructors. Mechanical to fill in; do it when lists land, not
+     before.
 
 2. **Lists** — the last real container, and bigger than the plan's
    one-liner. Budget it as four sub-problems, not one:
@@ -204,7 +250,9 @@ Block quotes are the worked example throughout.
      verbatim (Text) content. The current rule is right for `"> "` and
      for fence content, wrong for over-indented paragraph lines.
    - Headings strip the hashes plus at most one whitespace, so `#   a`
-     has the same over-indent behaviour as `>   a`.
+     has the same over-indent behaviour as `>   a`. This is the one
+     remaining heading miss in the corpus (`   ##    Heading`); the
+     identifier is right, only the rendered text keeps the spaces.
    Both want the same fix: an indent notion on the container stack, which
    is what lists will force. Deliberately not patched piecemeal.
 
@@ -216,8 +264,10 @@ Block quotes are the worked example throughout.
 7. **Inline parsing** is untouched: paragraphs are Str/SoftBreak only.
    Phase 3 formalizes djot.js's opener-stack single pass (not djoths's
    backtracking combinators) — see the plan.
-8. **Deferred render details**: HTML for lists/tables/headings are TODO
-   stubs in Html.v; raw block passthrough is html-only.
+8. **Deferred render details**: HTML for lists and tables are TODO stubs
+   in Html.v; raw block passthrough is html-only. Block attributes now
+   render on every tag (`render_attrs`), but nothing except the pass
+   produces them — `{#id}` block-attribute syntax is unparsed.
 9. Corpus gains now come mostly from constructs with inline content, so
    expect the number to plateau until Phase 3 starts.
 
@@ -228,8 +278,9 @@ Block quotes are the worked example throughout.
 | Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `split_join_nl` |
 | Line.v | `line_kind`, thematic/fence/quote/heading recognizers | `classify_canonical_heading`, `classify_quote_length` |
 | Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
-| Ast.v | full AST (djoths AST.hs transcription) | — |
-| Wf.v | wf predicate, canonicality, `state_wf` | `wf_parse`, `wf_complete_false` |
+| Ast.v | full AST (djoths AST.hs transcription) | `block_ind2` |
+| Document.v | ids, auto-references, sections; `parse_doc` | `assign_ids_quote` |
+| Wf.v | wf predicate, canonicality, `state_wf`, pass preservation | `wf_parse`, `wf_parse_doc`, `wf_complete_false` |
 | Render.v | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2` | — |
 | Roundtrip.v | split/parse/render agreement | `roundtrip_blocks` |
 | Html.v | HTML renderer (djot.js-faithful) | — |
@@ -239,4 +290,5 @@ Commit history tells the story: `7104129` scaffold → `c220897`
 adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
 `fc1237a` restructure/classifier/thematic → `376ea05` code fences →
 `2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
-`1978716` quote roundtrip + line renderer → `b54876a` headings.
+`1978716` quote roundtrip + line renderer → `b54876a` headings →
+whole-document pass (sections, identifiers, implicit references).

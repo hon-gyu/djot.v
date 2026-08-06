@@ -167,10 +167,87 @@ Inductive block : Type :=
 
 Definition blocks : Type := list (node block).
 
+(* Rocq's generated `block_ind` does not descend into a container's
+   contents: `blocks` is `list (node block)`, two type constructors away
+   from `block`, and the guard checker will not follow that.  So every
+   proof by induction over the AST needs this two-predicate version —
+   P for a block, Q for a block list, each feeding the other.  (Render.v
+   carries `cblock_ind2` for the canonical view, for the same reason.)
+
+   The list and table constructors get no induction hypothesis for the
+   blocks they hold: their cases must be discharged outright.  Nothing
+   produces or traverses them yet, and filling them in is mechanical once
+   lists land — a caller that needs those hypotheses finds out at once,
+   because the case becomes unprovable. *)
+Definition block_ind2
+  (P : block -> Prop) (Q : blocks -> Prop)
+  (hpara : forall ils, P (Para ils))
+  (hsection : forall bs, Q bs -> P (Section bs))
+  (hheading : forall lvl ils, P (Heading lvl ils))
+  (hquote : forall bs, Q bs -> P (BlockQuote bs))
+  (hcode : forall lang code, P (CodeBlock lang code))
+  (hdiv : forall bs, Q bs -> P (Div bs))
+  (holist : forall attrs sp items, P (OrderedList attrs sp items))
+  (hblist : forall sp items, P (BulletList sp items))
+  (htlist : forall sp items, P (TaskList sp items))
+  (hdlist : forall sp items, P (DefinitionList sp items))
+  (hthematic : P ThematicBreak)
+  (htable : forall caption rows, P (Table caption rows))
+  (hraw : forall format contents, P (RawBlock format contents))
+  (hnil : Q [])
+  (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
+  : forall b, P b :=
+  fix go (b : block) : P b :=
+    let golist :=
+      fix golist (ns : blocks) : Q ns :=
+        match ns with
+        | [] => hnil
+        | Node p a x :: rest => hcons p a x rest (go x) (golist rest)
+        end in
+    match b with
+    | Para ils => hpara ils
+    | Section bs => hsection bs (golist bs)
+    | Heading lvl ils => hheading lvl ils
+    | BlockQuote bs => hquote bs (golist bs)
+    | CodeBlock lang code => hcode lang code
+    | Div bs => hdiv bs (golist bs)
+    | OrderedList attrs sp items => holist attrs sp items
+    | BulletList sp items => hblist sp items
+    | TaskList sp items => htlist sp items
+    | DefinitionList sp items => hdlist sp items
+    | ThematicBreak => hthematic
+    | Table caption rows => htable caption rows
+    | RawBlock format contents => hraw format contents
+    end.
+
 (*
 Documents
 =========
 *)
+
+(* Splitting a string into `sep`-free tokens, empty ones dropped.  Both
+   djot string-to-key derivations are an instance: collapse runs of a
+   character class, drop them at the ends, join what is left with a fixed
+   separator.  Labels use whitespace (below); auto-identifiers use a wider
+   class (Document.is_id_sep). *)
+
+Fixpoint words_aux (sep : ascii -> bool) (s : string) (cur : string)
+  (acc : list string) : list string :=
+  match s with
+  | EmptyString =>
+      match cur with EmptyString => acc | _ => cur :: acc end
+  | String c s' =>
+      if sep c
+      then match cur with
+           | EmptyString => words_aux sep s' EmptyString acc
+           | _ => words_aux sep s' EmptyString (cur :: acc)
+           end
+      else words_aux sep s' (cur ++ String c EmptyString) acc
+  end.
+
+(* Tokens in source order.  The accumulator above builds them reversed. *)
+Definition words (sep : ascii -> bool) (s : string) : list string :=
+  rev (words_aux sep s EmptyString []).
 
 (* Labels are normalized by collapsing runs of whitespace to single
    spaces and trimming (djoths normalizeLabel). *)
@@ -179,22 +256,8 @@ Definition is_label_ws (c : ascii) : bool :=
   (Ascii.eqb c " " || Ascii.eqb c "009" || Ascii.eqb c "013"
    || Ascii.eqb c "010")%char%bool.
 
-Fixpoint words_aux (s : string) (cur : string) (acc : list string)
-  : list string :=
-  match s with
-  | EmptyString =>
-      match cur with EmptyString => acc | _ => cur :: acc end
-  | String c s' =>
-      if is_label_ws c
-      then match cur with
-           | EmptyString => words_aux s' EmptyString acc
-           | _ => words_aux s' EmptyString (cur :: acc)
-           end
-      else words_aux s' (cur ++ String c EmptyString) acc
-  end.
-
 Definition normalize_label (s : string) : string :=
-  String.concat " " (rev (words_aux s EmptyString [])).
+  String.concat " " (words is_label_ws s).
 
 (* Footnote bodies and link references, keyed by normalized label.  Look
    them up through lookup_note / lookup_reference, which normalize the
