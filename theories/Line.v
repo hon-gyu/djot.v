@@ -25,6 +25,7 @@ Inductive line_kind : Type :=
   | KFence (f : fence)     (* code fence opener *)
   | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
   | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
+  | KList (m : ascii) (rest : string)  (* bullet marker, with its content *)
   | KText.                 (* anything else: paragraph text *)
 
 (*
@@ -153,9 +154,54 @@ Definition heading_open (l : string) : option (nat * string) :=
        end
   else None.
 
+(* Bullet-list markers, per djot.js pattListMarker restricted to the
+   bullet styles (`[-*+]` followed by whitespace or end of line) — same
+   marker-then-at-most-one-space shape as quotes and headings.  The
+   marker character is the list's *style*: djot.js starts a new list
+   when the style changes, so `- a` then `* b` is two lists.
+
+   Ordered markers (`1.`, `(a)`, roman numerals) are deliberately not
+   here: their styles are ambiguous until a sibling disambiguates, which
+   the plan files under Phase 3's small combinatorial specs.
+
+   `-x` is not a marker, and `* * *` is a thematic break — `classify`
+   tests thematic first, matching djot.js's spec order. *)
+Definition is_bullet (c : ascii) : bool :=
+  (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+")%char%bool.
+
+Definition list_marker (l : string) : option (ascii * string) :=
+  match drop_leading_ws l with
+  | String c rest =>
+      if is_bullet c
+      then match rest with
+           | EmptyString => Some (c, EmptyString)
+           | String c' rest' => if is_ws c' then Some (c, rest') else None
+           end
+      else None
+  | EmptyString => None
+  end.
+
+(* Like quote_prefix_length: the content after a bullet marker is
+   strictly shorter than the line, which is what makes the parser's
+   descent into a list item terminate. *)
+Lemma list_marker_length :
+  forall l m rest,
+    list_marker l = Some (m, rest) -> String.length rest < String.length l.
+Proof.
+  intros l m rest H. unfold list_marker in H.
+  pose proof (drop_leading_ws_length l) as Hle.
+  destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
+  destruct (is_bullet c); [|discriminate].
+  simpl in Hle.
+  destruct r as [|c' r'].
+  - injection H as _ <-. simpl. lia.
+  - destruct (is_ws c'); [|discriminate].
+    injection H as _ <-. simpl in *. lia.
+Qed.
+
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
-   then block quotes, headings, fences, thematic breaks; anything
-   unrecognized falls through to paragraph text, so KText is the
+   then block quotes, headings, fences, thematic breaks, list markers;
+   anything unrecognized falls through to paragraph text, so KText is the
    catch-all.  Adding a block construct starts by adding a case here. *)
 Definition classify (l : string) : line_kind :=
   if is_blank l then KBlank
@@ -167,7 +213,12 @@ Definition classify (l : string) : line_kind :=
            | None =>
                match fence_open l with
                | Some f => KFence f
-               | None => if is_thematic l then KThematic else KText
+               | None =>
+                   if is_thematic l then KThematic
+                   else match list_marker l with
+                        | Some (m, rest) => KList m rest
+                        | None => KText
+                        end
                end
            end
        end.
@@ -186,9 +237,11 @@ Proof.
   - destruct r as [|c r']; [injection H as <- <-; exact E|].
     destruct (is_ws c); [injection H as <- <-; exact E|].
     destruct (fence_open l); [discriminate|].
-    destruct (is_thematic l); discriminate.
+    destruct (is_thematic l); [discriminate|].
+    destruct (list_marker l) as [[m r0]|]; discriminate.
   - destruct (fence_open l); [discriminate|].
-    destruct (is_thematic l); discriminate.
+    destruct (is_thematic l); [discriminate|].
+    destruct (list_marker l) as [[m r0]|]; discriminate.
 Qed.
 
 (*
@@ -208,7 +261,8 @@ Proof.
   destruct (quote_prefix l); [discriminate|].
   destruct (heading_open l) as [[lvl rest]|]; [discriminate|].
   destruct (fence_open l); [discriminate|].
-  destruct (is_thematic l); discriminate.
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[m r0]|]; discriminate.
 Qed.
 
 (* The measure fact, restated at the classifier: the parser only ever
@@ -224,7 +278,23 @@ Proof.
   - injection H as <-. reflexivity.
   - destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
     destruct (fence_open l); [discriminate|].
-    destruct (is_thematic l); discriminate.
+    destruct (is_thematic l); [discriminate|].
+    destruct (list_marker l) as [[m r0]|]; discriminate.
+Qed.
+
+Lemma classify_list_length :
+  forall l m rest,
+    classify l = KList m rest -> String.length rest < String.length l.
+Proof.
+  intros l m rest H. apply (list_marker_length l m).
+  unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[m' r']|]; [|discriminate].
+  injection H as <- <-. reflexivity.
 Qed.
 
 Lemma classify_not_kblank_nonblank :
@@ -237,11 +307,11 @@ Qed.
 Lemma classify_ktext :
   forall l,
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
-    fence_open l = None -> is_thematic l = false ->
+    fence_open l = None -> is_thematic l = false -> list_marker l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Ht. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Ht. reflexivity.
+  intros l Hb Hq Hh Hf Ht Hm. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Ht, Hm. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)

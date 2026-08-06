@@ -1,8 +1,8 @@
 ---
 ai-disclosure: ai-generated
-date: 2026-08-06
+date: 2026-08-07
 ---
-# Handover: djot.v state as of 2026-08-06
+# Handover: djot.v state as of 2026-08-07
 
 Where the verified-djot project stands, for whoever (human or agent)
 picks it up next. The research background is
@@ -16,9 +16,10 @@ exists, how to drive it, and what to watch out for.
   **core done**, growing construct by construct.
 - Parser covers: paragraphs, thematic breaks, fenced code/raw blocks,
   **block quotes** (nested, with lazy continuation), **headings**
-  (multi-line, interruptible), and the **whole-document pass** over the
-  finished block list: auto-identifiers, implicit heading references,
-  level-driven section nesting.
+  (multi-line, interruptible), **bullet lists** (indent-based
+  continuation, tight/loose, nesting), and the **whole-document pass**
+  over the finished block list: auto-identifiers, implicit heading
+  references, level-driven section nesting.
 - Theorems, all axiom-free (`Print Assumptions` closed), zero `Admitted`:
   - `wf_parse` (Wf.v): every output of the line fold is well-formed, for
     all inputs.
@@ -48,7 +49,7 @@ exists, how to drive it, and what to watch out for.
     This is Phase 2's uniformity statement, arriving early.
   - `many_fuel_stable` (Spike.v): the Spike A verdict — fuel + discharge
     lemmas, not well-founded recursion.
-- Differential corpus (djot.js's 287 usable cases): gallina 59, djot.js
+- Differential corpus (djot.js's 287 usable cases): gallina 68, djot.js
   287 (its own corpus), djoths 262. The 25 djoths divergences are
   adjudicated in `.project/oracle-disagreements.md` — djot.js is the sole
   authority (upstream README: djoths is not kept up to date).
@@ -58,6 +59,11 @@ exists, how to drive it, and what to watch out for.
   `headings.test` is 12/18; the 6 misses need block attributes
   (`{#id}`), footnotes, inline links, and the shared over-indentation
   fix — none is a section-nesting or identifier problem.
+  `lists.test` is 10/33, and the block structure is right in every miss
+  inspected: tight/loose, item splitting, nesting and what follows the
+  list all match. The whole difference is retained leading whitespace on
+  continuation lines — open thread 2 below, which is now the measured
+  bottleneck rather than a suspected one.
 
 ## How to drive it
 
@@ -128,12 +134,15 @@ Load-bearing decisions:
   container's contents take the same path as the top level. That is
   what makes `quote_uniformity` hypothesis-free — and what a new
   container should copy.
-- **Fuel exists but never escapes.** Quote descent recurses on the
-  *line*, not the state, so it is not structural. `step_fuel` takes
-  fuel; `step` fixes it at the line's length (enough by
-  `classify_quote_length`) and `step_fuel_enough` discharges it. No
-  statement outside Parser.v mentions fuel — keep it that way when the
-  next container lands.
+- **Fuel exists but never escapes, and its measure is two-part.** A
+  quote descent shortens the *line* (`classify_quote_length`); a list
+  item's content line is handed to the inner container *unchanged* and
+  shortens the *state* instead. So the measure is
+  `String.length l + pstate_depth st`, and `step` fixes fuel at `S` of
+  it. A new container that descends without consuming a prefix must keep
+  `pstate_depth` honest. `step_fuel_stable` / `step_fuel_enough`
+  discharge it; no statement outside Parser.v mentions fuel — keep it
+  that way.
 - **The djot renderer is line-valued** (`render_block_lines`), because
   block structure *is* line structure: a quote's rendering is its
   contents' lines with a prefix. `sep_lines` is the one layout function,
@@ -144,6 +153,18 @@ Load-bearing decisions:
   canonical code block's content must not close a 3-backtick fence.
   Canonicality-in-the-hypothesis is what makes roundtrip *exact* equality
   with no quotient.
+- **Tight/loose is an event rule, not a tree rule.** djot.js arms a
+  `blanklines` flag on a blank line and loosens the list at the next
+  event that is neither a blank nor a list boundary (parse.ts ~1237).
+  So `- a`, blank, `  - b` stays *tight*, even though a blank separates
+  the item's two children — the next event opens a list. The textbook
+  "blank line between block children" rule gets that case wrong. The
+  flags live in `list_state` because a list is only emitted when it
+  closes, so nothing is revised retroactively.
+- **A list marker never interrupts an open paragraph**, same as every
+  other block opener. `- a` / `  - b` is one item whose paragraph runs
+  on, not a nested list — nesting needs the blank line first. This kills
+  a whole class of interaction before it starts.
 - **The pass is erasable, and that is a standing obligation.**
   `Document.undo_pass` inverts it, and `pass_erase` says so. Anything
   new added to the pass must either extend `undo_pass` or be shown not
@@ -186,7 +207,8 @@ To add a block construct:
 2. `Parser.v` — `step` branch + its equation/seed lemmas. A container
    writes only its continuation rule; `close_reopen` handles the rest.
 3. `Wf.v` — case in `step_fuel_wf` (and `wf_block` if new AST shape),
-   plus the matching case in `step_fuel_supported`.
+   plus the matching case in `step_fuel_supported`, `finish_wf`,
+   `feed_lazy_wf` and their `_supported` twins.
 4. `Render.v` — `cblock` constructor, `cb_lines`/`cb_ast`/`cb_ok` case,
    `render_block_lines` case.
 5. `Roundtrip.v` — one case each in `cb_ok_lines_ok`, `parse_cblock`,
@@ -258,25 +280,41 @@ Block quotes are the worked example throughout.
      constructors. Mechanical to fill in; do it when lists land, not
      before.
 
-2. **Lists** — the last real container, and bigger than the plan's
-   one-liner. Budget it as four sub-problems, not one:
-   - indent-based continuation (`indent > list.indent`, or blank), which
-     is what finally forces an indent notion on `pstate`;
-   - `list` + `list_item` as *two* nested containers;
-   - tight/loose, which is a stateful rule: a blank line sets a flag on
-     the enclosing list, and any later event that is not a list boundary
-     turns the list loose (djot.js `parse.ts` ~line 1237). Our fold can
-     carry this in `PList` state since the list is only emitted on close
-     — no retroactivity needed.
-   - marker styles and their narrowing across items (`i.` is roman *and*
-     alpha until a sibling disambiguates). The plan already files this
-     under Phase 3's "small combinatorial specs"; it can be deferred by
-     doing bullet lists first.
-3. **SPEC-GAP findings** (also in oracle-disagreements.md): tilde fences
+2. **Indentation — now the measured bottleneck, and one fix serves
+   four constructs.** djot.js strips leading whitespace from *inline*
+   content lines while preserving relative indent for *verbatim* ones.
+   We strip nothing, so paragraph continuation lines keep their spaces.
+   This is one divergence with four faces:
+   - top level: `a` / `   b` renders as `a\n   b`, djot.js `a\nb`;
+   - inside a quote: `>     a` keeps four spaces;
+   - after a heading marker: `#   a` likewise;
+   - inside a list item: every `lists.test` miss inspected is this and
+     nothing else — the block structure is already right.
+   The paragraph half looks small (strip in the `PPara`/`PHeading`
+   continuation branches and in `open_kind`'s KText), but it costs a
+   canonicality condition in `cb_ok` — interior lines must then have no
+   leading whitespace — so Render.v and Roundtrip.v move with it. Worth
+   doing as its own change, and it should lift several test files at
+   once.
+
+3. **Lists, the parts deliberately left out.**
+   - `Render.v`/`Roundtrip.v` have no `CList` constructor, so
+     `roundtrip_blocks` does not cover lists yet. The parser produces
+     them and `wf_parse` covers them; the canonical fragment does not.
+     This is steps 4-5 of the extension recipe, not yet run.
+   - Ordered lists: markers whose style is ambiguous until a sibling
+     disambiguates (`i.` is roman *and* alpha). Filed under Phase 3's
+     "small combinatorial specs". `Line.list_marker` handles bullets
+     only, and says so.
+   - `list` and `list_item` are one `PList` constructor rather than two
+     nested containers. They only differ when a sibling marker arrives,
+     which the single constructor handles directly; split them if
+     ordered lists or definition lists make it pay.
+4. **SPEC-GAP findings** (also in oracle-disagreements.md): tilde fences
    are undocumented in the prose spec; table separator-cell trimming is
    ambiguous (djot.js does not trim). The formalized spec decides both
    djot.js's way; consider filing upstream doc issues.
-4. **Indentation is the one known-incomplete area.** Two instances:
+5. **Indentation details beyond the paragraph fix** (thread 2):
    - Indented code fences: the recognizer accepts leading ws but content
      is not de-indented (djot.js strips the fence's indent).
    - Block quotes strip `>` plus *at most one* whitespace, so `>     a`
@@ -311,14 +349,14 @@ Block quotes are the worked example throughout.
 | File | Contents | Key theorem/lemma |
 |---|---|---|
 | Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `split_join_nl` |
-| Line.v | `line_kind`, thematic/fence/quote/heading recognizers | `classify_canonical_heading`, `classify_quote_length` |
+| Line.v | `line_kind`, thematic/fence/quote/heading/bullet recognizers | `classify_quote_length`, `classify_list_length` |
 | Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
+| Html.v | HTML renderer, incl. tight/loose list items | — |
 | Ast.v | full AST (djoths AST.hs transcription) | `block_ind2` |
 | Document.v | ids, auto-references, sections; `parse_doc`; erasure | `pass_erase`, `undo_sectionize` |
 | Wf.v | wf predicate, canonicality, `state_wf`, pass preservation | `wf_parse`, `wf_parse_doc`, `wf_complete_false` |
 | Render.v | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2` | — |
 | Roundtrip.v | split/parse/render agreement | `roundtrip_blocks`, `roundtrip_doc` |
-| Html.v | HTML renderer (djot.js-faithful) | — |
 | Spike.v | Spike A: fuel + discharge lemmas | `many_fuel_stable` |
 
 Commit history tells the story: `7104129` scaffold → `c220897`
@@ -327,4 +365,5 @@ adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
 `2b9eccd` wf completeness → `1fb1a1f` container stack + block quotes →
 `1978716` quote roundtrip + line renderer → `b54876a` headings →
 whole-document pass (sections, identifiers, implicit references) →
-erasure + doc-level roundtrip → `close_reopen`/`open_quote` factoring.
+erasure + doc-level roundtrip → `close_reopen`/`open_quote` factoring →
+bullet lists.

@@ -103,6 +103,28 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
       | [] => ""
       | Node _ a' x :: rest => render_block x a' ++ go rest
       end in
+  (* In a tight list a paragraph loses its <p>: the item's text is
+     emitted bare, with the newline the tag would have carried.  Only
+     paragraphs are affected — a nested list inside a tight item still
+     renders as itself.  Attributes on such a paragraph have nowhere to
+     go, and nothing produces them yet. *)
+  let render_tight :=
+    fix got (ns : list (node block)) : string :=
+      match ns with
+      | [] => ""
+      | Node _ _ (Para ils) :: rest => render_inlines ils ++ nl ++ got rest
+      | Node _ a' x :: rest => render_block x a' ++ got rest
+      end in
+  let render_items :=
+    fix goi (sp : list_spacing) (its : list (list (node block))) {struct its}
+      : string :=
+      match its with
+      | [] => ""
+      | it :: rest =>
+          "<li>" ++ nl
+          ++ (match sp with Tight => render_tight it | Loose => render_bs it end)
+          ++ "</li>" ++ nl ++ goi sp rest
+      end in
   let ats := render_attrs a in
   match b with
   | Para ils => "<p" ++ ats ++ ">" ++ render_inlines ils ++ "</p>" ++ nl
@@ -123,7 +145,8 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
       ++ ">" ++ escape code ++ "</code></pre>" ++ nl
   | Div bs => "<div" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</div>" ++ nl
   | OrderedList _ _ _ => ""   (* TODO Phase 1 *)
-  | BulletList _ _ => ""      (* TODO Phase 1 *)
+  | BulletList sp items =>
+      "<ul" ++ ats ++ ">" ++ nl ++ render_items sp items ++ "</ul>" ++ nl
   | TaskList _ _ => ""        (* TODO Phase 1 *)
   | DefinitionList _ _ => ""  (* TODO Phase 1 *)
   | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
@@ -150,5 +173,50 @@ there
 bye" = "<p>hi
 there</p>
 <p>bye</p>
+".
+Proof. reflexivity. Qed.
+
+Example convert_list_tight :
+  convert "- a
+- b" = "<ul>
+<li>
+a
+</li>
+<li>
+b
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+Example convert_list_loose :
+  convert "- a
+
+- b" = "<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* A nested list inside a tight item keeps its own tags; only the
+   paragraph loses its <p>. *)
+Example convert_list_nested :
+  convert "- a
+
+  - b" = "<ul>
+<li>
+a
+<ul>
+<li>
+b
+</li>
+</ul>
+</li>
+</ul>
 ".
 Proof. reflexivity. Qed.

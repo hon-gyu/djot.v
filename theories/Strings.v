@@ -189,6 +189,15 @@ Fixpoint drop_leading_ws (s : string) : string :=
 (* ...and the same at the other end, by reversing.  The parser applies
    this to a paragraph's last line; Render.v's para_ok demands it be the
    identity there, which is what makes the roundtrip exact. *)
+(* How far in a line's first non-whitespace character sits.  This is
+   djot.js's `this.indent`, and it is what list-item continuation is
+   stated against. *)
+Fixpoint indent_of (s : string) : nat :=
+  match s with
+  | EmptyString => 0
+  | String c s' => if is_ws c then S (indent_of s') else 0
+  end.
+
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 

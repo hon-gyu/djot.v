@@ -63,13 +63,49 @@ The line fold
 =============
 *)
 
+(* A bullet list, mid-parse.  `ls_indent` is the column its markers sit
+   at: continuation is "indented past the marker", djot.js's
+   `this.indent > container.extra.indent`.  `ls_marker` is the style — a
+   different bullet character starts a new list rather than continuing
+   this one.
+
+   Tight/loose is a stateful rule, and djot.js decides it on the *event*
+   stream rather than on the finished tree: a blank line arms
+   `ls_blanks`, and the next event that is neither a blank nor a list
+   boundary turns the list loose (parse.ts ~line 1237).  That is why
+   `- a`, blank, `  - b` stays tight even though a blank line separates
+   the item's two children — the next event opens a list.  The textbook
+   "blank line between block children" rule gets that case wrong.
+
+   Carried in the state because the list is only emitted when it closes,
+   so nothing is ever revised retroactively. *)
+Record list_state : Type := LSt
+  { ls_indent : nat
+  ; ls_marker : ascii
+  ; ls_loose : bool
+  ; ls_blanks : bool
+  ; ls_items : list blocks }.   (* finished items, reversed *)
+
 (* The fold's state: a container stack.  Every accumulator holds its
    items in *reverse* order, hence the `rev` at each use site. *)
 Inductive pstate : Type :=
   | PPara (cur : list string)              (* [] = no open block *)
   | PHeading (level : nat) (cur : list string)
   | PFence (f : fence) (acc : list string)
-  | PQuote (done : blocks) (inner : pstate).
+  | PQuote (done : blocks) (inner : pstate)
+  (* done/inner are the *current item*'s state, exactly as for a quote;
+     ls_items holds the items already closed. *)
+  | PList (ls : list_state) (done : blocks) (inner : pstate).
+
+(* Container nesting depth.  Half of the parser's termination measure:
+   a quote descent shortens the line, but a list descent hands the line
+   to the inner container unchanged and shortens *this* instead. *)
+Fixpoint pstate_depth (st : pstate) : nat :=
+  match st with
+  | PPara _ | PHeading _ _ | PFence _ _ => 0
+  | PQuote _ inner => S (pstate_depth inner)
+  | PList _ _ inner => S (pstate_depth inner)
+  end.
 
 (* End of input (or of an enclosing container): close everything still
    open, outermost result first. *)
@@ -85,6 +121,9 @@ Fixpoint finish (st : pstate) : blocks :=
   | PHeading lvl cur => [heading_block lvl cur]
   | PFence f acc => [fence_block f (rev acc)]
   | PQuote done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
+  | PList ls done inner =>
+      [mk (BulletList (if ls_loose ls then Loose else Tight)
+             (rev ((rev done ++ finish inner)%list :: ls_items ls)))]
   end.
 
 (* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise
@@ -100,6 +139,7 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PHeading _ _ => true
   | PFence _ _ => false
   | PQuote _ inner => lazy_ok inner
+  | PList _ _ inner => lazy_ok inner
   end.
 
 Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
@@ -112,6 +152,7 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   | PHeading lvl cur => PHeading lvl (l :: cur)
   | PFence f acc => PFence f acc      (* excluded by lazy_ok *)
   | PQuote done inner => PQuote done (feed_lazy l inner)
+  | PList ls done inner => PList ls done (feed_lazy l inner)
   end.
 
 (* A heading's text, pushed onto its accumulator.  `# ` with nothing
@@ -132,7 +173,8 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KFence f => ([], PFence f [])
   | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
   | KText => ([], PPara [l])
-  | KQuote _ => ([], PPara [])        (* unreachable: see open_line *)
+  | KQuote _ => ([], PPara [])        (* unreachable: see open_quote *)
+  | KList _ _ => ([], PPara [])       (* unreachable: see open_list *)
   end.
 
 (* The other half of the per-line rule: this line does not continue the
@@ -154,6 +196,48 @@ Definition close_reopen (st : pstate) (opened : blocks * pstate)
    parsed to. *)
 Definition open_quote (descended : blocks * pstate) : blocks * pstate :=
   let (bs, inner) := descended in ([], PQuote (rev bs) inner).
+
+(* A bullet marker opens a fresh list, whose first item holds whatever
+   the rest of the line parsed to.  A new list is tight until something
+   makes it loose. *)
+Definition open_list (ind : nat) (m : ascii) (descended : blocks * pstate)
+  : blocks * pstate :=
+  let (bs, inner) := descended in
+  ([], PList (LSt ind m false false []) (rev bs) inner).
+
+(*
+Tight/loose bookkeeping
+-----------------------
+
+Three events move the flags, mirroring djot.js's annot tests. *)
+
+(* A blank line inside the list arms the flag. *)
+Definition list_blank (ls : list_state) : list_state :=
+  LSt (ls_indent ls) (ls_marker ls) (ls_loose ls) true (ls_items ls).
+
+(* Content within the current item.  A line that opens a nested list is
+   a `+list` event, which djot.js excludes from loosening; anything else
+   loosens the list if a blank line is armed.  Either way the flag is
+   spent. *)
+Definition list_content (ls : list_state) (k : line_kind) : list_state :=
+  let loose :=
+    match k with
+    | KList _ _ => ls_loose ls
+    | _ => (ls_loose ls || ls_blanks ls)%bool
+    end in
+  LSt (ls_indent ls) (ls_marker ls) loose false (ls_items ls).
+
+(* A sibling marker closes the current item and opens the next.  The
+   boundary itself neither loosens nor spends the flag (djot.js keeps
+   `blanklines` across `+list_item`); the content that follows on the
+   same line does, which is what makes `- a`, blank, `- b` loose. *)
+Definition list_next (ls : list_state) (item : blocks) (rest : string)
+  : list_state :=
+  let items := item :: ls_items ls in
+  if is_blank rest
+  then LSt (ls_indent ls) (ls_marker ls) (ls_loose ls) (ls_blanks ls) items
+  else LSt (ls_indent ls) (ls_marker ls)
+         (ls_loose ls || ls_blanks ls)%bool false items.
 
 (* The per-line transition, on fuel.  The only recursion is into a
    stripped quote prefix, and `classify_quote_length` says that line is
@@ -177,6 +261,8 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
           (* Idle: nothing to close, so the line just opens its block. *)
           match classify l with
           | KQuote rest => open_quote (step_fuel n' rest (PPara []))
+          | KList m rest =>
+              open_list (indent_of l) m (step_fuel n' rest (PPara []))
           | k => open_kind l k
           end
       | PPara (c :: cur') =>
@@ -197,6 +283,9 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
           | KQuote rest =>
               close_reopen (PHeading lvl cur)
                 (open_quote (step_fuel n' rest (PPara [])))
+          | KList m rest =>
+              close_reopen (PHeading lvl cur)
+                (open_list (indent_of l) m (step_fuel n' rest (PPara [])))
           | k => close_reopen (PHeading lvl cur) (open_kind l k)
           end
       | PQuote done inner =>
@@ -206,17 +295,64 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
                  what it has closed so far *)
               let (bs, inner') := step_fuel n' rest inner in
               ([], PQuote (rev bs ++ done)%list inner')
+          | KList m rest =>
+              close_reopen (PQuote done inner)
+                (open_list (indent_of l) m (step_fuel n' rest (PPara [])))
           | k =>
               if is_lazy k inner
               then ([], PQuote done (feed_lazy l inner))
               else close_reopen (PQuote done inner) (open_kind l k)
           end
+      | PList ls done inner =>
+          match classify l with
+          | KBlank =>
+              (* a blank arms the loose flag but closes nothing: it goes
+                 to the item's contents, where it ends any open
+                 paragraph *)
+              let (bs, inner') := step_fuel n' l inner in
+              ([], PList (list_blank ls) (rev bs ++ done)%list inner')
+          | k =>
+              if Nat.ltb (ls_indent ls) (indent_of l)
+              then
+                (* indented past the marker: contents of the current
+                   item.  The line is passed down unchanged — every
+                   recognizer already skips leading whitespace, so block
+                   structure is right; what the extra indent still costs
+                   is inline and verbatim text, the same open indentation
+                   gap quotes and headings have. *)
+                let (bs, inner') := step_fuel n' l inner in
+                ([], PList (list_content ls k) (rev bs ++ done)%list inner')
+              else
+                match k with
+                | KList m rest =>
+                    if Ascii.eqb m (ls_marker ls)
+                    then
+                      (* a sibling item: close the current one, open the
+                         next around the rest of the line *)
+                      let item := (rev done ++ finish inner)%list in
+                      let (bs, inner') := step_fuel n' rest (PPara []) in
+                      ([], PList (list_next ls item rest) (rev bs) inner')
+                    else
+                      (* a different bullet style is a different list *)
+                      close_reopen (PList ls done inner)
+                        (open_list (indent_of l) m
+                           (step_fuel n' rest (PPara [])))
+                | _ =>
+                    if is_lazy k inner
+                    then ([], PList ls done (feed_lazy l inner))
+                    else close_reopen (PList ls done inner) (open_kind l k)
+                end
+          end
       end
   end.
 
-(* The transition proper: fuel is the line's length, always sufficient. *)
+(* The transition proper.  Each descent either shortens the line (a
+   quote prefix, a list marker) or drops a container from the state (a
+   list item's contents), so line length plus nesting depth strictly
+   decreases and this much fuel is always enough — `step_fuel_enough`
+   retires it, and no statement outside this file mentions it. *)
 Definition step (l : string) (st : pstate) : blocks * pstate :=
-  step_fuel (S (String.length l)) l st.
+  step_fuel (S (String.length l + pstate_depth st)) l st.
 
 (* The parser: fold the transition over the lines, then close the stack.
    Structurally recursive on `lines`, so it always terminates and proofs
@@ -255,36 +391,84 @@ downstream statement ever mentions it. *)
 
 Lemma step_fuel_stable :
   forall bound n l st,
-    n <= bound -> S (String.length l) <= n ->
-    step_fuel n l st = step_fuel (S (String.length l)) l st.
+    n <= bound -> S (String.length l + pstate_depth st) <= n ->
+    step_fuel n l st = step_fuel (S (String.length l + pstate_depth st)) l st.
 Proof.
   induction bound as [|bound IH]; intros n l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel].
-  destruct st as [cur|hlvl hcur|f acc|done inner].
-  - destruct cur as [|c cur'].
-    + destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
-      pose proof (classify_quote_length _ _ E) as Hlt.
-      rewrite (IH n' rest (PPara [])) by lia.
-      rewrite (IH (String.length l) rest (PPara [])) by lia.
-      reflexivity.
+  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
+  - (* idle, or an open paragraph *)
+    cbn [pstate_depth] in Hn |- *.
+    destruct cur as [|c cur'].
+    + destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
+      * pose proof (classify_quote_length _ _ E) as Hlt.
+        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) rest (PPara [])) by (cbn [pstate_depth]; lia).
+        reflexivity.
+      * pose proof (classify_list_length _ _ _ E) as Hlt.
+        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) mr (PPara [])) by (cbn [pstate_depth]; lia).
+        reflexivity.
     + destruct (classify l); reflexivity.
-  - (* an open heading: only its KQuote branch recurses *)
-    destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
-    pose proof (classify_quote_length _ _ E) as Hlt.
-    rewrite (IH n' rest (PPara [])) by lia.
-    rewrite (IH (String.length l) rest (PPara [])) by lia.
-    reflexivity.
+  - (* an open heading: the quote and list branches recurse *)
+    cbn [pstate_depth] in Hn |- *.
+    destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
+    + pose proof (classify_quote_length _ _ E) as Hlt.
+      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) rest (PPara [])) by (cbn [pstate_depth]; lia).
+      reflexivity.
+    + pose proof (classify_list_length _ _ _ E) as Hlt.
+      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) mr (PPara [])) by (cbn [pstate_depth]; lia).
+      reflexivity.
   - destruct (fence_close f l); reflexivity.
-  - destruct (classify l) as [| |g|rest|kl kr|] eqn:E; try reflexivity.
-    pose proof (classify_quote_length _ _ E) as Hlt.
-    rewrite (IH n' rest inner) by lia.
-    rewrite (IH (String.length l) rest inner) by lia.
-    reflexivity.
+  - (* inside a quote: continuing descends with the same inner state *)
+    cbn [pstate_depth] in Hn |- *.
+    destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
+    + pose proof (classify_quote_length _ _ E) as Hlt.
+      rewrite (IH n' rest inner) by lia.
+      rewrite (IH (String.length l + S (pstate_depth inner)) rest inner) by lia.
+      reflexivity.
+    + pose proof (classify_list_length _ _ _ E) as Hlt.
+      rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l + S (pstate_depth inner)) mr (PPara []))
+        by (cbn [pstate_depth]; lia).
+      reflexivity.
+  - (* inside a list: an item's contents keep the line and drop a level *)
+    cbn [pstate_depth] in Hn |- *.
+    destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E.
+    6: { (* a bullet marker: a sibling item, or a list of another style *)
+      pose proof (classify_list_length _ _ _ E) as Hlt.
+      destruct (Nat.ltb (ls_indent ls) (indent_of l)).
+      - rewrite (IH n' l inner) by lia.
+        rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+        reflexivity.
+      - destruct (Ascii.eqb m (ls_marker ls));
+          rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia);
+          rewrite (IH (String.length l + S (pstate_depth inner)) mr (PPara []))
+            by (cbn [pstate_depth]; lia);
+          reflexivity. }
+    1: { (* a blank line goes to the item's contents *)
+      rewrite (IH n' l inner) by lia.
+      rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+      reflexivity. }
+    (* every other kind: contents of the item when indented past the
+       marker, and otherwise nothing that recurses *)
+    all: destruct (Nat.ltb (ls_indent ls) (indent_of l));
+         [ rewrite (IH n' l inner) by lia;
+           rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia;
+           reflexivity
+         | reflexivity ].
 Qed.
 
 Lemma step_fuel_enough :
-  forall n l st, S (String.length l) <= n -> step_fuel n l st = step l st.
+  forall n l st,
+    S (String.length l + pstate_depth st) <= n -> step_fuel n l st = step l st.
 Proof. intros n l st H. apply (step_fuel_stable n); lia. Qed.
 
 (*
@@ -292,9 +476,10 @@ The transition, branch by branch
 --------------------------------
 *)
 
-(* Kinds `open_kind` handles, i.e. everything but the recursive one. *)
-Definition not_quote (k : line_kind) : bool :=
-  match k with KQuote _ => false | _ => true end.
+(* Kinds `open_kind` handles: everything but the two that open a
+   container by parsing part of the line again. *)
+Definition direct_open (k : line_kind) : bool :=
+  match k with KQuote _ | KList _ _ => false | _ => true end.
 
 Lemma step_fence_close :
   forall l f acc, fence_close f l = true ->
@@ -308,7 +493,7 @@ Proof. intros l f acc H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Q
 
 (* At an idle state every non-quote kind opens its block. *)
 Lemma step_idle :
-  forall l k, classify l = k -> not_quote k = true ->
+  forall l k, classify l = k -> direct_open k = true ->
   step l (PPara []) = open_kind l k.
 Proof.
   intros l k H Hk. unfold step. cbn [step_fuel]. rewrite H.
@@ -355,8 +540,9 @@ Lemma step_quote_cont :
     step l (PQuote done inner) = ([], PQuote (rev bs ++ done)%list inner').
 Proof.
   intros l rest done inner bs inner' H Hr. unfold step at 1.
-  cbn [step_fuel]. rewrite H.
-  rewrite step_fuel_enough by (pose proof (classify_quote_length _ _ H); lia).
+  cbn [step_fuel pstate_depth]. rewrite H.
+  rewrite step_fuel_enough
+    by (cbn [pstate_depth]; pose proof (classify_quote_length _ _ H); lia).
   rewrite Hr. reflexivity.
 Qed.
 
@@ -374,7 +560,7 @@ Qed.
    outside it — the same `open_kind` the idle state uses. *)
 Lemma step_quote_close :
   forall l k done inner bs st',
-    classify l = k -> not_quote k = true -> is_lazy k inner = false ->
+    classify l = k -> direct_open k = true -> is_lazy k inner = false ->
     open_kind l k = (bs, st') ->
     step l (PQuote done inner) =
     (mk (BlockQuote (rev done ++ finish inner)%list) :: bs, st').
@@ -910,6 +1096,68 @@ Proof. reflexivity. Qed.
 
 (* Containers compose for free: the quote strips, then the classifier
    sees a heading. *)
+(*
+Bullet lists
+------------
+*)
+
+Example parse_list_tight :
+  parse_blocks "- a
+- b" = [mk (BulletList Tight
+              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
+(* A blank line between items, with content after it, loosens the list. *)
+Example parse_list_loose :
+  parse_blocks "- a
+
+- b" = [mk (BulletList Loose
+              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
+(* A trailing blank does not: the next event closes the list. *)
+Example parse_list_trailing_blank :
+  parse_blocks "- a
+" = [mk (BulletList Tight [[mk (Para [mk (Str "a")])]])].
+Proof. reflexivity. Qed.
+
+(* Thematic breaks win over bullet markers, matching djot.js spec order. *)
+Example parse_list_not_thematic :
+  parse_blocks "* * *" = [mk ThematicBreak].
+Proof. reflexivity. Qed.
+
+(* A marker never interrupts an open paragraph, so this is one item whose
+   paragraph runs on — not a nested list. *)
+Example parse_list_no_interrupt :
+  parse_blocks "- a
+  - b"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "  - b")])]])].
+Proof. reflexivity. Qed.
+
+(* A different bullet character is a different list. *)
+Example parse_list_style_change :
+  parse_blocks "- a
+* b"
+  = [ mk (BulletList Tight [[mk (Para [mk (Str "a")])]])
+    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+Proof. reflexivity. Qed.
+
+(* Lazy continuation reaches into the item's paragraph. *)
+Example parse_list_lazy :
+  parse_blocks "- a
+b"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "b")])]])].
+Proof. reflexivity. Qed.
+
+(* A bare marker opens an item with no content. *)
+Example parse_list_empty_item :
+  parse_blocks "-
+- b"
+  = [mk (BulletList Tight [ []; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
 Example parse_heading_in_quote :
   parse_blocks "> # a" =
   [mk (BlockQuote [mk (Heading 1 [mk (Str "a")])])].
