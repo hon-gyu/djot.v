@@ -90,6 +90,8 @@ Editor: VsRocq; `_CoqProject` maps both `theories/` and
 `_build/default/theories` to `DjotV` — run `dune build` first so
 inter-file `Require`s resolve.
 
+> [!HUMAN] note that rocq-mcp is available. Make use of it if appropriate.
+
 ## Architecture (the part worth internalizing)
 
 Dependency chain, one concern per file:

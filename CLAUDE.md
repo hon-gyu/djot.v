@@ -3,6 +3,7 @@
 ---
 
 - see @.project/ for project context.
+- comment like `CR: ...` means "code review comment"
 
 # AI content disclosure
 
