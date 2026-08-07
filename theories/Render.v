@@ -321,6 +321,19 @@ Fixpoint item_forces_loose (item : list cblock) : bool :=
 Definition items_force_loose (items : list (list cblock)) : bool :=
   existsb item_forces_loose items.
 
+Definition is_clist (cb : cblock) : bool :=
+  match cb with CList _ _ => true | _ => false end.
+
+(** Two adjacent canonical lists cannot roundtrip as two AST nodes: the
+    separating blank makes the parser continue the first list as loose.
+    This is a property of a block sequence, not either block alone. *)
+Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
+  match cbs with
+  | c1 :: (c2 :: _ as rest) =>
+      negb (is_clist c1 && is_clist c2) && no_adjacent_lists rest
+  | _ => true
+  end.
+
 (* The first line an item renders to — what a marker ends up glued onto.
    Nonempty whenever the item's own first cblock is cb_ok (every
    construct's cb_lines is nonempty then), which is what list_ok assumes
@@ -448,7 +461,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CThematic => true
   | CCode info content => code_ok info content
   | CHeading lvl ls => heading_ok lvl ls
-  | CQuote inner => inner_ok inner
+  | CQuote inner => inner_ok inner && no_adjacent_lists inner
   | CList sp items =>
       nonempty items && items_ok items && forallb item_marker_ok items
       && forallb (forallb list_content_safe) items
@@ -486,8 +499,12 @@ Qed.
 
 Lemma cb_ok_quote :
   forall inner,
-    cb_ok (CQuote inner) = (nonempty inner && forallb cb_ok inner)%bool.
-Proof. intros inner. unfold cb_ok. apply inner_ok_eq. Qed.
+    cb_ok (CQuote inner)
+    = (nonempty inner && forallb cb_ok inner && no_adjacent_lists inner)%bool.
+Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
+
+Definition cblocks_ok (cbs : list cblock) : bool :=
+  (forallb cb_ok cbs && no_adjacent_lists cbs)%bool.
 
 (* cb_ok's `items_ok` helper, spelled out via inner_ok_eq per item. *)
 Lemma items_ok_eq :

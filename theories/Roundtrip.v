@@ -433,7 +433,8 @@ Proof.
     + exact (forallb_weaken _ _ line_ok_no_nl _ Hlok).
   - (* quote: its contents lay out exactly as a document's would *)
     intros inner IH H.
-    rewrite cb_ok_quote in H. apply andb_true_iff in H as [Hne Hok].
+    rewrite cb_ok_quote in H. apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [Hne Hok].
     rewrite cb_lines_quote.
     apply lines_ok_quote.
     + destruct inner as [|c rest]; [discriminate|].
@@ -623,6 +624,7 @@ Proof.
                      exists l L, sep_lines (map cb_lines inner) = l :: L
                                  /\ forallb cb_ok inner = true).
     { intros H. rewrite cb_ok_quote in H.
+      apply andb_true_iff in H as [H _].
       apply andb_true_iff in H as [Hne Hok].
       destruct inner as [|c rest]; [discriminate|].
       assert (Hc : lines_ok (cb_lines c) = true).
@@ -1250,6 +1252,7 @@ Proof.
                      exists l L, sep_lines (map cb_lines inner) = l :: L
                                  /\ forallb cb_ok inner = true).
     { intros H. rewrite cb_ok_quote in H.
+      apply andb_true_iff in H as [H _].
       apply andb_true_iff in H as [Hne Hok].
       destruct inner as [|c rest]; [discriminate|].
       assert (Hc : lines_ok (cb_lines c) = true).
@@ -1387,7 +1390,8 @@ Proof.
     reflexivity.
   - (* quote: prefix the contents' layout *)
     intros inner IH H.
-    rewrite cb_ok_quote in H. apply andb_true_iff in H as [_ Hok].
+    rewrite cb_ok_quote in H. apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [_ Hok].
     rewrite cb_ast_quote. cbn [node_contents mk].
     rewrite render_block_quote, (IH Hok), cb_lines_quote.
     reflexivity.
