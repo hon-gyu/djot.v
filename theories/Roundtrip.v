@@ -885,6 +885,47 @@ Proof.
   - discriminate Hsafe.
 Qed.
 
+Lemma nonlist_cblock_first :
+  forall cb,
+    is_clist cb = false -> cb_ok cb = true ->
+    exists a rest,
+      cb_lines cb = a :: rest /\
+      forall m item, classify a <> KList m item.
+Proof.
+  intros cb Hnonlist Hok.
+  pose proof (cb_ok_lines_ok cb Hok) as Hlines.
+  apply lines_ok_parts in Hlines as (Hne & _ & _).
+  destruct cb as [ls| |info content|lvl ls|inner|sp items].
+  - destruct ls as [|a rest].
+    + exfalso. apply Hne. reflexivity.
+    + exists a, rest. split; [reflexivity|].
+      change (cb_ok (CPara (a :: rest))) with (para_ok (a :: rest)) in Hok.
+      apply para_ok_parts in Hok as [Ha _].
+      intros m item E. rewrite Ha in E. discriminate.
+  - exists thematic_line, []. split; [reflexivity|].
+    intros m item E. unfold thematic_line in E.
+    rewrite classify_canonical_thematic in E. discriminate.
+  - exists (code_open info), (content ++ [code_close])%list.
+    split; [reflexivity|]. intros m item E.
+    change (cb_ok (CCode info content)) with (code_ok info content) in Hok.
+    apply code_ok_parts in Hok as [Hinfo _].
+    unfold code_open in E.
+    rewrite (classify_backtick_fence info Hinfo) in E. discriminate.
+  - change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in Hok.
+    apply heading_ok_parts in Hok as [Hlvl [Hls _]].
+    destruct ls as [|a rest].
+    + exfalso. apply Hls. reflexivity.
+    + exists (heading_line lvl a), (map (heading_line lvl) rest).
+      split; [reflexivity|]. intros m item E.
+      rewrite (classify_canonical_heading lvl a Hlvl) in E. discriminate.
+  - rewrite cb_lines_quote.
+    destruct (sep_lines (map cb_lines inner)) as [|l rest] eqn:Esep.
+    + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
+    + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
+      intros m item E. rewrite classify_canonical_quote in E. discriminate.
+  - discriminate Hnonlist.
+Qed.
+
 Lemma parse_safe_cblocks_pad :
   forall cbs,
     forallb list_content_safe cbs = true ->

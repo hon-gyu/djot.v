@@ -506,6 +506,24 @@ Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
 Definition cblocks_ok (cbs : list cblock) : bool :=
   (forallb cb_ok cbs && no_adjacent_lists cbs)%bool.
 
+Lemma no_adjacent_after_list :
+  forall sp items next rest,
+    no_adjacent_lists (CList sp items :: next :: rest) = true ->
+    is_clist next = false.
+Proof.
+  intros sp items next rest H. cbn [no_adjacent_lists is_clist] in H.
+  apply andb_true_iff in H as [Hnext _].
+  apply negb_true_iff in Hnext. destruct (is_clist next); [discriminate|].
+  reflexivity.
+Qed.
+
+Lemma cblocks_ok_parts :
+  forall cbs, cblocks_ok cbs = true ->
+    forallb cb_ok cbs = true /\ no_adjacent_lists cbs = true.
+Proof.
+  intros cbs H. unfold cblocks_ok in H. apply andb_true_iff in H. exact H.
+Qed.
+
 (* cb_ok's `items_ok` helper, spelled out via inner_ok_eq per item. *)
 Lemma items_ok_eq :
   forall items,
