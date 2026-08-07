@@ -1090,6 +1090,53 @@ Proof.
     + apply scan_list_content_after_blank; assumption.
 Qed.
 
+Lemma run_canonical_item :
+  forall item a rest bs st,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    (bs ++ finish st)%list = map cb_ast item.
+Proof.
+  intros item a rest bs st Hsafe Hok Hlines Hrun.
+  pose proof (parse_lines_run _ _ _ _ Hrun) as Hparsed.
+  pose proof
+    (parse_safe_cblocks_pad item Hsafe bullet_cont bullet_cont_blank Hok)
+    as Hcanonical.
+  rewrite Hlines in Hcanonical. rewrite Hparsed in Hcanonical.
+  exact Hcanonical.
+Qed.
+
+Lemma run_first_canonical_item :
+  forall item a rest bs st,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    item_marker_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    run_lines (indent_lines bullet_open bullet_cont (a :: rest)) (PPara [])
+    = ([], PList
+             (scan_list_content (LSt 0 "-"%char false false []) rest)
+             (rev bs) st).
+Proof.
+  intros item a rest bs st Hsafe Hok Hmarker Hlines Hrun.
+  destruct item as [|c item']; [discriminate Hlines|].
+  cbn [forallb] in Hsafe, Hok.
+  apply andb_true_iff in Hsafe as [Hsafec _].
+  apply andb_true_iff in Hok as [Hokc _].
+  destruct (safe_cblock_first c Hsafec Hokc)
+    as [first [more [Hfirst Hnotlist]]].
+  unfold item_marker_ok, item_first_line in Hmarker.
+  rewrite Hfirst in Hmarker.
+  apply negb_true_iff in Hmarker.
+  cbn [map sep_lines] in Hlines.
+  destruct item' as [|c2 item'']; rewrite Hfirst in Hlines;
+    injection Hlines as <- <-;
+    eapply run_first_list_item; eassumption.
+Qed.
+
 (* Half two, per block: feeding a canonical block's lines re-emits it and
    returns the parser to idle, whether a blank line follows (the
    in-document case) or the input ends.  Proved for a block and a list of
