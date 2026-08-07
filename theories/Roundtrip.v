@@ -708,6 +708,15 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
+Lemma app_cons_app :
+  forall {A : Type} (xs : list A) x ys tail,
+    ((xs ++ (x :: ys)) ++ tail)%list =
+    (xs ++ (x :: (ys ++ tail)))%list.
+Proof.
+  intros A xs x ys tail. induction xs as [|a xs IH];
+    [reflexivity|cbn; rewrite IH; reflexivity].
+Qed.
+
 (** The tight/loose state changes made while an already-open canonical
     list consumes continuation lines. *)
 Fixpoint scan_list_content (ls : list_state) (lines : list string) : list_state :=
@@ -1149,6 +1158,68 @@ Proof.
     as Hcanonical.
   rewrite Hlines in Hcanonical. rewrite Hparsed in Hcanonical.
   exact Hcanonical.
+Qed.
+
+Lemma parse_safe_cblocks_pad_sep :
+  forall item,
+    forallb list_content_safe item = true ->
+    forall pad, is_blank pad = true ->
+    forall sep tail, classify sep = KBlank ->
+    forallb cb_ok item = true ->
+    parse_lines
+      (map (fun l => (pad ++ l)%string) (sep_lines (map cb_lines item))
+       ++ sep :: tail)%list (PPara [])
+    = (map cb_ast item ++ parse_lines tail (PPara []))%list.
+Proof.
+  induction item as [|c rest IH]; intros Hsafe pad Hpad sep tail Hsep Hok.
+  - cbn [map sep_lines app]. apply parse_lines_blank_nil. exact Hsep.
+  - cbn [forallb] in Hsafe, Hok.
+    apply andb_true_iff in Hsafe as [Hsafec Hsaferest].
+    apply andb_true_iff in Hok as [Hokc Hokrest].
+    destruct rest as [|c2 rest'].
+    + cbn [map sep_lines].
+      destruct (parse_cblock_pad c Hsafec pad Hpad) as [Hparse _].
+      rewrite (Hparse sep tail Hsep Hokc). reflexivity.
+    + cbn [map sep_lines]. rewrite map_app. cbn [map]. rewrite append_empty_r.
+      rewrite app_cons_app.
+      destruct (parse_cblock_pad c Hsafec pad Hpad) as [Hparse _].
+      rewrite (Hparse pad _ (classify_blank pad Hpad) Hokc).
+      change (cb_ast c ::
+                parse_lines
+                  (map (fun l => (pad ++ l)%string)
+                     (sep_lines (map cb_lines (c2 :: rest')))
+                   ++ sep :: tail)%list (PPara [])
+              = (cb_ast c :: cb_ast c2 :: map cb_ast rest'
+                 ++ parse_lines tail (PPara []))%list).
+      rewrite (IH Hsaferest pad Hpad sep tail Hsep Hokrest).
+      reflexivity.
+Qed.
+
+Lemma run_canonical_item_blank :
+  forall item a rest bs st sep,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    classify sep = KBlank ->
+    exists more st',
+      step sep st = (more, st') /\
+      (bs ++ more ++ finish st')%list = map cb_ast item.
+Proof.
+  intros item a rest bs st sep Hsafe Hok Hlines Hrun Hsep.
+  destruct (step sep st) as [more st'] eqn:Hstep.
+  exists more, st'. split; [reflexivity|].
+  pose proof
+    (parse_safe_cblocks_pad_sep item Hsafe bullet_cont bullet_cont_blank
+       sep [] Hsep Hok) as Hparsed.
+  rewrite Hlines in Hparsed.
+  rewrite (parse_lines_app_run
+             (map (fun l => bullet_cont ++ l) (a :: rest)) [sep]
+             (PPara [])) in Hparsed.
+  rewrite Hrun in Hparsed. cbn [parse_lines run_lines] in Hparsed.
+  rewrite Hstep in Hparsed. cbn [app] in Hparsed.
+  rewrite app_nil_r in Hparsed. exact Hparsed.
 Qed.
 
 Lemma run_first_canonical_item :
