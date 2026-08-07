@@ -17,3 +17,8 @@ Some files has "ai-disclosure" tag, which is one of:
 
 - Add appropriate disclosure to the file.
 - Be careful about information that lacks human oversight.
+- Add trailer at commit message, example:
+```
+Ai-disclosure: autonomous
+Ai-agent: anthropic/claude-opus-5
+```
