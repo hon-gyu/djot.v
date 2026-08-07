@@ -329,9 +329,13 @@ Definition is_clist (cb : cblock) : bool :=
     This is a property of a block sequence, not either block alone. *)
 Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
   match cbs with
-  | c1 :: (c2 :: _ as rest) =>
-      negb (is_clist c1 && is_clist c2) && no_adjacent_lists rest
-  | _ => true
+  | [] => true
+  | c1 :: rest =>
+      match rest with
+      | [] => true
+      | c2 :: _ =>
+          negb (is_clist c1 && is_clist c2) && no_adjacent_lists rest
+      end
   end.
 
 (* The first line an item renders to — what a marker ends up glued onto.
@@ -353,9 +357,7 @@ Definition item_marker_ok (it : list cblock) : bool :=
 
 (* No code/raw block, and no *nested list*, anywhere inside a list item,
    at any depth — two independent restrictions, for two different
-   reasons, both real pre-existing gaps rather than debt this task
-   introduces (full writeup:
-   .project/260807-list-roundtrip-indent-shift.ai-generated.md).
+   parser invariants.
 
    CCode is banned because its content is verbatim (Parser.v: "never
    classified, only close-tested"), and PList hands a line to its item's
@@ -403,29 +405,6 @@ Fixpoint list_content_safe (cb : cblock) : bool :=
   | CCode _ _ => false
   | CList _ _ => false
   | CQuote inner => go inner
-  end.
-
-(* No CList anywhere, at any depth — weaker than list_content_safe (this
-   one leaves CCode alone).  parse_cblock's own roundtrip theorem needs
-   this: unlike CCode, whose lack of roundtrip coverage is confined to
-   *inside a list item* (list_content_safe's job), a CList's lack of
-   coverage is total — the item-sequencing induction that would prove
-   parse_cblock's own CList case (open on a marker, thread tight/loose
-   through a run of siblings, close) isn't built yet, so no CList can be
-   roundtripped through parse_cblock at all yet, list-item context or
-   not (.project/260807-list-roundtrip-indent-shift.ai-generated.md).
-   Once that induction lands this predicate — and the hypothesis it
-   guards in parse_cblock/parse_sep/roundtrip_blocks — goes away. *)
-Fixpoint no_nested_list (cb : cblock) : bool :=
-  match cb with
-  | CPara _ | CThematic | CHeading _ _ | CCode _ _ => true
-  | CList _ _ => false
-  | CQuote inner =>
-      (fix go (cs : list cblock) : bool :=
-         match cs with
-         | [] => true
-         | c :: rest => (no_nested_list c && go rest)%bool
-         end) inner
   end.
 
 (* The roundtrip hypothesis: this cblock renders to lines that parse back

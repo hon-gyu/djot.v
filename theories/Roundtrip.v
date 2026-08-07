@@ -677,6 +677,33 @@ Fixpoint run_lines (lines : list string) (st : pstate) : blocks * pstate :=
       ((bs ++ more)%list, st'')
   end.
 
+Lemma run_lines_app :
+  forall xs ys st,
+    run_lines (xs ++ ys)%list st =
+      let '(bs, st') := run_lines xs st in
+      let '(more, st'') := run_lines ys st' in
+      ((bs ++ more)%list, st'').
+Proof.
+  induction xs as [|x xs IH]; intros ys st.
+  - cbn [app run_lines]. destruct (run_lines ys st). reflexivity.
+  -
+  cbn [run_lines app]. destruct (step x st) as [head st1].
+  rewrite (IH ys st1).
+  destruct (run_lines xs st1) as [middle st2].
+  destruct (run_lines ys st2) as [tail st3].
+  rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma run_lines_continue :
+  forall xs ys st head middle tail final,
+    run_lines xs st = (head, middle) ->
+    run_lines ys middle = (tail, final) ->
+    run_lines (xs ++ ys)%list st = ((head ++ tail)%list, final).
+Proof.
+  intros xs ys st head middle tail final Hxs Hys.
+  rewrite run_lines_app, Hxs, Hys. reflexivity.
+Qed.
+
 Lemma parse_lines_run :
   forall lines st bs st',
     run_lines lines st = (bs, st') ->
@@ -1071,6 +1098,99 @@ Proof.
     cbn [scan_list_content]; apply IH.
 Qed.
 
+Lemma scan_list_content_fields :
+  forall lines ls,
+    ls_indent (scan_list_content ls lines) = ls_indent ls /\
+    ls_marker (scan_list_content ls lines) = ls_marker ls /\
+    ls_items (scan_list_content ls lines) = ls_items ls.
+Proof.
+  intros lines ls. split.
+  - revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
+    cbn [scan_list_content]. destruct (classify l);
+      rewrite IH; destruct ls; reflexivity.
+  - split.
+    + revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
+      cbn [scan_list_content]. destruct (classify l);
+        rewrite IH; destruct ls; reflexivity.
+    + revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
+      cbn [scan_list_content]. destruct (classify l);
+        rewrite IH; destruct ls; reflexivity.
+Qed.
+
+Lemma scan_list_content_loose_ext :
+  forall lines ind marker loose blanks done,
+    ls_loose (scan_list_content (LSt ind marker loose blanks done) lines) =
+    ls_loose (scan_list_content (LSt 0 "-"%char loose blanks []) lines).
+Proof.
+  induction lines as [|l lines IH]; intros ind marker loose blanks done;
+    [reflexivity|].
+  cbn [scan_list_content]. destruct (classify l);
+    cbn [list_blank list_content]; apply IH.
+Qed.
+
+Lemma scan_list_content_blanks_last :
+  forall lines ls,
+    lines <> [] -> nonblank (last lines EmptyString) = true ->
+    ls_blanks (scan_list_content ls lines) = false.
+Proof.
+  induction lines as [|l lines IH]; intros ls Hne Hlast; [congruence|].
+  destruct lines as [|l2 lines'].
+  - cbn [last scan_list_content] in Hlast |- *.
+    destruct (classify l) as [| |f|q|lvl txt|m item|] eqn:Hclass;
+      cbn [list_blank list_content].
+    all: try (apply classify_kblank_blank in Hclass; unfold nonblank in Hlast;
+              rewrite Hclass in Hlast; discriminate).
+    all: destruct ls; reflexivity.
+  - cbn [last] in Hlast.
+    change (ls_blanks
+      (scan_list_content
+        (match classify l with
+         | KBlank => list_blank ls
+         | k => list_content ls k
+         end) (l2 :: lines')) = false).
+    apply IH; [discriminate|exact Hlast].
+Qed.
+
+Lemma forallb_nonblank_last :
+  forall lines,
+    lines <> [] -> forallb nonblank lines = true ->
+    nonblank (last lines EmptyString) = true.
+Proof.
+  induction lines as [|l lines IH]; intros Hne Hall; [congruence|].
+  cbn [forallb] in Hall. apply andb_true_iff in Hall as [Hl Hrest].
+  destruct lines as [|l2 lines']; [exact Hl|].
+  apply IH; [discriminate|exact Hrest].
+Qed.
+
+Lemma safe_item_last_nonblank :
+  forall item,
+    item <> [] ->
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    nonblank (last (sep_lines (map cb_lines item)) EmptyString) = true.
+Proof.
+  induction item as [|c rest IH]; intros Hne Hsafe Hok; [congruence|].
+  cbn [forallb] in Hsafe, Hok.
+  apply andb_true_iff in Hsafe as [Hsafec Hsaferest].
+  apply andb_true_iff in Hok as [Hokc Hokrest].
+  pose proof (safe_cb_lines_nonblank c Hsafec Hokc) as Hcnb.
+  pose proof (cb_ok_lines_ok c Hokc) as Hclines.
+  apply lines_ok_parts in Hclines as [Hcne _].
+  destruct rest as [|c2 rest'].
+  - cbn [map sep_lines]. apply forallb_nonblank_last; assumption.
+  - change (nonblank
+      (last (cb_lines c ++ EmptyString :: sep_lines (map cb_lines (c2 :: rest')))%list
+        EmptyString) = true).
+    assert (Htail : sep_lines (map cb_lines (c2 :: rest')) <> []).
+    { apply sep_lines_nonempty. apply cb_ok_lines_ok.
+      cbn [forallb] in Hokrest.
+      apply andb_true_iff in Hokrest as [Hokc2 _]. exact Hokc2. }
+    rewrite last_app_nonnil by discriminate.
+    destruct (sep_lines (map cb_lines (c2 :: rest'))) as [|x xs] eqn:E;
+      [congruence|].
+    change (nonblank (last (x :: xs) EmptyString) = true).
+    apply IH; [discriminate|exact Hsaferest|exact Hokrest].
+Qed.
+
 Lemma scan_list_content_after_blank :
   forall b rest ind marker items,
     classify b <> KBlank ->
@@ -1140,6 +1260,100 @@ Proof.
     rewrite Hfirst. destruct item'' as [|c3 item''']; cbn [map sep_lines].
     + apply scan_list_content_after_blank; assumption.
     + apply scan_list_content_after_blank; assumption.
+Qed.
+
+Lemma scan_canonical_item_state :
+  forall item a rest ind marker done,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    scan_list_content (LSt ind marker false false done) rest
+    = LSt ind marker (item_forces_loose item) false done.
+Proof.
+  intros item a rest ind marker done Hsafe Hok Hlines.
+  pose proof (scan_item_forces_loose item a rest Hsafe Hok Hlines) as Hloose.
+  rewrite <- (scan_list_content_loose_ext rest ind marker false false done)
+    in Hloose.
+  pose proof (scan_list_content_fields rest
+    (LSt ind marker false false done)) as [Hind [Hmarker Hitems]].
+  assert (Hblank : ls_blanks
+    (scan_list_content (LSt ind marker false false done) rest) = false).
+  { destruct rest as [|r rest']; [reflexivity|].
+    apply scan_list_content_blanks_last; [discriminate|].
+    assert (Hlast := safe_item_last_nonblank item).
+    destruct item as [|c item']; [discriminate Hlines|].
+    specialize (Hlast ltac:(discriminate) Hsafe Hok).
+    rewrite Hlines in Hlast. exact Hlast. }
+  destruct (scan_list_content (LSt ind marker false false done)) eqn:E.
+  cbn in Hind, Hmarker, Hitems, Hblank, Hloose |- *.
+  subst. reflexivity.
+Qed.
+
+Lemma scan_canonical_item_state_loose :
+  forall item a rest ind marker done,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    scan_list_content (LSt ind marker true false done) rest
+    = LSt ind marker true false done.
+Proof.
+  intros item a rest ind marker done Hsafe Hok Hlines.
+  pose proof (scan_list_content_loose rest ind marker false done) as Hloose.
+  pose proof (scan_list_content_fields rest
+    (LSt ind marker true false done)) as [Hind [Hmarker Hitems]].
+  assert (Hblank : ls_blanks
+    (scan_list_content (LSt ind marker true false done) rest) = false).
+  { destruct rest as [|r rest']; [reflexivity|].
+    apply scan_list_content_blanks_last; [discriminate|].
+    pose proof (safe_item_last_nonblank item) as Hlast.
+    destruct item as [|c item']; [discriminate Hlines|].
+    specialize (Hlast ltac:(discriminate) Hsafe Hok).
+    rewrite Hlines in Hlast. exact Hlast. }
+  destruct (scan_list_content (LSt ind marker true false done)) eqn:E.
+  cbn in Hind, Hmarker, Hitems, Hblank, Hloose |- *.
+  subst. reflexivity.
+Qed.
+
+Lemma canonical_item_run_exists :
+  forall item,
+    item <> [] -> forallb cb_ok item = true ->
+    exists a rest bs st,
+      sep_lines (map cb_lines item) = a :: rest /\
+      run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+        (PPara []) = (bs, st).
+Proof.
+  intros item Hne Hok.
+  destruct item as [|c item']; [congruence|].
+  assert (Hc : lines_ok (cb_lines c) = true).
+  { apply cb_ok_lines_ok. cbn [forallb] in Hok.
+    apply andb_true_iff in Hok as [Hc _]. exact Hc. }
+  destruct (sep_lines (map cb_lines (c :: item'))) as [|a rest] eqn:E.
+  - exfalso. apply (sep_lines_nonempty (cb_lines c) (map cb_lines item') Hc).
+    exact E.
+  - destruct (run_lines
+      (map (fun l => (bullet_cont ++ l)%string) (a :: rest)) (PPara []))
+      as [bs st] eqn:Hrun.
+    exists a, rest, bs, st. auto.
+Qed.
+
+Lemma canonical_item_first_nonblank :
+  forall item a rest,
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest -> nonblank a = true.
+Proof.
+  intros item a rest Hsafe Hok Hlines.
+  destruct item as [|c item']; [discriminate Hlines|].
+  cbn [forallb] in Hsafe, Hok.
+  apply andb_true_iff in Hsafe as [Hsafec _].
+  apply andb_true_iff in Hok as [Hokc _].
+  pose proof (safe_cb_lines_nonblank c Hsafec Hokc) as Hnb.
+  destruct (cb_lines c) as [|first more] eqn:Hfirst.
+  { pose proof (cb_ok_lines_ok c Hokc) as Hvalid.
+    apply lines_ok_parts in Hvalid as [Hne _]. congruence. }
+  cbn [map sep_lines] in Hlines.
+  destruct item' as [|c2 item'']; rewrite Hfirst in Hlines;
+    injection Hlines as <- <-;
+    cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [H _]; exact H.
 Qed.
 
 Lemma run_canonical_item :
@@ -1305,7 +1519,7 @@ Proof.
   apply andb_true_iff in Hsafe as [Hsafec _].
   apply andb_true_iff in Hok as [Hokc _].
   destruct (safe_cblock_first c Hsafec Hokc)
-    as [first [more [Hfirst Hnotlist]]].
+    as [first [cmore [Hfirst Hnotlist]]].
   unfold item_marker_ok, item_first_line in Hmarker.
   rewrite Hfirst in Hmarker.
   apply negb_true_iff in Hmarker.
@@ -1315,44 +1529,1007 @@ Proof.
     eapply run_first_list_item; eassumption.
 Qed.
 
+Lemma run_list_sibling_canonical_tight :
+  forall item a rest bs st next na nr nbs nst ls,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    forallb list_content_safe next = true ->
+    forallb cb_ok next = true ->
+    item_marker_ok next = true ->
+    sep_lines (map cb_lines next) = na :: nr ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (na :: nr))
+      (PPara []) = (nbs, nst) ->
+    ls_indent ls = 0 -> ls_marker ls = "-"%char ->
+    run_lines (indent_lines bullet_open bullet_cont (na :: nr))
+      (PList ls (rev bs) st)
+    = ([], PList
+             (scan_list_content
+                (list_next ls (map cb_ast item) na) nr)
+             (rev nbs) nst).
+Proof.
+  intros item a rest bs st next na nr nbs nst ls
+    Hsafe Hok Hlines Hrun Hsafen Hokn Hmarker Hnext Hnrun Hind Hmark.
+  destruct next as [|c next']; [discriminate Hnext|].
+  cbn [forallb] in Hsafen, Hokn.
+  apply andb_true_iff in Hsafen as [Hsafec _].
+  apply andb_true_iff in Hokn as [Hokc _].
+  destruct (safe_cblock_first c Hsafec Hokc)
+    as [first [more [Hfirst Hnotlist]]].
+  unfold item_marker_ok, item_first_line in Hmarker.
+  rewrite Hfirst in Hmarker. apply negb_true_iff in Hmarker.
+  cbn [map sep_lines] in Hnext.
+  destruct next' as [|c2 next'']; rewrite Hfirst in Hnext;
+    injection Hnext as Hna Hnr; subst na.
+  all: pose proof (run_lines_first_unpadded first nr Hnotlist) as Hsame;
+       rewrite Hnrun in Hsame;
+       cbn [map run_lines indent_lines] in Hsame |- *;
+       destruct (step first (PPara [])) as [head inner] eqn:Hhead;
+       destruct (run_lines (map (fun l => bullet_cont ++ l) nr) inner)
+         as [more' final] eqn:Hmore;
+       inversion Hsame; subst nbs nst;
+       pose proof
+         (run_list_sibling_tight item a rest bs st ls first head inner
+            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead) as Hsibling;
+       pose proof
+         (run_lines_list_cont nr (list_next ls (map cb_ast item) first)
+            (rev head) inner more' final) as Hcont;
+       specialize (Hcont ltac:(unfold list_next; destruct (is_blank first);
+                               exact Hind) Hmore);
+       pose proof
+         (run_lines_continue [(bullet_open ++ first)%string]
+            (map (fun l => (bullet_cont ++ l)%string) nr)
+            (PList ls (rev bs) st) []
+            (PList (list_next ls (map cb_ast item) first) (rev head) inner)
+            []
+            (PList (scan_list_content
+                       (list_next ls (map cb_ast item) first) nr)
+               (rev more' ++ rev head)%list final)
+            Hsibling Hcont) as Hall;
+       rewrite rev_app_distr. cbn [app] in Hall. exact Hall.
+  Unshelve. all: assumption.
+Qed.
+
+Lemma run_list_sibling_canonical_loose :
+  forall item a rest bs st next na nr nbs nst ls,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    forallb list_content_safe next = true ->
+    forallb cb_ok next = true ->
+    item_marker_ok next = true ->
+    sep_lines (map cb_lines next) = na :: nr ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (na :: nr))
+      (PPara []) = (nbs, nst) ->
+    ls_indent ls = 0 -> ls_marker ls = "-"%char ->
+    run_lines (EmptyString :: indent_lines bullet_open bullet_cont (na :: nr))
+      (PList ls (rev bs) st)
+    = ([], PList
+             (scan_list_content
+                (list_next (list_blank ls) (map cb_ast item) na) nr)
+             (rev nbs) nst).
+Proof.
+  intros item a rest bs st next na nr nbs nst ls
+    Hsafe Hok Hlines Hrun Hsafen Hokn Hmarker Hnext Hnrun Hind Hmark.
+  destruct next as [|c next']; [discriminate Hnext|].
+  cbn [forallb] in Hsafen, Hokn.
+  apply andb_true_iff in Hsafen as [Hsafec _].
+  apply andb_true_iff in Hokn as [Hokc _].
+  destruct (safe_cblock_first c Hsafec Hokc)
+    as [first [cmore [Hfirst Hnotlist]]].
+  unfold item_marker_ok, item_first_line in Hmarker.
+  rewrite Hfirst in Hmarker. apply negb_true_iff in Hmarker.
+  cbn [map sep_lines] in Hnext.
+  destruct next' as [|c2 next'']; rewrite Hfirst in Hnext;
+    injection Hnext as Hna Hnr; subst na.
+  all: pose proof (run_lines_first_unpadded first nr Hnotlist) as Hsame;
+       rewrite Hnrun in Hsame;
+       cbn [map run_lines indent_lines] in Hsame |- *;
+       destruct (step first (PPara [])) as [head inner] eqn:Hhead;
+       destruct (run_lines (map (fun l => bullet_cont ++ l) nr) inner)
+         as [more' final] eqn:Hmore;
+       inversion Hsame; subst nbs nst;
+       pose proof
+         (run_list_sibling_loose item a rest bs st ls first head inner
+            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead) as Hsibling;
+       pose proof
+         (run_lines_list_cont nr
+            (list_next (list_blank ls) (map cb_ast item) first)
+            (rev head) inner more' final) as Hcont;
+       specialize (Hcont ltac:(unfold list_next, list_blank;
+                               destruct (is_blank first); exact Hind) Hmore);
+       pose proof
+         (run_lines_continue [EmptyString; (bullet_open ++ first)%string]
+            (map (fun l => (bullet_cont ++ l)%string) nr)
+            (PList ls (rev bs) st) []
+            (PList (list_next (list_blank ls) (map cb_ast item) first)
+               (rev head) inner)
+            []
+            (PList (scan_list_content
+                       (list_next (list_blank ls) (map cb_ast item) first) nr)
+               (rev more' ++ rev head)%list final)
+            Hsibling Hcont) as Hall;
+       rewrite rev_app_distr. cbn [app] in Hall. exact Hall.
+  Unshelve. all: assumption.
+Qed.
+
+Definition canonical_item_lines (item : list cblock) : list string :=
+  indent_lines bullet_open bullet_cont (sep_lines (map cb_lines item)).
+
+Definition canonical_item_ast (item : list cblock) : blocks := map cb_ast item.
+
+Lemma parse_canonical_list_tail_tight :
+  forall remaining completed item a rest bs st,
+    forallb (fun it => nonempty it && forallb cb_ok it)%bool remaining = true ->
+    forallb item_marker_ok remaining = true ->
+    forallb (forallb list_content_safe) remaining = true ->
+    forallb (fun it => negb (item_forces_loose it)) remaining = true ->
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    item_forces_loose item = false ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    parse_lines
+      (list_lines Tight (map canonical_item_lines remaining))
+      (PList (LSt 0 "-"%char false false (rev completed)) (rev bs) st)
+    = [mk (BulletList Tight
+             (completed ++ canonical_item_ast item
+              :: map canonical_item_ast remaining)%list)].
+Proof.
+  induction remaining as [|next remaining IH]; intros completed item a rest bs st
+    Hokitems Hmarkers Hsafeitems Hforceitems Hsafe Hok Hforce Hlines Hrun.
+  - cbn [map list_lines parse_lines].
+    pose proof (run_canonical_item item a rest bs st Hsafe Hok Hlines Hrun)
+      as Hitem.
+    cbn [finish ls_loose ls_items]. rewrite rev_involutive, Hitem.
+    cbn [rev]. rewrite rev_involutive. reflexivity.
+  - cbn [forallb] in Hokitems, Hmarkers, Hsafeitems, Hforceitems.
+    apply andb_true_iff in Hokitems as [Hoknext Hokremaining].
+    apply andb_true_iff in Hoknext as [Hnenext Hoknext].
+    apply andb_true_iff in Hmarkers as [Hmarknext Hmarkremaining].
+    apply andb_true_iff in Hsafeitems as [Hsafenext Hsaferemaining].
+    apply andb_true_iff in Hforceitems as [Hforcenext Hforceremaining].
+    apply negb_true_iff in Hforcenext.
+    assert (Hnextne : next <> []).
+    { destruct next; [discriminate Hnenext|discriminate]. }
+    destruct (canonical_item_run_exists next Hnextne Hoknext)
+      as [na [nr [nbs [nst [Hnext Hnrun]]]]].
+    pose proof (run_list_sibling_canonical_tight
+      item a rest bs st next na nr nbs nst
+      (LSt 0 "-"%char false false (rev completed))
+      Hsafe Hok Hlines Hrun Hsafenext Hoknext Hmarknext Hnext Hnrun
+      eq_refl eq_refl) as Hprefix.
+    pose proof (canonical_item_first_nonblank next na nr
+      Hsafenext Hoknext Hnext) as Hnonblank.
+    assert (Hnotblank : is_blank na = false).
+    { unfold nonblank in Hnonblank. apply negb_true_iff in Hnonblank.
+      exact Hnonblank. }
+    unfold list_next in Hprefix. rewrite Hnotblank in Hprefix.
+    cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb]
+      in Hprefix.
+    pose proof (scan_canonical_item_state next na nr 0 "-"%char
+      (map cb_ast item :: rev completed)%list
+      Hsafenext Hoknext Hnext) as Hscan.
+    setoid_rewrite Hscan in Hprefix.
+    rewrite Hforcenext in Hprefix.
+    assert (Hrev : (canonical_item_ast item :: rev completed)%list =
+                   rev (completed ++ [canonical_item_ast item])%list).
+    { rewrite rev_app_distr. reflexivity. }
+    unfold canonical_item_ast in Hrev.
+    setoid_rewrite Hrev in Hprefix.
+    destruct remaining as [|next2 remaining'].
+    + cbn [map list_lines canonical_item_lines].
+      unfold canonical_item_lines.
+      rewrite Hnext.
+      rewrite (parse_lines_run _ _ _ _ Hprefix).
+      cbn [app].
+      pose proof
+        (IH (completed ++ [canonical_item_ast item])%list next na nr nbs nst
+          Hokremaining Hmarkremaining Hsaferemaining Hforceremaining
+          Hsafenext Hoknext Hforcenext Hnext Hnrun) as Htail.
+      cbn [map list_lines parse_lines] in Htail.
+      unfold canonical_item_ast in Htail |- *.
+      setoid_rewrite Htail. rewrite <- app_assoc. reflexivity.
+    + change (parse_lines
+        (canonical_item_lines next ++
+         list_lines Tight (map canonical_item_lines (next2 :: remaining')))%list
+        (PList (LSt 0 "-"%char false false (rev completed)) (rev bs) st) =
+        [mk (BulletList Tight
+          (completed ++ canonical_item_ast item ::
+            canonical_item_ast next ::
+            map canonical_item_ast (next2 :: remaining'))%list)]).
+      unfold canonical_item_lines at 1. rewrite Hnext.
+      rewrite parse_lines_app_run, Hprefix. cbn [app].
+      pose proof
+        (IH (completed ++ [canonical_item_ast item])%list next na nr nbs nst
+          Hokremaining Hmarkremaining Hsaferemaining Hforceremaining
+          Hsafenext Hoknext Hforcenext Hnext Hnrun) as Htail.
+      unfold canonical_item_ast in Htail |- *.
+      setoid_rewrite Htail. rewrite <- app_assoc. reflexivity.
+Qed.
+
+Definition canonical_loose_tail_lines (items : list (list cblock)) : list string :=
+  match items with
+  | [] => []
+  | _ => EmptyString :: list_lines Loose (map canonical_item_lines items)
+  end.
+
+Lemma parse_canonical_list_tail_loose :
+  forall remaining completed item a rest bs st,
+    forallb (fun it => nonempty it && forallb cb_ok it)%bool remaining = true ->
+    forallb item_marker_ok remaining = true ->
+    forallb (forallb list_content_safe) remaining = true ->
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    parse_lines
+      (canonical_loose_tail_lines remaining)
+      (PList (LSt 0 "-"%char true false (rev completed)) (rev bs) st)
+    = [mk (BulletList Loose
+             (completed ++ canonical_item_ast item
+              :: map canonical_item_ast remaining)%list)].
+Proof.
+  induction remaining as [|next remaining IH]; intros completed item a rest bs st
+    Hokitems Hmarkers Hsafeitems Hsafe Hok Hlines Hrun.
+  - cbn [canonical_loose_tail_lines map list_lines parse_lines].
+    pose proof (run_canonical_item item a rest bs st Hsafe Hok Hlines Hrun)
+      as Hitem.
+    cbn [finish ls_loose ls_items]. rewrite rev_involutive, Hitem.
+    cbn [rev]. rewrite rev_involutive. reflexivity.
+  - cbn [forallb] in Hokitems, Hmarkers, Hsafeitems.
+    apply andb_true_iff in Hokitems as [Hoknext Hokremaining].
+    apply andb_true_iff in Hoknext as [Hnenext Hoknext].
+    apply andb_true_iff in Hmarkers as [Hmarknext Hmarkremaining].
+    apply andb_true_iff in Hsafeitems as [Hsafenext Hsaferemaining].
+    assert (Hnextne : next <> []).
+    { destruct next; [discriminate Hnenext|discriminate]. }
+    destruct (canonical_item_run_exists next Hnextne Hoknext)
+      as [na [nr [nbs [nst [Hnext Hnrun]]]]].
+    pose proof (run_list_sibling_canonical_loose
+      item a rest bs st next na nr nbs nst
+      (LSt 0 "-"%char true false (rev completed))
+      Hsafe Hok Hlines Hrun Hsafenext Hoknext Hmarknext Hnext Hnrun
+      eq_refl eq_refl) as Hprefix.
+    pose proof (canonical_item_first_nonblank next na nr
+      Hsafenext Hoknext Hnext) as Hnonblank.
+    assert (Hnotblank : is_blank na = false).
+    { unfold nonblank in Hnonblank. apply negb_true_iff in Hnonblank.
+      exact Hnonblank. }
+    unfold list_next, list_blank in Hprefix. rewrite Hnotblank in Hprefix.
+    cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb] in Hprefix.
+    pose proof (scan_canonical_item_state_loose next na nr 0 "-"%char
+      (map cb_ast item :: rev completed)%list
+      Hsafenext Hoknext Hnext) as Hscan.
+    setoid_rewrite Hscan in Hprefix.
+    assert (Hrev : (map cb_ast item :: rev completed)%list =
+                   rev (completed ++ [map cb_ast item])%list).
+    { rewrite rev_app_distr. reflexivity. }
+    setoid_rewrite Hrev in Hprefix.
+    destruct remaining as [|next2 remaining'].
+    + cbn [canonical_loose_tail_lines map list_lines].
+      unfold canonical_item_lines. rewrite Hnext.
+      rewrite (parse_lines_run _ _ _ _ Hprefix). cbn [app].
+      pose proof
+        (IH (completed ++ [canonical_item_ast item])%list next na nr nbs nst
+          Hokremaining Hmarkremaining Hsaferemaining
+          Hsafenext Hoknext Hnext Hnrun) as Htail.
+      cbn [canonical_loose_tail_lines map list_lines parse_lines] in Htail.
+      unfold canonical_item_ast in Htail |- *.
+      setoid_rewrite Htail. rewrite <- app_assoc. reflexivity.
+    + change (parse_lines
+        (EmptyString :: canonical_item_lines next ++
+         canonical_loose_tail_lines (next2 :: remaining'))%list
+        (PList (LSt 0 "-"%char true false (rev completed)) (rev bs) st) =
+        [mk (BulletList Loose
+          (completed ++ canonical_item_ast item ::
+            canonical_item_ast next ::
+            map canonical_item_ast (next2 :: remaining'))%list)]).
+      unfold canonical_item_lines at 1. rewrite Hnext.
+      rewrite app_comm_cons.
+      rewrite (parse_lines_app_run
+        (EmptyString :: indent_lines bullet_open bullet_cont (na :: nr))
+        (canonical_loose_tail_lines (next2 :: remaining'))
+        (PList (LSt 0 "-"%char true false (rev completed)) (rev bs) st)).
+      rewrite Hprefix. cbn [app].
+      pose proof
+        (IH (completed ++ [canonical_item_ast item])%list next na nr nbs nst
+          Hokremaining Hmarkremaining Hsaferemaining
+          Hsafenext Hoknext Hnext Hnrun) as Htail.
+      unfold canonical_item_ast in Htail |- *.
+      setoid_rewrite Htail. rewrite <- app_assoc. reflexivity.
+Qed.
+
+Lemma list_lines_tight_cons :
+  forall item remaining,
+    list_lines Tight (map canonical_item_lines (item :: remaining)) =
+    (canonical_item_lines item ++
+      list_lines Tight (map canonical_item_lines remaining))%list.
+Proof.
+  intros item remaining. destruct remaining; cbn [map list_lines];
+    rewrite ?app_nil_r; reflexivity.
+Qed.
+
+Lemma canonical_loose_tail_cons :
+  forall item remaining,
+    canonical_loose_tail_lines (item :: remaining) =
+    (EmptyString :: canonical_item_lines item ++
+      canonical_loose_tail_lines remaining)%list.
+Proof.
+  intros item remaining. destruct remaining; cbn [canonical_loose_tail_lines map list_lines];
+    rewrite ?app_nil_r; reflexivity.
+Qed.
+
+Lemma run_canonical_list_tail_tight :
+  forall remaining completed item a rest bs st,
+    forallb (fun it => nonempty it && forallb cb_ok it)%bool remaining = true ->
+    forallb item_marker_ok remaining = true ->
+    forallb (forallb list_content_safe) remaining = true ->
+    forallb (fun it => negb (item_forces_loose it)) remaining = true ->
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    item_forces_loose item = false ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    exists before last la lr lbs lst,
+      (before ++ [canonical_item_ast last])%list =
+        (completed ++ canonical_item_ast item ::
+          map canonical_item_ast remaining)%list /\
+      forallb list_content_safe last = true /\
+      forallb cb_ok last = true /\
+      item_forces_loose last = false /\
+      sep_lines (map cb_lines last) = la :: lr /\
+      run_lines (map (fun l => (bullet_cont ++ l)%string) (la :: lr))
+        (PPara []) = (lbs, lst) /\
+      run_lines (list_lines Tight (map canonical_item_lines remaining))
+        (PList (LSt 0 "-"%char false false (rev completed)) (rev bs) st) =
+      ([], PList (LSt 0 "-"%char false false (rev before)) (rev lbs) lst).
+Proof.
+  induction remaining as [|next remaining IH]; intros completed item a rest bs st
+    Hokitems Hmarkers Hsafeitems Hforceitems Hsafe Hok Hforce Hlines Hrun.
+  - exists completed, item, a, rest, bs, st. repeat split; try assumption.
+  - cbn [forallb] in Hokitems, Hmarkers, Hsafeitems, Hforceitems.
+    apply andb_true_iff in Hokitems as [Hoknext Hokremaining].
+    apply andb_true_iff in Hoknext as [Hnenext Hoknext].
+    apply andb_true_iff in Hmarkers as [Hmarknext Hmarkremaining].
+    apply andb_true_iff in Hsafeitems as [Hsafenext Hsaferemaining].
+    apply andb_true_iff in Hforceitems as [Hforcenext Hforceremaining].
+    apply negb_true_iff in Hforcenext.
+    assert (Hnextne : next <> []).
+    { destruct next; [discriminate Hnenext|discriminate]. }
+    destruct (canonical_item_run_exists next Hnextne Hoknext)
+      as [na [nr [nbs [nst [Hnext Hnrun]]]]].
+    pose proof (run_list_sibling_canonical_tight
+      item a rest bs st next na nr nbs nst
+      (LSt 0 "-"%char false false (rev completed))
+      Hsafe Hok Hlines Hrun Hsafenext Hoknext Hmarknext Hnext Hnrun
+      eq_refl eq_refl) as Hprefix.
+    pose proof (canonical_item_first_nonblank next na nr
+      Hsafenext Hoknext Hnext) as Hnonblank.
+    unfold nonblank in Hnonblank. apply negb_true_iff in Hnonblank.
+    unfold list_next in Hprefix. rewrite Hnonblank in Hprefix.
+    cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb] in Hprefix.
+    pose proof (scan_canonical_item_state next na nr 0 "-"%char
+      (map cb_ast item :: rev completed)%list
+      Hsafenext Hoknext Hnext) as Hscan.
+    setoid_rewrite Hscan in Hprefix. rewrite Hforcenext in Hprefix.
+    assert (Hrev : (canonical_item_ast item :: rev completed)%list =
+      rev (completed ++ [canonical_item_ast item])%list).
+    { rewrite rev_app_distr. reflexivity. }
+    unfold canonical_item_ast in Hrev. setoid_rewrite Hrev in Hprefix.
+    destruct (IH (completed ++ [canonical_item_ast item])%list
+      next na nr nbs nst Hokremaining Hmarkremaining Hsaferemaining
+      Hforceremaining Hsafenext Hoknext Hforcenext Hnext Hnrun)
+      as (before & last & la & lr & lbs & lst & Hbefore & Hlsafe & Hlok &
+          Hlforce & Hllines & Hlrun & Htail).
+    exists before, last, la, lr, lbs, lst. repeat split; try assumption.
+    + rewrite Hbefore. cbn [map]. rewrite <- app_assoc. reflexivity.
+    + rewrite list_lines_tight_cons. unfold canonical_item_lines at 1.
+    rewrite Hnext, run_lines_app, Hprefix. cbn [app].
+    unfold canonical_item_ast in Htail |- *.
+    rewrite Htail. cbn [app].
+    reflexivity.
+Qed.
+
+Lemma run_canonical_list_tail_loose :
+  forall remaining completed item a rest bs st,
+    forallb (fun it => nonempty it && forallb cb_ok it)%bool remaining = true ->
+    forallb item_marker_ok remaining = true ->
+    forallb (forallb list_content_safe) remaining = true ->
+    forallb list_content_safe item = true -> forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    exists before last la lr lbs lst,
+      (before ++ [canonical_item_ast last])%list =
+        (completed ++ canonical_item_ast item ::
+          map canonical_item_ast remaining)%list /\
+      forallb list_content_safe last = true /\
+      forallb cb_ok last = true /\
+      sep_lines (map cb_lines last) = la :: lr /\
+      run_lines (map (fun l => (bullet_cont ++ l)%string) (la :: lr))
+        (PPara []) = (lbs, lst) /\
+      run_lines (canonical_loose_tail_lines remaining)
+        (PList (LSt 0 "-"%char true false (rev completed)) (rev bs) st) =
+      ([], PList (LSt 0 "-"%char true false (rev before)) (rev lbs) lst).
+Proof.
+  induction remaining as [|next remaining IH]; intros completed item a rest bs st
+    Hokitems Hmarkers Hsafeitems Hsafe Hok Hlines Hrun.
+  - exists completed, item, a, rest, bs, st. repeat split; try assumption.
+  - cbn [forallb] in Hokitems, Hmarkers, Hsafeitems.
+    apply andb_true_iff in Hokitems as [Hoknext Hokremaining].
+    apply andb_true_iff in Hoknext as [Hnenext Hoknext].
+    apply andb_true_iff in Hmarkers as [Hmarknext Hmarkremaining].
+    apply andb_true_iff in Hsafeitems as [Hsafenext Hsaferemaining].
+    assert (Hnextne : next <> []).
+    { destruct next; [discriminate Hnenext|discriminate]. }
+    destruct (canonical_item_run_exists next Hnextne Hoknext)
+      as [na [nr [nbs [nst [Hnext Hnrun]]]]].
+    pose proof (run_list_sibling_canonical_loose
+      item a rest bs st next na nr nbs nst
+      (LSt 0 "-"%char true false (rev completed))
+      Hsafe Hok Hlines Hrun Hsafenext Hoknext Hmarknext Hnext Hnrun
+      eq_refl eq_refl) as Hprefix.
+    pose proof (canonical_item_first_nonblank next na nr
+      Hsafenext Hoknext Hnext) as Hnonblank.
+    unfold nonblank in Hnonblank. apply negb_true_iff in Hnonblank.
+    unfold list_next, list_blank in Hprefix. rewrite Hnonblank in Hprefix.
+    cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb] in Hprefix.
+    pose proof (scan_canonical_item_state_loose next na nr 0 "-"%char
+      (map cb_ast item :: rev completed)%list
+      Hsafenext Hoknext Hnext) as Hscan.
+    setoid_rewrite Hscan in Hprefix.
+    assert (Hrev : (canonical_item_ast item :: rev completed)%list =
+      rev (completed ++ [canonical_item_ast item])%list).
+    { rewrite rev_app_distr. reflexivity. }
+    unfold canonical_item_ast in Hrev. setoid_rewrite Hrev in Hprefix.
+    destruct (IH (completed ++ [canonical_item_ast item])%list
+      next na nr nbs nst Hokremaining Hmarkremaining Hsaferemaining
+      Hsafenext Hoknext Hnext Hnrun)
+      as (before & last & la & lr & lbs & lst & Hbefore & Hlsafe & Hlok &
+          Hllines & Hlrun & Htail).
+    exists before, last, la, lr, lbs, lst. repeat split; try assumption.
+    + rewrite Hbefore. cbn [map]. rewrite <- app_assoc. reflexivity.
+    + rewrite canonical_loose_tail_cons. unfold canonical_item_lines at 1.
+      rewrite Hnext, app_comm_cons, run_lines_app, Hprefix. cbn [app].
+      unfold canonical_item_ast in Htail |- *. rewrite Htail. reflexivity.
+Qed.
+
+Lemma negb_existsb_forallb_negb :
+  forall {A : Type} (f : A -> bool) xs,
+    negb (existsb f xs) = true -> forallb (fun x => negb (f x)) xs = true.
+Proof.
+  intros A f xs. induction xs as [|x xs IH]; intros H; [reflexivity|].
+  cbn [existsb forallb] in H |- *.
+  apply negb_true_iff in H. apply orb_false_iff in H as [Hx Hxs].
+  rewrite Hx. cbn. apply IH. apply negb_true_iff. exact Hxs.
+Qed.
+
+Lemma drop_leading_ws_indent_zero :
+  forall l, drop_leading_ws l = l -> indent_of l = 0.
+Proof.
+  induction l as [|c l IH]; intros H; [reflexivity|].
+  cbn [drop_leading_ws] in H. cbn [indent_of].
+  destruct (is_ws c) eqn:Hws.
+  - pose proof (drop_leading_ws_length l) as Hlen.
+    rewrite H in Hlen. cbn [String.length] in Hlen.
+    exfalso. exact (Nat.nle_succ_diag_l _ Hlen).
+  - reflexivity.
+Qed.
+
+Lemma step_blank_lazy_false :
+  forall l st, classify l = KBlank -> lazy_ok (snd (step l st)) = false.
+Proof.
+  intros l st Hblank. induction st as
+    [cur|lvl cur|f acc|done inner IH|ls done inner IH].
+  - destruct cur as [|c cur'].
+    + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
+    + rewrite (step_para_flush l c cur' Hblank). reflexivity.
+  - unfold step. cbn [step_fuel]. rewrite Hblank. reflexivity.
+  - destruct (fence_close f l) eqn:Hclose.
+    + rewrite (step_fence_close l f acc Hclose). reflexivity.
+    + rewrite (step_fence_content l f acc Hclose). reflexivity.
+  - rewrite (step_quote_close l KBlank done inner [] (PPara [])
+      Hblank eq_refl eq_refl eq_refl). reflexivity.
+  - destruct (step l inner) as [bs inner'] eqn:Hstep.
+    rewrite (step_list_blank l ls done inner bs inner' Hblank Hstep).
+    cbn [snd lazy_ok]. exact IH.
+Qed.
+
+Lemma cb_lines_first_line_ok :
+  forall cb first rest,
+    is_clist cb = false -> cb_ok cb = true ->
+    cb_lines cb = first :: rest -> line_ok first = true.
+Proof.
+  intros cb first rest Hnonlist Hok Hlines.
+  destruct cb as [ls| |info content|lvl ls|inner|sp items].
+  - change (para_ok ls = true) in Hok. destruct ls as [|l ls'];
+      [discriminate Hok|].
+    apply para_ok_parts in Hok as [_ [Hok _]].
+    cbn [cb_lines] in Hlines. injection Hlines as <- <-. cbn [forallb] in Hok.
+    apply andb_true_iff in Hok as [Hfirst _]. exact Hfirst.
+  - cbn [cb_lines] in Hlines. injection Hlines as <- <-. reflexivity.
+  - change (code_ok info content = true) in Hok.
+    apply code_ok_parts in Hok as [Hinfo _].
+    cbn [cb_lines] in Hlines. injection Hlines as <- <-.
+    unfold code_open, line_ok. apply andb_true_iff; split.
+    + apply andb_true_iff; split.
+      * reflexivity.
+      * rewrite no_nl_append, (info_no_nl _ Hinfo). reflexivity.
+    + apply String.eqb_eq. reflexivity.
+  - change (heading_ok lvl ls = true) in Hok.
+    apply heading_ok_parts in Hok as [Hlvl [_ [Hok _]]].
+    destruct ls as [|l ls']; [discriminate Hlines|].
+    cbn [cb_lines map] in Hlines. injection Hlines as <- <-.
+    cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hl _].
+    unfold line_ok. apply andb_true_iff; split.
+    + apply andb_true_iff; split.
+      * apply classify_not_blank_nonblank. intros E.
+        rewrite (classify_canonical_heading lvl l Hlvl) in E. discriminate.
+      * rewrite heading_line_no_nl. apply line_ok_no_nl. exact Hl.
+    + apply String.eqb_eq. unfold heading_line.
+      rewrite drop_leading_ws_hashes by exact Hlvl. reflexivity.
+  - rewrite cb_lines_quote in Hlines.
+    destruct (sep_lines (map cb_lines inner)) as [|l ls] eqn:E;
+      [discriminate Hlines|].
+    cbn [map] in Hlines. injection Hlines as <- <-.
+    unfold quote_line, quote_prefix, line_ok, nonblank, nonempty_str.
+    cbn [drop_leading_ws is_ws no_nl].
+    pose proof (cb_ok_lines_ok (CQuote inner) Hok) as Hall.
+    apply lines_ok_parts in Hall as [_ [Hall _]].
+    rewrite cb_lines_quote, E in Hall. cbn [map forallb no_nl] in Hall.
+    apply andb_true_iff in Hall as [Hl _].
+    apply andb_true_iff; split.
+    + apply andb_true_iff; split; [reflexivity|exact Hl].
+    + apply String.eqb_eq. reflexivity.
+  - discriminate Hnonlist.
+Qed.
+
+Lemma parse_list_current_then_nonlist :
+  forall loose completed item a rest bs st next first more tail,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    is_clist next = false -> cb_ok next = true ->
+    cb_lines next = first :: more ->
+    parse_lines
+      (EmptyString :: first :: more ++ tail)%list
+      (PList (LSt 0 "-"%char loose false (rev completed)) (rev bs) st)
+    = (mk (BulletList (if loose then Loose else Tight)
+          (completed ++ [canonical_item_ast item])%list)
+       :: parse_lines ((first :: more) ++ tail)%list (PPara []))%list.
+Proof.
+  intros loose completed item a rest bs st next first more tail
+    Hsafe Hok Hlines Hrun Hnonlist Hnext Hnextlines.
+  destruct (run_canonical_item_blank item a rest bs st EmptyString
+    Hsafe Hok Hlines Hrun (classify_blank EmptyString eq_refl))
+    as [closed [inner' [Hblank Hitem]]].
+  pose proof (nonlist_cblock_first next Hnonlist Hnext)
+    as [first' [more' [Hshape Hnotlist]]].
+  rewrite Hnextlines in Hshape. injection Hshape as <- <-.
+  pose proof (cb_lines_first_line_ok next first more
+    Hnonlist Hnext Hnextlines) as Hline.
+  assert (Hindent : Nat.ltb 0 (indent_of first) = false).
+  { rewrite (drop_leading_ws_indent_zero first
+      (line_ok_no_leading_ws first Hline)). reflexivity. }
+  assert (Hlazy : lazy_ok inner' = false).
+  { pose proof (step_blank_lazy_false EmptyString st
+      (classify_blank EmptyString eq_refl)) as H.
+    rewrite Hblank in H. exact H. }
+  change (parse_lines (EmptyString :: first :: more ++ tail)%list
+      (PList (LSt 0 "-"%char loose false (rev completed)) (rev bs) st) =
+    mk (BulletList (if loose then Loose else Tight)
+      (completed ++ [canonical_item_ast item])%list) ::
+    parse_lines (first :: more ++ tail)%list (PPara [])).
+  pose proof (step_list_blank EmptyString
+    (LSt 0 "-"%char loose false (rev completed)) (rev bs) st
+    closed inner' (classify_blank EmptyString eq_refl) Hblank) as Houterblank.
+  rewrite (parse_lines_step EmptyString (first :: more ++ tail)%list
+    (PList (LSt 0 "-"%char loose false (rev completed)) (rev bs) st)
+    []
+    (PList (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner') Houterblank).
+  cbn [app].
+  destruct (classify first) as [| |f|q|lvl txt|m listrest|] eqn:Hclass.
+  - exfalso. apply line_ok_nonblank in Hline.
+    apply classify_kblank_blank in Hclass. congruence.
+  - destruct (open_kind first KThematic) as [head opened] eqn:Hopen.
+    assert (Hstepopen : step first (PPara []) = (head, opened)).
+    { rewrite (step_idle first KThematic Hclass eq_refl). exact Hopen. }
+    rewrite (parse_lines_step first (more ++ tail)%list (PPara [])
+      head opened Hstepopen).
+    cbn [parse_lines].
+    rewrite (step_list_close first KThematic
+      (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner' head opened
+      Hclass eq_refl ltac:(discriminate) Hindent eq_refl Hopen).
+    cbn [app finish list_blank ls_loose ls_items].
+    rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem.
+    cbn [rev]. rewrite rev_involutive.
+    reflexivity.
+  - destruct (open_kind first (KFence f)) as [head opened] eqn:Hopen.
+    assert (Hstepopen : step first (PPara []) = (head, opened)).
+    { rewrite (step_idle first (KFence f) Hclass eq_refl). exact Hopen. }
+    rewrite (parse_lines_step first (more ++ tail)%list (PPara [])
+      head opened Hstepopen).
+    cbn [parse_lines].
+    rewrite (step_list_close first (KFence f)
+      (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner' head opened
+      Hclass eq_refl ltac:(discriminate) Hindent eq_refl Hopen).
+    cbn [app finish list_blank ls_loose ls_items].
+    rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem.
+    cbn [rev]. rewrite rev_involutive.
+    reflexivity.
+  - destruct (step q (PPara [])) as [head opened] eqn:Hdesc.
+    cbn [parse_lines].
+    rewrite (step_list_quote_close first q
+      (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner' head opened Hclass Hindent Hdesc).
+    rewrite (step_quote_open first q head opened Hclass Hdesc).
+    cbn [app finish list_blank ls_loose ls_items].
+    rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem.
+    cbn [rev]. rewrite rev_involutive.
+    reflexivity.
+  - destruct (open_kind first (KHeading lvl txt)) as [head opened] eqn:Hopen.
+    assert (Hstepopen : step first (PPara []) = (head, opened)).
+    { rewrite (step_idle first (KHeading lvl txt) Hclass eq_refl). exact Hopen. }
+    rewrite (parse_lines_step first (more ++ tail)%list (PPara [])
+      head opened Hstepopen).
+    cbn [parse_lines].
+    rewrite (step_list_close first (KHeading lvl txt)
+      (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner' head opened
+      Hclass eq_refl ltac:(discriminate) Hindent eq_refl Hopen).
+    cbn [app finish list_blank ls_loose ls_items].
+    rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem.
+    cbn [rev]. rewrite rev_involutive.
+    reflexivity.
+  - exfalso. exact (Hnotlist m listrest eq_refl).
+  - destruct (open_kind first KText) as [head opened] eqn:Hopen.
+    assert (Hstepopen : step first (PPara []) = (head, opened)).
+    { rewrite (step_idle first KText Hclass eq_refl). exact Hopen. }
+    rewrite (parse_lines_step first (more ++ tail)%list (PPara [])
+      head opened Hstepopen).
+    cbn [parse_lines].
+    rewrite (step_list_close first KText
+      (list_blank (LSt 0 "-"%char loose false (rev completed)))
+      (rev closed ++ rev bs)%list inner' head opened
+      Hclass eq_refl ltac:(discriminate) Hindent
+      ltac:(cbn [is_lazy]; exact Hlazy) Hopen).
+    cbn [app finish list_blank ls_loose ls_items].
+    rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem.
+    cbn [rev]. rewrite rev_involutive.
+    reflexivity.
+Qed.
+
+Lemma parse_canonical_list_end :
+  forall sp items,
+    cb_ok (CList sp items) = true ->
+    parse_lines (cb_lines (CList sp items)) (PPara [])
+    = [cb_ast (CList sp items)].
+Proof.
+  intros sp items H.
+  rewrite cb_ok_list in H.
+  apply andb_true_iff in H as [Hprefix Hspacing].
+  repeat rewrite andb_true_iff in Hprefix.
+  destruct Hprefix as [[[Hne Hokitems] Hmarkers] Hsafeitems].
+  destruct items as [|first remaining]; [discriminate Hne|].
+  cbn [forallb] in Hokitems, Hmarkers, Hsafeitems.
+  apply andb_true_iff in Hokitems as [Hokfirst Hokremaining].
+  apply andb_true_iff in Hokfirst as [Hnefirst Hokfirst].
+  apply andb_true_iff in Hmarkers as [Hmarkfirst Hmarkremaining].
+  apply andb_true_iff in Hsafeitems as [Hsafefirst Hsaferemaining].
+  assert (Hfirstne : first <> []).
+  { destruct first; [discriminate Hnefirst|discriminate]. }
+  destruct (canonical_item_run_exists first Hfirstne Hokfirst)
+    as [a [rest [bs [st [Hlines Hrun]]]]].
+  pose proof (run_first_canonical_item first a rest bs st
+    Hsafefirst Hokfirst Hmarkfirst Hlines Hrun) as Hfirst.
+  rewrite cb_lines_list, cb_ast_list.
+  fold canonical_item_lines.
+  destruct sp.
+  - assert (Hallforce :
+      forallb (fun it => negb (item_forces_loose it)) (first :: remaining)
+      = true).
+    { apply negb_existsb_forallb_negb. exact Hspacing. }
+    cbn [forallb] in Hallforce.
+    apply andb_true_iff in Hallforce as [Hforcefirst Hforceremaining].
+    apply negb_true_iff in Hforcefirst.
+    pose proof (scan_canonical_item_state first a rest 0 "-"%char []
+      Hsafefirst Hokfirst Hlines) as Hscan.
+    rewrite Hforcefirst in Hscan. setoid_rewrite Hscan in Hfirst.
+    destruct remaining as [|second remaining'].
+    + cbn [map list_lines]. unfold canonical_item_lines. rewrite Hlines.
+      rewrite (parse_lines_run _ _ _ _ Hfirst). cbn [app].
+      apply (parse_canonical_list_tail_tight [] [] first a rest bs st);
+        assumption.
+    + change (parse_lines
+        (canonical_item_lines first ++
+         list_lines Tight (map canonical_item_lines (second :: remaining')))%list
+        (PPara []) =
+        [mk (BulletList Tight
+          (canonical_item_ast first ::
+           map canonical_item_ast (second :: remaining')))]).
+      unfold canonical_item_lines at 1. rewrite Hlines.
+      rewrite parse_lines_app_run, Hfirst. cbn [app].
+      apply (parse_canonical_list_tail_tight (second :: remaining') []
+        first a rest bs st); assumption.
+  - destruct remaining as [|second remaining'].
+    + cbn [length Nat.eqb orb] in Hspacing.
+      apply orb_true_iff in Hspacing as [Hbad | Hforce]; [discriminate Hbad|].
+      unfold items_force_loose in Hforce. cbn [existsb orb] in Hforce.
+      rewrite orb_false_r in Hforce.
+      pose proof (scan_canonical_item_state first a rest 0 "-"%char []
+        Hsafefirst Hokfirst Hlines) as Hscan.
+      rewrite Hforce in Hscan. setoid_rewrite Hscan in Hfirst.
+      cbn [map list_lines]. unfold canonical_item_lines. rewrite Hlines.
+      rewrite (parse_lines_run _ _ _ _ Hfirst). cbn [app].
+      apply (parse_canonical_list_tail_loose [] [] first a rest bs st);
+        assumption.
+    + cbn [forallb] in Hokremaining, Hmarkremaining, Hsaferemaining.
+      apply andb_true_iff in Hokremaining as [Hoksecond Hokrest].
+      apply andb_true_iff in Hoksecond as [Hnesecond Hoksecond].
+      apply andb_true_iff in Hmarkremaining as [Hmarksecond Hmarkrest].
+      apply andb_true_iff in Hsaferemaining as [Hsafesecond Hsaferest].
+      assert (Hsecondne : second <> []).
+      { destruct second; [discriminate Hnesecond|discriminate]. }
+      destruct (canonical_item_run_exists second Hsecondne Hoksecond)
+        as [sa [sr [sbs [sst [Hslines Hsrun]]]]].
+      pose proof (scan_list_content_fields rest
+        (LSt 0 "-"%char false false [])) as [Hind [Hmarker Hitems]].
+      cbn in Hind, Hmarker, Hitems.
+      pose proof (run_list_sibling_canonical_loose first a rest bs st
+        second sa sr sbs sst
+        (scan_list_content (LSt 0 "-"%char false false []) rest)
+        Hsafefirst Hokfirst Hlines Hrun Hsafesecond Hoksecond Hmarksecond
+        Hslines Hsrun Hind Hmarker) as Hsecond.
+      pose proof (canonical_item_first_nonblank second sa sr
+        Hsafesecond Hoksecond Hslines) as Hsanb.
+      unfold nonblank in Hsanb. apply negb_true_iff in Hsanb.
+      unfold list_next, list_blank in Hsecond. rewrite Hsanb in Hsecond.
+      rewrite Hind, Hmarker, Hitems in Hsecond.
+      pose proof (scan_canonical_item_state_loose second sa sr 0 "-"%char
+        [canonical_item_ast first] Hsafesecond Hoksecond Hslines) as Hscan2.
+      cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb] in Hsecond.
+      rewrite orb_true_r in Hsecond. unfold canonical_item_ast in Hscan2.
+      setoid_rewrite Hscan2 in Hsecond.
+      assert (Hlayout :
+        list_lines Loose
+          (map canonical_item_lines (first :: second :: remaining')) =
+        (canonical_item_lines first ++
+         EmptyString :: canonical_item_lines second ++
+         canonical_loose_tail_lines remaining')%list).
+      { rewrite list_lines_loose_eq.
+        destruct remaining' as [|third rest3].
+        - cbn [map sep_lines canonical_loose_tail_lines].
+          rewrite ?app_nil_r, ?app_assoc. reflexivity.
+        - cbn [canonical_loose_tail_lines]. rewrite list_lines_loose_eq.
+          cbn [map sep_lines]. rewrite ?app_nil_r, ?app_assoc. reflexivity. }
+      rewrite Hlayout. cbn [map].
+      unfold canonical_item_lines at 1. rewrite Hlines.
+      rewrite parse_lines_app_run, Hfirst. cbn [app].
+      rewrite app_comm_cons.
+      rewrite (parse_lines_app_run
+        (EmptyString :: canonical_item_lines second)
+        (canonical_loose_tail_lines remaining')
+        (PList (scan_list_content (LSt 0 "-"%char false false []) rest)
+          (rev bs) st)).
+      unfold canonical_item_lines at 1. rewrite Hslines.
+      rewrite Hsecond. cbn [app].
+      apply (parse_canonical_list_tail_loose remaining'
+        [canonical_item_ast first] second sa sr sbs sst);
+        assumption.
+Qed.
+
+Lemma list_lines_loose_first :
+  forall first remaining,
+    list_lines Loose (map canonical_item_lines (first :: remaining)) =
+    (canonical_item_lines first ++ canonical_loose_tail_lines remaining)%list.
+Proof.
+  intros first remaining. destruct remaining; cbn [map list_lines canonical_loose_tail_lines];
+    rewrite ?app_nil_r; reflexivity.
+Qed.
+
+Lemma parse_canonical_list_then_nonlist :
+  forall sp items next tail,
+    cb_ok (CList sp items) = true ->
+    is_clist next = false -> cb_ok next = true ->
+    parse_lines
+      (cb_lines (CList sp items) ++ EmptyString :: cb_lines next ++ tail)%list
+      (PPara []) =
+    (cb_ast (CList sp items) ::
+      parse_lines (cb_lines next ++ tail)%list (PPara []))%list.
+Proof.
+  intros sp items next tail H Hnonlist Hnextok.
+  rewrite cb_ok_list in H.
+  apply andb_true_iff in H as [Hprefix Hspacing].
+  repeat rewrite andb_true_iff in Hprefix.
+  destruct Hprefix as [[[Hne Hokitems] Hmarkers] Hsafeitems].
+  destruct items as [|first remaining]; [discriminate Hne|].
+  cbn [forallb] in Hokitems, Hmarkers, Hsafeitems.
+  apply andb_true_iff in Hokitems as [Hokfirst Hokremaining].
+  apply andb_true_iff in Hokfirst as [Hnefirst Hokfirst].
+  apply andb_true_iff in Hmarkers as [Hmarkfirst Hmarkremaining].
+  apply andb_true_iff in Hsafeitems as [Hsafefirst Hsaferemaining].
+  assert (Hfirstne : first <> []).
+  { destruct first; [discriminate Hnefirst|discriminate]. }
+  destruct (canonical_item_run_exists first Hfirstne Hokfirst)
+    as [a [rest [bs [st [Hlines Hrun]]]]].
+  pose proof (run_first_canonical_item first a rest bs st
+    Hsafefirst Hokfirst Hmarkfirst Hlines Hrun) as Hfirst.
+  rewrite cb_lines_list, cb_ast_list. fold canonical_item_lines.
+  destruct sp.
+  - assert (Hallforce :
+      forallb (fun it => negb (item_forces_loose it)) (first :: remaining)
+      = true).
+    { apply negb_existsb_forallb_negb. exact Hspacing. }
+    cbn [forallb] in Hallforce.
+    apply andb_true_iff in Hallforce as [Hforcefirst Hforceremaining].
+    apply negb_true_iff in Hforcefirst.
+    pose proof (scan_canonical_item_state first a rest 0 "-"%char []
+      Hsafefirst Hokfirst Hlines) as Hscan.
+    rewrite Hforcefirst in Hscan. setoid_rewrite Hscan in Hfirst.
+    destruct (run_canonical_list_tail_tight remaining [] first a rest bs st
+      Hokremaining Hmarkremaining Hsaferemaining Hforceremaining
+      Hsafefirst Hokfirst Hforcefirst Hlines Hrun)
+      as (before & last & la & lr & lbs & lst & Hitems & Hlastsafe &
+          Hlastok & Hlastforce & Hlastlines & Hlastrun & Htail).
+    rewrite list_lines_tight_cons, <- app_assoc.
+    unfold canonical_item_lines at 1. rewrite Hlines.
+    rewrite (parse_lines_app_run
+      (indent_lines bullet_open bullet_cont (a :: rest))
+      (list_lines Tight (map canonical_item_lines remaining) ++
+       EmptyString :: cb_lines next ++ tail)%list (PPara [])).
+    rewrite Hfirst. cbn [app].
+    rewrite (parse_lines_app_run
+      (list_lines Tight (map canonical_item_lines remaining))
+      (EmptyString :: cb_lines next ++ tail)%list
+      (PList (LSt 0 "-"%char false false []) (rev bs) st)).
+    cbn [rev] in Htail.
+    rewrite Htail. cbn [app].
+    destruct (cb_lines next) as [|nf nr] eqn:Hnextlines.
+    { pose proof (cb_ok_lines_ok next Hnextok) as Hvalid.
+      apply lines_ok_parts in Hvalid as [Hne' _]. congruence. }
+    change (parse_lines (EmptyString :: nf :: nr ++ tail)%list
+      (PList (LSt 0 "-"%char false false (rev before)) (rev lbs) lst) =
+      mk (BulletList Tight (map (map cb_ast) (first :: remaining))) ::
+      parse_lines (nf :: nr ++ tail)%list (PPara [])).
+    rewrite (parse_list_current_then_nonlist false before last la lr lbs lst
+      next nf nr tail Hlastsafe Hlastok Hlastlines Hlastrun
+      Hnonlist Hnextok Hnextlines).
+    unfold canonical_item_ast in Hitems |- *. rewrite Hitems. reflexivity.
+  - destruct remaining as [|second remaining'].
+    + cbn [length Nat.eqb orb] in Hspacing.
+      apply orb_true_iff in Hspacing as [Hbad | Hforce]; [discriminate Hbad|].
+      unfold items_force_loose in Hforce. cbn [existsb orb] in Hforce.
+      rewrite orb_false_r in Hforce.
+      pose proof (scan_canonical_item_state first a rest 0 "-"%char []
+        Hsafefirst Hokfirst Hlines) as Hscan.
+      rewrite Hforce in Hscan. setoid_rewrite Hscan in Hfirst.
+      cbn [map list_lines]. unfold canonical_item_lines. rewrite Hlines.
+      rewrite (parse_lines_app_run
+        (indent_lines bullet_open bullet_cont (a :: rest))
+        (EmptyString :: cb_lines next ++ tail)%list (PPara [])), Hfirst.
+      cbn [app].
+      destruct (cb_lines next) as [|nf nr] eqn:Hnextlines.
+      { pose proof (cb_ok_lines_ok next Hnextok) as Hvalid.
+        apply lines_ok_parts in Hvalid as [Hne' _]. congruence. }
+      change (parse_lines (EmptyString :: nf :: nr ++ tail)%list
+        (PList (LSt 0 "-"%char true false []) (rev bs) st) =
+        mk (BulletList Loose [map cb_ast first]) ::
+        parse_lines (nf :: nr ++ tail)%list (PPara [])).
+      pose proof (parse_list_current_then_nonlist true [] first a rest bs st
+        next nf nr tail Hsafefirst Hokfirst Hlines Hrun
+        Hnonlist Hnextok Hnextlines) as Hclose.
+      cbn [rev] in Hclose. rewrite Hclose. reflexivity.
+    + cbn [forallb] in Hokremaining, Hmarkremaining, Hsaferemaining.
+      apply andb_true_iff in Hokremaining as [Hoksecond Hokrest].
+      apply andb_true_iff in Hoksecond as [Hnesecond Hoksecond].
+      apply andb_true_iff in Hmarkremaining as [Hmarksecond Hmarkrest].
+      apply andb_true_iff in Hsaferemaining as [Hsafesecond Hsaferest].
+      assert (Hsecondne : second <> []).
+      { destruct second; [discriminate Hnesecond|discriminate]. }
+      destruct (canonical_item_run_exists second Hsecondne Hoksecond)
+        as [sa [sr [sbs [sst [Hslines Hsrun]]]]].
+      pose proof (scan_list_content_fields rest
+        (LSt 0 "-"%char false false [])) as [Hind [Hmarker Hitems0]].
+      cbn in Hind, Hmarker, Hitems0.
+      pose proof (run_list_sibling_canonical_loose first a rest bs st
+        second sa sr sbs sst
+        (scan_list_content (LSt 0 "-"%char false false []) rest)
+        Hsafefirst Hokfirst Hlines Hrun Hsafesecond Hoksecond Hmarksecond
+        Hslines Hsrun Hind Hmarker) as Hsecond.
+      pose proof (canonical_item_first_nonblank second sa sr
+        Hsafesecond Hoksecond Hslines) as Hsanb.
+      unfold nonblank in Hsanb. apply negb_true_iff in Hsanb.
+      unfold list_next, list_blank in Hsecond. rewrite Hsanb in Hsecond.
+      rewrite Hind, Hmarker, Hitems0 in Hsecond.
+      pose proof (scan_canonical_item_state_loose second sa sr 0 "-"%char
+        [canonical_item_ast first] Hsafesecond Hoksecond Hslines) as Hscan2.
+      cbn [ls_indent ls_marker ls_loose ls_blanks ls_items orb] in Hsecond.
+      rewrite orb_true_r in Hsecond. unfold canonical_item_ast in Hscan2.
+      setoid_rewrite Hscan2 in Hsecond.
+      destruct (run_canonical_list_tail_loose remaining'
+        [canonical_item_ast first] second sa sr sbs sst
+        Hokrest Hmarkrest Hsaferest Hsafesecond Hoksecond Hslines Hsrun)
+        as (before & last & la & lr & lbs & lst & Hitems & Hlastsafe &
+            Hlastok & Hlastlines & Hlastrun & Htail).
+      rewrite list_lines_loose_first.
+      unfold canonical_item_lines at 1. rewrite Hlines.
+      rewrite <- app_assoc.
+      rewrite (parse_lines_app_run
+        (indent_lines bullet_open bullet_cont (a :: rest))
+        (canonical_loose_tail_lines (second :: remaining') ++
+         EmptyString :: cb_lines next ++ tail)%list (PPara [])), Hfirst.
+      cbn [app]. rewrite canonical_loose_tail_cons.
+      rewrite app_comm_cons, <- app_assoc.
+      rewrite (parse_lines_app_run
+        (EmptyString :: canonical_item_lines second)
+        (canonical_loose_tail_lines remaining' ++
+         EmptyString :: cb_lines next ++ tail)%list
+        (PList (scan_list_content (LSt 0 "-"%char false false []) rest)
+          (rev bs) st)).
+      unfold canonical_item_lines at 1. rewrite Hslines, Hsecond. cbn [app].
+      cbn [rev app] in Htail. unfold canonical_item_ast in Htail.
+      rewrite parse_lines_app_run, Htail.
+      cbn [app].
+      destruct (cb_lines next) as [|nf nr] eqn:Hnextlines.
+      { pose proof (cb_ok_lines_ok next Hnextok) as Hvalid.
+        apply lines_ok_parts in Hvalid as [Hne' _]. congruence. }
+      change (parse_lines (EmptyString :: nf :: nr ++ tail)%list
+        (PList (LSt 0 "-"%char true false (rev before)) (rev lbs) lst) =
+        mk (BulletList Loose
+          (map cb_ast first :: map cb_ast second ::
+            map (map cb_ast) remaining')) ::
+        parse_lines (nf :: nr ++ tail)%list (PPara [])).
+      rewrite (parse_list_current_then_nonlist true before last la lr lbs lst
+        next nf nr tail Hlastsafe Hlastok Hlastlines Hlastrun
+        Hnonlist Hnextok Hnextlines).
+      unfold canonical_item_ast in Hitems |- *. rewrite Hitems. reflexivity.
+Qed.
+
 (* Half two, per block: feeding a canonical block's lines re-emits it and
    returns the parser to idle, whether a blank line follows (the
    in-document case) or the input ends.  Proved for a block and a list of
    blocks together, because a quote's contents are the latter. *)
-(* Restricted to no_nested_list: parse_cblock's own item-sequencing
-   induction for lists (open on a marker, thread tight/loose through a
-   run of siblings, close) isn't built yet — see
-   .project/260807-list-roundtrip-indent-shift.ai-generated.md.  Every
-   other case is exactly what it was before lists existed (CCode
-   included — this hypothesis is deliberately weaker than
-   list_content_safe, which also excludes CCode for an unrelated
-   reason); only the CList case is new, and it is vacuous. *)
 Lemma parse_cblock :
   forall cb,
-    no_nested_list cb = true ->
-    (forall tail, cb_ok cb = true ->
-       parse_lines (cb_lines cb ++ EmptyString :: tail)%list (PPara [])
-       = cb_ast cb :: parse_lines tail (PPara []))
+    (forall next tail,
+       (is_clist cb = true -> is_clist next = false) ->
+       cb_ok next = true -> cb_ok cb = true ->
+       parse_lines
+         (cb_lines cb ++ EmptyString :: cb_lines next ++ tail)%list (PPara [])
+       = cb_ast cb :: parse_lines (cb_lines next ++ tail)%list (PPara []))
     /\ (cb_ok cb = true ->
         parse_lines (cb_lines cb) (PPara []) = [cb_ast cb]).
 Proof.
   refine (cblock_ind2
             (fun cb =>
-               no_nested_list cb = true ->
-               (forall tail, cb_ok cb = true ->
-                  parse_lines (cb_lines cb ++ EmptyString :: tail)%list (PPara [])
-                  = cb_ast cb :: parse_lines tail (PPara []))
+               (forall next tail,
+                  (is_clist cb = true -> is_clist next = false) ->
+                  cb_ok next = true -> cb_ok cb = true ->
+                  parse_lines
+                    (cb_lines cb ++ EmptyString :: cb_lines next ++ tail)%list
+                    (PPara []) =
+                  cb_ast cb :: parse_lines (cb_lines next ++ tail)%list (PPara []))
                /\ (cb_ok cb = true ->
                    parse_lines (cb_lines cb) (PPara []) = [cb_ast cb]))
             (fun cbs =>
-               forallb no_nested_list cbs = true ->
+               no_adjacent_lists cbs = true ->
                forallb cb_ok cbs = true ->
                parse_lines (sep_lines (map cb_lines cbs)) (PPara [])
                = map cb_ast cbs)
             (fun _ => True)
             _ _ _ _ _ _ _ _ I (fun _ _ _ _ => I)).
   - (* paragraph *)
-    intros ls _. split; [intros tail H | intros H];
+    intros ls. split; [intros next tail _ _ H | intros H];
       change (cb_ok (CPara ls)) with (para_ok ls) in H;
       destruct ls as [|a ls']; try discriminate;
       apply para_ok_parts in H as (Htext & Hlok & _);
@@ -1370,13 +2547,13 @@ Proof.
       rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive.
       reflexivity.
   - (* thematic break *)
-    intros _. split; intros; cbn [cb_lines app].
+    split; [intros next tail _ _ H | intros H]; cbn [cb_lines app].
     + rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
       rewrite parse_lines_blank_nil by reflexivity. reflexivity.
     + rewrite parse_lines_thematic_nil by apply classify_canonical_thematic.
       reflexivity.
   - (* code block *)
-    intros info content _. split; [intros tail H | intros H];
+    intros info content. split; [intros next tail _ _ H | intros H];
       change (cb_ok (CCode info content)) with (code_ok info content) in H;
       apply code_ok_parts in H as (Hinfo & _ & Hnc); cbn [cb_lines app].
     + rewrite (parse_lines_fence_open _ _ _
@@ -1396,7 +2573,7 @@ Proof.
   - (* heading: open on the first line, accumulate the rest, close on the
        blank line or at end of input.  No first-line classification
        condition — the hashes make every rendered line a heading line. *)
-    intros lvl ls _. split; [intros tail H | intros H];
+    intros lvl ls. split; [intros next tail _ _ H | intros H];
       change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H;
       apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _);
       destruct ls as [|a ls']; [congruence| |congruence|];
@@ -1422,8 +2599,7 @@ Proof.
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
       reflexivity.
   - (* quote: the contents parse at top level, then get wrapped *)
-    intros inner IH Hsafe.
-    cbn [no_nested_list] in Hsafe.
+    intros inner IH.
     assert (Hsplit : cb_ok (CQuote inner) = true ->
                      exists l L, sep_lines (map cb_lines inner) = l :: L
                                  /\ forallb cb_ok inner = true).
@@ -1438,42 +2614,101 @@ Proof.
       - exfalso. apply (sep_lines_nonempty (cb_lines c) (map cb_lines rest) Hc).
         exact E.
       - eauto. }
-    split; [intros tail H | intros H];
-      destruct (Hsplit H) as [l [L [E Hok]]];
-      rewrite cb_lines_quote, cb_ast_quote, E;
-      unfold quote_line, quote_open;
-      pose proof (IH Hsafe Hok) as IHinner.
-    + rewrite parse_lines_quote, <- E, IHinner. reflexivity.
-    + rewrite quote_uniformity, <- E, IHinner. reflexivity.
-  - (* CList: parse_cblock doesn't cover lists yet *)
-    intros sp items _ Hsafe. discriminate Hsafe.
+    split.
+    + intros next tail _ _ H.
+      destruct (Hsplit H) as [l [L [E Hok]]].
+      assert (Hadj : no_adjacent_lists inner = true).
+      { rewrite cb_ok_quote in H.
+        apply andb_true_iff in H as [_ Hadj]. exact Hadj. }
+      pose proof (IH Hadj Hok) as IHinner.
+      rewrite cb_lines_quote, cb_ast_quote, E.
+      unfold quote_line, quote_open.
+      rewrite parse_lines_quote, <- E, IHinner. reflexivity.
+    + intros H. destruct (Hsplit H) as [l [L [E Hok]]].
+      assert (Hadj : no_adjacent_lists inner = true).
+      { rewrite cb_ok_quote in H.
+        apply andb_true_iff in H as [_ Hadj]. exact Hadj. }
+      pose proof (IH Hadj Hok) as IHinner.
+      rewrite cb_lines_quote, cb_ast_quote, E.
+      unfold quote_line, quote_open.
+      rewrite quote_uniformity, <- E, IHinner. reflexivity.
+  - (* list *)
+    intros sp items _. split.
+    + intros next tail Hboundary Hnext Hlist.
+      apply parse_canonical_list_then_nonlist; try assumption.
+      apply Hboundary. reflexivity.
+    + apply parse_canonical_list_end.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.
   - (* the list side: one block, then the rest after a blank line *)
-    intros c rest Hc Hrest Hsafe H.
-    cbn [forallb] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe1 Hsafe2].
+    intros c rest Hc Hrest Hadj H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
-    destruct (Hc Hsafe1) as [Hc1 Hc2].
+    destruct Hc as [Hc1 Hc2].
     destruct rest as [|c2 rest'].
     + cbn [map sep_lines]. rewrite (Hc2 H1). reflexivity.
-    + cbn [map sep_lines]. rewrite (Hc1 _ H1).
-      cbn [map cb_ast]. f_equal. apply Hrest; assumption.
+    + pose proof H2 as Hrestallok.
+      change (negb (is_clist c && is_clist c2) &&
+              no_adjacent_lists (c2 :: rest') = true) in Hadj.
+      apply andb_true_iff in Hadj as [Hpair Hrestall].
+      assert (Hboundary : is_clist c = true -> is_clist c2 = false).
+      { intros Hcl. apply negb_true_iff in Hpair.
+        rewrite Hcl in Hpair. cbn in Hpair.
+        destruct (is_clist c2); [discriminate|reflexivity]. }
+      cbn [forallb] in H2. apply andb_true_iff in H2 as [Hc2ok Hrestok].
+      destruct rest' as [|c3 rest''].
+      * cbn [map sep_lines].
+        pose proof (Hc1 c2 [] Hboundary Hc2ok H1) as Hparse.
+        rewrite !app_nil_r in Hparse. rewrite Hparse.
+        cbn [map cb_ast]. f_equal. apply Hrest.
+        -- reflexivity.
+        -- cbn [forallb]. rewrite Hc2ok. reflexivity.
+      * cbn [map sep_lines].
+        change (parse_lines
+          (cb_lines c ++ EmptyString :: cb_lines c2 ++ EmptyString ::
+           sep_lines (map cb_lines (c3 :: rest''))) (PPara []) =
+          cb_ast c :: cb_ast c2 :: cb_ast c3 :: map cb_ast rest'').
+        rewrite (Hc1 c2 (EmptyString :: sep_lines (map cb_lines (c3 :: rest'')))
+          Hboundary Hc2ok H1).
+        cbn [map cb_ast]. f_equal. apply Hrest.
+        -- exact Hrestall.
+        -- exact Hrestallok.
 Qed.
 
-(* Half two: the parser folds a document's lines back into its blocks.
-   no_nested_list, like parse_cblock's own hypothesis, is temporary. *)
 Lemma parse_sep :
-  forall cbs, forallb no_nested_list cbs = true -> forallb cb_ok cbs = true ->
+  forall cbs, no_adjacent_lists cbs = true -> forallb cb_ok cbs = true ->
   parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
 Proof.
-  induction cbs as [|cb rest IH]; intros Hsafe H; [reflexivity|].
-  cbn [forallb] in Hsafe. apply andb_true_iff in Hsafe as [Hsafecb Hsaferest].
+  induction cbs as [|cb rest IH]; intros Hadj H; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hcb Hrest].
-  destruct (parse_cblock cb Hsafecb) as [Hc1 Hc2].
+  destruct (parse_cblock cb) as [Hc1 Hc2].
   destruct rest as [|cb2 rest'].
   - cbn [map sep_lines]. rewrite (Hc2 Hcb). reflexivity.
-  - cbn [map sep_lines]. rewrite (Hc1 _ Hcb).
-    cbn [map cb_ast]. f_equal. apply IH; assumption.
+  - pose proof Hrest as Hrestallok.
+    change (negb (is_clist cb && is_clist cb2) &&
+            no_adjacent_lists (cb2 :: rest') = true) in Hadj.
+    apply andb_true_iff in Hadj as [Hpair Hrestall].
+    assert (Hboundary : is_clist cb = true -> is_clist cb2 = false).
+    { intros Hcl. apply negb_true_iff in Hpair.
+      rewrite Hcl in Hpair. cbn in Hpair.
+      destruct (is_clist cb2); [discriminate|reflexivity]. }
+    cbn [forallb] in Hrest. apply andb_true_iff in Hrest as [Hcb2 Hrest'].
+    destruct rest' as [|cb3 rest''].
+    + cbn [map sep_lines].
+      pose proof (Hc1 cb2 [] Hboundary Hcb2 Hcb) as Hparse.
+      rewrite !app_nil_r in Hparse. rewrite Hparse.
+      cbn [map cb_ast]. f_equal. apply IH.
+      * reflexivity.
+      * cbn [forallb]. rewrite Hcb2. reflexivity.
+    + cbn [map sep_lines].
+      change (parse_lines
+        (cb_lines cb ++ EmptyString :: cb_lines cb2 ++ EmptyString ::
+         sep_lines (map cb_lines (cb3 :: rest''))) (PPara []) =
+        cb_ast cb :: cb_ast cb2 :: cb_ast cb3 :: map cb_ast rest'').
+      rewrite (Hc1 cb2 (EmptyString :: sep_lines (map cb_lines (cb3 :: rest'')))
+        Hboundary Hcb2 Hcb).
+      cbn [map cb_ast]. f_equal. apply IH.
+      * exact Hrestall.
+      * exact Hrestallok.
 Qed.
 
 (*
@@ -1613,20 +2848,16 @@ The theorem
 ===========
 *)
 
-(** Render then parse is the identity on canonical blocks.
-    no_nested_list: temporary, until parse_cblock's own CList case lands
-    (.project/260807-list-roundtrip-indent-shift.ai-generated.md) —
-    lists parse and are well-formed today (Wf.v), they just don't have
-    a roundtrip guarantee through this specific theorem yet. *)
+(** Render then parse is the identity on canonical blocks. *)
 Theorem roundtrip_blocks :
-  forall cbs, forallb no_nested_list cbs = true -> forallb cb_ok cbs = true ->
+  forall cbs, cblocks_ok cbs = true ->
   parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof.
-  intros cbs Hsafe H.
-  rewrite (render_djot_cblocks _ H).
+  intros cbs H. apply cblocks_ok_parts in H as [Hok Hadj].
+  rewrite (render_djot_cblocks _ Hok).
   unfold parse_blocks, blocks_of_cblocks.
   f_equal.
-  rewrite split_render by (apply forallb_cb_lines_ok; exact H).
+  rewrite split_render by (apply forallb_cb_lines_ok; exact Hok).
   apply parse_sep; assumption.
 Qed.
 
@@ -1681,6 +2912,27 @@ Example nested_quote_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
+Example tight_list_roundtrip :
+  let cbs :=
+    [CList Tight [[CPara ["a"]]; [CPara ["b"]]]; CPara ["after"]] in
+  render_djot (blocks_of_cblocks cbs)
+    = ("- a" ++ nl ++ "- b" ++ nl ++ nl ++ "after")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+Example loose_list_roundtrip :
+  let cbs := [CList Loose [[CPara ["a"]]; [CPara ["b"]]]] in
+  render_djot (blocks_of_cblocks cbs) = ("- a" ++ nl ++ nl ++ "- b")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* Lists are also covered recursively through a quote; only lists nested
+   directly inside list items remain outside list_content_safe. *)
+Example list_in_quote_roundtrip :
+  let cbs := [CQuote [CList Tight [[CPara ["a"]]; [CPara ["b"]]]]] in
+  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. apply roundtrip_blocks; reflexivity. Qed.
+
 (*
 Above the block layer
 =====================
@@ -1723,15 +2975,14 @@ Proof.
 Qed.
 
 (** The roundtrip at the parser's entry point: render, parse, undo the
-    whole-document pass, and you are back where you started.
-    no_nested_list: temporary, as in roundtrip_blocks. *)
+    whole-document pass, and you are back where you started. *)
 Theorem roundtrip_doc :
-  forall cbs, forallb no_nested_list cbs = true -> forallb cb_ok cbs = true ->
+  forall cbs, cblocks_ok cbs = true ->
   undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
   = blocks_of_cblocks cbs.
 Proof.
-  intros cbs Hsafe H. unfold parse_doc.
-  rewrite (roundtrip_blocks _ Hsafe H).
+  intros cbs H. unfold parse_doc.
+  rewrite (roundtrip_blocks _ H).
   apply pass_erase, blocks_of_cblocks_pristine.
 Qed.
 
