@@ -159,7 +159,7 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
    after it opens a heading with no text rather than a blank line of it,
    which is what keeps the accumulator's nonblank invariant. *)
 Definition push_text (rest : string) (cur : list string) : list string :=
-  if is_blank rest then cur else rest :: cur.
+  if is_blank rest then cur else drop_leading_ws rest :: cur.
 
 (* What a line opens, for every kind but KQuote — a quote has to parse
    the line it encloses, which is the parser's one recursion, so it stays
@@ -172,7 +172,7 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KThematic => ([mk ThematicBreak], PPara [])
   | KFence f => ([], PFence f [])
   | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
-  | KText => ([], PPara [l])
+  | KText => ([], PPara [drop_leading_ws l])
   | KQuote _ => ([], PPara [])        (* unreachable: see open_quote *)
   | KList _ _ => ([], PPara [])       (* unreachable: see open_list *)
   end.
@@ -268,7 +268,7 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
       | PPara (c :: cur') =>
           match classify l with
           | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
-          | _ => ([], PPara (l :: c :: cur'))   (* paragraphs never interrupt *)
+          | _ => ([], PPara (drop_leading_ws l :: c :: cur'))   (* paragraphs never interrupt *)
           end
       | PHeading lvl cur =>
           (* Unlike a paragraph, a heading *is* interruptible: only a
@@ -279,7 +279,7 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
               then ([], PHeading lvl (push_text rest cur))
               else close_reopen (PHeading lvl cur)
                      (open_kind l (KHeading lvl' rest))
-          | KText => ([], PHeading lvl (l :: cur))
+          | KText => ([], PHeading lvl (drop_leading_ws l :: cur))
           | KQuote rest =>
               close_reopen (PHeading lvl cur)
                 (open_quote (step_fuel n' rest (PPara [])))
@@ -509,7 +509,7 @@ Proof. intros l c cur' H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. 
 
 Lemma step_para_cont :
   forall l c cur', classify l <> KBlank ->
-  step l (PPara (c :: cur')) = ([], PPara (l :: c :: cur')).
+  step l (PPara (c :: cur')) = ([], PPara (drop_leading_ws l :: c :: cur')).
 Proof.
   intros l c cur' H. unfold step. cbn [step_fuel].
   destruct (classify l); (congruence || reflexivity).
@@ -637,7 +637,8 @@ Qed.
 
 Lemma parse_lines_text :
   forall l rest cur, classify l = KText ->
-  parse_lines (l :: rest) (PPara cur) = parse_lines rest (PPara (l :: cur)).
+  parse_lines (l :: rest) (PPara cur) =
+  parse_lines rest (PPara (drop_leading_ws l :: cur)).
 Proof.
   intros l rest cur H. destruct cur as [|c cur'].
   - rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
@@ -650,7 +651,7 @@ Qed.
 Lemma parse_lines_cont :
   forall l rest c cur', classify l <> KBlank ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
-  parse_lines rest (PPara (l :: c :: cur')).
+  parse_lines rest (PPara (drop_leading_ws l :: c :: cur')).
 Proof.
   intros l rest c cur' H.
   rewrite (parse_lines_step _ _ _ _ _ (step_para_cont _ _ _ H)). reflexivity.
@@ -688,12 +689,13 @@ Seed lemmas: feeding runs of lines
 ----------------------------------
 *)
 
-(* A run of nonblank lines accumulates (reversed) onto an open paragraph. *)
+(* A run of nonblank lines accumulates (reversed, leading whitespace
+   stripped) onto an open paragraph. *)
 Lemma parse_lines_cont_seed :
   forall ls tail c cur',
     forallb nonblank ls = true ->
     parse_lines (ls ++ tail)%list (PPara (c :: cur')) =
-    parse_lines tail (PPara (rev ls ++ (c :: cur'))%list).
+    parse_lines tail (PPara (rev (map drop_leading_ws ls) ++ (c :: cur'))%list).
 Proof.
   induction ls as [|l ls IH]; intros tail c cur' H.
   - reflexivity.
@@ -712,7 +714,7 @@ Lemma parse_lines_para_seed :
     classify a = KText ->
     forallb nonblank ls = true ->
     parse_lines ((a :: ls) ++ tail)%list (PPara []) =
-    parse_lines tail (PPara (rev (a :: ls))).
+    parse_lines tail (PPara (rev (map drop_leading_ws (a :: ls)))).
 Proof.
   intros a ls tail Ha Hls.
   change ((a :: ls) ++ tail)%list with (a :: (ls ++ tail))%list.
@@ -792,14 +794,15 @@ Proof.
   reflexivity.
 Qed.
 
-(* A run of canonically-rendered heading lines accumulates (reversed)
-   onto the open heading, exactly as paragraph lines do. *)
+(* A run of canonically-rendered heading lines accumulates (reversed,
+   leading whitespace stripped) onto the open heading, exactly as
+   paragraph lines do. *)
 Lemma parse_lines_heading_seed :
   forall lvl ls tail cur,
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
-    parse_lines tail (PHeading lvl (rev ls ++ cur)%list).
+    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
 Proof.
   intros lvl ls. induction ls as [|a ls IH]; intros tail cur Hlvl H.
   - reflexivity.
@@ -810,7 +813,7 @@ Proof.
                (classify_canonical_heading lvl a Hlvl)).
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
-    cbn [rev]. rewrite <- app_assoc. reflexivity.
+    cbn [rev map]. rewrite <- app_assoc. reflexivity.
 Qed.
 
 (*
@@ -1132,7 +1135,7 @@ Example parse_list_no_interrupt :
   parse_blocks "- a
   - b"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "  - b")])]])].
+           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
 Proof. reflexivity. Qed.
 
 (* A different bullet character is a different list. *)

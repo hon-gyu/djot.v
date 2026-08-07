@@ -118,6 +118,19 @@ Proof.
     apply IH. exact Hls.
 Qed.
 
+(* Canonical lines are already flush left, so stripping leading
+   whitespace off each one is the identity — the fact that lets the
+   parser's now-stripping continuation rule reproduce a canonical
+   cblock's lines unchanged. *)
+Lemma forallb_line_ok_map_drop_leading_ws :
+  forall ls, forallb line_ok ls = true -> map drop_leading_ws ls = ls.
+Proof.
+  induction ls as [|l ls IH]; intros H; simpl in *.
+  - reflexivity.
+  - apply andb_true_iff in H as [Hl Hls].
+    rewrite (line_ok_no_leading_ws _ Hl), (IH Hls). reflexivity.
+Qed.
+
 Lemma para_ok_parts :
   forall a ls, para_ok (a :: ls) = true ->
   classify a = KText
@@ -347,10 +360,12 @@ Proof.
       destruct (rev_cons_shape a ls') as [c [cur' Erev]];
       cbn [cb_lines].
     + rewrite parse_lines_para_seed by assumption.
+      rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
       rewrite Erev, parse_lines_blank_cons by reflexivity.
       rewrite <- Erev, rev_involutive. reflexivity.
     + rewrite <- (app_nil_r (a :: ls')) at 1.
       rewrite parse_lines_para_seed by assumption.
+      rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
       rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive.
       reflexivity.
   - (* thematic break *)
@@ -387,17 +402,21 @@ Proof.
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [Hna Hnb'];
       unfold nonblank in Hna; apply negb_true_iff in Hna;
+      cbn [forallb] in Hlok; apply andb_true_iff in Hlok as [Hlok_a Hlok_ls'];
       cbn [cb_lines cb_ast map app];
       rewrite (parse_lines_heading_open _ _ _ a
                  (classify_canonical_heading lvl a Hlvl));
       replace (push_text a []) with [a]
-        by (unfold push_text; rewrite Hna; reflexivity).
+        by (unfold push_text; rewrite Hna;
+            rewrite (line_ok_no_leading_ws _ Hlok_a); reflexivity).
     + rewrite parse_lines_heading_seed by assumption.
+      rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
       reflexivity.
     + rewrite <- (app_nil_r (map (heading_line lvl) ls')).
       rewrite parse_lines_heading_seed by assumption.
+      rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_nil. cbn [finish].
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
       reflexivity.

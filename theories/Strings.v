@@ -221,6 +221,18 @@ Proof.
     + discriminate.
 Qed.
 
+(* Dropping leading whitespace never turns a blank line nonblank or vice
+   versa: the whitespace it removes was already all the classifier ever
+   looked past. *)
+Lemma is_blank_drop_leading_ws :
+  forall s, is_blank (drop_leading_ws s) = is_blank s.
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [drop_leading_ws]. destruct (is_ws c) eqn:E.
+  - rewrite IH, is_blank_cons, E. reflexivity.
+  - reflexivity.
+Qed.
+
 Lemma strip_trailing_ws_nonempty :
   forall s, is_blank s = false -> nonempty_str (strip_trailing_ws s) = true.
 Proof.
@@ -270,18 +282,31 @@ Fixpoint no_nl (s : string) : bool :=
   | String c s' => negb (Ascii.eqb c "010") && no_nl s'
   end.
 
-(* A line as produced by a renderer: nonblank and newline-free. *)
-Definition line_ok (l : string) : bool := nonblank l && no_nl l.
+(* A line as produced by a renderer: nonblank, newline-free, and already
+   flush against its own left margin — the parser strips any leading
+   whitespace off a text line as it stores it (Parser.push_text,
+   PPara/PHeading continuation), so a line that still had leading
+   whitespace could never be what parsing this source produced. *)
+Definition line_ok (l : string) : bool :=
+  nonblank l && no_nl l && String.eqb (drop_leading_ws l) l.
 
 Lemma line_ok_no_nl : forall l, line_ok l = true -> no_nl l = true.
 Proof.
-  intros l H. unfold line_ok in H. apply andb_true_iff in H as [_ H]. exact H.
+  intros l H. unfold line_ok in H.
+  apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
 Lemma line_ok_nonblank : forall l, line_ok l = true -> is_blank l = false.
 Proof.
   intros l H. unfold line_ok, nonblank in H.
-  apply andb_true_iff in H as [H _]. apply negb_true_iff in H. exact H.
+  apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [H _].
+  apply negb_true_iff in H. exact H.
+Qed.
+
+Lemma line_ok_no_leading_ws : forall l, line_ok l = true -> drop_leading_ws l = l.
+Proof.
+  intros l H. unfold line_ok in H.
+  apply andb_true_iff in H as [_ H]. apply String.eqb_eq in H. exact H.
 Qed.
 
 Lemma line_ok_nonempty : forall l, line_ok l = true -> l <> EmptyString.

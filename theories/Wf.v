@@ -403,7 +403,9 @@ Lemma forallb_nonblank_push_text :
 Proof.
   intros txt cur H. unfold push_text.
   destruct (is_blank txt) eqn:E; [exact H|].
-  rewrite forallb_nonblank_cons by exact E. exact H.
+  rewrite forallb_nonblank_cons
+    by (rewrite is_blank_drop_leading_ws; exact E).
+  exact H.
 Qed.
 
 (* Opening a block from an idle state. *)
@@ -421,7 +423,8 @@ Proof.
   - (* KText: the accumulator gains one line, which must be nonblank *)
     split; [reflexivity|].
     cbn [state_wf].
-    rewrite forallb_nonblank_cons by (apply classify_ktext_nonblank; exact H).
+    rewrite forallb_nonblank_cons
+      by (rewrite is_blank_drop_leading_ws; apply classify_ktext_nonblank; exact H).
     reflexivity.
 Qed.
 
@@ -469,7 +472,8 @@ Proof.
       all: split; [reflexivity|];
            cbn [state_wf];
            rewrite forallb_nonblank_cons
-             by (apply classify_not_kblank_nonblank; rewrite E; discriminate);
+             by (rewrite is_blank_drop_leading_ws;
+                 apply classify_not_kblank_nonblank; rewrite E; discriminate);
            exact H.
   - (* an open heading *)
     cbn [state_wf] in H. apply andb_true_iff in H as [Hlv Hc].
@@ -504,7 +508,8 @@ Proof.
       cbn [fst snd]. split; [reflexivity|].
       cbn [state_wf]. rewrite Hlv. cbn [andb].
       rewrite forallb_nonblank_cons
-        by (apply classify_ktext_nonblank; exact E).
+        by (rewrite is_blank_drop_leading_ws;
+            apply classify_ktext_nonblank; exact E).
       exact Hc. }
     (* blank, thematic, fence: close the heading and reopen outside it *)
     all: cbn [close_reopen open_quote finish app open_kind fst snd]; split;
@@ -550,7 +555,8 @@ Proof.
           cbn [andb]. reflexivity.
         + cbn [state_wf].
           rewrite forallb_nonblank_cons
-            by (apply classify_ktext_nonblank; exact E).
+            by (rewrite is_blank_drop_leading_ws;
+                apply classify_ktext_nonblank; exact E).
           reflexivity. }
     (* every other kind closes the quote and reopens outside it, on
        exactly the transition open_kind_wf already describes *)

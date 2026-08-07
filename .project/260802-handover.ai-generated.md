@@ -49,21 +49,21 @@ exists, how to drive it, and what to watch out for.
     This is Phase 2's uniformity statement, arriving early.
   - `many_fuel_stable` (Spike.v): the Spike A verdict — fuel + discharge
     lemmas, not well-founded recursion.
-- Differential corpus (djot.js's 287 usable cases): gallina 68, djot.js
+- Differential corpus (djot.js's 287 usable cases): gallina 75, djot.js
   287 (its own corpus), djoths 262. The 25 djoths divergences are
   adjudicated in `.project/oracle-disagreements.md` — djot.js is the sole
   authority (upstream README: djoths is not kept up to date).
 - Corpus numbers are a health check, not the goal — the standing priority
   is good code and proof engineering over conformance chasing.
   `block_quote.test` is 13/15; both misses need inline emphasis.
-  `headings.test` is 12/18; the 6 misses need block attributes
-  (`{#id}`), footnotes, inline links, and the shared over-indentation
-  fix — none is a section-nesting or identifier problem.
-  `lists.test` is 10/33, and the block structure is right in every miss
-  inspected: tight/loose, item splitting, nesting and what follows the
-  list all match. The whole difference is retained leading whitespace on
-  continuation lines — open thread 2 below, which is now the measured
-  bottleneck rather than a suspected one.
+  `headings.test` is 13/18; the remaining misses need block attributes
+  (`{#id}`), footnotes, and inline links — the over-indentation miss is
+  fixed (thread 2, done).
+  `lists.test` is 16/33. The over-indentation misses are fixed; almost
+  everything left is ordered-list markers (`1.`, `(a)`, roman numerals —
+  Phase 3's combinatorial specs, thread 3), plus two loose-list misses
+  that are an `<li><p>` HTML-rendering gap (thread 8), unrelated to
+  indentation.
 
 ## How to drive it
 
@@ -280,22 +280,23 @@ Block quotes are the worked example throughout.
      constructors. Mechanical to fill in; do it when lists land, not
      before.
 
-2. **Indentation — now the measured bottleneck, and one fix serves
-   four constructs.** djot.js strips leading whitespace from *inline*
-   content lines while preserving relative indent for *verbatim* ones.
-   We strip nothing, so paragraph continuation lines keep their spaces.
-   This is one divergence with four faces:
-   - top level: `a` / `   b` renders as `a\n   b`, djot.js `a\nb`;
-   - inside a quote: `>     a` keeps four spaces;
-   - after a heading marker: `#   a` likewise;
-   - inside a list item: every `lists.test` miss inspected is this and
-     nothing else — the block structure is already right.
-   The paragraph half looks small (strip in the `PPara`/`PHeading`
-   continuation branches and in `open_kind`'s KText), but it costs a
-   canonicality condition in `cb_ok` — interior lines must then have no
-   leading whitespace — so Render.v and Roundtrip.v move with it. Worth
-   doing as its own change, and it should lift several test files at
-   once.
+2. **Indentation — done.** `open_kind`'s `KText` case, the `PPara`
+   continuation branch, and `push_text` (which covers both `PHeading`'s
+   own KText branch and its KHeading-continuation branch) now
+   `drop_leading_ws` the line before storing it, matching djot.js's
+   unconditional `skipSpace` before inline content. One fix, because
+   quotes and lists both re-enter `step` on their enclosed line through
+   a fresh `PPara []` — the strip happens once, at that shared seam, and
+   covers all four faces (top-level paragraphs, quotes, headings, list
+   items) without touching Line.v or the container states themselves.
+   `line_ok` (Strings.v) gained a third conjunct,
+   `String.eqb (drop_leading_ws l) l`, so `para_ok`/`heading_ok`
+   (Render.v, unchanged — both already route through `line_ok`) now
+   reject the leading-whitespace lines the parser can no longer produce;
+   `Roundtrip.v`'s seed lemmas carry a `map drop_leading_ws` that
+   collapses back to the identity via the new
+   `forallb_line_ok_map_drop_leading_ws`. Fence content is untouched —
+   verbatim stays verbatim.
 
 3. **Lists, the parts deliberately left out.**
    - `Render.v`/`Roundtrip.v` have no `CList` constructor, so
@@ -314,22 +315,14 @@ Block quotes are the worked example throughout.
    are undocumented in the prose spec; table separator-cell trimming is
    ambiguous (djot.js does not trim). The formalized spec decides both
    djot.js's way; consider filing upstream doc issues.
-5. **Indentation details beyond the paragraph fix** (thread 2):
-   - Indented code fences: the recognizer accepts leading ws but content
-     is not de-indented (djot.js strips the fence's indent).
-   - Block quotes strip `>` plus *at most one* whitespace, so `>     a`
-     keeps four spaces where djot.js's `skipSpace` drops them for
-     paragraph (Inline) content while *preserving* relative indent for
-     verbatim (Text) content. The current rule is right for `"> "` and
-     for fence content, wrong for over-indented paragraph lines.
-   - Headings strip the hashes plus at most one whitespace, so `#   a`
-     has the same over-indent behaviour as `>   a`. This is the one
-     remaining heading miss in the corpus (`   ##    Heading`); the
-     identifier is right, only the rendered text keeps the spaces.
-   Both want the same fix: an indent notion on the container stack, which
-   is what lists will force. Deliberately not patched piecemeal.
+5. **Indented code fences.** The recognizer accepts leading whitespace
+   on a fence opener, but content is not de-indented (djot.js strips the
+   fence's own indent from each content line). Deliberately not folded
+   into thread 2's fix: fence content is verbatim by design (never
+   classified), so this wants its own indent-tracking rule, not
+   `drop_leading_ws`.
 
-5. **Empty containers sit outside the canonical view.** `>` parses to
+6. **Empty containers sit outside the canonical view.** `>` parses to
    `BlockQuote []` and `#` to `Heading _ []` (both correct — djot.js
    agrees, and `wf_block` allows them), but `cb_ok` rejects both because
    neither has a rendering to invert. Harmless today; revisit if the
