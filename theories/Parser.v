@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Block parsing: a fold over classified lines with an explicit state.
 
    The state is a *container stack*, growing inward: an open paragraph
@@ -579,7 +581,20 @@ indent (it can never close the list itself — only a later non-blank,
 non-indented, non-matching-marker line can).  Everything else checks
 indent first: indented past the marker keeps it item content; otherwise
 a matching marker is a sibling, a different marker opens a new list, and
-anything else is lazy continuation or a close, exactly as for a quote. *)
+   anything else is lazy continuation or a close, exactly as for a quote. *)
+
+Lemma step_list_open :
+  forall l m rest bs inner,
+    classify l = KList m rest ->
+    step rest (PPara []) = (bs, inner) ->
+    step l (PPara []) =
+      ([], PList (LSt (indent_of l) m false false []) (rev bs) inner).
+Proof.
+  intros l m rest bs inner H Hr. unfold step at 1. cbn [step_fuel]. rewrite H.
+  rewrite step_fuel_enough
+    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
+  rewrite Hr. reflexivity.
+Qed.
 
 Lemma step_list_blank :
   forall l ls done inner bs inner',

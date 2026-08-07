@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Djot rendering (AST -> djot source), modeled on djoths's Djot.hs,
    together with the canonical form it inverts.
 
@@ -554,6 +556,19 @@ Fixpoint render_block_lines (b : block) : list string :=
       | Node _ _ x :: rest =>
           (map quote_line (render_block_lines x) ++ quote_open :: go rest)%list
       end in
+  let bulleted :=
+    fix goitems (sp : list_spacing) (items : list blocks) : list string :=
+      match items with
+      | [] => []
+      | [it] =>
+          indent_lines bullet_open bullet_cont
+            (sep_lines (map (fun n => render_block_lines (node_contents n)) it))
+      | it :: rest =>
+          (indent_lines bullet_open bullet_cont
+             (sep_lines (map (fun n => render_block_lines (node_contents n)) it))
+           ++ (match sp with Loose => [EmptyString] | Tight => [] end)
+           ++ goitems sp rest)%list
+      end in
   match b with
   | Para ils => inline_lines ils EmptyString
   | Heading lvl ils => map (heading_line lvl) (inline_lines ils EmptyString)
@@ -563,6 +578,7 @@ Fixpoint render_block_lines (b : block) : list string :=
   | RawBlock fmt text =>
       (code_open ("=" ++ fmt) :: split_lines text ++ [code_close])%list
   | BlockQuote bs => quoted bs
+  | BulletList sp items => bulleted sp items
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
@@ -583,6 +599,24 @@ Proof.
     rewrite IH.
     unfold render_blocks_lines. cbn [map sep_lines].
     rewrite map_app. cbn [map]. rewrite quote_line_empty. reflexivity.
+Qed.
+
+Lemma render_bullet_list :
+  forall sp items,
+    render_block_lines (BulletList sp items)
+    = list_lines sp
+        (map (fun it => indent_lines bullet_open bullet_cont
+                 (sep_lines (render_blocks_lines it))) items).
+Proof.
+  intros sp items. induction items as [|it rest IH]; [reflexivity|].
+  destruct rest as [|it2 rest'].
+  - reflexivity.
+  - change (render_block_lines (BulletList sp (it :: it2 :: rest')))
+      with (indent_lines bullet_open bullet_cont
+              (sep_lines (render_blocks_lines it))
+            ++ (match sp with Loose => [EmptyString] | Tight => [] end)
+            ++ render_block_lines (BulletList sp (it2 :: rest')))%list.
+    rewrite IH. cbn [map list_lines]. reflexivity.
 Qed.
 
 (* Blocks separated by a blank line — the separator the parser reads back

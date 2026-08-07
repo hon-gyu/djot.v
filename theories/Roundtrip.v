@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Roundtrip:  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs
    for canonical blocks (Render.v).  Exact equality — canonicality is in
    the cb_ok hypothesis, so no quotient is needed.
@@ -661,6 +663,278 @@ Proof.
 Qed.
 
 
+(** Run a finite line prefix without applying [finish].  List proofs need
+    the residual inner state at an item boundary; [parse_lines] deliberately
+    hides it by finishing at end of input. *)
+Fixpoint run_lines (lines : list string) (st : pstate) : blocks * pstate :=
+  match lines with
+  | [] => ([], st)
+  | l :: rest =>
+      let '(bs, st') := step l st in
+      let '(more, st'') := run_lines rest st' in
+      ((bs ++ more)%list, st'')
+  end.
+
+Lemma parse_lines_run :
+  forall lines st bs st',
+    run_lines lines st = (bs, st') ->
+    parse_lines lines st = (bs ++ finish st')%list.
+Proof.
+  induction lines as [|l lines IH]; intros st bs st' Hrun.
+  - cbn [run_lines] in Hrun. inversion Hrun. reflexivity.
+  - cbn [run_lines] in Hrun.
+    destruct (step l st) as [head st1] eqn:Hstep.
+    destruct (run_lines lines st1) as [rest st2] eqn:Hrest.
+    inversion Hrun; subst bs st'.
+    rewrite (parse_lines_step _ _ _ _ _ Hstep), (IH _ _ _ Hrest).
+    rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma parse_lines_app_run :
+  forall xs ys st,
+    parse_lines (xs ++ ys)%list st =
+      let '(bs, st') := run_lines xs st in
+      (bs ++ parse_lines ys st')%list.
+Proof.
+  induction xs as [|x xs IH]; intros ys st.
+  - cbn [run_lines]. reflexivity.
+  - cbn [app parse_lines].
+    destruct (step x st) as [head st1] eqn:Hstep.
+    rewrite (IH ys st1).
+    cbn [run_lines]. rewrite Hstep.
+    destruct (run_lines xs st1) as [rest st2].
+    rewrite app_assoc. reflexivity.
+Qed.
+
+(** The tight/loose state changes made while an already-open canonical
+    list consumes continuation lines. *)
+Fixpoint scan_list_content (ls : list_state) (lines : list string) : list_state :=
+  match lines with
+  | [] => ls
+  | l :: rest =>
+      let ls' :=
+        match classify l with
+        | KBlank => list_blank ls
+        | k => list_content ls k
+        end in
+      scan_list_content ls' rest
+  end.
+
+Lemma run_lines_list_cont :
+  forall lines ls done inner bs inner',
+    ls_indent ls = 0 ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) lines) inner =
+      (bs, inner') ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) lines)
+      (PList ls done inner)
+    = ([], PList (scan_list_content ls lines) (rev bs ++ done)%list inner').
+Proof.
+  induction lines as [|l lines IH]; intros ls done inner bs inner' Hind Hrun.
+  - cbn [map run_lines] in Hrun |- *. inversion Hrun; subst. reflexivity.
+  - cbn [map run_lines] in Hrun |- *.
+    destruct (step (bullet_cont ++ l) inner) as [head inner1] eqn:Hstep.
+    destruct (run_lines (map (fun l0 => bullet_cont ++ l0) lines) inner1)
+      as [rest inner2] eqn:Hrest.
+    inversion Hrun; subst bs inner'.
+    destruct (classify l) as [| |f|q|lvl txt|m item|] eqn:Hclass.
+    + rewrite (step_list_blank (bullet_cont ++ l) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_blank ls) (rev head ++ done)%list inner1 rest inner2).
+      * rewrite rev_app_distr, app_assoc. reflexivity.
+      * cbn [list_blank]. exact Hind.
+      * exact Hrest.
+    + rewrite (step_list_indented (bullet_cont ++ l) KThematic ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls KThematic) (rev head ++ done)%list
+                   inner1 rest inner2).
+      * rewrite rev_app_distr, app_assoc. reflexivity.
+      * cbn [list_content]. exact Hind.
+      * exact Hrest.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KFence f) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KFence f)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KQuote q) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KQuote q)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KHeading lvl txt)
+                 ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KHeading lvl txt)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KList m item)
+                 ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KList m item)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) KText ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls KText) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+Qed.
+
+Lemma step_idle_bullet_cont :
+  forall l,
+    (forall m rest, classify l <> KList m rest) ->
+    step (bullet_cont ++ l) (PPara []) = step l (PPara []).
+Proof.
+  intros l Hnot.
+  destruct (classify l) as [| |f|q|lvl txt|m rest|] eqn:Hclass.
+  - assert (Hp : classify (bullet_cont ++ l) = KBlank)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+  - assert (Hp : classify (bullet_cont ++ l) = KThematic)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+  - assert (Hp : classify (bullet_cont ++ l) = KFence f)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+  - destruct (step q (PPara [])) as [bs inner] eqn:Hq.
+    assert (Hp : classify (bullet_cont ++ l) = KQuote q)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_quote_open _ _ _ _ Hp Hq), (step_quote_open _ _ _ _ Hclass Hq).
+    reflexivity.
+  - assert (Hp : classify (bullet_cont ++ l) = KHeading lvl txt)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+  - exfalso. apply (Hnot m rest). reflexivity.
+  - assert (Hp : classify (bullet_cont ++ l) = KText)
+      by (rewrite classify_bullet_cont; exact Hclass).
+    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+Qed.
+
+Lemma run_lines_first_unpadded :
+  forall a rest,
+    (forall m item, classify a <> KList m item) ->
+    run_lines (a :: map (fun l => (bullet_cont ++ l)%string) rest) (PPara [])
+    = run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest)) (PPara []).
+Proof.
+  intros a rest Hnot. cbn [map run_lines].
+  rewrite step_idle_bullet_cont by exact Hnot. reflexivity.
+Qed.
+
+Lemma safe_cblock_first :
+  forall cb,
+    list_content_safe cb = true -> cb_ok cb = true ->
+    exists a rest,
+      cb_lines cb = a :: rest /\
+      forall m item, classify a <> KList m item.
+Proof.
+  intros cb Hsafe Hok.
+  pose proof (cb_ok_lines_ok cb Hok) as Hlines.
+  apply lines_ok_parts in Hlines as (Hne & _ & _).
+  destruct cb as [ls| |info content|lvl ls|inner|sp items].
+  - destruct ls as [|a rest].
+    + exfalso. apply Hne. reflexivity.
+    +
+    exists a, rest. split; [reflexivity|].
+    change (cb_ok (CPara (a :: rest))) with (para_ok (a :: rest)) in Hok.
+    apply para_ok_parts in Hok as [Ha _].
+    intros m item E. rewrite Ha in E. discriminate.
+  - exists thematic_line, []. split; [reflexivity|].
+    intros m item E. unfold thematic_line in E.
+    rewrite classify_canonical_thematic in E. discriminate.
+  - discriminate Hsafe.
+  - change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in Hok.
+    apply heading_ok_parts in Hok as [Hlvl [Hls _]].
+    destruct ls as [|a rest].
+    + exfalso. apply Hls. reflexivity.
+    +
+    exists (heading_line lvl a), (map (heading_line lvl) rest).
+    split; [reflexivity|]. intros m item E.
+    rewrite (classify_canonical_heading lvl a Hlvl) in E. discriminate.
+  - rewrite cb_lines_quote.
+    destruct (sep_lines (map cb_lines inner)) as [|l rest] eqn:Esep.
+    + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
+    + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
+      intros m item E. rewrite classify_canonical_quote in E. discriminate.
+  - discriminate Hsafe.
+Qed.
+
+Lemma parse_safe_cblocks_pad :
+  forall cbs,
+    forallb list_content_safe cbs = true ->
+    forall pad, is_blank pad = true ->
+    forallb cb_ok cbs = true ->
+    parse_lines (map (fun l => (pad ++ l)%string)
+                   (sep_lines (map cb_lines cbs))) (PPara [])
+    = map cb_ast cbs.
+Proof.
+  induction cbs as [|c rest IH]; intros Hsafe pad Hpad Hok; [reflexivity|].
+  cbn [forallb] in Hsafe, Hok.
+  apply andb_true_iff in Hsafe as [Hsafec Hsaferest].
+  apply andb_true_iff in Hok as [Hokc Hokrest].
+  destruct rest as [|c2 rest'].
+  - cbn [map sep_lines].
+    destruct (parse_cblock_pad c Hsafec pad Hpad) as [_ Hparse].
+    rewrite (Hparse Hokc). reflexivity.
+  - cbn [map sep_lines]. rewrite map_app. cbn [map]. rewrite append_empty_r.
+    destruct (parse_cblock_pad c Hsafec pad Hpad) as [Hparse _].
+    rewrite (Hparse pad _ (classify_blank pad Hpad) Hokc).
+    cbn [map]. f_equal. apply IH; assumption.
+Qed.
+
+Lemma run_first_list_item :
+  forall a rest bs inner',
+    (forall m item, classify a <> KList m item) ->
+    is_thematic (bullet_open ++ a) = false ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, inner') ->
+    run_lines (indent_lines bullet_open bullet_cont (a :: rest)) (PPara [])
+    = ([], PList
+             (scan_list_content (LSt 0 "-"%char false false []) rest)
+             (rev bs) inner').
+Proof.
+  intros a rest bs inner' Hnot Hmarker Hrun.
+  pose proof (run_lines_first_unpadded a rest Hnot) as Hsame.
+  rewrite Hrun in Hsame.
+  cbn [map run_lines indent_lines] in Hsame |- *.
+  destruct (step a (PPara [])) as [head inner] eqn:Hstep.
+  destruct (run_lines (map (fun l => bullet_cont ++ l) rest) inner)
+    as [more final] eqn:Hmore.
+  inversion Hsame; subst bs inner'.
+  assert (Hopen : step (bullet_open ++ a) (PPara []) =
+                    ([], PList (LSt 0 "-"%char false false []) (rev head) inner)).
+  { rewrite (step_list_open (bullet_open ++ a) "-"%char a head inner
+               (classify_bullet_open a Hmarker) Hstep).
+    rewrite indent_of_bullet_open. reflexivity. }
+  rewrite Hopen. cbn [app].
+  rewrite (run_lines_list_cont rest (LSt 0 "-"%char false false [])
+             (rev head) inner more final) by (reflexivity || exact Hmore).
+  rewrite rev_app_distr. reflexivity.
+Qed.
 
 (* Half two, per block: feeding a canonical block's lines re-emits it and
    returns the parser to idle, whether a blank line follows (the
@@ -870,74 +1144,87 @@ Proof.
       rewrite split_join_nl by exact H; reflexivity.
 Qed.
 
-(* The renderer emits exactly a cblock's canonical lines.  Same
-   two-predicate induction as cb_ok_lines_ok, for the same reason.
-   no_nested_list, as in parse_cblock: render_block_lines has no
-   BulletList case yet either. *)
+(* The renderer emits exactly a cblock's canonical lines.  The third
+   induction predicate handles a list's list of item lists. *)
 Lemma render_cb_lines :
-  forall cb, no_nested_list cb = true -> cb_ok cb = true ->
+  forall cb, cb_ok cb = true ->
   render_block_lines (node_contents (cb_ast cb)) = cb_lines cb.
 Proof.
   refine (cblock_ind2
-            (fun cb => no_nested_list cb = true -> cb_ok cb = true ->
+            (fun cb => cb_ok cb = true ->
                        render_block_lines (node_contents (cb_ast cb))
                        = cb_lines cb)
-            (fun cbs => forallb no_nested_list cbs = true ->
-                        forallb cb_ok cbs = true ->
+            (fun cbs => forallb cb_ok cbs = true ->
                         render_blocks_lines (map cb_ast cbs)
                         = map cb_lines cbs)
-            (fun _ => True)
-            _ _ _ _ _ _ _ _ I (fun _ _ _ _ => I)).
+            (fun items => forallb (forallb cb_ok) items = true ->
+                          map (fun it => indent_lines bullet_open bullet_cont
+                                   (sep_lines (render_blocks_lines
+                                                (map cb_ast it)))) items
+                          = map (fun it => indent_lines bullet_open bullet_cont
+                                   (sep_lines (map cb_lines it))) items)
+            _ _ _ _ _ _ _ _ _ _).
   - (* paragraph: inline_lines inverts para_inlines *)
-    intros ls _ H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
+    intros ls H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
     destruct ls as [|a ls']; [discriminate|].
     apply para_ok_parts in H as (_ & Hlok & Hlast).
     cbn [cb_ast cb_lines node_contents mk render_block_lines].
     rewrite inline_lines_para by (assumption || discriminate).
     reflexivity.
-  - intros _. reflexivity.
+  - reflexivity.
   - (* code block *)
-    intros info content _ H.
+    intros info content H.
     change (cb_ok (CCode info content)) with (code_ok info content) in H.
     apply code_ok_parts in H as (_ & Hnl & _).
     cbn [cb_lines]. apply render_fence_block. exact Hnl.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
-    intros lvl ls _ H.
+    intros lvl ls H.
     change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H.
     apply heading_ok_parts in H as (_ & Hne & Hlok & Hlast).
     cbn [cb_ast cb_lines node_contents mk render_block_lines].
     rewrite inline_lines_para by assumption.
     reflexivity.
   - (* quote: prefix the contents' layout *)
-    intros inner IH Hsafe H.
-    cbn [no_nested_list] in Hsafe.
+    intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [_ Hok].
     rewrite cb_ast_quote. cbn [node_contents mk].
-    rewrite render_block_quote, (IH Hsafe Hok), cb_lines_quote.
+    rewrite render_block_quote, (IH Hok), cb_lines_quote.
     reflexivity.
-  - intros sp items _ Hsafe. discriminate Hsafe.
-  - intros _ _. reflexivity.
-  - intros c rest Hc Hrest Hsafe H.
-    cbn [forallb] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe1 Hsafe2].
+  - intros sp items IH H.
+    rewrite cb_ok_list in H.
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [_ Hitems].
+    assert (Hokitems : forallb (forallb cb_ok) items = true).
+    { refine (forallb_weaken _ _ _ _ Hitems).
+      intros item Hitem. apply andb_true_iff in Hitem as [_ Hitem]. exact Hitem. }
+    rewrite cb_ast_list. cbn [node_contents mk].
+    rewrite render_bullet_list, cb_lines_list, map_map, (IH Hokitems). reflexivity.
+  - intros _. reflexivity.
+  - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
     unfold render_blocks_lines in *. cbn [map].
-    rewrite (Hc Hsafe1 H1), (Hrest Hsafe2 H2). reflexivity.
+    rewrite (Hc H1), (Hrest H2). reflexivity.
+  - reflexivity.
+  - intros item items Hitem Hitems H.
+    cbn [forallb] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [map]. rewrite (Hitem Hit), (Hitems Hrest). reflexivity.
 Qed.
 
 (* Rendering a canonical document is the same as joining its cb_lines —
    this is what lets split_render/parse_sep take over. *)
 Lemma render_djot_cblocks :
-  forall cbs, forallb no_nested_list cbs = true -> forallb cb_ok cbs = true ->
+  forall cbs, forallb cb_ok cbs = true ->
   render_djot (blocks_of_cblocks cbs)
   = String.concat nl (sep_lines (map cb_lines cbs)).
 Proof.
-  intros cbs Hsafe H. unfold render_djot, blocks_of_cblocks. cbn [doc_blocks].
+  intros cbs H. unfold render_djot, blocks_of_cblocks. cbn [doc_blocks].
   f_equal. f_equal.
   induction cbs as [|cb rest IH]; [reflexivity|].
-  cbn [forallb] in Hsafe. apply andb_true_iff in Hsafe as [Hsafecb Hsaferest].
   cbn [forallb] in H. apply andb_true_iff in H as [Hcb Hrest].
   unfold render_blocks_lines in *. cbn [map].
-  rewrite (render_cb_lines _ Hsafecb Hcb), (IH Hsaferest Hrest). reflexivity.
+  rewrite (render_cb_lines _ Hcb), (IH Hrest). reflexivity.
 Qed.
 
 (*
@@ -955,7 +1242,7 @@ Theorem roundtrip_blocks :
   parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof.
   intros cbs Hsafe H.
-  rewrite (render_djot_cblocks _ Hsafe H).
+  rewrite (render_djot_cblocks _ H).
   unfold parse_blocks, blocks_of_cblocks.
   f_equal.
   rewrite split_render by (apply forallb_cb_lines_ok; exact H).
