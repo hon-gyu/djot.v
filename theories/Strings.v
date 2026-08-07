@@ -233,6 +233,41 @@ Proof.
   - reflexivity.
 Qed.
 
+(* An all-whitespace prefix is invisible to drop_leading_ws, is_blank and
+   indent_of: they all just keep scanning through it into `l`.  This is
+   what lets a list's "  " continuation indent be pushed through the
+   classifier for free — Render.v/Roundtrip.v's list case is the only
+   caller, since quotes and headings use a fixed-content, not
+   whitespace-only, prefix. *)
+Lemma drop_leading_ws_ws_prefix :
+  forall p l, is_blank p = true -> drop_leading_ws (p ++ l) = drop_leading_ws l.
+Proof.
+  induction p as [|c p IH]; intros l H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc Hp].
+  change (String c p ++ l) with (String c (p ++ l)).
+  cbn [drop_leading_ws]. rewrite Hc. apply IH, Hp.
+Qed.
+
+Lemma is_blank_ws_prefix :
+  forall p l, is_blank p = true -> is_blank (p ++ l) = is_blank l.
+Proof.
+  induction p as [|c p IH]; intros l H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc Hp].
+  change (String c p ++ l) with (String c (p ++ l)).
+  rewrite is_blank_cons, Hc. cbn [andb]. apply IH, Hp.
+Qed.
+
+Lemma indent_of_ws_prefix :
+  forall p l, is_blank p = true ->
+  indent_of (p ++ l) = String.length p + indent_of l.
+Proof.
+  induction p as [|c p IH]; intros l H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc Hp].
+  change (String c p ++ l) with (String c (p ++ l)).
+  cbn [indent_of]. rewrite Hc. cbn [String.length]. rewrite (IH l Hp).
+  reflexivity.
+Qed.
+
 Lemma strip_trailing_ws_nonempty :
   forall s, is_blank s = false -> nonempty_str (strip_trailing_ws s) = true.
 Proof.

@@ -51,6 +51,31 @@ Fixpoint thematic_count (s : string) (count : nat) : bool :=
 
 Definition is_thematic (l : string) : bool := thematic_count l 0.
 
+(* Marker and whitespace are disjoint character classes, so a thematic
+   count run through an all-whitespace prefix never touches the marker
+   branch: it just keeps the count. *)
+Lemma is_ws_not_marker : forall c, is_ws c = true -> is_marker c = false.
+Proof.
+  intros c H. unfold is_marker.
+  destruct (Ascii.eqb c "-") eqn:E1.
+  - apply Ascii.eqb_eq in E1. subst c. discriminate H.
+  - destruct (Ascii.eqb c "*") eqn:E2; [|reflexivity].
+    apply Ascii.eqb_eq in E2. subst c. discriminate H.
+Qed.
+
+Lemma thematic_count_ws_prefix :
+  forall p l n, is_blank p = true -> thematic_count (p ++ l) n = thematic_count l n.
+Proof.
+  induction p as [|c p IH]; intros l n H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc Hp].
+  change (String c p ++ l) with (String c (p ++ l)).
+  cbn [thematic_count]. rewrite (is_ws_not_marker c Hc), Hc. apply IH, Hp.
+Qed.
+
+Lemma is_thematic_ws_prefix :
+  forall p l, is_blank p = true -> is_thematic (p ++ l) = is_thematic l.
+Proof. intros p l H. unfold is_thematic. apply thematic_count_ws_prefix, H. Qed.
+
 (* Code fences, per djot.js pattCodeFence:
    3+ of a uniform fence char (` or ~), optional ws, one info token
    containing neither whitespace nor backticks, optional trailing ws.
@@ -318,6 +343,25 @@ Qed.
 Lemma classify_canonical_thematic : classify "* * * *" = KThematic.
 Proof. reflexivity. Qed.
 
+(* An all-whitespace prefix is invisible to the classifier: every
+   recognizer either routes through drop_leading_ws (quote/heading/fence/
+   list markers) or, for is_thematic, treats whitespace as skippable
+   throughout, not just leading (Strings.drop_leading_ws_ws_prefix,
+   is_thematic_ws_prefix).  This is what lets a list item's "  "
+   continuation indent be pushed straight through: the enclosed line
+   reclassifies exactly as it would unindented. *)
+Lemma classify_ws_prefix :
+  forall p l, is_blank p = true -> classify (p ++ l) = classify l.
+Proof.
+  intros p l Hp. unfold classify.
+  rewrite (is_blank_ws_prefix p l Hp).
+  destruct (is_blank l) eqn:Eb; [reflexivity|].
+  unfold quote_prefix, heading_open, fence_open, list_marker.
+  rewrite (drop_leading_ws_ws_prefix p l Hp).
+  fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
+  unfold is_thematic. reflexivity.
+Qed.
+
 (* Boolean form of `classify l = KText`, so it can sit inside cb_ok. *)
 Definition is_text (l : string) : bool :=
   match classify l with KText => true | _ => false end.
@@ -434,6 +478,18 @@ Proof.
   rewrite quote_prefix_canonical. reflexivity.
 Qed.
 
+(* Same, seen through an all-whitespace pad: a quote's own prefix is
+   detected identically regardless of what ambient indentation precedes
+   it, and the extracted content is exactly `l` with no pad residue —
+   this is what lets a quote nested inside a list item ignore the
+   item's indent entirely, unlike a nested list (Render.list_content_safe). *)
+Lemma classify_canonical_quote_pad :
+  forall pad l, is_blank pad = true -> classify (pad ++ "> " ++ l) = KQuote l.
+Proof.
+  intros pad l Hpad. rewrite classify_ws_prefix by exact Hpad.
+  apply classify_canonical_quote.
+Qed.
+
 (*
 Canonical headings
 ==================
@@ -509,4 +565,64 @@ Qed.
 
 Lemma fence_close_canonical :
   forall info, fence_close (Fence "`" 3 info) "```" = true.
+Proof. reflexivity. Qed.
+
+(* classify_canonical_heading, seen through an all-whitespace pad — same
+   free ride as classify_canonical_quote_pad. *)
+Lemma classify_canonical_heading_pad :
+  forall pad lvl l, is_blank pad = true -> 1 <= lvl ->
+  classify (pad ++ heading_line lvl l) = KHeading lvl l.
+Proof.
+  intros pad lvl l Hpad Hlvl. rewrite classify_ws_prefix by exact Hpad.
+  apply classify_canonical_heading, Hlvl.
+Qed.
+
+(*
+Canonical bullet lists
+=======================
+
+The renderer marks an item's first line with "- " and every later line
+(whether a continuation of that first block or the start of a later one)
+with two spaces of plain indent — the same shape djot.js's own
+`this.indent > container.extra.indent` test expects, since `bullet_open`
+puts the marker at column 0 and everything after it at column 2.  Unlike
+quote_line, the marker is not repeated on every line: `bullet_cont` is
+whitespace, so `classify_ws_prefix` carries every recognizer through it
+for free — a nested construct starting on a continuation line reclassifies
+exactly as it would unindented. *)
+
+Definition bullet_open : string := "- ".
+Definition bullet_cont : string := "  ".
+
+Lemma bullet_cont_blank : is_blank bullet_cont = true.
+Proof. reflexivity. Qed.
+
+Lemma classify_bullet_cont :
+  forall l, classify (bullet_cont ++ l) = classify l.
+Proof. intros l. apply classify_ws_prefix, bullet_cont_blank. Qed.
+
+Lemma indent_of_bullet_cont :
+  forall l, indent_of (bullet_cont ++ l) = 2 + indent_of l.
+Proof. intros l. apply indent_of_ws_prefix, bullet_cont_blank. Qed.
+
+(* The marker line's classification needs one extra hypothesis quotes and
+   headings don't: "- " plus the item's own first line must not itself
+   look like a thematic break ("- - -"), since `classify` tests thematic
+   breaks before list markers.  A canonical item's cb_ok carries this. *)
+Lemma classify_bullet_open :
+  forall l, is_thematic (bullet_open ++ l) = false ->
+  classify (bullet_open ++ l) = KList "-"%char l.
+Proof.
+  intros l Hth. unfold classify, bullet_open.
+  change (is_blank ("- " ++ l)) with false.
+  change (quote_prefix ("- " ++ l)) with (@None string).
+  change (heading_open ("- " ++ l)) with (@None (nat * string)).
+  change (fence_open ("- " ++ l)) with (@None fence).
+  change (is_thematic ("- " ++ l)) with (is_thematic (bullet_open ++ l)).
+  rewrite Hth.
+  change (list_marker ("- " ++ l)) with (Some ("-"%char, l)).
+  reflexivity.
+Qed.
+
+Lemma indent_of_bullet_open : forall l, indent_of (bullet_open ++ l) = 0.
 Proof. reflexivity. Qed.

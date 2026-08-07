@@ -34,7 +34,14 @@ exists, how to drive it, and what to watch out for.
     (sections only come from the document pass, which runs after it).
   - `roundtrip_blocks` (Roundtrip.v): `parse_blocks (render_djot
     (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs` — exact equality on
-    canonical blocks, at the line-fold layer.
+    canonical blocks, at the line-fold layer. Carries a `no_nested_list
+    cbs` hypothesis alongside `cb_ok`: `CList` exists as a canonical
+    construct (`Render.v`, with a fully-proven `cb_ok`/`lines_ok`
+    fragment and the hard supporting lemma `parse_cblock_pad`), but
+    `parse_cblock`'s own item-sequencing induction for it isn't proven
+    yet, so lists are excluded from this theorem specifically — see
+    `.project/260807-list-roundtrip-indent-shift.ai-generated.md` for
+    exactly what's left and why the rest didn't need re-deriving.
   - `pass_erase` (Document.v): the whole-document pass adds only
     structure erasure recovers — `undo_pass (doc_blocks (doc_pass bs))
     = bs` for input the pass has not already run on (`pristine`: no
@@ -299,10 +306,19 @@ Block quotes are the worked example throughout.
    verbatim stays verbatim.
 
 3. **Lists, the parts deliberately left out.**
-   - `Render.v`/`Roundtrip.v` have no `CList` constructor, so
-     `roundtrip_blocks` does not cover lists yet. The parser produces
-     them and `wf_parse` covers them; the canonical fragment does not.
-     This is steps 4-5 of the extension recipe, not yet run.
+   - `CList` now exists (`Render.v`), with `cb_lines`/`cb_ast`/`cb_ok`
+     fully proven (`cb_ok_lines_ok` covers it) and the hard supporting
+     lemma for item content (`parse_cblock_pad`, Roundtrip.v) proven and
+     axiom-free. What's still missing is `parse_cblock`'s own item-
+     sequencing induction (open on a marker, thread tight/loose through
+     a run of siblings, close) — `roundtrip_blocks`/`roundtrip_doc`
+     carry a `no_nested_list` hypothesis excluding `CList` until that
+     lands. Precise remaining shape, and why two exclusion predicates
+     (`list_content_safe`, `no_nested_list`) exist and how to retire
+     them: `.project/260807-list-roundtrip-indent-shift.ai-generated.md`.
+   - Nested lists specifically need one more theorem beyond that
+     (an indent-shift argument through `PList`'s step lemmas) — same doc,
+     "Finding 1."
    - Ordered lists: markers whose style is ambiguous until a sibling
      disambiguates (`i.` is roman *and* alpha). Filed under Phase 3's
      "small combinatorial specs". `Line.list_marker` handles bullets

@@ -571,6 +571,103 @@ Proof.
 Qed.
 
 (*
+List transitions
+----------------
+
+A blank line always recurses into the item's own state, regardless of
+indent (it can never close the list itself — only a later non-blank,
+non-indented, non-matching-marker line can).  Everything else checks
+indent first: indented past the marker keeps it item content; otherwise
+a matching marker is a sibling, a different marker opens a new list, and
+anything else is lazy continuation or a close, exactly as for a quote. *)
+
+Lemma step_list_blank :
+  forall l ls done inner bs inner',
+    classify l = KBlank ->
+    step l inner = (bs, inner') ->
+    step l (PList ls done inner) =
+    ([], PList (list_blank ls) (rev bs ++ done)%list inner').
+Proof.
+  intros l ls done inner bs inner' H Hr. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H.
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+  rewrite Hr. reflexivity.
+Qed.
+
+Lemma step_list_indented :
+  forall l k ls done inner bs inner',
+    classify l = k -> k <> KBlank ->
+    Nat.ltb (ls_indent ls) (indent_of l) = true ->
+    step l inner = (bs, inner') ->
+    step l (PList ls done inner) =
+    ([], PList (list_content ls k) (rev bs ++ done)%list inner').
+Proof.
+  intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H.
+  destruct k eqn:Ek; [congruence| | | | | | ];
+    rewrite Hind;
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia);
+    rewrite Hr; reflexivity.
+Qed.
+
+Lemma step_list_sibling :
+  forall l m rest ls done inner bs inner',
+    classify l = KList m rest ->
+    Ascii.eqb m (ls_marker ls) = true ->
+    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    step rest (PPara []) = (bs, inner') ->
+    step l (PList ls done inner) =
+    ([], PList (list_next ls (rev done ++ finish inner)%list rest) (rev bs) inner').
+Proof.
+  intros l m rest ls done inner bs inner' H Hm Hind Hr. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H, Hind, Hm.
+  rewrite step_fuel_enough
+    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
+  rewrite Hr. reflexivity.
+Qed.
+
+Lemma step_list_diffstyle :
+  forall l m rest ls done inner bs inner',
+    classify l = KList m rest ->
+    Ascii.eqb m (ls_marker ls) = false ->
+    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    step rest (PPara []) = (bs, inner') ->
+    step l (PList ls done inner) =
+    (finish (PList ls done inner),
+     PList (LSt (indent_of l) m false false []) (rev bs) inner').
+Proof.
+  intros l m rest ls done inner bs inner' H Hm Hind Hr. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H, Hind, Hm.
+  rewrite step_fuel_enough
+    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
+  rewrite Hr. reflexivity.
+Qed.
+
+Lemma step_list_lazy :
+  forall l ls done inner,
+    classify l = KText -> Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    lazy_ok inner = true ->
+    step l (PList ls done inner) = ([], PList ls done (feed_lazy l inner)).
+Proof.
+  intros l ls done inner H Hind Hl. unfold step. cbn [step_fuel].
+  rewrite H, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
+Qed.
+
+Lemma step_list_close :
+  forall l k ls done inner bs st',
+    classify l = k -> direct_open k = true -> k <> KBlank ->
+    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    is_lazy k inner = false ->
+    open_kind l k = (bs, st') ->
+    step l (PList ls done inner) = (finish (PList ls done inner) ++ bs, st')%list.
+Proof.
+  intros l k ls done inner bs st' H Hk Hnb Hind Hlz Ho. unfold step. cbn [step_fuel].
+  rewrite H.
+  destruct k; [congruence | idtac | idtac | discriminate | idtac | discriminate | idtac];
+    rewrite Hind; cbn [is_lazy] in Hlz |- *; try rewrite Hlz; rewrite Ho; reflexivity.
+Qed.
+
+(*
 Lifting to the fold
 -------------------
 *)
@@ -816,6 +913,32 @@ Proof.
     cbn [rev map]. rewrite <- app_assoc. reflexivity.
 Qed.
 
+(* Same, seen through an all-whitespace pad: classify_canonical_heading_pad
+   still extracts a clean, pad-free `a`, so push_text's own drop_leading_ws
+   erases whatever's left the same as in the unpadded case — no new
+   argument, just classify_canonical_heading_pad in place of
+   classify_canonical_heading. *)
+Lemma parse_lines_heading_seed_pad :
+  forall pad, is_blank pad = true ->
+  forall lvl ls tail cur,
+    1 <= lvl ->
+    forallb nonblank ls = true ->
+    parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
+                (PHeading lvl cur) =
+    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+Proof.
+  intros pad Hpad lvl ls. induction ls as [|a ls IH]; intros tail cur Hlvl H.
+  - reflexivity.
+  - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
+    unfold nonblank in Ha. apply negb_true_iff in Ha.
+    cbn [map app].
+    rewrite (parse_lines_heading_cont _ _ _ a _
+               (classify_canonical_heading_pad pad lvl a Hpad Hlvl)).
+    unfold push_text. rewrite Ha.
+    rewrite IH by assumption.
+    cbn [rev map]. rewrite <- app_assoc. reflexivity.
+Qed.
+
 (*
 Uniformity of block quotes
 --------------------------
@@ -898,6 +1021,90 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _
              (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
   cbn [app]. rewrite parse_lines_quote_cont_eof, rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  reflexivity.
+Qed.
+
+(* The same four lemmas, seen through an all-whitespace pad in front of
+   every "> " — verbatim copies of the proofs above with
+   classify_canonical_quote_pad in place of classify_canonical_quote.
+   This is what lets a quote nested inside a list item ignore the
+   item's own indent entirely: the pad never reaches `rest`, so the
+   recursion into the quote's contents is byte-identical to the
+   unpadded case. Render.list_content_safe's comment explains why lists
+   don't get the same free ride. *)
+Lemma parse_lines_quote_cont_pad :
+  forall pad, is_blank pad = true ->
+  forall sep, classify sep = KBlank ->
+  forall lines tail done inner,
+    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines ++ sep :: tail)%list
+                (PQuote done inner)
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines tail (PPara []).
+Proof.
+  intros pad Hpad sep Hsep. induction lines as [|l lines IH]; intros tail done inner.
+  - cbn [map app].
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_close _ KBlank _ _ _ _ Hsep eq_refl eq_refl eq_refl)).
+    reflexivity.
+  - cbn [map app].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+    cbn [app]. rewrite IH.
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+Lemma parse_lines_quote_cont_eof_pad :
+  forall pad, is_blank pad = true ->
+  forall lines done inner,
+    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines) (PQuote done inner)
+    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
+Proof.
+  intros pad Hpad. induction lines as [|l lines IH]; intros done inner.
+  - reflexivity.
+  - cbn [map].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+    cbn [app]. rewrite IH.
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+Lemma parse_lines_quote_pad :
+  forall pad, is_blank pad = true ->
+  forall sep, classify sep = KBlank ->
+  forall l lines tail,
+    parse_lines
+      (map (fun x => pad ++ "> " ++ x)%string (l :: lines) ++ sep :: tail)%list
+      (PPara [])
+    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros pad Hpad sep Hsep l lines tail. cbn [map app].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+  cbn [app]. rewrite (parse_lines_quote_cont_pad pad Hpad sep Hsep), rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  reflexivity.
+Qed.
+
+Theorem quote_uniformity_pad :
+  forall pad, is_blank pad = true ->
+  forall l lines,
+    parse_lines (map (fun x => pad ++ "> " ++ x)%string (l :: lines)) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros pad Hpad l lines. cbn [map].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+  cbn [app]. rewrite (parse_lines_quote_cont_eof_pad pad Hpad), rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.

@@ -44,6 +44,31 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
 Lemma quote_line_empty : quote_line EmptyString = quote_open.
 Proof. unfold quote_line. apply append_empty_r. Qed.
 
+(* A list item's lines: the marker (`bullet_open`, from Line.v) on the
+   first line, two spaces of plain indent (`bullet_cont`) on every line
+   after — not repeated per line like quote_line, since bullet_cont is
+   whitespace and Line.classify_ws_prefix carries every recognizer
+   through it for free. *)
+Definition indent_lines (first_prefix rest_prefix : string) (ls : list string)
+  : list string :=
+  match ls with
+  | [] => []
+  | l :: rest => (first_prefix ++ l) :: map (fun x => rest_prefix ++ x) rest
+  end.
+
+(* Items separated by a blank line when the list is loose, concatenated
+   directly when tight — the rendering choice `cb_ok`'s spacing condition
+   has to match back up with. *)
+Fixpoint list_lines (sp : list_spacing) (lss : list (list string))
+  : list string :=
+  match lss with
+  | [] => []
+  | [ls] => ls
+  | ls :: rest =>
+      (ls ++ (match sp with Loose => [EmptyString] | Tight => [] end)
+       ++ list_lines sp rest)%list
+  end.
+
 (*
 Canonical blocks
 ================
@@ -63,7 +88,8 @@ Inductive cblock : Type :=
   | CThematic
   | CCode (info : string) (content : list string)
   | CHeading (level : nat) (ls : list string)
-  | CQuote (inner : list cblock).
+  | CQuote (inner : list cblock)
+  | CList (sp : list_spacing) (items : list (list cblock)).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -74,12 +100,23 @@ Fixpoint cb_lines (cb : cblock) : list string :=
       | [c] => map quote_line (cb_lines c)
       | c :: rest => (map quote_line (cb_lines c) ++ quote_open :: go rest)%list
       end in
+  let bulleted :=
+    fix golist (sp : list_spacing) (iss : list (list cblock)) : list string :=
+      match iss with
+      | [] => []
+      | [it] => indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
+      | it :: rest =>
+          (indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
+           ++ (match sp with Loose => [EmptyString] | Tight => [] end)
+           ++ golist sp rest)%list
+      end in
   match cb with
   | CPara ls => ls
   | CThematic => [thematic_line]
   | CCode info content => (code_open info :: content ++ [code_close])%list
   | CHeading lvl ls => map (heading_line lvl) ls
   | CQuote inner => quoted inner
+  | CList sp items => bulleted sp items
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -88,13 +125,27 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   let asts :=
     fix go (cs : list cblock) : blocks :=
       match cs with [] => [] | c :: rest => cb_ast c :: go rest end in
+  let itemsof :=
+    fix goitems (iss : list (list cblock)) : list blocks :=
+      match iss with [] => [] | it :: rest => asts it :: goitems rest end in
   match cb with
   | CPara ls => mk (Para (para_inlines ls))
   | CThematic => mk ThematicBreak
   | CCode info content => fence_block (Fence "`"%char 3 info) content
   | CHeading lvl ls => mk (Heading lvl (para_inlines ls))
   | CQuote inner => mk (BlockQuote (asts inner))
+  | CList sp items => mk (BulletList sp (itemsof items))
   end.
+
+(* The hand-inlined `asts` above is definitionally `map cb_ast`, one
+   fixpoint-unfolding step at a time; spelled out once so the list-of-
+   lists lemmas below don't have to re-derive it. *)
+Lemma cb_asts_eq :
+  forall cs,
+    (fix go (cs : list cblock) : blocks :=
+       match cs with [] => [] | c :: rest => cb_ast c :: go rest end) cs
+    = map cb_ast cs.
+Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
 (* Peel a quote back open, so the inlined fixpoint above has a name the
    telescoping lemma can mention. *)
@@ -130,32 +181,82 @@ Proof.
     rewrite quote_line_empty. reflexivity.
 Qed.
 
-(* Rocq's generated cblock_ind does not descend into CQuote's list, so
-   every proof over cblocks needs this two-predicate version: P for a
-   block, Q for a list of them, each feeding the other. *)
+(* Peel a list back open, the same trick as unquote. *)
+Definition unlist (n : node block) : list (list (node block)) :=
+  match node_contents n with BulletList _ items => items | _ => [] end.
+
+Lemma cb_ast_list :
+  forall sp items,
+    cb_ast (CList sp items) = mk (BulletList sp (map (map cb_ast) items)).
+Proof.
+  assert (H : forall sp0 iss, unlist (cb_ast (CList sp0 iss)) = map (map cb_ast) iss).
+  { intros sp0 iss. induction iss as [|it rest IH]; [reflexivity|].
+    change (unlist (cb_ast (CList sp0 (it :: rest))))
+      with ((fix go (cs : list cblock) : blocks :=
+               match cs with [] => [] | c :: r => cb_ast c :: go r end) it
+            :: unlist (cb_ast (CList sp0 rest))).
+    rewrite cb_asts_eq, IH. reflexivity. }
+  intros sp items.
+  change (cb_ast (CList sp items))
+    with (mk (BulletList sp (unlist (cb_ast (CList sp items))))).
+  rewrite H. reflexivity.
+Qed.
+
+Lemma cb_lines_list :
+  forall sp items,
+    cb_lines (CList sp items)
+    = list_lines sp (map (fun it => indent_lines bullet_open bullet_cont
+                                       (sep_lines (map cb_lines it))) items).
+Proof.
+  intros sp items. induction items as [|it rest IH]; [reflexivity|].
+  destruct rest as [|it2 rest'].
+  - reflexivity.
+  - change (cb_lines (CList sp (it :: it2 :: rest')))
+      with (indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
+            ++ (match sp with Loose => [EmptyString] | Tight => [] end)
+            ++ cb_lines (CList sp (it2 :: rest')))%list.
+    rewrite IH. cbn [map list_lines]. reflexivity.
+Qed.
+
+(* Rocq's generated cblock_ind does not descend into CQuote's list or
+   CList's list of lists, so every proof over cblocks needs this
+   three-predicate version: P for a block, Q for a list of them (a
+   quote's contents, or one list item), R for a list of item lists (a
+   whole CList's items) — R just packages "Q holds for every item",
+   built from the same Q/golist a quote uses. *)
 Definition cblock_ind2
-  (P : cblock -> Prop) (Q : list cblock -> Prop)
+  (P : cblock -> Prop) (Q : list cblock -> Prop) (R : list (list cblock) -> Prop)
   (hpara : forall ls, P (CPara ls))
   (hthem : P CThematic)
   (hcode : forall info content, P (CCode info content))
   (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
+  (hlist : forall sp items, R items -> P (CList sp items))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
+  (hrnil : R [])
+  (hrcons : forall item items, Q item -> R items -> R (item :: items))
   : forall cb, P cb :=
   fix go (cb : cblock) : P cb :=
+    let golist :=
+      fix golist (cs : list cblock) : Q cs :=
+        match cs with
+        | [] => hnil
+        | c :: rest => hcons c rest (go c) (golist rest)
+        end in
     match cb with
     | CPara ls => hpara ls
     | CThematic => hthem
     | CCode info content => hcode info content
     | CHeading lvl ls => hhead lvl ls
-    | CQuote inner =>
-        hquote inner
-          ((fix golist (cs : list cblock) : Q cs :=
-              match cs with
-              | [] => hnil
-              | c :: rest => hcons c rest (go c) (golist rest)
-              end) inner)
+    | CQuote inner => hquote inner (golist inner)
+    | CList sp items =>
+        hlist sp items
+          ((fix golistlist (iss : list (list cblock)) : R iss :=
+              match iss with
+              | [] => hrnil
+              | it :: rest => hrcons it rest (golist it) (golistlist rest)
+              end) items)
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -200,20 +301,145 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
   && forallb line_ok ls
   && String.eqb (strip_trailing_ws (last ls EmptyString)) (last ls EmptyString).
 
+(* Tight/loose, structurally: djot.js's blank-line flag is an event rule
+   (Parser.list_content), but for a *canonical* rendering the choice is
+   already baked into the layout, so it can be read back off the item
+   tree.  Within an item, a gap (cb_ok's blank separator between two
+   different cblocks — Render always emits one) loosens the list unless
+   what follows is itself a nested list, exactly mirroring list_content's
+   `KList _ _` exemption. *)
+Fixpoint item_forces_loose (item : list cblock) : bool :=
+  match item with
+  | _ :: (c2 :: _ as rest) =>
+      ((match c2 with CList _ _ => false | _ => true end)
+       || item_forces_loose rest)%bool
+  | _ => false
+  end.
+
+Definition items_force_loose (items : list (list cblock)) : bool :=
+  existsb item_forces_loose items.
+
+(* The first line an item renders to — what a marker ends up glued onto.
+   Nonempty whenever the item's own first cblock is cb_ok (every
+   construct's cb_lines is nonempty then), which is what list_ok assumes
+   when it feeds this into classify_bullet_open. *)
+Definition item_first_line (it : list cblock) : string :=
+  match it with
+  | [] => EmptyString
+  | c :: _ => match cb_lines c with [] => EmptyString | l :: _ => l end
+  end.
+
+(* "- " must not turn the item's first line into a thematic break —
+   classify tests thematic breaks before list markers.  This is the one
+   condition quotes and headings never needed: their prefix ("> ", "# ")
+   is never itself marker-shaped. *)
+Definition item_marker_ok (it : list cblock) : bool :=
+  negb (is_thematic (bullet_open ++ item_first_line it)).
+
+(* No code/raw block, and no *nested list*, anywhere inside a list item,
+   at any depth — two independent restrictions, for two different
+   reasons, both real pre-existing gaps rather than debt this task
+   introduces (full writeup:
+   .project/260807-list-roundtrip-indent-shift.ai-generated.md).
+
+   CCode is banned because its content is verbatim (Parser.v: "never
+   classified, only close-tested"), and PList hands a line to its item's
+   state *unchanged*, unlike a quote which strips its own prefix
+   exactly. A fence nested in a list item therefore keeps the item's
+   "  " baked into its content on reparse. This wants the same
+   ambient-indent tracking PFence would need for the pre-existing,
+   equally-unfixed indented-fence-in-a-quote gap — not something
+   specific to lists.
+
+   CList is banned because `ls_indent` (the column a list's marker sits
+   at) is computed from the *raw, unstripped* line at the point the list
+   opens — unlike a quote's recursion, which strips its own prefix
+   exactly before recursing, a nested list's `ls_indent` only comes out
+   matching what standalone parsing would give when the nesting is on
+   one physical line ("- - a", no separator) and the outer's own
+   marker-stripping hands the inner list its exact, residue-free first
+   line. The far more common "- a" / blank / "  - b" shape never strips
+   anything: the inner marker line reaches the parser with the outer
+   item's indent still attached, so its `ls_indent` comes out genuinely
+   shifted. Every routing decision the parser makes is a comparison of
+   two indents shifted by the same amount, so the shift almost certainly
+   doesn't change any actual routing outcome — but proving that needs
+   its own theorem (generalizing every PList step-equation lemma with an
+   indent-shift argument), not yet built. Flat lists (this predicate)
+   sidestep it entirely: no second PList, no shift to reason about.
+
+   Both restrictions are conservative on purpose in one further way: a
+   fence or a list nested inside a *quote* that is itself inside a list
+   is actually safe in both cases (a quote's own stripping absorbs any
+   amount of ambient indent — including a list's — before whatever is
+   inside it ever sees it; `quote_prefix` routes through
+   `drop_leading_ws`, which eats a whitespace pad same as anything
+   else). This predicate doesn't distinguish that case, so it bans more
+   than strictly necessary rather than risk banning less. *)
+Fixpoint list_content_safe (cb : cblock) : bool :=
+  let go :=
+    fix go (cs : list cblock) : bool :=
+      match cs with
+      | [] => true
+      | c :: rest => (list_content_safe c && go rest)%bool
+      end in
+  match cb with
+  | CPara _ | CThematic | CHeading _ _ => true
+  | CCode _ _ => false
+  | CList _ _ => false
+  | CQuote inner => go inner
+  end.
+
+(* No CList anywhere, at any depth — weaker than list_content_safe (this
+   one leaves CCode alone).  parse_cblock's own roundtrip theorem needs
+   this: unlike CCode, whose lack of roundtrip coverage is confined to
+   *inside a list item* (list_content_safe's job), a CList's lack of
+   coverage is total — the item-sequencing induction that would prove
+   parse_cblock's own CList case (open on a marker, thread tight/loose
+   through a run of siblings, close) isn't built yet, so no CList can be
+   roundtripped through parse_cblock at all yet, list-item context or
+   not (.project/260807-list-roundtrip-indent-shift.ai-generated.md).
+   Once that induction lands this predicate — and the hypothesis it
+   guards in parse_cblock/parse_sep/roundtrip_blocks — goes away. *)
+Fixpoint no_nested_list (cb : cblock) : bool :=
+  match cb with
+  | CPara _ | CThematic | CHeading _ _ | CCode _ _ => true
+  | CList _ _ => false
+  | CQuote inner =>
+      (fix go (cs : list cblock) : bool :=
+         match cs with
+         | [] => true
+         | c :: rest => (no_nested_list c && go rest)%bool
+         end) inner
+  end.
+
 (* The roundtrip hypothesis: this cblock renders to lines that parse back
    to it.  A new construct adds its obligation here.
 
    A quote must be nonempty: its rendering is its contents' lines with a
    prefix, so an empty quote would render to nothing at all.  The parser
    *can* build `BlockQuote []` (from a bare ">"), so that one value sits
-   outside the canonical view — see cb_ok_quote. *)
+   outside the canonical view — see cb_ok_quote.  A list's items are each
+   held to the same nonempty-and-cb_ok standard as a quote's contents
+   (`inner_ok`, reused per item), plus item_marker_ok and a spacing
+   condition tying `sp` back to what item_forces_loose can prove about
+   the *specific* rendering below: tight needs no gap to force looseness
+   anywhere; loose needs either two-or-more items (list_lines then always
+   inserts a forcing blank itself) or an internal gap to justify the
+   single-item case, where no inter-item blank exists at all. *)
 Fixpoint cb_ok (cb : cblock) : bool :=
   let inner_ok :=
     fix go (cs : list cblock) : bool :=
       match cs with
-      | [] => false                        (* empty quote: not renderable *)
+      | [] => false                        (* empty quote/item: not renderable *)
       | [c] => cb_ok c
       | c :: rest => (cb_ok c && go rest)%bool
+      end in
+  let items_ok :=
+    fix goitems (iss : list (list cblock)) : bool :=
+      match iss with
+      | [] => true
+      | it :: rest => (inner_ok it && goitems rest)%bool
       end in
   match cb with
   | CPara ls => para_ok ls
@@ -221,18 +447,79 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CCode info content => code_ok info content
   | CHeading lvl ls => heading_ok lvl ls
   | CQuote inner => inner_ok inner
+  | CList sp items =>
+      nonempty items && items_ok items && forallb item_marker_ok items
+      && forallb (forallb list_content_safe) items
+      && match sp with
+         | Tight => negb (items_force_loose items)
+         | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
+         end
   end.
+
+(* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
+   item are renderable exactly when nonempty and every cblock in them is
+   cb_ok.  One fact, reused for both cb_ok_quote and cb_ok_list. *)
+Lemma inner_ok_eq :
+  forall cs,
+    (fix go (cs : list cblock) : bool :=
+       match cs with
+       | [] => false
+       | [c] => cb_ok c
+       | c :: rest => (cb_ok c && go rest)%bool
+       end) cs
+    = (nonempty cs && forallb cb_ok cs)%bool.
+Proof.
+  induction cs as [|c rest IH]; [reflexivity|].
+  destruct rest as [|c2 rest'].
+  - cbn [forallb nonempty]. rewrite andb_true_r. reflexivity.
+  - change ((fix go (cs : list cblock) : bool :=
+               match cs with [] => false | [c0] => cb_ok c0
+               | c0 :: r => (cb_ok c0 && go r)%bool end) (c :: c2 :: rest'))
+      with (cb_ok c &&
+            (fix go (cs : list cblock) : bool :=
+               match cs with [] => false | [c0] => cb_ok c0
+               | c0 :: r => (cb_ok c0 && go r)%bool end) (c2 :: rest'))%bool.
+    rewrite IH. cbn [nonempty forallb]. reflexivity.
+Qed.
 
 Lemma cb_ok_quote :
   forall inner,
     cb_ok (CQuote inner) = (nonempty inner && forallb cb_ok inner)%bool.
+Proof. intros inner. unfold cb_ok. apply inner_ok_eq. Qed.
+
+(* cb_ok's `items_ok` helper, spelled out via inner_ok_eq per item. *)
+Lemma items_ok_eq :
+  forall items,
+    (fix goitems (iss : list (list cblock)) : bool :=
+       match iss with
+       | [] => true
+       | it :: rest =>
+           ((fix go (cs : list cblock) : bool :=
+               match cs with
+               | [] => false
+               | [c] => cb_ok c
+               | c :: r => (cb_ok c && go r)%bool
+               end) it && goitems rest)%bool
+       end) items
+    = forallb (fun it => nonempty it && forallb cb_ok it)%bool items.
 Proof.
-  induction inner as [|c rest IH]; [reflexivity|].
-  destruct rest as [|c2 rest'].
-  - cbn [forallb nonempty]. rewrite andb_true_r. reflexivity.
-  - change (cb_ok (CQuote (c :: c2 :: rest')))
-      with (cb_ok c && cb_ok (CQuote (c2 :: rest')))%bool.
-    rewrite IH. cbn [nonempty forallb]. reflexivity.
+  induction items as [|it rest IH]; [reflexivity|].
+  cbn [forallb]. rewrite <- IH, <- inner_ok_eq. reflexivity.
+Qed.
+
+Lemma cb_ok_list :
+  forall sp items,
+    cb_ok (CList sp items)
+    = (nonempty items
+       && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
+       && forallb item_marker_ok items
+       && forallb (forallb list_content_safe) items
+       && match sp with
+          | Tight => negb (items_force_loose items)
+          | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
+          end)%bool.
+Proof.
+  intros sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
 Qed.
 
 (*
