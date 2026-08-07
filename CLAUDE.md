@@ -1,1 +1,19 @@
 @CLAUDE.local.md
+
+---
+
+- see @.project/ for project context.
+
+# AI content disclosure
+
+Some files has "ai-disclosure" tag, which is one of:
+
+| Value          | Meaning                                         |
+| -------------- | ----------------------------------------------- |
+| `none`         | No AI involvement; a human-only assertion       |
+| `ai-assisted`  | Human-authored, AI edited or refined            |
+| `ai-generated` | AI-generated with human prompting and/or review |
+| `autonomous`   | AI-generated without human oversight            |
+
+- Add appropriate disclosure to the file.
+- Be careful about information that lacks human oversight.

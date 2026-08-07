@@ -1,5 +1,5 @@
 ---
-ai-disclosure: ai-generated
+ai-disclosure: autonomous
 date: 2026-08-07
 authors: [claude/opus-5, claude/sonnet-5]
 ---
