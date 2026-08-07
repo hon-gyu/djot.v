@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Well-formedness of the djot AST, as a decidable boolean predicate,
    plus the theorem that the parser only produces well-formed output.
 
@@ -627,6 +629,20 @@ Proof.
           split; [|exact Hos].
           rewrite wf_blocks_app, Hob, andb_true_r.
           apply finish_wf. exact H. }
+    3: { (* a quote either belongs to the item or opens after the list *)
+      destruct (Nat.ltb (ls_indent ls) (indent_of l)).
+      - destruct (IH l inner Hi) as [Hb Hs].
+        destruct (step_fuel n l inner) as [bs inner'].
+        cbn [fst snd] in Hb, Hs |- *.
+        split; [reflexivity|].
+        cbn [state_wf ls_items list_content].
+        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+      - destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+        destruct (step_fuel n rest (PPara [])) as [bs inner'].
+        cbn [fst snd] in Hb, Hs.
+        cbn [close_reopen open_quote fst snd]. split.
+        + rewrite app_nil_r. apply finish_wf. exact H.
+        + cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs. }
     (* every other kind: item contents when indented, else close the
        list and reopen outside it *)
     all: destruct (Nat.ltb (ls_indent ls) (indent_of l));
@@ -956,6 +972,20 @@ Proof.
            + cbn [close_reopen open_kind fst snd]. split; [|reflexivity].
              rewrite supported_blocks_app, (finish_supported _ H).
              reflexivity. }
+    3: { destruct (Nat.ltb (ls_indent ls) (indent_of l)).
+         - destruct (IH l inner Hi) as [Hb Hs].
+           destruct (step_fuel n l inner) as [bs inner'].
+           cbn [fst snd] in Hb, Hs |- *.
+           split; [reflexivity|].
+           cbn [state_supported ls_items list_content].
+           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
+           exact Hs.
+         - destruct (IH rest (PPara []) eq_refl) as [Hb Hs].
+           destruct (step_fuel n rest (PPara [])) as [bs inner'].
+           cbn [fst snd] in Hb, Hs.
+           cbn [close_reopen open_quote fst snd]. split.
+           + rewrite app_nil_r. apply finish_supported. exact H.
+           + cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
     all: destruct (Nat.ltb (ls_indent ls) (indent_of l));
          [ destruct (IH l inner Hi) as [Hb Hs];
            destruct (step_fuel n l inner) as [bs inner'];

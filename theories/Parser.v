@@ -339,6 +339,9 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
                       close_reopen (PList ls done inner)
                         (open_list (indent_of l) m
                            (step_fuel n' rest (PPara [])))
+                | KQuote rest =>
+                    close_reopen (PList ls done inner)
+                      (open_quote (step_fuel n' rest (PPara [])))
                 | _ =>
                     if is_lazy k inner
                     then ([], PList ls done (feed_lazy l inner))
@@ -459,6 +462,16 @@ Proof.
       rewrite (IH n' l inner) by lia.
       rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
       reflexivity. }
+    3: { (* an unindented quote closes the list and opens outside it *)
+      destruct (Nat.ltb (ls_indent ls) (indent_of l)).
+      - rewrite (IH n' l inner) by lia.
+        rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+        reflexivity.
+      - pose proof (classify_quote_length _ _ E) as Hlt.
+        rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l + S (pstate_depth inner)) rest (PPara []))
+          by (cbn [pstate_depth]; lia).
+        reflexivity. }
     (* every other kind: contents of the item when indented past the
        marker, and otherwise nothing that recurses *)
     all: destruct (Nat.ltb (ls_indent ls) (indent_of l));
@@ -656,6 +669,21 @@ Proof.
   rewrite step_fuel_enough
     by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
   rewrite Hr. reflexivity.
+Qed.
+
+Lemma step_list_quote_close :
+  forall l rest ls done inner bs inner',
+    classify l = KQuote rest ->
+    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    step rest (PPara []) = (bs, inner') ->
+    step l (PList ls done inner) =
+      (finish (PList ls done inner), PQuote (rev bs) inner').
+Proof.
+  intros l rest ls done inner bs inner' H Hind Hr.
+  unfold step at 1. cbn [step_fuel pstate_depth]. rewrite H, Hind.
+  rewrite step_fuel_enough
+    by (cbn [pstate_depth]; pose proof (classify_quote_length _ _ H); lia).
+  rewrite Hr. cbn [close_reopen open_quote]. rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma step_list_lazy :
