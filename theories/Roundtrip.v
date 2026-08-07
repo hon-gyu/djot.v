@@ -1222,6 +1222,70 @@ Proof.
   rewrite app_nil_r in Hparsed. exact Hparsed.
 Qed.
 
+Lemma run_list_sibling_tight :
+  forall item a rest bs st ls next head inner,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    ls_indent ls = 0 -> ls_marker ls = "-"%char ->
+    is_thematic (bullet_open ++ next) = false ->
+    step next (PPara []) = (head, inner) ->
+    run_lines [bullet_open ++ next] (PList ls (rev bs) st)
+    = ([], PList (list_next ls (map cb_ast item) next) (rev head) inner).
+Proof.
+  intros item a rest bs st ls next head inner Hsafe Hok Hlines Hrun
+    Hind Hmarker Htheme Hnext.
+  pose proof (run_canonical_item item a rest bs st Hsafe Hok Hlines Hrun)
+    as Hitem.
+  cbn [run_lines].
+  rewrite (step_list_sibling (bullet_open ++ next) "-"%char next ls
+             (rev bs) st head inner).
+  2: apply classify_bullet_open; exact Htheme.
+  2: rewrite Hmarker; reflexivity.
+  2: rewrite Hind, indent_of_bullet_open; reflexivity.
+  2: exact Hnext.
+  cbn [run_lines app]. rewrite rev_involutive, Hitem. reflexivity.
+Qed.
+
+Lemma run_list_sibling_loose :
+  forall item a rest bs st ls next head inner,
+    forallb list_content_safe item = true ->
+    forallb cb_ok item = true ->
+    sep_lines (map cb_lines item) = a :: rest ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
+      (PPara []) = (bs, st) ->
+    ls_indent ls = 0 -> ls_marker ls = "-"%char ->
+    is_thematic (bullet_open ++ next) = false ->
+    step next (PPara []) = (head, inner) ->
+    run_lines [EmptyString; bullet_open ++ next] (PList ls (rev bs) st)
+    = ([], PList
+             (list_next (list_blank ls) (map cb_ast item) next)
+             (rev head) inner).
+Proof.
+  intros item a rest bs st ls next head inner Hsafe Hok Hlines Hrun
+    Hind Hmarker Htheme Hnext.
+  destruct (run_canonical_item_blank item a rest bs st EmptyString
+              Hsafe Hok Hlines Hrun (classify_blank EmptyString eq_refl))
+    as [more [st' [Hblank Hitem]]].
+  cbn [run_lines].
+  rewrite (step_list_blank EmptyString ls (rev bs) st more st'
+             (classify_blank EmptyString eq_refl) Hblank).
+  assert (Hm : Ascii.eqb "-"%char (ls_marker (list_blank ls)) = true).
+  { change (Ascii.eqb "-"%char (ls_marker ls) = true).
+    rewrite Hmarker. reflexivity. }
+  assert (Hi : Nat.ltb (ls_indent (list_blank ls))
+                 (indent_of (bullet_open ++ next)) = false).
+  { change (Nat.ltb (ls_indent ls) (indent_of (bullet_open ++ next)) = false).
+    rewrite Hind, indent_of_bullet_open. reflexivity. }
+  rewrite (step_list_sibling (bullet_open ++ next) "-"%char next
+             (list_blank ls) (rev more ++ rev bs)%list st' head inner
+             (classify_bullet_open next Htheme) Hm Hi Hnext).
+  cbn [run_lines app].
+  rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem. reflexivity.
+Qed.
+
 Lemma run_first_canonical_item :
   forall item a rest bs st,
     forallb list_content_safe item = true ->
