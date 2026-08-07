@@ -1,6 +1,7 @@
 ---
 ai-disclosure: ai-generated
 date: 2026-08-07
+author: claude/sonnet-5
 ---
 # Lists' canonical roundtrip fragment: where it landed, and the one piece left
 

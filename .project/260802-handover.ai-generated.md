@@ -1,6 +1,7 @@
 ---
 ai-disclosure: ai-generated
 date: 2026-08-07
+authors: [claude/opus-5, claude/sonnet-5]
 ---
 # Handover: djot.v state as of 2026-08-07
 
@@ -355,18 +356,18 @@ Block quotes are the worked example throughout.
 
 ## File-by-file (theories/)
 
-| File | Contents | Key theorem/lemma |
-|---|---|---|
-| Strings.v | ws/blank, rev, split/join + inversion | `split_join_line`, `split_join_nl` |
-| Line.v | `line_kind`, thematic/fence/quote/heading/bullet recognizers | `classify_quote_length`, `classify_list_length` |
-| Parser.v | `pstate` stack, `step`/`finish`, equations, examples | `quote_uniformity`, `step_fuel_enough` |
-| Html.v | HTML renderer, incl. tight/loose list items | — |
-| Ast.v | full AST (djoths AST.hs transcription) | `block_ind2` |
-| Document.v | ids, auto-references, sections; `parse_doc`; erasure | `pass_erase`, `undo_sectionize` |
-| Wf.v | wf predicate, canonicality, `state_wf`, pass preservation | `wf_parse`, `wf_parse_doc`, `wf_complete_false` |
-| Render.v | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2` | — |
-| Roundtrip.v | split/parse/render agreement | `roundtrip_blocks`, `roundtrip_doc` |
-| Spike.v | Spike A: fuel + discharge lemmas | `many_fuel_stable` |
+| File        | Contents                                                     | Key theorem/lemma                               |
+| ----------- | ------------------------------------------------------------ | ----------------------------------------------- |
+| Strings.v   | ws/blank, rev, split/join + inversion                        | `split_join_line`, `split_join_nl`              |
+| Line.v      | `line_kind`, thematic/fence/quote/heading/bullet recognizers | `classify_quote_length`, `classify_list_length` |
+| Parser.v    | `pstate` stack, `step`/`finish`, equations, examples         | `quote_uniformity`, `step_fuel_enough`          |
+| Html.v      | HTML renderer, incl. tight/loose list items                  | —                                               |
+| Ast.v       | full AST (djoths AST.hs transcription)                       | `block_ind2`                                    |
+| Document.v  | ids, auto-references, sections; `parse_doc`; erasure         | `pass_erase`, `undo_sectionize`                 |
+| Wf.v        | wf predicate, canonicality, `state_wf`, pass preservation    | `wf_parse`, `wf_parse_doc`, `wf_complete_false` |
+| Render.v    | `cblock`, `cb_ok`, `render_block_lines`, `cblock_ind2`       | —                                               |
+| Roundtrip.v | split/parse/render agreement                                 | `roundtrip_blocks`, `roundtrip_doc`             |
+| Spike.v     | Spike A: fuel + discharge lemmas                             | `many_fuel_stable`                              |
 
 Commit history tells the story: `7104129` scaffold → `c220897`
 adjudication → `420fa7c` AST → `87db4d6` wf → `542e493` roundtrip →
