@@ -1,9 +1,10 @@
 ---
 ai-disclosure: ai-generated
+aliases: [ decision-making-lessons ]
 ---
-# Project engineering lessons
+# Project engineering lessons (decision-making lessons)
 
-Persistent and cumulative, unlike the dated notes beside it.
+Persistent and cumulative.
 
 **Scope**: how to decide, not how to code. Every entry is a case where a
 minute of cheap evidence beat an hour of confident reasoning — an
@@ -19,7 +20,7 @@ that would apply to any codebase teaches nothing here. Most session
 incidents are not lessons; they are just bugs, and they belong in the
 dated notes or in other files.
 
-Each entry: what happened, the general form, what to do instead.
+Each entry: what happened (historical account), the general form, what to do instead.
 
 ---
 
