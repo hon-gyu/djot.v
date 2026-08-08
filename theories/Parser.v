@@ -2283,6 +2283,85 @@ Proof.
   cbn [scan_list_content]. destruct (classify l) eqn:E; rewrite IH; reflexivity.
 Qed.
 
+(* The scan's state in closed form, once no blank is left armed.  The
+   canonical setting always ends an item on a nonblank line, so this is
+   the form every use wants. *)
+Lemma scan_shape :
+  forall lines ls,
+    ls_blanks (scan_list_content ls lines) = false ->
+    scan_list_content ls lines
+    = LSt (ls_indent ls) (ls_marker ls)
+          (lines_loose (ls_loose ls) (ls_blanks ls) lines) false (ls_items ls).
+Proof.
+  intros lines ls Hb.
+  pose proof (scan_list_content_fields lines ls) as [Hi [Hm Hit]].
+  pose proof (scan_loose_eq lines ls) as Hlo.
+  destruct (scan_list_content ls lines) as [i m lo b its].
+  cbn in Hi, Hm, Hit, Hb, Hlo. subst. reflexivity.
+Qed.
+
+(* One item's lines, run from idle: the marker opens the list and the
+   continuation lines land in it, shifted two columns. *)
+Lemma run_item_open :
+  forall l0 rest,
+    is_thematic (bullet_open ++ l0) = false ->
+    run_pad_safe rest (snd (step l0 (PPara []))) = true ->
+    ls_blanks (scan_list_content (LSt 0 "-"%char false false []) rest) = false ->
+    run_lines (indent_lines bullet_open bullet_cont (l0 :: rest)) (PPara [])
+    = ([], PList (LSt 0 "-"%char (lines_loose false false rest) false [])
+            (rev (fst (run_lines (l0 :: rest) (PPara []))))
+            (pad_state 2 (snd (run_lines (l0 :: rest) (PPara []))))).
+Proof.
+  intros l0 rest Hth Hsafe Hb.
+  cbn [indent_lines run_lines].
+  rewrite (step_item_open l0 Hth).
+  pose proof (run_lines_pad_shift bullet_cont rest (snd (step l0 (PPara [])))
+                eq_refl Hsafe) as Hrun.
+  change (String.length bullet_cont) with 2 in Hrun.
+  rewrite (run_lines_list_cont rest (LSt 0 "-"%char false false [])
+             (rev (fst (step l0 (PPara [])))) _ _ _ eq_refl Hrun).
+  rewrite (scan_shape rest _ Hb).
+  cbn [ls_indent ls_marker ls_loose ls_blanks ls_items].
+  cbn [run_lines].
+  destruct (step l0 (PPara [])) as [b i] eqn:Es. cbn [fst snd].
+  destruct (run_lines rest i) as [more i'] eqn:Er. cbn [fst snd app].
+  rewrite rev_app_distr. reflexivity.
+Qed.
+
+(* The same, for an item that is not the first: the marker closes the
+   item in progress instead of opening the list. *)
+Lemma run_item_sibling :
+  forall l0 rest ls done inner,
+    ls_indent ls = 0 ->
+    ls_marker ls = "-"%char ->
+    is_thematic (bullet_open ++ l0) = false ->
+    run_pad_safe rest (snd (step l0 (PPara []))) = true ->
+    run_lines (indent_lines bullet_open bullet_cont (l0 :: rest)) (PList ls done inner)
+    = ([], PList (scan_list_content
+                    (list_next ls (rev done ++ finish inner)%list l0) rest)
+            (rev (fst (run_lines (l0 :: rest) (PPara []))))
+            (pad_state 2 (snd (run_lines (l0 :: rest) (PPara []))))).
+Proof.
+  intros l0 rest ls done inner Hind Hmark Hth Hsafe.
+  cbn [indent_lines run_lines].
+  destruct (step l0 (PPara [])) as [b i] eqn:Es.
+  rewrite (step_list_sibling _ _ _ _ _ _ _ _
+             (classify_bullet_open l0 Hth)
+             (ltac:(rewrite Hmark; apply Ascii.eqb_refl))
+             (ltac:(rewrite Hind, indent_of_bullet_open; reflexivity))
+             Es).
+  rewrite consumed_bullet_open.
+  pose proof (run_lines_pad_shift bullet_cont rest i eq_refl) as Hrun.
+  cbn [snd] in Hsafe. specialize (Hrun Hsafe).
+  change (String.length bullet_cont) with 2 in Hrun.
+  assert (Hi0 : ls_indent (list_next ls (rev done ++ finish inner)%list l0) = 0).
+  { unfold list_next. destruct (is_blank l0); exact Hind. }
+  rewrite (run_lines_list_cont rest (list_next ls (rev done ++ finish inner)%list l0)
+             (rev b) (pad_state 2 i) _ _ Hi0 Hrun).
+  destruct (run_lines rest i) as [more i'] eqn:Er. cbn [fst snd app].
+  rewrite rev_app_distr. reflexivity.
+Qed.
+
 (** Uniformity for list items: an item's contents parse exactly as they
     would at top level, and the enclosing list's spacing is a scan of
     those same lines.  One proof, every construct -- including a nested
