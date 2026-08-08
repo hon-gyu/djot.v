@@ -924,30 +924,33 @@ an item's first line, which decides whether the parser opens a new item or
 continues the current one.
 *)
 
-(* A continuation pad is a two-column shift, nothing more.  Parser.step_pad
-   says this for any blank prefix and any fence-free state; the old form of
-   this lemma claimed the padded and unpadded steps were *equal*, which the
-   column offset makes false -- a list or quote opened on the padded line
-   records its column two further right. *)
+(* A continuation pad changes nothing inside a flat item.  The column
+   offset makes the general claim false -- a list opened on the padded
+   line records its column two further right -- but a list item whose
+   content is list_content_safe never opens one, and then there is no
+   column to shift.  Parser.step_pad_flat is that argument; the two
+   no_columns side conditions are what list_content_safe buys. *)
 Lemma step_idle_bullet_cont :
   forall l st,
-    pad_safe st = true ->
-    step (bullet_cont ++ l) st = step_at 2 l st.
+    pad_safe st = true -> no_columns st = true ->
+    no_columns (snd (step l st)) = true ->
+    step (bullet_cont ++ l) st = step l st.
 Proof.
-  intros l st Hsafe.
-  exact (step_pad bullet_cont l st bullet_cont_blank Hsafe).
+  intros l st Hsafe Hst Hafter.
+  exact (step_pad_flat bullet_cont l st bullet_cont_blank Hsafe Hst Hafter).
 Qed.
+
 
 
 Lemma run_lines_first_unpadded :
   forall a rest,
     (forall m item, classify a <> KList m item) ->
+    no_columns (snd (step a (PPara []))) = true ->
     run_lines (a :: map (fun l => (bullet_cont ++ l)%string) rest) (PPara [])
     = run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest)) (PPara []).
 Proof.
-  intros a rest Hnot. cbn [map run_lines].
-  rewrite (step_idle_bullet_cont a (PPara []) eq_refl), step_at_idle.
-  destruct (step a (PPara [])) as [bs st'] eqn:Ea. cbn [fst snd].
+  intros a rest Hnot Hcols. cbn [map run_lines].
+  rewrite (step_idle_bullet_cont a (PPara []) eq_refl eq_refl Hcols).
   reflexivity.
 Qed.
 
@@ -987,6 +990,84 @@ Proof.
     + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
       intros m item E. rewrite classify_canonical_quote in E. discriminate.
   - discriminate Hsafe.
+Qed.
+
+(* Stronger than safe_cblock_first, and the quote case is why it needs an
+   induction rather than a case split: a quote's *own* first line never
+   classifies as a list marker, but the state it opens contains whatever
+   the quote's contents opened.  list_content_safe rules out a CList
+   anywhere inside, so no column is ever recorded, and the continuation
+   pad stays invisible (Parser.step_pad_flat). *)
+Lemma safe_cblock_no_columns :
+  forall cb,
+    list_content_safe cb = true -> cb_ok cb = true ->
+    forall a rest, cb_lines cb = a :: rest ->
+    no_columns (snd (step a (PPara []))) = true.
+Proof.
+  refine (cblock_ind2
+            (fun cb => list_content_safe cb = true -> cb_ok cb = true ->
+                       forall a rest, cb_lines cb = a :: rest ->
+                       no_columns (snd (step a (PPara []))) = true)
+            (fun cbs => forallb list_content_safe cbs = true ->
+                        forallb cb_ok cbs = true ->
+                        forall a rest, sep_lines (map cb_lines cbs) = a :: rest ->
+                        no_columns (snd (step a (PPara []))) = true)
+            (fun _ => True)
+            _ _ _ _ _ _ _ _ I (fun _ _ _ _ => I)).
+  - (* paragraph: a text line opens a paragraph *)
+    intros ls Hsafe Hok a rest Hl.
+    destruct ls as [|x xs]; [discriminate Hl|].
+    cbn [cb_lines] in Hl. injection Hl as <- <-.
+    change (cb_ok (CPara (x :: xs))) with (para_ok (x :: xs)) in Hok.
+    apply para_ok_parts in Hok as [Ha _].
+    rewrite (step_idle x KText Ha eq_refl). reflexivity.
+  - (* thematic break *)
+    intros Hsafe Hok a rest Hl. cbn [cb_lines] in Hl. injection Hl as <- <-.
+    rewrite (step_idle thematic_line KThematic classify_canonical_thematic
+               eq_refl). reflexivity.
+  - intros info content Hsafe. discriminate Hsafe.
+  - (* heading *)
+    intros lvl ls Hsafe Hok a rest Hl.
+    change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in Hok.
+    apply heading_ok_parts in Hok as [Hlvl [Hls _]].
+    destruct ls as [|x xs]; [congruence|].
+    cbn [cb_lines map] in Hl. injection Hl as <- <-.
+    rewrite (step_idle _ (KHeading lvl x)
+               (classify_canonical_heading lvl x Hlvl) eq_refl).
+    reflexivity.
+  - (* quote: the pad the prefix eats cannot introduce a column *)
+    intros inner IH Hsafe Hok a rest Hl.
+    rewrite list_content_safe_quote in Hsafe.
+    rewrite cb_ok_quote in Hok.
+    apply andb_true_iff in Hok as [Hok _].
+    apply andb_true_iff in Hok as [_ Hokinner].
+    rewrite cb_lines_quote in Hl.
+    destruct (sep_lines (map cb_lines inner)) as [|l L] eqn:Esep;
+      [discriminate Hl|].
+    cbn [map] in Hl. injection Hl as <- <-.
+    destruct (step l (PPara [])) as [bs inner'] eqn:Es.
+    unfold quote_line, quote_open.
+    rewrite (step_quote_open _ l bs inner' (classify_canonical_quote l) Es).
+    cbn [snd no_columns]. rewrite no_columns_pad_state.
+    pose proof (IH Hsafe Hokinner l L eq_refl) as Hin.
+    rewrite Es in Hin. cbn [snd] in Hin. exact Hin.
+  - intros sp items _ Hsafe. discriminate Hsafe.
+  - (* the empty content list has no first line *)
+    intros _ _ a rest Hl. cbn [map sep_lines] in Hl. discriminate Hl.
+  - (* a content list's first line is its first block's first line *)
+    intros c rest IHc IHrest Hsafe Hok a l Hl.
+    cbn [forallb] in Hsafe, Hok.
+    apply andb_true_iff in Hsafe as [Hsafec Hsaferest].
+    apply andb_true_iff in Hok as [Hokc Hokrest].
+    pose proof (cb_ok_lines_ok c Hokc) as Hvalid.
+    apply lines_ok_parts in Hvalid as [Hne _].
+    destruct (cb_lines c) as [|x xs] eqn:Ec; [exfalso; apply Hne; reflexivity|].
+    destruct rest as [|c2 rest'].
+    + cbn [map sep_lines] in Hl. rewrite Ec in Hl. injection Hl as <- <-.
+      exact (IHc Hsafec Hokc x xs eq_refl).
+    + cbn [map sep_lines] in Hl. rewrite Ec in Hl.
+      cbn [app] in Hl. injection Hl as <- <-.
+      exact (IHc Hsafec Hokc x xs eq_refl).
 Qed.
 
 Lemma nonlist_cblock_first :
@@ -1056,6 +1137,7 @@ Qed.
 Lemma run_first_list_item :
   forall a rest bs inner',
     (forall m item, classify a <> KList m item) ->
+    no_columns (snd (step a (PPara []))) = true ->
     is_thematic (bullet_open ++ a) = false ->
     run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest))
       (PPara []) = (bs, inner') ->
@@ -1064,8 +1146,8 @@ Lemma run_first_list_item :
              (scan_list_content (LSt 0 "-"%char false false []) rest)
              (rev bs) inner').
 Proof.
-  intros a rest bs inner' Hnot Hmarker Hrun.
-  pose proof (run_lines_first_unpadded a rest Hnot) as Hsame.
+  intros a rest bs inner' Hnot Hcols Hmarker Hrun.
+  pose proof (run_lines_first_unpadded a rest Hnot Hcols) as Hsame.
   rewrite Hrun in Hsame.
   cbn [map run_lines indent_lines] in Hsame |- *.
   destruct (step a (PPara [])) as [head inner] eqn:Hstep.
@@ -1076,7 +1158,10 @@ Proof.
                     ([], PList (LSt 0 "-"%char false false []) (rev head) inner)).
   { rewrite (step_list_open (bullet_open ++ a) "-"%char a head inner
                (classify_bullet_open a Hmarker) Hstep).
-    rewrite indent_of_bullet_open. reflexivity. }
+    rewrite indent_of_bullet_open.
+    (* the marker eats two columns, but a flat item records none *)
+    cbn [snd] in Hcols.
+    rewrite (pad_state_no_columns _ inner Hcols). reflexivity. }
   rewrite Hopen. cbn [app].
   rewrite (run_lines_list_cont rest (LSt 0 "-"%char false false [])
              (rev head) inner more final) by (reflexivity || exact Hmore).
@@ -1551,11 +1636,12 @@ Lemma run_list_sibling_tight :
     ls_indent ls = 0 -> ls_marker ls = "-"%char ->
     is_thematic (bullet_open ++ next) = false ->
     step next (PPara []) = (head, inner) ->
+    no_columns inner = true ->
     run_lines [bullet_open ++ next] (PList ls (rev bs) st)
     = ([], PList (list_next ls (map cb_ast item) next) (rev head) inner).
 Proof.
   intros item a rest bs st ls next head inner Hsafe Hok Hlines Hrun
-    Hind Hmarker Htheme Hnext.
+    Hind Hmarker Htheme Hnext Hcols.
   pose proof (run_canonical_item item a rest bs st Hsafe Hok Hlines Hrun)
     as Hitem.
   cbn [run_lines].
@@ -1565,6 +1651,7 @@ Proof.
   2: rewrite Hmarker; reflexivity.
   2: rewrite Hind, indent_of_bullet_open; reflexivity.
   2: exact Hnext.
+  rewrite (pad_state_no_columns _ inner Hcols).
   cbn [run_lines app]. rewrite rev_involutive, Hitem. reflexivity.
 Qed.
 
@@ -1578,13 +1665,14 @@ Lemma run_list_sibling_loose :
     ls_indent ls = 0 -> ls_marker ls = "-"%char ->
     is_thematic (bullet_open ++ next) = false ->
     step next (PPara []) = (head, inner) ->
+    no_columns inner = true ->
     run_lines [EmptyString; bullet_open ++ next] (PList ls (rev bs) st)
     = ([], PList
              (list_next (list_blank ls) (map cb_ast item) next)
              (rev head) inner).
 Proof.
   intros item a rest bs st ls next head inner Hsafe Hok Hlines Hrun
-    Hind Hmarker Htheme Hnext.
+    Hind Hmarker Htheme Hnext Hcols.
   destruct (run_canonical_item_blank item a rest bs st EmptyString
               Hsafe Hok Hlines Hrun (classify_blank EmptyString eq_refl))
     as [more [st' [Hblank Hitem]]].
@@ -1601,6 +1689,7 @@ Proof.
   rewrite (step_list_sibling (bullet_open ++ next) "-"%char next
              (list_blank ls) (rev more ++ rev bs)%list st' head inner
              (classify_bullet_open next Htheme) Hm Hi Hnext).
+  rewrite (pad_state_no_columns _ inner Hcols).
   cbn [run_lines app].
   rewrite rev_app_distr, !rev_involutive, <- app_assoc, Hitem. reflexivity.
 Qed.
@@ -1625,6 +1714,7 @@ Proof.
   apply andb_true_iff in Hok as [Hokc _].
   destruct (safe_cblock_first c Hsafec Hokc)
     as [first [cmore [Hfirst Hnotlist]]].
+  pose proof (safe_cblock_no_columns c Hsafec Hokc first cmore Hfirst) as Hcols.
   unfold item_marker_ok, item_first_line in Hmarker.
   rewrite Hfirst in Hmarker.
   apply negb_true_iff in Hmarker.
@@ -1668,7 +1758,9 @@ Proof.
   cbn [map sep_lines] in Hnext.
   destruct next' as [|c2 next'']; rewrite Hfirst in Hnext;
     injection Hnext as Hna Hnr; subst na.
-  all: pose proof (run_lines_first_unpadded first nr Hnotlist) as Hsame;
+  all: pose proof (safe_cblock_no_columns c Hsafec Hokc first more Hfirst)
+         as Hcols;
+       pose proof (run_lines_first_unpadded first nr Hnotlist Hcols) as Hsame;
        rewrite Hnrun in Hsame;
        cbn [map run_lines indent_lines] in Hsame |- *;
        destruct (step first (PPara [])) as [head inner] eqn:Hhead;
@@ -1677,7 +1769,8 @@ Proof.
        inversion Hsame; subst nbs nst;
        pose proof
          (run_list_sibling_tight item a rest bs st ls first head inner
-            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead) as Hsibling;
+            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead
+            ltac:(cbn [snd] in Hcols; exact Hcols)) as Hsibling;
        pose proof
          (run_lines_list_cont nr (list_next ls (map cb_ast item) first)
             (rev head) inner more' final) as Hcont;
@@ -1731,7 +1824,9 @@ Proof.
   cbn [map sep_lines] in Hnext.
   destruct next' as [|c2 next'']; rewrite Hfirst in Hnext;
     injection Hnext as Hna Hnr; subst na.
-  all: pose proof (run_lines_first_unpadded first nr Hnotlist) as Hsame;
+  all: pose proof (safe_cblock_no_columns c Hsafec Hokc first cmore Hfirst)
+         as Hcols;
+       pose proof (run_lines_first_unpadded first nr Hnotlist Hcols) as Hsame;
        rewrite Hnrun in Hsame;
        cbn [map run_lines indent_lines] in Hsame |- *;
        destruct (step first (PPara [])) as [head inner] eqn:Hhead;
@@ -1740,7 +1835,8 @@ Proof.
        inversion Hsame; subst nbs nst;
        pose proof
          (run_list_sibling_loose item a rest bs st ls first head inner
-            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead) as Hsibling;
+            Hsafe Hok Hlines Hrun Hind Hmark Hmarker Hhead
+            ltac:(cbn [snd] in Hcols; exact Hcols)) as Hsibling;
        pose proof
          (run_lines_list_cont nr
             (list_next (list_blank ls) (map cb_ast item) first)

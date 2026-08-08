@@ -1179,6 +1179,33 @@ Proof.
          rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
 Qed.
 
+(* Only PList records a column, so a state with no open list is fixed by
+   the shift.  This is what lets the padded and unpadded runs stay
+   literally equal inside a *flat* list item: the item's own content never
+   opens a list, so there is no column to shift. *)
+Fixpoint no_columns (st : pstate) : bool :=
+  match st with
+  | PList _ _ _ => false
+  | PQuote _ inner => no_columns inner
+  | _ => true
+  end.
+
+Lemma no_columns_pad_state :
+  forall k st, no_columns (pad_state k st) = no_columns st.
+Proof.
+  intros k st. induction st as [| | |done inner IH|ls done inner IH];
+    cbn [pad_state no_columns]; try reflexivity. exact IH.
+Qed.
+
+Lemma pad_state_no_columns :
+  forall k st, no_columns st = true -> pad_state k st = st.
+Proof.
+  intros k st. induction st as [| | |done inner IH|ls done inner IH];
+    cbn [no_columns pad_state]; try reflexivity.
+  - intros H. rewrite (IH H). reflexivity.
+  - discriminate.
+Qed.
+
 (** A blank prefix in front of a line is exactly a shift of its starting
     column. *)
 Lemma step_pad :
@@ -1189,6 +1216,27 @@ Proof.
   intros p l st Hp Hsafe. unfold step, step_at.
   rewrite (step_fuel_pad _ p 0 l st Hp Hsafe), Nat.add_0_r.
   apply step_fuel_enough_off. rewrite length_append. lia.
+Qed.
+
+(** Padding is invisible, not merely a shift, when no list is open before
+    or after the step.  The form the roundtrip proofs want: inside a flat
+    list item there is no column anywhere, so the item's continuation
+    whitespace changes nothing at all. *)
+Lemma step_pad_flat :
+  forall p l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    no_columns st = true ->
+    no_columns (snd (step l st)) = true ->
+    step (p ++ l) st = step l st.
+Proof.
+  intros p l st Hp Hsafe Hst Hafter.
+  rewrite (step_pad p l st Hp Hsafe).
+  rewrite <- (pad_state_no_columns (String.length p) st Hst) at 1.
+  rewrite <- (Nat.add_0_r (String.length p)) at 1.
+  rewrite step_at_shift, step_at_zero.
+  rewrite (pad_state_no_columns (String.length p) _ Hafter).
+  symmetry. apply surjective_pairing.
 Qed.
 
 (*
