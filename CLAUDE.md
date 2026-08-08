@@ -4,6 +4,7 @@
 
 - see @.project/ for project context.
 - comment like `CR: ...` means "code review comment"
+- repetitive edit-and-rebuild cycles can be inefficient, which is an anti-pattern. make use of the interactive mode of rocq-mcp where appropriate.
 
 # AI content disclosure
 
