@@ -1204,45 +1204,23 @@ Lemma scan_item_forces_loose :
     = item_forces_loose item.
 Proof.
   intros item a rest Hsafe Hok Hlines.
+  unfold item_forces_loose. rewrite Hlines, scan_loose_eq.
+  cbn [ls_loose ls_blanks].
   destruct item as [|c item']; [discriminate Hlines|].
   cbn [forallb] in Hsafe, Hok.
-  apply andb_true_iff in Hsafe as [Hsafec Hsafeitem].
-  apply andb_true_iff in Hok as [Hokc Hokitem].
+  apply andb_true_iff in Hsafe as [Hsafec _].
+  apply andb_true_iff in Hok as [Hokc _].
   pose proof (safe_cb_lines_nonblank c Hsafec Hokc) as Hnonblank.
   destruct (cb_lines c) as [|first more] eqn:Hc.
   { pose proof (cb_ok_lines_ok c Hokc) as Hvalid.
     apply lines_ok_parts in Hvalid as [Hne _]. congruence. }
-  destruct item' as [|c2 item''].
-  - cbn [map sep_lines] in Hlines. rewrite Hc in Hlines.
-    injection Hlines as <- <-.
-    cbn [item_forces_loose].
-    cbn [forallb] in Hnonblank. apply andb_true_iff in Hnonblank as [_ Hmore].
-    rewrite (scan_list_content_nonblank more 0 "-"%char false [] Hmore).
-    reflexivity.
-  - cbn [map sep_lines] in Hlines.
-    rewrite Hc in Hlines. injection Hlines as <- <-.
-    cbn [forallb] in Hnonblank. apply andb_true_iff in Hnonblank as [_ Hmore].
-    rewrite scan_list_content_app.
-    rewrite (scan_list_content_nonblank more 0 "-"%char false [] Hmore).
-    cbn [scan_list_content].
-    cbn [forallb] in Hsafeitem, Hokitem.
-    apply andb_true_iff in Hsafeitem as [Hsafec2 _].
-    apply andb_true_iff in Hokitem as [Hokc2 _].
-    destruct (safe_cblock_first c2 Hsafec2 Hokc2)
-      as [b [tail [Hfirst Hnotlist]]].
-    pose proof (safe_cb_lines_nonblank c2 Hsafec2 Hokc2) as Hnonblank2.
-    rewrite Hfirst in Hnonblank2. cbn [forallb] in Hnonblank2.
-    apply andb_true_iff in Hnonblank2 as [Hnonblank_b _].
-    assert (Hnotblank : classify b <> KBlank).
-    { intros E. apply classify_kblank_blank in E.
-      unfold nonblank in Hnonblank_b. rewrite E in Hnonblank_b. discriminate. }
-    assert (Hforce : item_forces_loose (c :: c2 :: item'') = true).
-    { destruct c2; cbn [list_content_safe] in Hsafec2;
-        cbn [item_forces_loose]; try reflexivity; discriminate. }
-    rewrite Hforce. rewrite (classify_blank EmptyString eq_refl).
-    rewrite Hfirst. destruct item'' as [|c3 item''']; cbn [map sep_lines].
-    + apply scan_list_content_after_blank; assumption.
-    + apply scan_list_content_after_blank; assumption.
+  cbn [forallb] in Hnonblank. apply andb_true_iff in Hnonblank as [Hfirst _].
+  assert (Ha : nonblank a = true).
+  { destruct item'; cbn [map sep_lines] in Hlines; rewrite Hc in Hlines;
+      injection Hlines as <- _; exact Hfirst. }
+  symmetry. apply lines_loose_cons_nonblank.
+  intros E. apply classify_kblank_blank in E.
+  unfold nonblank in Ha. rewrite E in Ha. discriminate.
 Qed.
 
 Lemma scan_canonical_item_state :

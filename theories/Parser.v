@@ -2072,6 +2072,19 @@ Fixpoint lines_loose (loose gap : bool) (ls : list string) : bool :=
       end
   end.
 
+(* A nonblank first line contributes nothing: it cannot arm the flag, and
+   with nothing armed it cannot spend one either.  So the verdict for an
+   item's lines is the verdict for its continuation lines, which is the
+   form `list_item_uniformity` states and the renderer consumes. *)
+Lemma lines_loose_cons_nonblank :
+  forall a rest,
+    classify a <> KBlank ->
+    lines_loose false false (a :: rest) = lines_loose false false rest.
+Proof.
+  intros a rest H. cbn [lines_loose].
+  destruct (classify a) eqn:E; try reflexivity. congruence.
+Qed.
+
 Lemma scan_loose_eq :
   forall lines ls,
     ls_loose (scan_list_content ls lines)

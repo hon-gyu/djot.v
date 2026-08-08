@@ -303,20 +303,20 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
   && forallb line_ok ls
   && String.eqb (strip_trailing_ws (last ls EmptyString)) (last ls EmptyString).
 
-(* Tight/loose, structurally: djot.js's blank-line flag is an event rule
-   (Parser.list_content), but for a *canonical* rendering the choice is
-   already baked into the layout, so it can be read back off the item
-   tree.  Within an item, a gap (cb_ok's blank separator between two
-   different cblocks — Render always emits one) loosens the list unless
-   what follows is itself a nested list, exactly mirroring list_content's
-   `KList _ _` exemption. *)
-Fixpoint item_forces_loose (item : list cblock) : bool :=
-  match item with
-  | _ :: (c2 :: _ as rest) =>
-      ((match c2 with CList _ _ => false | _ => true end)
-       || item_forces_loose rest)%bool
-  | _ => false
-  end.
+(* Tight/loose, on the item's lines rather than on its block tree.
+
+   The tree is the wrong domain: a gap loosens the enclosing list unless
+   the next non-blank line opens one, and the tree does not record where
+   blanks sit relative to markers.  Reading `[c1; c2]` and asking whether
+   c2 is a CList sees only gaps between an item's *own* top-level blocks,
+   so it misses a gap contributed from inside c1 -- `- - a` / blank /
+   `t`, where the outer item holds one block and the parser still spends
+   the blank.
+
+   `Parser.lines_loose` is the rule itself, and it is what
+   `Parser.list_item_uniformity` proves the parser implements. *)
+Definition item_forces_loose (item : list cblock) : bool :=
+  lines_loose false false (sep_lines (map cb_lines item)).
 
 Definition items_force_loose (items : list (list cblock)) : bool :=
   existsb item_forces_loose items.
