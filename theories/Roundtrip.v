@@ -13,18 +13,19 @@
 
      Splitting a rendered document            line shape of a rendering
      Facts about canonical blocks             cb_ok's consequences
-     Parsing the separated lines, under a pad blocks inside a list item
-     Canonical lists                          the CList case, seven layers
+     Canonical lists                          the CList case
      Blocks and block sequences               parse_cblock, parse_sep
      The renderer emits exactly the canonical lines
      The theorem                              roundtrip_blocks
      Worked examples                          regression witnesses
      Above the block layer                    roundtrip_doc
 
-   Lists take two thirds of the file.  A list is the one construct whose
-   parse cannot be stated block-at-a-time, so its section builds its own
-   vocabulary (`run_lines`, `scan_list_content`) before reaching the two
-   lemmas the block layer consumes: `parse_canonical_list_end` and
+   A list is the one construct whose parse cannot be stated
+   block-at-a-time, and none of that reasoning lives here: it is
+   `Parser.list_uniformity`, stated over line lists.  The Canonical lists
+   section only matches `cb_lines`'s shape to `list_lines`'s and reads
+   the spacing verdict off `cb_ok`, reaching the two lemmas the block
+   layer consumes: `parse_canonical_list_end` and
    `parse_canonical_list_then_nonlist`. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
