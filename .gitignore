@@ -4,3 +4,4 @@ _build/
 
 theories/.*.aux
 .lia.cache
+rocq_mcp_cache*
