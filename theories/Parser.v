@@ -1070,6 +1070,128 @@ Proof.
 Qed.
 
 (*
+Padding a line
+--------------
+
+Putting a blank prefix in front of a line is the same as starting that
+line further right: `classify`, `is_thematic`, `is_blank` and
+`drop_leading_ws` all ignore a leading blank prefix, `indent_of` adds its
+length, and every descent consumes exactly that much more.  So padding
+needs no theorem of its own -- it reduces to the offset, and
+`step_fuel_shift` does the rest.
+
+The one state that notices is `PFence`, which stores its lines verbatim
+and so keeps the pad in the block's content.  `pad_safe` names that
+exclusion; it stops at `PQuote` because a quote prefix absorbs the pad
+before handing down its residue. *)
+
+(* A lazy line's pad is dropped wherever the line comes to rest -- the
+   reason feed_lazy strips leading whitespace at all. *)
+Lemma feed_lazy_ws_prefix :
+  forall p l st,
+    is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
+Proof.
+  intros p l st Hp.
+  induction st as [cur|lvl cur| |done inner IH|ls done inner IH];
+    cbn [feed_lazy];
+    try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
+    try (rewrite IH; reflexivity).
+  reflexivity.
+Qed.
+
+Fixpoint pad_safe (st : pstate) : bool :=
+  match st with
+  | PFence _ _ => false
+  | PList _ _ inner => pad_safe inner
+  | _ => true
+  end.
+
+Lemma step_fuel_pad :
+  forall n p off l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    step_fuel n off (p ++ l) st = step_fuel n (String.length p + off) l st.
+Proof.
+  induction n as [|n IH]; intros p off l st Hp Hsafe; [reflexivity|].
+  (* natural subtraction truncates, so this needs the residue to be no
+     longer than the line -- which classify always gives *)
+  assert (Hc : forall rest, String.length rest <= String.length l ->
+                 consumed (p ++ l) rest = String.length p + consumed l rest).
+  { intros rest Hle. unfold consumed. rewrite length_append. lia. }
+  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct cur as [|c cur'].
+    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+        try reflexivity.
+      { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+                Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+      { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+                (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        reflexivity. }
+      { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. } }
+    { destruct (classify l);
+        try (cbn [open_kind close_reopen];
+           rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity).
+      reflexivity. } }
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+      try reflexivity.
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+              (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. } }
+  { discriminate Hsafe. }
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+      try reflexivity.
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+              (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner);
+        [rewrite (feed_lazy_ws_prefix p l _ Hp)|
+         cbn [close_reopen open_kind];
+         rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
+  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+    rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { rewrite (IH p off l inner Hp Hsafe). reflexivity. }
+    all: rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+                 (Nat.add_comm off (String.length p)).
+    all: destruct (Nat.ltb (ls_indent ls) (String.length p + off + indent_of l))
+           eqn:Elt;
+         try (rewrite (IH p off l inner Hp Hsafe); reflexivity).
+    { reflexivity. }
+    { reflexivity. }
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { reflexivity. }
+    { destruct (Ascii.eqb m (ls_marker ls));
+        rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+                !Nat.add_assoc, (Nat.add_comm off (String.length p));
+        reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner);
+        [rewrite (feed_lazy_ws_prefix p l _ Hp)|
+         cbn [close_reopen open_kind];
+         rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
+Qed.
+
+(** A blank prefix in front of a line is exactly a shift of its starting
+    column. *)
+Lemma step_pad :
+  forall p l st,
+    is_blank p = true -> pad_safe st = true ->
+    step (p ++ l) st = step_at (String.length p) l st.
+Proof.
+  intros p l st Hp Hsafe. unfold step, step_at.
+  rewrite (step_fuel_pad _ p 0 l st Hp Hsafe), Nat.add_0_r.
+  apply step_fuel_enough_off. rewrite length_append. lia.
+Qed.
+
+(*
 Lifting to the fold
 -------------------
 *)
