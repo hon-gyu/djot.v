@@ -100,23 +100,16 @@ Boundary records
 ================
 *)
 
-(* Relaxing `list_content_safe`'s `CList => false` (the nested-list ban)
-   admits this, and it does not roundtrip:
+(* The nested-list shape that pins the spacing condition.  Rendered, the
+   outer item's lines carry the inner list's blank:
 
        - - a
-             <- blank
+                <- the pad, "    "
          t
 
-   `item_forces_loose` reads the outer item as tight, because the item
-   holds exactly one block and there is no block *pair* to inspect.  But
-   the blank belonging to the inner list is a blank line inside the outer
-   item too, and the parser spends it: the outer list comes back Loose.
-
-   So `item_forces_loose` is too *permissive* here, not too coarse.  The
-   `KList` exemption it mirrors covers a gap whose successor is a nested
-   list; it does not cover a gap nested inside an item's only block.  Any
-   relaxation of `list_content_safe` has to strengthen this predicate at
-   the same time. *)
+   so `item_forces_loose`, which reads `lines_loose` off exactly those
+   lines, calls the outer item loose.  Declaring the outer list Tight is
+   therefore rejected, and it has to be: the parser comes back Loose. *)
 Example nested_loose_promotes_outer :
   rt_lhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
   = [ mk (BulletList Loose
@@ -125,8 +118,12 @@ Example nested_loose_promotes_outer :
                       ; mk (Para [mk (Str "t")]) ]]) ]]) ].
 Proof. reflexivity. Qed.
 
-(* The same shape with the outer spacing declared Loose is what actually
-   parses back, and is what a corrected predicate must accept. *)
+Example nested_loose_outer_tight_rejected :
+  cb_ok (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]) = false.
+Proof. reflexivity. Qed.
+
+(* The same shape with the outer spacing declared Loose is accepted, and
+   roundtrips. *)
 Example nested_loose_outer_loose_roundtrips :
   rt_lhs (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
   = rt_rhs (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]).
@@ -136,21 +133,16 @@ Proof. reflexivity. Qed.
 List uniformity applies
 =======================
 
-`Parser.list_uniformity` is proved, so the roundtrip no longer has to
-reason about an item's contents or about nesting depth: an item's
-contents are a top-level parse.  What is left to check by computation is
-that its hypothesis is *satisfiable* -- that real canonical renderings
-clear it -- since a theorem whose side conditions never hold would prove
-nothing about this fragment.
-
-The hypothesis is `item_ok`: the marker line does not form a thematic
-break, the item does not start or end blank, and no fence is left open
-inside it.  None of it mentions nesting, which is the point.
+`Parser.list_uniformity` is what `cb_ok`'s list case now asks for
+directly: `item_ok` on the item's rendering, and nothing about what is
+inside it.  So the fragment covers nested lists, and the checks below
+record how much that is worth and that the hypothesis is satisfiable on
+renderings `cb_ok` does not itself constrain.
 *)
 
-(* `list_content_safe` without its `CList` case -- the ban the uniformity
-   theorem makes unnecessary.  `CCode` stays out: fence content is
-   verbatim, which is what `run_pad_safe` rules out. *)
+(* No code/raw block anywhere inside -- fence content is verbatim, which
+   is what `run_pad_safe`, `item_ok`'s third conjunct, rules out.  A
+   nested list is fine, which is the point. *)
 Fixpoint no_fence (cb : cblock) : bool :=
   let go := fix go (cs : list cblock) : bool :=
     match cs with [] => true | c :: rest => (no_fence c && go rest)%bool end in
@@ -161,29 +153,32 @@ Fixpoint no_fence (cb : cblock) : bool :=
   | CQuote inner => go inner
   end.
 
-Definition ok_content (c : cblock) : bool := (no_fence c && item_marker_ok [c])%bool.
+Definition ok_content (c : cblock) : bool :=
+  (no_fence c && item_ok (cb_lines c))%bool.
 
-(* Every generated block's rendering, plus every two-block sequence's:
-   1716 line sets, including the nested-list shapes `cb_ok` rejects. *)
+(* Every fence-free generated block's rendering, plus every two-block
+   sequence built from them.  The sequences are the informative half:
+   `item_ok` on a sequence is not implied by `item_ok` on each block,
+   since the run_pad_safe scan threads state across the blank between
+   them. *)
 Definition item_pool : list (list string) :=
   (map cb_lines (filter ok_content (enum_cblock 2))
    ++ map (fun cs => sep_lines (map cb_lines cs))
         (filter (forallb ok_content) (seqs (filter ok_content (enum_cblock 1)))))%list.
 
-(* `item_ok` is `list_uniformity`'s hypothesis on one item's lines.  Every
-   canonical rendering clears it, so the theorem is not vacuous on this
-   fragment -- including the nested-list shapes `cb_ok` still rejects. *)
 Example uniformity_applies : forallb item_ok item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* And it applies to a list whose first item *is* a nested list, which is
-   the shape the roundtrip cannot yet admit. *)
-Example uniformity_nested :
-  parse_lines (list_lines Tight
-     (map (indent_lines bullet_open bullet_cont) [["- a"]; ["b"; ""; "c"]])) (PPara [])
-  = [mk (BulletList (list_spacing_of Tight [["- a"]; ["b"; ""; "c"]])
-           (map (fun L => parse_lines L (PPara [])) [["- a"]; ["b"; ""; "c"]]))].
-Proof. apply list_uniformity; reflexivity || discriminate. Qed.
+(* What the restated `cb_ok` bought: the fragment now contains lists
+   whose items are themselves lists. *)
+Example nested_list_accepted :
+  cb_ok (CList Tight [[CList Tight [[CPara ["a"]]]]]) = true.
+Proof. reflexivity. Qed.
+
+Example accepted_counts : (List.length (accepted 1),
+                           List.length (accepted 2),
+                           List.length (accepted 3)) = (59, 671, 7151).
+Proof. vm_compute. reflexivity. Qed.
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else

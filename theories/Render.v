@@ -289,9 +289,14 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
    the blank.
 
    `Parser.lines_loose` is the rule itself, and it is what
-   `Parser.list_item_uniformity` proves the parser implements. *)
+   `Parser.list_uniformity` proves the parser implements. *)
+(* An item's own lines, before the marker and the continuation pad go on
+   -- what the parser reparses the item as, by Parser.list_uniformity. *)
+Definition item_lines (it : list cblock) : list string :=
+  sep_lines (map cb_lines it).
+
 Definition item_forces_loose (item : list cblock) : bool :=
-  lines_loose false false (sep_lines (map cb_lines item)).
+  lines_loose false false (item_lines item).
 
 Definition items_force_loose (items : list (list cblock)) : bool :=
   existsb item_forces_loose items.
@@ -337,84 +342,18 @@ Section NoAdjacentListsTests.
   Proof. reflexivity. Qed.
 End NoAdjacentListsTests.
 
-(* The first line an item renders to — what a marker ends up glued onto.
-   Nonempty whenever the item's own first cblock is cb_ok (every
-   construct's cb_lines is nonempty then), which is what list_ok assumes
-   when it feeds this into classify_bullet_open. *)
-Definition item_first_line (it : list cblock) : string :=
-  match it with
-  | [] => EmptyString
-  | c :: _ => match cb_lines c with [] => EmptyString | l :: _ => l end
-  end.
+(* An item's rendered lines have to satisfy `Parser.item_ok`, which is
+   the hypothesis of `Parser.list_uniformity` -- the theorem that says an
+   item's contents parse exactly as they would at top level, whatever
+   they are.  Spelled out, it asks that "- " does not turn the item's
+   first line into a thematic break (classify tests thematic breaks
+   before list markers -- the one condition quotes and headings never
+   needed, since "> " and "# " are not marker-shaped), that the item
+   neither starts nor ends blank, and that no fence is left open inside
+   it.
 
-(* "- " must not turn the item's first line into a thematic break —
-   classify tests thematic breaks before list markers.  This is the one
-   condition quotes and headings never needed: their prefix ("> ", "# ")
-   is never itself marker-shaped. *)
-Definition item_marker_ok (it : list cblock) : bool :=
-  negb (is_thematic (bullet_open ++ item_first_line it)).
-
-(* No code/raw block, and no *nested list*, anywhere inside a list item,
-   at any depth — two independent restrictions, for two different
-   parser invariants.
-
-   CCode is banned because its content is verbatim (Parser.v: "never
-   classified, only close-tested"), and PList hands a line to its item's
-   state *unchanged*, unlike a quote which strips its own prefix
-   exactly. A fence nested in a list item therefore keeps the item's
-   "  " baked into its content on reparse. This wants the same
-   ambient-indent tracking PFence would need for the pre-existing,
-   equally-unfixed indented-fence-in-a-quote gap — not something
-   specific to lists.
-
-   CList is banned because `ls_indent` (the column a list's marker sits
-   at) is computed from the *raw, unstripped* line at the point the list
-   opens — unlike a quote's recursion, which strips its own prefix
-   exactly before recursing, a nested list's `ls_indent` only comes out
-   matching what standalone parsing would give when the nesting is on
-   one physical line ("- - a", no separator) and the outer's own
-   marker-stripping hands the inner list its exact, residue-free first
-   line. The far more common "- a" / blank / "  - b" shape never strips
-   anything: the inner marker line reaches the parser with the outer
-   item's indent still attached, so its `ls_indent` comes out genuinely
-   shifted. Every routing decision the parser makes is a comparison of
-   two indents shifted by the same amount, so the shift almost certainly
-   doesn't change any actual routing outcome — but proving that needs
-   its own theorem (generalizing every PList step-equation lemma with an
-   indent-shift argument), not yet built. Flat lists (this predicate)
-   sidestep it entirely: no second PList, no shift to reason about.
-
-   Both restrictions are conservative on purpose in one further way: a
-   fence or a list nested inside a *quote* that is itself inside a list
-   is actually safe in both cases (a quote's own stripping absorbs any
-   amount of ambient indent — including a list's — before whatever is
-   inside it ever sees it; `quote_prefix` routes through
-   `drop_leading_ws`, which eats a whitespace pad same as anything
-   else). This predicate doesn't distinguish that case, so it bans more
-   than strictly necessary rather than risk banning less. *)
-Fixpoint list_content_safe (cb : cblock) : bool :=
-  let go :=
-    fix go (cs : list cblock) : bool :=
-      match cs with
-      | [] => true
-      | c :: rest => (list_content_safe c && go rest)%bool
-      end in
-  match cb with
-  | CPara _ | CThematic | CHeading _ _ => true
-  | CCode _ _ => false
-  | CList _ _ => false
-  | CQuote inner => go inner
-  end.
-
-(* list_content_safe's inner recursion, as forallb -- the local `go` fix
-   is otherwise opaque to rewriting. *)
-Lemma list_content_safe_quote :
-  forall inner,
-    list_content_safe (CQuote inner) = forallb list_content_safe inner.
-Proof.
-  induction inner as [|c rest IH]; [reflexivity|].
-  cbn [list_content_safe forallb] in *. rewrite <- IH. reflexivity.
-Qed.
+   Nothing here mentions nesting: a list inside a list item clears these
+   exactly as flat content does, which is why the fragment covers it. *)
 
 (* The roundtrip hypothesis: this cblock renders to lines that parse back
    to it.  A new construct adds its obligation here.
@@ -423,8 +362,9 @@ Qed.
    prefix, so an empty quote would render to nothing at all.  The parser
    *can* build `BlockQuote []` (from a bare ">"), so that one value sits
    outside the canonical view — see cb_ok_quote.  A list's items are each
-   held to the same nonempty-and-cb_ok standard as a quote's contents
-   (`inner_ok`, reused per item), plus item_marker_ok and a spacing
+   held to the same nonempty-and-cb_ok-and-no_adjacent_lists standard as
+   a quote's contents (`inner_ok`, reused per item), plus `item_ok` on
+   the item's rendering (above) and a spacing
    condition tying `sp` back to what item_forces_loose can prove about
    the *specific* rendering below: tight needs no gap to force looseness
    anywhere; loose needs either two-or-more items (list_lines then always
@@ -451,8 +391,9 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CHeading lvl ls => heading_ok lvl ls
   | CQuote inner => inner_ok inner && no_adjacent_lists inner
   | CList sp items =>
-      nonempty items && items_ok items && forallb item_marker_ok items
-      && forallb (forallb list_content_safe) items
+      nonempty items && items_ok items
+      && forallb (fun it => item_ok (item_lines it)) items
+      && forallb no_adjacent_lists items
       && match sp with
          | Tight => negb (items_force_loose items)
          | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
@@ -537,8 +478,8 @@ Lemma cb_ok_list :
     cb_ok (CList sp items)
     = (nonempty items
        && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
-       && forallb item_marker_ok items
-       && forallb (forallb list_content_safe) items
+       && forallb (fun it => item_ok (item_lines it)) items
+       && forallb no_adjacent_lists items
        && match sp with
           | Tight => negb (items_force_loose items)
           | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
