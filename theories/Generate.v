@@ -133,19 +133,19 @@ Example nested_loose_outer_loose_roundtrips :
 Proof. reflexivity. Qed.
 
 (*
-List-item uniformity applies
-============================
+List uniformity applies
+=======================
 
-`Parser.list_item_uniformity` is proved, so the roundtrip no longer has
-to reason about an item's contents: they are a top-level parse.  What is
-left to check by computation is that its hypotheses are *satisfiable* --
-that real canonical renderings clear them -- since a theorem whose side
-conditions never hold would prove nothing about this fragment.
+`Parser.list_uniformity` is proved, so the roundtrip no longer has to
+reason about an item's contents or about nesting depth: an item's
+contents are a top-level parse.  What is left to check by computation is
+that its hypothesis is *satisfiable* -- that real canonical renderings
+clear it -- since a theorem whose side conditions never hold would prove
+nothing about this fragment.
 
-The hypotheses are the marker line not forming a thematic break, and
-`run_pad_safe`, which says no fence is open directly inside the item.
-Neither mentions nesting, which is the point: nested lists clear them
-exactly as flat content does.
+The hypothesis is `item_ok`: the marker line does not form a thematic
+break, the item does not start or end blank, and no fence is left open
+inside it.  None of it mentions nesting, which is the point.
 *)
 
 (* `list_content_safe` without its `CList` case -- the ban the uniformity
@@ -170,16 +170,20 @@ Definition item_pool : list (list string) :=
    ++ map (fun cs => sep_lines (map cb_lines cs))
         (filter (forallb ok_content) (seqs (filter ok_content (enum_cblock 1)))))%list.
 
-Definition uniformity_hyps (L : list string) : bool :=
-  match L with
-  | [] => false
-  | l0 :: rest =>
-      (negb (is_thematic (bullet_open ++ l0))
-       && run_pad_safe rest (snd (step l0 (PPara []))))%bool
-  end.
-
-Example uniformity_applies : forallb uniformity_hyps item_pool = true.
+(* `item_ok` is `list_uniformity`'s hypothesis on one item's lines.  Every
+   canonical rendering clears it, so the theorem is not vacuous on this
+   fragment -- including the nested-list shapes `cb_ok` still rejects. *)
+Example uniformity_applies : forallb item_ok item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(* And it applies to a list whose first item *is* a nested list, which is
+   the shape the roundtrip cannot yet admit. *)
+Example uniformity_nested :
+  parse_lines (list_lines Tight
+     (map (indent_lines bullet_open bullet_cont) [["- a"]; ["b"; ""; "c"]])) (PPara [])
+  = [mk (BulletList (list_spacing_of Tight [["- a"]; ["b"; ""; "c"]])
+           (map (fun L => parse_lines L (PPara [])) [["- a"]; ["b"; ""; "c"]]))].
+Proof. apply list_uniformity; reflexivity || discriminate. Qed.
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else
