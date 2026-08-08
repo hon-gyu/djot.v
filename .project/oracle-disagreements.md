@@ -119,3 +119,56 @@ admitted to the fragment the case is live and it agrees:
 `item_forces_loose ["a"; ""; "- b"] = false`, `cb_ok` accepts the
 `Tight` spelling, and it roundtrips. `Roundtrip.nested_list_after_para_roundtrip`
 pins it.
+
+---
+
+## Adjudicated 2026-08-09 — the generated corpus
+
+First run of `make generated`: 671 enumerated `cb_ok` documents through
+all three engines, exact HTML, djot.js as reference. Two causes account
+for every diff (a crude classifier put 202 on tightness, 118 on heading
+ids, 57 on both, and 1 unclassified — that last one is the two
+compounded, not a third cause).
+
+Note the denominator that matters for reading these numbers: **djoths
+disagrees with djot.js on 314 of the same 671 documents.** This corpus
+lands in contested territory by construction — it enumerates shapes
+rather than sampling documents anyone wrote — so "gallina mismatches
+djot.js 378 times" is not 378 bugs.
+
+| Case | Verdict | Notes |
+|---|---|---|
+| `- a` / blank / `- - n` | **SPEC-GAP / oracles disagree** | Tightness of a list whose next item, after a blank, *begins with a nested list marker*. djot.js: **tight** (no `<p>`). djoths: **loose** (`<p>a</p>`). Ours follows djoths. 259 of 671 documents |
+| `> # h`, `- # h` | **our gap** | A heading inside a container gets no identifier from us. Both oracles give it one and disagree only on the mechanism — djot.js `<h1 id="h">`, djoths `<section id="h"><h1>h</h1></section>`. Ours: bare `<h1>h</h1>`. 175 of 671 documents |
+
+### Tightness after a blank before a nested marker
+
+Not the same shape as the 2026-08-08 entry above, and worth keeping
+apart. There the nested list was *indented*, continuing the current item
+(`- a` / blank / `  - b`); here the marker is at column 0, so the blank
+separates two *siblings* and the second one's content happens to open a
+list. djot.js declines to spend the blank into looseness in both cases;
+djoths spends it in the second.
+
+Both readings are defensible from the prose, which is what makes this a
+SPEC-GAP rather than a bug on either side. Per the log's standing rule
+djot.js is the authority, so **we are probably wrong here** — but the
+change is not local: `lines_loose` is the rule, `item_forces_loose`
+mirrors it on the renderer side, and `Parser.list_uniformity`'s spacing
+half is stated in terms of it. Changing it means restating that theorem's
+spacing clause, not patching a case. Deliberately not done in the same
+pass that found it.
+
+### Headings inside containers
+
+This one is ours regardless of how the oracles' disagreement resolves,
+since we emit no identifier at all. `Document.v`'s whole-document pass
+builds sections and assigns ids only at the top level; nothing descends
+into a `BlockQuote` or a list item.
+
+Consequence for the roundtrip: none today. `cb_ast` builds bare `mk`
+nodes, `roundtrip_doc` is stated modulo `undo_pass`, and
+`blocks_of_cblocks_pristine` says the fragment carries no ids for the
+erasure to take back — so the theorem is untouched by this. It is a
+conformance gap in the HTML converter, not a soundness problem, and it
+is exactly the class a roundtrip theorem cannot see.

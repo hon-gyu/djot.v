@@ -3,12 +3,14 @@
    agreement per engine and per case.
 
    Usage:
-     main [--engines gallina,djotjs,djoths] [--baseline] [--shape]
-          [--report FILE] [--verbose] [TEST_FILES...]
+     main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
+          [--shape] [--report FILE] [--verbose] [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
    two oracles against each other (and against expected output), ignoring
    the Gallina parser — used to seed .project/oracle-disagreements.md.
+   --generated runs the enumerated corpus instead of the file corpus,
+   engine against engine; see "Generated mode" below.
    --shape compares block structure only; see "Block shape" below. *)
 
 let root =
@@ -57,18 +59,78 @@ let run_process argv input =
   | Unix.WEXITED n -> Error (Printf.sprintf "exit %d" n)
   | _ -> Error "killed"
 
-type engine = { ename : string; run : string -> (string, string) result }
+(* Length-delimited framing, for engines that can take a whole batch in
+   one process.  Byte lengths rather than a separator: a djot document may
+   contain any bytes, so no sentinel is safe. *)
+let frame docs =
+  let buf = Buffer.create 4096 in
+  List.iter
+    (fun d ->
+      Buffer.add_string buf (string_of_int (String.length d));
+      Buffer.add_char buf '\n';
+      Buffer.add_string buf d)
+    docs;
+  Buffer.contents buf
 
-let gallina = { ename = "gallina"; run = (fun s -> Ok (Core.convert s)) }
+let unframe s =
+  let n = String.length s in
+  let rec go acc at =
+    if at >= n then List.rev acc
+    else
+      match String.index_from_opt s at '\n' with
+      | None -> List.rev acc
+      | Some nl ->
+        let len = int_of_string (String.sub s at (nl - at)) in
+        let start = nl + 1 in
+        go (String.sub s start len :: acc) (start + len)
+  in
+  go [] 0
+
+type engine = {
+  ename : string;
+  run : string -> (string, string) result;
+  (* whole batch in one process, when the engine supports it; the fallback
+     is one process per document, which node startup makes untenable at
+     corpus scale *)
+  run_batch : (string list -> (string, string) result list) option;
+}
+
+let gallina =
+  { ename = "gallina";
+    run = (fun s -> Ok (Core.convert s));
+    run_batch = None }
 
 let djotjs =
   let script = root / "harness" / "oracles" / "djotjs.mjs" in
-  { ename = "djotjs"; run = (fun s -> run_process [| "node"; script |] s) }
+  { ename = "djotjs";
+    run = (fun s -> run_process [| "node"; script |] s);
+    run_batch =
+      Some
+        (fun docs ->
+          match run_process [| "node"; script; "--batch" |] (frame docs) with
+          | Error e -> List.map (fun _ -> Error e) docs
+          | Ok out ->
+            let outs = unframe out in
+            if List.length outs <> List.length docs then
+              List.map
+                (fun _ ->
+                  Error
+                    (Printf.sprintf "batch returned %d of %d"
+                       (List.length outs) (List.length docs)))
+                docs
+            else List.map (fun o -> Ok o) outs) }
 
 let djoths_bin = ref ""
 
 let djoths =
-  { ename = "djoths"; run = (fun s -> run_process [| !djoths_bin |] s) }
+  { ename = "djoths";
+    run = (fun s -> run_process [| !djoths_bin |] s);
+    run_batch = None }
+
+let run_all e docs =
+  match e.run_batch with
+  | Some f -> f docs
+  | None -> List.map e.run docs
 
 let find_djoths () =
   if !djoths_bin = "" then begin
@@ -161,12 +223,88 @@ let normalize s =
 
 type outcome = Match | Mismatch of string | EngineError of string
 
-let run_case engine (c : Corpus.case) =
-  match engine.run c.input with
-  | Error e -> EngineError e
-  | Ok out ->
-    let proj s = if !shape_mode then shape s else normalize s in
-    if proj out = proj c.expected then Match else Mismatch out
+(*
+Generated mode
+==============
+
+The corpus compares each engine against a recorded expected output.  A
+generated document has none: it comes from `Generate.enum_cblock` via the
+renderer, so the only available judgement is engine against engine.  The
+reference is djot.js — the corpus is its test suite, so it is the
+implementation we are conforming to.
+
+Why this exists at all: `roundtrip_blocks` is a meta-property, and cannot
+catch a rule we got wrong in both the parser and the renderer.  Every
+shape the fragment admits is checked here against something we did not
+write.
+
+Exact HTML by default, not `--shape`.  Measured on 2026-08-09: gallina
+and djot.js agree byte-for-byte on these documents, because the
+enumerator's inline content is single words, so the empty inline layer
+that forces `--shape` on the real corpus does not bite here.  `--shape`
+still applies if given, but reaching for it would drop the field under
+test. *)
+
+let run_generated engines docs rbuf verbose =
+  let out fmt =
+    Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
+  in
+  let reference =
+    match List.find_opt (fun e -> e.ename = "djotjs") engines with
+    | Some e -> e
+    | None -> List.hd engines
+  in
+  let subjects = List.filter (fun e -> e.ename <> reference.ename) engines in
+  if subjects = [] then begin
+    out "--generated needs an engine to compare against %s\n" reference.ename;
+    exit 2
+  end;
+  let proj s = if !shape_mode then shape s else normalize s in
+  let ref_out = Array.of_list (run_all reference docs) in
+  let docs_a = Array.of_list docs in
+  let total = Array.length docs_a in
+  let stats = Hashtbl.create 4 in
+  List.iter
+    (fun e ->
+      let outs = Array.of_list (run_all e docs) in
+      let m = ref 0 and mm = ref 0 and er = ref 0 in
+      Array.iteri
+        (fun i o ->
+          match (o, ref_out.(i)) with
+          | Error msg, _ ->
+            incr er;
+            if !verbose then out "\n--- doc %d: %s ERROR %s\n" i e.ename msg
+          | _, Error msg ->
+            incr er;
+            if !verbose then
+              out "\n--- doc %d: %s ERROR %s\n" i reference.ename msg
+          | Ok a, Ok b ->
+            if proj a = proj b then incr m
+            else begin
+              incr mm;
+              if !verbose then begin
+                out "\n--- doc %d\n" i;
+                out "input:\n%s\n" docs_a.(i);
+                out "%s:\n%s\n" reference.ename b;
+                out "%s:\n%s\n" e.ename a
+              end
+            end)
+        outs;
+      Hashtbl.replace stats e.ename (!m, !mm, !er))
+    subjects;
+  out "\n== generated: %d documents, reference %s%s ==\n" total reference.ename
+    (if !shape_mode then ", block shape only" else ", exact HTML");
+  List.iter
+    (fun e ->
+      let m, mm, er =
+        try Hashtbl.find stats e.ename with Not_found -> (0, 0, 0)
+      in
+      out "%-8s  match %4d   mismatch %4d   error %4d\n" e.ename m mm er)
+    subjects;
+  let any_err =
+    Hashtbl.fold (fun _ (_, _, e) acc -> acc || e > 0) stats false
+  in
+  any_err
 
 let default_files () =
   let dir = root / "djot.js" / "test" in
@@ -181,6 +319,7 @@ let () =
   let report = ref "" in
   let verbose = ref false in
   let baseline = ref false in
+  let generated = ref false in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -195,6 +334,7 @@ let () =
     | "--report" :: v :: rest -> report := v; parse_args rest
     | "--shape" :: rest -> shape_mode := true; parse_args rest
     | "--verbose" :: rest -> verbose := true; parse_args rest
+    | "--generated" :: rest -> generated := true; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
   parse_args (List.tl (Array.to_list Sys.argv));
@@ -204,6 +344,18 @@ let () =
   let out fmt = Printf.ksprintf (fun s ->
     print_string s; Buffer.add_string rbuf s) fmt
   in
+  let finish_report () =
+    if !report <> "" then begin
+      let oc = open_out !report in
+      output_string oc (Buffer.contents rbuf);
+      close_out oc
+    end
+  in
+  if !generated then begin
+    let any_err = run_generated !engines Core.generated rbuf verbose in
+    finish_report ();
+    exit (if any_err then 1 else 0)
+  end;
   let grand_total = ref 0 and grand_skip = ref 0 in
   let stats = Hashtbl.create 8 in  (* ename -> (match, mismatch, error) *)
   let bump ename slot =
@@ -214,43 +366,59 @@ let () =
        | `MM -> (m, mm + 1, e)
        | `E -> (m, mm, e + 1))
   in
-  List.iter
-    (fun file ->
-      let cases = Corpus.parse_file file in
+  (* All cases up front, then each engine over the whole list: the batched
+     engines get one process for the run instead of one per case. *)
+  let all_cases =
+    List.concat_map (fun file -> Corpus.parse_file file) files
+  in
+  let cases =
+    List.filter
+      (fun (c : Corpus.case) ->
+        if c.options <> "" then (incr grand_skip; false) else true)
+      all_cases
+  in
+  grand_total := List.length cases;
+  let cases_a = Array.of_list cases in
+  let outs =
+    List.map
+      (fun e -> (e, Array.of_list (run_all e (List.map (fun (c : Corpus.case) -> c.input) cases))))
+      !engines
+  in
+  Array.iteri
+    (fun i (c : Corpus.case) ->
+      let proj s = if !shape_mode then shape s else normalize s in
+      let results =
+        List.map
+          (fun (e, o) ->
+            ( e.ename,
+              match o.(i) with
+              | Error msg -> EngineError msg
+              | Ok out ->
+                if proj out = proj c.expected then Match else Mismatch out ))
+          outs
+      in
+      let bad = List.filter (fun (_, r) -> r <> Match) results in
       List.iter
-        (fun (c : Corpus.case) ->
-          if c.options <> "" then incr grand_skip
-          else begin
-            incr grand_total;
-            let results =
-              List.map (fun e -> (e.ename, run_case e c)) !engines
-            in
-            let bad =
-              List.filter (fun (_, r) -> r <> Match) results
-            in
-            List.iter
-              (fun (n, r) ->
-                bump n
-                  (match r with
-                   | Match -> `M
-                   | Mismatch _ -> `MM
-                   | EngineError _ -> `E))
-              results;
-            if bad <> [] && !verbose then begin
-              out "\n--- %s:%d\n" (Filename.basename c.file) c.linenum;
-              out "input:\n%s" c.input;
-              out "expected:\n%s" c.expected;
-              List.iter
-                (fun (n, r) ->
-                  match r with
-                  | Match -> ()
-                  | Mismatch o -> out "%s:\n%s" n o
-                  | EngineError e -> out "%s: ERROR %s\n" n e)
-                bad
-            end
-          end)
-        cases)
-    files;
+        (fun (n, r) ->
+          bump n
+            (match r with
+             | Match -> `M
+             | Mismatch _ -> `MM
+             | EngineError _ -> `E))
+        results;
+      if bad <> [] && !verbose then begin
+        out "\n--- %s:%d\n" (Filename.basename c.file) c.linenum;
+        out "input:\n%s" c.input;
+        out "expected:\n%s" c.expected;
+        List.iter
+          (fun (n, r) ->
+            match r with
+            | Match -> ()
+            | Mismatch o -> out "%s:\n%s" n o
+            | EngineError e -> out "%s: ERROR %s\n" n e)
+          bad
+      end)
+    cases_a;
   out "\n== summary: %d cases run, %d skipped (options) ==\n" !grand_total
     !grand_skip;
   List.iter
@@ -262,11 +430,7 @@ let () =
     !engines;
   if !baseline then
     out "(baseline mode: mismatches are oracle-vs-expected disagreements)\n";
-  if !report <> "" then begin
-    let oc = open_out !report in
-    output_string oc (Buffer.contents rbuf);
-    close_out oc
-  end;
+  finish_report ();
   (* exit code: nonzero only when a selected engine errored, not on
      mismatches — mismatch is data at this stage, not failure *)
   let any_err =
