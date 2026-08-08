@@ -98,3 +98,12 @@ length — so the uniform shift that `step_pad` currently cannot state for
 nested lists becomes true. The proof obstacle recorded in
 `260807.list-roundtrip-indent-shift.autonomous.md` is a symptom of this
 bug, not an inherent difficulty.
+
+| `- a` / blank / `  - b` | **our bug (renderer side)** | Both oracles report the outer list **tight**; our parser agrees. `Render.items_force_loose` disagrees, declaring any multi-block item loose, so `cb_ok` rejects the spacing that actually parses back |
+
+Root cause: djot.js excludes a `+list` event from spending a blank line
+into looseness, which `Parser.list_content` already encodes. The
+renderer-side predicate does not mirror it. Harmless today because
+`list_content_safe` excludes nested lists entirely; it becomes live the
+moment that exclusion is relaxed. Tracked as step 1 of
+`260808.plan-generator-and-nesting.autonomous.md`.
