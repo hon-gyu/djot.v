@@ -201,6 +201,10 @@ Fixpoint indent_of (s : string) : nat :=
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 
+Lemma length_append :
+  forall a b, String.length (a ++ b) = String.length a + String.length b.
+Proof. induction a as [|c a IH]; intros b; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
 (* Dropping whitespace never lengthens: the measure that makes container
    prefix stripping terminate (Line.quote_prefix_length). *)
 Lemma drop_leading_ws_length :

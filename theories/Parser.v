@@ -1160,9 +1160,411 @@ Proof.
 Qed.
 
 (*
+Ambient indentation
+===================
+
+Put a blank prefix `p` in front of every line of an input.  The blocks are
+unchanged, and the only trace `p` leaves in the state is that the open
+list's indent is larger by `String.length p`.  That is `step_pad` below,
+and it is the general form of the fact list proofs keep needing: a list
+item's contents arrive with the item's continuation whitespace in front of
+them, so everything inside must parse as if the pad were not there.
+
+Why a shift cannot change a routing decision: `step_fuel` consults
+indentation in exactly two places, `open_list (indent_of l)` and the
+`Nat.ltb (ls_indent ls) (indent_of l)` test that separates an item's
+contents from its siblings.  The first records `indent_of (p ++ l) =
+String.length p + indent_of l`, which is the shift itself; the second
+compares two numbers that have both grown by `String.length p`, and
+`Nat.ltb` is invariant under that (`ltb_add_mono_l`).  Every other line
+test -- `classify`, `is_thematic`, `is_blank`, `drop_leading_ws` --
+already ignores a leading blank prefix outright.
+
+Three things are excluded, and each marks a real boundary rather than a
+gap in the proof:
+
+  - `PFence`, where content is verbatim by design, so the pad survives
+    into the block.  This is why `Render.list_content_safe` rejects a code
+    fence inside a list item; it is the same gap as an indented fence
+    inside a quote.
+  - A *nested* list, via `pad_inner_ok`.  The shift is emphatically not
+    uniform: `open_list` on a sibling marker records `indent_of mr` for
+    the residue after the marker, and the pad does not reach the residue.
+    `pad_nested_list_unshifted` exhibits the state -- outer indent 0 -> 2,
+    inner indent 0 -> 0.  A uniform-shift statement covering nesting is
+    therefore false, not merely unproven; the invariant that would cover
+    it has to track, per list, whether that list was opened from a padded
+    line or from a residue.  That is the remaining obstacle to nested
+    lists in the roundtrip, and it is bigger than a generalization of
+    this lemma.
+  - `feed_lazy`, which used to keep the prefix and now strips it, matching
+    the oracle and every other continuation line.  Not a hypothesis --
+    it was fixed, and `feed_lazy_ws_prefix` is what the proof uses.
+
+`pad_state` shifts only the outermost list, and `pad_safe` /
+`pad_inner_ok` say what may sit under it.  Both stop at `PQuote` for the
+same reason: a quote prefix absorbs the ambient pad exactly (`classify
+(p ++ "> x") = KQuote "x"`), so a quote's contents are parsed unpadded and
+nothing below one is shifted.  `pad_invisible_inner` is the sharper
+statement that holds below the outermost list, where the pad leaves no
+trace at all.
+*)
+
+(* The pad's trace in the state: the open list's indent grows by n.
+   Only the outermost one -- see pad_inner_ok. *)
+Definition pad_state (n : nat) (st : pstate) : pstate :=
+  match st with
+  | PList ls done inner =>
+      PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                 (ls_blanks ls) (ls_items ls))
+            done inner
+  | _ => st
+  end.
+
+(* What may be open *inside* the padded region.  A fence is excluded
+   because its content is verbatim.  A list is excluded because its indent
+   is *not* shifted: `open_list` records `indent_of mr` for the residue
+   after the marker, and the pad does not reach the residue -- see
+   `pad_nested_list_unshifted` below, which exhibits the gap.  Nothing
+   below a quote is padded at all, so a quote needs no condition. *)
+Definition pad_inner_ok (st : pstate) : bool :=
+  match st with
+  | PFence _ _ => false
+  | PList _ _ _ => false
+  | _ => true
+  end.
+
+Definition pad_safe (st : pstate) : bool :=
+  match st with
+  | PFence _ _ => false
+  | PList _ _ inner => pad_inner_ok inner
+  | _ => true
+  end.
+
+Lemma pad_inner_ok_safe :
+  forall st, pad_inner_ok st = true -> pad_safe st = true.
+Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
+
+Lemma pad_state_id :
+  forall n st, pad_inner_ok st = true -> pad_state n st = st.
+Proof. intros n st H. destruct st; try reflexivity; discriminate H. Qed.
+
+Lemma pad_state_depth :
+  forall n st, pstate_depth (pad_state n st) = pstate_depth st.
+Proof. intros n st. destruct st; reflexivity. Qed.
+
+(* finish reads a list's spacing and its items, never its indent. *)
+Lemma pad_state_finish :
+  forall n st, finish (pad_state n st) = finish st.
+Proof. intros n st. destruct st; reflexivity. Qed.
+
+Lemma pad_state_lazy_ok :
+  forall n st, lazy_ok (pad_state n st) = lazy_ok st.
+Proof. intros n st. destruct st; reflexivity. Qed.
+
+(* A lazy line's pad is dropped wherever the line comes to rest.  This is
+   the step that would fail if feed_lazy kept prefixes. *)
+Lemma feed_lazy_ws_prefix :
+  forall p l st,
+    is_blank p = true ->
+    feed_lazy (p ++ l) st = feed_lazy l st.
+Proof.
+  intros p l st Hp.
+  induction st as [cur|lvl cur| |done inner IH|ls done inner IH];
+    cbn [feed_lazy];
+    try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
+    try (rewrite IH; reflexivity).
+  reflexivity.
+Qed.
+
+(* feed_lazy writes to a paragraph accumulator, the shift to a list
+   indent; they never touch the same field. *)
+Lemma pad_state_feed_lazy_comm :
+  forall n l st,
+    feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
+Proof. intros n l st. destruct st; reflexivity. Qed.
+
+Lemma pad_state_feed_lazy :
+  forall n p l st,
+    is_blank p = true ->
+    feed_lazy (p ++ l) (pad_state n st) = pad_state n (feed_lazy l st).
+Proof.
+  intros n p l st Hp.
+  rewrite (feed_lazy_ws_prefix p l _ Hp). apply pad_state_feed_lazy_comm.
+Qed.
+
+Lemma ltb_add_mono_l :
+  forall n a b, Nat.ltb (n + a) (n + b) = Nat.ltb a b.
+Proof.
+  intros n a b. destruct (Nat.ltb a b) eqn:E.
+  - apply Nat.ltb_lt. apply Nat.ltb_lt in E. lia.
+  - apply Nat.ltb_ge. apply Nat.ltb_ge in E. lia.
+Qed.
+
+(* The three flag updates all preserve ls_indent, so each commutes with
+   the shift. *)
+Lemma pad_list_blank :
+  forall n ls,
+    list_blank (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                    (ls_blanks ls) (ls_items ls))
+    = LSt (n + ls_indent (list_blank ls)) (ls_marker (list_blank ls))
+          (ls_loose (list_blank ls)) (ls_blanks (list_blank ls))
+          (ls_items (list_blank ls)).
+Proof. intros n ls. destruct ls. reflexivity. Qed.
+
+Lemma pad_list_content :
+  forall n ls k,
+    list_content (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                      (ls_blanks ls) (ls_items ls)) k
+    = LSt (n + ls_indent (list_content ls k)) (ls_marker (list_content ls k))
+          (ls_loose (list_content ls k)) (ls_blanks (list_content ls k))
+          (ls_items (list_content ls k)).
+Proof. intros n ls k. destruct ls; destruct k; reflexivity. Qed.
+
+Lemma pad_list_next :
+  forall n ls item rest,
+    list_next (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                   (ls_blanks ls) (ls_items ls)) item rest
+    = LSt (n + ls_indent (list_next ls item rest))
+          (ls_marker (list_next ls item rest))
+          (ls_loose (list_next ls item rest))
+          (ls_blanks (list_next ls item rest))
+          (ls_items (list_next ls item rest)).
+Proof.
+  intros n ls item rest. unfold list_next.
+  destruct ls; destruct (is_blank rest); reflexivity.
+Qed.
+
+Lemma finish_pad_list :
+  forall n ls done inner,
+    finish (PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                       (ls_blanks ls) (ls_items ls)) done inner)
+    = finish (PList ls done inner).
+Proof. intros n ls done inner. destruct ls. reflexivity. Qed.
+
+(* Below the outermost list -- exactly where pad_inner_ok holds -- an
+   ambient pad is not merely shifted but invisible: the state comes out
+   identical.  Takes the induction hypothesis as a premise so it can be
+   used inside step_fuel_pad's own induction. *)
+Lemma pad_invisible_inner :
+  forall n,
+    (forall p l st,
+       is_blank p = true -> pad_safe st = true ->
+       pad_safe (snd (step_fuel n l st)) = true ->
+       step_fuel n (p ++ l) (pad_state (String.length p) st)
+       = (fst (step_fuel n l st),
+          pad_state (String.length p) (snd (step_fuel n l st)))) ->
+    forall p l inner,
+      is_blank p = true ->
+      pad_inner_ok inner = true ->
+      pad_inner_ok (snd (step_fuel n l inner)) = true ->
+      step_fuel n (p ++ l) inner = step_fuel n l inner.
+Proof.
+  intros n IH p l inner Hp Hsafe Hafter.
+  rewrite <- (pad_state_id (String.length p) inner Hsafe) at 1.
+  rewrite (IH p l inner Hp (pad_inner_ok_safe _ Hsafe)
+             (pad_inner_ok_safe _ Hafter)).
+  rewrite (pad_state_id (String.length p) _ Hafter).
+  symmetry. apply surjective_pairing.
+Qed.
+
+(* The simulation, at the fuel level.  No fuel hypothesis is needed: both
+   sides descend in lockstep on the same n, and every descent that
+   recurses passes the *same* line to both (a quote prefix and a list
+   marker hand down the residue after the prefix, which the pad does not
+   reach).  The one branch that passes the padded line down is PList's
+   "indented, contents of the current item", which is exactly where the
+   induction hypothesis applies. *)
+Lemma step_fuel_pad :
+  forall n p l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    pad_safe (snd (step_fuel n l st)) = true ->
+    step_fuel n (p ++ l) (pad_state (String.length p) st)
+    = (fst (step_fuel n l st),
+       pad_state (String.length p) (snd (step_fuel n l st))).
+Proof.
+  induction n as [|n IH]; intros p l st Hp Hsafe Hafter; [reflexivity|].
+  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
+  (* idle, or an open paragraph *)
+  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct cur as [|c cur'].
+    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+      { reflexivity. }
+      { reflexivity. }
+      { reflexivity. }
+      { cbn [open_quote].
+        destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
+        reflexivity. }
+      { reflexivity. }
+      (* the shift is recorded here, and only here *)
+      { cbn [open_list].
+        destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
+        cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
+        rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
+      { cbn [open_kind pad_state].
+        rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } }
+    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+        cbn [close_reopen open_kind finish pad_state];
+        try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity).
+      reflexivity. } }
+  (* heading *)
+  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { reflexivity. }
+    { reflexivity. }
+    { reflexivity. }
+    { cbn [close_reopen open_quote finish pad_state].
+      destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
+      reflexivity. }
+    { cbn [step_fuel]. destruct (klvl =? hlvl)%nat; reflexivity. }
+    { cbn [close_reopen open_list finish pad_state].
+      destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
+      rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
+    { cbn [close_reopen open_kind finish pad_state].
+      rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } }
+  (* fence: the pad would land in verbatim content *)
+  { discriminate Hsafe. }
+  (* quote: it absorbs the pad, so nothing inside is padded *)
+  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
+    { destruct (step_fuel n rest inner) as [bs inner'] eqn:Ed. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
+    { cbn [close_reopen open_list finish pad_state].
+      destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
+      rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner) eqn:El.
+      { cbn [pad_state]. rewrite (feed_lazy_ws_prefix p l _ Hp). reflexivity. }
+      { cbn [close_reopen open_kind finish pad_state].
+        rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } } }
+  (* list: the one state the pad reaches *)
+  { cbn [pad_safe] in Hsafe.
+    cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    cbn [step_fuel] in Hafter.
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    (* blank: down to the item's contents, arming the loose flag *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_blank. reflexivity. }
+    (* every other kind: the indent test first, then continue or close *)
+    all: cbn [ls_indent]; rewrite (indent_of_ws_prefix p l Hp), ltb_add_mono_l.
+    all: destruct (Nat.ltb (ls_indent ls) (indent_of l)) eqn:Elt.
+    (* thematic *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
+      reflexivity. }
+    (* fence *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
+      reflexivity. }
+    (* quote *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_quote fst snd pad_state].
+      rewrite finish_pad_list. reflexivity. }
+    (* heading *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
+      reflexivity. }
+    (* list marker: sibling item, or a different style *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [ls_marker]. destruct (Ascii.eqb m (ls_marker ls)) eqn:Em.
+      { destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
+        cbn [pad_state]. rewrite pad_list_next. reflexivity. }
+      { destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
+        cbn [close_reopen open_list fst snd pad_state].
+        rewrite finish_pad_list. reflexivity. } }
+    (* text: lazy continuation, or close *)
+    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
+      cbn [snd pad_safe] in Hafter.
+      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
+                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
+      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner) eqn:El.
+      { cbn [pad_state]. rewrite (feed_lazy_ws_prefix p l _ Hp). reflexivity. }
+      { cbn [close_reopen open_kind pad_state].
+        rewrite finish_pad_list, (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. } } }
+Qed.
+
+(** Parsing under an ambient blank pad: the blocks are the same, and the
+    state differs only by the shift of the open list's indent.  The
+    hypotheses say the pad reaches no fence and no nested list, before or
+    after the step. *)
+Theorem step_pad :
+  forall p l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    pad_safe (snd (step l st)) = true ->
+    step (p ++ l) (pad_state (String.length p) st)
+    = (fst (step l st), pad_state (String.length p) (snd (step l st))).
+Proof.
+  intros p l st Hp Hsafe Hafter.
+  assert (Hle1 : S (String.length (p ++ l) + pstate_depth st)
+                 >= S (String.length (p ++ l)
+                       + pstate_depth (pad_state (String.length p) st))).
+  { rewrite pad_state_depth. apply Nat.le_refl. }
+  assert (Hle2 : S (String.length l + pstate_depth st)
+                 <= S (String.length (p ++ l) + pstate_depth st)).
+  { rewrite length_append. lia. }
+  rewrite <- (step_fuel_enough (S (String.length (p ++ l) + pstate_depth st))
+                (p ++ l) (pad_state (String.length p) st) Hle1).
+  rewrite <- (step_fuel_enough (S (String.length (p ++ l) + pstate_depth st))
+                l st Hle2) in Hafter |- *.
+  apply step_fuel_pad; assumption.
+Qed.
+
+(*
 Sanity checks
 =============
 *)
+
+(* Why pad_inner_ok rejects an open list, machine-checked.  A nested list
+   opened on the marker's own line takes its indent from the residue after
+   "- ", which the ambient pad never reaches: the outer list's indent
+   shifts by the pad, the inner one does not.  So no uniform shift
+   describes the state, and step_pad has to exclude the case rather than
+   cover it.  Removing pad_inner_ok's PList case would make step_fuel_pad
+   unprovable, not merely unproven -- this is the counterexample. *)
+Definition outer_indent (st : pstate) : nat :=
+  match st with PList ls _ _ => ls_indent ls | _ => 0 end.
+Definition inner_indent (st : pstate) : nat :=
+  match st with PList _ _ (PList ls _ _) => ls_indent ls | _ => 0 end.
+
+Example pad_nested_list_unshifted :
+  let bare := snd (step "- - a" (PPara [])) in
+  let padded := snd (step "  - - a" (PPara [])) in
+  (outer_indent bare, inner_indent bare) = (0, 0)
+  /\ (outer_indent padded, inner_indent padded) = (2, 0).
+Proof. split; reflexivity. Qed.
+
 
 Example parse_two_paras :
   parse_blocks "hi
