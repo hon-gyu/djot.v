@@ -3,12 +3,13 @@
    agreement per engine and per case.
 
    Usage:
-     main [--engines gallina,djotjs,djoths] [--baseline] [--report FILE]
-          [--verbose] [TEST_FILES...]
+     main [--engines gallina,djotjs,djoths] [--baseline] [--shape]
+          [--report FILE] [--verbose] [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
    two oracles against each other (and against expected output), ignoring
-   the Gallina parser — used to seed .project/oracle-disagreements.md. *)
+   the Gallina parser — used to seed .project/oracle-disagreements.md.
+   --shape compares block structure only; see "Block shape" below. *)
 
 let root =
   (* harness runs from _build/default/harness; walk up to the repo root *)
@@ -90,6 +91,68 @@ Runner
 ======
 *)
 
+(*
+Block shape
+===========
+
+Structure only: keep the block-level tags, drop everything inline.
+
+Why it exists: inline parsing is Phase 3, so most corpus cases mismatch on
+inline content alone.  An exact-HTML diff therefore cannot tell a genuine
+container bug from that expected noise — which is how the nested-list bug
+in .project/oracle-disagreements.md (2026-08-08) survived: its shape is
+absent from the corpus, and would have been invisible in the aggregate
+even if present.  Comparing shapes makes the block layer legible while
+the inline layer is still empty, and is the Phase 2 exit criterion
+("inline content compared as raw text at this stage") brought forward.
+
+Derived from each engine's HTML rather than its AST, so all three engines
+are compared on the same footing with no changes to any of them.  The
+cost is that a construct our renderer stubs out (OrderedList, tables)
+reads as a shape difference — which is honest: we do not render it. *)
+
+let block_tags =
+  [ "p"; "h1"; "h2"; "h3"; "h4"; "h5"; "h6"; "hr"; "blockquote"; "ul"; "ol";
+    "li"; "pre"; "section"; "dl"; "dt"; "dd"; "table"; "tr"; "td"; "th" ]
+
+let shape html =
+  let buf = Buffer.create 256 in
+  let n = String.length html in
+  let i = ref 0 in
+  while !i < n do
+    if html.[!i] = '<' then begin
+      let j = match String.index_from_opt html !i '>' with
+        | Some j -> j
+        | None -> n - 1
+      in
+      let raw = String.sub html (!i + 1) (j - !i - 1) in
+      let closing = String.length raw > 0 && raw.[0] = '/' in
+      let raw =
+        if closing then String.sub raw 1 (String.length raw - 1) else raw
+      in
+      let name =
+        match String.index_opt raw ' ' with
+        | Some k -> String.sub raw 0 k
+        | None -> raw
+      in
+      let name = String.lowercase_ascii (String.trim name) in
+      let name =
+        (* <hr />, <br /> *)
+        if String.length name > 0 && name.[String.length name - 1] = '/'
+        then String.sub name 0 (String.length name - 1)
+        else name
+      in
+      if List.mem name block_tags then
+        Buffer.add_string buf
+          (if closing then "</" ^ name ^ ">" else "<" ^ name ^ ">");
+      i := j + 1
+    end
+    else incr i
+  done;
+  Buffer.contents buf
+
+let shape_mode = ref false
+
 let normalize s =
   (* compare modulo trailing newlines *)
   let n = String.length s in
@@ -102,7 +165,8 @@ let run_case engine (c : Corpus.case) =
   match engine.run c.input with
   | Error e -> EngineError e
   | Ok out ->
-    if normalize out = normalize c.expected then Match else Mismatch out
+    let proj s = if !shape_mode then shape s else normalize s in
+    if proj out = proj c.expected then Match else Mismatch out
 
 let default_files () =
   let dir = root / "djot.js" / "test" in
@@ -129,6 +193,7 @@ let () =
       engines := [ djotjs; djoths ];
       parse_args rest
     | "--report" :: v :: rest -> report := v; parse_args rest
+    | "--shape" :: rest -> shape_mode := true; parse_args rest
     | "--verbose" :: rest -> verbose := true; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
