@@ -7,7 +7,25 @@
    Proof shape, per block: rendering emits lines; split_lines recovers
    them exactly (Strings.v split/join inversion); the parser folds them
    back via its equation lemmas (Parser.v).  Extending to a new construct
-   touches the three case analyses marked below and nothing else. *)
+   touches the three case analyses marked below and nothing else.
+
+   Sections, in dependency order:
+
+     Splitting a rendered document            line shape of a rendering
+     Facts about canonical blocks             cb_ok's consequences
+     Parsing the separated lines, under a pad blocks inside a list item
+     Canonical lists                          the CList case, seven layers
+     Blocks and block sequences               parse_cblock, parse_sep
+     The renderer emits exactly the canonical lines
+     The theorem                              roundtrip_blocks
+     Worked examples                          regression witnesses
+     Above the block layer                    roundtrip_doc
+
+   Lists take two thirds of the file.  A list is the one construct whose
+   parse cannot be stated block-at-a-time, so its section builds its own
+   vocabulary (`run_lines`, `scan_list_content`) before reaching the two
+   lemmas the block layer consumes: `parse_canonical_list_end` and
+   `parse_canonical_list_then_nonlist`. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Parser Document Render.
@@ -498,10 +516,13 @@ Proof.
 Qed.
 
 (*
-Parsing the separated lines
-===========================
+Parsing the separated lines, under a pad
+========================================
 
-Case analysis over the head cblock — extend here for new constructs.
+Case analysis over the head cblock — extend here, and in `parse_cblock`
+below, for new constructs.  This half handles a block sitting inside a
+list item, where every line carries the item's continuation whitespace;
+the unpadded case is `parse_cblock`, after the list machinery.
 *)
 
 (* parse_cblock, generalized by a whitespace pad in front of every line —
@@ -665,6 +686,40 @@ Proof.
 Qed.
 
 
+(*
+Canonical lists
+===============
+
+Everything from here to `parse_cblock` serves the CList case, which is the
+only construct whose rendering the parser cannot absorb one block at a
+time: a list's lines open a container that stays open across items, and
+whether the result is Tight or Loose is decided by blank lines scattered
+through the whole run.  So the proof cannot go through `parse_lines`,
+which finishes at end of input and discards the state.  It threads
+`run_lines` instead, and tracks the open `list_state` explicitly.
+
+The layers below, in dependency order:
+
+  1. `run_lines`             — step a prefix, keep the residual state
+  2. `scan_list_content`     — the same run, projected to the list state
+  3. state algebra           — how that projection composes
+  4. canonical item          — one cb_ok item's lines drive both of the above
+  5. sibling transitions     — item to item, tight and loose
+  6. tail induction          — a run of siblings, tight and loose
+  7. closing                 — the list ends at a blank line plus a non-list
+
+Tight and loose are proved as separate lemma pairs throughout, not by a
+shared lemma over a flag: the tight case must additionally rule out
+`item_forces_loose`, and the loose case renders a different line shape
+(`canonical_loose_tail_lines`).  The pairs are near-identical in tactic
+text; see the note in the section on the tail induction.
+*)
+
+(*
+Running lines without finishing
+-------------------------------
+*)
+
 (** Run a finite line prefix without applying [finish].  List proofs need
     the residual inner state at an item boundary; [parse_lines] deliberately
     hides it by finishing at end of input. *)
@@ -743,6 +798,18 @@ Proof.
   intros A xs x ys tail. induction xs as [|a xs IH];
     [reflexivity|cbn; rewrite IH; reflexivity].
 Qed.
+
+(*
+Projecting a run to the list state
+----------------------------------
+
+`run_lines` on an open list carries a full `pstate`; only the outer
+`list_state` matters for the tight/loose verdict.  `scan_list_content` is
+that projection, defined directly on lines so it can be computed and
+rewritten without unfolding the parser.  `run_lines_list_cont` is the
+bridge: as long as the lines are all continuations, running them agrees
+with scanning them.
+*)
 
 (** The tight/loose state changes made while an already-open canonical
     list consumes continuation lines. *)
@@ -842,6 +909,20 @@ Proof.
                    inner1 rest inner2) by (cbn [list_content]; assumption).
       rewrite rev_app_distr, app_assoc. reflexivity.
 Qed.
+
+(*
+Item content under the continuation pad
+---------------------------------------
+
+A canonical item renders as `- ` on its first line and `bullet_cont` on
+every later one.  The parser sees those padded lines; the item's own
+blocks must parse as if unpadded.  `list_content_safe` (Render.v) is what
+makes that true, by excluding the two constructs a pad would change:
+CCode, whose content is verbatim, and a nested CList, whose marker the pad
+would re-indent.  These lemmas discharge the pad, and expose the shape of
+an item's first line, which decides whether the parser opens a new item or
+continues the current one.
+*)
 
 Lemma step_idle_bullet_cont :
   forall l,
@@ -1022,6 +1103,17 @@ Proof.
   destruct (is_blank l) eqn:Hblank; [|reflexivity].
   exfalso. apply H. apply classify_blank. exact Hblank.
 Qed.
+
+(*
+State algebra of scan_list_content
+----------------------------------
+
+How the projection composes, and what each field of `list_state` does or
+does not depend on.  The recurring shape: `ind`, `marker` and `items` are
+invariant under content lines, `loose` is monotone (once set it stays
+set), and `blanks` is decided by the last line alone.  Everything above
+uses these to avoid re-inducting over `scan_list_content`.
+*)
 
 Lemma scan_list_content_nonblank :
   forall lines ind marker loose items,
@@ -1210,6 +1302,19 @@ Proof.
   - exfalso. apply (Hlist m item). reflexivity.
   - apply scan_list_content_loose.
 Qed.
+
+(*
+One canonical item
+------------------
+
+The first place the render side and the parser side meet.  Render.v
+decides looseness syntactically, per item, with `item_forces_loose` (an
+item forces Loose when it holds more than one block, so its rendering
+contains a blank line).  `scan_item_forces_loose` proves the parser agrees:
+scanning that item's lines sets `ls_loose` exactly when the predicate
+holds.  The rest of the section packages a cb_ok item as a run — its
+lines, the blocks it emits, the state it leaves behind.
+*)
 
 Lemma scan_item_forces_loose :
   forall item a rest,
@@ -1436,6 +1541,19 @@ Proof.
   rewrite app_nil_r in Hparsed. exact Hparsed.
 Qed.
 
+(*
+Item-to-item transitions
+------------------------
+
+A sibling marker arrives while an item is open: the parser closes the
+current item into `ls_items` and opens the next at the same indent and
+marker.  Four lemmas, two axes.  `_tight`/`_loose` differ in the incoming
+`ls_loose` flag and so in the AST the transition accumulates;
+`_canonical_` versions specialize the generic ones to an item that is
+cb_ok, discharging the side conditions from `cb_ok` rather than assuming
+them.
+*)
+
 Lemma run_list_sibling_tight :
   forall item a rest bs st ls next head inner,
     forallb list_content_safe item = true ->
@@ -1656,6 +1774,26 @@ Proof.
        rewrite rev_app_distr. cbn [app] in Hall. exact Hall.
   Unshelve. all: assumption.
 Qed.
+
+(*
+The run of siblings
+-------------------
+
+Induction over the remaining items, tight and loose, in two forms:
+`parse_canonical_list_tail_*` for a list that ends the input, and
+`run_canonical_list_tail_*` for one that has to hand a state back to the
+caller.  Both consume `canonical_item_lines` per item; the separator
+between them is the only difference between the flavors, so the loose case
+gets its own line function (`canonical_loose_tail_lines`).
+
+The tight and loose proofs are near-identical tactic text and are the most
+obvious duplication in the file.  Collapsing them wants a record holding
+the flavor's line function, its `ls_loose` value, and its per-item side
+condition (`item_forces_loose = false` in the tight case, nothing in the
+loose one) — not a bare boolean, which would leave the side condition
+dangling.  Not worth doing until the state invariants below have settled
+names.
+*)
 
 Definition canonical_item_lines (item : list cblock) : list string :=
   indent_lines bullet_open bullet_cont (sep_lines (map cb_lines item)).
@@ -1998,6 +2136,22 @@ Proof.
       rewrite Hnext, app_comm_cons, run_lines_app, Hprefix. cbn [app].
       unfold canonical_item_ast in Htail |- *. rewrite Htail. reflexivity.
 Qed.
+
+(*
+Closing the list
+----------------
+
+The last step, and the one that constrains the canonical form.  A list
+ends at a blank line followed by a line that opens something else; the
+blank alone is not enough, since a blank inside a list only sets `loose`.
+That is why `cblocks_ok` forbids two adjacent CLists: with only canonical
+renderings to look at, a blank line between two lists is indistinguishable
+from a blank line inside one, so the boundary is not recoverable and the
+roundtrip would be false rather than merely unproven.
+
+The four lemmas below are generic support the closing proofs happen to
+need; they belong to no layer in particular.
+*)
 
 Lemma negb_existsb_forallb_negb :
   forall {A : Type} (f : A -> bool) xs,
@@ -2494,6 +2648,11 @@ Proof.
         Hnonlist Hnextok Hnextlines).
       unfold canonical_item_ast in Hitems |- *. rewrite Hitems. reflexivity.
 Qed.
+
+(*
+Blocks and block sequences
+==========================
+*)
 
 (* Half two, per block: feeding a canonical block's lines re-emits it and
    returns the parser to idle, whether a blank line follows (the
