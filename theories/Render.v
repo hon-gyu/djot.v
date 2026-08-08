@@ -338,6 +338,30 @@ Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
       end
   end.
 
+(* Regression: the recursive call slides by one block, so every adjacent
+   pair is tested.  Recursing on the tail *after* c2 instead would test
+   pairs 1-2, 3-4, ... and miss the offending pair in the third example.
+   Three blocks is the shortest input that tells the two apart. *)
+Section NoAdjacentListsTests.
+  Let l : cblock := CList Tight [[CPara ["a"]]].
+  Let p : cblock := CPara ["p"].
+
+  Example no_adjacent_lists_pair : no_adjacent_lists [l; l] = false.
+  Proof. reflexivity. Qed.
+
+  Example no_adjacent_lists_separated : no_adjacent_lists [l; p; l] = true.
+  Proof. reflexivity. Qed.
+
+  Example no_adjacent_lists_second_pair : no_adjacent_lists [p; l; l] = false.
+  Proof. reflexivity. Qed.
+
+  Example no_adjacent_lists_run : no_adjacent_lists [l; l; l] = false.
+  Proof. reflexivity. Qed.
+
+  Example no_adjacent_lists_singleton : no_adjacent_lists [l] = true.
+  Proof. reflexivity. Qed.
+End NoAdjacentListsTests.
+
 (* The first line an item renders to — what a marker ends up glued onto.
    Nonempty whenever the item's own first cblock is cb_ok (every
    construct's cb_lines is nonempty then), which is what list_ok assumes
