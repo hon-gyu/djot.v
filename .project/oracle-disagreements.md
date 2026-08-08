@@ -1,3 +1,6 @@
+---
+ai-disclosure: autonomous
+---
 # Oracle disagreements
 
 Append-only adjudication log: cases where djoths's output differs from
