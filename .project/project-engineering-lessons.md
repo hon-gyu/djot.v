@@ -22,35 +22,6 @@ dated notes or in other files. It also has be to related to general decision mak
 
 Each entry: what happened (historical account), the general form, what to do instead.
 
----
-
-## Estimate from invariants, not from diffs
-
-**What happened.** Threading a column offset through `step_fuel`
-(`954bcd1`) was estimated three times. First "8 call sites", from counting
-references to the six changed lemmas. Then "a reformulation of ~60
-lemmas", from counting the 39 `bullet_cont ++` occurrences whose meaning
-the change altered. Both were wrong. The real cost was five lemmas gaining
-one hypothesis.
-
-**Why.** Both estimates measured the *diff* — how many places textually
-mention the changed thing. The question that decides the cost is: **which
-invariants actually carry the thing that changed?** Only `PList` records a
-column. Every other state is fixed by the shift, so the change was
-invisible to almost all of the code that mentioned it. Better still, an
-existing predicate (`list_content_safe`, which excludes `CList` for
-unrelated reasons) already guaranteed the condition, so it cost a
-hypothesis rather than a proof.
-
-**What to do instead.** Before estimating a change to a definition, ask
-which fields of which states it can reach, and which existing predicates
-already constrain those. Grep counts are an upper bound that is usually
-wildly loose in a proof codebase, because most lemmas are generic in the
-part you are changing. If the estimate and the invariant disagree, the
-invariant is right.
-
----
-
 ## Probe a theorem's shape before proposing it
 
 **What happened.** A padding-simulation theorem was proposed on the
@@ -72,8 +43,6 @@ boundary than a paragraph of prose. (`pad_nested_list_unshifted` was such
 an example, and its deletion when the bug was fixed was the confirmation
 that the fix was real.)
 
----
-
 ## Ask the oracle; do not reason about what djot "should" do
 
 **What happened.** `feed_lazy` kept a lazy continuation line's leading
@@ -92,8 +61,6 @@ an oracle run before it gets an argument. If the two oracles disagree,
 that is an `oracle-disagreements.md` entry, not a judgement call. If both
 agree and we differ, we are wrong — that is how the nested-list bug was
 adjudicated.
-
----
 
 ## Coverage, not granularity, is what catches structural bugs
 
