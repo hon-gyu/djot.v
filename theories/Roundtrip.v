@@ -924,35 +924,20 @@ an item's first line, which decides whether the parser opens a new item or
 continues the current one.
 *)
 
+(* A continuation pad is a two-column shift, nothing more.  Parser.step_pad
+   says this for any blank prefix and any fence-free state; the old form of
+   this lemma claimed the padded and unpadded steps were *equal*, which the
+   column offset makes false -- a list or quote opened on the padded line
+   records its column two further right. *)
 Lemma step_idle_bullet_cont :
-  forall l,
-    (forall m rest, classify l <> KList m rest) ->
-    step (bullet_cont ++ l) (PPara []) = step l (PPara []).
+  forall l st,
+    pad_safe st = true ->
+    step (bullet_cont ++ l) st = step_at 2 l st.
 Proof.
-  intros l Hnot.
-  destruct (classify l) as [| |f|q|lvl txt|m rest|] eqn:Hclass.
-  - assert (Hp : classify (bullet_cont ++ l) = KBlank)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
-  - assert (Hp : classify (bullet_cont ++ l) = KThematic)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
-  - assert (Hp : classify (bullet_cont ++ l) = KFence f)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
-  - destruct (step q (PPara [])) as [bs inner] eqn:Hq.
-    assert (Hp : classify (bullet_cont ++ l) = KQuote q)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_quote_open _ _ _ _ Hp Hq), (step_quote_open _ _ _ _ Hclass Hq).
-    reflexivity.
-  - assert (Hp : classify (bullet_cont ++ l) = KHeading lvl txt)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
-  - exfalso. apply (Hnot m rest). reflexivity.
-  - assert (Hp : classify (bullet_cont ++ l) = KText)
-      by (rewrite classify_bullet_cont; exact Hclass).
-    rewrite (step_idle _ _ Hp eq_refl), (step_idle _ _ Hclass eq_refl). reflexivity.
+  intros l st Hsafe.
+  exact (step_pad bullet_cont l st bullet_cont_blank Hsafe).
 Qed.
+
 
 Lemma run_lines_first_unpadded :
   forall a rest,
@@ -961,7 +946,9 @@ Lemma run_lines_first_unpadded :
     = run_lines (map (fun l => (bullet_cont ++ l)%string) (a :: rest)) (PPara []).
 Proof.
   intros a rest Hnot. cbn [map run_lines].
-  rewrite step_idle_bullet_cont by exact Hnot. reflexivity.
+  rewrite (step_idle_bullet_cont a (PPara []) eq_refl), step_at_idle.
+  destruct (step a (PPara [])) as [bs st'] eqn:Ea. cbn [fst snd].
+  reflexivity.
 Qed.
 
 Lemma safe_cblock_first :
