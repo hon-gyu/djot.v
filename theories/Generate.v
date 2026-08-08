@@ -133,49 +133,24 @@ Example nested_loose_outer_loose_roundtrips :
 Proof. reflexivity. Qed.
 
 (*
-List-item uniformity, probed
+List-item uniformity applies
 ============================
 
-`quote_uniformity` (Parser.v) says a quote's contents parse exactly as
-they would at top level: one theorem, every construct, no
-well-formedness hypothesis.  The list analogue has never been stated.
-What follows is the statement and its evidence; the theorem itself is
-not proved yet.
+`Parser.list_item_uniformity` is proved, so the roundtrip no longer has
+to reason about an item's contents: they are a top-level parse.  What is
+left to check by computation is that its hypotheses are *satisfiable* --
+that real canonical renderings clear them -- since a theorem whose side
+conditions never hold would prove nothing about this fragment.
 
-    parse_lines (indent_lines "- " "  " L) (PPara [])
-      = [mk (BulletList (item_spacing L) [parse_lines L (PPara [])])]
-
-The *contents* are uniform unconditionally.  Only the tight/loose bit
-depends on L, and it is a line-level scan, not a property of the block
-tree -- which is why `item_forces_loose`, which reads the tree, cannot
-express it: the tree has lost where the blanks sit relative to the
-markers.
-
-Two side conditions, both already known and both independent of nesting:
-no fence in L (fence content is verbatim and keeps the ambient indent),
-and `bullet_open ++ first line of L` must not itself be a thematic
-break.
+The hypotheses are the marker line not forming a thematic break, and
+`run_pad_safe`, which says no fence is open directly inside the item.
+Neither mentions nesting, which is the point: nested lists clear them
+exactly as flat content does.
 *)
 
-(* Loose exactly when some blank run is followed by a line that does not
-   open a list.  This is Parser.list_content's `KList` exemption, read
-   off the lines instead of off the event stream. *)
-Fixpoint lines_loose (gap : bool) (ls : list string) : bool :=
-  match ls with
-  | [] => false
-  | l :: rest =>
-      match classify l with
-      | KBlank => lines_loose true rest
-      | KList _ _ => lines_loose false rest
-      | _ => if gap then true else lines_loose false rest
-      end
-  end.
-
-Definition item_spacing (L : list string) : list_spacing :=
-  if lines_loose false L then Loose else Tight.
-
-(* `list_content_safe` without its `CList` case, which is the ban the
-   uniformity statement is meant to make unnecessary. *)
+(* `list_content_safe` without its `CList` case -- the ban the uniformity
+   theorem makes unnecessary.  `CCode` stays out: fence content is
+   verbatim, which is what `run_pad_safe` rules out. *)
 Fixpoint no_fence (cb : cblock) : bool :=
   let go := fix go (cs : list cblock) : bool :=
     match cs with [] => true | c :: rest => (no_fence c && go rest)%bool end in
@@ -189,26 +164,31 @@ Fixpoint no_fence (cb : cblock) : bool :=
 Definition ok_content (c : cblock) : bool := (no_fence c && item_marker_ok [c])%bool.
 
 (* Every generated block's rendering, plus every two-block sequence's:
-   1716 line sets, including the nested-list shapes `cb_ok` still
-   rejects. *)
+   1716 line sets, including the nested-list shapes `cb_ok` rejects. *)
 Definition item_pool : list (list string) :=
   (map cb_lines (filter ok_content (enum_cblock 2))
    ++ map (fun cs => sep_lines (map cb_lines cs))
         (filter (forallb ok_content) (seqs (filter ok_content (enum_cblock 1)))))%list.
 
-Example uniformity_sweep :
-  map (fun L => parse_lines (indent_lines bullet_open bullet_cont L) (PPara [])) item_pool
-  = map (fun L => [mk (BulletList (item_spacing L) [parse_lines L (PPara [])])]) item_pool.
+Definition uniformity_hyps (L : list string) : bool :=
+  match L with
+  | [] => false
+  | l0 :: rest =>
+      (negb (is_thematic (bullet_open ++ l0))
+       && run_pad_safe rest (snd (step l0 (PPara []))))%bool
+  end.
+
+Example uniformity_applies : forallb uniformity_hyps item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* The four line sets that pin the spacing rule's shape.  A gap before a
-   list marker does not loosen; a gap before anything else does; blank
-   runs collapse. *)
-Example spacing_gap_then_text : item_spacing ["a"; ""; "t"] = Loose.
+(* The spacing rule the theorem carries, on the cases that pin its shape:
+   a gap before a list marker does not loosen, a gap before anything else
+   does, and blank runs collapse. *)
+Example spacing_gap_then_text : lines_loose false false [""; "t"] = true.
 Proof. reflexivity. Qed.
-Example spacing_gap_then_list : item_spacing ["a"; ""; "- b"] = Tight.
+Example spacing_gap_then_list : lines_loose false false [""; "- b"] = false.
 Proof. reflexivity. Qed.
-Example spacing_gaps_then_list : item_spacing ["a"; ""; ""; "- b"] = Tight.
+Example spacing_gaps_then_list : lines_loose false false [""; ""; "- b"] = false.
 Proof. reflexivity. Qed.
-Example spacing_nested_gap : item_spacing ["- a"; ""; "  t"] = Loose.
+Example spacing_nested_gap : lines_loose false false [""; "  t"] = true.
 Proof. reflexivity. Qed.

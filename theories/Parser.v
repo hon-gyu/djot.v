@@ -1769,6 +1769,357 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.
+(*
+Running lines without finishing
+-------------------------------
+*)
+
+(** Run a finite line prefix without applying [finish].  List proofs need
+    the residual inner state at an item boundary; [parse_lines] deliberately
+    hides it by finishing at end of input. *)
+Fixpoint run_lines (lines : list string) (st : pstate) : blocks * pstate :=
+  match lines with
+  | [] => ([], st)
+  | l :: rest =>
+      let '(bs, st') := step l st in
+      let '(more, st'') := run_lines rest st' in
+      ((bs ++ more)%list, st'')
+  end.
+
+Lemma run_lines_app :
+  forall xs ys st,
+    run_lines (xs ++ ys)%list st =
+      let '(bs, st') := run_lines xs st in
+      let '(more, st'') := run_lines ys st' in
+      ((bs ++ more)%list, st'').
+Proof.
+  induction xs as [|x xs IH]; intros ys st.
+  - cbn [app run_lines]. destruct (run_lines ys st). reflexivity.
+  -
+  cbn [run_lines app]. destruct (step x st) as [head st1].
+  rewrite (IH ys st1).
+  destruct (run_lines xs st1) as [middle st2].
+  destruct (run_lines ys st2) as [tail st3].
+  rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma run_lines_continue :
+  forall xs ys st head middle tail final,
+    run_lines xs st = (head, middle) ->
+    run_lines ys middle = (tail, final) ->
+    run_lines (xs ++ ys)%list st = ((head ++ tail)%list, final).
+Proof.
+  intros xs ys st head middle tail final Hxs Hys.
+  rewrite run_lines_app, Hxs, Hys. reflexivity.
+Qed.
+
+Lemma parse_lines_run :
+  forall lines st bs st',
+    run_lines lines st = (bs, st') ->
+    parse_lines lines st = (bs ++ finish st')%list.
+Proof.
+  induction lines as [|l lines IH]; intros st bs st' Hrun.
+  - cbn [run_lines] in Hrun. inversion Hrun. reflexivity.
+  - cbn [run_lines] in Hrun.
+    destruct (step l st) as [head st1] eqn:Hstep.
+    destruct (run_lines lines st1) as [rest st2] eqn:Hrest.
+    inversion Hrun; subst bs st'.
+    rewrite (parse_lines_step _ _ _ _ _ Hstep), (IH _ _ _ Hrest).
+    rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma parse_lines_app_run :
+  forall xs ys st,
+    parse_lines (xs ++ ys)%list st =
+      let '(bs, st') := run_lines xs st in
+      (bs ++ parse_lines ys st')%list.
+Proof.
+  induction xs as [|x xs IH]; intros ys st.
+  - cbn [run_lines]. reflexivity.
+  - cbn [app parse_lines].
+    destruct (step x st) as [head st1] eqn:Hstep.
+    rewrite (IH ys st1).
+    cbn [run_lines]. rewrite Hstep.
+    destruct (run_lines xs st1) as [rest st2].
+    rewrite app_assoc. reflexivity.
+Qed.
+
+Lemma app_cons_app :
+  forall {A : Type} (xs : list A) x ys tail,
+    ((xs ++ (x :: ys)) ++ tail)%list =
+    (xs ++ (x :: (ys ++ tail)))%list.
+Proof.
+  intros A xs x ys tail. induction xs as [|a xs IH];
+    [reflexivity|cbn; rewrite IH; reflexivity].
+Qed.
+
+(*
+Projecting a run to the list state
+----------------------------------
+
+`run_lines` on an open list carries a full `pstate`; only the outer
+`list_state` matters for the tight/loose verdict.  `scan_list_content` is
+that projection, defined directly on lines so it can be computed and
+rewritten without unfolding the parser.  `run_lines_list_cont` is the
+bridge: as long as the lines are all continuations, running them agrees
+with scanning them.
+*)
+
+(** The tight/loose state changes made while an already-open canonical
+    list consumes continuation lines. *)
+Fixpoint scan_list_content (ls : list_state) (lines : list string) : list_state :=
+  match lines with
+  | [] => ls
+  | l :: rest =>
+      let ls' :=
+        match classify l with
+        | KBlank => list_blank ls
+        | k => list_content ls k
+        end in
+      scan_list_content ls' rest
+  end.
+
+Lemma run_lines_list_cont :
+  forall lines ls done inner bs inner',
+    ls_indent ls = 0 ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) lines) inner =
+      (bs, inner') ->
+    run_lines (map (fun l => (bullet_cont ++ l)%string) lines)
+      (PList ls done inner)
+    = ([], PList (scan_list_content ls lines) (rev bs ++ done)%list inner').
+Proof.
+  induction lines as [|l lines IH]; intros ls done inner bs inner' Hind Hrun.
+  - cbn [map run_lines] in Hrun |- *. inversion Hrun; subst. reflexivity.
+  - cbn [map run_lines] in Hrun |- *.
+    destruct (step (bullet_cont ++ l) inner) as [head inner1] eqn:Hstep.
+    destruct (run_lines (map (fun l0 => bullet_cont ++ l0) lines) inner1)
+      as [rest inner2] eqn:Hrest.
+    inversion Hrun; subst bs inner'.
+    destruct (classify l) as [| |f|q|lvl txt|m item|] eqn:Hclass.
+    + rewrite (step_list_blank (bullet_cont ++ l) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_blank ls) (rev head ++ done)%list inner1 rest inner2).
+      * rewrite rev_app_distr, app_assoc. reflexivity.
+      * cbn [list_blank]. exact Hind.
+      * exact Hrest.
+    + rewrite (step_list_indented (bullet_cont ++ l) KThematic ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls KThematic) (rev head ++ done)%list
+                   inner1 rest inner2).
+      * rewrite rev_app_distr, app_assoc. reflexivity.
+      * cbn [list_content]. exact Hind.
+      * exact Hrest.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KFence f) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KFence f)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KQuote q) ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KQuote q)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KHeading lvl txt)
+                 ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KHeading lvl txt)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) (KList m item)
+                 ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls (KList m item)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented (bullet_cont ++ l) KText ls done inner head inner1).
+      2: { rewrite classify_bullet_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_bullet_cont. reflexivity. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass.
+      rewrite (IH (list_content ls KText) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
+Qed.
+
+(*
+List-item uniformity
+--------------------
+
+The list analogue of `quote_uniformity`: an item's contents parse
+exactly as they would at top level.  Two differences from the quote
+case, and both are real rather than artefacts of the proof.
+
+A quote repeats its prefix on every line, so the parser re-derives the
+descent line by line.  An item's continuation is plain whitespace, so
+the descent is a *column shift* instead: `step_pad_shift` is that
+statement for one line, `run_lines_pad_shift` for a run.  The shift is
+what makes nesting free -- a list opened inside an item records a column
+two further right, and nothing else changes.
+
+The tight/loose bit is the one thing that is *not* uniform, and
+`lines_loose` is where it lives.  It is a scan of the lines, not a
+function of the parsed tree: a blank line loosens the enclosing list
+unless the next non-blank line opens a list.  A renderer-side predicate
+that reads the block tree cannot express this, because the tree does not
+record where the blanks sit relative to the markers.
+*)
+
+(* Padding is a shift of the state, not a no-op: the general form of
+   `step_pad_flat`, with no `no_columns` side condition, so an item whose
+   content opens a list is covered too. *)
+Lemma pad_safe_pad_state :
+  forall k st, pad_safe (pad_state k st) = pad_safe st.
+Proof.
+  intros k st. induction st as [| | |done inner IH|ls done inner IH];
+    cbn [pad_state pad_safe]; try reflexivity. exact IH.
+Qed.
+
+Lemma step_pad_shift :
+  forall p l st,
+    is_blank p = true -> pad_safe st = true ->
+    step (p ++ l) (pad_state (String.length p) st)
+    = (fst (step l st), pad_state (String.length p) (snd (step l st))).
+Proof.
+  intros p l st Hp Hsafe.
+  rewrite (step_pad p l (pad_state (String.length p) st) Hp)
+    by (rewrite pad_safe_pad_state; exact Hsafe).
+  rewrite <- (Nat.add_0_r (String.length p)) at 1.
+  rewrite step_at_shift, step_at_zero. reflexivity.
+Qed.
+
+(* `pad_safe` along a whole run.  This is the theorem's only side
+   condition beyond the marker line, and it says exactly "no fence is
+   open directly inside the item" -- fence content is verbatim, so a pad
+   in front of it is not a shift. *)
+Fixpoint run_pad_safe (lines : list string) (st : pstate) : bool :=
+  match lines with
+  | [] => pad_safe st
+  | l :: rest => (pad_safe st && run_pad_safe rest (snd (step l st)))%bool
+  end.
+
+Lemma run_lines_pad_shift :
+  forall p lines st,
+    is_blank p = true ->
+    run_pad_safe lines st = true ->
+    run_lines (map (fun l => (p ++ l)%string) lines) (pad_state (String.length p) st)
+    = (fst (run_lines lines st), pad_state (String.length p) (snd (run_lines lines st))).
+Proof.
+  intros p lines. induction lines as [|l rest IH]; intros st Hp Hsafe.
+  - reflexivity.
+  - cbn [map run_lines] in *.
+    apply andb_prop in Hsafe as [Hnow Hlater].
+    rewrite (step_pad_shift p l st Hp Hnow).
+    destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
+    rewrite (IH st' Hp Hlater).
+    destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
+Qed.
+
+Lemma consumed_bullet_open : forall l, consumed (bullet_open ++ l) l = 2.
+Proof.
+  intros l. unfold consumed, bullet_open. rewrite length_append.
+  cbn [String.length]. lia.
+Qed.
+
+(* The marker line, with the item's residue parsed at column 2. *)
+Lemma step_item_open :
+  forall l0,
+    is_thematic (bullet_open ++ l0) = false ->
+    step (bullet_open ++ l0) (PPara [])
+    = ([], PList (LSt 0 "-"%char false false [])
+            (rev (fst (step l0 (PPara []))))
+            (pad_state 2 (snd (step l0 (PPara []))))).
+Proof.
+  intros l0 Hth.
+  destruct (step l0 (PPara [])) as [bs inner] eqn:Es. cbn [fst snd].
+  rewrite (step_list_open _ _ _ _ _ (classify_bullet_open l0 Hth) Es).
+  rewrite indent_of_bullet_open, consumed_bullet_open. reflexivity.
+Qed.
+
+(** The tight/loose verdict, read off the lines.  A blank arms the flag;
+    a line that opens a list spends it without loosening (djot.js's
+    `+list` exemption); anything else spends it and loosens. *)
+Fixpoint lines_loose (loose gap : bool) (ls : list string) : bool :=
+  match ls with
+  | [] => loose
+  | l :: rest =>
+      match classify l with
+      | KBlank => lines_loose loose true rest
+      | KList _ _ => lines_loose loose false rest
+      | _ => lines_loose (loose || gap)%bool false rest
+      end
+  end.
+
+Lemma scan_loose_eq :
+  forall lines ls,
+    ls_loose (scan_list_content ls lines)
+    = lines_loose (ls_loose ls) (ls_blanks ls) lines.
+Proof.
+  induction lines as [|l rest IH]; intros ls; [reflexivity|].
+  cbn [scan_list_content lines_loose].
+  destruct (classify l) eqn:E; rewrite IH; reflexivity.
+Qed.
+
+Lemma scan_items_eq :
+  forall lines ls, ls_items (scan_list_content ls lines) = ls_items ls.
+Proof.
+  induction lines as [|l rest IH]; intros ls; [reflexivity|].
+  cbn [scan_list_content]. destruct (classify l) eqn:E; rewrite IH; reflexivity.
+Qed.
+
+(** Uniformity for list items: an item's contents parse exactly as they
+    would at top level, and the enclosing list's spacing is a scan of
+    those same lines.  One proof, every construct -- including a nested
+    list, which is why this subsumes the per-depth list reasoning. *)
+Theorem list_item_uniformity :
+  forall l0 rest,
+    is_thematic (bullet_open ++ l0) = false ->
+    run_pad_safe rest (snd (step l0 (PPara []))) = true ->
+    parse_lines ((bullet_open ++ l0)
+                 :: map (fun l => (bullet_cont ++ l)%string) rest) (PPara [])
+    = [mk (BulletList (if lines_loose false false rest then Loose else Tight)
+             [parse_lines (l0 :: rest) (PPara [])])].
+Proof.
+  intros l0 rest Hth Hsafe.
+  rewrite (parse_lines_step _ _ _ _ _ (step_item_open l0 Hth)). cbn [app].
+  set (bs0 := fst (step l0 (PPara []))).
+  set (inner0 := snd (step l0 (PPara []))).
+  pose proof (run_lines_pad_shift bullet_cont rest inner0 eq_refl Hsafe) as Hrun.
+  rewrite (parse_lines_run _ _ _ _ (surjective_pairing _)).
+  rewrite (run_lines_list_cont rest (LSt 0 "-"%char false false []) (rev bs0)
+             (pad_state 2 inner0) _ _ eq_refl Hrun).
+  cbn [fst snd app finish].
+  rewrite pad_state_finish, scan_items_eq, scan_loose_eq.
+  cbn [ls_loose ls_blanks ls_items rev].
+  rewrite rev_app_distr, !rev_involutive.
+  unfold bs0, inner0. cbn [parse_lines].
+  destruct (step l0 (PPara [])) as [b i] eqn:Es. cbn [fst snd app].
+  rewrite (parse_lines_run rest i _ _ (surjective_pairing _)), app_assoc.
+  reflexivity.
+Qed.
+
 
 (*
 Sanity checks
