@@ -253,7 +253,14 @@ Definition list_next (ls : list_state) (item : blocks) (rest : string)
    strictly shorter — so the line's own length is always enough fuel.
    `step` below fixes it there, and `step_fuel_enough` retires it, so no
    downstream statement mentions fuel. *)
-Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
+(* Columns a container prefix ate before handing down its residue.  The
+   parser measures indentation in the original line's coordinates, so a
+   nested marker's column survives the descent -- see the nested-list
+   entry in .project/oracle-disagreements.md. *)
+Definition consumed (l rest : string) : nat :=
+  String.length l - String.length rest.
+
+Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
   : blocks * pstate :=
   match n with
   | O => ([], st)                     (* unreachable from step *)
@@ -269,9 +276,10 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
       | PPara [] =>
           (* Idle: nothing to close, so the line just opens its block. *)
           match classify l with
-          | KQuote rest => open_quote (step_fuel n' rest (PPara []))
+          | KQuote rest => open_quote (step_fuel n' (off + consumed l rest) rest (PPara []))
           | KList m rest =>
-              open_list (indent_of l) m (step_fuel n' rest (PPara []))
+              open_list (off + indent_of l) m
+                (step_fuel n' (off + consumed l rest) rest (PPara []))
           | k => open_kind l k
           end
       | PPara (c :: cur') =>
@@ -291,10 +299,11 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
           | KText => ([], PHeading lvl (drop_leading_ws l :: cur))
           | KQuote rest =>
               close_reopen (PHeading lvl cur)
-                (open_quote (step_fuel n' rest (PPara [])))
+                (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
           | KList m rest =>
               close_reopen (PHeading lvl cur)
-                (open_list (indent_of l) m (step_fuel n' rest (PPara [])))
+                (open_list (off + indent_of l) m
+                   (step_fuel n' (off + consumed l rest) rest (PPara [])))
           | k => close_reopen (PHeading lvl cur) (open_kind l k)
           end
       | PQuote done inner =>
@@ -302,11 +311,12 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
           | KQuote rest =>
               (* continue: descend into the quote already open, keeping
                  what it has closed so far *)
-              let (bs, inner') := step_fuel n' rest inner in
+              let (bs, inner') := step_fuel n' (off + consumed l rest) rest inner in
               ([], PQuote (rev bs ++ done)%list inner')
           | KList m rest =>
               close_reopen (PQuote done inner)
-                (open_list (indent_of l) m (step_fuel n' rest (PPara [])))
+                (open_list (off + indent_of l) m
+                   (step_fuel n' (off + consumed l rest) rest (PPara [])))
           | k =>
               if is_lazy k inner
               then ([], PQuote done (feed_lazy l inner))
@@ -318,10 +328,10 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
               (* a blank arms the loose flag but closes nothing: it goes
                  to the item's contents, where it ends any open
                  paragraph *)
-              let (bs, inner') := step_fuel n' l inner in
+              let (bs, inner') := step_fuel n' off l inner in
               ([], PList (list_blank ls) (rev bs ++ done)%list inner')
           | k =>
-              if Nat.ltb (ls_indent ls) (indent_of l)
+              if Nat.ltb (ls_indent ls) (off + indent_of l)
               then
                 (* indented past the marker: contents of the current
                    item.  The line is passed down unchanged — every
@@ -329,7 +339,7 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
                    structure is right; what the extra indent still costs
                    is inline and verbatim text, the same open indentation
                    gap quotes and headings have. *)
-                let (bs, inner') := step_fuel n' l inner in
+                let (bs, inner') := step_fuel n' off l inner in
                 ([], PList (list_content ls k) (rev bs ++ done)%list inner')
               else
                 match k with
@@ -339,16 +349,17 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
                       (* a sibling item: close the current one, open the
                          next around the rest of the line *)
                       let item := (rev done ++ finish inner)%list in
-                      let (bs, inner') := step_fuel n' rest (PPara []) in
+                      let (bs, inner') :=
+                        step_fuel n' (off + consumed l rest) rest (PPara []) in
                       ([], PList (list_next ls item rest) (rev bs) inner')
                     else
                       (* a different bullet style is a different list *)
                       close_reopen (PList ls done inner)
-                        (open_list (indent_of l) m
-                           (step_fuel n' rest (PPara [])))
+                        (open_list (off + indent_of l) m
+                           (step_fuel n' (off + consumed l rest) rest (PPara [])))
                 | KQuote rest =>
                     close_reopen (PList ls done inner)
-                      (open_quote (step_fuel n' rest (PPara [])))
+                      (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
                 | _ =>
                     if is_lazy k inner
                     then ([], PList ls done (feed_lazy l inner))
@@ -364,7 +375,7 @@ Fixpoint step_fuel (n : nat) (l : string) (st : pstate) {struct n}
    decreases and this much fuel is always enough — `step_fuel_enough`
    retires it, and no statement outside this file mentions it. *)
 Definition step (l : string) (st : pstate) : blocks * pstate :=
-  step_fuel (S (String.length l + pstate_depth st)) l st.
+  step_fuel (S (String.length l + pstate_depth st)) 0 l st.
 
 (* The parser: fold the transition over the lines, then close the stack.
    Structurally recursive on `lines`, so it always terminates and proofs
@@ -402,11 +413,12 @@ line's length gives the same answer, so `step` can fix it and no
 downstream statement ever mentions it. *)
 
 Lemma step_fuel_stable :
-  forall bound n l st,
+  forall bound n off l st,
     n <= bound -> S (String.length l + pstate_depth st) <= n ->
-    step_fuel n l st = step_fuel (S (String.length l + pstate_depth st)) l st.
+    step_fuel n off l st
+    = step_fuel (S (String.length l + pstate_depth st)) off l st.
 Proof.
-  induction bound as [|bound IH]; intros n l st Hb Hn; [lia|].
+  induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel].
   destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
@@ -416,13 +428,13 @@ Proof.
     + destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
       * pose proof (classify_quote_length _ _ E) as Hlt.
         cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-        rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
-        rewrite (IH (String.length l) rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         reflexivity.
       * pose proof (classify_list_length _ _ _ E) as Hlt.
         cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-        rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
-        rewrite (IH (String.length l) mr (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
         reflexivity.
     + destruct (classify l); reflexivity.
   - (* an open heading: the quote and list branches recurse *)
@@ -430,25 +442,25 @@ Proof.
     destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
     + pose proof (classify_quote_length _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-      rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l) rest (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
       reflexivity.
     + pose proof (classify_list_length _ _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-      rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l) mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
       reflexivity.
   - destruct (fence_close f l); reflexivity.
   - (* inside a quote: continuing descends with the same inner state *)
     cbn [pstate_depth] in Hn |- *.
     destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E; try reflexivity.
     + pose proof (classify_quote_length _ _ E) as Hlt.
-      rewrite (IH n' rest inner) by lia.
-      rewrite (IH (String.length l + S (pstate_depth inner)) rest inner) by lia.
+      rewrite (IH n' _ rest inner) by lia.
+      rewrite (IH (String.length l + S (pstate_depth inner)) _ rest inner) by lia.
       reflexivity.
     + pose proof (classify_list_length _ _ _ E) as Hlt.
-      rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l + S (pstate_depth inner)) mr (PPara []))
+      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l + S (pstate_depth inner)) _ mr (PPara []))
         by (cbn [pstate_depth]; lia).
       reflexivity.
   - (* inside a list: an item's contents keep the line and drop a level *)
@@ -456,42 +468,344 @@ Proof.
     destruct (classify l) as [| |g|rest|kl kr|m mr|] eqn:E.
     6: { (* a bullet marker: a sibling item, or a list of another style *)
       pose proof (classify_list_length _ _ _ E) as Hlt.
-      destruct (Nat.ltb (ls_indent ls) (indent_of l)).
-      - rewrite (IH n' l inner) by lia.
-        rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      - rewrite (IH n' _ l inner) by lia.
+        rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
       - destruct (Ascii.eqb m (ls_marker ls));
-          rewrite (IH n' mr (PPara [])) by (cbn [pstate_depth]; lia);
-          rewrite (IH (String.length l + S (pstate_depth inner)) mr (PPara []))
+          rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia);
+          rewrite (IH (String.length l + S (pstate_depth inner)) _ mr (PPara []))
             by (cbn [pstate_depth]; lia);
           reflexivity. }
     1: { (* a blank line goes to the item's contents *)
-      rewrite (IH n' l inner) by lia.
-      rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+      rewrite (IH n' _ l inner) by lia.
+      rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
       reflexivity. }
     3: { (* an unindented quote closes the list and opens outside it *)
-      destruct (Nat.ltb (ls_indent ls) (indent_of l)).
-      - rewrite (IH n' l inner) by lia.
-        rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia.
+      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      - rewrite (IH n' _ l inner) by lia.
+        rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
       - pose proof (classify_quote_length _ _ E) as Hlt.
-        rewrite (IH n' rest (PPara [])) by (cbn [pstate_depth]; lia).
-        rewrite (IH (String.length l + S (pstate_depth inner)) rest (PPara []))
+        rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l + S (pstate_depth inner)) _ rest (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity. }
     (* every other kind: contents of the item when indented past the
        marker, and otherwise nothing that recurses *)
-    all: destruct (Nat.ltb (ls_indent ls) (indent_of l));
-         [ rewrite (IH n' l inner) by lia;
-           rewrite (IH (String.length l + S (pstate_depth inner)) l inner) by lia;
+    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l));
+         [ rewrite (IH n' _ l inner) by lia;
+           rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia;
            reflexivity
          | reflexivity ].
 Qed.
 
 Lemma step_fuel_enough :
   forall n l st,
-    S (String.length l + pstate_depth st) <= n -> step_fuel n l st = step l st.
+    S (String.length l + pstate_depth st) <= n -> step_fuel n 0 l st = step l st.
 Proof. intros n l st H. apply (step_fuel_stable n); lia. Qed.
+
+(* The same, at an arbitrary offset: descents need it, since only the
+   outermost call runs at offset 0. *)
+Lemma step_fuel_enough_off :
+  forall n off l st,
+    S (String.length l + pstate_depth st) <= n ->
+    step_fuel n off l st
+    = step_fuel (S (String.length l + pstate_depth st)) off l st.
+Proof. intros n off l st H. apply (step_fuel_stable n); lia. Qed.
+
+(*
+Shifting a run sideways
+-----------------------
+
+`off` is the column the line's first character sits at, so a list's
+recorded indent is `off + indent_of l` -- an absolute column, invariant
+under how many container prefixes were peeled off to reach it.  Adding a
+constant `k` to the offset therefore adds `k` to every indent the run
+records, and changes nothing else: `Nat.ltb` is invariant under adding the
+same amount to both sides, and no other part of the state or of the
+emitted blocks mentions a column.
+
+That is `step_fuel_shift`, and it is the parser's uniformity statement for
+indentation.  Note what it does *not* exclude: an open fence is fine here,
+because `PFence` stores lines verbatim and records no column at all.
+Fences only become a problem for `step_pad` below, which pads the line
+itself rather than moving the offset. *)
+
+(* The shift, on the state: every recorded column moves by n. *)
+Fixpoint pad_state (n : nat) (st : pstate) : pstate :=
+  match st with
+  | PQuote done inner => PQuote done (pad_state n inner)
+  | PList ls done inner =>
+      PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                 (ls_blanks ls) (ls_items ls))
+            done (pad_state n inner)
+  | _ => st
+  end.
+
+Lemma ltb_add_mono_l :
+  forall n a b, Nat.ltb (n + a) (n + b) = Nat.ltb a b.
+Proof.
+  intros n a b. destruct (Nat.ltb a b) eqn:E.
+  - apply Nat.ltb_lt. apply Nat.ltb_lt in E. lia.
+  - apply Nat.ltb_ge. apply Nat.ltb_ge in E. lia.
+Qed.
+
+Lemma pad_state_depth :
+  forall n st, pstate_depth (pad_state n st) = pstate_depth st.
+Proof.
+  intros n st. induction st as [| | |done inner IH|ls done inner IH];
+    try reflexivity; cbn [pad_state pstate_depth]; rewrite IH; reflexivity.
+Qed.
+
+(* finish reads a list's spacing and items, never its column. *)
+Lemma pad_state_finish :
+  forall n st, finish (pad_state n st) = finish st.
+Proof.
+  intros n st. induction st as [| | |done inner IH|ls done inner IH];
+    try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
+Qed.
+
+Lemma pad_state_lazy_ok :
+  forall n st, lazy_ok (pad_state n st) = lazy_ok st.
+Proof.
+  intros n st. induction st as [cur| | |done inner IH|ls done inner IH];
+    try reflexivity; cbn [pad_state lazy_ok]; exact IH.
+Qed.
+
+Lemma pad_state_feed_lazy :
+  forall n l st, feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
+Proof.
+  intros n l st.
+  induction st as [cur|lvl cur| |done inner IH|ls done inner IH];
+    cbn [pad_state feed_lazy]; try reflexivity; rewrite IH; reflexivity.
+Qed.
+
+(* The three flag updates preserve ls_indent, so each commutes with the
+   shift. *)
+Lemma pad_list_blank :
+  forall n ls,
+    list_blank (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                    (ls_blanks ls) (ls_items ls))
+    = LSt (n + ls_indent (list_blank ls)) (ls_marker (list_blank ls))
+          (ls_loose (list_blank ls)) (ls_blanks (list_blank ls))
+          (ls_items (list_blank ls)).
+Proof. intros n ls. destruct ls. reflexivity. Qed.
+
+Lemma pad_list_content :
+  forall n ls k,
+    list_content (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                      (ls_blanks ls) (ls_items ls)) k
+    = LSt (n + ls_indent (list_content ls k)) (ls_marker (list_content ls k))
+          (ls_loose (list_content ls k)) (ls_blanks (list_content ls k))
+          (ls_items (list_content ls k)).
+Proof. intros n ls k. destruct ls; destruct k; reflexivity. Qed.
+
+Lemma pad_list_next :
+  forall n ls item rest,
+    list_next (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                   (ls_blanks ls) (ls_items ls)) item rest
+    = LSt (n + ls_indent (list_next ls item rest))
+          (ls_marker (list_next ls item rest))
+          (ls_loose (list_next ls item rest))
+          (ls_blanks (list_next ls item rest))
+          (ls_items (list_next ls item rest)).
+Proof.
+  intros n ls item rest. unfold list_next.
+  destruct ls; destruct (is_blank rest); reflexivity.
+Qed.
+
+(* The two shapes `pad_state` leaves behind, as `close_reopen` sees them. *)
+Lemma finish_pad_list :
+  forall n ls done inner,
+    finish (PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
+                       (ls_blanks ls) (ls_items ls)) done (pad_state n inner))
+    = finish (PList ls done inner).
+Proof.
+  intros n ls done inner. cbn [finish].
+  rewrite (pad_state_finish n inner). destruct ls. reflexivity.
+Qed.
+
+Lemma finish_pad_quote :
+  forall n done inner,
+    finish (PQuote done (pad_state n inner)) = finish (PQuote done inner).
+Proof.
+  intros n done inner. cbn [finish]. rewrite (pad_state_finish n inner).
+  reflexivity.
+Qed.
+
+(** Moving the whole run `k` columns to the right moves every recorded
+    column by `k` and changes nothing else -- not the blocks, not the
+    tight/loose flags, not which branch any line takes. *)
+Lemma step_fuel_shift :
+  forall n k off l st,
+    step_fuel n (k + off) l (pad_state k st)
+    = (fst (step_fuel n off l st), pad_state k (snd (step_fuel n off l st))).
+Proof.
+  induction n as [|n IH]; intros k off l st; [reflexivity|].
+  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
+  (* idle, or an open paragraph *)
+  { cbn [pad_state step_fuel].
+    destruct cur as [|c cur'].
+    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+        try reflexivity.
+      { rewrite <- Nat.add_assoc.
+        pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
+          cbn [pad_state] in H; rewrite H.
+        destruct (step_fuel n (off + consumed l rest) rest (PPara []))
+          as [bs inner'] eqn:Ed.
+        cbn [open_quote fst snd pad_state]. reflexivity. }
+      { rewrite <- !Nat.add_assoc.
+        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+          cbn [pad_state] in H; rewrite H.
+        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+          as [bs inner'] eqn:Ed.
+        cbn [open_list fst snd pad_state]. reflexivity. } }
+    { destruct (classify l); reflexivity. } }
+  (* heading *)
+  { cbn [pad_state step_fuel].
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { reflexivity. }
+    { reflexivity. }
+    { reflexivity. }
+    { rewrite <- Nat.add_assoc.
+      pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
+        cbn [pad_state] in H; rewrite H.
+      destruct (step_fuel n (off + consumed l rest) rest (PPara []))
+        as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_quote fst snd pad_state]. reflexivity. }
+    { destruct (klvl =? hlvl)%nat; reflexivity. }
+    { rewrite <- !Nat.add_assoc.
+      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        cbn [pad_state] in H; rewrite H.
+      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_list fst snd pad_state]. reflexivity. }
+    { reflexivity. } }
+  (* fence: verbatim, and it records no column *)
+  { cbn [pad_state step_fuel]. destruct (fence_close f l); reflexivity. }
+  (* quote *)
+  { cbn [pad_state step_fuel].
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_quote. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_quote. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_quote. reflexivity. }
+    { rewrite <- Nat.add_assoc.
+      rewrite (IH k (off + consumed l rest) rest inner).
+      destruct (step_fuel n (off + consumed l rest) rest inner)
+        as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_quote. reflexivity. }
+    { rewrite <- !Nat.add_assoc.
+      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        cbn [pad_state] in H; rewrite H.
+      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_list fst snd pad_state].
+      rewrite finish_pad_quote. reflexivity. }
+    { cbn [is_lazy]. rewrite pad_state_lazy_ok.
+      destruct (lazy_ok inner) eqn:El.
+      { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
+      { cbn [close_reopen open_kind fst snd pad_state].
+        rewrite finish_pad_quote. reflexivity. } } }
+  (* list: every recorded column lives here *)
+  { cbn [pad_state step_fuel].
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_blank. reflexivity. }
+    all: cbn [ls_indent]; rewrite <- Nat.add_assoc, ltb_add_mono_l.
+    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l)) eqn:Elt.
+    (* thematic *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_list. reflexivity. }
+    (* fence *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_list. reflexivity. }
+    (* quote *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { rewrite <- Nat.add_assoc.
+      pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
+        cbn [pad_state] in H; rewrite H.
+      destruct (step_fuel n (off + consumed l rest) rest (PPara []))
+        as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_quote fst snd pad_state].
+      rewrite finish_pad_list. reflexivity. }
+    (* heading *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
+      rewrite finish_pad_list. reflexivity. }
+    (* list marker *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [ls_marker]. destruct (Ascii.eqb m (ls_marker ls)) eqn:Em.
+      { rewrite <- Nat.add_assoc, (pad_state_finish k inner).
+        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+          cbn [pad_state] in H; rewrite H.
+        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+          as [bs inner'] eqn:Ed.
+        cbn [fst snd pad_state]. rewrite pad_list_next. reflexivity. }
+      { rewrite <- !Nat.add_assoc.
+        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+          cbn [pad_state] in H; rewrite H.
+        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+          as [bs inner'] eqn:Ed.
+        cbn [close_reopen open_list fst snd pad_state].
+        rewrite finish_pad_list. reflexivity. } }
+    (* text *)
+    { rewrite (IH k off l inner).
+      destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
+      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+    { cbn [is_lazy]. rewrite pad_state_lazy_ok.
+      destruct (lazy_ok inner) eqn:El.
+      { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
+      { cbn [close_reopen open_kind fst snd pad_state].
+        rewrite finish_pad_list. reflexivity. } } }
+Qed.
+
+(* `step` at a nonzero column.  Descents run here: only the outermost
+   call sees column 0. *)
+Definition step_at (off : nat) (l : string) (st : pstate) : blocks * pstate :=
+  step_fuel (S (String.length l + pstate_depth st)) off l st.
+
+Lemma step_at_zero : forall l st, step_at 0 l st = step l st.
+Proof. reflexivity. Qed.
+
+Lemma step_at_shift :
+  forall k off l st,
+    step_at (k + off) l (pad_state k st)
+    = (fst (step_at off l st), pad_state k (snd (step_at off l st))).
+Proof.
+  intros k off l st. unfold step_at. rewrite pad_state_depth.
+  apply step_fuel_shift.
+Qed.
+
+(* Descending from idle is the common case: the residue starts a fresh
+   run, so its whole state is the shift of the run at column 0. *)
+Lemma step_at_idle :
+  forall k l,
+    step_at k l (PPara [])
+    = (fst (step l (PPara [])), pad_state k (snd (step l (PPara [])))).
+Proof.
+  intros k l. rewrite <- (step_at_zero l (PPara [])).
+  rewrite <- (Nat.add_0_r k) at 1.
+  exact (step_at_shift k 0 l (PPara [])).
+Qed.
 
 (*
 The transition, branch by branch
@@ -548,23 +862,35 @@ Lemma step_quote_open :
   forall l rest bs inner,
     classify l = KQuote rest ->
     step rest (PPara []) = (bs, inner) ->
-    step l (PPara []) = ([], PQuote (rev bs) inner).
+    step l (PPara [])
+    = ([], PQuote (rev bs) (pad_state (consumed l rest) inner)).
 Proof.
   intros l rest bs inner H Hr. unfold step at 1. cbn [step_fuel]. rewrite H.
-  rewrite step_fuel_enough by (pose proof (classify_quote_length _ _ H); lia).
-  rewrite Hr. reflexivity.
+  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
+    with (step_fuel n (consumed l rest) rest (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
+    by (cbn [pstate_depth]; pose proof (classify_quote_length _ _ H); lia).
+  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
+            (consumed l rest) rest (PPara []))
+    with (step_at (consumed l rest) rest (PPara [])).
+  rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
 Lemma step_quote_cont :
   forall l rest done inner bs inner',
     classify l = KQuote rest ->
-    step rest inner = (bs, inner') ->
+    step_at (consumed l rest) rest inner = (bs, inner') ->
     step l (PQuote done inner) = ([], PQuote (rev bs ++ done)%list inner').
 Proof.
   intros l rest done inner bs inner' H Hr. unfold step at 1.
   cbn [step_fuel pstate_depth]. rewrite H.
-  rewrite step_fuel_enough
+  change (step_fuel ?n (0 + consumed l rest) rest inner)
+    with (step_fuel n (consumed l rest) rest inner).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest inner)
     by (cbn [pstate_depth]; pose proof (classify_quote_length _ _ H); lia).
+  change (step_fuel (S (String.length rest + pstate_depth inner))
+            (consumed l rest) rest inner)
+    with (step_at (consumed l rest) rest inner).
   rewrite Hr. reflexivity.
 Qed.
 
@@ -608,12 +934,18 @@ Lemma step_list_open :
     classify l = KList m rest ->
     step rest (PPara []) = (bs, inner) ->
     step l (PPara []) =
-      ([], PList (LSt (indent_of l) m false false []) (rev bs) inner).
+      ([], PList (LSt (indent_of l) m false false []) (rev bs)
+             (pad_state (consumed l rest) inner)).
 Proof.
   intros l m rest bs inner H Hr. unfold step at 1. cbn [step_fuel]. rewrite H.
-  rewrite step_fuel_enough
+  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
+    with (step_fuel n (consumed l rest) rest (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
     by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
-  rewrite Hr. reflexivity.
+  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
+            (consumed l rest) rest (PPara []))
+    with (step_at (consumed l rest) rest (PPara [])).
+  rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
 Lemma step_list_blank :
@@ -638,7 +970,7 @@ Lemma step_list_indented :
     ([], PList (list_content ls k) (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H.
+  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l.
   destruct k eqn:Ek; [congruence| | | | | | ];
     rewrite Hind;
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia);
@@ -652,13 +984,19 @@ Lemma step_list_sibling :
     Nat.ltb (ls_indent ls) (indent_of l) = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_next ls (rev done ++ finish inner)%list rest) (rev bs) inner').
+    ([], PList (list_next ls (rev done ++ finish inner)%list rest) (rev bs)
+           (pad_state (consumed l rest) inner')).
 Proof.
   intros l m rest ls done inner bs inner' H Hm Hind Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H, Hind, Hm.
-  rewrite step_fuel_enough
+  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
+    with (step_fuel n (consumed l rest) rest (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
     by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
-  rewrite Hr. reflexivity.
+  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
+            (consumed l rest) rest (PPara []))
+    with (step_at (consumed l rest) rest (PPara [])).
+  rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
 Lemma step_list_diffstyle :
@@ -669,13 +1007,19 @@ Lemma step_list_diffstyle :
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
     (finish (PList ls done inner),
-     PList (LSt (indent_of l) m false false []) (rev bs) inner').
+     PList (LSt (indent_of l) m false false []) (rev bs)
+       (pad_state (consumed l rest) inner')).
 Proof.
   intros l m rest ls done inner bs inner' H Hm Hind Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H, Hind, Hm.
-  rewrite step_fuel_enough
+  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
+    with (step_fuel n (consumed l rest) rest (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
     by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ H); lia).
-  rewrite Hr. reflexivity.
+  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
+            (consumed l rest) rest (PPara []))
+    with (step_at (consumed l rest) rest (PPara [])).
+  rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
 Lemma step_list_quote_close :
@@ -684,13 +1028,21 @@ Lemma step_list_quote_close :
     Nat.ltb (ls_indent ls) (indent_of l) = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
-      (finish (PList ls done inner), PQuote (rev bs) inner').
+      (finish (PList ls done inner),
+       PQuote (rev bs) (pad_state (consumed l rest) inner')).
 Proof.
   intros l rest ls done inner bs inner' H Hind Hr.
-  unfold step at 1. cbn [step_fuel pstate_depth]. rewrite H, Hind.
-  rewrite step_fuel_enough
+  unfold step at 1. cbn [step_fuel pstate_depth].
+  rewrite H, !Nat.add_0_l, Hind.
+  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
+    with (step_fuel n (consumed l rest) rest (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
     by (cbn [pstate_depth]; pose proof (classify_quote_length _ _ H); lia).
-  rewrite Hr. cbn [close_reopen open_quote]. rewrite app_nil_r. reflexivity.
+  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
+            (consumed l rest) rest (PPara []))
+    with (step_at (consumed l rest) rest (PPara [])).
+  rewrite step_at_idle, Hr. cbn [close_reopen open_quote].
+  rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma step_list_lazy :
@@ -700,7 +1052,7 @@ Lemma step_list_lazy :
     step l (PList ls done inner) = ([], PList ls done (feed_lazy l inner)).
 Proof.
   intros l ls done inner H Hind Hl. unfold step. cbn [step_fuel].
-  rewrite H, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
+  rewrite H, !Nat.add_0_l, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
 Qed.
 
 Lemma step_list_close :
@@ -712,15 +1064,237 @@ Lemma step_list_close :
     step l (PList ls done inner) = (finish (PList ls done inner) ++ bs, st')%list.
 Proof.
   intros l k ls done inner bs st' H Hk Hnb Hind Hlz Ho. unfold step. cbn [step_fuel].
-  rewrite H.
+  rewrite H, !Nat.add_0_l.
   destruct k; [congruence | idtac | idtac | discriminate | idtac | discriminate | idtac];
     rewrite Hind; cbn [is_lazy] in Hlz |- *; try rewrite Hlz; rewrite Ho; reflexivity.
+Qed.
+
+(*
+Padding a line
+--------------
+
+Putting a blank prefix in front of a line is the same as starting that
+line further right: `classify`, `is_thematic`, `is_blank` and
+`drop_leading_ws` all ignore a leading blank prefix, `indent_of` adds its
+length, and every descent consumes exactly that much more.  So padding
+needs no theorem of its own -- it reduces to the offset, and
+`step_fuel_shift` does the rest.
+
+The one state that notices is `PFence`, which stores its lines verbatim
+and so keeps the pad in the block's content.  `pad_safe` names that
+exclusion; it stops at `PQuote` because a quote prefix absorbs the pad
+before handing down its residue. *)
+
+(* A lazy line's pad is dropped wherever the line comes to rest -- the
+   reason feed_lazy strips leading whitespace at all. *)
+Lemma feed_lazy_ws_prefix :
+  forall p l st,
+    is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
+Proof.
+  intros p l st Hp.
+  induction st as [cur|lvl cur| |done inner IH|ls done inner IH];
+    cbn [feed_lazy];
+    try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
+    try (rewrite IH; reflexivity).
+  reflexivity.
+Qed.
+
+Fixpoint pad_safe (st : pstate) : bool :=
+  match st with
+  | PFence _ _ => false
+  | PList _ _ inner => pad_safe inner
+  | _ => true
+  end.
+
+Lemma step_fuel_pad :
+  forall n p off l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    step_fuel n off (p ++ l) st = step_fuel n (String.length p + off) l st.
+Proof.
+  induction n as [|n IH]; intros p off l st Hp Hsafe; [reflexivity|].
+  (* natural subtraction truncates, so this needs the residue to be no
+     longer than the line -- which classify always gives *)
+  assert (Hc : forall rest, String.length rest <= String.length l ->
+                 consumed (p ++ l) rest = String.length p + consumed l rest).
+  { intros rest Hle. unfold consumed. rewrite length_append. lia. }
+  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct cur as [|c cur'].
+    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+        try reflexivity.
+      { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+                Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+      { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+                (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        reflexivity. }
+      { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. } }
+    { destruct (classify l);
+        try (cbn [open_kind close_reopen];
+           rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity).
+      reflexivity. } }
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+      try reflexivity.
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+              (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. } }
+  { discriminate Hsafe. }
+  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
+      try reflexivity.
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+              (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner);
+        [rewrite (feed_lazy_ws_prefix p l _ Hp)|
+         cbn [close_reopen open_kind];
+         rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
+  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+    rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
+    { rewrite (IH p off l inner Hp Hsafe). reflexivity. }
+    all: rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+                 (Nat.add_comm off (String.length p)).
+    all: destruct (Nat.ltb (ls_indent ls) (String.length p + off + indent_of l))
+           eqn:Elt;
+         try (rewrite (IH p off l inner Hp Hsafe); reflexivity).
+    { reflexivity. }
+    { reflexivity. }
+    { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
+              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { reflexivity. }
+    { destruct (Ascii.eqb m (ls_marker ls));
+        rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ E); lia)),
+                !Nat.add_assoc, (Nat.add_comm off (String.length p));
+        reflexivity. }
+    { cbn [is_lazy]. destruct (lazy_ok inner);
+        [rewrite (feed_lazy_ws_prefix p l _ Hp)|
+         cbn [close_reopen open_kind];
+         rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
+Qed.
+
+(* Only PList records a column, so a state with no open list is fixed by
+   the shift.  This is what lets the padded and unpadded runs stay
+   literally equal inside a *flat* list item: the item's own content never
+   opens a list, so there is no column to shift. *)
+Fixpoint no_columns (st : pstate) : bool :=
+  match st with
+  | PList _ _ _ => false
+  | PQuote _ inner => no_columns inner
+  | _ => true
+  end.
+
+Lemma no_columns_pad_state :
+  forall k st, no_columns (pad_state k st) = no_columns st.
+Proof.
+  intros k st. induction st as [| | |done inner IH|ls done inner IH];
+    cbn [pad_state no_columns]; try reflexivity. exact IH.
+Qed.
+
+Lemma pad_state_no_columns :
+  forall k st, no_columns st = true -> pad_state k st = st.
+Proof.
+  intros k st. induction st as [| | |done inner IH|ls done inner IH];
+    cbn [no_columns pad_state]; try reflexivity.
+  - intros H. rewrite (IH H). reflexivity.
+  - discriminate.
+Qed.
+
+(** A blank prefix in front of a line is exactly a shift of its starting
+    column. *)
+Lemma step_pad :
+  forall p l st,
+    is_blank p = true -> pad_safe st = true ->
+    step (p ++ l) st = step_at (String.length p) l st.
+Proof.
+  intros p l st Hp Hsafe. unfold step, step_at.
+  rewrite (step_fuel_pad _ p 0 l st Hp Hsafe), Nat.add_0_r.
+  apply step_fuel_enough_off. rewrite length_append. lia.
+Qed.
+
+(** Padding is invisible, not merely a shift, when no list is open before
+    or after the step.  The form the roundtrip proofs want: inside a flat
+    list item there is no column anywhere, so the item's continuation
+    whitespace changes nothing at all. *)
+Lemma step_pad_flat :
+  forall p l st,
+    is_blank p = true ->
+    pad_safe st = true ->
+    no_columns st = true ->
+    no_columns (snd (step l st)) = true ->
+    step (p ++ l) st = step l st.
+Proof.
+  intros p l st Hp Hsafe Hst Hafter.
+  rewrite (step_pad p l st Hp Hsafe).
+  rewrite <- (pad_state_no_columns (String.length p) st Hst) at 1.
+  rewrite <- (Nat.add_0_r (String.length p)) at 1.
+  rewrite step_at_shift, step_at_zero.
+  rewrite (pad_state_no_columns (String.length p) _ Hafter).
+  symmetry. apply surjective_pairing.
 Qed.
 
 (*
 Lifting to the fold
 -------------------
 *)
+
+(* The fold at a nonzero column.  Only quote and list *content* lemmas
+   need it: `parse_lines` itself is the column-0 instance, and it is what
+   every statement outside this file uses. *)
+Fixpoint parse_lines_at (off : nat) (lines : list string) (st : pstate)
+  : blocks :=
+  match lines with
+  | [] => finish st
+  | l :: rest =>
+      let (bs, st') := step_at off l st in
+      (bs ++ parse_lines_at off rest st')%list
+  end.
+
+Lemma parse_lines_at_zero :
+  forall lines st, parse_lines_at 0 lines st = parse_lines lines st.
+Proof.
+  induction lines as [|l lines IH]; intros st; [reflexivity|].
+  cbn [parse_lines_at parse_lines]. rewrite step_at_zero.
+  destruct (step l st) as [bs st'] eqn:E. rewrite IH. reflexivity.
+Qed.
+
+(** Running the fold `k` columns over, from a state shifted to match,
+    gives the same blocks: the shift lives only in the state, and `finish`
+    does not read columns. *)
+Lemma parse_lines_at_shift :
+  forall k off lines st,
+    parse_lines_at (k + off) lines (pad_state k st) = parse_lines_at off lines st.
+Proof.
+  induction lines as [|l lines IH]; intros st.
+  { cbn [parse_lines_at]. apply pad_state_finish. }
+  cbn [parse_lines_at]. rewrite step_at_shift.
+  destruct (step_at off l st) as [bs st'] eqn:E. cbn [fst snd].
+  rewrite IH. reflexivity.
+Qed.
+
+Lemma parse_lines_shift :
+  forall k lines st,
+    parse_lines_at k lines (pad_state k st) = parse_lines lines st.
+Proof.
+  intros k lines st.
+  rewrite <- (parse_lines_at_zero lines st).
+  rewrite <- (parse_lines_at_shift k 0 lines st), Nat.add_0_r.
+  reflexivity.
+Qed.
+
+(* A canonical quote prefix eats exactly two columns. *)
+Lemma consumed_quote_prefix :
+  forall l, consumed ("> " ++ l) l = 2.
+Proof.
+  intros l. unfold consumed. rewrite length_append. cbn [String.length]. lia.
+Qed.
+
 
 Lemma parse_lines_nil : forall st, parse_lines [] st = finish st.
 Proof. reflexivity. Qed.
@@ -1004,7 +1578,7 @@ quotes. *)
 Lemma parse_lines_quote_cont :
   forall lines tail done inner,
     parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
-                (PQuote done inner)
+                (PQuote done (pad_state 2 inner))
     = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
       :: parse_lines tail (PPara []).
 Proof.
@@ -1013,11 +1587,16 @@ Proof.
     rewrite (parse_lines_step _ _ _ _ _
                (step_quote_close _ KBlank _ _ _ _
                   (classify_blank EmptyString eq_refl) eq_refl eq_refl eq_refl)).
-    reflexivity.
+    rewrite pad_state_finish. reflexivity.
   - cbn [map app].
     destruct (step l inner) as [bs inner'] eqn:Es.
+    assert (Esh : step_at (consumed ("> " ++ l) l) l (pad_state 2 inner)
+                  = (bs, pad_state 2 inner')).
+    { rewrite consumed_quote_prefix.
+      rewrite <- (Nat.add_0_r 2) at 1. rewrite step_at_shift.
+      rewrite step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Es)).
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
@@ -1027,15 +1606,21 @@ Qed.
 (* ...and the same when the input simply ends. *)
 Lemma parse_lines_quote_cont_eof :
   forall lines done inner,
-    parse_lines (map (fun l => ("> " ++ l)%string) lines) (PQuote done inner)
+    parse_lines (map (fun l => ("> " ++ l)%string) lines)
+                (PQuote done (pad_state 2 inner))
     = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
 Proof.
   induction lines as [|l lines IH]; intros done inner.
-  - reflexivity.
+  - cbn [map parse_lines finish]. rewrite pad_state_finish. reflexivity.
   - cbn [map].
     destruct (step l inner) as [bs inner'] eqn:Es.
+    assert (Esh : step_at (consumed ("> " ++ l) l) l (pad_state 2 inner)
+                  = (bs, pad_state 2 inner')).
+    { rewrite consumed_quote_prefix.
+      rewrite <- (Nat.add_0_r 2) at 1. rewrite step_at_shift.
+      rewrite step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Es)).
+               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote l) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
@@ -1054,7 +1639,8 @@ Proof.
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
              (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
-  cbn [app]. rewrite parse_lines_quote_cont, rev_involutive.
+  cbn [app]. rewrite consumed_quote_prefix.
+  rewrite parse_lines_quote_cont, rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.
@@ -1070,7 +1656,8 @@ Proof.
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
              (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
-  cbn [app]. rewrite parse_lines_quote_cont_eof, rev_involutive.
+  cbn [app]. rewrite consumed_quote_prefix.
+  rewrite parse_lines_quote_cont_eof, rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.
@@ -1083,12 +1670,19 @@ Qed.
    recursion into the quote's contents is byte-identical to the
    unpadded case. Render.list_content_safe's comment explains why lists
    don't get the same free ride. *)
+Lemma consumed_quote_prefix_pad :
+  forall pad l, consumed (pad ++ "> " ++ l) l = String.length pad + 2.
+Proof.
+  intros pad l. unfold consumed. rewrite !length_append.
+  cbn [String.length]. lia.
+Qed.
+
 Lemma parse_lines_quote_cont_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
   forall lines tail done inner,
     parse_lines (map (fun l => pad ++ "> " ++ l)%string lines ++ sep :: tail)%list
-                (PQuote done inner)
+                (PQuote done (pad_state (String.length pad + 2) inner))
     = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
       :: parse_lines tail (PPara []).
 Proof.
@@ -1096,11 +1690,18 @@ Proof.
   - cbn [map app].
     rewrite (parse_lines_step _ _ _ _ _
                (step_quote_close _ KBlank _ _ _ _ Hsep eq_refl eq_refl eq_refl)).
-    reflexivity.
+    rewrite pad_state_finish. reflexivity.
   - cbn [map app].
     destruct (step l inner) as [bs inner'] eqn:Es.
+    assert (Esh : step_at (consumed (pad ++ "> " ++ l) l) l
+                    (pad_state (String.length pad + 2) inner)
+                  = (bs, pad_state (String.length pad + 2) inner')).
+    { rewrite consumed_quote_prefix_pad.
+      rewrite <- (Nat.add_0_r (String.length pad + 2)) at 1.
+      rewrite step_at_shift, step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+               (step_quote_cont _ _ _ _ _ _
+                  (classify_canonical_quote_pad pad l Hpad) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
@@ -1110,15 +1711,23 @@ Qed.
 Lemma parse_lines_quote_cont_eof_pad :
   forall pad, is_blank pad = true ->
   forall lines done inner,
-    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines) (PQuote done inner)
+    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines)
+                (PQuote done (pad_state (String.length pad + 2) inner))
     = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
 Proof.
   intros pad Hpad. induction lines as [|l lines IH]; intros done inner.
-  - reflexivity.
+  - cbn [map parse_lines finish]. rewrite pad_state_finish. reflexivity.
   - cbn [map].
     destruct (step l inner) as [bs inner'] eqn:Es.
+    assert (Esh : step_at (consumed (pad ++ "> " ++ l) l) l
+                    (pad_state (String.length pad + 2) inner)
+                  = (bs, pad_state (String.length pad + 2) inner')).
+    { rewrite consumed_quote_prefix_pad.
+      rewrite <- (Nat.add_0_r (String.length pad + 2)) at 1.
+      rewrite step_at_shift, step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+               (step_quote_cont _ _ _ _ _ _
+                  (classify_canonical_quote_pad pad l Hpad) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
@@ -1139,7 +1748,8 @@ Proof.
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
              (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
-  cbn [app]. rewrite (parse_lines_quote_cont_pad pad Hpad sep Hsep), rev_involutive.
+  cbn [app]. rewrite consumed_quote_prefix_pad.
+  rewrite (parse_lines_quote_cont_pad pad Hpad sep Hsep), rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.
@@ -1154,417 +1764,16 @@ Proof.
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
              (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
-  cbn [app]. rewrite (parse_lines_quote_cont_eof_pad pad Hpad), rev_involutive.
+  cbn [app]. rewrite consumed_quote_prefix_pad.
+  rewrite (parse_lines_quote_cont_eof_pad pad Hpad), rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
-Qed.
-
-(*
-Ambient indentation
-===================
-
-Put a blank prefix `p` in front of every line of an input.  The blocks are
-unchanged, and the only trace `p` leaves in the state is that the open
-list's indent is larger by `String.length p`.  That is `step_pad` below,
-and it is the general form of the fact list proofs keep needing: a list
-item's contents arrive with the item's continuation whitespace in front of
-them, so everything inside must parse as if the pad were not there.
-
-Why a shift cannot change a routing decision: `step_fuel` consults
-indentation in exactly two places, `open_list (indent_of l)` and the
-`Nat.ltb (ls_indent ls) (indent_of l)` test that separates an item's
-contents from its siblings.  The first records `indent_of (p ++ l) =
-String.length p + indent_of l`, which is the shift itself; the second
-compares two numbers that have both grown by `String.length p`, and
-`Nat.ltb` is invariant under that (`ltb_add_mono_l`).  Every other line
-test -- `classify`, `is_thematic`, `is_blank`, `drop_leading_ws` --
-already ignores a leading blank prefix outright.
-
-Three things are excluded, and each marks a real boundary rather than a
-gap in the proof:
-
-  - `PFence`, where content is verbatim by design, so the pad survives
-    into the block.  This is why `Render.list_content_safe` rejects a code
-    fence inside a list item; it is the same gap as an indented fence
-    inside a quote.
-  - A *nested* list, via `pad_inner_ok`.  The shift is emphatically not
-    uniform: `open_list` on a sibling marker records `indent_of mr` for
-    the residue after the marker, and the pad does not reach the residue.
-    `pad_nested_list_unshifted` exhibits the state -- outer indent 0 -> 2,
-    inner indent 0 -> 0.  A uniform-shift statement covering nesting is
-    therefore false, not merely unproven; the invariant that would cover
-    it has to track, per list, whether that list was opened from a padded
-    line or from a residue.  That is the remaining obstacle to nested
-    lists in the roundtrip, and it is bigger than a generalization of
-    this lemma.
-  - `feed_lazy`, which used to keep the prefix and now strips it, matching
-    the oracle and every other continuation line.  Not a hypothesis --
-    it was fixed, and `feed_lazy_ws_prefix` is what the proof uses.
-
-`pad_state` shifts only the outermost list, and `pad_safe` /
-`pad_inner_ok` say what may sit under it.  Both stop at `PQuote` for the
-same reason: a quote prefix absorbs the ambient pad exactly (`classify
-(p ++ "> x") = KQuote "x"`), so a quote's contents are parsed unpadded and
-nothing below one is shifted.  `pad_invisible_inner` is the sharper
-statement that holds below the outermost list, where the pad leaves no
-trace at all.
-*)
-
-(* The pad's trace in the state: the open list's indent grows by n.
-   Only the outermost one -- see pad_inner_ok. *)
-Definition pad_state (n : nat) (st : pstate) : pstate :=
-  match st with
-  | PList ls done inner =>
-      PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
-                 (ls_blanks ls) (ls_items ls))
-            done inner
-  | _ => st
-  end.
-
-(* What may be open *inside* the padded region.  A fence is excluded
-   because its content is verbatim.  A list is excluded because its indent
-   is *not* shifted: `open_list` records `indent_of mr` for the residue
-   after the marker, and the pad does not reach the residue -- see
-   `pad_nested_list_unshifted` below, which exhibits the gap.  Nothing
-   below a quote is padded at all, so a quote needs no condition. *)
-Definition pad_inner_ok (st : pstate) : bool :=
-  match st with
-  | PFence _ _ => false
-  | PList _ _ _ => false
-  | _ => true
-  end.
-
-Definition pad_safe (st : pstate) : bool :=
-  match st with
-  | PFence _ _ => false
-  | PList _ _ inner => pad_inner_ok inner
-  | _ => true
-  end.
-
-Lemma pad_inner_ok_safe :
-  forall st, pad_inner_ok st = true -> pad_safe st = true.
-Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
-
-Lemma pad_state_id :
-  forall n st, pad_inner_ok st = true -> pad_state n st = st.
-Proof. intros n st H. destruct st; try reflexivity; discriminate H. Qed.
-
-Lemma pad_state_depth :
-  forall n st, pstate_depth (pad_state n st) = pstate_depth st.
-Proof. intros n st. destruct st; reflexivity. Qed.
-
-(* finish reads a list's spacing and its items, never its indent. *)
-Lemma pad_state_finish :
-  forall n st, finish (pad_state n st) = finish st.
-Proof. intros n st. destruct st; reflexivity. Qed.
-
-Lemma pad_state_lazy_ok :
-  forall n st, lazy_ok (pad_state n st) = lazy_ok st.
-Proof. intros n st. destruct st; reflexivity. Qed.
-
-(* A lazy line's pad is dropped wherever the line comes to rest.  This is
-   the step that would fail if feed_lazy kept prefixes. *)
-Lemma feed_lazy_ws_prefix :
-  forall p l st,
-    is_blank p = true ->
-    feed_lazy (p ++ l) st = feed_lazy l st.
-Proof.
-  intros p l st Hp.
-  induction st as [cur|lvl cur| |done inner IH|ls done inner IH];
-    cbn [feed_lazy];
-    try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
-    try (rewrite IH; reflexivity).
-  reflexivity.
-Qed.
-
-(* feed_lazy writes to a paragraph accumulator, the shift to a list
-   indent; they never touch the same field. *)
-Lemma pad_state_feed_lazy_comm :
-  forall n l st,
-    feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
-Proof. intros n l st. destruct st; reflexivity. Qed.
-
-Lemma pad_state_feed_lazy :
-  forall n p l st,
-    is_blank p = true ->
-    feed_lazy (p ++ l) (pad_state n st) = pad_state n (feed_lazy l st).
-Proof.
-  intros n p l st Hp.
-  rewrite (feed_lazy_ws_prefix p l _ Hp). apply pad_state_feed_lazy_comm.
-Qed.
-
-Lemma ltb_add_mono_l :
-  forall n a b, Nat.ltb (n + a) (n + b) = Nat.ltb a b.
-Proof.
-  intros n a b. destruct (Nat.ltb a b) eqn:E.
-  - apply Nat.ltb_lt. apply Nat.ltb_lt in E. lia.
-  - apply Nat.ltb_ge. apply Nat.ltb_ge in E. lia.
-Qed.
-
-(* The three flag updates all preserve ls_indent, so each commutes with
-   the shift. *)
-Lemma pad_list_blank :
-  forall n ls,
-    list_blank (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
-                    (ls_blanks ls) (ls_items ls))
-    = LSt (n + ls_indent (list_blank ls)) (ls_marker (list_blank ls))
-          (ls_loose (list_blank ls)) (ls_blanks (list_blank ls))
-          (ls_items (list_blank ls)).
-Proof. intros n ls. destruct ls. reflexivity. Qed.
-
-Lemma pad_list_content :
-  forall n ls k,
-    list_content (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
-                      (ls_blanks ls) (ls_items ls)) k
-    = LSt (n + ls_indent (list_content ls k)) (ls_marker (list_content ls k))
-          (ls_loose (list_content ls k)) (ls_blanks (list_content ls k))
-          (ls_items (list_content ls k)).
-Proof. intros n ls k. destruct ls; destruct k; reflexivity. Qed.
-
-Lemma pad_list_next :
-  forall n ls item rest,
-    list_next (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
-                   (ls_blanks ls) (ls_items ls)) item rest
-    = LSt (n + ls_indent (list_next ls item rest))
-          (ls_marker (list_next ls item rest))
-          (ls_loose (list_next ls item rest))
-          (ls_blanks (list_next ls item rest))
-          (ls_items (list_next ls item rest)).
-Proof.
-  intros n ls item rest. unfold list_next.
-  destruct ls; destruct (is_blank rest); reflexivity.
-Qed.
-
-Lemma finish_pad_list :
-  forall n ls done inner,
-    finish (PList (LSt (n + ls_indent ls) (ls_marker ls) (ls_loose ls)
-                       (ls_blanks ls) (ls_items ls)) done inner)
-    = finish (PList ls done inner).
-Proof. intros n ls done inner. destruct ls. reflexivity. Qed.
-
-(* Below the outermost list -- exactly where pad_inner_ok holds -- an
-   ambient pad is not merely shifted but invisible: the state comes out
-   identical.  Takes the induction hypothesis as a premise so it can be
-   used inside step_fuel_pad's own induction. *)
-Lemma pad_invisible_inner :
-  forall n,
-    (forall p l st,
-       is_blank p = true -> pad_safe st = true ->
-       pad_safe (snd (step_fuel n l st)) = true ->
-       step_fuel n (p ++ l) (pad_state (String.length p) st)
-       = (fst (step_fuel n l st),
-          pad_state (String.length p) (snd (step_fuel n l st)))) ->
-    forall p l inner,
-      is_blank p = true ->
-      pad_inner_ok inner = true ->
-      pad_inner_ok (snd (step_fuel n l inner)) = true ->
-      step_fuel n (p ++ l) inner = step_fuel n l inner.
-Proof.
-  intros n IH p l inner Hp Hsafe Hafter.
-  rewrite <- (pad_state_id (String.length p) inner Hsafe) at 1.
-  rewrite (IH p l inner Hp (pad_inner_ok_safe _ Hsafe)
-             (pad_inner_ok_safe _ Hafter)).
-  rewrite (pad_state_id (String.length p) _ Hafter).
-  symmetry. apply surjective_pairing.
-Qed.
-
-(* The simulation, at the fuel level.  No fuel hypothesis is needed: both
-   sides descend in lockstep on the same n, and every descent that
-   recurses passes the *same* line to both (a quote prefix and a list
-   marker hand down the residue after the prefix, which the pad does not
-   reach).  The one branch that passes the padded line down is PList's
-   "indented, contents of the current item", which is exactly where the
-   induction hypothesis applies. *)
-Lemma step_fuel_pad :
-  forall n p l st,
-    is_blank p = true ->
-    pad_safe st = true ->
-    pad_safe (snd (step_fuel n l st)) = true ->
-    step_fuel n (p ++ l) (pad_state (String.length p) st)
-    = (fst (step_fuel n l st),
-       pad_state (String.length p) (snd (step_fuel n l st))).
-Proof.
-  induction n as [|n IH]; intros p l st Hp Hsafe Hafter; [reflexivity|].
-  destruct st as [cur|hlvl hcur|f acc|done inner|ls done inner].
-  (* idle, or an open paragraph *)
-  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct cur as [|c cur'].
-    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
-      { reflexivity. }
-      { reflexivity. }
-      { reflexivity. }
-      { cbn [open_quote].
-        destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
-        reflexivity. }
-      { reflexivity. }
-      (* the shift is recorded here, and only here *)
-      { cbn [open_list].
-        destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
-        cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
-        rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
-      { cbn [open_kind pad_state].
-        rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } }
-    { destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E;
-        cbn [close_reopen open_kind finish pad_state];
-        try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity).
-      reflexivity. } }
-  (* heading *)
-  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
-    { reflexivity. }
-    { reflexivity. }
-    { reflexivity. }
-    { cbn [close_reopen open_quote finish pad_state].
-      destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
-      reflexivity. }
-    { cbn [step_fuel]. destruct (klvl =? hlvl)%nat; reflexivity. }
-    { cbn [close_reopen open_list finish pad_state].
-      destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
-      rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
-    { cbn [close_reopen open_kind finish pad_state].
-      rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } }
-  (* fence: the pad would land in verbatim content *)
-  { discriminate Hsafe. }
-  (* quote: it absorbs the pad, so nothing inside is padded *)
-  { cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
-    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
-    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
-    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
-    { destruct (step_fuel n rest inner) as [bs inner'] eqn:Ed. reflexivity. }
-    { cbn [is_lazy close_reopen open_kind finish pad_state]. reflexivity. }
-    { cbn [close_reopen open_list finish pad_state].
-      destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state ls_indent ls_marker ls_loose ls_blanks ls_items].
-      rewrite (indent_of_ws_prefix p l Hp). reflexivity. }
-    { cbn [is_lazy]. destruct (lazy_ok inner) eqn:El.
-      { cbn [pad_state]. rewrite (feed_lazy_ws_prefix p l _ Hp). reflexivity. }
-      { cbn [close_reopen open_kind finish pad_state].
-        rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. } } }
-  (* list: the one state the pad reaches *)
-  { cbn [pad_safe] in Hsafe.
-    cbn [pad_state step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    cbn [step_fuel] in Hafter.
-    destruct (classify l) as [| |g|rest|klvl krest|m mr|] eqn:E.
-    (* blank: down to the item's contents, arming the loose flag *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_blank. reflexivity. }
-    (* every other kind: the indent test first, then continue or close *)
-    all: cbn [ls_indent]; rewrite (indent_of_ws_prefix p l Hp), ltb_add_mono_l.
-    all: destruct (Nat.ltb (ls_indent ls) (indent_of l)) eqn:Elt.
-    (* thematic *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
-      reflexivity. }
-    (* fence *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
-      reflexivity. }
-    (* quote *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { destruct (step_fuel n rest (PPara [])) as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_quote fst snd pad_state].
-      rewrite finish_pad_list. reflexivity. }
-    (* heading *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { cbn [close_reopen open_kind pad_state]. rewrite finish_pad_list.
-      reflexivity. }
-    (* list marker: sibling item, or a different style *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { cbn [ls_marker]. destruct (Ascii.eqb m (ls_marker ls)) eqn:Em.
-      { destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
-        cbn [pad_state]. rewrite pad_list_next. reflexivity. }
-      { destruct (step_fuel n mr (PPara [])) as [bs inner'] eqn:Ed.
-        cbn [close_reopen open_list fst snd pad_state].
-        rewrite finish_pad_list. reflexivity. } }
-    (* text: lazy continuation, or close *)
-    { destruct (step_fuel n l inner) as [bs inner'] eqn:Ed.
-      cbn [snd pad_safe] in Hafter.
-      rewrite (pad_invisible_inner n IH p l inner Hp Hsafe
-                 ltac:(rewrite Ed; cbn [snd]; exact Hafter)), Ed.
-      cbn [pad_state]. rewrite pad_list_content. reflexivity. }
-    { cbn [is_lazy]. destruct (lazy_ok inner) eqn:El.
-      { cbn [pad_state]. rewrite (feed_lazy_ws_prefix p l _ Hp). reflexivity. }
-      { cbn [close_reopen open_kind pad_state].
-        rewrite finish_pad_list, (drop_leading_ws_ws_prefix p l Hp).
-        reflexivity. } } }
-Qed.
-
-(** Parsing under an ambient blank pad: the blocks are the same, and the
-    state differs only by the shift of the open list's indent.  The
-    hypotheses say the pad reaches no fence and no nested list, before or
-    after the step. *)
-Theorem step_pad :
-  forall p l st,
-    is_blank p = true ->
-    pad_safe st = true ->
-    pad_safe (snd (step l st)) = true ->
-    step (p ++ l) (pad_state (String.length p) st)
-    = (fst (step l st), pad_state (String.length p) (snd (step l st))).
-Proof.
-  intros p l st Hp Hsafe Hafter.
-  assert (Hle1 : S (String.length (p ++ l) + pstate_depth st)
-                 >= S (String.length (p ++ l)
-                       + pstate_depth (pad_state (String.length p) st))).
-  { rewrite pad_state_depth. apply Nat.le_refl. }
-  assert (Hle2 : S (String.length l + pstate_depth st)
-                 <= S (String.length (p ++ l) + pstate_depth st)).
-  { rewrite length_append. lia. }
-  rewrite <- (step_fuel_enough (S (String.length (p ++ l) + pstate_depth st))
-                (p ++ l) (pad_state (String.length p) st) Hle1).
-  rewrite <- (step_fuel_enough (S (String.length (p ++ l) + pstate_depth st))
-                l st Hle2) in Hafter |- *.
-  apply step_fuel_pad; assumption.
 Qed.
 
 (*
 Sanity checks
 =============
 *)
-
-(* Why pad_inner_ok rejects an open list, machine-checked.  A nested list
-   opened on the marker's own line takes its indent from the residue after
-   "- ", which the ambient pad never reaches: the outer list's indent
-   shifts by the pad, the inner one does not.  So no uniform shift
-   describes the state, and step_pad has to exclude the case rather than
-   cover it.  Removing pad_inner_ok's PList case would make step_fuel_pad
-   unprovable, not merely unproven -- this is the counterexample. *)
-Definition outer_indent (st : pstate) : nat :=
-  match st with PList ls _ _ => ls_indent ls | _ => 0 end.
-Definition inner_indent (st : pstate) : nat :=
-  match st with PList _ _ (PList ls _ _) => ls_indent ls | _ => 0 end.
-
-Example pad_nested_list_unshifted :
-  let bare := snd (step "- - a" (PPara [])) in
-  let padded := snd (step "  - - a" (PPara [])) in
-  (outer_indent bare, inner_indent bare) = (0, 0)
-  /\ (outer_indent padded, inner_indent padded) = (2, 0).
-Proof. split; reflexivity. Qed.
-
 
 Example parse_two_paras :
   parse_blocks "hi

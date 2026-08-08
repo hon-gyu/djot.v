@@ -431,6 +431,16 @@ Fixpoint list_content_safe (cb : cblock) : bool :=
   | CQuote inner => go inner
   end.
 
+(* list_content_safe's inner recursion, as forallb -- the local `go` fix
+   is otherwise opaque to rewriting. *)
+Lemma list_content_safe_quote :
+  forall inner,
+    list_content_safe (CQuote inner) = forallb list_content_safe inner.
+Proof.
+  induction inner as [|c rest IH]; [reflexivity|].
+  cbn [list_content_safe forallb] in *. rewrite <- IH. reflexivity.
+Qed.
+
 (* The roundtrip hypothesis: this cblock renders to lines that parse back
    to it.  A new construct adds its obligation here.
 
