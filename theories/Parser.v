@@ -2362,6 +2362,89 @@ Proof.
   rewrite rev_app_distr. reflexivity.
 Qed.
 
+(* `lines_loose` only ever accumulates with `||`, so the incoming verdict
+   factors out.  This is what lets an item's contribution be read off its
+   own lines, independent of what the items before it decided. *)
+Lemma lines_loose_or :
+  forall L lo g, lines_loose lo g L = (lo || lines_loose false g L)%bool.
+Proof.
+  induction L as [|l rest IH]; intros lo g.
+  - cbn [lines_loose]. rewrite orb_false_r. reflexivity.
+  - cbn [lines_loose]. destruct (classify l); try apply IH.
+    all: cbn [orb]; rewrite (IH (lo || g)%bool false), (IH g false);
+         destruct lo, g; reflexivity.
+Qed.
+
+(* A blank line closes what `finish` would have closed, and emits it.
+   The exception is a list, which a blank does not close -- there the
+   equation holds one level down instead, which is the induction.  A
+   fence is the one state where it fails, and `pad_safe` excludes it. *)
+Lemma step_blank_finish :
+  forall l st, classify l = KBlank -> pad_safe st = true ->
+    (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
+Proof.
+  intros l st Hl. induction st as [cur|lvl cur|f acc|done inner IH|ls done inner IH];
+    intros Hsafe.
+  - destruct cur as [|c cur'].
+    + rewrite (step_idle l KBlank Hl eq_refl). cbn [open_kind fst snd finish app].
+      reflexivity.
+    + rewrite (step_para_flush l c cur' Hl). reflexivity.
+  - rewrite (step_heading_close l lvl cur Hl). reflexivity.
+  - discriminate Hsafe.
+  - rewrite (step_quote_close l KBlank done inner _ _ Hl eq_refl eq_refl
+               (surjective_pairing _)).
+    cbn [fst snd open_kind finish app]. reflexivity.
+  - cbn [pad_safe] in Hsafe.
+    rewrite (step_list_blank l ls done inner _ _ Hl (surjective_pairing _)).
+    cbn [fst snd finish app list_blank ls_loose ls_items].
+    rewrite rev_app_distr, rev_involutive, <- app_assoc, (IH Hsafe).
+    reflexivity.
+Qed.
+
+Lemma run_pad_safe_final :
+  forall L st, run_pad_safe L st = true -> pad_safe (snd (run_lines L st)) = true.
+Proof.
+  induction L as [|l rest IH]; intros st H; [exact H|].
+  cbn [run_pad_safe] in H. apply andb_prop in H as [_ Hlater].
+  cbn [run_lines]. destruct (step l st) as [bs st'] eqn:Es.
+  cbn [snd] in Hlater.
+  specialize (IH st' Hlater). destruct (run_lines rest st') as [more st''] eqn:Er.
+  cbn [snd] in IH |- *. exact IH.
+Qed.
+
+(* The list's lines after its first item: each remaining item contributes
+   the inter-item separator and then its own indented lines. *)
+Definition item_sep (sp : list_spacing) : list string :=
+  match sp with Loose => [EmptyString] | Tight => [] end.
+
+Fixpoint list_tail_lines (sp : list_spacing) (itemss : list (list string)) : list string :=
+  match itemss with
+  | [] => []
+  | L :: rest => (item_sep sp ++ indent_lines bullet_open bullet_cont L
+                  ++ list_tail_lines sp rest)%list
+  end.
+
+Lemma list_lines_cons2 :
+  forall sp x xs, xs <> [] ->
+    list_lines sp (x :: xs) = (x ++ item_sep sp ++ list_lines sp xs)%list.
+Proof. intros sp x xs H. destruct xs; [congruence|reflexivity]. Qed.
+
+Lemma list_lines_cons :
+  forall sp L rest,
+    list_lines sp (map (indent_lines bullet_open bullet_cont) (L :: rest))
+    = (indent_lines bullet_open bullet_cont L ++ list_tail_lines sp rest)%list.
+Proof.
+  intros sp L rest. revert L. induction rest as [|y r IH]; intros L.
+  - cbn [map list_lines list_tail_lines]. rewrite app_nil_r. reflexivity.
+  - assert (Hne : map (indent_lines bullet_open bullet_cont) (y :: r) <> []).
+    { cbn [map]. intros HH. discriminate HH. }
+    change (map (indent_lines bullet_open bullet_cont) (L :: y :: r))
+      with (indent_lines bullet_open bullet_cont L
+            :: map (indent_lines bullet_open bullet_cont) (y :: r)).
+    rewrite (list_lines_cons2 sp _ _ Hne), (IH y).
+    cbn [list_tail_lines]. rewrite !app_assoc. reflexivity.
+Qed.
+
 (** Uniformity for list items: an item's contents parse exactly as they
     would at top level, and the enclosing list's spacing is a scan of
     those same lines.  One proof, every construct -- including a nested
