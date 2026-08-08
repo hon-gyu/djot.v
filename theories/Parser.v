@@ -147,11 +147,18 @@ Fixpoint lazy_ok (st : pstate) : bool :=
 Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
   match k with KText => lazy_ok inner | _ => false end.
 
-(* Append a lazy line to the innermost paragraph, prefixes and all. *)
+(* Append a lazy line to the innermost paragraph.  Its leading whitespace
+   goes, exactly as on a non-lazy continuation line: a lazy line *is* a
+   continuation line, distinguished only by the container prefixes it
+   omits, and djot.js strips it either way (checked against the oracle on
+   both a quote and a list).  Canonical renderings never produce a lazy
+   line, so no roundtrip proof can observe this; it matters for the
+   parser's agreement with the oracle on hand-written input, and it is
+   what makes the state's content independent of ambient indentation. *)
 Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   match st with
-  | PPara cur => PPara (l :: cur)
-  | PHeading lvl cur => PHeading lvl (l :: cur)
+  | PPara cur => PPara (drop_leading_ws l :: cur)
+  | PHeading lvl cur => PHeading lvl (drop_leading_ws l :: cur)
   | PFence f acc => PFence f acc      (* excluded by lazy_ok *)
   | PQuote done inner => PQuote done (feed_lazy l inner)
   | PList ls done inner => PList ls done (feed_lazy l inner)

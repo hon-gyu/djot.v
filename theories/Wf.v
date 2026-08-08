@@ -383,12 +383,16 @@ Lemma feed_lazy_wf :
     state_wf (feed_lazy l st) = true.
 Proof.
   induction st as [cur|lvl hcur|f acc|done inner IH|ls done inner IH];
-    intros Hl H.
-  - cbn [feed_lazy state_wf] in *. rewrite forallb_nonblank_cons by exact Hl.
+    intros Hl H;
+    (* feed_lazy strips the line's leading whitespace, which cannot turn a
+       nonblank line blank *)
+    assert (Hnb : is_blank (drop_leading_ws l) = false)
+      by (rewrite is_blank_drop_leading_ws; exact Hl).
+  - cbn [feed_lazy state_wf] in *. rewrite forallb_nonblank_cons by exact Hnb.
     exact H.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hlv Hc].
     apply andb_true_iff. split; [exact Hlv|].
-    rewrite forallb_nonblank_cons by exact Hl. exact Hc.
+    rewrite forallb_nonblank_cons by exact Hnb. exact Hc.
   - reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
     rewrite Hd, (IH Hl Hi). reflexivity.
