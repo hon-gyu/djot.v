@@ -99,6 +99,10 @@ nested lists becomes true. The proof obstacle recorded in
 `260807.list-roundtrip-indent-shift.autonomous.md` is a symptom of this
 bug, not an inherent difficulty.
 
+### Also ours: tightness of an item holding a nested list
+
+| Case | Verdict | Notes |
+|---|---|---|
 | `- a` / blank / `  - b` | **our bug (renderer side)** | Both oracles report the outer list **tight**; our parser agrees. `Render.items_force_loose` disagrees, declaring any multi-block item loose, so `cb_ok` rejects the spacing that actually parses back |
 
 Root cause: djot.js excludes a `+list` event from spending a blank line
