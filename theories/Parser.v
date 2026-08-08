@@ -2037,6 +2037,35 @@ Proof.
     destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
 Qed.
 
+(* And from the idle state the shift is *invisible*: `pad_state` moves
+   columns, `finish` reads none, and the emitted blocks are untouched.  So
+   a blank pad in front of every line of a run changes nothing at all --
+   for a nested list too, unlike `step_pad_flat`, whose `no_columns` side
+   condition is exactly what a nested list violates. *)
+Lemma run_lines_pad_invisible :
+  forall p L,
+    is_blank p = true ->
+    run_pad_safe L (PPara []) = true ->
+    run_lines (map (fun l => (p ++ l)%string) L) (PPara [])
+    = (fst (run_lines L (PPara [])),
+       pad_state (String.length p) (snd (run_lines L (PPara [])))).
+Proof.
+  intros p L Hp Hsafe. exact (run_lines_pad_shift p L (PPara []) Hp Hsafe).
+Qed.
+
+Lemma parse_lines_pad_invisible :
+  forall p L,
+    is_blank p = true ->
+    run_pad_safe L (PPara []) = true ->
+    parse_lines (map (fun l => (p ++ l)%string) L) (PPara [])
+    = parse_lines L (PPara []).
+Proof.
+  intros p L Hp Hsafe.
+  rewrite (parse_lines_run _ _ _ _ (run_lines_pad_invisible p L Hp Hsafe)).
+  rewrite pad_state_finish.
+  symmetry. apply parse_lines_run, surjective_pairing.
+Qed.
+
 Lemma consumed_bullet_open : forall l, consumed (bullet_open ++ l) l = 2.
 Proof.
   intros l. unfold consumed, bullet_open. rewrite length_append.
