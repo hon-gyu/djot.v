@@ -1,14 +1,23 @@
 ---
 ai-disclosure: ai-generated
 ---
-# Dev lessons
+# Project engineering lessons
 
-Undated, cumulative. **The bar for an entry is high**: it must have
-changed a decision, be specific enough to act on, and be likely to recur
-in *this* project. Generic engineering advice does not qualify — a lesson
+Persistent and cumulative, unlike the dated notes beside it.
+
+**Scope**: how to decide, not how to code. Every entry is a case where a
+minute of cheap evidence beat an hour of confident reasoning — an
+estimate that should have come from an invariant, a theorem that could
+have been refuted by `Compute`, a semantic question the oracle already
+answers, a test suite trusted without checking what it covers. Some fire
+at planning time and some mid-task; what they share is the moment just
+before committing to a direction.
+
+**The bar for an entry is high**: it must have changed a decision, be
+specific enough to act on, and be likely to recur in *this* project. Generic engineering advice does not qualify — a lesson
 that would apply to any codebase teaches nothing here. Most session
 incidents are not lessons; they are just bugs, and they belong in the
-dated notes or in `oracle-disagreements.md`.
+dated notes or in other files.
 
 Each entry: what happened, the general form, what to do instead.
 

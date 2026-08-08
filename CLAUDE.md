@@ -2,8 +2,9 @@
 
 ---
 
-- see @.project/ for project context; @.project/lessons.md is the
-  undated, cumulative one (read before estimating a refactor).
+- see @.project/ for project context; @.project/project-engineering-lessons.md
+  persists across sessions (read before committing to a direction:
+  estimating a refactor, proposing a theorem, deciding what djot does).
 - comment like `CR: ...` means "code review comment"
 - repetitive edit-and-rebuild cycles can be inefficient, which is an anti-pattern. make use of the interactive mode of rocq-mcp where appropriate.
 

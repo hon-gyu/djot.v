@@ -1,0 +1,2 @@
+- We store project relevant context in this directory.
+- If something can drift across development loops, we attach date or / and commit hash to it.
