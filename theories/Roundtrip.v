@@ -1211,10 +1211,24 @@ Example loose_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* Lists are also covered recursively through a quote; only lists nested
-   directly inside list items remain outside list_content_safe. *)
+(* Lists nest, in both directions: through a quote, and directly inside
+   another list's item. *)
 Example list_in_quote_roundtrip :
   let cbs := [CQuote [CList Tight [[CPara ["a"]]; [CPara ["b"]]]]] in
+  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. apply roundtrip_blocks; reflexivity. Qed.
+
+Example nested_list_roundtrip :
+  let cbs := [CList Tight [[CList Tight [[CPara ["b"]]; [CPara ["c"]]]]]] in
+  render_djot (blocks_of_cblocks cbs) = ("- - b" ++ nl ++ "  - c")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* A nested list after a paragraph in the same item: the blank the inner
+   list needs does not loosen the outer one, which is the rule
+   `lines_loose` encodes and `item_forces_loose` mirrors. *)
+Example nested_list_after_para_roundtrip :
+  let cbs := [CList Tight [[CPara ["a"]; CList Tight [[CPara ["b"]]]]]] in
   parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. apply roundtrip_blocks; reflexivity. Qed.
 

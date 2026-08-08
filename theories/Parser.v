@@ -1179,33 +1179,6 @@ Proof.
          rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
 Qed.
 
-(* Only PList records a column, so a state with no open list is fixed by
-   the shift.  This is what lets the padded and unpadded runs stay
-   literally equal inside a *flat* list item: the item's own content never
-   opens a list, so there is no column to shift. *)
-Fixpoint no_columns (st : pstate) : bool :=
-  match st with
-  | PList _ _ _ => false
-  | PQuote _ inner => no_columns inner
-  | _ => true
-  end.
-
-Lemma no_columns_pad_state :
-  forall k st, no_columns (pad_state k st) = no_columns st.
-Proof.
-  intros k st. induction st as [| | |done inner IH|ls done inner IH];
-    cbn [pad_state no_columns]; try reflexivity. exact IH.
-Qed.
-
-Lemma pad_state_no_columns :
-  forall k st, no_columns st = true -> pad_state k st = st.
-Proof.
-  intros k st. induction st as [| | |done inner IH|ls done inner IH];
-    cbn [no_columns pad_state]; try reflexivity.
-  - intros H. rewrite (IH H). reflexivity.
-  - discriminate.
-Qed.
-
 (** A blank prefix in front of a line is exactly a shift of its starting
     column. *)
 Lemma step_pad :
@@ -1216,27 +1189,6 @@ Proof.
   intros p l st Hp Hsafe. unfold step, step_at.
   rewrite (step_fuel_pad _ p 0 l st Hp Hsafe), Nat.add_0_r.
   apply step_fuel_enough_off. rewrite length_append. lia.
-Qed.
-
-(** Padding is invisible, not merely a shift, when no list is open before
-    or after the step.  The form the roundtrip proofs want: inside a flat
-    list item there is no column anywhere, so the item's continuation
-    whitespace changes nothing at all. *)
-Lemma step_pad_flat :
-  forall p l st,
-    is_blank p = true ->
-    pad_safe st = true ->
-    no_columns st = true ->
-    no_columns (snd (step l st)) = true ->
-    step (p ++ l) st = step l st.
-Proof.
-  intros p l st Hp Hsafe Hst Hafter.
-  rewrite (step_pad p l st Hp Hsafe).
-  rewrite <- (pad_state_no_columns (String.length p) st Hst) at 1.
-  rewrite <- (Nat.add_0_r (String.length p)) at 1.
-  rewrite step_at_shift, step_at_zero.
-  rewrite (pad_state_no_columns (String.length p) _ Hafter).
-  symmetry. apply surjective_pairing.
 Qed.
 
 (*
@@ -1668,8 +1620,9 @@ Qed.
    This is what lets a quote nested inside a list item ignore the
    item's own indent entirely: the pad never reaches `rest`, so the
    recursion into the quote's contents is byte-identical to the
-   unpadded case. Render.list_content_safe's comment explains why lists
-   don't get the same free ride. *)
+   unpadded case.  A nested list is not byte-identical -- its recorded
+   column moves with the pad -- which is why the list side is stated as
+   a shift (`run_lines_pad_shift`) rather than an equality. *)
 Lemma consumed_quote_prefix_pad :
   forall pad l, consumed (pad ++ "> " ++ l) l = String.length pad + 2.
 Proof.
@@ -2139,9 +2092,10 @@ that reads the block tree cannot express this, because the tree does not
 record where the blanks sit relative to the markers.
 *)
 
-(* Padding is a shift of the state, not a no-op: the general form of
-   `step_pad_flat`, with no `no_columns` side condition, so an item whose
-   content opens a list is covered too. *)
+(* Padding is a shift of the state, not a no-op.  Stating it as a shift
+   rather than as an equality is what makes it hold for an item whose
+   content opens a list, where the pad genuinely moves a recorded
+   column. *)
 Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
@@ -2191,9 +2145,9 @@ Qed.
 
 (* And from the idle state the shift is *invisible*: `pad_state` moves
    columns, `finish` reads none, and the emitted blocks are untouched.  So
-   a blank pad in front of every line of a run changes nothing at all --
-   for a nested list too, unlike `step_pad_flat`, whose `no_columns` side
-   condition is exactly what a nested list violates. *)
+   a blank pad in front of every line of a run changes nothing at all,
+   whatever the run opens -- a nested list included.  `run_pad_safe` is
+   the whole side condition. *)
 Lemma run_lines_pad_invisible :
   forall p L,
     is_blank p = true ->

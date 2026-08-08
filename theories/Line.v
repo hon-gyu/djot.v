@@ -482,7 +482,10 @@ Qed.
    detected identically regardless of what ambient indentation precedes
    it, and the extracted content is exactly `l` with no pad residue —
    this is what lets a quote nested inside a list item ignore the
-   item's indent entirely, unlike a nested list (Render.list_content_safe). *)
+   item's indent entirely.  A nested list does not get the same free
+   ride: `ls_indent` is read off the raw line, so the item's pad shifts
+   it.  That is a shift, not a difference in outcome, and
+   `Parser.run_lines_pad_shift` is where it is discharged. *)
 Lemma classify_canonical_quote_pad :
   forall pad l, is_blank pad = true -> classify (pad ++ "> " ++ l) = KQuote l.
 Proof.

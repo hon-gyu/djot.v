@@ -106,11 +106,16 @@ bug, not an inherent difficulty.
 
 | Case | Verdict | Notes |
 |---|---|---|
-| `- a` / blank / `  - b` | **our bug (renderer side)** | Both oracles report the outer list **tight**; our parser agrees. `Render.items_force_loose` disagrees, declaring any multi-block item loose, so `cb_ok` rejects the spacing that actually parses back |
+| `- a` / blank / `  - b` | **was our bug (renderer side); fixed** | Both oracles report the outer list **tight**; our parser agrees. `Render.item_forces_loose` used to disagree, declaring any multi-block item loose, so `cb_ok` rejected the spacing that actually parses back |
 
 Root cause: djot.js excludes a `+list` event from spending a blank line
 into looseness, which `Parser.list_content` already encodes. The
-renderer-side predicate does not mirror it. Harmless today because
-`list_content_safe` excludes nested lists entirely; it becomes live the
-moment that exclusion is relaxed. Tracked as step 1 of
-`260808.plan-generator-and-nesting.autonomous.md`.
+renderer-side predicate did not mirror it.
+
+**Resolved.** `item_forces_loose` is now `lines_loose` over the item's
+own rendered lines (`dc13c4b`), so it reads the same rule off the same
+lines the parser scans, rather than counting blocks. With nested lists
+admitted to the fragment the case is live and it agrees:
+`item_forces_loose ["a"; ""; "- b"] = false`, `cb_ok` accepts the
+`Tight` spelling, and it roundtrips. `Roundtrip.nested_list_after_para_roundtrip`
+pins it.
