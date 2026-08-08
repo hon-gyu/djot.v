@@ -993,26 +993,6 @@ set), and `blanks` is decided by the last line alone.  Everything above
 uses these to avoid re-inducting over `scan_list_content`.
 *)
 
-Lemma scan_list_content_nonblank :
-  forall lines ind marker loose items,
-    forallb nonblank lines = true ->
-    scan_list_content (LSt ind marker loose false items) lines
-    = LSt ind marker loose false items.
-Proof.
-  induction lines as [|l lines IH]; intros ind marker loose items H;
-    [reflexivity|].
-  cbn [forallb] in H. apply andb_true_iff in H as [Hl Hrest].
-  cbn [scan_list_content].
-  destruct (classify l) as [| |f|q|lvl txt|m rest|] eqn:Hclass.
-  - apply classify_kblank_blank in Hclass. unfold nonblank in Hl.
-    rewrite Hclass in Hl. discriminate.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-Qed.
 
 Lemma safe_cb_lines_nonblank :
   forall cb,
@@ -1049,77 +1029,10 @@ Proof.
   - discriminate Hsafe.
 Qed.
 
-Lemma scan_list_content_loose :
-  forall lines ind marker blanks items,
-    ls_loose (scan_list_content (LSt ind marker true blanks items) lines) = true.
-Proof.
-  induction lines as [|l lines IH]; intros ind marker blanks items;
-    [reflexivity|].
-  cbn [scan_list_content]. destruct (classify l); apply IH.
-Qed.
 
-Lemma scan_list_content_app :
-  forall xs ys ls,
-    scan_list_content ls (xs ++ ys)%list =
-    scan_list_content (scan_list_content ls xs) ys.
-Proof.
-  induction xs as [|x xs IH]; intros ys ls; [reflexivity|].
-  cbn [app]. destruct (classify x) eqn:Hclass;
-    cbn [scan_list_content]; apply IH.
-Qed.
 
-Lemma scan_list_content_fields :
-  forall lines ls,
-    ls_indent (scan_list_content ls lines) = ls_indent ls /\
-    ls_marker (scan_list_content ls lines) = ls_marker ls /\
-    ls_items (scan_list_content ls lines) = ls_items ls.
-Proof.
-  intros lines ls. split.
-  - revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
-    cbn [scan_list_content]. destruct (classify l);
-      rewrite IH; destruct ls; reflexivity.
-  - split.
-    + revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
-      cbn [scan_list_content]. destruct (classify l);
-        rewrite IH; destruct ls; reflexivity.
-    + revert ls. induction lines as [|l lines IH]; intros ls; [reflexivity|].
-      cbn [scan_list_content]. destruct (classify l);
-        rewrite IH; destruct ls; reflexivity.
-Qed.
 
-Lemma scan_list_content_loose_ext :
-  forall lines ind marker loose blanks done,
-    ls_loose (scan_list_content (LSt ind marker loose blanks done) lines) =
-    ls_loose (scan_list_content (LSt 0 "-"%char loose blanks []) lines).
-Proof.
-  induction lines as [|l lines IH]; intros ind marker loose blanks done;
-    [reflexivity|].
-  cbn [scan_list_content]. destruct (classify l);
-    cbn [list_blank list_content]; apply IH.
-Qed.
 
-Lemma scan_list_content_blanks_last :
-  forall lines ls,
-    lines <> [] -> nonblank (last lines EmptyString) = true ->
-    ls_blanks (scan_list_content ls lines) = false.
-Proof.
-  induction lines as [|l lines IH]; intros ls Hne Hlast; [congruence|].
-  destruct lines as [|l2 lines'].
-  - cbn [last scan_list_content] in Hlast |- *.
-    destruct (classify l) as [| |f|q|lvl txt|m item|] eqn:Hclass;
-      cbn [list_blank list_content].
-    all: try (apply classify_kblank_blank in Hclass; unfold nonblank in Hlast;
-              rewrite Hclass in Hlast; discriminate).
-    all: destruct ls; reflexivity.
-  - cbn [last] in Hlast.
-    change (ls_blanks
-      (scan_list_content
-        (match classify l with
-         | KBlank => list_blank ls
-         | k => list_content ls k
-         end) (l2 :: lines')) = false).
-    apply IH; [discriminate|exact Hlast].
-Qed.
 
 Lemma forallb_nonblank_last :
   forall lines,
@@ -1161,25 +1074,6 @@ Proof.
     apply IH; [discriminate|exact Hsaferest|exact Hokrest].
 Qed.
 
-Lemma scan_list_content_after_blank :
-  forall b rest ind marker items,
-    classify b <> KBlank ->
-    (forall m item, classify b <> KList m item) ->
-    ls_loose
-      (scan_list_content (list_blank (LSt ind marker false false items))
-         (b :: rest)) = true.
-Proof.
-  intros b rest ind marker items Hblank Hlist.
-  cbn [scan_list_content].
-  destruct (classify b) as [| |f|q|lvl txt|m item|] eqn:Hclass.
-  - exfalso. apply Hblank. reflexivity.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - exfalso. apply (Hlist m item). reflexivity.
-  - apply scan_list_content_loose.
-Qed.
 
 (*
 One canonical item

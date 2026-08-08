@@ -46,31 +46,6 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
 Lemma quote_line_empty : quote_line EmptyString = quote_open.
 Proof. unfold quote_line. apply append_empty_r. Qed.
 
-(* A list item's lines: the marker (`bullet_open`, from Line.v) on the
-   first line, two spaces of plain indent (`bullet_cont`) on every line
-   after — not repeated per line like quote_line, since bullet_cont is
-   whitespace and Line.classify_ws_prefix carries every recognizer
-   through it for free. *)
-Definition indent_lines (first_prefix rest_prefix : string) (ls : list string)
-  : list string :=
-  match ls with
-  | [] => []
-  | l :: rest => (first_prefix ++ l) :: map (fun x => rest_prefix ++ x) rest
-  end.
-
-(* Items separated by a blank line when the list is loose, concatenated
-   directly when tight — the rendering choice `cb_ok`'s spacing condition
-   has to match back up with. *)
-Fixpoint list_lines (sp : list_spacing) (lss : list (list string))
-  : list string :=
-  match lss with
-  | [] => []
-  | [ls] => ls
-  | ls :: rest =>
-      (ls ++ (match sp with Loose => [EmptyString] | Tight => [] end)
-       ++ list_lines sp rest)%list
-  end.
-
 (*
 Canonical blocks
 ================
