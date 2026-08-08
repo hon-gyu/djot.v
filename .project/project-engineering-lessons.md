@@ -118,6 +118,10 @@ inputs do — and `cblock` + `cb_lines` is already a typed generator of
 canonical documents. Phase 1 item 4 of the plan called for exactly this
 and has not been done.
 
+<!-- CR: the content after this part doesn't really make sense to me. Are they genuine "decision making lessons"?
+They feels like notes on how to write a proof, not how to make a decision at the project level.
+-->
+
 ---
 
 ## A projection used as an equality oracle drops the field under test
