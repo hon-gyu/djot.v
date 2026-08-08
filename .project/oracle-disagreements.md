@@ -66,3 +66,35 @@ Verdict legend:
 - Render-only rows mean the Phase 1 HTML renderer must copy djot.js's
   serialization choices (attribute order, section-wrapping policy, task-item
   markup), not djoths's, to keep the harness diff clean.
+
+## Adjudicated 2026-08-08 — ours
+
+First entry where *our* parser is the odd one out; the log's original
+framing (djoths vs djot.js) assumed the Gallina parser had no opinion yet.
+
+| Case | Verdict | Notes |
+|---|---|---|
+| `- - b` / `  - c` | **our bug** | A list nested on its parent's marker line: both oracles read one outer item containing a two-item inner list; ours reads a one-item inner list and swallows `- c` as that item's content |
+
+Root cause: `step_fuel` descends into a marker's residue with
+`step_fuel n' rest (PPara [])`, so a nested `open_list` records
+`indent_of rest` — an indent measured in the *residue's* coordinates, not
+the line's. For `- - b` the inner list is recorded at indent 0 though its
+marker sits at column 2, and the continuation `  - c` (indent 2) then
+tests as *content* of the inner item rather than a sibling of it. Both
+oracles measure the nested marker's absolute column.
+
+Fix shape: thread a column offset through `step_fuel`, added at the two
+places indentation is consulted (`open_list (off + indent_of l)` and the
+`Nat.ltb (ls_indent ls) (off + indent_of l)` routing test), and grown by
+the consumed prefix length at each descent through a quote prefix or a
+list marker. Padding the residue back out with spaces instead would break
+the termination measure, which is line length plus stack depth.
+
+Consequence worth noting: this bug is also why `Parser.pad_nested_list_unshifted`
+holds. With the offset threaded, a nested list's recorded indent becomes
+`off + indent_of rest`, and an ambient pad grows `off` by exactly the pad
+length — so the uniform shift that `step_pad` currently cannot state for
+nested lists becomes true. The proof obstacle recorded in
+`260807.list-roundtrip-indent-shift.autonomous.md` is a symptom of this
+bug, not an inherent difficulty.
