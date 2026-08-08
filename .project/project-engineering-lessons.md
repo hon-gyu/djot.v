@@ -117,3 +117,63 @@ this bug got wrong) does not help with the first question. Generated
 inputs do — and `cblock` + `cb_lines` is already a typed generator of
 canonical documents. Phase 1 item 4 of the plan called for exactly this
 and has not been done.
+
+---
+
+## A projection used as an equality oracle drops the field under test
+
+**What happened.** To find canonical blocks that `cb_ok` rejects but that
+roundtrip anyway, the first screen compared `render_djot (parse ...)`
+with `render_djot (cb_ast ...)`: string equality, decidable, and
+rendering is faithful. It reported 983 candidates at depth 2, including
+22 blamed on the spacing condition. All 22 were false positives.
+`CList Tight [[CPara ["a"]]]` and `CList Loose [[CPara ["a"]]]` both
+render to `- a`. The genuine tight/loose defect stayed invisible until the
+screen was augmented with a spacing-tag comparison.
+
+**General form.** Every projection we reach for as a cheap comparison is
+lossy by construction, and the loss is never random: a projection is
+adopted *because* it discards what seemed irrelevant. The field under
+test is the one most likely to be in that set, because it is the field
+whose behaviour was not yet understood.
+
+**What to do instead.** Before using any projection as an oracle, name
+what it drops and check the property under test is not in that set.
+`render_djot` drops list spacing, positions and attributes; the harness's
+`--shape` drops inline content. Both are fine for what they were built
+for and neither is a roundtrip oracle. When a projection reports a
+finding, verify the finding exactly before counting it. A screen whose
+*negatives* are sound (a difference implies a real difference) is still
+useful for locating candidates -- just never for confirming them.
+
+---
+
+## The conservative predicate may be replaceable by the lemma's precondition
+
+**What happened.** `list_content_safe` is a structural predicate over
+`cblock` that bans code blocks and (until now) nested lists inside a list
+item. Three separate plans described the next step as "relax its `CList`
+case". Probing the obligation that relaxation would create -- that the
+predicate implies `run_pad_safe`, the actual hypothesis of the pad
+lemmas -- showed the implication holds but is very loose: 1944 of 2315
+generated blocks satisfy `run_pad_safe` without satisfying
+`list_content_safe`. Defining the predicate *as* `run_pad_safe (cb_lines
+c) (PPara [])` admits more (671 vs 632 at depth 2), closes an
+acknowledged gap, and deletes the implication obligation rather than
+discharging it.
+
+**General form.** A hand-written predicate guarding a proof usually
+started life as a conservative sketch of some lemma's real precondition.
+Over time the lemma acquires an exact, computable hypothesis and the
+sketch stays. Relaxing the sketch case by case treats the sketch as the
+thing to be preserved; the lemma's precondition is the thing that was
+actually meant.
+
+**What to do instead.** When a plan says "relax predicate P's case for
+X", first find the lemma whose hypothesis P exists to discharge and ask
+whether P can simply *be* that hypothesis. The check is cheap: enumerate
+and compare the two as booleans. If the gap is large, the relaxation is
+the wrong move. `cb_ok` has several conjuncts of this shape --
+`item_marker_ok`, `no_adjacent_lists` -- and each is worth the same
+question.
+
