@@ -7,6 +7,7 @@
   estimating a refactor, proposing a theorem, deciding what djot does).
 - comment like `CR: ...` means "code review comment"
 - repetitive edit-and-rebuild cycles can be inefficient, which is an anti-pattern. make use of the interactive mode of rocq-mcp where appropriate.
+- one gotcha of rocq-mcp: rocq-mcp caches sessions by preamble hash, so pass `force_restart` after any rebuild; a stale session answers for the old code without saying so.
 
 # AI content disclosure
 
