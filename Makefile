@@ -1,4 +1,4 @@
-.PHONY: build test shape baseline generated oracles clean
+.PHONY: build test shape baseline generated deep oracles clean
 
 build:
 	dune build
@@ -25,6 +25,15 @@ baseline: build
 generated: build
 	dune exec harness/main.exe -- --generated --verbose \
 	  --report generated-report.txt
+
+# the depth-3 enumeration (check/Deep.v), which dune does not build: it
+# is ~4 minutes, and it sits downstream of the parser, so leaving it in
+# the default build made every parser edit cost that.  Run it whenever
+# cb_ok, the enumeration, the renderer or the block parser changes.
+deep: build
+	rocq c -R _build/default/theories DjotV check/Deep.v
+	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \
+	       check/.Deep.aux
 
 oracles:
 	cd djot.js && npm install --no-audit --no-fund && npm run build

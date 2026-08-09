@@ -17,7 +17,12 @@
 
    Coverage of *shapes*, not volume: the alphabet is deliberately tiny
    and sequences take their tail from a fixed set, so the pool grows
-   linearly (5, 110, 2315, 48620) instead of quadratically. *)
+   linearly (5, 110, 2315, 48620) instead of quadratically.
+
+   Depth 3 is not here.  It is in `check/Deep.v`, which dune does not
+   build, because those two checks were ~260s of a ~270s clean build and
+   this file sits downstream of `Parser.v`.  `make deep` runs them; that
+   file says what they cost and why. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Line Ast Parser Render.
@@ -93,8 +98,9 @@ Proof. vm_compute. reflexivity. Qed.
 Example gen_roundtrip_2 : map rt_lhs (accepted 2) = map rt_rhs (accepted 2).
 Proof. vm_compute. reflexivity. Qed.
 
-Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
-Proof. vm_compute. reflexivity. Qed.
+(* Depth 3 lives in `check/Deep.v`, outside the dune build: it costs
+   ~176s, and this file is downstream of Parser.v, so every parser edit
+   was paying it.  `make deep` runs it. *)
 
 (*
 Boundary records
@@ -178,12 +184,10 @@ Example nested_list_accepted :
   cb_ok (CList Tight [[CList Tight [[CPara ["a"]]]]]) = true.
 Proof. reflexivity. Qed.
 
-(* Divs took these from (53, 593, 6437): a div accepts any block sequence
-   its contents do not close, so it roughly doubles the container arm. *)
-Example accepted_counts : (List.length (accepted 1),
-                           List.length (accepted 2),
-                           List.length (accepted 3)) = (68, 888, 11368).
-Proof. vm_compute. reflexivity. Qed.
+(* The counts are (68, 888, 11368); divs took them from (53, 593, 6437),
+   a div accepting any block sequence its contents do not close.  Pinned
+   in `check/Deep.v` rather than here — the depth-3 length alone costs
+   ~84s, which is a lot for a documentation number. *)
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else
