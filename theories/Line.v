@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Line classification: the prefix-determinism seam.
 
    Block structure in djot is a function of what each line looks like
@@ -23,6 +25,7 @@ Inductive line_kind : Type :=
   | KBlank                 (* only whitespace *)
   | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)
   | KFence (f : fence)     (* code fence opener *)
+  | KDiv (len : nat) (cls : string)    (* fenced-div opener, with its class *)
   | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
   | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
   | KList (m : ascii) (rest : string)  (* bullet marker, with its content *)
@@ -127,6 +130,67 @@ Definition fence_open (l : string) : option fence :=
 Definition fence_close (f : fence) (l : string) : bool :=
   let (n, r) := count_run (f_ch f) (drop_leading_ws l) in
   Nat.leb (f_len f) n && is_blank r.
+
+(* Fenced divs.  Two recognizers, not one, because the opener and the
+   closer are different patterns in djot.js: `pattDivFenceStart` plus
+   `pattDivFenceEnd` (block.ts:55-56) lets the opener carry a class,
+   while `pattDivFence` (block.ts:54) does not, so `::: foo` opens a div
+   but never closes one.
+
+   The close is applied by the *open div* to every line, the way
+   `fence_close` is, and never by `classify` — which is why there is no
+   `KDivClose`.  A bare `:::` is both a legal opener and a legal closer;
+   djot.js resolves that by running the container's `continue` before any
+   opener is tried, and `step`'s PDiv branch does the same. *)
+
+(* djot.js's class token is `[\w_-]*` — narrower than a code fence's info
+   string, and the difference is observable: `:::a!` opens no div at all,
+   because the pattern must match through end of line. *)
+Definition is_class_char (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  (Nat.leb 48 n && Nat.leb n 57)      (* 0-9 *)
+  || (Nat.leb 65 n && Nat.leb n 90)   (* A-Z *)
+  || (Nat.leb 97 n && Nat.leb n 122)  (* a-z *)
+  || Ascii.eqb c "_" || Ascii.eqb c "-".
+
+Fixpoint take_class (s : string) : string * string :=
+  match s with
+  | String c s' =>
+      if is_class_char c
+      then let (cls, r) := take_class s' in (String c cls, r)
+      else (EmptyString, s)
+  | EmptyString => (EmptyString, s)
+  end.
+
+Definition div_open (l : string) : option (nat * string) :=
+  match drop_leading_ws l with
+  | String c _ as l' =>
+      if Ascii.eqb c ":"
+      then
+        let (n, r) := count_run ":" l' in
+        if Nat.leb 3 n
+        then let (cls, r') := take_class (drop_leading_ws r) in
+             if is_blank r' then Some (n, cls) else None
+        else None
+      else None
+  | EmptyString => None
+  end.
+
+(* Closes a div opened with `len` colons: at least that many, then only
+   whitespace.  Shaped exactly like `fence_close`, and applied the same
+   way — but note the leading `drop_leading_ws`, which is what makes a
+   div's closer visible through any amount of indentation and therefore
+   through any nesting.  That asymmetry with `quote_prefix` (whose '>' is
+   non-whitespace and so blocks the scan) is the whole content of
+   `div_uniformity`'s side condition. *)
+Definition div_close (len : nat) (l : string) : bool :=
+  let (n, r) := count_run ":" (drop_leading_ws l) in
+  Nat.leb len n && Nat.leb 3 n && is_blank r.
+
+(* The enclosed content of a div is the line itself, unshortened, so
+   unlike quote_prefix there is no length lemma to prove: a div's descent
+   drops a container from the state rather than shortening the line, the
+   same measure a list item's contents use. *)
 
 (* Block quotes, per djot.js pattBlockquotePrefix (`[>][ \t\r\n]`): a
    '>' that is followed by whitespace or ends the line.  The prefix is
@@ -239,11 +303,15 @@ Definition classify (l : string) : line_kind :=
                match fence_open l with
                | Some f => KFence f
                | None =>
-                   if is_thematic l then KThematic
-                   else match list_marker l with
-                        | Some (m, rest) => KList m rest
-                        | None => KText
-                        end
+                   match div_open l with
+                   | Some (n, cls) => KDiv n cls
+                   | None =>
+                       if is_thematic l then KThematic
+                       else match list_marker l with
+                            | Some (m, rest) => KList m rest
+                            | None => KText
+                            end
+                   end
                end
            end
        end.
@@ -262,9 +330,11 @@ Proof.
   - destruct r as [|c r']; [injection H as <- <-; exact E|].
     destruct (is_ws c); [injection H as <- <-; exact E|].
     destruct (fence_open l); [discriminate|].
+    destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[m r0]|]; discriminate.
   - destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[m r0]|]; discriminate.
 Qed.
@@ -286,6 +356,7 @@ Proof.
   destruct (quote_prefix l); [discriminate|].
   destruct (heading_open l) as [[lvl rest]|]; [discriminate|].
   destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[m r0]|]; discriminate.
 Qed.
@@ -303,6 +374,7 @@ Proof.
   - injection H as <-. reflexivity.
   - destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
     destruct (fence_open l); [discriminate|].
+    destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[m r0]|]; discriminate.
 Qed.
@@ -317,6 +389,7 @@ Proof.
   destruct (quote_prefix l); [discriminate|].
   destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
   destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[m' r']|]; [|discriminate].
   injection H as <- <-. reflexivity.
@@ -332,11 +405,12 @@ Qed.
 Lemma classify_ktext :
   forall l,
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
-    fence_open l = None -> is_thematic l = false -> list_marker l = None ->
+    fence_open l = None -> div_open l = None ->
+    is_thematic l = false -> list_marker l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Ht Hm. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Ht, Hm. reflexivity.
+  intros l Hb Hq Hh Hf Hd Ht Hm. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -356,7 +430,7 @@ Proof.
   intros p l Hp. unfold classify.
   rewrite (is_blank_ws_prefix p l Hp).
   destruct (is_blank l) eqn:Eb; [reflexivity|].
-  unfold quote_prefix, heading_open, fence_open, list_marker.
+  unfold quote_prefix, heading_open, fence_open, div_open, list_marker.
   rewrite (drop_leading_ws_ws_prefix p l Hp).
   fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
   unfold is_thematic. reflexivity.
@@ -465,7 +539,20 @@ Proof.
 Qed.
 
 (* Canonical block-quote prefixing, the renderer's spelling: "> " in
-   front of every line, including blank ones. *)
+   front of every line, including blank ones.
+
+   `quote_open` lives here rather than in Render because Parser needs to
+   name its width.  Both containers descend by two columns, so a bare `2`
+   in a parser proof does not say which one it means; `String.length
+   quote_open` and `String.length bullet_cont` do. *)
+Definition quote_open : string := "> ".
+Definition quote_line (l : string) : string := quote_open ++ l.
+
+(* The column a quote's contents start at.  Definitionally 2, and named
+   so that a parser proof mentioning it cannot be confused with
+   `item_pad`, which is also 2 and means something else. *)
+Definition quote_pad : nat := String.length quote_open.
+
 Lemma quote_prefix_canonical :
   forall l, quote_prefix ("> " ++ l) = Some l.
 Proof. reflexivity. Qed.
@@ -570,6 +657,53 @@ Lemma fence_close_canonical :
   forall info, fence_close (Fence "`" 3 info) "```" = true.
 Proof. reflexivity. Qed.
 
+(*
+Canonical fenced divs
+=====================
+
+The renderer emits the shortest legal fence, classless, for both ends —
+the same choice `code_open`/`code_close` make, and it carries the same
+cost: a div whose contents contain a `:::` line cannot be rendered, so
+`cb_ok` excludes it rather than growing the fence. *)
+
+Definition div_fence : string := ":::".
+
+Lemma classify_canonical_div : classify div_fence = KDiv 3 EmptyString.
+Proof. reflexivity. Qed.
+
+Lemma div_close_canonical : div_close 3 div_fence = true.
+Proof. reflexivity. Qed.
+
+(* Whitespace in front of a div's closer is invisible to it, which is
+   what `classify_ws_prefix` does *not* give us: `div_close` is applied
+   by the open div directly, never through `classify`, so it needs its
+   own statement.  This is the lemma the indented-close counterexample
+   turns on. *)
+(* A blank line never closes a div, whatever fence length is open: the
+   `3 <=` conjunct fails on the empty colon run.  This is what lets a
+   blank inside a div behave exactly as it does at top level. *)
+Lemma drop_leading_ws_blank :
+  forall s, is_blank s = true -> drop_leading_ws s = EmptyString.
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [is_blank drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|discriminate].
+Qed.
+
+Lemma div_close_blank :
+  forall len l, is_blank l = true -> div_close len l = false.
+Proof.
+  intros len l H. unfold div_close.
+  rewrite (drop_leading_ws_blank l H).
+  cbn [count_run]. rewrite Bool.andb_false_r. reflexivity.
+Qed.
+
+Lemma div_close_ws_prefix :
+  forall p len l, is_blank p = true -> div_close len (p ++ l) = div_close len l.
+Proof.
+  intros p len l Hp. unfold div_close.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
 (* classify_canonical_heading, seen through an all-whitespace pad — same
    free ride as classify_canonical_quote_pad. *)
 Lemma classify_canonical_heading_pad :
@@ -594,37 +728,134 @@ whitespace, so `classify_ws_prefix` carries every recognizer through it
 for free — a nested construct starting on a continuation line reclassifies
 exactly as it would unindented. *)
 
-Definition bullet_open : string := "- ".
-Definition bullet_cont : string := "  ".
+(* A run of spaces, the continuation indent's shape.  Ordered markers
+   differ from bullets only in how long this is. *)
+Fixpoint blanks (n : nat) : string :=
+  match n with O => EmptyString | S k => String " " (blanks k) end.
+
+Lemma blanks_blank : forall n, is_blank (blanks n) = true.
+Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks is_blank]. exact IH. Qed.
+
+Lemma blanks_length : forall n, String.length (blanks n) = n.
+Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks String.length]. rewrite IH. reflexivity. Qed.
+
+(* A list marker, as the renderer and the classifier jointly see it: the
+   string that opens an item, and the style character `classify` reads
+   off it.  Everything the uniformity chain needs about a marker is here,
+   which is what lets `list_uniformity` quantify over it. *)
+Record marker : Type := Mk_marker { mk_style : ascii }.
+
+Definition mk_open (m : marker) : string := String (mk_style m) " ".
+Definition mk_pad (m : marker) : nat := String.length (mk_open m).
+Definition mk_cont (m : marker) : string := blanks (mk_pad m).
+
+(* Which markers the classifier actually recognizes.  Today this is the
+   three bullet styles; an ordered marker widens `mk_open` and this
+   predicate together, and nothing between here and `list_uniformity`
+   mentions the width again. *)
+Definition marker_ok (m : marker) : bool := is_bullet (mk_style m).
+
+Definition bullet : marker := Mk_marker "-".
+
+(* Notations, not definitions: the list chain below is stated over an
+   abstract marker, and these names have to be *syntactically* its
+   instantiation for those statements to rewrite against a canonical
+   rendering. *)
+Notation bullet_open := (mk_open bullet).
+Notation bullet_cont := (mk_cont bullet).
+
+(* The column an item's contents start at.  Definitionally 2 for every
+   bullet, and distinct from `quote_pad`: an ordered marker separates
+   them. *)
+Notation item_pad := (mk_pad bullet).
+
+Lemma bullet_ok : marker_ok bullet = true.
+Proof. reflexivity. Qed.
+
+(* The other two bullet styles djot recognizes.  They exist here so the
+   generalization above is exercised rather than merely available: djot
+   starts a new list when the style changes, so these are genuinely
+   different lists, and nothing in the chain below is proved twice. *)
+Definition star : marker := Mk_marker "*".
+Definition plus : marker := Mk_marker "+".
+
+Lemma star_ok : marker_ok star = true.
+Proof. reflexivity. Qed.
+
+Lemma plus_ok : marker_ok plus = true.
+Proof. reflexivity. Qed.
+
+Lemma marker_cont_blank : forall m, is_blank (mk_cont m) = true.
+Proof. intros m. apply blanks_blank. Qed.
 
 Lemma bullet_cont_blank : is_blank bullet_cont = true.
 Proof. reflexivity. Qed.
 
+Lemma classify_marker_cont :
+  forall m l, classify (mk_cont m ++ l) = classify l.
+Proof. intros m l. apply classify_ws_prefix, marker_cont_blank. Qed.
+
+Lemma indent_of_marker_cont :
+  forall m l, indent_of (mk_cont m ++ l) = mk_pad m + indent_of l.
+Proof.
+  intros m l. rewrite indent_of_ws_prefix by apply marker_cont_blank.
+  unfold mk_cont. rewrite blanks_length. reflexivity.
+Qed.
+
 Lemma classify_bullet_cont :
   forall l, classify (bullet_cont ++ l) = classify l.
-Proof. intros l. apply classify_ws_prefix, bullet_cont_blank. Qed.
+Proof. intros l. apply classify_marker_cont. Qed.
 
 Lemma indent_of_bullet_cont :
-  forall l, indent_of (bullet_cont ++ l) = 2 + indent_of l.
-Proof. intros l. apply indent_of_ws_prefix, bullet_cont_blank. Qed.
+  forall l, indent_of (bullet_cont ++ l) = item_pad + indent_of l.
+Proof. intros l. apply indent_of_marker_cont. Qed.
+
+(* The three bullet styles, enumerated: `is_bullet` is a disjunction of
+   character tests, so every fact about a recognized marker reduces to
+   three concrete cases. *)
+Lemma is_bullet_cases :
+  forall c, is_bullet c = true ->
+    c = "-"%char \/ c = "*"%char \/ c = "+"%char.
+Proof.
+  intros c H. unfold is_bullet in H.
+  destruct (Ascii.eqb c "-") eqn:E1; [left; apply Ascii.eqb_eq, E1|].
+  destruct (Ascii.eqb c "*") eqn:E2; [right; left; apply Ascii.eqb_eq, E2|].
+  destruct (Ascii.eqb c "+") eqn:E3; [right; right; apply Ascii.eqb_eq, E3|].
+  cbn in H. discriminate.
+Qed.
 
 (* The marker line's classification needs one extra hypothesis quotes and
-   headings don't: "- " plus the item's own first line must not itself
-   look like a thematic break ("- - -"), since `classify` tests thematic
-   breaks before list markers.  A canonical item's cb_ok carries this. *)
+   headings don't: the marker plus the item's own first line must not
+   itself look like a thematic break ("- - -"), since `classify` tests
+   thematic breaks before list markers.  A canonical item's cb_ok carries
+   this. *)
+Lemma classify_marker_open :
+  forall m l, marker_ok m = true -> is_thematic (mk_open m ++ l) = false ->
+  classify (mk_open m ++ l) = KList (mk_style m) l.
+Proof.
+  intros m l Hm Hth. unfold marker_ok in Hm.
+  destruct m as [c]. cbn [mk_style] in *. unfold mk_open in *. cbn [mk_style] in *.
+  destruct (is_bullet_cases c Hm) as [E|[E|E]]; subst c;
+    unfold classify;
+    [ change (is_blank (String "-" " " ++ l)) with false
+    | change (is_blank (String "*" " " ++ l)) with false
+    | change (is_blank (String "+" " " ++ l)) with false ];
+    cbn [quote_prefix heading_open fence_open div_open drop_leading_ws
+         count_run is_ws Ascii.eqb];
+    rewrite Hth; reflexivity.
+Qed.
+
 Lemma classify_bullet_open :
   forall l, is_thematic (bullet_open ++ l) = false ->
   classify (bullet_open ++ l) = KList "-"%char l.
+Proof. intros l Hth. exact (classify_marker_open bullet l eq_refl Hth). Qed.
+
+Lemma indent_of_marker_open :
+  forall m l, marker_ok m = true -> indent_of (mk_open m ++ l) = 0.
 Proof.
-  intros l Hth. unfold classify, bullet_open.
-  change (is_blank ("- " ++ l)) with false.
-  change (quote_prefix ("- " ++ l)) with (@None string).
-  change (heading_open ("- " ++ l)) with (@None (nat * string)).
-  change (fence_open ("- " ++ l)) with (@None fence).
-  change (is_thematic ("- " ++ l)) with (is_thematic (bullet_open ++ l)).
-  rewrite Hth.
-  change (list_marker ("- " ++ l)) with (Some ("-"%char, l)).
-  reflexivity.
+  intros m l Hm. unfold marker_ok in Hm. destruct m as [c].
+  cbn [mk_style] in *. unfold mk_open. cbn [mk_style].
+  destruct (is_bullet_cases c Hm) as [E|[E|E]]; subst c; reflexivity.
 Qed.
 
 Lemma indent_of_bullet_open : forall l, indent_of (bullet_open ++ l) = 0.

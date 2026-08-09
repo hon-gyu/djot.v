@@ -401,3 +401,27 @@ The lesson is in the denominator, not the fix. The generated run contained
 because the run was classified by the causes already known. It was found
 instead by reading `make shape` output case by case — which nobody had
 done, because 220/287 looked like it was all unimplemented constructs.
+
+## Adjudicated 2026-08-09 — the fenced-div class token
+
+Found while implementing divs (`.project/260809.container-uniformity.md`,
+option A). The two oracles disagree on what may follow the opening fence.
+
+| Case | Verdict | Notes |
+|---|---|---|
+| `:::a!` / `x` | **djot.js** | djot.js: a paragraph, no div at all. djoths: a div with class `a!` |
+
+djot.js's opener is `pattDivFenceStart` followed by `pattDivFenceEnd =
+([\w_-]*)[ \t]*\r?\n` (`block.ts:55-56`). The pattern is anchored and
+must match through end of line, so a character outside `[\w_-]` makes the
+whole opener fail and the line stays text. djoths takes the rest of the
+line as the class without constraining it.
+
+We follow djot.js: `Line.is_class_char` is `[0-9A-Za-z_-]`, and
+`div_open` returns `None` when what follows the class token is not blank.
+The reference prose says "optionally a class name" without saying what a
+class name may contain, so this is a gap in the prose rather than a bug
+in either implementation — the same shape as the tilde-fence and
+table-trimming SPEC-GAPs.
+
+Pinned as the last case of the div probe set.

@@ -29,8 +29,8 @@ Block layout
 Definition thematic_line : string := "* * * *".
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
-Definition quote_open : string := "> ".
-Definition quote_line (l : string) : string := quote_open ++ l.
+(* quote_open / quote_line are in Line, next to quote_prefix_canonical:
+   Parser needs to name the quote prefix's width. *)
 
 (* Flatten per-block line lists into one line list, with a single blank
    line between blocks (and none at either end).  This is the layout
@@ -66,6 +66,11 @@ Inductive cblock : Type :=
   | CCode (info : string) (content : list string)
   | CHeading (level : nat) (ls : list string)
   | CQuote (inner : list cblock)
+  (* A canonical div: bare `:::` at both ends, no class.  The fence
+     length is fixed for the same reason `CCode`'s is — content that
+     would close it early is excluded by `cb_ok` rather than escaped by
+     growing the fence. *)
+  | CDiv (inner : list cblock)
   | CList (sp : list_spacing) (items : list (list cblock)).
 
 (* The two projections a cblock sits between: its source lines... *)
@@ -76,6 +81,13 @@ Fixpoint cb_lines (cb : cblock) : list string :=
       | [] => []
       | [c] => map quote_line (cb_lines c)
       | c :: rest => (map quote_line (cb_lines c) ++ quote_open :: go rest)%list
+      end in
+  let divided :=
+    fix godiv (cs : list cblock) : list string :=
+      match cs with
+      | [] => []
+      | [c] => cb_lines c
+      | c :: rest => (cb_lines c ++ EmptyString :: godiv rest)%list
       end in
   let bulleted :=
     fix golist (sp : list_spacing) (iss : list (list cblock)) : list string :=
@@ -93,6 +105,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CCode info content => (code_open info :: content ++ [code_close])%list
   | CHeading lvl ls => map (heading_line lvl) ls
   | CQuote inner => quoted inner
+  | CDiv inner => (div_fence :: divided inner ++ [div_fence])%list
   | CList sp items => bulleted sp items
   end.
 
@@ -111,6 +124,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CCode info content => fence_block (Fence "`"%char 3 info) content
   | CHeading lvl ls => mk (Heading lvl (para_inlines ls))
   | CQuote inner => mk (BlockQuote (asts inner))
+  | CDiv inner => mk (Div (asts inner))
   | CList sp items => mk (BulletList sp (itemsof items))
   end.
 
@@ -208,6 +222,7 @@ Definition cblock_ind2
   (hcode : forall info content, P (CCode info content))
   (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
+  (hdiv : forall inner, Q inner -> P (CDiv inner))
   (hlist : forall sp items, R items -> P (CList sp items))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
@@ -227,6 +242,7 @@ Definition cblock_ind2
     | CCode info content => hcode info content
     | CHeading lvl ls => hhead lvl ls
     | CQuote inner => hquote inner (golist inner)
+    | CDiv inner => hdiv inner (golist inner)
     | CList sp items =>
         hlist sp items
           ((fix golistlist (iss : list (list cblock)) : R iss :=
@@ -387,6 +403,13 @@ Fixpoint cb_ok (cb : cblock) : bool :=
       | [c] => cb_ok c
       | c :: rest => (cb_ok c && go rest)%bool
       end in
+  (* Unlike `inner_ok`, the empty case is `true`: an empty div renders. *)
+  let divs_ok :=
+    fix godiv (cs : list cblock) : bool :=
+      match cs with
+      | [] => true
+      | c :: rest => (cb_ok c && godiv rest)%bool
+      end in
   let items_ok :=
     fix goitems (iss : list (list cblock)) : bool :=
       match iss with
@@ -399,9 +422,17 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CCode info content => code_ok info content
   | CHeading lvl ls => heading_ok lvl ls
   | CQuote inner => inner_ok inner && no_adjacent_lists inner
+  (* A div's contents may be empty (`:::` then `:::` is a legal,
+     contentless div in both oracles), so this is the one container
+     without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
+     side condition of Parser.div_uniformity, specialised to the lines
+     this rendering produces. *)
+  | CDiv inner =>
+      divs_ok inner && no_adjacent_lists inner
+      && div_content_ok (sep_lines (map cb_lines inner))
   | CList sp items =>
       nonempty items && items_ok items
-      && forallb (fun it => item_ok (item_lines it)) items
+      && forallb (fun it => item_ok bullet (item_lines it)) items
       && forallb no_adjacent_lists items
       && match sp with
          | Tight => negb (items_force_loose items)
@@ -440,6 +471,64 @@ Lemma cb_ok_quote :
     cb_ok (CQuote inner)
     = (nonempty inner && forallb cb_ok inner && no_adjacent_lists inner)%bool.
 Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
+
+(* The div analogues.  `divs_ok` collapses to a plain `forallb` because
+   it has no nonempty case to carry. *)
+Lemma divs_ok_eq :
+  forall cs,
+    (fix godiv (cs : list cblock) : bool :=
+       match cs with
+       | [] => true
+       | c :: rest => (cb_ok c && godiv rest)%bool
+       end) cs
+    = forallb cb_ok cs.
+Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+
+Lemma cb_ok_div :
+  forall inner,
+    cb_ok (CDiv inner)
+    = (forallb cb_ok inner && no_adjacent_lists inner
+       && div_content_ok (sep_lines (map cb_lines inner)))%bool.
+Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
+
+Definition undiv (n : node block) : blocks :=
+  match node_contents n with Div bs => bs | _ => [] end.
+
+Lemma cb_ast_div :
+  forall inner, cb_ast (CDiv inner) = mk (Div (map cb_ast inner)).
+Proof.
+  assert (H : forall cs, undiv (cb_ast (CDiv cs)) = map cb_ast cs).
+  { induction cs as [|c rest IH]; [reflexivity|].
+    change (undiv (cb_ast (CDiv (c :: rest))))
+      with (cb_ast c :: undiv (cb_ast (CDiv rest))).
+    rewrite IH. reflexivity. }
+  intros inner.
+  change (cb_ast (CDiv inner))
+    with (mk (Div (undiv (cb_ast (CDiv inner))))).
+  rewrite H. reflexivity.
+Qed.
+
+Lemma cb_lines_div :
+  forall inner,
+    cb_lines (CDiv inner)
+    = (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list.
+Proof.
+  intros inner. cbn [cb_lines].
+  assert (H : forall cs,
+            (fix godiv (cs : list cblock) : list string :=
+               match cs with
+               | [] => []
+               | [c] => cb_lines c
+               | c :: rest => (cb_lines c ++ EmptyString :: godiv rest)%list
+               end) cs
+            = sep_lines (map cb_lines cs)).
+  { induction cs as [|c rest IH]; [reflexivity|].
+    destruct rest as [|c2 rest']; [reflexivity|].
+    transitivity (cb_lines c ++ EmptyString
+                  :: sep_lines (map cb_lines (c2 :: rest')))%list;
+      [rewrite <- IH; reflexivity | reflexivity]. }
+  rewrite H. reflexivity.
+Qed.
 
 Definition cblocks_ok (cbs : list cblock) : bool :=
   (forallb cb_ok cbs && no_adjacent_lists cbs)%bool.
@@ -487,7 +576,7 @@ Lemma cb_ok_list :
     cb_ok (CList sp items)
     = (nonempty items
        && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
-       && forallb (fun it => item_ok (item_lines it)) items
+       && forallb (fun it => item_ok bullet (item_lines it)) items
        && forallb no_adjacent_lists items
        && match sp with
           | Tight => negb (items_force_loose items)
@@ -529,6 +618,14 @@ Fixpoint render_block_lines (b : block) : list string :=
       | Node _ _ x :: rest =>
           (map quote_line (render_block_lines x) ++ quote_open :: go rest)%list
       end in
+  let divided :=
+    fix godiv (ns : list (node block)) : list string :=
+      match ns with
+      | [] => []
+      | [Node _ _ x] => render_block_lines x
+      | Node _ _ x :: rest =>
+          (render_block_lines x ++ EmptyString :: godiv rest)%list
+      end in
   let bulleted :=
     fix goitems (sp : list_spacing) (items : list blocks) : list string :=
       match items with
@@ -551,12 +648,36 @@ Fixpoint render_block_lines (b : block) : list string :=
   | RawBlock fmt text =>
       (code_open ("=" ++ fmt) :: split_lines text ++ [code_close])%list
   | BlockQuote bs => quoted bs
+  | Div bs => (div_fence :: divided bs ++ [div_fence])%list
   | BulletList sp items => bulleted sp items
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
 Definition render_blocks_lines (bs : blocks) : list (list string) :=
   map (fun n => render_block_lines (node_contents n)) bs.
+
+Lemma render_block_div :
+  forall bs,
+    render_block_lines (Div bs)
+    = (div_fence :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
+Proof.
+  intros bs. cbn [render_block_lines].
+  assert (H : forall ns,
+            (fix godiv (ns : list (node block)) : list string :=
+               match ns with
+               | [] => []
+               | [Node _ _ x] => render_block_lines x
+               | Node _ _ x :: rest =>
+                   (render_block_lines x ++ EmptyString :: godiv rest)%list
+               end) ns
+            = sep_lines (render_blocks_lines ns)).
+  { induction ns as [|n rest IH]; [reflexivity|].
+    destruct n as [p a x]. destruct rest as [|n2 rest']; [reflexivity|].
+    transitivity (render_block_lines x ++ EmptyString
+                  :: sep_lines (render_blocks_lines (n2 :: rest')))%list;
+      [rewrite <- IH; reflexivity | reflexivity]. }
+  rewrite H. reflexivity.
+Qed.
 
 Lemma render_block_quote :
   forall bs,

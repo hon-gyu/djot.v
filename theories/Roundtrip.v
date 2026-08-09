@@ -419,7 +419,7 @@ Proof.
                         forallb lines_ok (map cb_lines cbs) = true)
             (Forall (fun cbs => forallb cb_ok cbs = true ->
                                  forallb lines_ok (map cb_lines cbs) = true))
-            _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
+            _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
   - (* paragraph: line_ok everywhere implies the split conditions *)
     intros ls H.
     destruct ls as [|a ls']; [discriminate|].
@@ -461,6 +461,15 @@ Proof.
       cbn [map forallb] in IH |- *.
       specialize (IH Hok). apply andb_true_iff in IH as [Hc _]. exact Hc.
     + apply sep_lines_no_nl. apply IH. exact Hok.
+  - (* div: the fences carry both conditions by themselves — the last
+       line is `:::` whatever the contents are, so unlike the quote case
+       there is nothing to prove about nonemptiness *)
+    intros inner IH H.
+    rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [Hok _].
+    rewrite cb_lines_div. unfold lines_ok.
+    cbn [nonempty forallb]. rewrite last_cons_app, forallb_app. cbn [forallb].
+    rewrite (sep_lines_no_nl _ (IH Hok)). reflexivity.
   - (* list: each item lays out as a document would, then gets its
        marker/indent prefix; list_lines_ok closes the spacing. *)
     intros sp items IH H.
@@ -551,7 +560,7 @@ Proof.
   intros cb Hnonlist Hok.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
   apply lines_ok_parts in Hlines as (Hne & _ & _).
-  destruct cb as [ls| |info content|lvl ls|inner|sp items].
+  destruct cb as [ls| |info content|lvl ls|inner|dinner|sp items].
   - destruct ls as [|a rest].
     + exfalso. apply Hne. reflexivity.
     + exists a, rest. split; [reflexivity|].
@@ -579,6 +588,11 @@ Proof.
     + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
     + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
       intros m item E. rewrite classify_canonical_quote in E. discriminate.
+  - (* div: the opening fence is the first line, whatever the contents *)
+    rewrite cb_lines_div.
+    exists div_fence, (sep_lines (map cb_lines dinner) ++ [div_fence])%list.
+    split; [reflexivity|].
+    intros m item E. rewrite classify_canonical_div in E. discriminate.
   - discriminate Hnonlist.
 Qed.
 
@@ -600,7 +614,7 @@ Lemma cb_lines_first_line_ok :
     cb_lines cb = first :: rest -> line_ok first = true.
 Proof.
   intros cb first rest Hnonlist Hok Hlines.
-  destruct cb as [ls| |info content|lvl ls|inner|sp items].
+  destruct cb as [ls| |info content|lvl ls|inner|dinner|sp items].
   - change (para_ok ls = true) in Hok. destruct ls as [|l ls'];
       [discriminate Hok|].
     apply para_ok_parts in Hok as [_ [Hok _]].
@@ -640,6 +654,8 @@ Proof.
     apply andb_true_iff; split.
     + apply andb_true_iff; split; [reflexivity|exact Hl].
     + apply String.eqb_eq. reflexivity.
+  - rewrite cb_lines_div in Hlines. cbn [app] in Hlines.
+    injection Hlines as <- <-. reflexivity.
   - discriminate Hnonlist.
 Qed.
 
@@ -676,14 +692,14 @@ Lemma cb_ok_list_parts :
   forall sp items,
     cb_ok (CList sp items) = true ->
     items <> []
-    /\ forallb item_ok (map item_lines items) = true
+    /\ forallb (item_ok bullet) (map item_lines items) = true
     /\ list_spacing_of sp (map item_lines items) = sp.
 Proof.
   intros sp items H. rewrite cb_ok_list in H.
   repeat rewrite andb_true_iff in H.
   destruct H as [[[[Hne Hitems] Hitemok] _] Hspacing].
   assert (Hne' : items <> []) by (destruct items; [discriminate Hne|discriminate]).
-  assert (Hmap : forallb item_ok (map item_lines items) = true).
+  assert (Hmap : forallb (item_ok bullet) (map item_lines items) = true).
   { rewrite forallb_map. exact Hitemok. }
   assert (Hforce : existsb (fun L => item_loose L) (map item_lines items)
                    = items_force_loose items).
@@ -718,7 +734,7 @@ Proof.
   intros sp items Hok Hitems.
   destruct (cb_ok_list_parts sp items Hok) as (Hne & Hitemok & Hsp).
   rewrite cb_lines_list_uniform, (cb_ast_list_uniform sp items Hitems).
-  rewrite (list_uniformity sp (map item_lines items)
+  rewrite (list_uniformity bullet bullet_ok sp (map item_lines items)
              ltac:(destruct items; [congruence|discriminate]) Hitemok).
   rewrite Hsp. reflexivity.
 Qed.
@@ -746,7 +762,7 @@ Proof.
                 Hnonlist Hnextok Hshape) as Hline.
   rewrite Hshape. cbn [app].
   rewrite cb_lines_list_uniform, (cb_ast_list_uniform sp items Hitems).
-  rewrite (list_uniformity_tail sp (map item_lines items) first (more ++ tail)
+  rewrite (list_uniformity_tail bullet bullet_ok sp (map item_lines items) first (more ++ tail)
              ltac:(destruct items; [congruence|discriminate]) Hitemok
              ltac:(intros E; apply classify_kblank_blank in E;
                    apply line_ok_nonblank in Hline;
@@ -796,7 +812,7 @@ Proof.
                forallb no_adjacent_lists items = true ->
                forallb (fun it => (nonempty it && forallb cb_ok it)%bool) items = true ->
                items_parse items)
-            _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph *)
     intros ls. split; [intros next tail _ _ H | intros H];
       change (cb_ok (CPara ls)) with (para_ok ls) in H;
@@ -901,6 +917,29 @@ Proof.
       rewrite cb_lines_quote, cb_ast_quote, E.
       unfold quote_line, quote_open.
       rewrite quote_uniformity, <- E, IHinner. reflexivity.
+  - (* div: Parser.div_uniformity, with cb_ok supplying its side
+       condition.  Simpler than the quote case in one way — the fences
+       make the rendering nonempty on their own, so there is no
+       `Hsplit` — and it needs no `no_adjacent_lists` for its own sake,
+       only to drive the contents' induction hypothesis. *)
+    intros inner IH.
+    assert (Hparts : cb_ok (CDiv inner) = true ->
+                     parse_lines (sep_lines (map cb_lines inner)) (PPara [])
+                     = map cb_ast inner
+                     /\ div_content_ok (sep_lines (map cb_lines inner)) = true).
+    { intros H. rewrite cb_ok_div in H.
+      apply andb_true_iff in H as [H Hcontent].
+      apply andb_true_iff in H as [Hok Hadj].
+      split; [exact (IH Hadj Hok) | exact Hcontent]. }
+    split.
+    + intros next tail _ _ H.
+      destruct (Hparts H) as [IHinner Hcontent].
+      rewrite cb_lines_div, cb_ast_div. cbn [app]. rewrite <- app_assoc.
+      cbn [app].
+      rewrite (div_uniformity_tail _ _ Hcontent), IHinner. reflexivity.
+    + intros H. destruct (Hparts H) as [IHinner Hcontent].
+      rewrite cb_lines_div, cb_ast_div.
+      rewrite (div_uniformity _ Hcontent), IHinner. reflexivity.
   - (* list: every item's contents come from the induction hypothesis,
        and Parser.list_uniformity assembles them *)
     intros sp items IH.
@@ -1064,7 +1103,7 @@ Proof.
                                                 (map cb_ast it)))) items
                           = map (fun it => indent_lines bullet_open bullet_cont
                                    (sep_lines (map cb_lines it))) items)
-            _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph: inline_lines inverts para_inlines *)
     intros ls H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
     destruct ls as [|a ls']; [discriminate|].
@@ -1091,6 +1130,15 @@ Proof.
     apply andb_true_iff in H as [_ Hok].
     rewrite cb_ast_quote. cbn [node_contents mk].
     rewrite render_block_quote, (IH Hok), cb_lines_quote.
+    reflexivity.
+  - (* div: same shape as the quote, with fences instead of a prefix *)
+    intros inner IH H.
+    rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [Hok _].
+    rewrite cb_ast_div. cbn [node_contents mk].
+    rewrite render_block_div.
+    fold (render_blocks_lines (map cb_ast inner)).
+    rewrite (IH Hok), cb_lines_div.
     reflexivity.
   - intros sp items IH H.
     rewrite cb_ok_list in H.
@@ -1190,6 +1238,39 @@ Example heading_in_quote_roundtrip :
     = ("> # h" ++ nl ++ "> " ++ nl ++ "> t")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* Divs roundtrip, and so do the containers inside them — the whole
+   content of Parser.div_uniformity, seen end to end. *)
+Example div_roundtrip :
+  let cbs := [CDiv [CPara ["a"]; CPara ["b"]]] in
+  render_djot (blocks_of_cblocks cbs)
+    = (":::" ++ nl ++ "a" ++ nl ++ nl ++ "b" ++ nl ++ ":::")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* An empty div is renderable: `cb_ok` has no nonempty obligation for
+   `CDiv`, because both oracles accept `:::` / `:::`. *)
+Example empty_div_roundtrip :
+  let cbs := [CDiv []] in
+  render_djot (blocks_of_cblocks cbs) = (":::" ++ nl ++ ":::")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* A quote inside a div: the two containers' rules do not interact, which
+   is the uniformity claim at its narrowest. *)
+Example quote_in_div_roundtrip :
+  let cbs := [CDiv [CQuote [CPara ["q"]]]] in
+  render_djot (blocks_of_cblocks cbs)
+    = (":::" ++ nl ++ "> q" ++ nl ++ ":::")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* And a div whose contents would close it is not renderable, so
+   `roundtrip_blocks` never sees it.  This is `cb_ok`'s side condition
+   doing its job. *)
+Example div_containing_fence_rejected :
+  cblocks_ok [CDiv [CPara [":::"]]] = false.
+Proof. reflexivity. Qed.
 
 (* Nesting roundtrips too, with no extra hypotheses. *)
 Example nested_quote_roundtrip :

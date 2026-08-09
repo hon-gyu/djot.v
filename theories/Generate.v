@@ -63,6 +63,7 @@ Definition itemlists (items : list (list cblock)) : list (list (list cblock)) :=
 
 Definition containers (pool : list cblock) : list cblock :=
   (map CQuote (seqs pool)
+   ++ map CDiv (seqs pool)
    ++ flat_map (fun its => [CList Tight its; CList Loose its])
         (itemlists (seqs pool)))%list.
 
@@ -152,11 +153,11 @@ Fixpoint no_fence (cb : cblock) : bool :=
   | CPara _ | CThematic | CHeading _ _ => true
   | CCode _ _ => false
   | CList _ items => forallb (forallb no_fence) items
-  | CQuote inner => go inner
+  | CQuote inner | CDiv inner => go inner
   end.
 
 Definition ok_content (c : cblock) : bool :=
-  (no_fence c && item_ok (cb_lines c))%bool.
+  (no_fence c && item_ok bullet (cb_lines c))%bool.
 
 (* Every fence-free generated block's rendering, plus every two-block
    sequence built from them.  The sequences are the informative half:
@@ -168,7 +169,7 @@ Definition item_pool : list (list string) :=
    ++ map (fun cs => sep_lines (map cb_lines cs))
         (filter (forallb ok_content) (seqs (filter ok_content (enum_cblock 1)))))%list.
 
-Example uniformity_applies : forallb item_ok item_pool = true.
+Example uniformity_applies : forallb (item_ok bullet) item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (* What the restated `cb_ok` bought: the fragment now contains lists
@@ -177,9 +178,11 @@ Example nested_list_accepted :
   cb_ok (CList Tight [[CList Tight [[CPara ["a"]]]]]) = true.
 Proof. reflexivity. Qed.
 
+(* Divs took these from (53, 593, 6437): a div accepts any block sequence
+   its contents do not close, so it roughly doubles the container arm. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (53, 593, 6437).
+                           List.length (accepted 3)) = (68, 888, 11368).
 Proof. vm_compute. reflexivity. Qed.
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
