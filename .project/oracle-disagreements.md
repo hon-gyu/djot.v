@@ -240,3 +240,164 @@ nodes, `roundtrip_doc` is stated modulo `undo_pass`, and
 erasure to take back — so the theorem is untouched by this. It is a
 conformance gap in the HTML converter, not a soundness problem, and it
 is exactly the class a roundtrip theorem cannot see.
+
+## Adjudicated 2026-08-09 — a blank at the end of a nested list
+
+Found by `make shape` (`lists.test:242`, `lists.test:308`), which had not
+been read case by case before. Both are pure tightness: the tree shape
+matches, only the `<p>` wrapping differs.
+
+| Case | Verdict | Notes |
+|---|---|---|
+| `- - b` / blank / `- d` | **ours** | Both oracles: **tight**. Us: **loose**. The prose agrees with the oracles |
+
+**Minimal witness**, three lines:
+
+```
+- - b
+
+- d
+```
+
+The blank is at the *end of the inner list*, and simultaneously between
+two items of the outer list. The syntax reference:
+
+> Blank lines at the start or end of a list do not count against
+> tightness.
+
+The exemption applies to the inner list, which consumes the blank, so
+nothing is left to count against the outer one. Both oracles do this. We
+count it against the outer list and return `Loose`.
+
+**Distinct from the entry above, and it resolves the other way.** There
+the blank *precedes* an item that opens a list (`- a` / blank / `- - n`),
+and it is outside the inner list entirely — djoths sides with us and
+djot.js does not. Here the blank *follows* an item that ends with a list,
+it is inside the inner list's end, and **both** oracles side against us.
+The two shapes look alike and must not be merged.
+
+### The boundary, measured
+
+Six controls, all three engines, 2026-08-09. Only the first diverges.
+
+| # | Shape | djot.js | djoths | ours |
+|---|---|---|---|---|
+| A | `- a` / blank / `  - b` / blank / `- d` | tight | tight | **loose** |
+| B | same, no blank before the sibling | tight | tight | tight |
+| C | `- a` / `  - b` / blank / `- d` (no blank, so `- b` is lazy text) | loose | loose | loose |
+| D | `- a` / blank / `  - b` (no sibling) | tight | tight | tight |
+| E | quote in place of the sublist | loose | loose | loose |
+| F | paragraph in place of the sublist | loose | loose | loose |
+
+E and F bound it: the exemption is specific to a *list* closing, and does
+not reach through a quote that contains one. A further control, `- a` /
+blank / `  - b` / blank / `  t` / blank / `- d`, is loose everywhere —
+the blank before `t` is spent by `t`, so only the list-closing blank is
+exempt.
+
+### The mechanism, both sides
+
+djot.js, `src/parse.ts:1237-1258`:
+
+```js
+if (!/^[+-]list/.test(annot) && ln.data.blanklines) { ln.data.tight = false; }
+if (!/^[-+]list_item$/.test(annot)) { ln.data.blanklines = false; }
+```
+
+The first regex has no `_item` and no anchor at the end, so it matches
+`-list` — the event that *closes* the inner list — as well as `+list`.
+The second then clears the pending blank, because `-list` is not a
+`list_item` boundary. By the time `- d`'s content is handled there is no
+blank outstanding. So the "blank at the end of a list" exemption is not a
+special case in djot.js; it falls out of the close event being a list
+event. The entry above is the same two lines firing where the
+justification does not reach; this entry is the same two lines firing
+where it does.
+
+Ours, `theories/Parser.v`: the `KBlank` branch of the `PList` case in
+`step_fuel` applies `list_blank ls` to the outer list *and* recurses into
+`inner`, so one blank arms every open list at once. `list_next` then
+spends the outer list's flag at the sibling marker. djot.js's `blankline`
+handler picks exactly one list node — the innermost — which is the rule
+we are missing. `list_content`'s existing `KList` exemption is the other
+half of the same idea, already implemented.
+
+### What it cost us, and the fix
+
+`cb_ok` accepted the deviant spelling, so this was inside the proven
+fragment rather than outside it: `roundtrip_doc` quantified over an AST
+that no djot source denotes. The roundtrip could not see it, for the same
+reason it cannot see the heading-id gap — it relates our parser to our
+renderer, and the two agreed with each other.
+
+**Fixed 2026-08-09.** One guard in the parser, mirrored twice on the
+predicate side.
+
+`Parser.list_open` asks whether a list is open *directly* in a state, with
+no container in between, and `step`'s `KBlank` branch in the `PList` case
+arms this list only when `list_open inner` is false:
+
+```coq
+let ls' := if list_open inner then ls else list_blank ls in
+```
+
+Because the branch recurses into `inner`, this arms exactly the innermost
+open list — which is what djot.js's `blankline` handler does by selecting
+one node from the container stack. `list_open` needs no recursion:
+`PQuote` and `PList` are the only nesting constructors, and shape L above
+says the exemption must *not* reach through a quote.
+
+Three definitions had to learn the same thing, all of them scans that were
+flat and are now threaded with the item's own parse state:
+
+- `lines_loose` gained a `pstate` argument — contrary to what an earlier
+  revision of this entry claimed, it was wrong too. `["- b"; ""; "t"]`
+  leaves its enclosing list tight and `["a"; ""; "t"]` does not, and a
+  scan that sees only `classify` cannot tell them apart.
+- `scan_list_content` likewise, with `scan_loose_eq` as the bridge: the
+  scan carries the state padded into the enclosing item and `lines_loose`
+  carries it bare, and `pad_state_list_open` says `list_open` cannot tell
+  those apart.
+- `list_spacing_of`'s and `cb_ok`'s "a multi-item list may always be
+  spelled `Loose`" disjunct became `seps_loosen`: a separator loosens only
+  when the item before it does not end with an open list
+  (`ends_open_list L = list_open (snd (run_lines L (PPara [])))`).
+
+Checked by computation before any proof work — 2220 enumerated
+(spacing, items) pairs, zero disagreements between `list_uniformity`'s two
+sides — and then proved. No `Admitted`.
+
+**Effect.** The fragment shed the unreachable inhabitants and gained the
+reachable ones it had been rejecting: `accepted` went 59/671/7151 to
+53/593/6437 at depths 1–3, every one still checked to roundtrip by full
+AST equality. `make shape` went 220/287 to 222/287, the two cases being
+`lists.test:242` and `:308`. On the generated corpus, mismatches against
+djot.js went 378/671 to 252/593.
+
+`Generate.nested_list_end_blank_tight`, `..._loose_rejected` and
+`..._lines` pin the corrected behaviour; `nested_loose_promotes_outer`
+changed verdict with it, and its comment records why.
+
+### Correction to the entry above
+
+That entry says two causes account for every diff in the generated run.
+Three did. Re-classifying the 378 gallina-vs-djot.js mismatches by whether
+the outputs differ only in `<p>` wrapping, then by input shape:
+
+| Bucket | Before the fix | After |
+|---|---|---|
+| tightness, logged shape only | 34 | 34 |
+| tightness, **this** shape only | 45 | **0** |
+| tightness, both shapes present | 46 | 12 |
+| heading ids and everything else | 253 | 206 |
+
+The classifier is crude — it matches input shapes with a regex and cannot
+split the "both" bucket — but the zero is the decisive number: every
+document whose only tightness-relevant shape was this one now agrees. What
+remains is the logged djot.js bug, which we deliberately do not follow.
+
+The lesson is in the denominator, not the fix. The generated run contained
+45 clean instances of this cause and reported them as a different one,
+because the run was classified by the causes already known. It was found
+instead by reading `make shape` output case by case — which nobody had
+done, because 220/287 looked like it was all unimplemented constructs.

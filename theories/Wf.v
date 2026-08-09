@@ -612,8 +612,11 @@ Proof.
       destruct (step_fuel n off l inner) as [bs inner'].
       cbn [fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
-      cbn [state_wf ls_items list_blank].
-      rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs. }
+      cbn [state_wf].
+      (* the blank either leaves the list state alone or only arms
+         `ls_blanks`; either way `ls_items` is untouched *)
+      destruct (list_open inner); cbn [ls_items list_blank];
+        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs. }
     5: { (* text: lazy continuation into the item, or close the list *)
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
       - destruct (IH off l inner Hi) as [Hb Hs].
@@ -958,9 +961,10 @@ Proof.
          destruct (step_fuel n off l inner) as [bs inner'].
          cbn [fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
-         cbn [state_supported ls_items list_blank].
-         rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
-         exact Hs. }
+         cbn [state_supported].
+         destruct (list_open inner); cbn [ls_items list_blank];
+           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+           exact Hs. }
     5: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].

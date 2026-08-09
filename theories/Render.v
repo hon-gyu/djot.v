@@ -281,12 +281,12 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
 (* Tight/loose, on the item's lines rather than on its block tree.
 
    The tree is the wrong domain: a gap loosens the enclosing list unless
-   the next non-blank line opens one, and the tree does not record where
-   blanks sit relative to markers.  Reading `[c1; c2]` and asking whether
-   c2 is a CList sees only gaps between an item's *own* top-level blocks,
-   so it misses a gap contributed from inside c1 -- `- - a` / blank /
-   `t`, where the outer item holds one block and the parser still spends
-   the blank.
+   a list claims it -- either the next non-blank line opens one, or one
+   is already open where the gap falls -- and the tree does not record
+   where blanks sit relative to markers.  Two items of the same shape,
+   both a block then a gap then a paragraph, part ways on it: `["- b";
+   ""; "t"]` leaves the list tight because the gap is the inner list's
+   trailing blank, and `["a"; ""; "t"]` loosens it.
 
    `Parser.lines_loose` is the rule itself, and it is what
    `Parser.list_uniformity` proves the parser implements. *)
@@ -296,10 +296,19 @@ Definition item_lines (it : list cblock) : list string :=
   sep_lines (map cb_lines it).
 
 Definition item_forces_loose (item : list cblock) : bool :=
-  lines_loose false false (item_lines item).
+  item_loose (item_lines item).
 
 Definition items_force_loose (items : list (list cblock)) : bool :=
   existsb item_forces_loose items.
+
+(* Whether a separator blank in the loose rendering actually reaches the
+   list.  It does not when the item before it ends with a nested list:
+   the blank is that list's trailing blank, exempt from tightness, and
+   `Parser.step` gives it to the inner list.  Mirrors
+   `Parser.seps_loosen`, which is what `list_uniformity` carries, and it
+   is why a multi-item list is not automatically spellable `Loose`. *)
+Definition items_seps_loosen (items : list (list cblock)) : bool :=
+  seps_loosen (map item_lines items).
 
 Definition is_clist (cb : cblock) : bool :=
   match cb with CList _ _ => true | _ => false end.
@@ -396,7 +405,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
       && forallb no_adjacent_lists items
       && match sp with
          | Tight => negb (items_force_loose items)
-         | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
+         | Loose => items_seps_loosen items || items_force_loose items
          end
   end.
 
@@ -482,7 +491,7 @@ Lemma cb_ok_list :
        && forallb no_adjacent_lists items
        && match sp with
           | Tight => negb (items_force_loose items)
-          | Loose => negb (Nat.eqb (length items) 1) || items_force_loose items
+          | Loose => items_seps_loosen items || items_force_loose items
           end)%bool.
 Proof.
   intros sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.

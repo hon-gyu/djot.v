@@ -685,15 +685,15 @@ Proof.
   assert (Hne' : items <> []) by (destruct items; [discriminate Hne|discriminate]).
   assert (Hmap : forallb item_ok (map item_lines items) = true).
   { rewrite forallb_map. exact Hitemok. }
-  assert (Hforce : existsb (fun L => lines_loose false false L) (map item_lines items)
+  assert (Hforce : existsb (fun L => item_loose L) (map item_lines items)
                    = items_force_loose items).
   { unfold items_force_loose, item_forces_loose. rewrite existsb_map. reflexivity. }
   split; [exact Hne'|]. split; [exact Hmap|].
-  unfold list_spacing_of. rewrite Hforce, length_map.
+  unfold list_spacing_of. rewrite Hforce.
   destruct sp.
   - apply negb_true_iff in Hspacing. rewrite Hspacing. reflexivity.
-  - apply orb_true_iff in Hspacing as [Hlen | Hforced].
-    + rewrite Hlen, orb_true_r. reflexivity.
+  - apply orb_true_iff in Hspacing as [Hseps | Hforced].
+    + unfold items_seps_loosen in Hseps. rewrite Hseps, orb_true_r. reflexivity.
     + rewrite Hforced. reflexivity.
 Qed.
 

@@ -107,26 +107,28 @@ Boundary records
                 <- the pad, "    "
          t
 
-   so `item_forces_loose`, which reads `lines_loose` off exactly those
-   lines, calls the outer item loose.  Declaring the outer list Tight is
-   therefore rejected, and it has to be: the parser comes back Loose. *)
+   The blank is inside the inner list, so `step` gives it there and the
+   outer list stays tight -- the spec's "blank lines at the start or end
+   of a list do not count" reaching one level out.  `Tight` is the
+   spelling that roundtrips. *)
 Example nested_loose_promotes_outer :
   rt_lhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
-  = [ mk (BulletList Loose
+  = [ mk (BulletList Tight
             [[ mk (BulletList Loose
                      [[ mk (Para [mk (Str "a")])
                       ; mk (Para [mk (Str "t")]) ]]) ]]) ].
 Proof. reflexivity. Qed.
 
-Example nested_loose_outer_tight_rejected :
-  cb_ok (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]) = false.
+Example nested_loose_outer_tight_roundtrips :
+  rt_lhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
+  = rt_rhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]).
 Proof. reflexivity. Qed.
 
-(* The same shape with the outer spacing declared Loose is accepted, and
-   roundtrips. *)
-Example nested_loose_outer_loose_roundtrips :
-  rt_lhs (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
-  = rt_rhs (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]).
+(* And the `Loose` spelling of the same tree is rejected, because no
+   source text denotes it: the rendering above is the only one, and it
+   parses back tight. *)
+Example nested_loose_outer_loose_rejected :
+  cb_ok (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]) = false.
 Proof. reflexivity. Qed.
 
 (*
@@ -177,17 +179,61 @@ Proof. reflexivity. Qed.
 
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (59, 671, 7151).
+                           List.length (accepted 3)) = (53, 593, 6437).
 Proof. vm_compute. reflexivity. Qed.
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else
    does, and blank runs collapse. *)
-Example spacing_gap_then_text : lines_loose false false [""; "t"] = true.
+Example spacing_gap_then_text : item_loose [""; "t"] = true.
 Proof. reflexivity. Qed.
-Example spacing_gap_then_list : lines_loose false false [""; "- b"] = false.
+Example spacing_gap_then_list : item_loose [""; "- b"] = false.
 Proof. reflexivity. Qed.
-Example spacing_gaps_then_list : lines_loose false false [""; ""; "- b"] = false.
+Example spacing_gaps_then_list : item_loose [""; ""; "- b"] = false.
 Proof. reflexivity. Qed.
-Example spacing_nested_gap : lines_loose false false [""; "  t"] = true.
+Example spacing_nested_gap : item_loose [""; "  t"] = true.
+Proof. reflexivity. Qed.
+
+(* ...and the clause the fix added: a gap that a list already open in
+   these very lines will claim does not loosen, while the same gap after
+   that list has closed does. *)
+Example spacing_gap_inside_open_list : item_loose ["- b"; ""; "- c"] = false.
+Proof. reflexivity. Qed.
+Example spacing_gap_after_list_closed : item_loose ["- b"; ""; "t"] = false.
+Proof. reflexivity. Qed.
+Example spacing_gap_then_text_after_list : item_loose ["- b"; ""; "t"; ""; "u"] = true.
+Proof. reflexivity. Qed.
+
+(*
+A blank at the end of a nested list
+===================================
+
+`["- - b"; ""; "- d"]`: the blank ends the inner list and separates two
+items of the outer one.  The spec exempts a list's trailing blank from
+tightness, and both oracles read it that way, so the outer list is
+Tight; we used to spend the blank at the outer sibling and return Loose.
+See `.project/oracle-disagreements.md` (2026-08-09, "a blank at the end
+of a nested list").
+
+The three below pin the boundary: the `Tight` tree is what the source
+denotes, the `Loose` tree is unreachable and `cb_ok` rejects it, and the
+`Tight` rendering carries no separator blank at all.
+*)
+Definition end_blank_shape (sp : list_spacing) : cblock :=
+  CList sp [ [CList Tight [ [CPara ["b"]] ]] ; [CPara ["d"]] ].
+
+Example nested_list_end_blank_tight :
+  rt_lhs (end_blank_shape Tight)
+  = [ mk (BulletList Tight
+            [ [ mk (BulletList Tight [[ mk (Para [mk (Str "b")]) ]]) ]
+            ; [ mk (Para [mk (Str "d")]) ] ]) ].
+Proof. reflexivity. Qed.
+
+Example nested_list_end_blank_loose_rejected :
+  cb_ok (end_blank_shape Loose) = false.
+Proof. reflexivity. Qed.
+
+Example nested_list_end_blank_lines :
+  (cb_lines (end_blank_shape Tight), cb_lines (end_blank_shape Loose))
+  = (["- - b"; "- d"], ["- - b"; ""; "- d"]).
 Proof. reflexivity. Qed.
