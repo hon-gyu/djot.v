@@ -455,3 +455,50 @@ to specs that both span a blank line and then fail.
 
 Pinned as `Parser.parse_attr_blank_continues_spec` and
 `Parser.parse_attr_failed_after_blank_drops_it`.
+
+## Adjudicated 2026-08-10 — a blank before an item that opens a list
+
+Ours, found by the generated corpus and invisible to the 287-case one.
+
+| Case | djot.js | ours (before) | Verdict |
+|---|---|---|---|
+| `- a` / blank / `- b` | loose | loose | agree |
+| `- a` / blank / `- - n` | **tight** | loose | **our bug, fixed** |
+| `- a` / blank / `- > q` | loose | loose | agree |
+
+djot.js excludes a `+list` event from spending a blank line into
+looseness (parse.ts ~1237). `Parser.list_content` already encoded that
+for the lines *inside* an item. The separator blank between two items is
+spent by the *next item's first line*, and `list_next` did not have the
+rule there — so an item whose content opens a nested list wrongly
+loosened the enclosing list.
+
+The fix is not confined to the parser, and that is the interesting part.
+`seps_loosen` — the renderer-facing predicate that `list_uniformity`
+carries — asked only whether the item *before* a separator ends with a
+list still open (the trailing-blank exemption). A separator now has two
+conjuncts, one from each side, so it became a pairwise scan over adjacent
+items rather than an `existsb` over `removelast`. `list_loose_of` gained
+the same conjunct for the first separator.
+
+Consequence worth recording: `cb_ok` accepts strictly fewer `Loose`
+spellings, because a list whose next item opens with a marker genuinely
+cannot round-trip as `Loose` — both its spellings parse back `Tight`.
+The generated corpus shrank from 888 documents to 796 for that reason,
+and `check/Deep.v`'s depth-3 counts went `(68, 888, 11368)` to
+`(65, 796, 9511)`.
+
+### Still open, same area: a div in an item loosens the list
+
+Found while checking the residue; pre-existing, not caused by the above.
+
+| Case | djot.js | ours |
+|---|---|---|
+| `- :::` / `  a` / `  :::` / `- t` | **loose** | tight |
+| `- > q` / `- t` | tight | tight |
+| `- :::` / `  a` / `  :::` (one item) | tight | tight |
+
+No blank line anywhere, and a quote in the same position does not do it,
+so it is something about how `fenced_div`'s close interacts with the
+event stream rather than a blank-line rule. 12 documents in the generated
+corpus. Not diagnosed.

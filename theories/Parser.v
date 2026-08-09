@@ -350,8 +350,13 @@ Definition list_next (ls : list_state) (item : blocks) (rest : string)
   let items := item :: ls_items ls in
   if is_blank rest
   then LSt (ls_indent ls) (ls_marker ls) (ls_loose ls) (ls_blanks ls) items
-  else LSt (ls_indent ls) (ls_marker ls)
-         (ls_loose ls || ls_blanks ls)%bool false items.
+  else
+    let loose :=
+      match classify rest with
+      | KList _ _ => ls_loose ls
+      | _ => (ls_loose ls || ls_blanks ls)%bool
+      end in
+    LSt (ls_indent ls) (ls_marker ls) loose false items.
 
 (* The per-line transition, on fuel.  The only recursion is into a
    stripped quote prefix, and `classify_quote_length` says that line is
@@ -3233,12 +3238,39 @@ Definition item_ok (L : list string) : bool :=
 Definition ends_open_list (L : list string) : bool :=
   list_open (snd (run_lines L (PPara []))).
 
-(** Whether any separator blank in the rendering reaches the list.  The
-    separators sit *between* items, so the last item is never consulted:
-    a one-item list has no separator at all, which is why a `Loose`
-    single item renders and parses back as `Tight`. *)
-Definition seps_loosen (itemss : list (list string)) : bool :=
-  existsb (fun L => negb (ends_open_list L)) (removelast itemss).
+(* Does an item's contents open with a list marker?  djot.js excludes a
+   `+list` event from spending a blank into looseness, which
+   `list_content` already encodes for the lines *inside* an item.  A
+   separator blank is spent by the *next* item's first line, so the same
+   exclusion applies there — and that is what `list_next` implements. *)
+Definition starts_list (L : list string) : bool :=
+  match L with
+  | [] => false
+  | l :: _ => match classify l with KList _ _ => true | _ => false end
+  end.
+
+(** Whether any separator blank in the rendering reaches the list.  A
+    separator is between two items and both of them have a say: the one
+    before it must not end with a list still open (or the blank is that
+    list's trailing blank, which the spec exempts), and the one after it
+    must not open with a list marker (or the blank is spent by a `+list`
+    event, which does not loosen).  Hence a pairwise scan rather than a
+    test on each item alone.
+
+    The last item is never the left of a pair, so a one-item list has no
+    separator at all — which is why a `Loose` single item renders and
+    parses back as `Tight`. *)
+Fixpoint seps_loosen (itemss : list (list string)) : bool :=
+  match itemss with
+  | [] => false
+  | L :: rest =>
+      match rest with
+      | [] => false
+      | L2 :: _ =>
+          ((negb (ends_open_list L) && negb (starts_list L2))
+           || seps_loosen rest)%bool
+      end
+  end.
 
 (* The verdict contributed by the items after the current one.  `inner`
    is the state the current item ended in: it decides the separator that
@@ -3251,7 +3283,9 @@ Definition list_loose_of (sp : list_spacing) (inner : pstate)
       | Loose =>
           match itemss with
           | [] => false
-          | _ :: _ => (negb (list_open inner) || seps_loosen itemss)%bool
+          | L :: _ =>
+              ((negb (list_open inner) && negb (starts_list L))
+               || seps_loosen itemss)%bool
           end
       | Tight => false
       end)%bool.
@@ -3286,7 +3320,7 @@ Lemma parse_item_and_tail :
     parse_lines (indent_lines (mk_open mrk) (mk_cont mrk) (l0 :: more)
                  ++ (list_tail_lines sp rest ++ post))%list (PList ls done inner)
     = mk (BulletList
-             (if ((ls_loose ls || ls_blanks ls)
+             (if ((ls_loose ls || (ls_blanks ls && negb (starts_list (l0 :: more))))
                   || item_loose (l0 :: more)
                   || list_loose_of sp (snd (run_lines (l0 :: more) (PPara []))) rest)%bool
               then Loose else Tight)
@@ -3327,11 +3361,13 @@ Proof.
   { rewrite pad_safe_pad_state. unfold R. apply run_pad_safe_final.
     cbn [run_pad_safe pad_safe]. exact Hsafe. }
   assert (Hloose1 : ls_loose ls1
-                    = ((ls_loose ls || ls_blanks ls)
+                    = ((ls_loose ls || (ls_blanks ls && negb (starts_list (l0 :: more))))
                        || item_loose (l0 :: more))%bool).
   { unfold ls1. rewrite (scan_loose_eq more _ _ Hsafe). unfold list_next. rewrite Hnb'.
-    cbn [ls_loose ls_blanks].
-    rewrite lines_loose_or, (lines_loose_cons_nonblank l0 more Hcl). reflexivity. }
+    cbn [ls_loose ls_blanks starts_list].
+    rewrite lines_loose_or, (lines_loose_cons_nonblank l0 more Hcl).
+    destruct (classify l0); cbn [negb];
+      rewrite ?andb_true_r, ?andb_false_r, ?orb_false_r; reflexivity. }
   assert (Hdone1 : (rev (rev (fst R)) ++ finish (pad_state (mk_pad mrk) (snd R)))%list
                    = parse_lines (l0 :: more) (PPara [])).
   { rewrite rev_involutive, pad_state_finish. unfold R.
@@ -3353,12 +3389,11 @@ Lemma seps_loosen_cons :
     seps_loosen (L :: rest)
     = match rest with
       | [] => false
-      | _ :: _ => (negb (ends_open_list L) || seps_loosen rest)%bool
+      | L2 :: _ =>
+          ((negb (ends_open_list L) && negb (starts_list L2))
+           || seps_loosen rest)%bool
       end.
-Proof.
-  intros L rest. destruct rest as [|r rs]; [reflexivity|].
-  unfold seps_loosen. cbn [removelast existsb]. reflexivity.
-Qed.
+Proof. intros L rest. destruct rest; reflexivity. Qed.
 
 Lemma parse_list_tail :
   forall sp itemss post out ls done inner,
@@ -3420,13 +3455,13 @@ Proof.
       unfold list_loose_of at 2. rewrite seps_loosen_cons. unfold ends_open_list.
       rewrite Hblanks. cbn [map].
       destruct rest as [|r rs].
-      all: unfold list_loose_of; cbn [existsb]; destruct (list_open inner);
-           cbn [orb negb];
-           rewrite ?orb_false_r, ?orb_true_r, ?orb_assoc; try reflexivity.
-      all: destruct (ls_loose ls), (item_loose (l0 :: more)), (item_loose r),
-                    (existsb (fun L => item_loose L) rs),
-                    (list_open (snd (run_lines (l0 :: more) (PPara [])))),
-                    (seps_loosen (r :: rs)); reflexivity.
+      (* the separator's verdict now has two conjuncts, so the case split
+         is over the item before it and the item after it *)
+      all: unfold list_loose_of; cbn [existsb];
+           destruct (list_open inner), (ls_loose ls),
+                    (starts_list (l0 :: more)), (item_loose (l0 :: more));
+           cbn [orb negb andb];
+           rewrite ?orb_true_r, ?orb_false_r; try reflexivity.
 Qed.
 
 (* What closes a list: not the blank line -- that only records a gap --

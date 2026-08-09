@@ -34,9 +34,13 @@ Local Open Scope string_scope.
 Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
 Proof. vm_compute. reflexivity. Qed.
 
-(* Divs took these from (53, 593, 6437): a div accepts any block sequence
-   its contents do not close, so it roughly doubles the container arm. *)
+(* Divs took these from (53, 593, 6437) to (68, 888, 11368): a div
+   accepts any block sequence its contents do not close, so it roughly
+   doubles the container arm.  Tightening `seps_loosen` -- a separator
+   loosens only when the item after it does not open with a list marker
+   -- took them back down, by making some `Loose` spellings
+   unrenderable. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (68, 888, 11368).
+                           List.length (accepted 3)) = (65, 796, 9511).
 Proof. vm_compute. reflexivity. Qed.
