@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>djot.js list-tightness bug: a blank line before a nested-list item</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  pre { background: #f4f4f4; padding: .6rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  td, th { border: 1px solid #ccc; padding: .5rem; vertical-align: top; width: 50%; }
+  th { background: #f0f0f0; text-align: left; }
+  .rendered { border: 1px dashed #999; padding: .5rem; background: #fff; }
+  .bad { color: #a00; font-weight: bold; }
+  .ok { color: #060; font-weight: bold; }
+  h2 { margin-top: 2.5rem; border-bottom: 1px solid #ccc; }
+  .note { background: #fffbe6; border-left: 3px solid #e0c000; padding: .5rem .8rem; }
+</style>
+</head>
+<body>
+
+<h1>djot.js list-tightness bug</h1>
+
+<p>Generated 2026-08-09. All HTML on this page is real output, captured by
+piping each input into <code>harness/oracles/djotjs.mjs</code> (djot.js) and the
+<code>djoths</code> binary. See <code>.project/oracle-disagreements.md</code> for the
+adjudication this page illustrates.</p>
+
+<h2>Background: what "tight" means</h2>
+
+<p>A djot list is <em>tight</em> or <em>loose</em>. The distinction is purely a
+rendering one, and it shows up in the HTML as whether item contents are wrapped
+in <code>&lt;p&gt;</code>:</p>
+
+<table>
+<tr><th>tight &rarr; no <code>&lt;p&gt;</code></th><th>loose &rarr; <code>&lt;p&gt;</code></th></tr>
+<tr>
+<td><pre>&lt;li&gt;
+a
+&lt;/li&gt;</pre></td>
+<td><pre>&lt;li&gt;
+&lt;p&gt;a&lt;/p&gt;
+&lt;/li&gt;</pre></td>
+</tr>
+</table>
+
+<p>The syntax reference states the rule:</p>
+
+<blockquote>
+A list is classed as <em>tight</em> if it does not contain blank lines between
+items, or between blocks inside an item. Blank lines at the start or end of a
+list do not count against tightness.
+</blockquote>
+
+<h2>The witness</h2>
+
+<p>Input (the blank line is the whole story):</p>
+
+<pre>- a
+
+- - n</pre>
+
+<p>Two items in the outer list. The blank line sits <em>between</em> them. It is
+not at the start or end of any list (the inner list does not begin until
+after the <code>- </code> on line 3), so no exemption applies and the outer
+list is loose.</p>
+
+<table>
+<tr>
+<th>djot.js says <span class="bad">tight</span></th>
+<th>djoths says <span class="ok">loose</span> (and so do we)</th>
+</tr>
+<tr>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+a
+&lt;/li&gt;
+&lt;li&gt;
+&lt;ul&gt;
+&lt;li&gt;
+n
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+<strong>&lt;p&gt;</strong>a<strong>&lt;/p&gt;</strong>
+&lt;/li&gt;
+&lt;li&gt;
+&lt;ul&gt;
+&lt;li&gt;
+n
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+</tr>
+<tr>
+<td>
+<div class="rendered">
+<ul><li>a</li><li><ul><li>n</li></ul></li></ul>
+</div>
+</td>
+<td>
+<div class="rendered">
+<ul><li><p>a</p></li><li><ul><li>n</li></ul></li></ul>
+</div>
+</td>
+</tr>
+</table>
+
+<p>The single <code>&lt;p&gt;</code> around <code>a</code> is the entire
+disagreement. In the rendered boxes it is the vertical gap.</p>
+
+<h2>Why this reads as a bug, not a design choice</h2>
+
+<p>Three controls, each one line away from the witness. If djot.js were applying
+some principled rule like "a blank line before a container belongs to that
+container", all three would behave the same way. They do not.</p>
+
+<h3>Control 1: swap the nested list for a block quote &rarr; djot.js says loose</h3>
+
+<pre>- a
+
+- &gt; q</pre>
+
+<table>
+<tr><th>djot.js</th><th>djoths</th></tr>
+<tr>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+<strong>&lt;p&gt;a&lt;/p&gt;</strong>
+&lt;/li&gt;
+&lt;li&gt;
+&lt;blockquote&gt;
+&lt;p&gt;q&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+<strong>&lt;p&gt;a&lt;/p&gt;</strong>
+&lt;/li&gt;
+&lt;li&gt;
+&lt;blockquote&gt;
+&lt;p&gt;q&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+</tr>
+</table>
+
+<p>Identical, and loose. Same blank line, same position; only the block type in
+the second item changed. A heading or a code block behaves the same way. Only a
+<em>nested list</em> suppresses the looseness.</p>
+
+<h3>Control 2: add an earlier blank &rarr; djot.js says loose</h3>
+
+<pre>- a
+
+- b
+
+- - n</pre>
+
+<p>Both engines return loose here (<code>a</code> and <code>b</code> both get
+<code>&lt;p&gt;</code>). So djot.js is not blanket-ignoring blank lines in this
+document. It is specifically swallowing the one blank immediately before
+the list-opening item. The bug is local to that adjacency.</p>
+
+<h3>Control 3: the intra-item case, which is <em>not</em> the bug</h3>
+
+<pre>- a
+
+  - b</pre>
+
+<p>Here the nested list is indented <em>inside the same item</em>, so the blank
+line falls between two blocks of one item. Both engines, and we,
+call this tight:</p>
+
+<pre>&lt;ul&gt;
+&lt;li&gt;
+a
+&lt;ul&gt;
+&lt;li&gt;
+b
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre>
+
+<p class="note">Against the syntax reference alone this looks like an
+unexplained deviation, since the prose says a blank between blocks inside an
+item makes the list loose. The djot repo's own rationale
+(<code>reference/djot-repo-readme.md:117-138</code>) states it outright: a
+sublist "must always be preceded by a blank line", and "(This blank line
+doesn't count against 'tightness.')". It is a consequence of goal 7, which
+forbids block elements from interrupting paragraphs and so forces the blank in
+the first place. Control 3 is decided, with a reason, not a gap.</p>
+
+<h2>The mechanism, and where the justification runs out</h2>
+
+<p>djot.js emits a <code>blankline</code> match and then excludes a following
+<code>+list</code> event from "spending" it. That exclusion is what makes
+Control 3 come out tight, which is intended. The same code path fires at a
+sibling boundary, and that is the leak.</p>
+
+<p>The exemption in Control 3 reaches exactly as far as the requirement that
+creates it: <em>the blank is mandatory there</em>. Nothing requires a blank
+before a sibling item. Drop it from the witness and the document still
+parses:</p>
+
+<table>
+<tr><th><code>- a</code> / <code>- - n</code> (no blank)</th><th><code>- a</code> / blank / <code>- - n</code> (the witness)</th></tr>
+<tr>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+a
+&lt;/li&gt;
+&lt;li&gt;
+&lt;ul&gt;
+&lt;li&gt;
+n
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+<td><pre>&lt;ul&gt;
+&lt;li&gt;
+a
+&lt;/li&gt;
+&lt;li&gt;
+&lt;ul&gt;
+&lt;li&gt;
+n
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</pre></td>
+</tr>
+</table>
+
+<p>Byte-identical, from djot.js, for two inputs that differ by a blank line the
+author chose to write. Both engines agree on the left column. So djot.js is
+extending an exemption to a position where its justification does not reach:
+the blank is optional there, which makes it a deliberate authoring signal, and
+djot.js discards it.</p>
+
+<h2>Which source settles what</h2>
+
+<p>The engines and the syntax reference record what the language <em>is</em>.
+The rationale records what it is <em>for</em>, and that is what turns "djot.js
+differs" into "djot.js is wrong" here. It is not a spec, though, and the two
+rationale sources are not equal: the repo README is the project's own, while
+<code>beyond-markdown.md</code> is a 2017 essay predating djot whose tightness
+rule (<code>:254</code>, "tight if it contains at least one pair of items with
+no blank line between") was dropped. Both engines contradict that essay on its
+own worked example. Cite the rationale for principles, never for behaviour.</p>
+
+<p>Corroborating: zero of djot.js's 26 test files contain an item, a blank line,
+and then an item beginning with a nested marker. The shape is untested upstream,
+so nothing pins the behaviour.</p>
+
+<h2>Verdict</h2>
+
+<p>Recorded as <code>djotjs-bug</code>. We keep our behaviour: it matches the
+prose and it matches djoths. This overrides the log's standing default of
+treating djot.js as the authority. That default exists because djoths lags
+on syntax changes, which is not a reason djot.js cannot have a plain bug.</p>
+
+</body>
+</html>

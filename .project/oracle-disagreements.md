@@ -10,12 +10,25 @@ djot.js's expected corpus output (djot.js passes its own corpus 287/287, so
 Baseline established 2026-08-02 with `make baseline`
 (djot.js @ v0.3.2 submodule, djoths @ 0.1.4.1 submodule; 287 cases run,
 6 skipped for `p`/`a` options, filter cases dropped).
-Full diffs: `.project/baseline-report.txt` (regenerate with `make baseline`).
+Full diffs: `baseline-report.txt` (regenerate with `make baseline`).
 
 Context for adjudication (djot README): current development is focused on
 djot.js; djot.lua and probably djoths are not kept up to date with the
 latest syntax changes. So "djoths-outdated" is the expected default verdict,
 and djot.js is the authority wherever the two disagree.
+
+**What counts as authority here.** The engines and the syntax reference
+say what the language *is*. The rationale
+(`reference/djot-repo-readme.md` §Rationale, and behind it
+`reference/beyond-markdown.md`) says what it is *for*: it decides cases
+where the first three conflict or go silent on *why*, which is how the
+`djotjs-bug` verdict below was reached. Note the ordering of the two
+rationale sources. The README is the djot project's own and states
+consequences directly; beyond-markdown is a 2017 essay predating djot,
+and parts of it were dropped. Checked 2026-08-09: its tightness rule
+(`:254`) is *existential* where the syntax reference's is universal, and
+on its own worked example both engines contradict it. Cite the rationale
+for principles, never for behaviour.
 
 Verdict legend:
 
@@ -186,11 +199,28 @@ matches the written spec and djot.js does not, so it does not apply.
 
 **Not to be confused with the intra-item case.** `- a` / blank /
 `  - b` — nested list *indented inside the same item* — is called tight
-by both engines, and by us. That reading is also a deviation from the
-prose (the blank is between blocks inside an item), but it is a
-deliberate and agreed one. Where the boundary of that deliberate
-deviation should lie is genuinely unwritten; that part is a SPEC-GAP.
-What is not defensible is applying it across an item boundary.
+by both engines, and by us. Read against the syntax reference alone this
+looks like an unexplained deviation (the blank is between blocks inside
+an item), and an earlier revision of this entry logged it as a SPEC-GAP
+on the grounds that the boundary of the deviation was unwritten.
+
+It is not unwritten. `reference/djot-repo-readme.md:117-138` states it
+outright: a sublist "must always be preceded by a blank line", and
+"(This blank line doesn't count against 'tightness.')". It also gives
+the derivation: goal 7 (hard-wrap friendliness) forces block elements
+not to interrupt paragraphs, which forces the blank before a sublist,
+which is why that blank is exempt. A decided case with a stated reason,
+not a gap.
+
+That is also what bounds the exemption, and what sharpens the bug: it
+reaches exactly as far as the requirement that creates it. Nothing
+requires a blank before a sibling item; `- a` / `- - n` with no blank
+parses fine, and djot.js's output for it is byte-identical to its output
+for the witness. djot.js applies the exemption where its justification
+does not reach, discarding a blank the author chose to write.
+
+**Side-by-side**: `djotjs-list-tightness-bug.html` renders the witness and
+the three controls with both engines' actual output; open it in a browser.
 
 **Action**: worth reporting upstream with the witness above. We keep our
 behaviour meanwhile — it matches the prose and djoths, and changing it
