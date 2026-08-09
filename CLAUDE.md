@@ -6,7 +6,7 @@
   persists across sessions (read before committing to a direction:
   estimating a refactor, proposing a theorem, deciding what djot does).
 - comment like `CR: ...` means "code review comment"
-- repetitive edit-and-rebuild cycles can be inefficient, which is an anti-pattern. make use of the interactive mode of rocq-mcp where appropriate.
+- edit-and-rebuild cycles is a trap that makes you think you're making progress when you're not. It can be extremely time-consuming and inefficient. It's a strong anti-pattern to avoid. Switch to rocq-mcp for any proof that is slightly interactive.
 - one gotcha of rocq-mcp: rocq-mcp caches sessions by preamble hash, so pass `force_restart` after any rebuild; a stale session answers for the old code without saying so.
 
 # AI content disclosure
