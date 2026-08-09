@@ -24,6 +24,10 @@ Verdict legend:
 - `djoths-outdated` — parse-level divergence where djoths implements an
   older syntax behavior; follow djot.js.
 - `djoths-bug` — violates the prose spec directly.
+- `djotjs-bug` — djot.js contradicts the prose where djoths follows it.
+  Rare, and it overrides the "djot.js is the authority" default above,
+  which exists because djoths lags on syntax *changes* — not because
+  djot.js cannot have a plain bug.
 - `SPEC-GAP` — the prose syntax reference is silent or ambiguous on the
   point; the corpus is the only authority. These are exactly the corners a
   formalized spec must decide explicitly — collect them as input to Phase 1+.
@@ -138,26 +142,60 @@ djot.js 378 times" is not 378 bugs.
 
 | Case | Verdict | Notes |
 |---|---|---|
-| `- a` / blank / `- - n` | **SPEC-GAP / oracles disagree** | Tightness of a list whose next item, after a blank, *begins with a nested list marker*. djot.js: **tight** (no `<p>`). djoths: **loose** (`<p>a</p>`). Ours follows djoths. 259 of 671 documents |
+| `- a` / blank / `- - n` | **djotjs-bug (probable)** | Tightness of a list whose next item, after a blank, *begins with a nested list marker*. djot.js: **tight**. djoths: **loose**, and so do we. The prose says loose. Evidence below; 259 of 671 documents |
 | `> # h`, `- # h` | **our gap** | A heading inside a container gets no identifier from us. Both oracles give it one and disagree only on the mechanism — djot.js `<h1 id="h">`, djoths `<section id="h"><h1>h</h1></section>`. Ours: bare `<h1>h</h1>`. 175 of 671 documents |
 
 ### Tightness after a blank before a nested marker
 
-Not the same shape as the 2026-08-08 entry above, and worth keeping
-apart. There the nested list was *indented*, continuing the current item
-(`- a` / blank / `  - b`); here the marker is at column 0, so the blank
-separates two *siblings* and the second one's content happens to open a
-list. djot.js declines to spend the blank into looseness in both cases;
-djoths spends it in the second.
+**The prose decides this one, against djot.js.** From
+`reference/djot-syntax-reference.md`:
 
-Both readings are defensible from the prose, which is what makes this a
-SPEC-GAP rather than a bug on either side. Per the log's standing rule
-djot.js is the authority, so **we are probably wrong here** — but the
-change is not local: `lines_loose` is the rule, `item_forces_loose`
-mirrors it on the renderer side, and `Parser.list_uniformity`'s spacing
-half is stated in terms of it. Changing it means restating that theorem's
-spacing clause, not patching a case. Deliberately not done in the same
-pass that found it.
+> A list is classed as *tight* if it does not contain blank lines between
+> items, or between blocks inside an item. Blank lines at the start or end
+> of a list do not count against tightness.
+
+In `- a` / blank / `- - n` the blank sits between two items of the outer
+list. It is not at the start or end of any list: the inner list begins
+after the `- ` on the following line, so the blank is outside it
+entirely. No exemption applies, and the outer list is loose. djoths says
+loose; we say loose; djot.js says tight.
+
+Four further facts, each checked 2026-08-09, that make this look like an
+artifact rather than a decision:
+
+1. **The suppression is specific to lists.** Put a quote, a heading, or a
+   code block in the second item instead and djot.js returns loose. Only
+   a nested list suppresses it. A principled "the blank belongs to the
+   following container" rule would not distinguish them.
+2. **It is local to the adjacent blank.** `- a` / blank / `- b` / blank /
+   `- - n` comes back loose from both engines, so djot.js is not
+   blanket-suppressing; only the blank immediately before the
+   list-opening item is swallowed.
+3. **djot.js's own corpus never exercises the shape.** Zero of its 26
+   test files contain an item, a blank, and then an item beginning with a
+   nested marker. The behaviour is untested upstream, not pinned.
+4. **The mechanism is visible.** djot.js emits a `blankline` match and
+   excludes a following `+list` event from spending it. That exclusion is
+   wanted for the *intra-item* case below; here the same code path fires
+   at a sibling boundary, where the blank is unambiguously between items.
+
+**Standing rule overridden.** This log's default is that djot.js is the
+authority wherever the two differ, on the grounds that djoths lags. That
+presumption is about djoths being behind on syntax changes; here djoths
+matches the written spec and djot.js does not, so it does not apply.
+
+**Not to be confused with the intra-item case.** `- a` / blank /
+`  - b` — nested list *indented inside the same item* — is called tight
+by both engines, and by us. That reading is also a deviation from the
+prose (the blank is between blocks inside an item), but it is a
+deliberate and agreed one. Where the boundary of that deliberate
+deviation should lie is genuinely unwritten; that part is a SPEC-GAP.
+What is not defensible is applying it across an item boundary.
+
+**Action**: worth reporting upstream with the witness above. We keep our
+behaviour meanwhile — it matches the prose and djoths, and changing it
+would mean restating `Parser.list_uniformity`'s spacing clause, not
+patching a case.
 
 ### Headings inside containers
 
