@@ -43,6 +43,54 @@ boundary than a paragraph of prose. (`pad_nested_list_unshifted` was such
 an example, and its deletion when the bug was fixed was the confirmation
 that the fix was real.)
 
+## Probe the definitions a theorem already constrains, too
+
+**What happened.** Block attributes. `PAttr` was written recording the
+column its brace sits at as `indent_of l`, on the reasoning that all
+lines in a container are measured the same way, so a line-local column
+works. That reasoning is correct about *behaviour* and beside the point:
+`step_fuel_pad` says padding a line and shifting the offset are the same
+descent, so any column a state records has to be absolute
+(`off + indent_of l`, as `ls_indent` already was). The line-local
+spelling makes the two disagree. It surfaced only after the state, six
+`step` branches and two proof cases were written, as a unification
+failure — and the repair was structural, not local: `open_attr` had to
+come out of `open_kind`, `direct_open` had to exclude `KAttr`, and two
+new step equations had to be written to replace the ones `open_kind`
+users got for free.
+
+Two lines would have decided it:
+
+```coq
+Compute snd (step "  {#i" (PPara [])).      (* PAttr [] 2 ... *)
+Compute snd (step_at 2 "{#i" (PPara [])).   (* PAttr [] 2 ... *)
+```
+
+Line-local, those read `2` and `0`.
+
+**General form.** [[#Probe a theorem's shape before proposing it]] pointed
+the other way: there the theorem was the proposal and `Compute` refuted
+it. Here the theorems already existed and the *definition* was the
+proposal. The parser carries two representations of the same nesting — a
+column offset, and a blank prefix on the line — and `step_fuel_shift` and
+`step_fuel_pad` are the statements that they agree. Those two theorems
+are therefore a standing constraint on what any new state may record, and
+the constraint is invisible in the state's own behaviour.
+
+**What to do instead.** Before adding a `pstate` constructor, list which
+existing theorems quantify over all states — today `step_fuel_shift`,
+`step_fuel_pad`, `step_blank_finish`, `finish_wf`, `finish_supported` —
+and ask what each demands of the new one. For anything that records a
+column, run the two-line probe above first. This fires next on ordered
+lists, which record a column *and* a start number.
+
+(The same audit found the other half of the cost: `pad_safe` guards two
+lemmas that want different things of `PAttr` — a pad is invisible to it,
+but a blank line indented past the opener is a continuation rather than a
+close, so `step_blank_finish` fails. One predicate now excludes it for
+both reasons, said so in the definition. If a third state needs one and
+not the other, that predicate should split.)
+
 ## Ask the oracle; do not reason about what djot "should" do
 
 **What happened.** `feed_lazy` kept a lazy continuation line's leading
@@ -61,6 +109,33 @@ an oracle run before it gets an argument. If the two oracles disagree,
 that is an `oracle-disagreements.md` entry, not a judgement call. If both
 agree and we differ, we are wrong — that is how the nested-list bug was
 adjudicated.
+
+### The clause this was missing: unrepresentable oracle behaviour
+
+**What happened.** Block attributes. A spec that spans a blank line and
+then fails to parse becomes a paragraph of the lines it ate — and djot.js
+keeps the blank, so `{#i` / blank / `  <}` yields a paragraph *containing
+a blank line*. The rule above, read literally, says match it. That would
+have been wrong: `wf_block` excludes blank lines in a paragraph, not for
+tidiness but because such a paragraph does not round-trip — render it,
+parse it back, and it splits in two. Matching would have made
+`roundtrip_blocks` false for a document our own parser can produce.
+
+**General form.** The oracle settles what djot *does*. It does not settle
+what *we* do when what it does is unrepresentable in the canonical AST,
+because `wf_block` is not a convention — it is the set of ASTs the
+roundtrip theorem quantifies over. Fidelity and a proved theorem can
+conflict, and when they do the conflict is not a matter of taste either.
+
+**What to do instead.** When the oracle produces something `wf_block`
+excludes, do not relax `wf_block` and do not match the oracle by reflex.
+Ask the one question that decides it: *would matching falsify
+`parse (render d) = d` for a `d` the parser can reach?* If yes, diverge,
+confine the divergence as narrowly as possible, and log it in
+`oracle-disagreements.md` under "ours" with the roundtrip argument
+spelled out. If no, the oracle wins and `wf_block` is the thing that has
+to give. Here the answer was yes and `push_text` confined it to specs
+that both span a blank line and fail.
 
 ## Coverage, not granularity, is what catches structural bugs
 
