@@ -425,3 +425,33 @@ in either implementation — the same shape as the tilde-fence and
 table-trimming SPEC-GAPs.
 
 Pinned as the last case of the div probe set.
+
+## Adjudicated 2026-08-09 — a blank line inside a block attribute spec
+
+Found while implementing block attributes. Not a disagreement between the
+oracles — they agree — but a place where *we* deliberately differ, which
+this log is also where the previous "ours" entries live.
+
+| Case | Verdict | Notes |
+|---|---|---|
+| `{#i` / `··` / `··}` / `Hi` | agreed, we match | The blank line is indented past the opener, so it continues the spec; both oracles and we give `<p id="i">Hi</p>` |
+| `{#i` / `··` / `··<}` / `Hi` | **we differ, on purpose** | The spec fails at `<`. djot.js reproduces the lines it ate as a paragraph *including the blank*: `<p>{#i\n\n<}\nHi</p>`. We drop the blank: `<p>{#i\n<}\nHi</p>` |
+
+The first row is the surprise and it is worth stating: djot.js runs every
+open container's `continue` on every line, blank lines included, and a
+blank line's `this.indent` is its whole length. So a sufficiently
+indented blank line is a continuation line for an attribute spec, not a
+paragraph break. Nothing in the corpus covers it.
+
+The second row is the cost of that. `block.ts:569-572` pushes each
+continuation line's slice before feeding it, so a blank line becomes part
+of the paragraph the failed spec turns into. A paragraph carrying a blank
+line is exactly what `Wf.wf_block` excludes, and for a reason that is not
+bookkeeping: it does not round-trip. Rendering such a paragraph and
+parsing it back splits it in two, so admitting it would make
+`parse (render d) = d` false for a document the parser can produce.
+`Parser.push_text` is what drops the line, and the divergence is confined
+to specs that both span a blank line and then fail.
+
+Pinned as `Parser.parse_attr_blank_continues_spec` and
+`Parser.parse_attr_failed_after_blank_drops_it`.

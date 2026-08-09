@@ -11,7 +11,7 @@
    classifies as intended", which is what makes roundtrip proofs local. *)
 
 From Stdlib Require Import String Ascii Bool PeanoNat Lia.
-From DjotV Require Import Strings.
+From DjotV Require Import Strings Attributes.
 
 Local Open Scope string_scope.
 Local Open Scope char_scope.
@@ -29,6 +29,10 @@ Inductive line_kind : Type :=
   | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
   | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
   | KList (m : ascii) (rest : string)  (* bullet marker, with its content *)
+  (* block attribute spec, with the machine's state after this line: it
+     may already be complete (`ap_done`) or still want indented
+     continuation lines *)
+  | KAttr (p : aparser)
   | KText.                 (* anything else: paragraph text *)
 
 (*
@@ -309,7 +313,11 @@ Definition classify (l : string) : line_kind :=
                        if is_thematic l then KThematic
                        else match list_marker l with
                             | Some (m, rest) => KList m rest
-                            | None => KText
+                            | None =>
+                                match attr_open l with
+                                | Some p => KAttr p
+                                | None => KText
+                                end
                             end
                    end
                end
@@ -332,11 +340,13 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; discriminate.
+    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (attr_open l); discriminate.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; discriminate.
+    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (attr_open l); discriminate.
 Qed.
 
 (*
@@ -358,7 +368,8 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[m r0]|]; discriminate.
+  destruct (list_marker l) as [[m r0]|]; [discriminate|].
+  destruct (attr_open l); discriminate.
 Qed.
 
 (* The measure fact, restated at the classifier: the parser only ever
@@ -376,7 +387,8 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; discriminate.
+    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (attr_open l); discriminate.
 Qed.
 
 Lemma classify_list_length :
@@ -391,7 +403,8 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[m' r']|]; [|discriminate].
+  destruct (list_marker l) as [[m' r']|];
+    [|destruct (attr_open l); discriminate].
   injection H as <- <-. reflexivity.
 Qed.
 
@@ -406,11 +419,11 @@ Lemma classify_ktext :
   forall l,
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
     fence_open l = None -> div_open l = None ->
-    is_thematic l = false -> list_marker l = None ->
+    is_thematic l = false -> list_marker l = None -> attr_open l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Hd Ht Hm. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm. reflexivity.
+  intros l Hb Hq Hh Hf Hd Ht Hm Ha. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -433,6 +446,7 @@ Proof.
   unfold quote_prefix, heading_open, fence_open, div_open, list_marker.
   rewrite (drop_leading_ws_ws_prefix p l Hp).
   fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
+  rewrite (attr_open_ws_prefix p l Hp).
   unfold is_thematic. reflexivity.
 Qed.
 

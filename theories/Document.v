@@ -149,12 +149,22 @@ Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
   then st
   else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st).
 
+(* An identifier that a block attribute spec supplied is taken, and a
+   later heading's auto-identifier has to step around it: djot.js records
+   it into `identifiers` when the spec closes (parse.ts:519), before the
+   block it decorates is opened.  Every id present in the tree at this
+   point came from a spec, since this pass is what adds the others. *)
+Definition register_id (a : attr) (st : id_state) : id_state :=
+  match lookup_attr "id" a with
+  | None => st
+  | Some ident => IdSt (ident :: id_used st) (id_refs st)
+  end.
+
 Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
   (st : id_state) : id_state * node block :=
   match lookup_attr "id" a with
-  (* An explicit id wins and is registered by the attribute pass, which
-     does not exist yet — hence no counter slot consumed here. *)
-  | Some _ => (st, Node p a (Heading lvl ils))
+  (* An explicit id wins, and takes its slot. *)
+  | Some _ => (register_id a st, Node p a (Heading lvl ils))
   | None =>
       let text := inlines_text ils in
       let ident := unique_id (id_used st) (id_base text) in
@@ -176,6 +186,7 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   match b with
   | Heading lvl ils => assign_heading_id p a lvl ils st
   | BlockQuote bs =>
+      let st0 := register_id a st in
       let (st', bs') :=
         (fix go (ns : blocks) (s : id_state) {struct ns} : id_state * blocks :=
            match ns with
@@ -184,9 +195,9 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                let (s1, n1) := assign_ids x p' a' s in
                let (s2, rest1) := go rest s1 in
                (s2, n1 :: rest1)
-           end) bs st in
+           end) bs st0 in
       (st', Node p a (BlockQuote bs'))
-  | _ => (st, Node p a b)
+  | _ => (register_id a st, Node p a b)
   end.
 
 Definition assign_ids_node (n : node block) (st : id_state)
@@ -208,7 +219,7 @@ Fixpoint assign_ids_list (ns : blocks) (st : id_state) : id_state * blocks :=
 Lemma assign_ids_quote :
   forall p a bs st,
     assign_ids (BlockQuote bs) p a st
-    = let (st', bs') := assign_ids_list bs st in
+    = let (st', bs') := assign_ids_list bs (register_id a st) in
       (st', Node p a (BlockQuote bs')).
 Proof.
   intros p a bs st.
@@ -232,7 +243,7 @@ Proof.
                    let (s1, n1) := assign_ids x p' a' s in
                    let (s2, rest1) := go rest s1 in
                    (s2, n1 :: rest1)
-               end) bs st in
+               end) bs (register_id a st) in
           (s', Node p a (BlockQuote bs'))).
   rewrite H. reflexivity.
 Qed.
@@ -563,7 +574,7 @@ Proof.
   - (* BlockQuote *)
     rewrite pristine_quote in H.
     rewrite assign_ids_quote.
-    destruct (assign_ids_list bs st) as [st' bs'] eqn:E.
+    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_quote.
     change bs' with (snd (st', bs')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.

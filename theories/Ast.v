@@ -47,6 +47,50 @@ Definition integrate (kv : string * string) (kvs : attr) : attr :=
 (* Merge two attribute sets, integrating a's bindings into b one by one. *)
 Definition attr_union (a b : attr) : attr := fold_right integrate b a.
 
+(*
+Insertion-order update
+----------------------
+
+djot.js builds attributes as a JS object and assigns into it, so a key
+already present keeps its position and takes the new value, while a new
+key lands at the end.  `attr_union` above cannot express that — it
+prepends — and attribute *order* is observable in the rendered tag, so
+the block-attribute path (Attributes.v, Parser.v) uses these instead. *)
+
+Fixpoint attr_set (k v : string) (a : attr) : attr :=
+  match a with
+  | [] => [(k, v)]
+  | (k', v') :: rest =>
+      if String.eqb k k'
+      then (k, v) :: rest
+      else (k', v') :: attr_set k v rest
+  end.
+
+(* Classes accumulate space-separated rather than overwrite, both within
+   one attribute spec and across consecutive ones (djot.js parse.ts:536,
+   :521). *)
+Definition attr_add_class (v : string) (a : attr) : attr :=
+  match lookup_attr "class" a with
+  | None => attr_set "class" v a
+  | Some old => attr_set "class" (old ++ " " ++ v) a
+  end.
+
+(* One key/value into a set, with the class rule. *)
+Definition attr_put (kv : string * string) (a : attr) : attr :=
+  if String.eqb (fst kv) "class"
+  then attr_add_class (snd kv) a
+  else attr_set (fst kv) (snd kv) a.
+
+(* `-block_attributes` folding a finished spec into the pending set. *)
+Definition attr_merge (new acc : attr) : attr :=
+  fold_left (fun acc' kv => attr_put kv acc') new acc.
+
+(* `addBlockAttributes` (parse.ts:183): the pending set onto the node a
+   block opens with.  Plain assignment — no class rule here, which is
+   djot.js's behaviour and not obviously intended. *)
+Definition attr_apply (pending a : attr) : attr :=
+  fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
+
 (* Source positions: start line/col, end line/col.  Carried for fidelity
    with the oracles; the harness skips sourcepos cases, so nothing renders
    these yet. *)
@@ -166,6 +210,25 @@ Inductive block : Type :=
   | RawBlock (format : string) (contents : string).
 
 Definition blocks : Type := list (node block).
+
+(* Attach pending block attributes to the first of the blocks a container
+   produced.  djot.js attaches them when the container *opens*
+   (parse.ts:183); here a container is only reified when it closes, so
+   the attachment point is the head of what it emitted.  Nothing emitted
+   is nothing to attach to. *)
+Definition decorate_head (pending : attr) (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node p a x :: rest => Node p (attr_apply pending a) x :: rest
+  end.
+
+(* Decoration only ever touches the head, so appending after it is the
+   same as appending before — provided there is a head. *)
+Lemma decorate_head_cons_app :
+  forall pending b bs cs,
+    (decorate_head pending (b :: bs) ++ cs)%list
+    = decorate_head pending ((b :: bs) ++ cs)%list.
+Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
 
 (* Rocq's generated `block_ind` does not descend into a container's
    contents: `blocks` is `list (node block)`, two type constructors away
