@@ -1823,6 +1823,83 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
+(*
+Prefix determinism
+------------------
+
+The spec's block-level promise: "blocks can be parsed line by line ...
+the contribution a line makes to block-level structure never depends on
+a future line."  `Line.v` gives each line its kind; these say the fold
+over those kinds commits as it goes.
+
+`parse_lines` is a fold, so the property is true by construction rather
+than by argument, and the three statements below are one rewrite each
+off `parse_lines_app_run`.  They are here because "true by construction"
+is a claim about the definition that a reader should not have to
+reconstruct, and because a future block parser -- a `BlockSpec` record
+dispatched over a container stack, say -- must keep them.
+
+Stated at the line level, which is where the parser is incremental.
+Lifting to `parse_doc` would need `split_lines` to distribute over
+concatenation, and it does so only when the prefix ends at a newline:
+`split_lines "a" ++ split_lines "b"` is `["a"; "b"]` while
+`split_lines "ab"` is `["ab"]`.  The line-level form is the honest one.
+
+One caveat for later.  The plan (`.project/260802.plan.autonomous.md`,
+Phase 2 item 3) scopes prefix determinism to block *tree shape*, because
+djot's pipe-table rule turns a paragraph into a table header
+retroactively.  We have no tables, so the statements below are over full
+parse results, which is strictly stronger.  Adding tables falsifies them
+as written; the shape-only weakening is the fallback, and it should be a
+deliberate step, not a surprise.
+*)
+
+(** What a line prefix has already emitted.  A fold over the prefix, so
+    "computable line by line" is definitional. *)
+Definition committed (xs : list string) (st : pstate) : blocks :=
+  fst (run_lines xs st).
+
+(** The parse of a prefix followed by anything factors through the
+    prefix: its blocks come out first and unmodified, and the only thing
+    the prefix passes forward is one `pstate`.  Nothing is revised once
+    emitted -- the right-hand side appends to `committed xs st`, it does
+    not rewrite it. *)
+Theorem prefix_determinism :
+  forall xs ys st,
+    parse_lines (xs ++ ys)%list st
+    = (committed xs st ++ parse_lines ys (snd (run_lines xs st)))%list.
+Proof.
+  intros xs ys st. unfold committed.
+  rewrite parse_lines_app_run. destruct (run_lines xs st). reflexivity.
+Qed.
+
+(** No future-line dependence, in the contrapositive form: swap the
+    continuation for any other and the blocks already committed are
+    unchanged. *)
+Theorem no_future_line_dependence :
+  forall xs ys ys' st,
+    firstn (List.length (committed xs st)) (parse_lines (xs ++ ys)%list st)
+    = firstn (List.length (committed xs st)) (parse_lines (xs ++ ys')%list st).
+Proof.
+  intros xs ys ys' st.
+  rewrite !prefix_determinism, !firstn_app, Nat.sub_diag, !firstn_O, !app_nil_r,
+          !firstn_all.
+  reflexivity.
+Qed.
+
+(** And the state is the whole of what a prefix carries forward: two
+    prefixes that run to the same pair are interchangeable under every
+    continuation.  This is the bound on lookback that makes the fold a
+    state machine rather than a function of the whole input. *)
+Theorem prefix_state_suffices :
+  forall xs xs' ys st,
+    run_lines xs st = run_lines xs' st ->
+    parse_lines (xs ++ ys)%list st = parse_lines (xs' ++ ys)%list st.
+Proof.
+  intros xs xs' ys st H.
+  rewrite !prefix_determinism. unfold committed. rewrite H. reflexivity.
+Qed.
+
 Lemma app_cons_app :
   forall {A : Type} (xs : list A) x ys tail,
     ((xs ++ (x :: ys)) ++ tail)%list =
