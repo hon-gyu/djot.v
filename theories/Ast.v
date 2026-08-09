@@ -237,13 +237,15 @@ Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
    P for a block, Q for a block list, each feeding the other.  (Render.v
    carries `cblock_ind2` for the canonical view, for the same reason.)
 
-   The list and table constructors get no induction hypothesis for the
-   blocks they hold: their cases must be discharged outright.  Nothing
-   produces or traverses them yet, and filling them in is mechanical once
-   lists land — a caller that needs those hypotheses finds out at once,
-   because the case becomes unprovable. *)
+   `BulletList` holds a list *of* block lists, one more constructor deep
+   again, so it needs a third predicate `R` with its own nil/cons — which
+   is what `Document.assign_ids` traversing list items forced.  The other
+   list flavours and `Table` still get no hypothesis for the blocks they
+   hold and must be discharged outright; nothing produces them yet, and a
+   caller that needs one finds out at once, because the case becomes
+   unprovable. *)
 Definition block_ind2
-  (P : block -> Prop) (Q : blocks -> Prop)
+  (P : block -> Prop) (Q : blocks -> Prop) (R : list blocks -> Prop)
   (hpara : forall ils, P (Para ils))
   (hsection : forall bs, Q bs -> P (Section bs))
   (hheading : forall lvl ils, P (Heading lvl ils))
@@ -251,7 +253,7 @@ Definition block_ind2
   (hcode : forall lang code, P (CodeBlock lang code))
   (hdiv : forall bs, Q bs -> P (Div bs))
   (holist : forall attrs sp items, P (OrderedList attrs sp items))
-  (hblist : forall sp items, P (BulletList sp items))
+  (hblist : forall sp items, R items -> P (BulletList sp items))
   (htlist : forall sp items, P (TaskList sp items))
   (hdlist : forall sp items, P (DefinitionList sp items))
   (hthematic : P ThematicBreak)
@@ -259,6 +261,8 @@ Definition block_ind2
   (hraw : forall format contents, P (RawBlock format contents))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
+  (hinil : R [])
+  (hicons : forall it rest, Q it -> R rest -> R (it :: rest))
   : forall b, P b :=
   fix go (b : block) : P b :=
     let golist :=
@@ -266,6 +270,12 @@ Definition block_ind2
         match ns with
         | [] => hnil
         | Node p a x :: rest => hcons p a x rest (go x) (golist rest)
+        end in
+    let goitems :=
+      fix goitems (its : list blocks) : R its :=
+        match its with
+        | [] => hinil
+        | it :: rest => hicons it rest (golist it) (goitems rest)
         end in
     match b with
     | Para ils => hpara ils
@@ -275,7 +285,7 @@ Definition block_ind2
     | CodeBlock lang code => hcode lang code
     | Div bs => hdiv bs (golist bs)
     | OrderedList attrs sp items => holist attrs sp items
-    | BulletList sp items => hblist sp items
+    | BulletList sp items => hblist sp items (goitems items)
     | TaskList sp items => htlist sp items
     | DefinitionList sp items => hdlist sp items
     | ThematicBreak => hthematic

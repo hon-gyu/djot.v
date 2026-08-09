@@ -1332,8 +1332,15 @@ Proof.
   intros cb.
   induction cb using cblock_ind2 with
     (Q := fun cbs => pristine (map cb_ast cbs) = true)
-    (R := fun _ => True);
+    (R := fun iss => pristine_items (map (map cb_ast) iss) = true);
     try reflexivity.
+  (* A div and a list carry their contents' obligation now that the id
+     pass descends into both. *)
+  3: { rewrite cb_ast_div. cbn [pristine_node mk].
+       rewrite pristine_div. exact IHcb. }
+  3: { rewrite cb_ast_list. cbn [pristine_node mk].
+       rewrite pristine_blist. exact IHcb. }
+  4: { cbn [map pristine_items]. rewrite IHcb, IHcb0. reflexivity. }
   - (* CCode: raw or code block, depending on the info string *)
     unfold cb_ast, fence_block. cbn [f_info].
     destruct info as [|c info']; [reflexivity|].

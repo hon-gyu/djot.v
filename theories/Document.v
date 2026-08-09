@@ -183,20 +183,39 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
    same shape for the same reason. *)
 Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   {struct b} : id_state * node block :=
+  let go :=
+    fix go (ns : blocks) (s : id_state) {struct ns} : id_state * blocks :=
+      match ns with
+      | [] => (s, [])
+      | Node p' a' x :: rest =>
+          let (s1, n1) := assign_ids x p' a' s in
+          let (s2, rest1) := go rest s1 in
+          (s2, n1 :: rest1)
+      end in
   match b with
   | Heading lvl ils => assign_heading_id p a lvl ils st
   | BlockQuote bs =>
-      let st0 := register_id a st in
-      let (st', bs') :=
-        (fix go (ns : blocks) (s : id_state) {struct ns} : id_state * blocks :=
-           match ns with
-           | [] => (s, [])
-           | Node p' a' x :: rest =>
-               let (s1, n1) := assign_ids x p' a' s in
-               let (s2, rest1) := go rest s1 in
-               (s2, n1 :: rest1)
-           end) bs st0 in
+      let (st', bs') := go bs (register_id a st) in
       (st', Node p a (BlockQuote bs'))
+  | Div bs =>
+      let (st', bs') := go bs (register_id a st) in
+      (st', Node p a (Div bs'))
+  | BulletList sp items =>
+      let (st', items') :=
+        (fix goit (its : list blocks) (s : id_state) {struct its}
+           : id_state * list blocks :=
+           match its with
+           | [] => (s, [])
+           | it :: rest =>
+               let (s1, it1) := go it s in
+               let (s2, rest1) := goit rest s1 in
+               (s2, it1 :: rest1)
+           end) items (register_id a st) in
+      (st', Node p a (BulletList sp items'))
+  (* The remaining containers -- Section, the other list flavours, Table
+     -- are not reachable from the line fold yet (`Wf.supported` is the
+     record of that).  Each needs its arm here when it lands, or a
+     heading inside it silently goes without an identifier. *)
   | _ => (register_id a st, Node p a b)
   end.
 
@@ -216,36 +235,95 @@ Fixpoint assign_ids_list (ns : blocks) (st : id_state) : id_state * blocks :=
       (st2, n1 :: rest1)
   end.
 
+Fixpoint assign_ids_items (its : list blocks) (st : id_state)
+  : id_state * list blocks :=
+  match its with
+  | [] => (st, [])
+  | it :: rest =>
+      let (s1, it1) := assign_ids_list it st in
+      let (s2, rest1) := assign_ids_items rest s1 in
+      (s2, it1 :: rest1)
+  end.
+
+(* The inner fixpoints of `assign_ids`, named.  Same shape as
+   `pristine_inner_go` and `undo_pass_inner_go`: Rocq will not let the
+   definition mention `assign_ids_list` directly, so the identity is
+   proved once here. *)
+Lemma assign_ids_inner_go :
+  forall ns st,
+    (fix go (l : blocks) (s : id_state) : id_state * blocks :=
+       match l with
+       | [] => (s, [])
+       | Node p' a' x :: rest =>
+           let (s1, n1) := assign_ids x p' a' s in
+           let (s2, rest1) := go rest s1 in
+           (s2, n1 :: rest1)
+       end) ns st = assign_ids_list ns st.
+Proof.
+  induction ns as [|[p' a' x] rest IH]; intros st; [reflexivity|].
+  cbn. destruct (assign_ids x p' a' st) as [s1 n1]. rewrite IH. reflexivity.
+Qed.
+
 Lemma assign_ids_quote :
   forall p a bs st,
     assign_ids (BlockQuote bs) p a st
     = let (st', bs') := assign_ids_list bs (register_id a st) in
       (st', Node p a (BlockQuote bs')).
 Proof.
-  intros p a bs st.
-  assert (H : forall ns st0,
-             (fix go (l : blocks) (s : id_state) : id_state * blocks :=
+  intros p a bs st. cbn [assign_ids].
+  rewrite assign_ids_inner_go. reflexivity.
+Qed.
+
+Lemma assign_ids_div :
+  forall p a bs st,
+    assign_ids (Div bs) p a st
+    = let (st', bs') := assign_ids_list bs (register_id a st) in
+      (st', Node p a (Div bs')).
+Proof.
+  intros p a bs st. cbn [assign_ids].
+  rewrite assign_ids_inner_go. reflexivity.
+Qed.
+
+(* The traversal rewrites items in place, so a list that was nonempty
+   still is.  `wf_block (BulletList ...)` needs this. *)
+Lemma assign_ids_items_nonempty :
+  forall its st, nonempty (snd (assign_ids_items its st)) = nonempty its.
+Proof.
+  intros [|it rest] st; [reflexivity|].
+  cbn [assign_ids_items].
+  destruct (assign_ids_list it st) as [s1 it1].
+  destruct (assign_ids_items rest s1) as [s2 rest1].
+  reflexivity.
+Qed.
+
+Lemma assign_ids_blist :
+  forall p a sp items st,
+    assign_ids (BulletList sp items) p a st
+    = let (st', items') := assign_ids_items items (register_id a st) in
+      (st', Node p a (BulletList sp items')).
+Proof.
+  assert (H : forall its st,
+             (fix goit (l : list blocks) (s : id_state)
+                : id_state * list blocks :=
                 match l with
                 | [] => (s, [])
-                | Node p' a' x :: rest =>
-                    let (s1, n1) := assign_ids x p' a' s in
-                    let (s2, rest1) := go rest s1 in
-                    (s2, n1 :: rest1)
-                end) ns st0 = assign_ids_list ns st0).
-  { induction ns as [|[p' a' x] rest IH]; intros st0; [reflexivity|].
-    cbn. destruct (assign_ids x p' a' st0) as [s1 n1]. rewrite IH. reflexivity. }
-  change (assign_ids (BlockQuote bs) p a st)
-    with (let (s', bs') :=
-            (fix go (l : blocks) (s : id_state) : id_state * blocks :=
-               match l with
-               | [] => (s, [])
-               | Node p' a' x :: rest =>
-                   let (s1, n1) := assign_ids x p' a' s in
-                   let (s2, rest1) := go rest s1 in
-                   (s2, n1 :: rest1)
-               end) bs (register_id a st) in
-          (s', Node p a (BlockQuote bs'))).
-  rewrite H. reflexivity.
+                | it :: rest =>
+                    let (s1, it1) :=
+                      (fix go (m : blocks) (s' : id_state) : id_state * blocks :=
+                         match m with
+                         | [] => (s', [])
+                         | Node p' a' x :: r =>
+                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s3, r1) := go r s2 in
+                             (s3, n2 :: r1)
+                         end) it s in
+                    let (s4, rest1) := goit rest s1 in
+                    (s4, it1 :: rest1)
+                end) its st = assign_ids_items its st).
+  { induction its as [|it rest IH]; intros st; [reflexivity|].
+    cbn [assign_ids_items]. rewrite assign_ids_inner_go.
+    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
 Qed.
 
 (*
@@ -414,10 +492,18 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
       | [] => []
       | Node p' a' x :: rest => (undo_pass_block x p' a' ++ go rest)%list
       end in
+  let goit :=
+    fix goit (its : list blocks) : list blocks :=
+      match its with
+      | [] => []
+      | it :: rest => go it :: goit rest
+      end in
   match b with
   | Section inner => set_first (strip_id a) (go inner)
   | Heading lvl ils => [Node p (strip_id a) (Heading lvl ils)]
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
+  | Div inner => [Node p a (Div (go inner))]
+  | BulletList sp items => [Node p a (BulletList sp (goit items))]
   | _ => [Node p a b]
   end.
 
@@ -426,6 +512,24 @@ Fixpoint undo_pass (bs : blocks) : blocks :=
   | [] => []
   | Node p a b :: rest => (undo_pass_block b p a ++ undo_pass rest)%list
   end.
+
+Fixpoint undo_pass_items (its : list blocks) : list blocks :=
+  match its with
+  | [] => []
+  | it :: rest => undo_pass it :: undo_pass_items rest
+  end.
+
+Lemma undo_pass_inner_go :
+  forall ns,
+    (fix go (l : blocks) : blocks :=
+       match l with
+       | [] => []
+       | Node p' a' x :: rest => (undo_pass_block x p' a' ++ go rest)%list
+       end) ns = undo_pass ns.
+Proof.
+  induction ns as [|[p' a' x] rest IH]; [reflexivity|].
+  cbn [undo_pass]. rewrite IH. reflexivity.
+Qed.
 
 Lemma undo_pass_section :
   forall inner p a,
@@ -479,6 +583,60 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
+Lemma undo_pass_inner_goit :
+  forall its,
+    (fix goit (l : list blocks) : list blocks :=
+       match l with
+       | [] => []
+       | it :: rest =>
+           (fix go (m : blocks) : blocks :=
+              match m with
+              | [] => []
+              | Node p' a' x :: r => (undo_pass_block x p' a' ++ go r)%list
+              end) it :: goit rest
+       end) its = undo_pass_items its.
+Proof.
+  induction its as [|it rest IH]; [reflexivity|].
+  cbn [undo_pass_items]. rewrite undo_pass_inner_go, IH. reflexivity.
+Qed.
+
+Lemma undo_pass_div :
+  forall inner p a,
+    undo_pass_block (Div inner) p a = [Node p a (Div (undo_pass inner))].
+Proof.
+  intros inner p a.
+  change (undo_pass_block (Div inner) p a)
+    with [Node p a (Div
+            ((fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) inner))].
+  rewrite undo_pass_inner_go. reflexivity.
+Qed.
+
+Lemma undo_pass_blist :
+  forall sp items p a,
+    undo_pass_block (BulletList sp items) p a
+    = [Node p a (BulletList sp (undo_pass_items items))].
+Proof.
+  intros sp items p a.
+  change (undo_pass_block (BulletList sp items) p a)
+    with [Node p a (BulletList sp
+            ((fix goit (its : list blocks) : list blocks :=
+                match its with
+                | [] => []
+                | it :: rest =>
+                    (fix go (l : blocks) : blocks :=
+                       match l with
+                       | [] => []
+                       | Node p' a' x :: r => (undo_pass_block x p' a' ++ go r)%list
+                       end) it :: goit rest
+                end) items))].
+  rewrite undo_pass_inner_goit. reflexivity.
+Qed.
+
 Definition undo_pass_node (n : node block) : blocks :=
   match n with Node p a b => undo_pass_block b p a end.
 
@@ -500,11 +658,18 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
       | [] => true
       | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
       end in
+  let goit :=
+    fix goit (its : list blocks) : bool :=
+      match its with
+      | [] => true
+      | it :: rest => (go it && goit rest)%bool
+      end in
   match b with
   | Section _ => false
   | Heading _ _ =>
       match lookup_attr "id" a with Some _ => false | None => true end
-  | BlockQuote inner => go inner
+  | BlockQuote inner | Div inner => go inner
+  | BulletList _ items => goit items
   | _ => true
   end.
 
@@ -514,17 +679,32 @@ Fixpoint pristine (bs : blocks) : bool :=
   | Node _ a b :: rest => (pristine_block b a && pristine rest)%bool
   end.
 
+(* A list is pristine when every item is.  Named so the equation lemma
+   below has something to be stated against. *)
+Fixpoint pristine_items (its : list blocks) : bool :=
+  match its with
+  | [] => true
+  | it :: rest => (pristine it && pristine_items rest)%bool
+  end.
+
+(* The inner fixpoints of `pristine_block` are `pristine` and
+   `pristine_items`; Rocq will not let them be spelled that way, so each
+   arm needs its identity proved once and rewritten with thereafter. *)
+Lemma pristine_inner_go :
+  forall ns,
+    (fix go (l : blocks) : bool :=
+       match l with
+       | [] => true
+       | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
+       end) ns = pristine ns.
+Proof.
+  induction ns as [|[p' a' x] rest IH]; [reflexivity|].
+  cbn [pristine]. rewrite IH. reflexivity.
+Qed.
+
 Lemma pristine_quote :
   forall inner a, pristine_block (BlockQuote inner) a = pristine inner.
 Proof.
-  assert (H : forall ns,
-             (fix go (l : blocks) : bool :=
-                match l with
-                | [] => true
-                | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
-                end) ns = pristine ns).
-  { induction ns as [|[p' a' x] rest IH]; [reflexivity|].
-    cbn [pristine]. rewrite IH. reflexivity. }
   intros inner a.
   change (pristine_block (BlockQuote inner) a)
     with ((fix go (l : blocks) : bool :=
@@ -532,7 +712,40 @@ Proof.
              | [] => true
              | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
              end) inner).
-  rewrite H. reflexivity.
+  rewrite pristine_inner_go. reflexivity.
+Qed.
+
+Lemma pristine_div :
+  forall inner a, pristine_block (Div inner) a = pristine inner.
+Proof.
+  intros inner a.
+  change (pristine_block (Div inner) a)
+    with ((fix go (l : blocks) : bool :=
+             match l with
+             | [] => true
+             | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
+             end) inner).
+  rewrite pristine_inner_go. reflexivity.
+Qed.
+
+Lemma pristine_blist :
+  forall sp items a,
+    pristine_block (BulletList sp items) a = pristine_items items.
+Proof.
+  intros sp items a.
+  change (pristine_block (BulletList sp items) a)
+    with ((fix goit (its : list blocks) : bool :=
+             match its with
+             | [] => true
+             | it :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ a' x :: r => (pristine_block x a' && go r)%bool
+                     end) it && goit rest)%bool
+             end) items).
+  induction items as [|it rest IH]; [reflexivity|].
+  cbn [pristine_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
 Lemma pristine_cons :
@@ -561,7 +774,10 @@ Proof.
   induction b using block_ind2 with
     (Q := fun bs => forall st,
             pristine bs = true ->
-            undo_pass (snd (assign_ids_list bs st)) = bs);
+            undo_pass (snd (assign_ids_list bs st)) = bs)
+    (R := fun its => forall st,
+            pristine_items its = true ->
+            undo_pass_items (snd (assign_ids_items its st)) = its);
     intros; try reflexivity.
   - (* Section: excluded by pristine *)
     discriminate.
@@ -578,6 +794,20 @@ Proof.
     cbn [snd undo_pass_node]. rewrite undo_pass_quote.
     change bs' with (snd (st', bs')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
+  - (* Div: the same, one constructor over *)
+    rewrite pristine_div in H.
+    rewrite assign_ids_div.
+    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_div.
+    change bs' with (snd (st', bs')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
+  - (* BulletList: the item list, which is what R is for *)
+    rewrite pristine_blist in H.
+    rewrite assign_ids_blist.
+    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_blist.
+    change its' with (snd (st', its')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
     rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [assign_ids_list assign_ids_node].
@@ -587,6 +817,17 @@ Proof.
     replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hb.
     replace rest1 with (snd (assign_ids_list rest st1))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - (* R's cons: one item, then the rest *)
+    cbn [pristine_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_items].
+    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
+    destruct (assign_ids_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [snd undo_pass_items].
+    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace rest1 with (snd (assign_ids_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.

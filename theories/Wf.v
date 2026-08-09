@@ -1289,11 +1289,14 @@ Proof.
   induction b using block_ind2 with
     (Q := fun bs => forall st,
             wf_blocks bs = true ->
-            wf_blocks (snd (assign_ids_list bs st)) = true);
+            wf_blocks (snd (assign_ids_list bs st)) = true)
+    (R := fun its => forall st,
+            forallb wf_blocks its = true ->
+            forallb wf_blocks (snd (assign_ids_items its st)) = true);
     intros; try exact H.
-  (* Section, Div, and the list/table constructors are unreachable from
-     the line fold, but the lemma is stated for every block, so they are
-     discharged by the identity branch of assign_ids above. *)
+  (* Section and the remaining list/table constructors are unreachable
+     from the line fold, but the lemma is stated for every block, so they
+     are discharged by the identity branch of assign_ids above. *)
   - (* Heading *)
     unfold assign_ids, assign_heading_id.
     destruct (lookup_attr "id" a) as [v|]; exact H.
@@ -1304,6 +1307,26 @@ Proof.
     rewrite wf_block_quote in H |- *.
     change bs' with (snd (st', bs')). rewrite <- E.
     apply IHb. exact H.
+  - (* Div *)
+    rewrite assign_ids_div.
+    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd node_contents].
+    rewrite wf_block_div in H |- *.
+    change bs' with (snd (st', bs')). rewrite <- E.
+    apply IHb. exact H.
+  - (* BulletList: the id pass rewrites items, so the nonempty conjunct
+       has to survive the traversal too *)
+    rewrite assign_ids_blist.
+    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd node_contents].
+    rewrite wf_block_bullet in H |- *.
+    apply andb_true_iff in H as [Hne Hits].
+    apply andb_true_iff. split.
+    + replace its' with (snd (assign_ids_items items (register_id a st)))
+        by (rewrite E; reflexivity).
+      rewrite assign_ids_items_nonempty. exact Hne.
+    + change its' with (snd (st', its')). rewrite <- E.
+      apply IHb. exact Hits.
   - (* Node p a b :: rest *)
     rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
     cbn [assign_ids_list assign_ids_node].
@@ -1313,6 +1336,15 @@ Proof.
     apply andb_true_iff. split.
     + change n1 with (snd (st1, n1)). rewrite <- E1. apply IHb. exact Hx.
     + change rest1 with (snd (st2, rest1)). rewrite <- E2.
+      apply IHb0. exact Hrest.
+  - (* R's cons *)
+    cbn [forallb] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_items].
+    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
+    destruct (assign_ids_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [snd forallb]. apply andb_true_iff. split.
+    + change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
+    + change rest1 with (snd (s2, rest1)). rewrite <- E2.
       apply IHb0. exact Hrest.
 Qed.
 
