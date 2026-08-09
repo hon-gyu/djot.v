@@ -27,7 +27,7 @@ A verified [djot](https://djot.net) parser in Rocq. Research plan:
 make oracles    # one-time: build djot.js (npm) and djoths (cabal)
 make build      # dune build: theory, proofs, extraction, harness
 make test       # three-way differential run over the djot.js corpus
-make baseline   # oracle-vs-oracle report -> .project/baseline-report.txt
+make baseline   # oracle-vs-oracle report -> baseline-report.txt
 ```
 
 The harness compares the extracted Gallina parser against both oracles on

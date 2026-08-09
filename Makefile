@@ -17,14 +17,14 @@ shape: build
 # oracle-vs-oracle (and vs expected output); seeds the disagreement log
 baseline: build
 	dune exec harness/main.exe -- --baseline --verbose \
-	  --report .project/baseline-report.txt
+	  --report baseline-report.txt
 
 # the enumerated cblock fragment against both oracles, with diffs.  Slower
 # than the `test` run because djoths takes one process per document; it is
 # here because adjudicating a diff needs the second opinion.
 generated: build
 	dune exec harness/main.exe -- --generated --verbose \
-	  --report .project/generated-report.txt
+	  --report generated-report.txt
 
 oracles:
 	cd djot.js && npm install --no-audit --no-fund && npm run build

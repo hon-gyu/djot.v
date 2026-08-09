@@ -1,6 +1,7 @@
 _build/
 *.install
-.project/baseline-report.txt
+baseline-report.txt
+generated-report.txt
 
 theories/.*.aux
 .lia.cache
