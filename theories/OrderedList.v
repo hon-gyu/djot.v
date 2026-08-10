@@ -992,9 +992,50 @@ Example alpha_from_e_items_ok :
     [(MOrd "e" RightPeriod, ["a"]); (MOrd "l" RightPeriod, ["b"])] = true.
 Proof. reflexivity. Qed.
 
-(* Not covered, and this is the record of where the boundary sits: the
-   parser reads these two lines as one roman list, and `items_ok` cannot
-   say so. *)
+(* Now covered, by `list_uniformity_narrow`: `i.` opens offering roman
+   and alpha, `ii.` narrows to roman alone, and the list closes to the
+   narrowed set.  `items_ok` still says false here -- it asks every
+   sibling to admit *both* of `i.`'s styles -- which is why the theorem
+   that reaches this case is the one stated on the set. *)
+Corollary roman_from_one_uniformity :
+  forall sp,
+    parse_lines (list_lines sp
+                   (map litem_lines [(MOrd "i" RightPeriod, ["a"]);
+                                     (MOrd "ii" RightPeriod, ["b"])]))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1)
+             (list_spacing_of sp [["a"]; ["b"]])
+             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara [])])].
+Proof.
+  intros sp.
+  exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "ii" RightPeriod)
+           [(SOrd RomanLower RightPeriod, 1)] sp ["a"] ["b"] []
+           eq_refl eq_refl ltac:(discriminate) eq_refl eq_refl eq_refl
+           ltac:(discriminate) eq_refl).
+Qed.
+
+(* And the other branch of the same fork: `j.` narrows `i.`'s set the
+   other way, so the list is alpha from 9.  The resolved style is not a
+   function of the first marker -- the same `i.` opens both. *)
+Corollary alpha_from_nine_uniformity :
+  forall sp,
+    parse_lines (list_lines sp
+                   (map litem_lines [(MOrd "i" RightPeriod, ["a"]);
+                                     (MOrd "j" RightPeriod, ["b"])]))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs LetterLower RightPeriod 9)
+             (list_spacing_of sp [["a"]; ["b"]])
+             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara [])])].
+Proof.
+  intros sp.
+  exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "j" RightPeriod)
+           [(SOrd LetterLower RightPeriod, 9)] sp ["a"] ["b"] []
+           eq_refl eq_refl ltac:(discriminate) eq_refl eq_refl eq_refl
+           ltac:(discriminate) eq_refl).
+Qed.
+
+(* `items_ok` still cannot describe either, which is the point: it asks
+   every sibling to admit *both* of `i.`'s candidates. *)
 Example roman_from_one_items_ok_fails :
   items_ok (MOrd "i" RightPeriod)
     [(MOrd "i" RightPeriod, ["a"]); (MOrd "ii" RightPeriod, ["b"])] = false.
