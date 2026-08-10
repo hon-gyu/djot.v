@@ -124,19 +124,53 @@ Definition narrow (old : list (lstyle * nat)) (new : list lstyle)
   : list (lstyle * nat) :=
   filter (fun p => existsb (lstyle_eqb (fst p)) new) old.
 
-(* The style set a canonical rendering of `mrk` opens with.  A bullet
-   carries no numeral, so its start is the default 1 and the set is a
-   singleton that no sibling can narrow — which is the whole of what the
-   uniformity chain below needs to know about styles. *)
+(* The style set a canonical rendering of `mrk` opens with. *)
 Definition mk_styles (m : marker) : list (lstyle * nat) :=
-  with_starts [SBullet (mk_style m)] EmptyString.
+  with_starts (mk_sty m) (mk_core m).
+
+Lemma lstyle_eqb_refl : forall s, lstyle_eqb s s = true.
+Proof.
+  intros [c|n d]; cbn [lstyle_eqb].
+  - apply Ascii.eqb_refl.
+  - destruct n, d; reflexivity.
+Qed.
+
+(* Narrowing a set by the very styles it was built from is the identity.
+   This is what makes the uniformity chain blind to styles: a canonical
+   rendering repeats one marker, so every sibling re-offers exactly the
+   candidates the list already has. *)
+Lemma filter_map_all :
+  forall (sty : list lstyle) (f : lstyle -> nat) (p : lstyle * nat -> bool),
+    (forall s, In s sty -> p (s, f s) = true) ->
+    filter p (map (fun s => (s, f s)) sty) = map (fun s => (s, f s)) sty.
+Proof.
+  induction sty as [|s rest IH]; intros f p Hp; [reflexivity|].
+  cbn [map filter]. rewrite (Hp s (or_introl eq_refl)).
+  f_equal. apply IH. intros s' Hin. apply Hp, or_intror, Hin.
+Qed.
+
+Lemma narrow_with_starts_self :
+  forall sty core, narrow (with_starts sty core) sty = with_starts sty core.
+Proof.
+  intros sty core. unfold narrow, with_starts.
+  apply filter_map_all. intros s Hin. cbn [fst].
+  apply existsb_exists. exists s. split; [exact Hin | apply lstyle_eqb_refl].
+Qed.
 
 Lemma narrow_mk_styles :
-  forall m, narrow (mk_styles m) [SBullet (mk_style m)] = mk_styles m.
-Proof.
-  intros m. destruct m as [c]. unfold mk_styles, with_starts, narrow.
-  cbn [map filter fst existsb lstyle_eqb]. rewrite Ascii.eqb_refl. reflexivity.
-Qed.
+  forall m, narrow (mk_styles m) (mk_sty m) = mk_styles m.
+Proof. intros m. apply narrow_with_starts_self. Qed.
+
+(* The block a list rendered with marker `m` closes to.  Bullets give a
+   `BulletList` definitionally, so instantiating the uniformity chain at
+   `bullet` still reads as it did; an ordered marker gives the
+   `OrderedList` its style and start. *)
+Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
+  : node block :=
+  match mk_styles m with
+  | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
+  | _ => mk (BulletList sp items)
+  end.
 
 (*
 The line fold
@@ -282,23 +316,26 @@ Fixpoint finish (st : pstate) : blocks :=
 (* `list_block`'s match, resolved for a bullet.  The uniformity chain
    works over a canonical rendering, where the style set is a bullet
    singleton, and this is the one place that set is looked at. *)
-Lemma list_block_bullet :
-  forall c ls last,
-    ls_styles ls = with_starts [SBullet c] EmptyString ->
+Lemma list_block_marker :
+  forall m ls last,
+    ls_styles ls = mk_styles m ->
     list_block ls last
-    = mk (BulletList (if ls_loose ls then Loose else Tight)
-            (rev (last :: ls_items ls))).
-Proof. intros c ls last H. unfold list_block. rewrite H. reflexivity. Qed.
-
-Lemma finish_list_bullet :
-  forall c ls done inner,
-    ls_styles ls = with_starts [SBullet c] EmptyString ->
-    finish (PList ls done inner)
-    = [mk (BulletList (if ls_loose ls then Loose else Tight)
-             (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
+    = marker_list m (if ls_loose ls then Loose else Tight)
+        (rev (last :: ls_items ls)).
 Proof.
-  intros c ls done inner H. cbn [finish].
-  rewrite (list_block_bullet c ls _ H). reflexivity.
+  intros m ls last H. unfold list_block, marker_list. rewrite H.
+  destruct (mk_styles m) as [|[[c|n d] st] ss]; reflexivity.
+Qed.
+
+Lemma finish_list_marker :
+  forall m ls done inner,
+    ls_styles ls = mk_styles m ->
+    finish (PList ls done inner)
+    = [marker_list m (if ls_loose ls then Loose else Tight)
+         (rev ((rev done ++ finish inner)%list :: ls_items ls))].
+Proof.
+  intros m ls done inner H. cbn [finish].
+  rewrite (list_block_marker m ls _ H). reflexivity.
 Qed.
 
 (* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise
@@ -2695,7 +2732,8 @@ Proof.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) KThematic ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls KThematic) (rev head ++ done)%list
@@ -2706,7 +2744,8 @@ Proof.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KFence f) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KFence f)) (rev head ++ done)%list
@@ -2715,7 +2754,8 @@ Proof.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KDiv dl dc) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KDiv dl dc)) (rev head ++ done)%list
@@ -2724,7 +2764,8 @@ Proof.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KQuote q) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KQuote q)) (rev head ++ done)%list
@@ -2734,7 +2775,8 @@ Proof.
                  ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KHeading lvl txt)) (rev head ++ done)%list
@@ -2744,7 +2786,8 @@ Proof.
                  ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KList m mc item)) (rev head ++ done)%list
@@ -2754,7 +2797,8 @@ Proof.
                  ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls (KAttr kap)) (rev head ++ done)%list
@@ -2763,7 +2807,8 @@ Proof.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) KText ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont. reflexivity. }
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH (list_content ls KText) (rev head ++ done)%list
@@ -3104,7 +3149,7 @@ Proof.
   cbn [run_pad_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hp Hrest].
   cbn [scan_list_content lines_loose].
   pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk) Hp) as Hsh.
-  change (String.length (mk_cont mrk)) with (mk_pad mrk) in Hsh.
+  rewrite mk_cont_length in Hsh.
   rewrite Hsh, pad_state_list_open.
   destruct (classify l) eqn:E; cbn [snd];
     [ destruct (list_open st); rewrite IH by exact Hrest; reflexivity
@@ -3155,8 +3200,8 @@ Proof.
   cbn [indent_lines run_lines].
   rewrite (step_item_open l0 Hth).
   pose proof (run_lines_pad_shift (mk_cont mrk) rest (snd (step l0 (PPara [])))
-                eq_refl Hsafe) as Hrun.
-  change (String.length (mk_cont mrk)) with (mk_pad mrk) in Hrun.
+                (marker_cont_blank mrk) Hsafe) as Hrun.
+  rewrite mk_cont_length in Hrun.
   rewrite (run_lines_list_cont rest (LSt 0 (mk_styles mrk) false false [])
              (rev (fst (step l0 (PPara [])))) _ _ _ eq_refl Hrun).
   rewrite (scan_shape rest _ _ Hsafe Hb).
@@ -3185,22 +3230,29 @@ Proof.
   intros l0 rest ls done inner Hind Hmark Hth Hsafe.
   cbn [indent_lines run_lines].
   destruct (step l0 (PPara [])) as [b i] eqn:Es.
-  (* The sibling re-offers the style the list already has, so the set
-     does not move and `list_narrow` is the identity here. *)
-  assert (Hn : narrow (ls_styles ls) [SBullet (mk_style mrk)] = mk_styles mrk).
-  { rewrite Hmark. apply narrow_mk_styles. }
-  change (mk_styles mrk) with ((SBullet (mk_style mrk), 1) :: nil) in Hn.
+  (* The sibling re-offers exactly the styles the list already has, so
+     the set does not move and `list_narrow` is the identity here.  This
+     is the one place a per-item marker would have to earn its keep: it
+     would have to leave this intersection nonempty. *)
+  destruct (mk_sty_cons mrk Hmrk) as (s0 & ss & Hsty).
+  assert (Hn : narrow (ls_styles ls) (mk_sty mrk)
+               = (s0, style_start s0 (mk_core mrk))
+                 :: map (fun s => (s, style_start s (mk_core mrk))) ss).
+  { rewrite Hmark, narrow_mk_styles. unfold mk_styles, with_starts.
+    rewrite Hsty. reflexivity. }
   rewrite (step_list_sibling _ _ _ _ _ _ _ _ _ _ _
              (classify_marker_open mrk l0 Hmrk Hth) Hn
              (ltac:(rewrite Hind, (indent_of_marker_open mrk _ Hmrk); reflexivity))
              Es).
-  replace [(SBullet (mk_style mrk), 1)] with (ls_styles ls)
-    by (rewrite Hmark; reflexivity).
+  replace ((s0, style_start s0 (mk_core mrk))
+           :: map (fun s => (s, style_start s (mk_core mrk))) ss)
+    with (ls_styles ls)
+    by (rewrite Hmark; unfold mk_styles, with_starts; rewrite Hsty; reflexivity).
   rewrite list_narrow_id.
   rewrite consumed_marker_open.
-  pose proof (run_lines_pad_shift (mk_cont mrk) rest i eq_refl) as Hrun.
+  pose proof (run_lines_pad_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
   cbn [snd] in Hsafe. specialize (Hrun Hsafe).
-  change (String.length (mk_cont mrk)) with (mk_pad mrk) in Hrun.
+  rewrite mk_cont_length in Hrun.
   assert (Hi0 : ls_indent (list_next ls (rev done ++ finish inner)%list l0) = 0).
   { unfold list_next. destruct (is_blank l0); exact Hind. }
   rewrite (run_lines_list_cont rest (list_next ls (rev done ++ finish inner)%list l0)
@@ -3474,20 +3526,20 @@ Lemma parse_item_and_tail :
        ls_indent ls2 = 0 -> ls_styles ls2 = (mk_styles mrk) -> ls_blanks ls2 = false ->
        pad_safe inner2 = true ->
        parse_lines (list_tail_lines sp rest ++ post)%list (PList ls2 done2 inner2)
-       = mk (BulletList (if (ls_loose ls2 || list_loose_of sp inner2 rest)%bool
+       = marker_list mrk (if (ls_loose ls2 || list_loose_of sp inner2 rest)%bool
                          then Loose else Tight)
                 (rev (ls_items ls2) ++ (rev done2 ++ finish inner2)%list
-                 :: map (fun L => parse_lines L (PPara [])) rest)) :: out) ->
+                 :: map (fun L => parse_lines L (PPara [])) rest) :: out) ->
     parse_lines (indent_lines (mk_open mrk) (mk_cont mrk) (l0 :: more)
                  ++ (list_tail_lines sp rest ++ post))%list (PList ls done inner)
-    = mk (BulletList
+    = marker_list mrk
              (if ((ls_loose ls || (ls_blanks ls && negb (starts_list (l0 :: more))))
                   || item_loose (l0 :: more)
                   || list_loose_of sp (snd (run_lines (l0 :: more) (PPara []))) rest)%bool
               then Loose else Tight)
              (rev (ls_items ls) ++ (rev done ++ finish inner)%list
               :: parse_lines (l0 :: more) (PPara [])
-              :: map (fun L => parse_lines L (PPara [])) rest)) :: out.
+              :: map (fun L => parse_lines L (PPara [])) rest) :: out.
 Proof.
   intros sp l0 more rest post out ls done inner Hind Hmark Hok IH.
   cbn [item_ok] in Hok.
@@ -3566,17 +3618,17 @@ Lemma parse_list_tail :
     pad_safe inner = true ->
     forallb item_ok itemss = true ->
     parse_lines (list_tail_lines sp itemss ++ post)%list (PList ls done inner)
-    = mk (BulletList (if (ls_loose ls || list_loose_of sp inner itemss)%bool
+    = marker_list mrk (if (ls_loose ls || list_loose_of sp inner itemss)%bool
                       then Loose else Tight)
              (rev (ls_items ls) ++ (rev done ++ finish inner)%list
-              :: map (fun L => parse_lines L (PPara [])) itemss)) :: out.
+              :: map (fun L => parse_lines L (PPara [])) itemss) :: out.
 Proof.
   intros sp itemss. induction itemss as [|L rest IH];
     intros post out ls done inner Hclose Hind Hmark Hblanks Hpad Hok.
   - cbn [list_tail_lines app map]. rewrite (Hclose ls done inner Hind Hpad).
     cbn [finish rev app].
     unfold list_loose_of. cbn [existsb].
-    rewrite (list_block_bullet (mk_style mrk) ls _ Hmark).
+    rewrite (list_block_marker mrk ls _ Hmark).
     cbn [rev app]. destruct sp; rewrite ?orb_false_r; reflexivity.
   - destruct L as [|l0 more]; [cbn [forallb item_ok] in Hok; discriminate|].
     cbn [forallb] in Hok. apply andb_prop in Hok as [HL Hrest].
@@ -3724,8 +3776,8 @@ Theorem list_uniformity_gen :
     forallb item_ok itemss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open mrk) (mk_cont mrk)) itemss)
                  ++ post)%list (PPara [])
-    = mk (BulletList (list_spacing_of sp itemss)
-             (map (fun L => parse_lines L (PPara [])) itemss)) :: out.
+    = marker_list mrk (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss) :: out.
 Proof.
   intros sp itemss post out Hclose Hne Hok.
   destruct itemss as [|L tail]; [congruence|].
@@ -3777,8 +3829,8 @@ Theorem list_uniformity :
     forallb item_ok itemss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open mrk) (mk_cont mrk)) itemss))
                 (PPara [])
-    = [mk (BulletList (list_spacing_of sp itemss)
-             (map (fun L => parse_lines L (PPara [])) itemss))].
+    = [marker_list mrk (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)].
 Proof.
   intros sp itemss Hne Hok.
   rewrite <- (app_nil_r (list_lines sp (map (indent_lines (mk_open mrk) (mk_cont mrk)) itemss))).
@@ -3797,8 +3849,8 @@ Theorem list_uniformity_tail :
     indent_of next = 0 ->
     parse_lines (list_lines sp (map (indent_lines (mk_open mrk) (mk_cont mrk)) itemss)
                  ++ EmptyString :: next :: tail)%list (PPara [])
-    = mk (BulletList (list_spacing_of sp itemss)
-             (map (fun L => parse_lines L (PPara [])) itemss))
+    = marker_list mrk (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)
       :: parse_lines (next :: tail) (PPara []).
 Proof.
   intros sp itemss next tail Hne Hok Hnb Hnl Hindent.
@@ -3820,8 +3872,8 @@ Corollary star_uniformity :
     itemss <> [] -> forallb (item_ok star) itemss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open star) (mk_cont star)) itemss))
                 (PPara [])
-    = [mk (BulletList (list_spacing_of sp itemss)
-             (map (fun L => parse_lines L (PPara [])) itemss))].
+    = [marker_list star (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)].
 Proof. exact (list_uniformity star star_ok). Qed.
 
 Corollary plus_uniformity :
@@ -3829,9 +3881,47 @@ Corollary plus_uniformity :
     itemss <> [] -> forallb (item_ok plus) itemss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open plus) (mk_cont plus)) itemss))
                 (PPara [])
-    = [mk (BulletList (list_spacing_of sp itemss)
-             (map (fun L => parse_lines L (PPara [])) itemss))].
+    = [marker_list plus (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)].
 Proof. exact (list_uniformity plus plus_ok). Qed.
+
+(* The section reaches ordered markers too, and that is the point of
+   generalizing `marker` past a style character: `1.` is an instance in
+   exactly the way `*` is.
+
+   What this does *not* yet cover is the canonical rendering, which
+   renumbers its items — `9.`, `10.`, `11.` — and so needs a marker per
+   item rather than one for the list.  That is the remaining step, and
+   the hypothesis it will have to discharge is visible in
+   `run_item_sibling`: every item's marker must leave the narrowing
+   nonempty.  Here one marker serves every item, so `narrow_mk_styles`
+   discharges it outright. *)
+Corollary ordered_uniformity :
+  forall m sp itemss,
+    marker_ok m = true -> itemss <> [] ->
+    forallb (item_ok m) itemss = true ->
+    parse_lines (list_lines sp (map (indent_lines (mk_open m) (mk_cont m)) itemss))
+                (PPara [])
+    = [marker_list m (list_spacing_of sp itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)].
+Proof. intros m sp itemss Hm. exact (list_uniformity m Hm sp itemss). Qed.
+
+(* Not vacuous: a decimal list with a repeated marker is what djot.js
+   produces `<ol>` for, non-consecutive numbering included. *)
+Example decimal_list_parses :
+  parse_lines ["3. a"; "3. b"] (PPara [])
+  = [mk (OrderedList (OLAttrs Decimal RightPeriod 3) Tight
+           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+Proof. reflexivity. Qed.
+
+Example decimal_item_ok : item_ok (MOrd "3" RightPeriod) ["a"] = true.
+Proof. reflexivity. Qed.
+
+Example paren_list_parses :
+  parse_lines ["(1) a"; "(1) b"] (PPara [])
+  = [mk (OrderedList (OLAttrs Decimal LeftRightParen 1) Tight
+           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+Proof. reflexivity. Qed.
 
 (* And it is not vacuous at the new markers. *)
 Example star_list_parses :
