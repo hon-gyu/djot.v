@@ -734,7 +734,7 @@ Proof.
   intros sp items Hok Hitems.
   destruct (cb_ok_list_parts sp items Hok) as (Hne & Hitemok & Hsp).
   rewrite cb_lines_list_uniform, (cb_ast_list_uniform sp items Hitems).
-  rewrite (list_uniformity bullet bullet_ok sp (map item_lines items)
+  rewrite (list_uniformity_same bullet sp (map item_lines items) bullet_ok
              ltac:(destruct items; [congruence|discriminate]) Hitemok).
   rewrite Hsp. reflexivity.
 Qed.
@@ -762,7 +762,8 @@ Proof.
                 Hnonlist Hnextok Hshape) as Hline.
   rewrite Hshape. cbn [app].
   rewrite cb_lines_list_uniform, (cb_ast_list_uniform sp items Hitems).
-  rewrite (list_uniformity_tail bullet bullet_ok sp (map item_lines items) first (more ++ tail)
+  rewrite (list_uniformity_tail_same bullet sp (map item_lines items) first (more ++ tail)
+             bullet_ok
              ltac:(destruct items; [congruence|discriminate]) Hitemok
              ltac:(intros E; apply classify_kblank_blank in E;
                    apply line_ok_nonblank in Hline;
