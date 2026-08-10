@@ -136,7 +136,13 @@ Definition ordered_kinds : list list_kind :=
      is what stops the run rather than the enumeration. *)
   ; LKAlpha false RightPeriod 1
   ; LKAlpha true RightParen 25
-  ; LKAlpha false LeftRightParen 2 ].
+  ; LKAlpha false LeftRightParen 2
+  (* The ambiguous alpha openers, which only a second item resolves: `i.`
+     also names roman, and `j.` is what settles it.  `cb_ok` rejects the
+     one-item spellings, so the enumeration and the filter together are
+     what pin the boundary. *)
+  ; LKAlpha false RightPeriod 9
+  ; LKAlpha true RightPeriod 4 ].
 
 Definition ordered_pool : list cblock :=
   flat_map (fun k => flat_map (fun its => [CList k Tight its; CList k Loose its])

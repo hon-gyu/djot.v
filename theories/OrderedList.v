@@ -887,6 +887,71 @@ Proof.
            (roman_marker_ok up d start ltac:(lia) ltac:(lia) Hlen) Hsty Hio).
 Qed.
 
+(*
+Alpha where the second letter resolves it
+----------------------------------------
+
+Alpha has neither of roman's two properties, so it needs a condition and
+gets a weaker theorem.  Its head is *wrong* at an ambiguous start -- `i`
+heads roman -- so a one-item list there cannot work at all, and that is
+not a gap: `i. a` is also what roman from 1 renders, so at most one of
+the two canonical trees can round-trip.  What can be recovered is the
+case where the *second* letter is not a roman digit, which resolves the
+set in one narrowing exactly as roman's second numeral does.
+
+That reaches five of the seven ambiguous starts.  It misses 3 and 12,
+where the next letter (`d` after `c`, `m` after `l`) is itself a roman
+digit and the set survives two markers.
+*)
+
+Definition alpha_char (up : bool) (n : nat) : ascii :=
+  ascii_of_nat ((if up then 64 else 96) + n).
+
+(* Is this position's letter also a roman digit?  The seven that are --
+   c, d, i, l, m, v, x -- are what make an alpha marker ambiguous. *)
+Definition alpha_roman_digit (up : bool) (n : nat) : bool :=
+  (if up then is_roman_up else is_roman_lo) (alpha_char up n).
+
+Lemma alpha_narrow_singleton :
+  forall (up : bool) d n, 1 <= n -> S n <= alpha_upper ->
+    (if up then is_roman_up else is_roman_lo) (alpha_char up (S n)) = false ->
+    narrow (mk_styles (nsc_marker (alpha_str up) d n))
+           (mk_sty (nsc_marker (alpha_str up) d (S n)))
+    = [(SOrd (alpha_sty up) d, n)].
+Proof.
+  intros up d n H1 H2 Hnr.
+  assert (Hc1 : (if up then is_upper else is_lower) (alpha_char up (S n)) = true).
+  { pose proof (alpha_str_alphabet up (S n) ltac:(lia) H2) as H.
+    unfold alpha_str, alpha_char in *. cbn [str_forallb] in H.
+    apply andb_true_iff in H as [H _]. exact H. }
+  assert (Hc0 : (if up then is_upper else is_lower) (alpha_char up n) = true).
+  { pose proof (alpha_str_alphabet up n H1 ltac:(lia)) as H.
+    unfold alpha_str, alpha_char in *. cbn [str_forallb] in H.
+    apply andb_true_iff in H as [H _]. exact H. }
+  assert (Hval : alpha_value up (alpha_str up n) = n)
+    by (apply alpha_value_str; [lia|lia]).
+  cbn [mk_sty nsc_marker]. unfold alpha_str at 2.
+  fold (alpha_char up (S n)).
+  rewrite (styles_of_core_alpha up _ d Hc1 Hnr).
+  unfold mk_styles, with_starts. cbn [mk_sty mk_core nsc_marker].
+  change (alpha_str up n) with (String (alpha_char up n) EmptyString).
+  assert (Hdiff : lstyle_eqb (SOrd (roman_sty up) d) (SOrd (alpha_sty up) d) = false)
+    by (unfold roman_sty, alpha_sty; destruct up; reflexivity).
+  destruct ((if up then is_roman_up else is_roman_lo) (alpha_char up n)) eqn:Hr0.
+  - (* this letter is also a roman digit: two candidates, alpha second *)
+    rewrite (styles_of_core_roman_single up _ d Hr0).
+    cbn [map narrow filter fst existsb].
+    rewrite Hdiff, lstyle_eqb_refl. cbn [orb].
+    f_equal; f_equal; unfold alpha_sty, alpha_char in *;
+      destruct up; cbn [style_start alpha_value]; exact Hval.
+  - (* it names alpha alone *)
+    rewrite (styles_of_core_alpha up _ d Hc0 Hr0).
+    cbn [map narrow filter fst existsb].
+    rewrite lstyle_eqb_refl. cbn [orb].
+    f_equal; f_equal; unfold alpha_sty, alpha_char in *;
+      destruct up; cbn [style_start alpha_value]; exact Hval.
+Qed.
+
 (* Uniformity for an alpha ordered list.  Same shape; the condition on
    the first marker is that its letter is not a roman digit, and the
    range condition is where the wrap past `z` is excluded. *)
@@ -921,6 +986,161 @@ Proof.
   exact (nsc_uniformity (alpha_sty up) (alpha_str up) d start sp lss Hne
            (alpha_marker_ok up d start ltac:(lia) ltac:(lia) Hnr) Hsty Hio).
 Qed.
+
+Theorem ordered_alpha_uniformity_tail :
+  forall (up : bool) d start sp lss next tl,
+    lss <> [] ->
+    1 <= start -> start + length lss <= S alpha_upper ->
+    (if up then is_roman_up else is_roman_lo)
+      (ascii_of_nat ((if up then 64 else 96) + start)) = false ->
+    forallb (item_ok (nsc_marker (alpha_str up) d start)) lss = true ->
+    classify next <> KBlank ->
+    (forall a b c, classify next <> KList a b c) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss))
+                 ++ EmptyString :: next :: tl)%list (PPara [])
+    = mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))
+      :: parse_lines (next :: tl) (PPara []).
+Proof.
+  intros up d start sp lss next tl Hne H1 H2 Hnr Hok Hnb Hnl Hindent.
+  assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
+  assert (Hsty : mk_styles (nsc_marker (alpha_str up) d start)
+                 = [(SOrd (alpha_sty up) d, start)])
+    by (apply alpha_marker_styles; [lia|lia|exact Hnr]).
+  assert (Hio : items_ok (nsc_marker (alpha_str up) d start)
+                  (nsc_items (alpha_str up) d start lss) = true).
+  { apply (items_ok_nsc_run (alpha_str up) d (mk_styles (nsc_marker (alpha_str up) d start))
+             (nsc_marker (alpha_str up) d start) lss start).
+    - intros k Hk.
+      destruct (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
+      split; [exact A|]. split; [|exact C].
+      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
+      rewrite B. reflexivity.
+    - exact (proj2 (proj2 (alpha_item_facts up d start ltac:(lia) ltac:(lia)))).
+    - exact Hok. }
+  exact (nsc_uniformity_tail (alpha_sty up) (alpha_str up) d start sp lss next tl Hne
+           (alpha_marker_ok up d start ltac:(lia) ltac:(lia) Hnr) Hsty Hio
+           Hnb Hnl Hindent).
+Qed.
+
+(* Alpha at any start the second letter can resolve.  The disjunction is
+   the condition: either the opener already names alpha alone, or the
+   list has a second item whose letter is not a roman digit. *)
+Theorem ordered_alpha_uniformity_any :
+  forall (up : bool) d start sp lss,
+    lss <> [] -> 1 <= start -> start + length lss <= S alpha_upper ->
+    ((if up then is_roman_up else is_roman_lo) (alpha_char up start) = false
+     \/ (2 <= length lss
+         /\ (if up then is_roman_up else is_roman_lo) (alpha_char up (S start)) = false)) ->
+    forallb (item_ok (nsc_marker (alpha_str up) d start)) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss)))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros up d start sp lss Hne H1 H2 Hcond Hok.
+  destruct Hcond as [Hnr | [Hlen Hnr]].
+  - unfold alpha_char in Hnr.
+    exact (ordered_alpha_uniformity up d start sp lss Hne H1 H2 Hnr Hok).
+  - destruct lss as [|L0 [|L1 rest]];
+      [congruence | cbn [length] in Hlen; lia | ].
+    cbn [length] in H2, Hlen.
+    destruct (alpha_item_facts up d start ltac:(lia) ltac:(lia))
+      as (Hmk0 & Hmem0 & Hth0).
+    destruct (alpha_item_facts up d (S start) ltac:(lia) ltac:(lia))
+      as (Hmk1 & Hmem1 & Hth1).
+    cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL0 Hok'].
+    pose proof Hok' as Hok''. apply andb_true_iff in Hok'' as [HL1 Hrest].
+    destruct L1 as [|l1 more1]; [cbn [item_ok] in HL1; discriminate|].
+    assert (HS : narrow (mk_styles (nsc_marker (alpha_str up) d start))
+                        (mk_sty (nsc_marker (alpha_str up) d (S start)))
+                 = [(SOrd (alpha_sty up) d, start)])
+      by (apply alpha_narrow_singleton; [lia|lia|exact Hnr]).
+    assert (Hitems : items_ok_at [(SOrd (alpha_sty up) d, start)]
+                       (nsc_items (alpha_str up) d (S (S start)) rest) = true).
+    { apply (items_ok_nsc_run (alpha_str up) d [(SOrd (alpha_sty up) d, start)]
+               (nsc_marker (alpha_str up) d start) rest (S (S start))).
+      - intros k Hk.
+        destruct (alpha_item_facts up d (S (S start) + k) ltac:(lia) ltac:(lia))
+          as (A & B & C).
+        split; [exact A|]. split; [|exact C].
+        unfold admits_styles. cbn [forallb fst]. rewrite B. reflexivity.
+      - exact Hth0.
+      - exact Hrest. }
+    cbn [nsc_items].
+    rewrite (list_uniformity_narrow (nsc_marker (alpha_str up) d start)
+               (nsc_marker (alpha_str up) d (S start))
+               [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1)
+               (nsc_items (alpha_str up) d (S (S start)) rest)
+               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
+                      exact HL1))
+               ltac:(discriminate) Hitems).
+    cbn [styles_list map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items.
+    reflexivity.
+Qed.
+
+(* The same with the list closed by a following line. *)
+Theorem ordered_alpha_uniformity_any_tail :
+  forall (up : bool) d start sp lss next tl,
+    lss <> [] -> 1 <= start -> start + length lss <= S alpha_upper ->
+    ((if up then is_roman_up else is_roman_lo) (alpha_char up start) = false
+     \/ (2 <= length lss
+         /\ (if up then is_roman_up else is_roman_lo) (alpha_char up (S start)) = false)) ->
+    forallb (item_ok (nsc_marker (alpha_str up) d start)) lss = true ->
+    classify next <> KBlank ->
+    (forall a b c, classify next <> KList a b c) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss))
+                 ++ EmptyString :: next :: tl)%list (PPara [])
+    = mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))
+      :: parse_lines (next :: tl) (PPara []).
+Proof.
+  intros up d start sp lss next tl Hne H1 H2 Hcond Hok Hnb Hnl Hindent.
+  destruct Hcond as [Hnr | [Hlen Hnr]].
+  - unfold alpha_char in Hnr.
+    exact (ordered_alpha_uniformity_tail up d start sp lss next tl
+             Hne H1 H2 Hnr Hok Hnb Hnl Hindent).
+  - destruct lss as [|L0 [|L1 rest]];
+      [congruence | cbn [length] in Hlen; lia | ].
+    cbn [length] in H2, Hlen.
+    destruct (alpha_item_facts up d start ltac:(lia) ltac:(lia))
+      as (Hmk0 & Hmem0 & Hth0).
+    destruct (alpha_item_facts up d (S start) ltac:(lia) ltac:(lia))
+      as (Hmk1 & Hmem1 & Hth1).
+    cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL0 Hok'].
+    pose proof Hok' as Hok''. apply andb_true_iff in Hok'' as [HL1 Hrest].
+    destruct L1 as [|l1 more1]; [cbn [item_ok] in HL1; discriminate|].
+    assert (HS : narrow (mk_styles (nsc_marker (alpha_str up) d start))
+                        (mk_sty (nsc_marker (alpha_str up) d (S start)))
+                 = [(SOrd (alpha_sty up) d, start)])
+      by (apply alpha_narrow_singleton; [lia|lia|exact Hnr]).
+    assert (Hitems : items_ok_at [(SOrd (alpha_sty up) d, start)]
+                       (nsc_items (alpha_str up) d (S (S start)) rest) = true).
+    { apply (items_ok_nsc_run (alpha_str up) d [(SOrd (alpha_sty up) d, start)]
+               (nsc_marker (alpha_str up) d start) rest (S (S start))).
+      - intros k Hk.
+        destruct (alpha_item_facts up d (S (S start) + k) ltac:(lia) ltac:(lia))
+          as (A & B & C).
+        split; [exact A|]. split; [|exact C].
+        unfold admits_styles. cbn [forallb fst]. rewrite B. reflexivity.
+      - exact Hth0.
+      - exact Hrest. }
+    cbn [nsc_items].
+    rewrite (list_uniformity_narrow_tail (nsc_marker (alpha_str up) d start)
+               (nsc_marker (alpha_str up) d (S start))
+               [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1)
+               (nsc_items (alpha_str up) d (S (S start)) rest) next tl
+               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
+                      exact HL1))
+               ltac:(discriminate) Hitems Hnb Hnl Hindent).
+    cbn [styles_list map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items.
+    reflexivity.
+Qed.
+
 
 (*
 The list flavours the canonical rendering produces
@@ -982,10 +1202,14 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
      (`roman_narrow_singleton`).  Only the range is needed. *)
   | LKRoman up d start =>
       (Nat.leb 1 start && Nat.leb (start + n) (S roman_upper))%bool
+  (* Either the opener already names alpha alone, or there is a second
+     item whose letter is not a roman digit to resolve it.  Starts 3 and
+     12 satisfy neither: `d` after `c` and `m` after `l` are themselves
+     roman digits, so the set survives two markers. *)
   | LKAlpha up d start =>
       (Nat.leb 1 start && Nat.leb (start + n) (S alpha_upper)
-       && negb ((if up then is_roman_up else is_roman_lo)
-                  (ascii_of_nat ((if up then 64 else 96) + start))))%bool
+       && (negb (alpha_roman_digit up start)
+           || (Nat.leb 2 n && negb (alpha_roman_digit up (S start)))))%bool
   end.
 
 Lemma ck_items_lines :
@@ -1063,11 +1287,14 @@ Proof.
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
     exact (ordered_roman_uniformity_any up d start sp lss Hne Hs Hr Hok).
   - cbn [ck_ok] in Hck.
-    apply andb_true_iff in Hck as [Hck Hnr].
+    apply andb_true_iff in Hck as [Hck Hres].
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
-    apply negb_true_iff in Hnr.
-    exact (ordered_alpha_uniformity up d start sp lss Hne Hs Hr Hnr Hok).
+    apply (ordered_alpha_uniformity_any up d start sp lss Hne Hs Hr); [|exact Hok].
+    apply orb_true_iff in Hres as [H|H].
+    + left. apply negb_true_iff, H.
+    + right. apply andb_true_iff in H as [Hn H].
+      split; [apply Nat.leb_le, Hn | apply negb_true_iff, H].
 Qed.
 
 (** The same with the list closed by a following line. *)
@@ -1098,27 +1325,15 @@ Proof.
     exact (ordered_roman_uniformity_any_tail up d start sp lss next tail
              Hne Hs Hr Hok Hnb Hnl Hindent).
   - cbn [ck_ok] in Hck.
-    apply andb_true_iff in Hck as [Hck Hnr].
+    apply andb_true_iff in Hck as [Hck Hres].
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
-    apply negb_true_iff in Hnr.
-    assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
-    assert (Hsty : mk_styles (nsc_marker (alpha_str up) d start)
-                   = [(SOrd (alpha_sty up) d, start)])
-      by (apply alpha_marker_styles; [lia|lia|exact Hnr]).
-    apply (nsc_uniformity_tail (alpha_sty up) (alpha_str up) d start sp lss
-             next tail Hne
-             (alpha_marker_ok up d start ltac:(lia) ltac:(lia) Hnr) Hsty);
-      [|exact Hnb|exact Hnl|exact Hindent].
-    apply (items_ok_nsc_run (alpha_str up) d (mk_styles (nsc_marker (alpha_str up) d start))
-             (nsc_marker (alpha_str up) d start) lss start).
-    + intros k Hk.
-      destruct (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
-      split; [exact A|]. split; [|exact C].
-      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
-      rewrite B. reflexivity.
-    + exact (proj2 (proj2 (alpha_item_facts up d start ltac:(lia) ltac:(lia)))).
-    + exact Hok.
+    apply (ordered_alpha_uniformity_any_tail up d start sp lss next tail Hne Hs Hr);
+      [|exact Hok|exact Hnb|exact Hnl|exact Hindent].
+    apply orb_true_iff in Hres as [H|H].
+    + left. apply negb_true_iff, H.
+    + right. apply andb_true_iff in H as [Hn H].
+      split; [apply Nat.leb_le, Hn | apply negb_true_iff, H].
 Qed.
 
 (*
