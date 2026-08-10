@@ -400,11 +400,11 @@ Qed.
 
 (* ...and a whole list's items, whichever markers its kind hands out. *)
 Lemma ck_items_lines_ok :
-  forall k lss, forallb lines_ok lss = true ->
+  forall k lss, ck_ok k (length lss) = true -> forallb lines_ok lss = true ->
   forallb lines_ok (map litem_lines (ck_items k lss)) = true.
 Proof.
-  intros k lss Hok. apply litems_lines_ok.
-  - apply ck_items_markers_ok.
+  intros k lss Hck Hok. apply litems_lines_ok.
+  - apply ck_items_markers_ok, Hck.
   - rewrite ck_items_lines. exact Hok.
 Qed.
 
@@ -524,9 +524,10 @@ Proof.
     apply andb_true_iff in H as [H Hspacing].
     apply andb_true_iff in H as [H Hsafe].
     apply andb_true_iff in H as [H Hmarker].
+    apply andb_true_iff in H as [H Hckok].
     apply andb_true_iff in H as [Hne Hitems].
     assert (Hlines : forallb lines_ok (map item_lines items) = true).
-    { clear Hne Hspacing Hmarker Hsafe. revert Hitems.
+    { clear Hne Hspacing Hmarker Hsafe Hckok. revert Hitems.
       induction IH as [|it items' HQ IHrest IHind]; intros Hitems; [reflexivity|].
       cbn [forallb] in Hitems. apply andb_true_iff in Hitems as [Hit Hitems'].
       apply andb_true_iff in Hit as [Hitne Hitok].
@@ -538,7 +539,7 @@ Proof.
     rewrite cb_lines_list. apply list_lines_ok.
     + apply ck_lines_nonempty.
       destruct items; [discriminate Hne | discriminate].
-    + apply ck_items_lines_ok, Hlines.
+    + apply ck_items_lines_ok; [rewrite length_map; exact Hckok | exact Hlines].
   - reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -724,12 +725,13 @@ Lemma cb_ok_list_parts :
   forall k sp items,
     cb_ok (CList k sp items) = true ->
     map item_lines items <> []
+    /\ ck_ok k (length (map item_lines items)) = true
     /\ forallb (item_ok (ck_first k)) (map item_lines items) = true
     /\ list_spacing_of sp (map item_lines items) = sp.
 Proof.
   intros k sp items H. rewrite cb_ok_list in H.
   repeat rewrite andb_true_iff in H.
-  destruct H as [[[[Hne Hitems] Hitemok] _] Hspacing].
+  destruct H as [[[[[Hne Hitems] Hckok] Hitemok] _] Hspacing].
   assert (Hne' : map item_lines items <> [])
     by (destruct items; [discriminate Hne|discriminate]).
   assert (Hmap : forallb (item_ok (ck_first k)) (map item_lines items) = true).
@@ -737,7 +739,8 @@ Proof.
   assert (Hforce : existsb (fun L => item_loose L) (map item_lines items)
                    = items_force_loose items).
   { unfold items_force_loose, item_forces_loose. rewrite existsb_map. reflexivity. }
-  split; [exact Hne'|]. split; [exact Hmap|].
+  split; [exact Hne'|]. split; [rewrite length_map; exact Hckok|].
+  split; [exact Hmap|].
   unfold list_spacing_of. rewrite Hforce.
   destruct sp.
   - apply negb_true_iff in Hspacing. rewrite Hspacing. reflexivity.
@@ -765,9 +768,9 @@ Lemma parse_canonical_list_end :
     = [cb_ast (CList k sp items)].
 Proof.
   intros k sp items Hok Hitems.
-  destruct (cb_ok_list_parts k sp items Hok) as (Hne & Hitemok & Hsp).
+  destruct (cb_ok_list_parts k sp items Hok) as (Hne & Hckok & Hitemok & Hsp).
   rewrite cb_lines_list, (cb_ast_list_uniform k sp items Hitems).
-  rewrite (ck_uniformity k sp (map item_lines items) Hne Hitemok).
+  rewrite (ck_uniformity k sp (map item_lines items) Hne Hckok Hitemok).
   rewrite Hsp. reflexivity.
 Qed.
 
@@ -787,7 +790,7 @@ Lemma parse_canonical_list_then_nonlist :
       parse_lines (cb_lines next ++ tail)%list (PPara []))%list.
 Proof.
   intros k sp items next tail Hok Hitems Hnonlist Hnextok.
-  destruct (cb_ok_list_parts k sp items Hok) as (Hne & Hitemok & Hsp).
+  destruct (cb_ok_list_parts k sp items Hok) as (Hne & Hckok & Hitemok & Hsp).
   destruct (nonlist_cblock_first next Hnonlist Hnextok)
     as [first [more [Hshape Hnotlist]]].
   pose proof (cb_lines_first_line_ok next first more
@@ -795,7 +798,7 @@ Proof.
   rewrite Hshape. cbn [app].
   rewrite cb_lines_list, (cb_ast_list_uniform k sp items Hitems).
   rewrite (ck_uniformity_tail k sp (map item_lines items) first (more ++ tail)
-             Hne Hitemok
+             Hne Hckok Hitemok
              ltac:(intros E; apply classify_kblank_blank in E;
                    apply line_ok_nonblank in Hline;
                    unfold nonblank in Hline; rewrite E in Hline; discriminate)
@@ -978,7 +981,7 @@ Proof.
     assert (Hparse : cb_ok (CList k sp items) = true -> items_parse items).
     { intros H. rewrite cb_ok_list in H.
       repeat rewrite andb_true_iff in H.
-      destruct H as [[[[_ Hitems] _] Hadj] _]. exact (IH Hadj Hitems). }
+      destruct H as [[[[[_ Hitems] _] _] Hadj] _]. exact (IH Hadj Hitems). }
     split.
     + intros next tail Hboundary Hnext Hlist.
       apply parse_canonical_list_then_nonlist; try assumption.
@@ -1175,6 +1178,7 @@ Proof.
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [_ Hitems].
     assert (Hokitems : forallb (forallb cb_ok) items = true).
     { refine (forallb_weaken _ _ _ _ Hitems).
@@ -1323,6 +1327,48 @@ Example loose_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
+(* The three ordered numbering schemes roundtrip, at both cases.  Each
+   rendering was checked against djot.js, which reads them back as
+   `<ol start="2" type="i">`, `<ol type="a">` and `<ol start="4"
+   type="I">` respectively. *)
+Example roman_list_roundtrip :
+  let cbs := [CList (LKRoman false RightPeriod 2) Tight
+                [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+  render_djot (blocks_of_cblocks cbs)
+    = ("ii. a" ++ nl ++ "iii. b" ++ nl ++ "iv. c")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+Example alpha_list_roundtrip :
+  let cbs := [CList (LKAlpha false RightParen 1) Tight
+                [[CPara ["x"]]; [CPara ["y"]]]] in
+  render_djot (blocks_of_cblocks cbs) = ("a) x" ++ nl ++ "b) y")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+Example roman_upper_list_roundtrip :
+  let cbs := [CList (LKRoman true RightPeriod 4) Tight
+                [[CPara ["p"]]; [CPara ["q"]]]] in
+  render_djot (blocks_of_cblocks cbs) = ("IV. p" ++ nl ++ "V. q")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* The boundary, as `cb_ok` sees it.  A roman list from 1 and an alpha
+   list from `i` are both things the *parser* reads correctly -- djot.js
+   agrees, and `OrderedList.roman_from_one_parses_anyway_too` pins it --
+   but their first marker names two styles, so the canonical
+   construction of them is excluded.  The third is the wrap: `z` leaves
+   no 27th letter for a second item. *)
+Example excluded_ordered_starts :
+  (cb_ok (CList (LKRoman false RightPeriod 1) Tight
+            [[CPara ["a"]]; [CPara ["b"]]]),
+   cb_ok (CList (LKAlpha false RightPeriod 9) Tight
+            [[CPara ["a"]]; [CPara ["b"]]]),
+   cb_ok (CList (LKAlpha false RightPeriod 26) Tight
+            [[CPara ["a"]]; [CPara ["b"]]]))
+  = (false, false, false).
+Proof. reflexivity. Qed.
+
 (* Lists nest, in both directions: through a quote, and directly inside
    another list's item. *)
 Example list_in_quote_roundtrip :
@@ -1370,7 +1416,7 @@ Proof.
        rewrite pristine_div. exact IHcb. }
   3: { rewrite cb_ast_list. cbn [pristine_node mk].
        destruct k; cbn [ck_block];
-         [rewrite pristine_blist | rewrite pristine_olist]; exact IHcb. }
+         first [rewrite pristine_blist | rewrite pristine_olist]; exact IHcb. }
   4: { cbn [map pristine_items]. rewrite IHcb, IHcb0. reflexivity. }
   - (* CCode: raw or code block, depending on the info string *)
     unfold cb_ast, fence_block. cbn [f_info].

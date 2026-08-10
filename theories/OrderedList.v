@@ -4,10 +4,18 @@
    consecutive numbering from a start, so each item carries its own
    marker rather than the list carrying one.
 
-   `list_kind` packages the flavours the renderer emits and
-   `ck_uniformity` is `ListUniformity.list_uniformity` at them.  Roman
-   and alpha reach this file through their codecs in `Marker.v`; what
-   they still need is recorded in .project/260810.ordered-lists.md. *)
+   `nsc_uniformity` states the list-level argument once for any numbering
+   scheme; decimal, roman and alpha are three instantiations, and their
+   codecs live in `Marker.v`.  `list_kind` packages the flavours the
+   renderer emits, `ck_ok` the side condition roman and alpha carry, and
+   `ck_uniformity` is the one theorem the block layer consumes.
+
+   Not covered: an ordered list whose *first* marker names two styles --
+   roman from 1, 5, 10 ... and alpha from a letter that is also a roman
+   digit.  The parser reads those correctly and so does djot.js; what
+   fails is `items_ok`, and closing it needs the list state's style set
+   to become a running narrowing.  See
+   .project/260810.ordered-lists.md. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From DjotV Require Import Strings Line Ast Attributes Marker Step Uniformity ListUniformity.
@@ -706,34 +714,41 @@ Qed.
 The list flavours the canonical rendering produces
 --------------------------------------------------
 
-A canonical list is a bullet list or a decimal ordered list, and the two
-differ only in the markers their items carry: one repeated `-`, or
-consecutive numerals from a start.  Naming that difference once is what
-lets the roundtrip keep a single list case.  `ck_items` says which
-markers the items get, `ck_first` names the marker `item_ok` is asked
-for, `ck_block` the block the list closes to, and `ck_uniformity` is the
-one theorem the block layer consumes.
+A canonical list is a bullet list or an ordered list under one of the
+three numbering schemes.  They differ only in the markers their items
+carry, so naming that difference once is what lets the roundtrip keep a
+single list case.  `ck_items` says which markers the items get,
+`ck_first` names the marker `item_ok` is asked for, `ck_block` the block
+the list closes to, and `ck_uniformity` is the one theorem the block
+layer consumes.
 
-Roman and alpha are absent on purpose.  `canon.mjs` (see
-.project/260810.ordered-lists.md) found alpha lists that do not survive
-their own canonical rendering (the letters that are also roman digits,
-and the wrap past `z`), so they carry a side condition decimal does not,
-and admitting them here would put that condition on every list.
+`ck_ok` is the fourth piece, and it exists because roman and alpha carry
+a condition bullet and decimal do not.  It takes the item *count* as well
+as the kind: the range has to cover the whole run, which is where the
+alpha wrap past `z` is excluded.  Bullet and decimal answer `true`
+unconditionally, so adding the argument costs their callers nothing but
+the word `eq_refl`.
 *)
 Inductive list_kind : Type :=
   | LKBullet
-  | LKDecimal (d : ordered_list_delim) (start : nat).
+  | LKDecimal (d : ordered_list_delim) (start : nat)
+  | LKRoman (up : bool) (d : ordered_list_delim) (start : nat)
+  | LKAlpha (up : bool) (d : ordered_list_delim) (start : nat).
 
 Definition ck_first (k : list_kind) : marker :=
   match k with
   | LKBullet => bullet
   | LKDecimal d start => dec_marker d start
+  | LKRoman up d start => nsc_marker (roman_str up) d start
+  | LKAlpha up d start => nsc_marker (alpha_str up) d start
   end.
 
 Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
   match k with
   | LKBullet => same_marker bullet lss
   | LKDecimal d start => dec_items d start lss
+  | LKRoman up d start => nsc_items (roman_str up) d start lss
+  | LKAlpha up d start => nsc_items (alpha_str up) d start lss
   end.
 
 Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
@@ -741,24 +756,69 @@ Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
   match k with
   | LKBullet => BulletList sp items
   | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp items
+  | LKRoman up d start => OrderedList (OLAttrs (roman_sty up) d start) sp items
+  | LKAlpha up d start => OrderedList (OLAttrs (alpha_sty up) d start) sp items
+  end.
+
+(* The side condition, at a list of `n` items. *)
+Definition ck_ok (k : list_kind) (n : nat) : bool :=
+  match k with
+  | LKBullet => true
+  | LKDecimal _ _ => true
+  | LKRoman up d start =>
+      (Nat.leb 1 start && Nat.leb (start + n) (S roman_upper)
+       && Nat.leb 2 (String.length (roman_str up start)))%bool
+  | LKAlpha up d start =>
+      (Nat.leb 1 start && Nat.leb (start + n) (S alpha_upper)
+       && negb ((if up then is_roman_up else is_roman_lo)
+                  (ascii_of_nat ((if up then 64 else 96) + start))))%bool
   end.
 
 Lemma ck_items_lines :
   forall k lss, map snd (ck_items k lss) = lss.
 Proof.
-  intros [|d start] lss; [apply map_snd_same_marker | apply map_snd_dec_items].
+  intros [|d start|up d start|up d start] lss;
+    [apply map_snd_same_marker | apply map_snd_dec_items
+    | apply map_snd_nsc_items | apply map_snd_nsc_items].
+Qed.
+
+Lemma nsc_items_markers_ok :
+  forall core d n lss,
+    (forall k, k < length lss -> marker_ok (nsc_marker core d (n + k)) = true) ->
+    forallb (fun it => marker_ok (fst it)) (nsc_items core d n lss) = true.
+Proof.
+  intros core d n lss. revert n.
+  induction lss as [|L rest IH]; intros n H; [reflexivity|].
+  cbn [nsc_items forallb fst].
+  pose proof (H 0 ltac:(cbn [length]; lia)) as H0. rewrite Nat.add_0_r in H0.
+  rewrite H0. cbn [andb]. apply IH.
+  intros k Hk. pose proof (H (S k) ltac:(cbn [length]; lia)) as Hs.
+  rewrite <- Nat.add_succ_comm in Hs. exact Hs.
 Qed.
 
 Lemma ck_items_markers_ok :
-  forall k lss, forallb (fun it => marker_ok (fst it)) (ck_items k lss) = true.
+  forall k lss, ck_ok k (length lss) = true ->
+    forallb (fun it => marker_ok (fst it)) (ck_items k lss) = true.
 Proof.
-  intros [|d start] lss.
-  - unfold ck_items, same_marker.
+  intros [|d start|up d start|up d start] lss Hck.
+  - clear Hck. unfold ck_items, same_marker.
     induction lss as [|L rest IH]; [reflexivity|].
     cbn [map forallb fst]. rewrite bullet_ok. exact IH.
-  - cbn [ck_items]. revert start.
+  - clear Hck. cbn [ck_items]. revert start.
     induction lss as [|L rest IH]; intros start; [reflexivity|].
     cbn [dec_items forallb fst]. rewrite dec_marker_ok. apply IH.
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hlen].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
+    cbn [ck_items]. apply nsc_items_markers_ok. intros k Hk.
+    exact (proj1 (roman_item_facts up d (start + k) ltac:(lia) ltac:(lia))).
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hnr].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
+    cbn [ck_items]. apply nsc_items_markers_ok. intros k Hk.
+    exact (proj1 (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia))).
 Qed.
 
 Lemma ck_lines_nonempty :
@@ -768,28 +828,41 @@ Proof.
   destruct (ck_items k lss); [reflexivity | discriminate Hnil].
 Qed.
 
-(** Uniformity at either flavour: the rendering of a list whose items are
+(** Uniformity at every flavour: the rendering of a list whose items are
     `lss` parses back to the list its kind names, with the items' lines
     parsed at top level and the spacing read off those same lines. *)
 Theorem ck_uniformity :
   forall k sp lss,
     lss <> [] ->
+    ck_ok k (length lss) = true ->
     forallb (item_ok (ck_first k)) lss = true ->
     parse_lines (list_lines sp (map litem_lines (ck_items k lss))) (PPara [])
     = [mk (ck_block k (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))].
 Proof.
-  intros [|d start] sp lss Hne Hok.
+  intros [|d start|up d start|up d start] sp lss Hne Hck Hok.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
     exact (list_uniformity_same bullet sp lss bullet_ok Hne Hok).
   - exact (ordered_decimal_uniformity d start sp lss Hne Hok).
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hlen].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr. apply Nat.leb_le in Hlen.
+    exact (ordered_roman_uniformity up d start sp lss Hne Hs Hr Hlen Hok).
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hnr].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
+    apply negb_true_iff in Hnr.
+    exact (ordered_alpha_uniformity up d start sp lss Hne Hs Hr Hnr Hok).
 Qed.
 
 (** The same with the list closed by a following line. *)
 Theorem ck_uniformity_tail :
   forall k sp lss next tail,
     lss <> [] ->
+    ck_ok k (length lss) = true ->
     forallb (item_ok (ck_first k)) lss = true ->
     classify next <> KBlank ->
     (forall a b c, classify next <> KList a b c) ->
@@ -800,13 +873,52 @@ Theorem ck_uniformity_tail :
             (map (fun L => parse_lines L (PPara [])) lss))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros [|d start] sp lss next tail Hne Hok Hnb Hnl Hindent.
+  intros [|d start|up d start|up d start] sp lss next tail Hne Hck Hok Hnb Hnl Hindent.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
     exact (list_uniformity_tail_same bullet sp lss next tail bullet_ok Hne Hok
              Hnb Hnl Hindent).
   - exact (ordered_decimal_uniformity_tail d start sp lss next tail
              Hne Hok Hnb Hnl Hindent).
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hlen].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr. apply Nat.leb_le in Hlen.
+    assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
+    assert (Hsty : mk_styles (nsc_marker (roman_str up) d start)
+                   = [(SOrd (roman_sty up) d, start)])
+      by (apply roman_marker_styles; [lia|lia|exact Hlen]).
+    apply (nsc_uniformity_tail (roman_sty up) (roman_str up) d start sp lss
+             next tail Hne
+             (roman_marker_ok up d start ltac:(lia) ltac:(lia) Hlen) Hsty);
+      [|exact Hnb|exact Hnl|exact Hindent].
+    apply (items_ok_nsc_run (roman_str up) d _ lss start).
+    + intros k Hk.
+      destruct (roman_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
+      split; [exact A|]. split; [|exact C].
+      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+    + exact (proj2 (proj2 (roman_item_facts up d start ltac:(lia) ltac:(lia)))).
+    + exact Hok.
+  - cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [Hck Hnr].
+    apply andb_true_iff in Hck as [Hs Hr].
+    apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
+    apply negb_true_iff in Hnr.
+    assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
+    assert (Hsty : mk_styles (nsc_marker (alpha_str up) d start)
+                   = [(SOrd (alpha_sty up) d, start)])
+      by (apply alpha_marker_styles; [lia|lia|exact Hnr]).
+    apply (nsc_uniformity_tail (alpha_sty up) (alpha_str up) d start sp lss
+             next tail Hne
+             (alpha_marker_ok up d start ltac:(lia) ltac:(lia) Hnr) Hsty);
+      [|exact Hnb|exact Hnl|exact Hindent].
+    apply (items_ok_nsc_run (alpha_str up) d _ lss start).
+    + intros k Hk.
+      destruct (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
+      split; [exact A|]. split; [|exact C].
+      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+    + exact (proj2 (proj2 (alpha_item_facts up d start ltac:(lia) ltac:(lia)))).
+    + exact Hok.
 Qed.
 
 (*

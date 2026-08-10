@@ -364,6 +364,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
       && div_content_ok (sep_lines (map cb_lines inner))
   | CList k sp items =>
       nonempty items && items_ok items
+      && ck_ok k (List.length items)
       && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
       && forallb no_adjacent_lists items
       && match sp with
@@ -479,6 +480,7 @@ Lemma cb_ok_list :
     cb_ok (CList k sp items)
     = (nonempty items
        && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
+       && ck_ok k (List.length items)
        && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
        && forallb no_adjacent_lists items
        && match sp with
@@ -512,11 +514,23 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
    a string-valued renderer could only express by re-splitting.
 
    The list cases mirror `cb_lines`: each item's own lines first, then
-   `Parser.ck_items` puts the markers on.  Only decimal ordered lists are
-   rendered: the alpha and roman styles need `formatNumber` and carry a
-   canonicality condition decimal does not (see
-   .project/260810.ordered-lists.md), so they fall through to the same
-   TODO the unimplemented constructors do. *)
+   `Parser.ck_items` puts the markers on.  All five ordered styles render;
+   roman and alpha carry a canonicality condition decimal does not, but it
+   lives in `ck_ok` and so is `cb_ok`'s business, not the renderer's --
+   this function is total and unconditional. *)
+
+(* Which numbering scheme an `OrderedList` node's attributes name.  The
+   inverse of `ck_block`'s ordered arms, which is what `render_ck_list`
+   needs: rendering a list that `ck_block k` built has to recover `k`. *)
+Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
+  match ol_style oa with
+  | Decimal => LKDecimal (ol_delim oa) (ol_start oa)
+  | RomanLower => LKRoman false (ol_delim oa) (ol_start oa)
+  | RomanUpper => LKRoman true (ol_delim oa) (ol_start oa)
+  | LetterLower => LKAlpha false (ol_delim oa) (ol_start oa)
+  | LetterUpper => LKAlpha true (ol_delim oa) (ol_start oa)
+  end.
+
 Fixpoint render_block_lines (b : block) : list string :=
   let itemss :=
     fix goitems (items : list blocks) : list (list string) :=
@@ -544,13 +558,7 @@ Fixpoint render_block_lines (b : block) : list string :=
   | BulletList sp items =>
       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
   | OrderedList oa sp items =>
-      match ol_style oa with
-      | Decimal =>
-          list_lines sp
-            (map litem_lines
-               (ck_items (LKDecimal (ol_delim oa) (ol_start oa)) (itemss items)))
-      | _ => []
-      end
+      list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
@@ -590,7 +598,10 @@ Proof.
             = map (fun it => sep_lines (render_blocks_lines it)) items).
   { induction items as [|it rest IH]; [reflexivity|].
     cbn [map]. rewrite IH. reflexivity. }
-  intros [|d start] sp items; cbn [ck_block render_block_lines ol_style ol_delim ol_start];
+  intros [|d start|up d start|up d start] sp items;
+    [| | destruct up | destruct up ];
+    cbn [ck_block render_block_lines lk_of_ol roman_sty alpha_sty
+         ol_style ol_delim ol_start];
     rewrite H; reflexivity.
 Qed.
 
