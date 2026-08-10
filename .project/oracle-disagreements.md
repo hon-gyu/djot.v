@@ -502,3 +502,27 @@ No blank line anywhere, and a quote in the same position does not do it,
 so it is something about how `fenced_div`'s close interacts with the
 event stream rather than a blank-line rule. 12 documents in the generated
 corpus. Not diagnosed.
+
+## Adjudicated 2026-08-10 — an ordered list starting at 0
+
+Found while measuring ordered-list coverage, not by the harness: the
+corpus has no such document and the generated pool starts its decimal
+kinds at 1.
+
+| `0. a` / `1. b` | output |
+| --- | --- |
+| djot.js | `<ol>` |
+| djoths | `<ol start="0">` |
+| ours | `<ol start="0">` |
+
+The two oracles disagree, so by the rule in
+[[project-engineering-lessons#Ask the oracle]] this is a log entry rather
+than a judgement call. `<ol>` with no attribute means start 1, so djot.js
+is reading `0.` as 1 or suppressing the attribute below 1; djoths takes
+the numeral at face value and so do we.
+
+**Not acted on.** Nothing in the formalization turns on it: `cb_ok`
+accepts `LKDecimal d 0`, and `roundtrip_blocks` is `parse (render d) = d`,
+an internal property that holds either way. Only the HTML writer would
+change, and only for start 0. Recorded so that a future HTML conformance
+pass finds it already diagnosed rather than as a fresh mismatch.

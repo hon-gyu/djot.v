@@ -118,7 +118,25 @@ Definition ordered_kinds : list list_kind :=
   [ LKDecimal RightPeriod 1
   ; LKDecimal RightPeriod 9
   ; LKDecimal RightParen 3
-  ; LKDecimal LeftRightParen 99 ].
+  ; LKDecimal LeftRightParen 99
+  (* Roman.  Start 1 is the ambiguous opener -- `i.` names roman and
+     alpha both, and only the run decides -- which is the case the
+     narrowing theorems exist for.  Start 4 puts a bare `v.` in the
+     middle of a run, a sibling whose marker is ambiguous where the
+     opener's was not.  Start 39 crosses `xxxix` to `xl`, where the
+     marker gets *narrower* and the continuation pad with it, the
+     opposite of the `9.`/`10.` widening above. *)
+  ; LKRoman false RightPeriod 1
+  ; LKRoman false RightPeriod 4
+  ; LKRoman false RightParen 39
+  ; LKRoman true LeftRightParen 1
+  (* Alpha.  Start 1 runs `a.` through `d.`, and `c` and `d` are roman
+     digits, so the siblings are ambiguous while the opener is not.
+     Start 25 sits at the wrap: `y`, `z`, and then nothing, so `cb_ok`
+     is what stops the run rather than the enumeration. *)
+  ; LKAlpha false RightPeriod 1
+  ; LKAlpha true RightParen 25
+  ; LKAlpha false LeftRightParen 2 ].
 
 Definition ordered_pool : list cblock :=
   flat_map (fun k => flat_map (fun its => [CList k Tight its; CList k Loose its])
