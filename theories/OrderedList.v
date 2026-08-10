@@ -21,6 +21,115 @@ Ordered lists
 *)
 
 (*
+Numbering schemes
+-----------------
+
+A canonical ordered list is a numbering scheme -- a numeral per position
+-- plus a delimiter.  Decimal, roman and alpha differ only in the scheme,
+so the list-level argument is stated once here and instantiated three
+times.  `nsc_uniformity` is the whole of it, and it is short because
+`ListUniformity.list_uniformity` already lets the marker vary per item:
+all that is left is to say which markers, and that the first one names
+the style and start the `OrderedList` node carries.
+
+Its three hypotheses are decidable, so an instantiation at a concrete
+start discharges them by computation; what a *general* instantiation
+needs is a proof that its numerals name one style, which is where the
+schemes genuinely differ and why roman and alpha carry a range condition
+that decimal does not.
+*)
+
+Definition nsc_marker (core : nat -> string) (d : ordered_list_delim) (n : nat)
+  : marker := MOrd (core n) d.
+
+(* The markers a scheme gives a run of items: consecutive from `n`. *)
+Fixpoint nsc_items (core : nat -> string) (d : ordered_list_delim) (n : nat)
+                   (lss : list (list string)) : list litem :=
+  match lss with
+  | [] => []
+  | L :: rest => (nsc_marker core d n, L) :: nsc_items core d (S n) rest
+  end.
+
+Lemma map_snd_nsc_items :
+  forall core d n lss, map snd (nsc_items core d n lss) = lss.
+Proof.
+  intros core d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [nsc_items map snd]. rewrite IH. reflexivity.
+Qed.
+
+Lemma map_parse_nsc_items :
+  forall core d n lss,
+    map (fun it => parse_lines (snd it) (PPara [])) (nsc_items core d n lss)
+    = map (fun L => parse_lines L (PPara [])) lss.
+Proof.
+  intros core d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [nsc_items map snd]. rewrite IH. reflexivity.
+Qed.
+
+Lemma map_litem_lines_nsc_items :
+  forall core d n lss,
+    map litem_lines (nsc_items core d n lss)
+    = map (fun p => indent_lines (mk_open (nsc_marker core d (fst p)))
+                                 (mk_cont (nsc_marker core d (fst p))) (snd p))
+          (combine (seq n (length lss)) lss).
+Proof.
+  intros core d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [nsc_items map length seq combine fst snd].
+  unfold litem_lines at 1. cbn [fst snd]. rewrite IH. reflexivity.
+Qed.
+
+(* Uniformity for any scheme.  `mk_styles` carrying `(SOrd sty d, start)`
+   at its head is what makes the list close to the node named in the
+   conclusion; `items_ok` is `list_uniformity`'s hypothesis unchanged. *)
+Theorem nsc_uniformity :
+  forall sty core d start sp lss,
+    lss <> [] ->
+    marker_ok (nsc_marker core d start) = true ->
+    mk_styles (nsc_marker core d start) = [(SOrd sty d, start)] ->
+    items_ok (nsc_marker core d start) (nsc_items core d start lss) = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items core d start lss)))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs sty d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros sty core d start sp lss Hne Hm Hsty Hio.
+  destruct lss as [|L0 rest]; [congruence|].
+  cbn [nsc_items] in Hio |- *.
+  rewrite (list_uniformity (nsc_marker core d start) sp L0
+             (nsc_items core d (S start) rest) Hm Hio).
+  unfold marker_list. rewrite Hsty.
+  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items. reflexivity.
+Qed.
+
+(* The same, with the list closed by a following line. *)
+Theorem nsc_uniformity_tail :
+  forall sty core d start sp lss next tail,
+    lss <> [] ->
+    marker_ok (nsc_marker core d start) = true ->
+    mk_styles (nsc_marker core d start) = [(SOrd sty d, start)] ->
+    items_ok (nsc_marker core d start) (nsc_items core d start lss) = true ->
+    classify next <> KBlank ->
+    (forall a b c, classify next <> KList a b c) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items core d start lss))
+                 ++ EmptyString :: next :: tail)%list (PPara [])
+    = mk (OrderedList (OLAttrs sty d start) (list_spacing_of sp lss)
+            (map (fun L => parse_lines L (PPara [])) lss))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros sty core d start sp lss next tail Hne Hm Hsty Hio Hnb Hnl Hindent.
+  destruct lss as [|L0 rest]; [congruence|].
+  cbn [nsc_items] in Hio |- *.
+  rewrite (list_uniformity_tail (nsc_marker core d start) sp L0
+             (nsc_items core d (S start) rest) next tail Hm Hio Hnb Hnl Hindent).
+  unfold marker_list. rewrite Hsty.
+  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items. reflexivity.
+Qed.
+
+(*
 Decimal ordered lists
 ---------------------
 
@@ -215,6 +324,188 @@ Proof.
              (dec_marker_ok d start) Hio Hnb Hnl Hindent).
   rewrite marker_list_dec.
   cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
+Qed.
+
+(*
+Roman and alpha ordered lists
+-----------------------------
+
+Two more instantiations of `nsc_uniformity`, and the side condition they
+carry that decimal does not.  It is one condition in two spellings: *the
+first marker must name exactly one style*.
+
+A bare roman letter -- `i`, `v`, `x`, `l`, `c`, `d`, `m` -- is also a
+single letter, so it offers roman and alpha both; any longer numeral
+offers only roman.  A single letter that is not a roman digit offers only
+alpha.  So a roman list is covered when its first numeral is at least two
+characters, and an alpha list when its first letter is not a roman digit.
+Later markers are unconstrained either way, because `admits` asks only
+that a sibling still offer what the list opened with, and every roman
+numeral offers roman just as every letter offers alpha.
+
+`check/Probe.v` measures the two exception sets rather than trusting this
+argument: `items_ok` fails at roman starts 1, 5, 10 (and 50, 100, 500,
+1000 above the probed range) and at alpha starts 3, 4, 9, 12, 13, 22, 24,
+which are exactly `c`, `d`, `i`, `l`, `m`, `v`, `x`.  The same probe
+records that the *parser* round-trips every one of those starts: what the
+exception sets bound is the reach of the hypothesis, not of the parser.
+Closing that gap needs the list state's style set to be a running
+narrowing rather than a constant, which is the open item in
+.project/260810.ordered-lists.md.
+*)
+
+Definition roman_sty (up : bool) : ordered_list_style :=
+  if up then RomanUpper else RomanLower.
+
+Definition alpha_sty (up : bool) : ordered_list_style :=
+  if up then LetterUpper else LetterLower.
+
+Lemma styles_of_core_roman :
+  forall (up : bool) core d,
+    str_forallb (if up then is_roman_up else is_roman_lo) core = true ->
+    2 <= String.length core ->
+    styles_of_core core d = [SOrd (roman_sty up) d].
+Proof.
+  intros up [|c rest] d H Hlen; [cbn in Hlen; lia|].
+  destruct rest as [|c' rest']; [cbn in Hlen; lia|].
+  cbn [styles_of_core].
+  rewrite (str_roman_not_digit up c (String c' rest') H).
+  destruct up.
+  - assert (Hlo : str_forallb is_roman_lo (String c (String c' rest')) = false).
+    { cbn [str_forallb] in *. apply andb_true_iff in H as [Hc _].
+      rewrite (is_upper_not_roman_lo c (is_roman_up_upper c Hc)). reflexivity. }
+    rewrite Hlo, H. reflexivity.
+  - rewrite H. reflexivity.
+Qed.
+
+Lemma styles_of_core_alpha :
+  forall (up : bool) c d,
+    (if up then is_upper else is_lower) c = true ->
+    (if up then is_roman_up else is_roman_lo) c = false ->
+    styles_of_core (String c EmptyString) d = [SOrd (alpha_sty up) d].
+Proof.
+  intros up c d Hcase Hnr. destruct up; cbn [styles_of_core str_forallb].
+  - rewrite (is_upper_not_digit c Hcase). cbn [andb].
+    rewrite (is_upper_not_roman_lo c Hcase), Hnr,
+            (is_upper_not_lower c Hcase), Hcase. reflexivity.
+  - rewrite (is_lower_not_digit c Hcase). cbn [andb].
+    rewrite Hnr, (is_lower_not_roman_up c Hcase), Hcase. reflexivity.
+Qed.
+
+(* The two hypotheses `nsc_uniformity` asks of a first marker, discharged
+   for roman under its range and length conditions. *)
+Lemma roman_marker_styles :
+  forall (up : bool) d n,
+    1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
+    mk_styles (nsc_marker (roman_str up) d n) = [(SOrd (roman_sty up) d, n)].
+Proof.
+  intros up d n H1 H2 Hlen. unfold mk_styles, with_starts.
+  cbn [mk_sty nsc_marker].
+  rewrite (styles_of_core_roman up _ d (roman_str_alphabet up n H1 H2) Hlen).
+  cbn [map mk_core nsc_marker]. unfold roman_sty.
+  destruct up; cbn [style_start]; rewrite (roman_value_str _ n H1 H2); reflexivity.
+Qed.
+
+Lemma roman_marker_ok :
+  forall (up : bool) d n,
+    1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
+    marker_ok (nsc_marker (roman_str up) d n) = true.
+Proof.
+  intros up d n H1 H2 Hlen. cbn [marker_ok nsc_marker].
+  rewrite (roman_str_nonempty up n H1 H2).
+  assert (Halnum : str_forallb is_alnum (roman_str up n) = true).
+  { apply (str_forallb_impl (if up then is_roman_up else is_roman_lo)).
+    - intros c Hc. unfold is_alnum. destruct up.
+      + rewrite (is_roman_up_upper c Hc), !orb_true_r. reflexivity.
+      + rewrite (is_roman_lo_lower c Hc), orb_true_r. reflexivity.
+    - apply roman_str_alphabet; assumption. }
+  rewrite Halnum.
+  rewrite (styles_of_core_roman up _ d (roman_str_alphabet up n H1 H2) Hlen).
+  reflexivity.
+Qed.
+
+Lemma alpha_marker_styles :
+  forall (up : bool) d n,
+    1 <= n -> n <= alpha_upper ->
+    (if up then is_roman_up else is_roman_lo)
+      (ascii_of_nat ((if up then 64 else 96) + n)) = false ->
+    mk_styles (nsc_marker (alpha_str up) d n) = [(SOrd (alpha_sty up) d, n)].
+Proof.
+  intros up d n H1 H2 Hnr. unfold mk_styles, with_starts.
+  cbn [mk_sty nsc_marker].
+  assert (Hcase : (if up then is_upper else is_lower)
+                    (ascii_of_nat ((if up then 64 else 96) + n)) = true).
+  { pose proof (alpha_str_alphabet up n H1 H2) as H.
+    unfold alpha_str in H. cbn [str_forallb] in H.
+    apply andb_true_iff in H as [H _]. exact H. }
+  unfold alpha_str.
+  rewrite (styles_of_core_alpha up _ d Hcase Hnr).
+  cbn [map mk_core nsc_marker]. unfold alpha_sty.
+  pose proof (alpha_value_str up n H1 H2) as Hv. unfold alpha_str in Hv.
+  destruct up; cbn [style_start]; rewrite Hv; reflexivity.
+Qed.
+
+Lemma alpha_marker_ok :
+  forall (up : bool) d n,
+    1 <= n -> n <= alpha_upper ->
+    (if up then is_roman_up else is_roman_lo)
+      (ascii_of_nat ((if up then 64 else 96) + n)) = false ->
+    marker_ok (nsc_marker (alpha_str up) d n) = true.
+Proof.
+  intros up d n H1 H2 Hnr. cbn [marker_ok nsc_marker].
+  rewrite (alpha_str_nonempty up n H1 H2).
+  assert (Hcase : (if up then is_upper else is_lower)
+                    (ascii_of_nat ((if up then 64 else 96) + n)) = true).
+  { pose proof (alpha_str_alphabet up n H1 H2) as H.
+    unfold alpha_str in H. cbn [str_forallb] in H.
+    apply andb_true_iff in H as [H _]. exact H. }
+  assert (Halnum : str_forallb is_alnum (alpha_str up n) = true).
+  { apply (str_forallb_impl (if up then is_upper else is_lower)).
+    - intros c Hc. unfold is_alnum. destruct up.
+      + rewrite Hc, !orb_true_r. reflexivity.
+      + rewrite Hc, orb_true_r. reflexivity.
+    - apply alpha_str_alphabet; assumption. }
+  rewrite Halnum. unfold alpha_str.
+  rewrite (styles_of_core_alpha up _ d Hcase Hnr). reflexivity.
+Qed.
+
+(* Uniformity for a roman ordered list. *)
+Theorem ordered_roman_uniformity :
+  forall (up : bool) d start sp lss,
+    lss <> [] ->
+    1 <= start -> start <= roman_upper ->
+    2 <= String.length (roman_str up start) ->
+    items_ok (nsc_marker (roman_str up) d start)
+             (nsc_items (roman_str up) d start lss) = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (roman_str up) d start lss)))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros up d start sp lss Hne H1 H2 Hlen Hio.
+  exact (nsc_uniformity (roman_sty up) (roman_str up) d start sp lss Hne
+           (roman_marker_ok up d start H1 H2 Hlen)
+           (roman_marker_styles up d start H1 H2 Hlen) Hio).
+Qed.
+
+(* Uniformity for an alpha ordered list. *)
+Theorem ordered_alpha_uniformity :
+  forall (up : bool) d start sp lss,
+    lss <> [] ->
+    1 <= start -> start <= alpha_upper ->
+    (if up then is_roman_up else is_roman_lo)
+      (ascii_of_nat ((if up then 64 else 96) + start)) = false ->
+    items_ok (nsc_marker (alpha_str up) d start)
+             (nsc_items (alpha_str up) d start lss) = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss)))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros up d start sp lss Hne H1 H2 Hnr Hio.
+  exact (nsc_uniformity (alpha_sty up) (alpha_str up) d start sp lss Hne
+           (alpha_marker_ok up d start H1 H2 Hnr)
+           (alpha_marker_styles up d start H1 H2 Hnr) Hio).
 Qed.
 
 (*
@@ -504,3 +795,67 @@ Proof. reflexivity. Qed.
 Example star_item_ok : item_ok star ["a"] = true.
 Proof. reflexivity. Qed.
 
+
+(* Non-vacuity, and the shape of an instantiation: every hypothesis of
+   `ordered_roman_uniformity` but the nonemptiness is decidable, so a
+   concrete start discharges them by computation. *)
+Example roman_from_two_lines :
+  map litem_lines (nsc_items (roman_str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])
+  = [["ii. a"]; ["iii. b"]; ["iv. c"]].
+Proof. reflexivity. Qed.
+
+Corollary roman_from_two_uniform :
+  forall sp,
+    parse_lines (list_lines sp
+                   (map litem_lines
+                      (nsc_items (roman_str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2)
+             (list_spacing_of sp [["a"]; ["b"]; ["c"]])
+             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara []);
+              parse_lines ["c"] (PPara [])])].
+Proof.
+  intros sp.
+  exact (ordered_roman_uniformity false RightPeriod 2 sp [["a"]; ["b"]; ["c"]]
+           ltac:(discriminate) ltac:(lia) ltac:(vm_compute; lia)
+           ltac:(vm_compute; lia) eq_refl).
+Qed.
+
+(* Alpha from `a`, running through `c` and `d`, which are roman digits:
+   only the *first* marker is constrained. *)
+Example alpha_from_one_lines :
+  map litem_lines (nsc_items (alpha_str false) RightParen 1 [["x"]; ["y"]; ["z"]; ["w"]])
+  = [["a) x"]; ["b) y"]; ["c) z"]; ["d) w"]].
+Proof. reflexivity. Qed.
+
+Corollary alpha_from_one_uniform :
+  forall sp,
+    parse_lines (list_lines sp
+                   (map litem_lines
+                      (nsc_items (alpha_str false) RightParen 1
+                         [["x"]; ["y"]; ["z"]; ["w"]])))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs LetterLower RightParen 1)
+             (list_spacing_of sp [["x"]; ["y"]; ["z"]; ["w"]])
+             [parse_lines ["x"] (PPara []); parse_lines ["y"] (PPara []);
+              parse_lines ["z"] (PPara []); parse_lines ["w"] (PPara [])])].
+Proof.
+  intros sp.
+  exact (ordered_alpha_uniformity false RightParen 1 sp
+           [["x"]; ["y"]; ["z"]; ["w"]]
+           ltac:(discriminate) ltac:(lia) ltac:(vm_compute; lia)
+           eq_refl eq_refl).
+Qed.
+
+(* The boundary, kept as a failing-by-construction pair: the parser reads
+   a roman list from 1 correctly, and `items_ok` cannot say so. *)
+Example roman_from_one_items_ok_still_fails :
+  items_ok (nsc_marker (roman_str false) RightPeriod 1)
+           (nsc_items (roman_str false) RightPeriod 1 [["a"]; ["b"]]) = false.
+Proof. reflexivity. Qed.
+
+Example roman_from_one_parses_anyway_too :
+  parse_lines ["i. a"; "ii. b"] (PPara [])
+  = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1) Tight
+           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+Proof. reflexivity. Qed.

@@ -142,17 +142,284 @@ Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
 
 Definition roman_value (s : string) : nat := roman_acc (rev_string s) 0 0.
 
-(* `getListStart` (parse.ts:102-113).  Alpha reads the first character
-   only, which is exact rather than a simplification: `[a-zA-Z][.)]` is
+(* `getListStart`'s alpha arm, named because both `style_start` and the
+   codec's correctness condition below need it.  Reading the first
+   character only is exact rather than a simplification: `[a-zA-Z][.)]` is
    the only alpha marker pattern, so an alpha core is one character. *)
+Definition alpha_value (up : bool) (core : string) : nat :=
+  match core with
+  | String c _ => nat_of_ascii c - (if up then 64 else 96)
+  | EmptyString => 1
+  end.
+
+(* ...and its inverse, the greedy table.  `roman_value` is a right-to-left
+   subtractive scan and this is a left-to-right greedy emission, so the
+   two are inverse for a reason no induction on either one exposes.
+
+   Every property this codec needs is therefore proved by *computation
+   over a bounded range* rather than by induction: `roman_ok` bundles
+   them, `roman_ok_range` decides the bundle for every start at once, and
+   `roman_ok_lt` is the only form the rest of the development sees.  The
+   bound is not a weakness introduced here -- the alpha codec forces one
+   anyway (there is no 27th letter), so the ordered-list side carries a
+   range condition regardless.
+
+   Why 1000 and not 3999, where the standard spelling stops.  The check
+   is quadratic in the bound -- measured, at 100/400/1000/2000/3999 it
+   costs 0.04/0.10/0.25/0.59/2.00s -- and `Marker.v` is upstream of
+   everything, so its cost is paid by every rebuild during parser work.
+   2.0s on an 18s build was not worth the last 3000 starts: the alpha
+   codec stops at 26 regardless, so this is not what limits the
+   ordered-list chain's reach.  Raising it is this one line plus the
+   measured seconds. *)
+Definition roman_upper : nat := 1000.
+
+Definition roman_table (up : bool) : list (nat * string) :=
+  if up
+  then [(1000,"M");(900,"CM");(500,"D");(400,"CD");(100,"C");(90,"XC");(50,"L");
+        (40,"XL");(10,"X");(9,"IX");(5,"V");(4,"IV");(1,"I")]
+  else [(1000,"m");(900,"cm");(500,"d");(400,"cd");(100,"c");(90,"xc");(50,"l");
+        (40,"xl");(10,"x");(9,"ix");(5,"v");(4,"iv");(1,"i")].
+
+Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string) :=
+  match tbl with
+  | [] => None
+  | (v, s) :: rest => if Nat.leb v n then Some (v, s) else roman_pick rest n
+  end.
+
+(* A table and a lookup, rather than thirteen nested `if`s inlined here.
+   Not a matter of taste: with the branches inlined the recursive call
+   appears in all thirteen of them, so *symbolically* normalizing
+   `roman_str up n` at an unknown `n` unfolds to 13^16 branches and any
+   conversion check that reaches it does not terminate.  It was found by
+   `Qed` hanging on a lemma whose tactics all ran instantly -- the cost
+   is invisible until the kernel tries to convert.  Factoring the choice
+   into `roman_pick` leaves one recursive call per level, so the same
+   expansion is linear in the fuel. *)
+Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
+  match fuel with
+  | O => EmptyString
+  | S f =>
+      match roman_pick (roman_table up) n with
+      | None => EmptyString
+      | Some (v, s) => s ++ roman_fuel up f (n - v)
+      end
+  end.
+
+(* 16, not `n`.  Every branch emits at least one character and the longest
+   numeral is 3888 = `mmmdccclxxxviii` at 15, so 16 suffices; nothing here
+   asserts that, `roman_ok_range` checks it, since fuel exhausted early
+   truncates the numeral and the decode stops matching.
+
+   It is not a speedup -- measured, the range check costs the same either
+   way.  The cost is `Nat.leb 1000 n` on a unary `nat`, which is linear in
+   the *magnitude* and so indifferent to fuel.  16 is here because it is
+   the honest bound and keeps the terms small. *)
+Definition roman_str (up : bool) (n : nat) : string := roman_fuel up 16 n.
+
+Definition alpha_str (up : bool) (n : nat) : string :=
+  String (ascii_of_nat ((if up then 64 else 96) + n)) EmptyString.
+
+(* What a codec has to deliver for the marker layer: a nonempty core, in
+   the alphabet its style is recognized by, decoding back to the number
+   it was made from.  One boolean so that one computation settles all
+   three, and so that a future codec is a matter of pointing this at it. *)
+Definition roman_ok (up : bool) (n : nat) : bool :=
+  let s := roman_str up n in
+  (nonempty_str s
+   && str_forallb (if up then is_roman_up else is_roman_lo) s
+   && Nat.eqb (roman_value s) n)%bool.
+
+Definition alpha_ok (up : bool) (n : nat) : bool :=
+  let s := alpha_str up n in
+  (nonempty_str s
+   && str_forallb (if up then is_upper else is_lower) s
+   && Nat.eqb (alpha_value up s) n)%bool.
+
+Definition alpha_upper : nat := 26.
+
+(* The four computations the codecs rest on.  Everything below is
+   bookkeeping on top of these. *)
+Example roman_ok_lo : forallb (roman_ok false) (seq 1 roman_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example roman_ok_up : forallb (roman_ok true) (seq 1 roman_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example alpha_ok_lo : forallb (alpha_ok false) (seq 1 alpha_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example alpha_ok_up : forallb (alpha_ok true) (seq 1 alpha_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Turning a checked range into the pointwise fact.  The whole of what
+   "bounded route" costs, and it is generic: a further codec supplies its
+   own `forallb` and reuses this. *)
+Lemma range_ok :
+  forall (f : nat -> bool) (hi n : nat),
+    forallb f (seq 1 hi) = true -> 1 <= n -> n <= hi -> f n = true.
+Proof.
+  intros f hi n H H1 H2.
+  apply (proj1 (forallb_forall f (seq 1 hi)) H). apply in_seq. lia.
+Qed.
+
+Lemma roman_ok_lt :
+  forall up n, 1 <= n -> n <= roman_upper -> roman_ok up n = true.
+Proof.
+  intros [|] n H1 H2;
+    [ exact (range_ok _ _ _ roman_ok_up H1 H2)
+    | exact (range_ok _ _ _ roman_ok_lo H1 H2) ].
+Qed.
+
+Lemma alpha_ok_lt :
+  forall up n, 1 <= n -> n <= alpha_upper -> alpha_ok up n = true.
+Proof.
+  intros [|] n H1 H2;
+    [ exact (range_ok _ _ _ alpha_ok_up H1 H2)
+    | exact (range_ok _ _ _ alpha_ok_lo H1 H2) ].
+Qed.
+
+(* The three fields, unpacked.  Stated at `roman_str` / `alpha_str` so
+   that the ordered-list chain never mentions `roman_ok`. *)
+Lemma roman_str_nonempty :
+  forall up n, 1 <= n -> n <= roman_upper -> nonempty_str (roman_str up n) = true.
+Proof.
+  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
+  unfold roman_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _]. exact H.
+Qed.
+
+Lemma roman_str_alphabet :
+  forall (up : bool) n, 1 <= n -> n <= roman_upper ->
+    str_forallb (if up then is_roman_up else is_roman_lo) (roman_str up n) = true.
+Proof.
+  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
+  unfold roman_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H]. exact H.
+Qed.
+
+Lemma roman_value_str :
+  forall up n, 1 <= n -> n <= roman_upper -> roman_value (roman_str up n) = n.
+Proof.
+  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
+  unfold roman_ok in H. apply andb_true_iff in H as [_ H].
+  apply Nat.eqb_eq, H.
+Qed.
+
+Lemma alpha_str_nonempty :
+  forall up n, 1 <= n -> n <= alpha_upper -> nonempty_str (alpha_str up n) = true.
+Proof. intros. reflexivity. Qed.
+
+Lemma alpha_str_alphabet :
+  forall (up : bool) n, 1 <= n -> n <= alpha_upper ->
+    str_forallb (if up then is_upper else is_lower) (alpha_str up n) = true.
+Proof.
+  intros up n H1 H2. pose proof (alpha_ok_lt up n H1 H2) as H.
+  unfold alpha_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H]. exact H.
+Qed.
+
+Lemma alpha_value_str :
+  forall up n, 1 <= n -> n <= alpha_upper -> alpha_value up (alpha_str up n) = n.
+Proof.
+  intros up n H1 H2. pose proof (alpha_ok_lt up n H1 H2) as H.
+  unfold alpha_ok in H. apply andb_true_iff in H as [_ H].
+  apply Nat.eqb_eq, H.
+Qed.
+
+(*
+Alphabets
+---------
+
+Which character classes exclude which.  `styles_of_core` decides a
+marker's styles by testing these in order, so reading its result off a
+roman or alpha numeral means knowing that a roman letter is not a digit,
+that an uppercase one is not a lowercase one, and so on.  Each is decided
+by the seven-way `Ascii.eqb` disjunction or by the range arithmetic, and
+none of them is interesting; they are here so the `styles_of_core`
+lemmas downstream read as one rewrite each.
+*)
+
+Lemma str_forallb_impl :
+  forall (p q : ascii -> bool) s,
+    (forall c, p c = true -> q c = true) ->
+    str_forallb p s = true -> str_forallb q s = true.
+Proof.
+  intros p q s Hpq. induction s as [|c s IH]; [reflexivity|].
+  cbn [str_forallb]. intros H. apply andb_true_iff in H as [Hc Hs].
+  rewrite (Hpq c Hc). apply IH, Hs.
+Qed.
+
+Lemma is_roman_lo_lower : forall c, is_roman_lo c = true -> is_lower c = true.
+Proof.
+  intros c H. unfold is_roman_lo in H.
+  repeat (apply orb_true_iff in H as [H|H]);
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+
+Lemma is_roman_up_upper : forall c, is_roman_up c = true -> is_upper c = true.
+Proof.
+  intros c H. unfold is_roman_up in H.
+  repeat (apply orb_true_iff in H as [H|H]);
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+
+Lemma is_lower_not_digit : forall c, is_lower c = true -> is_digit c = false.
+Proof.
+  intros c H. unfold is_lower, is_digit, in_range in *.
+  apply andb_true_iff in H as [H1 H2].
+  apply Nat.leb_le in H1. apply Nat.leb_le in H2.
+  apply andb_false_iff. right. apply Nat.leb_gt. lia.
+Qed.
+
+Lemma is_upper_not_digit : forall c, is_upper c = true -> is_digit c = false.
+Proof.
+  intros c H. unfold is_upper, is_digit, in_range in *.
+  apply andb_true_iff in H as [H1 H2].
+  apply Nat.leb_le in H1. apply Nat.leb_le in H2.
+  apply andb_false_iff. right. apply Nat.leb_gt. lia.
+Qed.
+
+Lemma is_upper_not_lower : forall c, is_upper c = true -> is_lower c = false.
+Proof.
+  intros c H. unfold is_upper, is_lower, in_range in *.
+  apply andb_true_iff in H as [H1 H2].
+  apply Nat.leb_le in H1. apply Nat.leb_le in H2.
+  apply andb_false_iff. left. apply Nat.leb_gt. lia.
+Qed.
+
+Lemma is_lower_not_roman_up : forall c, is_lower c = true -> is_roman_up c = false.
+Proof.
+  intros c H. destruct (is_roman_up c) eqn:E; [|reflexivity].
+  rewrite (is_upper_not_lower c (is_roman_up_upper c E)) in H. discriminate.
+Qed.
+
+Lemma is_upper_not_roman_lo : forall c, is_upper c = true -> is_roman_lo c = false.
+Proof.
+  intros c H. destruct (is_roman_lo c) eqn:E; [|reflexivity].
+  pose proof (is_roman_lo_lower c E) as Hl.
+  rewrite (is_upper_not_lower c H) in Hl. discriminate.
+Qed.
+
+Lemma str_roman_not_digit :
+  forall (up : bool) c rest,
+    str_forallb (if up then is_roman_up else is_roman_lo) (String c rest) = true ->
+    str_forallb is_digit (String c rest) = false.
+Proof.
+  intros up c rest H. cbn [str_forallb] in *.
+  apply andb_true_iff in H as [Hc _].
+  destruct up.
+  - rewrite (is_upper_not_digit c (is_roman_up_upper c Hc)). reflexivity.
+  - rewrite (is_lower_not_digit c (is_roman_lo_lower c Hc)). reflexivity.
+Qed.
+
+(* `getListStart` (parse.ts:102-113). *)
 Definition style_start (s : lstyle) (core : string) : nat :=
   match s with
   | SBullet _ => 1
   | SOrd Decimal _ => dec_value core
-  | SOrd LetterLower _ =>
-      match core with String c _ => nat_of_ascii c - 96 | _ => 1 end
-  | SOrd LetterUpper _ =>
-      match core with String c _ => nat_of_ascii c - 64 | _ => 1 end
+  | SOrd LetterLower _ => alpha_value false core
+  | SOrd LetterUpper _ => alpha_value true core
   | SOrd RomanLower _ | SOrd RomanUpper _ => roman_value core
   end.
 

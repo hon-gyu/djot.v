@@ -212,6 +212,78 @@ Compute probe show_sl
   (fun p => holds (out_eqb (step (" " ++ snd p) (fst p)) (step (snd p) (fst p))))
   sl_pool.
 
+(*
+Which ordered starts survive their own rendering
+-----------------------------------------------
+
+The side condition the roman and alpha chains need, measured rather than
+argued.  Note what is *not* used here: `bs_eqb` renders, and the renderer
+emits nothing for a non-decimal ordered list, so it would call every pair
+equal and report a clean pass.  This compares the attributes the question
+is actually about.
+*)
+
+Definition ol_shape (bs : blocks)
+  : option (ordered_list_style * ordered_list_delim * nat * nat) :=
+  match bs with
+  | [n] =>
+      match node_contents n with
+      | OrderedList oa _ items =>
+          Some (ol_style oa, ol_delim oa, ol_start oa, List.length items)
+      | _ => None
+      end
+  | _ => None
+  end.
+
+Definition shape_eqb (a b : option (ordered_list_style * ordered_list_delim * nat * nat))
+  : bool :=
+  match a, b with
+  | Some (n1, d1, s1, c1), Some (n2, d2, s2, c2) =>
+      (ols_eqb n1 n2 && old_eqb d1 d2 && Nat.eqb s1 s2 && Nat.eqb c1 c2)%bool
+  | None, None => true
+  | _, _ => false
+  end.
+
+(* A run of `count` items from `start`, each item one line. *)
+Definition ord_litems (mkm : nat -> marker) (start count : nat) : list litem :=
+  map (fun k => (mkm (start + k), ["x"])) (seq 0 count).
+
+Definition ord_marker (core : nat -> string) (d : ordered_list_delim)
+                      (n : nat) : marker := MOrd (core n) d.
+
+(* Does the canonical rendering of that run parse back to the ordered
+   list it names?  `items_ok` is asked separately, because the two can
+   part company: the parser may well accept a run the uniformity chain's
+   hypothesis cannot describe, and that gap is the thing being measured. *)
+Definition ord_rt (sty : ordered_list_style) (core : nat -> string)
+                  (d : ordered_list_delim) (start count : nat) : bool :=
+  let its := ord_litems (ord_marker core d) start count in
+  shape_eqb
+    (ol_shape (parse_lines (list_lines Tight (map litem_lines its)) (PPara [])))
+    (Some (sty, d, start, count)).
+
+Definition ord_items_ok (core : nat -> string) (d : ordered_list_delim)
+                        (start count : nat) : bool :=
+  match ord_litems (ord_marker core d) start count with
+  | [] => false
+  | (m0, _) :: _ as its => items_ok m0 its
+  end.
+
+(* Roman: which starts does a 3-item run round-trip at, and which does
+   `items_ok` describe?  The answers are expected to coincide except
+   where the first numeral is a bare roman letter. *)
+Compute fails 40 (fun s => holds (ord_rt RomanLower (roman_str false) RightPeriod s 3))
+                 (seq 1 30).
+Compute fails 40 (fun s => holds (ord_items_ok (roman_str false) RightPeriod s 3))
+                 (seq 1 30).
+
+(* Alpha: same two questions.  Here the expected exceptions are the seven
+   letters that are also roman digits. *)
+Compute fails 40 (fun s => holds (ord_rt LetterLower (alpha_str false) RightPeriod s 3))
+                 (seq 1 24).
+Compute fails 40 (fun s => holds (ord_items_ok (alpha_str false) RightPeriod s 3))
+                 (seq 1 24).
+
 (* The real form, and the one to copy: a *conditional* statement, where
    `guarded` separates the discards out.  Read the tally first.  A shift
    of the offset and a pad of the line agree wherever `pad_safe` holds,

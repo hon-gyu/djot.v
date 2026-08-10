@@ -227,3 +227,41 @@ sharply after a datatype widening, do not bisect the proofs: run `coqc
 -time` on the file and read the per-sentence output, which names the
 sentence in one pass. Do it against the parent commit too, so "is this
 normal" is answered with a number rather than an impression.
+
+## A hanging `Qed` under instant tactics is the definition's shape, not the proof
+
+**What happened.** The roman codec was written as thirteen nested `if`s
+with the recursive call in every branch. Every tactic of
+`roman_str_nonempty` ran in 0.00s and then `Qed` never returned. The
+cause was not the proof: `roman_str up n` at an unknown `n` has no
+normal form the kernel can reach, because sixteen levels of fuel times
+thirteen branches each is 13^16 paths, and conversion walks them. Two
+wrong moves were available and both looked reasonable. Lowering the
+bound was one, and it fails silently: the check gets cheaper and the
+hang stays, because the hang is at an unknown `n` and has nothing to do
+with the range. Blaming the fuel was the other, and it is the one that
+was actually taken first: fuel was cut from `n` to a constant 16 on the
+prediction that it would make the range check linear. It did not. The
+measurement was identical at every bound, because the real cost there is
+`Nat.leb 1000 n` on a unary `nat`, which is linear in the *magnitude*
+and indifferent to fuel. The fix was to lift the thirteen-way choice
+into a table and a lookup, leaving one recursive call per level.
+
+**General form.** Tactic time and kernel time are charged separately,
+and only the kernel pays for conversion. A definition whose recursive
+call is duplicated across `k` branches expands as `k^fuel` under
+symbolic reduction, which is invisible while every closed instance is
+fast -- `vm_compute` on a concrete `n` never sees it, so the range check
+and every `Example` pass while any *general* lemma about the function is
+unprovable.
+
+**What to do instead.** When `Qed` hangs and the tactics did not, stop
+looking at the proof and look at what the statement forces the kernel to
+convert. For a fuel'd function, check the branch factor first: the
+recursive call must appear once, so a multi-way choice belongs in a
+separate lookup returning what to do, not inlined into the recursion.
+This is the same lesson as [[#`cbn` on a concrete `parse_lines` is a
+build-time cliff]] seen from the other side -- there the reduction was
+too eager for a closed term, here the term has no normal form at all --
+and it fires next on the inline parser, which will want exactly this
+shape for its delimiter table.
