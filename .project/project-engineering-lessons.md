@@ -265,3 +265,41 @@ build-time cliff]] seen from the other side -- there the reduction was
 too eager for a closed term, here the term has no normal form at all --
 and it fires next on the inline parser, which will want exactly this
 shape for its delimiter table.
+
+## Check whether a proof uses the structure before pricing its removal
+
+**What happened.** The ambiguous first marker was scoped, in this file's
+own earlier note, as "a change to twelve statements", and I re-scoped it
+as a refactor of `ListUniformity.v`'s core induction. It was three
+abstractions, each of which cost nothing and each of which left its old
+form as a one-line instance:
+
+- `mk_styles m0` -> `S` in `parse_item_and_tail` and `parse_list_tail`.
+  `m0` was used in exactly two ways, as a set with a head and as a source
+  of `mk_styles_nonempty`. Nothing needed it to come from a marker.
+- `S'` -> `Sout` in `parse_item_and_tail_narrow`, separating the answer
+  set the IH reports from the set the item narrows to. The conclusion
+  always came entirely from the IH, so the two had been the same variable
+  for no reason.
+- The tail handler in `parse_list_tail_head_narrow`, abstracted into a
+  hypothesis. One peel and two peels then became instances of one lemma.
+
+Each was a `sed`-scale edit that compiled on the first or second attempt.
+The twelve-statement estimate counted *occurrences of the symbol*; the
+real cost was occurrences where the proof **used** something the
+generalization would take away, which was two.
+
+**General form.** Counting mentions of a symbol estimates the diff, not
+the work. A parameter that appears everywhere but is consumed in one
+role generalizes for free, and a proof that gets its conclusion entirely
+from an induction hypothesis can have that conclusion abstracted without
+touching a tactic. The expensive generalizations are the ones where a
+proof inspects the structure being removed -- and those are usually few
+and easy to find.
+
+**What to do instead.** Before pricing a generalization, grep for the
+symbol and then read *only the proof lines that mention it*, asking of
+each whether it uses the structure or merely carries it. That count is
+the estimate. It is also the plan: the lines that use it are exactly the
+hypotheses the generalized statement has to add. This fires next on the
+inline parser, whose delimiter machinery will want the same treatment.
