@@ -250,13 +250,13 @@ Proof.
   intros d n0 n lss. revert n.
   induction lss as [|L rest IH]; intros n Hok; [reflexivity|].
   cbn [forallb] in Hok. apply andb_prop in Hok as [HL Hrest].
-  cbn [dec_items items_ok forallb fst snd].
+  cbn [dec_items items_ok items_ok_at forallb fst snd].
   rewrite dec_marker_ok, (item_ok_dec_marker d n n0 L), HL.
-  assert (Hs : admits (dec_marker d n0) (dec_marker d n) = true).
+  assert (Hs : admits_styles (mk_styles (dec_marker d n0)) (dec_marker d n) = true).
   { apply admits_agree. rewrite !dec_marker_sty. reflexivity. }
   rewrite Hs. cbn [andb].
   change (forallb _ (dec_items d (S n) rest))
-    with (items_ok (dec_marker d n0) (dec_items d (S n) rest)).
+    with (items_ok_at (mk_styles (dec_marker d n0)) (dec_items d (S n) rest)).
   apply IH, Hrest.
 Qed.
 
@@ -574,7 +574,7 @@ Lemma items_ok_nsc_run :
   forall core d m0 lss n,
     (forall k, k < length lss ->
        marker_ok (nsc_marker core d (n + k)) = true
-       /\ admits m0 (nsc_marker core d (n + k)) = true
+       /\ admits_styles (mk_styles m0) (nsc_marker core d (n + k)) = true
        /\ (forall l, is_thematic (mk_open (nsc_marker core d (n + k)) ++ l) = false)) ->
     (forall l, is_thematic (mk_open m0 ++ l) = false) ->
     forallb (item_ok m0) lss = true ->
@@ -585,10 +585,10 @@ Proof.
   cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL Hrest].
   destruct (Hrun 0 ltac:(cbn [length]; lia)) as (Hmk & Had & Hth).
   rewrite Nat.add_0_r in Hmk, Had, Hth.
-  cbn [nsc_items items_ok forallb fst snd].
+  cbn [nsc_items items_ok items_ok_at forallb fst snd].
   rewrite Hmk, Had, (item_ok_thematic_indep _ m0 L Hth Hm0), HL. cbn [andb].
   change (forallb _ (nsc_items core d (S n) rest))
-    with (items_ok m0 (nsc_items core d (S n) rest)).
+    with (items_ok_at (mk_styles m0) (nsc_items core d (S n) rest)).
   apply IH; [|exact Hm0|exact Hrest].
   intros k Hk. destruct (Hrun (S k) ltac:(cbn [length]; lia)) as (A & B & C).
   rewrite <- Nat.add_succ_comm in A, B, C. exact (conj A (conj B C)).
@@ -670,7 +670,8 @@ Proof.
     - intros k Hk.
       destruct (roman_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
       split; [exact A|]. split; [|exact C].
-      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
+      rewrite B. reflexivity.
     - exact (proj2 (proj2 (roman_item_facts up d start ltac:(lia) ltac:(lia)))).
     - exact Hok. }
   exact (nsc_uniformity (roman_sty up) (roman_str up) d start sp lss Hne
@@ -703,7 +704,8 @@ Proof.
     - intros k Hk.
       destruct (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
       split; [exact A|]. split; [|exact C].
-      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
+      rewrite B. reflexivity.
     - exact (proj2 (proj2 (alpha_item_facts up d start ltac:(lia) ltac:(lia)))).
     - exact Hok. }
   exact (nsc_uniformity (alpha_sty up) (alpha_str up) d start sp lss Hne
@@ -896,7 +898,8 @@ Proof.
     + intros k Hk.
       destruct (roman_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
       split; [exact A|]. split; [|exact C].
-      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
+      rewrite B. reflexivity.
     + exact (proj2 (proj2 (roman_item_facts up d start ltac:(lia) ltac:(lia)))).
     + exact Hok.
   - cbn [ck_ok] in Hck.
@@ -916,7 +919,8 @@ Proof.
     + intros k Hk.
       destruct (alpha_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
       split; [exact A|]. split; [|exact C].
-      unfold admits. rewrite Hsty. cbn [forallb fst]. rewrite B. reflexivity.
+      unfold admits_styles. rewrite Hsty. cbn [forallb fst].
+      rewrite B. reflexivity.
     + exact (proj2 (proj2 (alpha_item_facts up d start ltac:(lia) ltac:(lia)))).
     + exact Hok.
 Qed.

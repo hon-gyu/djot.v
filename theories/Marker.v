@@ -485,8 +485,14 @@ Qed.
    is still the identity in the direction that matters.  Filtering `old`
    is what makes the weaker condition the right one: the list keeps its
    first marker's starts either way. *)
-Definition admits (m0 m : marker) : bool :=
-  forallb (fun p => existsb (lstyle_eqb (fst p)) (mk_sty m)) (mk_styles m0).
+Definition admits_styles (S : list (lstyle * nat)) (m : marker) : bool :=
+  forallb (fun p => existsb (lstyle_eqb (fst p)) (mk_sty m)) S.
+
+Definition admits (m0 m : marker) : bool := admits_styles (mk_styles m0) m.
+
+Lemma narrow_admits_styles :
+  forall S m, admits_styles S m = true -> narrow S (mk_sty m) = S.
+Proof. intros S m H. apply forallb_filter_id, H. Qed.
 
 Lemma narrow_admits :
   forall m0 m, admits m0 m = true ->
@@ -495,7 +501,7 @@ Proof. intros m0 m H. apply forallb_filter_id, H. Qed.
 
 Lemma admits_agree : forall m0 m, mk_sty m = mk_sty m0 -> admits m0 m = true.
 Proof.
-  intros m0 m H. unfold admits, mk_styles, with_starts. rewrite H.
+  intros m0 m H. unfold admits, admits_styles, mk_styles, with_starts. rewrite H.
   apply forallb_forall. intros p Hin.
   apply in_map_iff in Hin as [s [Hs Hin]]. subst p. cbn [fst].
   apply existsb_exists. exists s. split; [exact Hin | apply lstyle_eqb_refl].
@@ -504,13 +510,25 @@ Qed.
 Lemma admits_refl : forall m, admits m m = true.
 Proof. intros m. apply admits_agree. reflexivity. Qed.
 
-(* The block a list rendered with marker `m` closes to.  Bullets give a
+(* The same fact at the spelling `items_ok_at` leaves in a goal. *)
+Lemma admits_styles_refl : forall m, admits_styles (mk_styles m) m = true.
+Proof. exact admits_refl. Qed.
+
+(* The block a list closes to, read off the candidate set its state
+   carries.  Stated on the *set* rather than on a marker because the set
+   is what `Step.list_block` matches on, and because siblings narrow it:
+   a list whose first marker is ambiguous closes to a block that marker
+   alone does not determine. *)
+Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
+                       (items : list blocks) : node block :=
+  match S with
+  | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
+  | _ => mk (BulletList sp items)
+  end.
+
+(* The same at a marker whose set no sibling narrows.  Bullets give a
    `BulletList` definitionally, so instantiating the uniformity chain at
    `bullet` still reads as it did; an ordered marker gives the
    `OrderedList` its style and start. *)
 Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
-  : node block :=
-  match mk_styles m with
-  | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
-  | _ => mk (BulletList sp items)
-  end.
+  : node block := styles_list (mk_styles m) sp items.

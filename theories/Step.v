@@ -205,6 +205,21 @@ Fixpoint finish (st : pstate) : blocks :=
 (* `list_block`'s match, resolved for a bullet.  The uniformity chain
    works over a canonical rendering, where the style set is a bullet
    singleton, and this is the one place that set is looked at. *)
+(* Stated on the candidate *set* the state carries, not on a marker: a
+   list whose first marker is ambiguous closes to a block that marker
+   alone does not name, because siblings narrow the set.  The marker form
+   below is the instance where nothing narrows. *)
+Lemma list_block_styles :
+  forall S ls last,
+    ls_styles ls = S ->
+    list_block ls last
+    = styles_list S (if ls_loose ls then Loose else Tight)
+        (rev (last :: ls_items ls)).
+Proof.
+  intros S ls last H. unfold list_block, styles_list. rewrite H.
+  destruct S as [|[[c|n d] st] ss]; reflexivity.
+Qed.
+
 Lemma list_block_marker :
   forall m ls last,
     ls_styles ls = mk_styles m ->
@@ -212,8 +227,18 @@ Lemma list_block_marker :
     = marker_list m (if ls_loose ls then Loose else Tight)
         (rev (last :: ls_items ls)).
 Proof.
-  intros m ls last H. unfold list_block, marker_list. rewrite H.
-  destruct (mk_styles m) as [|[[c|n d] st] ss]; reflexivity.
+  intros m ls last H. unfold marker_list. apply list_block_styles, H.
+Qed.
+
+Lemma finish_list_styles :
+  forall S ls done inner,
+    ls_styles ls = S ->
+    finish (PList ls done inner)
+    = [styles_list S (if ls_loose ls then Loose else Tight)
+         (rev ((rev done ++ finish inner)%list :: ls_items ls))].
+Proof.
+  intros S ls done inner H. cbn [finish].
+  rewrite (list_block_styles S ls _ H). reflexivity.
 Qed.
 
 Lemma finish_list_marker :
@@ -223,8 +248,8 @@ Lemma finish_list_marker :
     = [marker_list m (if ls_loose ls then Loose else Tight)
          (rev ((rev done ++ finish inner)%list :: ls_items ls))].
 Proof.
-  intros m ls done inner H. cbn [finish].
-  rewrite (list_block_marker m ls _ H). reflexivity.
+  intros m ls done inner H. unfold marker_list.
+  apply finish_list_styles, H.
 Qed.
 
 (* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise
