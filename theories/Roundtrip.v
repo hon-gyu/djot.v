@@ -555,7 +555,7 @@ Lemma nonlist_cblock_first :
     is_clist cb = false -> cb_ok cb = true ->
     exists a rest,
       cb_lines cb = a :: rest /\
-      forall m item, classify a <> KList m item.
+      forall m mc item, classify a <> KList m mc item.
 Proof.
   intros cb Hnonlist Hok.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
@@ -566,12 +566,12 @@ Proof.
     + exists a, rest. split; [reflexivity|].
       change (cb_ok (CPara (a :: rest))) with (para_ok (a :: rest)) in Hok.
       apply para_ok_parts in Hok as [Ha _].
-      intros m item E. rewrite Ha in E. discriminate.
+      intros m mc item E. rewrite Ha in E. discriminate.
   - exists thematic_line, []. split; [reflexivity|].
-    intros m item E. unfold thematic_line in E.
+    intros m mc item E. unfold thematic_line in E.
     rewrite classify_canonical_thematic in E. discriminate.
   - exists (code_open info), (content ++ [code_close])%list.
-    split; [reflexivity|]. intros m item E.
+    split; [reflexivity|]. intros m mc item E.
     change (cb_ok (CCode info content)) with (code_ok info content) in Hok.
     apply code_ok_parts in Hok as [Hinfo _].
     unfold code_open in E.
@@ -581,18 +581,18 @@ Proof.
     destruct ls as [|a rest].
     + exfalso. apply Hls. reflexivity.
     + exists (heading_line lvl a), (map (heading_line lvl) rest).
-      split; [reflexivity|]. intros m item E.
+      split; [reflexivity|]. intros m mc item E.
       rewrite (classify_canonical_heading lvl a Hlvl) in E. discriminate.
   - rewrite cb_lines_quote.
     destruct (sep_lines (map cb_lines inner)) as [|l rest] eqn:Esep.
     + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
     + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
-      intros m item E. rewrite classify_canonical_quote in E. discriminate.
+      intros m mc item E. rewrite classify_canonical_quote in E. discriminate.
   - (* div: the opening fence is the first line, whatever the contents *)
     rewrite cb_lines_div.
     exists div_fence, (sep_lines (map cb_lines dinner) ++ [div_fence])%list.
     split; [reflexivity|].
-    intros m item E. rewrite classify_canonical_div in E. discriminate.
+    intros m mc item E. rewrite classify_canonical_div in E. discriminate.
   - discriminate Hnonlist.
 Qed.
 

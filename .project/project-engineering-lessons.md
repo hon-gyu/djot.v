@@ -159,3 +159,62 @@ this bug got wrong) does not help with the first question. Generated
 inputs do — and `cblock` + `cb_lines` is already a typed generator of
 canonical documents. Phase 1 item 4 of the plan called for exactly this
 and has not been done.
+
+## Predict the falsifier at the right granularity, or the prediction teaches nothing
+
+**What happened.** Ordered lists. The plan committed to a falsifier
+before starting: the classifier step would land with "no change to
+`Render.v` and no change to any statement in `Section ListMarker`". Half
+of that was a real, load-bearing claim — the parser never consults a
+marker's width, so the renderer must not move — and it held, which is
+what confirmed the step ordering was right. The other half was false on
+arrival and could not have been otherwise: the whole point of the step
+was to widen the state's style field, and twelve statements in that
+section mention it. Both halves were written in one sentence, so the
+outcome could not distinguish "the measurement was wrong" from "the
+prediction was sloppy". The sharp version was available and cost nothing
+to write: *no statement acquires a new hypothesis*. That is what actually
+stayed true, and it is what would have been informative had it failed.
+
+**General form.** A falsifiable prediction is only worth writing if its
+failure would change what you do next. "Nothing in file X changes" fails
+for two unrelated reasons — the design was wrong, or the prediction
+counted the wrong things — and a prediction that cannot separate them
+buys nothing. This is the same failure as stating a theorem at the wrong
+scope (prefix determinism is about tree *shape*; locality is about
+*classification*), moved from theorem statements to plan documents.
+
+**What to do instead.** For each prediction, ask what its failure would
+make you do. If the answer is "look again at whether I counted right",
+sharpen it until the answer is a decision — reorder the steps, redo the
+measurement, abandon the approach. Prefer predictions about *obligations*
+(no new hypothesis, no new shared apparatus, no new predicate) over
+predictions about *diffs* (this file does not change): obligations are
+what the next step's cost is made of, and diffs are not.
+
+## `cbn` on a concrete `parse_lines` is a build-time cliff
+
+**What happened.** `Example div_indented_close_differs` was proved by
+`Proof. cbn. discriminate.` over a five-line document. Widening
+`line_kind` by one argument made each line about 3x more expensive to
+normalize, and because the cost grows superlinearly in line count that
+took `Parser.v` from **1.8 seconds for the whole file** to over ten
+minutes for that one sentence. Ten minutes of an edit-and-rebuild loop
+went into the diagnosis, and the fix was two words. Measured on identical
+input, `cbn` was already ~80x slower than `vm_compute` at the parent
+commit (0.054s vs 0.002s on a single line) — the file was sitting just
+under the cliff before anything was touched.
+
+**General form.** A concrete-evaluation `Example` is the one place the
+parser's *own* definitional complexity is charged to build time, and
+`cbn` is the reduction least equipped to pay it. Nothing warns before it
+goes over: the cost is invisible while it is merely large, and every
+constructor added to `line_kind` or `pstate` multiplies it.
+
+**What to do instead.** Concrete `parse_lines` / `step` evaluation gets
+`vm_compute`, never `cbn` — `cbn [f g]` restricted to named symbols is
+fine, bare `cbn` on a closed computation is not. When a build slows
+sharply after a datatype widening, do not bisect the proofs: run `coqc
+-time` on the file and read the per-sentence output, which names the
+sentence in one pass. Do it against the parent commit too, so "is this
+normal" is answered with a number rather than an impression.

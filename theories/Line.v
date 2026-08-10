@@ -10,8 +10,9 @@
    added.  Renderability (Render.v) is phrased as "each rendered line
    classifies as intended", which is what makes roundtrip proofs local. *)
 
-From Stdlib Require Import String Ascii Bool PeanoNat Lia.
-From DjotV Require Import Strings Attributes.
+From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
+Import ListNotations.
+From DjotV Require Import Strings Ast Attributes.
 
 Local Open Scope string_scope.
 Local Open Scope char_scope.
@@ -21,6 +22,36 @@ Local Open Scope char_scope.
 Record fence : Type := Fence
   { f_ch : ascii; f_len : nat; f_info : string }.
 
+(* A list style: `getListStyles`' return element, typed.  The ordered
+   half reuses `Ast`'s pair, since that is what the `OrderedList` node
+   carries and nothing is gained by translating between two spellings.
+
+   A marker yields a *set* of these — see "List markers" below. *)
+Inductive lstyle : Type :=
+  | SBullet (c : ascii)
+  | SOrd (n : ordered_list_style) (d : ordered_list_delim).
+
+Definition ols_eqb (a b : ordered_list_style) : bool :=
+  match a, b with
+  | Decimal, Decimal | LetterUpper, LetterUpper | LetterLower, LetterLower
+  | RomanUpper, RomanUpper | RomanLower, RomanLower => true
+  | _, _ => false
+  end.
+
+Definition old_eqb (a b : ordered_list_delim) : bool :=
+  match a, b with
+  | RightPeriod, RightPeriod | RightParen, RightParen
+  | LeftRightParen, LeftRightParen => true
+  | _, _ => false
+  end.
+
+Definition lstyle_eqb (a b : lstyle) : bool :=
+  match a, b with
+  | SBullet x, SBullet y => Ascii.eqb x y
+  | SOrd n d, SOrd n' d' => (ols_eqb n n' && old_eqb d d')%bool
+  | _, _ => false
+  end.
+
 Inductive line_kind : Type :=
   | KBlank                 (* only whitespace *)
   | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)
@@ -28,7 +59,9 @@ Inductive line_kind : Type :=
   | KDiv (len : nat) (cls : string)    (* fenced-div opener, with its class *)
   | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
   | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
-  | KList (m : ascii) (rest : string)  (* bullet marker, with its content *)
+  (* A list marker: its candidate styles, its numeral core (empty for a
+     bullet), and the content after it. *)
+  | KList (sty : list lstyle) (core : string) (rest : string)
   (* block attribute spec, with the machine's state after this line: it
      may already be complete (`ap_done`) or still want indented
      continuation lines *)
@@ -247,49 +280,216 @@ Definition heading_open (l : string) : option (nat * string) :=
        end
   else None.
 
-(* Bullet-list markers, per djot.js pattListMarker restricted to the
-   bullet styles (`[-*+]` followed by whitespace or end of line) — same
-   marker-then-at-most-one-space shape as quotes and headings.  The
-   marker character is the list's *style*: djot.js starts a new list
-   when the style changes, so `- a` then `* b` is two lists.
+(*
+List markers
+------------
 
-   Ordered markers (`1.`, `(a)`, roman numerals) are deliberately not
-   here: their styles are ambiguous until a sibling disambiguates, which
-   the plan files under Phase 3's small combinatorial specs.
+djot.js's `pattListMarker` (block.ts:59) followed by `getListStyles`
+(block.ts:9-31).  Two facts about that pair shape everything here.
 
-   `-x` is not a marker, and `* * *` is a thematic break — `classify`
+First, `getListStyles` normalizes the numeral *out* of the marker: `3.`
+and `4.` both yield the style `1.`.  The container stack therefore
+compares styles and never numbers — a list carries no counter.  The
+numeral survives only as the marker's `core`, which the list's `start`
+is decoded from once, at close, by `list_start` in Parser.v.
+
+Second, a marker may be *ambiguous*: `i.` is both roman and alpha, so a
+marker yields a candidate *set*, which siblings intersect (`narrow` in
+Parser.v).  An empty intersection ends the list.
+
+Definition lists (`:`) and task-list checkboxes are still out; they are
+the other two members of djot.js's single list spec. *)
+
+(* `-x` is not a marker, and `* * *` is a thematic break — `classify`
    tests thematic first, matching djot.js's spec order. *)
 Definition is_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+")%char%bool.
 
-Definition list_marker (l : string) : option (ascii * string) :=
+(*
+Marker character classes
+------------------------
+*)
+
+Definition in_range (lo hi : nat) (c : ascii) : bool :=
+  let n := nat_of_ascii c in (Nat.leb lo n && Nat.leb n hi)%bool.
+
+Definition is_digit (c : ascii) : bool := in_range 48 57 c.
+Definition is_lower (c : ascii) : bool := in_range 97 122 c.
+Definition is_upper (c : ascii) : bool := in_range 65 90 c.
+Definition is_alnum (c : ascii) : bool :=
+  (is_digit c || is_lower c || is_upper c)%bool.
+
+(* The roman digits, djot.js's `romanDigits` domain (parse.ts:63-78). *)
+Definition is_roman_lo (c : ascii) : bool :=
+  (Ascii.eqb c "i" || Ascii.eqb c "v" || Ascii.eqb c "x" || Ascii.eqb c "l"
+   || Ascii.eqb c "c" || Ascii.eqb c "d" || Ascii.eqb c "m")%char%bool.
+
+Definition is_roman_up (c : ascii) : bool :=
+  (Ascii.eqb c "I" || Ascii.eqb c "V" || Ascii.eqb c "X" || Ascii.eqb c "L"
+   || Ascii.eqb c "C" || Ascii.eqb c "D" || Ascii.eqb c "M")%char%bool.
+
+Fixpoint str_forallb (p : ascii -> bool) (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c s' => (p c && str_forallb p s')%bool
+  end.
+
+(* The longest prefix of `s` satisfying `p`, and what is left. *)
+Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
+  match s with
+  | String c s' =>
+      if p c
+      then let (a, b) := take_while p s' in (String c a, b)
+      else (EmptyString, s)
+  | EmptyString => (EmptyString, s)
+  end.
+
+Lemma take_while_length :
+  forall p s, String.length (snd (take_while p s)) <= String.length s.
+Proof.
+  intros p s. induction s as [|c s' IH]; [reflexivity|].
+  cbn [take_while]. destruct (p c); [|reflexivity].
+  destruct (take_while p s') as [a b]. cbn [snd String.length] in *. lia.
+Qed.
+
+(*
+Marker shape and candidate styles
+---------------------------------
+*)
+
+(* An ordered marker's two halves: an alphanumeric `core` and a
+   delimiter shape.  `(` forces the enclosed form, which is why this is
+   one function rather than a delimiter test after a scan. *)
+Definition marker_shape (s : string)
+  : option (string * ordered_list_delim * string) :=
+  match s with
+  | EmptyString => None
+  | String c s' =>
+      if Ascii.eqb c "("
+      then
+        let (core, r) := take_while is_alnum s' in
+        match r with
+        | String c' r' =>
+            if Ascii.eqb c' ")" then Some (core, LeftRightParen, r') else None
+        | EmptyString => None
+        end
+      else
+        let (core, r) := take_while is_alnum s in
+        match r with
+        | String c' r' =>
+            if Ascii.eqb c' "." then Some (core, RightPeriod, r')
+            else if Ascii.eqb c' ")" then Some (core, RightParen, r')
+            else None
+        | EmptyString => None
+        end
+  end.
+
+Lemma marker_shape_length :
+  forall s core d r,
+    marker_shape s = Some (core, d, r) ->
+    String.length r < String.length s.
+Proof.
+  intros s core d r H. unfold marker_shape in H.
+  destruct s as [|c s']; [discriminate|].
+  destruct (Ascii.eqb c "(").
+  - pose proof (take_while_length is_alnum s') as Hle.
+    destruct (take_while is_alnum s') as [a b].
+    cbn [snd] in Hle.
+    destruct b as [|c' b']; [discriminate|].
+    destruct (Ascii.eqb c' ")"); [|discriminate].
+    injection H as _ _ <-. cbn [String.length] in *. lia.
+  - pose proof (take_while_length is_alnum (String c s')) as Hle.
+    destruct (take_while is_alnum (String c s')) as [a b].
+    cbn [snd] in Hle.
+    destruct b as [|c' b']; [discriminate|].
+    destruct (Ascii.eqb c' ".").
+    + injection H as _ _ <-. cbn [String.length] in *. lia.
+    + destruct (Ascii.eqb c' ")"); [|discriminate].
+      injection H as _ _ <-. cbn [String.length] in *. lia.
+Qed.
+
+(* `getListStyles`, on a core that `marker_shape` has already split off.
+   The single-character roman cases come before the multi-character ones
+   because they are the ambiguous ones: `i.` is roman *or* alpha, while
+   `ix.` can only be roman.  An empty core is not a marker — `().` — so
+   it is excluded before the `str_forallb`s, which would otherwise
+   accept it vacuously. *)
+Definition styles_of_core (core : string) (d : ordered_list_delim)
+  : list lstyle :=
+  match core with
+  | EmptyString => []
+  | String c rest =>
+      if str_forallb is_digit core then [SOrd Decimal d]
+      else match rest with
+           | EmptyString =>
+               if is_roman_lo c then [SOrd RomanLower d; SOrd LetterLower d]
+               else if is_roman_up c then [SOrd RomanUpper d; SOrd LetterUpper d]
+               else if is_lower c then [SOrd LetterLower d]
+               else if is_upper c then [SOrd LetterUpper d]
+               else []
+           | _ =>
+               if str_forallb is_roman_lo core then [SOrd RomanLower d]
+               else if str_forallb is_roman_up core then [SOrd RomanUpper d]
+               else []
+           end
+  end.
+
+(* A list marker: its candidate styles, its numeral core (empty for a
+   bullet, which has no number), and the content after it.  Same
+   marker-then-at-most-one-space shape as quotes and headings. *)
+Definition list_marker (l : string)
+  : option (list lstyle * string * string) :=
   match drop_leading_ws l with
+  | EmptyString => None
   | String c rest =>
       if is_bullet c
       then match rest with
-           | EmptyString => Some (c, EmptyString)
-           | String c' rest' => if is_ws c' then Some (c, rest') else None
+           | EmptyString => Some ([SBullet c], EmptyString, EmptyString)
+           | String c' rest' =>
+               if is_ws c' then Some ([SBullet c], EmptyString, rest') else None
            end
-      else None
-  | EmptyString => None
+      else
+        match marker_shape (String c rest) with
+        | None => None
+        | Some (core, d, r) =>
+            match styles_of_core core d with
+            | [] => None
+            | sty =>
+                match r with
+                | EmptyString => Some (sty, core, EmptyString)
+                | String c' r' =>
+                    if is_ws c' then Some (sty, core, r') else None
+                end
+            end
+        end
   end.
 
-(* Like quote_prefix_length: the content after a bullet marker is
-   strictly shorter than the line, which is what makes the parser's
-   descent into a list item terminate. *)
+(* Like quote_prefix_length: the content after a list marker is strictly
+   shorter than the line, which is what makes the parser's descent into
+   a list item terminate. *)
 Lemma list_marker_length :
-  forall l m rest,
-    list_marker l = Some (m, rest) -> String.length rest < String.length l.
+  forall l sty core rest,
+    list_marker l = Some (sty, core, rest) ->
+    String.length rest < String.length l.
 Proof.
-  intros l m rest H. unfold list_marker in H.
+  intros l sty core rest H. unfold list_marker in H.
   pose proof (drop_leading_ws_length l) as Hle.
   destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
-  destruct (is_bullet c); [|discriminate].
-  simpl in Hle.
-  destruct r as [|c' r'].
-  - injection H as _ <-. simpl. lia.
-  - destruct (is_ws c'); [|discriminate].
-    injection H as _ <-. simpl in *. lia.
+  destruct (is_bullet c).
+  - simpl in Hle.
+    destruct r as [|c' r'].
+    + injection H as _ _ <-. simpl. lia.
+    + destruct (is_ws c'); [|discriminate].
+      injection H as _ _ <-. simpl in *. lia.
+  - pose proof (marker_shape_length (String c r)) as Hms.
+    destruct (marker_shape (String c r)) as [[[core' d] r0]|] eqn:Em;
+      [|discriminate].
+    specialize (Hms _ _ _ eq_refl).
+    destruct (styles_of_core core' d) as [|s0 ss] eqn:Es; [discriminate|].
+    destruct r0 as [|c' r0'].
+    + injection H as _ _ <-. simpl in *. lia.
+    + destruct (is_ws c'); [|discriminate].
+      injection H as _ _ <-. simpl in *. lia.
 Qed.
 
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
@@ -312,7 +512,7 @@ Definition classify (l : string) : line_kind :=
                    | None =>
                        if is_thematic l then KThematic
                        else match list_marker l with
-                            | Some (m, rest) => KList m rest
+                            | Some (sty, core, rest) => KList sty core rest
                             | None =>
                                 match attr_open l with
                                 | Some p => KAttr p
@@ -340,12 +540,12 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); discriminate.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); discriminate.
 Qed.
 
@@ -368,7 +568,7 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[m r0]|]; [discriminate|].
+  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); discriminate.
 Qed.
 
@@ -387,15 +587,16 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[m r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); discriminate.
 Qed.
 
 Lemma classify_list_length :
-  forall l m rest,
-    classify l = KList m rest -> String.length rest < String.length l.
+  forall l sty core rest,
+    classify l = KList sty core rest ->
+    String.length rest < String.length l.
 Proof.
-  intros l m rest H. apply (list_marker_length l m).
+  intros l sty core rest H. apply (list_marker_length l sty core).
   unfold classify in H.
   destruct (is_blank l); [discriminate|].
   destruct (quote_prefix l); [discriminate|].
@@ -403,9 +604,9 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[m' r']|];
+  destruct (list_marker l) as [[[s' c'] r']|];
     [|destruct (attr_open l); discriminate].
-  injection H as <- <-. reflexivity.
+  injection H as <- <- <-. reflexivity.
 Qed.
 
 Lemma classify_not_kblank_nonblank :
@@ -845,7 +1046,7 @@ Qed.
    this. *)
 Lemma classify_marker_open :
   forall m l, marker_ok m = true -> is_thematic (mk_open m ++ l) = false ->
-  classify (mk_open m ++ l) = KList (mk_style m) l.
+  classify (mk_open m ++ l) = KList [SBullet (mk_style m)] EmptyString l.
 Proof.
   intros m l Hm Hth. unfold marker_ok in Hm.
   destruct m as [c]. cbn [mk_style] in *. unfold mk_open in *. cbn [mk_style] in *.
@@ -861,7 +1062,7 @@ Qed.
 
 Lemma classify_bullet_open :
   forall l, is_thematic (bullet_open ++ l) = false ->
-  classify (bullet_open ++ l) = KList "-"%char l.
+  classify (bullet_open ++ l) = KList [SBullet "-"%char] EmptyString l.
 Proof. intros l Hth. exact (classify_marker_open bullet l eq_refl Hth). Qed.
 
 Lemma indent_of_marker_open :

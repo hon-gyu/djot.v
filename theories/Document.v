@@ -212,6 +212,18 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                (s2, it1 :: rest1)
            end) items (register_id a st) in
       (st', Node p a (BulletList sp items'))
+  | OrderedList oa sp items =>
+      let (st', items') :=
+        (fix goit (its : list blocks) (s : id_state) {struct its}
+           : id_state * list blocks :=
+           match its with
+           | [] => (s, [])
+           | it :: rest =>
+               let (s1, it1) := go it s in
+               let (s2, rest1) := goit rest s1 in
+               (s2, it1 :: rest1)
+           end) items (register_id a st) in
+      (st', Node p a (OrderedList oa sp items'))
   (* The remaining containers -- Section, the other list flavours, Table
      -- are not reachable from the line fold yet (`Wf.supported` is the
      record of that).  Each needs its arm here when it lands, or a
@@ -324,6 +336,38 @@ Proof.
     cbn [assign_ids_items]. rewrite assign_ids_inner_go.
     destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
   intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+Qed.
+
+(* The ordered arm is the bullet arm with a different wrapper: djot.js
+   runs one `list` spec for both, and so does `assign_ids`. *)
+Lemma assign_ids_olist :
+  forall p a oa sp items st,
+    assign_ids (OrderedList oa sp items) p a st
+    = let (st', items') := assign_ids_items items (register_id a st) in
+      (st', Node p a (OrderedList oa sp items')).
+Proof.
+  assert (H : forall its st,
+             (fix goit (l : list blocks) (s : id_state)
+                : id_state * list blocks :=
+                match l with
+                | [] => (s, [])
+                | it :: rest =>
+                    let (s1, it1) :=
+                      (fix go (m : blocks) (s' : id_state) : id_state * blocks :=
+                         match m with
+                         | [] => (s', [])
+                         | Node p' a' x :: r =>
+                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s3, r1) := go r s2 in
+                             (s3, n2 :: r1)
+                         end) it s in
+                    let (s4, rest1) := goit rest s1 in
+                    (s4, it1 :: rest1)
+                end) its st = assign_ids_items its st).
+  { induction its as [|it rest IH]; intros st; [reflexivity|].
+    cbn [assign_ids_items]. rewrite assign_ids_inner_go.
+    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a oa sp items st. cbn [assign_ids]. rewrite H. reflexivity.
 Qed.
 
 (*
@@ -504,6 +548,7 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
   | Div inner => [Node p a (Div (go inner))]
   | BulletList sp items => [Node p a (BulletList sp (goit items))]
+  | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
   | _ => [Node p a b]
   end.
 
@@ -637,6 +682,27 @@ Proof.
   rewrite undo_pass_inner_goit. reflexivity.
 Qed.
 
+Lemma undo_pass_olist :
+  forall oa sp items p a,
+    undo_pass_block (OrderedList oa sp items) p a
+    = [Node p a (OrderedList oa sp (undo_pass_items items))].
+Proof.
+  intros oa sp items p a.
+  change (undo_pass_block (OrderedList oa sp items) p a)
+    with [Node p a (OrderedList oa sp
+            ((fix goit (its : list blocks) : list blocks :=
+                match its with
+                | [] => []
+                | it :: rest =>
+                    (fix go (l : blocks) : blocks :=
+                       match l with
+                       | [] => []
+                       | Node p' a' x :: r => (undo_pass_block x p' a' ++ go r)%list
+                       end) it :: goit rest
+                end) items))].
+  rewrite undo_pass_inner_goit. reflexivity.
+Qed.
+
 Definition undo_pass_node (n : node block) : blocks :=
   match n with Node p a b => undo_pass_block b p a end.
 
@@ -670,6 +736,7 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
       match lookup_attr "id" a with Some _ => false | None => true end
   | BlockQuote inner | Div inner => go inner
   | BulletList _ items => goit items
+  | OrderedList _ _ items => goit items
   | _ => true
   end.
 
@@ -748,6 +815,26 @@ Proof.
   cbn [pristine_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
+Lemma pristine_olist :
+  forall oa sp items a,
+    pristine_block (OrderedList oa sp items) a = pristine_items items.
+Proof.
+  intros oa sp items a.
+  change (pristine_block (OrderedList oa sp items) a)
+    with ((fix goit (its : list blocks) : bool :=
+             match its with
+             | [] => true
+             | it :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ a' x :: r => (pristine_block x a' && go r)%bool
+                     end) it && goit rest)%bool
+             end) items).
+  induction items as [|it rest IH]; [reflexivity|].
+  cbn [pristine_items]. rewrite pristine_inner_go, IH. reflexivity.
+Qed.
+
 Lemma pristine_cons :
   forall p a b rest,
     pristine (Node p a b :: rest) = (pristine_block b a && pristine rest)%bool.
@@ -800,6 +887,13 @@ Proof.
     destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_div.
     change bs' with (snd (st', bs')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
+  - (* OrderedList: the same shape as the bullet case below *)
+    rewrite pristine_olist in H.
+    rewrite assign_ids_olist.
+    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_olist.
+    change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* BulletList: the item list, which is what R is for *)
     rewrite pristine_blist in H.

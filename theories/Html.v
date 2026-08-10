@@ -46,6 +46,21 @@ Definition render_attrs (a : attr) : string :=
   String.concat ""
     (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
+(* An ordered list's `start` and `type`, djot.js html.ts:251-259.  Both
+   are omitted at their HTML defaults — start 1, decimal numbering — and
+   both precede the node's own attributes, because `renderAttributes`
+   emits `extraAttrs` first (html.ts:76-88). *)
+Definition ol_attrs (oa : ordered_list_attributes) : string :=
+  (if Nat.eqb (ol_start oa) 1
+   then "" else " start=""" ++ nat_str (ol_start oa) ++ """")
+  ++ (match ol_style oa with
+      | Decimal => ""
+      | LetterLower => " type=""a"""
+      | LetterUpper => " type=""A"""
+      | RomanLower => " type=""i"""
+      | RomanUpper => " type=""I"""
+      end).
+
 (*
 Inlines
 =======
@@ -144,7 +159,9 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
           end)
       ++ ">" ++ escape code ++ "</code></pre>" ++ nl
   | Div bs => "<div" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</div>" ++ nl
-  | OrderedList _ _ _ => ""   (* TODO Phase 1 *)
+  | OrderedList oa sp items =>
+      "<ol" ++ ol_attrs oa ++ ats ++ ">" ++ nl
+      ++ render_items sp items ++ "</ol>" ++ nl
   | BulletList sp items =>
       "<ul" ++ ats ++ ">" ++ nl ++ render_items sp items ++ "</ul>" ++ nl
   | TaskList _ _ => ""        (* TODO Phase 1 *)

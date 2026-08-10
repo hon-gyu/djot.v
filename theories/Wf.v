@@ -223,6 +223,45 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
+(* The ordered flavour asks for exactly the same thing, which is what
+   lets `finish_wf` stay one case: `list_block` chooses the wrapper, and
+   `wf_block` cannot tell the two apart. *)
+Lemma wf_block_olist :
+  forall oa sp items,
+    wf_block (OrderedList oa sp items)
+    = (nonempty items && forallb wf_blocks items)%bool.
+Proof.
+  intros oa sp items.
+  assert (H : forall its,
+             (fix goi (l : list (list (node block))) : bool :=
+                match l with
+                | [] => true
+                | it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
+                end) its = forallb wf_blocks its).
+  { induction its as [|it rest IH]; [reflexivity|].
+    cbn [forallb]. rewrite wf_block_quote, IH. reflexivity. }
+  change (wf_block (OrderedList oa sp items))
+    with (nonempty items
+          && (fix goi (l : list (list (node block))) : bool :=
+                match l with
+                | [] => true
+                | it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
+                end) items)%bool.
+  rewrite H. reflexivity.
+Qed.
+
+Lemma wf_list_block :
+  forall ls last,
+    wf_block (node_contents (list_block ls last))
+    = (nonempty (rev (last :: ls_items ls))
+       && forallb wf_blocks (rev (last :: ls_items ls)))%bool.
+Proof.
+  intros ls last. unfold list_block.
+  destruct (ls_styles ls) as [|[[c|n d] st] ss];
+    cbn [node_contents mk];
+    solve [ apply wf_block_bullet | apply wf_block_olist ].
+Qed.
+
 Lemma nonempty_rev :
   forall (A : Type) (l : list A), nonempty (rev l) = nonempty l.
 Proof.
@@ -396,8 +435,8 @@ Proof.
   - (* a list: the item still open, plus the ones already closed *)
     cbn [state_wf] in H. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
-    cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
-    rewrite wf_block_bullet, andb_true_r.
+    cbn [finish]. rewrite wf_blocks_cons.
+    rewrite wf_list_block, andb_true_r.
     rewrite nonempty_rev, forallb_rev. cbn [nonempty forallb].
     rewrite wf_blocks_app, wf_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
@@ -541,7 +580,7 @@ Proof.
   destruct st as [cur|hlvl hcur|f acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|ppend pinner].
   - (* idle, or an open paragraph *)
     destruct cur as [|c cur'].
-    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E;
+    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E;
         try (apply open_kind_wf; exact E).
       * (* KQuote: descend into the enclosed line *)
         destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
@@ -555,7 +594,7 @@ Proof.
         apply open_list_wf; assumption.
       * (* KAttr: opens its own state, not through open_kind *)
         apply open_attr_wf, (classify_kattr_nonblank l kap E).
-    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E; cbn [fst snd].
+    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E; cbn [fst snd].
       1: (split; [| reflexivity];
           apply flush_para_wf; [exact H | reflexivity]).
       all: split; [reflexivity|];
@@ -568,12 +607,12 @@ Proof.
     cbn [state_wf] in H. apply andb_true_iff in H as [Hlv Hc].
     assert (Hhb : wf_blocks [heading_block hlvl hcur] = true)
       by (apply heading_block_wf; assumption).
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { (* list marker: close the heading, then open the list *)
       destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner].
-      destruct (open_list_wf (off + indent_of l) m bs inner Hb Hs) as [Hob Hos].
-      destruct (open_list (off + indent_of l) m (bs, inner)) as [obs ost].
+      destruct (open_list_wf (off + indent_of l) (with_starts m mc) bs inner Hb Hs) as [Hob Hos].
+      destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner)) as [obs ost].
       cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
       split; [|exact Hos].
       rewrite wf_blocks_cons in Hhb |- *.
@@ -622,12 +661,12 @@ Proof.
     assert (Hbq : wf_block (BlockQuote (rev done ++ finish inner)%list) = true).
     { rewrite wf_block_quote, wf_blocks_app, wf_blocks_rev, Hd, (finish_wf _ Hi).
       reflexivity. }
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { (* a list marker closes the quote and opens a list outside it *)
       destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
-      destruct (open_list_wf (off + indent_of l) m bs inner' Hb Hs) as [Hob Hos].
-      destruct (open_list (off + indent_of l) m (bs, inner')) as [obs ost].
+      destruct (open_list_wf (off + indent_of l) (with_starts m mc) bs inner' Hb Hs) as [Hob Hos].
+      destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner')) as [obs ost].
       cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
       split; [|exact Hos].
       rewrite wf_blocks_cons. cbn [node_contents mk].
@@ -687,7 +726,7 @@ Proof.
     apply andb_true_iff in H1 as [Hitems Hd].
     assert (Hitem : wf_blocks (rev done ++ finish inner)%list = true).
     { rewrite wf_blocks_app, wf_blocks_rev, Hd, (finish_wf _ Hi). reflexivity. }
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { (* a bullet marker *)
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
       - (* indented past the marker: contents of the current item *)
@@ -697,23 +736,23 @@ Proof.
         split; [reflexivity|].
         cbn [state_wf ls_items list_content].
         rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
-      - destruct (Ascii.eqb m (ls_marker ls)).
+      - destruct (narrow (ls_styles ls) m).
+        + (* no style survives: close this list, open another *)
+          destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
+          destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
+          destruct (open_list_wf (off + indent_of l) (with_starts m mc) bs inner' Hb Hs) as [Hob Hos].
+          destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner')) as [obs ost].
+          cbn [close_reopen fst snd] in Hob, Hos |- *.
+          split; [|exact Hos].
+          rewrite wf_blocks_app, Hob, andb_true_r. apply finish_wf. exact H.
         + (* a sibling item: the closed one joins ls_items *)
           destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
           destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
           cbn [fst snd] in Hb, Hs |- *.
           split; [reflexivity|].
-          cbn [state_wf]. unfold list_next.
+          cbn [state_wf]. unfold list_next, list_narrow.
           destruct (is_blank mr); cbn [ls_items forallb];
-            rewrite Hitem, Hitems, wf_blocks_rev, Hb; exact Hs.
-        + (* a different bullet style: close this list, open another *)
-          destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
-          destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
-          destruct (open_list_wf (off + indent_of l) m bs inner' Hb Hs) as [Hob Hos].
-          destruct (open_list (off + indent_of l) m (bs, inner')) as [obs ost].
-          cbn [close_reopen fst snd] in Hob, Hos |- *.
-          split; [|exact Hos].
-          rewrite wf_blocks_app, Hob, andb_true_r. apply finish_wf. exact H. }
+            rewrite Hitem, Hitems, wf_blocks_rev, Hb; exact Hs. }
     1: { (* a blank line goes to the item's contents *)
       destruct (IH off l inner Hi) as [Hb Hs].
       destruct (step_fuel n off l inner) as [bs inner'].
@@ -867,6 +906,7 @@ Fixpoint supported (b : block) : bool :=
   | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ | Heading _ _ => true
   | BlockQuote bs | Div bs => sup_bs bs
   | BulletList _ items => sup_items items
+  | OrderedList _ _ items => sup_items items
   | _ => false
   end.
 
@@ -941,6 +981,41 @@ Proof.
   apply H.
 Qed.
 
+Lemma supported_olist :
+  forall oa sp items,
+    supported (OrderedList oa sp items) = forallb supported_blocks items.
+Proof.
+  intros oa sp items.
+  assert (H : forall its,
+             (fix goi (l : list (list (node block))) : bool :=
+                match l with
+                | [] => true
+                | it :: rest => (supported (BlockQuote it) && goi rest)%bool
+                end) its = forallb supported_blocks its).
+  { induction its as [|it rest IH]; [reflexivity|].
+    cbn [forallb]. rewrite supported_quote, IH. reflexivity. }
+  change (supported (OrderedList oa sp items))
+    with ((fix goi (l : list (list (node block))) : bool :=
+             match l with
+             | [] => true
+             | it :: rest => (supported (BlockQuote it) && goi rest)%bool
+             end) items).
+  apply H.
+Qed.
+
+(* As `wf_list_block`: `supported` cannot tell the two list flavours
+   apart either, so `finish_supported` stays one case. *)
+Lemma supported_list_block :
+  forall ls last,
+    supported (node_contents (list_block ls last))
+    = forallb supported_blocks (rev (last :: ls_items ls)).
+Proof.
+  intros ls last. unfold list_block.
+  destruct (ls_styles ls) as [|[[c|n d] st] ss];
+    cbn [node_contents mk];
+    solve [ apply supported_bullet | apply supported_olist ].
+Qed.
+
 Lemma fence_block_supported :
   forall f content, supported (node_contents (fence_block f content)) = true.
 Proof.
@@ -991,8 +1066,8 @@ Proof.
     reflexivity.
   - cbn [state_supported] in H. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
-    cbn [finish]. rewrite supported_blocks_cons. cbn [node_contents mk].
-    rewrite supported_bullet, forallb_rev. cbn [forallb].
+    cbn [finish]. rewrite supported_blocks_cons.
+    rewrite supported_list_block, forallb_rev. cbn [forallb].
     rewrite supported_blocks_app, supported_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
   - cbn [finish]. destruct (ap_done aap); [reflexivity|].
@@ -1041,7 +1116,7 @@ Proof.
   cbn [step_fuel].
   destruct st as [cur|hlvl hcur|f acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|ppend pinner].
   - destruct cur as [|c cur'].
-    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E;
+    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E;
         try (cbn [close_reopen open_quote finish app open_kind open_attr fst snd]; split; reflexivity).
       * destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
@@ -1054,12 +1129,12 @@ Proof.
     + destruct (classify l); cbn [fst snd]; split; reflexivity.
   - (* an open heading: Heading is supported, so only the quote branch
        carries anything to prove *)
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
          destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner].
-         destruct (open_list_supported (off + indent_of l) m bs inner Hb Hs)
+         destruct (open_list_supported (off + indent_of l) (with_starts m mc) bs inner Hb Hs)
            as [Hob Hos].
-         destruct (open_list (off + indent_of l) m (bs, inner)) as [obs ost].
+         destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner)) as [obs ost].
          cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
          rewrite supported_blocks_cons. cbn [node_contents].
          rewrite Hob. split; [reflexivity | exact Hos]. }
@@ -1079,12 +1154,12 @@ Proof.
     { rewrite supported_quote, supported_blocks_app, supported_blocks_rev, Hd,
         (finish_supported _ Hi).
       reflexivity. }
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
          destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
-         destruct (open_list_supported (off + indent_of l) m bs inner' Hb Hs)
+         destruct (open_list_supported (off + indent_of l) (with_starts m mc) bs inner' Hb Hs)
            as [Hob Hos].
-         destruct (open_list (off + indent_of l) m (bs, inner')) as [obs ost].
+         destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner')) as [obs ost].
          cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
          split; [|exact Hos].
          rewrite supported_blocks_cons. cbn [node_contents mk].
@@ -1128,7 +1203,7 @@ Proof.
     assert (Hitem : supported_blocks (rev done ++ finish inner)%list = true).
     { rewrite supported_blocks_app, supported_blocks_rev, Hd,
         (finish_supported _ Hi). reflexivity. }
-    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mr|kap|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|] eqn:E.
     7: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
@@ -1137,23 +1212,23 @@ Proof.
            cbn [state_supported ls_items list_content].
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
            exact Hs.
-         - destruct (Ascii.eqb m (ls_marker ls)).
+         - destruct (narrow (ls_styles ls) m).
+           + destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
+             destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
+             destruct (open_list_supported (off + indent_of l) (with_starts m mc) bs inner' Hb Hs)
+               as [Hob Hos].
+             destruct (open_list (off + indent_of l) (with_starts m mc) (bs, inner')) as [obs ost].
+             cbn [close_reopen fst snd] in Hob, Hos |- *.
+             split; [|exact Hos].
+             rewrite supported_blocks_app, Hob, andb_true_r.
+             apply finish_supported. exact H.
            + destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
              destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
              cbn [fst snd] in Hb, Hs |- *.
              split; [reflexivity|].
-             cbn [state_supported]. unfold list_next.
+             cbn [state_supported]. unfold list_next, list_narrow.
              destruct (is_blank mr); cbn [ls_items forallb];
-               rewrite Hitem, Hitems, supported_blocks_rev, Hb; exact Hs.
-           + destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
-             destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
-             destruct (open_list_supported (off + indent_of l) m bs inner' Hb Hs)
-               as [Hob Hos].
-             destruct (open_list (off + indent_of l) m (bs, inner')) as [obs ost].
-             cbn [close_reopen fst snd] in Hob, Hos |- *.
-             split; [|exact Hos].
-             rewrite supported_blocks_app, Hob, andb_true_r.
-             apply finish_supported. exact H. }
+               rewrite Hitem, Hitems, supported_blocks_rev, Hb; exact Hs. }
     1: { destruct (IH off l inner Hi) as [Hb Hs].
          destruct (step_fuel n off l inner) as [bs inner'].
          cbn [fst snd] in Hb, Hs |- *.
@@ -1314,6 +1389,18 @@ Proof.
     rewrite wf_block_div in H |- *.
     change bs' with (snd (st', bs')). rewrite <- E.
     apply IHb. exact H.
+  - (* OrderedList: as the bullet case below *)
+    rewrite assign_ids_olist.
+    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd node_contents].
+    rewrite wf_block_olist in H |- *.
+    apply andb_true_iff in H as [Hne Hits].
+    apply andb_true_iff. split.
+    + replace its' with (snd (assign_ids_items items (register_id a st)))
+        by (rewrite E; reflexivity).
+      rewrite assign_ids_items_nonempty. exact Hne.
+    + change its' with (snd (st', its')). rewrite <- E.
+      apply IHb. exact Hits.
   - (* BulletList: the id pass rewrites items, so the nonempty conjunct
        has to survive the traversal too *)
     rewrite assign_ids_blist.

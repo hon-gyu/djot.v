@@ -252,7 +252,7 @@ Definition block_ind2
   (hquote : forall bs, Q bs -> P (BlockQuote bs))
   (hcode : forall lang code, P (CodeBlock lang code))
   (hdiv : forall bs, Q bs -> P (Div bs))
-  (holist : forall attrs sp items, P (OrderedList attrs sp items))
+  (holist : forall attrs sp items, R items -> P (OrderedList attrs sp items))
   (hblist : forall sp items, R items -> P (BulletList sp items))
   (htlist : forall sp items, P (TaskList sp items))
   (hdlist : forall sp items, P (DefinitionList sp items))
@@ -284,7 +284,7 @@ Definition block_ind2
     | BlockQuote bs => hquote bs (golist bs)
     | CodeBlock lang code => hcode lang code
     | Div bs => hdiv bs (golist bs)
-    | OrderedList attrs sp items => holist attrs sp items
+    | OrderedList attrs sp items => holist attrs sp items (goitems items)
     | BulletList sp items => hblist sp items (goitems items)
     | TaskList sp items => htlist sp items
     | DefinitionList sp items => hdlist sp items
