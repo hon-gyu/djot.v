@@ -1353,16 +1353,26 @@ Example roman_upper_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* The boundary, as `cb_ok` sees it.  A roman list from 1 and an alpha
-   list from `i` are both things the *parser* reads correctly -- djot.js
-   agrees, and `OrderedList.roman_from_one_parses_anyway_too` pins it --
-   but their first marker names two styles, so the canonical
-   construction of them is excluded.  The third is the wrap: `z` leaves
-   no 27th letter for a second item. *)
+(* Roman from 1 is in: its first marker `i.` names two styles, but roman
+   is the one at the *head*, so a one-item list closes correctly with no
+   narrowing and a longer one is narrowed to roman by `ii.`. *)
+Example roman_from_one_roundtrip :
+  let cbs := [CList (LKRoman false RightPeriod 1) Tight
+                [[CPara ["a"]]; [CPara ["b"]]]] in
+  render_djot (blocks_of_cblocks cbs) = ("i. a" ++ nl ++ "ii. b")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* What `cb_ok` still excludes, and why each is excluded.  An alpha list
+   from `i` at length 1 renders `i. a`, which is also what roman from 1
+   renders -- two canonical ASTs, one source, so at most one can
+   round-trip and it is the roman one.  At length 2 the letters `c` and
+   `d` are *both* roman digits, so `c. / d.` is still unresolved after
+   its second marker and reads as roman from 100.  The last is the wrap:
+   `z` leaves no 27th letter.  Measured in `check/Probe.v`. *)
 Example excluded_ordered_starts :
-  (cb_ok (CList (LKRoman false RightPeriod 1) Tight
-            [[CPara ["a"]]; [CPara ["b"]]]),
-   cb_ok (CList (LKAlpha false RightPeriod 9) Tight
+  (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[CPara ["a"]]]),
+   cb_ok (CList (LKAlpha false RightPeriod 3) Tight
             [[CPara ["a"]]; [CPara ["b"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 26) Tight
             [[CPara ["a"]]; [CPara ["b"]]]))

@@ -1495,6 +1495,33 @@ Proof.
   intros ls2 done2 inner2 _ _. rewrite parse_lines_nil, app_nil_r. reflexivity.
 Qed.
 
+(* The narrow form with the list closed by a following line. *)
+Theorem list_uniformity_narrow_tail :
+  forall m0 m1 S' sp L0 L1 items next tail,
+    marker_ok m0 = true -> marker_ok m1 = true ->
+    S' <> [] -> narrow (mk_styles m0) (mk_sty m1) = S' ->
+    item_ok m0 L0 = true -> item_ok m1 L1 = true -> L1 <> [] ->
+    items_ok_at S' items = true ->
+    classify next <> KBlank ->
+    (forall m mc it, classify next <> KList m mc it) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines ((m0, L0) :: (m1, L1) :: items))
+                 ++ EmptyString :: next :: tail)%list (PPara [])
+    = styles_list S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: items)))
+             (map (fun it => parse_lines (snd it) (PPara []))
+                  ((m0, L0) :: (m1, L1) :: items))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros m0 m1 S' sp L0 L1 items next tail Hm0 Hm1 HS' Hnar HL0 HL1 HL1ne Hitems
+         Hnb Hnl Hindent.
+  apply (list_uniformity_gen_narrow m0 m1 S' sp L0 L1 items);
+    [exact Hm0 | exact Hm1 | exact HS' | exact Hnar | exact HL1 | exact HL1ne
+    | exact Hitems | | exact HL0].
+  intros ls2 done2 inner2 Hind2 Hpad2.
+  apply parse_list_close; try assumption.
+  rewrite Hind2, Hindent. reflexivity.
+Qed.
+
 Theorem list_uniformity_tail :
   forall m0 sp L0 items next tail,
     marker_ok m0 = true ->

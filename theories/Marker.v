@@ -238,6 +238,21 @@ Definition alpha_ok (up : bool) (n : nat) : bool :=
 
 Definition alpha_upper : nat := 26.
 
+(* No two consecutive roman numerals are both a single character, so if a
+   list's first numeral is ambiguous its second is not, and one narrowing
+   settles the set.  Checked rather than argued: the single-character
+   numerals are 1, 5, 10, 50, 100, 500, 1000 and none is adjacent to
+   another, but that is a fact about the table, not about the code. *)
+Definition roman_consec_ok (up : bool) (n : nat) : bool :=
+  (Nat.leb 2 (String.length (roman_str up n))
+   || Nat.leb 2 (String.length (roman_str up (S n))))%bool.
+
+Example roman_consec_lo : forallb (roman_consec_ok false) (seq 1 roman_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example roman_consec_up : forallb (roman_consec_ok true) (seq 1 roman_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (* The four computations the codecs rest on.  Everything below is
    bookkeeping on top of these. *)
 Example roman_ok_lo : forallb (roman_ok false) (seq 1 roman_upper) = true.
@@ -269,6 +284,18 @@ Proof.
   intros [|] n H1 H2;
     [ exact (range_ok _ _ _ roman_ok_up H1 H2)
     | exact (range_ok _ _ _ roman_ok_lo H1 H2) ].
+Qed.
+
+Lemma roman_consec_lt :
+  forall (up : bool) n, 1 <= n -> n <= roman_upper ->
+    2 <= String.length (roman_str up n) \/ 2 <= String.length (roman_str up (S n)).
+Proof.
+  intros up n H1 H2.
+  assert (H : roman_consec_ok up n = true)
+    by (destruct up; [exact (range_ok _ _ _ roman_consec_up H1 H2)
+                     |exact (range_ok _ _ _ roman_consec_lo H1 H2)]).
+  unfold roman_consec_ok in H. apply orb_true_iff in H as [H|H];
+    [left|right]; apply Nat.leb_le, H.
 Qed.
 
 Lemma alpha_ok_lt :
