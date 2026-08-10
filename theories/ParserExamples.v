@@ -1,0 +1,414 @@
+(* ai-disclosure: ai-generated *)
+
+(* Concrete `parse_blocks` / `parse_lines` regressions for the block
+   parser: one closed document per construct, each decided by
+   `reflexivity`.
+
+   Separate from `Parser.v` because nothing requires it.  These pin
+   behaviour, they are not part of the interface the wf and roundtrip
+   proofs use, so a proof about `step` never needs them in scope.  The
+   examples that stay in `Parser.v` are the ones that document a
+   theorem's boundary and sit beside it.
+
+   Concrete evaluation here is `reflexivity`, never bare `cbn`: see the
+   build-time note in `.project/project-engineering-lessons.md`. *)
+
+From Stdlib Require Import String Ascii List Bool.
+From DjotV Require Import Strings Line Ast Attributes Parser.
+Import ListNotations.
+
+Local Open Scope string_scope.
+
+(*
+Sanity checks
+=============
+*)
+
+Example parse_two_paras :
+  parse_blocks "hi
+there
+
+bye" =
+  [ mk (Para [mk (Str "hi"); mk SoftBreak; mk (Str "there")])
+  ; mk (Para [mk (Str "bye")]) ].
+Proof. reflexivity. Qed.
+
+Example parse_thematic :
+  parse_blocks "one
+
+  * * * *
+
+two" =
+  [ mk (Para [mk (Str "one")])
+  ; mk ThematicBreak
+  ; mk (Para [mk (Str "two")]) ].
+Proof. reflexivity. Qed.
+
+(* Paragraphs are never interrupted: thematic-break- or fence-shaped
+   lines inside a paragraph are text. *)
+Example parse_no_interrupt :
+  parse_blocks "one
+---" =
+  [ mk (Para [mk (Str "one"); mk SoftBreak; mk (Str "---")]) ].
+Proof. reflexivity. Qed.
+
+Example parse_code_block :
+  parse_blocks "``` ruby
+x = 5
+```" =
+  [ mk (CodeBlock "ruby" ("x = 5" ++ nl)) ].
+Proof. reflexivity. Qed.
+
+Example parse_raw_block :
+  parse_blocks "``` =html
+<hr>
+```" =
+  [ mk (RawBlock "html" ("<hr>" ++ nl)) ].
+Proof. reflexivity. Qed.
+
+(* Unclosed fences extend to end of input; content is never classified. *)
+Example parse_unclosed_fence :
+  parse_blocks "~~~
+* * *
+para" =
+  [ mk (CodeBlock "" ("* * *" ++ nl ++ "para" ++ nl)) ].
+Proof. reflexivity. Qed.
+
+Example parse_blank_only : parse_blocks "  " = [].
+Proof. reflexivity. Qed.
+
+(*
+Block quotes
+------------
+
+Each example is a case from djot.js/test/block_quote.test or a probe
+against djot.js; the comment gives the behaviour being pinned. *)
+
+Example parse_quote_basic :
+  parse_blocks "> Basic
+> quote." =
+  [ mk (BlockQuote [mk (Para [mk (Str "Basic"); mk SoftBreak; mk (Str "quote.")])]) ].
+Proof. reflexivity. Qed.
+
+(* A bare ">" is a quote with no content — the reason wf_block lets
+   BlockQuote be empty. *)
+Example parse_quote_empty :
+  parse_blocks ">" = [mk (BlockQuote [])].
+Proof. reflexivity. Qed.
+
+(* ">" without following whitespace is not a prefix at all. *)
+Example parse_quote_needs_ws :
+  parse_blocks ">not a quote" =
+  [ mk (Para [mk (Str ">not a quote")]) ].
+Proof. reflexivity. Qed.
+
+(* A blank prefixed line ends the inner paragraph without ending the
+   quote; a truly blank line ends the quote. *)
+Example parse_quote_two_paras :
+  parse_blocks "> a
+>
+> b" =
+  [ mk (BlockQuote [ mk (Para [mk (Str "a")]); mk (Para [mk (Str "b")]) ]) ].
+Proof. reflexivity. Qed.
+
+Example parse_quote_split :
+  parse_blocks "> a
+
+> b" =
+  [ mk (BlockQuote [mk (Para [mk (Str "a")])])
+  ; mk (BlockQuote [mk (Para [mk (Str "b")])]) ].
+Proof. reflexivity. Qed.
+
+(* Nesting comes from re-entering the classifier on the stripped line. *)
+Example parse_quote_nested :
+  parse_blocks "> > > deep" =
+  [ mk (BlockQuote [mk (BlockQuote [mk (BlockQuote
+      [mk (Para [mk (Str "deep")])])])]) ].
+Proof. reflexivity. Qed.
+
+(* Lazy continuation: a prefix-less text line still joins the innermost
+   open paragraph, at any depth. *)
+Example parse_quote_lazy :
+  parse_blocks "> > deep
+lazy" =
+  [ mk (BlockQuote [mk (BlockQuote
+      [mk (Para [mk (Str "deep"); mk SoftBreak; mk (Str "lazy")])])]) ].
+Proof. reflexivity. Qed.
+
+(* ...but only into a paragraph.  Verbatim content is not lazily
+   continued, so the quote closes and a new paragraph starts. *)
+Example parse_quote_no_lazy_fence :
+  parse_blocks "> ```
+> x
+y" =
+  [ mk (BlockQuote [mk (CodeBlock "" ("x" ++ nl))])
+  ; mk (Para [mk (Str "y")]) ].
+Proof. reflexivity. Qed.
+
+(* Nor is a line that starts a block of its own: the quote closes. *)
+Example parse_quote_closed_by_thematic :
+  parse_blocks "> a
+* * * *" =
+  [ mk (BlockQuote [mk (Para [mk (Str "a")])]); mk ThematicBreak ].
+Proof. reflexivity. Qed.
+
+(*
+Headings
+--------
+
+Pinned against djot.js probes, as above.  Section wrapping and
+auto-identifiers are deliberately absent: they are a whole-document
+pass, not part of the line fold. *)
+
+Example parse_heading_basic :
+  parse_blocks "## hi" = [mk (Heading 2 [mk (Str "hi")])].
+Proof. reflexivity. Qed.
+
+(* The whitespace after the hashes is required. *)
+Example parse_heading_needs_ws :
+  parse_blocks "#hi" = [mk (Para [mk (Str "#hi")])].
+Proof. reflexivity. Qed.
+
+Example parse_heading_empty :
+  parse_blocks "#" = [mk (Heading 1 [])].
+Proof. reflexivity. Qed.
+
+(* Same level continues the heading; the text joins with a SoftBreak. *)
+Example parse_heading_multiline :
+  parse_blocks "# a
+# b" =
+  [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* ...and so does a bare text line, lazily. *)
+Example parse_heading_lazy :
+  parse_blocks "# a
+b" =
+  [mk (Heading 1 [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* A different level starts a new heading rather than continuing. *)
+Example parse_heading_level_change :
+  parse_blocks "# a
+## b" =
+  [mk (Heading 1 [mk (Str "a")]); mk (Heading 2 [mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+(* Unlike a paragraph, a heading *is* interrupted by a block start. *)
+Example parse_heading_interrupted :
+  parse_blocks "# a
+* * * *" =
+  [mk (Heading 1 [mk (Str "a")]); mk ThematicBreak].
+Proof. reflexivity. Qed.
+
+Example parse_heading_interrupted_quote :
+  parse_blocks "# a
+> q" =
+  [ mk (Heading 1 [mk (Str "a")])
+  ; mk (BlockQuote [mk (Para [mk (Str "q")])]) ].
+Proof. reflexivity. Qed.
+
+(* Heading content is inline: it is never reclassified, so a quote
+   marker inside one is just text. *)
+Example parse_heading_content_not_reclassified :
+  parse_blocks "# > q" = [mk (Heading 1 [mk (Str "> q")])].
+Proof. reflexivity. Qed.
+
+(* Containers compose for free: the quote strips, then the classifier
+   sees a heading. *)
+(*
+Bullet lists
+------------
+*)
+
+Example parse_list_tight :
+  parse_blocks "- a
+- b" = [mk (BulletList Tight
+              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
+(* A blank line between items, with content after it, loosens the list. *)
+Example parse_list_loose :
+  parse_blocks "- a
+
+- b" = [mk (BulletList Loose
+              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
+(* A trailing blank does not: the next event closes the list. *)
+Example parse_list_trailing_blank :
+  parse_blocks "- a
+" = [mk (BulletList Tight [[mk (Para [mk (Str "a")])]])].
+Proof. reflexivity. Qed.
+
+(* Thematic breaks win over bullet markers, matching djot.js spec order. *)
+Example parse_list_not_thematic :
+  parse_blocks "* * *" = [mk ThematicBreak].
+Proof. reflexivity. Qed.
+
+(* A marker never interrupts an open paragraph, so this is one item whose
+   paragraph runs on — not a nested list. *)
+Example parse_list_no_interrupt :
+  parse_blocks "- a
+  - b"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
+Proof. reflexivity. Qed.
+
+(* A different bullet character is a different list. *)
+Example parse_list_style_change :
+  parse_blocks "- a
+* b"
+  = [ mk (BulletList Tight [[mk (Para [mk (Str "a")])]])
+    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+Proof. reflexivity. Qed.
+
+(* Lazy continuation reaches into the item's paragraph. *)
+Example parse_list_lazy :
+  parse_blocks "- a
+b"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "b")])]])].
+Proof. reflexivity. Qed.
+
+(* A bare marker opens an item with no content. *)
+Example parse_list_empty_item :
+  parse_blocks "-
+- b"
+  = [mk (BulletList Tight [ []; [mk (Para [mk (Str "b")])] ])].
+Proof. reflexivity. Qed.
+
+Example parse_heading_in_quote :
+  parse_blocks "> # a" =
+  [mk (BlockQuote [mk (Heading 1 [mk (Str "a")])])].
+Proof. reflexivity. Qed.
+
+(* Paragraphs are never interrupted, quotes included. *)
+Example parse_quote_no_interrupt :
+  parse_blocks "a
+> b" =
+  [ mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "> b")]) ].
+Proof. reflexivity. Qed.
+
+(*
+Block attributes
+----------------
+
+Every case below was checked against `djot.js` before it was written
+down; the ones the corpus does not cover are marked. *)
+
+(* The ordinary case: a spec on a line of its own decorates the block
+   that follows it. *)
+Example parse_attr_para :
+  parse_blocks "{#id .class}
+A paragraph"
+  = [Node NoPos [("id", "id"); ("class", "class")]
+       (Para [mk (Str "A paragraph")])].
+Proof. reflexivity. Qed.
+
+(* A blank line spends them (djot.js parse.ts:1231). *)
+Example parse_attr_blank_resets :
+  parse_blocks "{#id}
+
+A paragraph"
+  = [mk (Para [mk (Str "A paragraph")])].
+Proof. reflexivity. Qed.
+
+(* Consecutive specs merge: later values win, classes accumulate, and
+   each key keeps the position it first took. *)
+Example parse_attr_consecutive :
+  parse_blocks "{#id}
+{key=val}
+{.foo .bar}
+{key=val2}
+{.baz}
+{#id2}
+Okay"
+  = [Node NoPos [("id", "id2"); ("key", "val2"); ("class", "foo bar baz")]
+       (Para [mk (Str "Okay")])].
+Proof. reflexivity. Qed.
+
+(* The attributes land on the container, not on its first child, and
+   nesting is by the container the spec sits in. *)
+Example parse_attr_nested_quote :
+  parse_blocks "> {.foo}
+> > {.bar}
+> > nested"
+  = [mk (BlockQuote
+           [Node NoPos [("class", "foo")]
+              (BlockQuote
+                 [Node NoPos [("class", "bar")]
+                    (Para [mk (Str "nested")])])])].
+Proof. reflexivity. Qed.
+
+(* An indented line continues a spec across a line break. *)
+Example parse_attr_continuation :
+  parse_blocks "{#id .class
+  style=""color:red""}
+A paragraph"
+  = [Node NoPos [("id", "id"); ("class", "class"); ("style", "color:red")]
+       (Para [mk (Str "A paragraph")])].
+Proof. reflexivity. Qed.
+
+(* Without the indent there is no continuation, and the whole thing is a
+   paragraph of the lines it ate -- including the line that refused to
+   continue it. *)
+Example parse_attr_unindented_is_para :
+  parse_blocks "{a=x
+hello"
+  = [mk (Para [mk (Str "{a=x"); mk SoftBreak; mk (Str "hello")])].
+Proof. reflexivity. Qed.
+
+(* ...and paragraphs are not interruptible, so a heading marker on the
+   next line is text too. *)
+Example parse_attr_failed_para_not_interrupted :
+  parse_blocks "{a=x
+# non-heading"
+  = [mk (Para [mk (Str "{a=x"); mk SoftBreak; mk (Str "# non-heading")])].
+Proof. reflexivity. Qed.
+
+(* A spec that does not parse never opens at all: `<` is outside the
+   identifier class, so the line is ordinary text. *)
+Example parse_attr_invalid_is_text :
+  parse_blocks "{#a<b}
+foo"
+  = [mk (Para [mk (Str "{#a<b}"); mk SoftBreak; mk (Str "foo")])].
+Proof. reflexivity. Qed.
+
+(* A comment-only spec contributes no attributes but is still consumed. *)
+Example parse_attr_comment :
+  parse_blocks "{%
+  a comment
+  %}
+Hello."
+  = [mk (Para [mk (Str "Hello.")])].
+Proof. reflexivity. Qed.
+
+(* Not in the corpus: a blank line indented past the opener continues an
+   open spec rather than closing it, because djot.js runs the container's
+   `continue` on every line and measures a blank line's indentation as
+   its whole length (checked against the oracle: `{#i` / two spaces /
+   two spaces and `}` yields `<p id="i">Hi</p>`). *)
+Example parse_attr_blank_continues_spec :
+  parse_blocks "{#i
+  
+  }
+Hi"
+  = [Node NoPos [("id", "i")] (Para [mk (Str "Hi")])].
+Proof. reflexivity. Qed.
+
+(* Not in the corpus, and our one deliberate divergence.  djot.js records
+   the blank continuation line as a slice, so a spec that spans a blank
+   line and *then* fails reproduces the blank inside its paragraph:
+   `<p>{#i\n\n<}\nHi</p>`.  We drop it, because a paragraph carrying a
+   blank line does not round-trip -- parsing that rendering back splits
+   the paragraph in two -- and `Wf.wf_block` rules it out for exactly
+   that reason.  See the note in `step_fuel`'s PAttr branch. *)
+Example parse_attr_failed_after_blank_drops_it :
+  parse_blocks "{#i
+  
+  <}
+Hi"
+  = [mk (Para [ mk (Str "{#i"); mk SoftBreak
+              ; mk (Str "<}"); mk SoftBreak; mk (Str "Hi")])].
+Proof. reflexivity. Qed.
