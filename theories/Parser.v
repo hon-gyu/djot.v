@@ -77,6 +77,93 @@ Fixpoint dec_acc (s : string) (acc : nat) : nat :=
 
 Definition dec_value (s : string) : nat := dec_acc s 0.
 
+(* ...and its inverse, which the roundtrip needs: an ordered list's start
+   number is rendered into its first marker and has to come back.
+   `Strings.nat_str` goes through the stdlib's decimal machinery, whose
+   round-trip is stated against `NilZero.uint_of_string` rather than
+   against `dec_value`; rendering here instead keeps the pair
+   self-contained and the proof two lemmas. *)
+Definition digit_char (d : nat) : ascii := ascii_of_nat (48 + d).
+
+Fixpoint dec_str_fuel (fuel n : nat) : string :=
+  match fuel with
+  | O => EmptyString
+  | S f =>
+      if Nat.ltb n 10
+      then String (digit_char n) EmptyString
+      else (dec_str_fuel f (Nat.div n 10)
+            ++ String (digit_char (Nat.modulo n 10)) EmptyString)%string
+  end.
+
+Definition dec_str (n : nat) : string := dec_str_fuel (S n) n.
+
+Lemma dec_acc_app :
+  forall s1 s2 a, dec_acc (s1 ++ s2) a = dec_acc s2 (dec_acc s1 a).
+Proof.
+  induction s1 as [|c s1 IH]; intros s2 a; [reflexivity|].
+  cbn [append dec_acc]. apply IH.
+Qed.
+
+Lemma digit_char_value :
+  forall d, d < 10 -> nat_of_ascii (digit_char d) - 48 = d.
+Proof.
+  intros d Hd. unfold digit_char.
+  rewrite nat_ascii_embedding by lia. lia.
+Qed.
+
+Lemma dec_str_fuel_value :
+  forall fuel n, n < fuel -> dec_acc (dec_str_fuel fuel n) 0 = n.
+Proof.
+  induction fuel as [|f IH]; intros n Hn; [lia|].
+  cbn [dec_str_fuel]. destruct (Nat.ltb n 10) eqn:Hlt.
+  - apply Nat.ltb_lt in Hlt. cbn [dec_acc].
+    rewrite digit_char_value by exact Hlt. reflexivity.
+  - apply Nat.ltb_ge in Hlt.
+    rewrite dec_acc_app, IH.
+    + cbn [dec_acc].
+      rewrite digit_char_value by (apply Nat.mod_upper_bound; lia).
+      rewrite Nat.mul_comm. symmetry. apply Nat.div_mod_eq.
+    + apply Nat.Div0.div_lt_upper_bound; lia.
+Qed.
+
+Lemma dec_value_dec_str : forall n, dec_value (dec_str n) = n.
+Proof. intros n. unfold dec_value, dec_str. apply dec_str_fuel_value. lia. Qed.
+
+Lemma dec_str_fuel_digits :
+  forall fuel n, str_forallb is_digit (dec_str_fuel fuel n) = true
+                 /\ (0 < fuel -> dec_str_fuel fuel n <> EmptyString).
+Proof.
+  induction fuel as [|f IH]; intros n; [split; [reflexivity|lia]|].
+  cbn [dec_str_fuel]. destruct (Nat.ltb n 10) eqn:Hlt.
+  - apply Nat.ltb_lt in Hlt. split; [|discriminate].
+    cbn [str_forallb]. unfold is_digit, in_range, digit_char.
+    rewrite nat_ascii_embedding by lia.
+    rewrite (proj2 (Nat.leb_le 48 (48 + n))) by lia.
+    rewrite (proj2 (Nat.leb_le (48 + n) 57)) by lia. reflexivity.
+  - apply Nat.ltb_ge in Hlt. split.
+    + destruct (IH (Nat.div n 10)) as [Hd _].
+      assert (Hm : Nat.modulo n 10 < 10) by (apply Nat.mod_upper_bound; lia).
+      revert Hd. generalize (dec_str_fuel f (Nat.div n 10)) as t. intros t Hd.
+      induction t as [|c t IHt].
+      * cbn [append str_forallb]. unfold is_digit, in_range, digit_char.
+        rewrite nat_ascii_embedding by lia.
+        rewrite (proj2 (Nat.leb_le 48 (48 + Nat.modulo n 10))) by lia.
+        rewrite (proj2 (Nat.leb_le (48 + Nat.modulo n 10) 57)) by lia. reflexivity.
+      * cbn [str_forallb] in Hd. apply andb_true_iff in Hd as [Hc Ht].
+        cbn [append str_forallb]. rewrite Hc, (IHt Ht). reflexivity.
+    + intros _. destruct (dec_str_fuel f (Nat.div n 10)); discriminate.
+Qed.
+
+Lemma dec_str_digits : forall n, str_forallb is_digit (dec_str n) = true.
+Proof. intros n. apply (dec_str_fuel_digits (S n) n). Qed.
+
+Lemma dec_str_nonempty : forall n, nonempty_str (dec_str n) = true.
+Proof.
+  intros n. destruct (dec_str_fuel_digits (S n) n) as [_ Hne].
+  unfold dec_str. destruct (dec_str_fuel (S n) n) eqn:E; [|reflexivity].
+  exfalso. apply (Hne ltac:(lia)). reflexivity.
+Qed.
+
 Definition roman_digit (c : ascii) : nat :=
   if (Ascii.eqb c "i" || Ascii.eqb c "I")%char%bool then 1
   else if (Ascii.eqb c "v" || Ascii.eqb c "V")%char%bool then 5
@@ -4014,6 +4101,176 @@ Proof.
   rewrite Hu.
   cbn [map snd]. rewrite map_snd_same_marker.
   unfold same_marker. rewrite map_map. cbn [snd]. reflexivity.
+Qed.
+
+(*
+Decimal ordered lists
+---------------------
+
+The canonical rendering djot.js produces: one style, one delimiter, and
+consecutive numbering from a start.  `canon.mjs` (see
+.project/260810.ordered-lists.md) checked that decimal lists survive
+their own rendering at every start and length it tried, so unlike the
+alpha styles this needs no side condition beyond the ones every list has.
+*)
+
+Definition dec_marker (d : ordered_list_delim) (n : nat) : marker :=
+  MOrd (dec_str n) d.
+
+Lemma styles_of_core_dec :
+  forall core d, nonempty_str core = true -> str_forallb is_digit core = true ->
+    styles_of_core core d = [SOrd Decimal d].
+Proof.
+  intros [|c rest] d Hne Hd; [discriminate|].
+  cbn [styles_of_core]. rewrite Hd. reflexivity.
+Qed.
+
+Lemma dec_marker_sty :
+  forall d n, mk_sty (dec_marker d n) = [SOrd Decimal d].
+Proof.
+  intros d n. cbn [mk_sty dec_marker].
+  apply styles_of_core_dec; [apply dec_str_nonempty | apply dec_str_digits].
+Qed.
+
+Lemma dec_marker_ok : forall d n, marker_ok (dec_marker d n) = true.
+Proof.
+  intros d n. cbn [marker_ok dec_marker].
+  rewrite dec_str_nonempty, (str_digits_alnum _ (dec_str_digits n)).
+  change (styles_of_core (dec_str n) d) with (mk_sty (dec_marker d n)).
+  rewrite dec_marker_sty. reflexivity.
+Qed.
+
+(* A decimal marker opens with a digit or "(", so its line never reads as
+   a thematic break -- which is the one part of `item_ok` that mentions
+   the marker, and therefore the reason a decimal item's acceptability
+   does not depend on its number. *)
+Lemma is_thematic_dec_marker :
+  forall d n l, is_thematic (mk_open (dec_marker d n) ++ l) = false.
+Proof.
+  intros d n l.
+  assert (Hd : str_forallb is_digit (dec_str n) = true) by apply dec_str_digits.
+  assert (Hne : nonempty_str (dec_str n) = true) by apply dec_str_nonempty.
+  destruct d; cbn [mk_open dec_marker].
+  - destruct (dec_str n) as [|c t] eqn:E; [discriminate Hne|].
+    cbn [str_forallb] in Hd. apply andb_true_iff in Hd as [Hc _].
+    change ((String c t ++ ". ") ++ l)%string with (String c ((t ++ ". ") ++ l))%string.
+    apply thematic_first_char;
+      [apply is_alnum_not_marker | apply is_alnum_not_special];
+      apply is_digit_alnum, Hc.
+  - destruct (dec_str n) as [|c t] eqn:E; [discriminate Hne|].
+    cbn [str_forallb] in Hd. apply andb_true_iff in Hd as [Hc _].
+    change ((String c t ++ ") ") ++ l)%string with (String c ((t ++ ") ") ++ l))%string.
+    apply thematic_first_char;
+      [apply is_alnum_not_marker | apply is_alnum_not_special];
+      apply is_digit_alnum, Hc.
+  - change (("(" ++ dec_str n ++ ") ") ++ l)%string
+      with (String "(" ((dec_str n ++ ") ") ++ l))%string.
+    apply thematic_first_char; reflexivity.
+Qed.
+
+Lemma item_ok_dec_marker :
+  forall d k n L, item_ok (dec_marker d k) L = item_ok (dec_marker d n) L.
+Proof.
+  intros d k n [|l0 more]; [reflexivity|].
+  cbn [item_ok]. rewrite !is_thematic_dec_marker. reflexivity.
+Qed.
+
+Lemma dec_marker_styles :
+  forall d n, mk_styles (dec_marker d n) = [(SOrd Decimal d, n)].
+Proof.
+  intros d n. unfold mk_styles, with_starts. rewrite dec_marker_sty.
+  cbn [map]. cbn [mk_core dec_marker style_start].
+  rewrite dec_value_dec_str. reflexivity.
+Qed.
+
+(* So a decimal list closes to the `OrderedList` its start names. *)
+Lemma marker_list_dec :
+  forall d n sp items,
+    marker_list (dec_marker d n) sp items
+    = mk (OrderedList (OLAttrs Decimal d n) sp items).
+Proof.
+  intros d n sp items. unfold marker_list. rewrite dec_marker_styles. reflexivity.
+Qed.
+
+(* The markers of a decimal list: consecutive from its start. *)
+Fixpoint dec_items (d : ordered_list_delim) (n : nat) (lss : list (list string))
+  : list litem :=
+  match lss with
+  | [] => []
+  | L :: rest => (dec_marker d n, L) :: dec_items d (S n) rest
+  end.
+
+Lemma map_snd_dec_items :
+  forall d n lss, map snd (dec_items d n lss) = lss.
+Proof.
+  intros d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [dec_items map snd]. rewrite IH. reflexivity.
+Qed.
+
+Lemma items_ok_dec_items :
+  forall d n0 n lss,
+    forallb (item_ok (dec_marker d n0)) lss = true ->
+    items_ok (dec_marker d n0) (dec_items d n lss) = true.
+Proof.
+  intros d n0 n lss. revert n.
+  induction lss as [|L rest IH]; intros n Hok; [reflexivity|].
+  cbn [forallb] in Hok. apply andb_prop in Hok as [HL Hrest].
+  cbn [dec_items items_ok forallb fst snd].
+  rewrite dec_marker_ok, (item_ok_dec_marker d n n0 L), HL.
+  assert (Hs : styles_eqb (mk_sty (dec_marker d n)) (mk_sty (dec_marker d n0)) = true).
+  { rewrite !dec_marker_sty. destruct d; reflexivity. }
+  rewrite Hs. cbn [andb].
+  change (forallb _ (dec_items d (S n) rest))
+    with (items_ok (dec_marker d n0) (dec_items d (S n) rest)).
+  apply IH, Hrest.
+Qed.
+
+Lemma map_litem_lines_dec_items :
+  forall d n lss,
+    map litem_lines (dec_items d n lss)
+    = map (fun p => indent_lines (mk_open (dec_marker d (fst p)))
+                                 (mk_cont (dec_marker d (fst p))) (snd p))
+          (combine (seq n (length lss)) lss).
+Proof.
+  intros d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [dec_items map length seq combine fst snd].
+  unfold litem_lines at 1. cbn [fst snd]. rewrite IH. reflexivity.
+Qed.
+
+Lemma map_parse_dec_items :
+  forall d n lss,
+    map (fun it => parse_lines (snd it) (PPara [])) (dec_items d n lss)
+    = map (fun L => parse_lines L (PPara [])) lss.
+Proof.
+  intros d n lss. revert n.
+  induction lss as [|L rest IH]; intros n; [reflexivity|].
+  cbn [dec_items map snd]. rewrite IH. reflexivity.
+Qed.
+
+(* Uniformity for a decimal ordered list: consecutive markers from
+   `start`, each with its own width.  No side condition beyond the ones
+   every list has -- `canon.mjs` checked that decimal lists survive their
+   own canonical rendering at every start and length it tried, which is
+   what distinguishes them from the alpha styles. *)
+Theorem ordered_decimal_uniformity :
+  forall d start sp lss,
+    lss <> [] ->
+    forallb (item_ok (dec_marker d start)) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (dec_items d start lss)))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs Decimal d start) (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros d start sp lss Hne Hok.
+  destruct lss as [|L0 rest]; [congruence|].
+  pose proof (items_ok_dec_items d start start (L0 :: rest) Hok) as Hio.
+  cbn [dec_items] in Hio |- *.
+  rewrite (list_uniformity (dec_marker d start) sp L0
+             (dec_items d (S start) rest) (dec_marker_ok d start) Hio).
+  rewrite marker_list_dec.
+  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
 Qed.
 
 (* The generalization, exercised.  `*` and `+` are separate list styles in

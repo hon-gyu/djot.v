@@ -1110,6 +1110,37 @@ Proof.
   destruct (is_bullet_cases c E) as [F|[F|F]]; subst c; discriminate H.
 Qed.
 
+Lemma is_digit_alnum : forall c, is_digit c = true -> is_alnum c = true.
+Proof. intros c H. unfold is_alnum. rewrite H. reflexivity. Qed.
+
+Lemma str_digits_alnum :
+  forall s, str_forallb is_digit s = true -> str_forallb is_alnum s = true.
+Proof.
+  induction s as [|c s IH]; intros H; [reflexivity|].
+  cbn [str_forallb] in *. apply andb_true_iff in H as [Hc Hs].
+  rewrite (is_digit_alnum c Hc), (IH Hs). reflexivity.
+Qed.
+
+Lemma is_alnum_not_marker : forall c, is_alnum c = true -> is_marker c = false.
+Proof.
+  intros c H. unfold is_marker.
+  destruct (Ascii.eqb c "-") eqn:E1;
+    [apply Ascii.eqb_eq in E1; subst c; discriminate H|].
+  destruct (Ascii.eqb c "*") eqn:E2;
+    [apply Ascii.eqb_eq in E2; subst c; discriminate H|].
+  reflexivity.
+Qed.
+
+(* A line whose first character is neither a thematic marker nor
+   whitespace is not a thematic break, whatever follows. *)
+Lemma thematic_first_char :
+  forall c s, is_marker c = false -> is_ws c = false ->
+    is_thematic (String c s) = false.
+Proof.
+  intros c s Hm Hw. unfold is_thematic. cbn [thematic_count].
+  rewrite Hm, Hw. reflexivity.
+Qed.
+
 Lemma is_alnum_not_paren :
   forall c, is_alnum c = true -> Ascii.eqb c "(" = false.
 Proof.
