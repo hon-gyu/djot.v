@@ -254,13 +254,32 @@ Proof.
   unfold mk_styles, with_starts. rewrite Hs. discriminate.
 Qed.
 
-(* Two markers offering the same styles narrow each other to nothing.
-   This is what a renumbering list needs: `9.` and `10.` differ in width
-   and in numeral, and agree on style. *)
-Lemma narrow_mk_styles_agree :
-  forall m0 m, mk_sty m = mk_sty m0 ->
+(* When a sibling leaves the list's candidate set exactly where it was:
+   every style the list still offers is one this marker also admits.
+   Equality of the two style *sets* is the special case, and it is too
+   strong for the ambiguous markers -- `ii.` offers only roman where
+   `i.` offered roman and alpha, so the sets differ while the narrowing
+   is still the identity in the direction that matters.  Filtering `old`
+   is what makes the weaker condition the right one: the list keeps its
+   first marker's starts either way. *)
+Definition admits (m0 m : marker) : bool :=
+  forallb (fun p => existsb (lstyle_eqb (fst p)) (mk_sty m)) (mk_styles m0).
+
+Lemma narrow_admits :
+  forall m0 m, admits m0 m = true ->
     narrow (mk_styles m0) (mk_sty m) = mk_styles m0.
-Proof. intros m0 m H. rewrite H. apply narrow_mk_styles. Qed.
+Proof. intros m0 m H. apply forallb_filter_id, H. Qed.
+
+Lemma admits_agree : forall m0 m, mk_sty m = mk_sty m0 -> admits m0 m = true.
+Proof.
+  intros m0 m H. unfold admits, mk_styles, with_starts. rewrite H.
+  apply forallb_forall. intros p Hin.
+  apply in_map_iff in Hin as [s [Hs Hin]]. subst p. cbn [fst].
+  apply existsb_exists. exists s. split; [exact Hin | apply lstyle_eqb_refl].
+Qed.
+
+Lemma admits_refl : forall m, admits m m = true.
+Proof. intros m. apply admits_agree. reflexivity. Qed.
 
 (* The block a list rendered with marker `m` closes to.  Bullets give a
    `BulletList` definitionally, so instantiating the uniformity chain at
@@ -3338,8 +3357,10 @@ Proof.
   destruct (step l0 (PPara [])) as [b i] eqn:Es.
   (* This is the whole of what a sibling's marker has to earn: its styles
      must leave the list's set alone.  Equal markers give it by
-     `narrow_mk_styles`; a renumbering decimal list gives it because `9.`
-     and `10.` name the same style. *)
+     `narrow_mk_styles`, a renumbering decimal list because `9.` and
+     `10.` name the same style, and an ordered list whose later numerals
+     are ambiguous because a superset narrows to the identity -- which is
+     what `admits` says and `items_ok` now asks for. *)
   assert (Hn : exists s0 ss, narrow (ls_styles ls) (mk_sty mrk) = s0 :: ss
                              /\ ls_styles ls = s0 :: ss).
   { rewrite Hnar. destruct (ls_styles ls) as [|s0 ss]; [contradiction|].
@@ -3563,13 +3584,15 @@ Definition item_ok (m : marker) (L : list string) : bool :=
        && match more with [] => true | _ => nonblank (last more EmptyString) end)%bool
   end.
 
-(* Every item recognized, and every item's marker offering the styles the
-   list opened with -- which is what keeps the sibling narrowing from
-   emptying and ending the list.  A renumbering decimal list satisfies it
-   because `9.` and `10.` name the same style. *)
+(* Every item recognized, and every item's marker admitting the styles
+   the list opened with -- which is what keeps the sibling narrowing from
+   moving the set, and so from ending the list or renaming its style.  A
+   renumbering decimal list satisfies it because `9.` and `10.` name the
+   same style; a roman list satisfies it whenever its first numeral is
+   unambiguous, since every later numeral still offers roman. *)
 Definition items_ok (m0 : marker) (items : list litem) : bool :=
   forallb (fun it => marker_ok (fst it) && item_ok (fst it) (snd it)
-                     && styles_eqb (mk_sty (fst it)) (mk_sty m0))%bool items.
+                     && admits m0 (fst it))%bool items.
 
 (** Does the item's rendering leave a list open at its end?  Then the
     separator blank that follows is that inner list's trailing blank,
@@ -3647,7 +3670,8 @@ Qed.
 
 Lemma parse_item_and_tail :
   forall m0 m sp l0 more rest post out ls done inner,
-    marker_ok m0 = true -> marker_ok m = true -> mk_sty m = mk_sty m0 ->
+    marker_ok m0 = true -> marker_ok m = true ->
+    narrow (mk_styles m0) (mk_sty m) = mk_styles m0 ->
     ls_indent ls = 0 -> ls_styles ls = (mk_styles m0) ->
     item_ok m (l0 :: more) = true ->
     (forall ls2 done2 inner2,
@@ -3683,7 +3707,7 @@ Proof.
   rewrite parse_lines_app_run.
   rewrite (run_item_sibling m Hm l0 more ls done inner Hind
              (ltac:(rewrite Hmark; apply mk_styles_nonempty, Hm0))
-             (ltac:(rewrite Hmark; apply narrow_mk_styles_agree, Hsty))
+             (ltac:(rewrite Hmark; exact Hsty))
              Hth Hsafe).
   cbn [fst snd app].
   set (item := (rev done ++ finish inner)%list).
@@ -3771,7 +3795,7 @@ Proof.
     cbn [fst snd] in HL.
     apply andb_prop in HL as [HL Hstyeq].
     apply andb_prop in HL as [Hmi HL].
-    apply styles_eqb_eq in Hstyeq.
+    apply narrow_admits in Hstyeq.
     cbn [list_tail_lines]. rewrite <- !app_assoc. destruct sp.
     + cbn [item_sep app].
       rewrite (parse_item_and_tail m0 mi Tight l0 more rest post out ls done inner
@@ -3933,7 +3957,7 @@ Proof.
   cbn [fst snd] in HL.
   apply andb_prop in HL as [HL Hstyeq].
   apply andb_prop in HL as [Hmi HL].
-  apply styles_eqb_eq in Hstyeq.
+  apply narrow_admits in Hstyeq.
   pose proof HL as HL'. cbn [item_ok] in HL'.
   apply andb_prop in HL' as [HL' Hlast].
   apply andb_prop in HL' as [HL' Hsafe].
@@ -4023,12 +4047,9 @@ Lemma items_ok_same_marker :
     items_ok m (same_marker m lss) = true.
 Proof.
   intros m lss Hm Hok. unfold items_ok, same_marker.
-  assert (Hself : styles_eqb (mk_sty m) (mk_sty m) = true).
-  { induction (mk_sty m) as [|x xs IHx]; [reflexivity|].
-    cbn [styles_eqb]. rewrite lstyle_eqb_refl, IHx. reflexivity. }
   revert Hok. induction lss as [|L rest IH]; [reflexivity|].
   cbn [map forallb fst snd]. intros H. apply andb_prop in H as [HL Hrest].
-  rewrite Hm, HL, Hself, (IH Hrest). reflexivity.
+  rewrite Hm, HL, (admits_refl m), (IH Hrest). reflexivity.
 Qed.
 
 Lemma map_snd_same_marker :
@@ -4218,8 +4239,8 @@ Proof.
   cbn [forallb] in Hok. apply andb_prop in Hok as [HL Hrest].
   cbn [dec_items items_ok forallb fst snd].
   rewrite dec_marker_ok, (item_ok_dec_marker d n n0 L), HL.
-  assert (Hs : styles_eqb (mk_sty (dec_marker d n)) (mk_sty (dec_marker d n0)) = true).
-  { rewrite !dec_marker_sty. destruct d; reflexivity. }
+  assert (Hs : admits (dec_marker d n0) (dec_marker d n) = true).
+  { apply admits_agree. rewrite !dec_marker_sty. reflexivity. }
   rewrite Hs. cbn [andb].
   change (forallb _ (dec_items d (S n) rest))
     with (items_ok (dec_marker d n0) (dec_items d (S n) rest)).
@@ -4406,6 +4427,87 @@ Proof.
   - exact (ordered_decimal_uniformity_tail d start sp lss next tail
              Hne Hok Hnb Hnl Hindent).
 Qed.
+
+(*
+What the narrowing condition reaches, and what it does not
+---------------------------------------------------------
+
+`items_ok` asks that each sibling *admit* the styles the list opened
+with, not that it offer exactly them.  The two are the same for bullets
+and for decimal, where every marker names one style; they part company
+at the ambiguous ordered markers, and the examples below are the
+boundary.
+
+A roman numeral that is a bare roman letter -- `i`, `v`, `x`, `l`, `c`,
+`d`, `m` -- is also a single letter, so it offers roman *and* alpha; any
+longer numeral offers only roman.  So a run is covered exactly when its
+*first* numeral is unambiguous: later ones may be ambiguous, since a
+superset narrows to the identity.  The same reading covers an alpha list
+whose first letter is not a roman digit.
+
+What is left out is the run whose first marker is ambiguous, `i.` / `ii.`
+being the shortest.  The parser accepts it (it narrows to roman and says
+so), but the list state's style set *moves*, and every statement in the
+chain carries `ls_styles ls = mk_styles m0`.  Admitting it means making
+that invariant the running narrowing rather than a constant, which is a
+change to twelve statements rather than to one hypothesis.
+*)
+
+(* Covered: roman from 2, running through the ambiguous `v`. *)
+Example roman_from_two_items_ok :
+  items_ok (MOrd "ii" RightPeriod)
+    [(MOrd "ii" RightPeriod, ["a"]); (MOrd "iii" RightPeriod, ["b"]);
+     (MOrd "iv" RightPeriod, ["c"]); (MOrd "v" RightPeriod, ["d"])] = true.
+Proof. reflexivity. Qed.
+
+Example roman_from_two_parses :
+  parse_lines ["ii. a"; "iii. b"; "iv. c"; "v. d"] (PPara [])
+  = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2) Tight
+           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])];
+            [mk (Para [mk (Str "c")])]; [mk (Para [mk (Str "d")])]])].
+Proof. reflexivity. Qed.
+
+(* ...and so the uniformity theorem applies to it, with no proof of its
+   own -- which is the point of weakening the condition. *)
+Corollary roman_from_two_uniformity :
+  forall sp,
+    parse_lines (list_lines sp
+                   (map litem_lines
+                      [(MOrd "ii" RightPeriod, ["a"]); (MOrd "iii" RightPeriod, ["b"]);
+                       (MOrd "iv" RightPeriod, ["c"]); (MOrd "v" RightPeriod, ["d"])]))
+                (PPara [])
+    = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2)
+             (list_spacing_of sp [["a"]; ["b"]; ["c"]; ["d"]])
+             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara []);
+              parse_lines ["c"] (PPara []); parse_lines ["d"] (PPara [])])].
+Proof.
+  intros sp.
+  exact (list_uniformity (MOrd "ii" RightPeriod) sp ["a"]
+           [(MOrd "iii" RightPeriod, ["b"]); (MOrd "iv" RightPeriod, ["c"]);
+            (MOrd "v" RightPeriod, ["d"])]
+           eq_refl eq_refl).
+Qed.
+
+(* Covered: alpha whose first letter is not a roman digit, running
+   through `l`, which is one. *)
+Example alpha_from_e_items_ok :
+  items_ok (MOrd "e" RightPeriod)
+    [(MOrd "e" RightPeriod, ["a"]); (MOrd "l" RightPeriod, ["b"])] = true.
+Proof. reflexivity. Qed.
+
+(* Not covered, and this is the record of where the boundary sits: the
+   parser reads these two lines as one roman list, and `items_ok` cannot
+   say so. *)
+Example roman_from_one_items_ok_fails :
+  items_ok (MOrd "i" RightPeriod)
+    [(MOrd "i" RightPeriod, ["a"]); (MOrd "ii" RightPeriod, ["b"])] = false.
+Proof. reflexivity. Qed.
+
+Example roman_from_one_parses_anyway :
+  parse_lines ["i. a"; "ii. b"] (PPara [])
+  = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1) Tight
+           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+Proof. reflexivity. Qed.
 
 (* The generalization, exercised.  `*` and `+` are separate list styles in
    djot, and each gets the uniformity theorem by instantiation — no new

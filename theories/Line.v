@@ -52,13 +52,6 @@ Definition lstyle_eqb (a b : lstyle) : bool :=
   | _, _ => false
   end.
 
-Fixpoint styles_eqb (a b : list lstyle) : bool :=
-  match a, b with
-  | [], [] => true
-  | x :: a', y :: b' => (lstyle_eqb x y && styles_eqb a' b')%bool
-  | _, _ => false
-  end.
-
 Inductive line_kind : Type :=
   | KBlank                 (* only whitespace *)
   | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)
@@ -1336,14 +1329,6 @@ Proof.
   - apply andb_true_iff in H as [Hn Hd].
     destruct n, n'; try discriminate; destruct d, d'; try discriminate;
       reflexivity.
-Qed.
-
-Lemma styles_eqb_eq : forall a b, styles_eqb a b = true -> a = b.
-Proof.
-  induction a as [|x a IH]; intros [|y b] H; cbn [styles_eqb] in H;
-    try discriminate; [reflexivity|].
-  apply andb_true_iff in H as [Hx Hb].
-  rewrite (lstyle_eqb_eq x y Hx), (IH b Hb). reflexivity.
 Qed.
 
 Lemma mk_cont_length : forall m, String.length (mk_cont m) = mk_pad m.
