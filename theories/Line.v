@@ -1359,5 +1359,47 @@ Proof.
       cbn [String.length]; lia.
 Qed.
 
+(* The opener and the pad are one line's worth of text: newline-free and
+   nonempty.  What the roundtrip's `lines_ok` asks of every prefix it
+   puts on an item, and the only place a marker's *characters* (rather
+   than its width or its styles) are constrained. *)
+Lemma mk_open_nonempty : forall m, marker_ok m = true -> mk_open m <> EmptyString.
+Proof.
+  intros m Hm. pose proof (mk_pad_pos m Hm) as Hpos. unfold mk_pad in Hpos.
+  destruct (mk_open m); [cbn in Hpos; lia | discriminate].
+Qed.
+
+Lemma mk_cont_nonempty : forall m, marker_ok m = true -> mk_cont m <> EmptyString.
+Proof.
+  intros m Hm. pose proof (mk_pad_pos m Hm) as Hpos.
+  unfold mk_cont. destruct (mk_pad m); [lia | discriminate].
+Qed.
+
+Lemma blanks_no_nl : forall n, no_nl (blanks n) = true.
+Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks no_nl]. exact IH. Qed.
+
+Lemma mk_cont_no_nl : forall m, no_nl (mk_cont m) = true.
+Proof. intros m. unfold mk_cont. apply blanks_no_nl. Qed.
+
+Lemma is_alnum_no_nl : forall c, is_alnum c = true -> negb (Ascii.eqb c "010") = true.
+Proof.
+  intros c H. destruct (Ascii.eqb c "010") eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. discriminate H.
+Qed.
+
+Lemma mk_open_no_nl : forall m, marker_ok m = true -> no_nl (mk_open m) = true.
+Proof.
+  intros m Hm. destruct m as [c|core d].
+  - cbn [marker_ok] in Hm.
+    apply is_bullet_cases in Hm as [E|[E|E]]; rewrite E; reflexivity.
+  - cbn [marker_ok] in Hm.
+    apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [_ Halnum].
+    assert (Hcore : no_nl core = true).
+    { clear d. induction core as [|c rest IH]; [reflexivity|].
+      cbn [str_forallb] in Halnum. apply andb_true_iff in Halnum as [Hc Hrest].
+      cbn [no_nl]. rewrite (is_alnum_no_nl c Hc). cbn [andb]. apply IH, Hrest. }
+    destruct d; cbn [mk_open]; rewrite ?no_nl_append, Hcore; reflexivity.
+Qed.
+
 Lemma indent_of_bullet_open : forall l, indent_of (bullet_open ++ l) = 0.
 Proof. reflexivity. Qed.

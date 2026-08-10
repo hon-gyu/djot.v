@@ -4273,6 +4273,140 @@ Proof.
   cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
 Qed.
 
+(* The same, with the list closed by a following line rather than by the
+   end of the input.  The two endings are `list_uniformity`'s and
+   `list_uniformity_tail`'s; everything between them is shared. *)
+Theorem ordered_decimal_uniformity_tail :
+  forall d start sp lss next tail,
+    lss <> [] ->
+    forallb (item_ok (dec_marker d start)) lss = true ->
+    classify next <> KBlank ->
+    (forall a b c, classify next <> KList a b c) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines (dec_items d start lss))
+                 ++ EmptyString :: next :: tail)%list (PPara [])
+    = mk (OrderedList (OLAttrs Decimal d start) (list_spacing_of sp lss)
+            (map (fun L => parse_lines L (PPara [])) lss))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros d start sp lss next tail Hne Hok Hnb Hnl Hindent.
+  destruct lss as [|L0 rest]; [congruence|].
+  pose proof (items_ok_dec_items d start start (L0 :: rest) Hok) as Hio.
+  cbn [dec_items] in Hio |- *.
+  rewrite (list_uniformity_tail (dec_marker d start) sp L0
+             (dec_items d (S start) rest) next tail
+             (dec_marker_ok d start) Hio Hnb Hnl Hindent).
+  rewrite marker_list_dec.
+  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
+Qed.
+
+(*
+The list flavours the canonical rendering produces
+--------------------------------------------------
+
+A canonical list is a bullet list or a decimal ordered list, and the two
+differ only in the markers their items carry: one repeated `-`, or
+consecutive numerals from a start.  Naming that difference once is what
+lets the roundtrip keep a single list case.  `ck_items` says which
+markers the items get, `ck_first` names the marker `item_ok` is asked
+for, `ck_block` the block the list closes to, and `ck_uniformity` is the
+one theorem the block layer consumes.
+
+Roman and alpha are absent on purpose.  `canon.mjs` (see
+.project/260810.ordered-lists.md) found alpha lists that do not survive
+their own canonical rendering (the letters that are also roman digits,
+and the wrap past `z`), so they carry a side condition decimal does not,
+and admitting them here would put that condition on every list.
+*)
+Inductive list_kind : Type :=
+  | LKBullet
+  | LKDecimal (d : ordered_list_delim) (start : nat).
+
+Definition ck_first (k : list_kind) : marker :=
+  match k with
+  | LKBullet => bullet
+  | LKDecimal d start => dec_marker d start
+  end.
+
+Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
+  match k with
+  | LKBullet => same_marker bullet lss
+  | LKDecimal d start => dec_items d start lss
+  end.
+
+Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
+  : block :=
+  match k with
+  | LKBullet => BulletList sp items
+  | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp items
+  end.
+
+Lemma ck_items_lines :
+  forall k lss, map snd (ck_items k lss) = lss.
+Proof.
+  intros [|d start] lss; [apply map_snd_same_marker | apply map_snd_dec_items].
+Qed.
+
+Lemma ck_items_markers_ok :
+  forall k lss, forallb (fun it => marker_ok (fst it)) (ck_items k lss) = true.
+Proof.
+  intros [|d start] lss.
+  - unfold ck_items, same_marker.
+    induction lss as [|L rest IH]; [reflexivity|].
+    cbn [map forallb fst]. rewrite bullet_ok. exact IH.
+  - cbn [ck_items]. revert start.
+    induction lss as [|L rest IH]; intros start; [reflexivity|].
+    cbn [dec_items forallb fst]. rewrite dec_marker_ok. apply IH.
+Qed.
+
+Lemma ck_lines_nonempty :
+  forall k lss, lss <> [] -> map litem_lines (ck_items k lss) <> [].
+Proof.
+  intros k lss H Hnil. apply H. rewrite <- (ck_items_lines k lss).
+  destruct (ck_items k lss); [reflexivity | discriminate Hnil].
+Qed.
+
+(** Uniformity at either flavour: the rendering of a list whose items are
+    `lss` parses back to the list its kind names, with the items' lines
+    parsed at top level and the spacing read off those same lines. *)
+Theorem ck_uniformity :
+  forall k sp lss,
+    lss <> [] ->
+    forallb (item_ok (ck_first k)) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (ck_items k lss))) (PPara [])
+    = [mk (ck_block k (list_spacing_of sp lss)
+             (map (fun L => parse_lines L (PPara [])) lss))].
+Proof.
+  intros [|d start] sp lss Hne Hok.
+  - cbn [ck_items ck_block ck_first] in Hok |- *.
+    rewrite map_litem_lines_same_marker.
+    exact (list_uniformity_same bullet sp lss bullet_ok Hne Hok).
+  - exact (ordered_decimal_uniformity d start sp lss Hne Hok).
+Qed.
+
+(** The same with the list closed by a following line. *)
+Theorem ck_uniformity_tail :
+  forall k sp lss next tail,
+    lss <> [] ->
+    forallb (item_ok (ck_first k)) lss = true ->
+    classify next <> KBlank ->
+    (forall a b c, classify next <> KList a b c) ->
+    indent_of next = 0 ->
+    parse_lines (list_lines sp (map litem_lines (ck_items k lss))
+                 ++ EmptyString :: next :: tail)%list (PPara [])
+    = mk (ck_block k (list_spacing_of sp lss)
+            (map (fun L => parse_lines L (PPara [])) lss))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros [|d start] sp lss next tail Hne Hok Hnb Hnl Hindent.
+  - cbn [ck_items ck_block ck_first] in Hok |- *.
+    rewrite map_litem_lines_same_marker.
+    exact (list_uniformity_tail_same bullet sp lss next tail bullet_ok Hne Hok
+             Hnb Hnl Hindent).
+  - exact (ordered_decimal_uniformity_tail d start sp lss next tail
+             Hne Hok Hnb Hnl Hindent).
+Qed.
+
 (* The generalization, exercised.  `*` and `+` are separate list styles in
    djot, and each gets the uniformity theorem by instantiation — no new
    proof, which is the whole point of the section above.  If a future

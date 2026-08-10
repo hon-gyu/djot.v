@@ -48,10 +48,10 @@ Definition leaves : list cblock :=
    after a paragraph" shapes are generated; keeping the set fixed is
    what holds the enumeration linear. *)
 Definition tails : list cblock :=
-  [ CPara ["t"] ; CList Tight [[CPara ["n"]]] ].
+  [ CPara ["t"] ; CList LKBullet Tight [[CPara ["n"]]] ].
 
 Definition item_tails : list (list cblock) :=
-  [ [CPara ["t"]] ; [CList Tight [[CPara ["n"]]]] ].
+  [ [CPara ["t"]] ; [CList LKBullet Tight [[CPara ["n"]]]] ].
 
 (*
 The enumeration
@@ -69,7 +69,7 @@ Definition itemlists (items : list (list cblock)) : list (list (list cblock)) :=
 Definition containers (pool : list cblock) : list cblock :=
   (map CQuote (seqs pool)
    ++ map CDiv (seqs pool)
-   ++ flat_map (fun its => [CList Tight its; CList Loose its])
+   ++ flat_map (fun its => [CList LKBullet Tight its; CList LKBullet Loose its])
         (itemlists (seqs pool)))%list.
 
 (* Depth counts container nesting: `enum_cblock 3` contains a list inside
@@ -103,6 +103,48 @@ Proof. vm_compute. reflexivity. Qed.
    was paying it.  `make deep` runs it. *)
 
 (*
+Ordered lists
+-------------
+
+Enumerated separately rather than folded into `containers`, which would
+multiply the whole depth-2 pool by the number of kinds for no new
+*shape* coverage: a list's kind changes its markers, not what its items
+may contain.  What is new is the markers themselves, so the starts below
+are chosen to cross a width boundary: at start 9 the second item's
+marker is `10.` and its continuation pad is one wider than the first's,
+which is the case a single marker per list could not express.
+*)
+Definition ordered_kinds : list list_kind :=
+  [ LKDecimal RightPeriod 1
+  ; LKDecimal RightPeriod 9
+  ; LKDecimal RightParen 3
+  ; LKDecimal LeftRightParen 99 ].
+
+Definition ordered_pool : list cblock :=
+  flat_map (fun k => flat_map (fun its => [CList k Tight its; CList k Loose its])
+                       (itemlists (seqs leaves))) ordered_kinds.
+
+Definition ordered_accepted : list cblock := filter cb_ok ordered_pool.
+
+Example gen_roundtrip_ordered :
+  map rt_lhs ordered_accepted = map rt_rhs ordered_accepted.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Not vacuous, and the width boundary really is crossed: the second
+   item's pad is four spaces where the first's is three. *)
+Example ordered_renumbering_lines :
+  cb_lines (CList (LKDecimal RightPeriod 9) Tight
+              [[CPara ["a"; "a2"]]; [CPara ["b"; "b2"]]])
+  = ["9. a"; "   a2"; "10. b"; "    b2"].
+Proof. reflexivity. Qed.
+
+Example ordered_renumbering_roundtrips :
+  let c := CList (LKDecimal RightPeriod 9) Tight
+             [[CPara ["a"; "a2"]]; [CPara ["b"; "b2"]]] in
+  cb_ok c = true /\ rt_lhs c = rt_rhs c.
+Proof. split; reflexivity. Qed.
+
+(*
 Boundary records
 ================
 *)
@@ -119,7 +161,7 @@ Boundary records
    of a list do not count" reaching one level out.  `Tight` is the
    spelling that roundtrips. *)
 Example nested_loose_promotes_outer :
-  rt_lhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
+  rt_lhs (CList LKBullet Tight [[CList LKBullet Loose [[CPara ["a"]; CPara ["t"]]]]])
   = [ mk (BulletList Tight
             [[ mk (BulletList Loose
                      [[ mk (Para [mk (Str "a")])
@@ -127,15 +169,15 @@ Example nested_loose_promotes_outer :
 Proof. reflexivity. Qed.
 
 Example nested_loose_outer_tight_roundtrips :
-  rt_lhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]])
-  = rt_rhs (CList Tight [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]).
+  rt_lhs (CList LKBullet Tight [[CList LKBullet Loose [[CPara ["a"]; CPara ["t"]]]]])
+  = rt_rhs (CList LKBullet Tight [[CList LKBullet Loose [[CPara ["a"]; CPara ["t"]]]]]).
 Proof. reflexivity. Qed.
 
 (* And the `Loose` spelling of the same tree is rejected, because no
    source text denotes it: the rendering above is the only one, and it
    parses back tight. *)
 Example nested_loose_outer_loose_rejected :
-  cb_ok (CList Loose [[CList Loose [[CPara ["a"]; CPara ["t"]]]]]) = false.
+  cb_ok (CList LKBullet Loose [[CList LKBullet Loose [[CPara ["a"]; CPara ["t"]]]]]) = false.
 Proof. reflexivity. Qed.
 
 (*
@@ -158,7 +200,7 @@ Fixpoint no_fence (cb : cblock) : bool :=
   match cb with
   | CPara _ | CThematic | CHeading _ _ => true
   | CCode _ _ => false
-  | CList _ items => forallb (forallb no_fence) items
+  | CList _ _ items => forallb (forallb no_fence) items
   | CQuote inner | CDiv inner => go inner
   end.
 
@@ -181,7 +223,7 @@ Proof. vm_compute. reflexivity. Qed.
 (* What the restated `cb_ok` bought: the fragment now contains lists
    whose items are themselves lists. *)
 Example nested_list_accepted :
-  cb_ok (CList Tight [[CList Tight [[CPara ["a"]]]]]) = true.
+  cb_ok (CList LKBullet Tight [[CList LKBullet Tight [[CPara ["a"]]]]]) = true.
 Proof. reflexivity. Qed.
 
 (* The counts are (68, 888, 11368); divs took them from (53, 593, 6437),
@@ -227,7 +269,7 @@ denotes, the `Loose` tree is unreachable and `cb_ok` rejects it, and the
 `Tight` rendering carries no separator blank at all.
 *)
 Definition end_blank_shape (sp : list_spacing) : cblock :=
-  CList sp [ [CList Tight [ [CPara ["b"]] ]] ; [CPara ["d"]] ].
+  CList LKBullet sp [ [CList LKBullet Tight [ [CPara ["b"]] ]] ; [CPara ["d"]] ].
 
 Example nested_list_end_blank_tight :
   rt_lhs (end_blank_shape Tight)

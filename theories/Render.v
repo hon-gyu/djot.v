@@ -56,10 +56,11 @@ Canonical blocks
    quote by the canonical blocks inside it.  One constructor per block
    construct the roundtrip covers.
 
-   The list-valued constructor makes `cblock` a nested inductive, so the
-   three projections below use hand-inlined fixpoints (Rocq rejects the
-   mutual-recursion spelling) and each gets a `_quote` lemma recovering
-   the `map`/`forallb` form the proofs actually use. *)
+   The list-valued constructor makes `cblock` a nested inductive.  A
+   quote's or div's contents recurse through `map` directly, but a list's
+   list of *items* needs a hand-inlined fixpoint (Rocq rejects the mutual
+   recursion), so each projection carries one and each gets an equation
+   lemma recovering the `map`/`forallb` form the proofs use. *)
 Inductive cblock : Type :=
   | CPara (ls : list string)
   | CThematic
@@ -71,143 +72,79 @@ Inductive cblock : Type :=
      would close it early is excluded by `cb_ok` rather than escaped by
      growing the fence. *)
   | CDiv (inner : list cblock)
-  | CList (sp : list_spacing) (items : list (list cblock)).
+  (* `list_kind` (Parser.v) is the bullet/decimal choice; it carries the
+     delimiter and start of an ordered list, which are the only data the
+     markers depend on. *)
+  | CList (k : list_kind) (sp : list_spacing) (items : list (list cblock)).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
-  let quoted :=
-    fix go (cs : list cblock) : list string :=
-      match cs with
-      | [] => []
-      | [c] => map quote_line (cb_lines c)
-      | c :: rest => (map quote_line (cb_lines c) ++ quote_open :: go rest)%list
-      end in
-  let divided :=
-    fix godiv (cs : list cblock) : list string :=
-      match cs with
-      | [] => []
-      | [c] => cb_lines c
-      | c :: rest => (cb_lines c ++ EmptyString :: godiv rest)%list
-      end in
-  let bulleted :=
-    fix golist (sp : list_spacing) (iss : list (list cblock)) : list string :=
+  let itemss :=
+    fix goitems (iss : list (list cblock)) : list (list string) :=
       match iss with
       | [] => []
-      | [it] => indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
-      | it :: rest =>
-          (indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
-           ++ (match sp with Loose => [EmptyString] | Tight => [] end)
-           ++ golist sp rest)%list
+      | it :: rest => sep_lines (map cb_lines it) :: goitems rest
       end in
   match cb with
   | CPara ls => ls
   | CThematic => [thematic_line]
   | CCode info content => (code_open info :: content ++ [code_close])%list
   | CHeading lvl ls => map (heading_line lvl) ls
-  | CQuote inner => quoted inner
-  | CDiv inner => (div_fence :: divided inner ++ [div_fence])%list
-  | CList sp items => bulleted sp items
+  | CQuote inner => map quote_line (sep_lines (map cb_lines inner))
+  | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
+  (* Each item's own lines, then the markers its kind supplies and the
+     layout its spacing supplies: `Parser.ck_items` and
+     `Parser.list_lines`, which is exactly the shape `ck_uniformity`
+     inverts.  A bullet list's marker is the same on every item; a
+     decimal list's is not, which is why the markers go on here rather
+     than inside the per-item map. *)
+  | CList k sp items =>
+      list_lines sp (map litem_lines (ck_items k (itemss items)))
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
    then: cb_lines, rendered and reparsed, gives back cb_ast. *)
 Fixpoint cb_ast (cb : cblock) : node block :=
-  let asts :=
-    fix go (cs : list cblock) : blocks :=
-      match cs with [] => [] | c :: rest => cb_ast c :: go rest end in
   let itemsof :=
     fix goitems (iss : list (list cblock)) : list blocks :=
-      match iss with [] => [] | it :: rest => asts it :: goitems rest end in
+      match iss with [] => [] | it :: rest => map cb_ast it :: goitems rest end in
   match cb with
   | CPara ls => mk (Para (para_inlines ls))
   | CThematic => mk ThematicBreak
   | CCode info content => fence_block (Fence "`"%char 3 info) content
   | CHeading lvl ls => mk (Heading lvl (para_inlines ls))
-  | CQuote inner => mk (BlockQuote (asts inner))
-  | CDiv inner => mk (Div (asts inner))
-  | CList sp items => mk (BulletList sp (itemsof items))
+  | CQuote inner => mk (BlockQuote (map cb_ast inner))
+  | CDiv inner => mk (Div (map cb_ast inner))
+  | CList k sp items => mk (ck_block k sp (itemsof items))
   end.
 
-(* The hand-inlined `asts` above is definitionally `map cb_ast`, one
-   fixpoint-unfolding step at a time; spelled out once so the list-of-
-   lists lemmas below don't have to re-derive it. *)
-Lemma cb_asts_eq :
-  forall cs,
-    (fix go (cs : list cblock) : blocks :=
-       match cs with [] => [] | c :: rest => cb_ast c :: go rest end) cs
-    = map cb_ast cs.
-Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
-
-(* Peel a quote back open, so the inlined fixpoint above has a name the
-   telescoping lemma can mention. *)
-Definition unquote (n : node block) : blocks :=
-  match node_contents n with BlockQuote bs => bs | _ => [] end.
-
+(* The container equations.  All hold by conversion: an inlined
+   `fix goitems` and `map` applied to the same body are the same term to
+   the kernel, so these name the `map` form rather than proving it. *)
 Lemma cb_ast_quote :
   forall inner, cb_ast (CQuote inner) = mk (BlockQuote (map cb_ast inner)).
-Proof.
-  assert (H : forall cs, unquote (cb_ast (CQuote cs)) = map cb_ast cs).
-  { induction cs as [|c rest IH]; [reflexivity|].
-    change (unquote (cb_ast (CQuote (c :: rest))))
-      with (cb_ast c :: unquote (cb_ast (CQuote rest))).
-    rewrite IH. reflexivity. }
-  intros inner.
-  change (cb_ast (CQuote inner))
-    with (mk (BlockQuote (unquote (cb_ast (CQuote inner))))).
-  rewrite H. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_lines_quote :
   forall inner,
     cb_lines (CQuote inner) = map quote_line (sep_lines (map cb_lines inner)).
-Proof.
-  induction inner as [|c rest IH]; [reflexivity|].
-  destruct rest as [|c2 rest'].
-  - reflexivity.
-  - change (cb_lines (CQuote (c :: c2 :: rest')))
-      with (map quote_line (cb_lines c)
-            ++ quote_open :: cb_lines (CQuote (c2 :: rest')))%list.
-    rewrite IH.
-    cbn [map sep_lines]. rewrite map_app. cbn [map].
-    rewrite quote_line_empty. reflexivity.
-Qed.
-
-(* Peel a list back open, the same trick as unquote. *)
-Definition unlist (n : node block) : list (list (node block)) :=
-  match node_contents n with BulletList _ items => items | _ => [] end.
+Proof. reflexivity. Qed.
 
 Lemma cb_ast_list :
-  forall sp items,
-    cb_ast (CList sp items) = mk (BulletList sp (map (map cb_ast) items)).
-Proof.
-  assert (H : forall sp0 iss, unlist (cb_ast (CList sp0 iss)) = map (map cb_ast) iss).
-  { intros sp0 iss. induction iss as [|it rest IH]; [reflexivity|].
-    change (unlist (cb_ast (CList sp0 (it :: rest))))
-      with ((fix go (cs : list cblock) : blocks :=
-               match cs with [] => [] | c :: r => cb_ast c :: go r end) it
-            :: unlist (cb_ast (CList sp0 rest))).
-    rewrite cb_asts_eq, IH. reflexivity. }
-  intros sp items.
-  change (cb_ast (CList sp items))
-    with (mk (BulletList sp (unlist (cb_ast (CList sp items))))).
-  rewrite H. reflexivity.
-Qed.
+  forall k sp items,
+    cb_ast (CList k sp items) = mk (ck_block k sp (map (map cb_ast) items)).
+Proof. reflexivity. Qed.
+
+(* An item's own lines, before the marker and the continuation pad go on
+   -- what the parser reparses the item as, by `Parser.ck_uniformity`. *)
+Definition item_lines (it : list cblock) : list string :=
+  sep_lines (map cb_lines it).
 
 Lemma cb_lines_list :
-  forall sp items,
-    cb_lines (CList sp items)
-    = list_lines sp (map (fun it => indent_lines bullet_open bullet_cont
-                                       (sep_lines (map cb_lines it))) items).
-Proof.
-  intros sp items. induction items as [|it rest IH]; [reflexivity|].
-  destruct rest as [|it2 rest'].
-  - reflexivity.
-  - change (cb_lines (CList sp (it :: it2 :: rest')))
-      with (indent_lines bullet_open bullet_cont (sep_lines (map cb_lines it))
-            ++ (match sp with Loose => [EmptyString] | Tight => [] end)
-            ++ cb_lines (CList sp (it2 :: rest')))%list.
-    rewrite IH. cbn [map list_lines]. reflexivity.
-Qed.
+  forall k sp items,
+    cb_lines (CList k sp items)
+    = list_lines sp (map litem_lines (ck_items k (map item_lines items))).
+Proof. reflexivity. Qed.
 
 (* Rocq's generated cblock_ind does not descend into CQuote's list or
    CList's list of lists, so every proof over cblocks needs this
@@ -223,7 +160,7 @@ Definition cblock_ind2
   (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
   (hdiv : forall inner, Q inner -> P (CDiv inner))
-  (hlist : forall sp items, R items -> P (CList sp items))
+  (hlist : forall k sp items, R items -> P (CList k sp items))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -243,8 +180,8 @@ Definition cblock_ind2
     | CHeading lvl ls => hhead lvl ls
     | CQuote inner => hquote inner (golist inner)
     | CDiv inner => hdiv inner (golist inner)
-    | CList sp items =>
-        hlist sp items
+    | CList k sp items =>
+        hlist k sp items
           ((fix golistlist (iss : list (list cblock)) : R iss :=
               match iss with
               | [] => hrnil
@@ -306,11 +243,6 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
 
    `Parser.lines_loose` is the rule itself, and it is what
    `Parser.list_uniformity` proves the parser implements. *)
-(* An item's own lines, before the marker and the continuation pad go on
-   -- what the parser reparses the item as, by Parser.list_uniformity. *)
-Definition item_lines (it : list cblock) : list string :=
-  sep_lines (map cb_lines it).
-
 Definition item_forces_loose (item : list cblock) : bool :=
   item_loose (item_lines item).
 
@@ -327,7 +259,7 @@ Definition items_seps_loosen (items : list (list cblock)) : bool :=
   seps_loosen (map item_lines items).
 
 Definition is_clist (cb : cblock) : bool :=
-  match cb with CList _ _ => true | _ => false end.
+  match cb with CList _ _ _ => true | _ => false end.
 
 (** Two adjacent canonical lists cannot roundtrip as two AST nodes: the
     separating blank makes the parser continue the first list as loose.
@@ -348,7 +280,7 @@ Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
    pairs 1-2, 3-4, ... and miss the offending pair in the third example.
    Three blocks is the shortest input that tells the two apart. *)
 Section NoAdjacentListsTests.
-  Let l : cblock := CList Tight [[CPara ["a"]]].
+  Let l : cblock := CList LKBullet Tight [[CPara ["a"]]].
   Let p : cblock := CPara ["p"].
 
   Example no_adjacent_lists_pair : no_adjacent_lists [l; l] = false.
@@ -430,9 +362,9 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CDiv inner =>
       divs_ok inner && no_adjacent_lists inner
       && div_content_ok (sep_lines (map cb_lines inner))
-  | CList sp items =>
+  | CList k sp items =>
       nonempty items && items_ok items
-      && forallb (fun it => item_ok bullet (item_lines it)) items
+      && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
       && forallb no_adjacent_lists items
       && match sp with
          | Tight => negb (items_force_loose items)
@@ -491,54 +423,25 @@ Lemma cb_ok_div :
        && div_content_ok (sep_lines (map cb_lines inner)))%bool.
 Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
-Definition undiv (n : node block) : blocks :=
-  match node_contents n with Div bs => bs | _ => [] end.
-
 Lemma cb_ast_div :
   forall inner, cb_ast (CDiv inner) = mk (Div (map cb_ast inner)).
-Proof.
-  assert (H : forall cs, undiv (cb_ast (CDiv cs)) = map cb_ast cs).
-  { induction cs as [|c rest IH]; [reflexivity|].
-    change (undiv (cb_ast (CDiv (c :: rest))))
-      with (cb_ast c :: undiv (cb_ast (CDiv rest))).
-    rewrite IH. reflexivity. }
-  intros inner.
-  change (cb_ast (CDiv inner))
-    with (mk (Div (undiv (cb_ast (CDiv inner))))).
-  rewrite H. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_lines_div :
   forall inner,
     cb_lines (CDiv inner)
     = (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list.
-Proof.
-  intros inner. cbn [cb_lines].
-  assert (H : forall cs,
-            (fix godiv (cs : list cblock) : list string :=
-               match cs with
-               | [] => []
-               | [c] => cb_lines c
-               | c :: rest => (cb_lines c ++ EmptyString :: godiv rest)%list
-               end) cs
-            = sep_lines (map cb_lines cs)).
-  { induction cs as [|c rest IH]; [reflexivity|].
-    destruct rest as [|c2 rest']; [reflexivity|].
-    transitivity (cb_lines c ++ EmptyString
-                  :: sep_lines (map cb_lines (c2 :: rest')))%list;
-      [rewrite <- IH; reflexivity | reflexivity]. }
-  rewrite H. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Definition cblocks_ok (cbs : list cblock) : bool :=
   (forallb cb_ok cbs && no_adjacent_lists cbs)%bool.
 
 Lemma no_adjacent_after_list :
-  forall sp items next rest,
-    no_adjacent_lists (CList sp items :: next :: rest) = true ->
+  forall k sp items next rest,
+    no_adjacent_lists (CList k sp items :: next :: rest) = true ->
     is_clist next = false.
 Proof.
-  intros sp items next rest H. cbn [no_adjacent_lists is_clist] in H.
+  intros k sp items next rest H. cbn [no_adjacent_lists is_clist] in H.
   apply andb_true_iff in H as [Hnext _].
   apply negb_true_iff in Hnext. destruct (is_clist next); [discriminate|].
   reflexivity.
@@ -572,18 +475,18 @@ Proof.
 Qed.
 
 Lemma cb_ok_list :
-  forall sp items,
-    cb_ok (CList sp items)
+  forall k sp items,
+    cb_ok (CList k sp items)
     = (nonempty items
        && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
-       && forallb (fun it => item_ok bullet (item_lines it)) items
+       && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
        && forallb no_adjacent_lists items
        && match sp with
           | Tight => negb (items_force_loose items)
           | Loose => items_seps_loosen items || items_force_loose items
           end)%bool.
 Proof.
-  intros sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
+  intros k sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
 Qed.
 
 (*
@@ -608,36 +511,20 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
    quote's rendering is its contents' lines with a prefix on each, which
    a string-valued renderer could only express by re-splitting.
 
-   Same hand-inlined fixpoint as cb_lines, and for the same reason. *)
+   The list cases mirror `cb_lines`: each item's own lines first, then
+   `Parser.ck_items` puts the markers on.  Only decimal ordered lists are
+   rendered: the alpha and roman styles need `formatNumber` and carry a
+   canonicality condition decimal does not (see
+   .project/260810.ordered-lists.md), so they fall through to the same
+   TODO the unimplemented constructors do. *)
 Fixpoint render_block_lines (b : block) : list string :=
-  let quoted :=
-    fix go (ns : list (node block)) : list string :=
-      match ns with
-      | [] => []
-      | [Node _ _ x] => map quote_line (render_block_lines x)
-      | Node _ _ x :: rest =>
-          (map quote_line (render_block_lines x) ++ quote_open :: go rest)%list
-      end in
-  let divided :=
-    fix godiv (ns : list (node block)) : list string :=
-      match ns with
-      | [] => []
-      | [Node _ _ x] => render_block_lines x
-      | Node _ _ x :: rest =>
-          (render_block_lines x ++ EmptyString :: godiv rest)%list
-      end in
-  let bulleted :=
-    fix goitems (sp : list_spacing) (items : list blocks) : list string :=
+  let itemss :=
+    fix goitems (items : list blocks) : list (list string) :=
       match items with
       | [] => []
-      | [it] =>
-          indent_lines bullet_open bullet_cont
-            (sep_lines (map (fun n => render_block_lines (node_contents n)) it))
       | it :: rest =>
-          (indent_lines bullet_open bullet_cont
-             (sep_lines (map (fun n => render_block_lines (node_contents n)) it))
-           ++ (match sp with Loose => [EmptyString] | Tight => [] end)
-           ++ goitems sp rest)%list
+          sep_lines (map (fun n => render_block_lines (node_contents n)) it)
+          :: goitems rest
       end in
   match b with
   | Para ils => inline_lines ils EmptyString
@@ -647,9 +534,23 @@ Fixpoint render_block_lines (b : block) : list string :=
       (code_open lang :: split_lines text ++ [code_close])%list
   | RawBlock fmt text =>
       (code_open ("=" ++ fmt) :: split_lines text ++ [code_close])%list
-  | BlockQuote bs => quoted bs
-  | Div bs => (div_fence :: divided bs ++ [div_fence])%list
-  | BulletList sp items => bulleted sp items
+  | BlockQuote bs =>
+      map quote_line
+        (sep_lines (map (fun n => render_block_lines (node_contents n)) bs))
+  | Div bs =>
+      (div_fence
+       :: sep_lines (map (fun n => render_block_lines (node_contents n)) bs)
+       ++ [div_fence])%list
+  | BulletList sp items =>
+      list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+  | OrderedList oa sp items =>
+      match ol_style oa with
+      | Decimal =>
+          list_lines sp
+            (map litem_lines
+               (ck_items (LKDecimal (ol_delim oa) (ol_start oa)) (itemss items)))
+      | _ => []
+      end
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
@@ -660,57 +561,37 @@ Lemma render_block_div :
   forall bs,
     render_block_lines (Div bs)
     = (div_fence :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
-Proof.
-  intros bs. cbn [render_block_lines].
-  assert (H : forall ns,
-            (fix godiv (ns : list (node block)) : list string :=
-               match ns with
-               | [] => []
-               | [Node _ _ x] => render_block_lines x
-               | Node _ _ x :: rest =>
-                   (render_block_lines x ++ EmptyString :: godiv rest)%list
-               end) ns
-            = sep_lines (render_blocks_lines ns)).
-  { induction ns as [|n rest IH]; [reflexivity|].
-    destruct n as [p a x]. destruct rest as [|n2 rest']; [reflexivity|].
-    transitivity (render_block_lines x ++ EmptyString
-                  :: sep_lines (render_blocks_lines (n2 :: rest')))%list;
-      [rewrite <- IH; reflexivity | reflexivity]. }
-  rewrite H. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Lemma render_block_quote :
   forall bs,
     render_block_lines (BlockQuote bs)
     = map quote_line (sep_lines (render_blocks_lines bs)).
-Proof.
-  induction bs as [|n rest IH]; [reflexivity|].
-  destruct n as [p a x]. destruct rest as [|n2 rest'].
-  - reflexivity.
-  - change (render_block_lines (BlockQuote (Node p a x :: n2 :: rest')))
-      with (map quote_line (render_block_lines x)
-            ++ quote_open :: render_block_lines (BlockQuote (n2 :: rest')))%list.
-    rewrite IH.
-    unfold render_blocks_lines. cbn [map sep_lines].
-    rewrite map_app. cbn [map]. rewrite quote_line_empty. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
-Lemma render_bullet_list :
-  forall sp items,
-    render_block_lines (BulletList sp items)
+(* The list equation at either kind, which is what `cb_lines_list` has to
+   be matched against.  `ck_block` picks the constructor and `ck_items`
+   the markers, so the two flavours share one statement. *)
+Lemma render_ck_list :
+  forall k sp items,
+    render_block_lines (ck_block k sp items)
     = list_lines sp
-        (map (fun it => indent_lines bullet_open bullet_cont
-                 (sep_lines (render_blocks_lines it))) items).
+        (map litem_lines
+           (ck_items k (map (fun it => sep_lines (render_blocks_lines it)) items))).
 Proof.
-  intros sp items. induction items as [|it rest IH]; [reflexivity|].
-  destruct rest as [|it2 rest'].
-  - reflexivity.
-  - change (render_block_lines (BulletList sp (it :: it2 :: rest')))
-      with (indent_lines bullet_open bullet_cont
-              (sep_lines (render_blocks_lines it))
-            ++ (match sp with Loose => [EmptyString] | Tight => [] end)
-            ++ render_block_lines (BulletList sp (it2 :: rest')))%list.
-    rewrite IH. cbn [map list_lines]. reflexivity.
+  assert (H : forall items,
+            (fix goitems (its : list blocks) : list (list string) :=
+               match its with
+               | [] => []
+               | it :: rest =>
+                   sep_lines (map (fun n => render_block_lines (node_contents n)) it)
+                   :: goitems rest
+               end) items
+            = map (fun it => sep_lines (render_blocks_lines it)) items).
+  { induction items as [|it rest IH]; [reflexivity|].
+    cbn [map]. rewrite IH. reflexivity. }
+  intros [|d start] sp items; cbn [ck_block render_block_lines ol_style ol_delim ol_start];
+    rewrite H; reflexivity.
 Qed.
 
 (* Blocks separated by a blank line — the separator the parser reads back
