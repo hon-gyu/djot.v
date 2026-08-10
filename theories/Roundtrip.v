@@ -1370,29 +1370,29 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    `d` are *both* roman digits, so `c. / d.` is still unresolved after
    its second marker and reads as roman from 100.  The last is the wrap:
    `z` leaves no 27th letter.  Measured in `check/Probe.v`. *)
-(* Excluded but *possible*, which is a different thing from the three
-   below and the reason it gets its own record.  `cb_ok` rejects an alpha
-   list from `c` or from `l` with three items, and yet the rendering
-   parses straight back: `c` and `d` are both roman digits, so the
-   candidate set survives two markers and `ck_ok`'s condition -- which
-   asks only that the *second* letter resolve it -- cannot see that `e.`
-   does.  Same for `l`, `m`, `n`.
+(* These were the boundary until the two-peel form landed: `cb_ok`
+   rejected them while their renderings round-tripped, and the example
+   here asserted both halves.  It is now an ordinary roundtrip, proved
+   through `roundtrip_blocks` rather than by computation, which is the
+   confirmation the old example existed to give.
 
-   These are the last cases ordered lists are missing, 12 of 312, and
-   there is no tier behind them: the roman digits are c d i l m v x and
-   their only consecutive runs are (3,4) and (12,13), never three.  A
-   two-peel `list_uniformity` would close them, and deleting this example
-   is what would confirm it. *)
-Example alpha_two_roman_digits_rejected_but_roundtrips :
-  let three := [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]] in
-  let from_c := CList (LKAlpha false RightPeriod 3) Tight three in
-  let from_l := CList (LKAlpha false RightPeriod 12) Tight three in
-  (cb_ok from_c, cb_ok from_l) = (false, false)
-  /\ cb_lines from_c = ["c. a"; "d. b"; "e. c"]
-  /\ cb_lines from_l = ["l. a"; "m. b"; "n. c"]
-  /\ parse_blocks (render_djot [cb_ast from_c]) = [cb_ast from_c]
-  /\ parse_blocks (render_djot [cb_ast from_l]) = [cb_ast from_l].
-Proof. repeat split; reflexivity. Qed.
+   `c` and `d` are both roman digits, so `c.` / `d.` leaves the candidate
+   set where it was and only `e.` settles it; same for `l`, `m`, `n`.
+   With these, every ordered start that can round-trip does. *)
+Example alpha_two_roman_digits_roundtrip :
+  let from_c := [CList (LKAlpha false RightPeriod 3) Tight
+                   [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+  let from_l := [CList (LKAlpha false RightPeriod 12) Tight
+                   [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+  render_djot (blocks_of_cblocks from_c)
+    = ("c. a" ++ nl ++ "d. b" ++ nl ++ "e. c")%string
+  /\ render_djot (blocks_of_cblocks from_l)
+    = ("l. a" ++ nl ++ "m. b" ++ nl ++ "n. c")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks from_c)) = blocks_of_cblocks from_c
+  /\ parse_blocks (render_djot (blocks_of_cblocks from_l)) = blocks_of_cblocks from_l.
+Proof.
+  repeat split; try reflexivity; apply roundtrip_blocks; reflexivity.
+Qed.
 
 (* Excluded and impossible.  Each of these three cannot round-trip at
    all, so no theorem will ever admit them. *)

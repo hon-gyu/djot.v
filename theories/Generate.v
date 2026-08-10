@@ -142,13 +142,30 @@ Definition ordered_kinds : list list_kind :=
      one-item spellings, so the enumeration and the filter together are
      what pin the boundary. *)
   ; LKAlpha false RightPeriod 9
-  ; LKAlpha true RightPeriod 4 ].
+  ; LKAlpha true RightPeriod 4
+  ].
 
 Definition ordered_pool : list cblock :=
   flat_map (fun k => flat_map (fun its => [CList k Tight its; CList k Loose its])
                        (itemlists (seqs leaves))) ordered_kinds.
 
-Definition ordered_accepted : list cblock := filter cb_ok ordered_pool.
+(* The doubly ambiguous openers need *three* items: `c.` then `d.` are
+   both roman digits, so only `e.` settles the list, and `cb_ok` rejects
+   the one- and two-item spellings.  `itemlists` tops out at two, so they
+   get their own pool rather than widening the shared one -- three items
+   everywhere would multiply every kind for no new shape. *)
+Definition ordered_kinds3 : list list_kind :=
+  [ LKAlpha false RightPeriod 3
+  ; LKAlpha false RightParen 12
+  ; LKAlpha true RightPeriod 3 ].
+
+Definition ordered_pool3 : list cblock :=
+  flat_map (fun k => flat_map (fun its => [CList k Tight its; CList k Loose its])
+                       (map (fun it => [it; it; it]) (seqs leaves)))
+           ordered_kinds3.
+
+Definition ordered_accepted : list cblock :=
+  filter cb_ok (ordered_pool ++ ordered_pool3)%list.
 
 Example gen_roundtrip_ordered :
   map rt_lhs ordered_accepted = map rt_rhs ordered_accepted.
