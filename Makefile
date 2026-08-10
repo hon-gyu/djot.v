@@ -1,4 +1,4 @@
-.PHONY: build test shape baseline generated deep oracles clean
+.PHONY: build test shape baseline generated deep probe oracles clean
 
 build:
 	dune build
@@ -34,6 +34,16 @@ deep: build
 	rocq c -R _build/default/theories DjotV check/Deep.v
 	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \
 	       check/.Deep.aux
+
+# falsify a candidate lemma before proving it: add a `Compute` to
+# check/Probe.v and run this.  ~0.5s.  Out of the dune build because
+# check/Probe.v matches on every `pstate` constructor, so a parser edit
+# should break `make probe` and not `dune build`.  The combinators live
+# in theories/Probe.v, which is Stdlib-only and does build.
+probe: build
+	rocq c -R _build/default/theories DjotV check/Probe.v
+	@rm -f check/Probe.vo check/Probe.vok check/Probe.vos check/Probe.glob \
+	       check/.Probe.aux
 
 oracles:
 	cd djot.js && npm install --no-audit --no-fund && npm run build

@@ -43,6 +43,15 @@ boundary than a paragraph of prose. (`pad_nested_list_unshifted` was such
 an example, and its deletion when the bug was fixed was the confirmation
 that the fix was real.)
 
+There is now a tool for the part of this that was awkward. The expensive
+step was never the computing, it was having to guess the input first, so
+`check/Probe.v` runs the guess over a curated pool of reachable states
+and line shapes: add a `Compute` and run `make probe` (~0.5s). Two rules
+for reading it. A `None` is not a proof, only "no counterexample in the
+pool". And for a conditional candidate use `guarded`, then read `t_pass`
+before anything else: a probe whose guard discarded every input reports a
+clean pass while having tested nothing.
+
 ## Probe the definitions a theorem already constrains, too
 
 **What happened.** Block attributes. `PAttr` was written recording the
