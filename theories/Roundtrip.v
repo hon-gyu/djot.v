@@ -1296,6 +1296,28 @@ Example quote_example_roundtrip :
   = blocks_of_cblocks quote_example.
 Proof. apply roundtrip_blocks; reflexivity. Qed.
 
+(* A paragraph whose text contains a backslash: the renderer escapes it,
+   the parser takes it back.  The first inline construct to reach the
+   block roundtrip. *)
+Example escape_roundtrip :
+  let cbs := [cpara ["a\b"]] in
+  render_djot (blocks_of_cblocks cbs) = "a\\b"
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+Example escaped_punct_is_literal :
+  parse_blocks "a\*b" = [mk (Para [mk (Str "a*b")])].
+Proof. reflexivity. Qed.
+
+(* A boundary step 4 moves.  `*` has no inline meaning yet, so a `Str`
+   containing it renders bare.  When the delimiter table claims `*`,
+   `needs_escape` gains it and this rendering becomes `\*a\*`.  The
+   example is here to fail then: its change is the confirmation that the
+   table took effect, in the way `pad_nested_list_unshifted` recorded a
+   boundary until the fix deleted it. *)
+Example star_unescaped_for_now : cb_lines (cpara ["*a*"]) = ["*a*"].
+Proof. reflexivity. Qed.
+
 (* A multi-line heading renders with the hashes repeated on every line,
    which is what makes it reparse as a continuation of itself. *)
 Example heading_example_roundtrip :

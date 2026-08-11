@@ -27,6 +27,99 @@ Import ListNotations.
 Local Open Scope string_scope.
 
 (*
+Escapes
+=======
+
+A backslash escape is not a construct: `\*` and a bare `*` in a position
+where nothing opens both parse to `Str "*"`, so the AST cannot tell them
+apart and `cinline` gains no constructor.  What an escape is, is the
+*spelling* a `CIStr` needs so that its text comes back unchanged, which
+makes this a pair of string functions and one theorem relating them. *)
+
+(* djot.js `pattPunctuation` (inline.ts:84): the ASCII punctuation
+   blocks.  This is the set a backslash may escape, and it is deliberately
+   wider than the set that ever *needs* escaping. *)
+Definition is_punct (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  ((Nat.leb 33 n && Nat.leb n 47) || (Nat.leb 58 n && Nat.leb n 64)
+   || (Nat.leb 91 n && Nat.leb n 96) || (Nat.leb 123 n && Nat.leb n 126))%bool.
+
+(* The characters a `CIStr` must escape to survive reparsing.  Today only
+   the backslash: nothing else has inline meaning yet.  Every construct
+   that claims a delimiter character adds it here, and the two
+   obligations below are what it has to keep true.
+
+   The alternative, escaping every punctuation character unconditionally,
+   would keep this constant and needs no obligation, at the cost of
+   rendering `a, b` as `a\, b`.  djot.js escapes selectively (it renders
+   `\,` back as a bare `,`), and matching that costs only the two lemmas. *)
+Definition needs_escape (c : ascii) : bool := Ascii.eqb c "\"%char.
+
+(* Obligation 1: an escaped character must be one the decoder accepts. *)
+Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
+Proof.
+  intros c H. unfold needs_escape in H. apply Ascii.eqb_eq in H. subst.
+  reflexivity.
+Qed.
+
+(* Obligation 2: the escape character escapes itself, or a text ending in
+   a backslash would decode as an escape of whatever followed. *)
+Lemma needs_escape_backslash : needs_escape "\"%char = true.
+Proof. reflexivity. Qed.
+
+Fixpoint escape_str (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if needs_escape c
+      then String "\"%char (String c (escape_str rest))
+      else String c (escape_str rest)
+  end.
+
+(* A backslash before a non-punctuation character is a literal backslash
+   (djot.js inline.ts:244).  Two djot readings are *not* implemented
+   here: `\` before a space is a non-breaking space, and `\` at end of
+   line is a hard break.  Both are distinct AST nodes rather than
+   escapes, so they belong with their own constructors; and neither can
+   arise from a canonical rendering, since `escape_str` never emits a
+   bare backslash.  So the roundtrip does not see them. *)
+Fixpoint unescape (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if needs_escape c
+      then match rest with
+           | String d rest' =>
+               if is_punct d then String d (unescape rest')
+               else String c (unescape rest)
+           | EmptyString => String c EmptyString
+           end
+      else String c (unescape rest)
+  end.
+
+(** Escaping is invertible.  This is the whole of step 2. *)
+Lemma unescape_escape : forall s, unescape (escape_str s) = s.
+Proof.
+  induction s as [|c rest IH]; [reflexivity|].
+  cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
+  - cbn [unescape]. rewrite needs_escape_backslash.
+    rewrite (needs_escape_punct c Hc), IH. reflexivity.
+  - cbn [unescape]. rewrite Hc, IH. reflexivity.
+Qed.
+
+(* Every branch of `unescape` emits a character, so it never empties a
+   nonempty text.  `wf_inline` needs this: a `Str` must be nonempty. *)
+Lemma unescape_nonempty :
+  forall s, nonempty_str s = true -> nonempty_str (unescape s) = true.
+Proof.
+  intros [|c rest] H; [discriminate|].
+  cbn [unescape]. destruct (needs_escape c).
+  - destruct rest as [|d rest']; [reflexivity|].
+    destruct (is_punct d); reflexivity.
+  - reflexivity.
+Qed.
+
+(*
 Canonical inlines
 =================
 *)
@@ -57,7 +150,8 @@ Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
 Fixpoint ci_text (prev : option ascii) (cis : list cinline) : string :=
   match cis with
   | [] => EmptyString
-  | CIStr s :: rest => s ++ ci_text (str_last s prev) rest
+  | CIStr s :: rest =>
+      let e := escape_str s in e ++ ci_text (str_last e prev) rest
   end.
 
 Definition ci_line (cis : list cinline) : string := ci_text None cis.
@@ -71,7 +165,7 @@ Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
 Lemma ci_line_nil : ci_line [] = EmptyString.
 Proof. reflexivity. Qed.
 
-Lemma ci_line_str : forall s, ci_line [CIStr s] = s.
+Lemma ci_line_str : forall s, ci_line [CIStr s] = escape_str s.
 Proof. intros s. unfold ci_line. cbn [ci_text]. apply append_empty_r. Qed.
 
 (*
@@ -127,7 +221,7 @@ The inline pass
 
 (* Parse one line's inline content.  Every construct of
    `.project/260811.inline-parser.md` lands here. *)
-Definition parse_inline_line (s : string) : inlines := [mk (Str s)].
+Definition parse_inline_line (s : string) : inlines := [mk (Str (unescape s))].
 
 (* A paragraph's lines, in order, into inlines: each line's content, with
    `SoftBreak` between.  Trailing whitespace is stripped at the end of a
@@ -142,13 +236,13 @@ Fixpoint para_inlines (l : list string) : inlines :=
   end.
 
 Lemma para_inlines_one :
-  forall x, para_inlines [x] = [mk (Str (strip_trailing_ws x))].
+  forall x, para_inlines [x] = [mk (Str (unescape (strip_trailing_ws x)))].
 Proof. reflexivity. Qed.
 
 Lemma para_inlines_cons2 :
   forall x y rest,
     para_inlines (x :: y :: rest) =
-    mk (Str x) :: mk SoftBreak :: para_inlines (y :: rest).
+    mk (Str (unescape x)) :: mk SoftBreak :: para_inlines (y :: rest).
 Proof. reflexivity. Qed.
 
 (* The canonical view's paragraph, laid out the same way. *)
@@ -181,7 +275,7 @@ Proof.
   intros [|c rest] Hok Hne; [discriminate|].
   destruct c as [s]. destruct rest as [|c2 rest'].
   - unfold ci_inlines, parse_inline_line. cbn [map ci_ast].
-    rewrite ci_line_str. reflexivity.
+    rewrite ci_line_str, unescape_escape. reflexivity.
   - destruct c2 as [s2]. unfold cis_ok in Hok.
     cbn [no_adjacent_ci_str] in Hok. rewrite andb_false_r in Hok. discriminate.
 Qed.
@@ -225,7 +319,7 @@ The renderer
 Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   match ils with
   | [] => [cur]
-  | Node _ _ (Str s) :: rest => inline_lines rest (cur ++ s)
+  | Node _ _ (Str s) :: rest => inline_lines rest (cur ++ escape_str s)
   | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
   | _ :: rest => inline_lines rest cur
   end.
@@ -283,3 +377,25 @@ Proof.
   intros [|cis rest] Hok Hne Hlss; [discriminate|].
   rewrite inline_lines_ci_para by assumption. reflexivity.
 Qed.
+
+(*
+Escapes, pinned
+===============
+*)
+
+(* The decoder accepts any punctuation after a backslash... *)
+Example unescape_punct : unescape "\*" = "*".
+Proof. reflexivity. Qed.
+
+(* ...and leaves a backslash before anything else alone. *)
+Example unescape_nonpunct : unescape "\a" = "\a".
+Proof. reflexivity. Qed.
+
+(* The encoder emits only what `needs_escape` names, which is why a
+   comma renders bare where a backslash does not.  Matching djot.js,
+   which renders `\,` back as `,`. *)
+Example escape_backslash : escape_str "a\b" = "a\\b".
+Proof. reflexivity. Qed.
+
+Example escape_leaves_punct : escape_str "a,*b" = "a,*b".
+Proof. reflexivity. Qed.

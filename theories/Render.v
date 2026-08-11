@@ -203,19 +203,25 @@ Definition cpara (ls : list string) : cblock := CPara (map cline ls).
 Definition cheading (lvl : nat) (ls : list string) : cblock :=
   CHeading lvl (map cline ls).
 
-Lemma map_ci_line_cline : forall ls, map ci_line (map cline ls) = ls.
+Lemma map_ci_line_cline :
+  forall ls, map ci_line (map cline ls) = map escape_str ls.
 Proof.
   induction ls as [|s ls IH]; [reflexivity|].
   cbn [map cline ci_line ci_text]. rewrite IH, append_empty_r. reflexivity.
 Qed.
 
-(* `cpara` is faithful: it names the paragraph whose source lines are
-   exactly `ls`.  Nothing consumes this, and that is the point -- it is
-   what a reader of a `cpara`-spelled example would otherwise have to
-   take on trust, and it is the first thing to break if `cline` or
-   `ci_line` drifts.  The `cheading` analogue is this with
-   `map (heading_line lvl)` on top and is left unstated. *)
-Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = ls.
+(* `cpara` is faithful: it names the paragraph whose *content* is `ls`,
+   which it renders escaped.  The two coincide, and the statement reads
+   as the plain `= ls` a reader expects, exactly when no line needs
+   escaping -- which is every example here.
+
+   Nothing consumes this, and that is the point: it is what a reader of a
+   `cpara`-spelled example would otherwise take on trust, and it is the
+   first thing to break if `cline`, `ci_line` or `needs_escape` drifts.
+   It already caught one such drift: before escapes it read `= ls`
+   unconditionally, and step 2 falsified that.  The `cheading` analogue
+   is this with `map (heading_line lvl)` on top and is left unstated. *)
+Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_str ls.
 Proof. intros ls. cbn [cb_lines cpara]. apply map_ci_line_cline. Qed.
 
 (*

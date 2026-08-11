@@ -325,13 +325,15 @@ Proof.
     destruct rest as [|y rest'].
     + (* single line: one stripped Str *)
       rewrite para_inlines_one, wf_inlines_cons. simpl.
-      rewrite (strip_trailing_ws_nonempty _ Hx). reflexivity.
+      rewrite (unescape_nonempty _ (strip_trailing_ws_nonempty _ Hx)).
+      reflexivity.
     + (* x, then SoftBreak, then the rest *)
       specialize (IH Hrest).
       unfold wf_inlines in IH. apply andb_true_iff in IH as [IHwf IHadj].
       rewrite para_inlines_cons2.
       unfold wf_inlines. apply andb_true_iff. split.
-      * simpl. rewrite (nonblank_nonempty _ Hx). simpl. exact IHwf.
+      * simpl. rewrite (unescape_nonempty _ (nonblank_nonempty _ Hx)). simpl.
+        exact IHwf.
       * apply no_adjacent_cons2; [reflexivity|].
         apply no_adjacent_cons_false; [reflexivity|]. exact IHadj.
 Qed.
