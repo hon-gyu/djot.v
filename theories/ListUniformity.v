@@ -12,7 +12,7 @@
    rewritten. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From DjotV Require Import Strings Line Ast Attributes Marker Step Uniformity.
+From DjotV Require Import Strings Line Ast Attributes Inline Marker Step Uniformity.
 Import ListNotations.
 
 Local Open Scope string_scope.

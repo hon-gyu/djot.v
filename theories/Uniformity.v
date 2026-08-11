@@ -11,7 +11,7 @@
    are indented and the tight/loose verdict is stateful. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From DjotV Require Import Strings Line Ast Attributes Marker Step.
+From DjotV Require Import Strings Line Ast Attributes Inline Marker Step.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -89,15 +89,8 @@ Lemma parse_lines_step :
     parse_lines (l :: rest) st = (bs ++ parse_lines rest st')%list.
 Proof. intros l rest st bs st' H. cbn [parse_lines]. rewrite H. reflexivity. Qed.
 
-Lemma para_inlines_one :
-  forall x, para_inlines [x] = [mk (Str (strip_trailing_ws x))].
-Proof. reflexivity. Qed.
-
-Lemma para_inlines_cons2 :
-  forall x y rest,
-    para_inlines (x :: y :: rest) =
-    mk (Str x) :: mk SoftBreak :: para_inlines (y :: rest).
-Proof. reflexivity. Qed.
+(* para_inlines_one / para_inlines_cons2 are in Inline.v, next to the
+   definition they unfold. *)
 
 Lemma parse_lines_nil_cons :
   forall c cur',

@@ -7,6 +7,7 @@
 
    | file               | what                                        |
    | ------------------ | ------------------------------------------- |
+   | `Inline.v`         | the inline layer the block parser sits on: `para_inlines`, `inline_lines`, and the canonical `cinline` view |
    | `Marker.v`         | marker numerals, candidate styles, narrowing |
    | `Step.v`           | `pstate`, `step`, `finish`, `parse_lines`, and the shift/pad metatheory |
    | `Uniformity.v`     | fold equations, quotes, divs, locality       |
@@ -16,4 +17,4 @@
    Concrete regressions are in `ParserExamples.v`, which nothing
    requires. *)
 
-From DjotV Require Export Marker Step Uniformity ListUniformity OrderedList.
+From DjotV Require Export Inline Marker Step Uniformity ListUniformity OrderedList.

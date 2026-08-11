@@ -18,7 +18,7 @@
    .project/260810.ordered-lists.md. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From DjotV Require Import Strings Line Ast Attributes Marker Step Uniformity ListUniformity.
+From DjotV Require Import Strings Line Ast Attributes Inline Marker Step Uniformity ListUniformity.
 Import ListNotations.
 
 Local Open Scope string_scope.

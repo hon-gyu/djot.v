@@ -496,17 +496,7 @@ The renderer
 ============
 *)
 
-(* Recover the lines of a paragraph from its inlines: Str extends the
-   current line, SoftBreak ends it.  (Other inline constructors don't
-   occur in the fragment; they contribute nothing.) *)
-
-Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
-  match ils with
-  | [] => [cur]
-  | Node _ _ (Str s) :: rest => inline_lines rest (cur ++ s)
-  | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
-  | _ :: rest => inline_lines rest cur
-  end.
+(* `Inline.inline_lines` recovers a paragraph's lines from its inlines. *)
 
 (* Render one block to its djot source *lines*.  Line-valued rather than
    string-valued because djot's block structure is line structure: a

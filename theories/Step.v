@@ -24,26 +24,12 @@
    definition. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From DjotV Require Import Strings Line Ast Attributes Marker.
+From DjotV Require Import Strings Line Ast Attributes Marker Inline.
 Import ListNotations.
 
 Local Open Scope string_scope.
-(*
-Paragraph assembly
-==================
-*)
 
-(* Trailing whitespace is stripped at the end of a paragraph (but kept on
-   interior lines) — observed djot.js/djoths behavior on para.test. *)
-
-(* Turn a paragraph's source lines (in order) into inlines: one Str per
-   line, SoftBreak between.  Render.inline_lines is the inverse. *)
-Fixpoint para_inlines (l : list string) : inlines :=
-  match l with
-  | [] => []
-  | [x] => [mk (Str (strip_trailing_ws x))]
-  | x :: rest => mk (Str x) :: mk SoftBreak :: para_inlines rest
-  end.
+(* Paragraph assembly is `Inline.para_inlines`. *)
 
 (*
 Fenced block assembly
