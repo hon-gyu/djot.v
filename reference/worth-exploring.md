@@ -1,2 +1,4 @@
 - <https://github.com/jgm/djot/discussions/390>: Roundtrip support
     - html as roundtrip target?
+- <https://markup-carve.github.io/carve/technical-rationale>
+- <https://markup-carve.github.io/carve/grammar>
