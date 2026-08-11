@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Well-formedness of the djot AST, as a decidable boolean predicate,
    plus the theorem that the parser only produces well-formed output.
@@ -365,22 +365,31 @@ Definition iscan_wf (st : iscan) : bool :=
   | IVerb _ _ _ out => ilist_ok out
   end.
 
+Lemma itext_step_wf :
+  forall c txt out,
+    iscan_wf (IText false txt out) = true ->
+    iscan_wf (itext_step c txt out) = true.
+Proof.
+  intros c txt out H. cbn [iscan_wf] in H.
+  apply andb_true_iff in H as [Ho Hh]. unfold itext_step.
+  destruct (is_bslash c); [cbn [iscan_wf]; rewrite Ho, Hh; reflexivity|].
+  destruct (is_tick c); [|cbn [iscan_wf]; rewrite Ho, Hh; reflexivity].
+  cbn [iscan_wf]. unfold flush_text.
+  destruct (nonempty_str txt) eqn:Ht; [|exact Ho].
+  apply ilist_ok_push; [exact Ho | exact Ht |].
+  apply negb_true_iff in Hh. rewrite Hh, andb_false_r. reflexivity.
+Qed.
+
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
   intros c [[] txt out|n out|n run txt out] H; cbn [istep] in *.
   - exact H.
-  - apply andb_true_iff in H as [Ho Hh].
-    destruct (is_bslash c); [cbn [iscan_wf]; rewrite Ho, Hh; reflexivity|].
-    destruct (is_tick c); [|cbn [iscan_wf]; rewrite Ho, Hh; reflexivity].
-    cbn [iscan_wf]. unfold flush_text.
-    destruct (nonempty_str txt) eqn:Ht; [|exact Ho].
-    apply ilist_ok_push; [exact Ho | exact Ht |].
-    apply negb_true_iff in Hh. rewrite Hh, andb_false_r. reflexivity.
+  - apply itext_step_wf. exact H.
   - destruct (is_tick c); cbn [iscan_wf] in *; exact H.
   - destruct (is_tick c); cbn [iscan_wf] in *; [exact H|].
     destruct (Nat.eqb run n); [|exact H].
-    cbn [iscan_wf]. apply andb_true_iff. split.
+    apply itext_step_wf. cbn [iscan_wf]. apply andb_true_iff. split.
     + apply ilist_ok_push; [exact H | reflexivity | reflexivity].
     + reflexivity.
 Qed.

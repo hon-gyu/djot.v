@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* The inline layer: the parser's within-line pass, and the canonical
    (renderable) view it inverts.
@@ -9,18 +9,15 @@
    that determines it.  Here `parse_inline_line` is the pass, `cinline`
    is the image, and the two meet in `parse_inline_line_ci`.
 
-   Nothing recognizes inline syntax yet: a line is one `Str`, which is
-   what `Step.para_inlines` already did, and `para_inlines_one` /
-   `para_inlines_cons2` still hold by `reflexivity`.  What this file adds
-   is the shape the constructs in `.project/260811.inline-parser.md` need
-   (escapes, verbatim, the delimiter table, brackets), fixed while it is
-   still cheap to fix.
+   The pass currently recognizes escapes and verbatim spans.  The same
+   state and canonical view are the extension points for the delimiter
+   table and brackets in `.project/260811.inline-parser.md`.
 
    Parser and renderer share the file because at this size a split would
    be three files of twenty lines.  It splits the way the block parser
    did once a side outgrows the other. *)
 
-From Stdlib Require Import String Ascii List Bool.
+From Stdlib Require Import String Ascii List Bool Lia.
 From DjotV Require Import Strings Ast.
 Import ListNotations.
 
@@ -64,6 +61,12 @@ Definition is_tick (c : ascii) : bool := Ascii.eqb c tick.
 Definition bslash : ascii := "\"%char.
 Definition is_bslash (c : ascii) : bool := Ascii.eqb c bslash.
 
+Lemma is_tick_bslash : is_tick bslash = false.
+Proof. reflexivity. Qed.
+
+Lemma is_bslash_bslash : is_bslash bslash = true.
+Proof. reflexivity. Qed.
+
 Definition needs_escape (c : ascii) : bool := (is_bslash c || is_tick c)%bool.
 
 (* Obligation 1: an escaped character must be one the decoder accepts. *)
@@ -93,6 +96,143 @@ Fixpoint escape_str (s : string) : string :=
       else String c (escape_str rest)
   end.
 
+(* Verbatim delimiters use the least positive backtick-run length that
+   does not occur in the content, matching djot.js `verbatimDelim`. *)
+Fixpoint tick_runs_from (run : nat) (s : string) : list nat :=
+  match s with
+  | EmptyString => if Nat.eqb run 0 then [] else [run]
+  | String c rest =>
+      if is_tick c then tick_runs_from (S run) rest
+      else if Nat.eqb run 0
+           then tick_runs_from 0 rest
+           else run :: tick_runs_from 0 rest
+  end.
+
+Definition tick_runs (s : string) : list nat := tick_runs_from 0 s.
+
+Fixpoint first_missing (fuel candidate : nat) (runs : list nat) : nat :=
+  match fuel with
+  | 0 => candidate
+  | S fuel' =>
+      if existsb (Nat.eqb candidate) runs
+      then first_missing fuel' (S candidate) runs
+      else candidate
+  end.
+
+Definition verb_ticks (s : string) : nat :=
+  first_missing (S (String.length s)) 1 (tick_runs s).
+
+Lemma first_missing_nonzero :
+  forall fuel n runs, n <> 0 -> first_missing fuel n runs <> 0.
+Proof.
+  induction fuel as [|fuel IH]; intros n runs Hn; cbn [first_missing].
+  - exact Hn.
+  - destruct (existsb (Nat.eqb n) runs); [apply IH; discriminate|exact Hn].
+Qed.
+
+Lemma verb_ticks_nonzero : forall s, verb_ticks s <> 0.
+Proof. intros s. unfold verb_ticks. apply first_missing_nonzero. discriminate. Qed.
+
+Definition starts_tick (s : string) : bool :=
+  match s with String c _ => is_tick c | _ => false end.
+
+Definition ends_tick (s : string) : bool := starts_tick (rev_string s).
+
+Lemma starts_tick_app_l :
+  forall a b, nonempty_str a = true -> starts_tick (a ++ b) = starts_tick a.
+Proof. intros [|c a] b H; [discriminate|reflexivity]. Qed.
+
+Lemma rev_nonempty_str :
+  forall s, nonempty_str (rev_string s) = nonempty_str s.
+Proof.
+  intros [|c s]; [reflexivity|].
+  rewrite rev_string_cons. destruct (rev_string s); reflexivity.
+Qed.
+
+Lemma ends_tick_cons_nonempty :
+  forall c d s, ends_tick (String c (String d s)) = ends_tick (String d s).
+Proof.
+  intros c d s. unfold ends_tick. rewrite rev_string_cons.
+  apply starts_tick_app_l. rewrite rev_nonempty_str. reflexivity.
+Qed.
+
+Lemma ends_tick_app_r :
+  forall a b, nonempty_str b = true -> ends_tick (a ++ b) = ends_tick b.
+Proof.
+  intros a b Hb. unfold ends_tick. rewrite rev_string_app.
+  apply starts_tick_app_l. rewrite rev_nonempty_str. exact Hb.
+Qed.
+
+Definition pad_verb (s : string) : string :=
+  let left := if starts_tick s then " " else EmptyString in
+  let right := if ends_tick s then " " else EmptyString in
+  (left ++ s ++ right)%string.
+
+Lemma pad_verb_nonempty :
+  forall s, nonempty_str s = true -> nonempty_str (pad_verb s) = true.
+Proof.
+  intros s H. unfold pad_verb. destruct (starts_tick s); cbn [append];
+    [reflexivity|]. destruct s; [discriminate|reflexivity].
+Qed.
+
+Lemma pad_verb_starts_nontick :
+  forall s, nonempty_str s = true -> starts_tick (pad_verb s) = false.
+Proof.
+  intros s H. unfold pad_verb. destruct (starts_tick s) eqn:Hs;
+    destruct (ends_tick s); cbn [append starts_tick]; try reflexivity.
+  all: rewrite starts_tick_app_l by exact H; exact Hs.
+Qed.
+
+Lemma pad_verb_ends_nontick :
+  forall s, nonempty_str s = true -> ends_tick (pad_verb s) = false.
+Proof.
+  intros s H. unfold pad_verb. destruct (starts_tick s);
+    destruct (ends_tick s) eqn:He; cbn [append].
+  - change (ends_tick (" " ++ (s ++ " ")) = false).
+    rewrite ends_tick_app_r by (destruct s; [discriminate|reflexivity]).
+    rewrite ends_tick_app_r by reflexivity. reflexivity.
+  - rewrite append_empty_r. change (ends_tick (" " ++ s) = false).
+    rewrite ends_tick_app_r by exact H. exact He.
+  - rewrite ends_tick_app_r by reflexivity. reflexivity.
+  - rewrite append_empty_r. exact He.
+Qed.
+
+Fixpoint ticks (n : nat) : string :=
+  match n with 0 => EmptyString | S k => String tick (ticks k) end.
+
+Lemma ticks_succ_r :
+  forall n, ticks (S n) = (ticks n ++ String tick EmptyString)%string.
+Proof.
+  induction n as [|n IH]; [reflexivity|].
+  cbn [ticks append]. rewrite <- IH. reflexivity.
+Qed.
+
+Definition verb_text (s : string) : string :=
+  let d := ticks (verb_ticks s) in (d ++ pad_verb s ++ d)%string.
+
+Fixpoint verb_safe_from (n run : nat) (s : string) : bool :=
+  match s with
+  | EmptyString => negb (Nat.eqb run n)
+  | String c rest =>
+      if is_tick c then verb_safe_from n (S run) rest
+      else (negb (Nat.eqb run n) && verb_safe_from n 0 rest)%bool
+  end.
+
+Definition verb_safe (n : nat) (s : string) : bool :=
+  verb_safe_from n 0 s.
+
+Definition starts_space_tick (s : string) : bool :=
+  match s with
+  | String c (String d _) => (Ascii.eqb c " "%char && is_tick d)%bool
+  | _ => false
+  end.
+
+(* Exactly the strings `trim_verb` can emit. *)
+Definition verb_content_ok (s : string) : bool :=
+  (no_nl s && negb (starts_space_tick s)
+   && negb (starts_space_tick (rev_string s))
+   && verb_safe (verb_ticks s) (pad_verb s))%bool.
+
 (*
 Canonical inlines
 =================
@@ -102,7 +242,8 @@ Canonical inlines
    One constructor per inline construct the roundtrip covers, exactly as
    `cblock` carries one per block construct. *)
 Inductive cinline : Type :=
-  | CIStr (s : string).
+  | CIStr (s : string)
+  | CIVerb (s : string).
 
 (* The last byte of `s`, or `prev` when `s` is empty. *)
 Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
@@ -126,13 +267,25 @@ Fixpoint ci_text (prev : option ascii) (cis : list cinline) : string :=
   | [] => EmptyString
   | CIStr s :: rest =>
       let e := escape_str s in e ++ ci_text (str_last e prev) rest
+  | CIVerb s :: rest =>
+      let v := verb_text s in v ++ ci_text (str_last v prev) rest
   end.
 
 Definition ci_line (cis : list cinline) : string := ci_text None cis.
 
+Lemma ci_text_prev :
+  forall cis p q, ci_text p cis = ci_text q cis.
+Proof.
+  induction cis as [|c rest IH]; intros p q; [reflexivity|].
+  destruct c; cbn [ci_text]; f_equal; apply IH.
+Qed.
+
 (* ...and the AST the parser builds from that text. *)
 Definition ci_ast (ci : cinline) : node inline :=
-  match ci with CIStr s => mk (Str s) end.
+  match ci with
+  | CIStr s => mk (Str s)
+  | CIVerb s => mk (Verbatim s)
+  end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
 
@@ -150,20 +303,32 @@ Renderability
 (* A `Str` carrying no text would not have been emitted, and one carrying
    a newline is not within-line content. *)
 Definition ci_ok (ci : cinline) : bool :=
-  match ci with CIStr s => nonempty_str s && no_nl s end.
+  match ci with
+  | CIStr s => nonempty_str s && no_nl s
+  | CIVerb s => verb_content_ok s
+  end.
 
-(* Two adjacent `CIStr` would have parsed as one, the `no_adjacent_str`
-   of `Wf.v` moved to the canonical view.  With `CIStr` the only
-   constructor this forces a line to be a single element; it stops being
-   degenerate at the first construct that is not a `Str`. *)
-Fixpoint no_adjacent_ci_str (cis : list cinline) : bool :=
+(* Pairwise source separation.  Adjacent strings merge; adjacent
+   verbatim spans merge their delimiter runs.  An empty verbatim is the
+   one subtler case: its canonical source is just two backtick runs, so
+   it is representable only at end of line -- a following byte would be
+   swallowed as content of the combined run. *)
+Definition ci_pair_ok (a b : cinline) : bool :=
+  match a, b with
+  | CIStr _, CIStr _ => false
+  | CIVerb _, CIVerb _ => false
+  | CIVerb EmptyString, _ => false
+  | _, _ => true
+  end.
+
+Fixpoint ci_sep_ok (cis : list cinline) : bool :=
   match cis with
-  | CIStr _ :: ((CIStr _ :: _) as rest) => false && no_adjacent_ci_str rest
+  | a :: ((b :: _) as rest) => ci_pair_ok a b && ci_sep_ok rest
   | _ => true
   end.
 
 Definition cis_ok (cis : list cinline) : bool :=
-  forallb ci_ok cis && no_adjacent_ci_str cis.
+  forallb ci_ok cis && ci_sep_ok cis.
 
 (* Nonemptiness of a line's content is not a separate obligation: the
    block layer already asks that a paragraph's rendered lines are
@@ -199,9 +364,6 @@ The inline pass
    " a ".  Reversed, "ends with a backtick then a space" is "starts with a
    space then a backtick", so one function does both ends. *)
 
-Definition starts_tick (s : string) : bool :=
-  match s with String c _ => is_tick c | _ => false end.
-
 Definition strip_pad (s : string) : string :=
   match s with
   | String c rest =>
@@ -212,8 +374,66 @@ Definition strip_pad (s : string) : string :=
 Definition trim_verb (s : string) : string :=
   rev_string (strip_pad (rev_string (strip_pad s))).
 
-Fixpoint ticks (n : nat) : string :=
-  match n with 0 => EmptyString | S k => String tick (ticks k) end.
+Lemma strip_pad_added :
+  forall s, starts_tick s = true -> strip_pad (" " ++ s) = s.
+Proof.
+  intros [|c s] H; [discriminate|].
+  cbn [starts_tick] in H. cbn [strip_pad append starts_tick].
+  rewrite H. reflexivity.
+Qed.
+
+Lemma strip_pad_stable :
+  forall s, negb (starts_space_tick s) = true -> strip_pad s = s.
+Proof.
+  intros [|c s] H; [reflexivity|]. destruct s as [|d s].
+  - cbn [strip_pad starts_tick]. destruct (Ascii.eqb c " "%char); reflexivity.
+  - cbn [starts_space_tick strip_pad] in H |- *.
+    destruct (Ascii.eqb c " "%char) eqn:Hc; [|reflexivity].
+    destruct (is_tick d) eqn:Hd; [discriminate|].
+    cbn [starts_tick]. rewrite Hd. reflexivity.
+Qed.
+
+Lemma strip_pad_pad_verb :
+  forall s, negb (starts_space_tick s) = true ->
+    strip_pad (pad_verb s)
+    = (s ++ if ends_tick s then " " else EmptyString)%string.
+Proof.
+  intros [|c [|d s]] H; unfold pad_verb;
+    cbn [starts_tick starts_space_tick append] in H |- *.
+  - reflexivity.
+  - destruct (is_tick c) eqn:Hc;
+      destruct (ends_tick (String c EmptyString)) eqn:He;
+      cbn [append strip_pad starts_tick].
+    + rewrite Hc. reflexivity.
+    + rewrite Hc. reflexivity.
+    + unfold ends_tick, rev_string, starts_tick in He.
+      cbn [rev_string_aux] in He. rewrite Hc in He. discriminate.
+    + destruct (Ascii.eqb c " "%char); reflexivity.
+  - destruct (is_tick c) eqn:Hc;
+      destruct (ends_tick (String c (String d s))) eqn:He;
+      cbn [append strip_pad starts_tick].
+    + rewrite Hc. reflexivity.
+    + rewrite Hc. reflexivity.
+    + apply negb_true_iff in H. rewrite H. reflexivity.
+    + apply negb_true_iff in H. rewrite H. reflexivity.
+Qed.
+
+Lemma trim_verb_pad :
+  forall s, verb_content_ok s = true -> trim_verb (pad_verb s) = s.
+Proof.
+  intros s H. unfold verb_content_ok in H.
+  repeat rewrite andb_true_iff in H.
+  destruct H as [[[Hnl Hleft] Hright] Hsafe].
+  unfold trim_verb. rewrite strip_pad_pad_verb by exact Hleft.
+  destruct (ends_tick s) eqn:He.
+  - rewrite rev_string_app. cbn [rev_string rev_string_aux append].
+    change (rev_string (strip_pad (" " ++ rev_string s)) = s).
+    rewrite strip_pad_added.
+    + apply rev_string_involutive.
+    + exact He.
+  - rewrite append_empty_r. rewrite strip_pad_stable by exact Hright.
+    apply rev_string_involutive.
+Qed.
 
 (*
 The scanner
@@ -242,24 +462,29 @@ Inductive iscan : Type :=
 
 Definition one (c : ascii) : string := String c EmptyString.
 
+Lemma nat_eqb_refl : forall n, Nat.eqb n n = true.
+Proof. induction n; [reflexivity|exact IHn]. Qed.
+
 Definition flush_text (txt : string) (out : inlines) : inlines :=
   if nonempty_str txt then mk (Str txt) :: out else out.
+
+Definition itext_step (c : ascii) (txt : string) (out : inlines) : iscan :=
+  if is_bslash c then IText true txt out
+  else if is_tick c then IOpen 1 (flush_text txt out)
+  else IText false (txt ++ one c)%string out.
 
 Definition istep (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt out =>
       IText false (txt ++ (if is_punct c then one c
                            else String "\"%char (one c)))%string out
-  | IText false txt out =>
-      if is_bslash c then IText true txt out
-      else if is_tick c then IOpen 1 (flush_text txt out)
-      else IText false (txt ++ one c)%string out
+  | IText false txt out => itext_step c txt out
   | IOpen n out =>
       if is_tick c then IOpen (S n) out else IVerb n 0 (one c) out
   | IVerb n run txt out =>
       if is_tick c then IVerb n (S run) txt out
       else if Nat.eqb run n
-      then IText false (one c) (mk (Verbatim (trim_verb txt)) :: out)
+      then itext_step c EmptyString (mk (Verbatim (trim_verb txt)) :: out)
       else IVerb n 0 (txt ++ ticks run ++ one c)%string out
   end.
 
@@ -287,10 +512,138 @@ Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
   | String c rest => iscan_str rest (istep c st)
   end.
 
+Lemma iscan_str_app :
+  forall a b st, iscan_str (a ++ b) st = iscan_str b (iscan_str a st).
+Proof.
+  induction a as [|c a IH]; intros b st; cbn [iscan_str]; [reflexivity|].
+  apply IH.
+Qed.
+
+Lemma iscan_open_ticks_more :
+  forall k n out,
+    iscan_str (ticks k) (IOpen n out) = IOpen (n + k) out.
+Proof.
+  induction k as [|k IH]; intros n out.
+  - cbn [ticks iscan_str]. f_equal. lia.
+  - cbn [ticks iscan_str istep]. change
+      (iscan_str (ticks k) (IOpen (S n) out) = IOpen (n + S k) out).
+    rewrite IH. f_equal. lia.
+Qed.
+
+Lemma iscan_open_ticks :
+  forall k txt out,
+    iscan_str (ticks (S k)) (IText false txt out)
+    = IOpen (S k) (flush_text txt out).
+Proof.
+  intros k txt out. cbn [ticks iscan_str istep]. change
+    (iscan_str (ticks k) (IOpen 1 (flush_text txt out))
+     = IOpen (S k) (flush_text txt out)).
+  rewrite iscan_open_ticks_more. f_equal.
+Qed.
+
+Lemma iscan_verb_ticks_more :
+  forall k n run txt out,
+    iscan_str (ticks k) (IVerb n run txt out) = IVerb n (run + k) txt out.
+Proof.
+  induction k as [|k IH]; intros n run txt out.
+  - cbn [ticks iscan_str]. f_equal. lia.
+  - cbn [ticks iscan_str istep]. change
+      (iscan_str (ticks k) (IVerb n (S run) txt out)
+       = IVerb n (run + S k) txt out).
+    rewrite IH. f_equal. lia.
+Qed.
+
+Lemma iscan_open_body :
+  forall s n out,
+    nonempty_str s = true -> starts_tick s = false -> n <> 0 ->
+    iscan_str s (IOpen n out) = iscan_str s (IVerb n 0 EmptyString out).
+Proof.
+  intros [|c s] n out Hne Hstart Hn; [discriminate|].
+  cbn [starts_tick] in Hstart. cbn [iscan_str istep]. rewrite Hstart.
+  replace (Nat.eqb 0 n) with false.
+  - reflexivity.
+  - destruct n; [contradiction|reflexivity].
+Qed.
+
+Lemma iscan_verb_safe_nonempty :
+  forall s n run txt out,
+    nonempty_str s = true -> ends_tick s = false ->
+    verb_safe_from n run s = true ->
+    iscan_str s (IVerb n run txt out)
+    = IVerb n 0 (txt ++ ticks run ++ s) out.
+Proof.
+  induction s as [|c rest IH]; intros n run txt out Hne Hend Hsafe;
+    [discriminate|].
+  cbn [iscan_str verb_safe_from] in Hsafe |- *.
+  destruct (is_tick c) eqn:Hc.
+  - cbn [istep]. rewrite Hc. destruct rest as [|d rest'].
+    + unfold ends_tick, starts_tick, rev_string in Hend.
+      cbn [rev_string_aux] in Hend. rewrite Hc in Hend. discriminate.
+    + rewrite ends_tick_cons_nonempty in Hend.
+      rewrite (IH n (S run) txt out eq_refl Hend Hsafe).
+      apply Ascii.eqb_eq in Hc. subst c. f_equal.
+      rewrite ticks_succ_r, !append_assoc. reflexivity.
+  - apply andb_true_iff in Hsafe as [Hrun Hsafe].
+    apply negb_true_iff in Hrun. cbn [istep]. rewrite Hc, Hrun.
+    destruct rest as [|d rest'].
+    + cbn [iscan_str]. f_equal.
+    + rewrite ends_tick_cons_nonempty in Hend.
+      rewrite (IH n 0 (txt ++ ticks run ++ one c) out eq_refl Hend Hsafe).
+      f_equal. cbn [ticks one]. rewrite !append_assoc. reflexivity.
+Qed.
+
+Lemma iscan_verb_text_nonempty :
+  forall s txt out,
+    nonempty_str s = true ->
+    verb_safe (verb_ticks s) (pad_verb s) = true ->
+    iscan_str (verb_text s) (IText false txt out)
+    = IVerb (verb_ticks s) (verb_ticks s) (pad_verb s)
+        (flush_text txt out).
+Proof.
+  intros s txt out Hne Hsafe. unfold verb_text.
+  rewrite !iscan_str_app.
+  destruct (verb_ticks s) as [|k] eqn:Hn;
+    [exfalso; apply (verb_ticks_nonzero s); exact Hn|].
+  rewrite iscan_open_ticks.
+  unfold verb_safe in Hsafe.
+  rewrite (iscan_open_body (pad_verb s) (S k) (flush_text txt out)
+             (pad_verb_nonempty s Hne) (pad_verb_starts_nontick s Hne))
+    by discriminate.
+  rewrite (iscan_verb_safe_nonempty (pad_verb s) (S k) 0 EmptyString
+             (flush_text txt out) (pad_verb_nonempty s Hne)
+             (pad_verb_ends_nontick s Hne) Hsafe).
+  change (iscan_str (ticks (S k))
+            (IVerb (S k) 0 (pad_verb s) (flush_text txt out))
+          = IVerb (S k) (S k) (pad_verb s) (flush_text txt out)).
+  rewrite iscan_verb_ticks_more. f_equal.
+Qed.
+
 (* Parse one line's inline content.  Every construct of
    `.project/260811.inline-parser.md` lands here. *)
 Definition parse_inline_line (s : string) : inlines :=
   ifinish (iscan_str s (IText false EmptyString [])).
+
+Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
+  match txt, cis with
+  | String _ _, CIStr _ :: _ => false
+  | _, _ => true
+  end.
+
+Lemma ifinish_text :
+  forall txt out,
+    ifinish (IText false txt out) = List.rev (flush_text txt out).
+Proof. reflexivity. Qed.
+
+Lemma rev_flush_verb_str :
+  forall s v txt out,
+    nonempty_str s = true ->
+    List.rev (flush_text s (mk (Verbatim v) :: flush_text txt out))
+    = (List.rev (flush_text txt out) ++ [mk (Verbatim v); mk (Str s)])%list.
+Proof.
+  intros s v txt out Hs. unfold flush_text. rewrite Hs.
+  destruct (nonempty_str txt); cbn [List.rev].
+  all: rewrite <- List.app_assoc; reflexivity.
+Qed.
 
 (* Canonical text never opens a verbatim: `needs_escape` claims the
    backtick, so `escape_str` emits none bare.  The scanner therefore
@@ -306,7 +659,8 @@ Proof.
   - cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
     + simpl. rewrite (needs_escape_punct c Hc).
       rewrite IH, append_assoc. reflexivity.
-    + cbn [iscan_str istep].
+    + cbn [iscan_str istep itext_step].
+      unfold itext_step.
       replace (is_bslash c) with false
         by (destruct (is_bslash c) eqn:Hb; [|reflexivity];
             unfold needs_escape in Hc; rewrite Hb in Hc; discriminate).
@@ -314,6 +668,168 @@ Proof.
         by (destruct (is_tick c) eqn:Ht;
             [rewrite (needs_escape_tick c Ht) in Hc; discriminate | reflexivity]).
       rewrite IH, append_assoc. reflexivity.
+Qed.
+
+Lemma iscan_escape_after_verb :
+  forall s n body out,
+    nonempty_str s = true ->
+    iscan_str (escape_str s) (IVerb n n body out)
+    = IText false s (mk (Verbatim (trim_verb body)) :: out).
+Proof.
+  intros [|c rest] n body out Hne; [discriminate|].
+  cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
+  - cbn [iscan_str istep].
+    replace (is_tick "\"%char) with false by reflexivity.
+    rewrite nat_eqb_refl. unfold itext_step.
+    replace (is_bslash "\"%char) with true by reflexivity.
+    cbn [iscan_str istep]. rewrite (needs_escape_punct c Hc), iscan_escape.
+    cbn [append one]. reflexivity.
+  - cbn [iscan_str istep]. rewrite nat_eqb_refl. unfold itext_step.
+    replace (is_bslash c) with false
+      by (destruct (is_bslash c) eqn:Hb; [|reflexivity];
+          unfold needs_escape in Hc; rewrite Hb in Hc; discriminate).
+    replace (is_tick c) with false
+      by (destruct (is_tick c) eqn:Ht;
+          [rewrite (needs_escape_tick c Ht) in Hc; discriminate|reflexivity]).
+    rewrite iscan_escape. cbn [one append]. reflexivity.
+Qed.
+
+Lemma cis_ok_tail :
+  forall c rest, cis_ok (c :: rest) = true -> cis_ok rest = true.
+Proof.
+  intros c rest H. unfold cis_ok in *. apply andb_true_iff in H as [Ha Hs].
+  apply andb_true_iff. split.
+  - cbn [forallb] in Ha. apply andb_true_iff in Ha as [_ Ha]. exact Ha.
+  - destruct rest as [|r rest']; [reflexivity|].
+    cbn [ci_sep_ok] in Hs. apply andb_true_iff in Hs as [_ Hs]. exact Hs.
+Qed.
+
+Lemma cis_ok_head :
+  forall c rest, cis_ok (c :: rest) = true -> ci_ok c = true.
+Proof.
+  intros c rest H. unfold cis_ok in H. apply andb_true_iff in H as [H _].
+  cbn [forallb] in H. apply andb_true_iff in H as [H _]. exact H.
+Qed.
+
+Lemma ci_str_tail_sep :
+  forall s rest,
+    cis_ok (CIStr s :: rest) = true -> nonempty_str s = true ->
+    text_sep_ok s rest = true.
+Proof.
+  intros s [|r rest] H Hs; [unfold text_sep_ok; destruct s; reflexivity|].
+  destruct r as [t|v]; [|unfold text_sep_ok; destruct s; reflexivity].
+  unfold cis_ok in H. cbn [ci_sep_ok ci_pair_ok] in H.
+  repeat rewrite andb_false_r in H. discriminate.
+Qed.
+
+Lemma ci_verb_next_str :
+  forall v c rest,
+    cis_ok (CIVerb v :: c :: rest) = true ->
+    exists s, c = CIStr s.
+Proof.
+  intros v [s|w] rest H; [exists s; reflexivity|].
+  unfold cis_ok in H. apply andb_true_iff in H as [_ H].
+  cbn [ci_sep_ok ci_pair_ok] in H.
+  apply andb_true_iff in H as [H _]. destruct v; discriminate.
+Qed.
+
+Lemma ci_verb_before_nonempty :
+  forall v c rest,
+    cis_ok (CIVerb v :: c :: rest) = true -> nonempty_str v = true.
+Proof.
+  intros [|x v] c rest H; [|reflexivity].
+  unfold cis_ok in H. apply andb_true_iff in H as [_ H].
+  destruct c; cbn [ci_sep_ok ci_pair_ok] in H;
+    apply andb_true_iff in H as [H _]; discriminate.
+Qed.
+
+Lemma iscan_ci_after_verb :
+  forall s rest prev n body out,
+    nonempty_str s = true ->
+    iscan_str (ci_text prev (CIStr s :: rest)) (IVerb n n body out)
+    = iscan_str (ci_text prev (CIStr s :: rest))
+        (IText false EmptyString (mk (Verbatim (trim_verb body)) :: out)).
+Proof.
+  intros s rest prev n body out Hs. cbn [ci_text].
+  rewrite !iscan_str_app, iscan_escape_after_verb by exact Hs.
+  rewrite iscan_escape. reflexivity.
+Qed.
+
+Lemma iscan_cis :
+  forall cis prev txt out,
+    cis_ok cis = true -> text_sep_ok txt cis = true ->
+    ifinish (iscan_str (ci_text prev cis) (IText false txt out))
+    = (List.rev (flush_text txt out) ++ ci_inlines cis)%list.
+Proof.
+  induction cis as [|c rest IH]; intros prev txt out Hok Hsep.
+  - cbn [ci_text ci_inlines iscan_str]. rewrite app_nil_r. reflexivity.
+  - destruct c as [s|v].
+    + destruct txt as [|x txt']; [|discriminate].
+      cbn [ci_text]. rewrite iscan_str_app, iscan_escape.
+      cbn [ci_inlines map append]. rewrite IH.
+      * unfold flush_text.
+        pose proof (cis_ok_head (CIStr s) rest Hok) as Hs.
+        cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
+        rewrite Hs. cbn [List.rev nonempty_str ci_ast map flush_text].
+        change (((List.rev out ++ [mk (Str s)]) ++ ci_inlines rest)%list
+                = (List.rev out ++ ([mk (Str s)] ++ ci_inlines rest))%list).
+        rewrite <- List.app_assoc. reflexivity.
+      * exact (cis_ok_tail _ _ Hok).
+      * apply ci_str_tail_sep; [exact Hok|].
+        pose proof (cis_ok_head (CIStr s) rest Hok) as Hs.
+        cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _]. exact Hs.
+    + destruct rest as [|r rest'].
+      * destruct v as [|c v'].
+        -- vm_compute. destruct (nonempty_str txt); reflexivity.
+        -- cbn [ci_text]. rewrite append_empty_r.
+           unfold ci_inlines. cbn [map].
+           pose proof (cis_ok_head (CIVerb (String c v')) [] Hok) as Hv.
+           cbn [ci_ok] in Hv. rewrite iscan_verb_text_nonempty.
+           ++ unfold ifinish. rewrite nat_eqb_refl, trim_verb_pad by exact Hv.
+              cbn [List.rev ci_ast].
+              change ((List.rev (flush_text txt out)
+                       ++ [mk (Verbatim (String c v'))])%list
+                      = (List.rev (flush_text txt out)
+                         ++ [mk (Verbatim (String c v'))])%list).
+              reflexivity.
+           ++ reflexivity.
+           ++ unfold verb_content_ok in Hv.
+              repeat rewrite andb_true_iff in Hv.
+              destruct Hv as [[[_ _] _] Hv]. exact Hv.
+      * destruct (ci_verb_next_str v r rest' Hok) as [s Hr]. subst r.
+        pose proof (ci_verb_before_nonempty v (CIStr s) rest' Hok) as Hvne.
+        pose proof (cis_ok_head (CIVerb v) (CIStr s :: rest') Hok) as Hvok.
+        pose proof (cis_ok_head (CIStr s) rest'
+                      (cis_ok_tail _ _ Hok)) as Hsok.
+        cbn [ci_ok] in Hvok, Hsok.
+        apply andb_true_iff in Hsok as [Hs _].
+        cbn [ci_text]. rewrite iscan_str_app.
+        rewrite iscan_verb_text_nonempty.
+        -- change
+             (ifinish
+                (iscan_str
+                   (ci_text (str_last (verb_text v) prev) (CIStr s :: rest'))
+                   (IVerb (verb_ticks v) (verb_ticks v) (pad_verb v)
+                      (flush_text txt out)))
+              = (List.rev (flush_text txt out)
+                 ++ ci_inlines (CIVerb v :: CIStr s :: rest'))%list).
+           rewrite iscan_ci_after_verb by exact Hs.
+           rewrite trim_verb_pad by exact Hvok.
+           rewrite IH.
+           ++ cbn [flush_text nonempty_str ci_inlines map ci_ast List.rev].
+              change
+                (((List.rev (flush_text txt out) ++ [mk (Verbatim v)])
+                   ++ (mk (Str s) :: map ci_ast rest'))%list
+                 = (List.rev (flush_text txt out)
+                    ++ ([mk (Verbatim v)]
+                        ++ (mk (Str s) :: map ci_ast rest')))%list).
+              rewrite <- List.app_assoc. reflexivity.
+           ++ exact (cis_ok_tail _ _ Hok).
+           ++ reflexivity.
+        -- exact Hvne.
+        -- unfold verb_content_ok in Hvok.
+           repeat rewrite andb_true_iff in Hvok.
+           destruct Hvok as [[[_ _] _] Hvok]. exact Hvok.
 Qed.
 
 (*
@@ -341,19 +857,23 @@ Qed.
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt out|n out|n run txt out] H; cbn [istep iscan_productive].
+  intros c [[] txt out|n out|n run txt out] H;
+    cbn [istep itext_step iscan_productive].
   - destruct (is_punct c); cbn [iscan_productive];
       rewrite ?nonempty_str_append_r; try reflexivity;
       apply orb_true_iff; left;
       destruct txt; reflexivity.
-  - destruct (is_bslash c); [reflexivity|].
+  - unfold itext_step. destruct (is_bslash c); [reflexivity|].
     destruct (is_tick c); [reflexivity|].
     cbn [iscan_productive]. apply orb_true_iff. left.
     destruct txt; reflexivity.
   - destruct (is_tick c); reflexivity.
   - destruct (is_tick c); [reflexivity|].
-    destruct (Nat.eqb run n); cbn [iscan_productive]; [|reflexivity].
-    apply orb_true_iff. left. reflexivity.
+    destruct (Nat.eqb run n); cbn [itext_step iscan_productive].
+    + unfold itext_step. destruct (is_bslash c); [reflexivity|].
+      destruct (is_tick c); [reflexivity|].
+      apply orb_true_iff. left. reflexivity.
+    + reflexivity.
 Qed.
 
 Lemma iscan_productive_str :
@@ -382,7 +902,7 @@ Qed.
 Lemma iscan_productive_first :
   forall c, iscan_productive (istep c (IText false EmptyString [])) = true.
 Proof.
-  intros c. cbn [istep].
+  intros c. cbn [istep itext_step]. unfold itext_step.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); reflexivity.
 Qed.
@@ -453,15 +973,10 @@ Lemma parse_inline_line_ci :
   forall cis, cis_ok cis = true -> nonempty cis = true ->
   parse_inline_line (ci_line cis) = ci_inlines cis.
 Proof.
-  intros [|c rest] Hok Hne; [discriminate|].
-  destruct c as [s]. destruct rest as [|c2 rest'].
-  - unfold ci_inlines. cbn [map ci_ast].
-    rewrite ci_line_str. apply parse_inline_line_escape.
-    unfold cis_ok in Hok. cbn [forallb ci_ok] in Hok.
-    apply andb_true_iff in Hok as [Hok _]. apply andb_true_iff in Hok as [Hok _].
-    apply andb_true_iff in Hok as [Hok _]. exact Hok.
-  - destruct c2 as [s2]. unfold cis_ok in Hok.
-    cbn [no_adjacent_ci_str] in Hok. rewrite andb_false_r in Hok. discriminate.
+  intros cis Hok Hne. unfold parse_inline_line, ci_line. rewrite iscan_cis.
+  - reflexivity.
+  - exact Hok.
+  - reflexivity.
 Qed.
 
 (** The same, a paragraph at a time.  The last hypothesis is `para_ok`'s
@@ -504,6 +1019,7 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   match ils with
   | [] => [cur]
   | Node _ _ (Str s) :: rest => inline_lines rest (cur ++ escape_str s)
+  | Node _ _ (Verbatim s) :: rest => inline_lines rest (cur ++ verb_text s)
   | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
   | _ :: rest => inline_lines rest cur
   end.
@@ -521,12 +1037,18 @@ Lemma inline_lines_ci_inlines :
     inline_lines (ci_inlines cis ++ rest)%list cur
     = inline_lines rest (cur ++ ci_line cis).
 Proof.
-  intros [|c cs] cur rest Hok Hne; [discriminate|].
-  destruct c as [s]. destruct cs as [|c2 cs'].
-  - unfold ci_inlines. cbn [map ci_ast app inline_lines].
-    rewrite ci_line_str. reflexivity.
-  - destruct c2 as [s2]. unfold cis_ok in Hok.
-    cbn [no_adjacent_ci_str] in Hok. rewrite andb_false_r in Hok. discriminate.
+  intros cis cur rest Hok Hne. clear Hok Hne.
+  induction cis as [|c cs IH] in cur |- *.
+  - cbn [ci_inlines ci_line ci_text app inline_lines].
+    rewrite append_empty_r. reflexivity.
+  - destruct c as [s|v];
+      cbn [ci_inlines ci_ast mk map app inline_lines ci_line ci_text].
+    + rewrite IH.
+      rewrite (ci_text_prev cs (str_last (escape_str s) None) None).
+      unfold ci_line. rewrite append_assoc. reflexivity.
+    + rewrite IH.
+      rewrite (ci_text_prev cs (str_last (verb_text v) None) None).
+      unfold ci_line. rewrite append_assoc. reflexivity.
 Qed.
 
 Lemma inline_lines_ci_para :
@@ -598,4 +1120,33 @@ Example escape_backslash : escape_str "a\b" = "a\\b".
 Proof. reflexivity. Qed.
 
 Example escape_leaves_punct : escape_str "a,*b" = "a,*b".
+Proof. reflexivity. Qed.
+
+(*
+Canonical verbatim, pinned
+==========================
+*)
+
+Example verb_ticks_examples :
+  (verb_ticks "a", verb_ticks "`", verb_ticks "``", verb_ticks "` ``")
+  = (1, 2, 1, 3).
+Proof. vm_compute. reflexivity. Qed.
+
+Example verbatim_render_tick : ci_line [CIVerb "`"] = "`` ` ``".
+Proof. vm_compute. reflexivity. Qed.
+
+Example verbatim_mixed_roundtrip :
+  parse_inline_line (ci_line [CIStr "a"; CIVerb "`"; CIStr "*"])
+  = ci_inlines [CIStr "a"; CIVerb "`"; CIStr "*"].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The byte after a delayed closer is dispatched normally: here it is
+   the backslash that protects a literal backtick. *)
+Example verbatim_then_escaped_tick :
+  parse_inline_line (ci_line [CIVerb "v"; CIStr "`"])
+  = ci_inlines [CIVerb "v"; CIStr "`"].
+Proof. vm_compute. reflexivity. Qed.
+
+Example empty_verbatim_must_end_line :
+  cis_ok [CIVerb EmptyString; CIStr "a"] = false.
 Proof. reflexivity. Qed.
