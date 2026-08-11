@@ -453,6 +453,39 @@ Proof.
   - apply String.eqb_eq. exact Hlast.
 Qed.
 
+(* Where the inline layer enters the block roundtrip, and the only place
+   it does.  The parser reaches a paragraph as `para_inlines` of the
+   lines it read; `cb_ast` names it as `ci_para` of the canonical view.
+   `Inline.para_inlines_ci_para` is what identifies the two, and its
+   three hypotheses are exactly what `cb_ok` carries: `cis_ok` per line
+   from the inline conjunct, nonemptiness derived from the block
+   conjunct's `line_ok`, and the trailing-whitespace condition verbatim. *)
+Lemma cb_ast_para_of_lines :
+  forall lss, cb_ok (CPara lss) = true ->
+  mk (Para (para_inlines (map ci_line lss))) = cb_ast (CPara lss).
+Proof.
+  intros lss H. rewrite cb_ok_para in H.
+  apply andb_true_iff in H as [Hp Hc].
+  destruct (map ci_line lss) as [|a ls'] eqn:E; [discriminate|].
+  apply para_ok_parts in Hp as (_ & Hlok & Hlast).
+  rewrite <- E in Hlok, Hlast |- *.
+  cbn [cb_ast]. f_equal. f_equal.
+  apply para_inlines_ci_para;
+    [exact Hc | apply cis_nonempty_of_lines; exact Hlok | exact Hlast].
+Qed.
+
+Lemma cb_ast_heading_of_lines :
+  forall lvl lss, cb_ok (CHeading lvl lss) = true ->
+  mk (Heading lvl (para_inlines (map ci_line lss))) = cb_ast (CHeading lvl lss).
+Proof.
+  intros lvl lss H. rewrite cb_ok_heading in H.
+  apply andb_true_iff in H as [Hh Hc].
+  apply heading_ok_parts in Hh as (_ & _ & Hlok & Hlast).
+  cbn [cb_ast]. f_equal. f_equal.
+  apply para_inlines_ci_para;
+    [exact Hc | apply cis_nonempty_of_lines; exact Hlok | exact Hlast].
+Qed.
+
 (* cb_ok is stated per construct; lines_ok is what split_render needs.
    This is the bridge between them.  The quote case needs the same fact
    about its contents' layout, hence the two-predicate induction. *)
@@ -466,8 +499,12 @@ Proof.
             (Forall (fun cbs => forallb cb_ok cbs = true ->
                                  forallb lines_ok (map cb_lines cbs) = true))
             _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
-  - (* paragraph: line_ok everywhere implies the split conditions *)
-    intros ls H.
+  - (* paragraph: line_ok everywhere implies the split conditions.  The
+       inline conjunct of cb_ok says nothing about line shape, so this
+       case reads exactly as it did over `list string`. *)
+    intros lss H. rewrite cb_ok_para in H.
+    apply andb_true_iff in H as [H _].
+    cbn [cb_lines]. remember (map ci_line lss) as ls eqn:E. clear E lss.
     destruct ls as [|a ls']; [discriminate|].
     apply para_ok_parts in H as (_ & Hlok & _).
     unfold lines_ok. simpl cb_lines.
@@ -488,10 +525,11 @@ Proof.
     + rewrite last_cons_app. reflexivity.
   - (* heading: every rendered line carries the hashes, so the last one
        is nonempty whatever the text is *)
-    intros lvl ls H.
-    change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H.
+    intros lvl lss H. rewrite cb_ok_heading in H.
+    apply andb_true_iff in H as [H _].
+    cbn [cb_lines]. remember (map ci_line lss) as ls eqn:E. clear E lss.
     apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _).
-    cbn [cb_lines]. apply lines_ok_map.
+    apply lines_ok_map.
     + intros l Hl. rewrite heading_line_no_nl. exact Hl.
     + intros l. apply heading_line_nonempty. exact Hlvl.
     + exact Hne.
@@ -604,10 +642,12 @@ Proof.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
   apply lines_ok_parts in Hlines as (Hne & _ & _).
   destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items].
-  - destruct ls as [|a rest].
+  - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
+    cbn [cb_lines] in Hne |- *.
+    remember (map ci_line ls) as ls' eqn:E. clear E.
+    destruct ls' as [|a rest].
     + exfalso. apply Hne. reflexivity.
     + exists a, rest. split; [reflexivity|].
-      change (cb_ok (CPara (a :: rest))) with (para_ok (a :: rest)) in Hok.
       apply para_ok_parts in Hok as [Ha _].
       intros m mc item E. rewrite Ha in E. discriminate.
   - exists thematic_line, []. split; [reflexivity|].
@@ -619,9 +659,11 @@ Proof.
     apply code_ok_parts in Hok as [Hinfo _].
     unfold code_open in E.
     rewrite (classify_backtick_fence info Hinfo) in E. discriminate.
-  - change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in Hok.
+  - rewrite cb_ok_heading in Hok. apply andb_true_iff in Hok as [Hok _].
+    cbn [cb_lines] in Hne |- *.
+    remember (map ci_line ls) as ls' eqn:E. clear E.
     apply heading_ok_parts in Hok as [Hlvl [Hls _]].
-    destruct ls as [|a rest].
+    destruct ls' as [|a rest].
     + exfalso. apply Hls. reflexivity.
     + exists (heading_line lvl a), (map (heading_line lvl) rest).
       split; [reflexivity|]. intros m mc item E.
@@ -658,10 +700,12 @@ Lemma cb_lines_first_line_ok :
 Proof.
   intros cb first rest Hnonlist Hok Hlines.
   destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items].
-  - change (para_ok ls = true) in Hok. destruct ls as [|l ls'];
-      [discriminate Hok|].
+  - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
+    cbn [cb_lines] in Hlines.
+    remember (map ci_line ls) as ls0 eqn:E. clear E.
+    destruct ls0 as [|l ls']; [discriminate Hok|].
     apply para_ok_parts in Hok as [_ [Hok _]].
-    cbn [cb_lines] in Hlines. injection Hlines as <- <-. cbn [forallb] in Hok.
+    injection Hlines as <- <-. cbn [forallb] in Hok.
     apply andb_true_iff in Hok as [Hfirst _]. exact Hfirst.
   - cbn [cb_lines] in Hlines. injection Hlines as <- <-. reflexivity.
   - change (code_ok info content = true) in Hok.
@@ -672,10 +716,12 @@ Proof.
       * reflexivity.
       * rewrite no_nl_append, (info_no_nl _ Hinfo). reflexivity.
     + apply String.eqb_eq. reflexivity.
-  - change (heading_ok lvl ls = true) in Hok.
+  - rewrite cb_ok_heading in Hok. apply andb_true_iff in Hok as [Hok _].
+    cbn [cb_lines] in Hlines.
+    remember (map ci_line ls) as ls0 eqn:E. clear E.
     apply heading_ok_parts in Hok as [Hlvl [_ [Hok _]]].
-    destruct ls as [|l ls']; [discriminate Hlines|].
-    cbn [cb_lines map] in Hlines. injection Hlines as <- <-.
+    destruct ls0 as [|l ls']; [discriminate Hlines|].
+    cbn [map] in Hlines. injection Hlines as <- <-.
     cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hl _].
     unfold line_ok. apply andb_true_iff; split.
     + apply andb_true_iff; split.
@@ -848,23 +894,29 @@ Proof.
                forallb (fun it => (nonempty it && forallb cb_ok it)%bool) items = true ->
                items_parse items)
             _ _ _ _ _ _ _ _ _ _ _).
-  - (* paragraph *)
-    intros ls. split; [intros next tail _ _ H | intros H];
-      change (cb_ok (CPara ls)) with (para_ok ls) in H;
-      destruct ls as [|a ls']; try discriminate;
-      apply para_ok_parts in H as (Htext & Hlok & _);
+  - (* paragraph.  The parse is the same line-level argument as before the
+       inline layer existed; `cb_ast_para_of_lines` is the one new step,
+       identifying what the parser built with what `cb_ast` names.
+       `destruct ... eqn:E` abstracts it in `Hast` too, which is why the
+       branches close on `Hast` and not on `reflexivity`. *)
+    intros lss. split; [intros next tail _ _ H | intros H];
+      pose proof (cb_ast_para_of_lines lss H) as Hast;
+      rewrite cb_ok_para in H;
+      apply andb_true_iff in H as [Hp _];
+      cbn [cb_lines];
+      destruct (map ci_line lss) as [|a ls'] eqn:E; try discriminate;
+      apply para_ok_parts in Hp as (Htext & Hlok & _);
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [_ Hnb'];
-      destruct (rev_cons_shape a ls') as [c [cur' Erev]];
-      cbn [cb_lines].
+      destruct (rev_cons_shape a ls') as [c [cur' Erev]].
     + rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
       rewrite Erev, parse_lines_blank_cons by reflexivity.
-      rewrite <- Erev, rev_involutive. reflexivity.
+      rewrite <- Erev, rev_involutive, Hast. reflexivity.
     + rewrite <- (app_nil_r (a :: ls')) at 1.
       rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
-      rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive.
+      rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive, Hast.
       reflexivity.
   - (* thematic break *)
     split; [intros next tail _ _ H | intros H]; cbn [cb_lines app].
@@ -894,25 +946,30 @@ Proof.
        blank line or at end of input.  No first-line classification
        condition — the hashes make every rendered line a heading line. *)
     intros lvl ls. split; [intros next tail _ _ H | intros H];
-      change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H;
-      apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _);
-      destruct ls as [|a ls']; [congruence| |congruence|];
+      pose proof (cb_ast_heading_of_lines lvl ls H) as Hast;
+      rewrite cb_ok_heading in H;
+      apply andb_true_iff in H as [Hh _];
+      apply heading_ok_parts in Hh as (Hlvl & Hne & Hlok & _);
+      cbn [cb_lines];
+      destruct (map ci_line ls) as [|a ls'] eqn:E; [congruence| |congruence|];
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [Hna Hnb'];
       unfold nonblank in Hna; apply negb_true_iff in Hna;
       cbn [forallb] in Hlok; apply andb_true_iff in Hlok as [Hlok_a Hlok_ls'];
-      cbn [cb_lines cb_ast map app];
+      cbn [map app];
       rewrite (parse_lines_heading_open _ _ _ a
                  (classify_canonical_heading lvl a Hlvl));
       replace (push_text a []) with [a]
         by (unfold push_text; rewrite Hna;
             rewrite (line_ok_no_leading_ws _ Hlok_a); reflexivity).
-    + rewrite parse_lines_heading_seed by assumption.
+    + rewrite <- Hast.
+      rewrite parse_lines_heading_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
       reflexivity.
-    + rewrite <- (app_nil_r (map (heading_line lvl) ls')).
+    + rewrite <- Hast.
+      rewrite <- (app_nil_r (map (heading_line lvl) ls')).
       rewrite parse_lines_heading_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_nil. cbn [finish].
@@ -1076,30 +1133,6 @@ The renderer emits exactly the canonical lines
 ==============================================
 *)
 
-(* inline_lines inverts para_inlines on canonical input. *)
-Lemma inline_lines_para :
-  forall ls,
-    ls <> [] ->
-    forallb line_ok ls = true ->
-    strip_trailing_ws (last ls EmptyString) = last ls EmptyString ->
-    inline_lines (para_inlines ls) EmptyString = ls.
-Proof.
-  induction ls as [|x rest IH]; intros Hne Hlok Hlast; [congruence|].
-  destruct rest as [|y rest'].
-  - (* singleton: parser strips the (only) line; canonicality says the
-       strip is the identity *)
-    simpl in Hlast.
-    rewrite para_inlines_one. simpl.
-    rewrite Hlast. reflexivity.
-  - rewrite para_inlines_cons2. simpl.
-    f_equal.
-    simpl in Hlok. apply andb_true_iff in Hlok as [_ Hlok].
-    apply IH; [discriminate | exact Hlok |].
-    replace (last (y :: rest') EmptyString)
-      with (last (x :: y :: rest') EmptyString) by reflexivity.
-    exact Hlast.
-Qed.
-
 (* fence_block renders back to the canonical fence lines, whether the
    info string makes it a code block or (starting with '=') a raw block.
    The 256-way destruct reduces the character match in fence_block. *)
@@ -1137,13 +1170,17 @@ Proof.
                                                       (map cb_ast it))) items
                           = map item_lines items)
             _ _ _ _ _ _ _ _ _ _ _).
-  - (* paragraph: inline_lines inverts para_inlines *)
-    intros ls H. change (cb_ok (CPara ls)) with (para_ok ls) in H.
-    destruct ls as [|a ls']; [discriminate|].
-    apply para_ok_parts in H as (_ & Hlok & Hlast).
+  - (* paragraph: `inline_lines_ci` is the whole case.  The destruct is
+       only there to reach `para_ok_parts`, which wants a cons. *)
+    intros ls H. rewrite cb_ok_para in H. apply andb_true_iff in H as [Hp Hc].
+    destruct (map ci_line ls) as [|a ls'] eqn:E; [discriminate|].
+    apply para_ok_parts in Hp as (_ & Hlok & _).
+    rewrite <- E in Hlok.
     cbn [cb_ast cb_lines node_contents mk render_block_lines].
-    rewrite inline_lines_para by (assumption || discriminate).
-    reflexivity.
+    apply inline_lines_ci.
+    + exact Hc.
+    + apply cis_nonempty_of_lines. exact Hlok.
+    + destruct ls; [discriminate E | reflexivity].
   - reflexivity.
   - (* code block *)
     intros info content H.
@@ -1152,11 +1189,14 @@ Proof.
     cbn [cb_lines]. apply render_fence_block. exact Hnl.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     intros lvl ls H.
-    change (cb_ok (CHeading lvl ls)) with (heading_ok lvl ls) in H.
-    apply heading_ok_parts in H as (_ & Hne & Hlok & Hlast).
+    rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
+    apply heading_ok_parts in Hh as (_ & Hne & Hlok & _).
     cbn [cb_ast cb_lines node_contents mk render_block_lines].
-    rewrite inline_lines_para by assumption.
-    reflexivity.
+    f_equal.
+    apply inline_lines_ci.
+    + exact Hc.
+    + apply cis_nonempty_of_lines. exact Hlok.
+    + destruct ls; [cbn [map] in Hne; congruence | reflexivity].
   - (* quote: prefix the contents' layout *)
     intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [H _].
@@ -1238,7 +1278,7 @@ really in that set, and that the rendering is the one a human would
 write. *)
 
 Definition quote_example : list cblock :=
-  [ CQuote [CPara ["a"]; CThematic]; CPara ["after"] ].
+  [ CQuote [cpara ["a"]; CThematic]; cpara ["after"] ].
 
 Example quote_example_ok : forallb cb_ok quote_example = true.
 Proof. reflexivity. Qed.
@@ -1259,7 +1299,7 @@ Proof. apply roundtrip_blocks; reflexivity. Qed.
 (* A multi-line heading renders with the hashes repeated on every line,
    which is what makes it reparse as a continuation of itself. *)
 Example heading_example_roundtrip :
-  let cbs := [CHeading 2 ["a"; "b"]; CPara ["p"]] in
+  let cbs := [cheading 2 ["a"; "b"]; cpara ["p"]] in
   render_djot (blocks_of_cblocks cbs)
     = ("## a" ++ nl ++ "## b" ++ nl ++ nl ++ "p")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -1267,7 +1307,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 (* Headings nest inside quotes with no extra machinery. *)
 Example heading_in_quote_roundtrip :
-  let cbs := [CQuote [CHeading 1 ["h"]; CPara ["t"]]] in
+  let cbs := [CQuote [cheading 1 ["h"]; cpara ["t"]]] in
   render_djot (blocks_of_cblocks cbs)
     = ("> # h" ++ nl ++ "> " ++ nl ++ "> t")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -1276,7 +1316,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* Divs roundtrip, and so do the containers inside them — the whole
    content of Parser.div_uniformity, seen end to end. *)
 Example div_roundtrip :
-  let cbs := [CDiv [CPara ["a"]; CPara ["b"]]] in
+  let cbs := [CDiv [cpara ["a"]; cpara ["b"]]] in
   render_djot (blocks_of_cblocks cbs)
     = (":::" ++ nl ++ "a" ++ nl ++ nl ++ "b" ++ nl ++ ":::")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -1293,7 +1333,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* A quote inside a div: the two containers' rules do not interact, which
    is the uniformity claim at its narrowest. *)
 Example quote_in_div_roundtrip :
-  let cbs := [CDiv [CQuote [CPara ["q"]]]] in
+  let cbs := [CDiv [CQuote [cpara ["q"]]]] in
   render_djot (blocks_of_cblocks cbs)
     = (":::" ++ nl ++ "> q" ++ nl ++ ":::")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -1303,26 +1343,26 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    `roundtrip_blocks` never sees it.  This is `cb_ok`'s side condition
    doing its job. *)
 Example div_containing_fence_rejected :
-  cblocks_ok [CDiv [CPara [":::"]]] = false.
+  cblocks_ok [CDiv [cpara [":::"]]] = false.
 Proof. reflexivity. Qed.
 
 (* Nesting roundtrips too, with no extra hypotheses. *)
 Example nested_quote_roundtrip :
-  let cbs := [CQuote [CQuote [CPara ["deep"]]]] in
+  let cbs := [CQuote [CQuote [cpara ["deep"]]]] in
   render_djot (blocks_of_cblocks cbs) = "> > deep"
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 Example tight_list_roundtrip :
   let cbs :=
-    [CList LKBullet Tight [[CPara ["a"]]; [CPara ["b"]]]; CPara ["after"]] in
+    [CList LKBullet Tight [[cpara ["a"]]; [cpara ["b"]]]; cpara ["after"]] in
   render_djot (blocks_of_cblocks cbs)
     = ("- a" ++ nl ++ "- b" ++ nl ++ nl ++ "after")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 Example loose_list_roundtrip :
-  let cbs := [CList LKBullet Loose [[CPara ["a"]]; [CPara ["b"]]]] in
+  let cbs := [CList LKBullet Loose [[cpara ["a"]]; [cpara ["b"]]]] in
   render_djot (blocks_of_cblocks cbs) = ("- a" ++ nl ++ nl ++ "- b")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
@@ -1333,7 +1373,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    type="I">` respectively. *)
 Example roman_list_roundtrip :
   let cbs := [CList (LKRoman false RightPeriod 2) Tight
-                [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+                [[cpara ["a"]]; [cpara ["b"]]; [cpara ["c"]]]] in
   render_djot (blocks_of_cblocks cbs)
     = ("ii. a" ++ nl ++ "iii. b" ++ nl ++ "iv. c")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -1341,14 +1381,14 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 Example alpha_list_roundtrip :
   let cbs := [CList (LKAlpha false RightParen 1) Tight
-                [[CPara ["x"]]; [CPara ["y"]]]] in
+                [[cpara ["x"]]; [cpara ["y"]]]] in
   render_djot (blocks_of_cblocks cbs) = ("a) x" ++ nl ++ "b) y")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 Example roman_upper_list_roundtrip :
   let cbs := [CList (LKRoman true RightPeriod 4) Tight
-                [[CPara ["p"]]; [CPara ["q"]]]] in
+                [[cpara ["p"]]; [cpara ["q"]]]] in
   render_djot (blocks_of_cblocks cbs) = ("IV. p" ++ nl ++ "V. q")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
@@ -1358,7 +1398,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    narrowing and a longer one is narrowed to roman by `ii.`. *)
 Example roman_from_one_roundtrip :
   let cbs := [CList (LKRoman false RightPeriod 1) Tight
-                [[CPara ["a"]]; [CPara ["b"]]]] in
+                [[cpara ["a"]]; [cpara ["b"]]]] in
   render_djot (blocks_of_cblocks cbs) = ("i. a" ++ nl ++ "ii. b")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
@@ -1381,9 +1421,9 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    With these, every ordered start that can round-trip does. *)
 Example alpha_two_roman_digits_roundtrip :
   let from_c := [CList (LKAlpha false RightPeriod 3) Tight
-                   [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+                   [[cpara ["a"]]; [cpara ["b"]]; [cpara ["c"]]]] in
   let from_l := [CList (LKAlpha false RightPeriod 12) Tight
-                   [[CPara ["a"]]; [CPara ["b"]]; [CPara ["c"]]]] in
+                   [[cpara ["a"]]; [cpara ["b"]]; [cpara ["c"]]]] in
   render_djot (blocks_of_cblocks from_c)
     = ("c. a" ++ nl ++ "d. b" ++ nl ++ "e. c")%string
   /\ render_djot (blocks_of_cblocks from_l)
@@ -1397,23 +1437,23 @@ Qed.
 (* Excluded and impossible.  Each of these three cannot round-trip at
    all, so no theorem will ever admit them. *)
 Example excluded_ordered_starts :
-  (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[CPara ["a"]]]),
+  (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[cpara ["a"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 3) Tight
-            [[CPara ["a"]]; [CPara ["b"]]]),
+            [[cpara ["a"]]; [cpara ["b"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 26) Tight
-            [[CPara ["a"]]; [CPara ["b"]]]))
+            [[cpara ["a"]]; [cpara ["b"]]]))
   = (false, false, false).
 Proof. reflexivity. Qed.
 
 (* Lists nest, in both directions: through a quote, and directly inside
    another list's item. *)
 Example list_in_quote_roundtrip :
-  let cbs := [CQuote [CList LKBullet Tight [[CPara ["a"]]; [CPara ["b"]]]]] in
+  let cbs := [CQuote [CList LKBullet Tight [[cpara ["a"]]; [cpara ["b"]]]]] in
   parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. apply roundtrip_blocks; reflexivity. Qed.
 
 Example nested_list_roundtrip :
-  let cbs := [CList LKBullet Tight [[CList LKBullet Tight [[CPara ["b"]]; [CPara ["c"]]]]]] in
+  let cbs := [CList LKBullet Tight [[CList LKBullet Tight [[cpara ["b"]]; [cpara ["c"]]]]]] in
   render_djot (blocks_of_cblocks cbs) = ("- - b" ++ nl ++ "  - c")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
@@ -1422,7 +1462,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    list needs does not loosen the outer one, which is the rule
    `lines_loose` encodes and `item_forces_loose` mirrors. *)
 Example nested_list_after_para_roundtrip :
-  let cbs := [CList LKBullet Tight [[CPara ["a"]; CList LKBullet Tight [[CPara ["b"]]]]]] in
+  let cbs := [CList LKBullet Tight [[cpara ["a"]; CList LKBullet Tight [[cpara ["b"]]]]]] in
   parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. apply roundtrip_blocks; reflexivity. Qed.
 
@@ -1490,7 +1530,7 @@ Qed.
 (* The sections and identifiers the pass adds are exactly what the
    erasure above takes back out. *)
 Example heading_roundtrip_doc :
-  let cbs := [CHeading 1 ["h"]; CPara ["p"]] in
+  let cbs := [cheading 1 ["h"]; cpara ["p"]] in
   doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs)))
   = [ Node NoPos [("id", "h")]
         (Section [ mk (Heading 1 [mk (Str "h")]); mk (Para [mk (Str "p")]) ]) ]

@@ -106,6 +106,20 @@ Proof.
   intros [|c rest] H; [rewrite ci_line_nil in H; discriminate | reflexivity].
 Qed.
 
+(* The form the block layer supplies it in: `para_ok` and `heading_ok`
+   both carry `forallb line_ok` over the rendered lines. *)
+Lemma cis_nonempty_of_lines :
+  forall lss,
+    forallb line_ok (map ci_line lss) = true ->
+    forallb nonempty lss = true.
+Proof.
+  induction lss as [|cis rest IH]; [reflexivity|].
+  cbn [map forallb]. intros H. apply andb_true_iff in H as [Hl Hr].
+  rewrite (cis_nonempty_of_line cis
+             (nonblank_nonempty _ (line_ok_nonblank _ Hl))).
+  exact (IH Hr).
+Qed.
+
 (*
 The inline pass
 ===============

@@ -62,10 +62,13 @@ Canonical blocks
    recursion), so each projection carries one and each gets an equation
    lemma recovering the `map`/`forallb` form the proofs use. *)
 Inductive cblock : Type :=
-  | CPara (ls : list string)
+  (* A paragraph's within-line content, one `list cinline` per source
+     line: the block layer owns line structure, `Inline.v` owns what sits
+     inside a line, and a `SoftBreak` is exactly the seam between them. *)
+  | CPara (lss : list (list cinline))
   | CThematic
   | CCode (info : string) (content : list string)
-  | CHeading (level : nat) (ls : list string)
+  | CHeading (level : nat) (lss : list (list cinline))
   | CQuote (inner : list cblock)
   (* A canonical div: bare `:::` at both ends, no class.  The fence
      length is fixed for the same reason `CCode`'s is — content that
@@ -86,10 +89,10 @@ Fixpoint cb_lines (cb : cblock) : list string :=
       | it :: rest => sep_lines (map cb_lines it) :: goitems rest
       end in
   match cb with
-  | CPara ls => ls
+  | CPara lss => map ci_line lss
   | CThematic => [thematic_line]
   | CCode info content => (code_open info :: content ++ [code_close])%list
-  | CHeading lvl ls => map (heading_line lvl) ls
+  | CHeading lvl lss => map (heading_line lvl) (map ci_line lss)
   | CQuote inner => map quote_line (sep_lines (map cb_lines inner))
   | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
   (* Each item's own lines, then the markers its kind supplies and the
@@ -109,10 +112,10 @@ Fixpoint cb_ast (cb : cblock) : node block :=
     fix goitems (iss : list (list cblock)) : list blocks :=
       match iss with [] => [] | it :: rest => map cb_ast it :: goitems rest end in
   match cb with
-  | CPara ls => mk (Para (para_inlines ls))
+  | CPara lss => mk (Para (ci_para lss))
   | CThematic => mk ThematicBreak
   | CCode info content => fence_block (Fence "`"%char 3 info) content
-  | CHeading lvl ls => mk (Heading lvl (para_inlines ls))
+  | CHeading lvl lss => mk (Heading lvl (ci_para lss))
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
   | CDiv inner => mk (Div (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
@@ -190,6 +193,30 @@ Definition cblock_ind2
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
+
+(* Plain-text paragraphs and headings: one `Str` per line, which is every
+   inhabitant `cinline` has so far and will stay the common case in
+   examples.  `cb_lines (cpara ls) = ls`, so a test written against source
+   lines keeps reading that way. *)
+Definition cline (s : string) : list cinline := [CIStr s].
+Definition cpara (ls : list string) : cblock := CPara (map cline ls).
+Definition cheading (lvl : nat) (ls : list string) : cblock :=
+  CHeading lvl (map cline ls).
+
+Lemma map_ci_line_cline : forall ls, map ci_line (map cline ls) = ls.
+Proof.
+  induction ls as [|s ls IH]; [reflexivity|].
+  cbn [map cline ci_line ci_text]. rewrite IH, append_empty_r. reflexivity.
+Qed.
+
+(* `cpara` is faithful: it names the paragraph whose source lines are
+   exactly `ls`.  Nothing consumes this, and that is the point -- it is
+   what a reader of a `cpara`-spelled example would otherwise have to
+   take on trust, and it is the first thing to break if `cline` or
+   `ci_line` drifts.  The `cheading` analogue is this with
+   `map (heading_line lvl)` on top and is left unstated. *)
+Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = ls.
+Proof. intros ls. cbn [cb_lines cpara]. apply map_ci_line_cline. Qed.
 
 (*
 Renderability
@@ -280,8 +307,8 @@ Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
    pairs 1-2, 3-4, ... and miss the offending pair in the third example.
    Three blocks is the shortest input that tells the two apart. *)
 Section NoAdjacentListsTests.
-  Let l : cblock := CList LKBullet Tight [[CPara ["a"]]].
-  Let p : cblock := CPara ["p"].
+  Let l : cblock := CList LKBullet Tight [[cpara ["a"]]].
+  Let p : cblock := cpara ["p"].
 
   Example no_adjacent_lists_pair : no_adjacent_lists [l; l] = false.
   Proof. reflexivity. Qed.
@@ -349,10 +376,14 @@ Fixpoint cb_ok (cb : cblock) : bool :=
       | it :: rest => (inner_ok it && goitems rest)%bool
       end in
   match cb with
-  | CPara ls => para_ok ls
+  (* The block obligation is on the rendered lines, unchanged; the inline
+     obligation is `cis_ok` per line.  Splitting it this way is what keeps
+     the block conditions (first line classifies as text, nothing blank,
+     last line pre-stripped) stated where they were. *)
+  | CPara lss => para_ok (map ci_line lss) && forallb cis_ok lss
   | CThematic => true
   | CCode info content => code_ok info content
-  | CHeading lvl ls => heading_ok lvl ls
+  | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
   | CQuote inner => inner_ok inner && no_adjacent_lists inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
      contentless div in both oracles), so this is the one container
@@ -398,6 +429,20 @@ Proof.
                | c0 :: r => (cb_ok c0 && go r)%bool end) (c2 :: rest'))%bool.
     rewrite IH. cbn [nonempty forallb]. reflexivity.
 Qed.
+
+(* The two arms that split into a block obligation on the rendered lines
+   and an inline one per line. *)
+Lemma cb_ok_para :
+  forall lss,
+    cb_ok (CPara lss)
+    = (para_ok (map ci_line lss) && forallb cis_ok lss)%bool.
+Proof. reflexivity. Qed.
+
+Lemma cb_ok_heading :
+  forall lvl lss,
+    cb_ok (CHeading lvl lss)
+    = (heading_ok lvl (map ci_line lss) && forallb cis_ok lss)%bool.
+Proof. reflexivity. Qed.
 
 Lemma cb_ok_quote :
   forall inner,
