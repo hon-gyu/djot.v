@@ -704,16 +704,23 @@ which is what `clearOpeners` plus the placeholder amount to.  The
 remaining two, *discard* and closing below the top, belong to brackets
 and are not reachable from this table. *)
 
+Inductive frame_kind : Type :=
+  | FKDelim (style : dstyle)
+  | FKBracket.
+
 Record frame : Type := Frame {
-  fr_style : dstyle;
-  fr_marked : bool;          (* opened as `{d`, so only `d}` closes it *)
+  fr_kind : frame_kind;
+  fr_marked : bool;          (* delimiter opened as `{d`; false for `[` *)
   fr_out : inlines           (* this scope's inlines, reversed *)
 }.
 
 (* The opener's source text, which is what it decays to when abandoned. *)
 Definition fr_src (f : frame) : string :=
-  if fr_marked f then String lbrace (one (dchar (fr_style f)))
-  else one (dchar (fr_style f)).
+  match fr_kind f with
+  | FKDelim k =>
+      if fr_marked f then String lbrace (one (dchar k)) else one (dchar k)
+  | FKBracket => one "["%char
+  end.
 
 Record ostate : Type := OState {
   os_out : inlines;          (* the outermost scope, reversed *)
@@ -733,7 +740,10 @@ Definition dstyle_eqb (a b : dstyle) : bool :=
    djot.js keys its opener map by `{d` or `d`, so `{_a_` does not close
    and neither does `_a_}`. *)
 Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
-  (dstyle_eqb k (fr_style f) && Bool.eqb m (fr_marked f))%bool.
+  match fr_kind f with
+  | FKDelim k' => (dstyle_eqb k k' && Bool.eqb m (fr_marked f))%bool
+  | FKBracket => false
+  end.
 
 (* Reversed-list splices that merge a `Str` seam, so `no_adjacent_str`
    survives an abandoned opener becoming text next to its neighbours. *)
@@ -761,7 +771,7 @@ Definition oemit (n : node inline) (o : ostate) : ostate :=
   match os_stk o with
   | [] => OState (n :: os_out o) []
   | f :: rest =>
-      OState (os_out o) (Frame (fr_style f) (fr_marked f) (n :: fr_out f) :: rest)
+      OState (os_out o) (Frame (fr_kind f) (fr_marked f) (n :: fr_out f) :: rest)
   end.
 
 Fixpoint oemit_all (ns : inlines) (o : ostate) : ostate :=
@@ -774,7 +784,10 @@ Definition flush_text (txt : string) (o : ostate) : ostate :=
   if nonempty_str txt then oemit (mk (Str txt)) o else o.
 
 Definition opush (k : dstyle) (m : bool) (o : ostate) : ostate :=
-  OState (os_out o) (Frame k m [] :: os_stk o).
+  OState (os_out o) (Frame (FKDelim k) m [] :: os_stk o).
+
+Definition bpush (o : ostate) : ostate :=
+  OState (os_out o) (Frame FKBracket false [] :: os_stk o).
 
 Lemma oemit_all_app :
   forall a b o, oemit_all (a ++ b)%list o = oemit_all b (oemit_all a o).
@@ -784,15 +797,15 @@ Proof.
 Qed.
 
 Lemma oemit_all_frame :
-  forall ns out k m acc stk,
-    oemit_all ns (OState out (Frame k m acc :: stk))
-    = OState out (Frame k m (List.rev ns ++ acc)%list :: stk).
+  forall ns out kind m acc stk,
+    oemit_all ns (OState out (Frame kind m acc :: stk))
+    = OState out (Frame kind m (List.rev ns ++ acc)%list :: stk).
 Proof.
-  induction ns as [|n ns IH]; intros out k m acc stk;
+  induction ns as [|n ns IH]; intros out kind m acc stk;
     cbn [oemit_all List.rev app]; [reflexivity|].
-  change (oemit_all ns (OState out (Frame k m (n :: acc) :: stk))
+  change (oemit_all ns (OState out (Frame kind m (n :: acc) :: stk))
           = OState out
-              (Frame k m ((List.rev ns ++ [n]) ++ acc)%list :: stk)).
+              (Frame kind m ((List.rev ns ++ [n]) ++ acc)%list :: stk)).
   rewrite IH, <- List.app_assoc. reflexivity.
 Qed.
 
@@ -827,14 +840,48 @@ Lemma oclose_oemit_all_marked :
     = Some (oemit (mk (dnode k ns)) base).
 Proof.
   intros k ns [out stk] Hne. unfold opush. rewrite oemit_all_frame.
-  unfold oclose. cbn [os_stk os_out oclose_go oapp dmatch fr_style
+  unfold oclose. cbn [os_stk os_out oclose_go oapp dmatch fr_kind
     fr_marked fr_out]. rewrite !app_nil_r.
   assert (Hrev : nonempty (List.rev ns) = true).
   { destruct ns as [|n rest]; [discriminate|].
     cbn [List.rev]. destruct (List.rev rest); reflexivity. }
   rewrite Hrev. destruct k;
-    cbn [dmatch dstyle_eqb fr_style fr_marked andb_true_l].
+    cbn [dmatch dstyle_eqb fr_kind fr_marked andb_true_l].
   all: cbn; rewrite List.rev_involutive; reflexivity.
+Qed.
+
+(* Brackets share the ordered scope stack with delimiters.  Finding a
+   bracket abandons any delimiter frames above it, just as djot.js closes
+   the bracketed construct before `clearOpeners` removes openers inside
+   it.  Unlike a delimiter close this only extracts the label content:
+   the following byte still decides link, reference, span, or literal
+   brackets. *)
+Fixpoint bclose_go (pend : inlines) (stk : list frame)
+  : option (inlines * list frame) :=
+  match stk with
+  | [] => None
+  | f :: rest =>
+      let content := oapp pend (fr_out f) in
+      match fr_kind f with
+      | FKBracket => Some (content, rest)
+      | FKDelim _ =>
+          bclose_go (oapp content [mk (Str (fr_src f))]) rest
+      end
+  end.
+
+Definition bclose (o : ostate) : option (inlines * ostate) :=
+  match bclose_go [] (os_stk o) with
+  | None => None
+  | Some (content, rest) => Some (List.rev content, OState (os_out o) rest)
+  end.
+
+Lemma bclose_oemit_all :
+  forall ns base,
+    bclose (oemit_all ns (bpush base)) = Some (ns, base).
+Proof.
+  intros ns [out stk]. unfold bpush. rewrite oemit_all_frame.
+  unfold bclose. cbn [os_stk os_out bclose_go fr_out fr_kind oapp].
+  rewrite app_nil_r, List.rev_involutive. reflexivity.
 Qed.
 
 (* Everything still open when the paragraph ends is abandoned. *)

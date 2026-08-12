@@ -552,7 +552,7 @@ Lemma oscope_ok_emit :
     oscope_ok (oemit n o) = true.
 Proof.
   intros n [out [|f stk]] Ho Hn Hc; unfold oscope_ok, oemit, ocur in *;
-    cbn [os_out os_stk frames_ok forallb fr_out fr_style fr_marked] in *.
+    cbn [os_out os_stk frames_ok forallb fr_out fr_kind fr_marked] in *.
   - apply andb_true_iff in Ho as [Ho _]. rewrite andb_true_r.
     apply ilist_ok_push; [exact Ho | exact Hn |].
     rewrite hd_str_is_starts_str. exact Hc.
@@ -567,6 +567,14 @@ Lemma oscope_ok_push :
   forall k m o, oscope_ok o = true -> oscope_ok (opush k m o) = true.
 Proof.
   intros k m [out stk] H. unfold oscope_ok, opush in *;
+    cbn [os_out os_stk frames_ok forallb fr_out] in *.
+  change (ilist_ok []) with true. rewrite andb_true_l. exact H.
+Qed.
+
+Lemma oscope_ok_bpush :
+  forall o, oscope_ok o = true -> oscope_ok (bpush o) = true.
+Proof.
+  intros [out stk] H. unfold oscope_ok, bpush in *;
     cbn [os_out os_stk frames_ok forallb fr_out] in *.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
@@ -589,7 +597,9 @@ Qed.
    nonempty by construction, so it is well-formed. *)
 Lemma ilist_ok_src : forall f, ilist_ok [mk (Str (fr_src f))] = true.
 Proof.
-  intros [k [|] out]; reflexivity.
+  intros [kind marked out]. destruct kind as [k|].
+  - destruct k; destruct marked; reflexivity.
+  - destruct marked; reflexivity.
 Qed.
 
 Lemma oclose_go_ok :
