@@ -1309,13 +1309,11 @@ Example escaped_punct_is_literal :
   parse_blocks "a\*b" = [mk (Para [mk (Str "a*b")])].
 Proof. reflexivity. Qed.
 
-(* A boundary step 4 moves.  `*` has no inline meaning yet, so a `Str`
-   containing it renders bare.  When the delimiter table claims `*`,
-   `needs_escape` gains it and this rendering becomes `\*a\*`.  The
-   example is here to fail then: its change is the confirmation that the
-   table took effect, in the way `pad_nested_list_unshifted` recorded a
-   boundary until the fix deleted it. *)
-Example star_unescaped_for_now : cb_lines (cpara ["*a*"]) = ["*a*"].
+(* The boundary the delimiter table moved.  This read `["*a*"]` while `*`
+   had no inline meaning; now that the table claims it, a `Str`
+   containing one renders escaped, which is what keeps the text a `Str`
+   on the way back. *)
+Example star_escaped_in_str : cb_lines (cpara ["*a*"]) = ["\*a\*"].
 Proof. reflexivity. Qed.
 
 (* A multi-line heading renders with the hashes repeated on every line,
