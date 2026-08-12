@@ -1,17 +1,23 @@
 (* ai-disclosure: autonomous *)
 
-(* The inline layer: the parser's within-line pass, and the canonical
-   (renderable) view it inverts.
+(* The inline layer: the parser's pass over a paragraph's text, and the
+   canonical (renderable) view it inverts.
 
    The same two-sided shape as the block layer, one level down.  There,
    `Line.v` classifies a line and `Step.v` folds lines into blocks, while
    `Render.v`'s `cblock` describes the parser's image by the source data
-   that determines it.  Here `parse_inline_line` is the pass, `cinline`
-   is the image, and the two meet in `parse_inline_line_ci`.
+   that determines it.  Here `para_inlines` is the pass, `cinline` is the
+   image, and the two meet in `para_inlines_ci_para`.
 
    The pass currently recognizes escapes and verbatim spans.  The same
    state and canonical view are the extension points for the delimiter
    table and brackets in `.project/260811.inline-parser.md`.
+
+   The scan threads through line breaks rather than restarting at each
+   one, because a span may cross a break.  The canonical view stays
+   line-local, `cblock` describing a paragraph as a list of lines, and
+   `iscan_cis_closed` is what reconciles the two: a canonical line always
+   leaves the scan owing nothing to the next.
 
    Parser and renderer share the file because at this size a split would
    be three files of twenty lines.  It splits the way the block parser
@@ -301,23 +307,29 @@ Renderability
 *)
 
 (* A `Str` carrying no text would not have been emitted, and one carrying
-   a newline is not within-line content. *)
+   a newline is not within-line content.
+
+   An *empty* verbatim is excluded outright, which narrows the view by a
+   document the parser can reach.  Its canonical source is two adjacent
+   delimiter runs and nothing between, so it is closed only by what
+   follows it: at the end of a paragraph the scan closes it, and anywhere
+   else the runs merge and swallow the next byte -- across a line break
+   included, since spans cross breaks.  Representing it would take a
+   condition on the *paragraph*, which is one level above anything
+   `cinline` knows about.  `Verbatim ""` in a one-line paragraph does
+   round-trip; it is simply outside the view. *)
 Definition ci_ok (ci : cinline) : bool :=
   match ci with
   | CIStr s => nonempty_str s && no_nl s
-  | CIVerb s => verb_content_ok s
+  | CIVerb s => nonempty_str s && verb_content_ok s
   end.
 
-(* Pairwise source separation.  Adjacent strings merge; adjacent
-   verbatim spans merge their delimiter runs.  An empty verbatim is the
-   one subtler case: its canonical source is just two backtick runs, so
-   it is representable only at end of line -- a following byte would be
-   swallowed as content of the combined run. *)
+(* Pairwise source separation: adjacent strings merge, and adjacent
+   verbatim spans merge their delimiter runs. *)
 Definition ci_pair_ok (a b : cinline) : bool :=
   match a, b with
   | CIStr _, CIStr _ => false
   | CIVerb _, CIVerb _ => false
-  | CIVerb EmptyString, _ => false
   | _, _ => true
   end.
 
@@ -493,23 +505,85 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
    djoths's reading; djot.js makes it a hard break, an already-logged
    disagreement (`escapes.test:30`).  Neither can arise from a canonical
    rendering, since `escape_str` never emits a bare backslash. *)
-Definition ifinish (st : iscan) : inlines :=
-  List.rev
-    match st with
-    | IText true txt out =>
-        flush_text (txt ++ String "\"%char EmptyString)%string out
-    | IText false txt out => flush_text txt out
-    | IOpen _ out => mk (Verbatim EmptyString) :: out
-    | IVerb n run txt out =>
-        if Nat.eqb run n
-        then mk (Verbatim (trim_verb txt)) :: out
-        else mk (Verbatim (trim_verb (txt ++ ticks run)%string)) :: out
-    end.
+Definition ifinish_rev (st : iscan) : inlines :=
+  match st with
+  | IText true txt out =>
+      flush_text (txt ++ String "\"%char EmptyString)%string out
+  | IText false txt out => flush_text txt out
+  | IOpen _ out => mk (Verbatim EmptyString) :: out
+  | IVerb n run txt out =>
+      if Nat.eqb run n
+      then mk (Verbatim (trim_verb txt)) :: out
+      else mk (Verbatim (trim_verb (txt ++ ticks run)%string)) :: out
+  end.
+
+Definition ifinish (st : iscan) : inlines := List.rev (ifinish_rev st).
+
+(* A line boundary inside a paragraph.
+   djot.js scans the newline as an ordinary character of the subject, and
+   tests it *before* the verbatim mode (`inline.ts:832`), so a span may
+   cross a break: `` `a `` / `` b` `` is one code span containing a
+   newline, and the same will hold of the delimiter family.  A paragraph
+   is therefore one scan with this between its lines, not a scan per
+   line.
+
+   Only `IText` ends the line.  Inside a verbatim the newline is content,
+   which is why it arrives here as `one nl` rather than closing anything;
+   a resolved closing run (`run = n`) is the one case where the span ends
+   *at* the break and the newline is the soft break after it. *)
+Definition ibreak (st : iscan) : iscan :=
+  match st with
+  | IText true txt out =>
+      IText false EmptyString
+        (mk SoftBreak :: flush_text (txt ++ one bslash)%string out)
+  | IText false txt out =>
+      IText false EmptyString (mk SoftBreak :: flush_text txt out)
+  | IOpen n out => IVerb n 0 nl out
+  | IVerb n run txt out =>
+      if Nat.eqb run n
+      then IText false EmptyString
+             (mk SoftBreak :: mk (Verbatim (trim_verb txt)) :: out)
+      else IVerb n 0 (txt ++ ticks run ++ nl)%string out
+  end.
+
+(* A state that owes nothing to the next line: every construct it has
+   seen is resolved, so the boundary just ends the line and `ibreak`
+   agrees with `ifinish` on what was emitted.  The two states that fail
+   it are the ones a span crosses a break in: a backtick run still being
+   counted, and a verbatim whose closer has not arrived. *)
+Definition iscan_closed (st : iscan) : bool :=
+  match st with
+  | IText _ _ _ => true
+  | IOpen _ _ => false
+  | IVerb n run _ _ => Nat.eqb run n
+  end.
+
+Lemma ibreak_closed :
+  forall st,
+    iscan_closed st = true ->
+    ibreak st = IText false EmptyString (mk SoftBreak :: ifinish_rev st).
+Proof.
+  intros [[] txt out|n out|n run txt out] H;
+    cbn [ibreak ifinish_rev iscan_closed] in *; try reflexivity; [discriminate|].
+  rewrite H. reflexivity.
+Qed.
 
 Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
   | String c rest => iscan_str rest (istep c st)
+  end.
+
+(* A paragraph's lines, in order.  Trailing whitespace is stripped from
+   the last line only -- djot.js's `getMatches` drops the final soft
+   break and the spaces before it, and does so whatever state the scan is
+   in, so `` `a  `` closes on the trimmed content.  Interior lines keep
+   their trailing spaces, which is observable inside a verbatim. *)
+Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
+  match l with
+  | [] => st
+  | [x] => iscan_str (strip_trailing_ws x) st
+  | x :: rest => iscan_lines rest (ibreak (iscan_str x st))
   end.
 
 Lemma iscan_str_app :
@@ -618,10 +692,114 @@ Proof.
   rewrite iscan_verb_ticks_more. f_equal.
 Qed.
 
+(*
+The output frame
+----------------
+
+Every state carries the inlines emitted so far, in reverse, and every
+transition only ever conses onto them.  So a fixed suffix rides through
+the whole scan untouched, and `ifinish` reverses it out at the front.
+This is what lets a paragraph be assembled one line at a time from a
+scan that does not restart: the lines after the first run against a
+suffix holding the lines before it. *)
+
+Definition istart : iscan := IText false EmptyString [].
+
+Definition iout_app (base : inlines) (st : iscan) : iscan :=
+  match st with
+  | IText esc txt out => IText esc txt (out ++ base)%list
+  | IOpen n out => IOpen n (out ++ base)%list
+  | IVerb n run txt out => IVerb n run txt (out ++ base)%list
+  end.
+
+Lemma flush_text_app :
+  forall txt out base,
+    flush_text txt (out ++ base)%list = (flush_text txt out ++ base)%list.
+Proof.
+  intros txt out base. unfold flush_text.
+  destruct (nonempty_str txt); reflexivity.
+Qed.
+
+Lemma itext_step_out_app :
+  forall c txt out base,
+    itext_step c txt (out ++ base)%list = iout_app base (itext_step c txt out).
+Proof.
+  intros c txt out base. unfold itext_step.
+  destruct (is_bslash c); [reflexivity|].
+  destruct (is_tick c); cbn [iout_app]; [rewrite flush_text_app|]; reflexivity.
+Qed.
+
+Lemma istep_out_app :
+  forall c base st, istep c (iout_app base st) = iout_app base (istep c st).
+Proof.
+  intros c base [[] txt out|n out|n run txt out]; cbn [iout_app istep].
+  - reflexivity.
+  - apply itext_step_out_app.
+  - destruct (is_tick c); reflexivity.
+  - destruct (is_tick c); [reflexivity|].
+    destruct (Nat.eqb run n); [|reflexivity].
+    change (mk (Verbatim (trim_verb txt)) :: (out ++ base))%list
+      with ((mk (Verbatim (trim_verb txt)) :: out) ++ base)%list.
+    apply itext_step_out_app.
+Qed.
+
+Lemma iscan_str_out_app :
+  forall s base st,
+    iscan_str s (iout_app base st) = iout_app base (iscan_str s st).
+Proof.
+  induction s as [|c s IH]; intros base st; cbn [iscan_str]; [reflexivity|].
+  rewrite istep_out_app. apply IH.
+Qed.
+
+Lemma ibreak_out_app :
+  forall base st, ibreak (iout_app base st) = iout_app base (ibreak st).
+Proof.
+  intros base [[] txt out|n out|n run txt out]; cbn [iout_app ibreak].
+  1,2: rewrite flush_text_app; reflexivity.
+  - reflexivity.
+  - destruct (Nat.eqb run n); reflexivity.
+Qed.
+
+Lemma iscan_lines_one :
+  forall x st, iscan_lines [x] st = iscan_str (strip_trailing_ws x) st.
+Proof. reflexivity. Qed.
+
+Lemma iscan_lines_cons2 :
+  forall x y rest st,
+    iscan_lines (x :: y :: rest) st
+    = iscan_lines (y :: rest) (ibreak (iscan_str x st)).
+Proof. reflexivity. Qed.
+
+Lemma iscan_lines_out_app :
+  forall l base st,
+    iscan_lines l (iout_app base st) = iout_app base (iscan_lines l st).
+Proof.
+  induction l as [|x [|y rest] IH]; intros base st; cbn [iscan_lines].
+  - reflexivity.
+  - apply iscan_str_out_app.
+  - rewrite iscan_str_out_app, ibreak_out_app. apply IH.
+Qed.
+
+Lemma ifinish_rev_out_app :
+  forall base st,
+    ifinish_rev (iout_app base st) = (ifinish_rev st ++ base)%list.
+Proof.
+  intros base [[] txt out|n out|n run txt out]; cbn [ifinish_rev iout_app].
+  1,2: apply flush_text_app.
+  - reflexivity.
+  - destruct (Nat.eqb run n); reflexivity.
+Qed.
+
+Lemma ifinish_out_app :
+  forall base st, ifinish (iout_app base st) = (List.rev base ++ ifinish st)%list.
+Proof.
+  intros base st. unfold ifinish.
+  rewrite ifinish_rev_out_app, List.rev_app_distr. reflexivity.
+Qed.
+
 (* Parse one line's inline content.  Every construct of
    `.project/260811.inline-parser.md` lands here. *)
-Definition parse_inline_line (s : string) : inlines :=
-  ifinish (iscan_str s (IText false EmptyString [])).
+Definition parse_inline_line (s : string) : inlines := ifinish (iscan_str s istart).
 
 Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
   match txt, cis with
@@ -733,14 +911,25 @@ Proof.
   apply andb_true_iff in H as [H _]. destruct v; discriminate.
 Qed.
 
-Lemma ci_verb_before_nonempty :
-  forall v c rest,
-    cis_ok (CIVerb v :: c :: rest) = true -> nonempty_str v = true.
+Lemma ci_verb_nonempty :
+  forall v rest, cis_ok (CIVerb v :: rest) = true -> nonempty_str v = true.
 Proof.
-  intros [|x v] c rest H; [|reflexivity].
-  unfold cis_ok in H. apply andb_true_iff in H as [_ H].
-  destruct c; cbn [ci_sep_ok ci_pair_ok] in H;
-    apply andb_true_iff in H as [H _]; discriminate.
+  intros v rest H. pose proof (cis_ok_head (CIVerb v) rest H) as Hv.
+  cbn [ci_ok] in Hv. apply andb_true_iff in Hv as [Hv _]. exact Hv.
+Qed.
+
+Lemma ci_verb_content_ok :
+  forall v rest, cis_ok (CIVerb v :: rest) = true -> verb_content_ok v = true.
+Proof.
+  intros v rest H. pose proof (cis_ok_head (CIVerb v) rest H) as Hv.
+  cbn [ci_ok] in Hv. apply andb_true_iff in Hv as [_ Hv]. exact Hv.
+Qed.
+
+Lemma verb_content_safe :
+  forall v, verb_content_ok v = true -> verb_safe (verb_ticks v) (pad_verb v) = true.
+Proof.
+  intros v H. unfold verb_content_ok in H.
+  repeat rewrite andb_true_iff in H. destruct H as [[[_ _] _] H]. exact H.
 Qed.
 
 Lemma iscan_ci_after_verb :
@@ -778,30 +967,19 @@ Proof.
       * apply ci_str_tail_sep; [exact Hok|].
         pose proof (cis_ok_head (CIStr s) rest Hok) as Hs.
         cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _]. exact Hs.
-    + destruct rest as [|r rest'].
-      * destruct v as [|c v'].
-        -- vm_compute. destruct (nonempty_str txt); reflexivity.
-        -- cbn [ci_text]. rewrite append_empty_r.
-           unfold ci_inlines. cbn [map].
-           pose proof (cis_ok_head (CIVerb (String c v')) [] Hok) as Hv.
-           cbn [ci_ok] in Hv. rewrite iscan_verb_text_nonempty.
-           ++ unfold ifinish. rewrite nat_eqb_refl, trim_verb_pad by exact Hv.
-              cbn [List.rev ci_ast].
-              change ((List.rev (flush_text txt out)
-                       ++ [mk (Verbatim (String c v'))])%list
-                      = (List.rev (flush_text txt out)
-                         ++ [mk (Verbatim (String c v'))])%list).
-              reflexivity.
-           ++ reflexivity.
-           ++ unfold verb_content_ok in Hv.
-              repeat rewrite andb_true_iff in Hv.
-              destruct Hv as [[[_ _] _] Hv]. exact Hv.
+    + pose proof (ci_verb_nonempty v rest Hok) as Hvne.
+      pose proof (ci_verb_content_ok v rest Hok) as Hvok.
+      destruct rest as [|r rest'].
+      * cbn [ci_text]. rewrite append_empty_r.
+        unfold ci_inlines. cbn [map].
+        rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+        unfold ifinish, ifinish_rev.
+        rewrite nat_eqb_refl, trim_verb_pad by exact Hvok.
+        cbn [List.rev ci_ast]. reflexivity.
       * destruct (ci_verb_next_str v r rest' Hok) as [s Hr]. subst r.
-        pose proof (ci_verb_before_nonempty v (CIStr s) rest' Hok) as Hvne.
-        pose proof (cis_ok_head (CIVerb v) (CIStr s :: rest') Hok) as Hvok.
         pose proof (cis_ok_head (CIStr s) rest'
                       (cis_ok_tail _ _ Hok)) as Hsok.
-        cbn [ci_ok] in Hvok, Hsok.
+        cbn [ci_ok] in Hsok.
         apply andb_true_iff in Hsok as [Hs _].
         cbn [ci_text]. rewrite iscan_str_app.
         rewrite iscan_verb_text_nonempty.
@@ -827,9 +1005,35 @@ Proof.
            ++ exact (cis_ok_tail _ _ Hok).
            ++ reflexivity.
         -- exact Hvne.
-        -- unfold verb_content_ok in Hvok.
-           repeat rewrite andb_true_iff in Hvok.
-           destruct Hvok as [[[_ _] _] Hvok]. exact Hvok.
+        -- exact (verb_content_safe v Hvok).
+Qed.
+
+(* The other half of what a canonical line owes the paragraph: it leaves
+   the scan owing nothing to the next line.  Every canonical constituent
+   either stays in `IText` (a string) or resolves its closing run before
+   the line ends (a verbatim), which is exactly why the empty verbatim
+   had to go: two adjacent runs leave `IOpen`. *)
+Lemma iscan_cis_closed :
+  forall cis prev txt out,
+    cis_ok cis = true ->
+    iscan_closed (iscan_str (ci_text prev cis) (IText false txt out)) = true.
+Proof.
+  induction cis as [|c rest IH]; intros prev txt out Hok; [reflexivity|].
+  destruct c as [s|v].
+  - cbn [ci_text]. rewrite iscan_str_app, iscan_escape.
+    apply IH, (cis_ok_tail _ _ Hok).
+  - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
+    pose proof (ci_verb_content_ok v rest Hok) as Hvok.
+    cbn [ci_text]. rewrite iscan_str_app.
+    rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+    destruct rest as [|r rest'].
+    + cbn [ci_text iscan_str iscan_closed]. apply nat_eqb_refl.
+    + destruct (ci_verb_next_str v r rest' Hok) as [s Hr]. subst r.
+      pose proof (cis_ok_head (CIStr s) rest'
+                    (cis_ok_tail _ _ Hok)) as Hsok.
+      cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
+      rewrite iscan_ci_after_verb by exact Hs.
+      apply IH, (cis_ok_tail _ _ Hok).
 Qed.
 
 (*
@@ -884,11 +1088,31 @@ Proof.
   cbn [iscan_str]. apply IH, iscan_productive_step, H.
 Qed.
 
+(* Unconditional: a boundary either pushes a `SoftBreak` or leaves a
+   state that is productive by construction, so every paragraph of two
+   or more lines is productive whatever its first line held. *)
+Lemma iscan_productive_break :
+  forall st, iscan_productive (ibreak st) = true.
+Proof.
+  intros [[] txt out|n out|n run txt out]; cbn [ibreak]; try reflexivity.
+  destruct (Nat.eqb run n); reflexivity.
+Qed.
+
+Lemma iscan_productive_lines :
+  forall l st, iscan_productive st = true ->
+  iscan_productive (iscan_lines l st) = true.
+Proof.
+  induction l as [|x [|y rest] IH]; intros st H; cbn [iscan_lines].
+  - exact H.
+  - apply iscan_productive_str, H.
+  - apply IH, iscan_productive_break.
+Qed.
+
 Lemma iscan_productive_finish :
   forall st, iscan_productive st = true -> nonempty (ifinish st) = true.
 Proof.
   intros [[] txt out|n out|n run txt out] H; unfold ifinish;
-    rewrite nonempty_rev; unfold flush_text.
+    rewrite nonempty_rev; cbn [ifinish_rev]; unfold flush_text.
   - destruct (nonempty_str (txt ++ String "\"%char EmptyString)) eqn:E;
       [reflexivity|].
     destruct txt; discriminate.
@@ -919,32 +1143,40 @@ Lemma parse_inline_line_escape :
   forall s, nonempty_str s = true ->
   parse_inline_line (escape_str s) = [mk (Str s)].
 Proof.
-  intros s H. unfold parse_inline_line. rewrite iscan_escape.
+  intros s H. unfold parse_inline_line, istart. rewrite iscan_escape.
   change (EmptyString ++ s)%string with s.
-  unfold ifinish, flush_text. rewrite H. reflexivity.
+  unfold ifinish, ifinish_rev, flush_text. rewrite H. reflexivity.
 Qed.
 
-(* A paragraph's lines, in order, into inlines: each line's content, with
-   `SoftBreak` between.  Trailing whitespace is stripped at the end of a
-   paragraph but kept on interior lines (observed djot.js/djoths
-   behaviour on para.test, and djot.js's own trailing-softbreak trim in
-   `inline.ts` getMatches). *)
-Fixpoint para_inlines (l : list string) : inlines :=
-  match l with
-  | [] => []
-  | [x] => parse_inline_line (strip_trailing_ws x)
-  | x :: rest => (parse_inline_line x ++ mk SoftBreak :: para_inlines rest)%list
-  end.
+(* A paragraph's lines, in order, into inlines: one scan, with `ibreak`
+   between lines.  It was a scan per line joined by `SoftBreak` until
+   spans were allowed to cross a break; the two agree exactly when no
+   line leaves the scan mid-span, which is what the canonical view
+   guarantees and `para_inlines_cons2_clean` states. *)
+Definition para_inlines (l : list string) : inlines :=
+  ifinish (iscan_lines l istart).
 
 Lemma para_inlines_one :
   forall x, para_inlines [x] = parse_inline_line (strip_trailing_ws x).
 Proof. reflexivity. Qed.
 
-Lemma para_inlines_cons2 :
+(* The old defining equation, now conditional: a line that leaves the
+   scan mid-span does not contribute a separable run of inlines, because
+   the span it opened is finished by a later line. *)
+Lemma para_inlines_cons2_closed :
   forall x y rest,
+    iscan_closed (iscan_str x istart) = true ->
     para_inlines (x :: y :: rest) =
     (parse_inline_line x ++ mk SoftBreak :: para_inlines (y :: rest))%list.
-Proof. reflexivity. Qed.
+Proof.
+  intros x y rest Hcl. unfold para_inlines, parse_inline_line.
+  rewrite iscan_lines_cons2, (ibreak_closed _ Hcl).
+  change (IText false EmptyString
+            (mk SoftBreak :: ifinish_rev (iscan_str x istart)))
+    with (iout_app (mk SoftBreak :: ifinish_rev (iscan_str x istart)) istart).
+  rewrite iscan_lines_out_app, ifinish_out_app.
+  cbn [List.rev]. rewrite <- List.app_assoc. reflexivity.
+Qed.
 
 (* The canonical view's paragraph, laid out the same way. *)
 Fixpoint ci_para (lss : list (list cinline)) : inlines :=
@@ -973,7 +1205,8 @@ Lemma parse_inline_line_ci :
   forall cis, cis_ok cis = true -> nonempty cis = true ->
   parse_inline_line (ci_line cis) = ci_inlines cis.
 Proof.
-  intros cis Hok Hne. unfold parse_inline_line, ci_line. rewrite iscan_cis.
+  intros cis Hok Hne.
+  unfold parse_inline_line, istart, ci_line. rewrite iscan_cis.
   - reflexivity.
   - exact Hok.
   - reflexivity.
@@ -1000,9 +1233,9 @@ Proof.
     change (parse_inline_line (ci_line cis) = ci_para [cis]).
     rewrite ci_para_one. apply parse_inline_line_ci; assumption.
   - cbn [map] in *.
-    rewrite para_inlines_cons2, ci_para_cons2.
-    rewrite <- (parse_inline_line_ci cis Hc Hn).
-    unfold parse_inline_line. cbn [app].
+    rewrite para_inlines_cons2_closed
+      by (unfold ci_line, istart; apply iscan_cis_closed, Hc).
+    rewrite ci_para_cons2, (parse_inline_line_ci cis Hc Hn).
     f_equal. f_equal.
     apply IH; [exact Hr | exact Hnr |].
     rewrite last_cons_nonnil in Hlast by discriminate. exact Hlast.
@@ -1147,6 +1380,26 @@ Example verbatim_then_escaped_tick :
   = ci_inlines [CIVerb "v"; CIStr "`"].
 Proof. vm_compute. reflexivity. Qed.
 
-Example empty_verbatim_must_end_line :
-  cis_ok [CIVerb EmptyString; CIStr "a"] = false.
+(* The empty verbatim is outside the view: its two runs are separated by
+   nothing, so only the end of the paragraph closes it. *)
+Example empty_verbatim_not_canonical : ci_ok (CIVerb EmptyString) = false.
 Proof. reflexivity. Qed.
+
+(*
+Spans cross a line break
+========================
+*)
+
+(* A verbatim opened on one line closes on the next, with the break as
+   content -- matching djot.js, which scans the newline as an ordinary
+   character.  It was two spans and a stray empty one before the scan was
+   threaded through the paragraph. *)
+Example verbatim_crosses_break :
+  para_inlines ["`a"; "b`"] = [mk (Verbatim "a
+b")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And the ordinary case still splits at the break. *)
+Example text_breaks_at_line_end :
+  para_inlines ["a"; "b"] = [mk (Str "a"); mk SoftBreak; mk (Str "b")].
+Proof. vm_compute. reflexivity. Qed.

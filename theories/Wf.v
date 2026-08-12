@@ -409,11 +409,10 @@ Proof.
   rewrite forallb_rev, Hall, Hadj. reflexivity.
 Qed.
 
-Lemma iscan_wf_finish :
-  forall st, iscan_wf st = true -> wf_inlines (ifinish st) = true.
+Lemma iscan_wf_finish_rev :
+  forall st, iscan_wf st = true -> ilist_ok (ifinish_rev st) = true.
 Proof.
-  intros [[] txt out|n out|n run txt out] H; unfold ifinish;
-    apply wf_inlines_of_ilist.
+  intros [[] txt out|n out|n run txt out] H; cbn [ifinish_rev].
   - apply andb_true_iff in H as [Ho Hh]. unfold flush_text.
     destruct (nonempty_str (txt ++ String "\"%char EmptyString)) eqn:E.
     + apply ilist_ok_push; [exact Ho | exact E |].
@@ -429,6 +428,43 @@ Proof.
                            | exact H | reflexivity | reflexivity].
 Qed.
 
+Lemma iscan_wf_finish :
+  forall st, iscan_wf st = true -> wf_inlines (ifinish st) = true.
+Proof.
+  intros st H. unfold ifinish.
+  apply wf_inlines_of_ilist, iscan_wf_finish_rev, H.
+Qed.
+
+(* A line boundary emits what the line had and pushes a `SoftBreak`, so
+   it preserves the invariant for the same reason `ifinish` establishes
+   it -- and leaves a head that is not a `Str`, which is what the next
+   line's `IText` needs. *)
+Lemma iscan_wf_break :
+  forall st, iscan_wf st = true -> iscan_wf (ibreak st) = true.
+Proof.
+  intros st H.
+  assert (Hsoft : forall l, ilist_ok l = true ->
+            iscan_wf (IText false EmptyString (mk SoftBreak :: l)) = true).
+  { intros l Hl. cbn [iscan_wf]. rewrite andb_true_r.
+    apply ilist_ok_push; [exact Hl | reflexivity | reflexivity]. }
+  destruct st as [[] txt out|n out|n run txt out]; cbn [ibreak].
+  1,2: apply Hsoft, (iscan_wf_finish_rev _ H).
+  - exact H.
+  - destruct (Nat.eqb run n) eqn:E; [|exact H].
+    apply Hsoft.
+    pose proof (iscan_wf_finish_rev (IVerb n run txt out) H) as Hf.
+    cbn [ifinish_rev] in Hf. rewrite E in Hf. exact Hf.
+Qed.
+
+Lemma iscan_wf_lines :
+  forall l st, iscan_wf st = true -> iscan_wf (iscan_lines l st) = true.
+Proof.
+  induction l as [|x [|y rest] IH]; intros st H; cbn [iscan_lines].
+  - exact H.
+  - apply iscan_wf_str, H.
+  - apply IH, iscan_wf_break, iscan_wf_str, H.
+Qed.
+
 (** The parser's inline pass only ever emits a well-formed sequence. *)
 Lemma parse_inline_line_wf :
   forall s, wf_inlines (parse_inline_line s) = true.
@@ -442,38 +478,6 @@ Paragraph assembly is well-formed
 =================================
 *)
 
-(* Joining two well-formed runs at a node that is not a plain `Str` is
-   safe, which is exactly the shape `para_inlines` builds: each line's
-   inlines, then a `SoftBreak`, then the rest. *)
-Lemma no_adjacent_str_app_nonstr :
-  forall l n l',
-    no_adjacent_str l = true -> plain_str n = false ->
-    no_adjacent_str (n :: l') = true ->
-    no_adjacent_str (l ++ n :: l')%list = true.
-Proof.
-  induction l as [|x l IH]; intros n l' Hl Hn Hnl'; [exact Hnl'|].
-  destruct l as [|y l''].
-  - cbn [app no_adjacent_str].
-    apply andb_true_iff; split; [rewrite Hn, andb_false_r; reflexivity | exact Hnl'].
-  - cbn [app no_adjacent_str] in Hl |- *.
-    apply andb_true_iff in Hl as [H1 H2].
-    rewrite H1. cbn [andb]. exact (IH n l' H2 Hn Hnl').
-Qed.
-
-Lemma wf_inlines_app_nonstr :
-  forall l n l',
-    wf_inlines l = true -> plain_str n = false ->
-    wf_inlines (n :: l') = true ->
-    wf_inlines (l ++ n :: l')%list = true.
-Proof.
-  intros l n l' Hl Hn Hnl'. unfold wf_inlines in *.
-  apply andb_true_iff in Hl as [Hla Hlj].
-  apply andb_true_iff in Hnl' as [Hra Hrj].
-  apply andb_true_iff. split.
-  - rewrite forallb_app, Hla, Hra. reflexivity.
-  - apply no_adjacent_str_app_nonstr; assumption.
-Qed.
-
 Lemma para_inlines_nonempty :
   forall ls, forallb nonblank ls = true -> ls <> [] ->
   nonempty (para_inlines ls) = true.
@@ -483,30 +487,19 @@ Proof.
     rewrite para_inlines_one. apply parse_inline_line_nonempty.
     apply strip_trailing_ws_nonempty.
     unfold nonblank in Hx. apply negb_true_iff in Hx. exact Hx.
-  - rewrite para_inlines_cons2.
-    destruct (parse_inline_line x); reflexivity.
+  - unfold para_inlines. rewrite iscan_lines_cons2.
+    apply iscan_productive_finish, iscan_productive_lines,
+          iscan_productive_break.
 Qed.
 
-Lemma wf_inlines_softbreak :
-  forall l, wf_inlines (mk SoftBreak :: l) = wf_inlines l.
-Proof.
-  intros l. unfold wf_inlines.
-  cbn [forallb node_contents mk wf_inline no_adjacent_str plain_str].
-  destruct l as [|m l']; [reflexivity|]. cbn [andb]. reflexivity.
-Qed.
-
+(* No hypothesis: the scan's invariant does not care what the lines look
+   like, and the blankness the callers carry was only ever needed for
+   nonemptiness. *)
 Lemma para_inlines_wf :
-  forall ls, forallb nonblank ls = true ->
-  wf_inlines (para_inlines ls) = true.
+  forall ls, wf_inlines (para_inlines ls) = true.
 Proof.
-  induction ls as [|x rest IH]; intros H; [reflexivity|].
-  cbn [forallb] in H. apply andb_true_iff in H as [Hx Hrest].
-  destruct rest as [|y rest'].
-  - rewrite para_inlines_one. apply parse_inline_line_wf.
-  - rewrite para_inlines_cons2.
-    apply wf_inlines_app_nonstr;
-      [apply parse_inline_line_wf | reflexivity |].
-    rewrite wf_inlines_softbreak. apply IH, Hrest.
+  intros ls. unfold para_inlines.
+  apply iscan_wf_finish, iscan_wf_lines. reflexivity.
 Qed.
 
 Lemma flush_para_wf :
@@ -517,7 +510,7 @@ Lemma flush_para_wf :
 Proof.
   intros c cur' k Hcur Hk.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
-  rewrite para_inlines_wf by (rewrite forallb_rev; exact Hcur).
+  rewrite para_inlines_wf.
   rewrite Hk.
   rewrite para_inlines_nonempty;
     [reflexivity | rewrite forallb_rev; exact Hcur |].
@@ -584,7 +577,7 @@ Lemma heading_block_wf :
 Proof.
   intros lvl cur Hl Hc. unfold heading_block.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
-  rewrite Hl, para_inlines_wf by (rewrite forallb_rev; exact Hc).
+  rewrite Hl, para_inlines_wf.
   reflexivity.
 Qed.
 
