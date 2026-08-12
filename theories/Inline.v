@@ -9,9 +9,9 @@
    that determines it.  Here `para_inlines` is the pass, `cinline` is the
    image, and the two meet in `para_inlines_ci_para`.
 
-   The pass currently recognizes escapes and verbatim spans.  The same
-   state and canonical view are the extension points for the delimiter
-   table and brackets in `.project/260811.inline-parser.md`.
+   The pass recognizes escapes, verbatim spans, and the delimiter table
+   in `.project/260811.inline-parser.md`.  Brackets remain the next
+   extension point for the state and canonical view.
 
    The scan threads through line breaks rather than restarting at each
    one, because a span may cross a break.  The canonical view stays
@@ -23,7 +23,7 @@
    be three files of twenty lines.  It splits the way the block parser
    did once a side outgrows the other. *)
 
-From Stdlib Require Import String Ascii List Bool Lia.
+From Stdlib Require Import String Ascii List Bool Lia Wf_nat.
 From DjotV Require Import Strings Ast.
 Import ListNotations.
 
@@ -137,6 +137,8 @@ Proof. intros []; reflexivity. Qed.
    open marker is literal text, matching what the scanner did before. *)
 Definition lbrace : ascii := "{"%char.
 Definition rbrace : ascii := "}"%char.
+
+Definition one (c : ascii) : string := String c EmptyString.
 
 Definition needs_escape (c : ascii) : bool :=
   (is_bslash c || is_tick c || is_delim c
@@ -334,7 +336,43 @@ Canonical inlines
    `cblock` carries one per block construct. *)
 Inductive cinline : Type :=
   | CIStr (s : string)
-  | CIVerb (s : string).
+  | CIVerb (s : string)
+  | CIDelim (k : dstyle) (kids : list cinline).
+
+Fixpoint ci_size (ci : cinline) : nat :=
+  let go :=
+    fix go (cis : list cinline) : nat :=
+      match cis with
+      | [] => 0
+      | c :: rest => ci_size c + go rest
+      end in
+  match ci with
+  | CIStr _ | CIVerb _ => 1
+  | CIDelim _ kids => S (go kids)
+  end.
+
+Fixpoint cis_size (cis : list cinline) : nat :=
+  match cis with [] => 0 | c :: rest => ci_size c + cis_size rest end.
+
+Lemma ci_size_delim :
+  forall k kids, ci_size (CIDelim k kids) = S (cis_size kids).
+Proof.
+  intros k kids.
+  assert (H : forall xs,
+    (fix go (cis : list cinline) : nat :=
+       match cis with
+       | [] => 0
+       | c :: rest => ci_size c + go rest
+       end) xs = cis_size xs).
+  { induction xs as [|c rest IH]; cbn [cis_size]; [reflexivity|].
+    rewrite IH. reflexivity. }
+  cbn [ci_size]. rewrite H. reflexivity.
+Qed.
+
+Lemma ci_size_pos : forall ci, 0 < ci_size ci.
+Proof.
+  intros [s|s|k kids]; cbn [ci_size]; lia.
+Qed.
 
 (* The last byte of `s`, or `prev` when `s` is empty. *)
 Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
@@ -353,32 +391,77 @@ Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
    any djot rule consults, since `can_open` and `can_close` each test a
    single neighbouring character (djot.js `inline.ts:110-112`); the byte
    to the right is available from the unconsumed tail. *)
-Fixpoint ci_text (prev : option ascii) (cis : list cinline) : string :=
-  match cis with
-  | [] => EmptyString
-  | CIStr s :: rest =>
-      let e := escape_str s in e ++ ci_text (str_last e prev) rest
-  | CIVerb s :: rest =>
-      let v := verb_text s in v ++ ci_text (str_last v prev) rest
+Fixpoint ci_src (ci : cinline) : string :=
+  let go :=
+    fix go (cis : list cinline) : string :=
+      match cis with
+      | [] => EmptyString
+      | c :: rest => (ci_src c ++ go rest)%string
+      end in
+  match ci with
+  | CIStr s => escape_str s
+  | CIVerb s => verb_text s
+  | CIDelim k kids =>
+      String lbrace
+        (String (dchar k) (go kids ++ String (dchar k) (one rbrace)))
   end.
 
-Definition ci_line (cis : list cinline) : string := ci_text None cis.
+Fixpoint ci_text (cis : list cinline) : string :=
+  match cis with
+  | [] => EmptyString
+  | ci :: rest => (ci_src ci ++ ci_text rest)%string
+  end.
 
-Lemma ci_text_prev :
-  forall cis p q, ci_text p cis = ci_text q cis.
+Definition ci_line (cis : list cinline) : string := ci_text cis.
+
+Lemma ci_src_delim :
+  forall k kids,
+    ci_src (CIDelim k kids)
+    = String lbrace
+        (String (dchar k) (ci_text kids ++ String (dchar k) (one rbrace))).
 Proof.
-  induction cis as [|c rest IH]; intros p q; [reflexivity|].
-  destruct c; cbn [ci_text]; f_equal; apply IH.
+  intros k kids.
+  assert (H : forall xs,
+    (fix go (cis : list cinline) : string :=
+       match cis with
+       | [] => EmptyString
+       | c :: rest => (ci_src c ++ go rest)%string
+       end) xs = ci_text xs).
+  { induction xs as [|c rest IH]; cbn [ci_text]; [reflexivity|].
+    rewrite IH. reflexivity. }
+  cbn [ci_src]. rewrite H. reflexivity.
 Qed.
 
 (* ...and the AST the parser builds from that text. *)
-Definition ci_ast (ci : cinline) : node inline :=
+Fixpoint ci_ast (ci : cinline) : node inline :=
+  let go :=
+    fix go (cis : list cinline) : inlines :=
+      match cis with
+      | [] => []
+      | c :: rest => ci_ast c :: go rest
+      end in
   match ci with
   | CIStr s => mk (Str s)
   | CIVerb s => mk (Verbatim s)
+  | CIDelim k kids => mk (dnode k (go kids))
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
+
+Lemma ci_ast_delim :
+  forall k kids, ci_ast (CIDelim k kids) = mk (dnode k (ci_inlines kids)).
+Proof.
+  intros k kids.
+  assert (H : forall xs,
+    (fix go (cis : list cinline) : inlines :=
+       match cis with
+       | [] => []
+       | c :: rest => ci_ast c :: go rest
+       end) xs = ci_inlines xs).
+  { induction xs as [|c rest IH]; cbn [ci_inlines map]; [reflexivity|].
+    rewrite IH. reflexivity. }
+  cbn [ci_ast]. rewrite H. reflexivity.
+Qed.
 
 Lemma ci_line_nil : ci_line [] = EmptyString.
 Proof. reflexivity. Qed.
@@ -403,14 +486,6 @@ Renderability
    condition on the *paragraph*, which is one level above anything
    `cinline` knows about.  `Verbatim ""` in a one-line paragraph does
    round-trip; it is simply outside the view. *)
-Definition ci_ok (ci : cinline) : bool :=
-  match ci with
-  | CIStr s => nonempty_str s && no_nl s
-  | CIVerb s => nonempty_str s && verb_content_ok s
-  end.
-
-(* Pairwise source separation: adjacent strings merge, and adjacent
-   verbatim spans merge their delimiter runs. *)
 Definition ci_pair_ok (a b : cinline) : bool :=
   match a, b with
   | CIStr _, CIStr _ => false
@@ -418,6 +493,27 @@ Definition ci_pair_ok (a b : cinline) : bool :=
   | _, _ => true
   end.
 
+Fixpoint ci_ok (ci : cinline) : bool :=
+  let go :=
+    fix go (cis : list cinline) : bool :=
+      match cis with
+      | [] => true
+      | c :: rest => (ci_ok c && go rest)%bool
+      end in
+  let sep :=
+    fix sep (cis : list cinline) : bool :=
+      match cis with
+      | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
+      | _ => true
+      end in
+  match ci with
+  | CIStr s => nonempty_str s && no_nl s
+  | CIVerb s => nonempty_str s && verb_content_ok s
+  | CIDelim _ kids => (nonempty kids && go kids && sep kids)%bool
+  end.
+
+(* Pairwise source separation: adjacent strings merge, and adjacent
+   verbatim spans merge their delimiter runs. *)
 Fixpoint ci_sep_ok (cis : list cinline) : bool :=
   match cis with
   | a :: ((b :: _) as rest) => ci_pair_ok a b && ci_sep_ok rest
@@ -426,6 +522,31 @@ Fixpoint ci_sep_ok (cis : list cinline) : bool :=
 
 Definition cis_ok (cis : list cinline) : bool :=
   forallb ci_ok cis && ci_sep_ok cis.
+
+Lemma ci_ok_delim :
+  forall k kids,
+    ci_ok (CIDelim k kids) = (nonempty kids && cis_ok kids)%bool.
+Proof.
+  intros k kids.
+  assert (Hg : forall xs,
+    (fix go (cis : list cinline) : bool :=
+       match cis with
+       | [] => true
+       | c :: rest => (ci_ok c && go rest)%bool
+       end) xs = forallb ci_ok xs).
+  { induction xs as [|c rest IH]; cbn [forallb]; [reflexivity|].
+    rewrite IH. reflexivity. }
+  assert (Hs : forall xs,
+    (fix sep (cis : list cinline) : bool :=
+       match cis with
+       | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
+       | _ => true
+       end) xs = ci_sep_ok xs).
+  { induction xs as [|a [|b rest] IH]; cbn [ci_sep_ok]; [reflexivity..|].
+    rewrite IH. reflexivity. }
+  cbn [ci_ok]. rewrite Hg, Hs. unfold cis_ok.
+  repeat rewrite andb_assoc. reflexivity.
+Qed.
 
 (* Nonemptiness of a line's content is not a separate obligation: the
    block layer already asks that a paragraph's rendered lines are
@@ -549,8 +670,6 @@ cannot be resolved until the character after it arrives; that is why
 of the wrong width is content, which is how `` ` `` ` `` holds two
 backticks inside a one-backtick fence. *)
 
-Definition one (c : ascii) : string := String c EmptyString.
-
 Lemma nat_eqb_refl : forall n, Nat.eqb n n = true.
 Proof. induction n; [reflexivity|exact IHn]. Qed.
 
@@ -643,11 +762,37 @@ Definition oemit (n : node inline) (o : ostate) : ostate :=
       OState (os_out o) (Frame (fr_style f) (fr_marked f) (n :: fr_out f) :: rest)
   end.
 
+Fixpoint oemit_all (ns : inlines) (o : ostate) : ostate :=
+  match ns with
+  | [] => o
+  | n :: rest => oemit_all rest (oemit n o)
+  end.
+
 Definition flush_text (txt : string) (o : ostate) : ostate :=
   if nonempty_str txt then oemit (mk (Str txt)) o else o.
 
 Definition opush (k : dstyle) (m : bool) (o : ostate) : ostate :=
   OState (os_out o) (Frame k m [] :: os_stk o).
+
+Lemma oemit_all_app :
+  forall a b o, oemit_all (a ++ b)%list o = oemit_all b (oemit_all a o).
+Proof.
+  induction a as [|n a IH]; intros b o; cbn [oemit_all];
+    [reflexivity|apply IH].
+Qed.
+
+Lemma oemit_all_frame :
+  forall ns out k m acc stk,
+    oemit_all ns (OState out (Frame k m acc :: stk))
+    = OState out (Frame k m (List.rev ns ++ acc)%list :: stk).
+Proof.
+  induction ns as [|n ns IH]; intros out k m acc stk;
+    cbn [oemit_all List.rev app]; [reflexivity|].
+  change (oemit_all ns (OState out (Frame k m (n :: acc) :: stk))
+          = OState out
+              (Frame k m ((List.rev ns ++ [n]) ++ acc)%list :: stk)).
+  rewrite IH, <- List.app_assoc. reflexivity.
+Qed.
 
 (* Walk out through the open scopes looking for one this closer matches,
    abandoning each scope it passes.  `pend` carries what those abandoned
@@ -672,6 +817,23 @@ Definition oclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
   | Some (content, rest) =>
       Some (oemit (mk (dnode k (List.rev content))) (OState (os_out o) rest))
   end.
+
+Lemma oclose_oemit_all_marked :
+  forall k ns base,
+    nonempty ns = true ->
+    oclose k true (oemit_all ns (opush k true base))
+    = Some (oemit (mk (dnode k ns)) base).
+Proof.
+  intros k ns [out stk] Hne. unfold opush. rewrite oemit_all_frame.
+  unfold oclose. cbn [os_stk os_out oclose_go oapp dmatch fr_style
+    fr_marked fr_out]. rewrite !app_nil_r.
+  assert (Hrev : nonempty (List.rev ns) = true).
+  { destruct ns as [|n rest]; [discriminate|].
+    cbn [List.rev]. destruct (List.rev rest); reflexivity. }
+  rewrite Hrev. destruct k;
+    cbn [dmatch dstyle_eqb fr_style fr_marked andb_true_l].
+  all: cbn; rewrite List.rev_involutive; reflexivity.
+Qed.
 
 (* Everything still open when the paragraph ends is abandoned. *)
 Fixpoint oflatten (pend : inlines) (stk : list frame) (bottom : inlines)
@@ -1333,20 +1495,11 @@ Lemma ci_str_tail_sep :
     text_sep_ok s rest = true.
 Proof.
   intros s [|r rest] H Hs; [unfold text_sep_ok; destruct s; reflexivity|].
-  destruct r as [t|v]; [|unfold text_sep_ok; destruct s; reflexivity].
+  destruct r as [t|v|k kids];
+    [|unfold text_sep_ok; destruct s; reflexivity
+     |unfold text_sep_ok; destruct s; reflexivity].
   unfold cis_ok in H. cbn [ci_sep_ok ci_pair_ok] in H.
   repeat rewrite andb_false_r in H. discriminate.
-Qed.
-
-Lemma ci_verb_next_str :
-  forall v c rest,
-    cis_ok (CIVerb v :: c :: rest) = true ->
-    exists s, c = CIStr s.
-Proof.
-  intros v [s|w] rest H; [exists s; reflexivity|].
-  unfold cis_ok in H. apply andb_true_iff in H as [_ H].
-  cbn [ci_sep_ok ci_pair_ok] in H.
-  apply andb_true_iff in H as [H _]. destruct v; discriminate.
 Qed.
 
 Lemma ci_verb_nonempty :
@@ -1370,10 +1523,329 @@ Proof.
   repeat rewrite andb_true_iff in H. destruct H as [[[_ _] _] H]. exact H.
 Qed.
 
-(* The canonical view has no delimiter yet, so a canonical line's scan
-   never pushes a scope: these three run over `OState out []` and the
-   stack plays no part.  When `cinline` gains a delimiter this is where
-   the nesting induction goes. *)
+Definition marked_close (k : dstyle) (tail : string) : string :=
+  String (dchar k) (String rbrace tail).
+
+Lemma ilead_dchar :
+  forall k txt prev o,
+    ilead (dchar k) txt prev o
+    = IDelim k txt (nonspace_at (str_last txt prev)) o.
+Proof. intros [] txt prev o; reflexivity. Qed.
+
+Lemma istep_marked_close :
+  forall k txt prev o o',
+    oclose k true (flush_text txt o) = Some o' ->
+    istep rbrace (ilead (dchar k) txt prev o)
+    = IText false EmptyString (Some rbrace) o'.
+Proof.
+  intros k txt prev o o' H. rewrite ilead_dchar.
+  cbn [istep].
+  change (idelim_resolve k txt (nonspace_at (str_last txt prev)) true
+            (Some rbrace) o
+          = IText false EmptyString (Some rbrace) o').
+  unfold idelim_resolve. rewrite orb_true_r, H. reflexivity.
+Qed.
+
+Lemma iscan_marked_flush :
+  forall k tail txt prev before base,
+    (nonempty before || nonempty_str txt)%bool = true ->
+    exists p,
+      iscan_str (marked_close k tail)
+        (IText false txt prev (oemit_all before (opush k true base)))
+      = iscan_str (marked_close k tail)
+          (IText false EmptyString p
+            (flush_text txt (oemit_all before (opush k true base)))).
+Proof.
+  intros k tail txt prev before base Hne.
+  assert (Hclose : exists o',
+    oclose k true
+      (flush_text txt (oemit_all before (opush k true base))) = Some o').
+  { destruct (nonempty_str txt) eqn:Htxt.
+    - exists (oemit (mk (dnode k (before ++ [mk (Str txt)])%list)) base).
+      unfold flush_text. rewrite Htxt.
+      change (oclose k true
+                (oemit_all [mk (Str txt)]
+                  (oemit_all before (opush k true base)))
+              = Some
+                  (oemit (mk (dnode k (before ++ [mk (Str txt)])%list))
+                    base)).
+      rewrite <- (oemit_all_app before [mk (Str txt)] (opush k true base)).
+      cbn [oemit_all]. apply oclose_oemit_all_marked. destruct before; reflexivity.
+    - apply orb_true_iff in Hne as [Hbefore|Htxt']; [|discriminate].
+      exists (oemit (mk (dnode k before)) base).
+      unfold flush_text. rewrite Htxt.
+      apply oclose_oemit_all_marked, Hbefore. }
+  destruct Hclose as [o' Hclose]. exists None.
+  unfold marked_close. cbn [iscan_str istep].
+  rewrite (istep_marked_close k txt prev _ o' Hclose).
+  rewrite (istep_marked_close k EmptyString None _ o').
+  - reflexivity.
+  - cbn [flush_text]. exact Hclose.
+Qed.
+
+Lemma iscan_marked_open :
+  forall d txt prev o,
+    iscan_str (String lbrace (one (dchar d))) (IText false txt prev o)
+    = IText false EmptyString (Some (dchar d))
+        (opush d true (flush_text txt o)).
+Proof. intros [] txt prev o; reflexivity. Qed.
+
+Lemma iscan_marked_close_emit :
+  forall d tail ns base p,
+    nonempty ns = true ->
+    iscan_str (marked_close d tail)
+      (IText false EmptyString p (oemit_all ns (opush d true base)))
+    = iscan_str tail
+        (IText false EmptyString (Some rbrace)
+          (oemit (mk (dnode d ns)) base)).
+Proof.
+  intros d tail ns base p Hne. unfold marked_close. cbn [iscan_str istep].
+  rewrite (istep_marked_close d EmptyString p
+    (oemit_all ns (opush d true base))
+    (oemit (mk (dnode d ns)) base)).
+  - reflexivity.
+  - cbn [flush_text]. apply oclose_oemit_all_marked, Hne.
+Qed.
+
+Lemma iscan_after_verb_nontick :
+  forall s n body o,
+    nonempty_str s = true -> starts_tick s = false ->
+    iscan_str s (IVerb n n body o)
+    = iscan_str s
+        (IText false EmptyString (Some tick)
+          (oemit (mk (Verbatim (trim_verb body))) o)).
+Proof.
+  intros [|c s] n body o Hne Htick; [discriminate|].
+  cbn [starts_tick] in Htick. cbn [iscan_str istep]. rewrite Htick.
+  rewrite nat_eqb_refl. reflexivity.
+Qed.
+
+Lemma escape_str_starts_nontick :
+  forall s, nonempty_str s = true -> starts_tick (escape_str s) = false.
+Proof.
+  intros [|c s] H; [discriminate|]. cbn [escape_str].
+  destruct (needs_escape c) eqn:Hc; [reflexivity|].
+  cbn [starts_tick]. destruct (is_tick c) eqn:Ht; [|reflexivity].
+  rewrite (needs_escape_tick c Ht) in Hc. discriminate.
+Qed.
+
+Lemma escape_str_nonempty :
+  forall s, nonempty_str s = true -> nonempty_str (escape_str s) = true.
+Proof.
+  intros [|c s] H; [discriminate|]. cbn [escape_str].
+  destruct (needs_escape c); reflexivity.
+Qed.
+
+Lemma marked_close_nonempty :
+  forall k tail, nonempty_str (marked_close k tail) = true.
+Proof. intros k tail. destruct k; reflexivity. Qed.
+
+Lemma marked_close_starts_nontick :
+  forall k tail, starts_tick (marked_close k tail) = false.
+Proof. intros k tail. destruct k; reflexivity. Qed.
+
+Lemma after_verb_source_nontick :
+  forall v rest k tail,
+    cis_ok (CIVerb v :: rest) = true ->
+    nonempty_str (ci_text rest ++ marked_close k tail) = true /\
+    starts_tick (ci_text rest ++ marked_close k tail) = false.
+Proof.
+  intros v [|c rest] k tail Hok.
+  - cbn [ci_text append]. split;
+      [apply marked_close_nonempty|apply marked_close_starts_nontick].
+  - destruct c as [s|w|d kids].
+    + pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
+      cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
+      cbn [ci_text ci_src]. split.
+      * destruct (escape_str s) eqn:E;
+          [pose proof (escape_str_nonempty s Hs); rewrite E in H; discriminate
+          |reflexivity].
+      * rewrite starts_tick_app_l.
+        -- rewrite starts_tick_app_l.
+           ++ apply escape_str_starts_nontick, Hs.
+           ++ apply escape_str_nonempty, Hs.
+        -- destruct (escape_str s) eqn:E; [|reflexivity].
+           pose proof (escape_str_nonempty s Hs). rewrite E in H.
+           discriminate.
+    + unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
+      repeat rewrite andb_false_r in Hok. discriminate.
+    + cbn [ci_text]. rewrite ci_src_delim.
+      cbn [append starts_tick]. split; reflexivity.
+Qed.
+
+Lemma after_verb_rest_nontick :
+  forall v c rest,
+    cis_ok (CIVerb v :: c :: rest) = true ->
+    nonempty_str (ci_text (c :: rest)) = true /\
+    starts_tick (ci_text (c :: rest)) = false.
+Proof.
+  intros v c rest Hok.
+  destruct (after_verb_source_nontick v (c :: rest) DEmph EmptyString Hok)
+    as [Hne Htick].
+  destruct c as [s|w|d kids].
+  - pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
+    cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
+    cbn [ci_text ci_src]. split.
+    + destruct (escape_str s) eqn:E;
+        [pose proof (escape_str_nonempty s Hs); rewrite E in H; discriminate
+        |reflexivity].
+    + rewrite starts_tick_app_l;
+        [apply escape_str_starts_nontick, Hs|apply escape_str_nonempty, Hs].
+  - unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
+    repeat rewrite andb_false_r in Hok. discriminate.
+  - cbn [ci_text]. rewrite ci_src_delim. cbn [starts_tick nonempty_str].
+    split; reflexivity.
+Qed.
+
+Lemma iscan_cis_marked :
+  forall cis k tail txt prev before base,
+    cis_ok cis = true -> text_sep_ok txt cis = true ->
+    (nonempty before || nonempty_str txt || nonempty cis)%bool = true ->
+    exists p,
+      iscan_str (ci_text cis ++ marked_close k tail)
+        (IText false txt prev (oemit_all before (opush k true base)))
+      = iscan_str (marked_close k tail)
+          (IText false EmptyString p
+            (oemit_all (ci_inlines cis)
+              (flush_text txt (oemit_all before (opush k true base))))).
+Proof.
+  intro cis. pattern cis.
+  apply (well_founded_induction (well_founded_ltof _ cis_size)).
+  clear cis. intros cis IH k tail txt prev before base Hok Hsep Hne.
+  destruct cis as [|c rest].
+  - cbn [ci_text ci_inlines map append nonempty] in Hne |- *.
+    apply iscan_marked_flush. rewrite orb_false_r in Hne. exact Hne.
+  - destruct c as [s|v|d kids].
+    + destruct txt as [|x txt']; [|discriminate].
+      pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
+      cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
+      assert (Hlt : ltof (list cinline) cis_size rest (CIStr s :: rest)).
+      { unfold ltof. cbn [cis_size ci_size]. lia. }
+      pose proof (IH rest Hlt k tail s prev before base
+        (cis_ok_tail _ _ Hok) (ci_str_tail_sep s rest Hok Hs)) as IHr.
+      assert (Hnr : nonempty before || nonempty_str s || nonempty rest = true).
+      { rewrite Hs, orb_true_r. reflexivity. }
+      destruct (IHr Hnr) as [p Ep]. exists p.
+      cbn [ci_text ci_src ci_inlines map append].
+      rewrite append_assoc, iscan_str_app, iscan_escape.
+      change (EmptyString ++ s)%string with s. rewrite Ep.
+      unfold flush_text at 1 2. cbn [nonempty_str ci_ast mk oemit_all].
+      rewrite Hs. reflexivity.
+    + pose proof (ci_verb_nonempty v rest Hok) as Hvne.
+      pose proof (ci_verb_content_ok v rest Hok) as Hvok.
+      destruct (after_verb_source_nontick v rest k tail Hok) as [Hsrcne Hsrctick].
+      assert (Hlt : ltof (list cinline) cis_size rest (CIVerb v :: rest)).
+      { unfold ltof. cbn [cis_size ci_size]. lia. }
+      destruct txt as [|x txt'].
+      * pose proof (IH rest Hlt k tail EmptyString (Some tick)
+          (before ++ [mk (Verbatim v)])%list base
+          (cis_ok_tail _ _ Hok) eq_refl) as IHr.
+        assert (Hbefore :
+          nonempty (before ++ [mk (Verbatim v)])%list ||
+          nonempty_str EmptyString || nonempty rest = true).
+        { destruct before; reflexivity. }
+        destruct (IHr Hbefore) as [p Ep]. exists p.
+        cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
+        rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+        cbn [flush_text nonempty_str].
+        rewrite (iscan_after_verb_nontick _ _ _ _ Hsrcne Hsrctick),
+          trim_verb_pad by exact Hvok.
+        rewrite oemit_all_app in Ep.
+        cbn [oemit_all flush_text nonempty_str] in Ep.
+        rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
+      * pose proof (IH rest Hlt k tail EmptyString (Some tick)
+          (before ++ [mk (Str (String x txt')); mk (Verbatim v)])%list base
+          (cis_ok_tail _ _ Hok) eq_refl) as IHr.
+        assert (Hbefore :
+          nonempty (before ++ [mk (Str (String x txt')); mk (Verbatim v)])%list ||
+          nonempty_str EmptyString || nonempty rest = true).
+        { destruct before; reflexivity. }
+        destruct (IHr Hbefore) as [p Ep]. exists p.
+        cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
+        rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+        cbn [flush_text nonempty_str].
+        rewrite (iscan_after_verb_nontick _ _ _ _ Hsrcne Hsrctick),
+          trim_verb_pad by exact Hvok.
+        rewrite oemit_all_app in Ep.
+        cbn [oemit_all flush_text nonempty_str] in Ep.
+        rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
+    + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
+      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+      assert (Hkidslt :
+        ltof (list cinline) cis_size kids (CIDelim d kids :: rest)).
+      { unfold ltof. cbn [cis_size]. rewrite ci_size_delim. lia. }
+      pose proof (IH kids Hkidslt d (ci_text rest ++ marked_close k tail)
+        EmptyString (Some (dchar d)) []
+        (flush_text txt (oemit_all before (opush k true base)))
+        Hkidsok eq_refl) as IHkids.
+      assert (Hkn :
+        nonempty (@nil (node inline)) || nonempty_str EmptyString ||
+        nonempty kids = true).
+      { cbn. exact Hkidsne. }
+      destruct (IHkids Hkn) as [pk Ekids].
+      assert (Hrestlt :
+        ltof (list cinline) cis_size rest (CIDelim d kids :: rest)).
+      { unfold ltof. cbn [cis_size]. rewrite ci_size_delim. lia. }
+      destruct txt as [|x txt'].
+      * pose proof (IH rest Hrestlt k tail EmptyString (Some rbrace)
+          (before ++ [ci_ast (CIDelim d kids)])%list base
+          (cis_ok_tail _ _ Hok) eq_refl) as IHrest.
+        assert (Hbn :
+          nonempty (before ++ [ci_ast (CIDelim d kids)])%list ||
+          nonempty_str EmptyString || nonempty rest = true).
+        { destruct before; reflexivity. }
+        destruct (IHrest Hbn) as [p Erest]. exists p.
+        cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
+        assert (Hsrc :
+          (((String lbrace
+               (String (dchar d)
+                 (ci_text kids ++ String (dchar d) (one rbrace))) ++
+             ci_text rest) ++ marked_close k tail)%string)
+          = ((String lbrace (one (dchar d))) ++
+              (ci_text kids ++ marked_close d
+                (ci_text rest ++ marked_close k tail)))%string).
+        { unfold marked_close, one. cbn [append].
+          repeat rewrite append_assoc. reflexivity. }
+        rewrite Hsrc, iscan_str_app, iscan_marked_open.
+        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        assert (Hkins : nonempty (ci_inlines kids) = true).
+        { destruct kids; [discriminate|reflexivity]. }
+        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+        rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+      * pose proof (IH rest Hrestlt k tail EmptyString (Some rbrace)
+          (before ++ [mk (Str (String x txt')); ci_ast (CIDelim d kids)])%list
+          base (cis_ok_tail _ _ Hok) eq_refl) as IHrest.
+        assert (Hbn :
+          nonempty
+            (before ++ [mk (Str (String x txt')); ci_ast (CIDelim d kids)])%list ||
+          nonempty_str EmptyString || nonempty rest = true).
+        { destruct before; reflexivity. }
+        destruct (IHrest Hbn) as [p Erest]. exists p.
+        cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
+        assert (Hsrc :
+          (((String lbrace
+               (String (dchar d)
+                 (ci_text kids ++ String (dchar d) (one rbrace))) ++
+             ci_text rest) ++ marked_close k tail)%string)
+          = ((String lbrace (one (dchar d))) ++
+              (ci_text kids ++ marked_close d
+                (ci_text rest ++ marked_close k tail)))%string).
+        { unfold marked_close, one. cbn [append].
+          repeat rewrite append_assoc. reflexivity. }
+        rewrite Hsrc, iscan_str_app, iscan_marked_open.
+        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        assert (Hkins : nonempty (ci_inlines kids) = true).
+        { destruct kids; [discriminate|reflexivity]. }
+        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+        rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+Qed.
+
+(* Once a canonical scan has closed every nested delimiter, the output
+   state again has an empty scope stack. *)
 Definition flush_out (txt : string) (out : inlines) : inlines :=
   if nonempty_str txt then mk (Str txt) :: out else out.
 
@@ -1384,79 +1856,91 @@ Proof.
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
-Lemma iscan_ci_after_verb :
-  forall s rest prev n body out,
-    nonempty_str s = true ->
-    iscan_str (ci_text prev (CIStr s :: rest))
-      (IVerb n n body (OState out []))
-    = iscan_str (ci_text prev (CIStr s :: rest))
-        (IText false EmptyString (Some tick)
-           (OState (mk (Verbatim (trim_verb body)) :: out) [])).
-Proof.
-  intros s rest prev n body out Hs. cbn [ci_text].
-  rewrite !iscan_str_app, iscan_escape_after_verb by exact Hs.
-  rewrite iscan_escape. reflexivity.
-Qed.
-
 Lemma iscan_cis :
-  forall cis prev prev' txt out,
+  forall cis prev' txt out,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
-    ifinish (iscan_str (ci_text prev cis)
+    ifinish (iscan_str (ci_text cis)
                (IText false txt prev' (OState out [])))
     = (List.rev (flush_out txt out) ++ ci_inlines cis)%list.
 Proof.
-  induction cis as [|c rest IH]; intros prev prev' txt out Hok Hsep.
+  intro cis. pattern cis.
+  apply (well_founded_induction (well_founded_ltof _ cis_size)).
+  clear cis. intros cis IH prev' txt out Hok Hsep.
+  destruct cis as [|c rest].
   - cbn [ci_text ci_inlines iscan_str]. rewrite app_nil_r.
     rewrite ifinish_text, flush_text_flat. reflexivity.
-  - destruct c as [s|v].
+  - assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
+    { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
+    destruct c as [s|v|d kids].
     + destruct txt as [|x txt']; [|discriminate].
-      cbn [ci_text]. rewrite iscan_str_app, iscan_escape.
-      cbn [ci_inlines map append]. rewrite IH.
-      * pose proof (cis_ok_head (CIStr s) rest Hok) as Hs.
-        cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
-        unfold flush_out. rewrite Hs.
+      pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
+      cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
+      cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
+      cbn [ci_inlines map append].
+      rewrite (IH rest Hrestlt prev' s out).
+      * unfold flush_out at 1. rewrite Hs.
         cbn [List.rev nonempty_str ci_ast map].
         rewrite <- List.app_assoc. reflexivity.
       * exact (cis_ok_tail _ _ Hok).
-      * apply ci_str_tail_sep; [exact Hok|].
-        pose proof (cis_ok_head (CIStr s) rest Hok) as Hs.
-        cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _]. exact Hs.
+      * apply ci_str_tail_sep; assumption.
     + pose proof (ci_verb_nonempty v rest Hok) as Hvne.
       pose proof (ci_verb_content_ok v rest Hok) as Hvok.
+      cbn [ci_text ci_src]. rewrite iscan_str_app.
+      rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+      rewrite flush_text_flat.
       destruct rest as [|r rest'].
-      * cbn [ci_text]. rewrite append_empty_r.
-        unfold ci_inlines. cbn [map].
-        rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
-        rewrite flush_text_flat.
+      * cbn [ci_text ci_inlines map append].
+        cbn [iscan_str].
         unfold ifinish, ifinish_rev, ifinish_ostate, iresolve.
         rewrite nat_eqb_refl, trim_verb_pad by exact Hvok.
         unfold oemit, ofinish; cbn [os_stk os_out oflatten oapp].
         cbn [List.rev ci_ast]. reflexivity.
-      * destruct (ci_verb_next_str v r rest' Hok) as [s Hr]. subst r.
-        pose proof (cis_ok_head (CIStr s) rest'
-                      (cis_ok_tail _ _ Hok)) as Hsok.
-        cbn [ci_ok] in Hsok.
-        apply andb_true_iff in Hsok as [Hs _].
-        cbn [ci_text]. rewrite iscan_str_app.
-        rewrite iscan_verb_text_nonempty
-          by auto using verb_content_safe.
-        rewrite flush_text_flat.
-        change
-          (ifinish
-             (iscan_str
-                (ci_text (str_last (verb_text v) prev) (CIStr s :: rest'))
-                (IVerb (verb_ticks v) (verb_ticks v) (pad_verb v)
-                   (OState (flush_out txt out) [])))
-           = (List.rev (flush_out txt out)
-              ++ ci_inlines (CIVerb v :: CIStr s :: rest'))%list).
-        rewrite iscan_ci_after_verb by exact Hs.
+      * destruct (after_verb_rest_nontick v r rest' Hok) as [Hne Htick].
+        rewrite (iscan_after_verb_nontick _ _ _ _ Hne Htick).
         rewrite trim_verb_pad by exact Hvok.
-        rewrite IH.
-        -- unfold flush_out at 1. cbn [nonempty_str].
-           cbn [ci_inlines map ci_ast List.rev].
+        cbn [oemit os_stk os_out].
+        rewrite (IH (r :: rest') Hrestlt (Some tick) EmptyString
+          (mk (Verbatim v) :: flush_out txt out)).
+        -- cbn [flush_out nonempty_str ci_inlines map ci_ast List.rev].
            rewrite <- List.app_assoc. reflexivity.
         -- exact (cis_ok_tail _ _ Hok).
         -- reflexivity.
+    + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
+      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+      pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
+        (Some (dchar d)) [] (flush_text txt (OState out []))
+        Hkidsok eq_refl) as IHkids.
+      assert (Hkn :
+        nonempty (@nil (node inline)) || nonempty_str EmptyString ||
+        nonempty kids = true).
+      { cbn. exact Hkidsne. }
+      destruct (IHkids Hkn) as [pk Ekids].
+      cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
+      assert (Hsrc :
+        (String lbrace
+            (String (dchar d)
+              (ci_text kids ++ String (dchar d) (one rbrace))) ++
+          ci_text rest)%string
+        = ((String lbrace (one (dchar d))) ++
+            (ci_text kids ++ marked_close d (ci_text rest)))%string).
+      { unfold marked_close, one. cbn [append].
+        repeat rewrite append_assoc. reflexivity. }
+      rewrite Hsrc, iscan_str_app, iscan_marked_open.
+      cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+      assert (Hkins : nonempty (ci_inlines kids) = true).
+      { destruct kids; [discriminate|reflexivity]. }
+      rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+      rewrite <- ci_ast_delim.
+      destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+      pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+      injection Eflat as Eout Estk. subst out' stk'.
+      cbn [oemit os_out os_stk].
+      rewrite (IH rest Hrestlt (Some rbrace) EmptyString
+        (ci_ast (CIDelim d kids) :: flush_out txt out)).
+      * cbn [flush_out nonempty_str ci_inlines map List.rev].
+        rewrite <- List.app_assoc. reflexivity.
+      * exact (cis_ok_tail _ _ Hok).
+      * reflexivity.
 Qed.
 
 (* The other half of what a canonical line owes the paragraph: it leaves
@@ -1465,29 +1949,62 @@ Qed.
    the line ends (a verbatim), which is exactly why the empty verbatim
    had to go: two adjacent runs leave `IOpen`. *)
 Lemma iscan_cis_closed :
-  forall cis prev prev' txt out,
+  forall cis prev' txt out,
     cis_ok cis = true ->
-    iscan_closed (iscan_str (ci_text prev cis)
+    iscan_closed (iscan_str (ci_text cis)
                     (IText false txt prev' (OState out []))) = true.
 Proof.
-  induction cis as [|c rest IH]; intros prev prev' txt out Hok; [reflexivity|].
-  destruct c as [s|v].
-  - cbn [ci_text]. rewrite iscan_str_app, iscan_escape.
-    apply IH, (cis_ok_tail _ _ Hok).
+  intro cis. pattern cis.
+  apply (well_founded_induction (well_founded_ltof _ cis_size)).
+  clear cis. intros cis IH prev' txt out Hok.
+  destruct cis as [|c rest]; [reflexivity|].
+  assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
+  { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
+  destruct c as [s|v|d kids].
+  - cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
+    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
     pose proof (ci_verb_content_ok v rest Hok) as Hvok.
-    cbn [ci_text]. rewrite iscan_str_app.
+    cbn [ci_text ci_src]. rewrite iscan_str_app.
     rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
     rewrite flush_text_flat.
     destruct rest as [|r rest'].
     + cbn [ci_text iscan_str iscan_closed iresolve os_stk null].
       rewrite nat_eqb_refl. reflexivity.
-    + destruct (ci_verb_next_str v r rest' Hok) as [s Hr]. subst r.
-      pose proof (cis_ok_head (CIStr s) rest'
-                    (cis_ok_tail _ _ Hok)) as Hsok.
-      cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
-      rewrite iscan_ci_after_verb by exact Hs.
-      apply IH, (cis_ok_tail _ _ Hok).
+    + destruct (after_verb_rest_nontick v r rest' Hok) as [Hne Htick].
+      rewrite (iscan_after_verb_nontick _ _ _ _ Hne Htick).
+      rewrite trim_verb_pad by exact Hvok. cbn [oemit os_out os_stk].
+      apply (IH (r :: rest') Hrestlt), (cis_ok_tail _ _ Hok).
+  - pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
+    rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+    pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
+      (Some (dchar d)) [] (flush_text txt (OState out []))
+      Hkidsok eq_refl) as IHkids.
+    assert (Hkn :
+      nonempty (@nil (node inline)) || nonempty_str EmptyString ||
+      nonempty kids = true).
+    { cbn. exact Hkidsne. }
+    destruct (IHkids Hkn) as [pk Ekids].
+    cbn [ci_text]. rewrite ci_src_delim.
+    assert (Hsrc :
+      (String lbrace
+          (String (dchar d)
+            (ci_text kids ++ String (dchar d) (one rbrace))) ++
+        ci_text rest)%string
+      = ((String lbrace (one (dchar d))) ++
+          (ci_text kids ++ marked_close d (ci_text rest)))%string).
+    { unfold marked_close, one. cbn [append].
+      repeat rewrite append_assoc. reflexivity. }
+    rewrite Hsrc, iscan_str_app, iscan_marked_open.
+    cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+    assert (Hkins : nonempty (ci_inlines kids) = true).
+    { destruct kids; [discriminate|reflexivity]. }
+    rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+    destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+    pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+    injection Eflat as Eout Estk. subst out' stk'.
+    cbn [oemit os_out os_stk].
+    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
 Qed.
 
 (*
@@ -1871,7 +2388,7 @@ Lemma parse_inline_line_ci :
 Proof.
   intros cis Hok Hne.
   unfold parse_inline_line, istart, ostart, ci_line.
-  rewrite (iscan_cis cis None None EmptyString []).
+  rewrite (iscan_cis cis None EmptyString []).
   - reflexivity.
   - exact Hok.
   - reflexivity.
@@ -1911,21 +2428,64 @@ The renderer
 ============
 *)
 
+Fixpoint inline_text (il : inline) : string :=
+  let go :=
+    fix go (ns : inlines) : string :=
+      match ns with
+      | [] => EmptyString
+      | Node _ _ x :: rest => (inline_text x ++ go rest)%string
+      end in
+  let marked (k : dstyle) (ns : inlines) :=
+    String lbrace
+      (String (dchar k) (go ns ++ String (dchar k) (one rbrace))) in
+  match il with
+  | Str s => escape_str s
+  | Verbatim s => verb_text s
+  | Emph ns => marked DEmph ns
+  | Strong ns => marked DStrong ns
+  | Superscript ns => marked DSuper ns
+  | Subscript ns => marked DSub ns
+  | Highlight ns => marked DMark ns
+  | Insert ns => marked DInsert ns
+  | _ => EmptyString
+  end.
+
+Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
+Proof.
+  fix IH 1. intro ci. destruct ci as [s|s|k kids];
+    [reflexivity|reflexivity|].
+  destruct k; cbn [ci_ast ci_src dnode node_contents inline_text].
+  all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
+    induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
+    destruct (ci_ast c) as [p a x] eqn:E;
+    pose proof (IH c) as Hc; rewrite E in Hc;
+    cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity.
+Qed.
+
 (* Recover the lines of a paragraph from its inlines: `Str` extends the
    current line, `SoftBreak` ends it. *)
 Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   match ils with
   | [] => [cur]
-  | Node _ _ (Str s) :: rest => inline_lines rest (cur ++ escape_str s)
-  | Node _ _ (Verbatim s) :: rest => inline_lines rest (cur ++ verb_text s)
   | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
-  | _ :: rest => inline_lines rest cur
+  | Node _ _ il :: rest => inline_lines rest (cur ++ inline_text il)
   end.
 
 Lemma inline_lines_softbreak :
   forall rest cur,
     inline_lines (mk SoftBreak :: rest) cur = cur :: inline_lines rest EmptyString.
 Proof. reflexivity. Qed.
+
+Lemma inline_lines_ci_ast :
+  forall ci rest cur,
+    inline_lines (ci_ast ci :: rest) cur
+    = inline_lines rest (cur ++ ci_src ci).
+Proof.
+  intros ci rest cur. destruct ci as [s|s|k kids];
+    [reflexivity|reflexivity|].
+  rewrite ci_ast_delim, <- inline_text_ci_ast.
+  destruct k; reflexivity.
+Qed.
 
 (** Rendering a canonical line's inlines appends its text and consumes
     nothing else, which is what makes the paragraph case an induction. *)
@@ -1939,14 +2499,8 @@ Proof.
   induction cis as [|c cs IH] in cur |- *.
   - cbn [ci_inlines ci_line ci_text app inline_lines].
     rewrite append_empty_r. reflexivity.
-  - destruct c as [s|v];
-      cbn [ci_inlines ci_ast mk map app inline_lines ci_line ci_text].
-    + rewrite IH.
-      rewrite (ci_text_prev cs (str_last (escape_str s) None) None).
-      unfold ci_line. rewrite append_assoc. reflexivity.
-    + rewrite IH.
-      rewrite (ci_text_prev cs (str_last (verb_text v) None) None).
-      unfold ci_line. rewrite append_assoc. reflexivity.
+  - cbn [ci_inlines map app]. rewrite inline_lines_ci_ast, IH.
+    cbn [ci_line ci_text]. rewrite append_assoc. reflexivity.
 Qed.
 
 Lemma inline_lines_ci_para :
@@ -2085,6 +2639,18 @@ The delimiter family, pinned
 
 Every one of these was checked against djot.js before it was written.
 *)
+
+Example canonical_emph_source :
+  ci_line [CIDelim DEmph [CIStr "a"]] = "{_a_}".
+Proof. reflexivity. Qed.
+
+Example canonical_nested_delimiter_roundtrip :
+  parse_inline_line
+    (ci_line [CIDelim DEmph
+      [CIStr "a"; CIDelim DStrong [CIStr "b"]]])
+  = ci_inlines [CIDelim DEmph
+      [CIStr "a"; CIDelim DStrong [CIStr "b"]]].
+Proof. vm_compute. reflexivity. Qed.
 
 (* Bare and braced spell the same span... *)
 Example emph_bare : parse_inline_line "_a_" = [mk (Emph [mk (Str "a")])].

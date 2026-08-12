@@ -40,6 +40,7 @@ The alphabet
 Definition leaves : list cblock :=
   [ cpara ["a"]
   ; cpara ["a"; "b"]
+  ; CPara [[CIDelim DEmph [CIStr "e"]]]
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"] ].
@@ -267,10 +268,9 @@ Example nested_list_accepted :
   cb_ok (CList LKBullet Tight [[CList LKBullet Tight [[cpara ["a"]]]]]) = true.
 Proof. reflexivity. Qed.
 
-(* The counts are (68, 888, 11368); divs took them from (53, 593, 6437),
-   a div accepting any block sequence its contents do not close.  Pinned
-   in `check/Deep.v` rather than here — the depth-3 length alone costs
-   ~84s, which is a lot for a documentation number. *)
+(* The counts are pinned in `check/Deep.v` rather than here -- the
+   depth-3 length alone is expensive, which is a lot for a documentation
+   number.  They move whenever `leaves` gains a canonical construct. *)
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else

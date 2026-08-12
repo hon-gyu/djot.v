@@ -34,13 +34,10 @@ Local Open Scope string_scope.
 Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
 Proof. vm_compute. reflexivity. Qed.
 
-(* Divs took these from (53, 593, 6437) to (68, 888, 11368): a div
-   accepts any block sequence its contents do not close, so it roughly
-   doubles the container arm.  Tightening `seps_loosen` -- a separator
-   loosens only when the item after it does not open with a list marker
-   -- took them back down, by making some `Loose` spellings
-   unrenderable. *)
+(* The delimiter leaf takes these to (82, 1009, 12054).  The count is a
+   coverage witness: adding a canonical construct must enlarge the
+   generated fragment rather than only changing its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (65, 796, 9511).
+                           List.length (accepted 3)) = (82, 1009, 12054).
 Proof. vm_compute. reflexivity. Qed.
