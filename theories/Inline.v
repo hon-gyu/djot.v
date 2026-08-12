@@ -658,11 +658,13 @@ The scanner
 -----------
 
 One character at a time, structurally recursive on the remaining input.
-That is not an accident of style: it is what makes "the scanner never
-revisits a position" definitional rather than a theorem, which is the
-`no-backtracking` half of Phase 3 obtained for free (see
-`.project/260811.inline-parser.md` §2.4).  It also matches djot.js's
-`feed`, which is a position-at-a-time loop over a mode flag.
+That is not an accident of style: it makes "the scanner never re-feeds a
+source position through tokenization" structural, which is the project's
+precise no-backtracking claim (see `.project/260811.inline-parser.md`
+§2.4).  It does not forbid retroactive scope-stack changes, and it is not
+a linear-time claim: resolving one byte may still walk the opener stack.
+It also matches djot.js's `feed`, which is a position-at-a-time loop over
+a mode flag.
 
 A verbatim closer is a run of *exactly* the opening width, so a run
 cannot be resolved until the character after it arrives; that is why
@@ -1039,6 +1041,45 @@ Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
   | EmptyString => st
   | String c rest => iscan_str rest (istep c st)
   end.
+
+(* An executable certificate for the sense in which this scan does not
+   backtrack.  One unit of fuel authorizes dispatching one source byte;
+   state rewrites such as closing or abandoning a scope spend no source
+   fuel and never feed that byte back to the scanner.  This deliberately
+   says nothing about the internal cost of a dispatch -- `oclose` may walk
+   the opener stack -- so it is not a linear-time theorem.  Bracket
+   attribute reparse will be a separate, strictly decreasing call with
+   attribute recognition disabled, rather than a relaxation of this
+   contract. *)
+Fixpoint iscan_str_fuel (fuel : nat) (s : string) (st : iscan)
+  : option iscan :=
+  match s with
+  | EmptyString => Some st
+  | String c rest =>
+      match fuel with
+      | O => None
+      | S fuel' => iscan_str_fuel fuel' rest (istep c st)
+      end
+  end.
+
+Lemma iscan_str_no_reread :
+  forall s st,
+    iscan_str_fuel (String.length s) s st = Some (iscan_str s st).
+Proof.
+  induction s as [|c rest IH]; intros st; cbn [String.length iscan_str_fuel
+    iscan_str]; [reflexivity|apply IH].
+Qed.
+
+Lemma iscan_str_fuel_short :
+  forall s fuel st,
+    fuel < String.length s -> iscan_str_fuel fuel s st = None.
+Proof.
+  induction s as [|c rest IH]; intros fuel st Hlt.
+  - cbn [String.length] in Hlt. lia.
+  - destruct fuel as [|fuel']; [reflexivity|].
+    cbn [String.length iscan_str_fuel] in Hlt |- *.
+    apply IH. lia.
+Qed.
 
 (* A paragraph's lines, in order.  Trailing whitespace is stripped from
    the last line only -- djot.js's `getMatches` drops the final soft
@@ -2336,6 +2377,24 @@ Qed.
    guarantees and `para_inlines_cons2_closed` states. *)
 Definition para_inlines (l : list string) : inlines :=
   ifinish (iscan_lines l istart).
+
+(* Classification sees the source and nothing else.  The environment is
+   named here before brackets arrive so their parser can produce
+   unresolved `Reference` and `FootnoteReference` nodes without consulting
+   either side table; a later resolution pass may fill targets but may not
+   change this tree. *)
+Record inline_env : Type := InlineEnv {
+  inline_notes : note_map;
+  inline_references : reference_map;
+  inline_auto_references : reference_map
+}.
+
+Definition classify_inlines (_ : inline_env) (l : list string) : inlines :=
+  para_inlines l.
+
+Theorem classify_inlines_locality :
+  forall a b l, classify_inlines a l = classify_inlines b l.
+Proof. reflexivity. Qed.
 
 Lemma para_inlines_one :
   forall x, para_inlines [x] = parse_inline_line (strip_trailing_ws x).
