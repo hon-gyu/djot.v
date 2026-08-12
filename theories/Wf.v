@@ -563,6 +563,34 @@ Proof.
     rewrite hd_str_is_starts_str. exact Hc.
 Qed.
 
+Lemma oscope_ok_emit_merge :
+  forall n o,
+    oscope_ok o = true ->
+    wf_inline (node_contents n) = true ->
+    oscope_ok (oemit_merge n o) = true.
+Proof.
+  intros n [out [|f stk]] Ho Hn; unfold oscope_ok, oemit_merge in *;
+    cbn [os_out os_stk frames_ok forallb fr_out fr_kind fr_marked] in *.
+  - apply andb_true_iff in Ho as [Ho _]. rewrite andb_true_r.
+    apply ilist_ok_osnoc; assumption.
+  - apply andb_true_iff in Ho as [Hb Hf].
+    apply andb_true_iff in Hf as [Hff Hf].
+    rewrite Hb, Hf, andb_true_r.
+    apply ilist_ok_osnoc; assumption.
+Qed.
+
+Lemma oscope_ok_emit_all_merge :
+  forall ns o,
+    oscope_ok o = true ->
+    forallb (fun n => wf_inline (node_contents n)) ns = true ->
+    oscope_ok (oemit_all_merge ns o) = true.
+Proof.
+  induction ns as [|n ns IH]; intros o Ho Hns; [exact Ho|].
+  cbn [oemit_all_merge forallb] in Hns |- *.
+  apply andb_true_iff in Hns as [Hn Hns].
+  apply IH; [apply oscope_ok_emit_merge; assumption|exact Hns].
+Qed.
+
 Lemma oscope_ok_push :
   forall k m o, oscope_ok o = true -> oscope_ok (opush k m o) = true.
 Proof.

@@ -774,6 +774,25 @@ Definition oemit (n : node inline) (o : ostate) : ostate :=
       OState (os_out o) (Frame (fr_kind f) (fr_marked f) (n :: fr_out f) :: rest)
   end.
 
+(* Emit in source order while merging a plain-`Str` seam.  Ordinary
+   scanner emission keeps the seam obligation explicit in `iscan_wf`;
+   reconstruction paths (abandoned frames and bracket literal fallback)
+   already know they are splicing source fragments and need the merge by
+   construction. *)
+Definition oemit_merge (n : node inline) (o : ostate) : ostate :=
+  match os_stk o with
+  | [] => OState (osnoc n (os_out o)) []
+  | f :: rest =>
+      OState (os_out o)
+        (Frame (fr_kind f) (fr_marked f) (osnoc n (fr_out f)) :: rest)
+  end.
+
+Fixpoint oemit_all_merge (ns : inlines) (o : ostate) : ostate :=
+  match ns with
+  | [] => o
+  | n :: rest => oemit_all_merge rest (oemit_merge n o)
+  end.
+
 Fixpoint oemit_all (ns : inlines) (o : ostate) : ostate :=
   match ns with
   | [] => o
