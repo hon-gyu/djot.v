@@ -501,6 +501,13 @@ Definition iscan_wf (st : iscan) : bool :=
       (oscope_ok o && negb (hd_str (ocur o)))%bool
   | IOpen _ o => oscope_ok o
   | IVerb _ _ _ o => oscope_ok o
+  (* The bracket modes carry the label's classified children, which the
+     literal fallback emits one by one and the balanced close wraps in a
+     `Link`; both need them well-formed and non-adjacent, which is
+     exactly `wf_inlines`.  Neither carries the head condition the text
+     states do, because the fallback reabsorbs a flushed `Str` before it
+     writes anything -- that is what `opop_str` is for. *)
+  | IClosed kids o | IDest kids _ _ _ o => (oscope_ok o && wf_inlines kids)%bool
   end.
 
 (* `wf_inline`'s inline-list check, as a global fixpoint with the same
@@ -720,6 +727,149 @@ Proof.
   apply oscope_ok_emit; [exact Ho | exact Ht | rewrite Hs; apply andb_false_r].
 Qed.
 
+(*
+Putting a bracket back as text preserves it
+-------------------------------------------
+
+The fallback is the one place a scope's output is *read back*, and the
+two obligations it has to re-establish are the ones every text state
+carries.  Popping the flushed `Str` is what makes the head condition
+hold with nothing else emitted, and alternating `Str` with non-`Str`
+emissions is what makes it hold once something is. *)
+
+Lemma ilist_ok_tail :
+  forall n out, ilist_ok (n :: out)%list = true -> ilist_ok out = true.
+Proof.
+  intros n out H. unfold ilist_ok in *.
+  apply andb_true_iff in H as [Hall Hadj].
+  cbn [forallb] in Hall. apply andb_true_iff in Hall as [_ Hall].
+  rewrite Hall. cbn [List.rev] in Hadj.
+  destruct out as [|m out']; [reflexivity|].
+  cbn [List.rev] in Hadj |- *.
+  rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+  exact (no_adjacent_str_app2_l _ _ _ Hadj).
+Qed.
+
+Lemma ilist_ok_head_pop :
+  forall n out,
+    ilist_ok (n :: out)%list = true -> plain_str n = true -> hd_str out = false.
+Proof.
+  intros n out H Hp. unfold ilist_ok in H.
+  apply andb_true_iff in H as [_ Hadj].
+  destruct out as [|m out']; [reflexivity|].
+  cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+  pose proof (no_adjacent_str_app2_pair _ _ _ Hadj) as Hc.
+  cbn [hd_str]. destruct (plain_str m); [|reflexivity].
+  rewrite Hp in Hc. discriminate.
+Qed.
+
+Lemma opop_str_ok :
+  forall o,
+    oscope_ok o = true ->
+    oscope_ok (snd (opop_str o)) = true
+    /\ starts_str (ocur (snd (opop_str o))) = false.
+Proof.
+  intros [out stk] H. unfold opop_str, ocur; cbn [os_out os_stk].
+  destruct stk as [|f fs].
+  - destruct out as [|[a [|p ps] i] rest]; cbn [snd os_out os_stk];
+      try (split; [exact H | reflexivity]).
+    destruct i; cbn [snd os_out os_stk];
+      try (split; [exact H | reflexivity]).
+    unfold oscope_ok in H |- *; cbn [os_out os_stk frames_ok] in H |- *.
+    rewrite andb_true_r in H |- *.
+    split; [exact (ilist_ok_tail _ _ H)|].
+    rewrite <- hd_str_is_starts_str.
+    exact (ilist_ok_head_pop _ _ H eq_refl).
+  - destruct f as [kind marked fout]; cbn [fr_out fr_kind fr_marked].
+    destruct fout as [|[a [|p ps] i] rest]; cbn [snd os_out os_stk fr_out];
+      try (split; [exact H | reflexivity]).
+    destruct i; cbn [snd os_out os_stk fr_out];
+      try (split; [exact H | reflexivity]).
+    unfold oscope_ok in H |- *;
+      cbn [os_out os_stk frames_ok forallb fr_out] in H |- *.
+    apply andb_true_iff in H as [Hb H].
+    apply andb_true_iff in H as [Hf Hs].
+    rewrite Hb, Hs, andb_true_r, andb_true_l.
+    split; [exact (ilist_ok_tail _ _ Hf)|].
+    rewrite <- hd_str_is_starts_str.
+    exact (ilist_ok_head_pop _ _ Hf eq_refl).
+Qed.
+
+Lemma bflat_ok :
+  forall kids txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    wf_inlines kids = true ->
+    oscope_ok (snd (bflat kids txt o)) = true
+    /\ starts_str (ocur (snd (bflat kids txt o))) = false.
+Proof.
+  induction kids as [|n kids IH]; intros txt o Ho Hs Hk;
+    cbn [bflat]; [split; assumption|].
+  unfold wf_inlines in Hk. apply andb_true_iff in Hk as [Hall Hadj].
+  cbn [forallb] in Hall. apply andb_true_iff in Hall as [Hn Hall].
+  assert (Hrest : wf_inlines kids = true).
+  { unfold wf_inlines. rewrite Hall. cbn [andb].
+    destruct kids as [|m kids']; [reflexivity|].
+    cbn [no_adjacent_str] in Hadj. apply andb_true_iff in Hadj as [_ Hadj].
+    exact Hadj. }
+  assert (Hemit : forall p attrs x,
+             n = Node p attrs x -> plain_str n = false ->
+             oscope_ok (oemit n (flush_text txt o)) = true
+             /\ starts_str (ocur (oemit n (flush_text txt o))) = false).
+  { intros p attrs x En Hp.
+    pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
+    split.
+    - apply oscope_ok_emit; [exact Hf | exact Hn | rewrite Hp; reflexivity].
+    - rewrite ocur_emit, <- hd_str_is_starts_str. cbn [hd_str]. exact Hp. }
+  destruct n as [p [|q qs] x].
+  - destruct x;
+      try (destruct (Hemit p [] _ eq_refl eq_refl) as [H1 H2];
+           apply IH; assumption).
+    apply IH; assumption.
+  - destruct (Hemit p (q :: qs) _ eq_refl eq_refl) as [H1 H2].
+    apply IH; assumption.
+Qed.
+
+Lemma bsplit_nl_ok :
+  forall s txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (bsplit_nl s txt o)) = true
+    /\ starts_str (ocur (snd (bsplit_nl s txt o))) = false.
+Proof.
+  induction s as [|c s IH]; intros txt o Ho Hs; cbn [bsplit_nl];
+    [split; assumption|].
+  destruct (Ascii.eqb c nl_char); [|apply IH; assumption].
+  apply IH.
+  - apply oscope_ok_emit;
+      [apply iscan_wf_flush; assumption | reflexivity | apply andb_false_l].
+  - rewrite ocur_emit. reflexivity.
+Qed.
+
+Lemma bclosed_lit_ok :
+  forall kids o,
+    oscope_ok o = true -> wf_inlines kids = true ->
+    oscope_ok (snd (bclosed_lit kids o)) = true
+    /\ starts_str (ocur (snd (bclosed_lit kids o))) = false.
+Proof.
+  intros kids o Ho Hk. unfold bclosed_lit.
+  destruct (opop_str_ok o Ho) as [H1 H2].
+  destruct (opop_str o) as [pre o1]; cbn [snd] in H1, H2 |- *.
+  pose proof (bflat_ok kids (pre ++ one lbrack)%string o1 H1 H2 Hk) as Hb.
+  destruct (bflat kids (pre ++ one lbrack)%string o1) as [txt o2];
+    cbn [snd] in Hb |- *. exact Hb.
+Qed.
+
+Lemma bdest_lit_ok :
+  forall kids esc dst o,
+    oscope_ok o = true -> wf_inlines kids = true ->
+    oscope_ok (snd (bdest_lit kids esc dst o)) = true
+    /\ starts_str (ocur (snd (bdest_lit kids esc dst o))) = false.
+Proof.
+  intros kids esc dst o Ho Hk. unfold bdest_lit.
+  pose proof (bclosed_lit_ok kids o Ho Hk) as Hc.
+  destruct (bclosed_lit kids o) as [txt o']; cbn [snd] in Hc |- *.
+  destruct Hc as [H1 H2]. apply bsplit_nl_ok; assumption.
+Qed.
+
 Lemma ilead_wf :
   forall c txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -765,7 +915,7 @@ Qed.
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o] H;
+  intros c [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|kids ob|kids esc depth dst ob] H;
     cbn [istep];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
@@ -781,7 +931,7 @@ Proof.
   - destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ?|? ? ? ?|? ?|? ? ? ?]; try exact Hr.
+      as [[] txt' prev' o'|? ? ?|? ? ? ?|? ?|? ? ? ?|? ?|? ? ? ? ?]; try exact Hr.
     cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
@@ -791,6 +941,28 @@ Proof.
     apply ilead_wf.
     + apply oscope_ok_emit; [exact H | reflexivity | apply andb_false_l].
     + rewrite ocur_emit. reflexivity.
+  - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
+    destruct (Ascii.eqb c lparen);
+      [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
+    destruct (bclosed_lit_ok kids ob Ho Hk) as [H1 H2].
+    destruct (bclosed_lit kids ob) as [txt o']; cbn [snd] in H1, H2.
+    apply ilead_wf; assumption.
+  - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
+    assert (Hd : forall e d t, iscan_wf (IDest kids e d t ob) = true)
+      by (intros; cbn [iscan_wf]; rewrite Ho, Hk; reflexivity).
+    destruct esc; [apply Hd|].
+    destruct (is_bslash c); [apply Hd|].
+    destruct (Ascii.eqb c lparen); [apply Hd|].
+    destruct (Ascii.eqb c rparen); [|apply Hd].
+    destruct depth as [|d]; [|apply Hd].
+    (* the link node is the one thing the bracket modes build *)
+    apply iscan_wf_text; [|rewrite ocur_emit; reflexivity].
+    apply oscope_ok_emit; [exact Ho| |reflexivity].
+    unfold wf_inlines in Hk. apply andb_true_iff in Hk as [Hall Hadj].
+    cbn [node_contents mk].
+    change (wf_inline (Link kids (Direct (drop_nl dst))))
+      with (wf_ils kids && no_adjacent_str kids)%bool.
+    rewrite wf_ils_forallb, Hall, Hadj. reflexivity.
 Qed.
 
 Lemma iscan_wf_str :
@@ -834,14 +1006,18 @@ Qed.
 Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o] H;
+  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|kids ob|kids esc depth dst ob] H;
     cbn [iresolve]; try exact H;
-    cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
-    apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
+    cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
      at the text buffer, and resolving a brace only moves a byte into
-     it.  `IDelim` is the one that can close a scope. *)
-  apply idelim_resolve_wf; assumption.
+     it.  `IDelim` is the one that can close a scope, and `IClosed` the
+     one that puts a bracket back as text. *)
+  - apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
+    apply idelim_resolve_wf; assumption.
+  - destruct (bclosed_lit_ok kids ob Ho Hs) as [H1 H2].
+    destruct (bclosed_lit kids ob) as [txt o']; cbn [snd] in H1, H2.
+    apply iscan_wf_text; assumption.
 Qed.
 
 Lemma iscan_wf_ostate :
@@ -851,7 +1027,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ifinish_ostate.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o];
+    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|kids ob|kids esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -861,6 +1037,10 @@ Proof.
     apply oscope_ok_emit; [exact Hr | reflexivity | apply andb_false_l].
   - cbn [iscan_wf] in Hr.
     apply oscope_ok_emit; [exact Hr | reflexivity | apply andb_false_l].
+  - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
+    destruct (bdest_lit_ok kids esc dst ob Ho Hk) as [H1 H2].
+    destruct (bdest_lit kids esc dst ob) as [txt o']; cbn [snd] in H1, H2.
+    apply iscan_wf_flush; assumption.
 Qed.
 
 Lemma iscan_wf_finish_rev :
@@ -888,7 +1068,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ibreak.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o];
+    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|kids ob|kids esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -904,6 +1084,9 @@ Proof.
         [apply oscope_ok_emit; [exact Hr | reflexivity | apply andb_false_l]
         |reflexivity | apply andb_false_l].
     + rewrite ocur_emit. reflexivity.
+  (* the destination carries the break as a character, so nothing is
+     emitted and the invariant is the one it arrived with *)
+  - cbn [iscan_wf] in Hr |- *. exact Hr.
 Qed.
 
 Lemma iscan_wf_lines :
