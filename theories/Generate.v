@@ -41,6 +41,7 @@ Definition leaves : list cblock :=
   [ cpara ["a"]
   ; cpara ["a"; "b"]
   ; CPara [[CIDelim DEmph [CIStr "e"]]]
+  ; CPara [[CILink [CIStr "l"] "u"]]
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"] ].

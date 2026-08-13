@@ -34,10 +34,11 @@ Local Open Scope string_scope.
 Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
 Proof. vm_compute. reflexivity. Qed.
 
-(* The delimiter leaf takes these to (82, 1009, 12054).  The count is a
-   coverage witness: adding a canonical construct must enlarge the
-   generated fragment rather than only changing its proofs. *)
+(* The delimiter leaf took these to (82, 1009, 12054) and the link leaf
+   to (99, 1222, 14597).  The count is a coverage witness: adding a
+   canonical construct must enlarge the generated fragment rather than
+   only changing its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (82, 1009, 12054).
+                           List.length (accepted 3)) = (99, 1222, 14597).
 Proof. vm_compute. reflexivity. Qed.
