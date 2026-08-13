@@ -526,3 +526,40 @@ accepts `LKDecimal d 0`, and `roundtrip_blocks` is `parse (render d) = d`,
 an internal property that holds either way. Only the HTML writer would
 change, and only for start 0. Recorded so that a future HTML conformance
 pass finds it already diagnosed rather than as a fresh mismatch.
+
+## Adjudicated 2026-08-13 — ours: constructs inside an unterminated destination
+
+Found by the corpus on the step that wired direct links: it is the one
+case `links_and_images.test` scored worse on, against +11 elsewhere.
+
+| `[unclosed](hello *a` / `b*` | output |
+| --- | --- |
+| djot.js, djoths | `[unclosed](hello <strong>a\nb</strong>` |
+| ours | `[unclosed](hello *a\nb*` |
+
+**Ours, deliberately, and confined to exactly this shape.** djot.js does
+not have a destination *mode*: it keeps every matcher running inside
+`](` and calls `strMatches` over the region only when the balanced `)`
+arrives (`inline.ts:470`), turning whatever was matched into literal
+text retroactively. So when the destination *does* close, its content is
+literal either way and we agree; we differ only when a `](` never finds
+its `)`, because then djot.js keeps the matches it made and we have
+never made any.
+
+Matching it is not a formalization question -- nothing in `wf_block` or
+the roundtrip forbids it, and the canonical view will never produce such
+a document -- it is a cost question. Our destination accumulates literal
+text, and djot.js can afford not to because it holds the subject string
+and can re-slice it; we do not keep source text for classified nodes, so
+to match we would have to run the ordinary scan *and* accumulate the
+source alongside it, then throw one of the two away at the close. That
+is `strMatches` as a third retroactive disposition on top of the two
+[[260811.inline-parser]] §2.2 already names, and it belongs with
+footnote references and spans rather than with direct links.
+
+**Consequence for the canonical view.** `ci_ok` must exclude a
+destination whose text could open anything -- the delimiters, the
+backtick, `[` -- which the destination's own escaping already handles,
+since `\_` and `` \` `` decode the same way in both engines. So the
+divergence is unreachable from a canonical document and stays a corpus
+fidelity gap only.

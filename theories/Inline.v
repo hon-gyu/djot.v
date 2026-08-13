@@ -159,7 +159,8 @@ Proof. reflexivity. Qed.
 
 Definition needs_escape (c : ascii) : bool :=
   (is_bslash c || is_tick c || is_delim c
-   || Ascii.eqb c lbrace || Ascii.eqb c rbrace)%bool.
+   || Ascii.eqb c lbrace || Ascii.eqb c rbrace
+   || Ascii.eqb c lbrack || Ascii.eqb c rbrack)%bool.
 
 (* Obligation 1: an escaped character must be one the decoder accepts. *)
 Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
@@ -195,6 +196,15 @@ Lemma needs_escape_lbrace : needs_escape lbrace = true.
 Proof. reflexivity. Qed.
 
 Lemma needs_escape_rbrace : needs_escape rbrace = true.
+Proof. reflexivity. Qed.
+
+(* And the same for the brackets, now that the scanner dispatches on
+   them: a `[` in a `Str` would open a scope, and a `]` would close one
+   that a later construct opened. *)
+Lemma needs_escape_lbrack : needs_escape lbrack = true.
+Proof. reflexivity. Qed.
+
+Lemma needs_escape_rbrack : needs_escape rbrack = true.
 Proof. reflexivity. Qed.
 
 Fixpoint escape_str (s : string) : string :=
@@ -1043,6 +1053,18 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   if is_bslash c then IText true txt prev o
   else if is_tick c then IOpen 1 (flush_text txt o)
   else if Ascii.eqb c lbrace then IBrace txt prev o
+  (* A `[` opens a scope on the same stack the delimiters use, so their
+     relative order is kept and the label needs no second parser.  A `]`
+     closes the innermost bracket scope, abandoning any delimiter scopes
+     opened inside it, and hands the label to `IClosed`; with no bracket
+     open it is ordinary text. *)
+  else if Ascii.eqb c lbrack
+  then IText false EmptyString (Some lbrack) (bpush (flush_text txt o))
+  else if Ascii.eqb c rbrack
+  then match bclose (flush_text txt o) with
+       | Some (kids, o') => IClosed kids o'
+       | None => IText false (txt ++ one rbrack)%string prev o
+       end
   else match dstyle_of c with
        | Some k => IDelim k txt (nonspace_at (str_last txt prev)) o
        | None => IText false (txt ++ one c)%string prev o
@@ -1474,6 +1496,19 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma bpush_app :
+  forall o base, bpush (oout_app base o) = oout_app base (bpush o).
+Proof. intros o base. reflexivity. Qed.
+
+Lemma bclose_app :
+  forall o base,
+    bclose (oout_app base o)
+    = option_map (fun p => (fst p, oout_app base (snd p))) (bclose o).
+Proof.
+  intros o base. unfold bclose. cbn [oout_app os_stk os_out].
+  destruct (bclose_go [] (os_stk o)) as [[content rest]|]; reflexivity.
+Qed.
+
 (* The bracket reconstruction is the second place the suffix is not
    inert, and for the same reason as `oflatten`: `opop_str` reads the
    most recent node, and with nothing emitted yet that node comes from
@@ -1556,6 +1591,11 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
+  destruct (Ascii.eqb c lbrack);
+    [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity|].
+  destruct (Ascii.eqb c rbrack);
+    [rewrite flush_text_app, bclose_app;
+     destruct (bclose (flush_text txt o)) as [[kids o']|]; reflexivity|].
   destruct (dstyle_of c); reflexivity.
 Qed.
 
@@ -1772,11 +1812,13 @@ Lemma ilead_plain :
     ilead c txt prev o = IText false (txt ++ one c)%string prev o.
 Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
+  apply orb_false_iff in Hc as [Hc Hrk].
+  apply orb_false_iff in Hc as [Hc Hlk].
   apply orb_false_iff in Hc as [Hc Hrb].
   apply orb_false_iff in Hc as [Hc Hlb].
   apply orb_false_iff in Hc as [Hc Hdl].
   apply orb_false_iff in Hc as [Hbs Htk].
-  unfold ilead. rewrite Hbs, Htk, Hlb.
+  unfold ilead. rewrite Hbs, Htk, Hlb, Hlk, Hrk.
   destruct (dstyle_of c) eqn:Hd; [|reflexivity].
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
 Qed.
@@ -2434,6 +2476,12 @@ Proof.
   rewrite orb_true_r. reflexivity.
 Qed.
 
+Lemma ostate_nonempty_bpush : forall o, ostate_nonempty (bpush o) = true.
+Proof.
+  intros o. unfold ostate_nonempty, bpush; cbn [os_stk].
+  rewrite orb_true_r. reflexivity.
+Qed.
+
 (* Splitting at a break either leaves the text in the buffer or emits a
    `SoftBreak`, so a nonempty destination stays owed either way. *)
 Lemma bsplit_nl_productive :
@@ -2468,6 +2516,12 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
+  destruct (Ascii.eqb c lbrack);
+    [cbn [iscan_productive]; rewrite ostate_nonempty_bpush; apply orb_true_r|].
+  destruct (Ascii.eqb c rbrack);
+    [destruct (bclose (flush_text txt o)) as [[kids o']|]; [reflexivity|];
+     cbn [iscan_productive];
+     rewrite nonempty_str_app_l by reflexivity; reflexivity|].
   destruct (dstyle_of c); [reflexivity|].
   cbn [iscan_productive]. apply orb_true_iff. left.
   apply nonempty_str_app_l. reflexivity.
@@ -2716,6 +2770,9 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
+  destruct (Ascii.eqb c lbrack); [reflexivity|].
+  (* nothing is open at the start, so a `]` is text *)
+  destruct (Ascii.eqb c rbrack); [reflexivity|].
   destruct (dstyle_of c); reflexivity.
 Qed.
 
@@ -3141,56 +3198,57 @@ Example verbatim_suppresses_delimiters :
 Proof. vm_compute. reflexivity. Qed.
 
 (*
-The bracket modes
------------------
+Direct links
+------------
 
-Nothing enters them from `parse_inline_line` yet, so what they do is
-pinned by driving them directly from a state a closed bracket would
-produce.  Every reading below was taken from djot.js first. *)
+Every reading below was taken from djot.js first. *)
 
 Definition bkids : inlines := [mk (Str "a")].
 
-Example bracket_link : ifinish (iscan_str "(b)" (IClosed bkids ostart))
-  = [mk (Link bkids (Direct "b"))].
+Example link_basic : parse_inline_line "[a](b)" = [mk (Link bkids (Direct "b"))].
 Proof. vm_compute. reflexivity. Qed.
 
-Example bracket_balanced_parens :
-  ifinish (iscan_str "(b(c)d)" (IClosed bkids ostart))
-  = [mk (Link bkids (Direct "b(c)d"))].
+Example link_balanced_parens :
+  parse_inline_line "[a](b(c)d)" = [mk (Link bkids (Direct "b(c)d"))].
 Proof. vm_compute. reflexivity. Qed.
 
-Example bracket_escaped_paren :
-  ifinish (iscan_str "(b\)c)" (IClosed bkids ostart))
-  = [mk (Link bkids (Direct "b)c"))].
+Example link_escaped_paren :
+  parse_inline_line "[a](b\)c)" = [mk (Link bkids (Direct "b)c"))].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Not a link, and the brackets become text. *)
-Example bracket_literal : ifinish (iscan_str "x" (IClosed bkids ostart))
-  = [mk (Str "[a]x")].
-Proof. vm_compute. reflexivity. Qed.
-
-(* The reabsorption: text flushed before the `[` rejoins the buffer, so
-   the fallback yields one `Str` rather than two adjacent ones. *)
+(* Without a destination the brackets are text, and they merge with the
+   text on both sides: `opop_str` takes back what the `[` had flushed. *)
 Example bracket_literal_merges :
-  ifinish (iscan_str "x" (IClosed bkids (OState [mk (Str "z")] [])))
-  = [mk (Str "z[a]x")].
+  parse_inline_line "z[a]x" = [mk (Str "z[a]x")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A label's non-text children stay classified when the brackets do not
    become a link, which is why the fallback cannot work from source. *)
 Example bracket_literal_keeps_children :
-  ifinish (iscan_str "x" (IClosed [mk (Emph [mk (Str "a")])] ostart))
+  parse_inline_line "[_a_]x"
   = [mk (Str "["); mk (Emph [mk (Str "a")]); mk (Str "]x")].
 Proof. vm_compute. reflexivity. Qed.
 
+(* A delimiter opened inside a label is abandoned by the close, since the
+   label is a scope and the delimiter did not close inside it. *)
+Example link_label_abandons_opener :
+  parse_inline_line "[_a](b)_"
+  = [mk (Link [mk (Str "_a")] (Direct "b")); mk (Str "_")].
+Proof. vm_compute. reflexivity. Qed.
+
 (* A destination crosses a line break and drops it; an unterminated one
-   keeps it, since the break is then an ordinary soft break. *)
+   keeps it, since the break is then an ordinary soft break.  A `]` at a
+   break is already literal: the `(` has to be the very next byte. *)
 Example dest_crosses_break :
-  ifinish (iscan_str "c)" (ibreak (iscan_str "(b" (IClosed bkids ostart))))
-  = [mk (Link bkids (Direct "bc"))].
+  para_inlines ["[a](b"; "c)"] = [mk (Link bkids (Direct "bc"))].
 Proof. vm_compute. reflexivity. Qed.
 
 Example dest_unterminated_keeps_break :
-  ifinish (iscan_str "c" (ibreak (iscan_str "(b" (IClosed bkids ostart))))
+  para_inlines ["[a](b"; "c"]
   = [mk (Str "[a](b"); mk SoftBreak; mk (Str "c")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example bracket_needs_paren_on_the_same_line :
+  para_inlines ["[a]"; "(b)"]
+  = [mk (Str "[a]"); mk SoftBreak; mk (Str "(b)")].
 Proof. vm_compute. reflexivity. Qed.

@@ -727,6 +727,44 @@ Proof.
   apply oscope_ok_emit; [exact Ho | exact Ht | rewrite Hs; apply andb_false_r].
 Qed.
 
+(* Closing a bracket is `oclose` without the node: it abandons the
+   delimiter scopes above the bracket the same way, and hands back the
+   label rather than wrapping it, so the label carries the list
+   invariant and the restored state carries the scope one. *)
+Lemma bclose_go_ok :
+  forall stk pend content rest,
+    frames_ok stk = true -> ilist_ok pend = true ->
+    bclose_go pend stk = Some (content, rest) ->
+    (ilist_ok content && frames_ok rest)%bool = true.
+Proof.
+  induction stk as [|f stk IH]; intros pend content rest Hs Hp E; [discriminate|].
+  cbn [bclose_go] in E. destruct (fr_kind f).
+  - apply (IH (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+            content rest (frames_ok_tail f stk Hs)); [|exact E].
+    apply ilist_ok_oapp;
+      [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
+      |apply ilist_ok_src].
+  - injection E as <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
+    apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)].
+Qed.
+
+Lemma bclose_ok :
+  forall o kids o',
+    oscope_ok o = true -> bclose o = Some (kids, o') ->
+    (oscope_ok o' && wf_inlines kids)%bool = true.
+Proof.
+  intros o kids o' Ho E. unfold bclose in E.
+  destruct (bclose_go [] (os_stk o)) as [[content rest]|] eqn:Eg; [|discriminate].
+  injection E as <- <-.
+  apply andb_true_iff in Ho as [Hb Hs].
+  pose proof (bclose_go_ok (os_stk o) [] content rest Hs eq_refl Eg) as Hcr.
+  apply andb_true_iff in Hcr as [Hc Hr].
+  unfold ilist_ok in Hc. apply andb_true_iff in Hc as [Hall Hadj].
+  apply andb_true_iff. split.
+  - unfold oscope_ok; cbn [os_out os_stk]. rewrite Hb, Hr. reflexivity.
+  - unfold wf_inlines. rewrite forallb_rev, Hall. cbn [andb]. exact Hadj.
+Qed.
+
 (*
 Putting a bracket back as text preserves it
 -------------------------------------------
@@ -881,6 +919,14 @@ Proof.
     [cbn [iscan_wf]; apply (iscan_wf_flush txt o Ho Hs)|].
   destruct (Ascii.eqb c lbrace);
     [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+  destruct (Ascii.eqb c lbrack);
+    [apply iscan_wf_text;
+       [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]|].
+  destruct (Ascii.eqb c rbrack).
+  { destruct (bclose (flush_text txt o)) as [[kids o']|] eqn:Eb;
+      [|apply iscan_wf_text; assumption].
+    cbn [iscan_wf].
+    exact (bclose_ok _ _ _ (iscan_wf_flush txt o Ho Hs) Eb). }
   destruct (dstyle_of c);
     cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity.
 Qed.

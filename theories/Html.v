@@ -85,7 +85,13 @@ Fixpoint render_inline (il : inline) : string :=
   | Verbatim s => "<code>" ++ escape s ++ "</code>"
   | Symbol s => ":" ++ escape s ++ ":"
   | Math _ _ => ""            (* TODO Phase 1 *)
-  | Link _ _ => ""            (* TODO Phase 1 *)
+  (* `href` is an extra attribute, so it precedes the node's own and is
+     omitted entirely when the target is an unresolved reference: the
+     reference map is not carried here yet, and djot.js drops the
+     attribute (with a warning) when a label does not resolve. *)
+  | Link ils (Direct url) =>
+      "<a href=""" ++ escape_attr url ++ """>" ++ render_ils ils ++ "</a>"
+  | Link ils (Reference _) => "<a>" ++ render_ils ils ++ "</a>"
   | Image _ _ => ""           (* TODO Phase 1 *)
   | Span ils => "<span>" ++ render_ils ils ++ "</span>"
   | FootnoteReference _ => "" (* TODO Phase 1 *)
