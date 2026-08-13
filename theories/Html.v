@@ -66,6 +66,32 @@ Inlines
 =======
 *)
 
+(* An image's `alt` is the plain text of its children, not their HTML:
+   djot.js's `getStringContent` (parse.ts:33) pushes each node's `text`
+   field, turns a break into a newline, and otherwise recurses.  Only the
+   constructs the parser builds are covered; the rest contribute nothing
+   here in any case. *)
+Fixpoint plain_text (il : inline) : string :=
+  let go :=
+    fix go (ns : list (node inline)) : string :=
+      match ns with
+      | [] => ""
+      | Node _ _ x :: rest => plain_text x ++ go rest
+      end in
+  match il with
+  | Str s | Verbatim s | Symbol s | Math _ s | RawInline _ s => s
+  | UrlLink s | EmailLink s => s
+  | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
+  | Superscript ns | Subscript ns | Span ns | Quoted _ ns
+  | Link ns _ | Image ns _ => go ns
+  | SoftBreak | HardBreak => nl
+  | NonBreakingSpace => " "
+  | FootnoteReference _ => ""
+  end.
+
+Definition plain_texts (ns : list (node inline)) : string :=
+  String.concat "" (map (fun n => plain_text (node_contents n)) ns).
+
 Fixpoint render_inline (il : inline) : string :=
   let render_ils :=
     fix go (ns : list (node inline)) : string :=
@@ -92,7 +118,13 @@ Fixpoint render_inline (il : inline) : string :=
   | Link ils (Direct url) =>
       "<a href=""" ++ escape_attr url ++ """>" ++ render_ils ils ++ "</a>"
   | Link ils (Reference _) => "<a>" ++ render_ils ils ++ "</a>"
-  | Image _ _ => ""           (* TODO Phase 1 *)
+  (* `alt` precedes `src`, both extra attributes, in that order
+     (html.ts:452). *)
+  | Image ils (Direct url) =>
+      "<img alt=""" ++ escape_attr (plain_texts ils)
+        ++ """ src=""" ++ escape_attr url ++ """>"
+  | Image ils (Reference _) =>
+      "<img alt=""" ++ escape_attr (plain_texts ils) ++ """>"
   | Span ils => "<span>" ++ render_ils ils ++ "</span>"
   | FootnoteReference _ => "" (* TODO Phase 1 *)
   | UrlLink _ => ""           (* TODO Phase 1 *)
