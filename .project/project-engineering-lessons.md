@@ -146,6 +146,40 @@ spelled out. If no, the oracle wins and `wf_block` is the thing that has
 to give. Here the answer was yes and `push_text` confined it to specs
 that both span a blank line and fail.
 
+### The other clause: matchable, but only at a price
+
+**What happened.** Direct links. djot.js has no destination *mode*: it
+keeps every matcher running inside `](` and calls `strMatches` over the
+region only when the balanced `)` arrives, turning what it matched into
+literal text retroactively. Our destination accumulates literal text
+instead, and the corpus caught the difference immediately -- one case in
+`links_and_images` got worse on the step that added +11 overall. Nothing
+forbade matching the oracle here: no theorem was at stake, and the
+canonical view can never produce such a document. The reflex was to go
+implement `strMatches`. What stopped it was asking which inputs actually
+reach the difference: when the destination closes, djot.js str-ifies
+everything anyway and the two agree, so the gap is confined to a `](`
+that never finds its `)`. Matching that one shape would have meant
+running the ordinary scan *and* accumulating source alongside it, then
+discarding one at the close -- a third retroactive disposition, in the
+middle of a step about dispatch.
+
+**General form.** The clause above is about oracle behaviour we *cannot*
+represent. This is the more common case: behaviour we could match, at a
+cost, where the deciding fact is neither fidelity nor provability but the
+*reachable set* of the divergence. A gap confined to inputs the canonical
+view excludes is a corpus number; a gap on inputs the parser meets
+routinely is a bug. The corpus reports both as one line.
+
+**What to do instead.** When a step makes some case worse, characterize
+the inputs that reach it before deciding anything. State the boundary as
+a sentence -- "we agree whenever the destination closes" -- and check it
+against the oracle. If the divergent set is one the canonical view
+excludes, log it under "ours" with that sentence and move on; the fix
+belongs with the construct that needs the machinery anyway. This fires
+next on spans and footnote references, which bring the two dispositions
+the scope-stack probe named and this one makes three.
+
 ## Coverage, not granularity, is what catches structural bugs
 
 **What happened.** The nested-list bug (`- - b` / `  - c`) went unnoticed
