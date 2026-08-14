@@ -227,35 +227,40 @@ behaviour meanwhile — it matches the prose and djoths, and changing it
 would mean restating `Parser.list_uniformity`'s spacing clause, not
 patching a case.
 
-### Also ours: a blank inside a container inside a list item
+### Ours: tight rendering does not reach inside a nested container
 
-Found 2026-08-14, when the reference-definition leaf enlarged the
-generated corpus and 13 more documents of this shape appeared. It is not
-new and not about definitions: `- > a` / `  > ` / `  > t` is **tight** in
-djot.js and **loose** for us, and so is the same shape with a div in
-place of the quote.
+Found 2026-08-14, when the reference leaves enlarged the generated corpus.
+**All 255** of that corpus's mismatches are this shape, and the smallest
+witness needs no blank line at all:
 
-The boundary, checked against djot.js:
+```
+- > a
+```
 
-| input | djot.js | ours |
-|---|---|---|
-| `- a` / blank / `  t` | loose | loose |
-| `- > a` / `  > ` / `  > t` | tight | loose |
-| `- :::` / `  a` / blank / `  t` / `  :::` | tight | loose |
-| `- - a` / blank / `    t` | inner loose, outer tight | same |
+djot.js emits `<li><blockquote>a</blockquote></li>`; we emit
+`<li><blockquote><p>a</p></blockquote></li>`.
 
-So djot.js arms the innermost *list* and only when the blank is in that
-list's own item flow; a quote or a div between the item and the blank
-means no list is armed at all. Our `Step.list_open` tests only whether
-the item has a list open directly, so a quote or a div falls through to
-"arm this list".
+**It is the renderer, not the parser.** The first reading of this entry
+blamed `Step.list_open` for arming the list's blank flag through a quote.
+That was wrong, and `parse_blocks` says so: on `- > a` / `  > ` / `  > t`
+our list is already `Tight`, agreeing with both oracles, and we still
+print the `<p>`. djot.js's `tight` is a *renderer state variable*
+(html.ts:140-150): `renderChildren` sets it on any node carrying a
+`tight` field and restores it on exit, so it stays set through a
+blockquote or a div and every `para` below a tight item renders bare
+until another list resets it. `Html.render_block`'s `render_tight`
+instead strips `<p>` from an item's *direct* children only.
 
-The fix is a one-word change to that predicate -- arm `ls` only when
-`inner` opens no container at all, rather than only when it opens no
-list -- but `list_blank` is threaded through `ListUniformity`'s spacing
-lemmas and `Render.item_forces_loose`, so it is a step of its own and not
-a patch. Recorded here rather than fixed with the construct that
-surfaced it.
+**There is a second, smaller cause underneath it.** `- :::` / `  a` /
+blank / `  t` / `  :::` is tight in djot.js and `Loose` for us, so the
+blank inside a still-open div does reach our list when it should not.
+That one is about `list_open` and it will survive the renderer fix; it is
+worth re-measuring rather than predicting, since the renderer fix
+subsumes an unknown share of the 255.
+
+**Action.** Thread `tight` through `Html.render_block` as djot.js threads
+it. It touches no parser, no theorem and no roundtrip statement -- HTML
+rendering sits outside all three.
 
 ### Headings inside containers
 
