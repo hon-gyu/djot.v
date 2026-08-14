@@ -92,6 +92,20 @@ Fixpoint plain_text (il : inline) : string :=
 Definition plain_texts (ns : list (node inline)) : string :=
   String.concat "" (map (fun n => plain_text (node_contents n)) ns).
 
+(*
+Rendering, against the document's reference map
+===============================================
+
+`refs` is the map a `Reference` target resolves against: the document's
+explicit definitions followed by the implicit heading ones, appended so
+that `alist_lookup`'s first-match rule is djot.js's `references[lab] ||
+autoReferences[lab]` (html.ts:420).  It is a section variable rather than
+a threaded argument because every recursion here would otherwise carry it
+unchanged.
+*)
+Section WithRefs.
+Context (refs : reference_map).
+
 Fixpoint render_inline (il : inline) : string :=
   let render_ils :=
     fix go (ns : list (node inline)) : string :=
@@ -117,14 +131,25 @@ Fixpoint render_inline (il : inline) : string :=
      attribute (with a warning) when a label does not resolve. *)
   | Link ils (Direct url) =>
       "<a href=""" ++ escape_attr url ++ """>" ++ render_ils ils ++ "</a>"
-  | Link ils (Reference _) => "<a>" ++ render_ils ils ++ "</a>"
+  | Link ils (Reference label) =>
+      match lookup_reference label refs with
+      | Some (url, a) =>
+          "<a href=""" ++ escape_attr url ++ """" ++ render_attrs a ++ ">"
+          ++ render_ils ils ++ "</a>"
+      | None => "<a>" ++ render_ils ils ++ "</a>"
+      end
   (* `alt` precedes `src`, both extra attributes, in that order
      (html.ts:452). *)
   | Image ils (Direct url) =>
       "<img alt=""" ++ escape_attr (plain_texts ils)
         ++ """ src=""" ++ escape_attr url ++ """>"
-  | Image ils (Reference _) =>
-      "<img alt=""" ++ escape_attr (plain_texts ils) ++ """>"
+  | Image ils (Reference label) =>
+      match lookup_reference label refs with
+      | Some (url, a) =>
+          "<img alt=""" ++ escape_attr (plain_texts ils)
+            ++ """ src=""" ++ escape_attr url ++ """" ++ render_attrs a ++ ">"
+      | None => "<img alt=""" ++ escape_attr (plain_texts ils) ++ """>"
+      end
   | Span ils => "<span>" ++ render_ils ils ++ "</span>"
   | FootnoteReference _ => "" (* TODO Phase 1 *)
   | UrlLink _ => ""           (* TODO Phase 1 *)
@@ -219,7 +244,15 @@ Definition render_node (n : node block) : string :=
 Definition render_blocks (bs : blocks) : string :=
   String.concat "" (map render_node bs).
 
-Definition render_html (d : doc) : string := render_blocks (doc_blocks d).
+End WithRefs.
+
+(* Explicit definitions first, so a label defined both ways resolves to
+   the explicit one. *)
+Definition doc_refs (d : doc) : reference_map :=
+  (doc_references d ++ doc_auto_references d)%list.
+
+Definition render_html (d : doc) : string :=
+  render_blocks (doc_refs d) (doc_blocks d).
 
 (* The single entry point the harness extracts: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
@@ -276,5 +309,75 @@ b
 </ul>
 </li>
 </ul>
+".
+Proof. reflexivity. Qed.
+
+(*
+Reference resolution
+====================
+
+Each of these was read off djot.js first.
+*)
+
+Example convert_reference_resolved :
+  convert "[a]: /u
+
+[text][a]" = "<p><a href=""/u"">text</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* A collapsed reference takes its label from the link text. *)
+Example convert_reference_collapsed :
+  convert "[a]: /u
+
+[a][]" = "<p><a href=""/u"">a</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* The definition's own attributes follow the destination and precede
+   nothing else -- inline attributes are not parsed yet. *)
+Example convert_reference_attributes :
+  convert "{#x .c}
+[a]: /u
+
+[a][]" = "<p><a href=""/u"" id=""x"" class=""c"">a</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* An unresolved label renders as a targetless link, as djot.js does
+   (with a warning we do not emit). *)
+Example convert_reference_unresolved :
+  convert "[a][b]" = "<p><a>a</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* An implicit heading reference resolves when no explicit definition
+   claims the label; an explicit one wins. *)
+Example convert_reference_auto :
+  convert "# Intro
+
+[Intro][]" = "<section id=""Intro"">
+<h1>Intro</h1>
+<p><a href=""#Intro"">Intro</a></p>
+</section>
+".
+Proof. reflexivity. Qed.
+
+Example convert_reference_explicit_beats_auto :
+  convert "# Intro
+
+[Intro]: /elsewhere
+
+[Intro][]" = "<section id=""Intro"">
+<h1>Intro</h1>
+<p><a href=""/elsewhere"">Intro</a></p>
+</section>
+".
+Proof. reflexivity. Qed.
+
+Example convert_reference_image :
+  convert "[a]: /i.png
+
+![alt][a]" = "<p><img alt=""alt"" src=""/i.png""></p>
 ".
 Proof. reflexivity. Qed.

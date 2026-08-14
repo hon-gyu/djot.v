@@ -468,11 +468,75 @@ The pass
 ========
 *)
 
+(*
+Reference definitions
+=====================
+
+A definition contributes no HTML and no structure — only an entry in the
+document's map, which is why it is collected here rather than in the line
+fold, and why `undo_pass` below needs no arm for it: the pass reads the
+block tree and does not touch it.
+
+Nesting is not a barrier: a definition inside a quote or a list item
+registers with the document all the same (checked against djot.js), so
+the traversal descends into every container the fold can build.
+*)
+
+(* djot.js keys the map by normalized label and assigns into a JS object,
+   so a repeated label keeps the first definition's position and takes the
+   last one's value (parse.ts:336).  An *empty* label is dropped there by
+   a truthiness test on the raw key, before normalization — so `[ ]: u`,
+   whose normalized label is empty, is still recorded. *)
+Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
+  : reference_map :=
+  match b with
+  | RefDef label dest =>
+      if nonempty_str label
+      then alist_set (normalize_label label) (dest, a) m
+      else m
+  | _ => m
+  end.
+
+(* Pre-order, which is document order, with the same inlined list
+   recursion `assign_ids` needs and for the same guard-checker reason. *)
+Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
+  {struct b} : reference_map :=
+  let go :=
+    fix go (ns : blocks) (acc : reference_map) {struct ns} : reference_map :=
+      match ns with
+      | [] => acc
+      | Node p' a' x :: rest => go rest (collect_refs x p' a' acc)
+      end in
+  let goit :=
+    fix goit (its : list blocks) (acc : reference_map) {struct its}
+      : reference_map :=
+      match its with
+      | [] => acc
+      | it :: rest =>
+          goit rest ((fix go' (ns : blocks) (acc' : reference_map)
+                        {struct ns} : reference_map :=
+                        match ns with
+                        | [] => acc'
+                        | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                        end) it acc)
+      end in
+  match b with
+  | BlockQuote bs | Div bs | Section bs => go bs m
+  | BulletList _ items | OrderedList _ _ items => goit items m
+  | _ => add_ref p a b m
+  end.
+
+Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_map :=
+  match ns with
+  | [] => m
+  | Node p a b :: rest => collect_refs_list rest (collect_refs b p a m)
+  end.
+
 Definition doc_pass (bs : blocks) : doc :=
   let (st, bs') := assign_ids_list bs id_state_init in
   {| doc_blocks := sectionize bs'
    ; doc_footnotes := []
-   ; doc_references := []
+   ; doc_references := collect_refs_list bs' []
    ; doc_auto_references := rev (id_refs st)
    ; doc_auto_identifiers := rev (id_used st) |}.
 
@@ -1256,6 +1320,43 @@ Example quote_heading_unsectioned :
   = [mk (BlockQuote
            [Node NoPos [("id", "Heading")]
               (Heading 1 [mk (Str "Heading")])])].
+Proof. reflexivity. Qed.
+
+(* The map keys by normalized label, and a repeated label keeps the first
+   definition's position with the last one's value. *)
+Example reference_map_last_wins :
+  doc_references (parse_doc "[a]: u
+
+[b]: w
+
+[a]: v")
+  = [("a", ("v", [])); ("b", ("w", []))].
+Proof. reflexivity. Qed.
+
+(* A definition inside a container still registers with the document. *)
+Example reference_map_nested :
+  doc_references (parse_doc "> [q]: u
+
+- [l]: v")
+  = [("q", ("u", [])); ("l", ("v", []))].
+Proof. reflexivity. Qed.
+
+(* Block attributes on the definition ride into the map, where the HTML
+   renderer puts them on the link. *)
+Example reference_map_attributes :
+  doc_references (parse_doc "{#x}
+[a]: u")
+  = [("a", ("u", [("id", "x")]))].
+Proof. reflexivity. Qed.
+
+(* An empty raw label is dropped before normalization, so `[]: u` defines
+   nothing while `[ ]: u`, whose normalized label is also empty, does. *)
+Example reference_map_empty_label_dropped :
+  doc_references (parse_doc "[]: u") = [].
+Proof. reflexivity. Qed.
+
+Example reference_map_blank_label_kept :
+  doc_references (parse_doc "[ ]: u") = [("", ("u", []))].
 Proof. reflexivity. Qed.
 
 Example implicit_heading_reference :

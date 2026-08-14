@@ -57,14 +57,21 @@ key lands at the end.  `attr_union` above cannot express that — it
 prepends — and attribute *order* is observable in the rendered tag, so
 the block-attribute path (Attributes.v, Parser.v) uses these instead. *)
 
-Fixpoint attr_set (k v : string) (a : attr) : attr :=
-  match a with
+(* Assignment into a string-keyed alist, JS-object style: a key already
+   present keeps its position and takes the new value, a new key lands at
+   the end.  Attributes are one instance; the document's reference map is
+   the other (djot.js `references[lab] = r`, parse.ts:336). *)
+Fixpoint alist_set {A : Type} (k : string) (v : A) (m : list (string * A))
+  : list (string * A) :=
+  match m with
   | [] => [(k, v)]
   | (k', v') :: rest =>
       if String.eqb k k'
       then (k, v) :: rest
-      else (k', v') :: attr_set k v rest
+      else (k', v') :: alist_set k v rest
   end.
+
+Definition attr_set (k v : string) (a : attr) : attr := alist_set k v a.
 
 (* Classes accumulate space-separated rather than overwrite, both within
    one attribute spec and across consecutive ones (djot.js parse.ts:536,
