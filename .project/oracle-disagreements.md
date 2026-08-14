@@ -329,6 +329,30 @@ So the fix is: generalize the three `ListUniformity` statements over
 `ls_blanks ls`, add the conjunct to `cb_ok`, then `div_closer` in `step`
 is two lines. It is a step of its own, and the 27 are its measurement.
 
+### Ours: a spec with nothing to attach to keeps its source
+
+`{#id} at beginning` and `[link](url){}`. djot.js drops a spec that
+attaches to nothing; we drop it only when there is pending text to have
+attached to, and otherwise keep its source as literal text.
+
+Two reasons, and only the first is about fidelity. A spec that ate the
+whole scan would leave a paragraph or heading with no inlines, which
+`wf_block` excludes and `parse_inline_line_nonempty` denies -- the same
+shape as the blank-line-in-a-paragraph case above, where djot.js is happy
+to build something the canonical AST cannot hold.
+
+The second is structural and is why the test is on pending text rather
+than on "has anything been emitted", which would be the faithful
+question. `oout_app` appends a previous line's output *underneath* the
+current scan, and it is how a multi-line paragraph is decomposed
+(`para_inlines_cons2_closed`). Emptiness of the emitted output is
+therefore not stable under it, so `istep_out_app` would be false; pending
+text is stable. The same fact is what defers attaching a spec to a
+preceding *node* (`*e*{.a}`), which needs the emitted output and so needs
+an invariant saying the unstable states are unreachable.
+
+Three corpus cases, all in `attributes.test`.
+
 ### Headings inside containers
 
 This one is ours regardless of how the oracles' disagreement resolves,
