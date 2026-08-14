@@ -94,11 +94,30 @@ and how it may be written; `djot_config` is one inhabitant and
 second. `dstyle_of` looks a character up in the table instead of
 repeating it, so the character assignment lives in one place.
 
-The remaining work is in two named pieces. The table is a fixed
-`Definition config` rather than an argument, so a configuration is chosen
-at build time; threading it is mechanical and is what makes every
-statement quantify over the family. And a row's delimiter is still one
-character, so `__` for strong needs the row to carry a *token*.
+A row now carries a **width** as well as a character, and its delimiter
+is that many copies of it (`dtoken`). The scanner spells tokens: a run of
+the character is cut into tokens of the row's width and any remainder is
+text, which is why a width suffices and a general string is not needed --
+the character belongs to one row, so there is nothing to disambiguate.
+`IDelim` counts the characters that have arrived after the first, so no
+state ever holds an empty token.
+
+Three pieces remain, in the order they bite:
+
+1. **Lemmas that assume one character.** Setting the table to
+   `emph = *, strong = __` and rebuilding gets as far as
+   `istep_marked_close`, which says `{k` followed by `}` closes: at width
+   two a single character is not yet a token, so the statement is true
+   only of width-one rows and needs that hypothesis. Others like it will
+   follow. This is the honest cost of the widening and it is where the
+   work now is.
+2. **The canonical renderer.** `ci_src` still spells a delimiter with one
+   character, so at width two it would write what the scanner cannot read
+   back. Widening it moves proofs that match on its shape.
+3. **Threading.** The table is a fixed `Definition config`, so a
+   configuration is chosen at build time. Threading it as an argument is
+   mechanical and is what makes every statement quantify over the family
+   rather than over djot.
 
 **Settled so far:**
 
