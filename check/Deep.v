@@ -12,6 +12,10 @@
    | `accepted_counts`  | 42.1s      | 42.4s  |
    | all of Generate.v besides | ~2s | |
 
+   Those were measured at 17140 accepted documents.  The reference leaves
+   took the pool to 22226 and the whole file to ~25 minutes, so budget
+   for that rather than for the table.
+
    The `Qed` column is not a mistake: `vm_compute; reflexivity` runs the
    conversion in the tactic, and the kernel runs it again from scratch
    when it checks the proof term.  Both checks pay it twice, and there is
