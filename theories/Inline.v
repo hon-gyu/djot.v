@@ -23,7 +23,7 @@
    be three files of twenty lines.  It splits the way the block parser
    did once a side outgrows the other. *)
 
-From Stdlib Require Import String Ascii List Bool Lia Wf_nat.
+From Stdlib Require Import String Ascii List Bool Lia Wf_nat Arith.
 From DjotV Require Import Strings Ast Attributes.
 Import ListNotations.
 
@@ -683,9 +683,9 @@ Fixpoint ci_src (ci : cinline) : string :=
   | CIStr s => escape_str s
   | CIVerb s => verb_text s
   | CIDelim k kids =>
-      (* still spelled with one character: widening this is what makes the
-         canonical renderer agree with the scanner at widths above one,
-         and it moves proofs that match on its shape *)
+      (* one character, not `dtoken k`: widening this is what makes the
+         canonical renderer agree with the scanner above width one, and
+         it is the piece that moves proofs matching on its shape *)
       String lbrace
         (String (dchar k) (go kids ++ String (dchar k) (one rbrace)))
   | CILink img kids dst =>
@@ -2629,8 +2629,10 @@ Proof.
   repeat rewrite andb_true_iff in H. destruct H as [[[_ _] _] H]. exact H.
 Qed.
 
+Definition marked_open (k : dstyle) : string := (one lbrace ++ dtoken k)%string.
+
 Definition marked_close (k : dstyle) (tail : string) : string :=
-  String (dchar k) (String rbrace tail).
+  (dtoken k ++ one rbrace ++ tail)%string.
 
 Lemma ilead_dchar :
   forall k txt prev o,
@@ -2638,18 +2640,61 @@ Lemma ilead_dchar :
     = IDelim k 0 txt (nonspace_at (str_last txt prev)) o.
 Proof. intros [] txt prev o; reflexivity. Qed.
 
-Lemma istep_marked_close :
+(* Spelling a token, one character at a time: each of the row's
+   characters after the first advances the count, and the token is still
+   incomplete throughout because the arithmetic says so. *)
+Lemma iscan_chars_delim :
+  forall n k extra txt cc o,
+    S extra + n = dwidth k ->
+    iscan_str (chars (dchar k) n) (IDelim k extra txt cc o)
+    = IDelim k (extra + n) txt cc o.
+Proof.
+  induction n as [|n IH]; intros k extra txt cc o Hn.
+  - cbn [chars iscan_str]. replace (extra + 0) with extra by lia. reflexivity.
+  - cbn [chars iscan_str istep].
+    replace (Nat.ltb (S extra) (dwidth k)) with true
+      by (symmetry; apply Nat.ltb_lt; lia).
+    rewrite Ascii.eqb_refl.
+    rewrite (IH k (S extra) txt cc o) by lia.
+    f_equal. lia.
+Qed.
+
+(* A row's whole token, scanned from text: it leaves the token complete
+   and its role undecided, which is the state the next byte resolves.
+   This is what `ilead` did in one step when a delimiter was one
+   character. *)
+Lemma iscan_dtoken :
+  forall k txt prev o,
+    dwidth k <> 0 ->
+    iscan_str (dtoken k) (IText false txt prev o)
+    = IDelim k (pred (dwidth k)) txt (nonspace_at (str_last txt prev)) o.
+Proof.
+  intros k txt prev o Hw. unfold dtoken.
+  destruct (dwidth k) as [|w] eqn:Ew; [contradiction|].
+  cbn [chars iscan_str istep]. rewrite ilead_dchar.
+  rewrite (iscan_chars_delim w k 0 txt _ o) by lia.
+  cbn [pred]. reflexivity.
+Qed.
+
+(* The token then `}`: a marked span closes.  When a delimiter was one
+   character this was a single `istep`; the content is the same, and the
+   only hypothesis is that a row has a token at all. *)
+Lemma iscan_marked_close_step :
   forall k txt prev o o',
+    dwidth k <> 0 ->
     oclose k true (flush_text txt o) = Some o' ->
-    istep rbrace (ilead (dchar k) txt prev o)
+    iscan_str (dtoken k ++ one rbrace) (IText false txt prev o)
     = IText false EmptyString (Some rbrace) o'.
 Proof.
-  intros k txt prev o o' H. rewrite ilead_dchar.
-  cbn [istep].
+  intros k txt prev o o' Hw H.
+  rewrite iscan_str_app, (iscan_dtoken k txt prev o Hw).
+  cbn [iscan_str istep].
+  replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
+    by (symmetry; apply Nat.ltb_ge; lia).
   change (idelim_resolve k txt (nonspace_at (str_last txt prev)) true
             (Some rbrace) o
           = IText false EmptyString (Some rbrace) o').
-  unfold idelim_resolve. rewrite orb_true_r, H. reflexivity.
+  unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity.
 Qed.
 
 Lemma iscan_marked_flush :
@@ -2681,17 +2726,22 @@ Proof.
       exists (oemit (mk (dnode k before)) base).
       unfold flush_text. rewrite Htxt.
       apply oclose_oemit_all_marked, Hbefore. }
-  destruct Hclose as [o' Hclose]. exists None.
-  unfold marked_close. cbn [iscan_str istep].
-  rewrite (istep_marked_close k txt prev _ o' Hclose).
-  rewrite (istep_marked_close k EmptyString None _ o').
-  - reflexivity.
-  - cbn [flush_text]. exact Hclose.
+  destruct Hclose as [o' Hclose]. exists prev.
+  assert (Hw : dwidth k <> 0)
+    by (unfold dwidth, config, djot_config, djot_dwidth; cbn [dc_width]; lia).
+  unfold marked_close. rewrite <- append_assoc.
+  rewrite !(iscan_str_app (dtoken k ++ one rbrace) tail).
+  rewrite (iscan_marked_close_step k txt prev
+             (oemit_all before (opush k true base)) o' Hw Hclose).
+  rewrite (iscan_marked_close_step k EmptyString prev
+             (flush_text txt (oemit_all before (opush k true base))) o' Hw
+             ltac:(cbn [flush_text]; exact Hclose)).
+  reflexivity.
 Qed.
 
 Lemma iscan_marked_open :
   forall d txt prev o,
-    iscan_str (String lbrace (one (dchar d))) (IText false txt prev o)
+    iscan_str (marked_open d) (IText false txt prev o)
     = IText false EmptyString (Some (dchar d))
         (opush d true (flush_text txt o)).
 Proof. intros [] txt prev o; reflexivity. Qed.
@@ -2705,12 +2755,14 @@ Lemma iscan_marked_close_emit :
         (IText false EmptyString (Some rbrace)
           (oemit (mk (dnode d ns)) base)).
 Proof.
-  intros d tail ns base p Hne. unfold marked_close. cbn [iscan_str istep].
-  rewrite (istep_marked_close d EmptyString p
-    (oemit_all ns (opush d true base))
-    (oemit (mk (dnode d ns)) base)).
-  - reflexivity.
-  - cbn [flush_text]. apply oclose_oemit_all_marked, Hne.
+  intros d tail ns base p Hne. unfold marked_close.
+  rewrite <- append_assoc, iscan_str_app.
+  rewrite (iscan_marked_close_step d EmptyString p
+             (oemit_all ns (opush d true base))
+             (oemit (mk (dnode d ns)) base)
+             ltac:(unfold dwidth, config, djot_config, djot_dwidth; cbn [dc_width]; lia)
+             ltac:(cbn [flush_text]; apply oclose_oemit_all_marked, Hne)).
+  reflexivity.
 Qed.
 
 Lemma iscan_after_verb_nontick :
@@ -3194,10 +3246,9 @@ Proof.
         (((String lbrace
              (String (dchar d)
                (ci_text kids ++ String (dchar d) (one rbrace))) ++ t))%string)
-        = ((String lbrace (one (dchar d))) ++
-            (ci_text kids ++ marked_close d t))%string).
-      { intro t. unfold marked_close, one. cbn [append].
-        repeat rewrite append_assoc. reflexivity. }
+        = (marked_open d ++ (ci_text kids ++ marked_close d t))%string).
+      { intro t. unfold marked_open, marked_close, dtoken, one.
+        cbn [chars append]. repeat rewrite append_assoc. reflexivity. }
       assert (Hkins : nonempty (ci_inlines kids) = true).
       { destruct kids; [discriminate|reflexivity]. }
       destruct txt as [|x txt'].
@@ -3490,9 +3541,9 @@ Proof.
             (String (dchar d)
               (ci_text kids ++ String (dchar d) (one rbrace))) ++
           ci_text rest)%string
-        = ((String lbrace (one (dchar d))) ++
+        = (marked_open d ++
             (ci_text kids ++ marked_close d (ci_text rest)))%string).
-      { unfold marked_close, one. cbn [append].
+      { unfold marked_open, marked_close, dtoken, one. cbn [chars append].
         repeat rewrite append_assoc. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_marked_open.
       cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
@@ -3617,9 +3668,9 @@ Proof.
           (String (dchar d)
             (ci_text kids ++ String (dchar d) (one rbrace))) ++
         ci_text rest)%string
-      = ((String lbrace (one (dchar d))) ++
+      = (marked_open d ++
           (ci_text kids ++ marked_close d (ci_text rest)))%string).
-    { unfold marked_close, one. cbn [append].
+    { unfold marked_open, marked_close, dtoken, one. cbn [chars append].
       repeat rewrite append_assoc. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_marked_open.
     cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.

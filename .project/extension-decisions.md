@@ -104,20 +104,27 @@ state ever holds an empty token.
 
 Three pieces remain, in the order they bite:
 
-1. **Lemmas that assume one character.** Setting the table to
-   `emph = *, strong = __` and rebuilding gets as far as
-   `istep_marked_close`, which says `{k` followed by `}` closes: at width
-   two a single character is not yet a token, so the statement is true
-   only of width-one rows and needs that hypothesis. Others like it will
-   follow. This is the honest cost of the widening and it is where the
-   work now is.
+1. **Scanning a token: done.** `iscan_chars_delim` walks the counter up
+   through the row's characters, `iscan_dtoken` scans a whole token from
+   text and leaves it complete with its role undecided, and
+   `iscan_marked_close_step` closes a marked span on token-then-`}`.
+   These replace `istep_marked_close`, which was a single `istep` and so
+   silently assumed one character; the three call sites now go through
+   them. The only hypothesis is that a row has a token at all
+   (`dwidth k <> 0`).
+
 2. **The canonical renderer.** `ci_src` still spells a delimiter with one
-   character, so at width two it would write what the scanner cannot read
-   back. Widening it moves proofs that match on its shape.
+   character, so at width two it writes what the scanner cannot read
+   back. This is now the blocking piece, and the obstacle is not the
+   definition but the proofs: at width one `dtoken k` reduces to that
+   spelling, so the roundtrip goals display in the reduced form and the
+   decompositions they rewrite with are stated that way. Widening `ci_src`
+   means restating those three decompositions over `marked_open` /
+   `marked_close` and reproving them without the reduction.
+
 3. **Threading.** The table is a fixed `Definition config`, so a
-   configuration is chosen at build time. Threading it as an argument is
-   mechanical and is what makes every statement quantify over the family
-   rather than over djot.
+   configuration is chosen at build time. Mechanical, and what makes
+   every statement quantify over the family rather than over djot.
 
 **Settled so far:**
 
