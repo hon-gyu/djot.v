@@ -169,30 +169,31 @@ Blocks
 ======
 *)
 
-(* The node's attributes ride alongside its payload: they belong on the
+(* `tight` is rendering state, not a property of the block being
+   rendered: djot.js sets it in `renderChildren` on any node carrying a
+   `tight` field — only a list does — and restores it on the way out
+   (html.ts:140-150).  So it survives a block quote or a div, and every
+   paragraph below a tight item is emitted bare until another list resets
+   it.  A per-item match on direct children is *not* the same rule:
+   `- > a` renders `<blockquote>a</blockquote>` in djot.js and used to
+   render `<blockquote><p>a</p></blockquote>` here.
+
+   The node's attributes ride alongside its payload: they belong on the
    opening tag (today only the auto-identifiers the whole-document pass
    puts on sections and quoted headings), but recursion still has to be
    on `block` — `list (node block)` is two type constructors deep, which
    the guard checker will not follow from a `node block` argument. *)
-Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
-  let render_bs :=
-    fix go (ns : list (node block)) : string :=
+Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
+  : string :=
+  (* Takes the flag as an argument so that one list recursion serves both
+     the containers, which pass it through, and the items, which set it. *)
+  let render_bs_at :=
+    fix go (t : bool) (ns : list (node block)) : string :=
       match ns with
       | [] => ""
-      | Node _ a' x :: rest => render_block x a' ++ go rest
+      | Node _ a' x :: rest => render_block t x a' ++ go t rest
       end in
-  (* In a tight list a paragraph loses its <p>: the item's text is
-     emitted bare, with the newline the tag would have carried.  Only
-     paragraphs are affected — a nested list inside a tight item still
-     renders as itself.  Attributes on such a paragraph have nowhere to
-     go, and nothing produces them yet. *)
-  let render_tight :=
-    fix got (ns : list (node block)) : string :=
-      match ns with
-      | [] => ""
-      | Node _ _ (Para ils) :: rest => render_inlines ils ++ nl ++ got rest
-      | Node _ a' x :: rest => render_block x a' ++ got rest
-      end in
+  let render_bs := render_bs_at tight in
   let render_items :=
     fix goi (sp : list_spacing) (its : list (list (node block))) {struct its}
       : string :=
@@ -200,12 +201,17 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
       | [] => ""
       | it :: rest =>
           "<li>" ++ nl
-          ++ (match sp with Tight => render_tight it | Loose => render_bs it end)
+          ++ render_bs_at (match sp with Tight => true | Loose => false end) it
           ++ "</li>" ++ nl ++ goi sp rest
       end in
   let ats := render_attrs a in
   match b with
-  | Para ils => "<p" ++ ats ++ ">" ++ render_inlines ils ++ "</p>" ++ nl
+  (* A tight paragraph loses its tag, keeping the newline the tag carried.
+     Its attributes go with the tag; djot.js drops them the same way, and
+     nothing produces them here yet. *)
+  | Para ils =>
+      if tight then render_inlines ils ++ nl
+      else "<p" ++ ats ++ ">" ++ render_inlines ils ++ "</p>" ++ nl
   | Section bs =>
       "<section" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</section>" ++ nl
   | Heading lvl ils =>
@@ -239,7 +245,7 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
   end.
 
 Definition render_node (n : node block) : string :=
-  match n with Node _ a b => render_block b a end.
+  match n with Node _ a b => render_block false b a end.
 
 Definition render_blocks (bs : blocks) : string :=
   String.concat "" (map render_node bs).
@@ -286,6 +292,37 @@ Example convert_list_loose :
 - b" = "<ul>
 <li>
 <p>a</p>
+</li>
+<li>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* Tightness is rendering state, so it reaches a paragraph nested inside
+   a container within the item -- the witness that a per-item match on
+   direct children gets wrong. *)
+Example convert_list_tight_through_quote :
+  convert "- > a" = "<ul>
+<li>
+<blockquote>
+a
+</blockquote>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* ...and a loose item keeps the tag in the same position. *)
+Example convert_list_loose_through_quote :
+  convert "- > a
+
+- b" = "<ul>
+<li>
+<blockquote>
+<p>a</p>
+</blockquote>
 </li>
 <li>
 <p>b</p>

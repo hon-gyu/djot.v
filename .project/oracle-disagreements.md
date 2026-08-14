@@ -251,16 +251,41 @@ blockquote or a div and every `para` below a tight item renders bare
 until another list resets it. `Html.render_block`'s `render_tight`
 instead strips `<p>` from an item's *direct* children only.
 
-**There is a second, smaller cause underneath it.** `- :::` / `  a` /
-blank / `  t` / `  :::` is tight in djot.js and `Loose` for us, so the
-blank inside a still-open div does reach our list when it should not.
-That one is about `list_open` and it will survive the renderer fix; it is
-worth re-measuring rather than predicting, since the renderer fix
-subsumes an unknown share of the 255.
+**Fixed 2026-08-14.** `Html.render_block` now takes the flag as an
+argument, containers pass it through and items set it. Generated corpus
+2830 -> **3022** of 3085; the file corpus and `make shape` do not move,
+since no corpus case puts a paragraph inside a container inside a tight
+item.
 
-**Action.** Thread `tight` through `Html.render_block` as djot.js threads
-it. It touches no parser, no theorem and no roundtrip statement -- HTML
-rendering sits outside all three.
+### Still ours: a blank inside a still-open div in a list item
+
+The **63** generated mismatches the renderer fix left are all one shape:
+
+```
+- :::
+  a
+
+  t
+  :::
+```
+
+djot.js calls the outer list tight, we call it `Loose`. The mechanism is
+the one the entry above wrongly attributed to the whole family. djot.js
+runs container `continue`s before the blankline handler, so what the
+handler sees is the stack *after* this line's containers have closed: a
+div survives a blank and is the tip, and no list is armed. A block quote
+does *not* survive a prefix-less blank, which is why `- > a` / blank /
+`  t` is loose in both engines -- the quote has closed by the time the
+blank is handled.
+
+`Step.step` decides this from `list_open inner`, the state *before* the
+descent, so it cannot tell the two apart. The faithful test is on the
+state after: arm `ls` only when the blank did not come to rest inside a
+container. That is a small change to `step` and a matching one to
+`Render.lines_loose` / `item_forces_loose`, which mirror it at the line
+level and which `cb_ok`'s spacing clause and `roundtrip_blocks` both
+depend on -- a canonical `CList [[CDiv [...; ...]]]` renders exactly this
+shape. So: its own step, with a proof cost, not a patch.
 
 ### Headings inside containers
 
