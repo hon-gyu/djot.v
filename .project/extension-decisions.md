@@ -60,6 +60,16 @@ are what the extension has to be stated against.
 | `__a__b__` | `<em><em>a</em></em>b__` |
 | `**a**` | `<strong><strong>a</strong></strong>` |
 
+These are now pinned as `Example`s in `theories/Inline.v` (`emph_run_*`),
+per discipline 2. Pinning them found that **we did not implement them**:
+`oclose_go` treated a matching-but-empty scope as a scope to abandon,
+dissolving its opener into text and searching deeper, so `___a___` came
+out `<em>_</em>a<em>_</em>` and `____` came out `<em>_</em>_`. djot.js
+looks at the top of the opener stack and nowhere else (inline.ts:145),
+and an empty top means *no close* -- the opener stays and the closer
+becomes an opener. Fixed before any of the table work, since step 7
+generalizes exactly this function.
+
 The rule these come from: each `_` is an **independent delimiter that
 stacks**, not a run whose length is measured. `can_open` needs a nonspace
 to the right, `can_close` a nonspace to the left (`inline.ts:110-112`),
@@ -97,11 +107,17 @@ as the instance that disables it.
 
 - `___a___` under `emph=*, strong=__`. Longest-match from the left gives
   `__` then a literal `_`. Not yet argued for.
-- `____a____`. If `__`+`__` opens twice, the inner pair is empty-strong,
-  which the empty-emphasis exclusion should kill, but that exclusion is
-  currently phrased on single characters and has to be restated for
-  multi-character delimiters. Check this one *first*: it is the case
-  most likely to show the exclusion rule does not generalize.
+- `____a____`. Checked first, as flagged. **Half-answered.** For a single
+  character the exclusion does generalize to arbitrary run length: four
+  `_` around content nest four deep and a bare `____` is literal, both
+  now pinned (`emph_run_four`, `emph_run_bare_four`). So the rule "an
+  empty top opener declines to close" is length-independent, which is the
+  reassuring half. The open half is unchanged and is genuinely about
+  *multi-character* delimiters: with `strong=__`, the exclusion has to be
+  phrased on the delimiter's own extent rather than on `pos - 1`, since
+  `opener.endpos !== pos - 1` measures a one-character gap. The
+  restatement is `opener.endpos + length(delim) - 1 !== pos - 1`, and it
+  needs an example before it is settled.
 - `__a_` becomes literal (no closer) where djot gives `_<em>a</em>`.
   Consequence of the above, not an independent choice, but it belongs in
   the compatibility note.

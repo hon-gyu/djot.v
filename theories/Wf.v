@@ -671,14 +671,15 @@ Proof.
   induction stk as [|f stk IH]; intros k m pend content rest Hs Hp E;
     [discriminate|].
   cbn [oclose_go] in E.
-  destruct (dmatch k m f && nonempty (oapp pend (fr_out f)))%bool eqn:Em.
-  - injection E as <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
-    apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)].
-  - apply (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
-             content rest (frames_ok_tail f stk Hs)); [|exact E].
-    apply ilist_ok_oapp;
-      [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
-      |apply ilist_ok_src].
+  destruct (dmatch k m f) eqn:Em.
+  { destruct (nonempty (oapp pend (fr_out f))); [|discriminate].
+    injection E as <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
+    apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]. }
+  apply (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+           content rest (frames_ok_tail f stk Hs)); [|exact E].
+  apply ilist_ok_oapp;
+    [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
+    |apply ilist_ok_src].
 Qed.
 
 Lemma oclose_go_nonempty :
@@ -687,10 +688,11 @@ Lemma oclose_go_nonempty :
 Proof.
   induction stk as [|f stk IH]; intros k m pend content rest E; [discriminate|].
   cbn [oclose_go] in E.
-  destruct (dmatch k m f && nonempty (oapp pend (fr_out f)))%bool eqn:Em.
-  - injection E as <- <-. apply andb_true_iff in Em as [_ Em]. exact Em.
-  - exact (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
-             content rest E).
+  destruct (dmatch k m f) eqn:Em.
+  { destruct (nonempty (oapp pend (fr_out f))) eqn:En; [|discriminate].
+    injection E as <- <-. exact En. }
+  exact (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+           content rest E).
 Qed.
 
 Lemma oclose_ok :

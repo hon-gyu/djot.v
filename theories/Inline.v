@@ -1107,16 +1107,25 @@ Qed.
    abandoning each scope it passes.  `pend` carries what those abandoned
    scopes contributed, ready to splice into the next level down.
 
-   `nonempty content` is djot.js's exclusion of the empty span
-   (`opener.endpos !== pos - 1`, inline.ts:148): `{__}` is literal. *)
+   The empty-span exclusion (`opener.endpos !== pos - 1`, inline.ts:148)
+   stops the walk rather than continuing it.  djot.js keeps one opener
+   stack per delimiter character and looks at its *top* only
+   (`openers[openers.length - 1]`, inline.ts:145); when that opener is
+   empty it falls through to "didn't match an opener", which leaves the
+   opener where it is and lets the closer become an opener instead.  So a
+   matching-but-empty scope is a failure to close, not a scope to abandon
+   -- abandoning it would dissolve the opener into text and keep
+   searching, which is what made `___a___` come out `<em>_</em>a<em>_</em>`
+   instead of three nested spans, and `____` come out `<em>_</em>_`
+   instead of literal. *)
 Fixpoint oclose_go (k : dstyle) (m : bool) (pend : inlines) (stk : list frame)
   : option (inlines * list frame) :=
   match stk with
   | [] => None
   | f :: rest =>
       let content := oapp pend (fr_out f) in
-      if (dmatch k m f && nonempty content)%bool
-      then Some (content, rest)
+      if dmatch k m f
+      then (if nonempty content then Some (content, rest) else None)
       else oclose_go k m (oapp content [mk (Str (fr_src f))]) rest
   end.
 
@@ -4636,6 +4645,50 @@ Proof. vm_compute. reflexivity. Qed.
 Example span_stacked_specs_not_yet :
   parse_inline_line "[s]{.a}{.b}"
   = [Node NoPos [("class", "a")] (Span [mk (Str "s")]); mk (Str "{.b}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+The empty-span exclusion
+========================
+
+djot.js looks at the *top* of the opener stack for a delimiter character
+and nowhere else (inline.ts:145).  When that opener is empty it declines
+to close and the closer becomes an opener, so a run of n identical
+delimiters around content nests n deep, and a bare run is literal.  These
+are the rows of the baseline table in .project/extension-decisions.md,
+which the configurable delimiter table has to keep reproducing.
+*)
+
+Example emph_run_two : parse_inline_line "__a__"
+  = [mk (Emph [mk (Emph [mk (Str "a")])])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example emph_run_three : parse_inline_line "___a___"
+  = [mk (Emph [mk (Emph [mk (Emph [mk (Str "a")])])])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The case flagged to check first: a fourth level is still just nesting,
+   so the exclusion does generalize to longer runs of one character.  It
+   is what a multi-character delimiter has to be stated against. *)
+Example emph_run_four : parse_inline_line "____a____"
+  = [mk (Emph [mk (Emph [mk (Emph [mk (Emph [mk (Str "a")])])])])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Bare runs are literal, at every length: each closer finds an empty
+   opener on top, declines, and becomes an opener that is never closed. *)
+Example emph_run_bare_two : parse_inline_line "__" = [mk (Str "__")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example emph_run_bare_four : parse_inline_line "____" = [mk (Str "____")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Unbalanced runs: the surplus stays literal on the side that has it. *)
+Example emph_run_unbalanced_left : parse_inline_line "__a_"
+  = [mk (Str "_"); mk (Emph [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example emph_run_unbalanced_right : parse_inline_line "_a__"
+  = [mk (Emph [mk (Str "a")]); mk (Str "_")].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
