@@ -94,18 +94,110 @@ cheap where adding a construct is not. *)
 Inductive dstyle : Type :=
   | DEmph | DStrong | DSuper | DSub | DMark | DInsert.
 
-Definition dchar (k : dstyle) : ascii :=
+(* How a row may be written.  `DBraced` is djot.js's `opentest = hasBrace`
+   -- the row exists only as `{x ... x}`, because the bare character is
+   too common in prose to claim -- and `DBare` is `alwaysTrue`, where the
+   braces are an optional override.  `DOff` is the third value the table
+   needs but djot never uses: it removes the row, which is what makes
+   "which containers exist" a setting rather than a fixed list. *)
+Inductive dsyntax : Type :=
+  | DOff | DBraced | DBare.
+
+(* The delimiter table, as a parameter.  Every row carries the character
+   it is written with and how it may be written; a configuration is a
+   choice of both for each row, and djot is one such choice.  Reading the
+   character out of the table rather than fixing it per constructor is
+   what lets emphasis and strong swap characters. *)
+Record dconfig : Type := DConfig {
+  dc_char : dstyle -> ascii;
+  dc_syntax : dstyle -> dsyntax
+}.
+
+Definition djot_dchar (k : dstyle) : ascii :=
   match k with
   | DEmph => "_"%char | DStrong => "*"%char
   | DSuper => "^"%char | DSub => "~"%char
   | DMark => "="%char | DInsert => "+"%char
   end.
 
-(* Whether an unbraced delimiter may open a span at all: djot.js's
-   `opentest`, `alwaysTrue` for the emphasis four and `hasBrace` for the
-   two that exist only in braced form (`{= =}`, `{+ +}`). *)
+Definition djot_dsyntax (k : dstyle) : dsyntax :=
+  match k with DMark | DInsert => DBraced | _ => DBare end.
+
+Definition djot_config : dconfig := DConfig djot_dchar djot_dsyntax.
+
+(* The table in force.  Threading it as an argument is what makes the
+   family quantifiable; until then it is fixed here, and the point of the
+   record is already served: every row's character is read out of one
+   place, so swapping two of them is an edit to `djot_dchar` alone. *)
+Definition config : dconfig := djot_config.
+
+Definition dchar (k : dstyle) : ascii := dc_char config k.
+
+Definition dsyntax_of (k : dstyle) : dsyntax := dc_syntax config k.
+
+(* Whether an unbraced delimiter may open a span at all. *)
 Definition dbare (k : dstyle) : bool :=
-  match k with DMark | DInsert => false | _ => true end.
+  match dsyntax_of k with DBare => true | _ => false end.
+
+Definition dstyles : list dstyle :=
+  [DEmph; DStrong; DSuper; DSub; DMark; DInsert].
+
+Definition dstyle_eq (a b : dstyle) : bool :=
+  match a, b with
+  | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
+  | DSub, DSub | DMark, DMark | DInsert, DInsert => true
+  | _, _ => false
+  end.
+
+Lemma dstyle_eq_true : forall a b, dstyle_eq a b = true -> a = b.
+Proof. intros [] []; first [reflexivity | discriminate]. Qed.
+
+Definition denabled (C : dconfig) (k : dstyle) : bool :=
+  match dc_syntax C k with DOff => false | _ => true end.
+
+Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
+  find (fun k => denabled C k && Ascii.eqb (dc_char C k) c)%bool dstyles.
+
+(* The table is unambiguous: no two rows that are switched on claim the
+   same character.  This is the general form of "emphasis and strong
+   emphasis must use different characters" -- stated over the whole table
+   rather than over one pair -- and it is the side condition every
+   statement about the family carries.  It is decidable and closed, so a
+   configuration can be checked rather than trusted. *)
+Definition dconfig_ok (C : dconfig) : bool :=
+  forallb
+    (fun k => forallb
+       (fun k' => implb (denabled C k && denabled C k'
+                         && Ascii.eqb (dc_char C k) (dc_char C k'))%bool
+                        (dstyle_eq k k'))
+       dstyles)
+    dstyles.
+
+Lemma dstyles_complete : forall k, In k dstyles.
+Proof. intros []; cbn; tauto. Qed.
+
+(* What the side condition buys: a row's own character finds that row
+   again.  Every later fact about the scanner needs this and nothing else
+   about the table, which is why the condition is worth isolating. *)
+Lemma dstyle_at_dchar :
+  forall C k,
+    dconfig_ok C = true -> denabled C k = true ->
+    dstyle_at C (dc_char C k) = Some k.
+Proof.
+  intros C k Hok Hen. unfold dstyle_at.
+  destruct (find (fun k' => denabled C k' && Ascii.eqb (dc_char C k') (dc_char C k))%bool
+              dstyles) as [k'|] eqn:E.
+  - apply find_some in E as [Hin Hp].
+    apply andb_true_iff in Hp as [Hen' Hc].
+    f_equal. symmetry. apply dstyle_eq_true.
+    unfold dconfig_ok in Hok. rewrite forallb_forall in Hok.
+    specialize (Hok k (dstyles_complete k)). rewrite forallb_forall in Hok.
+    specialize (Hok k' (dstyles_complete k')).
+    rewrite Hen, Hen' in Hok. apply Ascii.eqb_eq in Hc. rewrite Hc in Hok.
+    rewrite Ascii.eqb_refl in Hok. exact Hok.
+  - exfalso. eapply find_none in E; [|apply (dstyles_complete k)].
+    rewrite Hen, Ascii.eqb_refl in E. discriminate.
+Qed.
 
 (* The node a closed bracket builds, and the one place image-ness is
    consulted.  Kept beside `dnode` for the same reason: it is a lookup,
@@ -144,14 +236,53 @@ Definition dnode (k : dstyle) (ns : inlines) : inline :=
   | DMark => Highlight ns | DInsert => Insert ns
   end.
 
-Definition dstyle_of (c : ascii) : option dstyle :=
-  if Ascii.eqb c "_" then Some DEmph
-  else if Ascii.eqb c "*" then Some DStrong
-  else if Ascii.eqb c "^" then Some DSuper
-  else if Ascii.eqb c "~" then Some DSub
-  else if Ascii.eqb c "=" then Some DMark
-  else if Ascii.eqb c "+" then Some DInsert
-  else None.
+(* Look a character up in the table rather than repeating it: the two
+   spellings used to be written out separately and kept in step by
+   `dstyle_of_dchar` below, which is now a fact about the search instead
+   of a coincidence to maintain.  A row switched off is not found, so
+   `DOff` removes the character from the scanner entirely. *)
+Definition dstyle_of (c : ascii) : option dstyle := dstyle_at config c.
+
+(* Djot's table satisfies the side condition: its six characters are
+   distinct.  Checked rather than assumed. *)
+Example djot_config_ok : dconfig_ok djot_config = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* A second inhabitant, to keep the family from being a family of one:
+   emphasis and strong swap characters.  It satisfies the condition for
+   the same reason djot's does -- the characters are still distinct --
+   which is the content of the constraint that the two roles never share
+   one. *)
+Definition swapped_config : dconfig :=
+  DConfig (fun k => match k with
+                    | DEmph => "*"%char | DStrong => "_"%char
+                    | _ => djot_dchar k
+                    end)
+          djot_dsyntax.
+
+Example swapped_config_ok : dconfig_ok swapped_config = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* And a table that is not admissible, so the condition is known to have
+   teeth: giving strong the emphasis character makes `_` ambiguous. *)
+Example clashing_config_not_ok :
+  dconfig_ok (DConfig (fun k => match k with
+                                | DStrong => "_"%char | _ => djot_dchar k
+                                end)
+                      djot_dsyntax) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Switching a row off frees its character, so the clash disappears
+   without changing any other row. *)
+Example clashing_config_ok_when_off :
+  dconfig_ok (DConfig (fun k => match k with
+                                | DStrong => "_"%char | _ => djot_dchar k
+                                end)
+                      (fun k => match k with
+                                | DEmph => DOff | _ => djot_dsyntax k
+                                end)) = true.
+Proof. vm_compute. reflexivity. Qed.
+
 
 Definition is_delim (c : ascii) : bool :=
   match dstyle_of c with Some _ => true | None => false end.

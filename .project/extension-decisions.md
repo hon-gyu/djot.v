@@ -87,8 +87,18 @@ it is the reason CommonMark's emphasis rules are what they are.
 character differs from the emphasis character, configurably, with djot
 as the instance that disables it.
 
-**Status: open.** Blocked on the delimiter table
-([[260811.inline-parser]] step 7); no code, no examples yet.
+**Status: in progress.** The table is now a record (`dconfig` in
+`theories/Inline.v`) carrying, per row, the character it is written with
+and how it may be written; `djot_config` is one inhabitant and
+`swapped_config` -- emphasis and strong exchanging characters -- is a
+second. `dstyle_of` looks a character up in the table instead of
+repeating it, so the character assignment lives in one place.
+
+The remaining work is in two named pieces. The table is a fixed
+`Definition config` rather than an argument, so a configuration is chosen
+at build time; threading it is mechanical and is what makes every
+statement quantify over the family. And a row's delimiter is still one
+character, so `__` for strong needs the row to carry a *token*.
 
 **Settled so far:**
 
@@ -97,11 +107,22 @@ as the instance that disables it.
   as strong changes its meaning. So the theorem cannot be "we extend
   djot"; it is "djot's table and the extension table are both
   inhabitants of a family satisfying the same invariants".
-- *The sufficient condition has a name.* "Strong character differs from
-  emphasis character" is one instance of the delimiter table being
-  **prefix-free per starting character**. That more general condition is
-  what to state and prove; the user's rule then falls out as a corollary
-  rather than sitting in the design as an assumption.
+- *The sufficient condition has a name, and is now stated and proved.*
+  "Strong character differs from emphasis character" is one instance of
+  the whole table being unambiguous: no two rows that are switched on
+  claim the same character. That is `dconfig_ok`, a decidable check on a
+  table, and `dstyle_at_dchar` is what it buys -- a row's own character
+  finds that row again, which is the only fact about the table the
+  scanner needs. `djot_config_ok` and `swapped_config_ok` check it;
+  `clashing_config_not_ok` shows it has teeth, and
+  `clashing_config_ok_when_off` shows switching a row off frees its
+  character.
+
+- *A row can be switched off.* `dsyntax` is three-valued -- off, braces
+  required, braces optional -- where the old `dbare` was a boolean.
+  Djot's rows are all on: braces required for `{= =}` and `{+ +}`,
+  optional for the rest. Off is what makes "which containers exist" a
+  setting rather than a fixed list.
 
 **Open sub-questions, each needing an example before it is settled:**
 
