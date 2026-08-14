@@ -321,6 +321,68 @@ Fixpoint no_nl (s : string) : bool :=
   | String c s' => negb (Ascii.eqb c "010") && no_nl s'
   end.
 
+(* One character absent.  `no_nl` is the instance this file already had a
+   use for; a reference definition's label needs the same for `]`. *)
+Fixpoint no_char (c : ascii) (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c' s' => negb (Ascii.eqb c' c) && no_char c s'
+  end.
+
+(* djot.js's `[ \t\r\n]` class: intra-line whitespace plus the line
+   separator.  `is_ws` excludes LF because a line never contains one;
+   a token that must survive being written onto a line by itself has to
+   exclude both. *)
+Definition is_ws_nl (c : ascii) : bool := is_ws c || Ascii.eqb c "010".
+
+(* No whitespace at all.  A reference definition's destination is one
+   such run (Line.ref_value), and staying whitespace-free is what lets it
+   be rendered back onto one line. *)
+Fixpoint no_ws (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c s' => negb (is_ws_nl c) && no_ws s'
+  end.
+
+Lemma no_ws_no_nl : forall s, no_ws s = true -> no_nl s = true.
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [no_ws no_nl]. intros H. apply andb_true_iff in H as [Hc Hs].
+  rewrite (IH Hs), andb_true_r. apply negb_true_iff in Hc.
+  unfold is_ws_nl in Hc. apply orb_false_iff in Hc as [_ Hc].
+  rewrite Hc. reflexivity.
+Qed.
+
+(* A whitespace-free string has no leading whitespace to drop. *)
+Lemma no_ws_drop_leading_ws :
+  forall s, no_ws s = true -> drop_leading_ws s = s.
+Proof.
+  intros [|c s] H; [reflexivity|].
+  cbn [no_ws] in H. apply andb_true_iff in H as [Hc _].
+  apply negb_true_iff in Hc. unfold is_ws_nl in Hc.
+  apply orb_false_iff in Hc as [Hws _].
+  cbn [drop_leading_ws]. rewrite Hws. reflexivity.
+Qed.
+
+Lemma no_ws_append :
+  forall s t, no_ws s = true -> no_ws t = true -> no_ws (s ++ t) = true.
+Proof.
+  induction s as [|c s IH]; intros t Hs Ht; [exact Ht|].
+  cbn [no_ws append] in *. apply andb_true_iff in Hs as [Hc Hs].
+  rewrite Hc. cbn. apply (IH t Hs Ht).
+Qed.
+
+(* A whitespace-free string is not blank unless it is empty. *)
+Lemma no_ws_nonempty_nonblank :
+  forall s, no_ws s = true -> nonempty_str s = true -> is_blank s = false.
+Proof.
+  intros [|c s] H He; [discriminate|].
+  cbn [no_ws] in H. apply andb_true_iff in H as [Hc _].
+  apply negb_true_iff in Hc. unfold is_ws_nl in Hc.
+  apply orb_false_iff in Hc as [Hc _].
+  rewrite is_blank_cons, Hc. reflexivity.
+Qed.
+
 (* A line as produced by a renderer: nonblank, newline-free, and already
    flush against its own left margin — the parser strips any leading
    whitespace off a text line as it stores it (Parser.push_text,

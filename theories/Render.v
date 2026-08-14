@@ -27,6 +27,13 @@ Block layout
 (* The renderer's canonical spellings, fixed once so both the rendering
    and the classification lemmas can refer to them. *)
 Definition thematic_line : string := "* * * *".
+(* A reference definition, on one line.  The space is not optional: djot.js
+   demands whitespace between the colon and the destination, and refuses a
+   line with anything after it, so `[l]:d` is not a definition and `[l]: d `
+   is not either.  An empty destination still gets the space, which the
+   recognizer accepts as a whitespace run followed by an empty token. *)
+Definition ref_line (label dest : string) : string :=
+  "[" ++ label ++ "]: " ++ dest.
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
 (* quote_open / quote_line are in Line, next to quote_prefix_canonical:
@@ -78,7 +85,11 @@ Inductive cblock : Type :=
   (* `list_kind` (Parser.v) is the bullet/decimal choice; it carries the
      delimiter and start of an ordered list, which are the only data the
      markers depend on. *)
-  | CList (k : list_kind) (sp : list_spacing) (items : list (list cblock)).
+  | CList (k : list_kind) (sp : list_spacing) (items : list (list cblock))
+  (* A reference definition, which is a leaf: `cb_ok` keeps its label and
+     destination within what one line can carry, and the document's
+     reference map is derived from the block rather than stored here. *)
+  | CRef (label : string) (dest : string).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -103,6 +114,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
      than inside the per-item map. *)
   | CList k sp items =>
       list_lines sp (map litem_lines (ck_items k (itemss items)))
+  | CRef label dest => [ref_line label dest]
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -119,6 +131,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
   | CDiv inner => mk (Div (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
+  | CRef label dest => mk (RefDef label dest)
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -164,6 +177,7 @@ Definition cblock_ind2
   (hquote : forall inner, Q inner -> P (CQuote inner))
   (hdiv : forall inner, Q inner -> P (CDiv inner))
   (hlist : forall k sp items, R items -> P (CList k sp items))
+  (href : forall label dest, P (CRef label dest))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -190,6 +204,7 @@ Definition cblock_ind2
               | [] => hrnil
               | it :: rest => hrcons it rest (golist it) (golistlist rest)
               end) items)
+    | CRef label dest => href label dest
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -360,6 +375,49 @@ End NoAdjacentListsTests.
    anywhere; loose needs either two-or-more items (list_lines then always
    inserts a forcing blank itself) or an internal gap to justify the
    single-item case, where no inter-item blank exists at all. *)
+(* What one line can carry back: a label that ends where its bracket does,
+   is not a footnote's, and holds no line break, and a destination that is
+   one whitespace-free run.  These are `Wf.wf_block`'s conditions on
+   `RefDef` plus `no_nl` on the label, which wf leaves to the source line
+   and a canonical block has to state for itself. *)
+Definition ref_ok (label dest : string) : bool :=
+  no_char "]"%char label && negb (is_footnote_label label)
+  && no_nl label && no_ws dest.
+
+Lemma ref_ok_parts :
+  forall label dest,
+    ref_ok label dest = true ->
+    no_char "]"%char label = true /\ is_footnote_label label = false
+    /\ no_nl label = true /\ no_ws dest = true.
+Proof.
+  intros label dest H. unfold ref_ok in H.
+  apply andb_true_iff in H as [H Hd].
+  apply andb_true_iff in H as [H Hnl].
+  apply andb_true_iff in H as [Hlbl Hfn].
+  apply negb_true_iff in Hfn.
+  repeat split; assumption.
+Qed.
+
+Lemma ref_ok_classify :
+  forall label dest,
+    ref_ok label dest = true -> classify (ref_line label dest) = KRef label dest.
+Proof.
+  intros label dest H. apply ref_ok_parts in H as (Hlbl & Hfn & _ & Hd).
+  unfold ref_line. apply classify_canonical_ref; assumption.
+Qed.
+
+(* The line a definition renders to is a line the parser could have read
+   back: nonblank, newline-free, and flush left. *)
+Lemma ref_line_ok :
+  forall label dest, ref_ok label dest = true -> line_ok (ref_line label dest) = true.
+Proof.
+  intros label dest H. apply ref_ok_parts in H as (_ & _ & Hnl & Hd).
+  unfold line_ok, ref_line, nonblank.
+  rewrite !no_nl_append, Hnl, (no_ws_no_nl _ Hd).
+  cbn [append is_blank is_ws drop_leading_ws no_nl negb andb].
+  apply String.eqb_eq. reflexivity.
+Qed.
+
 Fixpoint cb_ok (cb : cblock) : bool :=
   let inner_ok :=
     fix go (cs : list cblock) : bool :=
@@ -408,6 +466,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
          | Tight => negb (items_force_loose items)
          | Loose => items_seps_loosen items || items_force_loose items
          end
+  | CRef label dest => ref_ok label dest
   end.
 
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
@@ -600,6 +659,7 @@ Fixpoint render_block_lines (b : block) : list string :=
       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
   | OrderedList oa sp items =>
       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+  | RefDef label dest => [ref_line label dest]
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 

@@ -45,7 +45,8 @@ Definition leaves : list cblock :=
   ; CPara [[CILink true [CIStr "i"] "u"]]
   ; CThematic
   ; cheading 1 ["h"]
-  ; CCode "" ["x"] ].
+  ; CCode "" ["x"]
+  ; CRef "r" "u" ].
 
 (* Second-position fillers.  A list is among them so that "container
    after a paragraph" shapes are generated; keeping the set fixed is
@@ -242,7 +243,7 @@ Fixpoint no_fence (cb : cblock) : bool :=
   let go := fix go (cs : list cblock) : bool :=
     match cs with [] => true | c :: rest => (no_fence c && go rest)%bool end in
   match cb with
-  | CPara _ | CThematic | CHeading _ _ => true
+  | CPara _ | CThematic | CHeading _ _ | CRef _ _ => true
   | CCode _ _ => false
   | CList _ _ items => forallb (forallb no_fence) items
   | CQuote inner | CDiv inner => go inner

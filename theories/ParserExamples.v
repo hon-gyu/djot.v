@@ -412,3 +412,77 @@ Hi"
   = [mk (Para [ mk (Str "{#i"); mk SoftBreak
               ; mk (Str "<}"); mk SoftBreak; mk (Str "Hi")])].
 Proof. reflexivity. Qed.
+
+(*
+Reference definitions
+=====================
+
+Every case here was decided against djot.js first; the boundaries are
+its `pattReferenceDefinition` (block.ts:57) and the continuation test
+next to it, both of which are tighter than the prose spec suggests.
+*)
+
+Example parse_ref_simple :
+  parse_blocks "[foo]: /url"
+  = [mk (RefDef "foo" "/url")].
+Proof. reflexivity. Qed.
+
+(* Continuation lines are indented past the bracket and carry one
+   whitespace-free run each; the runs concatenate with no separator. *)
+Example parse_ref_continued :
+  parse_blocks "[foo]: /url
+  /more"
+  = [mk (RefDef "foo" "/url/more")].
+Proof. reflexivity. Qed.
+
+(* A second definition at the same column is not a continuation of the
+   first: the test is "indented past", not "indented". *)
+Example parse_ref_sibling :
+  parse_blocks "[a]:
+[b]: v"
+  = [mk (RefDef "a" ""); mk (RefDef "b" "v")].
+Proof. reflexivity. Qed.
+
+(* Two tokens after the colon is not a definition at all, and neither is
+   a trailing space: the pattern demands end of line right after the
+   destination. *)
+Example parse_ref_two_tokens_is_text :
+  parse_blocks "[a]: u v"
+  = [mk (Para [mk (Str "[a]: u v")])].
+Proof. reflexivity. Qed.
+
+(* Nor is a destination with no space before it. *)
+Example parse_ref_no_space_is_text :
+  parse_blocks "[a]:u"
+  = [mk (Para [mk (Str "[a]:u")])].
+Proof. reflexivity. Qed.
+
+(* A definition never interrupts a paragraph -- paragraphs are
+   uninterruptible here as everywhere. *)
+Example parse_ref_after_text_is_text :
+  parse_blocks "text
+[a]: u"
+  = [mk (Para [mk (Str "text"); mk SoftBreak; mk (Str "[a]: u")])].
+Proof. reflexivity. Qed.
+
+(* The footnote container claims `[^...]:` first (block.ts:264 before
+   :301), so such a line is not a definition.  Footnotes are not parsed
+   yet, which is why this is still a paragraph. *)
+Example parse_ref_footnote_label_excluded :
+  parse_blocks "[^a]: note"
+  = [mk (Para [mk (Str "[^a]: note")])].
+Proof. reflexivity. Qed.
+
+(* A label may contain `[`: only `]` ends it. *)
+Example parse_ref_label_open_bracket :
+  parse_blocks "[a[b]: u"
+  = [mk (RefDef "a[b" "u")].
+Proof. reflexivity. Qed.
+
+(* Block attributes decorate the definition as they would any block, so
+   they reach the reference the document pass reads off it. *)
+Example parse_ref_attributes :
+  parse_blocks "{#x}
+[a]: u"
+  = [Node NoPos [("id", "x")] (RefDef "a" "u")].
+Proof. reflexivity. Qed.

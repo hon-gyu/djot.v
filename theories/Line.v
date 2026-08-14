@@ -66,6 +66,9 @@ Inductive line_kind : Type :=
      may already be complete (`ap_done`) or still want indented
      continuation lines *)
   | KAttr (p : aparser)
+  (* a reference definition's opening line: its label and the destination
+     this line supplies, which later lines may extend *)
+  | KRef (label : string) (val : string)
   | KText.                 (* anything else: paragraph text *)
 
 (*
@@ -492,6 +495,135 @@ Proof.
       injection H as _ _ <-. simpl in *. lia.
 Qed.
 
+(*
+Reference definitions
+=====================
+
+`[label]: destination`, djot.js's `pattReferenceDefinition`
+(block.ts:57) — a block-level construct producing no block of its own,
+only an entry in the document's reference map.  Its destination may be
+continued on the following indented lines, which is why it opens a
+container state (Step.PRef) rather than emitting on sight.
+*)
+
+(* The label: everything up to the first `]`, and the line after it.
+   djot.js's `[^\]\r\n]*` excludes only the bracket, so `[a[b]: u` is a
+   definition of `a[b`. *)
+Fixpoint ref_label (s : string) : option (string * string) :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if Ascii.eqb c "]"
+      then Some (EmptyString, rest)
+      else match ref_label rest with
+           | None => None
+           | Some (lbl, tail) => Some (String c lbl, tail)
+           end
+  end.
+
+(* What may follow the `:`: nothing, or whitespace and then one
+   whitespace-free run to end of line.  Both halves of that are load
+   bearing — `[a]:u` and `[a]: u ` are neither of them definitions
+   (checked against djot.js), because the pattern demands the space
+   before the destination and the end of line right after it. *)
+Definition ref_value (s : string) : option string :=
+  match s with
+  | EmptyString => Some EmptyString
+  | String c _ =>
+      if is_ws c
+      then let t := drop_leading_ws s in
+           if no_ws t then Some t else None
+      else None
+  end.
+
+(* A label claimed by the footnote container, which djot.js tries first
+   (block.ts:264 before :301): `^` and at least one more character.
+   `[^]: u` is not one, and is a reference definition of the label `^`. *)
+Definition is_footnote_label (lbl : string) : bool :=
+  match lbl with
+  | String "^"%char (String _ _) => true
+  | _ => false
+  end.
+
+(* Spelled with `Ascii.eqb` rather than character patterns: a literal
+   pattern compiles to a tree of bit matches that no proof can `destruct`
+   in one step. *)
+Definition ref_open (l : string) : option (string * string) :=
+  match drop_leading_ws l with
+  | EmptyString => None
+  | String c rest =>
+      if negb (Ascii.eqb c "[") then None
+      else
+        match ref_label rest with
+        | None => None
+        | Some (_, EmptyString) => None
+        | Some (lbl, String c' after) =>
+            if negb (Ascii.eqb c' ":") then None
+            else if is_footnote_label lbl then None
+            else match ref_value after with
+                 | Some v => Some (lbl, v)
+                 | None => None
+                 end
+        end
+  end.
+
+(* The two facts the parser's output needs about a label: it can be
+   written back between brackets, and it is not a footnote's. *)
+Lemma ref_label_no_bracket :
+  forall s lbl tail,
+    ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true.
+Proof.
+  induction s as [|c s IH]; intros lbl tail H; [discriminate|].
+  cbn [ref_label] in H. destruct (Ascii.eqb c "]") eqn:E.
+  - injection H as <- _. reflexivity.
+  - destruct (ref_label s) as [[lbl' tail']|] eqn:Er; [|discriminate].
+    injection H as <- _. cbn [no_char]. rewrite E.
+    apply (IH lbl' tail' eq_refl).
+Qed.
+
+Lemma ref_open_label_ok :
+  forall l lbl v,
+    ref_open l = Some (lbl, v) ->
+    (no_char "]"%char lbl && negb (is_footnote_label lbl))%bool = true.
+Proof.
+  intros l lbl v H. unfold ref_open in H.
+  destruct (drop_leading_ws l) as [|c rest]; [discriminate|].
+  destruct (Ascii.eqb c "[") eqn:Ec; cbn [negb] in H; [|discriminate].
+  destruct (ref_label rest) as [[lbl' [|c' after]]|] eqn:Er; try discriminate.
+  destruct (Ascii.eqb c' ":") eqn:Ecol; cbn [negb] in H; [|discriminate].
+  destruct (is_footnote_label lbl') eqn:Ef; [discriminate|].
+  destruct (ref_value after) as [v'|] eqn:Ev; [|discriminate].
+  injection H as <- <-. rewrite Ef, andb_true_r.
+  apply (ref_label_no_bracket rest lbl' _ Er).
+Qed.
+
+Lemma ref_open_value_no_ws :
+  forall l lbl v, ref_open l = Some (lbl, v) -> no_ws v = true.
+Proof.
+  intros l lbl v H. unfold ref_open in H.
+  destruct (drop_leading_ws l) as [|c rest]; [discriminate|].
+  destruct (Ascii.eqb c "["); cbn [negb] in H; [|discriminate].
+  destruct (ref_label rest) as [[lbl' [|c' after]]|] eqn:Er; try discriminate.
+  destruct (Ascii.eqb c' ":"); cbn [negb] in H; [|discriminate].
+  destruct (is_footnote_label lbl'); [discriminate|].
+  destruct (ref_value after) as [v'|] eqn:Ev; [|discriminate].
+  injection H as _ <-. unfold ref_value in Ev.
+  destruct after as [|ca after']; [injection Ev as <-; reflexivity|].
+  destruct (is_ws ca); [|discriminate].
+  destruct (no_ws (drop_leading_ws (String ca after'))) eqn:En; [|discriminate].
+  injection Ev as <-. exact En.
+Qed.
+
+(* Leading whitespace is invisible to the recognizer, as it is to every
+   other one here: the opener's column is recorded by the parser, from
+   `indent_of`, not by the classification. *)
+Lemma ref_open_ws_prefix :
+  forall p l, is_blank p = true -> ref_open (p ++ l) = ref_open l.
+Proof.
+  intros p l Hp. unfold ref_open. rewrite (drop_leading_ws_ws_prefix p l Hp).
+  reflexivity.
+Qed.
+
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
    then block quotes, headings, fences, thematic breaks, list markers;
    anything unrecognized falls through to paragraph text, so KText is the
@@ -516,7 +648,11 @@ Definition classify (l : string) : line_kind :=
                             | None =>
                                 match attr_open l with
                                 | Some p => KAttr p
-                                | None => KText
+                                | None =>
+                                    match ref_open l with
+                                    | Some (lbl, v) => KRef lbl v
+                                    | None => KText
+                                    end
                                 end
                             end
                    end
@@ -541,12 +677,14 @@ Proof.
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
-    destruct (attr_open l); discriminate.
+    destruct (attr_open l); [discriminate|].
+    destruct (ref_open l) as [[rl rv]|]; discriminate.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
-    destruct (attr_open l); discriminate.
+    destruct (attr_open l); [discriminate|].
+    destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
 (*
@@ -569,7 +707,8 @@ Proof.
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
-  destruct (attr_open l); discriminate.
+  destruct (attr_open l); [discriminate|].
+    destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
 (* The measure fact, restated at the classifier: the parser only ever
@@ -588,7 +727,8 @@ Proof.
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
-    destruct (attr_open l); discriminate.
+    destruct (attr_open l); [discriminate|].
+    destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
 Lemma classify_list_length :
@@ -605,7 +745,8 @@ Proof.
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[[s' c'] r']|];
-    [|destruct (attr_open l); discriminate].
+    [|destruct (attr_open l); [discriminate|];
+      destruct (ref_open l) as [[rl rv]|]; discriminate].
   injection H as <- <- <-. reflexivity.
 Qed.
 
@@ -621,10 +762,11 @@ Lemma classify_ktext :
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
     fence_open l = None -> div_open l = None ->
     is_thematic l = false -> list_marker l = None -> attr_open l = None ->
+    ref_open l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Hd Ht Hm Ha. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha. reflexivity.
+  intros l Hb Hq Hh Hf Hd Ht Hm Ha Hr. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha, Hr. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -647,8 +789,69 @@ Proof.
   unfold quote_prefix, heading_open, fence_open, div_open, list_marker.
   rewrite (drop_leading_ws_ws_prefix p l Hp).
   fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
-  rewrite (attr_open_ws_prefix p l Hp).
+  rewrite (attr_open_ws_prefix p l Hp), (ref_open_ws_prefix p l Hp).
   unfold is_thematic. reflexivity.
+Qed.
+
+(* A KRef classification is `ref_open`'s answer, which is what carries
+   the label and destination conditions to Wf.v. *)
+Lemma classify_kref :
+  forall l lbl v, classify l = KRef lbl v -> ref_open l = Some (lbl, v).
+Proof.
+  intros l lbl v H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[hl hr]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+  destruct (attr_open l); [discriminate|].
+  destruct (ref_open l) as [[rl rv]|]; [|discriminate].
+  injection H as <- <-. reflexivity.
+Qed.
+
+(* The canonical rendering of a reference definition classifies as one.
+   Nothing earlier in the chain can claim the line: every other recognizer
+   decides on the first nonblank character, and that is `[`.  The three
+   hypotheses are exactly `Render.ref_ok` minus its `no_nl`, which the
+   line-level conditions carry instead. *)
+Lemma classify_canonical_ref :
+  forall label dest,
+    no_char "]"%char label = true ->
+    is_footnote_label label = false ->
+    no_ws dest = true ->
+    classify ("[" ++ label ++ "]: " ++ dest) = KRef label dest.
+Proof.
+  intros label dest Hlbl Hfn Hd.
+  assert (Hlab : forall tail,
+            no_char "]"%char label = true ->
+            ref_label (label ++ String "]" tail) = Some (label, tail)).
+  { clear. induction label as [|c lbl IH]; intros tail H; [reflexivity|].
+    cbn [no_char] in H. apply andb_true_iff in H as [Hc Hlbl].
+    apply negb_true_iff in Hc.
+    cbn [append ref_label]. rewrite Hc, (IH tail Hlbl). reflexivity. }
+  assert (Hro : ref_open ("[" ++ label ++ "]: " ++ dest) = Some (label, dest)).
+  { unfold ref_open. cbn [append drop_leading_ws is_ws Ascii.eqb orb].
+    change (is_ws "[") with false. cbn [negb Ascii.eqb].
+    rewrite (Hlab (String ":" (String " " dest)) Hlbl).
+    cbn [eqb negb Ascii.eqb]. rewrite Hfn. unfold ref_value.
+    change (is_ws " ") with true. cbn [drop_leading_ws].
+    change (is_ws " ") with true. cbn [andb].
+    rewrite (no_ws_drop_leading_ws dest Hd), Hd. reflexivity. }
+  assert (Hdrop : drop_leading_ws ("[" ++ label ++ "]: " ++ dest)
+                  = "[" ++ label ++ "]: " ++ dest).
+  { cbn [append drop_leading_ws]. change (is_ws "[") with false. reflexivity. }
+  unfold classify.
+  change (is_blank ("[" ++ label ++ "]: " ++ dest)) with false.
+  unfold quote_prefix, heading_open, fence_open, div_open, list_marker,
+    attr_open, is_thematic.
+  (* `Hro` has to be rewritten before `append` reduces, or its left-hand
+     side no longer appears syntactically *)
+  rewrite !Hdrop, Hro. cbn [append].
+  cbn [count_run thematic_count is_marker is_ws is_bullet marker_shape
+       Ascii.eqb orb andb Nat.leb eqb negb].
+  reflexivity.
 Qed.
 
 (* Boolean form of `classify l = KText`, so it can sit inside cb_ok. *)

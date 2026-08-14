@@ -498,7 +498,7 @@ Proof.
                         forallb lines_ok (map cb_lines cbs) = true)
             (Forall (fun cbs => forallb cb_ok cbs = true ->
                                  forallb lines_ok (map cb_lines cbs) = true))
-            _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
+            _ _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
   - (* paragraph: line_ok everywhere implies the split conditions.  The
        inline conjunct of cb_ok says nothing about line shape, so this
        case reads exactly as it did over `list string`. *)
@@ -578,6 +578,13 @@ Proof.
     + apply ck_lines_nonempty.
       destruct items; [discriminate Hne | discriminate].
     + apply ck_items_lines_ok; [rewrite length_map; exact Hckok | exact Hlines].
+  - (* reference definition: one line, and `ref_ok` bounds both halves of
+       it away from a line break *)
+    intros label dest H. unfold ref_ok in H.
+    apply andb_true_iff in H as [H Hd].
+    apply andb_true_iff in H as [_ Hnl].
+    unfold lines_ok. cbn [cb_lines nonempty forallb last]. unfold ref_line.
+    rewrite !no_nl_append, Hnl, (no_ws_no_nl _ Hd). reflexivity.
   - reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -641,7 +648,7 @@ Proof.
   intros cb Hnonlist Hok.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
   apply lines_ok_parts in Hlines as (Hne & _ & _).
-  destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items].
+  destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items|rl rd].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hne |- *.
     remember (map ci_line ls) as ls' eqn:E. clear E.
@@ -679,6 +686,9 @@ Proof.
     split; [reflexivity|].
     intros m mc item E. rewrite classify_canonical_div in E. discriminate.
   - discriminate Hnonlist.
+  - (* reference definition: one line, and it classifies as one *)
+    exists (ref_line rl rd), []. split; [reflexivity|].
+    intros m mc item E. rewrite (ref_ok_classify rl rd Hok) in E. discriminate.
 Qed.
 
 Lemma drop_leading_ws_indent_zero :
@@ -699,7 +709,7 @@ Lemma cb_lines_first_line_ok :
     cb_lines cb = first :: rest -> line_ok first = true.
 Proof.
   intros cb first rest Hnonlist Hok Hlines.
-  destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items].
+  destruct cb as [ls| |info content|lvl ls|inner|dinner|k sp items|rl rd].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hlines.
     remember (map ci_line ls) as ls0 eqn:E. clear E.
@@ -746,6 +756,8 @@ Proof.
   - rewrite cb_lines_div in Hlines. cbn [app] in Hlines.
     injection Hlines as <- <-. reflexivity.
   - discriminate Hnonlist.
+  - cbn [cb_lines] in Hlines. injection Hlines as <- <-.
+    apply (ref_line_ok rl rd Hok).
 Qed.
 
 (* The items' contents, as the mutual induction supplies them: each
@@ -893,7 +905,7 @@ Proof.
                forallb no_adjacent_lists items = true ->
                forallb (fun it => (nonempty it && forallb cb_ok it)%bool) items = true ->
                items_parse items)
-            _ _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph.  The parse is the same line-level argument as before the
        inline layer existed; `cb_ast_para_of_lines` is the one new step,
        identifying what the parser built with what `cb_ast` names.
@@ -1045,6 +1057,15 @@ Proof.
       * exact (Hparse Hlist).
       * apply Hboundary. reflexivity.
     + intros H. exact (parse_canonical_list_end k sp items H (Hparse H)).
+  - (* reference definition: the line opens the state, and the blank line
+       or the end of input closes it *)
+    intros label dest. split; [intros next tail _ _ H | intros H];
+      cbn [cb_lines app];
+      rewrite (parse_lines_ref_open _ _ _ _ (ref_ok_classify _ _ H)).
+    + rewrite (parse_lines_ref_blank EmptyString _ _ _ _
+                 (classify_blank EmptyString eq_refl)).
+      reflexivity.
+    + reflexivity.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.
   - (* the list side: one block, then the rest after a blank line *)
@@ -1169,7 +1190,7 @@ Proof.
                           map (fun it => sep_lines (render_blocks_lines
                                                       (map cb_ast it))) items
                           = map item_lines items)
-            _ _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph: `inline_lines_ci` is the whole case.  The destruct is
        only there to reach `para_ok_parts`, which wants a cons. *)
     intros ls H. rewrite cb_ok_para in H. apply andb_true_iff in H as [Hp Hc].
@@ -1225,6 +1246,9 @@ Proof.
       intros item Hitem. apply andb_true_iff in Hitem as [_ Hitem]. exact Hitem. }
     rewrite cb_ast_list. cbn [node_contents mk].
     rewrite render_ck_list, cb_lines_list, map_map, (IH Hokitems). reflexivity.
+  - (* reference definition: one line, and the renderer spells it the same
+       way `cb_lines` does *)
+    intros label dest _. reflexivity.
   - intros _. reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].

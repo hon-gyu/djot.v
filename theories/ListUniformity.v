@@ -93,7 +93,7 @@ Proof.
     destruct (run_lines (map (fun l0 => (mk_cont mrk) ++ l0) lines) inner1)
       as [rest inner2] eqn:Hrest.
     inversion Hrun; subst bs inner'.
-    destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc item|kap|] eqn:Hclass.
+    destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc item|kap|rlbl rval|] eqn:Hclass.
     + rewrite (step_list_blank ((mk_cont mrk) ++ l) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: exact Hstep.
@@ -177,6 +177,17 @@ Proof.
       rewrite (IH (list_content ls (KAttr kap)) (rev head ++ done)%list
                    inner1 rest inner2) by (cbn [list_content]; assumption).
       rewrite rev_app_distr, app_assoc. reflexivity.
+    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KRef rlbl rval)
+                 ls done inner head inner1).
+      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: discriminate.
+      2: { rewrite Hind, indent_of_marker_cont.
+           apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
+      2: exact Hstep.
+      cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
+      rewrite (IH (list_content ls (KRef rlbl rval)) (rev head ++ done)%list
+                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) KText ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
@@ -204,7 +215,7 @@ Proof.
     [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hl Hrest].
   cbn [scan_list_content].
-  destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc rest|kap|] eqn:Hclass.
+  destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc rest|kap|rlbl rval|] eqn:Hclass.
   - apply classify_kblank_blank in Hclass. unfold nonblank in Hl.
     rewrite Hclass in Hl. discriminate.
   - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
@@ -213,6 +224,7 @@ Proof.
   - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
   - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
   - unfold list_content. apply IH. exact Hrest.
+  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
   - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
   - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
 Qed.
@@ -278,7 +290,7 @@ Proof.
   induction lines as [|l lines IH]; intros inner ls Hne Hlast; [congruence|].
   destruct lines as [|l2 lines'].
   - cbn [last scan_list_content] in Hlast |- *.
-    destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc item|kap|] eqn:Hclass;
+    destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc item|kap|rlbl rval|] eqn:Hclass;
       cbn [list_blank list_content].
     all: try (apply classify_kblank_blank in Hclass; unfold nonblank in Hlast;
               rewrite Hclass in Hlast; discriminate).
@@ -297,7 +309,7 @@ Lemma scan_list_content_after_blank :
 Proof.
   intros b rest inner ind marker items Hblank Hlist.
   cbn [scan_list_content].
-  destruct (classify b) as [| |f|dl dc|q|lvl txt|m mc item|kap|] eqn:Hclass.
+  destruct (classify b) as [| |f|dl dc|q|lvl txt|m mc item|kap|rlbl rval|] eqn:Hclass.
   - exfalso. apply Hblank. reflexivity.
   - apply scan_list_content_loose.
   - apply scan_list_content_loose.
@@ -305,6 +317,7 @@ Proof.
   - apply scan_list_content_loose.
   - apply scan_list_content_loose.
   - exfalso. apply (Hlist m mc item). reflexivity.
+  - apply scan_list_content_loose.
   - apply scan_list_content_loose.
   - apply scan_list_content_loose.
 Qed.
@@ -373,7 +386,7 @@ record where the blanks sit relative to the markers.
 Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
-  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|ppend pinner IH];
+  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|ppend pinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
@@ -675,7 +688,7 @@ Lemma step_blank_finish :
 Proof.
   intros l st Hl.
   induction st as [cur|lvl cur|f acc|done inner IH|dlen dcls ddone dinner IH
-                  |ls done inner IH|apend aind aap aslices|ppend pinner IH];
+                  |ls done inner IH|apend aind aap aslices|rind rlbl rval|ppend pinner IH];
     intros Hsafe.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hl eq_refl). cbn [open_kind fst snd finish app].
@@ -702,11 +715,14 @@ Proof.
        otherwise only touches `ls_blanks`, which `finish` does not read *)
     destruct (list_open inner); [reflexivity | destruct ls; reflexivity].
   - discriminate Hsafe.
+  - (* a reference definition: a blank line has no run to contribute, so
+       it closes and the definition is emitted *)
+    rewrite (step_ref_blank l rind rlbl rval Hl). reflexivity.
   - (* pending attributes: the blank closes what is under them, and the
        decoration rides on whatever that emits *)
     cbn [pad_safe] in Hsafe. unfold step. cbn [step_fuel]. rewrite Hl.
     destruct (is_idle pinner) eqn:Hidle.
-    { destruct pinner as [cur| | | | | | |]; try discriminate Hidle.
+    { destruct pinner as [cur| | | | | | | |]; try discriminate Hidle.
       destruct cur; [reflexivity|discriminate Hidle]. }
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     specialize (IH Hsafe).
@@ -723,7 +739,7 @@ Lemma step_blank_lazy_false :
   forall l st, classify l = KBlank -> lazy_ok (snd (step l st)) = false.
 Proof.
   intros l st Hblank. induction st as
-    [cur|lvl cur|f acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|ppend pinner IH].
+    [cur|lvl cur|f acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|ppend pinner IH].
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -754,6 +770,8 @@ Proof.
     destruct (Nat.ltb aind (0 + indent_of l));
       [destruct (ap_failed (attr_feed l aap)); [exact Hfall|reflexivity]
       |exact Hfall].
+  - (* a reference definition: the blank closes it, leaving the idle state *)
+    rewrite (step_ref_blank l rind rlbl rval Hblank). reflexivity.
   - unfold step. cbn [step_fuel]. rewrite Hblank.
     destruct (is_idle pinner); [reflexivity|].
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
@@ -1321,7 +1339,7 @@ Proof.
     rewrite (parse_lines_step _ _ _ _ _
                (eq_trans (step_idle next k Hclass Hk) (surjective_pairing _))).
     rewrite Hfin, <- app_assoc. reflexivity. }
-  destruct (classify next) as [| |f|dl dc|q|lvl txt|m mc listrest|kap|] eqn:Hclass.
+  destruct (classify next) as [| |f|dl dc|q|lvl txt|m mc listrest|kap|rlbl rval|] eqn:Hclass.
   - congruence.
   - apply (Hdirect KThematic eq_refl eq_refl ltac:(discriminate) eq_refl).
   - apply (Hdirect (KFence f) eq_refl eq_refl ltac:(discriminate) eq_refl).
@@ -1338,6 +1356,11 @@ Proof.
                (step_list_attr_close next kap ls' (rev bs ++ done)%list
                   inner' Hclass Hind')).
     rewrite (parse_lines_step _ _ _ _ _ (step_attr_open next kap Hclass)).
+    rewrite Hfin. reflexivity.
+  - rewrite (parse_lines_step _ _ _ _ _
+               (step_list_ref_close next rlbl rval ls' (rev bs ++ done)%list
+                  inner' Hclass Hind')).
+    rewrite (parse_lines_step _ _ _ _ _ (step_ref_open next rlbl rval Hclass)).
     rewrite Hfin. reflexivity.
   - apply (Hdirect KText eq_refl eq_refl ltac:(discriminate) Hlazy).
 Qed.

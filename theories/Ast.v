@@ -207,7 +207,14 @@ Inductive block : Type :=
       (items : list (inlines * list (node block)))
   | ThematicBreak
   | Table (caption : option (list (node block))) (rows : list (list cell))
-  | RawBlock (format : string) (contents : string).
+  | RawBlock (format : string) (contents : string)
+  (* A link-reference definition.  djot.js keeps these out of the block
+     tree entirely, in `doc.references`; here the definition stays a block
+     that renders to no HTML, and `Document.doc_pass` reads the map off
+     the tree.  Keeping it means the source line has somewhere to
+     round-trip *to*, which is what `Roundtrip.v` quantifies over — the
+     map is derived from it, never the other way. *)
+  | RefDef (label : string) (dest : string).
 
 Definition blocks : Type := list (node block).
 
@@ -259,6 +266,7 @@ Definition block_ind2
   (hthematic : P ThematicBreak)
   (htable : forall caption rows, P (Table caption rows))
   (hraw : forall format contents, P (RawBlock format contents))
+  (hrefdef : forall label dest, P (RefDef label dest))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
@@ -291,6 +299,7 @@ Definition block_ind2
     | ThematicBreak => hthematic
     | Table caption rows => htable caption rows
     | RawBlock format contents => hraw format contents
+    | RefDef label dest => hrefdef label dest
     end.
 
 (*

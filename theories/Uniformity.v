@@ -155,6 +155,30 @@ Proof.
 Qed.
 
 (*
+Reference-definition equations
+------------------------------
+*)
+
+Lemma parse_lines_ref_open :
+  forall l rest lbl v, classify l = KRef lbl v ->
+  parse_lines (l :: rest) (PPara []) = parse_lines rest (PRef (indent_of l) lbl v).
+Proof.
+  intros l rest lbl v H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_ref_open _ _ _ H)). reflexivity.
+Qed.
+
+(* A blank line ends the definition and emits it: `ref_cont` has no run to
+   take from a blank line, whatever column the opener sits at. *)
+Lemma parse_lines_ref_blank :
+  forall l rest ind lbl v, classify l = KBlank ->
+  parse_lines (l :: rest) (PRef ind lbl v) =
+  ref_block lbl v :: parse_lines rest (PPara []).
+Proof.
+  intros l rest ind lbl v H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_ref_blank _ _ _ _ H)). reflexivity.
+Qed.
+
+(*
 Fence equations
 ---------------
 *)

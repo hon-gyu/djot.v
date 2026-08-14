@@ -113,6 +113,7 @@ Fixpoint show_pstate (st : pstate) : string :=
       "List" ++ s_lstate ls ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
   | PAttr pend ind ap slices =>
       "Attr" ++ s_attr pend ++ s_nat ind ++ s_aparser ap ++ s_list s_str slices
+  | PRef ind lbl val => "Ref" ++ s_nat ind ++ s_str lbl ++ s_str val
   | PPend pend inner =>
       "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
   end.
@@ -152,6 +153,7 @@ Definition line_pool : list string :=
   ; "1. a"; "1) a"; "(1) a"                    (* KList, decimal *)
   ; "i. a"; "a. a"                             (* KList, ambiguous / alpha *)
   ; "{#i}"; "{#i"                              (* KAttr, done / pending *)
+  ; "[r]: u"; "[r]:"                           (* KRef, with / without a value *)
   ; "a"; "<}"                                  (* KText *)
   ; "  a"; "  - a"; "  > a"; "  ```"           (* the same, indented *)
   ].
@@ -170,13 +172,14 @@ Definition seed_prefixes : list (list string) :=
   ; ["- a"]; ["- a"; ""]; ["1. a"]; ["i. a"]   (* PList *)
   ; ["- - a"]; ["  - a"]                       (* PList, nested / indented *)
   ; ["{#i"]                                    (* PAttr *)
+  ; ["[r]: u"]; ["  [r]:"]                     (* PRef, at column 0 / indented *)
   ; ["{#i}"]; ["{#i}"; "a"]                    (* PPend *)
   ].
 
 Definition state_pool : list pstate :=
   map (fun ls => snd (run_lines ls (PPara []))) seed_prefixes.
 
-(* The product every `forall st l` probe runs over: 19 x 29 = 551. *)
+(* The product every `forall st l` probe runs over: 21 x 31 = 651. *)
 Definition sl_pool : list (pstate * string) := pairs state_pool line_pool.
 
 Definition show_sl (p : pstate * string) : string :=

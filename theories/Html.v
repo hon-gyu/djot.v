@@ -208,6 +208,9 @@ Fixpoint render_block (b : block) (a : attr) {struct b} : string :=
   | Table _ _ => ""           (* TODO Phase 1 *)
   | RawBlock fmt contents =>
       if String.eqb fmt "html" then contents else ""
+  (* A reference definition is not content: djot.js keeps it out of the
+     block tree entirely and emits nothing for it. *)
+  | RefDef _ _ => ""
   end.
 
 Definition render_node (n : node block) : string :=
