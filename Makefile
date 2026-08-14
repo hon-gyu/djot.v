@@ -27,9 +27,21 @@ generated: build
 	  --report generated-report.txt
 
 # the depth-3 enumeration (check/Deep.v), which dune does not build: it
-# is ~4 minutes, and it sits downstream of the parser, so leaving it in
-# the default build made every parser edit cost that.  Run it whenever
-# cb_ok, the enumeration, the renderer or the block parser changes.
+# is ~10 minutes, and it sits downstream of the parser, so leaving it in
+# the default build made every parser edit cost that.
+#
+# It asserts `parse (render d) = d` over canonical documents, so the test
+# for needing it is not "did the parser change" but "can this change
+# alter parse on *canonical output*".  Two consequences worth keeping in
+# mind, both of which have saved a run:
+#   - theories/Html.v is not in its cone at all (it imports Ast, Parser,
+#     Render, Generate), so an HTML-only change never needs it;
+#   - a new scanner mode reachable only through a byte sequence that
+#     `needs_escape` prevents canonical rendering from emitting is
+#     invisible to it.  Spans are the worked example: `IClosed` is only
+#     ever followed by `(` or `[` in canonical output, never `{`.
+# So: run it when cb_ok, the enumeration, Render.v or the block parser
+# changes, and when an inline change is reachable from canonical source.
 deep: build
 	rocq c -R _build/default/theories DjotV check/Deep.v
 	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \

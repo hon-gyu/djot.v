@@ -24,7 +24,7 @@
    did once a side outgrows the other. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Wf_nat.
-From DjotV Require Import Strings Ast.
+From DjotV Require Import Strings Ast Attributes.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -1241,6 +1241,13 @@ Definition bclosed_lit (kids : inlines) (image : bool) (o : ostate)
   let '(txt, o2) := bflat kids (pre ++ bracket_open image)%string o1 in
   ((txt ++ one rbrack)%string, o2).
 
+(* A span whose spec failed, or that ran out of line: the bracket's own
+   literal text, then the `{` and everything the machine read. *)
+Definition bspan_lit (kids : inlines) (image : bool) (src : string)
+  (o : ostate) : string * ostate :=
+  let '(txt, o') := bclosed_lit kids image o in
+  ((txt ++ one lbrace ++ src)%string, o').
+
 Definition bref_lit (kids : inlines) (image : bool) (label : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
@@ -1302,6 +1309,14 @@ Inductive iscan : Type :=
   (* inside the second bracket of `[text][label]`.  The label is source
      text, not inline content: upstream's `strMatches` retroactively
      flattens everything in this region before building the reference. *)
+  (* A closed bracket followed by `{`: a span, if the spec parses.  The
+     spec is read with the same machine block attributes use, fed a byte
+     at a time; `src` is what it has eaten, kept so the whole region can
+     be put back as text when the machine fails.  `image` is carried only
+     for that reconstruction -- a span ignores it, so `![x]{.a}` is a `!`
+     followed by a span. *)
+  | ISpan (kids : inlines) (image : bool) (p : aparser) (src : string)
+          (o : ostate)
   | IReference (kids : inlines) (image : bool) (label : string) (o : ostate)
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
@@ -1348,6 +1363,31 @@ Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
       IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o))
   | None => ilead c (txt ++ one lbrace)%string prev o
   end.
+
+(* A span ignores the image marker: `![x]{.a}` is a literal `!` followed
+   by a span.  The `!` was never flushed -- `IClosed` records it in a flag
+   and `bclosed_lit` puts it back on the literal path -- so the span path
+   has to emit it here, and it merges with any `Str` already at the tip
+   the same way, since `flush_text` alone would leave two adjacent. *)
+Definition ospan_bang (image : bool) (o : ostate) : ostate :=
+  if image
+  then let '(pre, o1) := opop_str o in flush_text (pre ++ one bang)%string o1
+  else o.
+
+(* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
+   node is built here with no byte left over.  On `AFail` the region up to
+   but not including the failing byte becomes text and that byte is
+   dispatched afresh: djot.js resumes its scan there, so `[s]{bad*x*y` is
+   `[s]{bad`, a strong `x`, and `y`. *)
+Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
+  (p : aparser) (src : string) (o : ostate) : iscan :=
+  let p' := astep p c in
+  if ap_failed p'
+  then let '(txt, o') := bspan_lit kids image src o in ilead c txt None o'
+  else if ap_done p'
+  then IText false EmptyString (Some rbrace)
+         (oemit (Node NoPos (ap_attrs p') (Span kids)) (ospan_bang image o))
+  else ISpan kids image p' (src ++ one c)%string o.
 
 (* Resolving a `!`: an image opener if a `[` follows, text otherwise.
    The `!` is *not* flushed with the text before it -- it is the opener's
@@ -1430,7 +1470,10 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
   | IClosed kids image o =>
       if Ascii.eqb c lparen then IDest kids image false 0 EmptyString o
       else if Ascii.eqb c lbrack then IReference kids image EmptyString o
+      else if Ascii.eqb c lbrace
+      then ISpan kids image ap_init EmptyString o
       else let '(txt, o') := bclosed_lit kids image o in ilead c txt None o'
+  | ISpan kids image p src o => ispan_feed c kids image p src o
   | IReference kids image label o =>
       if Ascii.eqb c rbrack
       then let key := match label with
@@ -1477,6 +1520,10 @@ Definition ifinish_ostate (st : iscan) : ostate :=
       let '(txt, o') := bdest_lit kids image esc dst o in flush_text txt o'
   | IReference kids image label o =>
       let '(txt, o') := bref_lit kids image label o in flush_text txt o'
+  (* an unclosed span is literal too: the scan does not cross the break,
+     so a spec that would have continued on the next line never closes *)
+  | ISpan kids image _ src o =>
+      let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDelim` or
      `IClosed` *)
   | IBrace _ _ o | IBang _ _ o | IDelim _ _ _ o | IClosed _ _ o => o
@@ -1520,6 +1567,11 @@ Definition ibreak (st : iscan) : iscan :=
         (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string o
   | IReference kids image label o =>
       IReference kids image (label ++ nl)%string o
+  (* A span's spec crosses the break too, and the newline is whitespace to
+     the machine: `[s]{.a` / `.b}` is one span whose classes merge.  It is
+     fed rather than accumulated because the machine is what decides
+     whether the break separates two tokens. *)
+  | ISpan kids image p src o => ispan_feed nl_char kids image p src o
   (* unreachable, as in `ifinish_ostate` *)
   | (IBrace _ _ _ | IBang _ _ _ | IDelim _ _ _ _ | IClosed _ _ _) as st' => st'
   end.
@@ -1540,7 +1592,8 @@ Definition iscan_closed (st : iscan) : bool :=
   (* an open destination owes the next line; `IClosed` cannot appear,
      since `iresolve` has just turned it into text *)
   | IBrace _ _ _ | IBang _ _ _ | IDelim _ _ _ _
-  | IClosed _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
+  | IClosed _ _ _ | ISpan _ _ _ _ _
+  | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
   end.
 
 Lemma ibreak_closed :
@@ -1550,7 +1603,7 @@ Lemma ibreak_closed :
                   (OState (mk SoftBreak :: ifinish_rev st) []).
 Proof.
   intros st H. unfold iscan_closed, ibreak, ifinish_rev, ifinish_ostate in *.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
@@ -1753,6 +1806,7 @@ Definition iout_app (base : inlines) (st : iscan) : iscan :=
   | IVerb n run txt o => IVerb n run txt (oout_app base o)
   | IBang txt prev o => IBang txt prev (oout_app base o)
   | IClosed kids image o => IClosed kids image (oout_app base o)
+  | ISpan kids image p src o => ISpan kids image p src (oout_app base o)
   | IReference kids image label o =>
       IReference kids image label (oout_app base o)
   | IDest kids image esc depth dst o =>
@@ -1894,6 +1948,18 @@ Proof.
   destruct (bclosed_lit kids image o). reflexivity.
 Qed.
 
+Lemma bspan_lit_app :
+  forall kids image src o base,
+    starts_str base = false ->
+    bspan_lit kids image src (oout_app base o) =
+    let '(txt, o') := bspan_lit kids image src o in
+    (txt, oout_app base o').
+Proof.
+  intros kids image src o base Hb. unfold bspan_lit.
+  rewrite (bclosed_lit_app kids image o base Hb).
+  destruct (bclosed_lit kids image o). reflexivity.
+Qed.
+
 Lemma ilead_app :
   forall c txt prev o base,
     ilead c txt prev (oout_app base o) = iout_app base (ilead c txt prev o).
@@ -1909,6 +1975,32 @@ Proof.
     [rewrite flush_text_app, bclose_app;
      destruct (bclose (flush_text txt o)) as [[[kids image] o']|]; reflexivity|].
   destruct (dstyle_of c); reflexivity.
+Qed.
+
+Lemma ospan_bang_app :
+  forall image o base,
+    starts_str base = false ->
+    ospan_bang image (oout_app base o) = oout_app base (ospan_bang image o).
+Proof.
+  intros image o base Hb. unfold ospan_bang. destruct image; [|reflexivity].
+  rewrite (opop_str_app o base Hb).
+  destruct (opop_str o) as [pre o1]; cbn [fst snd].
+  apply flush_text_app.
+Qed.
+
+Lemma ispan_feed_app :
+  forall c kids image p src o base,
+    starts_str base = false ->
+    ispan_feed c kids image p src (oout_app base o)
+    = iout_app base (ispan_feed c kids image p src o).
+Proof.
+  intros c kids image p src o base Hb. unfold ispan_feed.
+  destruct (ap_failed (astep p c)).
+  - rewrite (bspan_lit_app kids image src o base Hb).
+    destruct (bspan_lit kids image src o) as [txt o']. apply ilead_app.
+  - destruct (ap_done (astep p c)); [|reflexivity].
+    cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
+    rewrite oemit_app. reflexivity.
 Qed.
 
 Lemma idelim_resolve_app :
@@ -1932,7 +2024,7 @@ Lemma iresolve_app :
     starts_str base = false ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros base [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob] Hb;
     try reflexivity.
   - apply idelim_resolve_app.
   - cbn [iresolve iout_app]. rewrite (bclosed_lit_app kids img ob base Hb).
@@ -1944,7 +2036,7 @@ Lemma istep_out_app :
     starts_str base = false ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros c base [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob] Hb;
     cbn [iout_app istep].
   - reflexivity.
   - apply ilead_app.
@@ -1953,7 +2045,7 @@ Proof.
       |apply ilead_app].
   - rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ?|? ? ? ?|? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ?|? ? ? ?|? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
@@ -1966,8 +2058,10 @@ Proof.
       |apply ilead_app].
   - destruct (Ascii.eqb c lparen); [reflexivity|].
     destruct (Ascii.eqb c lbrack); [reflexivity|].
+    destruct (Ascii.eqb c lbrace); [reflexivity|].
     rewrite (bclosed_lit_app kids img ob base Hb).
     destruct (bclosed_lit kids img ob) as [txt o']. apply ilead_app.
+  - apply ispan_feed_app, Hb.
   - destruct (Ascii.eqb c rbrack); [cbn [iout_app]; rewrite oemit_app|];
       reflexivity.
   - destruct esc; [reflexivity|].
@@ -1992,9 +2086,10 @@ Lemma ibreak_out_app :
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app]; try reflexivity.
   1,2: rewrite flush_text_app, oemit_app; reflexivity.
+  2: apply ispan_feed_app, Hb.
   destruct (Nat.eqb run n); [|reflexivity].
   rewrite !oemit_app. reflexivity.
 Qed.
@@ -2078,7 +2173,7 @@ Lemma ifinish_rev_out_app :
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
   rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app].
   1,2: rewrite flush_text_app; apply ofinish_out_app, Hb.
   1,2: apply ofinish_out_app, Hb.
@@ -2086,6 +2181,9 @@ Proof.
   - rewrite oemit_app. apply ofinish_out_app, Hb.
   - apply ofinish_out_app, Hb.
   - apply ofinish_out_app, Hb.
+  - rewrite (bspan_lit_app kids img ssrc sob base Hb).
+    destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd].
+    rewrite flush_text_app. apply ofinish_out_app, Hb.
   - rewrite (bref_lit_app kids img label ob base Hb).
     destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd].
     rewrite flush_text_app. apply ofinish_out_app, Hb.
@@ -3500,7 +3598,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
+  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
     cbn [iresolve]; try exact I.
   - destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
     rewrite E. exact I.
@@ -3510,7 +3608,7 @@ Qed.
 Lemma iscan_productive_resolve :
   forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H.
   (* `IBrace` and `IBang` both push their own byte into the buffer *)
   1,3: cbn [iscan_productive]; apply orb_true_iff; left;
@@ -3521,10 +3619,35 @@ Proof.
     cbn [iscan_productive]. rewrite Hne. reflexivity.
 Qed.
 
+Lemma bspan_lit_productive :
+  forall kids image src o,
+    (nonempty_str (fst (bspan_lit kids image src o))
+     || ostate_nonempty (snd (bspan_lit kids image src o)))%bool = true.
+Proof.
+  intros kids image src o. unfold bspan_lit.
+  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
+  apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
+Qed.
+
+Lemma ispan_feed_productive :
+  forall c kids image p src o,
+    iscan_productive (ispan_feed c kids image p src o) = true.
+Proof.
+  intros c kids image p src o. unfold ispan_feed.
+  destruct (ap_failed (astep p c)).
+  - pose proof (bclosed_lit_nonempty kids image o) as Hne.
+    unfold bspan_lit. destruct (bclosed_lit kids image o) as [txt o'];
+      cbn [fst] in Hne.
+    apply iscan_productive_lead. apply orb_true_iff. left.
+    apply nonempty_str_app_l. reflexivity.
+  - destruct (ap_done (astep p c)); [|reflexivity].
+    cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
+Qed.
+
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob] H;
     cbn [istep].
   - cbn [iscan_productive]. apply orb_true_iff. left.
     apply nonempty_str_app_l. destruct (is_punct c); reflexivity.
@@ -3554,9 +3677,11 @@ Proof.
   - (* a literal bracket owes its own source; a destination owes more *)
     destruct (Ascii.eqb c lparen); [reflexivity|].
     destruct (Ascii.eqb c lbrack); [reflexivity|].
+    destruct (Ascii.eqb c lbrace); [reflexivity|].
     pose proof (bclosed_lit_nonempty kids img ob) as Hne.
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
     apply iscan_productive_lead. rewrite Hne. reflexivity.
+  - apply ispan_feed_productive.
   - destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
   - destruct esc; [reflexivity|].
@@ -3582,8 +3707,9 @@ Lemma iscan_productive_break :
   forall st, iscan_productive (ibreak st) = true.
 Proof.
   intros st. unfold ibreak.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
-    cbn [iscan_productive]; try reflexivity.
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
+    cbn [iscan_productive]; try reflexivity;
+    try apply ispan_feed_productive.
   1,2: rewrite ostate_nonempty_emit; apply orb_true_r.
   destruct (Nat.eqb run n); cbn [iscan_productive]; [|reflexivity].
   rewrite ostate_nonempty_emit. apply orb_true_r.
@@ -3655,7 +3781,7 @@ Proof.
   pose proof (iscan_productive_resolve st H) as Hres.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|txt prev o|k txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|kids img label ob|kids img esc depth dst ob];
     try contradiction; apply nonempty_ofinish.
   - apply ostate_nonempty_flush_str, nonempty_str_app_l. reflexivity.
   - cbn [iscan_productive] in Hres.
@@ -3664,6 +3790,10 @@ Proof.
       |apply ostate_nonempty_flush, Hres].
   - apply ostate_nonempty_emit.
   - apply ostate_nonempty_emit.
+  - pose proof (bspan_lit_productive kids img ssrc sob) as Hs.
+    destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd] in Hs.
+    apply orb_true_iff in Hs as [Hs|Hs];
+      [apply ostate_nonempty_flush_str, Hs | apply ostate_nonempty_flush, Hs].
   - pose proof (bref_lit_productive kids img label ob) as Hr.
     destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd] in Hr.
     apply orb_true_iff in Hr as [Hr|Hr];
@@ -4308,4 +4438,63 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example reference_unnormalized_label_not_canonical :
   ci_ok (CIRef false [CIStr "a"] "a  b") = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Spans
+=====
+
+`[...]` followed immediately by an attribute spec.  Each of these was
+pinned against djot.js before the mode was written; they are the mode's
+dispositions read back off the scanner.
+*)
+
+Example span_simple :
+  parse_inline_line "[s]{.a}"
+  = [Node NoPos [("class", "a")] (Span [mk (Str "s")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An empty spec still builds the node, and so does an empty label --
+   `wf_inline` exempts a span from `nonempty` for exactly this reason. *)
+Example span_empty_spec :
+  parse_inline_line "[s]{}" = [mk (Span [mk (Str "s")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example span_empty_label :
+  parse_inline_line "[]{.a}" = [Node NoPos [("class", "a")] (Span [])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The brace must be adjacent: a space between it and the `]` leaves an
+   ordinary bracket.  djot.js then drops the orphaned spec and we keep it
+   as text -- a standalone spec is not recognized until attributes attach
+   to a preceding element, so this pins today's behaviour, not djot's. *)
+Example span_needs_adjacent_brace :
+  parse_inline_line "[s] {.a}" = [mk (Str "[s] {.a}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A failed spec puts the region back as text and resumes the scan at the
+   byte that failed, so the `*` still opens a delimiter run. *)
+Example span_failed_spec_resumes :
+  parse_inline_line "[s]{bad*x*y"
+  = [mk (Str "[s]{bad"); mk (Strong [mk (Str "x")]); mk (Str "y")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* `!` is not part of a span: the image opener decays to text. *)
+Example span_ignores_image_marker :
+  parse_inline_line "![x]{.a}"
+  = [mk (Str "!"); Node NoPos [("class", "a")] (Span [mk (Str "x")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And it merges with the text before it rather than leaving two
+   adjacent `Str` nodes, which `wf_inlines` forbids. *)
+Example span_image_marker_merges :
+  parse_inline_line "a![x]{.a}"
+  = [mk (Str "a!"); Node NoPos [("class", "a")] (Span [mk (Str "x")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A second spec belongs to the span too (djot.js merges the classes),
+   but that is the same attachment increment: for now it is text. *)
+Example span_stacked_specs_not_yet :
+  parse_inline_line "[s]{.a}{.b}"
+  = [Node NoPos [("class", "a")] (Span [mk (Str "s")]); mk (Str "{.b}")].
 Proof. vm_compute. reflexivity. Qed.

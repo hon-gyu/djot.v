@@ -106,51 +106,66 @@ unchanged.
 Section WithRefs.
 Context (refs : reference_map).
 
-Fixpoint render_inline (il : inline) : string :=
+(* A node's own attributes render on its own tag, after any the
+   construct contributes itself ("extra attributes" in html.ts, which
+   emits them first).  A `Str` has no tag of its own, so djot.js wraps an
+   attributed one in a `<span>` and leaves a bare one alone
+   (html.ts:246) -- which is why `foo{.a}` is a `str` carrying attributes
+   in the AST and a span only in the output. *)
+Fixpoint render_inline (il : inline) (a : attr) : string :=
   let render_ils :=
     fix go (ns : list (node inline)) : string :=
       match ns with
       | [] => ""
-      | Node _ _ x :: rest => render_inline x ++ go rest
+      | Node _ a' x :: rest => render_inline x a' ++ go rest
       end in
+  let ats := render_attrs a in
   match il with
-  | Str s => escape s
-  | Emph ils => "<em>" ++ render_ils ils ++ "</em>"
-  | Strong ils => "<strong>" ++ render_ils ils ++ "</strong>"
-  | Highlight ils => "<mark>" ++ render_ils ils ++ "</mark>"
-  | Insert ils => "<ins>" ++ render_ils ils ++ "</ins>"
-  | Delete ils => "<del>" ++ render_ils ils ++ "</del>"
-  | Superscript ils => "<sup>" ++ render_ils ils ++ "</sup>"
-  | Subscript ils => "<sub>" ++ render_ils ils ++ "</sub>"
-  | Verbatim s => "<code>" ++ escape s ++ "</code>"
+  | Str s =>
+      match a with
+      | [] => escape s
+      | _ => "<span" ++ ats ++ ">" ++ escape s ++ "</span>"
+      end
+  | Emph ils => "<em" ++ ats ++ ">" ++ render_ils ils ++ "</em>"
+  | Strong ils => "<strong" ++ ats ++ ">" ++ render_ils ils ++ "</strong>"
+  | Highlight ils => "<mark" ++ ats ++ ">" ++ render_ils ils ++ "</mark>"
+  | Insert ils => "<ins" ++ ats ++ ">" ++ render_ils ils ++ "</ins>"
+  | Delete ils => "<del" ++ ats ++ ">" ++ render_ils ils ++ "</del>"
+  | Superscript ils => "<sup" ++ ats ++ ">" ++ render_ils ils ++ "</sup>"
+  | Subscript ils => "<sub" ++ ats ++ ">" ++ render_ils ils ++ "</sub>"
+  | Verbatim s => "<code" ++ ats ++ ">" ++ escape s ++ "</code>"
   | Symbol s => ":" ++ escape s ++ ":"
   | Math _ _ => ""            (* TODO Phase 1 *)
   (* `href` is an extra attribute, so it precedes the node's own and is
-     omitted entirely when the target is an unresolved reference: the
-     reference map is not carried here yet, and djot.js drops the
-     attribute (with a warning) when a label does not resolve. *)
+     omitted entirely when the target is an unresolved reference: djot.js
+     drops the attribute (with a warning) when a label does not resolve.
+     A resolved reference contributes the definition's attributes, which
+     are extra in the same sense and so also precede the node's. *)
   | Link ils (Direct url) =>
-      "<a href=""" ++ escape_attr url ++ """>" ++ render_ils ils ++ "</a>"
+      "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">"
+      ++ render_ils ils ++ "</a>"
   | Link ils (Reference label) =>
       match lookup_reference label refs with
-      | Some (url, a) =>
-          "<a href=""" ++ escape_attr url ++ """" ++ render_attrs a ++ ">"
-          ++ render_ils ils ++ "</a>"
-      | None => "<a>" ++ render_ils ils ++ "</a>"
+      | Some (url, a0) =>
+          "<a href=""" ++ escape_attr url ++ """" ++ render_attrs a0 ++ ats
+          ++ ">" ++ render_ils ils ++ "</a>"
+      | None => "<a" ++ ats ++ ">" ++ render_ils ils ++ "</a>"
       end
   (* `alt` precedes `src`, both extra attributes, in that order
      (html.ts:452). *)
   | Image ils (Direct url) =>
       "<img alt=""" ++ escape_attr (plain_texts ils)
-        ++ """ src=""" ++ escape_attr url ++ """>"
+        ++ """ src=""" ++ escape_attr url ++ """" ++ ats ++ ">"
   | Image ils (Reference label) =>
       match lookup_reference label refs with
-      | Some (url, a) =>
+      | Some (url, a0) =>
           "<img alt=""" ++ escape_attr (plain_texts ils)
-            ++ """ src=""" ++ escape_attr url ++ """" ++ render_attrs a ++ ">"
-      | None => "<img alt=""" ++ escape_attr (plain_texts ils) ++ """>"
+            ++ """ src=""" ++ escape_attr url ++ """" ++ render_attrs a0
+            ++ ats ++ ">"
+      | None => "<img alt=""" ++ escape_attr (plain_texts ils) ++ """"
+                ++ ats ++ ">"
       end
-  | Span ils => "<span>" ++ render_ils ils ++ "</span>"
+  | Span ils => "<span" ++ ats ++ ">" ++ render_ils ils ++ "</span>"
   | FootnoteReference _ => "" (* TODO Phase 1 *)
   | UrlLink _ => ""           (* TODO Phase 1 *)
   | EmailLink _ => ""         (* TODO Phase 1 *)
@@ -162,7 +177,9 @@ Fixpoint render_inline (il : inline) : string :=
   end.
 
 Definition render_inlines (ils : inlines) : string :=
-  String.concat "" (map (fun n => render_inline (node_contents n)) ils).
+  String.concat "" (map (fun n => match n with
+                                  | Node _ a x => render_inline x a
+                                  end) ils).
 
 (*
 Blocks
