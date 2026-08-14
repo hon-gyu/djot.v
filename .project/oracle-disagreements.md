@@ -257,9 +257,9 @@ argument, containers pass it through and items set it. Generated corpus
 since no corpus case puts a paragraph inside a container inside a tight
 item.
 
-### Still ours: a blank inside a still-open div in a list item
+### Fixed: a blank inside a still-open div in a list item
 
-The **63** generated mismatches the renderer fix left are all one shape:
+The **63** generated mismatches the renderer fix left were all one shape:
 
 ```
 - :::
@@ -269,23 +269,65 @@ The **63** generated mismatches the renderer fix left are all one shape:
   :::
 ```
 
-djot.js calls the outer list tight, we call it `Loose`. The mechanism is
-the one the entry above wrongly attributed to the whole family. djot.js
-runs container `continue`s before the blankline handler, so what the
-handler sees is the stack *after* this line's containers have closed: a
-div survives a blank and is the tip, and no list is armed. A block quote
-does *not* survive a prefix-less blank, which is why `- > a` / blank /
-`  t` is loose in both engines -- the quote has closed by the time the
-blank is handled.
+djot.js called the outer list tight, we called it `Loose`. djot.js runs
+container `continue`s before the blankline handler, so what the handler
+sees is the stack *after* this line's containers have closed: a div
+survives a blank and is the tip, and no list is armed. A block quote does
+*not* survive a prefix-less blank, which is why `- > a` / blank / `  t`
+is loose in both engines -- the quote has closed by the time the blank is
+handled.
 
-`Step.step` decides this from `list_open inner`, the state *before* the
-descent, so it cannot tell the two apart. The faithful test is on the
-state after: arm `ls` only when the blank did not come to rest inside a
-container. That is a small change to `step` and a matching one to
-`Render.lines_loose` / `item_forces_loose`, which mirror it at the line
-level and which `cb_ok`'s spacing clause and `roundtrip_blocks` both
-depend on -- a canonical `CList [[CDiv [...; ...]]]` renders exactly this
-shape. So: its own step, with a proof cost, not a patch.
+`Step.step` decided this from `list_open inner`, which asks only whether
+a *list* is open. The replacement, `blank_absorbed`, asks whether
+anything the item still has open takes the blank first: a div, a code
+block, a nested list and an unfinished attribute spec all absorb it; a
+block quote, a heading and a reference definition do not. Stated that way
+it is still a predicate on the state *before* the descent, so
+`step_list_blank` kept its shape and the cost was a rename plus the
+`PQuote` line -- the "test the state after" framing in the note this
+replaces would have needed a `pad_safe` hypothesis `list_loose_of_pad`
+does not have.
+
+Each of the six containers was pinned against the oracle before the
+predicate was written, and `list_open` is now dead. Generated corpus
+3022/3085 -> **3067** of 3094 (the pool grew because `cb_ok` admits more
+spacings once `item_forces_loose` changes).
+
+### Still ours: a div's closing line does not arm the enclosing list
+
+The **27** that remain are the complementary shape, and unlike the family
+above they need no blank line at all:
+
+```
+- :::
+  a
+  :::
+- t
+```
+
+djot.js calls this list loose. `isBlank` is computed *after* the
+container closers have eaten the line (block.ts:1051), so a `:::` that
+closes a div leaves nothing at the tip and fires the same `blankline`
+event an empty line does. A fence closer does not: the code block
+consumes its closer inside its own `continue`, before that test. Hence
+`- ```/a/```/- b` is tight and `- :::/a/:::/- b` is loose -- verified
+against the oracle both ways.
+
+This one is genuinely expensive, and the price was measured rather than
+guessed. Making a *nonblank* line arm `ls_blanks` falsifies
+`scan_list_content_nonblank` and `scan_list_content_blanks_last`, and the
+`ls_blanks ls = false` precondition of `parse_list_tail` /
+`parse_item_and_tail` is *used* (two `rewrite Hblanks` collapse the loose
+formula), not merely carried -- so all three statements have to carry the
+incoming flag into their conclusions. Worse, it breaks `roundtrip_blocks`
+as it stands: a canonical `CList Tight [[CDiv [...]]; [...]]` renders
+exactly the shape above and would parse back `Loose`, so `cb_ok`'s
+spacing clause needs a new conjunct for "this item's lines end with the
+flag armed" alongside `seps_loosen`.
+
+So the fix is: generalize the three `ListUniformity` statements over
+`ls_blanks ls`, add the conjunct to `cb_ok`, then `div_closer` in `step`
+is two lines. It is a step of its own, and the 27 are its measurement.
 
 ### Headings inside containers
 
@@ -558,10 +600,12 @@ Found while checking the residue; pre-existing, not caused by the above.
 | `- > q` / `- t` | tight | tight |
 | `- :::` / `  a` / `  :::` (one item) | tight | tight |
 
-No blank line anywhere, and a quote in the same position does not do it,
-so it is something about how `fenced_div`'s close interacts with the
-event stream rather than a blank-line rule. 12 documents in the generated
-corpus. Not diagnosed.
+No blank line anywhere, and a quote in the same position does not do it.
+**Diagnosed 2026-08-14**: a div's closing line is itself a `blankline`
+event, because `isBlank` is computed after the closers have eaten the
+line. See "Still ours: a div's closing line does not arm the enclosing
+list" above, which carries the mechanism, the proof cost and the current
+count (27, up from 12 because the pool grew).
 
 ## Adjudicated 2026-08-10 — an ordered list starting at 0
 

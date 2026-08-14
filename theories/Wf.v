@@ -1697,7 +1697,7 @@ Proof.
       cbn [state_wf].
       (* the blank either leaves the list state alone or only arms
          `ls_blanks`; either way `ls_items` is untouched *)
-      destruct (list_open inner); cbn [ls_items list_blank];
+      destruct (blank_absorbed inner); cbn [ls_items list_blank];
         rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs. }
     6: { (* attribute spec: item contents when indented, else close *)
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
@@ -2201,7 +2201,7 @@ Proof.
          cbn [fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported].
-         destruct (list_open inner); cbn [ls_items list_blank];
+         destruct (blank_absorbed inner); cbn [ls_items list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs. }
     8: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).

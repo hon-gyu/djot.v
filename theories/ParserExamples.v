@@ -486,3 +486,29 @@ Example parse_ref_attributes :
 [a]: u"
   = [Node NoPos [("id", "x")] (RefDef "a" "u")].
 Proof. reflexivity. Qed.
+
+(* Tightness and what absorbs a blank line inside a list item.  Each of
+   these was pinned against djot.js before `blank_absorbed` was written:
+   the predicate is the list of containers that survive a blank, so the
+   examples are the predicate read back off the parser. *)
+
+(* A div survives the blank and takes it, so the list stays tight. *)
+Example parse_blank_absorbed_by_div :
+  parse_blocks "- :::
+  a
+
+  t
+  :::"
+  = [mk (BulletList Tight
+           [[mk (Div [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
+Proof. reflexivity. Qed.
+
+(* A block quote does not: the prefix-less blank closes it, so the blank
+   reaches the list and loosens it. *)
+Example parse_blank_not_absorbed_by_quote :
+  parse_blocks "- > a
+
+  t"
+  = [mk (BulletList Loose
+           [[mk (BlockQuote [mk (Para [mk (Str "a")])]); mk (Para [mk (Str "t")])]])].
+Proof. reflexivity. Qed.

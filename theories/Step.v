@@ -440,16 +440,29 @@ Definition list_narrow (ls : list_state) (ns : list (lstyle * nat))
 Lemma list_narrow_id : forall ls, list_narrow ls (ls_styles ls) = ls.
 Proof. intros ls. destruct ls. reflexivity. Qed.
 
-(* Is a list open *directly* here, with no other container in between?
-   djot.js's `blankline` handler arms one list node, the innermost, and
-   reaches at most one level down the container stack (parse.ts ~1197),
-   so a list behind a quote is not it.  The one recursion is through
-   `PPend`, which is not a container at all — djot.js keeps pending block
-   attributes in a document-wide variable, so they interpose nothing. *)
-Fixpoint list_open (st : pstate) : bool :=
+(* Does a blank line arriving here come to rest inside something the item
+   still has open?  djot.js's tight/loose machinery only ever inspects the
+   top container and the one below it (parse.ts:1199-1203), which are the
+   item and the list exactly when the item's content is a leaf; anything
+   deeper hides the list, so the blank never reaches it.
+
+   The containers' `continue`s run before the blankline handler
+   (block.ts:634 before parse.ts:1197), so what matters is the stack
+   *after* this line: a div, a code block, a nested list and an unfinished
+   attribute spec all survive a blank and absorb it, while a blockquote
+   has already closed and lets it through.  A heading and a reference
+   definition close too, and `PPend` is not on the stack at all -- djot.js
+   keeps pending block attributes in a document-wide variable.
+
+   Tabulating survival that way is what lets this be a predicate on the
+   state *before* the descent even though the rule is about the stack
+   after: `step` is deterministic and a blank's effect on the top
+   constructor depends on nothing else.  Reading it off `inner` rather
+   than `inner'` is why every pad lemma below stays one line. *)
+Fixpoint blank_absorbed (st : pstate) : bool :=
   match st with
-  | PList _ _ _ => true
-  | PPend _ inner => list_open inner   (* pending attributes are transparent *)
+  | PFence _ _ | PDiv _ _ _ _ | PList _ _ _ | PAttr _ _ _ _ => true
+  | PPend _ inner => blank_absorbed inner
   | _ => false
   end.
 
@@ -596,14 +609,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | KBlank =>
               (* a blank arms the loose flag but closes nothing: it goes
                  to the item's contents, where it ends any open
-                 paragraph.  It arms *this* list only when the item has no
-                 nested list open to claim it first — there the blank is
-                 that list's trailing blank, which the spec exempts from
-                 tightness ("blank lines at the start or end of a list do
-                 not count"), so the enclosing list never sees it.  The
-                 recursion then arms exactly the innermost open list. *)
+                 paragraph.  It arms *this* list only when nothing the
+                 item has open absorbs it first, which `blank_absorbed`
+                 reads off the state before the descent.  The recursion
+                 then arms exactly the innermost list that can see it. *)
               let (bs, inner') := step_fuel n' off l inner in
-              let ls' := if list_open inner then ls else list_blank ls in
+              let ls' := if blank_absorbed inner then ls else list_blank ls in
               ([], PList ls' (rev bs ++ done)%list inner')
           | k =>
               if Nat.ltb (ls_indent ls) (off + indent_of l)
@@ -995,14 +1006,15 @@ Lemma pad_state_is_idle :
   forall n st, is_idle (pad_state n st) = is_idle st.
 Proof. intros n st. destruct st; reflexivity. Qed.
 
-Lemma pad_state_list_open :
-  forall n st, list_open (pad_state n st) = list_open st.
+Lemma pad_state_blank_absorbed :
+  forall n st, blank_absorbed (pad_state n st) = blank_absorbed st.
 Proof.
   intros n st.
   induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
                   |apend aind aap aslices|rind rlbl rval|ppend pinner IH];
-    try reflexivity; cbn [pad_state list_open]; exact IH.
+    try reflexivity; cbn [pad_state blank_absorbed]; exact IH.
 Qed.
+
 
 Lemma pad_list_content :
   forall n ls k,
@@ -1168,8 +1180,8 @@ Proof.
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc mr|kap|rlbl rval|] eqn:E.
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_list_open.
-      destruct (list_open inner); [reflexivity|].
+      cbn [fst snd pad_state]. rewrite pad_state_blank_absorbed.
+      destruct (blank_absorbed inner); [reflexivity|].
       rewrite pad_list_blank. reflexivity. }
     all: cbn [ls_indent]; rewrite <- Nat.add_assoc, ltb_add_mono_l.
     all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l)) eqn:Elt.
@@ -1497,15 +1509,14 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-(* The blank arms this list only when the item has no list of its own to
-   claim it; `list_open inner` is the test, on the state before the
-   blank. *)
+(* The blank arms this list only when the item has nothing open to absorb
+   it first; `blank_absorbed inner` is the test. *)
 Lemma step_list_blank :
   forall l ls done inner bs inner',
     classify l = KBlank ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (if list_open inner then ls else list_blank ls)
+    ([], PList (if blank_absorbed inner then ls else list_blank ls)
                (rev bs ++ done)%list inner').
 Proof.
   intros l ls done inner bs inner' H Hr. unfold step at 1.

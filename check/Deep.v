@@ -41,10 +41,12 @@ Proof. vm_compute. reflexivity. Qed.
 (* The delimiter leaf took these to (82, 1009, 12054), the link leaf to
    (99, 1222, 14597) and the image leaf to (116, 1435, 17140).  The
    reference definition and the reference link landed together and took
-   them to the numbers below.  The count is a coverage witness: adding a
-   canonical construct must enlarge the generated fragment rather than
-   only changing its proofs. *)
+   them to (150, 1861, 22226); `blank_absorbed` then admitted more
+   spacings, giving the numbers below.  A tightness rule can enlarge the
+   fragment without adding a construct.  Either way the count is a
+   coverage witness: a change here must enlarge the generated fragment
+   rather than only change its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (150, 1861, 22226).
+                           List.length (accepted 3)) = (150, 1870, 22450).
 Proof. vm_compute. reflexivity. Qed.

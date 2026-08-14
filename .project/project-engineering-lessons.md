@@ -337,3 +337,50 @@ each whether it uses the structure or merely carries it. That count is
 the estimate. It is also the plan: the lines that use it are exactly the
 hypotheses the generalized statement has to add. This fires next on the
 inline parser, whose delimiter machinery will want the same treatment.
+
+## Split a fix by proof cost before landing it, and look for the cheap spelling
+
+**What happened.** The list-tightness gap turned out to be two
+independent rules, not one. A blank must not arm a list when something
+the item still has open absorbs it (63 generated mismatches), and a
+div's closing line must arm it because djot.js computes `isBlank` after
+the closers eat the line (27, then unmeasured). Both were confirmed
+against the oracle in the same hour and implemented together. The second
+one then hit `scan_list_content_blanks_last`, the `ls_blanks ls = false`
+precondition that `parse_list_tail` *uses* rather than carries, and
+`roundtrip_blocks` -- a canonical `CList Tight [[CDiv [...]]; [...]]`
+renders exactly its shape. Reverting it and landing the first alone took
+the corpus from 3022/3085 to 3067/3094 and left the residue as one named
+family with a number on it.
+
+The first rule had its own trap. The note from the previous session said
+"the faithful test is on the state *after* the descent", which is true
+about djot.js and made the change look like it would ripple: written as
+`nested_container inner'` it needed `pad_state`-through-`step` lemmas,
+and `list_loose_of_pad` has no `pad_safe` hypothesis to supply them. The
+same function has an equivalent spelling on the state *before* --
+tabulate which constructors survive a blank, which is `nested_container`
+minus `PQuote` -- and in that form it is a plain structural predicate,
+every pad lemma is one line, `step_list_blank` keeps its shape, and the
+whole change is a rename.
+
+**General form.** Two corrections found together are not one step. Their
+measured benefit and their proof cost are independent, and landing them
+as a unit prices the pair at the maximum of the two. Separately: a rule
+discovered by reading the oracle's *control flow* ("the handler runs
+after the continues") arrives phrased as a claim about an intermediate
+state, and that phrasing can be much more expensive to formalize than an
+extensionally equal one. `step` is deterministic, so a predicate on the
+post-state is a predicate on the pre-state whenever the transition is
+constructor-determined -- which for blank lines it is.
+
+**What to do instead.** When a diagnosis yields more than one rule, get a
+corpus number for each *before* writing proofs, then land them in cost
+order and log the rest with the obligation that stopped it -- naming the
+lemma that fails, not just "has a proof cost". And before formalizing a
+rule stated about an intermediate state, tabulate the transition over the
+constructors and check whether the same predicate can be read off the
+state you already have; the oracle's control flow is evidence about
+behaviour, not a specification of where the test belongs. This fires next
+on footnote references and on tables, which both add a container and will
+face the same "does a blank close it" question.
