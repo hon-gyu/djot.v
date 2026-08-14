@@ -35,10 +35,12 @@ Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
 Proof. vm_compute. reflexivity. Qed.
 
 (* The delimiter leaf took these to (82, 1009, 12054), the link leaf to
-   (99, 1222, 14597) and the image leaf to (116, 1435, 17140).  The count
-   is a coverage witness: adding a canonical construct must enlarge the
-   generated fragment rather than only changing its proofs. *)
+   (99, 1222, 14597) and the image leaf to (116, 1435, 17140).  The
+   reference definition and the reference link landed together and took
+   them to the numbers below.  The count is a coverage witness: adding a
+   canonical construct must enlarge the generated fragment rather than
+   only changing its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (116, 1435, 17140).
+                           List.length (accepted 3)) = (150, 1861, 22226).
 Proof. vm_compute. reflexivity. Qed.

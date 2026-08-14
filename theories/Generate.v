@@ -43,6 +43,7 @@ Definition leaves : list cblock :=
   ; CPara [[CIDelim DEmph [CIStr "e"]]]
   ; CPara [[CILink false [CIStr "l"] "u"]]
   ; CPara [[CILink true [CIStr "i"] "u"]]
+  ; CPara [[CIRef false [CIStr "r"] "lab"]]
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"]

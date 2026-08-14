@@ -227,6 +227,36 @@ behaviour meanwhile — it matches the prose and djoths, and changing it
 would mean restating `Parser.list_uniformity`'s spacing clause, not
 patching a case.
 
+### Also ours: a blank inside a container inside a list item
+
+Found 2026-08-14, when the reference-definition leaf enlarged the
+generated corpus and 13 more documents of this shape appeared. It is not
+new and not about definitions: `- > a` / `  > ` / `  > t` is **tight** in
+djot.js and **loose** for us, and so is the same shape with a div in
+place of the quote.
+
+The boundary, checked against djot.js:
+
+| input | djot.js | ours |
+|---|---|---|
+| `- a` / blank / `  t` | loose | loose |
+| `- > a` / `  > ` / `  > t` | tight | loose |
+| `- :::` / `  a` / blank / `  t` / `  :::` | tight | loose |
+| `- - a` / blank / `    t` | inner loose, outer tight | same |
+
+So djot.js arms the innermost *list* and only when the blank is in that
+list's own item flow; a quote or a div between the item and the blank
+means no list is armed at all. Our `Step.list_open` tests only whether
+the item has a list open directly, so a quote or a div falls through to
+"arm this list".
+
+The fix is a one-word change to that predicate -- arm `ls` only when
+`inner` opens no container at all, rather than only when it opens no
+list -- but `list_blank` is threaded through `ListUniformity`'s spacing
+lemmas and `Render.item_forces_loose`, so it is a step of its own and not
+a patch. Recorded here rather than fixed with the construct that
+surfaced it.
+
 ### Headings inside containers
 
 This one is ours regardless of how the oracles' disagreement resolves,
