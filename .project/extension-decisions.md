@@ -102,7 +102,7 @@ the character belongs to one row, so there is nothing to disambiguate.
 `IDelim` counts the characters that have arrived after the first, so no
 state ever holds an empty token.
 
-Three pieces remain, in the order they bite:
+The pieces, in the order they bite:
 
 1. **Scanning a token: done.** `iscan_chars_delim` walks the counter up
    through the row's characters, `iscan_dtoken` scans a whole token from
@@ -113,16 +113,30 @@ Three pieces remain, in the order they bite:
    them. The only hypothesis is that a row has a token at all
    (`dwidth k <> 0`).
 
-2. **The canonical renderer.** `ci_src` still spells a delimiter with one
-   character, so at width two it writes what the scanner cannot read
-   back. This is now the blocking piece, and the obstacle is not the
-   definition but the proofs: at width one `dtoken k` reduces to that
-   spelling, so the roundtrip goals display in the reduced form and the
-   decompositions they rewrite with are stated that way. Widening `ci_src`
-   means restating those three decompositions over `marked_open` /
-   `marked_close` and reproving them without the reduction.
+2. **The canonical renderer: done.** `ci_src` and `inline_text` both
+   spell a delimiter as `marked_open` / `marked_close`, so what the
+   renderer writes is what the scanner reads at any width. The expected
+   cost -- restating the three decompositions that had been written in
+   the one-character form -- came in smaller than the estimate: with
+   `marked_close_app` (a close with an empty tail absorbs what follows)
+   each is two lines, and every proof that merely *carried* the spelling
+   was untouched, since `cbn` never had to see through it. `dwidth_nonzero`
+   replaces two unfoldings of djot's table with one fact checked in one
+   place.
 
-3. **Threading.** The table is a fixed `Definition config`, so a
+3. **The marked open consumes one character.** Found by building at
+   `emph = *, strong = __`, where `iscan_marked_open` stops being
+   provable. `ibrace_step` matches `dstyle_of c` on the byte after `{`
+   and pushes the scope there and then, so at width two the push happens
+   a character early and the rest of the token is scanned as text. The
+   bare open has no such problem -- `ilead` enters `IDelim` and the
+   counter spells the token -- so the repair is to give the braced open
+   the same state, carrying the marker flag, rather than to widen
+   `ibrace_step` in place. This is a scanner change with an `iscan`
+   constructor's worth of proof behind it, which is why it is now the
+   blocking piece and not the renderer.
+
+4. **Threading.** The table is a fixed `Definition config`, so a
    configuration is chosen at build time. Mechanical, and what makes
    every statement quantify over the family rather than over djot.
 

@@ -154,6 +154,14 @@ Fixpoint chars (c : ascii) (n : nat) : string :=
    to disambiguate. *)
 Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 
+(* Every row has a token to write.  A width of zero would spell a
+   delimiter as the empty string, which nothing could scan and nothing
+   could close, so it is not a table this development admits.  Checked of
+   the table in force by computation, in one place, rather than unfolded
+   at each use. *)
+Lemma dwidth_nonzero : forall k, dwidth k <> 0.
+Proof. intros []; vm_compute; discriminate. Qed.
+
 (* Whether an unbraced delimiter may open a span at all. *)
 Definition dbare (k : dstyle) : bool :=
   match dsyntax_of k with DBare => true | _ => false end.
@@ -338,6 +346,27 @@ Definition one (c : ascii) : string := String c EmptyString.
 
 Lemma nl_one_char : nl = one nl_char.
 Proof. reflexivity. Qed.
+
+(* The braced spelling of a delimiter, which is the canonical one: it
+   opens and closes on sight, so it needs no neighbouring byte to be read
+   as a delimiter.  Both the renderer and the scanner inversion speak of
+   it, and both go through `dtoken`, so a row wider than one character is
+   written the way it is read. *)
+Definition marked_open (k : dstyle) : string := (one lbrace ++ dtoken k)%string.
+
+Definition marked_close (k : dstyle) (tail : string) : string :=
+  (dtoken k ++ one rbrace ++ tail)%string.
+
+(* The tail is what follows the close, so a close with nothing after it
+   absorbs whatever text comes next.  This is the join the roundtrip
+   rewrites with: `ci_src` closes on `EmptyString` and the scan wants the
+   rest of the line in its place. *)
+Lemma marked_close_app :
+  forall k tail, (marked_close k EmptyString ++ tail)%string = marked_close k tail.
+Proof.
+  intros k tail. unfold marked_close.
+  rewrite !append_assoc. reflexivity.
+Qed.
 
 Definition needs_escape (c : ascii) : bool :=
   (is_bslash c || is_tick c || is_delim c
@@ -683,11 +712,7 @@ Fixpoint ci_src (ci : cinline) : string :=
   | CIStr s => escape_str s
   | CIVerb s => verb_text s
   | CIDelim k kids =>
-      (* one character, not `dtoken k`: widening this is what makes the
-         canonical renderer agree with the scanner above width one, and
-         it is the piece that moves proofs matching on its shape *)
-      String lbrace
-        (String (dchar k) (go kids ++ String (dchar k) (one rbrace)))
+      (marked_open k ++ (go kids ++ marked_close k EmptyString))%string
   | CILink img kids dst =>
       (bracket_open img ++ (go kids ++ link_close dst EmptyString))%string
   | CIRef img kids label =>
@@ -705,8 +730,7 @@ Definition ci_line (cis : list cinline) : string := ci_text cis.
 Lemma ci_src_delim :
   forall k kids,
     ci_src (CIDelim k kids)
-    = String lbrace
-        (String (dchar k) (ci_text kids ++ String (dchar k) (one rbrace))).
+    = (marked_open k ++ (ci_text kids ++ marked_close k EmptyString))%string.
 Proof.
   intros k kids.
   assert (H : forall xs,
@@ -2629,11 +2653,6 @@ Proof.
   repeat rewrite andb_true_iff in H. destruct H as [[[_ _] _] H]. exact H.
 Qed.
 
-Definition marked_open (k : dstyle) : string := (one lbrace ++ dtoken k)%string.
-
-Definition marked_close (k : dstyle) (tail : string) : string :=
-  (dtoken k ++ one rbrace ++ tail)%string.
-
 Lemma ilead_dchar :
   forall k txt prev o,
     ilead (dchar k) txt prev o
@@ -2688,13 +2707,11 @@ Lemma iscan_marked_close_step :
 Proof.
   intros k txt prev o o' Hw H.
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hw).
-  cbn [iscan_str istep].
+  unfold one. cbn [iscan_str istep].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
-  change (idelim_resolve k txt (nonspace_at (str_last txt prev)) true
-            (Some rbrace) o
-          = IText false EmptyString (Some rbrace) o').
-  unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity.
+  rewrite Ascii.eqb_refl. unfold idelim_resolve.
+  rewrite Bool.orb_true_r, H. reflexivity.
 Qed.
 
 Lemma iscan_marked_flush :
@@ -2727,8 +2744,7 @@ Proof.
       unfold flush_text. rewrite Htxt.
       apply oclose_oemit_all_marked, Hbefore. }
   destruct Hclose as [o' Hclose]. exists prev.
-  assert (Hw : dwidth k <> 0)
-    by (unfold dwidth, config, djot_config, djot_dwidth; cbn [dc_width]; lia).
+  pose proof (dwidth_nonzero k) as Hw.
   unfold marked_close. rewrite <- append_assoc.
   rewrite !(iscan_str_app (dtoken k ++ one rbrace) tail).
   rewrite (iscan_marked_close_step k txt prev
@@ -2760,7 +2776,7 @@ Proof.
   rewrite (iscan_marked_close_step d EmptyString p
              (oemit_all ns (opush d true base))
              (oemit (mk (dnode d ns)) base)
-             ltac:(unfold dwidth, config, djot_config, djot_dwidth; cbn [dc_width]; lia)
+             (dwidth_nonzero _)
              ltac:(cbn [flush_text]; apply oclose_oemit_all_marked, Hne)).
   reflexivity.
 Qed.
@@ -3243,12 +3259,10 @@ Proof.
                  Hcl Hct Hflush (cis_ok_tail _ _ Hok) eq_refl).
         rewrite Hpre. reflexivity. }
       assert (Hsrc : forall t,
-        (((String lbrace
-             (String (dchar d)
-               (ci_text kids ++ String (dchar d) (one rbrace))) ++ t))%string)
+        ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
+           ++ t)%string
         = (marked_open d ++ (ci_text kids ++ marked_close d t))%string).
-      { intro t. unfold marked_open, marked_close, dtoken, one.
-        cbn [chars append]. repeat rewrite append_assoc. reflexivity. }
+      { intro t. rewrite !append_assoc, marked_close_app. reflexivity. }
       assert (Hkins : nonempty (ci_inlines kids) = true).
       { destruct kids; [discriminate|reflexivity]. }
       destruct txt as [|x txt'].
@@ -3537,14 +3551,11 @@ Proof.
       destruct (IHkids Hkn) as [pk Ekids].
       cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
       assert (Hsrc :
-        (String lbrace
-            (String (dchar d)
-              (ci_text kids ++ String (dchar d) (one rbrace))) ++
-          ci_text rest)%string
+        ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
+           ++ ci_text rest)%string
         = (marked_open d ++
             (ci_text kids ++ marked_close d (ci_text rest)))%string).
-      { unfold marked_open, marked_close, dtoken, one. cbn [chars append].
-        repeat rewrite append_assoc. reflexivity. }
+      { rewrite !append_assoc, marked_close_app. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_marked_open.
       cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
       assert (Hkins : nonempty (ci_inlines kids) = true).
@@ -3664,14 +3675,11 @@ Proof.
     destruct (IHkids Hkn) as [pk Ekids].
     cbn [ci_text]. rewrite ci_src_delim.
     assert (Hsrc :
-      (String lbrace
-          (String (dchar d)
-            (ci_text kids ++ String (dchar d) (one rbrace))) ++
-        ci_text rest)%string
+      ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
+         ++ ci_text rest)%string
       = (marked_open d ++
           (ci_text kids ++ marked_close d (ci_text rest)))%string).
-    { unfold marked_open, marked_close, dtoken, one. cbn [chars append].
-      repeat rewrite append_assoc. reflexivity. }
+    { rewrite !append_assoc, marked_close_app. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_marked_open.
     cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
     assert (Hkins : nonempty (ci_inlines kids) = true).
@@ -4340,8 +4348,7 @@ Fixpoint inline_text (il : inline) : string :=
       | Node _ _ x :: rest => (inline_text x ++ go rest)%string
       end in
   let marked (k : dstyle) (ns : inlines) :=
-    String lbrace
-      (String (dchar k) (go ns ++ String (dchar k) (one rbrace))) in
+    (marked_open k ++ (go ns ++ marked_close k EmptyString))%string in
   match il with
   | Str s => escape_str s
   | Verbatim s => verb_text s
