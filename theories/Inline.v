@@ -47,6 +47,20 @@ Definition is_punct (c : ascii) : bool :=
   ((Nat.leb 33 n && Nat.leb n 47) || (Nat.leb 58 n && Nat.leb n 64)
    || (Nat.leb 91 n && Nat.leb n 96) || (Nat.leb 123 n && Nat.leb n 126))%bool.
 
+(* Both are what an escape dispatches on, and they do not overlap: every
+   punctuation range starts at 33 and every whitespace byte is below it. *)
+Lemma is_punct_not_ws : forall c, is_punct c = true -> is_ws c = false.
+Proof.
+  intros c H. unfold is_ws.
+  destruct (Ascii.eqb c " "%char) eqn:E1;
+    [apply Ascii.eqb_eq in E1; subst c; vm_compute in H; discriminate|].
+  destruct (Ascii.eqb c "009"%char) eqn:E2;
+    [apply Ascii.eqb_eq in E2; subst c; vm_compute in H; discriminate|].
+  destruct (Ascii.eqb c "013"%char) eqn:E3;
+    [apply Ascii.eqb_eq in E3; subst c; vm_compute in H; discriminate|].
+  reflexivity.
+Qed.
+
 (* The characters a `CIStr` must escape to survive reparsing.  Today only
    the backslash: nothing else has inline meaning yet.  Every construct
    that claims a delimiter character adds it here, and the two
@@ -1777,6 +1791,15 @@ Inductive iscan : Type :=
      is the byte before `txt` (`None` at the start of a paragraph or of a
      line), which is what `can_close` consults when `txt` is empty *)
   | IText (esc : bool) (txt : string) (prev : option ascii) (o : ostate)
+  (* a backslash followed by a run of spaces and tabs, whose role the
+     next byte decides: the end of the line makes the whole run a hard
+     break, and anything else makes the first byte a non-breaking space
+     (or, if it was a tab, a literal backslash).  `ws` is that run, never
+     empty.  It has to be a state for the same reason `IDollar` does --
+     the decision needs a byte the buffer has not seen yet -- and the run
+     is kept rather than counted because only its *first* byte decides,
+     while the rest is ordinary text. *)
+  | IEscWs (ws : string) (txt : string) (prev : option ascii) (o : ostate)
   (* a `{` whose role the next byte decides: open marker, or text *)
   | IBrace (txt : string) (prev : option ascii) (o : ostate)
   (* a delimiter being spelled; `before` is the byte to its left, which
@@ -2082,11 +2105,40 @@ Definition iresolve (st : iscan) : iscan :=
   | _ => st
   end.
 
+(* What a backslash and a whitespace run decay to when the line does not
+   end after them.  djot.js tests the byte after the backslash for a
+   space and for nothing else (`inline.ts:250`), so a tab leaves the
+   backslash literal; either way the decision consumes only the first
+   byte of the run and the rest is ordinary text. *)
+Definition iescws_resolve (ws txt : string) (prev : option ascii)
+  (o : ostate) : string * option ascii * ostate :=
+  match ws with
+  | String c rest =>
+      if Ascii.eqb c " "%char
+      then (rest, Some c, oemit (mk NonBreakingSpace) (flush_text txt o))
+      else ((txt ++ one bslash ++ ws)%string, prev, o)
+  (* unreachable: `IEscWs` is only ever built with a byte in hand.  Spelt
+     as the bare backslash anyway, so that every `IEscWs` owes something
+     and `iscan_productive` needs no side condition. *)
+  | EmptyString => ((txt ++ one bslash)%string, prev, o)
+  end.
+
+(* The line ended after the backslash.  djot.js trims the whitespace that
+   preceded it off the last `str` match (`inline.ts:222-237`); the run
+   pending here is that match, so the trim is local. *)
+Definition iesc_hard (txt : string) (o : ostate) : ostate :=
+  oemit (mk HardBreak) (flush_text (strip_trailing_ws txt) o).
+
 Definition istep (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt prev o =>
-      IText false (txt ++ (if is_punct c then one c
-                           else String "\"%char (one c)))%string prev o
+      if is_ws c then IEscWs (one c) txt prev o
+      else IText false (txt ++ (if is_punct c then one c
+                                else String "\"%char (one c)))%string prev o
+  | IEscWs ws txt prev o =>
+      if is_ws c then IEscWs (ws ++ one c)%string txt prev o
+      else let '(txt', prev', o') := iescws_resolve ws txt prev o in
+           ilead c txt' prev' o'
   | IText false txt prev o => ilead c txt prev o
   | IBrace txt prev o => ibrace_step c txt prev o
   | IBang txt prev o => ibang_step c txt prev o
@@ -2161,13 +2213,15 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
   end.
 
 (* End of line.  An unclosed verbatim closes here, as djot.js does in
-   `getMatches`.  A pending backslash is a literal backslash, which is
-   djoths's reading; djot.js makes it a hard break, an already-logged
-   disagreement (`escapes.test:30`).  Neither can arise from a canonical
-   rendering, since `escape_str` never emits a bare backslash. *)
+   `getMatches`.  A pending backslash is a hard break, djot.js's reading;
+   djoths keeps a literal backslash, a logged disagreement
+   (`escapes.test:30`).  It cannot arise from a canonical rendering,
+   since `escape_str` never emits a backslash that is not followed by
+   punctuation. *)
 Definition ifinish_ostate (st : iscan) : ostate :=
   match iresolve st with
-  | IText true txt _ o => flush_text (txt ++ one bslash)%string o
+  | IText true txt _ o => iesc_hard txt o
+  | IEscWs _ txt _ o => iesc_hard txt o
   | IText false txt _ o => flush_text txt o
   | IOpen _ vk o => oemit (mk (vnode vk EmptyString)) o
   | IVerb n run txt vk o =>
@@ -2206,9 +2260,9 @@ Definition ifinish (st : iscan) : inlines := List.rev (ifinish_rev st).
    *at* the break and the newline is the soft break after it. *)
 Definition ibreak (st : iscan) : iscan :=
   match iresolve st with
-  | IText true txt _ o =>
-      IText false EmptyString None
-        (oemit (mk SoftBreak) (flush_text (txt ++ one bslash)%string o))
+  (* A hard break replaces the soft one: it is the break, rendered. *)
+  | IText true txt _ o => IText false EmptyString None (iesc_hard txt o)
+  | IEscWs _ txt _ o => IText false EmptyString None (iesc_hard txt o)
   | IText false txt _ o =>
       IText false EmptyString None (oemit (mk SoftBreak) (flush_text txt o))
   | IOpen n vk o => IVerb n 0 nl vk o
@@ -2243,7 +2297,10 @@ Definition ibreak (st : iscan) : iscan :=
    verbatim whose closer has not arrived, or any open scope. *)
 Definition iscan_closed (st : iscan) : bool :=
   match iresolve st with
-  | IText _ _ _ o => null (os_stk o)
+  (* a pending backslash is not closed: it owes the *next* byte a hard
+     break or a literal, so the line does not end with a soft one *)
+  | IText esc _ _ o => (negb esc && null (os_stk o))%bool
+  | IEscWs _ _ _ _ => false
   | IOpen _ _ _ => false
   | IVerb n run _ _ o => (Nat.eqb run n && null (os_stk o))%bool
   (* an open destination owes the next line; `IClosed` cannot appear,
@@ -2260,11 +2317,8 @@ Lemma ibreak_closed :
                   (OState (mk SoftBreak :: ifinish_rev st) []).
 Proof.
   intros st H. unfold iscan_closed, ibreak, ifinish_rev, ifinish_ostate in *.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try discriminate.
-  - destruct o as [out [|f stk]]; [|discriminate].
-    unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
-    destruct (nonempty_str (txt ++ one bslash)); reflexivity.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
     destruct (nonempty_str txt); reflexivity.
@@ -2457,6 +2511,7 @@ Definition oout_app (base : inlines) (o : ostate) : ostate :=
 Definition iout_app (base : inlines) (st : iscan) : iscan :=
   match st with
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
+  | IEscWs ws txt prev o => IEscWs ws txt prev (oout_app base o)
   | IBrace txt prev o => IBrace txt prev (oout_app base o)
   | IDelim k seen txt cc m o => IDelim k seen txt cc m (oout_app base o)
   | IOpen n vk o => IOpen n vk (oout_app base o)
@@ -2619,6 +2674,17 @@ Proof.
   destruct (bclosed_lit kids image o). reflexivity.
 Qed.
 
+Lemma iescws_resolve_app :
+  forall ws txt prev o base,
+    starts_str base = false ->
+    iescws_resolve ws txt prev (oout_app base o)
+    = let '(t, p, o') := iescws_resolve ws txt prev o in (t, p, oout_app base o').
+Proof.
+  intros [|c ws] txt prev o base Hb; cbn [iescws_resolve]; [reflexivity|].
+  destruct (Ascii.eqb c " "%char); [|reflexivity].
+  rewrite flush_text_app, oemit_app. reflexivity.
+Qed.
+
 Lemma ilead_app :
   forall c txt prev o base,
     ilead c txt prev (oout_app base o) = iout_app base (ilead c txt prev o).
@@ -2709,7 +2775,7 @@ Lemma iresolve_app :
     starts_str base = false ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity | apply idelim_resolve_app].
@@ -2732,10 +2798,14 @@ Lemma istep_out_app :
     starts_str base = false ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros c base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     cbn [iout_app istep].
-  - reflexivity.
+  - destruct (is_ws c); reflexivity.
   - apply ilead_app.
+  - destruct (is_ws c); [reflexivity|].
+    rewrite iescws_resolve_app by exact Hb.
+    destruct (iescws_resolve ews etxt eprev eob) as [[t p] o']; cbn [fst snd].
+    apply ilead_app.
   - unfold ibrace_step. destruct (dstyle_of c);
       [apply idelim_marked_out_app|apply iattr_feed_app, Hb].
   - destruct (Nat.ltb (S seen) (dwidth k)).
@@ -2743,7 +2813,7 @@ Proof.
       destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
@@ -2790,12 +2860,13 @@ Lemma ibreak_out_app :
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app]; try reflexivity.
-  1,2: rewrite flush_text_app, oemit_app; reflexivity.
-  2: apply ispan_feed_app, Hb.
-  destruct (Nat.eqb run n); [|reflexivity].
-  rewrite !oemit_app. reflexivity.
+  all: try (try unfold iesc_hard;
+            rewrite flush_text_app, oemit_app; reflexivity).
+  - destruct (Nat.eqb run n); [|reflexivity].
+    rewrite !oemit_app. reflexivity.
+  - apply ispan_feed_app, Hb.
 Qed.
 
 Lemma iscan_lines_cons2 :
@@ -2877,9 +2948,11 @@ Lemma ifinish_rev_out_app :
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
   rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app].
-  1,2: rewrite flush_text_app; apply ofinish_out_app, Hb.
+  1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app;
+       apply ofinish_out_app, Hb.
+  1: rewrite flush_text_app; apply ofinish_out_app, Hb.
   1,2: apply ofinish_out_app, Hb.
   1,2: rewrite oemit_app; apply ofinish_out_app, Hb.
   all: try (apply ofinish_out_app, Hb).
@@ -2958,7 +3031,8 @@ Proof.
   - cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
     + cbn [iscan_str istep]. unfold ilead.
       change (is_bslash "\"%char) with true. cbn [iscan_str istep].
-      rewrite (needs_escape_punct c Hc).
+      rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
+              (needs_escape_punct c Hc).
       rewrite IH, append_assoc. reflexivity.
     + cbn [iscan_str istep]. rewrite (ilead_plain c txt prev o Hc).
       rewrite IH, append_assoc. reflexivity.
@@ -2975,7 +3049,9 @@ Proof.
   - cbn [iscan_str istep].
     change (is_tick "\"%char) with false. rewrite nat_eqb_refl.
     unfold ilead at 1. change (is_bslash "\"%char) with true.
-    cbn [iscan_str istep]. rewrite (needs_escape_punct c Hc), iscan_escape.
+    cbn [iscan_str istep].
+    rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
+            (needs_escape_punct c Hc), iscan_escape.
     cbn [append one]. reflexivity.
   - cbn [iscan_str istep].
     replace (is_tick c) with false
@@ -4407,7 +4483,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
@@ -4418,7 +4494,7 @@ Qed.
 Lemma iscan_productive_resolve :
   forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H.
   (* `IBrace`, `IAttr`, `IBang` and `IDollar` all push their own bytes
      into the buffer, so the text they resolve to is nonempty *)
@@ -4492,14 +4568,31 @@ Proof.
     cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
 Qed.
 
+Lemma iescws_resolve_productive :
+  forall ws txt prev o,
+    let '(t, _, o') := iescws_resolve ws txt prev o in
+    (nonempty_str t || ostate_nonempty o')%bool = true.
+Proof.
+  intros [|c ws] txt prev o; cbn [iescws_resolve].
+  - apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
+  - destruct (Ascii.eqb c " "%char).
+    + rewrite ostate_nonempty_emit. apply orb_true_r.
+    + apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
+Qed.
+
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [istep].
-  - cbn [iscan_productive]. apply orb_true_iff. left.
+  - destruct (is_ws c); [reflexivity|].
+    cbn [iscan_productive]. apply orb_true_iff. left.
     apply nonempty_str_app_l. destruct (is_punct c); reflexivity.
   - apply iscan_productive_lead, H.
+  - destruct (is_ws c); [reflexivity|].
+    pose proof (iescws_resolve_productive ews etxt eprev eob) as Hr.
+    destruct (iescws_resolve ews etxt eprev eob) as [[t p] o'].
+    apply iscan_productive_lead, Hr.
   - unfold ibrace_step. destruct (dstyle_of c);
       [apply idelim_marked_productive|apply iattr_feed_productive].
   - (* whichever way the pending delimiter resolves, something is owed:
@@ -4564,10 +4657,11 @@ Lemma iscan_productive_break :
   forall st, iscan_productive (ibreak st) = true.
 Proof.
   intros st. unfold ibreak.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iscan_productive]; try reflexivity;
     try apply ispan_feed_productive.
-  1,2: rewrite ostate_nonempty_emit; apply orb_true_r.
+  1,2,3: try unfold iesc_hard;
+         rewrite ostate_nonempty_emit; apply orb_true_r.
   destruct (Nat.eqb run n); cbn [iscan_productive]; [|reflexivity].
   rewrite ostate_nonempty_emit. apply orb_true_r.
 Qed.
@@ -4638,13 +4732,14 @@ Proof.
   pose proof (iscan_productive_resolve st H) as Hres.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try contradiction; apply nonempty_ofinish.
-  - apply ostate_nonempty_flush_str, nonempty_str_app_l. reflexivity.
+  - apply ostate_nonempty_emit.
   - cbn [iscan_productive] in Hres.
     apply orb_true_iff in Hres as [Hres|Hres];
       [apply ostate_nonempty_flush_str, Hres
       |apply ostate_nonempty_flush, Hres].
+  - apply ostate_nonempty_emit.
   - apply ostate_nonempty_emit.
   - apply ostate_nonempty_emit.
   - pose proof (bspan_lit_productive kids img ssrc sob) as Hs.
@@ -4979,6 +5074,36 @@ Proof. reflexivity. Qed.
 (* ...and leaves a backslash before anything else alone. *)
 Example escaped_nonpunct_literal : parse_inline_line "\a" = [mk (Str "\a")].
 Proof. reflexivity. Qed.
+
+(* Whitespace is the exception to that: a space becomes a non-breaking
+   one, and the end of the line becomes a hard break. *)
+Example escaped_space_is_nbsp :
+  parse_inline_line "a\ b"
+  = [mk (Str "a"); mk NonBreakingSpace; mk (Str "b")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Only the first byte of the run is claimed; the rest is text. *)
+Example escaped_space_claims_one :
+  parse_inline_line "a\  b"
+  = [mk (Str "a"); mk NonBreakingSpace; mk (Str " b")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A tab is not a space, so djot.js leaves the backslash literal. *)
+Example escaped_tab_is_literal :
+  parse_inline_line (String "\"%char (String "009"%char "b"))
+  = [mk (Str (String "\"%char (String "009"%char "b")))].
+Proof. vm_compute. reflexivity. Qed.
+
+Example escaped_eol_is_hard_break :
+  parse_inline_line "para\" = [mk (Str "para"); mk HardBreak].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The hard break replaces the soft one, and the whitespace on either
+   side of the backslash goes with it. *)
+Example escaped_eol_replaces_soft_break :
+  para_inlines ["ab \  "; "c"]
+  = [mk (Str "ab"); mk HardBreak; mk (Str "c")].
+Proof. vm_compute. reflexivity. Qed.
 
 (* A backtick in a `Str` is escaped, so it does not open a verbatim... *)
 Example escaped_tick_literal : parse_inline_line "\`a\`" = [mk (Str "`a`")].

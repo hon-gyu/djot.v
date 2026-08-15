@@ -510,8 +510,8 @@ Definition ocur (o : ostate) : inlines :=
 
 Definition iscan_wf (st : iscan) : bool :=
   match st with
-  | IText _ _ _ o | IBrace _ _ o | IAttr _ _ _ _ o | IDelim _ _ _ _ _ o
-  | IDollar _ _ _ o =>
+  | IText _ _ _ o | IEscWs _ _ _ o | IBrace _ _ o | IAttr _ _ _ _ o
+  | IDelim _ _ _ _ _ o | IDollar _ _ _ o =>
       (oscope_ok o && negb (hd_str (ocur o)))%bool
   | IOpen _ _ o => oscope_ok o
   | IVerb _ _ _ _ o => oscope_ok o
@@ -1004,6 +1004,22 @@ Proof.
     [apply oscope_ok_push, iscan_wf_flush; assumption | reflexivity].
 Qed.
 
+(* The non-breaking space is a node, not text, so the branch that emits
+   one restores the head condition rather than owing it; the branch that
+   puts the backslash back does not touch the scopes at all. *)
+Lemma iescws_resolve_wf :
+  forall ws txt prev o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    let '(_, _, o') := iescws_resolve ws txt prev o in
+    oscope_ok o' = true /\ starts_str (ocur o') = false.
+Proof.
+  intros [|c ws] txt prev o Ho Hs; cbn [iescws_resolve]; [split; assumption|].
+  destruct (Ascii.eqb c " "%char); [|split; assumption].
+  pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
+  split; [apply oscope_ok_emit; [exact Hf|reflexivity|apply andb_false_l]|].
+  rewrite ocur_emit. reflexivity.
+Qed.
+
 Lemma ilead_wf :
   forall c txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -1137,13 +1153,20 @@ Qed.
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [istep];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
          rewrite hd_str_is_starts_str in Hs).
-  - apply (iscan_wf_text false _ prev o Ho Hs).
+  - destruct (is_ws c);
+      [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity
+      |apply (iscan_wf_text false _ prev o Ho Hs)].
   - apply ilead_wf; [exact Ho | exact Hs].
+  - destruct (is_ws c);
+      [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+    pose proof (iescws_resolve_wf ews etxt eprev eob Ho Hs) as Hr.
+    destruct (iescws_resolve ews etxt eprev eob) as [[t p] o'].
+    destruct Hr as [Ho' Hs']. apply ilead_wf; assumption.
   - unfold ibrace_step.
     destruct (dstyle_of c);
       [apply idelim_marked_wf; assumption|apply iattr_feed_wf; assumption].
@@ -1156,7 +1179,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; try exact Hr.
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; try exact Hr.
     cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
@@ -1256,7 +1279,7 @@ Qed.
 Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H;
     cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
@@ -1278,11 +1301,12 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ifinish_ostate.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
-  - apply iscan_wf_flush; assumption.
+  1,3: unfold iesc_hard; apply oscope_ok_emit;
+       [apply iscan_wf_flush; assumption | reflexivity | apply andb_false_l].
   - apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr.
     apply oscope_ok_emit;
@@ -1331,11 +1355,12 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ibreak.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
-  1,2: apply (iscan_wf_text false EmptyString None);
+  1,2,3: try unfold iesc_hard;
+         apply (iscan_wf_text false EmptyString None);
          [ apply oscope_ok_emit;
            [ apply iscan_wf_flush; assumption
            | reflexivity | apply andb_false_l ]
