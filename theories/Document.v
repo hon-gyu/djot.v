@@ -1,3 +1,5 @@
+(* ai-disclosure: autonomous *)
+
 (* The whole-document pass: the part of parsing that is a function of the
    finished block list rather than of a single line.
 
@@ -7,7 +9,7 @@
    note maps, which is only true if those maps are built by a pass the
    line fold cannot see.
 
-   Two computations live here today, both driven by headings:
+   Three computations live here today:
 
    - Auto-identifiers and implicit heading references, assigned in
      document order because uniqueness suffixes depend on what came
@@ -16,9 +18,13 @@
      block list, moving each heading's id onto the section that wraps it
      (djot.js parse.ts ~line 769).
 
-   Reference definitions and footnotes are the same shape of computation —
-   block syntax that produces no block, only side-table entries — and
-   belong in this file when they land.
+   - Footnote collection: recursively remove definition containers from
+     visible block sequences and assign their cleaned bodies into the
+     document note map.
+
+   Reference definitions are the same shape of computation — block syntax
+   that contributes only a side-table entry — and are read here without
+   being removed from the retained parser tree.
 
    Sectioning is top-level only.  djot.js pushes a section container only
    when the enclosing container tracks a heading level, which the document
@@ -206,6 +212,9 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   | Div bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (Div bs'))
+  | FootnoteDef label bs =>
+      let (st', bs') := go bs (register_id a st) in
+      (st', Node p a (FootnoteDef label bs'))
   | BulletList sp items =>
       let (st', items') :=
         (fix goit (its : list blocks) (s : id_state) {struct its}
@@ -299,6 +308,16 @@ Lemma assign_ids_div :
       (st', Node p a (Div bs')).
 Proof.
   intros p a bs st. cbn [assign_ids].
+  rewrite assign_ids_inner_go. reflexivity.
+Qed.
+
+Lemma assign_ids_foot :
+  forall p a label bs st,
+    assign_ids (FootnoteDef label bs) p a st
+    = let (st', bs') := assign_ids_list bs (register_id a st) in
+      (st', Node p a (FootnoteDef label bs')).
+Proof.
+  intros p a label bs st. cbn [assign_ids].
   rewrite assign_ids_inner_go. reflexivity.
 Qed.
 
@@ -527,7 +546,7 @@ Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
                         end) it acc)
       end in
   match b with
-  | BlockQuote bs | Div bs | Section bs => go bs m
+  | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
   | BulletList _ items | OrderedList _ _ items => goit items m
   | _ => add_ref p a b m
   end.
@@ -538,10 +557,188 @@ Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_map :=
   | Node p a b :: rest => collect_refs_list rest (collect_refs b p a m)
   end.
 
+(** Remove footnote-definition nodes while assigning their recursively
+    cleaned bodies into the document table.  A definition is assigned
+    after its body, matching the order in which nested containers close. *)
+Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
+  {struct b} : note_map * option (node block) :=
+  let go :=
+    fix go (ns : blocks) (acc : note_map) {struct ns} : note_map * blocks :=
+      match ns with
+      | [] => (acc, [])
+      | Node p' a' x :: rest =>
+          let (acc1, n1) := collect_notes x p' a' acc in
+          let (acc2, rest1) := go rest acc1 in
+          match n1 with
+          | Some n => (acc2, n :: rest1)
+          | None => (acc2, rest1)
+          end
+      end in
+  let goit :=
+    fix goit (its : list blocks) (acc : note_map) {struct its}
+      : note_map * list blocks :=
+      match its with
+      | [] => (acc, [])
+      | it :: rest =>
+          let (acc1, it1) := go it acc in
+          let (acc2, rest1) := goit rest acc1 in
+          (acc2, it1 :: rest1)
+      end in
+  match b with
+  | FootnoteDef label bs =>
+      let (m', bs') := go bs m in
+      (alist_set (normalize_label label) bs' m', None)
+  | BlockQuote bs =>
+      let (m', bs') := go bs m in (m', Some (Node p a (BlockQuote bs')))
+  | Div bs =>
+      let (m', bs') := go bs m in (m', Some (Node p a (Div bs')))
+  | BulletList sp items =>
+      let (m', items') := goit items m in
+      (m', Some (Node p a (BulletList sp items')))
+  | OrderedList oa sp items =>
+      let (m', items') := goit items m in
+      (m', Some (Node p a (OrderedList oa sp items')))
+  | _ => (m, Some (Node p a b))
+  end.
+
+Fixpoint collect_notes_list (ns : blocks) (m : note_map) : note_map * blocks :=
+  match ns with
+  | [] => (m, [])
+  | Node p a b :: rest =>
+      let (m1, n1) := collect_notes b p a m in
+      let (m2, rest1) := collect_notes_list rest m1 in
+      match n1 with
+      | Some n => (m2, n :: rest1)
+      | None => (m2, rest1)
+      end
+  end.
+
+Fixpoint collect_notes_items (its : list blocks) (m : note_map)
+  : note_map * list blocks :=
+  match its with
+  | [] => (m, [])
+  | it :: rest =>
+      let (m1, it1) := collect_notes_list it m in
+      let (m2, rest1) := collect_notes_items rest m1 in
+      (m2, it1 :: rest1)
+  end.
+
+Lemma collect_notes_items_nonempty :
+  forall its m,
+    nonempty (snd (collect_notes_items its m)) = nonempty its.
+Proof.
+  intros [|it rest] m; [reflexivity|].
+  cbn [collect_notes_items].
+  destruct (collect_notes_list it m) as [m1 it1].
+  destruct (collect_notes_items rest m1) as [m2 rest1].
+  reflexivity.
+Qed.
+
+Lemma collect_notes_inner_go :
+  forall ns m,
+    (fix go (ns' : blocks) (acc : note_map) {struct ns'}
+       : note_map * blocks :=
+       match ns' with
+       | [] => (acc, [])
+       | Node p a b :: rest =>
+           let (acc1, n1) := collect_notes b p a acc in
+           let (acc2, rest1) := go rest acc1 in
+           match n1 with
+           | Some n => (acc2, n :: rest1)
+           | None => (acc2, rest1)
+           end
+       end) ns m = collect_notes_list ns m.
+Proof.
+  induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
+  cbn [collect_notes_list].
+  destruct (collect_notes b p a m) as [m1 [n|]] eqn:E;
+    rewrite IH; reflexivity.
+Qed.
+
+Lemma collect_notes_inner_goit :
+  forall its m,
+    (fix goit (its' : list blocks) (acc : note_map) {struct its'}
+       : note_map * list blocks :=
+       match its' with
+       | [] => (acc, [])
+       | it :: rest =>
+           let (acc1, it1) :=
+             (fix go (ns : blocks) (acc0 : note_map) {struct ns}
+                : note_map * blocks :=
+                match ns with
+                | [] => (acc0, [])
+                | Node p a b :: more =>
+                    let (acc2, n1) := collect_notes b p a acc0 in
+                    let (acc3, more1) := go more acc2 in
+                    match n1 with
+                    | Some n => (acc3, n :: more1)
+                    | None => (acc3, more1)
+                    end
+                end) it acc in
+           let (acc2, rest1) := goit rest acc1 in
+           (acc2, it1 :: rest1)
+       end) its m = collect_notes_items its m.
+Proof.
+  induction its as [|it rest IH]; intros m; [reflexivity|].
+  cbn [collect_notes_items]. rewrite collect_notes_inner_go.
+  destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity.
+Qed.
+
+Lemma collect_notes_quote :
+  forall p a bs m,
+    collect_notes (BlockQuote bs) p a m
+    = let (m', bs') := collect_notes_list bs m in
+      (m', Some (Node p a (BlockQuote bs'))).
+Proof.
+  intros p a bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  reflexivity.
+Qed.
+
+Lemma collect_notes_div :
+  forall p a bs m,
+    collect_notes (Div bs) p a m
+    = let (m', bs') := collect_notes_list bs m in
+      (m', Some (Node p a (Div bs'))).
+Proof.
+  intros p a bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  reflexivity.
+Qed.
+
+Lemma collect_notes_foot :
+  forall p a label bs m,
+    collect_notes (FootnoteDef label bs) p a m
+    = let (m', bs') := collect_notes_list bs m in
+      (alist_set (normalize_label label) bs' m', None).
+Proof.
+  intros p a label bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  reflexivity.
+Qed.
+
+Lemma collect_notes_blist :
+  forall p a sp items m,
+    collect_notes (BulletList sp items) p a m
+    = let (m', items') := collect_notes_items items m in
+      (m', Some (Node p a (BulletList sp items'))).
+Proof.
+  intros p a sp items m. cbn [collect_notes]. rewrite collect_notes_inner_goit.
+  reflexivity.
+Qed.
+
+Lemma collect_notes_olist :
+  forall p a oa sp items m,
+    collect_notes (OrderedList oa sp items) p a m
+    = let (m', items') := collect_notes_items items m in
+      (m', Some (Node p a (OrderedList oa sp items'))).
+Proof.
+  intros p a oa sp items m. cbn [collect_notes].
+  rewrite collect_notes_inner_goit. reflexivity.
+Qed.
+
 Definition doc_pass (bs : blocks) : doc :=
   let (st, bs') := assign_ids_list bs id_state_init in
-  {| doc_blocks := sectionize bs'
-   ; doc_footnotes := []
+  let (notes, visible) := collect_notes_list bs' [] in
+  {| doc_blocks := sectionize visible
+   ; doc_footnotes := notes
    ; doc_references := collect_refs_list bs' []
    ; doc_auto_references := rev (id_refs st)
    ; doc_auto_identifiers := rev (id_used st) |}.
@@ -617,6 +814,7 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
   | Heading lvl ils => [Node p (strip_id a) (Heading lvl ils)]
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
   | Div inner => [Node p a (Div (go inner))]
+  | FootnoteDef label inner => [Node p a (FootnoteDef label (go inner))]
   | BulletList sp items => [Node p a (BulletList sp (goit items))]
   | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
   | _ => [Node p a b]
@@ -731,6 +929,23 @@ Proof.
   rewrite undo_pass_inner_go. reflexivity.
 Qed.
 
+Lemma undo_pass_foot :
+  forall label inner p a,
+    undo_pass_block (FootnoteDef label inner) p a
+    = [Node p a (FootnoteDef label (undo_pass inner))].
+Proof.
+  intros label inner p a.
+  change (undo_pass_block (FootnoteDef label inner) p a)
+    with [Node p a (FootnoteDef label
+            ((fix go (l : blocks) : blocks :=
+                match l with
+                | [] => []
+                | Node p' a' x :: rest =>
+                    (undo_pass_block x p' a' ++ go rest)%list
+                end) inner))].
+  rewrite undo_pass_inner_go. reflexivity.
+Qed.
+
 Lemma undo_pass_blist :
   forall sp items p a,
     undo_pass_block (BulletList sp items) p a
@@ -804,6 +1019,7 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
   | Section _ => false
   | Heading _ _ =>
       match lookup_attr "id" a with Some _ => false | None => true end
+  | FootnoteDef _ _ => false
   | BlockQuote inner | Div inner => go inner
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
@@ -823,6 +1039,93 @@ Fixpoint pristine_items (its : list blocks) : bool :=
   | [] => true
   | it :: rest => (pristine it && pristine_items rest)%bool
   end.
+
+(* The collection pass needs only this projection of pristine: there is
+   no definition node to remove.  Unlike pristine, assigned heading ids
+   do not affect it, so it survives assign_ids. *)
+Fixpoint notes_free_block (b : block) {struct b} : bool :=
+  let go :=
+    fix go (ns : blocks) : bool :=
+      match ns with
+      | [] => true
+      | Node _ _ x :: rest => (notes_free_block x && go rest)%bool
+      end in
+  let goit :=
+    fix goit (its : list blocks) : bool :=
+      match its with
+      | [] => true
+      | it :: rest => (go it && goit rest)%bool
+      end in
+  match b with
+  | FootnoteDef _ _ => false
+  | BlockQuote bs | Div bs | Section bs => go bs
+  | BulletList _ items | OrderedList _ _ items => goit items
+  | _ => true
+  end.
+
+Fixpoint notes_free (bs : blocks) : bool :=
+  match bs with
+  | [] => true
+  | Node _ _ b :: rest => (notes_free_block b && notes_free rest)%bool
+  end.
+
+Fixpoint notes_free_items (its : list blocks) : bool :=
+  match its with
+  | [] => true
+  | it :: rest => (notes_free it && notes_free_items rest)%bool
+  end.
+
+Lemma notes_free_inner_go :
+  forall ns,
+    (fix go (l : blocks) : bool :=
+       match l with
+       | [] => true
+       | Node _ _ x :: rest => (notes_free_block x && go rest)%bool
+       end) ns = notes_free ns.
+Proof.
+  induction ns as [|[p a b] rest IH]; [reflexivity|].
+  cbn [notes_free]. rewrite IH. reflexivity.
+Qed.
+
+Lemma notes_free_inner_goit :
+  forall its,
+    (fix goit (l : list blocks) : bool :=
+       match l with
+       | [] => true
+       | it :: rest =>
+           ((fix go (m : blocks) : bool :=
+               match m with
+               | [] => true
+               | Node _ _ x :: more =>
+                   (notes_free_block x && go more)%bool
+               end) it && goit rest)%bool
+       end) its = notes_free_items its.
+Proof.
+  induction its as [|it rest IH]; [reflexivity|].
+  cbn [notes_free_items]. rewrite notes_free_inner_go, IH. reflexivity.
+Qed.
+
+Lemma notes_free_quote :
+  forall bs, notes_free_block (BlockQuote bs) = notes_free bs.
+Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+
+Lemma notes_free_section :
+  forall bs, notes_free_block (Section bs) = notes_free bs.
+Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+
+Lemma notes_free_div :
+  forall bs, notes_free_block (Div bs) = notes_free bs.
+Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+
+Lemma notes_free_blist :
+  forall sp items,
+    notes_free_block (BulletList sp items) = notes_free_items items.
+Proof. intros sp items. cbn [notes_free_block]. apply notes_free_inner_goit. Qed.
+
+Lemma notes_free_olist :
+  forall oa sp items,
+    notes_free_block (OrderedList oa sp items) = notes_free_items items.
+Proof. intros oa sp items. cbn [notes_free_block]. apply notes_free_inner_goit. Qed.
 
 (* The inner fixpoints of `pristine_block` are `pristine` and
    `pristine_items`; Rocq will not let them be spelled that way, so each
@@ -972,6 +1275,8 @@ Proof.
     cbn [snd undo_pass_node]. rewrite undo_pass_blist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
+  - (* FootnoteDef: collection removes it, so pristine excludes it. *)
+    discriminate.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
     rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [assign_ids_list assign_ids_node].
@@ -1011,6 +1316,149 @@ Proof.
   replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
   rewrite undo_assign_ids by exact Hb.
   replace rest1 with (snd (assign_ids_list rest st1))
+    by (rewrite E2; reflexivity).
+  rewrite IH by exact Hrest. reflexivity.
+Qed.
+
+Lemma collect_notes_pristine_block :
+  forall b p a m,
+    notes_free_block b = true ->
+    collect_notes b p a m = (m, Some (Node p a b)).
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => forall m,
+        notes_free bs = true -> collect_notes_list bs m = (m, bs))
+    (R := fun its => forall m,
+        notes_free_items its = true -> collect_notes_items its m = (m, its));
+    intros; try reflexivity.
+  - rewrite notes_free_quote in H. rewrite collect_notes_quote, IHb by exact H.
+    reflexivity.
+  - rewrite notes_free_div in H. rewrite collect_notes_div, IHb by exact H.
+    reflexivity.
+  - rewrite notes_free_olist in H. rewrite collect_notes_olist, IHb by exact H.
+    reflexivity.
+  - rewrite notes_free_blist in H. rewrite collect_notes_blist, IHb by exact H.
+    reflexivity.
+  - discriminate.
+  - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
+    cbn [collect_notes_list]. rewrite IHb by exact Hb.
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [collect_notes_items]. rewrite IHb by exact Hit.
+    rewrite IHb0 by exact Hrest. reflexivity.
+Qed.
+
+Lemma collect_notes_list_pristine :
+  forall bs m,
+    notes_free bs = true -> collect_notes_list bs m = (m, bs).
+Proof.
+  induction bs as [|[p a b] rest IH]; intros m H; [reflexivity|].
+  cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
+  cbn [collect_notes_list]. rewrite collect_notes_pristine_block by exact Hb.
+  rewrite IH by exact Hrest. reflexivity.
+Qed.
+
+Lemma pristine_notes_free_block :
+  forall b a, pristine_block b a = true -> notes_free_block b = true.
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => pristine bs = true -> notes_free bs = true)
+    (R := fun its => pristine_items its = true -> notes_free_items its = true);
+    intros; try reflexivity.
+  - discriminate.
+  - rewrite pristine_quote in H. rewrite notes_free_quote. apply IHb. exact H.
+  - rewrite pristine_div in H. rewrite notes_free_div. apply IHb. exact H.
+  - rewrite pristine_olist in H. rewrite notes_free_olist. apply IHb. exact H.
+  - rewrite pristine_blist in H. rewrite notes_free_blist. apply IHb. exact H.
+  - discriminate.
+  - rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
+    cbn [notes_free]. rewrite (IHb _ Hb), (IHb0 Hrest). reflexivity.
+  - cbn [pristine_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [notes_free_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
+Qed.
+
+Lemma pristine_notes_free :
+  forall bs, pristine bs = true -> notes_free bs = true.
+Proof.
+  induction bs as [|[p a b] rest IH]; intros H; [reflexivity|].
+  rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
+  cbn [notes_free]. rewrite (pristine_notes_free_block b a Hb), (IH Hrest).
+  reflexivity.
+Qed.
+
+Lemma assign_ids_notes_free :
+  forall b p a st,
+    notes_free_block b = true ->
+    notes_free_block (node_contents (snd (assign_ids b p a st))) = true.
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => forall st,
+        notes_free bs = true ->
+        notes_free (snd (assign_ids_list bs st)) = true)
+    (R := fun its => forall st,
+        notes_free_items its = true ->
+        notes_free_items (snd (assign_ids_items its st)) = true);
+    intros; try exact H; try reflexivity.
+  - unfold assign_ids, assign_heading_id.
+    destruct (lookup_attr "id" a); cbn [snd node_contents notes_free_block];
+      reflexivity.
+  - rewrite notes_free_quote in H. rewrite assign_ids_quote.
+    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_quote.
+    change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact H.
+  - rewrite notes_free_div in H. rewrite assign_ids_div.
+    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_div.
+    change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact H.
+  - rewrite notes_free_olist in H. rewrite assign_ids_olist.
+    destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_olist.
+    change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
+  - rewrite notes_free_blist in H. rewrite assign_ids_blist.
+    destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_blist.
+    change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
+  - discriminate.
+  - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
+    cbn [assign_ids_list assign_ids_node].
+    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct n1 as [np na nb].
+    destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd notes_free].
+    pose proof (IHb p a st Hb) as Hnode.
+    rewrite E1 in Hnode. cbn [snd node_contents] in Hnode. rewrite Hnode.
+    replace (notes_free rest1) with
+      (notes_free (snd (assign_ids_list rest st1)))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_items].
+    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
+    destruct (assign_ids_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd notes_free_items].
+    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+      by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace (notes_free_items rest1) with
+      (notes_free_items (snd (assign_ids_items rest st1)))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+Qed.
+
+Lemma assign_ids_list_notes_free :
+  forall bs st,
+    notes_free bs = true -> notes_free (snd (assign_ids_list bs st)) = true.
+Proof.
+  induction bs as [|[p a b] rest IH]; intros st H; [reflexivity|].
+  cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
+  cbn [assign_ids_list assign_ids_node].
+  destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+  destruct n1 as [np na nb].
+  destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+  cbn [snd notes_free].
+  pose proof (assign_ids_notes_free b p a st Hb) as Hnode.
+  rewrite E1 in Hnode. cbn [snd node_contents] in Hnode. rewrite Hnode.
+  replace (notes_free rest1) with (notes_free (snd (assign_ids_list rest st1)))
     by (rewrite E2; reflexivity).
   rewrite IH by exact Hrest. reflexivity.
 Qed.
@@ -1263,7 +1711,11 @@ Theorem pass_erase :
   forall bs, pristine bs = true -> undo_pass (doc_blocks (doc_pass bs)) = bs.
 Proof.
   intros bs H. unfold doc_pass.
+  pose proof (pristine_notes_free bs H) as Hfree.
+  pose proof (assign_ids_list_notes_free bs id_state_init Hfree) as Hfree'.
   destruct (assign_ids_list bs id_state_init) as [st bs'] eqn:E.
+  cbn [snd] in Hfree'.
+  rewrite (collect_notes_list_pristine bs' [] Hfree').
   cbn [doc_blocks]. rewrite undo_sectionize.
   replace bs' with (snd (assign_ids_list bs id_state_init))
     by (rewrite E; reflexivity).
@@ -1365,6 +1817,38 @@ Proof. reflexivity. Qed.
 
 Example reference_map_blank_label_kept :
   doc_references (parse_doc "[ ]: u") = [("", ("u", []))].
+Proof. reflexivity. Qed.
+
+Example footnote_map_last_wins :
+  doc_footnotes (parse_doc "[^a]: one
+
+[^a]: two")
+  = [("a", [mk (Para [mk (Str "two")])])].
+Proof. reflexivity. Qed.
+
+Example footnote_map_normalized_label :
+  doc_footnotes (parse_doc "[^A  B]: one
+
+[^A B]: two")
+  = [("A B", [mk (Para [mk (Str "two")])])].
+Proof. reflexivity. Qed.
+
+Example footnote_map_nested_close_order :
+  doc_footnotes (parse_doc "[^a]: outer
+
+  [^b]: inner")
+  = [ ("b", [mk (Para [mk (Str "inner")])])
+    ; ("a", [mk (Para [mk (Str "outer")])]) ].
+Proof. reflexivity. Qed.
+
+Example footnote_removed_inside_quote :
+  doc_blocks (parse_doc "> [^a]: note") = [mk (BlockQuote [])].
+Proof. reflexivity. Qed.
+
+Example footnote_heading_shares_identifier_pass :
+  doc_auto_identifiers (parse_doc "[^a]: # Heading
+
+# After") = ["Heading"; "After"].
 Proof. reflexivity. Qed.
 
 Example implicit_heading_reference :
