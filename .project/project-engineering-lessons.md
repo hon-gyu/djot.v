@@ -460,3 +460,44 @@ costs a real user something. Here nothing was lost, and the one place
 that genuinely needs "this row exists" -- `dstyle_of`, where a
 switched-off row is really not found -- kept its hypothesis and pays for
 it in exactly one lemma.
+
+### The other direction: a precondition weaker than the truth
+
+**What happened.** Attribute attachment. `iattr_attach` could not ask
+"what did this scope last emit", because `oout_app` splices a previous
+line's output underneath and a scope that has emitted nothing would see
+*that* line's last node. The plan's recipe, written a month earlier, was
+to add an invariant to `iscan`: a non-whitespace `prev` implies either
+pending text or something emitted. That invariant is false -- `[` sets
+`prev` to `[` and pushes a scope with empty output -- and it was aimed
+at the wrong object, since `prev` is the previous source byte, which the
+delimiter open rules need, and "has this scope emitted anything" is a
+different question that merely correlates.
+
+The real obstruction was one hypothesis. The twenty `_app` lemmas
+carried `starts_str base = false`, chosen because it is what the seam
+merge in `osnoc_nonstr` needs. The suffix is in fact always a previous
+line *headed by the `SoftBreak` that ended it* -- which `osnoc_nonstr`'s
+own comment states in prose, and then says is "discharged by
+construction rather than carried". Carrying it instead cost twenty
+renames, one derivation lemma and a `reflexivity` at the single call
+site, and the query became answerable, because a `SoftBreak` head is one
+`oattach` declines exactly as it declines an empty scope.
+
+**General form.** The lesson above is about a condition scoped too
+narrowly across *lemmas*. This is the same mistake across *time*: a
+hypothesis picked as "the weakest thing this proof needs" is right until
+a later definition needs to ask a question the stronger fact would have
+settled. The tell is a comment that states the stronger fact in prose
+and then declines to carry it -- that is a fact the development knows
+and cannot use.
+
+**What to do instead.** When a new definition cannot be written because
+some query is not stable under a composition lemma, look at that
+lemma's hypothesis before adding an invariant anywhere. Ask what is
+*actually* true of its argument at the call sites, not what the proof
+happened to need. If the answer is stronger than the hypothesis and the
+call sites can discharge it, the fix is a rename. Grep the file for
+prose of the form "by construction rather than carried" -- each one is a
+candidate. This fires next on footnote references and tables, which will
+both want to read the current scope for the same reason attributes did.

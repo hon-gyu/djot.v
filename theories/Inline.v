@@ -1489,6 +1489,18 @@ Record ostate : Type := OState {
 
 Definition ostart : ostate := OState [] [].
 
+(* The scope emissions land in: the innermost open one, or the bottom. *)
+Definition ocur (o : ostate) : inlines :=
+  match os_stk o with [] => os_out o | f :: _ => fr_out f end.
+
+(* ...and the same scope, written back.  Only `oattach` needs it: every
+   other writer pushes rather than replaces. *)
+Definition oset_cur (l : inlines) (o : ostate) : ostate :=
+  match os_stk o with
+  | [] => OState l []
+  | f :: rest => OState (os_out o) (Frame (fr_kind f) (fr_marked f) l :: rest)
+  end.
+
 Definition dstyle_eqb (a b : dstyle) : bool :=
   match a, b with
   | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
@@ -1923,41 +1935,75 @@ Fixpoint last_ws_split (s : string) : string * string :=
       end
   end.
 
-(* Where a finished spec lands.  Pending text takes it on its last word,
-   which is the only target implemented: a spec after a *node* -- `*e*{.a}`
-   -- would decorate what the scan last emitted, and that reads the
-   current scope, which `oout_app` perturbs.  See the note at
-   `iattr_no_node_target` below.
+(* A last word can only come from text there was. *)
+Lemma last_ws_split_nonempty :
+  forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.
+Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
 
-   An empty spec attaches to nothing.  djot.js still cuts the text in two
-   there (`foo{}bar` is two `str` nodes), but both are plain and the HTML
-   is identical, so we keep one run and stay inside `no_adjacent_str`.
-   Text ending in whitespace has no last word, so `foo {.a}` drops the
-   spec and keeps accumulating -- which is djot.js's adjacency rule. *)
+(* The node a spec decorates when no pending text takes it: the last one
+   emitted into the current scope, which is djot.js's `getTip()`
+   (`parse.ts:452`).
+
+   A `SoftBreak` is not one, and that exclusion is what makes the
+   question askable at all.  `oout_app` splices a previous line's output
+   *underneath* the current scope, so a scope that has emitted nothing
+   sees that line's last node here instead of nothing -- and a previous
+   line always ends in the `SoftBreak` that ended it (the same fact
+   `osnoc_nonstr` relies on).  Refusing that one constructor therefore
+   makes the answer the same on both sides of a splice, which is what
+   `iattr_attach_app` needs.  It is also right on its own terms: djot.js
+   attaches to the break node and renders it identically, since a break
+   has no tag to carry attributes on. *)
+Definition oattach (a : attr) (o : ostate) : option ostate :=
+  match ocur o with
+  | Node _ _ SoftBreak :: _ | [] => None
+  | Node p a' v :: rest => Some (oset_cur (Node p (attr_merge a a') v :: rest) o)
+  end.
+
+(* It found a node, so the scope it wrote back to still holds one. *)
+Lemma oattach_nonempty :
+  forall a o o', oattach a o = Some o' -> ostate_nonempty o' = true.
+Proof.
+  intros a o o' H. unfold oattach in H.
+  destruct (ocur o) as [|[p a' v] rest]; [discriminate|].
+  destruct v; try discriminate; injection H as <-;
+    unfold ostate_nonempty, oset_cur; destruct (os_stk o);
+    cbn [os_out os_stk null negb]; solve [reflexivity | apply orb_true_r].
+Qed.
+
+(* Where a finished spec lands.  One question, asked of the two places an
+   answer can live, in djot.js's order (`parse.ts:446-506`):
+
+   - pending text takes it on its last word.  The split is on whitespace,
+     not on word characters, so `a-b{.a}` attributes all of `a-b`; an
+     empty spec keeps the run whole instead, since cutting it would only
+     produce two plain `Str`s and break `no_adjacent_str`.
+   - text ending in whitespace has no last word, and djot.js drops the
+     spec there rather than attaching it across the gap (`endsWithSpace`).
+   - with nothing pending, the last node emitted into this scope takes
+     it, which is what makes `*e*{.a}`, `[l](u){}` and `x{.a}{.b}` work.
+
+   Nothing at all to attach to is the one case we do not follow djot.js
+   on.  It drops the spec, leaving `# {#i}` an empty heading; `wf_block`
+   excludes those and `parse_inline_line_nonempty` denies them, so we
+   keep the source as text instead and log the divergence.  It is
+   confined to a spec with no scope output and no pending text before
+   it. *)
 Definition iattr_attach (a : attr) (src txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
-  (* Nothing to attach to.  djot.js drops the spec; we do too when there
-     is pending text, and otherwise keep its source.  Two reasons for the
-     second half, and only the first is about fidelity: a spec that ate
-     the whole scan would leave a paragraph or heading with no children,
-     which `wf_block` excludes and `parse_inline_line_nonempty` denies.
-     The other is that "has anything been emitted" is not a question this
-     may ask -- `oout_app` appends a previous line's output underneath,
-     so the answer is not stable under it, while pending text is.  The
-     residue is `{#i} x` and `[l](u){}`, logged under ours. *)
-  let drop :=
-    if nonempty_str txt
-    then IText false txt prev o
-    else IText false (txt ++ one lbrace ++ src)%string prev o in
-  match a with
-  | [] => drop
-  | _ =>
-      let '(pre, w) := last_ws_split txt in
-      if nonempty_str w
-      then IText false EmptyString (Some rbrace)
-             (oemit (Node NoPos a (Str w)) (flush_text pre o))
-      else drop
-  end.
+  let '(pre, w) := last_ws_split txt in
+  if nonempty_str w
+  then match a with
+       | [] => IText false txt prev o
+       | _ => IText false EmptyString (Some rbrace)
+                (oemit (Node NoPos a (Str w)) (flush_text pre o))
+       end
+  else if nonempty_str txt
+  then IText false txt prev o
+  else match oattach a o with
+       | Some o' => IText false EmptyString (Some rbrace) o'
+       | None => IText false (one lbrace ++ src)%string prev o
+       end.
 
 (* One byte of an inline attribute spec, read with the machine block
    attributes use.  Failure hands the byte back to `ilead` with the text
@@ -2508,6 +2554,33 @@ Definition istart : iscan := IText false EmptyString None ostart.
 Definition oout_app (base : inlines) (o : ostate) : ostate :=
   OState (os_out o ++ base)%list (os_stk o).
 
+(* What a suffix always is: empty, or a previous line, whose most recent
+   node is the `SoftBreak` that ended it.  Every `_app` lemma below asks
+   this of its suffix, and the one caller -- `para_inlines_cons2_closed`
+   -- discharges it by `reflexivity`, because it builds the suffix by
+   consing that very break.
+
+   It used to be spelt as the weaker `starts_str base = false`, which is
+   all the seam merge in `osnoc_nonstr` needs.  That was enough until
+   `oattach` had to read the current scope: a scope that has emitted
+   nothing sees the suffix's head there, so a suffix headed by anything
+   *else* would make the same query answer two ways across a splice.
+   Carrying the real invariant costs one hypothesis rename and buys the
+   query. *)
+Definition base_ok (base : inlines) : bool :=
+  match base with
+  | [] => true
+  | Node _ _ SoftBreak :: _ => true
+  | _ => false
+  end.
+
+Lemma base_ok_starts_str :
+  forall base, base_ok base = true -> starts_str base = false.
+Proof.
+  intros [|[p [|kv a'] v] base] H; try reflexivity.
+  destruct v; try reflexivity. discriminate.
+Qed.
+
 Definition iout_app (base : inlines) (st : iscan) : iscan :=
   match st with
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
@@ -2583,7 +2656,7 @@ Qed.
    suffix is a previous line, ending in a `SoftBreak`. *)
 Lemma opop_str_app :
   forall o base,
-    starts_str base = false ->
+    base_ok base = true ->
     opop_str (oout_app base o)
     = (fst (opop_str o), oout_app base (snd (opop_str o))).
 Proof.
@@ -2624,7 +2697,7 @@ Qed.
 
 Lemma bclosed_lit_app :
   forall kids image o base,
-    starts_str base = false ->
+    base_ok base = true ->
     bclosed_lit kids image (oout_app base o)
     = (fst (bclosed_lit kids image o),
        oout_app base (snd (bclosed_lit kids image o))).
@@ -2639,7 +2712,7 @@ Qed.
 
 Lemma bdest_lit_app :
   forall kids image esc dst o base,
-    starts_str base = false ->
+    base_ok base = true ->
     bdest_lit kids image esc dst (oout_app base o)
     = (fst (bdest_lit kids image esc dst o),
        oout_app base (snd (bdest_lit kids image esc dst o))).
@@ -2652,7 +2725,7 @@ Qed.
 
 Lemma bref_lit_app :
   forall kids image label o base,
-    starts_str base = false ->
+    base_ok base = true ->
     bref_lit kids image label (oout_app base o) =
     let '(txt, o') := bref_lit kids image label o in
     (txt, oout_app base o').
@@ -2664,7 +2737,7 @@ Qed.
 
 Lemma bspan_lit_app :
   forall kids image src o base,
-    starts_str base = false ->
+    base_ok base = true ->
     bspan_lit kids image src (oout_app base o) =
     let '(txt, o') := bspan_lit kids image src o in
     (txt, oout_app base o').
@@ -2676,7 +2749,7 @@ Qed.
 
 Lemma iescws_resolve_app :
   forall ws txt prev o base,
-    starts_str base = false ->
+    base_ok base = true ->
     iescws_resolve ws txt prev (oout_app base o)
     = let '(t, p, o') := iescws_resolve ws txt prev o in (t, p, oout_app base o').
 Proof.
@@ -2705,7 +2778,7 @@ Qed.
 
 Lemma ospan_bang_app :
   forall image o base,
-    starts_str base = false ->
+    base_ok base = true ->
     ospan_bang image (oout_app base o) = oout_app base (ospan_bang image o).
 Proof.
   intros image o base Hb. unfold ospan_bang. destruct image; [|reflexivity].
@@ -2714,23 +2787,46 @@ Proof.
   apply flush_text_app.
 Qed.
 
+(* The query that made `base_ok` worth carrying.  With something already
+   emitted here the suffix is out of reach, as it is for every other
+   transition; with nothing emitted the suffix's head is what `ocur`
+   returns, and `base_ok` makes that a `SoftBreak` -- which `oattach`
+   declines exactly as it declines an empty scope.  So the two sides
+   agree in the one configuration where the splice is visible. *)
+Lemma oattach_app :
+  forall a o base,
+    base_ok base = true ->
+    oattach a (oout_app base o) = option_map (oout_app base) (oattach a o).
+Proof.
+  intros a [out [|f stk]] base Hb;
+    unfold oattach, oout_app, ocur, oset_cur; cbn [os_out os_stk].
+  - destruct out as [|[p a' v] out']; cbn [app].
+    + destruct base as [|[bp ba bv] base']; [reflexivity|].
+      destruct bv; try discriminate Hb; reflexivity.
+    + destruct v; reflexivity.
+  - destruct (fr_out f) as [|[p a' v] rest]; [reflexivity|].
+    destruct v; reflexivity.
+Qed.
+
 Lemma iattr_attach_app :
   forall a src txt prev o base,
-    starts_str base = false ->
+    base_ok base = true ->
     iattr_attach a src txt prev (oout_app base o)
     = iout_app base (iattr_attach a src txt prev o).
 Proof.
   intros a src txt prev o base Hb. unfold iattr_attach.
-  destruct a as [|kv a'];
-    [destruct (nonempty_str txt); reflexivity|].
   destruct (last_ws_split txt) as [pre w].
-  destruct (nonempty_str w); [|destruct (nonempty_str txt); reflexivity].
-  cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
+  destruct (nonempty_str w).
+  - destruct a as [|kv a']; [reflexivity|].
+    cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
+  - destruct (nonempty_str txt); [reflexivity|].
+    rewrite (oattach_app a o base Hb).
+    destruct (oattach a o) as [o'|]; reflexivity.
 Qed.
 
 Lemma iattr_feed_app :
   forall c p src txt prev o base,
-    starts_str base = false ->
+    base_ok base = true ->
     iattr_feed c p src txt prev (oout_app base o)
     = iout_app base (iattr_feed c p src txt prev o).
 Proof.
@@ -2741,7 +2837,7 @@ Qed.
 
 Lemma ispan_feed_app :
   forall c kids image p src o base,
-    starts_str base = false ->
+    base_ok base = true ->
     ispan_feed c kids image p src (oout_app base o)
     = iout_app base (ispan_feed c kids image p src o).
 Proof.
@@ -2772,7 +2868,7 @@ Qed.
 
 Lemma iresolve_app :
   forall base st,
-    starts_str base = false ->
+    base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
   intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
@@ -2795,7 +2891,7 @@ Qed.
 
 Lemma istep_out_app :
   forall c base st,
-    starts_str base = false ->
+    base_ok base = true ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
   intros c base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
@@ -2847,7 +2943,7 @@ Qed.
 
 Lemma iscan_str_out_app :
   forall s base st,
-    starts_str base = false ->
+    base_ok base = true ->
     iscan_str s (iout_app base st) = iout_app base (iscan_str s st).
 Proof.
   induction s as [|c s IH]; intros base st Hb; cbn [iscan_str]; [reflexivity|].
@@ -2856,7 +2952,7 @@ Qed.
 
 Lemma ibreak_out_app :
   forall base st,
-    starts_str base = false ->
+    base_ok base = true ->
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
@@ -2877,7 +2973,7 @@ Proof. reflexivity. Qed.
 
 Lemma iscan_lines_out_app :
   forall l base st,
-    starts_str base = false ->
+    base_ok base = true ->
     iscan_lines l (iout_app base st) = iout_app base (iscan_lines l st).
 Proof.
   induction l as [|x [|y rest] IH]; intros base st Hb; cbn [iscan_lines].
@@ -2888,10 +2984,10 @@ Qed.
 
 (* The one place the suffix is not entirely inert: flattening an
    abandoned scope merges a `Str` seam, and if the suffix began with a
-   `Str` the merge would reach across into it.  It never does -- the
-   suffix is always a previous line, whose most recent node is the
-   `SoftBreak` that ended it -- so the hypothesis is discharged by
-   construction rather than carried. *)
+   `Str` the merge would reach across into it.  This is the weakest form
+   of what `base_ok` says, and the only consumer that needs no more than
+   it; the `_app` lemmas carry the stronger fact because `oattach` reads
+   the head rather than merely declining to merge with it. *)
 Lemma osnoc_nonstr :
   forall n out, starts_str out = false -> osnoc n out = (n :: out)%list.
 Proof.
@@ -2909,13 +3005,13 @@ Proof. reflexivity. Qed.
 
 Lemma oapp_app :
   forall cur out base,
-    starts_str base = false ->
+    base_ok base = true ->
     oapp cur (out ++ base)%list = (oapp cur out ++ base)%list.
 Proof.
   induction cur as [|n cur IH]; intros out base Hb; [reflexivity|].
   destruct cur as [|m cur'].
   - rewrite !oapp_one. destruct out as [|x out']; cbn [app].
-    + rewrite (osnoc_nonstr n base Hb). reflexivity.
+    + rewrite (osnoc_nonstr n base (base_ok_starts_str base Hb)). reflexivity.
     + destruct x as [a [|p ps] i]; [|reflexivity].
       destruct i; try reflexivity.
       destruct n as [c [|q qs] j]; [|reflexivity]. destruct j; reflexivity.
@@ -2924,7 +3020,7 @@ Qed.
 
 Lemma oflatten_app :
   forall stk pend bottom base,
-    starts_str base = false ->
+    base_ok base = true ->
     oflatten pend stk (bottom ++ base)%list
     = (oflatten pend stk bottom ++ base)%list.
 Proof.
@@ -2934,7 +3030,7 @@ Qed.
 
 Lemma ofinish_out_app :
   forall base o,
-    starts_str base = false ->
+    base_ok base = true ->
     ofinish (oout_app base o) = (ofinish o ++ base)%list.
 Proof.
   intros base o Hb. unfold ofinish, oout_app; cbn [os_out os_stk].
@@ -2943,7 +3039,7 @@ Qed.
 
 Lemma ifinish_rev_out_app :
   forall base st,
-    starts_str base = false ->
+    base_ok base = true ->
     ifinish_rev (iout_app base st) = (ifinish_rev st ++ base)%list.
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
@@ -2969,7 +3065,7 @@ Qed.
 
 Lemma ifinish_out_app :
   forall base st,
-    starts_str base = false ->
+    base_ok base = true ->
     ifinish (iout_app base st) = (List.rev base ++ ifinish st)%list.
 Proof.
   intros base st Hb. unfold ifinish.
@@ -4528,18 +4624,19 @@ Lemma iattr_attach_productive :
     iscan_productive (iattr_attach a src txt prev o) = true.
 Proof.
   intros a src txt prev o. unfold iattr_attach.
-  assert (Hd : iscan_productive
-                 (if nonempty_str txt
-                  then IText false txt prev o
-                  else IText false (txt ++ one lbrace ++ src)%string prev o)
-               = true).
-  { destruct (nonempty_str txt) eqn:E; cbn [iscan_productive];
-      [rewrite E; reflexivity|].
-    apply orb_true_iff. left. destruct txt; [reflexivity|discriminate E]. }
-  destruct a as [|kv a']; [exact Hd|].
-  destruct (last_ws_split txt) as [pre w].
-  destruct (nonempty_str w); [|exact Hd].
-  cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
+  destruct (last_ws_split txt) as [pre w] eqn:Es.
+  destruct (nonempty_str w) eqn:Ew.
+  - destruct a as [|kv a'].
+    + cbn [iscan_productive]. apply orb_true_iff. left.
+      apply last_ws_split_nonempty. rewrite Es. exact Ew.
+    + cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
+  - destruct (nonempty_str txt) eqn:Et;
+      [cbn [iscan_productive]; rewrite Et; reflexivity|].
+    (* nothing pending: either a node here takes the spec, or its source
+       stays as text -- and both leave something behind *)
+    destruct (oattach a o) as [o'|] eqn:Ea; cbn [iscan_productive].
+    + rewrite (oattach_nonempty a o o' Ea). apply orb_true_r.
+    + apply orb_true_iff. left. reflexivity.
 Qed.
 
 Lemma iattr_feed_productive :
@@ -5620,12 +5717,13 @@ Example span_image_marker_merges :
   = [mk (Str "a!"); Node NoPos [("class", "a")] (Span [mk (Str "x")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A second spec belongs to the span too (djot.js merges the classes),
-   but attaching to a *node* is the piece still missing, so it stays
-   text.  See `iattr_attach`. *)
-Example span_stacked_specs_not_yet :
+(* A second spec belongs to the span too, and classes accumulate where
+   other keys overwrite: `attr_merge` is the same rule the block layer
+   uses.  This is `oattach` -- there is no pending text when the second
+   `{` arrives, so the span node itself is the target. *)
+Example span_stacked_specs :
   parse_inline_line "[s]{.a}{.b}"
-  = [Node NoPos [("class", "a")] (Span [mk (Str "s")]); mk (Str "{.b}")].
+  = [Node NoPos [("class", "a b")] (Span [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
@@ -5731,10 +5829,30 @@ Example attr_failed_spec_resumes :
   = [mk (Str "x{bad"); mk (Strong [mk (Str "y")]); mk (Str "z")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Not yet: with no pending text the spec would have to decorate the node
-   just emitted, which means reading the current scope -- see
-   `iattr_attach`.  Here it keeps its source instead. *)
-Example attr_on_node_not_yet :
+(* With no pending text the spec decorates the node just emitted. *)
+Example attr_on_node :
   parse_inline_line "*e*{.a}"
-  = [mk (Strong [mk (Str "e")]); mk (Str "{.a}")].
+  = [Node NoPos [("class", "a")] (Strong [mk (Str "e")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The immediately preceding *node*, not the innermost one: a byte of
+   text after the close puts the word back in the way. *)
+Example attr_on_node_loses_to_text :
+  parse_inline_line "*e*w{.a}"
+  = [mk (Strong [mk (Str "e")]); Node NoPos [("class", "a")] (Str "w")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An empty spec builds no wrapper but still vanishes, which is what
+   `[l](u){}` needs. *)
+Example attr_empty_spec_on_node :
+  parse_inline_line "[l](u){}"
+  = [mk (Link [mk (Str "l")] (Direct "u"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Nothing at all before it is the case we do not follow djot.js on: it
+   drops the spec, and a heading whose whole content is one would then
+   have no children, which `wf_block` excludes.  The source stays. *)
+Example attr_with_nothing_before_is_text :
+  parse_inline_line "{#i} x"
+  = [mk (Str "{#i} x")].
 Proof. vm_compute. reflexivity. Qed.

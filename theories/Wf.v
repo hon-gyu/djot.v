@@ -426,6 +426,37 @@ Qed.
 Lemma hd_str_is_starts_str : forall l, hd_str l = starts_str l.
 Proof. intros [|[? [|? ?] ?] ?]; reflexivity. Qed.
 
+(* `no_adjacent_str` reads nothing but `plain_str` of each node, so the
+   element at the end may be swapped for any other with the same verdict.
+   `oattach` is the one writer that replaces a node in place. *)
+Lemma no_adjacent_str_snoc_ext :
+  forall l n m,
+    plain_str n = plain_str m ->
+    no_adjacent_str (l ++ [n])%list = no_adjacent_str (l ++ [m])%list.
+Proof.
+  induction l as [|x l IH]; intros n m H; [reflexivity|].
+  destruct l as [|y l']; cbn [app no_adjacent_str].
+  - rewrite H. reflexivity.
+  - f_equal. exact (IH n m H).
+Qed.
+
+(* Decorating the most recent node keeps the scope well-formed: the
+   payload is untouched, so `wf_inline` transfers, and the seam is
+   decided by `plain_str` alone. *)
+Lemma ilist_ok_reattr :
+  forall n m out,
+    ilist_ok (n :: out) = true ->
+    node_contents m = node_contents n ->
+    plain_str m = false -> plain_str n = false ->
+    ilist_ok (m :: out) = true.
+Proof.
+  intros n m out H Hc Hm Hn. unfold ilist_ok in *.
+  cbn [forallb List.rev] in *. rewrite Hc.
+  rewrite (no_adjacent_str_snoc_ext (List.rev out) m n
+             (eq_trans Hm (eq_sym Hn))).
+  exact H.
+Qed.
+
 Lemma ilist_ok_osnoc :
   forall n out,
     ilist_ok out = true ->
@@ -503,10 +534,6 @@ Definition frames_ok (stk : list frame) : bool :=
 
 Definition oscope_ok (o : ostate) : bool :=
   (ilist_ok (os_out o) && frames_ok (os_stk o))%bool.
-
-(* The scope emissions land in: the innermost open one, or the bottom. *)
-Definition ocur (o : ostate) : inlines :=
-  match os_stk o with [] => os_out o | f :: _ => fr_out f end.
 
 Definition iscan_wf (st : iscan) : bool :=
   match st with
@@ -1090,29 +1117,100 @@ Proof.
   apply iscan_wf_flush; assumption.
 Qed.
 
-(* Attachment keeps the scopes well-formed.  The emitted `Str` carries
-   the spec's attributes, so it is never `plain_str` and may sit next to
-   whatever `flush_text` left; that is what lets `foo bar{.a}` end in two
-   adjacent `Str` nodes without breaking `no_adjacent_str`. *)
+(* Merging attributes onto a node cannot turn it into a plain `Str`:
+   either it already carried some, and `attr_merge_cons` says it still
+   does, or it carried none and its payload was not a `Str`. *)
+Lemma plain_str_reattr :
+  forall p a' v a,
+    plain_str (Node p a' v) = false ->
+    plain_str (Node p (attr_merge a a') v) = false.
+Proof.
+  intros p [|kv a'] v a H;
+    [|destruct (attr_merge_cons a kv a') as [x [r E]]; rewrite E; reflexivity].
+  destruct (attr_merge a []) as [|z r];
+    [destruct v; try reflexivity; discriminate H|reflexivity].
+Qed.
+
+(* The scope `oattach` wrote back is still well-formed, and its head is
+   still not a plain `Str` -- which is the pair `iscan_wf` asks of every
+   text state. *)
+(* `ocur` and `oset_cur` as a pair: reading back what was written, and
+   the invariant travelling through the write.  Stating them here is what
+   lets `oattach_ok` below say the same thing once instead of once per
+   shape of the stack. *)
+Lemma ocur_set_cur : forall l o, ocur (oset_cur l o) = l.
+Proof. intros l [out [|f stk]]; reflexivity. Qed.
+
+Lemma ilist_ok_ocur :
+  forall o, oscope_ok o = true -> ilist_ok (ocur o) = true.
+Proof.
+  intros [out [|f stk]] H; unfold oscope_ok, ocur in *;
+    cbn [os_out os_stk frames_ok forallb] in *;
+    apply andb_true_iff in H as [H1 H2]; [exact H1|].
+  apply andb_true_iff in H2 as [H2 _]. exact H2.
+Qed.
+
+Lemma oscope_ok_set_cur :
+  forall l o,
+    oscope_ok o = true -> ilist_ok l = true ->
+    oscope_ok (oset_cur l o) = true.
+Proof.
+  intros l [out [|f stk]] Ho Hl; unfold oscope_ok, oset_cur in *;
+    cbn [os_out os_stk frames_ok forallb fr_out] in *;
+    apply andb_true_iff in Ho as [Ho Hf]; [rewrite Hl; reflexivity|].
+  apply andb_true_iff in Hf as [_ Hstk]. rewrite Ho, Hl, Hstk. reflexivity.
+Qed.
+
+(* The scope `oattach` wrote back is still well-formed, and its head is
+   still not a plain `Str` -- which is the pair `iscan_wf` asks of every
+   text state.  Both halves come from the head node alone: the payload is
+   untouched, and the attributes only grow. *)
+Lemma oattach_ok :
+  forall a o o',
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oattach a o = Some o' ->
+    oscope_ok o' = true /\ starts_str (ocur o') = false.
+Proof.
+  intros a o o' Ho Hs Ea.
+  rewrite <- hd_str_is_starts_str in Hs.
+  pose proof (ilist_ok_ocur o Ho) as Hl.
+  unfold oattach in Ea.
+  destruct (ocur o) as [|[p a' v] rest]; [discriminate|].
+  cbn [hd_str] in Hs.
+  destruct v; try discriminate Ea; injection Ea as <-;
+    (split;
+     [apply oscope_ok_set_cur;
+        [exact Ho
+        |eapply ilist_ok_reattr;
+           [exact Hl | reflexivity | apply plain_str_reattr, Hs | exact Hs]]
+     |rewrite ocur_set_cur, <- hd_str_is_starts_str; cbn [hd_str];
+      apply plain_str_reattr, Hs]).
+Qed.
+
+(* Attachment keeps the scopes well-formed.  A spec taking pending text
+   emits a `Str` carrying its attributes, so that node is never
+   `plain_str` and may sit next to whatever `flush_text` left -- which is
+   what lets `foo bar{.a}` end in two adjacent `Str` nodes without
+   breaking `no_adjacent_str`.  A spec taking the node before it goes
+   through `oattach_ok`. *)
 Lemma iattr_attach_wf :
   forall a src txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (iattr_attach a src txt prev o) = true.
 Proof.
   intros a src txt prev o Ho Hs. unfold iattr_attach.
-  assert (Hd : iscan_wf
-                 (if nonempty_str txt
-                  then IText false txt prev o
-                  else IText false (txt ++ one lbrace ++ src)%string prev o)
-               = true)
-    by (destruct (nonempty_str txt); apply iscan_wf_text; assumption).
-  destruct a as [|kv a']; [exact Hd|].
   destruct (last_ws_split txt) as [pre w].
-  destruct (nonempty_str w) eqn:Ew; [|exact Hd].
-  apply iscan_wf_text; [|rewrite ocur_emit; reflexivity].
-  apply oscope_ok_emit;
-    [apply iscan_wf_flush; assumption | cbn [node_contents]; exact Ew
-    | reflexivity].
+  destruct (nonempty_str w) eqn:Ew.
+  - destruct a as [|kv a']; [apply iscan_wf_text; assumption|].
+    apply iscan_wf_text; [|rewrite ocur_emit; reflexivity].
+    apply oscope_ok_emit;
+      [apply iscan_wf_flush; assumption | cbn [node_contents]; exact Ew
+      | reflexivity].
+  - destruct (nonempty_str txt); [apply iscan_wf_text; assumption|].
+    destruct (oattach a o) as [o'|] eqn:Ea;
+      [|apply iscan_wf_text; assumption].
+    destruct (oattach_ok a o o' Ho Hs Ea) as [Ho' Hs'].
+    apply iscan_wf_text; assumption.
 Qed.
 
 Lemma iattr_feed_wf :

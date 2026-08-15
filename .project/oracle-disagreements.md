@@ -691,3 +691,38 @@ backtick, `[` -- which the destination's own escaping already handles,
 since `\_` and `` \` `` decode the same way in both engines. So the
 divergence is unreachable from a canonical document and stays a corpus
 fidelity gap only.
+
+## Adjudicated 2026-08-15 — ours: a spec with nothing before it
+
+djot.js's `-attributes` handler asks for the tip of the current
+container and returns without doing anything when there is none
+(`tip === topContainer()`, parse.ts:452). The spec's own source is
+already gone by then -- it was consumed by the attribute parser -- so it
+vanishes.
+
+| `{#i} x` | output |
+| --- | --- |
+| djot.js | `<p> x</p>` |
+| ours | `<p>{#i} x</p>` |
+
+**Ours, and this one is forced.** The deciding input is not that case
+but `# {#i}`, where the spec is the heading's entire content. djot.js
+renders `<h1></h1>`. A block with no children is not in `wf_block`, and
+`parse_inline_line_nonempty` -- which `para_inlines_nonempty` and
+through it every `wf_block` obligation on paragraphs and headings rests
+on -- says a nonblank line yields at least one inline. Dropping the spec
+would falsify it for the string `{#i}`.
+
+This is the [[project-engineering-lessons]] clause on unrepresentable
+oracle behaviour, and the answer to its question is yes: matching would
+break a theorem about output the parser can reach. So we keep the source
+as text, and the divergence is confined to a spec that has *neither*
+pending text nor a node before it in the same scan -- `iattr_attach`'s
+last branch, and the only one that does not consult `oattach`.
+
+**What is not divergent.** Everything else in the family now matches:
+`*e*{.a}` and `[l](u){}` attach to the node, `x{.a}{.b}` merges,
+`foo {.a}` drops the spec because the text ends in whitespace, and
+`foo bar{.a}` splits at the last space. The remaining `attributes.test`
+gaps are a spec crossing a line break and `{% %}` comments, neither of
+which is about attachment.

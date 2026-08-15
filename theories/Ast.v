@@ -92,6 +92,37 @@ Definition attr_put (kv : string * string) (a : attr) : attr :=
 Definition attr_merge (new acc : attr) : attr :=
   fold_left (fun acc' kv => attr_put kv acc') new acc.
 
+(* Merging never empties a set.  `Inline.oattach` needs it: it decorates
+   whatever node the scan last emitted, and the scanner's invariant is
+   phrased as "the head is not a plain `Str`" -- where *plain* means no
+   attributes.  A node that already carries some must keep carrying
+   some. *)
+Lemma alist_set_cons :
+  forall A k (v : A) m, exists x r, alist_set k v m = (x :: r)%list.
+Proof.
+  intros A k v [|[k' v'] m]; cbn [alist_set]; [eauto|].
+  destruct (String.eqb k k'); eauto.
+Qed.
+
+Lemma attr_put_cons :
+  forall kv a, exists x r, attr_put kv a = (x :: r)%list.
+Proof.
+  intros kv a. unfold attr_put, attr_add_class, attr_set.
+  destruct (String.eqb (fst kv) "class"); [|apply alist_set_cons].
+  destruct (lookup_attr "class" a); apply alist_set_cons.
+Qed.
+
+Lemma attr_merge_cons :
+  forall a kv acc, exists x r, attr_merge a (kv :: acc)%list = (x :: r)%list.
+Proof.
+  induction a as [|y a IH]; intros kv acc; [exists kv, acc; reflexivity|].
+  unfold attr_merge in *; cbn [fold_left].
+  destruct (attr_put y (kv :: acc)%list) as [|z r] eqn:E;
+    [destruct (attr_put_cons y (kv :: acc)%list) as [? [? E']];
+     rewrite E' in E; discriminate|].
+  apply IH.
+Qed.
+
 (* `addBlockAttributes` (parse.ts:183): the pending set onto the node a
    block opens with.  Plain assignment — no class rule here, which is
    djot.js's behaviour and not obviously intended. *)
