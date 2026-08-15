@@ -180,31 +180,8 @@ Definition markdown_config : dconfig :=
           (fun k => match k with DStrong => 2 | _ => 1 end)
           djot_dsyntax.
 
-(* The table in force.  Threading it as an argument is what makes the
-   family quantifiable; until then it is fixed here, and the point of the
-   record is already served: every row's character is read out of one
-   place, so swapping two of them is an edit to `djot_dchar` alone. *)
-Definition config : dconfig := djot_config.
-
-Definition dchar (k : dstyle) : ascii := dc_char config k.
-
-Definition dsyntax_of (k : dstyle) : dsyntax := dc_syntax config k.
-
-Definition dwidth (k : dstyle) : nat := dc_width config k.
-
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
-
-(* A row's delimiter as it is written: `dwidth` copies of its character.
-   The scanner cuts a run of that character into these and leaves any
-   remainder as text, which is why a width is enough and a general string
-   is not needed -- the character belongs to one row, so there is nothing
-   to disambiguate. *)
-Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
-
-(* Whether an unbraced delimiter may open a span at all. *)
-Definition dbare (k : dstyle) : bool :=
-  match dsyntax_of k with DBare => true | _ => false end.
 
 Definition dstyles : list dstyle :=
   [DEmph; DStrong; DSuper; DSub; DMark; DInsert].
@@ -354,7 +331,6 @@ Definition dnode (k : dstyle) (ns : inlines) : inline :=
    `dstyle_of_dchar` below, which is now a fact about the search instead
    of a coincidence to maintain.  A row switched off is not found, so
    `DOff` removes the character from the scanner entirely. *)
-Definition dstyle_of (c : ascii) : option dstyle := dstyle_at config c.
 
 (* Djot's table satisfies the side condition: its six characters are
    distinct.  Checked rather than assumed. *)
@@ -386,6 +362,47 @@ Example clashing_config_ok_when_off :
 Proof. vm_compute. reflexivity. Qed.
 
 
+(* The table in force, as a parameter.
+
+   A `dtable` is an admissible configuration: a table together with the
+   proof that it satisfies `dconfig_ok`.  Everything below is stated for
+   an arbitrary one, so `roundtrip_blocks` and its neighbours are
+   theorems about the family rather than about djot -- and a second
+   configuration is a second instance rather than a second build.
+
+   It is a class so that the argument stays implicit: the instance in
+   scope is the one meant, and naming another (`@parse_inline_line
+   markdown_table`) is how the other table is spoken of. *)
+Class dtable : Type := DTable {
+  cfg : dconfig;
+  cfg_ok : dconfig_ok cfg = true
+}.
+
+Section WithTable.
+Context {T : dtable}.
+
+Definition dchar (k : dstyle) : ascii := dc_char cfg k.
+
+Definition dsyntax_of (k : dstyle) : dsyntax := dc_syntax cfg k.
+
+Definition dwidth (k : dstyle) : nat := dc_width cfg k.
+
+(* Whether the row exists at all in the table in force. *)
+Definition denabled_of (k : dstyle) : bool := denabled cfg k.
+
+Definition dstyle_of (c : ascii) : option dstyle := dstyle_at cfg c.
+
+(* A row's delimiter as it is written: `dwidth` copies of its character.
+   The scanner cuts a run of that character into these and leaves any
+   remainder as text, which is why a width is enough and a general string
+   is not needed -- the character belongs to one row, so there is nothing
+   to disambiguate. *)
+Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
+
+(* Whether an unbraced delimiter may open a span at all. *)
+Definition dbare (k : dstyle) : bool :=
+  match dsyntax_of k with DBare => true | _ => false end.
+
 Definition is_delim (c : ascii) : bool :=
   match dstyle_of c with Some _ => true | None => false end.
 
@@ -393,18 +410,12 @@ Definition is_delim (c : ascii) : bool :=
    below: a row's character must look the row up again.  A new row that
    reuses a character silently shadows an old one without it. *)
 (* Whether the row exists at all in the table in force. *)
-Definition denabled_of (k : dstyle) : bool := denabled config k.
 
-(* The one computation on the table in force.  Everything the scanner and
-   the renderer assume about it is derived from this line, so pointing
-   `config` at another table re-checks all of it at once -- and, once the
-   table is threaded, this becomes the hypothesis every statement
-   carries rather than a fact about djot. *)
-Lemma config_ok : dconfig_ok config = true.
-Proof. vm_compute. reflexivity. Qed.
-
-Lemma drow_ok_of : forall k, drow_ok config k = true.
-Proof. intros k. exact (dconfig_ok_row config k config_ok). Qed.
+(* Everything the scanner and the renderer assume about the table is
+   derived from the instance's own side condition, so an instance is
+   admissible or it does not exist. *)
+Lemma drow_ok_of : forall k, drow_ok cfg k = true.
+Proof. intros k. exact (dconfig_ok_row cfg k cfg_ok). Qed.
 
 (* An enabled row has a token to write.  A width of zero would spell a
    delimiter as the empty string, which nothing could scan and nothing
@@ -414,7 +425,7 @@ Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
-  unfold dwidth. destruct (dc_width config k); [discriminate|]. discriminate.
+  unfold dwidth. destruct (dc_width cfg k); [discriminate|]. discriminate.
 Qed.
 
 (* Hence a row's token is a nonempty string: what a delimiter decays to
@@ -475,7 +486,7 @@ Qed.
 Lemma dstyle_of_dchar :
   forall k, denabled_of k = true -> dstyle_of (dchar k) = Some k.
 Proof.
-  intros k H. exact (dstyle_at_dchar config k config_ok H).
+  intros k H. exact (dstyle_at_dchar cfg k cfg_ok H).
 Qed.
 
 Definition one (c : ascii) : string := String c EmptyString.
@@ -4746,6 +4757,27 @@ Escapes, pinned
 *)
 
 (* The scanner accepts any punctuation after a backslash... *)
+End WithTable.
+
+(*
+Djot's instance
+---------------
+
+The table in force for everything downstream: the harness, the corpus,
+and the examples below.  A second one lives in `check/Markdown.v`, which
+names it explicitly rather than putting it in scope -- two instances of
+one class in one scope is how the wrong table gets inferred.
+*)
+
+#[export] Instance djot_table : dtable :=
+  DTable djot_config eq_refl.
+
+(* The Markdown-like table, as an instance but deliberately *not* an
+   `Instance`: it is named where it is wanted (`check/Markdown.v`) so
+   that inference in this development always means djot's. *)
+Definition markdown_table : dtable :=
+  DTable markdown_config eq_refl.
+
 Example escaped_punct_literal : parse_inline_line "\*" = [mk (Str "*")].
 Proof. reflexivity. Qed.
 

@@ -210,12 +210,39 @@ The pieces, in the order they bite:
    chains behind them. Asked of all rows, the tax is that a table must
    spell even a row it does not use with something admissible.
 
-5. **Threading proper.** `config` is still a fixed `Definition`. What
-   remains is turning it into a parameter with `dconfig_ok` as its
-   hypothesis. Audited by building against a table with `**` for strong
-   *and* the insert row switched off: `Inline.v`'s general half and every
-   file downstream compile unchanged, so what is left really is the
-   plumbing.
+5. **Threading, the inline layer: done.** The table is now a parameter.
+   `dtable` is a class carrying a `dconfig` *and* its `dconfig_ok` proof,
+   so an instance is admissible or it does not exist, and `Inline.v`'s
+   whole general half is a section over one. `djot_table` is an exported
+   instance and `markdown_table` is a plain definition, named where it is
+   wanted -- two instances of one class in scope is how the wrong table
+   gets inferred.
+
+   A class rather than a section variable, and that is the whole reason
+   the step was affordable: the argument stays implicit, so not one call
+   site downstream changed. `Wf.v` alone mentions inline-layer symbols
+   245 times, and an explicit parameter would have been 245 edits there
+   before counting the rest.
+
+   `check/Markdown.v` is the payoff. It used to need a recipe -- point
+   `config` at the second table, truncate the djot examples, rebuild --
+   and now it names `markdown_table` in four notations and compiles
+   against the ordinary build, beside djot's own examples.
+
+   One fact fell out of the discharge that is worth keeping: `ci_inlines`
+   takes **no** table argument, while `ci_line`, `ci_ok`, `escape_str`
+   and `parse_inline_line` all do. The AST a canonical inline denotes is
+   the same whatever spells it; only the source and the acceptance
+   predicate depend on the table. That is the roundtrip read backwards,
+   and Rocq's section discharge noticed it without being asked.
+
+6. **Threading, the layers above.** `Wf.v`, `Roundtrip.v`, `Render.v`,
+   `Parser.v` and `Document.v` still resolve the instance to djot's at
+   elaboration, so `roundtrip_blocks` is currently a theorem about djot
+   rather than about the family. Making it the latter is one `Context`
+   line per file plus whatever examples have to move out of the section.
+   The rebuild audit says the proofs do not care which table it is; what
+   remains is saying so in the statements.
 
 **Where the second-table build stops.** Every general statement in
 `Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,

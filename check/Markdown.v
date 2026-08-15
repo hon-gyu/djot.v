@@ -12,35 +12,35 @@ nothing to disambiguate.
 
 Every line here was measured, not predicted.
 
-**This file does not compile against the ordinary build.**  It asks for
-`theories/Inline.v`'s table in force to be the second one:
-
-```coq
-Definition config : dconfig := markdown_config.
-```
-
-with `Inline.v`'s own examples truncated (`head -4580`) -- they spell
-djot's `*a*` as strong and are about djot.  Then:
+It needs no recipe and no second build: the table is a parameter, so
+these examples name the other instance and the ordinary build checks
+them.
 
 ```
 dune build && rocq c -R _build/default/theories DjotV check/Markdown.v
 ```
 
-Against djot's table it fails on its first line, and the failure is the
-baseline: `**a**` is nested *emphasis* there, since `*` is strong at
-width one.  That is the extension being non-conservative, in one error
-message.
-
-It is out of the build for the same reason `check/Deep.v` is, and it
-stops being a manual recipe once the table is threaded as a parameter:
-at that point these become ordinary `Example`s over the second
-configuration, which is what threading it is for.
+It is out of the dune build for the same reason `check/Deep.v` is --
+`vm_compute` over whole documents is not something a parser edit should
+pay for -- and not because it needs special treatment any more.
 *)
 
 From Stdlib Require Import String List Ascii.
 From DjotV Require Import Ast Inline.
 Import ListNotations.
 Open Scope string_scope.
+
+(* Everything below is read at the Markdown-like table.  Naming it here
+   rather than declaring it an instance is what keeps djot's the one
+   inference finds everywhere else. *)
+Local Notation parse_inline_line := (@parse_inline_line markdown_table).
+Local Notation escape_str := (@escape_str markdown_table).
+Local Notation ci_line := (@ci_line markdown_table).
+
+(* `ci_inlines` needs no instance: the AST a canonical inline denotes is
+   the same whatever the table spells it with.  Only the source and the
+   acceptance predicate depend on the table -- which is the roundtrip
+   read backwards. *)
 
 (*
 The spelling
