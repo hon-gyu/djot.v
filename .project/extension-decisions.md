@@ -124,21 +124,40 @@ The pieces, in the order they bite:
    replaces two unfoldings of djot's table with one fact checked in one
    place.
 
-3. **The marked open consumes one character.** Found by building at
-   `emph = *, strong = __`, where `iscan_marked_open` stops being
-   provable. `ibrace_step` matches `dstyle_of c` on the byte after `{`
-   and pushes the scope there and then, so at width two the push happens
-   a character early and the rest of the token is scanned as text. The
-   bare open has no such problem -- `ilead` enters `IDelim` and the
-   counter spells the token -- so the repair is to give the braced open
-   the same state, carrying the marker flag, rather than to widen
-   `ibrace_step` in place. This is a scanner change with an `iscan`
-   constructor's worth of proof behind it, which is why it is now the
-   blocking piece and not the renderer.
+3. **The marked open: done.** Found by building at `emph = *,
+   strong = __`, where `iscan_marked_open` stopped being provable:
+   `ibrace_step` matched `dstyle_of c` on the byte after `{` and pushed
+   the scope there and then, so at width two the push came a character
+   early and the rest of the token was scanned as text. `IDelim` now
+   carries a `marked` flag and the braced open enters it like the bare
+   one, through `idelim_marked`, which pushes the moment the row's width
+   is reached -- so a marked state is never a *complete* token, and the
+   branch that reads `canclose` is the one it never reaches. A partial
+   token decays through `idelim_run`, which puts the `{` back.
+
+   The cost was a field, not a constructor: nothing gained a case, and
+   the exhaustive matches took one more `_`. The four proofs that did
+   move (`istep_out_app`, `iscan_wf_step`, `iscan_wf_resolve`,
+   `iscan_productive_step`) all moved for the same reason, and it is one
+   worth recording -- **at width one the partial-token branch is
+   statically dead**, since `S seen <? 1` reduces to `false` whatever
+   `seen` is, so `cbn` used to discharge it silently. Widening the table
+   is what makes those branches reachable, and each wanted the same three
+   facts: `idelim_marked_out_app`, `idelim_marked_wf`,
+   `idelim_marked_productive`.
 
 4. **Threading.** The table is a fixed `Definition config`, so a
    configuration is chosen at build time. Mechanical, and what makes
    every statement quantify over the family rather than over djot.
+
+**Where the width-two build now stops.** Every general statement in
+`Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,
+`Parser.v`, the renderer -- compiles under `emph = *, strong = __`.
+Measured by truncating `Inline.v`'s pinned examples and building the
+rest: what fails at width two is exactly the examples, which spell djot's
+`_a_` and are supposed to be about djot. So the roundtrip theorems are
+already theorems about a two-character strong delimiter; what piece 4
+buys is saying so in the statements rather than by rebuilding.
 
 **Settled so far:**
 

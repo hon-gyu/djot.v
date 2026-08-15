@@ -162,6 +162,14 @@ Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 Lemma dwidth_nonzero : forall k, dwidth k <> 0.
 Proof. intros []; vm_compute; discriminate. Qed.
 
+(* Hence a row's token is a nonempty string: what a delimiter decays to
+   always has something in it. *)
+Lemma dtoken_nonempty : forall k, nonempty_str (dtoken k) = true.
+Proof.
+  intros k. unfold dtoken.
+  destruct (dwidth k) as [|w] eqn:E; [destruct (dwidth_nonzero k E)|reflexivity].
+Qed.
+
 (* Whether an unbraced delimiter may open a span at all. *)
 Definition dbare (k : dstyle) : bool :=
   match dsyntax_of k with DBare => true | _ => false end.
@@ -1476,16 +1484,22 @@ Inductive iscan : Type :=
   | IText (esc : bool) (txt : string) (prev : option ascii) (o : ostate)
   (* a `{` whose role the next byte decides: open marker, or text *)
   | IBrace (txt : string) (prev : option ascii) (o : ostate)
-  (* an unbraced delimiter; `canclose` was computed from the byte before
-     it.  `extra` counts the row's characters that have arrived *after*
-     the first, so the token so far is `S extra` of them: while that is
-     short of `dwidth` the token is still being spelled, and once it
-     reaches `dwidth` the token is complete and the next byte decides its
-     role.  Counting from the second character rather than the first is
-     what keeps every state productive -- there is no state holding an
-     empty token. *)
+  (* a delimiter being spelled; `canclose` was computed from the byte
+     before it.  `extra` counts the row's characters that have arrived
+     *after* the first, so the token so far is `S extra` of them: while
+     that is short of `dwidth` the token is still being spelled, and once
+     it reaches `dwidth` the token is complete and the next byte decides
+     its role.  Counting from the second character rather than the first
+     is what keeps every state productive -- there is no state holding an
+     empty token.
+
+     `marked` says the token is the one after a `{`, which needs no byte
+     after it: it opens on sight, so `idelim_marked` pushes the scope the
+     moment the width is reached and a marked state is therefore never a
+     *complete* token.  What it still owes is the rest of its own token,
+     and what it decays to keeps the `{`. *)
   | IDelim (k : dstyle) (extra : nat) (txt : string) (canclose : bool)
-           (o : ostate)
+           (marked : bool) (o : ostate)
   (* counting an opening backtick run *)
   | IOpen (n : nat) (o : ostate)
   (* inside a width-`n` verbatim, with `run` unresolved trailing ticks *)
@@ -1545,7 +1559,7 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
        | None => IText false (txt ++ one rbrack)%string prev o
        end
   else match dstyle_of c with
-       | Some k => IDelim k 0 txt (nonspace_at (str_last txt prev)) o
+       | Some k => IDelim k 0 txt (nonspace_at (str_last txt prev)) false o
        | None => IText false (txt ++ one c)%string prev o
        end.
 
@@ -1624,17 +1638,38 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
   then iattr_attach (ap_attrs p') (src ++ one c)%string txt prev o
   else IAttr p' (src ++ one c)%string txt prev o.
 
+(* A marked open with `S extra` characters of its token in hand.  It
+   needs no byte after it -- djot.js forces `can_open` and blocks
+   `can_close` for a marked delimiter -- so reaching the row's width
+   pushes the scope there and then, and only a token still short of it
+   waits.  `canclose` is `false` throughout: the branch that would read
+   it is the one this never reaches. *)
+Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
+  (o : ostate) : iscan :=
+  if Nat.ltb (S extra) (dwidth k)
+  then IDelim k extra txt false true o
+  else IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o)).
+
+(* What a token that never finished decays to: the row's characters
+   received so far, with the `{` of a marked open back in front of
+   them. *)
+Definition idelim_run (k : dstyle) (extra : nat) (marked : bool) : string :=
+  ((if marked then one lbrace else EmptyString)
+     ++ chars (dchar k) (S extra))%string.
+
+Lemma idelim_run_nonempty :
+  forall k extra marked, nonempty_str (idelim_run k extra marked) = true.
+Proof. intros k extra []; reflexivity. Qed.
+
 (* Resolving a `{`: an open marker if a delimiter follows, text
-   otherwise.  A marked delimiter needs no further lookahead -- djot.js
-   forces `can_open` and blocks `can_close` for it -- so it opens here.
+   otherwise.
 
    An attribute also begins with `{`, and is not implemented; until it is,
    every other `{` is text, which is what the scanner did before. *)
 Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   match dstyle_of c with
-  | Some k =>
-      IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o))
+  | Some k => idelim_marked k 0 txt o
   | None => iattr_feed c ap_init EmptyString txt prev o
   end.
 
@@ -1706,9 +1741,9 @@ Definition iresolve (st : iscan) : iscan :=
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
-  | IDelim k extra txt canclose o =>
+  | IDelim k extra txt canclose marked o =>
       if Nat.ltb (S extra) (dwidth k)
-      then IText false (txt ++ chars (dchar k) (S extra))%string None o
+      then IText false (txt ++ idelim_run k extra marked)%string None o
       else idelim_resolve k txt canclose false None o
   (* `[a]` at the end of a line is literal: djot.js scans the newline as
      an ordinary byte, and a `(` after it is not a destination. *)
@@ -1725,13 +1760,16 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
   | IText false txt prev o => ilead c txt prev o
   | IBrace txt prev o => ibrace_step c txt prev o
   | IBang txt prev o => ibang_step c txt prev o
-  | IDelim k extra txt canclose o =>
+  | IDelim k extra txt canclose marked o =>
       if Nat.ltb (S extra) (dwidth k)
       then (* still spelling the token: another of the row's characters
-              continues it, anything else makes the partial run text *)
+              continues it -- and completes a marked one, which opens
+              without waiting -- while anything else makes the partial
+              run text *)
         (if Ascii.eqb c (dchar k)
-         then IDelim k (S extra) txt canclose o
-         else ilead c (txt ++ chars (dchar k) (S extra))%string None o)
+         then (if marked then idelim_marked k (S extra) txt o
+               else IDelim k (S extra) txt canclose false o)
+         else ilead c (txt ++ idelim_run k extra marked)%string None o)
       else
       let marker := Ascii.eqb c rbrace in
       let st' := idelim_resolve k txt canclose marker (Some c) o in
@@ -1815,7 +1853,7 @@ Definition ifinish_ostate (st : iscan) : ostate :=
       let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IAttr`, `IBang`,
      `IDelim` or `IClosed` *)
-  | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDelim _ _ _ _ o
+  | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDelim _ _ _ _ _ o
   | IClosed _ _ o => o
   end.
 
@@ -1863,7 +1901,7 @@ Definition ibreak (st : iscan) : iscan :=
      whether the break separates two tokens. *)
   | ISpan kids image p src o => ispan_feed nl_char kids image p src o
   (* unreachable, as in `ifinish_ostate` *)
-  | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _
+  | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
     | IClosed _ _ _) as st' => st'
   end.
 
@@ -1879,7 +1917,7 @@ Definition iscan_closed (st : iscan) : bool :=
   | IVerb n run _ o => (Nat.eqb run n && null (os_stk o))%bool
   (* an open destination owes the next line; `IClosed` cannot appear,
      since `iresolve` has just turned it into text *)
-  | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _
+  | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
   | IClosed _ _ _ | ISpan _ _ _ _ _
   | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
   end.
@@ -1891,7 +1929,7 @@ Lemma ibreak_closed :
                   (OState (mk SoftBreak :: ifinish_rev st) []).
 Proof.
   intros st H. unfold iscan_closed, ibreak, ifinish_rev, ifinish_ostate in *.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
@@ -2089,7 +2127,7 @@ Definition iout_app (base : inlines) (st : iscan) : iscan :=
   match st with
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
   | IBrace txt prev o => IBrace txt prev (oout_app base o)
-  | IDelim k seen txt cc o => IDelim k seen txt cc (oout_app base o)
+  | IDelim k seen txt cc m o => IDelim k seen txt cc m (oout_app base o)
   | IOpen n o => IOpen n (oout_app base o)
   | IVerb n run txt o => IVerb n run txt (oout_app base o)
   | IBang txt prev o => IBang txt prev (oout_app base o)
@@ -2338,7 +2376,7 @@ Lemma iresolve_app :
     starts_str base = false ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros base [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity | apply idelim_resolve_app].
@@ -2346,20 +2384,30 @@ Proof.
     destruct (bclosed_lit kids img ob) as [txt o']. reflexivity.
 Qed.
 
+Lemma idelim_marked_out_app :
+  forall k extra txt base o,
+    idelim_marked k extra txt (oout_app base o)
+    = iout_app base (idelim_marked k extra txt o).
+Proof.
+  intros k extra txt base o. unfold idelim_marked.
+  destruct (Nat.ltb (S extra) (dwidth k)); cbn [iout_app]; [reflexivity|].
+  rewrite flush_text_app, opush_app. reflexivity.
+Qed.
+
 Lemma istep_out_app :
   forall c base st,
     starts_str base = false ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros c base [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     cbn [iout_app istep].
   - reflexivity.
   - apply ilead_app.
   - unfold ibrace_step. destruct (dstyle_of c);
-      [cbn [iout_app]; rewrite flush_text_app, opush_app; reflexivity
-      |apply iattr_feed_app, Hb].
+      [apply idelim_marked_out_app|apply iattr_feed_app, Hb].
   - destruct (Nat.ltb (S seen) (dwidth k)).
-    { destruct (Ascii.eqb c (dchar k)); [reflexivity|apply ilead_app]. }
+    { destruct (Ascii.eqb c (dchar k)); [|apply ilead_app].
+      destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
       as [[] txt' prev' o'|? ? ?|? ? ? ? ?|? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
@@ -2404,7 +2452,7 @@ Lemma ibreak_out_app :
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app]; try reflexivity.
   1,2: rewrite flush_text_app, oemit_app; reflexivity.
   2: apply ispan_feed_app, Hb.
@@ -2491,7 +2539,7 @@ Lemma ifinish_rev_out_app :
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
   rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app].
   1,2: rewrite flush_text_app; apply ofinish_out_app, Hb.
   1,2: apply ofinish_out_app, Hb.
@@ -2656,7 +2704,7 @@ Qed.
 Lemma ilead_dchar :
   forall k txt prev o,
     ilead (dchar k) txt prev o
-    = IDelim k 0 txt (nonspace_at (str_last txt prev)) o.
+    = IDelim k 0 txt (nonspace_at (str_last txt prev)) false o.
 Proof. intros [] txt prev o; reflexivity. Qed.
 
 (* Spelling a token, one character at a time: each of the row's
@@ -2665,8 +2713,8 @@ Proof. intros [] txt prev o; reflexivity. Qed.
 Lemma iscan_chars_delim :
   forall n k extra txt cc o,
     S extra + n = dwidth k ->
-    iscan_str (chars (dchar k) n) (IDelim k extra txt cc o)
-    = IDelim k (extra + n) txt cc o.
+    iscan_str (chars (dchar k) n) (IDelim k extra txt cc false o)
+    = IDelim k (extra + n) txt cc false o.
 Proof.
   induction n as [|n IH]; intros k extra txt cc o Hn.
   - cbn [chars iscan_str]. replace (extra + 0) with extra by lia. reflexivity.
@@ -2686,7 +2734,7 @@ Lemma iscan_dtoken :
   forall k txt prev o,
     dwidth k <> 0 ->
     iscan_str (dtoken k) (IText false txt prev o)
-    = IDelim k (pred (dwidth k)) txt (nonspace_at (str_last txt prev)) o.
+    = IDelim k (pred (dwidth k)) txt (nonspace_at (str_last txt prev)) false o.
 Proof.
   intros k txt prev o Hw. unfold dtoken.
   destruct (dwidth k) as [|w] eqn:Ew; [contradiction|].
@@ -2755,12 +2803,43 @@ Proof.
   reflexivity.
 Qed.
 
+(* The rest of a marked open's token, and the push that ends it.  The
+   counterpart of `iscan_chars_delim` for a token that decides its role
+   on arrival rather than on the byte after. *)
+Lemma iscan_chars_marked :
+  forall n k extra txt o,
+    S extra + n = dwidth k ->
+    iscan_str (chars (dchar k) n) (idelim_marked k extra txt o)
+    = IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o)).
+Proof.
+  induction n as [|n IH]; intros k extra txt o Hn.
+  - cbn [chars iscan_str]. unfold idelim_marked.
+    replace (Nat.ltb (S extra) (dwidth k)) with false
+      by (symmetry; apply Nat.ltb_ge; lia).
+    reflexivity.
+  - unfold idelim_marked at 1.
+    replace (Nat.ltb (S extra) (dwidth k)) with true
+      by (symmetry; apply Nat.ltb_lt; lia).
+    cbn [chars iscan_str istep].
+    replace (Nat.ltb (S extra) (dwidth k)) with true
+      by (symmetry; apply Nat.ltb_lt; lia).
+    rewrite Ascii.eqb_refl. apply IH. lia.
+Qed.
+
 Lemma iscan_marked_open :
   forall d txt prev o,
     iscan_str (marked_open d) (IText false txt prev o)
     = IText false EmptyString (Some (dchar d))
         (opush d true (flush_text txt o)).
-Proof. intros [] txt prev o; reflexivity. Qed.
+Proof.
+  intros d txt prev o. unfold marked_open, dtoken.
+  destruct (dwidth d) as [|w] eqn:Ew;
+    [destruct (dwidth_nonzero d Ew)|].
+  unfold one. cbn [chars append iscan_str istep].
+  change (ilead lbrace txt prev o) with (IBrace txt prev o).
+  cbn [istep]. unfold ibrace_step. rewrite dstyle_of_dchar.
+  apply (iscan_chars_marked w d 0 txt o). lia.
+Qed.
 
 Lemma iscan_marked_close_emit :
   forall d tail ns base p,
@@ -3759,6 +3838,10 @@ Lemma nonempty_str_app_l :
   forall a b, nonempty_str b = true -> nonempty_str (a ++ b)%string = true.
 Proof. intros [|x a] b H; [exact H | reflexivity]. Qed.
 
+Lemma nonempty_str_app_r :
+  forall a b, nonempty_str a = true -> nonempty_str (a ++ b)%string = true.
+Proof. intros [|x a] b H; [discriminate | reflexivity]. Qed.
+
 (* Both reconstructions end in a bracket, so the buffer they hand back is
    never empty: a literal bracket always owes at least its own source. *)
 Lemma bclosed_lit_nonempty :
@@ -3872,6 +3955,14 @@ Proof.
   apply nonempty_str_app_l. reflexivity.
 Qed.
 
+Lemma idelim_marked_productive :
+  forall k extra txt o, iscan_productive (idelim_marked k extra txt o) = true.
+Proof.
+  intros k extra txt o. unfold idelim_marked.
+  destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
+  cbn [iscan_productive]. rewrite ostate_nonempty_push. apply orb_true_r.
+Qed.
+
 Lemma idelim_done_productive :
   forall k txt marker next o,
     iscan_productive (idelim_done k txt marker next o) = true
@@ -3886,7 +3977,8 @@ Proof.
     + intros txt' prev' o' E. injection E as E1 E2. subst txt' o'.
       rewrite ostate_nonempty_push. apply orb_true_r.
   - assert (Hlit : nonempty_str (idelim_lit k txt marker) = true)
-      by (unfold idelim_lit; apply nonempty_str_app_l; reflexivity).
+      by (unfold idelim_lit; apply nonempty_str_app_l, nonempty_str_app_r,
+                             dtoken_nonempty).
     split.
     + cbn [iscan_productive]. rewrite Hlit. reflexivity.
     + intros txt' prev' o' E. injection E as E1 E2 E3. subst txt' o'.
@@ -3942,12 +4034,12 @@ Qed.
 Lemma iresolve_resolved :
   forall st,
     match iresolve st with
-    | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _
+    | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
     | IClosed _ _ _ => False
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
@@ -3958,7 +4050,7 @@ Qed.
 Lemma iscan_productive_resolve :
   forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H.
   (* `IBrace`, `IAttr` and `IBang` all push their own byte into the
      buffer, so the text they resolve to is nonempty *)
@@ -3966,7 +4058,7 @@ Proof.
             apply nonempty_str_app_l; reflexivity).
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { cbn [iscan_productive]. apply orb_true_iff. left.
-      apply nonempty_str_app_l. reflexivity. }
+      apply nonempty_str_app_l, idelim_run_nonempty. }
     apply idelim_resolve_productive.
   - pose proof (bclosed_lit_nonempty kids img ob) as Hne.
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
@@ -4034,17 +4126,20 @@ Qed.
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [istep].
   - cbn [iscan_productive]. apply orb_true_iff. left.
     apply nonempty_str_app_l. destruct (is_punct c); reflexivity.
   - apply iscan_productive_lead, H.
-  - unfold ibrace_step. destruct (dstyle_of c).
-    + cbn [iscan_productive]. rewrite ostate_nonempty_push.
-      apply orb_true_r.
-    + apply iattr_feed_productive.
+  - unfold ibrace_step. destruct (dstyle_of c);
+      [apply idelim_marked_productive|apply iattr_feed_productive].
   - (* whichever way the pending delimiter resolves, something is owed:
        either a scope is open, or its spelling is in the text buffer *)
+    destruct (Nat.ltb (S seen) (dwidth k)).
+    { destruct (Ascii.eqb c (dchar k));
+        [destruct mrk; [apply idelim_marked_productive|reflexivity]|].
+      apply iscan_productive_lead, orb_true_iff. left.
+      apply nonempty_str_app_l, idelim_run_nonempty. }
     destruct (Ascii.eqb c rbrace);
       [apply (idelim_resolve_productive k txt cc true (Some c) o)|].
     destruct (idelim_resolve_productive k txt cc false (Some c) o) as [_ Ht].
@@ -4094,7 +4189,7 @@ Lemma iscan_productive_break :
   forall st, iscan_productive (ibreak st) = true.
 Proof.
   intros st. unfold ibreak.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iscan_productive]; try reflexivity;
     try apply ispan_feed_productive.
   1,2: rewrite ostate_nonempty_emit; apply orb_true_r.
@@ -4168,7 +4263,7 @@ Proof.
   pose proof (iscan_productive_resolve st H) as Hres.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k seen txt cc o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try contradiction; apply nonempty_ofinish.
   - apply ostate_nonempty_flush_str, nonempty_str_app_l. reflexivity.
   - cbn [iscan_productive] in Hres.
