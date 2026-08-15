@@ -73,6 +73,38 @@ Proof. reflexivity. Qed.
 Lemma is_bslash_bslash : is_bslash bslash = true.
 Proof. reflexivity. Qed.
 
+(* The braces that force a delimiter open or closed.  `{` also begins an
+   attribute, which is not implemented; until it is, a `{` that is not an
+   open marker is literal text, matching what the scanner did before. *)
+Definition lbrace : ascii := "{"%char.
+Definition rbrace : ascii := "}"%char.
+
+(* The bracket family's characters.  The three the scanner dispatches on
+   in text mode -- `!`, `[`, `]` -- are in `needs_escape`; the parens are
+   dispatched only inside a destination, so they are claimed by
+   `needs_escape_dest` instead. *)
+Definition bang : ascii := "!"%char.
+Definition lbrack : ascii := "["%char.
+Definition rbrack : ascii := "]"%char.
+Definition lparen : ascii := "("%char.
+Definition rparen : ascii := ")"%char.
+
+(* `ibreak` writes the break into a destination as `nl` and the
+   reconstruction reads it back byte by byte, so the two spellings have
+   to be the same character. *)
+Definition nl_char : ascii := "010"%char.
+
+(* The characters the scanner claims for itself, before it consults the
+   table at all: the escape, the verbatim fence, the two braces that
+   force a delimiter, and the three the bracket family dispatches on.  A
+   row may not be written with one of these -- `ilead` would never reach
+   the lookup -- which is one of the conditions `dconfig_ok` checks. *)
+Definition dreserved (c : ascii) : bool :=
+  (is_bslash c || is_tick c
+   || Ascii.eqb c lbrace || Ascii.eqb c rbrace
+   || Ascii.eqb c lbrack || Ascii.eqb c rbrack
+   || Ascii.eqb c bang)%bool.
+
 (*
 The delimiter table
 -------------------
@@ -170,22 +202,6 @@ Fixpoint chars (c : ascii) (n : nat) : string :=
    to disambiguate. *)
 Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 
-(* Every row has a token to write.  A width of zero would spell a
-   delimiter as the empty string, which nothing could scan and nothing
-   could close, so it is not a table this development admits.  Checked of
-   the table in force by computation, in one place, rather than unfolded
-   at each use. *)
-Lemma dwidth_nonzero : forall k, dwidth k <> 0.
-Proof. intros []; vm_compute; discriminate. Qed.
-
-(* Hence a row's token is a nonempty string: what a delimiter decays to
-   always has something in it. *)
-Lemma dtoken_nonempty : forall k, nonempty_str (dtoken k) = true.
-Proof.
-  intros k. unfold dtoken.
-  destruct (dwidth k) as [|w] eqn:E; [destruct (dwidth_nonzero k E)|reflexivity].
-Qed.
-
 (* Whether an unbraced delimiter may open a span at all. *)
 Definition dbare (k : dstyle) : bool :=
   match dsyntax_of k with DBare => true | _ => false end.
@@ -206,16 +222,45 @@ Proof. intros [] []; first [reflexivity | discriminate]. Qed.
 Definition denabled (C : dconfig) (k : dstyle) : bool :=
   match dc_syntax C k with DOff => false | _ => true end.
 
+Lemma dstyles_complete : forall k, In k dstyles.
+Proof. intros []; cbn; tauto. Qed.
+
 Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
   find (fun k => denabled C k && Ascii.eqb (dc_char C k) c)%bool dstyles.
 
-(* The table is unambiguous: no two rows that are switched on claim the
-   same character.  This is the general form of "emphasis and strong
-   emphasis must use different characters" -- stated over the whole table
-   rather than over one pair -- and it is the side condition every
-   statement about the family carries.  It is decidable and closed, so a
-   configuration can be checked rather than trusted. *)
-Definition dconfig_ok (C : dconfig) : bool :=
+(* An admissible table.  Four conditions, and between them they are
+   everything the scanner and the renderer assume about it -- which is
+   what makes the table a parameter rather than six constructors.  It is
+   decidable and closed, so a configuration is checked rather than
+   trusted.
+
+   1. *Unambiguous*: no two rows that are switched on claim the same
+      character.  The general form of "emphasis and strong emphasis must
+      use different characters", stated over the table rather than over
+      one pair.
+   2. *Written*: a row has a nonzero width, so its delimiter is a
+      nonempty string.  A width of zero would spell a delimiter as `""`,
+      which nothing could scan and nothing could close.
+   3. *Escapable*: a row's character is punctuation, so a backslash can
+      escape it.  This is what `needs_escape_punct` needs -- the decoder
+      only accepts an escape of punctuation.
+   4. *Free*: a row's character is not one the scanner claims for itself.
+      `ilead` dispatches the reserved characters before it consults the
+      table, so a row spelled with one would never be reached.
+
+   Conditions 2 to 4 are asked of *every* row, not only the switched-on
+   ones.  A switched-off row's character is never looked up, so the tax
+   is that a table must spell even a row it does not use with something
+   admissible -- and what it buys is that "has a token" and "is not a
+   backtick" hold unconditionally, instead of every lemma about scanning
+   a delimiter carrying "this row exists".  Only `dstyle_of` itself needs
+   that, since a switched-off row is genuinely not found. *)
+Definition drow_ok (C : dconfig) (k : dstyle) : bool :=
+  (negb (Nat.eqb (dc_width C k) 0)
+   && is_punct (dc_char C k)
+   && negb (dreserved (dc_char C k)))%bool.
+
+Definition dconfig_distinct (C : dconfig) : bool :=
   forallb
     (fun k => forallb
        (fun k' => implb (denabled C k && denabled C k'
@@ -224,8 +269,24 @@ Definition dconfig_ok (C : dconfig) : bool :=
        dstyles)
     dstyles.
 
-Lemma dstyles_complete : forall k, In k dstyles.
-Proof. intros []; cbn; tauto. Qed.
+Definition dconfig_rows_ok (C : dconfig) : bool :=
+  forallb (drow_ok C) dstyles.
+
+Definition dconfig_ok (C : dconfig) : bool :=
+  (dconfig_distinct C && dconfig_rows_ok C)%bool.
+
+Lemma dconfig_ok_distinct :
+  forall C, dconfig_ok C = true -> dconfig_distinct C = true.
+Proof. intros C H. apply andb_true_iff in H as [H _]. exact H. Qed.
+
+(* What the row conditions buy, one row at a time. *)
+Lemma dconfig_ok_row :
+  forall C k, dconfig_ok C = true -> drow_ok C k = true.
+Proof.
+  intros C k H. apply andb_true_iff in H as [_ H].
+  unfold dconfig_rows_ok in H. rewrite forallb_forall in H.
+  exact (H k (dstyles_complete k)).
+Qed.
 
 (* What the side condition buys: a row's own character finds that row
    again.  Every later fact about the scanner needs this and nothing else
@@ -241,7 +302,8 @@ Proof.
   - apply find_some in E as [Hin Hp].
     apply andb_true_iff in Hp as [Hen' Hc].
     f_equal. symmetry. apply dstyle_eq_true.
-    unfold dconfig_ok in Hok. rewrite forallb_forall in Hok.
+    apply dconfig_ok_distinct in Hok.
+    unfold dconfig_distinct in Hok. rewrite forallb_forall in Hok.
     specialize (Hok k (dstyles_complete k)). rewrite forallb_forall in Hok.
     specialize (Hok k' (dstyles_complete k')).
     rewrite Hen, Hen' in Hok. apply Ascii.eqb_eq in Hc. rewrite Hc in Hok.
@@ -330,29 +392,91 @@ Definition is_delim (c : ascii) : bool :=
 (* The table's coherence obligation, alongside the `needs_escape` ones
    below: a row's character must look the row up again.  A new row that
    reuses a character silently shadows an old one without it. *)
-Lemma dstyle_of_dchar : forall k, dstyle_of (dchar k) = Some k.
-Proof. intros []; reflexivity. Qed.
+(* Whether the row exists at all in the table in force. *)
+Definition denabled_of (k : dstyle) : bool := denabled config k.
 
-(* The braces that force a delimiter open or closed.  `{` also begins an
-   attribute, which is not implemented; until it is, a `{` that is not an
-   open marker is literal text, matching what the scanner did before. *)
-Definition lbrace : ascii := "{"%char.
-Definition rbrace : ascii := "}"%char.
+(* The one computation on the table in force.  Everything the scanner and
+   the renderer assume about it is derived from this line, so pointing
+   `config` at another table re-checks all of it at once -- and, once the
+   table is threaded, this becomes the hypothesis every statement
+   carries rather than a fact about djot. *)
+Lemma config_ok : dconfig_ok config = true.
+Proof. vm_compute. reflexivity. Qed.
 
-(* The bracket family's characters.  The three the scanner dispatches on
-   in text mode -- `!`, `[`, `]` -- are in `needs_escape`; the parens are
-   dispatched only inside a destination, so they are claimed by
-   `needs_escape_dest` instead. *)
-Definition bang : ascii := "!"%char.
-Definition lbrack : ascii := "["%char.
-Definition rbrack : ascii := "]"%char.
-Definition lparen : ascii := "("%char.
-Definition rparen : ascii := ")"%char.
+Lemma drow_ok_of : forall k, drow_ok config k = true.
+Proof. intros k. exact (dconfig_ok_row config k config_ok). Qed.
 
-(* `ibreak` writes the break into a destination as `nl` and the
-   reconstruction reads it back byte by byte, so the two spellings have
-   to be the same character. *)
-Definition nl_char : ascii := "010"%char.
+(* An enabled row has a token to write.  A width of zero would spell a
+   delimiter as the empty string, which nothing could scan and nothing
+   could close. *)
+Lemma dwidth_nonzero : forall k, dwidth k <> 0.
+Proof.
+  intros k. pose proof (drow_ok_of k) as H.
+  unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
+  unfold dwidth. destruct (dc_width config k); [discriminate|]. discriminate.
+Qed.
+
+(* Hence a row's token is a nonempty string: what a delimiter decays to
+   always has something in it. *)
+Lemma dtoken_nonempty : forall k, nonempty_str (dtoken k) = true.
+Proof.
+  intros k. unfold dtoken.
+  destruct (dwidth k) as [|w] eqn:E; [destruct (dwidth_nonzero k E)|reflexivity].
+Qed.
+
+(* Its character is punctuation, so a backslash escapes it... *)
+Lemma dchar_punct : forall k, is_punct (dchar k) = true.
+Proof.
+  intros k. pose proof (drow_ok_of k) as H.
+  unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H]. exact H.
+Qed.
+
+(* ...and it is not one the scanner claims, so `ilead` reaches the
+   lookup at all. *)
+Lemma dchar_free : forall k, dreserved (dchar k) = false.
+Proof.
+  intros k. pose proof (drow_ok_of k) as H.
+  unfold drow_ok in H. apply andb_true_iff in H as [_ H].
+  apply negb_true_iff in H. exact H.
+Qed.
+
+Lemma dreserved_false :
+  forall c,
+    dreserved c = false ->
+    is_bslash c = false /\ is_tick c = false
+    /\ Ascii.eqb c lbrace = false /\ Ascii.eqb c rbrace = false
+    /\ Ascii.eqb c lbrack = false /\ Ascii.eqb c rbrack = false
+    /\ Ascii.eqb c bang = false.
+Proof.
+  intros c H. unfold dreserved in H.
+  repeat (apply orb_false_iff in H as [H ?]). tauto.
+Qed.
+
+(* The lookup is by character, so a row it finds is spelled with the
+   character that found it. *)
+Lemma dstyle_of_char :
+  forall c k, dstyle_of c = Some k -> dchar k = c.
+Proof.
+  intros c k H. unfold dstyle_of, dstyle_at in H.
+  apply find_some in H as [_ H]. apply andb_true_iff in H as [_ H].
+  apply Ascii.eqb_eq in H. exact H.
+Qed.
+
+(* And it only ever finds a row that is switched on. *)
+Lemma dstyle_of_enabled :
+  forall c k, dstyle_of c = Some k -> denabled_of k = true.
+Proof.
+  intros c k H. unfold dstyle_of, dstyle_at in H.
+  apply find_some in H as [_ H]. apply andb_true_iff in H as [H _]. exact H.
+Qed.
+
+Lemma dstyle_of_dchar :
+  forall k, denabled_of k = true -> dstyle_of (dchar k) = Some k.
+Proof.
+  intros k H. exact (dstyle_at_dchar config k config_ok H).
+Qed.
 
 Definition one (c : ascii) : string := String c EmptyString.
 
@@ -380,18 +504,26 @@ Proof.
   rewrite !append_assoc. reflexivity.
 Qed.
 
-Definition needs_escape (c : ascii) : bool :=
-  (is_bslash c || is_tick c || is_delim c
-   || Ascii.eqb c lbrace || Ascii.eqb c rbrace
-   || Ascii.eqb c lbrack || Ascii.eqb c rbrack
-   || Ascii.eqb c bang)%bool.
+(* Exactly the two kinds of claimed character: the ones the scanner
+   reserves, and the ones the table hands out. *)
+Definition needs_escape (c : ascii) : bool := (dreserved c || is_delim c)%bool.
 
-(* Obligation 1: an escaped character must be one the decoder accepts. *)
-Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
+(* Obligation 1: an escaped character must be one the decoder accepts.
+   Half of it is the seven reserved characters, which are punctuation by
+   computation; the other half is the table's, and holds because an
+   admissible row is spelled with punctuation. *)
+Lemma dreserved_punct : forall c, dreserved c = true -> is_punct c = true.
 Proof.
   intros [b0 b1 b2 b3 b4 b5 b6 b7] H.
   destruct b0, b1, b2, b3, b4, b5, b6, b7;
     vm_compute in H |- *; first [reflexivity | discriminate].
+Qed.
+
+Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
+Proof.
+  intros c H. apply orb_true_iff in H as [H|H]; [apply dreserved_punct, H|].
+  unfold is_delim in H. destruct (dstyle_of c) as [k|] eqn:E; [|discriminate].
+  rewrite <- (dstyle_of_char c k E). apply dchar_punct.
 Qed.
 
 (* Obligation 2: the escape character escapes itself, or a text ending in
@@ -404,7 +536,7 @@ Proof. reflexivity. Qed.
    is the obligation every delimiter character will add. *)
 Lemma needs_escape_tick : forall c, is_tick c = true -> needs_escape c = true.
 Proof.
-  intros c H. unfold needs_escape. rewrite H.
+  intros c H. unfold needs_escape, dreserved. rewrite H.
   rewrite orb_true_r. reflexivity.
 Qed.
 
@@ -448,9 +580,11 @@ Definition needs_escape_dest (c : ascii) : bool :=
 Lemma needs_escape_dest_punct :
   forall c, needs_escape_dest c = true -> is_punct c = true.
 Proof.
-  intros [b0 b1 b2 b3 b4 b5 b6 b7] H.
-  destruct b0, b1, b2, b3, b4, b5, b6, b7;
-    vm_compute in H |- *; first [reflexivity | discriminate].
+  intros c H. unfold needs_escape_dest in H.
+  apply orb_true_iff in H as [H|H].
+  - apply orb_true_iff in H as [H|H]; [apply needs_escape_punct, H|].
+    apply Ascii.eqb_eq in H. subst c. reflexivity.
+  - apply Ascii.eqb_eq in H. subst c. reflexivity.
 Qed.
 
 Fixpoint escape_str (s : string) : string :=
@@ -906,7 +1040,13 @@ Fixpoint ci_ok (ci : cinline) : bool :=
   match ci with
   | CIStr s => nonempty_str s && no_nl s
   | CIVerb s => nonempty_str s && verb_content_ok s
-  | CIDelim _ kids => (nonempty kids && go kids && sep kids)%bool
+  (* The row has to be one the table in force actually has: `ci_src`
+     spells a switched-off row exactly as a switched-on one, and the
+     scanner would read it back as text.  This is what makes "which
+     containers exist" a setting rather than a fixed list -- turning a
+     row off removes it from the canonical view too. *)
+  | CIDelim k kids =>
+      (denabled_of k && nonempty kids && go kids && sep kids)%bool
   (* A destination holding a line break cannot round-trip: the scanner
      drops the break rather than recording it, so the rendering would
      come back shorter.  Everything else the scanner dispatches on is
@@ -934,7 +1074,8 @@ Definition cis_ok (cis : list cinline) : bool :=
 
 Lemma ci_ok_delim :
   forall k kids,
-    ci_ok (CIDelim k kids) = (nonempty kids && cis_ok kids)%bool.
+    ci_ok (CIDelim k kids)
+    = (denabled_of k && nonempty kids && cis_ok kids)%bool.
 Proof.
   intros k kids.
   assert (Hg : forall xs,
@@ -2600,13 +2741,9 @@ Lemma ilead_plain :
     ilead c txt prev o = IText false (txt ++ one c)%string prev o.
 Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
-  apply orb_false_iff in Hc as [Hc Hbg].
-  apply orb_false_iff in Hc as [Hc Hrk].
-  apply orb_false_iff in Hc as [Hc Hlk].
-  apply orb_false_iff in Hc as [Hc Hrb].
-  apply orb_false_iff in Hc as [Hc Hlb].
-  apply orb_false_iff in Hc as [Hc Hdl].
-  apply orb_false_iff in Hc as [Hbs Htk].
+  apply orb_false_iff in Hc as [Hres Hdl].
+  destruct (dreserved_false c Hres)
+    as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk Hbg]]]]]].
   unfold ilead. rewrite Hbs, Htk, Hlb, Hbg, Hlk, Hrk.
   destruct (dstyle_of c) eqn:Hd; [|reflexivity].
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
@@ -2705,11 +2842,22 @@ Proof.
   repeat rewrite andb_true_iff in H. destruct H as [[[_ _] _] H]. exact H.
 Qed.
 
+(* `ilead` dispatches the reserved characters first, so a row is reached
+   at all only because its character is free of them -- and it finds
+   itself again because the table is unambiguous.  Both come from
+   `config_ok`; neither is a fact about djot. *)
 Lemma ilead_dchar :
   forall k txt prev o,
+    denabled_of k = true ->
     ilead (dchar k) txt prev o
     = IDelim k 0 txt (nonspace_at (str_last txt prev)) false o.
-Proof. intros [] txt prev o; reflexivity. Qed.
+Proof.
+  intros k txt prev o Hen.
+  destruct (dreserved_false (dchar k) (dchar_free k))
+    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk Hbg]]]]]].
+  unfold ilead. rewrite Hb, Ht, Hlb, Hlk, Hrk, Hbg.
+  rewrite (dstyle_of_dchar k Hen). reflexivity.
+Qed.
 
 (* Spelling a token, one character at a time: each of the row's
    characters after the first advances the count, and the token is still
@@ -2736,13 +2884,13 @@ Qed.
    character. *)
 Lemma iscan_dtoken :
   forall k txt prev o,
-    dwidth k <> 0 ->
+    denabled_of k = true ->
     iscan_str (dtoken k) (IText false txt prev o)
     = IDelim k (pred (dwidth k)) txt (nonspace_at (str_last txt prev)) false o.
 Proof.
-  intros k txt prev o Hw. unfold dtoken.
-  destruct (dwidth k) as [|w] eqn:Ew; [contradiction|].
-  cbn [chars iscan_str istep]. rewrite ilead_dchar.
+  intros k txt prev o Hen. unfold dtoken.
+  destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
+  cbn [chars iscan_str istep]. rewrite (ilead_dchar k _ _ _ Hen).
   rewrite (iscan_chars_delim w k 0 txt _ o) by lia.
   cbn [pred]. reflexivity.
 Qed.
@@ -2752,13 +2900,14 @@ Qed.
    only hypothesis is that a row has a token at all. *)
 Lemma iscan_marked_close_step :
   forall k txt prev o o',
-    dwidth k <> 0 ->
+    denabled_of k = true ->
     oclose k true (flush_text txt o) = Some o' ->
     iscan_str (dtoken k ++ one rbrace) (IText false txt prev o)
     = IText false EmptyString (Some rbrace) o'.
 Proof.
-  intros k txt prev o o' Hw H.
-  rewrite iscan_str_app, (iscan_dtoken k txt prev o Hw).
+  intros k txt prev o o' Hen H.
+  pose proof (dwidth_nonzero k) as Hw.
+  rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen).
   unfold one. cbn [iscan_str istep].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
@@ -2768,6 +2917,7 @@ Qed.
 
 Lemma iscan_marked_flush :
   forall k tail txt prev before base,
+    denabled_of k = true ->
     (nonempty before || nonempty_str txt)%bool = true ->
     exists p,
       iscan_str (marked_close k tail)
@@ -2776,7 +2926,7 @@ Lemma iscan_marked_flush :
           (IText false EmptyString p
             (flush_text txt (oemit_all before (opush k true base)))).
 Proof.
-  intros k tail txt prev before base Hne.
+  intros k tail txt prev before base Hen Hne.
   assert (Hclose : exists o',
     oclose k true
       (flush_text txt (oemit_all before (opush k true base))) = Some o').
@@ -2796,13 +2946,12 @@ Proof.
       unfold flush_text. rewrite Htxt.
       apply oclose_oemit_all_marked, Hbefore. }
   destruct Hclose as [o' Hclose]. exists prev.
-  pose proof (dwidth_nonzero k) as Hw.
   unfold marked_close. rewrite <- append_assoc.
   rewrite !(iscan_str_app (dtoken k ++ one rbrace) tail).
   rewrite (iscan_marked_close_step k txt prev
-             (oemit_all before (opush k true base)) o' Hw Hclose).
+             (oemit_all before (opush k true base)) o' Hen Hclose).
   rewrite (iscan_marked_close_step k EmptyString prev
-             (flush_text txt (oemit_all before (opush k true base))) o' Hw
+             (flush_text txt (oemit_all before (opush k true base))) o' Hen
              ltac:(cbn [flush_text]; exact Hclose)).
   reflexivity.
 Qed.
@@ -2832,21 +2981,23 @@ Qed.
 
 Lemma iscan_marked_open :
   forall d txt prev o,
+    denabled_of d = true ->
     iscan_str (marked_open d) (IText false txt prev o)
     = IText false EmptyString (Some (dchar d))
         (opush d true (flush_text txt o)).
 Proof.
-  intros d txt prev o. unfold marked_open, dtoken.
+  intros d txt prev o Hen. unfold marked_open, dtoken.
   destruct (dwidth d) as [|w] eqn:Ew;
     [destruct (dwidth_nonzero d Ew)|].
   unfold one. cbn [chars append iscan_str istep].
   change (ilead lbrace txt prev o) with (IBrace txt prev o).
-  cbn [istep]. unfold ibrace_step. rewrite dstyle_of_dchar.
+  cbn [istep]. unfold ibrace_step. rewrite (dstyle_of_dchar d Hen).
   apply (iscan_chars_marked w d 0 txt o). lia.
 Qed.
 
 Lemma iscan_marked_close_emit :
   forall d tail ns base p,
+    denabled_of d = true ->
     nonempty ns = true ->
     iscan_str (marked_close d tail)
       (IText false EmptyString p (oemit_all ns (opush d true base)))
@@ -2854,12 +3005,12 @@ Lemma iscan_marked_close_emit :
         (IText false EmptyString (Some rbrace)
           (oemit (mk (dnode d ns)) base)).
 Proof.
-  intros d tail ns base p Hne. unfold marked_close.
+  intros d tail ns base p Hen Hne. unfold marked_close.
   rewrite <- append_assoc, iscan_str_app.
   rewrite (iscan_marked_close_step d EmptyString p
              (oemit_all ns (opush d true base))
              (oemit (mk (dnode d ns)) base)
-             (dwidth_nonzero _)
+             Hen
              ltac:(cbn [flush_text]; apply oclose_oemit_all_marked, Hne)).
   reflexivity.
 Qed.
@@ -2893,13 +3044,25 @@ Proof.
   destruct (needs_escape c); reflexivity.
 Qed.
 
+(* The two things a closer has to be for the scope machinery: nonempty,
+   which is the row having a token, and not starting with a backtick,
+   which is its character being free of the ones the scanner claims. *)
 Lemma marked_close_nonempty :
   forall k tail, nonempty_str (marked_close k tail) = true.
-Proof. intros k tail. destruct k; reflexivity. Qed.
+Proof.
+  intros k tail. pose proof (dtoken_nonempty k) as H.
+  unfold marked_close. destruct (dtoken k); [discriminate|reflexivity].
+Qed.
 
 Lemma marked_close_starts_nontick :
   forall k tail, starts_tick (marked_close k tail) = false.
-Proof. intros k tail. destruct k; reflexivity. Qed.
+Proof.
+  intros k tail.
+  destruct (dreserved_false (dchar k) (dchar_free k)) as [_ [Ht _]].
+  unfold marked_close, dtoken.
+  destruct (dwidth k) as [|w] eqn:E; [destruct (dwidth_nonzero k E)|].
+  cbn [chars append starts_tick]. exact Ht.
+Qed.
 
 (* What a verbatim needs of whatever follows it: a nonempty continuation
    that does not start with a backtick, or its closing run would grow.
@@ -3183,9 +3346,10 @@ Lemma after_verb_rest_nontick :
     starts_tick (ci_text (c :: rest)) = false.
 Proof.
   intros v c rest Hok.
-  destruct (after_verb_source_nontick v (c :: rest)
-              (marked_close DEmph EmptyString) Hok
-              (marked_close_nonempty _ _) (marked_close_starts_nontick _ _))
+  (* any nonempty closer that is not a backtick will do, and taking one
+     off the table keeps this independent of which rows exist *)
+  destruct (after_verb_source_nontick v (c :: rest) (one rbrace) Hok
+              eq_refl eq_refl)
     as [Hne Htick].
   destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel].
   - pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
@@ -3308,7 +3472,8 @@ Proof.
         cbn [oemit_all flush_text nonempty_str] in Ep.
         rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
     + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
-      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
+      apply andb_true_iff in Hdk as [Hden Hkidsne].
       assert (Hkidslt :
         ltof (list cinline) cis_size kids (CIDelim d kids :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_delim. lia. }
@@ -3318,7 +3483,7 @@ Proof.
         (marked_close_nonempty _ _) (marked_close_starts_nontick _ _)
         (fun txt' prev' before' e =>
            iscan_marked_flush d (ci_text rest ++ cl) txt' prev' before'
-             (flush_text txt (oemit_all before O)) (orb_false_r_true _ e)))
+             (flush_text txt (oemit_all before O)) Hden (orb_false_r_true _ e)))
         as IHkids.
       assert (Hkn :
         nonempty (@nil (node inline)) || nonempty_str EmptyString ||
@@ -3353,9 +3518,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_marked_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
         cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
-        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all] in Erest.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
@@ -3364,9 +3529,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_marked_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
         cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
-        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all] in Erest.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
@@ -3496,6 +3661,7 @@ Qed.
 (* The delimiter instance, which is what the two callers below use. *)
 Lemma iscan_cis_marked :
   forall cis k tail txt prev before base,
+    denabled_of k = true ->
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     (nonempty before || nonempty_str txt || nonempty cis)%bool = true ->
     exists p,
@@ -3506,12 +3672,12 @@ Lemma iscan_cis_marked :
             (oemit_all (ci_inlines cis)
               (flush_text txt (oemit_all before (opush k true base))))).
 Proof.
-  intros cis k tail txt prev before base Hok Hsep Hne.
+  intros cis k tail txt prev before base Hden Hok Hsep Hne.
   apply (iscan_cis_scope cis (marked_close k tail) (opush k true base) false
            txt prev before
            (marked_close_nonempty _ _) (marked_close_starts_nontick _ _)
            (fun txt' prev' before' e =>
-              iscan_marked_flush k tail txt' prev' before' base
+              iscan_marked_flush k tail txt' prev' before' base Hden
                 (orb_false_r_true _ e))
            Hok Hsep).
   rewrite orb_false_r. exact Hne.
@@ -3623,10 +3789,11 @@ Proof.
         -- exact (cis_ok_tail _ _ Hok).
         -- reflexivity.
     + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
-      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+      rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
+      apply andb_true_iff in Hdk as [Hden Hkidsne].
       pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
         (Some (dchar d)) [] (flush_text txt (OState out []))
-        Hkidsok eq_refl) as IHkids.
+        Hden Hkidsok eq_refl) as IHkids.
       assert (Hkn :
         nonempty (@nil (node inline)) || nonempty_str EmptyString ||
         nonempty kids = true).
@@ -3639,11 +3806,11 @@ Proof.
         = (marked_open d ++
             (ci_text kids ++ marked_close d (ci_text rest)))%string).
       { rewrite !append_assoc, marked_close_app. reflexivity. }
-      rewrite Hsrc, iscan_str_app, iscan_marked_open.
+      rewrite Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
       cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
       assert (Hkins : nonempty (ci_inlines kids) = true).
       { destruct kids; [discriminate|reflexivity]. }
-      rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+      rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
       rewrite <- ci_ast_delim.
       destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
@@ -3747,10 +3914,11 @@ Proof.
       rewrite trim_verb_pad by exact Hvok. cbn [oemit os_out os_stk].
       apply (IH (r :: rest') Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
-    rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hkidsne Hkidsok].
+    rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
+    apply andb_true_iff in Hdk as [Hden Hkidsne].
     pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
       (Some (dchar d)) [] (flush_text txt (OState out []))
-      Hkidsok eq_refl) as IHkids.
+      Hden Hkidsok eq_refl) as IHkids.
     assert (Hkn :
       nonempty (@nil (node inline)) || nonempty_str EmptyString ||
       nonempty kids = true).
@@ -3763,11 +3931,11 @@ Proof.
       = (marked_open d ++
           (ci_text kids ++ marked_close d (ci_text rest)))%string).
     { rewrite !append_assoc, marked_close_app. reflexivity. }
-    rewrite Hsrc, iscan_str_app, iscan_marked_open.
+    rewrite Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
     cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
     assert (Hkins : nonempty (ci_inlines kids) = true).
     { destruct kids; [discriminate|reflexivity]. }
-    rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hkins).
+    rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
     destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.

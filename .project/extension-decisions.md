@@ -174,19 +174,58 @@ The pieces, in the order they bite:
    facts: `idelim_marked_out_app`, `idelim_marked_wf`,
    `idelim_marked_productive`.
 
-4. **Threading.** The table is a fixed `Definition config`, so a
-   configuration is chosen at build time. Mechanical, and what makes
-   every statement quantify over the family rather than over djot.
+4. **The table's obligations, as a checkable condition: done.**
+   Threading turned out to have a half that had to come first, and it is
+   the half with the content. Many facts the scanner uses were being
+   proved *by computing on djot's table* -- `dwidth k <> 0`, "a row's
+   character is punctuation", "a row's character is not a backtick",
+   "a row's character finds that row again" -- and each would have become
+   an unprovable goal the moment the table was a variable.
 
-**Where the width-two build stops.** Every general statement in
+   `dconfig_ok` now checks four conditions rather than one: rows are
+   unambiguous (as before), and every row is *written* (nonzero width),
+   *escapable* (its character is punctuation) and *free* (its character
+   is not one of the seven the scanner claims for itself, which is now
+   `dreserved`). `config_ok` is the single `vm_compute` on the table in
+   force, and every other fact is derived from it. So pointing `config`
+   at another table re-checks all of it at once, and threading becomes
+   the mechanical edit it was supposed to be: `config_ok` turns into the
+   hypothesis each statement carries.
+
+   Two things fell out that are worth having on their own. `needs_escape`
+   is now literally `dreserved || is_delim` -- the two kinds of claimed
+   character -- and its punctuation obligation splits along that seam
+   instead of brute-forcing 256 bytes through the table. And **`ci_ok`
+   now requires a delimiter's row to be switched on**: `ci_src` spells a
+   switched-off row exactly like a switched-on one, so without the
+   condition the canonical view would render `{+a+}` for a table that
+   reads it as text. That is what makes `DOff` mean something -- turning
+   a row off removes it from the canonical view too, which is "which
+   containers exist is a setting" done properly rather than announced.
+
+   Conditions 2 to 4 are asked of every row, not only the enabled ones.
+   That was the cheap spelling: asked only of enabled rows, "has a token"
+   would have needed "this row exists" as a hypothesis on a dozen
+   scanning lemmas and then on the productivity and well-formedness
+   chains behind them. Asked of all rows, the tax is that a table must
+   spell even a row it does not use with something admissible.
+
+5. **Threading proper.** `config` is still a fixed `Definition`. What
+   remains is turning it into a parameter with `dconfig_ok` as its
+   hypothesis. Audited by building against a table with `**` for strong
+   *and* the insert row switched off: `Inline.v`'s general half and every
+   file downstream compile unchanged, so what is left really is the
+   plumbing.
+
+**Where the second-table build stops.** Every general statement in
 `Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,
-`Parser.v`, the renderer -- compiles under `markdown_config`. Measured by
-pointing `config` at it, truncating `Inline.v`'s pinned examples and
-building the rest: what fails is exactly those examples, which spell
-djot's `*a*` as strong and are supposed to be about djot. So the
-roundtrip theorems are already theorems about a two-character strong
-delimiter; what piece 4 buys is saying so in the statements rather than
-by rebuilding.
+`Parser.v`, the renderer -- compiles under `markdown_config`, and also
+under a table that additionally switches a row off. Measured by pointing
+`config` at it, truncating `Inline.v`'s pinned examples and building the
+rest: what fails is exactly those examples, which spell djot's `*a*` as
+strong and are supposed to be about djot. So the roundtrip theorems are
+already theorems about a two-character strong delimiter; what threading
+buys is saying so in the statements rather than by rebuilding.
 
 **Settled so far:**
 
