@@ -281,6 +281,230 @@ Definition render_node (n : node block) : string :=
 Definition render_blocks (bs : blocks) : string :=
   String.concat "" (map render_node bs).
 
+(* Footnote indices are assigned by the HTML traversal, including traversals
+   through note bodies.  Keeping this path beside the stateless renderer
+   leaves the latter useful for its existing local callers while making the
+   document entry point agree with djot.js. *)
+Record foot_state : Type := FootState
+  { foot_numbers : list (string * nat)
+  ; foot_next : nat
+  }.
+
+Definition foot_initial : foot_state := FootState [] 1.
+
+Definition number_footnote (label : string) (st : foot_state)
+  : foot_state * nat * bool :=
+  let label := normalize_label label in
+  match alist_lookup label (foot_numbers st) with
+  | Some n => (st, n, false)
+  | None =>
+      let n := foot_next st in
+      (FootState ((foot_numbers st ++ [(label, n)])%list) (S n), n, true)
+  end.
+
+Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
+  {struct il} : foot_state * string :=
+  let render_ils :=
+    fix go (st0 : foot_state) (ns : list (node inline))
+      : foot_state * string :=
+      match ns with
+      | [] => (st0, "")
+      | Node _ a' x :: rest =>
+          let '(st1, s1) := render_inline_foot st0 x a' in
+          let '(st2, s2) := go st1 rest in
+          (st2, s1 ++ s2)
+      end in
+  let ats := render_attrs a in
+  match il with
+  | Emph ils =>
+      let '(st', s) := render_ils st ils in (st', "<em" ++ ats ++ ">" ++ s ++ "</em>")
+  | Strong ils =>
+      let '(st', s) := render_ils st ils in (st', "<strong" ++ ats ++ ">" ++ s ++ "</strong>")
+  | Highlight ils =>
+      let '(st', s) := render_ils st ils in (st', "<mark" ++ ats ++ ">" ++ s ++ "</mark>")
+  | Insert ils =>
+      let '(st', s) := render_ils st ils in (st', "<ins" ++ ats ++ ">" ++ s ++ "</ins>")
+  | Delete ils =>
+      let '(st', s) := render_ils st ils in (st', "<del" ++ ats ++ ">" ++ s ++ "</del>")
+  | Superscript ils =>
+      let '(st', s) := render_ils st ils in (st', "<sup" ++ ats ++ ">" ++ s ++ "</sup>")
+  | Subscript ils =>
+      let '(st', s) := render_ils st ils in (st', "<sub" ++ ats ++ ">" ++ s ++ "</sub>")
+  | Span ils =>
+      let '(st', s) := render_ils st ils in (st', "<span" ++ ats ++ ">" ++ s ++ "</span>")
+  | Quoted q ils =>
+      let '(st', s) := render_ils st ils in
+      match q with
+      | SingleQuotes => (st', lsquo ++ s ++ rsquo)
+      | DoubleQuotes => (st', ldquo ++ s ++ rdquo)
+      end
+  | Link ils target =>
+      let '(st', s) := render_ils st ils in
+      match target with
+      | Direct url =>
+          (st', "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">" ++ s ++ "</a>")
+      | Reference label =>
+          match lookup_reference label refs with
+          | Some (url, a0) =>
+              (st', "<a href=""" ++ escape_attr url ++ """"
+                    ++ render_attrs a0 ++ ats ++ ">" ++ s ++ "</a>")
+          | None => (st', "<a" ++ ats ++ ">" ++ s ++ "</a>")
+          end
+      end
+  (* Image children become alt text and are not visited by djot.js's HTML
+     traversal, so a syntactically nested reference does not get a number. *)
+  | Image _ _ => (st, render_inline il a)
+  | FootnoteReference label =>
+      let '(st', n, first) := number_footnote label st in
+      let sn := nat_str n in
+      (st', "<a" ++ (if first then " id=""fnref" ++ sn ++ """" else "")
+            ++ " href=""#fn" ++ sn ++ """ role=""doc-noteref""" ++ ats
+            ++ "><sup>" ++ sn ++ "</sup></a>")
+  | _ => (st, render_inline il a)
+  end.
+
+Definition render_inlines_foot (st : foot_state) (ils : inlines)
+  : foot_state * string :=
+  fold_left
+    (fun acc n =>
+       let '(st0, out) := acc in
+       let '(st1, s) :=
+         match n with Node _ a x => render_inline_foot st0 x a end in
+       (st1, out ++ s))
+    ils (st, "").
+
+Fixpoint render_block_foot (st : foot_state) (tight : bool)
+  (b : block) (a : attr) {struct b} : foot_state * string :=
+  let render_bs_at :=
+    fix go (st0 : foot_state) (t : bool) (ns : list (node block))
+      : foot_state * string :=
+      match ns with
+      | [] => (st0, "")
+      | Node _ a' x :: rest =>
+          let '(st1, s1) := render_block_foot st0 t x a' in
+          let '(st2, s2) := go st1 t rest in
+          (st2, s1 ++ s2)
+      end in
+  let render_items :=
+    fix goi (st0 : foot_state) (sp : list_spacing)
+      (its : list (list (node block))) {struct its} : foot_state * string :=
+      match its with
+      | [] => (st0, "")
+      | it :: rest =>
+          let t := match sp with Tight => true | Loose => false end in
+          let '(st1, s1) := render_bs_at st0 t it in
+          let '(st2, s2) := goi st1 sp rest in
+          (st2, "<li>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
+      end in
+  let ats := render_attrs a in
+  match b with
+  | Para ils =>
+      let '(st', s) := render_inlines_foot st ils in
+      if tight then (st', s ++ nl)
+      else (st', "<p" ++ ats ++ ">" ++ s ++ "</p>" ++ nl)
+  | Heading lvl ils =>
+      let '(st', s) := render_inlines_foot st ils in
+      (st', "<h" ++ nat_str lvl ++ ats ++ ">" ++ s
+            ++ "</h" ++ nat_str lvl ++ ">" ++ nl)
+  | Section bs =>
+      let '(st', s) := render_bs_at st tight bs in
+      (st', "<section" ++ ats ++ ">" ++ nl ++ s ++ "</section>" ++ nl)
+  | BlockQuote bs =>
+      let '(st', s) := render_bs_at st tight bs in
+      (st', "<blockquote" ++ ats ++ ">" ++ nl ++ s ++ "</blockquote>" ++ nl)
+  | Div bs =>
+      let '(st', s) := render_bs_at st tight bs in
+      (st', "<div" ++ ats ++ ">" ++ nl ++ s ++ "</div>" ++ nl)
+  | OrderedList oa sp items =>
+      let '(st', s) := render_items st sp items in
+      (st', "<ol" ++ ol_attrs oa ++ ats ++ ">" ++ nl ++ s ++ "</ol>" ++ nl)
+  | BulletList sp items =>
+      let '(st', s) := render_items st sp items in
+      (st', "<ul" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
+  | _ => (st, render_block tight b a)
+  end.
+
+Definition render_blocks_foot (st : foot_state) (bs : blocks)
+  : foot_state * string :=
+  fold_left
+    (fun acc n =>
+       let '(st0, out) := acc in
+       let '(st1, s) :=
+         match n with Node _ a b => render_block_foot st0 false b a end in
+       (st1, out ++ s))
+    bs (st, "").
+
+Definition ends_with (suffix s : string) : bool :=
+  let n := String.length s in
+  let m := String.length suffix in
+  String.eqb (String.substring (n - m) m s) suffix.
+
+Definition note_backlink (n : nat) : string :=
+  "<a href=""#fnref" ++ nat_str n ++ """ role=""doc-backlink"">↩︎</a>".
+
+Fixpoint split_line_endings_rev (r endings : string) : string * string :=
+  match r with
+  | EmptyString => ("", endings)
+  | String c rest =>
+      if (Ascii.eqb c "010"%char || Ascii.eqb c "013"%char)%bool
+      then split_line_endings_rev rest (String c endings)
+      else (rev_string r, endings)
+  end.
+
+Definition split_trailing_line_endings (s : string) : string * string :=
+  split_line_endings_rev (rev_string s) "".
+
+Definition add_backlink (body : string) (n : nat) : string :=
+  let back := note_backlink n in
+  let '(core, endings) := split_trailing_line_endings body in
+  if ends_with "</p>" core then
+    String.substring 0 (String.length core - 4) core
+    ++ back ++ "</p>" ++ endings
+  else body ++ "<p>" ++ back ++ "</p>" ++ nl.
+
+Fixpoint render_note_defs (st : foot_state) (notes : note_map)
+  : foot_state * list (string * string) :=
+  match notes with
+  | [] => (st, [])
+  | (label, bs) :: rest =>
+      let '(st1, body) := render_blocks_foot st bs in
+      let '(st2, rendered) := render_note_defs st1 rest in
+      (st2, (label, body) :: rendered)
+  end.
+
+Fixpoint label_at (n : nat) (numbers : list (string * nat)) : option string :=
+  match numbers with
+  | [] => None
+  | (label, n') :: rest =>
+      if Nat.eqb n n' then Some label else label_at n rest
+  end.
+
+Definition rendered_note_at (n : nat) (st : foot_state)
+  (rendered : list (string * string)) : string :=
+  match label_at n (foot_numbers st) with
+  | None => ""
+  | Some label => match alist_lookup label rendered with Some s => s | None => "" end
+  end.
+
+Fixpoint render_note_items (fuel n : nat) (st : foot_state)
+  (rendered : list (string * string)) : string :=
+  match fuel with
+  | O => ""
+  | S fuel' =>
+      "<li id=""fn" ++ nat_str n ++ """>" ++ nl
+      ++ add_backlink (rendered_note_at n st rendered) n
+      ++ "</li>" ++ nl ++ render_note_items fuel' (S n) st rendered
+  end.
+
+Definition render_document_foot (blocks : blocks) (notes : note_map) : string :=
+  let '(st1, body) := render_blocks_foot foot_initial blocks in
+  if Nat.eqb (foot_next st1) 1 then body
+  else
+    let '(st2, rendered) := render_note_defs st1 notes in
+    body ++ "<section role=""doc-endnotes"">" ++ nl ++ "<hr>" ++ nl ++ "<ol>" ++ nl
+    ++ render_note_items (foot_next st2 - 1) 1 st2 rendered
+    ++ "</ol>" ++ nl ++ "</section>" ++ nl.
+
 End WithRefs.
 
 (* Explicit definitions first, so a label defined both ways resolves to
@@ -289,7 +513,7 @@ Definition doc_refs (d : doc) : reference_map :=
   (doc_references d ++ doc_auto_references d)%list.
 
 Definition render_html (d : doc) : string :=
-  render_blocks (doc_refs d) (doc_blocks d).
+  render_document_foot (doc_refs d) (doc_blocks d) (doc_footnotes d).
 
 (* The single entry point the harness extracts: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
@@ -447,5 +671,76 @@ Example convert_reference_image :
   convert "[a]: /i.png
 
 ![alt][a]" = "<p><img alt=""alt"" src=""/i.png""></p>
+".
+Proof. reflexivity. Qed.
+
+(* Footnote numbers follow first reference order, not definition order. *)
+Example convert_footnotes_reference_order :
+  convert "[^b] [^a]
+
+[^a]: A
+
+[^b]: B" = "<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a> <a id=""fnref2"" href=""#fn2"" role=""doc-noteref""><sup>2</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>B<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+<li id=""fn2"">
+<p>A<a href=""#fnref2"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
+Example convert_footnote_repeated_reference :
+  convert "[^a] [^a]
+
+[^a]: A" = "<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a> <a href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>A<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
+(* Undefined references retain their numbered slot and an empty note body. *)
+Example convert_footnote_undefined :
+  convert "[^z]" = "<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p><a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
+(* Rendering note bodies can discover and number further notes. *)
+Example convert_footnote_reference_in_note :
+  convert "[^a]
+
+[^a]: A [^b]
+
+[^b]: B" = "<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>A <a id=""fnref2"" href=""#fn2"" role=""doc-noteref""><sup>2</sup></a><a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+<li id=""fn2"">
+<p>B<a href=""#fnref2"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
 ".
 Proof. reflexivity. Qed.
