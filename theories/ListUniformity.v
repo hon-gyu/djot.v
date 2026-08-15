@@ -17,6 +17,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Uniformity for lists
 ====================
@@ -1829,3 +1835,4 @@ Proof.
   unfold same_marker. rewrite map_map. cbn [snd]. reflexivity.
 Qed.
 
+End WithTable.

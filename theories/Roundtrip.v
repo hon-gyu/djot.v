@@ -34,6 +34,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Splitting a rendered document
 =============================
@@ -1304,6 +1310,8 @@ write. *)
 Definition quote_example : list cblock :=
   [ CQuote [cpara ["a"]; CThematic]; cpara ["after"] ].
 
+End WithTable.
+
 Example quote_example_ok : forallb cb_ok quote_example = true.
 Proof. reflexivity. Qed.
 
@@ -1523,6 +1531,11 @@ input that theorem wants: cb_ast builds bare `mk` nodes, so no heading
 carries an explicit id, and it builds no sections.
 *)
 
+(* Back into the family: the document-level roundtrip is a theorem about
+   any admissible table, like the block-level one it rests on. *)
+Section WithTableDoc.
+Context {T : dtable}.
+
 Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
 Proof.
   intros cb.
@@ -1570,6 +1583,8 @@ Proof.
   rewrite (roundtrip_blocks _ H).
   apply pass_erase, blocks_of_cblocks_pristine.
 Qed.
+
+End WithTableDoc.
 
 (* The sections and identifiers the pass adds are exactly what the
    erasure above takes back out. *)

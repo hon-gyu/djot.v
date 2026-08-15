@@ -32,6 +32,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Heading text
 ============
@@ -1270,6 +1276,8 @@ Examples
 
 Each is a case from djot.js/test/headings.test, checked at the AST level.
 *)
+
+End WithTable.
 
 Example section_simple :
   doc_blocks (parse_doc "## Heading")

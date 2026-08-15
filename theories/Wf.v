@@ -15,6 +15,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Canonicality of inline sequences
 ================================
@@ -654,12 +660,22 @@ Proof.
 Qed.
 
 (* An abandoned opener decays to a `Str` of its own source text, which is
-   nonempty by construction, so it is well-formed. *)
+   nonempty by construction -- a bracket writes its own byte, and a
+   delimiter writes its row's token, which an admissible table never
+   leaves empty. *)
+Lemma fr_src_nonempty : forall f, nonempty_str (fr_src f) = true.
+Proof.
+  intros [kind marked out]. unfold fr_src; cbn [fr_kind fr_marked].
+  destruct kind as [k|image].
+  - destruct marked; [|apply dtoken_nonempty].
+    unfold one. reflexivity.
+  - destruct image; reflexivity.
+Qed.
+
 Lemma ilist_ok_src : forall f, ilist_ok [mk (Str (fr_src f))] = true.
 Proof.
-  intros [kind marked out]. destruct kind as [k|image].
-  - destruct k; destruct marked; reflexivity.
-  - destruct image; destruct marked; reflexivity.
+  intros f. unfold ilist_ok. cbn [forallb node_contents mk List.rev].
+  cbn [wf_inline no_adjacent_str]. rewrite (fr_src_nonempty f). reflexivity.
 Qed.
 
 Lemma oclose_go_ok :
@@ -2709,3 +2725,5 @@ Qed.
 (** The parser cannot produce a malformed document. *)
 Theorem wf_parse_doc : forall s, wf_doc (parse_doc s) = true.
 Proof. intros s. apply wf_doc_pass, wf_parse. Qed.
+
+End WithTable.

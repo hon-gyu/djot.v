@@ -23,6 +23,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Ordered lists
 =============
@@ -1510,6 +1516,8 @@ change to twelve statements rather than to one hypothesis.
 *)
 
 (* Covered: roman from 2, running through the ambiguous `v`. *)
+End WithTable.
+
 Example roman_from_two_items_ok :
   items_ok (MOrd "ii" RightPeriod)
     [(MOrd "ii" RightPeriod, ["a"]); (MOrd "iii" RightPeriod, ["b"]);

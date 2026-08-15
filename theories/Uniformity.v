@@ -16,6 +16,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 The fold, and uniformity for quotes and divs
 ============================================
@@ -770,6 +776,8 @@ Qed.
 (* Why the side condition cannot be "no *top-level* content line closes
    the div": here the closing line is a list-item continuation, and the
    div takes it anyway.  Both oracles agree with the left-hand side. *)
+End WithTable.
+
 Example div_indented_close_differs :
   let content := ["- a"; "  :::"; "  b"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
@@ -834,6 +842,11 @@ deliberate step, not a surprise.
 
 (** What a line prefix has already emitted.  A fold over the prefix, so
     "computable line by line" is definitional. *)
+(* Back into the family: the determinism theorems below are about any
+   admissible table, like the fold equations above them. *)
+Section WithTableDet.
+Context {T : dtable}.
+
 Definition committed (xs : list string) (st : pstate) : blocks :=
   fst (run_lines xs st).
 
@@ -886,3 +899,5 @@ Proof.
   intros A xs x ys tail. induction xs as [|a xs IH];
     [reflexivity|cbn; rewrite IH; reflexivity].
 Qed.
+
+End WithTableDet.

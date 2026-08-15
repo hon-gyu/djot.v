@@ -236,13 +236,40 @@ The pieces, in the order they bite:
    predicate depend on the table. That is the roundtrip read backwards,
    and Rocq's section discharge noticed it without being asked.
 
-6. **Threading, the layers above.** `Wf.v`, `Roundtrip.v`, `Render.v`,
-   `Parser.v` and `Document.v` still resolve the instance to djot's at
-   elaboration, so `roundtrip_blocks` is currently a theorem about djot
-   rather than about the family. Making it the latter is one `Context`
-   line per file plus whatever examples have to move out of the section.
-   The rebuild audit says the proofs do not care which table it is; what
-   remains is saying so in the statements.
+6. **Threading, the layers above: done.** Eight files -- `Step.v`,
+   `Uniformity.v`, `ListUniformity.v`, `OrderedList.v`, `Document.v`,
+   `Render.v`, `Wf.v`, `Roundtrip.v` -- are now sections over a `dtable`,
+   because `para_inlines` is what a paragraph is made of and so
+   `parse_lines` itself depends on the table. The headline statements
+   quantify over it:
+
+   ```coq
+   roundtrip_blocks : forall (T : dtable) (cbs : list cblock), ...
+   roundtrip_doc, list_uniformity, wf_parse, wf_parse_doc,
+   prefix_determinism, no_future_line_dependence, quote_uniformity : likewise
+   ```
+
+   `check/Markdown.v` closes the loop by *applying* them:
+   `md_roundtrip_blocks` is `@roundtrip_blocks markdown_table`, the same
+   proof term at the other instance. Not a rebuild -- the rebuild audit
+   could only ever say "the script still works"; this says the theorem
+   holds of the family and names two inhabitants.
+
+   Each file's concrete examples sit after its `End`, where inference
+   finds djot's instance, so they read exactly as before. Two files
+   needed a second section for the material *after* their example block
+   (`Uniformity.v`'s determinism theorems, `Roundtrip.v`'s document-level
+   roundtrip); missing that is silent, since the statement still
+   typechecks -- it just quietly means djot. Checking is one `Check
+   @thm`, and it is worth doing for anything that matters.
+
+   Left specialized on purpose: `OrderedList.v`'s trailing corollaries
+   (roman and alpha numbering at concrete marker shapes, interleaved with
+   their examples) and `Generate.v` (a corpus generator for djot's own
+   test harness). Neither is about delimiters.
+
+   `Html.v` needed nothing: `render_html` renders an AST and never
+   consults the table, so the discharge gave it no parameter.
 
 **Where the second-table build stops.** Every general statement in
 `Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,

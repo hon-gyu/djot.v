@@ -4,7 +4,7 @@
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require Import String List.
-From DjotV Require Import Ast Render Generate Html.
+From DjotV Require Import Ast Inline Render Generate Html.
 Import ListNotations.
 
 (* The generated corpus: every `cb_ok` block the enumerator produces,

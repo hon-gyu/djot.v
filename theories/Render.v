@@ -19,6 +19,12 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* The delimiter table this file is read at.  Implicit, so nothing below
+   mentions it: what it buys is that the statements quantify over the
+   family rather than over djot's spelling. *)
+Section WithTable.
+Context {T : dtable}.
+
 (*
 Block layout
 ============
@@ -714,3 +720,5 @@ Definition render_djot (bs : blocks) : string :=
 (* Rendering is now a single join over one flat line list, so the
    roundtrip's split side is just split/join inversion (Strings.v) —
    there is no separate "paragraph layout" notion to invert. *)
+
+End WithTable.

@@ -26,7 +26,7 @@ pay for -- and not because it needs special treatment any more.
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Inline.
+From DjotV Require Import Ast Inline Parser Document Render Roundtrip.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -189,3 +189,31 @@ Example md_canonical_nested_roundtrip :
   parse_inline_line (ci_line [CIDelim DEmph [CIStr "a"; CIDelim DStrong [CIStr "b"]]])
   = ci_inlines [CIDelim DEmph [CIStr "a"; CIDelim DStrong [CIStr "b"]]].
 Proof. vm_compute. reflexivity. Qed.
+
+(*
+The theorems, at this table
+---------------------------
+
+Not a rebuild and not a re-proof: the same proof term, applied to the
+other instance.  This is what threading the table bought that the
+rebuild audit could not -- the roundtrip is one theorem about the
+family, and `markdown_table` is one of its inhabitants.
+*)
+
+Theorem md_roundtrip_blocks :
+  forall cbs,
+    @cblocks_ok markdown_table cbs = true ->
+    @parse_blocks markdown_table
+      (@render_djot markdown_table (blocks_of_cblocks cbs))
+    = blocks_of_cblocks cbs.
+Proof. exact (@roundtrip_blocks markdown_table). Qed.
+
+Theorem md_roundtrip_doc :
+  forall cbs,
+    @cblocks_ok markdown_table cbs = true ->
+    undo_pass
+      (doc_blocks
+         (@parse_doc markdown_table
+            (@render_djot markdown_table (blocks_of_cblocks cbs))))
+    = blocks_of_cblocks cbs.
+Proof. exact (@roundtrip_doc markdown_table). Qed.
