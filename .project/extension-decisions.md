@@ -183,31 +183,50 @@ buys is saying so in the statements rather than by rebuilding.
   optional for the rest. Off is what makes "which containers exist" a
   setting rather than a fixed list.
 
-**Open sub-questions, each needing an example before it is settled:**
+**The open sub-questions, now measured.** All three are settled, and by
+the same run: `check/Wide.v` is a file of `Example`s built against a
+wide table, with the two-step recipe in its header (set `config`,
+truncate `Inline.v`'s djot-specific examples, compile). No oracle can
+adjudicate any of this -- djot.js has no doubled row -- so the evidence
+is what our own table does, which is why it is pinned rather than
+described.
 
-- `___a___` under `emph=*, strong=__`. Longest-match from the left gives
-  `__` then a literal `_`. Not yet argued for.
-- `____a____`. Checked first, as flagged. **Half-answered.** For a single
-  character the exclusion does generalize to arbitrary run length: four
-  `_` around content nest four deep and a bare `____` is literal, both
-  now pinned (`emph_run_four`, `emph_run_bare_four`). So the rule "an
-  empty top opener declines to close" is length-independent, which is the
-  reassuring half. The open half is unchanged and is genuinely about
-  *multi-character* delimiters: with `strong=__`, the exclusion has to be
-  phrased on the delimiter's own extent rather than on `pos - 1`, since
-  `opener.endpos !== pos - 1` measures a one-character gap. The
-  restatement is `opener.endpos + length(delim) - 1 !== pos - 1`, and it
-  needs an example before it is settled.
-- `__a_` becomes literal (no closer) where djot gives `_<em>a</em>`.
-  Consequence of the above, not an independent choice, but it belongs in
-  the compatibility note.
+- `___a___` gives `<strong>_a</strong>_`. A run *is* cut from the left,
+  and the remainder's fate is **not symmetric**: the leading extra `_`
+  lands inside the span, because it is read after the opener has been
+  taken; the trailing one lands outside, because the closer is taken
+  first. `_____a_____` is the same shape one level deeper.
+- `____a____` nests, one level per *token* rather than per character --
+  the same answer a one-character row gives to four `_`, restated at the
+  right granularity. `__a____b__` is a close followed by an open.
+- `____` is literal, and so are `__`, `___`, `__ __` and `{__}`. This is
+  the half that was open, and it needed no restatement at all:
+  `oclose_go` asks whether the *top scope is empty*, not how far the
+  opener ended from `pos`, so djot.js's `opener.endpos !== pos - 1` --
+  which measures a one-character gap and would have had to become
+  `opener.endpos + length(delim) - 1` -- has no counterpart here. The
+  exclusion generalizes for free because it was never stated in
+  positions.
+- `__a_` and `_a__` are literal, as the compatibility note predicted.
+  Note the *shape* of the incompatibility: documents whose meaning the
+  extension changes go literal rather than parsing differently, so the
+  change is visible in the output rather than silent.
 
-**Explicitly not decided here:** whether `_` remains available as
-emphasis when `__` is strong. Allowing both reintroduces exactly the run
-arithmetic the baseline section says is the cost, so the default should
-be that a character is a delimiter at one length only, but that is a
-claim about conflict-freeness and it should be *proved* rather than
-declared.
+Two more facts worth having: the braced spelling works at width two
+(`{__a__}` is strong, and `{_a_}` / `{__a_}` are literal with the `{`
+back in front), and the canonical view roundtrips there -- `{__a__}` and
+`{__a{*b*}__}` both parse back to what rendered them, which is the
+behavioural half of what the proofs say.
+
+**Decided by construction, where it used to be open:** whether `_`
+remains available as emphasis when `__` is strong. It does not, and this
+is no longer a preference. A character belongs to one row (`dconfig_ok`,
+with `dstyle_at_dchar` the fact the scanner uses) and a row's width is a
+field rather than something negotiated per run, so "a delimiter at one
+length only" is what the table *can* express, not what we chose to
+allow. `wide_half_token_is_text` is the behaviour: a lone `_` is
+literal. That is also what keeps the run arithmetic out, which the
+baseline section names as the extension's cost.
 
 ## Deferred asks
 
