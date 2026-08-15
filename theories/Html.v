@@ -171,7 +171,11 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
   | EmailLink _ => ""         (* TODO Phase 1 *)
   | RawInline _ _ => ""       (* TODO Phase 1 *)
   | NonBreakingSpace => "&nbsp;"
-  | Quoted _ _ => ""          (* TODO Phase 1 *)
+  (* The curly quotes are the whole of what a quoted span renders as:
+     djot.js wraps the children in the two characters and emits no
+     element (`html.ts:353-358`). *)
+  | Quoted SingleQuotes ils => lsquo ++ render_ils ils ++ rsquo
+  | Quoted DoubleQuotes ils => ldquo ++ render_ils ils ++ rdquo
   | SoftBreak => nl
   | HardBreak => "<br>" ++ nl
   end.

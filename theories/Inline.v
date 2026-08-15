@@ -83,6 +83,14 @@ Definition rbrace : ascii := "}"%char.
    in text mode -- `!`, `[`, `]` -- are in `needs_escape`; the parens are
    dispatched only inside a destination, so they are claimed by
    `needs_escape_dest` instead. *)
+(* The quote characters and the hyphen, named because `dopens_after`
+   tests them and a bare literal would need escaping in a comment. *)
+Definition one (c : ascii) : string := String c EmptyString.
+
+Definition sqchar : ascii := "'"%char.
+Definition dqchar : ascii := """"%char.
+Definition hyphen : ascii := "-"%char.
+
 Definition bang : ascii := "!"%char.
 Definition lbrack : ascii := "["%char.
 Definition rbrack : ascii := "]"%char.
@@ -124,7 +132,12 @@ the same character (smart dashes, smart quotes), and adding a row is
 cheap where adding a construct is not. *)
 
 Inductive dstyle : Type :=
-  | DEmph | DStrong | DSuper | DSub | DMark | DInsert.
+  | DEmph | DStrong | DSuper | DSub | DMark | DInsert
+  (* The smart quotes.  They are `betweenMatched` rows like the rest,
+     with one difference the table has to carry: an unmatched one is not
+     literal text but a curly quote, and which curly quote depends on the
+     markers around it. *)
+  | DSQuote | DDQuote.
 
 (* How a row may be written.  `DBraced` is djot.js's `opentest = hasBrace`
    -- the row exists only as `{x ... x}`, because the bare character is
@@ -133,17 +146,36 @@ Inductive dstyle : Type :=
    needs but djot never uses: it removes the row, which is what makes
    "which containers exist" a setting rather than a fixed list. *)
 Inductive dsyntax : Type :=
-  | DOff | DBraced | DBare.
+  | DOff | DBraced | DBare
+  (* djot's single quote: bare, but a bare *opener* only where an
+     apostrophe cannot be meant -- at the start of the line, or after a
+     space, tab, carriage return, newline, either quote character, a
+     hyphen, an open paren or an open bracket (`inline.ts:296-312`).
+     This is the reason `can't` is an apostrophe and not an open quote,
+     and it is `opentest` again: a third value of the slot `DBraced`
+     already uses. *)
+  | DBareAfterBreak.
 
 (* The delimiter table, as a parameter.  Every row carries the character
    it is written with and how it may be written; a configuration is a
    choice of both for each row, and djot is one such choice.  Reading the
    character out of the table rather than fixing it per constructor is
    what lets emphasis and strong swap characters. *)
+(* What a token that opens nothing and closes nothing leaves behind.
+   Every row but the quotes leaves its own source text; a quote leaves a
+   curly character, and *which* one is decided by the markers around it:
+   djot.js records a `defaultmatch` per row and flips it, an open marker
+   choosing the left form and a close marker the right one
+   (`inline.ts:118-136`). *)
+Inductive ddecay : Type :=
+  | DDSelf
+  | DDPair (left_by_default : bool) (left right : string).
+
 Record dconfig : Type := DConfig {
   dc_char : dstyle -> ascii;
   dc_width : dstyle -> nat;
-  dc_syntax : dstyle -> dsyntax
+  dc_syntax : dstyle -> dsyntax;
+  dc_decay : dstyle -> ddecay
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -151,10 +183,37 @@ Definition djot_dchar (k : dstyle) : ascii :=
   | DEmph => "_"%char | DStrong => "*"%char
   | DSuper => "^"%char | DSub => "~"%char
   | DMark => "="%char | DInsert => "+"%char
+  | DSQuote => "'"%char | DDQuote => """"%char
   end.
 
 Definition djot_dsyntax (k : dstyle) : dsyntax :=
-  match k with DMark | DInsert => DBraced | _ => DBare end.
+  match k with
+  | DMark | DInsert => DBraced
+  | DSQuote => DBareAfterBreak
+  | _ => DBare
+  end.
+
+(* The curly quotes, as UTF-8.  Strings here are bytes, so each is three
+   of them; nothing downstream looks inside. *)
+Definition lsquo : string :=
+  String "226"%char (String "128"%char (String "152"%char EmptyString)).
+Definition rsquo : string :=
+  String "226"%char (String "128"%char (String "153"%char EmptyString)).
+Definition ldquo : string :=
+  String "226"%char (String "128"%char (String "156"%char EmptyString)).
+Definition rdquo : string :=
+  String "226"%char (String "128"%char (String "157"%char EmptyString)).
+
+(* An unmatched single quote is an apostrophe -- the right form -- while
+   an unmatched double quote opens rather than closes.  Both were read
+   off djot.js (`right_single_quote`, `left_double_quote`) and checked
+   against it. *)
+Definition djot_ddecay (k : dstyle) : ddecay :=
+  match k with
+  | DSQuote => DDPair false lsquo rsquo
+  | DDQuote => DDPair true ldquo rdquo
+  | _ => DDSelf
+  end.
 
 (* Every djot row is one character wide.  A wider row is what spells a
    doubled delimiter, and because a character belongs to exactly one row
@@ -162,7 +221,8 @@ Definition djot_dsyntax (k : dstyle) : dsyntax :=
    cut into tokens of that width and any remainder is literal. *)
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
-Definition djot_config : dconfig := DConfig djot_dchar djot_dwidth djot_dsyntax.
+Definition djot_config : dconfig :=
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay.
 
 (* The second table this development intends to ship: Markdown's
    spelling, with djot's rules.  `_` stays emphasis and `**` becomes
@@ -178,18 +238,19 @@ Definition djot_config : dconfig := DConfig djot_dchar djot_dwidth djot_dsyntax.
 Definition markdown_config : dconfig :=
   DConfig (fun k => match k with DStrong => "*"%char | _ => djot_dchar k end)
           (fun k => match k with DStrong => 2 | _ => 1 end)
-          djot_dsyntax.
+          djot_dsyntax djot_ddecay.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
 
 Definition dstyles : list dstyle :=
-  [DEmph; DStrong; DSuper; DSub; DMark; DInsert].
+  [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DSQuote; DDQuote].
 
 Definition dstyle_eq (a b : dstyle) : bool :=
   match a, b with
   | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
-  | DSub, DSub | DMark, DMark | DInsert, DInsert => true
+  | DSub, DSub | DMark, DMark | DInsert, DInsert
+  | DSQuote, DSQuote | DDQuote, DDQuote => true
   | _, _ => false
   end.
 
@@ -224,6 +285,8 @@ Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
    4. *Free*: a row's character is not one the scanner claims for itself.
       `ilead` dispatches the reserved characters before it consults the
       table, so a row spelled with one would never be reached.
+   5. *Leaves something*: what an unmatched token decays to is nonempty,
+      so no token can vanish.
 
    Conditions 2 to 4 are asked of *every* row, not only the switched-on
    ones.  A switched-off row's character is never looked up, so the tax
@@ -232,10 +295,20 @@ Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
    backtick" hold unconditionally, instead of every lemma about scanning
    a delimiter carrying "this row exists".  Only `dstyle_of` itself needs
    that, since a switched-off row is genuinely not found. *)
+(* A row's decay leaves something behind: an empty one would let a token
+   vanish, and `iscan_productive` -- the statement that every state owes
+   the output something -- would be false. *)
+Definition ddecay_ok (d : ddecay) : bool :=
+  match d with
+  | DDSelf => true
+  | DDPair _ l r => (nonempty_str l && nonempty_str r)%bool
+  end.
+
 Definition drow_ok (C : dconfig) (k : dstyle) : bool :=
   (negb (Nat.eqb (dc_width C k) 0)
    && is_punct (dc_char C k)
-   && negb (dreserved (dc_char C k)))%bool.
+   && negb (dreserved (dc_char C k))
+   && ddecay_ok (dc_decay C k))%bool.
 
 Definition dconfig_distinct (C : dconfig) : bool :=
   forallb
@@ -324,6 +397,7 @@ Definition dnode (k : dstyle) (ns : inlines) : inline :=
   | DEmph => Emph ns | DStrong => Strong ns
   | DSuper => Superscript ns | DSub => Subscript ns
   | DMark => Highlight ns | DInsert => Insert ns
+  | DSQuote => Quoted SingleQuotes ns | DDQuote => Quoted DoubleQuotes ns
   end.
 
 (* Look a character up in the table rather than repeating it: the two
@@ -346,7 +420,7 @@ Example clashing_config_not_ok :
   dconfig_ok (DConfig (fun k => match k with
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
-                      djot_dwidth djot_dsyntax) = false.
+                      djot_dwidth djot_dsyntax djot_ddecay) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 (* Switching a row off frees its character, so the clash disappears
@@ -358,7 +432,8 @@ Example clashing_config_ok_when_off :
                       djot_dwidth
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
-                                end)) = true.
+                                end)
+                      djot_ddecay) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -399,9 +474,53 @@ Definition dstyle_of (c : ascii) : option dstyle := dstyle_at cfg c.
    to disambiguate. *)
 Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 
-(* Whether an unbraced delimiter may open a span at all. *)
-Definition dbare (k : dstyle) : bool :=
-  match dsyntax_of k with DBare => true | _ => false end.
+(* djot.js `pattNonspace` (inline.ts:80).  `can_open` and `can_close` are
+   each one test of one neighbouring byte against this. *)
+Definition is_space (c : ascii) : bool :=
+  (Ascii.eqb c " "%char || Ascii.eqb c "009"%char
+   || Ascii.eqb c "013"%char || Ascii.eqb c "010"%char)%bool.
+
+Definition nonspace_at (p : option ascii) : bool :=
+  match p with None => false | Some c => negb (is_space c) end.
+
+(* The bytes after which djot's single quote may open: the start of the
+   line, whitespace, either quote, a hyphen, or an opening paren or
+   bracket (`inline.ts:296-312`).  Everything else is a word or a mark
+   that an apostrophe could follow. *)
+Definition dopens_after (c : option ascii) : bool :=
+  match c with
+  | None => true
+  | Some ch =>
+      (is_space ch || Ascii.eqb ch sqchar || Ascii.eqb ch dqchar
+       || Ascii.eqb ch hyphen || Ascii.eqb ch lparen || Ascii.eqb ch lbrack)%bool
+  end.
+
+(* What an unmatched token leaves behind.  An ordinary row leaves its own
+   source, braces and all; a smart quote leaves a curly character, and
+   the markers choose the side -- an open marker takes the left form and
+   a close marker the right, which is djot.js flipping its
+   `defaultmatch` (`inline.ts:118-136`). *)
+Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
+  match dc_decay cfg k with
+  | DDSelf =>
+      ((if openmark then one lbrace else EmptyString)
+       ++ dtoken k
+       ++ (if closemark then one rbrace else EmptyString))%string
+  | DDPair dfl l r =>
+      if openmark then l
+      else if closemark then r
+      else if dfl then l else r
+  end.
+
+(* Whether an unbraced delimiter may open a span here.  Closing never
+   asks this -- djot's `opentest` gates opening alone -- so a quote may
+   close from anywhere its neighbour is nonspace. *)
+Definition dbare (k : dstyle) (before : option ascii) : bool :=
+  match dsyntax_of k with
+  | DBare => true
+  | DBareAfterBreak => dopens_after before
+  | _ => false
+  end.
 
 Definition is_delim (c : ascii) : bool :=
   match dstyle_of c with Some _ => true | None => false end.
@@ -424,6 +543,7 @@ Lemma dwidth_nonzero : forall k, dwidth k <> 0.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
   unfold dwidth. destruct (dc_width cfg k); [discriminate|]. discriminate.
 Qed.
@@ -441,6 +561,7 @@ Lemma dchar_punct : forall k, is_punct (dchar k) = true.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
@@ -449,8 +570,23 @@ Qed.
 Lemma dchar_free : forall k, dreserved (dchar k) = false.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
+  unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H]. apply negb_true_iff in H. exact H.
+Qed.
+
+(* What condition 5 buys, in the form the scanner uses it. *)
+Lemma ddecay_str_nonempty :
+  forall k om cm, nonempty_str (ddecay_str k om cm) = true.
+Proof.
+  intros k om cm. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [_ H].
-  apply negb_true_iff in H. exact H.
+  unfold ddecay_str. destruct (dc_decay cfg k) as [|dfl l r] eqn:E.
+  - pose proof (dtoken_nonempty k) as Ht.
+    destruct om; [reflexivity|].
+    destruct (dtoken k); [discriminate|reflexivity].
+  - cbn [ddecay_ok] in H. apply andb_true_iff in H as [Hl Hr].
+    destruct om; [exact Hl|]. destruct cm; [exact Hr|].
+    destruct dfl; [exact Hl|exact Hr].
 Qed.
 
 Lemma dreserved_false :
@@ -489,7 +625,6 @@ Proof.
   intros k H. exact (dstyle_at_dchar cfg k cfg_ok H).
 Qed.
 
-Definition one (c : ascii) : string := String c EmptyString.
 
 Lemma nl_one_char : nl = one nl_char.
 Proof. reflexivity. Qed.
@@ -1288,15 +1423,6 @@ backticks inside a one-backtick fence. *)
 Lemma nat_eqb_refl : forall n, Nat.eqb n n = true.
 Proof. induction n; [reflexivity|exact IHn]. Qed.
 
-(* djot.js `pattNonspace` (inline.ts:80).  `can_open` and `can_close` are
-   each one test of one neighbouring byte against this. *)
-Definition is_space (c : ascii) : bool :=
-  (Ascii.eqb c " "%char || Ascii.eqb c "009"%char
-   || Ascii.eqb c "013"%char || Ascii.eqb c "010"%char)%bool.
-
-Definition nonspace_at (p : option ascii) : bool :=
-  match p with None => false | Some c => negb (is_space c) end.
-
 (*
 The scope stack
 ---------------
@@ -1334,8 +1460,7 @@ Record frame : Type := Frame {
 (* The opener's source text, which is what it decays to when abandoned. *)
 Definition fr_src (f : frame) : string :=
   match fr_kind f with
-  | FKDelim k =>
-      if fr_marked f then (one lbrace ++ dtoken k)%string else dtoken k
+  | FKDelim k => ddecay_str k (fr_marked f) false
   | FKBracket image => bracket_open image
   end.
 
@@ -1349,7 +1474,8 @@ Definition ostart : ostate := OState [] [].
 Definition dstyle_eqb (a b : dstyle) : bool :=
   match a, b with
   | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
-  | DSub, DSub | DMark, DMark | DInsert, DInsert => true
+  | DSub, DSub | DMark, DMark | DInsert, DInsert
+  | DSQuote, DSQuote | DDQuote, DDQuote => true
   | _, _ => false
   end.
 
@@ -1871,11 +1997,11 @@ Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
    (or not, at the end of a line: `inone`).  Closing wins over opening,
    as in djot.js, and a `}` immediately after forces the close. *)
 Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
-  (txt ++ dtoken k ++ if marker then one rbrace else EmptyString)%string.
+  (txt ++ ddecay_str k false marker)%string.
 
 Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
-  if (dbare k && negb marker && nonspace_at next)%bool
+  if (dbare k before && negb marker && nonspace_at next)%bool
   then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
   else IText false (idelim_lit k txt marker) None o.
 
@@ -2524,7 +2650,7 @@ Proof.
   assert (Hdone : forall o', idelim_done k txt bef marker next (oout_app base o')
                              = iout_app base (idelim_done k txt bef marker next o')).
   { intros o'. unfold idelim_done.
-    destruct (dbare k && negb marker && nonspace_at next)%bool;
+    destruct (dbare k bef && negb marker && nonspace_at next)%bool;
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
   unfold idelim_resolve. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   rewrite flush_text_app, oclose_app.
@@ -4158,14 +4284,13 @@ Lemma idelim_done_productive :
          (nonempty_str txt' || ostate_nonempty o')%bool = true.
 Proof.
   intros k txt bef marker next o. unfold idelim_done.
-  destruct (dbare k && negb marker && nonspace_at next)%bool.
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool.
   - split.
     + cbn [iscan_productive]. rewrite ostate_nonempty_push. apply orb_true_r.
     + intros txt' prev' o' E. injection E as E1 E2. subst txt' o'.
       rewrite ostate_nonempty_push. apply orb_true_r.
   - assert (Hlit : nonempty_str (idelim_lit k txt marker) = true)
-      by (unfold idelim_lit; apply nonempty_str_app_l, nonempty_str_app_r,
-                             dtoken_nonempty).
+      by (unfold idelim_lit; apply nonempty_str_app_l, ddecay_str_nonempty).
     split.
     + cbn [iscan_productive]. rewrite Hlit. reflexivity.
     + intros txt' prev' o' E. injection E as E1 E2 E3. subst txt' o'.
@@ -4204,7 +4329,7 @@ Lemma idelim_done_text :
       idelim_done k txt bef marker next o = IText false txt' prev' o'.
 Proof.
   intros k txt bef marker next o. unfold idelim_done.
-  destruct (dbare k && negb marker && nonspace_at next)%bool; eauto.
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool; eauto.
 Qed.
 
 Lemma idelim_resolve_text :
@@ -4640,6 +4765,8 @@ Fixpoint inline_text (il : inline) : string :=
   | Subscript ns => marked DSub ns
   | Highlight ns => marked DMark ns
   | Insert ns => marked DInsert ns
+  | Quoted SingleQuotes ns => marked DSQuote ns
+  | Quoted DoubleQuotes ns => marked DDQuote ns
   | Link ns (Direct dst) =>
       (bracket_open false ++ (go ns ++ link_close dst EmptyString))%string
   | Image ns (Direct dst) =>
@@ -4952,6 +5079,77 @@ Proof. vm_compute. reflexivity. Qed.
    suppressed entirely. *)
 Example verbatim_suppresses_delimiters :
   parse_inline_line "`_a_`" = [mk (Verbatim "_a_")].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Smart quotes
+------------
+
+Two more table rows, and every reading below was taken from djot.js
+first.  What the rows needed beyond a character and a width is the
+*decay*: an unmatched quote is a curly character rather than its own
+source, and the markers choose the side.
+*)
+
+Example squote_pair :
+  parse_inline_line "'a'" = [mk (Quoted SingleQuotes [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example dquote_pair :
+  parse_inline_line """a""" = [mk (Quoted DoubleQuotes [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An apostrophe cannot open, so it decays -- this is `DBareAfterBreak`,
+   djot's `opentest` for the single quote, and the reason the row needed
+   a third syntax value rather than a fourth field. *)
+Example apostrophe_is_not_an_opener :
+  parse_inline_line "can't" = [mk (Str ("can" ++ rsquo ++ "t"))].
+Proof. vm_compute. reflexivity. Qed.
+
+Example decade_is_an_apostrophe :
+  parse_inline_line "the '70s" = [mk (Str ("the " ++ rsquo ++ "70s"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An unmatched opener decays too: to the *right* form for the single
+   quote and the *left* for the double one.  The side is a property of
+   the row, not of the position. *)
+Example unmatched_squote_is_right :
+  parse_inline_line "'a" = [mk (Str (rsquo ++ "a"))].
+Proof. vm_compute. reflexivity. Qed.
+
+Example unmatched_dquote_is_left :
+  parse_inline_line "a""" = [mk (Str ("a" ++ ldquo))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A marker overrides both the open rule and the side: a braced opener
+   opens where an apostrophe would otherwise be meant, and an abandoned
+   one decays to the left form. *)
+Example marked_squote_opens :
+  parse_inline_line "{'a'}" = [mk (Quoted SingleQuotes [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example marked_squote_abandoned_is_left :
+  parse_inline_line "{'a" = [mk (Str (lsquo ++ "a"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And an escape still wins, which is what keeps a canonical `Str`
+   containing a quote round-tripping: the rows joined `is_delim`, so
+   `needs_escape` grew by two characters without being edited. *)
+Example escaped_quotes_are_literal :
+  parse_inline_line "\'a\'" = [mk (Str "'a'")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example quotes_escape_in_canonical_text :
+  ci_line [CIStr "it's a ""quote"""] = "it\'s a \""quote\""".
+Proof. vm_compute. reflexivity. Qed.
+
+Example canonical_squote_source :
+  ci_line [CIDelim DSQuote [CIStr "a"]] = "{'a'}".
+Proof. vm_compute. reflexivity. Qed.
+
+Example canonical_squote_roundtrip :
+  parse_inline_line (ci_line [CIDelim DSQuote [CIStr "a"]])
+  = ci_inlines [CIDelim DSQuote [CIStr "a"]].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

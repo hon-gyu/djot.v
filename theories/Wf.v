@@ -667,8 +667,7 @@ Lemma fr_src_nonempty : forall f, nonempty_str (fr_src f) = true.
 Proof.
   intros [kind marked out]. unfold fr_src; cbn [fr_kind fr_marked].
   destruct kind as [k|image].
-  - destruct marked; [|apply dtoken_nonempty].
-    unfold one. reflexivity.
+  - apply ddecay_str_nonempty.
   - destruct image; reflexivity.
 Qed.
 
@@ -1022,7 +1021,7 @@ Lemma idelim_done_wf :
     iscan_wf (idelim_done k txt bef marker next o) = true.
 Proof.
   intros k txt bef marker next o Ho Hs. unfold idelim_done.
-  destruct (dbare k && negb marker && nonspace_at next)%bool;
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool;
     [|apply iscan_wf_text; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
   apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
