@@ -726,3 +726,40 @@ last branch, and the only one that does not consult `oattach`.
 `foo bar{.a}` splits at the last space. The remaining `attributes.test`
 gaps are a spec crossing a line break and `{% %}` comments, neither of
 which is about attachment.
+
+## Adjudicated 2026-08-15 — ours: constructs inside an unclosed `[^`
+
+djot.js decides note-ness at the `]`, by reading the byte after the
+opener (`inline.ts:361`). Until then the `^` is an ordinary superscript
+opener and everything between is scanned normally; the note branch
+destroys those matches only when the `]` actually arrives. So a `[^`
+that never closes leaves the superscript standing.
+
+| `[^a^b` | output |
+| --- | --- |
+| djot.js | `[<sup>a</sup>b` |
+| ours | `[^a^b` |
+
+**Ours, and confined to exactly that shape.** We decide at the `^`,
+because the label is *source* and we keep no source beside classified
+nodes -- the same constraint that made the destination accumulate text
+rather than run `strMatches`. Whenever the `]` arrives the two agree,
+since djot.js then discards everything it scanned in between and reads
+the same source slice we accumulated. They differ only when a `[^`
+finds no `]` in the paragraph.
+
+This is the [[project-engineering-lessons]] "matchable, but only at a
+price" clause, and the price is the one that clause names: matching
+would mean running the ordinary scan *and* accumulating source
+alongside it, then discarding one at the `]`. Unreachable from a
+canonical document -- `needs_escape` claims both `[` and `^`, so
+`escape_str` never emits the pair bare.
+
+**A near miss worth recording.** `[^a[^b]]` looked like a third
+behaviour: djot.js labels it `a[^b`, using the *outer* opener, where
+`[[^a]]` and `x[y[^a]z]w` both use the inner one. Tracing the openers
+byte by byte showed it is not a footnote rule at all -- the second `^`
+closes the superscript the first one opened, and `clearOpeners(1, 4)`
+drops the bracket opener nested inside it. Our `oclose` abandons frames
+it walks past for the same reason, so we agree without special-casing
+anything.

@@ -466,12 +466,14 @@ Example parse_ref_after_text_is_text :
 Proof. reflexivity. Qed.
 
 (* The footnote container claims `[^...]:` first (block.ts:264 before
-   :301), so such a line is not a definition.  Footnotes are not parsed
-   yet, which is why this is still a paragraph. *)
+   :301), so such a line is not a reference definition.  The *block*
+   container is not parsed yet, so the line stays a paragraph -- but its
+   inline scan now reads the reference, which is what makes this a
+   paragraph containing a `FootnoteReference` rather than one `Str`. *)
 Example parse_ref_footnote_label_excluded :
   parse_blocks "[^a]: note"
-  = [mk (Para [mk (Str "[^a]: note")])].
-Proof. reflexivity. Qed.
+  = [mk (Para [mk (FootnoteReference "a"); mk (Str ": note")])].
+Proof. vm_compute. reflexivity. Qed.
 
 (* A label may contain `[`: only `]` ends it. *)
 Example parse_ref_label_open_bracket :
