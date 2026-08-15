@@ -384,3 +384,79 @@ state you already have; the oracle's control flow is evidence about
 behaviour, not a specification of where the test belongs. This fires next
 on footnote references and on tables, which both add a container and will
 face the same "does a blank close it" question.
+
+## Price a parameterization by whether the parameter can stay implicit
+
+**What happened.** Making the delimiter table a parameter was scoped from
+a symbol count: `Wf.v` alone mentions inline-layer names 245 times, and
+a section variable turns every one of those into a call site that needs
+the argument. That number is what made the step look like a week. The
+number was answering the wrong question. A type class carrying the table
+*and* its side condition keeps the argument implicit, so the count that
+mattered was not 245 but the number of *files*: one `Context` line each,
+and not a single call site edited. What decided it was a twenty-line
+scratch file with a toy table, a toy fixpoint and one `Example`, checking
+the only thing that could have killed the design -- that `vm_compute`
+still reduces through an instance, since every concrete `Example` in
+`Inline.v` depends on it. Two minutes against an estimate that was off by
+two orders of magnitude.
+
+**General form.** For a development-wide parameterization, the cost is
+not how many places mention the thing being parameterized. It is whether
+the parameter can be inferred at those places. Explicit parameter: cost
+scales with mentions. Implicit (class, canonical structure): cost scales
+with files. The two differ by a factor of a hundred here, and which one
+applies is decided by a property of the *elaborator*, not of the code
+being changed -- so it is not derivable by reading the code at all.
+
+**What to do instead.** Before pricing a "thread X through everything"
+step, write the smallest file that has X as an implicit parameter, one
+definition that uses it, and one `Example` that computes. If it reduces,
+price the step in files. If it does not, price it in mentions and expect
+the larger number. This is [[#Check whether a proof uses the structure
+before pricing its removal]] one level up: there the question was which
+proofs *use* the structure, here it is whether the uses have to *name*
+it. Both fail the same way, by counting the diff instead of the work.
+
+### The check that a parameterization took
+
+The failure mode is silent. A statement written after a section's `End`
+still typechecks -- it just quietly means the ambient instance, so
+`roundtrip_doc` was a theorem about djot for an hour while its
+neighbours were about the family, with nothing to indicate it. The same
+goes for any file that never opened a section. `Check @thm` prints the
+binder or does not, and that is the whole test; run it on every statement
+the step was for, not on a sample.
+
+## Prefer the stronger precondition when the weaker one is viral
+
+**What happened.** `dconfig_ok` gained conditions that the scanner needs
+of each table row -- nonzero width, punctuation, not a reserved
+character. The obvious scoping was to ask them only of rows that are
+switched *on*, since a switched-off row is never looked up. That version
+cost a hypothesis: "this row exists" had to be threaded through
+`dtoken_nonempty`, then `iscan_dtoken`, `iscan_marked_close_step`,
+`iscan_marked_flush`, `iscan_marked_close_emit`, and then through
+`iscan_productive` and `iscan_wf` -- predicates quantified over *all*
+states, where the row comes from the state and not from a lookup, so
+there was nowhere for the hypothesis to come from. Asking the conditions
+of every row instead, enabled or not, deleted the hypothesis everywhere.
+The cost to a table author is that a row they have switched off still
+has to be spelled with something admissible, which is no cost at all.
+
+**General form.** A precondition's price is not its strength, it is how
+far it has to travel. A weaker condition that must be carried through a
+chain of lemmas is more expensive than a stronger one that holds
+unconditionally -- and the chain is usually invisible when the condition
+is written, because it runs through predicates that quantify over states
+rather than over the construct the condition is about.
+
+**What to do instead.** When scoping a side condition to "only the cases
+that need it", ask where the *users* get it from. If any user is a
+predicate over all states, over all inputs, or over an inductive the
+condition does not mention, the scoping will not survive; strengthen the
+condition until it is unconditional and check that the strengthening
+costs a real user something. Here nothing was lost, and the one place
+that genuinely needs "this row exists" -- `dstyle_of`, where a
+switched-off row is really not found -- kept its hypothesis and pays for
+it in exactly one lemma.
