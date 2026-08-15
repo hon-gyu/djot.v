@@ -1640,8 +1640,12 @@ Inductive iscan : Type :=
   | IText (esc : bool) (txt : string) (prev : option ascii) (o : ostate)
   (* a `{` whose role the next byte decides: open marker, or text *)
   | IBrace (txt : string) (prev : option ascii) (o : ostate)
-  (* a delimiter being spelled; `canclose` was computed from the byte
-     before it.  `extra` counts the row's characters that have arrived
+  (* a delimiter being spelled; `before` is the byte to its left, which
+     is what decides whether it may close, and -- for a row whose bare
+     opener needs a word boundary -- whether it may open.  Kept as the
+     byte rather than as a predicate of it, because two rows can ask two
+     different questions of it.  `extra` counts the row's characters that
+     have arrived
      *after* the first, so the token so far is `S extra` of them: while
      that is short of `dwidth` the token is still being spelled, and once
      it reaches `dwidth` the token is complete and the next byte decides
@@ -1654,7 +1658,7 @@ Inductive iscan : Type :=
      moment the width is reached and a marked state is therefore never a
      *complete* token.  What it still owes is the rest of its own token,
      and what it decays to keeps the `{`. *)
-  | IDelim (k : dstyle) (extra : nat) (txt : string) (canclose : bool)
+  | IDelim (k : dstyle) (extra : nat) (txt : string) (before : option ascii)
            (marked : bool) (o : ostate)
   (* counting an opening backtick run *)
   | IOpen (n : nat) (o : ostate)
@@ -1715,7 +1719,7 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
        | None => IText false (txt ++ one rbrack)%string prev o
        end
   else match dstyle_of c with
-       | Some k => IDelim k 0 txt (nonspace_at (str_last txt prev)) false o
+       | Some k => IDelim k 0 txt (str_last txt prev) false o
        | None => IText false (txt ++ one c)%string prev o
        end.
 
@@ -1798,12 +1802,12 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
    needs no byte after it -- djot.js forces `can_open` and blocks
    `can_close` for a marked delimiter -- so reaching the row's width
    pushes the scope there and then, and only a token still short of it
-   waits.  `canclose` is `false` throughout: the branch that would read
-   it is the one this never reaches. *)
+   waits.  `before` is `None` throughout: the branch that would read it
+   is the one this never reaches. *)
 Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
   (o : ostate) : iscan :=
   if Nat.ltb (S extra) (dwidth k)
-  then IDelim k extra txt false true o
+  then IDelim k extra txt None true o
   else IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o)).
 
 (* What a token that never finished decays to: the row's characters
@@ -1869,22 +1873,22 @@ Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
 Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
   (txt ++ dtoken k ++ if marker then one rbrace else EmptyString)%string.
 
-Definition idelim_done (k : dstyle) (txt : string) (marker : bool)
-  (next : option ascii) (o : ostate) : iscan :=
+Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
+  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
   if (dbare k && negb marker && nonspace_at next)%bool
   then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
   else IText false (idelim_lit k txt marker) None o.
 
-Definition idelim_resolve (k : dstyle) (txt : string) (canclose marker : bool)
-  (next : option ascii) (o : ostate) : iscan :=
-  if (canclose || marker)%bool
+Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
+  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
+  if (nonspace_at before || marker)%bool
   then match oclose k marker (flush_text txt o) with
        | Some o' =>
            IText false EmptyString
              (Some (if marker then rbrace else dchar k)) o'
-       | None => idelim_done k txt marker next o
+       | None => idelim_done k txt before marker next o
        end
-  else idelim_done k txt marker next o.
+  else idelim_done k txt before marker next o.
 
 (* No byte follows: the end of a line or of the paragraph.  `IBrace` and
    `IDelim` are the only states this changes, and after it neither
@@ -1897,10 +1901,10 @@ Definition iresolve (st : iscan) : iscan :=
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
-  | IDelim k extra txt canclose marked o =>
+  | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
       then IText false (txt ++ idelim_run k extra marked)%string None o
-      else idelim_resolve k txt canclose false None o
+      else idelim_resolve k txt before false None o
   (* `[a]` at the end of a line is literal: djot.js scans the newline as
      an ordinary byte, and a `(` after it is not a destination. *)
   | IClosed kids image o =>
@@ -1916,7 +1920,7 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
   | IText false txt prev o => ilead c txt prev o
   | IBrace txt prev o => ibrace_step c txt prev o
   | IBang txt prev o => ibang_step c txt prev o
-  | IDelim k extra txt canclose marked o =>
+  | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
       then (* still spelling the token: another of the row's characters
               continues it -- and completes a marked one, which opens
@@ -1924,11 +1928,11 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
               run text *)
         (if Ascii.eqb c (dchar k)
          then (if marked then idelim_marked k (S extra) txt o
-               else IDelim k (S extra) txt canclose false o)
+               else IDelim k (S extra) txt before false o)
          else ilead c (txt ++ idelim_run k extra marked)%string None o)
       else
       let marker := Ascii.eqb c rbrace in
-      let st' := idelim_resolve k txt canclose marker (Some c) o in
+      let st' := idelim_resolve k txt before marker (Some c) o in
       (* the `}` of a close marker is consumed with the delimiter; any
          other byte still has to be dispatched *)
       if marker then st'
@@ -2512,17 +2516,17 @@ Proof.
 Qed.
 
 Lemma idelim_resolve_app :
-  forall k txt cc marker next o base,
-    idelim_resolve k txt cc marker next (oout_app base o)
-    = iout_app base (idelim_resolve k txt cc marker next o).
+  forall k txt bef marker next o base,
+    idelim_resolve k txt bef marker next (oout_app base o)
+    = iout_app base (idelim_resolve k txt bef marker next o).
 Proof.
-  intros k txt cc marker next o base.
-  assert (Hdone : forall o', idelim_done k txt marker next (oout_app base o')
-                             = iout_app base (idelim_done k txt marker next o')).
+  intros k txt bef marker next o base.
+  assert (Hdone : forall o', idelim_done k txt bef marker next (oout_app base o')
+                             = iout_app base (idelim_done k txt bef marker next o')).
   { intros o'. unfold idelim_done.
     destruct (dbare k && negb marker && nonspace_at next)%bool;
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
-  unfold idelim_resolve. destruct (cc || marker)%bool; [|apply Hdone].
+  unfold idelim_resolve. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   rewrite flush_text_app, oclose_app.
   destruct (oclose k marker (flush_text txt o)); [reflexivity | apply Hdone].
 Qed.
@@ -2861,7 +2865,7 @@ Lemma ilead_dchar :
   forall k txt prev o,
     denabled_of k = true ->
     ilead (dchar k) txt prev o
-    = IDelim k 0 txt (nonspace_at (str_last txt prev)) false o.
+    = IDelim k 0 txt (str_last txt prev) false o.
 Proof.
   intros k txt prev o Hen.
   destruct (dreserved_false (dchar k) (dchar_free k))
@@ -2874,18 +2878,18 @@ Qed.
    characters after the first advances the count, and the token is still
    incomplete throughout because the arithmetic says so. *)
 Lemma iscan_chars_delim :
-  forall n k extra txt cc o,
+  forall n k extra txt bef o,
     S extra + n = dwidth k ->
-    iscan_str (chars (dchar k) n) (IDelim k extra txt cc false o)
-    = IDelim k (extra + n) txt cc false o.
+    iscan_str (chars (dchar k) n) (IDelim k extra txt bef false o)
+    = IDelim k (extra + n) txt bef false o.
 Proof.
-  induction n as [|n IH]; intros k extra txt cc o Hn.
+  induction n as [|n IH]; intros k extra txt bef o Hn.
   - cbn [chars iscan_str]. replace (extra + 0) with extra by lia. reflexivity.
   - cbn [chars iscan_str istep].
     replace (Nat.ltb (S extra) (dwidth k)) with true
       by (symmetry; apply Nat.ltb_lt; lia).
     rewrite Ascii.eqb_refl.
-    rewrite (IH k (S extra) txt cc o) by lia.
+    rewrite (IH k (S extra) txt bef o) by lia.
     f_equal. lia.
 Qed.
 
@@ -2897,7 +2901,7 @@ Lemma iscan_dtoken :
   forall k txt prev o,
     denabled_of k = true ->
     iscan_str (dtoken k) (IText false txt prev o)
-    = IDelim k (pred (dwidth k)) txt (nonspace_at (str_last txt prev)) false o.
+    = IDelim k (pred (dwidth k)) txt (str_last txt prev) false o.
 Proof.
   intros k txt prev o Hen. unfold dtoken.
   destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
@@ -4147,13 +4151,13 @@ Proof.
 Qed.
 
 Lemma idelim_done_productive :
-  forall k txt marker next o,
-    iscan_productive (idelim_done k txt marker next o) = true
+  forall k txt bef marker next o,
+    iscan_productive (idelim_done k txt bef marker next o) = true
     /\ forall txt' prev' o',
-         idelim_done k txt marker next o = IText false txt' prev' o' ->
+         idelim_done k txt bef marker next o = IText false txt' prev' o' ->
          (nonempty_str txt' || ostate_nonempty o')%bool = true.
 Proof.
-  intros k txt marker next o. unfold idelim_done.
+  intros k txt bef marker next o. unfold idelim_done.
   destruct (dbare k && negb marker && nonspace_at next)%bool.
   - split.
     + cbn [iscan_productive]. rewrite ostate_nonempty_push. apply orb_true_r.
@@ -4169,14 +4173,14 @@ Proof.
 Qed.
 
 Lemma idelim_resolve_productive :
-  forall k txt cc marker next o,
-    iscan_productive (idelim_resolve k txt cc marker next o) = true
+  forall k txt bef marker next o,
+    iscan_productive (idelim_resolve k txt bef marker next o) = true
     /\ forall txt' prev' o',
-         idelim_resolve k txt cc marker next o = IText false txt' prev' o' ->
+         idelim_resolve k txt bef marker next o = IText false txt' prev' o' ->
          (nonempty_str txt' || ostate_nonempty o')%bool = true.
 Proof.
-  intros k txt cc marker next o. unfold idelim_resolve.
-  destruct (cc || marker)%bool; [|apply idelim_done_productive].
+  intros k txt bef marker next o. unfold idelim_resolve.
+  destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_productive].
   destruct (oclose k marker (flush_text txt o)) as [o'|] eqn:Ec;
     [|apply idelim_done_productive].
   assert (Hne : ostate_nonempty o' = true).
@@ -4195,21 +4199,21 @@ Qed.
    `iresolve` there is no `IBrace` and no `IDelim` left, which is what
    makes the catch-all arms of `ibreak` and `ifinish_ostate` dead. *)
 Lemma idelim_done_text :
-  forall k txt marker next o,
+  forall k txt bef marker next o,
     exists txt' prev' o',
-      idelim_done k txt marker next o = IText false txt' prev' o'.
+      idelim_done k txt bef marker next o = IText false txt' prev' o'.
 Proof.
-  intros k txt marker next o. unfold idelim_done.
+  intros k txt bef marker next o. unfold idelim_done.
   destruct (dbare k && negb marker && nonspace_at next)%bool; eauto.
 Qed.
 
 Lemma idelim_resolve_text :
-  forall k txt cc marker next o,
+  forall k txt bef marker next o,
     exists txt' prev' o',
-      idelim_resolve k txt cc marker next o = IText false txt' prev' o'.
+      idelim_resolve k txt bef marker next o = IText false txt' prev' o'.
 Proof.
-  intros k txt cc marker next o. unfold idelim_resolve.
-  destruct (cc || marker)%bool; [|apply idelim_done_text].
+  intros k txt bef marker next o. unfold idelim_resolve.
+  destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_text].
   destruct (oclose k marker (flush_text txt o));
     [eauto | apply idelim_done_text].
 Qed.

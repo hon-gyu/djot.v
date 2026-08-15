@@ -1017,11 +1017,11 @@ Proof.
 Qed.
 
 Lemma idelim_done_wf :
-  forall k txt marker next o,
+  forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
-    iscan_wf (idelim_done k txt marker next o) = true.
+    iscan_wf (idelim_done k txt bef marker next o) = true.
 Proof.
-  intros k txt marker next o Ho Hs. unfold idelim_done.
+  intros k txt bef marker next o Ho Hs. unfold idelim_done.
   destruct (dbare k && negb marker && nonspace_at next)%bool;
     [|apply iscan_wf_text; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
@@ -1029,12 +1029,12 @@ Proof.
 Qed.
 
 Lemma idelim_resolve_wf :
-  forall k txt cc marker next o,
+  forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
-    iscan_wf (idelim_resolve k txt cc marker next o) = true.
+    iscan_wf (idelim_resolve k txt bef marker next o) = true.
 Proof.
-  intros k txt cc marker next o Ho Hs. unfold idelim_resolve.
-  destruct (cc || marker)%bool; [|apply idelim_done_wf; assumption].
+  intros k txt bef marker next o Ho Hs. unfold idelim_resolve.
+  destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_wf; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
   destruct (oclose k marker (flush_text txt o)) as [o'|] eqn:Ec;
     [|apply idelim_done_wf; assumption].
