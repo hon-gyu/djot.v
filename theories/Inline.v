@@ -954,6 +954,24 @@ Definition link_close (dst tail : string) : string :=
 Definition ref_close (label tail : string) : string :=
   String rbrack (String lbrack (label ++ String rbrack tail)).
 
+(* A footnote reference is a leaf: its label is source rather than inline
+   content, so there is no child canonical view to reconstruct. *)
+Definition note_text (label : string) : string :=
+  String lbrack (String hat (label ++ one rbrack)).
+
+(* An unescaped `]` would end the label early, while an odd trailing run
+   of backslashes would protect the reference's closing bracket. *)
+Fixpoint note_label_safe_from (esc : bool) (label : string) : bool :=
+  match label with
+  | EmptyString => negb esc
+  | String c rest =>
+      if esc then note_label_safe_from false rest
+      else if Ascii.eqb c rbrack then false
+      else note_label_safe_from (is_bslash c) rest
+  end.
+
+Definition note_label_safe : string -> bool := note_label_safe_from false.
+
 (* One line's inline content, described by the source that determines it.
    One constructor per inline construct the roundtrip covers, exactly as
    `cblock` carries one per block construct. *)
@@ -969,7 +987,8 @@ Inductive cinline : Type :=
      against.  The explicit spelling `[text][label]` is the canonical one
      because it is context-free: the collapsed `[text][]` reads its label
      off the text, so it cannot express a label the text does not spell. *)
-  | CIRef (img : bool) (kids : list cinline) (label : string).
+  | CIRef (img : bool) (kids : list cinline) (label : string)
+  | CINote (label : string).
 
 Fixpoint ci_size (ci : cinline) : nat :=
   let go :=
@@ -979,7 +998,7 @@ Fixpoint ci_size (ci : cinline) : nat :=
       | c :: rest => ci_size c + go rest
       end in
   match ci with
-  | CIStr _ | CIVerb _ => 1
+  | CIStr _ | CIVerb _ | CINote _ => 1
   | CIDelim _ kids | CILink _ kids _ | CIRef _ kids _ => S (go kids)
   end.
 
@@ -1015,7 +1034,7 @@ Qed.
 
 Lemma ci_size_pos : forall ci, 0 < ci_size ci.
 Proof.
-  intros [s|s|k kids|img kids dst|img kids label]; cbn [ci_size]; lia.
+  intros [s|s|k kids|img kids dst|img kids label|label]; cbn [ci_size]; lia.
 Qed.
 
 (* The last byte of `s`, or `prev` when `s` is empty. *)
@@ -1051,6 +1070,7 @@ Fixpoint ci_src (ci : cinline) : string :=
       (bracket_open img ++ (go kids ++ link_close dst EmptyString))%string
   | CIRef img kids label =>
       (bracket_open img ++ (go kids ++ ref_close label EmptyString))%string
+  | CINote label => note_text label
   end.
 
 Fixpoint ci_text (cis : list cinline) : string :=
@@ -1126,6 +1146,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
   | CIDelim k kids => mk (dnode k (go kids))
   | CILink img kids dst => mk (bnode img (go kids) (Direct dst))
   | CIRef img kids label => mk (bnode img (go kids) (Reference label))
+  | CINote label => mk (FootnoteReference label)
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
@@ -1247,7 +1268,15 @@ Fixpoint ci_ok (ci : cinline) : bool :=
       (nonempty_str label && no_char rbrack label
        && String.eqb (normalize_label label) label
        && go kids && sep kids)%bool
+  | CINote label =>
+      (note_label_safe label && String.eqb (normalize_label label) label)%bool
   end.
+
+Lemma ci_ok_note :
+  forall label,
+    ci_ok (CINote label)
+    = (note_label_safe label && String.eqb (normalize_label label) label)%bool.
+Proof. reflexivity. Qed.
 
 (* Pairwise source separation: adjacent strings merge, and adjacent
    verbatim spans merge their delimiter runs. *)
@@ -1717,6 +1746,10 @@ Definition bunpush (o : ostate) : option (bool * ostate) :=
 Lemma bunpush_opush :
   forall k m o, bunpush (opush k m o) = None.
 Proof. intros k m [out stk]. reflexivity. Qed.
+
+Lemma bunpush_bpush :
+  forall image o, bunpush (bpush image o) = Some (image, o).
+Proof. intros image [out stk]. reflexivity. Qed.
 
 Lemma bclose_oemit_all :
   forall ns image base,
@@ -3323,7 +3356,7 @@ Lemma ci_str_tail_sep :
     text_sep_ok s rest = true.
 Proof.
   intros s [|r rest] H Hs; [unfold text_sep_ok; destruct s; reflexivity|].
-  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel];
+  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel|label];
     [|unfold text_sep_ok; destruct s; reflexivity ..].
   unfold cis_ok in H. cbn [ci_sep_ok ci_pair_ok] in H.
   repeat rewrite andb_false_r in H. discriminate.
@@ -3814,6 +3847,79 @@ Proof.
   apply (bclose_flush_bpush txt image before base).
 Qed.
 
+(* A canonical note label reaches its closing bracket without leaving an
+   escape pending.  Backslashes are consumed in pairs with the following
+   byte, and both bytes remain in the label. *)
+Lemma iscan_note_label :
+  forall label tail esc image acc o,
+    note_label_safe_from esc label = true ->
+    iscan_str (label ++ one rbrack ++ tail)
+      (INote esc image acc o)
+    = iscan_str tail
+        (IText false EmptyString (Some rbrack)
+          (oemit (mk (FootnoteReference
+            (normalize_label
+              (acc ++ (if esc then one bslash else EmptyString) ++ label))))
+            (ospan_bang image o))).
+Proof.
+  induction label as [|c label IH]; intros tail esc image acc o Hsafe.
+  - cbn [note_label_safe_from] in Hsafe. destruct esc; [discriminate|].
+    cbn [append iscan_str istep inote_step].
+    change (is_bslash rbrack) with false.
+    change (Ascii.eqb rbrack rbrack) with true.
+    rewrite !append_empty_r. reflexivity.
+  - cbn [note_label_safe_from] in Hsafe.
+    cbn [append iscan_str istep inote_step].
+    destruct esc.
+    + cbn [inote_step].
+      rewrite (IH tail false image (acc ++ one bslash ++ one c)%string o
+                 Hsafe).
+      rewrite !append_assoc. reflexivity.
+    + destruct (Ascii.eqb c rbrack) eqn:Hclose; [discriminate|].
+      destruct (is_bslash c) eqn:Hslash.
+      * unfold is_bslash in Hslash. apply Ascii.eqb_eq in Hslash. subst c.
+        cbn [inote_step].
+        rewrite is_bslash_bslash.
+        rewrite (IH tail true image acc o Hsafe).
+        cbn [append]. reflexivity.
+      * cbn [inote_step]. rewrite Hslash, Hclose.
+        rewrite (IH tail false image (acc ++ one c)%string o Hsafe).
+        rewrite !append_assoc. reflexivity.
+Qed.
+
+Lemma iscan_note_text :
+  forall label tail txt prev o,
+    note_label_safe label = true ->
+    iscan_str (note_text label ++ tail)
+      (IText false txt prev o)
+    = iscan_str tail
+        (IText false EmptyString (Some rbrack)
+          (oemit (mk (FootnoteReference (normalize_label label)))
+            (flush_text txt o))).
+Proof.
+  intros label tail txt prev o Hsafe.
+  replace (note_text label ++ tail)%string with
+    (bracket_open false ++ (one hat ++ (label ++ one rbrack ++ tail)))%string
+    by (unfold note_text, bracket_open; cbn [append];
+        rewrite append_assoc; reflexivity).
+  rewrite iscan_str_app, iscan_bracket_open.
+  rewrite iscan_str_app. cbn [one iscan_str istep].
+  unfold ilead.
+  change (is_bslash hat) with false.
+  change (is_tick hat) with false.
+  change (Ascii.eqb hat dollar) with false.
+  change (Ascii.eqb hat lbrace) with false.
+  change (Ascii.eqb hat bang) with false.
+  change (Ascii.eqb hat lbrack) with false.
+  change (Ascii.eqb hat rbrack) with false.
+  change (Ascii.eqb hat hat && note_pos EmptyString (Some lbrack))%bool
+    with true.
+  rewrite bunpush_bpush.
+  rewrite (iscan_note_label label tail false false EmptyString
+             (flush_text txt o) Hsafe).
+  reflexivity.
+Qed.
+
 Lemma ref_close_app :
   forall label t, (ref_close label EmptyString ++ t)%string = ref_close label t.
 Proof.
@@ -3846,7 +3952,7 @@ Lemma after_verb_source_nontick :
 Proof.
   intros v [|c rest] cl Hok Hcl Hct.
   - cbn [ci_text append]. split; assumption.
-  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel].
+  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label].
     + pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
       cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
       cbn [ci_text ci_src]. split.
@@ -3868,6 +3974,7 @@ Proof.
       destruct img; cbn [append starts_tick]; split; reflexivity.
     + cbn [ci_text]. rewrite ci_src_ref. unfold bracket_open.
       destruct rimg; cbn [append starts_tick]; split; reflexivity.
+    + cbn [ci_text ci_src note_text append starts_tick]. split; reflexivity.
 Qed.
 
 Lemma after_verb_rest_nontick :
@@ -3882,7 +3989,7 @@ Proof.
   destruct (after_verb_source_nontick v (c :: rest) (one rbrace) Hok
               eq_refl eq_refl)
     as [Hne Htick].
-  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel].
+  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label].
   - pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
     cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
     cbn [ci_text ci_src]. split.
@@ -3899,6 +4006,8 @@ Proof.
     destruct img; cbn [append starts_tick nonempty_str]; split; reflexivity.
   - cbn [ci_text]. rewrite ci_src_ref. unfold bracket_open.
     destruct rimg; cbn [append starts_tick nonempty_str]; split; reflexivity.
+  - cbn [ci_text ci_src note_text append starts_tick nonempty_str].
+    split; reflexivity.
 Qed.
 
 Lemma orb_false_r_true : forall b, (b || false)%bool = true -> b = true.
@@ -3943,7 +4052,7 @@ Proof.
   - cbn [ci_text ci_inlines map append nonempty] in Hne |- *.
     apply Hflush. rewrite <- Hne. destruct (nonempty before), (nonempty_str txt);
       reflexivity.
-  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel].
+  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -4187,6 +4296,42 @@ Proof.
         rewrite <- ci_ast_ref. rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all] in Erest.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+    + pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
+      rewrite ci_ok_note in Hnote.
+      apply andb_true_iff in Hnote as [Hsafe Hnorm].
+      apply String.eqb_eq in Hnorm.
+      assert (Hrestlt : ltof (list cinline) cis_size rest (CINote label :: rest)).
+      { unfold ltof. cbn [cis_size ci_size]. lia. }
+      assert (Hstep : forall pre,
+        nonempty pre = true ->
+        exists p,
+          iscan_str (ci_text rest ++ cl)
+            (IText false EmptyString (Some rbrack) (oemit_all pre O))
+          = iscan_str cl
+              (IText false EmptyString p
+                (oemit_all (ci_inlines rest)
+                  (flush_text EmptyString (oemit_all pre O))))).
+      { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
+          (Some rbrack) pre Hcl Hct Hflush (cis_ok_tail _ _ Hok) eq_refl).
+        rewrite Hpre. reflexivity. }
+      destruct txt as [|x txt'].
+      * destruct (Hstep (before ++ [ci_ast (CINote label)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CINote label)) with (note_text label).
+        rewrite append_assoc, iscan_note_text by assumption.
+        rewrite Hnorm. rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite Erest. reflexivity.
+      * destruct (Hstep
+                    (before ++ [mk (Str (String x txt')); ci_ast (CINote label)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CINote label)) with (note_text label).
+        rewrite append_assoc, iscan_note_text by assumption.
+        rewrite Hnorm. rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite Erest. reflexivity.
 Qed.
 
 (* The delimiter instance, which is what the two callers below use. *)
@@ -4285,7 +4430,7 @@ Proof.
     rewrite ifinish_text, flush_text_flat. reflexivity.
   - assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
     { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel].
+    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -4410,6 +4555,25 @@ Proof.
         rewrite <- List.app_assoc. reflexivity.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
+    + pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
+      rewrite ci_ok_note in Hnote.
+      apply andb_true_iff in Hnote as [Hsafe Hnorm].
+      apply String.eqb_eq in Hnorm.
+      cbn [ci_text ci_inlines map].
+      change (ci_src (CINote label)) with (note_text label).
+      rewrite (iscan_note_text label (ci_text rest) txt prev'
+                 (OState out []) Hsafe), Hnorm.
+      destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+      pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+      injection Eflat as Eout Estk. subst out' stk'.
+      cbn [oemit os_out os_stk].
+      change (mk (FootnoteReference label)) with (ci_ast (CINote label)).
+      rewrite (IH rest Hrestlt (Some rbrack) EmptyString
+        (ci_ast (CINote label) :: flush_out txt out)).
+      * cbn [flush_out nonempty_str ci_ast List.rev].
+        rewrite <- List.app_assoc. reflexivity.
+      * exact (cis_ok_tail _ _ Hok).
+      * reflexivity.
 Qed.
 
 (* The other half of what a canonical line owes the paragraph: it leaves
@@ -4429,7 +4593,7 @@ Proof.
   destruct cis as [|c rest]; [reflexivity|].
   assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
   { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel].
+  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label].
   - cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
@@ -4510,6 +4674,17 @@ Proof.
     rewrite Hsrc, iscan_str_app, iscan_bracket_open.
     cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
     rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr).
+    destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+    pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+    injection Eflat as Eout Estk. subst out' stk'.
+    cbn [oemit os_out os_stk].
+    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
+  - pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
+    rewrite ci_ok_note in Hnote.
+    apply andb_true_iff in Hnote as [Hsafe Hnorm].
+    cbn [ci_text]. change (ci_src (CINote label)) with (note_text label).
+    rewrite (iscan_note_text label (ci_text rest) txt prev'
+               (OState out []) Hsafe).
     destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.
@@ -5221,13 +5396,14 @@ Fixpoint inline_text (il : inline) : string :=
       (bracket_open false ++ (go ns ++ ref_close label EmptyString))%string
   | Image ns (Reference label) =>
       (bracket_open true ++ (go ns ++ ref_close label EmptyString))%string
+  | FootnoteReference label => note_text label
   | _ => EmptyString
   end.
 
 Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
 Proof.
-  fix IH 1. intro ci. destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel];
-    [reflexivity|reflexivity| | |].
+  fix IH 1. intro ci. destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label];
+    [reflexivity|reflexivity| | | |reflexivity].
   - destruct k; cbn [ci_ast ci_src dnode node_contents inline_text].
     all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
       induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
@@ -5269,8 +5445,8 @@ Lemma inline_lines_ci_ast :
     inline_lines (ci_ast ci :: rest) cur
     = inline_lines rest (cur ++ ci_src ci).
 Proof.
-  intros ci rest cur. destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel];
-    [reflexivity|reflexivity| | |].
+  intros ci rest cur. destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label];
+    [reflexivity|reflexivity| | | |reflexivity].
   - rewrite ci_ast_delim, <- inline_text_ci_ast.
     destruct k; reflexivity.
   - rewrite ci_ast_link, <- inline_text_ci_ast, ci_ast_link.
@@ -6012,6 +6188,37 @@ Proof. vm_compute. reflexivity. Qed.
 Example note_marker_escaped_in_canonical_text :
   ci_line [CIStr "[^a]"] = "\[\^a\]".
 Proof. vm_compute. reflexivity. Qed.
+
+(* The canonical leaf is the converse direction: its source deliberately
+   leaves the marker structural and its AST is the reference node. *)
+Example note_canonical_leaf :
+  ci_line [CINote "a"] = "[^a]" /\
+  ci_inlines [CINote "a"] = [mk (FootnoteReference "a")].
+Proof. vm_compute. split; reflexivity. Qed.
+
+Example note_canonical_empty_label : ci_ok (CINote "") = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* One trailing backslash protects the would-be closer; two are consumed
+   as a pair and leave the closer structural. *)
+Example note_canonical_backslash_boundary :
+  ci_ok (CINote "a\") = false /\ ci_ok (CINote "a\\") = true.
+Proof. vm_compute. split; reflexivity. Qed.
+
+Example note_canonical_escaped_close :
+  ci_ok (CINote "a\]b") = true /\
+  parse_inline_line (ci_line [CINote "a\]b"])
+    = ci_inlines [CINote "a\]b"].
+Proof. vm_compute. split; reflexivity. Qed.
+
+Example note_canonical_normalized_only : ci_ok (CINote " a  b ") = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example note_canonical_roundtrip_nested :
+  parse_inline_line
+    (ci_line [CILink false [CIStr "a"; CINote "b"; CIStr "c"] "u"])
+  = ci_inlines [CILink false [CIStr "a"; CINote "b"; CIStr "c"] "u"].
+Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 
 (*
 The empty-span exclusion
