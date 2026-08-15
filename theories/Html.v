@@ -1,3 +1,5 @@
+(* ai-disclosure: autonomous *)
+
 (* HTML rendering, targeting byte-identical agreement with djot.js's
    renderer (the authority; see .project/oracle-disagreements.md — djoths's
    serialization diverges on attribute order, section wrapping, and task
@@ -268,6 +270,9 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   (* A reference definition is not content: djot.js keeps it out of the
      block tree entirely and emits nothing for it. *)
   | RefDef _ _ => ""
+  (* Collected by the later document pass; while it remains in the block
+     tree it is metadata rather than visible document content. *)
+  | FootnoteDef _ _ => ""
   end.
 
 Definition render_node (n : node block) : string :=

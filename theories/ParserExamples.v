@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Concrete `parse_blocks` / `parse_lines` regressions for the block
    parser: one closed document per construct, each decided by
@@ -466,14 +466,41 @@ Example parse_ref_after_text_is_text :
 Proof. reflexivity. Qed.
 
 (* The footnote container claims `[^...]:` first (block.ts:264 before
-   :301), so such a line is not a reference definition.  The *block*
-   container is not parsed yet, so the line stays a paragraph -- but its
-   inline scan now reads the reference, which is what makes this a
-   paragraph containing a `FootnoteReference` rather than one `Str`. *)
+   :301), so such a line is not a reference definition. *)
 Example parse_ref_footnote_label_excluded :
   parse_blocks "[^a]: note"
-  = [mk (Para [mk (FootnoteReference "a"); mk (Str ": note")])].
-Proof. vm_compute. reflexivity. Qed.
+  = [mk (FootnoteDef "a" [mk (Para [mk (Str "note")])])].
+Proof. reflexivity. Qed.
+
+Example parse_footnote_indented_body :
+  parse_blocks "[^a]:
+  note"
+  = [mk (FootnoteDef "a" [mk (Para [mk (Str "note")])])].
+Proof. reflexivity. Qed.
+
+Example parse_footnote_empty_then_block :
+  parse_blocks "[^a]:
+
+next"
+  = [mk (FootnoteDef "a" []); mk (Para [mk (Str "next")])].
+Proof. reflexivity. Qed.
+
+Example parse_footnote_list_body :
+  parse_blocks "[^a]: - item"
+  = [mk (FootnoteDef "a"
+       [mk (BulletList Tight [[mk (Para [mk (Str "item")])]])])].
+Proof. reflexivity. Qed.
+
+Example parse_footnote_inside_quote :
+  parse_blocks "> [^a]: note"
+  = [mk (BlockQuote
+       [mk (FootnoteDef "a" [mk (Para [mk (Str "note")])])])].
+Proof. reflexivity. Qed.
+
+Example parse_footnote_no_space_is_inline :
+  parse_blocks "[^a]:note"
+  = [mk (Para [mk (FootnoteReference "a"); mk (Str ":note")])].
+Proof. reflexivity. Qed.
 
 (* A label may contain `[`: only `]` ends it. *)
 Example parse_ref_label_open_bracket :

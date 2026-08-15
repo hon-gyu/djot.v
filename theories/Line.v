@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Line classification: the prefix-determinism seam.
 
@@ -66,6 +66,9 @@ Inductive line_kind : Type :=
      may already be complete (`ap_done`) or still want indented
      continuation lines *)
   | KAttr (p : aparser)
+  (* a footnote definition's opener: its label (without the `^`) and
+     the ordinary block content left on the opener line *)
+  | KFoot (label : string) (rest : string)
   (* a reference definition's opening line: its label and the destination
      this line supplies, which later lines may extend *)
   | KRef (label : string) (val : string)
@@ -545,6 +548,93 @@ Definition is_footnote_label (lbl : string) : bool :=
   | _ => false
   end.
 
+(* `[^label]: body`, djot.js's `pattFootnoteStart`.  Unlike a reference
+   definition, the body is ordinary block content and may contain spaces;
+   only the single whitespace byte claimed by the opener is removed. *)
+Definition foot_open (l : string) : option (string * string) :=
+  match drop_leading_ws l with
+  | String c (String h rest) =>
+      if negb (Ascii.eqb c "[") then None
+      else if negb (Ascii.eqb h "^") then None
+      else match ref_label rest with
+           | Some (lbl, String col after) =>
+               if negb (Ascii.eqb col ":") then None
+               else if negb (nonempty_str lbl) then None
+               else match after with
+                    | EmptyString => Some (lbl, EmptyString)
+                    | String w body =>
+                        if is_ws w then Some (lbl, body) else None
+                    end
+           | _ => None
+           end
+  | _ => None
+  end.
+
+Lemma foot_open_ws_prefix :
+  forall p l, is_blank p = true -> foot_open (p ++ l) = foot_open l.
+Proof.
+  intros p l Hp. unfold foot_open.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
+Lemma foot_open_label_ok :
+  forall l lbl rest,
+    foot_open l = Some (lbl, rest) ->
+    (nonempty_str lbl && no_char "]"%char lbl)%bool = true.
+Proof.
+  assert (Hlabel : forall s lbl tail,
+    ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true).
+  { induction s as [|c s IH]; intros lbl tail H; [discriminate|].
+    cbn [ref_label] in H. destruct (Ascii.eqb c "]") eqn:E.
+    - injection H as <- _. reflexivity.
+    - destruct (ref_label s) as [[lbl' tail']|] eqn:Er; [|discriminate].
+      injection H as <- _. cbn [no_char]. rewrite E.
+      apply (IH lbl' tail' eq_refl). }
+  intros l lbl body H. unfold foot_open in H.
+  destruct (drop_leading_ws l) as [|c [|h s]]; try discriminate.
+  destruct (Ascii.eqb c "["); cbn [negb] in H; [|discriminate].
+  destruct (Ascii.eqb h "^"); cbn [negb] in H; [|discriminate].
+  destruct (ref_label s) as [[lbl' [|col after]]|] eqn:Er; try discriminate.
+  destruct (Ascii.eqb col ":"); cbn [negb] in H; [|discriminate].
+  destruct (nonempty_str lbl') eqn:Hne; cbn [negb] in H; [|discriminate].
+  destruct after as [|w tail].
+  - injection H as <- <-. rewrite Hne, andb_true_l.
+    apply (Hlabel s lbl' _ Er).
+  - destruct (is_ws w); [|discriminate].
+    injection H as <- <-. rewrite Hne, andb_true_l.
+    apply (Hlabel s lbl' _ Er).
+Qed.
+
+Lemma ref_label_tail_length :
+  forall s lbl tail,
+    ref_label s = Some (lbl, tail) -> String.length tail < String.length s.
+Proof.
+  induction s as [|c s IH]; intros lbl tail H; [discriminate|].
+  cbn [ref_label] in H. destruct (Ascii.eqb c "]").
+  - injection H as _ <-. cbn. lia.
+  - destruct (ref_label s) as [[lbl' tail']|] eqn:E; [|discriminate].
+    injection H as _ <-. specialize (IH lbl' tail' eq_refl). cbn. lia.
+Qed.
+
+Lemma foot_open_length :
+  forall l lbl rest,
+    foot_open l = Some (lbl, rest) -> String.length rest < String.length l.
+Proof.
+  intros l lbl body H. unfold foot_open in H.
+  pose proof (drop_leading_ws_length l) as Hle.
+  destruct (drop_leading_ws l) as [|c [|h s]] eqn:Ed; try discriminate.
+  destruct (Ascii.eqb c "["); cbn [negb] in H; [|discriminate].
+  destruct (Ascii.eqb h "^"); cbn [negb] in H; [|discriminate].
+  destruct (ref_label s) as [[lbl' [|col after]]|] eqn:Er; try discriminate.
+  pose proof (ref_label_tail_length s lbl' (String col after) Er) as Hr.
+  destruct (Ascii.eqb col ":"); cbn [negb] in H; [|discriminate].
+  destruct (nonempty_str lbl'); cbn [negb] in H; [|discriminate].
+  destruct after as [|w tail].
+  - injection H as _ <-. cbn in *. lia.
+  - destruct (is_ws w); [|discriminate].
+    injection H as _ <-. cbn in *. lia.
+Qed.
+
 (* Spelled with `Ascii.eqb` rather than character patterns: a literal
    pattern compiles to a tree of bit matches that no proof can `destruct`
    in one step. *)
@@ -649,9 +739,13 @@ Definition classify (l : string) : line_kind :=
                                 match attr_open l with
                                 | Some p => KAttr p
                                 | None =>
-                                    match ref_open l with
-                                    | Some (lbl, v) => KRef lbl v
-                                    | None => KText
+                                    match foot_open l with
+                                    | Some (lbl, rest) => KFoot lbl rest
+                                    | None =>
+                                        match ref_open l with
+                                        | Some (lbl, v) => KRef lbl v
+                                        | None => KText
+                                        end
                                     end
                                 end
                             end
@@ -678,12 +772,14 @@ Proof.
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
+    destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; discriminate.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
+    destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
@@ -708,6 +804,7 @@ Proof.
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
+  destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
@@ -728,6 +825,7 @@ Proof.
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
+    destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; discriminate.
 Qed.
 
@@ -746,6 +844,7 @@ Proof.
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[[s' c'] r']|];
     [|destruct (attr_open l); [discriminate|];
+      destruct (foot_open l) as [[fl fr]|]; [discriminate|];
       destruct (ref_open l) as [[rl rv]|]; discriminate].
   injection H as <- <- <-. reflexivity.
 Qed.
@@ -762,11 +861,12 @@ Lemma classify_ktext :
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
     fence_open l = None -> div_open l = None ->
     is_thematic l = false -> list_marker l = None -> attr_open l = None ->
+    foot_open l = None ->
     ref_open l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Hd Ht Hm Ha Hr. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha, Hr. reflexivity.
+  intros l Hb Hq Hh Hf Hd Ht Hm Ha Hfoot Hr. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha, Hfoot, Hr. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -789,8 +889,34 @@ Proof.
   unfold quote_prefix, heading_open, fence_open, div_open, list_marker.
   rewrite (drop_leading_ws_ws_prefix p l Hp).
   fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
-  rewrite (attr_open_ws_prefix p l Hp), (ref_open_ws_prefix p l Hp).
+  rewrite (attr_open_ws_prefix p l Hp), (foot_open_ws_prefix p l Hp),
+          (ref_open_ws_prefix p l Hp).
   unfold is_thematic. reflexivity.
+Qed.
+
+Lemma classify_kfoot :
+  forall l lbl rest,
+    classify l = KFoot lbl rest -> foot_open l = Some (lbl, rest).
+Proof.
+  intros l lbl rest H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[hl hr]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+  destruct (attr_open l); [discriminate|].
+  destruct (foot_open l) as [[fl fr]|]; [injection H as <- <-; reflexivity|].
+  destruct (ref_open l) as [[rl rv]|]; discriminate.
+Qed.
+
+Lemma classify_foot_length :
+  forall l lbl rest,
+    classify l = KFoot lbl rest -> String.length rest < String.length l.
+Proof.
+  intros l lbl rest H. apply (foot_open_length l lbl rest).
+  exact (classify_kfoot l lbl rest H).
 Qed.
 
 (* A KRef classification is `ref_open`'s answer, which is what carries
@@ -807,6 +933,7 @@ Proof.
   destruct (is_thematic l); [discriminate|].
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
+  destruct (foot_open l) as [[fl fr]|]; [discriminate|].
   destruct (ref_open l) as [[rl rv]|]; [|discriminate].
   injection H as <- <-. reflexivity.
 Qed.
@@ -842,13 +969,24 @@ Proof.
   assert (Hdrop : drop_leading_ws ("[" ++ label ++ "]: " ++ dest)
                   = "[" ++ label ++ "]: " ++ dest).
   { cbn [append drop_leading_ws]. change (is_ws "[") with false. reflexivity. }
+  assert (Hfo : foot_open ("[" ++ label ++ "]: " ++ dest) = None).
+  { unfold foot_open. rewrite Hdrop. cbn [append].
+    destruct label as [|c [|d rest]].
+    - reflexivity.
+    - cbn [append ref_label nonempty_str Ascii.eqb negb].
+      destruct (Ascii.eqb c "^"); reflexivity.
+    - cbn [is_footnote_label] in Hfn.
+      destruct (Ascii.eqb c "^") eqn:Ec.
+      + apply Ascii.eqb_eq in Ec. subst c. discriminate.
+      + cbn [append ref_label nonempty_str Ascii.eqb negb].
+        rewrite Ec. reflexivity. }
   unfold classify.
   change (is_blank ("[" ++ label ++ "]: " ++ dest)) with false.
   unfold quote_prefix, heading_open, fence_open, div_open, list_marker,
     attr_open, is_thematic.
   (* `Hro` has to be rewritten before `append` reduces, or its left-hand
      side no longer appears syntactically *)
-  rewrite !Hdrop, Hro. cbn [append].
+  rewrite !Hdrop, Hfo, Hro. cbn [append].
   cbn [count_run thematic_count is_marker is_ws is_bullet marker_shape
        Ascii.eqb orb andb Nat.leb eqb negb].
   reflexivity.
