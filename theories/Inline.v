@@ -132,6 +132,22 @@ Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig := DConfig djot_dchar djot_dwidth djot_dsyntax.
 
+(* The second table this development intends to ship: Markdown's
+   spelling, with djot's rules.  `_` stays emphasis and `**` becomes
+   strong, which is what a reader coming from Markdown expects; a single
+   `*` is then not a delimiter at all, since a row's width is fixed and a
+   run shorter than it is literal.
+
+   Markdown-*like*, not CommonMark: the delimiters do not disambiguate by
+   run length or flanking, because there is nothing to disambiguate --
+   one character, one row, one width.  That is djot's property, and
+   keeping it is the point of spelling the extension as a table rather
+   than as rules. *)
+Definition markdown_config : dconfig :=
+  DConfig (fun k => match k with DStrong => "*"%char | _ => djot_dchar k end)
+          (fun k => match k with DStrong => 2 | _ => 1 end)
+          djot_dsyntax.
+
 (* The table in force.  Threading it as an argument is what makes the
    family quantifiable; until then it is fixed here, and the point of the
    record is already served: every row's character is read out of one
@@ -283,19 +299,7 @@ Definition dstyle_of (c : ascii) : option dstyle := dstyle_at config c.
 Example djot_config_ok : dconfig_ok djot_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* A second inhabitant, to keep the family from being a family of one:
-   emphasis and strong swap characters.  It satisfies the condition for
-   the same reason djot's does -- the characters are still distinct --
-   which is the content of the constraint that the two roles never share
-   one. *)
-Definition swapped_config : dconfig :=
-  DConfig (fun k => match k with
-                    | DEmph => "*"%char | DStrong => "_"%char
-                    | _ => djot_dchar k
-                    end)
-          djot_dwidth djot_dsyntax.
-
-Example swapped_config_ok : dconfig_ok swapped_config = true.
+Example markdown_config_ok : dconfig_ok markdown_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (* And a table that is not admissible, so the condition is known to have

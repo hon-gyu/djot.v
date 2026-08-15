@@ -58,7 +58,9 @@ are what the extension has to be stated against.
 | `____` | literal `____` |
 | `x__a__` | `x<em><em>a</em></em>` |
 | `__a__b__` | `<em><em>a</em></em>b__` |
+| `*a*` | `<strong>a</strong>` |
 | `**a**` | `<strong><strong>a</strong></strong>` |
+| `2*3*4` | `2<strong>3</strong>4` |
 
 These are now pinned as `Example`s in `theories/Inline.v` (`emph_run_*`),
 per discipline 2. Pinning them found that **we did not implement them**:
@@ -83,16 +85,42 @@ it is the reason CommonMark's emphasis rules are what they are.
 
 ## Open: `E1`, doubled strong emphasis
 
-**Ask.** [[beyond-djot]]: allow `__` for strong where the strong
-character differs from the emphasis character, configurably, with djot
-as the instance that disables it.
+**Ask.** [[beyond-djot]]: allow a doubled delimiter for strong where the
+strong character differs from the emphasis character, configurably, with
+djot as the instance that disables it.
+
+**The two tables this ships.** The point is not "a knob"; it is two
+named configurations, both inhabitants of one family.
+
+| | emphasis | strong | a lone `*` |
+| --- | --- | --- | --- |
+| `djot_config` | `_` | `*` | strong |
+| `markdown_config` | `_` | `**` | literal text |
+
+The second is Markdown's *spelling* with djot's *semantics*: no run-length
+arithmetic, no flanking rules, no "three means both". A character belongs
+to one row at one width, so there is nothing to disambiguate -- which is
+djot's property, and keeping it is the whole reason the extension is a
+table rather than a set of rules. The visible payoff is that `2*3*4` is
+literal text rather than emphasis around the `3`.
+
+Everything else stays djot's, deliberately. In particular there is **no
+word rule**: `he_ll_o` emphasizes `ll` in both tables, because djot's
+`can_open` / `can_close` are one whitespace test each and its `opentest`
+slot is `alwaysTrue` for these rows (`inline.ts:284-315`). A reader who
+wants the other reading writes `he{_ll_}o`, which is djot's own
+mechanism, unchanged. Adding a CommonMark-style word rule was
+considered and dropped: it buys a familiarity that costs a second
+condition on both sides of every bare delimiter, and the ambiguity it
+exists to prevent is already prevented by one character having one
+width.
 
 **Status: in progress.** The table is now a record (`dconfig` in
-`theories/Inline.v`) carrying, per row, the character it is written with
-and how it may be written; `djot_config` is one inhabitant and
-`swapped_config` -- emphasis and strong exchanging characters -- is a
-second. `dstyle_of` looks a character up in the table instead of
-repeating it, so the character assignment lives in one place.
+`theories/Inline.v`) carrying, per row, the character it is written
+with, how wide it is and how it may be written; `djot_config` and
+`markdown_config` are its two inhabitants. `dstyle_of` looks a character
+up in the table instead of repeating it, so the character assignment
+lives in one place.
 
 A row now carries a **width** as well as a character, and its delimiter
 is that many copies of it (`dtoken`). The scanner spells tokens: a run of
@@ -124,8 +152,8 @@ The pieces, in the order they bite:
    replaces two unfoldings of djot's table with one fact checked in one
    place.
 
-3. **The marked open: done.** Found by building at `emph = *,
-   strong = __`, where `iscan_marked_open` stopped being provable:
+3. **The marked open: done.** Found by building at a two-character
+   table, where `iscan_marked_open` stopped being provable:
    `ibrace_step` matched `dstyle_of c` on the byte after `{` and pushed
    the scope there and then, so at width two the push came a character
    early and the rest of the token was scanned as text. `IDelim` now
@@ -150,21 +178,23 @@ The pieces, in the order they bite:
    configuration is chosen at build time. Mechanical, and what makes
    every statement quantify over the family rather than over djot.
 
-**Where the width-two build now stops.** Every general statement in
+**Where the width-two build stops.** Every general statement in
 `Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,
-`Parser.v`, the renderer -- compiles under `emph = *, strong = __`.
-Measured by truncating `Inline.v`'s pinned examples and building the
-rest: what fails at width two is exactly the examples, which spell djot's
-`_a_` and are supposed to be about djot. So the roundtrip theorems are
-already theorems about a two-character strong delimiter; what piece 4
-buys is saying so in the statements rather than by rebuilding.
+`Parser.v`, the renderer -- compiles under `markdown_config`. Measured by
+pointing `config` at it, truncating `Inline.v`'s pinned examples and
+building the rest: what fails is exactly those examples, which spell
+djot's `*a*` as strong and are supposed to be about djot. So the
+roundtrip theorems are already theorems about a two-character strong
+delimiter; what piece 4 buys is saying so in the statements rather than
+by rebuilding.
 
 **Settled so far:**
 
-- *The extension is non-conservative.* By the baseline above, `__a__` is
-  already a valid djot document meaning nested emphasis. Enabling `__`
-  as strong changes its meaning. So the theorem cannot be "we extend
-  djot"; it is "djot's table and the extension table are both
+- *The extension is non-conservative.* Every string the second table
+  reads differently is already a valid djot document: `*a*` is strong in
+  djot and literal under `markdown_config`, `**a**` is nested strong
+  there and one strong span here. So the theorem cannot be "we extend
+  djot"; it is "djot's table and the Markdown-like table are both
   inhabitants of a family satisfying the same invariants".
 - *The sufficient condition has a name, and is now stated and proved.*
   "Strong character differs from emphasis character" is one instance of
@@ -172,7 +202,7 @@ buys is saying so in the statements rather than by rebuilding.
   claim the same character. That is `dconfig_ok`, a decidable check on a
   table, and `dstyle_at_dchar` is what it buys -- a row's own character
   finds that row again, which is the only fact about the table the
-  scanner needs. `djot_config_ok` and `swapped_config_ok` check it;
+  scanner needs. `djot_config_ok` and `markdown_config_ok` check it;
   `clashing_config_not_ok` shows it has teeth, and
   `clashing_config_ok_when_off` shows switching a row off frees its
   character.
@@ -183,50 +213,51 @@ buys is saying so in the statements rather than by rebuilding.
   optional for the rest. Off is what makes "which containers exist" a
   setting rather than a fixed list.
 
-**The open sub-questions, now measured.** All three are settled, and by
-the same run: `check/Wide.v` is a file of `Example`s built against a
-wide table, with the two-step recipe in its header (set `config`,
-truncate `Inline.v`'s djot-specific examples, compile). No oracle can
-adjudicate any of this -- djot.js has no doubled row -- so the evidence
-is what our own table does, which is why it is pinned rather than
-described.
+**The open sub-questions, now measured.** `check/Markdown.v` pins
+`markdown_config`'s behaviour -- thirty examples, with the two-step
+recipe in its header (point `config` at it, truncate `Inline.v`'s
+djot-specific examples, compile). No oracle can adjudicate any of this:
+djot.js has no doubled row, so the evidence is what our own table does,
+which is why it is pinned rather than described.
 
-- `___a___` gives `<strong>_a</strong>_`. A run *is* cut from the left,
-  and the remainder's fate is **not symmetric**: the leading extra `_`
-  lands inside the span, because it is read after the opener has been
-  taken; the trailing one lands outside, because the closer is taken
-  first. `_____a_____` is the same shape one level deeper.
-- `____a____` nests, one level per *token* rather than per character --
-  the same answer a one-character row gives to four `_`, restated at the
-  right granularity. `__a____b__` is a close followed by an open.
-- `____` is literal, and so are `__`, `___`, `__ __` and `{__}`. This is
-  the half that was open, and it needed no restatement at all:
-  `oclose_go` asks whether the *top scope is empty*, not how far the
-  opener ended from `pos`, so djot.js's `opener.endpos !== pos - 1` --
-  which measures a one-character gap and would have had to become
-  `opener.endpos + length(delim) - 1` -- has no counterpart here. The
-  exclusion generalizes for free because it was never stated in
-  positions.
-- `__a_` and `_a__` are literal, as the compatibility note predicted.
-  Note the *shape* of the incompatibility: documents whose meaning the
-  extension changes go literal rather than parsing differently, so the
-  change is visible in the output rather than silent.
+- `***a***` gives `<strong>*a</strong>*`. A run *is* cut into tokens from
+  the left, and the remainder's fate is **not symmetric**: the leading
+  extra `*` lands inside the span, because it is read after the opener
+  has been taken; the trailing one lands outside, because the closer is
+  taken first.
+- `****a****` nests, one level per *token* rather than per character --
+  the same answer a one-character row gives to `____a____`, restated at
+  the right granularity.
+- `**` and `****` are literal, and so is `{**a*}`. This is the half that
+  was open, and it needed no restatement at all: `oclose_go` asks whether
+  the *top scope is empty*, not how far the opener ended from `pos`, so
+  djot.js's `opener.endpos !== pos - 1` -- which measures a one-character
+  gap and would have had to become `opener.endpos + length(delim) - 1` --
+  has no counterpart here. The exclusion generalizes for free because it
+  was never stated in positions.
 
-Two more facts worth having: the braced spelling works at width two
-(`{__a__}` is strong, and `{_a_}` / `{__a_}` are literal with the `{`
-back in front), and the canonical view roundtrips there -- `{__a__}` and
-`{__a{*b*}__}` both parse back to what rendered them, which is the
-behavioural half of what the proofs say.
+**The compatibility fact**, which is what discipline 4 asks for: what
+changes under `markdown_config` is every document that used `*` for
+strong. `*a*` is literal text there, and `**a**` is one strong span where
+djot reads nested strong. Emphasis is untouched, since `_` is emphasis in
+both tables. The change is loud rather than silent -- a document whose
+meaning moves usually goes *literal*, which is visible in the output.
 
-**Decided by construction, where it used to be open:** whether `_`
-remains available as emphasis when `__` is strong. It does not, and this
-is no longer a preference. A character belongs to one row (`dconfig_ok`,
-with `dstyle_at_dchar` the fact the scanner uses) and a row's width is a
-field rather than something negotiated per run, so "a delimiter at one
-length only" is what the table *can* express, not what we chose to
-allow. `wide_half_token_is_text` is the behaviour: a lone `_` is
-literal. That is also what keeps the run arithmetic out, which the
-baseline section names as the extension's cost.
+The braced form works at width two (`{**a**}` is strong; `{*a*}` and
+`{**a*}` are literal, with the `{` back in front), and the canonical view
+round-trips there: `{**a**}` and `{_a{**b**}_}` parse back to what
+rendered them, which is the behavioural half of what the proofs say.
+
+**Decided by construction, where it used to be open:** whether `*`
+remains available as strong at width one when `**` is strong. It does
+not, and this is no longer a preference. A character belongs to one row
+(`dconfig_ok`, with `dstyle_at_dchar` the fact the scanner uses) and a
+row's width is a field rather than something negotiated per run, so "one
+delimiter at one length" is what the table *can* express, not what we
+chose to allow. `md_single_star_is_text` is the behaviour. That is also
+what keeps the run arithmetic out, which the baseline section names as
+the extension's cost -- and it is what makes `2*3*4` literal without any
+rule about what surrounds the asterisks.
 
 ## Deferred asks
 
