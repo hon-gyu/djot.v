@@ -87,6 +87,10 @@ Definition rbrace : ascii := "}"%char.
    tests them and a bare literal would need escaping in a comment. *)
 Definition one (c : ascii) : string := String c EmptyString.
 
+(* The math prefix.  Reserved rather than a table row: it is not a
+   delimiter, it retroactively changes what the run after it means. *)
+Definition dollar : ascii := "$"%char.
+
 Definition sqchar : ascii := "'"%char.
 Definition dqchar : ascii := """"%char.
 Definition hyphen : ascii := "-"%char.
@@ -111,7 +115,7 @@ Definition dreserved (c : ascii) : bool :=
   (is_bslash c || is_tick c
    || Ascii.eqb c lbrace || Ascii.eqb c rbrace
    || Ascii.eqb c lbrack || Ascii.eqb c rbrack
-   || Ascii.eqb c bang)%bool.
+   || Ascii.eqb c bang || Ascii.eqb c dollar)%bool.
 
 (*
 The delimiter table
@@ -595,7 +599,7 @@ Lemma dreserved_false :
     is_bslash c = false /\ is_tick c = false
     /\ Ascii.eqb c lbrace = false /\ Ascii.eqb c rbrace = false
     /\ Ascii.eqb c lbrack = false /\ Ascii.eqb c rbrack = false
-    /\ Ascii.eqb c bang = false.
+    /\ Ascii.eqb c bang = false /\ Ascii.eqb c dollar = false.
 Proof.
   intros c H. unfold dreserved in H.
   repeat (apply orb_false_iff in H as [H ?]). tauto.
@@ -1759,6 +1763,15 @@ Fixpoint oflatten (pend : inlines) (stk : list frame) (bottom : inlines)
 Definition ofinish (o : ostate) : inlines :=
   oflatten [] (os_stk o) (os_out o).
 
+(* What a backtick run closes into.  djot.js keeps this in
+   `verbatimType` and decides it retroactively when the closing run
+   arrives; we decide it at the opening run, which is the same thing
+   because the prefix is already read by then. *)
+Inductive vkind : Type := VVerb | VMath (style : math_style).
+
+Definition vnode (vk : vkind) (s : string) : inline :=
+  match vk with VVerb => Verbatim s | VMath st => Math st s end.
+
 Inductive iscan : Type :=
   (* accumulating literal text; `esc` is a pending backslash, and `prev`
      is the byte before `txt` (`None` at the start of a paragraph or of a
@@ -1786,10 +1799,20 @@ Inductive iscan : Type :=
      and what it decays to keeps the `{`. *)
   | IDelim (k : dstyle) (extra : nat) (txt : string) (before : option ascii)
            (marked : bool) (o : ostate)
-  (* counting an opening backtick run *)
-  | IOpen (n : nat) (o : ostate)
+  (* counting an opening backtick run.  `vk` is what the run will close
+     into: a `$` or `$$` immediately before it makes the span math
+     instead of verbatim, which is djot.js's `verbatimType`
+     (`inline.ts:196-210`) and the reason math is a mode rather than a
+     construct of its own. *)
+  | IOpen (n : nat) (vk : vkind) (o : ostate)
   (* inside a width-`n` verbatim, with `run` unresolved trailing ticks *)
-  | IVerb (n run : nat) (txt : string) (o : ostate)
+  | IVerb (n run : nat) (txt : string) (vk : vkind) (o : ostate)
+  (* one or two dollars whose role the next byte decides: a backtick run
+     makes them a math prefix, anything else makes them text.  A state
+     rather than a look-back into the buffer, because an *escaped* `$`
+     must not count and the buffer cannot tell the two apart -- the same
+     reason `!` has `IBang`. *)
+  | IDollar (two : bool) (txt : string) (prev : option ascii) (o : ostate)
   (* a `!` whose role the next byte decides: `[` opens an image, and
      anything else makes it text.  An *escaped* `!` never reaches here,
      which is what keeps `\![a](u)` a link. *)
@@ -1829,7 +1852,8 @@ Inductive iscan : Type :=
 Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   : iscan :=
   if is_bslash c then IText true txt prev o
-  else if is_tick c then IOpen 1 (flush_text txt o)
+  else if is_tick c then IOpen 1 VVerb (flush_text txt o)
+  else if Ascii.eqb c dollar then IDollar false txt prev o
   else if Ascii.eqb c lbrace then IBrace txt prev o
   (* A `[` opens a scope on the same stack the delimiters use, so their
      relative order is kept and the label needs no second parser.  A `]`
@@ -2019,9 +2043,29 @@ Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
 (* No byte follows: the end of a line or of the paragraph.  `IBrace` and
    `IDelim` are the only states this changes, and after it neither
    remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
+(* The dollars a pending prefix is holding, when they turn out to be
+   text. *)
+Definition dollars (two : bool) : string :=
+  if two then (one dollar ++ one dollar)%string else one dollar.
+
+(* Resolving a `$`: another `$` widens the prefix to display math, a
+   backtick run opens the span it prefixes, and anything else makes the
+   dollars text.  A third `$` keeps the last two, which is djot.js
+   popping exactly two matches, so the extra one is flushed here. *)
+Definition idollar_step (c : ascii) (two : bool) (txt : string)
+  (prev : option ascii) (o : ostate) : iscan :=
+  if Ascii.eqb c dollar
+  then (if two then IDollar true (txt ++ one dollar)%string prev o
+        else IDollar true txt prev o)
+  else if is_tick c
+  then IOpen 1 (VMath (if two then DisplayMath else InlineMath))
+         (flush_text txt o)
+  else ilead c (txt ++ dollars two)%string prev o.
+
 Definition iresolve (st : iscan) : iscan :=
   match st with
   | IBrace txt prev o => IText false (txt ++ one lbrace)%string prev o
+  | IDollar two txt prev o => IText false (txt ++ dollars two)%string prev o
   | IAttr _ src txt prev o =>
       IText false (txt ++ one lbrace ++ src)%string prev o
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
@@ -2066,14 +2110,15 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
            | IText false txt' prev' o' => ilead c txt' prev' o'
            | other => other
            end
-  | IOpen n o =>
-      if is_tick c then IOpen (S n) o else IVerb n 0 (one c) o
-  | IVerb n run txt o =>
-      if is_tick c then IVerb n (S run) txt o
+  | IDollar two txt prev o => idollar_step c two txt prev o
+  | IOpen n vk o =>
+      if is_tick c then IOpen (S n) vk o else IVerb n 0 (one c) vk o
+  | IVerb n run txt vk o =>
+      if is_tick c then IVerb n (S run) txt vk o
       else if Nat.eqb run n
       then ilead c EmptyString (Some tick)
-             (oemit (mk (Verbatim (trim_verb txt))) o)
-      else IVerb n 0 (txt ++ ticks run ++ one c)%string o
+             (oemit (mk (vnode vk (trim_verb txt))) o)
+      else IVerb n 0 (txt ++ ticks run ++ one c)%string vk o
   (* The two bracket modes.  Nothing enters them yet: `[` and `]` are not
      dispatched, so `bclose` has no caller and these arms are dead.  They
      are written first because every state-parametric invariant below
@@ -2124,9 +2169,9 @@ Definition ifinish_ostate (st : iscan) : ostate :=
   match iresolve st with
   | IText true txt _ o => flush_text (txt ++ one bslash)%string o
   | IText false txt _ o => flush_text txt o
-  | IOpen _ o => oemit (mk (Verbatim EmptyString)) o
-  | IVerb n run txt o =>
-      oemit (mk (Verbatim (trim_verb
+  | IOpen _ vk o => oemit (mk (vnode vk EmptyString)) o
+  | IVerb n run txt vk o =>
+      oemit (mk (vnode vk (trim_verb
                    (if Nat.eqb run n then txt else txt ++ ticks run)%string))) o
   (* an unclosed destination is literal, breaks and all *)
   | IDest kids image esc _ dst o =>
@@ -2138,9 +2183,9 @@ Definition ifinish_ostate (st : iscan) : ostate :=
   | ISpan kids image _ src o =>
       let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IAttr`, `IBang`,
-     `IDelim` or `IClosed` *)
-  | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDelim _ _ _ _ _ o
-  | IClosed _ _ o => o
+     `IDollar`, `IDelim` or `IClosed` *)
+  | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDollar _ _ _ o
+  | IDelim _ _ _ _ _ o | IClosed _ _ o => o
   end.
 
 Definition ifinish_rev (st : iscan) : inlines := ofinish (ifinish_ostate st).
@@ -2166,12 +2211,12 @@ Definition ibreak (st : iscan) : iscan :=
         (oemit (mk SoftBreak) (flush_text (txt ++ one bslash)%string o))
   | IText false txt _ o =>
       IText false EmptyString None (oemit (mk SoftBreak) (flush_text txt o))
-  | IOpen n o => IVerb n 0 nl o
-  | IVerb n run txt o =>
+  | IOpen n vk o => IVerb n 0 nl vk o
+  | IVerb n run txt vk o =>
       if Nat.eqb run n
       then IText false EmptyString None
-             (oemit (mk SoftBreak) (oemit (mk (Verbatim (trim_verb txt))) o))
-      else IVerb n 0 (txt ++ ticks run ++ nl)%string o
+             (oemit (mk SoftBreak) (oemit (mk (vnode vk (trim_verb txt))) o))
+      else IVerb n 0 (txt ++ ticks run ++ nl)%string vk o
   (* A destination crosses the break: djot.js keeps scanning and strips
      the newline from the destination text at the close, so the byte is
      accumulated and dropped later rather than dropped here -- the
@@ -2187,8 +2232,8 @@ Definition ibreak (st : iscan) : iscan :=
      whether the break separates two tokens. *)
   | ISpan kids image p src o => ispan_feed nl_char kids image p src o
   (* unreachable, as in `ifinish_ostate` *)
-  | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
-    | IClosed _ _ _) as st' => st'
+  | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+    | IDelim _ _ _ _ _ _ | IClosed _ _ _) as st' => st'
   end.
 
 (* A state that owes nothing to the next line: every construct it has
@@ -2199,12 +2244,12 @@ Definition ibreak (st : iscan) : iscan :=
 Definition iscan_closed (st : iscan) : bool :=
   match iresolve st with
   | IText _ _ _ o => null (os_stk o)
-  | IOpen _ _ => false
-  | IVerb n run _ o => (Nat.eqb run n && null (os_stk o))%bool
+  | IOpen _ _ _ => false
+  | IVerb n run _ _ o => (Nat.eqb run n && null (os_stk o))%bool
   (* an open destination owes the next line; `IClosed` cannot appear,
      since `iresolve` has just turned it into text *)
-  | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
-  | IClosed _ _ _ | ISpan _ _ _ _ _
+  | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | IDelim _ _ _ _ _ _ | IClosed _ _ _ | ISpan _ _ _ _ _
   | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
   end.
 
@@ -2215,7 +2260,7 @@ Lemma ibreak_closed :
                   (OState (mk SoftBreak :: ifinish_rev st) []).
 Proof.
   intros st H. unfold iscan_closed, ibreak, ifinish_rev, ifinish_ostate in *.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
@@ -2293,45 +2338,45 @@ Proof.
 Qed.
 
 Lemma iscan_open_ticks_more :
-  forall k n out,
-    iscan_str (ticks k) (IOpen n out) = IOpen (n + k) out.
+  forall k n vk out,
+    iscan_str (ticks k) (IOpen n vk out) = IOpen (n + k) vk out.
 Proof.
-  induction k as [|k IH]; intros n out.
+  induction k as [|k IH]; intros n vk out.
   - cbn [ticks iscan_str]. f_equal. lia.
   - cbn [ticks iscan_str istep]. change
-      (iscan_str (ticks k) (IOpen (S n) out) = IOpen (n + S k) out).
+      (iscan_str (ticks k) (IOpen (S n) vk out) = IOpen (n + S k) vk out).
     rewrite IH. f_equal. lia.
 Qed.
 
 Lemma iscan_open_ticks :
   forall k txt prev o,
     iscan_str (ticks (S k)) (IText false txt prev o)
-    = IOpen (S k) (flush_text txt o).
+    = IOpen (S k) VVerb (flush_text txt o).
 Proof.
   intros k txt prev o. cbn [ticks iscan_str istep ilead]. change
-    (iscan_str (ticks k) (IOpen 1 (flush_text txt o))
-     = IOpen (S k) (flush_text txt o)).
+    (iscan_str (ticks k) (IOpen 1 VVerb (flush_text txt o))
+     = IOpen (S k) VVerb (flush_text txt o)).
   rewrite iscan_open_ticks_more. f_equal.
 Qed.
 
 Lemma iscan_verb_ticks_more :
-  forall k n run txt out,
-    iscan_str (ticks k) (IVerb n run txt out) = IVerb n (run + k) txt out.
+  forall k n run txt vk out,
+    iscan_str (ticks k) (IVerb n run txt vk out) = IVerb n (run + k) txt vk out.
 Proof.
-  induction k as [|k IH]; intros n run txt out.
+  induction k as [|k IH]; intros n run txt vk out.
   - cbn [ticks iscan_str]. f_equal. lia.
   - cbn [ticks iscan_str istep]. change
-      (iscan_str (ticks k) (IVerb n (S run) txt out)
-       = IVerb n (run + S k) txt out).
+      (iscan_str (ticks k) (IVerb n (S run) txt vk out)
+       = IVerb n (run + S k) txt vk out).
     rewrite IH. f_equal. lia.
 Qed.
 
 Lemma iscan_open_body :
-  forall s n out,
+  forall s n vk out,
     nonempty_str s = true -> starts_tick s = false -> n <> 0 ->
-    iscan_str s (IOpen n out) = iscan_str s (IVerb n 0 EmptyString out).
+    iscan_str s (IOpen n vk out) = iscan_str s (IVerb n 0 EmptyString vk out).
 Proof.
-  intros [|c s] n out Hne Hstart Hn; [discriminate|].
+  intros [|c s] n vk out Hne Hstart Hn; [discriminate|].
   cbn [starts_tick] in Hstart. cbn [iscan_str istep]. rewrite Hstart.
   replace (Nat.eqb 0 n) with false.
   - reflexivity.
@@ -2339,13 +2384,13 @@ Proof.
 Qed.
 
 Lemma iscan_verb_safe_nonempty :
-  forall s n run txt out,
+  forall s n run txt vk out,
     nonempty_str s = true -> ends_tick s = false ->
     verb_safe_from n run s = true ->
-    iscan_str s (IVerb n run txt out)
-    = IVerb n 0 (txt ++ ticks run ++ s) out.
+    iscan_str s (IVerb n run txt vk out)
+    = IVerb n 0 (txt ++ ticks run ++ s) vk out.
 Proof.
-  induction s as [|c rest IH]; intros n run txt out Hne Hend Hsafe;
+  induction s as [|c rest IH]; intros n run txt vk out Hne Hend Hsafe;
     [discriminate|].
   cbn [iscan_str verb_safe_from] in Hsafe |- *.
   destruct (is_tick c) eqn:Hc.
@@ -2353,7 +2398,7 @@ Proof.
     + unfold ends_tick, starts_tick, rev_string in Hend.
       cbn [rev_string_aux] in Hend. rewrite Hc in Hend. discriminate.
     + rewrite ends_tick_cons_nonempty in Hend.
-      rewrite (IH n (S run) txt out eq_refl Hend Hsafe).
+      rewrite (IH n (S run) txt vk out eq_refl Hend Hsafe).
       apply Ascii.eqb_eq in Hc. subst c. f_equal.
       rewrite ticks_succ_r, !append_assoc. reflexivity.
   - apply andb_true_iff in Hsafe as [Hrun Hsafe].
@@ -2361,7 +2406,7 @@ Proof.
     destruct rest as [|d rest'].
     + cbn [iscan_str]. f_equal.
     + rewrite ends_tick_cons_nonempty in Hend.
-      rewrite (IH n 0 (txt ++ ticks run ++ one c) out eq_refl Hend Hsafe).
+      rewrite (IH n 0 (txt ++ ticks run ++ one c) vk out eq_refl Hend Hsafe).
       f_equal. cbn [ticks one]. rewrite !append_assoc. reflexivity.
 Qed.
 
@@ -2370,7 +2415,7 @@ Lemma iscan_verb_text_nonempty :
     nonempty_str s = true ->
     verb_safe (verb_ticks s) (pad_verb s) = true ->
     iscan_str (verb_text s) (IText false txt prev o)
-    = IVerb (verb_ticks s) (verb_ticks s) (pad_verb s) (flush_text txt o).
+    = IVerb (verb_ticks s) (verb_ticks s) (pad_verb s) VVerb (flush_text txt o).
 Proof.
   intros s txt prev o Hne Hsafe. unfold verb_text.
   rewrite !iscan_str_app.
@@ -2378,15 +2423,15 @@ Proof.
     [exfalso; apply (verb_ticks_nonzero s); exact Hn|].
   rewrite iscan_open_ticks.
   unfold verb_safe in Hsafe.
-  rewrite (iscan_open_body (pad_verb s) (S k) (flush_text txt o)
+  rewrite (iscan_open_body (pad_verb s) (S k) VVerb (flush_text txt o)
              (pad_verb_nonempty s Hne) (pad_verb_starts_nontick s Hne))
     by discriminate.
-  rewrite (iscan_verb_safe_nonempty (pad_verb s) (S k) 0 EmptyString
+  rewrite (iscan_verb_safe_nonempty (pad_verb s) (S k) 0 EmptyString VVerb
              (flush_text txt o) (pad_verb_nonempty s Hne)
              (pad_verb_ends_nontick s Hne) Hsafe).
   change (iscan_str (ticks (S k))
-            (IVerb (S k) 0 (pad_verb s) (flush_text txt o))
-          = IVerb (S k) (S k) (pad_verb s) (flush_text txt o)).
+            (IVerb (S k) 0 (pad_verb s) VVerb (flush_text txt o))
+          = IVerb (S k) (S k) (pad_verb s) VVerb (flush_text txt o)).
   rewrite iscan_verb_ticks_more. f_equal.
 Qed.
 
@@ -2414,8 +2459,9 @@ Definition iout_app (base : inlines) (st : iscan) : iscan :=
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
   | IBrace txt prev o => IBrace txt prev (oout_app base o)
   | IDelim k seen txt cc m o => IDelim k seen txt cc m (oout_app base o)
-  | IOpen n o => IOpen n (oout_app base o)
-  | IVerb n run txt o => IVerb n run txt (oout_app base o)
+  | IOpen n vk o => IOpen n vk (oout_app base o)
+  | IVerb n run txt vk o => IVerb n run txt vk (oout_app base o)
+  | IDollar two txt prev o => IDollar two txt prev (oout_app base o)
   | IBang txt prev o => IBang txt prev (oout_app base o)
   | IClosed kids image o => IClosed kids image (oout_app base o)
   | ISpan kids image p src o => ISpan kids image p src (oout_app base o)
@@ -2580,6 +2626,7 @@ Proof.
   intros c txt prev o base. unfold ilead.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
+  destruct (Ascii.eqb c dollar); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack);
@@ -2662,7 +2709,7 @@ Lemma iresolve_app :
     starts_str base = false ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros base [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity | apply idelim_resolve_app].
@@ -2685,7 +2732,7 @@ Lemma istep_out_app :
     starts_str base = false ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
+  intros c base [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] Hb;
     cbn [iout_app istep].
   - reflexivity.
   - apply ilead_app.
@@ -2696,13 +2743,18 @@ Proof.
       destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ?|? ? ? ? ?|? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
   - destruct (is_tick c); [reflexivity|].
     destruct (Nat.eqb run n); [|reflexivity].
-    rewrite (oemit_app (mk (Verbatim (trim_verb txt))) o base).
+    rewrite (oemit_app (mk (vnode vk (trim_verb txt))) o base).
+    apply ilead_app.
+  - (* a pending `$` either grows, opens a math span, or is text *)
+    unfold idollar_step. destruct (Ascii.eqb c dollar);
+      [destruct dtwo; reflexivity|].
+    destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
     apply ilead_app.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity
@@ -2738,7 +2790,7 @@ Lemma ibreak_out_app :
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app]; try reflexivity.
   1,2: rewrite flush_text_app, oemit_app; reflexivity.
   2: apply ispan_feed_app, Hb.
@@ -2825,7 +2877,7 @@ Lemma ifinish_rev_out_app :
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
   rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iout_app].
   1,2: rewrite flush_text_app; apply ofinish_out_app, Hb.
   1,2: apply ofinish_out_app, Hb.
@@ -2884,8 +2936,8 @@ Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
   apply orb_false_iff in Hc as [Hres Hdl].
   destruct (dreserved_false c Hres)
-    as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk Hbg]]]]]].
-  unfold ilead. rewrite Hbs, Htk, Hlb, Hbg, Hlk, Hrk.
+    as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk [Hbg Hdol]]]]]]].
+  unfold ilead. rewrite Hbs, Htk, Hdol, Hlb, Hbg, Hlk, Hrk.
   destruct (dstyle_of c) eqn:Hd; [|reflexivity].
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
 Qed.
@@ -2913,12 +2965,12 @@ Proof.
 Qed.
 
 Lemma iscan_escape_after_verb :
-  forall s n body o,
+  forall s n body vk o,
     nonempty_str s = true ->
-    iscan_str (escape_str s) (IVerb n n body o)
-    = IText false s (Some tick) (oemit (mk (Verbatim (trim_verb body))) o).
+    iscan_str (escape_str s) (IVerb n n body vk o)
+    = IText false s (Some tick) (oemit (mk (vnode vk (trim_verb body))) o).
 Proof.
-  intros [|c rest] n body o Hne; [discriminate|].
+  intros [|c rest] n body vk o Hne; [discriminate|].
   cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
   - cbn [iscan_str istep].
     change (is_tick "\"%char) with false. rewrite nat_eqb_refl.
@@ -2995,8 +3047,8 @@ Lemma ilead_dchar :
 Proof.
   intros k txt prev o Hen.
   destruct (dreserved_false (dchar k) (dchar_free k))
-    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk Hbg]]]]]].
-  unfold ilead. rewrite Hb, Ht, Hlb, Hlk, Hrk, Hbg.
+    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg Hdol]]]]]]].
+  unfold ilead. rewrite Hb, Ht, Hdol, Hlb, Hlk, Hrk, Hbg.
   rewrite (dstyle_of_dchar k Hen). reflexivity.
 Qed.
 
@@ -3157,14 +3209,14 @@ Proof.
 Qed.
 
 Lemma iscan_after_verb_nontick :
-  forall s n body o,
+  forall s n body vk o,
     nonempty_str s = true -> starts_tick s = false ->
-    iscan_str s (IVerb n n body o)
+    iscan_str s (IVerb n n body vk o)
     = iscan_str s
         (IText false EmptyString (Some tick)
-          (oemit (mk (Verbatim (trim_verb body))) o)).
+          (oemit (mk (vnode vk (trim_verb body))) o)).
 Proof.
-  intros [|c s] n body o Hne Htick; [discriminate|].
+  intros [|c s] n body vk o Hne Htick; [discriminate|].
   cbn [starts_tick] in Htick. cbn [iscan_str istep]. rewrite Htick.
   rewrite nat_eqb_refl. reflexivity.
 Qed.
@@ -3596,8 +3648,8 @@ Proof.
         cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
         rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
         cbn [flush_text nonempty_str].
-        rewrite (iscan_after_verb_nontick _ _ _ _ Hsrcne Hsrctick),
-          trim_verb_pad by exact Hvok.
+        rewrite (iscan_after_verb_nontick _ _ _ _ _ Hsrcne Hsrctick),
+          trim_verb_pad by exact Hvok. cbn [vnode].
         rewrite oemit_all_app in Ep.
         cbn [oemit_all flush_text nonempty_str] in Ep.
         rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
@@ -3607,8 +3659,8 @@ Proof.
         cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
         rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
         cbn [flush_text nonempty_str].
-        rewrite (iscan_after_verb_nontick _ _ _ _ Hsrcne Hsrctick),
-          trim_verb_pad by exact Hvok.
+        rewrite (iscan_after_verb_nontick _ _ _ _ _ Hsrcne Hsrctick),
+          trim_verb_pad by exact Hvok. cbn [vnode].
         rewrite oemit_all_app in Ep.
         cbn [oemit_all flush_text nonempty_str] in Ep.
         rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
@@ -3916,12 +3968,12 @@ Proof.
       * cbn [ci_text ci_inlines map append].
         cbn [iscan_str].
         unfold ifinish, ifinish_rev, ifinish_ostate, iresolve.
-        rewrite nat_eqb_refl, trim_verb_pad by exact Hvok.
+        rewrite nat_eqb_refl, trim_verb_pad by exact Hvok. cbn [vnode].
         unfold oemit, ofinish; cbn [os_stk os_out oflatten oapp].
         cbn [List.rev ci_ast]. reflexivity.
       * destruct (after_verb_rest_nontick v r rest' Hok) as [Hne Htick].
-        rewrite (iscan_after_verb_nontick _ _ _ _ Hne Htick).
-        rewrite trim_verb_pad by exact Hvok.
+        rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick).
+        rewrite trim_verb_pad by exact Hvok. cbn [vnode].
         cbn [oemit os_stk os_out].
         rewrite (IH (r :: rest') Hrestlt (Some tick) EmptyString
           (mk (Verbatim v) :: flush_out txt out)).
@@ -4051,8 +4103,8 @@ Proof.
     + cbn [ci_text iscan_str iscan_closed iresolve os_stk null].
       rewrite nat_eqb_refl. reflexivity.
     + destruct (after_verb_rest_nontick v r rest' Hok) as [Hne Htick].
-      rewrite (iscan_after_verb_nontick _ _ _ _ Hne Htick).
-      rewrite trim_verb_pad by exact Hvok. cbn [oemit os_out os_stk].
+      rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick).
+      rewrite trim_verb_pad by exact Hvok. cbn [vnode]. cbn [oemit os_out os_stk].
       apply (IH (r :: rest') Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
     rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
@@ -4246,6 +4298,9 @@ Proof.
   apply orb_true_iff. left. destruct txt; reflexivity.
 Qed.
 
+Lemma dollars_nonempty : forall two, nonempty_str (dollars two) = true.
+Proof. intros []; reflexivity. Qed.
+
 Lemma iscan_productive_lead :
   forall c txt prev o,
     (nonempty_str txt || ostate_nonempty o)%bool = true ->
@@ -4254,6 +4309,7 @@ Proof.
   intros c txt prev o H. unfold ilead.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
+  destruct (Ascii.eqb c dollar); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack);
@@ -4346,12 +4402,12 @@ Qed.
 Lemma iresolve_resolved :
   forall st,
     match iresolve st with
-    | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDelim _ _ _ _ _ _
-    | IClosed _ _ _ => False
+    | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+    | IDelim _ _ _ _ _ _ | IClosed _ _ _ => False
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
@@ -4362,12 +4418,13 @@ Qed.
 Lemma iscan_productive_resolve :
   forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H.
-  (* `IBrace`, `IAttr` and `IBang` all push their own byte into the
-     buffer, so the text they resolve to is nonempty *)
+  (* `IBrace`, `IAttr`, `IBang` and `IDollar` all push their own bytes
+     into the buffer, so the text they resolve to is nonempty *)
   all: try (cbn [iscan_productive]; apply orb_true_iff; left;
-            apply nonempty_str_app_l; reflexivity).
+            apply nonempty_str_app_l;
+            first [reflexivity | apply dollars_nonempty]).
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { cbn [iscan_productive]. apply orb_true_iff. left.
       apply nonempty_str_app_l, idelim_run_nonempty. }
@@ -4438,7 +4495,7 @@ Qed.
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob] H;
     cbn [istep].
   - cbn [iscan_productive]. apply orb_true_iff. left.
     apply nonempty_str_app_l. destruct (is_punct c); reflexivity.
@@ -4463,6 +4520,12 @@ Proof.
     destruct (Nat.eqb run n); [|reflexivity].
     apply iscan_productive_lead.
     rewrite ostate_nonempty_emit. apply orb_true_r.
+  - (* a pending `$` owes its own dollars, or the span it opens *)
+    unfold idollar_step. destruct (Ascii.eqb c dollar);
+      [destruct dtwo; reflexivity|].
+    destruct (is_tick c); [reflexivity|].
+    apply iscan_productive_lead, orb_true_iff. left.
+    apply nonempty_str_app_l, dollars_nonempty.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack).
     + cbn [iscan_productive]. rewrite ostate_nonempty_bpush. apply orb_true_r.
     + apply iscan_productive_lead. apply orb_true_iff. left.
@@ -4501,7 +4564,7 @@ Lemma iscan_productive_break :
   forall st, iscan_productive (ibreak st) = true.
 Proof.
   intros st. unfold ibreak.
-  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     cbn [iscan_productive]; try reflexivity;
     try apply ispan_feed_productive.
   1,2: rewrite ostate_nonempty_emit; apply orb_true_r.
@@ -4575,7 +4638,7 @@ Proof.
   pose proof (iscan_productive_resolve st H) as Hres.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|txt prev o|k seen txt cc mrk o|n o|n run txt o|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
+    [[] txt prev o|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|kids img esc depth dst ob];
     try contradiction; apply nonempty_ofinish.
   - apply ostate_nonempty_flush_str, nonempty_str_app_l. reflexivity.
   - cbn [iscan_productive] in Hres.
@@ -4604,6 +4667,7 @@ Proof.
   intros c. unfold istart. cbn [istep]. unfold ilead.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
+  destruct (Ascii.eqb c dollar); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack); [reflexivity|].
@@ -5079,6 +5143,59 @@ Proof. vm_compute. reflexivity. Qed.
    suppressed entirely. *)
 Example verbatim_suppresses_delimiters :
   parse_inline_line "`_a_`" = [mk (Verbatim "_a_")].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Math
+----
+
+`$` and `$$` before a backtick run make the span math instead of
+verbatim -- djot.js's `verbatimType`, decided retroactively there and at
+the opening run here.  Every reading below was taken from the oracle.
+*)
+
+Example math_inline :
+  parse_inline_line "$`x`" = [mk (Math InlineMath "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example math_display :
+  parse_inline_line "$$`x`" = [mk (Math DisplayMath "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An unclosed run still closes at the end of the line, and it is still
+   math. *)
+Example math_unclosed :
+  parse_inline_line "$`x" = [mk (Math InlineMath "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A third dollar is text: djot.js pops exactly two matches, so the
+   prefix is the last two and the extra one is flushed. *)
+Example math_three_dollars :
+  parse_inline_line "$$$`x`" = [mk (Str "$"); mk (Math DisplayMath "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The prefix has to be adjacent, and an escaped dollar is not a prefix
+   at all -- which is why `IDollar` is a state rather than a look back
+   into the text buffer, where the two would be indistinguishable. *)
+Example math_needs_adjacency :
+  parse_inline_line "$ `x`" = [mk (Str "$ "); mk (Verbatim "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example math_escaped_dollar_is_verbatim :
+  parse_inline_line "\$`x`" = [mk (Str "$"); mk (Verbatim "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Inside a run the dollar is content, as every other character is. *)
+Example math_dollar_inside_verbatim :
+  parse_inline_line "`$x`" = [mk (Verbatim "$x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A dollar with no run after it is text, and canonical text escapes it,
+   since `dreserved` claims it. *)
+Example math_lone_dollar : parse_inline_line "$" = [mk (Str "$")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example math_dollar_escapes : ci_line [CIStr "a$b"] = "a\$b".
 Proof. vm_compute. reflexivity. Qed.
 
 (*

@@ -135,7 +135,12 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
   | Subscript ils => "<sub" ++ ats ++ ">" ++ render_ils ils ++ "</sub>"
   | Verbatim s => "<code" ++ ats ++ ">" ++ escape s ++ "</code>"
   | Symbol s => ":" ++ escape s ++ ":"
-  | Math _ _ => ""            (* TODO Phase 1 *)
+  (* djot.js emits a span carrying the class and wraps the content in
+     TeX delimiters, escaping it as text (`html.ts:330-338`). *)
+  | Math InlineMath s =>
+      "<span class=""math inline"">\(" ++ escape s ++ "\)</span>"
+  | Math DisplayMath s =>
+      "<span class=""math display"">\[" ++ escape s ++ "\]</span>" 
   (* `href` is an extra attribute, so it precedes the node's own and is
      omitted entirely when the target is an unresolved reference: djot.js
      drops the attribute (with a warning) when a label does not resolve.
