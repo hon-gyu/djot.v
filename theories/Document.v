@@ -243,10 +243,12 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                (s2, it1 :: rest1)
            end) items (register_id a st) in
       (st', Node p a (OrderedList oa sp items'))
-  (* The remaining containers -- Section, the other list flavours, Table
-     -- are not reachable from the line fold yet (`Wf.supported` is the
+  (* The remaining containers -- Section and the other list flavours --
+     are not reachable from the line fold yet (`Wf.supported` is the
      record of that).  Each needs its arm here when it lands, or a
-     heading inside it silently goes without an identifier. *)
+     heading inside it silently goes without an identifier.  A table is
+     reachable and still belongs here: its cells and its caption hold
+     inlines, so there is no heading inside one to find. *)
   | _ => (register_id a st, Node p a b)
   end.
 

@@ -544,3 +544,86 @@ Example parse_blank_not_absorbed_by_quote :
   = [mk (BulletList Loose
            [[mk (BlockQuote [mk (Para [mk (Str "a")])]); mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
+
+(*
+Tables
+======
+
+The head/align fold, read back off the parser.  Each of these was
+measured against djot.js first; `Line.v` pins the row scanner, these pin
+what a run of rows becomes.
+*)
+
+(* A separator promotes the row before it and sets the alignment of the
+   rows after it. *)
+Example parse_table_header :
+  parse_blocks "| a | b |
+|---|--:|
+| c | d |"
+  = [mk (Table None
+           [ [ Cell HeadCell AlignDefault [mk (Str "a")]
+             ; Cell HeadCell AlignRight [mk (Str "b")] ]
+           ; [ Cell BodyCell AlignDefault [mk (Str "c")]
+             ; Cell BodyCell AlignRight [mk (Str "d")] ] ])].
+Proof. reflexivity. Qed.
+
+(* With no row before it, a separator only sets alignment. *)
+Example parse_table_separator_first :
+  parse_blocks "|--:|
+| b |"
+  = [mk (Table None [[Cell BodyCell AlignRight [mk (Str "b")]]])].
+Proof. reflexivity. Qed.
+
+(* Two separators in a row both claim the same preceding row, so the
+   second one's alignment wins. *)
+Example parse_table_two_separators :
+  parse_blocks "| a |
+|---|
+|:-:|
+| b |"
+  = [mk (Table None
+           [ [Cell HeadCell AlignCenter [mk (Str "a")]]
+           ; [Cell BodyCell AlignCenter [mk (Str "b")]] ])].
+Proof. reflexivity. Qed.
+
+(* Alignment runs out positionally rather than repeating. *)
+Example parse_table_ragged :
+  parse_blocks "| a |
+|--:|
+| b | c |"
+  = [mk (Table None
+           [ [Cell HeadCell AlignRight [mk (Str "a")]]
+           ; [ Cell BodyCell AlignRight [mk (Str "b")]
+             ; Cell BodyCell AlignDefault [mk (Str "c")] ] ])].
+Proof. reflexivity. Qed.
+
+(* Separators alone are a table with no rows at all. *)
+Example parse_table_no_rows :
+  parse_blocks "|---|" = [mk (Table None [])].
+Proof. reflexivity. Qed.
+
+(* A cell is inline-parsed on its own, so a delimiter never crosses a
+   bar (`tables.test:13`). *)
+Example parse_table_cells_are_separate :
+  parse_blocks "|*c| d* |"
+  = [mk (Table None
+           [[ Cell BodyCell AlignDefault [mk (Str "*c")]
+            ; Cell BodyCell AlignDefault [mk (Str "d*")] ]])].
+Proof. reflexivity. Qed.
+
+(* A line that fails the row scan is not a row: the table closes and the
+   line opens a paragraph (`tables.test:31` is this shape). *)
+Example parse_table_closed_by_bad_row :
+  parse_blocks "| a |
+| b
+| c |"
+  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+    ; mk (Para [mk (Str "| b"); mk SoftBreak; mk (Str "| c |")]) ].
+Proof. reflexivity. Qed.
+
+(* A table does not interrupt a paragraph, as nothing in djot does. *)
+Example parse_table_after_para :
+  parse_blocks "p
+| a |"
+  = [mk (Para [mk (Str "p"); mk SoftBreak; mk (Str "| a |")])].
+Proof. reflexivity. Qed.

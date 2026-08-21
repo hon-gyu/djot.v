@@ -205,6 +205,40 @@ Definition render_inlines (ils : inlines) : string :=
                                   end) ils).
 
 (*
+Table rows
+----------
+
+Cells hold inlines only, so the whole of a table renders without
+touching `render_block`'s recursion.  Alignment is a style attribute on
+the cell, and `AlignDefault` carries none (html.ts, and confirmed
+against the oracle on every combination in `tables.test`). *)
+
+Definition align_attr (al : align) : string :=
+  match al with
+  | AlignDefault => ""
+  | AlignLeft => " style=""text-align: left;"""
+  | AlignRight => " style=""text-align: right;"""
+  | AlignCenter => " style=""text-align: center;"""
+  end.
+
+Definition render_cell (c : cell) : string :=
+  match c with
+  | Cell ct al ils =>
+      let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
+      "<" ++ tag ++ align_attr al ++ ">" ++ render_inlines ils
+      ++ "</" ++ tag ++ ">" ++ nl
+  end.
+
+Definition render_row (r : list cell) : string :=
+  "<tr>" ++ nl ++ String.concat "" (map render_cell r) ++ "</tr>" ++ nl.
+
+Definition render_caption (caption : option inlines) : string :=
+  match caption with
+  | None => ""
+  | Some ils => "<caption>" ++ render_inlines ils ++ "</caption>" ++ nl
+  end.
+
+(*
 Blocks
 ======
 *)
@@ -276,7 +310,9 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   | TaskList _ _ => ""        (* TODO Phase 1 *)
   | DefinitionList _ _ => ""  (* TODO Phase 1 *)
   | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
-  | Table _ _ => ""           (* TODO Phase 1 *)
+  | Table caption rows =>
+      "<table" ++ ats ++ ">" ++ nl ++ render_caption caption
+      ++ String.concat "" (map render_row rows) ++ "</table>" ++ nl
   | RawBlock fmt contents =>
       if String.eqb fmt "html" then contents else ""
   (* A reference definition is not content: djot.js keeps it out of the
@@ -385,6 +421,46 @@ Definition render_inlines_foot (st : foot_state) (ils : inlines)
        (st1, out ++ s))
     ils (st, "").
 
+(* The table renderers again, threading the footnote counter: a cell may
+   carry a footnote reference, and it is numbered in source order like
+   any other. *)
+Definition render_cell_foot (st : foot_state) (c : cell) : foot_state * string :=
+  match c with
+  | Cell ct al ils =>
+      let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
+      let '(st', s) := render_inlines_foot st ils in
+      (st', "<" ++ tag ++ align_attr al ++ ">" ++ s ++ "</" ++ tag ++ ">" ++ nl)
+  end.
+
+Fixpoint render_cells_foot (st : foot_state) (r : list cell)
+  : foot_state * string :=
+  match r with
+  | [] => (st, "")
+  | c :: rest =>
+      let '(st1, s1) := render_cell_foot st c in
+      let '(st2, s2) := render_cells_foot st1 rest in
+      (st2, s1 ++ s2)
+  end.
+
+Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
+  : foot_state * string :=
+  match rows with
+  | [] => (st, "")
+  | r :: rest =>
+      let '(st1, s1) := render_cells_foot st r in
+      let '(st2, s2) := render_rows_foot st1 rest in
+      (st2, "<tr>" ++ nl ++ s1 ++ "</tr>" ++ nl ++ s2)
+  end.
+
+Definition render_caption_foot (st : foot_state) (caption : option inlines)
+  : foot_state * string :=
+  match caption with
+  | None => (st, "")
+  | Some ils =>
+      let '(st', s) := render_inlines_foot st ils in
+      (st', "<caption>" ++ s ++ "</caption>" ++ nl)
+  end.
+
 Fixpoint render_block_foot (st : foot_state) (tight : bool)
   (b : block) (a : attr) {struct b} : foot_state * string :=
   let render_bs_at :=
@@ -433,6 +509,10 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | BulletList sp items =>
       let '(st', s) := render_items st sp items in
       (st', "<ul" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
+  | Table caption rows =>
+      let '(st1, s1) := render_caption_foot st caption in
+      let '(st2, s2) := render_rows_foot st1 rows in
+      (st2, "<table" ++ ats ++ ">" ++ nl ++ s1 ++ s2 ++ "</table>" ++ nl)
   | _ => (st, render_block tight b a)
   end.
 
@@ -756,3 +836,51 @@ Example convert_footnote_reference_in_note :
 </section>
 ".
 Proof. reflexivity. Qed.
+
+(* A table: alignment is a style attribute, a header row is `th`, and a
+   cell's footnote reference is numbered in source order like any other
+   (all three measured against djot.js). *)
+Example convert_table_aligned :
+  convert "| a | b |
+|---|--:|
+| c | d |"
+  = "<table>
+<tr>
+<th>a</th>
+<th style=""text-align: right;"">b</th>
+</tr>
+<tr>
+<td>c</td>
+<td style=""text-align: right;"">d</td>
+</tr>
+</table>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+(* Separators alone: a table with no rows, which djot.js renders as an
+   empty table rather than as nothing. *)
+Example convert_table_no_rows :
+  convert "|---|" = "<table>
+</table>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example convert_table_footnote_cell :
+  convert "| a[^n] |
+
+[^n]: note"
+  = "<table>
+<tr>
+<td>a<a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></td>
+</tr>
+</table>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>note<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. vm_compute. reflexivity. Qed.

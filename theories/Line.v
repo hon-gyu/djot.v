@@ -52,6 +52,16 @@ Definition lstyle_eqb (a b : lstyle) : bool :=
   | _, _ => false
   end.
 
+(* What a table-row line contributes: a separator, which carries the
+   alignments it sets, or a row of cells, which carries their trimmed
+   source.  The head/align assignment is not made here, since a
+   separator marks the row *before* it as a header -- that is a fold
+   over the rows a table has collected, not a property of a line.  The
+   recognizer is under "Table rows" below. *)
+Inductive trow : Type :=
+  | TSep (aligns : list align)
+  | TCells (cells : list string).
+
 Inductive line_kind : Type :=
   | KBlank                 (* only whitespace *)
   | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)
@@ -72,6 +82,9 @@ Inductive line_kind : Type :=
   (* a reference definition's opening line: its label and the destination
      this line supplies, which later lines may extend *)
   | KRef (label : string) (val : string)
+  (* a table row: either a separator, which carries the alignments it
+     sets, or a row of cells, which carries their trimmed source *)
+  | KRow (r : trow)
   | KText.                 (* anything else: paragraph text *)
 
 (*
@@ -723,6 +736,285 @@ Proof.
   reflexivity.
 Qed.
 
+(*
+Table rows
+==========
+
+A row is `pattTableRow` (block.ts:58): a line whose first non-space
+character is `|`, whose last non-space character is `|`, and which has
+at least two of them.  Only whitespace may follow the final bar, so
+`| a | x` is a paragraph.
+
+Two shapes hide behind that, and djot.js tries them in this order
+(`parseTableRow`, block.ts:873): a *separator*, whose cells set the
+alignment of the columns, and an ordinary row of cells.
+*)
+
+(* A separator cell: an optional `:`, one or more `-`, an optional `:`,
+   then whitespace, then the bar that ends it and the whitespace after
+   that bar.  The leading whitespace of a cell belongs to the *previous*
+   cell's match, which is why `| :- |` is not a separator while
+   `|:-| -: |` is: the first cell has no previous match to eat its
+   space. *)
+Definition sep_align (left right : bool) : align :=
+  match left, right with
+  | true, true => AlignCenter
+  | true, false => AlignLeft
+  | false, true => AlignRight
+  | false, false => AlignDefault
+  end.
+
+(* One separator cell, from just after the bar that opens it.  Returns
+   its alignment and what follows the bar that closes it. *)
+Definition sep_cell (s : string) : option (align * string) :=
+  let (left, s1) :=
+    match s with
+    | String c r => if Ascii.eqb c ":" then (true, r) else (false, s)
+    | EmptyString => (false, s)
+    end in
+  match count_run "-" s1 with
+  | (O, _) => None
+  | (_, s2) =>
+      let (right, s3) :=
+        match s2 with
+        | String c r => if Ascii.eqb c ":" then (true, r) else (false, s2)
+        | EmptyString => (false, s2)
+        end in
+      match drop_leading_ws s3 with
+      | String c r =>
+          if Ascii.eqb c "|"
+          then Some (sep_align left right, drop_leading_ws r)
+          else None
+      | EmptyString => None
+      end
+  end.
+
+(* The cells of a separator line, from just after its opening bar.  Fuel
+   is the string's length: every cell consumes at least the bar that
+   ends it. *)
+Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
+  match n with
+  | O => None
+  | S n' =>
+      match s with
+      | EmptyString => Some []
+      | _ =>
+          match sep_cell s with
+          | None => None
+          | Some (a, rest) =>
+              match sep_cells_fuel n' rest with
+              | None => None
+              | Some rest' => Some (a :: rest')
+              end
+          end
+      end
+  end.
+
+Definition sep_cells (s : string) : option (list align) :=
+  sep_cells_fuel (S (String.length s)) s.
+
+(* Cell text is trimmed on both sides, with one exception on the right:
+   djot.js strips a trailing space run only when the cell's last inline
+   event is a `str` (block.ts:929-936), and the one way a trailing space
+   belongs to something else is an escape, `| a\ |` rendering `a&nbsp;`.
+   So an escaped whitespace character stops the trim, and everything
+   after it is kept.  Consuming escapes in pairs is what makes that a
+   parity test: `a\\  ` trims, `a\   ` keeps one space. *)
+Fixpoint cell_trim_r (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c1 s1 =>
+      if Ascii.eqb c1 "\"
+      then match s1 with
+           | EmptyString => String c1 EmptyString
+           | String c2 s2 => String c1 (String c2 (cell_trim_r s2))
+           end
+      else if is_ws c1
+           then match cell_trim_r s1 with
+                | EmptyString => EmptyString
+                | r => String c1 r
+                end
+           else String c1 (cell_trim_r s1)
+  end.
+
+Definition cell_trim (s : string) : string :=
+  cell_trim_r (drop_leading_ws s).
+
+(* Splitting a row's interior into cells.  A bar ends a cell unless it is
+   inside a verbatim span or the byte before it is a backslash.
+
+   The two exceptions are not the same test twice.  The backslash one is
+   djot.js's literally (`charAt(nextbar - 1) === "\\"`, block.ts:855), so
+   it counts one byte and not parity: `| a\\|b |` is a single cell whose
+   text is `a\\|b`, even though the inline layer reads that `\\` as an
+   escaped backslash.  Divergence from the inline layer's parity is the
+   oracle's, and `cell_trim_r` above is where the inline layer's rule is
+   the one that applies.
+
+   `vb` is the verbatim state: 0 outside, otherwise the length of the
+   backtick run that opened it, which only a run of exactly that length
+   closes.  `run` accumulates the backtick run being read, and is
+   resolved against `vb` at the first byte that is not a backtick. *)
+Definition vb_step (vb run : nat) : nat :=
+  match run with
+  | O => vb
+  | _ => match vb with
+         | O => run
+         | _ => if Nat.eqb vb run then O else vb
+         end
+  end.
+
+(* `cur` and `acc` are reversed; `bs` records whether the previous byte
+   was a backslash. *)
+Fixpoint row_cells
+  (s : string) (vb run : nat) (bs : bool) (cur : string) (acc : list string)
+  : option (list string) :=
+  match s with
+  | EmptyString =>
+      (* The interior ends where the line's last bar is, so the cell open
+         here is closed by that bar -- unless a verbatim swallowed it,
+         which is the one way a row line fails to be a row. *)
+      match vb_step vb run with
+      | O => Some (rev (cell_trim (rev_string cur) :: acc))
+      | _ => None
+      end
+  | String c s' =>
+      if Ascii.eqb c "`"
+      then row_cells s' vb (S run) false (String c cur) acc
+      else
+        let vb' := vb_step vb run in
+        if (Ascii.eqb c "|" && Nat.eqb vb' O && negb bs)%bool
+        then row_cells s' O O false EmptyString
+               (cell_trim (rev_string cur) :: acc)
+        else row_cells s' vb' O (Ascii.eqb c "\") (String c cur) acc
+  end.
+
+(* The line after its opening bar, trailing whitespace removed, provided
+   it still ends in a bar: `None` unless the line is `|`, a body, `|`,
+   whitespace.  The body keeps its final bar, because that is the bar
+   each scan below ends on. *)
+Definition row_body (l : string) : option string :=
+  match drop_leading_ws l with
+  | String c rest =>
+      if negb (Ascii.eqb c "|") then None
+      else
+        let back := strip_trailing_ws rest in
+        match rev_string back with
+        | String c' _ => if Ascii.eqb c' "|" then Some back else None
+        | EmptyString => None
+        end
+  | EmptyString => None
+  end.
+
+(* The body without its final bar: what `row_cells` scans, since the bar
+   that closes the last cell is the one `row_body` guaranteed. *)
+Definition row_inner (body : string) : string :=
+  match rev_string body with
+  | String _ back => rev_string back
+  | EmptyString => EmptyString
+  end.
+
+Definition table_row (l : string) : option trow :=
+  match row_body l with
+  | None => None
+  | Some body =>
+      match sep_cells body with
+      | Some ((_ :: _) as aligns) => Some (TSep aligns)
+      | _ =>
+          match row_cells (row_inner body) O O false EmptyString [] with
+          | None => None
+          | Some cells => Some (TCells cells)
+          end
+      end
+  end.
+
+(* The measured boundary, one Example per line probed against djot.js.
+   The separator cases are the delicate half: a leading space is allowed
+   on every cell but the first, trailing whitespace after the final bar
+   is not part of any cell, and one dash is enough. *)
+(* String scope for the cell lists: `list string` does not propagate a
+   scope to its elements, and char scope is the innermost one open. *)
+Local Open Scope string_scope.
+
+Example row_cells_two : table_row "| a | b |" = Some (TCells ["a"; "b"]).
+Proof. reflexivity. Qed.
+
+Example row_cells_trimmed :
+  table_row "|   a   |   b  |" = Some (TCells ["a"; "b"]).
+Proof. reflexivity. Qed.
+
+Example row_cells_empty : table_row "||" = Some (TCells [""]).
+Proof. reflexivity. Qed.
+
+(* One bar is not a row: `pattTableRow` needs the closing one. *)
+Example row_one_bar : table_row "|" = None.
+Proof. reflexivity. Qed.
+
+(* Anything but whitespace after the final bar and the line is a
+   paragraph. *)
+Example row_trailing_text : table_row "| a | x" = None.
+Proof. reflexivity. Qed.
+
+Example row_sep_default_right :
+  table_row "|---|--:|" = Some (TSep [AlignDefault; AlignRight]).
+Proof. reflexivity. Qed.
+
+Example row_sep_one_dash : table_row "|-|" = Some (TSep [AlignDefault]).
+Proof. reflexivity. Qed.
+
+Example row_sep_trailing_ws : table_row "|---|   " = Some (TSep [AlignDefault]).
+Proof. reflexivity. Qed.
+
+(* The leading space belongs to the previous cell's match, and the first
+   cell has no previous match: `| :- |` is a row of text, `|:-| -: |` is
+   a separator.  This is the trimming SPEC-GAP; djoths reads both as
+   separators (oracle-disagreements.md, tables.test:111). *)
+Example row_sep_leading_space : table_row "| --- |" = Some (TCells ["---"]).
+Proof. reflexivity. Qed.
+
+Example row_sep_inner_space :
+  table_row "|:-| -: |" = Some (TSep [AlignLeft; AlignRight]).
+Proof. reflexivity. Qed.
+
+(* A cell that is not all dashes makes the whole line an ordinary row. *)
+Example row_sep_mixed : table_row "|---|x|" = Some (TCells ["---"; "x"]).
+Proof. reflexivity. Qed.
+
+(* A bar preceded by a backslash does not split, whatever the parity:
+   this is `charAt(nextbar - 1)`, not the inline layer's escape rule. *)
+Example row_escaped_bar : table_row "| a\|b | c |" = Some (TCells ["a\|b"; "c"]).
+Proof. reflexivity. Qed.
+
+Example row_verbatim_bar :
+  table_row "| `a|b` | c |" = Some (TCells ["`a|b`"; "c"]).
+Proof. reflexivity. Qed.
+
+(* A verbatim closes only on a run of its own length, and one left open
+   swallows the bars that would have ended the cells. *)
+Example row_verbatim_unclosed : table_row "| `a`` b | c |" = None.
+Proof. reflexivity. Qed.
+
+(* An escaped space survives the right trim; an escaped backslash does
+   not protect the spaces after it. *)
+Example row_escaped_space : table_row "| a\ |" = Some (TCells ["a\ "]).
+Proof. reflexivity. Qed.
+
+Example row_escaped_bslash : table_row "| a\\  |" = Some (TCells ["a\\"]).
+Proof. reflexivity. Qed.
+
+Example row_escaped_space_run : table_row "| a\   |" = Some (TCells ["a\ "]).
+Proof. reflexivity. Qed.
+
+Local Open Scope char_scope.
+
+(* Leading whitespace is invisible here too. *)
+Lemma table_row_ws_prefix :
+  forall p l, is_blank p = true -> table_row (p ++ l) = table_row l.
+Proof.
+  intros p l Hp. unfold table_row, row_body.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
 (* The classifier: one line in, one kind out, no lookahead.  Blank first,
    then block quotes, headings, fences, thematic breaks, list markers;
    anything unrecognized falls through to paragraph text, so KText is the
@@ -753,7 +1045,11 @@ Definition classify (l : string) : line_kind :=
                                     | None =>
                                         match ref_open l with
                                         | Some (lbl, v) => KRef lbl v
-                                        | None => KText
+                                        | None =>
+                                            match table_row l with
+                                            | Some r => KRow r
+                                            | None => KText
+                                            end
                                         end
                                     end
                                 end
@@ -782,14 +1078,16 @@ Proof.
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
-    destruct (ref_open l) as [[rl rv]|]; discriminate.
+    destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+    destruct (table_row l); discriminate.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
-    destruct (ref_open l) as [[rl rv]|]; discriminate.
+    destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+    destruct (table_row l); discriminate.
 Qed.
 
 (*
@@ -814,7 +1112,8 @@ Proof.
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [discriminate|].
-    destruct (ref_open l) as [[rl rv]|]; discriminate.
+    destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+    destruct (table_row l); discriminate.
 Qed.
 
 (* The measure fact, restated at the classifier: the parser only ever
@@ -835,7 +1134,8 @@ Proof.
     destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
-    destruct (ref_open l) as [[rl rv]|]; discriminate.
+    destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+    destruct (table_row l); discriminate.
 Qed.
 
 Lemma classify_list_length :
@@ -854,7 +1154,8 @@ Proof.
   destruct (list_marker l) as [[[s' c'] r']|];
     [|destruct (attr_open l); [discriminate|];
       destruct (foot_open l) as [[fl fr]|]; [discriminate|];
-      destruct (ref_open l) as [[rl rv]|]; discriminate].
+      destruct (ref_open l) as [[rl rv]|]; [discriminate|];
+      destruct (table_row l); discriminate].
   injection H as <- <- <-. reflexivity.
 Qed.
 
@@ -872,10 +1173,11 @@ Lemma classify_ktext :
     is_thematic l = false -> list_marker l = None -> attr_open l = None ->
     foot_open l = None ->
     ref_open l = None ->
+    table_row l = None ->
     classify l = KText.
 Proof.
-  intros l Hb Hq Hh Hf Hd Ht Hm Ha Hfoot Hr. unfold classify.
-  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha, Hfoot, Hr. reflexivity.
+  intros l Hb Hq Hh Hf Hd Ht Hm Ha Hfoot Hr Hrow. unfold classify.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hm, Ha, Hfoot, Hr, Hrow. reflexivity.
 Qed.
 
 (* The canonical thematic-break rendering classifies as one. *)
@@ -899,7 +1201,7 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp).
   fold (is_thematic l). rewrite <- (is_thematic_ws_prefix p l Hp).
   rewrite (attr_open_ws_prefix p l Hp), (foot_open_ws_prefix p l Hp),
-          (ref_open_ws_prefix p l Hp).
+          (ref_open_ws_prefix p l Hp), (table_row_ws_prefix p l Hp).
   unfold is_thematic. reflexivity.
 Qed.
 
@@ -917,7 +1219,8 @@ Proof.
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [injection H as <- <-; reflexivity|].
-  destruct (ref_open l) as [[rl rv]|]; discriminate.
+  destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+    destruct (table_row l); discriminate.
 Qed.
 
 Lemma classify_foot_length :
@@ -943,7 +1246,7 @@ Proof.
   destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [discriminate|].
-  destruct (ref_open l) as [[rl rv]|]; [|discriminate].
+  destruct (ref_open l) as [[rl rv]|]; [|destruct (table_row l); discriminate].
   injection H as <- <-. reflexivity.
 Qed.
 

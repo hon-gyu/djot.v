@@ -100,6 +100,18 @@ Definition s_lstate (ls : list_state) : string :=
   ++ s_bool (ls_loose ls) ++ s_bool (ls_blanks ls)
   ++ s_list s_blocks (ls_items ls).
 
+Definition s_align (al : align) : string :=
+  match al with
+  | AlignDefault => "d" | AlignLeft => "l"
+  | AlignRight => "r" | AlignCenter => "c"
+  end.
+
+Definition s_trow (r : trow) : string :=
+  match r with
+  | TSep als => "sep" ++ s_list s_align als
+  | TCells cs => "row" ++ s_list s_str cs
+  end.
+
 Fixpoint show_pstate (st : pstate) : string :=
   match st with
   | PPara cur => "Para" ++ s_list s_str cur
@@ -117,6 +129,7 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PFoot ind lbl done inner =>
       "Foot" ++ s_nat ind ++ s_str lbl ++ s_blocks done
       ++ "(" ++ show_pstate inner ++ ")"
+  | PTable rows => "Table" ++ s_list s_trow rows
   | PPend pend inner =>
       "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
   end.
@@ -157,6 +170,7 @@ Definition line_pool : list string :=
   ; "i. a"; "a. a"                             (* KList, ambiguous / alpha *)
   ; "{#i}"; "{#i"                              (* KAttr, done / pending *)
   ; "[r]: u"; "[r]:"                           (* KRef, with / without a value *)
+  ; "| a |"; "|---|"                           (* KRow, cells / separator *)
   ; "a"; "<}"                                  (* KText *)
   ; "  a"; "  - a"; "  > a"; "  ```"           (* the same, indented *)
   ].
@@ -178,6 +192,7 @@ Definition seed_prefixes : list (list string) :=
   ; ["{#i"]                                    (* PAttr *)
   ; ["[r]: u"]; ["  [r]:"]                     (* PRef, at column 0 / indented *)
   ; ["[^n]: a"]; ["  [^n]:"]                   (* PFoot, at column 0 / indented *)
+  ; ["| a |"]; ["| a |"; "|--:|"]              (* PTable, rows / separator *)
   ; ["{#i}"]; ["{#i}"; "a"]                    (* PPend *)
   ].
 

@@ -246,7 +246,13 @@ Inductive block : Type :=
   | DefinitionList (sp : list_spacing)
       (items : list (inlines * list (node block)))
   | ThematicBreak
-  | Table (caption : option (list (node block))) (rows : list (list cell))
+  (* A caption's content is inline: djot.js opens it with
+     `content: ContentType.Inline` (block.ts:237-240), and a continuation
+     line is more inline text, never a block.  djoths spells it
+     `Caption Blocks` (AST.hs:241); the narrower type is the one the
+     oracle's own container type states, and it keeps `Table` a leaf for
+     `block_ind2`. *)
+  | Table (caption : option inlines) (rows : list (list cell))
   | RawBlock (format : string) (contents : string)
   (* Retained source form of a footnote definition.  The document pass
      later moves its children into `doc_footnotes`; keeping it here gives
@@ -291,10 +297,11 @@ Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
    `BulletList` holds a list *of* block lists, one more constructor deep
    again, so it needs a third predicate `R` with its own nil/cons — which
    is what `Document.assign_ids` traversing list items forced.  The other
-   list flavours and `Table` still get no hypothesis for the blocks they
-   hold and must be discharged outright; nothing produces them yet, and a
-   caller that needs one finds out at once, because the case becomes
-   unprovable. *)
+   list flavours still get no hypothesis for the blocks they hold and
+   must be discharged outright; nothing produces them yet, and a caller
+   that needs one finds out at once, because the case becomes unprovable.
+   `Table` is not among them: its cells and its caption hold inlines, so
+   it is a leaf like `Para`. *)
 Definition block_ind2
   (P : block -> Prop) (Q : blocks -> Prop) (R : list blocks -> Prop)
   (hpara : forall ils, P (Para ils))
