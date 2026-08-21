@@ -110,6 +110,11 @@ Definition dqchar : ascii := """"%char.
 Definition hyphen : ascii := "-"%char.
 
 Definition bang : ascii := "!"%char.
+
+(* The ellipsis.  Like the dollar it is not a delimiter: three of them
+   are one character of output and any other run is text. *)
+Definition period : ascii := "."%char.
+
 Definition lbrack : ascii := "["%char.
 Definition rbrack : ascii := "]"%char.
 
@@ -130,14 +135,20 @@ Definition nl_char : ascii := "010"%char.
 
 (* The characters the scanner claims for itself, before it consults the
    table at all: the escape, the verbatim fence, the two braces that
-   force a delimiter, and the three the bracket family dispatches on.  A
-   row may not be written with one of these -- `ilead` would never reach
-   the lookup -- which is one of the conditions `dconfig_ok` checks. *)
+   force a delimiter, the three the bracket family dispatches on, the
+   math prefix and the period.  A row may not be written with one of
+   these -- `ilead` would never reach the lookup -- which is one of the
+   conditions `dconfig_ok` checks. *)
 Definition dreserved (c : ascii) : bool :=
   (is_bslash c || is_tick c
    || Ascii.eqb c lbrace || Ascii.eqb c rbrace
    || Ascii.eqb c lbrack || Ascii.eqb c rbrack
-   || Ascii.eqb c bang || Ascii.eqb c dollar)%bool.
+   || Ascii.eqb c bang || Ascii.eqb c dollar
+   (* the period is not a delimiter and opens nothing, but the scanner
+      dispatches on it for the ellipsis, which is enough to reserve it:
+      no row may be spelled with it, and a canonical `Str` holding one
+      escapes it so that `...` cannot come back as an ellipsis. *)
+   || Ascii.eqb c period)%bool.
 
 (*
 The delimiter table
@@ -152,13 +163,14 @@ the scanner must keep one recursive call and decide what to do by lookup,
 or a general lemma about it becomes unprovable while every `Compute`
 stays fast.
 
-Six rows here.  The hyphen and the two quote characters are also
-`betweenMatched` rows upstream, but each carries a second construct on
-the same character (smart dashes, smart quotes), and adding a row is
-cheap where adding a construct is not. *)
+Nine rows here, which is every `betweenMatched` row upstream.  Three of
+the characters carry a second construct as well -- the two quotes carry
+smart quotes, and the hyphen carries smart dashes -- and in each case the
+row and the construct are separate work, since a row is a table entry and
+a construct is not. *)
 
 Inductive dstyle : Type :=
-  | DEmph | DStrong | DSuper | DSub | DMark | DInsert
+  | DEmph | DStrong | DSuper | DSub | DMark | DInsert | DDelete
   (* The smart quotes.  They are `betweenMatched` rows like the rest,
      with one difference the table has to carry: an unmatched one is not
      literal text but a curly quote, and which curly quote depends on the
@@ -209,12 +221,13 @@ Definition djot_dchar (k : dstyle) : ascii :=
   | DEmph => "_"%char | DStrong => "*"%char
   | DSuper => "^"%char | DSub => "~"%char
   | DMark => "="%char | DInsert => "+"%char
+  | DDelete => "-"%char
   | DSQuote => "'"%char | DDQuote => """"%char
   end.
 
 Definition djot_dsyntax (k : dstyle) : dsyntax :=
   match k with
-  | DMark | DInsert => DBraced
+  | DMark | DInsert | DDelete => DBraced
   | DSQuote => DBareAfterBreak
   | _ => DBare
   end.
@@ -270,13 +283,14 @@ Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
 
 Definition dstyles : list dstyle :=
-  [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DSQuote; DDQuote].
+  [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DDelete;
+   DSQuote; DDQuote].
 
 Definition dstyle_eq (a b : dstyle) : bool :=
   match a, b with
   | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
   | DSub, DSub | DMark, DMark | DInsert, DInsert
-  | DSQuote, DSQuote | DDQuote, DDQuote => true
+  | DDelete, DDelete | DSQuote, DSQuote | DDQuote, DDQuote => true
   | _, _ => false
   end.
 
@@ -423,6 +437,7 @@ Definition dnode (k : dstyle) (ns : inlines) : inline :=
   | DEmph => Emph ns | DStrong => Strong ns
   | DSuper => Superscript ns | DSub => Subscript ns
   | DMark => Highlight ns | DInsert => Insert ns
+  | DDelete => Delete ns
   | DSQuote => Quoted SingleQuotes ns | DDQuote => Quoted DoubleQuotes ns
   end.
 
@@ -621,7 +636,8 @@ Lemma dreserved_false :
     is_bslash c = false /\ is_tick c = false
     /\ Ascii.eqb c lbrace = false /\ Ascii.eqb c rbrace = false
     /\ Ascii.eqb c lbrack = false /\ Ascii.eqb c rbrack = false
-    /\ Ascii.eqb c bang = false /\ Ascii.eqb c dollar = false.
+    /\ Ascii.eqb c bang = false /\ Ascii.eqb c dollar = false
+    /\ Ascii.eqb c period = false.
 Proof.
   intros c H. unfold dreserved in H.
   repeat (apply orb_false_iff in H as [H ?]). tauto.
@@ -685,8 +701,14 @@ Qed.
    `dreserved`, which is precisely the set no row may claim.  A table
    that hands `^` to no row escapes it anyway, which costs an escape of a
    punctuation character and decodes back to itself. *)
+(* The hyphen is here for the same reason as `hat` and not for `hat`'s
+   reason.  It cannot be `dreserved`, because djot's delete row is
+   spelled with it and a row's character may not be reserved; but the
+   scanner dispatches on it for smart dashes whatever the table says, so
+   a canonical `Str` must escape it under *every* table -- otherwise
+   `iscan_escape` is false for a table whose rows avoid the hyphen. *)
 Definition needs_escape (c : ascii) : bool :=
-  (dreserved c || is_delim c || Ascii.eqb c hat)%bool.
+  (dreserved c || is_delim c || Ascii.eqb c hat || Ascii.eqb c hyphen)%bool.
 
 (* Obligation 1: an escaped character must be one the decoder accepts.
    Half of it is the seven reserved characters, which are punctuation by
@@ -702,6 +724,8 @@ Qed.
 Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
 Proof.
   intros c H. apply orb_true_iff in H as [H|H];
+    [|apply Ascii.eqb_eq in H; subst c; reflexivity].
+  apply orb_true_iff in H as [H|H];
     [|apply Ascii.eqb_eq in H; subst c; reflexivity].
   apply orb_true_iff in H as [H|H]; [apply dreserved_punct, H|].
   unfold is_delim in H. destruct (dstyle_of c) as [k|] eqn:E; [|discriminate].
@@ -719,7 +743,7 @@ Proof. reflexivity. Qed.
 Lemma needs_escape_tick : forall c, is_tick c = true -> needs_escape c = true.
 Proof.
   intros c H. unfold needs_escape, dreserved. rewrite H.
-  rewrite orb_true_r. reflexivity.
+  rewrite orb_true_r, !orb_true_l. reflexivity.
 Qed.
 
 (* Obligation 4, the same for every delimiter the table claims, and for
@@ -727,8 +751,13 @@ Qed.
 Lemma needs_escape_delim : forall c, is_delim c = true -> needs_escape c = true.
 Proof.
   intros c H. unfold needs_escape. rewrite H.
-  rewrite orb_true_r. reflexivity.
+  rewrite orb_true_r, orb_true_l. reflexivity.
 Qed.
+
+(* And the hyphen, which no table can decline: `ilead` dispatches it
+   before the lookup. *)
+Lemma needs_escape_hyphen : needs_escape hyphen = true.
+Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
 (* The footnote marker, for the same reason the brackets are here: `[^`
    is a construct, so a `^` after a `[` must not reach the scanner
@@ -1558,7 +1587,7 @@ Definition dstyle_eqb (a b : dstyle) : bool :=
   match a, b with
   | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
   | DSub, DSub | DMark, DMark | DInsert, DInsert
-  | DSQuote, DSQuote | DDQuote, DDQuote => true
+  | DDelete, DDelete | DSQuote, DSQuote | DDQuote, DDQuote => true
   | _, _ => false
   end.
 
@@ -1922,6 +1951,19 @@ Inductive iscan : Type :=
      must not count and the buffer cannot tell the two apart -- the same
      reason `!` has `IBang`. *)
   | IDollar (two : bool) (txt : string) (prev : option ascii) (o : ostate)
+  (* one or two periods whose role the next byte decides: a third makes
+     the three an ellipsis, anything else makes them text.  `IDollar`'s
+     shape exactly, and for `IDollar`'s reason -- an escaped `\.` must not
+     count towards the run, and the text buffer cannot tell it from a
+     bare one. *)
+  | IPeriod (two : bool) (txt : string) (prev : option ascii) (o : ostate)
+  (* a run of `n` hyphens whose cut into dashes the next byte decides.
+     Unlike `IPeriod` the run is unbounded, and unlike every other run in
+     this scanner it is not a delimiter token: `dashes` cuts it by
+     arithmetic and the result is text.  The one byte that is not just
+     the run's end is `}`, which takes the last hyphen back for a delete
+     closer -- djot.js's `hyphens--` (`inline.ts:520`). *)
+  | IDash (n : nat) (txt : string) (prev : option ascii) (o : ostate)
   (* a `!` whose role the next byte decides: `[` opens an image, and
      anything else makes it text.  An *escaped* `!` never reaches here,
      which is what keeps `\![a](u)` a link. *)
@@ -1982,6 +2024,13 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   if is_bslash c then IText true txt prev o
   else if is_tick c then IOpen 1 VVerb (flush_text txt o)
   else if Ascii.eqb c dollar then IDollar false txt prev o
+  else if Ascii.eqb c period then IPeriod false txt prev o
+  (* The hyphen, like the footnote marker, is claimed by position rather
+     than by the table: a run of them is smart dashes whatever row the
+     table spells with `-`, and the delete row is reached from `{` on the
+     left (through `IBrace`) or from `}` on the right (through `IDash`).
+     `needs_escape` claims it unconditionally for exactly this reason. *)
+  else if Ascii.eqb c hyphen then IDash 1 txt prev o
   else if Ascii.eqb c lbrace then IBrace txt prev o
   (* A `[` opens a scope on the same stack the delimiters use, so their
      relative order is kept and the label needs no second parser.  A `]`
@@ -2246,6 +2295,56 @@ Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
    remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
 (* The dollars a pending prefix is holding, when they turn out to be
    text. *)
+(* The ellipsis and the two dashes, as UTF-8.  Three bytes each, like the
+   curly quotes, and nothing downstream looks inside. *)
+Definition ellipsis : string :=
+  String "226"%char (String "128"%char (String "166"%char EmptyString)).
+Definition endash : string :=
+  String "226"%char (String "128"%char (String "147"%char EmptyString)).
+Definition emdash : string :=
+  String "226"%char (String "128"%char (String "148"%char EmptyString)).
+
+Definition periods (two : bool) : string :=
+  if two then String period (one period) else one period.
+
+Fixpoint srep (s : string) (n : nat) : string :=
+  match n with O => EmptyString | S m => (s ++ srep s m)%string end.
+
+(* How djot.js cuts a run of `n` hyphens (`inline.ts:526-550`): a run
+   divisible by three is all em dashes and an even one is all en dashes,
+   and otherwise it takes em dashes greedily and finishes with one or two
+   en dashes.  A lone hyphen is literal.
+
+   djot.js spells this as a loop with the recursive step duplicated
+   across four branches.  Here it is the arithmetic that loop computes,
+   for the reason [[project-engineering-lessons#A hang or a sudden
+   slowdown is the definition's shape, not the proof]] gives: a
+   four-branch recursion has no normal form at an unknown `n`, so every
+   `Compute` would pass while every general lemma stayed unprovable. *)
+Definition dash_counts (n : nat) : nat * nat * nat :=
+  if Nat.eqb (Nat.modulo n 3) 0 then (Nat.div n 3, 0, 0)
+  else if Nat.eqb (Nat.modulo n 2) 0 then (0, Nat.div n 2, 0)
+  else if Nat.eqb n 1 then (0, 0, 1)
+  else if Nat.eqb (Nat.modulo n 6) 5 then (Nat.div (n - 2) 3, 1, 0)
+  else (Nat.div (n - 4) 3, 2, 0).
+
+Definition dashes (n : nat) : string :=
+  let '(em, en, lit) := dash_counts n in
+  (srep emdash em ++ srep endash en ++ chars hyphen lit)%string.
+
+(* The counts pinned on the runs that decide the arithmetic: the two
+   homogeneous cases, the two remainders, and the lone hyphen. *)
+Example dashes_1 : dashes 1 = one hyphen. Proof. reflexivity. Qed.
+Example dashes_2 : dashes 2 = endash. Proof. reflexivity. Qed.
+Example dashes_3 : dashes 3 = emdash. Proof. reflexivity. Qed.
+Example dashes_4 : dashes 4 = (endash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_5 : dashes 5 = (emdash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_7 :
+  dashes 7 = (emdash ++ endash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_13 :
+  dashes 13 = (emdash ++ emdash ++ emdash ++ endash ++ endash)%string.
+Proof. reflexivity. Qed.
+
 Definition dollars (two : bool) : string :=
   if two then (one dollar ++ one dollar)%string else one dollar.
 
@@ -2263,10 +2362,47 @@ Definition idollar_step (c : ascii) (two : bool) (txt : string)
          (flush_text txt o)
   else ilead c (txt ++ dollars two)%string prev o.
 
+(* Three periods are one ellipsis and any other run is literal, so the
+   state counts to two and the third byte decides (`inline.ts:343`).  A
+   run of four is an ellipsis and a period, which falls out of resolving
+   at the third and starting again. *)
+Definition iperiod_step (c : ascii) (two : bool) (txt : string)
+  (prev : option ascii) (o : ostate) : iscan :=
+  if Ascii.eqb c period
+  then (if two then IText false (txt ++ ellipsis)%string (Some c) o
+        else IPeriod true txt prev o)
+  else ilead c (txt ++ periods two)%string prev o.
+
+(* A run of hyphens ends at the first byte that is not one.  A `}` is the
+   exception, and the only place the dash rule and the delete row meet:
+   the run gives its last hyphen back to be a close marker, and what is
+   left is cut into dashes.  When no row is spelled with a hyphen there
+   is nothing to close and the two bytes are text, which is djot.js's
+   `hyphens === 0` branch. *)
+Definition idash_step (c : ascii) (n : nat) (txt : string)
+  (prev : option ascii) (o : ostate) : iscan :=
+  if Ascii.eqb c hyphen then IDash (S n) txt prev o
+  else if Ascii.eqb c rbrace
+  then match dstyle_of hyphen with
+       | Some k =>
+           (* the row takes its whole token back, not one hyphen: djot's
+              rows are all one character wide, but the table is a
+              parameter and `iscan_marked_close_step` is stated for every
+              row, so the arithmetic has to be the row's *)
+           if Nat.leb (dwidth k) n
+           then idelim_resolve k (txt ++ dashes (n - dwidth k))%string
+                  None true (Some c) o
+           else IText false (txt ++ dashes n ++ one rbrace)%string None o
+       | None => IText false (txt ++ dashes n ++ one rbrace)%string None o
+       end
+  else ilead c (txt ++ dashes n)%string prev o.
+
 Definition iresolve (st : iscan) : iscan :=
   match st with
   | IBrace txt prev o => IText false (txt ++ one lbrace)%string prev o
   | IDollar two txt prev o => IText false (txt ++ dollars two)%string prev o
+  | IPeriod two txt prev o => IText false (txt ++ periods two)%string prev o
+  | IDash n txt prev o => IText false (txt ++ dashes n)%string prev o
   | IAttr _ src txt prev o =>
       IText false (txt ++ one lbrace ++ src)%string prev o
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
@@ -2341,6 +2477,8 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
            | other => other
            end
   | IDollar two txt prev o => idollar_step c two txt prev o
+  | IPeriod two txt prev o => iperiod_step c two txt prev o
+  | IDash n txt prev o => idash_step c n txt prev o
   | IOpen n vk o =>
       if is_tick c then IOpen (S n) vk o else IVerb n 0 (one c) vk o
   | IVerb n run txt vk o =>
@@ -2420,6 +2558,7 @@ Definition ifinish_ostate (st : iscan) : ostate :=
   (* unreachable: `iresolve` leaves no `IBrace`, `IAttr`, `IBang`,
      `IDollar`, `IDelim` or `IClosed` *)
   | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDollar _ _ _ o
+  | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ _ o => o
   end.
 
@@ -2473,6 +2612,7 @@ Definition ibreak (st : iscan) : iscan :=
   | ISpan kids image p src o => ispan_feed nl_char kids image p src o
   (* unreachable, as in `ifinish_ostate` *)
   | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+    | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _ _) as st' => st'
   end.
 
@@ -2492,6 +2632,7 @@ Definition iscan_closed (st : iscan) : bool :=
   (* an open destination owes the next line; `IClosed` cannot appear,
      since `iresolve` has just turned it into text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ _ | ISpan _ _ _ _ _
   | INote _ _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
   end.
@@ -2503,7 +2644,7 @@ Lemma ibreak_closed :
                   (OState (mk SoftBreak :: ifinish_rev st) []).
 Proof.
   intros st H. unfold iscan_closed, ibreak, ifinish_rev, ifinish_ostate in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit, ofinish; cbn [os_stk os_out oflatten oapp].
@@ -2731,6 +2872,8 @@ Definition iout_app (base : inlines) (st : iscan) : iscan :=
   | IVerb n run txt vk o => IVerb n run txt vk (oout_app base o)
   | IDollar two txt prev o => IDollar two txt prev (oout_app base o)
   | IBang txt prev o => IBang txt prev (oout_app base o)
+  | IPeriod two txt prev o => IPeriod two txt prev (oout_app base o)
+  | IDash n txt prev o => IDash n txt prev (oout_app base o)
   | IClosed kids image o => IClosed kids image (oout_app base o)
   | ISpan kids image p src o => ISpan kids image p src (oout_app base o)
   | IAttr p src txt prev o => IAttr p src txt prev (oout_app base o)
@@ -2930,6 +3073,8 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
   destruct (Ascii.eqb c dollar); [reflexivity|].
+  destruct (Ascii.eqb c period); [reflexivity|].
+  destruct (Ascii.eqb c hyphen); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack);
@@ -3037,7 +3182,7 @@ Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity | apply idelim_resolve_app].
@@ -3060,7 +3205,7 @@ Lemma istep_out_app :
     base_ok base = true ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] Hb;
+  intros c base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] Hb;
     cbn [iout_app istep].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -3075,7 +3220,7 @@ Proof.
       destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
@@ -3088,6 +3233,16 @@ Proof.
       [destruct dtwo; reflexivity|].
     destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
     apply ilead_app.
+  - (* a pending `.` either grows, completes an ellipsis, or is text *)
+    unfold iperiod_step. destruct (Ascii.eqb c period);
+      [destruct ptwo; reflexivity|].
+    apply ilead_app.
+  - (* a hyphen run either grows, gives its last back to a close marker,
+       or is cut into dashes *)
+    unfold idash_step. destruct (Ascii.eqb c hyphen); [reflexivity|].
+    destruct (Ascii.eqb c rbrace); [|apply ilead_app].
+    destruct (dstyle_of hyphen) as [k|]; [|reflexivity].
+    destruct (Nat.leb (dwidth k) dn); [apply idelim_resolve_app|reflexivity].
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity
       |apply ilead_app].
@@ -3127,7 +3282,7 @@ Lemma ibreak_out_app :
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     cbn [iout_app]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -3215,7 +3370,7 @@ Lemma ifinish_rev_out_app :
 Proof.
   intros base st Hb. unfold ifinish_rev, ifinish_ostate.
   rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     cbn [iout_app].
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app;
        apply ofinish_out_app, Hb.
@@ -3277,11 +3432,12 @@ Lemma ilead_plain :
     ilead c txt prev o = IText false (txt ++ one c)%string prev o.
 Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
+  apply orb_false_iff in Hc as [Hc Hhyp].
   apply orb_false_iff in Hc as [Hc Hhat].
   apply orb_false_iff in Hc as [Hres Hdl].
   destruct (dreserved_false c Hres)
-    as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk [Hbg Hdol]]]]]]].
-  unfold ilead. rewrite Hbs, Htk, Hdol, Hlb, Hbg, Hlk, Hrk, Hhat.
+    as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol Hpd]]]]]]]].
+  unfold ilead. rewrite Hbs, Htk, Hdol, Hpd, Hhyp, Hlb, Hbg, Hlk, Hrk, Hhat.
   cbn [andb].
   destruct (dstyle_of c) eqn:Hd; [|reflexivity].
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
@@ -3387,17 +3543,22 @@ Qed.
    at all only because its character is free of them -- and it finds
    itself again because the table is unambiguous.  Both come from
    `config_ok`; neither is a fact about djot. *)
+(* The hypothesis the hyphen adds.  `ilead` claims that character before
+   it consults the table, so a row spelled with it is reached from `{` or
+   from `}` instead -- see `iscan_marked_close_step`, which is where this
+   hypothesis stops travelling. *)
 Lemma ilead_dchar :
   forall k txt prev o,
     denabled_of k = true ->
+    Ascii.eqb (dchar k) hyphen = false ->
     bunpush o = None ->
     ilead (dchar k) txt prev o
     = IDelim k 0 txt (str_last txt prev) false o.
 Proof.
-  intros k txt prev o Hen Hup.
+  intros k txt prev o Hen Hhy Hup.
   destruct (dreserved_false (dchar k) (dchar_free k))
-    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg Hdol]]]]]]].
-  unfold ilead. rewrite Hb, Ht, Hdol, Hlb, Hlk, Hrk, Hbg, Hup.
+    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol Hpd]]]]]]]].
+  unfold ilead. rewrite Hb, Ht, Hdol, Hpd, Hhy, Hlb, Hlk, Hrk, Hbg, Hup.
   rewrite (dstyle_of_dchar k Hen). destruct (_ && _)%bool; reflexivity.
 Qed.
 
@@ -3427,15 +3588,50 @@ Qed.
 Lemma iscan_dtoken :
   forall k txt prev o,
     denabled_of k = true ->
+    Ascii.eqb (dchar k) hyphen = false ->
     bunpush o = None ->
     iscan_str (dtoken k) (IText false txt prev o)
     = IDelim k (pred (dwidth k)) txt (str_last txt prev) false o.
 Proof.
-  intros k txt prev o Hen Hup. unfold dtoken.
+  intros k txt prev o Hen Hhy Hup. unfold dtoken.
   destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
-  cbn [chars iscan_str istep]. rewrite (ilead_dchar k _ _ _ Hen Hup).
+  cbn [chars iscan_str istep]. rewrite (ilead_dchar k _ _ _ Hen Hhy Hup).
   rewrite (iscan_chars_delim w k 0 txt _ o) by lia.
   cbn [pred]. reflexivity.
+Qed.
+
+(* A run of hyphens, scanned from text: `ilead` claims the first and the
+   state counts the rest.  This is `iscan_dtoken`'s counterpart for the
+   one character the table does not get to dispatch. *)
+Lemma iscan_dash_run :
+  forall n m txt prev o,
+    iscan_str (chars hyphen n) (IDash m txt prev o) = IDash (m + n) txt prev o.
+Proof.
+  induction n as [|n IH]; intros m txt prev o.
+  - cbn [chars iscan_str]. rewrite Nat.add_0_r. reflexivity.
+  - cbn [chars iscan_str istep]. unfold idash_step.
+    rewrite Ascii.eqb_refl, (IH (S m) txt prev o). f_equal. lia.
+Qed.
+
+Lemma ilead_hyphen :
+  forall txt prev o, ilead hyphen txt prev o = IDash 1 txt prev o.
+Proof.
+  intros txt prev o. unfold ilead.
+  change (is_bslash hyphen) with false.
+  change (is_tick hyphen) with false.
+  change (Ascii.eqb hyphen dollar) with false.
+  change (Ascii.eqb hyphen period) with false.
+  rewrite Ascii.eqb_refl. reflexivity.
+Qed.
+
+Lemma iscan_chars_dash :
+  forall n txt prev o,
+    iscan_str (chars hyphen (S n)) (IText false txt prev o)
+    = IDash (S n) txt prev o.
+Proof.
+  intros n txt prev o. cbn [chars iscan_str istep].
+  rewrite ilead_hyphen, (iscan_dash_run n 1 txt prev o).
+  reflexivity.
 Qed.
 
 (* The token then `}`: a marked span closes.  When a delimiter was one
@@ -3451,7 +3647,22 @@ Lemma iscan_marked_close_step :
 Proof.
   intros k txt prev o o' Hen Hup H.
   pose proof (dwidth_nonzero k) as Hw.
-  rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hup).
+  destruct (Ascii.eqb (dchar k) hyphen) eqn:Hhy.
+  { (* the hyphen row: the token was scanned as a run rather than as a
+       delimiter, and the `}` gives the whole run back.  Both routes end
+       in the same `idelim_resolve`, which is why the hypothesis
+       `iscan_dtoken` needed does not travel past this lemma. *)
+    apply Ascii.eqb_eq in Hhy.
+    destruct (dwidth k) as [|w] eqn:Ew; [lia|].
+    unfold dtoken. rewrite Ew, Hhy.
+    rewrite iscan_str_app, (iscan_chars_dash w txt prev o).
+    unfold one. cbn [iscan_str istep]. unfold idash_step.
+    change (Ascii.eqb rbrace hyphen) with false.
+    rewrite Ascii.eqb_refl, <- Hhy, (dstyle_of_dchar k Hen), Ew.
+    rewrite Nat.leb_refl, Nat.sub_diag.
+    change (dashes 0) with EmptyString. rewrite (append_empty_r txt).
+    unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity. }
+  rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
   unfold one. cbn [iscan_str istep].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
@@ -3908,6 +4119,8 @@ Proof.
   change (is_bslash hat) with false.
   change (is_tick hat) with false.
   change (Ascii.eqb hat dollar) with false.
+  change (Ascii.eqb hat period) with false.
+  change (Ascii.eqb hat hyphen) with false.
   change (Ascii.eqb hat lbrace) with false.
   change (Ascii.eqb hat bang) with false.
   change (Ascii.eqb hat lbrack) with false.
@@ -4709,6 +4922,11 @@ give no inlines; one character suffices. *)
 Definition iscan_productive (st : iscan) : bool :=
   match st with
   | IText false txt _ o => (nonempty_str txt || ostate_nonempty o)%bool
+  (* a hyphen run owes what it has counted, and every way of building one
+     counts at least one -- but the type does not say so, so the
+     disjunct does *)
+  | IDash n txt _ o =>
+      (Nat.ltb 0 n || nonempty_str txt || ostate_nonempty o)%bool
   | _ => true
   end.
 
@@ -4826,6 +5044,42 @@ Qed.
 Lemma dollars_nonempty : forall two, nonempty_str (dollars two) = true.
 Proof. intros []; reflexivity. Qed.
 
+Lemma periods_nonempty : forall two, nonempty_str (periods two) = true.
+Proof. intros []; reflexivity. Qed.
+
+Lemma srep_nonempty :
+  forall s n, nonempty_str s = true -> nonempty_str (srep s (S n)) = true.
+Proof. intros s n H. cbn [srep]. apply nonempty_str_app_r, H. Qed.
+
+(* Every run of at least one hyphen leaves something: the arithmetic
+   never returns all three counts zero.  Two of the five branches need
+   the division to be positive, and the rest compute. *)
+Lemma div_pos : forall a b, b <> 0 -> Nat.modulo a b = 0 -> a <> 0 ->
+  exists m, Nat.div a b = S m.
+Proof.
+  intros a b Hb Hm Ha. destruct (Nat.div a b) as [|m] eqn:Ed; [|eauto].
+  exfalso. pose proof (Nat.div_mod a b Hb) as Hdm. rewrite Ed, Hm in Hdm. lia.
+Qed.
+
+Lemma dashes_nonempty : forall n, nonempty_str (dashes (S n)) = true.
+Proof.
+  intros n. unfold dashes, dash_counts.
+  destruct (Nat.eqb (Nat.modulo (S n) 3) 0) eqn:E3.
+  { apply Nat.eqb_eq in E3.
+    destruct (div_pos (S n) 3 ltac:(lia) E3 ltac:(lia)) as [m Hm].
+    rewrite Hm. apply nonempty_str_app_r, srep_nonempty. reflexivity. }
+  destruct (Nat.eqb (Nat.modulo (S n) 2) 0) eqn:E2.
+  { apply Nat.eqb_eq in E2.
+    destruct (div_pos (S n) 2 ltac:(lia) E2 ltac:(lia)) as [m Hm].
+    rewrite Hm. apply nonempty_str_app_l, nonempty_str_app_r.
+    apply srep_nonempty. reflexivity. }
+  destruct (Nat.eqb (S n) 1) eqn:E1.
+  { apply Nat.eqb_eq in E1. assert (Hn : n = 0) by lia. subst n. reflexivity. }
+  destruct (Nat.eqb (Nat.modulo (S n) 6) 5);
+    (apply nonempty_str_app_l, nonempty_str_app_r;
+     apply srep_nonempty; reflexivity).
+Qed.
+
 Lemma iscan_productive_lead :
   forall c txt prev o,
     (nonempty_str txt || ostate_nonempty o)%bool = true ->
@@ -4835,6 +5089,8 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
   destruct (Ascii.eqb c dollar); [reflexivity|].
+  destruct (Ascii.eqb c period); [reflexivity|].
+  destruct (Ascii.eqb c hyphen); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack);
@@ -4930,11 +5186,12 @@ Lemma iresolve_resolved :
   forall st,
     match iresolve st with
     | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+    | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _ _ => False
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
@@ -4945,17 +5202,25 @@ Qed.
 Lemma iscan_productive_resolve :
   forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H.
   (* `IBrace`, `IAttr`, `IBang` and `IDollar` all push their own bytes
      into the buffer, so the text they resolve to is nonempty *)
   all: try (cbn [iscan_productive]; apply orb_true_iff; left;
             apply nonempty_str_app_l;
-            first [reflexivity | apply dollars_nonempty]).
+            first [reflexivity | apply dollars_nonempty
+                  | apply periods_nonempty]).
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { cbn [iscan_productive]. apply orb_true_iff. left.
       apply nonempty_str_app_l, idelim_run_nonempty. }
     apply idelim_resolve_productive.
+  (* a hyphen run: what it counted, cut into dashes *)
+  - cbn [iscan_productive] in H |- *. destruct dn as [|dn].
+    { cbn [Nat.ltb Nat.leb orb] in H.
+      change (dashes 0) with EmptyString.
+      rewrite (append_empty_r dtx). exact H. }
+    apply orb_true_iff. left.
+    apply nonempty_str_app_l, dashes_nonempty.
   - pose proof (bclosed_lit_nonempty kids img ob) as Hne.
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
     cbn [iscan_productive]. rewrite Hne. reflexivity.
@@ -5035,7 +5300,7 @@ Qed.
 Lemma iscan_productive_step :
   forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
     cbn [istep].
   - destruct (is_ws c); [reflexivity|].
     cbn [iscan_productive]. apply orb_true_iff. left.
@@ -5071,6 +5336,26 @@ Proof.
     destruct (is_tick c); [reflexivity|].
     apply iscan_productive_lead, orb_true_iff. left.
     apply nonempty_str_app_l, dollars_nonempty.
+  - (* and a pending `.` owes its own periods, or the ellipsis they make *)
+    unfold iperiod_step. destruct (Ascii.eqb c period).
+    { destruct ptwo; [|reflexivity].
+      cbn [iscan_productive]. apply orb_true_iff. left.
+      apply nonempty_str_app_l. reflexivity. }
+    apply iscan_productive_lead, orb_true_iff. left.
+    apply nonempty_str_app_l, periods_nonempty.
+  - (* a hyphen run owes what it has counted *)
+    unfold idash_step. destruct (Ascii.eqb c hyphen); [reflexivity|].
+    destruct (Ascii.eqb c rbrace).
+    { destruct (dstyle_of hyphen) as [k|];
+        [destruct (Nat.leb (dwidth k) dn);
+           [apply idelim_resolve_productive|]|];
+        (cbn [iscan_productive]; apply orb_true_iff; left;
+         apply nonempty_str_app_l, nonempty_str_app_l; reflexivity). }
+    apply iscan_productive_lead. cbn [iscan_productive] in H.
+    destruct dn as [|dn].
+    { cbn [Nat.ltb orb] in H. change (dashes 0) with EmptyString.
+      rewrite (append_empty_r dtx). exact H. }
+    apply orb_true_iff. left. apply nonempty_str_app_l, dashes_nonempty.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack).
     + cbn [iscan_productive]. rewrite ostate_nonempty_bpush. apply orb_true_r.
     + apply iscan_productive_lead. apply orb_true_iff. left.
@@ -5113,7 +5398,9 @@ Lemma iscan_productive_break :
   forall st, iscan_productive (ibreak st) = true.
 Proof.
   intros st. unfold ibreak.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+  pose proof (iresolve_resolved st) as Hno.
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    try contradiction;
     cbn [iscan_productive]; try reflexivity;
     try apply ispan_feed_productive.
   1,2,3: try unfold iesc_hard;
@@ -5188,7 +5475,7 @@ Proof.
   pose proof (iscan_productive_resolve st H) as Hres.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     try contradiction; apply nonempty_ofinish.
   - apply ostate_nonempty_emit.
   - cbn [iscan_productive] in Hres.
@@ -5223,6 +5510,8 @@ Proof.
   destruct (is_bslash c); [reflexivity|].
   destruct (is_tick c); [reflexivity|].
   destruct (Ascii.eqb c dollar); [reflexivity|].
+  destruct (Ascii.eqb c period); [reflexivity|].
+  destruct (Ascii.eqb c hyphen); [reflexivity|].
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lbrack); [reflexivity|].
@@ -5386,6 +5675,7 @@ Fixpoint inline_text (il : inline) : string :=
   | Subscript ns => marked DSub ns
   | Highlight ns => marked DMark ns
   | Insert ns => marked DInsert ns
+  | Delete ns => marked DDelete ns
   | Quoted SingleQuotes ns => marked DSQuote ns
   | Quoted DoubleQuotes ns => marked DDQuote ns
   | Link ns (Direct dst) =>
@@ -5715,16 +6005,86 @@ Example unclosed_opener_merges :
   parse_inline_line "a*b" = [mk (Str "a*b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The two rows that only exist braced: a bare `=` or `+` is text. *)
+(* The three rows that only exist braced: a bare `=`, `+` or `-` is
+   text.  The hyphen is the one that has to be braced for a reason
+   beyond frequency -- an unbraced `-` is where smart dashes live. *)
 Example mark_needs_braces :
   (parse_inline_line "=a=", parse_inline_line "{=a=}")
   = ([mk (Str "=a=")], [mk (Highlight [mk (Str "a")])]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example delete_needs_braces :
+  (parse_inline_line "-a-", parse_inline_line "{-a-}")
+  = ([mk (Str "-a-")], [mk (Delete [mk (Str "a")])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Its content is scanned like any other row's, and the braces belong to
+   the delimiter rather than to the text. *)
+Example delete_nests :
+  parse_inline_line "{-a _b_-}"
+  = [mk (Delete [mk (Str "a "); mk (Emph [mk (Str "b")])])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And the row round-trips through the canonical view like the others.
+   `-` is now a delimiter character, so a canonical `Str` holding one
+   spells it escaped -- which is what keeps `{-a-}` from reappearing out
+   of text that only looked like it. *)
+Example delete_ci_roundtrip :
+  (ci_src (CIDelim DDelete [CIStr "a"]),
+   parse_inline_line (ci_src (CIDelim DDelete [CIStr "a"])))
+  = ("{-a-}", [ci_ast (CIDelim DDelete [CIStr "a"])]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example hyphen_in_str_is_escaped :
+  (ci_src (CIStr "a-b"), parse_inline_line (ci_src (CIStr "a-b")))
+  = ("a\-b", [mk (Str "a-b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* An empty span is not a span: djot.js excludes a closer that sits
    immediately after its opener. *)
 Example empty_span_is_text :
   parse_inline_line "{__}" = [mk (Str "{__}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Smart punctuation on the two characters that are not delimiters.
+   Three periods are one ellipsis and a fourth is itself; a run of
+   hyphens is cut by `dashes`; and both are text, so they merge with the
+   text around them rather than becoming nodes. *)
+Example ellipsis_and_remainder :
+  (parse_inline_line "a...b", parse_inline_line "a....b")
+  = ([mk (Str ("a" ++ ellipsis ++ "b"))],
+     [mk (Str ("a" ++ ellipsis ++ ".b"))]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example two_periods_are_text :
+  parse_inline_line "a..b" = [mk (Str "a..b")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example dash_runs :
+  (parse_inline_line "a-b", parse_inline_line "a--b", parse_inline_line "a---b")
+  = ([mk (Str "a-b")],
+     [mk (Str ("a" ++ endash ++ "b"))],
+     [mk (Str ("a" ++ emdash ++ "b"))]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Where the run meets the delete row, which is the one place the two
+   rules interact: the closer takes the last hyphen back and the rest of
+   the run is cut. *)
+Example dash_run_gives_back_its_closer :
+  parse_inline_line "{-a---}"
+  = [mk (Delete [mk (Str ("a" ++ endash))])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* With nothing open, `-}` is what is left over, exactly as djot.js
+   emits it: two literal characters, and the run before them cut. *)
+Example dash_run_without_an_opener :
+  parse_inline_line "a---}" = [mk (Str ("a" ++ endash ++ "-}"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Escaping is what keeps canonical text out of both rules. *)
+Example escaped_runs_are_literal :
+  (parse_inline_line (escape_str "a---b"), parse_inline_line (escape_str "a...b"))
+  = ([mk (Str "a---b")], [mk (Str "a...b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* Verbatim is a mode, not a row: while one is open the table is

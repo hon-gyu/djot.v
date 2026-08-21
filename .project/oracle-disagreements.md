@@ -763,3 +763,36 @@ closes the superscript the first one opened, and `clearOpeners(1, 4)`
 drops the bracket opener nested inside it. Our `oclose` abandons frames
 it walks past for the same reason, so we agree without special-casing
 anything.
+
+## Adjudicated 2026-08-21 — ours: smart punctuation contributes its rendering
+
+| input | verdict | note |
+| ----- | ------- | ---- |
+| `![a'b](u)` | **we differ, on purpose** | djot.js `alt="a'b"`, ours `alt="a’b"` |
+| `# head'ing` | **we differ, on purpose** | djot.js `id="head'ing"`, ours `id="head’ing"` |
+| `![a...b](u)` | same family | djot.js `alt="a...b"`, ours `alt="a…b"` |
+| `![a---b](u)` | same family | djot.js `alt="a---b"`, ours `alt="a—b"` |
+
+djot's AST models every piece of smart punctuation as
+`SmartPunctuation {type, text}` where `text` is the *source*, so
+`getStringContent` — which computes an image's `alt` and a heading's
+implicit id — replays what the author typed. We have no such node: an
+unmatched quote decays to its curly character through `ddecay`'s
+`DDPair`, and an ellipsis or a dash run is written into the text buffer
+by `IPeriod` and `IDash`. All four are therefore `Str` nodes holding the
+rendered character, and the rendered character is what reaches `alt` and
+the id.
+
+The divergence dates from smart quotes, not from dashes; it is recorded
+now because dashes and ellipsis made it a family rather than a case.
+**Boundary**: the two agree everywhere the punctuation is rendered, and
+differ only where a *string* is read back off the tree — image alt text
+and implicit heading identifiers. Nothing else consults
+`inline_text` on these nodes.
+
+Matching would mean an AST node carrying its own source, which is the
+[[project-engineering-lessons#When it is representable, but only at a
+price]] clause: the price is a constructor plus a field on every
+traversal, and the reachable set is smart punctuation inside a link
+label or a heading. Unreachable from a canonical document either way,
+since `escape_str` claims `'`, `"`, `-` and `.`.

@@ -548,7 +548,8 @@ Definition oscope_ok (o : ostate) : bool :=
 Definition iscan_wf (st : iscan) : bool :=
   match st with
   | IText _ _ _ o | IEscWs _ _ _ o | IBrace _ _ o | IAttr _ _ _ _ o
-  | IDelim _ _ _ _ _ o | IDollar _ _ _ o =>
+  | IDelim _ _ _ _ _ o | IDollar _ _ _ o | IPeriod _ _ _ o
+  | IDash _ _ _ o =>
       (oscope_ok o && negb (hd_str (ocur o)))%bool
   | IOpen _ _ o => oscope_ok o
   | IVerb _ _ _ _ o => oscope_ok o
@@ -1086,6 +1087,10 @@ Proof.
     [cbn [iscan_wf]; apply (iscan_wf_flush txt o Ho Hs)|].
   destruct (Ascii.eqb c dollar);
     [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+  destruct (Ascii.eqb c period);
+    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+  destruct (Ascii.eqb c hyphen);
+    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
   destruct (Ascii.eqb c lbrace);
     [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
   destruct (Ascii.eqb c bang);
@@ -1282,7 +1287,7 @@ Qed.
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
     cbn [istep];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
@@ -1308,7 +1313,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?]; try exact Hr.
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?]; try exact Hr.
     cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
@@ -1327,6 +1332,22 @@ Proof.
     destruct (is_tick c);
       [cbn [iscan_wf]; apply iscan_wf_flush; assumption
       |apply ilead_wf; assumption].
+  - (* and the periods either grow, complete an ellipsis, or become text;
+       the ellipsis goes into the buffer, so the head condition is the
+       one the state already carried *)
+    unfold iperiod_step. destruct (Ascii.eqb c period);
+      [destruct ptwo;
+         (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity)
+      |apply ilead_wf; assumption].
+  - (* a hyphen run keeps its buffer, and the close it may hand to the
+       delete row is `idelim_resolve`'s business *)
+    unfold idash_step. destruct (Ascii.eqb c hyphen);
+      [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+    destruct (Ascii.eqb c rbrace); [|apply ilead_wf; assumption].
+    destruct (dstyle_of hyphen) as [k|];
+      [destruct (Nat.leb (dwidth k) dn);
+         [apply idelim_resolve_wf; assumption|]|];
+      (apply iscan_wf_text; assumption).
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [apply iscan_wf_text;
          [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]
@@ -1419,7 +1440,7 @@ Qed.
 Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
     cbn [iresolve]; try exact H;
     cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
@@ -1441,7 +1462,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ifinish_ostate.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -1499,7 +1520,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ibreak.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).

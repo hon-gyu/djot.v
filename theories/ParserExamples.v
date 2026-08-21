@@ -45,11 +45,14 @@ two" =
 Proof. reflexivity. Qed.
 
 (* Paragraphs are never interrupted: thematic-break- or fence-shaped
-   lines inside a paragraph are text. *)
+   lines inside a paragraph are text.  Text the inline layer then reads,
+   which is why the three hyphens arrive as an em dash rather than as
+   themselves -- djot.js agrees, and the block-level point is unchanged:
+   the line did not close the paragraph. *)
 Example parse_no_interrupt :
   parse_blocks "one
 ---" =
-  [ mk (Para [mk (Str "one"); mk SoftBreak; mk (Str "---")]) ].
+  [ mk (Para [mk (Str "one"); mk SoftBreak; mk (Str emdash)]) ].
 Proof. reflexivity. Qed.
 
 Example parse_code_block :
