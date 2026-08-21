@@ -1618,7 +1618,7 @@ Fixpoint state_wf (st : pstate) : bool :=
   (* A heading additionally carries its level, which `Heading` requires
      to be at least 1. *)
   | PHeading lvl cur => Nat.leb 1 lvl && forallb nonblank cur
-  | PFence _ _ => true
+  | PFence _ _ _ => true
   | PQuote done inner => wf_blocks done && state_wf inner
   (* A div carries no invariant its fence length or class could break:
      `Div` is well-formed for any block sequence, exactly as
@@ -1661,7 +1661,7 @@ Qed.
 Lemma finish_wf :
   forall st, state_wf st = true -> wf_blocks (finish st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f acc|done inner IH|dlen dcls ddone dinner IH
+  induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
     |ls done inner IH|apend aind aap aslices|rind rlbl rval
     |find flbl fdone finner IH|ppend pinner IH];
     intros H.
@@ -1740,7 +1740,7 @@ Lemma feed_lazy_wf :
     is_blank l = false -> state_wf st = true ->
     state_wf (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f acc|done inner IH|dlen dcls ddone dinner IH
+  induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
     |ls done inner IH|apend aind aap aslices|rind rlbl rval
     |find flbl fdone finner IH|ppend pinner IH];
     intros Hl H;
@@ -1788,7 +1788,7 @@ Lemma open_kind_wf :
     wf_blocks (fst (open_kind l k)) = true
     /\ state_wf (snd (open_kind l k)) = true.
 Proof.
-  intros l k H. destruct k; cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd]; try (split; reflexivity).
+  intros l k H. destruct k; cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; try (split; reflexivity).
   - (* KHeading: the level comes from the classifier *)
     split; [reflexivity|].
     cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). cbn [andb].
@@ -1830,6 +1830,14 @@ Proof.
   reflexivity.
 Qed.
 
+(* Opening a code fence: it carries no invariant at all, its column
+   least of all. *)
+Lemma open_fence_wf :
+  forall ind f,
+    wf_blocks (fst (open_fence ind f)) = true
+    /\ state_wf (snd (open_fence ind f)) = true.
+Proof. intros ind f. split; reflexivity. Qed.
+
 (* Opening a reference definition: the classifier's guarantees about the
    label and the destination are exactly the block's. *)
 Lemma open_ref_wf :
@@ -1866,11 +1874,13 @@ Lemma step_fuel_wf :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel].
-  destruct st as [cur|hlvl hcur|f acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|ppend pinner].
   - (* idle, or an open paragraph *)
     destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|flbl frest|rlbl rval|] eqn:E;
         try (apply open_kind_wf; exact E).
+      * (* KFence: opens its own state, recording its column *)
+        apply open_fence_wf.
       * (* KQuote: descend into the enclosed line *)
         destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
@@ -1951,7 +1961,7 @@ Proof.
             apply classify_ktext_nonblank; exact E).
       exact Hc. }
     (* blank, thematic, fence: close the heading and reopen outside it *)
-    all: cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd]; split;
+    all: cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split;
          [ rewrite wf_blocks_cons in Hhb |- *;
            cbn [node_contents] in Hhb |- *;
            apply andb_true_iff in Hhb as [Hhb _]; rewrite Hhb; cbn [andb];
@@ -2003,7 +2013,7 @@ Proof.
       cbn [close_reopen open_ref finish fst snd]. rewrite app_nil_r.
       rewrite wf_blocks_cons. cbn [node_contents mk]. rewrite Hbq. reflexivity. }
     6: { (* text without the prefix: lazy continuation, or close *)
-      cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd].
+      cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd].
       - split; [reflexivity|].
         cbn [state_wf]. rewrite Hd. cbn [andb].
         apply feed_lazy_wf;
@@ -2016,16 +2026,23 @@ Proof.
             by (rewrite is_blank_drop_leading_ws;
                 apply classify_ktext_nonblank; exact E).
           reflexivity. }
-    (* every other kind closes the quote and reopens outside it, on
-       exactly the transition open_kind_wf already describes *)
-    all: destruct (open_kind_wf l _ E) as [Hob Hos];
-         cbn [is_lazy];
-         destruct (open_kind l _) as [obs ost] eqn:Eo;
-         cbn [close_reopen open_quote finish app fst snd] in Hob, Hos |- *;
-         split;
-         [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
-           cbn [andb]; exact Hob
-         | exact Hos ].
+    (* a fence opens through open_fence, and every other kind closes the
+       quote and reopens outside it on exactly the transition
+       open_kind_wf already describes *)
+    all: first
+         [ cbn [close_reopen open_fence finish app fst snd];
+           split;
+           [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
+             cbn [andb]; reflexivity
+           | reflexivity ]
+         | destruct (open_kind_wf l _ E) as [Hob Hos];
+           cbn [is_lazy];
+           destruct (open_kind l _) as [obs ost] eqn:Eo;
+           cbn [close_reopen open_quote finish app fst snd] in Hob, Hos |- *;
+           split;
+           [ rewrite wf_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
+             cbn [andb]; exact Hob
+           | exact Hos ] ].
   - (* inside a div: the close test decides, and neither side classifies
        the line, so there are two goals here rather than seven *)
     pose proof H as H0. cbn [state_wf] in H0.
@@ -2166,13 +2183,17 @@ Proof.
            split; [reflexivity|];
            cbn [state_wf ls_items list_content];
            rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs
-         | cbn [is_lazy];
-           destruct (open_kind_wf l _ E) as [Hob Hos];
-           destruct (open_kind l _) as [obs ost] eqn:Eo;
-           cbn [close_reopen fst snd] in Hob, Hos |- *;
-           split;
-           [ rewrite wf_blocks_app, Hob, andb_true_r; apply finish_wf; exact H
-           | exact Hos ] ].
+         | first
+           [ cbn [close_reopen open_fence fst snd];
+             split;
+             [ rewrite app_nil_r; apply finish_wf; exact H | reflexivity ]
+           | cbn [is_lazy];
+             destruct (open_kind_wf l _ E) as [Hob Hos];
+             destruct (open_kind l _) as [obs ost] eqn:Eo;
+             cbn [close_reopen fst snd] in Hob, Hos |- *;
+             split;
+             [ rewrite wf_blocks_app, Hob, andb_true_r; apply finish_wf; exact H
+             | exact Hos ] ] ].
   - (* an open attribute spec: every branch either hands the line to a
        state this invariant already covers, or records a nonblank line *)
     cbn [state_wf] in H.
@@ -2429,7 +2450,7 @@ Qed.
    obligation. *)
 Fixpoint state_supported (st : pstate) : bool :=
   match st with
-  | PPara _ | PHeading _ _ | PFence _ _ => true
+  | PPara _ | PHeading _ _ | PFence _ _ _ => true
   | PQuote done inner => supported_blocks done && state_supported inner
   | PDiv _ _ done inner => supported_blocks done && state_supported inner
   | PList ls done inner =>
@@ -2449,7 +2470,7 @@ Proof. intros a bs. destruct bs as [|[q a' x] rest]; reflexivity. Qed.
 Lemma finish_supported :
   forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f acc|done inner IH|dlen dcls ddone dinner IH
+  induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
     |ls done inner IH|apend aind aap aslices|rind rlbl rval
     |find flbl fdone finner IH|ppend pinner IH];
     intros H.
@@ -2488,7 +2509,7 @@ Lemma feed_lazy_supported :
   forall l st,
     state_supported st = true -> state_supported (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f acc|done inner IH|dlen dcls ddone dinner IH
+  induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
     |ls done inner IH|apend aind aap aslices|rind rlbl rval
     |find flbl fdone finner IH|ppend pinner IH];
     intros H;
@@ -2527,10 +2548,10 @@ Lemma step_fuel_supported :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel].
-  destruct st as [cur|hlvl hcur|f acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|ppend pinner].
   - destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc mr|kap|flbl frest|rlbl rval|] eqn:E;
-        try (cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd]; split; reflexivity).
+        try (cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity).
       * destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
         cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
@@ -2569,7 +2590,7 @@ Proof.
          cbn [fst snd] in Hb, Hs.
          cbn [close_reopen open_foot finish app fst snd]. split; [reflexivity|].
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    all: cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd]; split; reflexivity.
+    all: cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
     + split; reflexivity.
@@ -2604,14 +2625,15 @@ Proof.
          - rewrite supported_blocks_cons. cbn [node_contents mk].
            rewrite Hbq. reflexivity.
          - cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    8: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [close_reopen open_quote finish app open_kind open_attr open_ref fst snd].
+    8: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd].
          - split; [reflexivity|].
            cbn [state_supported]. rewrite Hd. cbn [andb].
            apply feed_lazy_supported. exact Hi.
          - split; [| reflexivity].
            rewrite supported_blocks_cons. cbn [node_contents mk].
            rewrite Hbq. cbn [andb]. reflexivity. }
-    all: cbn [is_lazy close_reopen open_quote finish app open_kind open_attr open_ref fst snd]; split;
+    all: cbn [is_lazy close_reopen open_quote finish app open_kind open_fence
+              open_attr open_ref fst snd]; split;
          [ rewrite supported_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
            cbn [andb]; reflexivity
          | reflexivity ].
@@ -2724,7 +2746,8 @@ Proof.
            cbn [state_supported ls_items list_content];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs
-         | cbn [is_lazy close_reopen open_kind open_attr open_ref fst snd];
+         | cbn [is_lazy close_reopen open_kind open_fence open_attr open_ref
+                fst snd];
            split; [|reflexivity];
            rewrite supported_blocks_app, (finish_supported _ H);
            reflexivity ].

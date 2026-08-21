@@ -132,10 +132,11 @@ Qed.
 
 Lemma parse_lines_fence_open :
   forall l rest f, classify l = KFence f ->
-  parse_lines (l :: rest) (PPara []) = parse_lines rest (PFence f []).
+  parse_lines (l :: rest) (PPara []) =
+  parse_lines rest (PFence f (indent_of l) []).
 Proof.
   intros l rest f H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
+  rewrite (parse_lines_step _ _ _ _ _ (step_fence_open _ _ H)). reflexivity.
 Qed.
 
 Lemma parse_lines_text :
@@ -190,25 +191,25 @@ Fence equations
 *)
 
 Lemma parse_lines_fence_eof :
-  forall f acc, parse_lines [] (PFence f acc) = [fence_block f (rev acc)].
+  forall f ind acc, parse_lines [] (PFence f ind acc) = [fence_block f (rev acc)].
 Proof. reflexivity. Qed.
 
 Lemma parse_lines_fence_close :
-  forall l rest f acc, fence_close f l = true ->
-  parse_lines (l :: rest) (PFence f acc) =
+  forall l rest f ind acc, fence_close f l = true ->
+  parse_lines (l :: rest) (PFence f ind acc) =
   fence_block f (rev acc) :: parse_lines rest (PPara []).
 Proof.
-  intros l rest f acc H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_fence_close _ _ _ H)). reflexivity.
+  intros l rest f ind acc H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_fence_close _ _ _ _ H)). reflexivity.
 Qed.
 
 Lemma parse_lines_fence_content :
-  forall l rest f acc, fence_close f l = false ->
-  parse_lines (l :: rest) (PFence f acc) =
-  parse_lines rest (PFence f (l :: acc)).
+  forall l rest f ind acc, fence_close f l = false ->
+  parse_lines (l :: rest) (PFence f ind acc) =
+  parse_lines rest (PFence f ind (drop_ws_upto ind l :: acc)).
 Proof.
-  intros l rest f acc H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_fence_content _ _ _ H)). reflexivity.
+  intros l rest f ind acc H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_fence_content _ _ _ _ H)). reflexivity.
 Qed.
 
 (*
@@ -252,12 +253,12 @@ Qed.
 
 (* A run of non-closing lines accumulates (reversed) into an open fence. *)
 Lemma parse_lines_fence_seed :
-  forall ls tail f acc,
+  forall ls tail f ind acc,
     forallb (fun l => negb (fence_close f l)) ls = true ->
-    parse_lines (ls ++ tail)%list (PFence f acc) =
-    parse_lines tail (PFence f (rev ls ++ acc)%list).
+    parse_lines (ls ++ tail)%list (PFence f ind acc) =
+    parse_lines tail (PFence f ind (rev (map (drop_ws_upto ind) ls) ++ acc)%list).
 Proof.
-  induction ls as [|l ls IH]; intros tail f acc H.
+  induction ls as [|l ls IH]; intros tail f ind acc H.
   - reflexivity.
   - simpl in H. apply andb_true_iff in H as [Hl Hls].
     apply negb_true_iff in Hl.

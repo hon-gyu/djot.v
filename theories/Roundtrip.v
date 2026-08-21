@@ -950,6 +950,7 @@ Proof.
                  (classify_backtick_fence info Hinfo)).
       rewrite <- app_assoc.
       rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
       rewrite rev_involutive.
@@ -957,6 +958,7 @@ Proof.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence info Hinfo)).
       rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
       rewrite rev_involutive. reflexivity.

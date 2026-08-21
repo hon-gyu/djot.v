@@ -104,7 +104,7 @@ Fixpoint show_pstate (st : pstate) : string :=
   match st with
   | PPara cur => "Para" ++ s_list s_str cur
   | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str cur
-  | PFence f acc => "Fence" ++ s_fence f ++ s_list s_str acc
+  | PFence f ind acc => "Fence" ++ s_fence f ++ s_nat ind ++ s_list s_str acc
   | PQuote done inner => "Quote" ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
   | PDiv len cls done inner =>
       "Div" ++ s_nat len ++ s_str cls ++ s_blocks done
@@ -114,6 +114,9 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PAttr pend ind ap slices =>
       "Attr" ++ s_attr pend ++ s_nat ind ++ s_aparser ap ++ s_list s_str slices
   | PRef ind lbl val => "Ref" ++ s_nat ind ++ s_str lbl ++ s_str val
+  | PFoot ind lbl done inner =>
+      "Foot" ++ s_nat ind ++ s_str lbl ++ s_blocks done
+      ++ "(" ++ show_pstate inner ++ ")"
   | PPend pend inner =>
       "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
   end.
@@ -167,12 +170,14 @@ Definition seed_prefixes : list (list string) :=
   ; ["a"]; ["a"; "b"]                          (* PPara *)
   ; ["# h"]                                    (* PHeading *)
   ; ["```"]; ["``` x"; "raw"]                  (* PFence *)
+  ; ["  ```"]; ["  ```"; "    x"]              (* PFence, indented *)
   ; ["> a"]; ["> - a"]                         (* PQuote *)
   ; ["::: c"]; ["::: c"; "a"]                  (* PDiv *)
   ; ["- a"]; ["- a"; ""]; ["1. a"]; ["i. a"]   (* PList *)
   ; ["- - a"]; ["  - a"]                       (* PList, nested / indented *)
   ; ["{#i"]                                    (* PAttr *)
   ; ["[r]: u"]; ["  [r]:"]                     (* PRef, at column 0 / indented *)
+  ; ["[^n]: a"]; ["  [^n]:"]                   (* PFoot, at column 0 / indented *)
   ; ["{#i}"]; ["{#i}"; "a"]                    (* PPend *)
   ].
 

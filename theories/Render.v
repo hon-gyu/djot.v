@@ -42,6 +42,12 @@ Definition ref_line (label dest : string) : string :=
   "[" ++ label ++ "]: " ++ dest.
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
+
+(* The canonical fence sits at column zero, so it strips nothing from its
+   content lines -- which is what keeps `cb_lines` a left inverse of the
+   parser for a code block wherever it is nested. *)
+Lemma indent_of_code_open : forall info, indent_of (code_open info) = 0.
+Proof. intros info. reflexivity. Qed.
 (* quote_open / quote_line are in Line, next to quote_prefix_canonical:
    Parser needs to name the quote prefix's width. *)
 

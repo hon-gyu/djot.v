@@ -201,6 +201,39 @@ Fixpoint indent_of (s : string) : nat :=
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 
+(* Drop a leading run of whitespace, but no more than `n` characters of
+   it.  This is djot.js's `startpos - (indent - tip.indent)`
+   (block.ts:1083): a container whose content is verbatim text removes
+   its own column from every line and leaves the rest, so a line indented
+   less than the container keeps nothing and a line indented more keeps
+   the difference. *)
+Fixpoint drop_ws_upto (n : nat) (s : string) : string :=
+  match n, s with
+  | S n', String c s' => if is_ws c then drop_ws_upto n' s' else s
+  | _, _ => s
+  end.
+
+Lemma drop_ws_upto_0 : forall s, drop_ws_upto 0 s = s.
+Proof. destruct s; reflexivity. Qed.
+
+Lemma map_drop_ws_upto_0 : forall ls, map (drop_ws_upto 0) ls = ls.
+Proof.
+  induction ls as [|l ls IH]; [reflexivity|].
+  cbn [map]. rewrite drop_ws_upto_0, IH. reflexivity.
+Qed.
+
+(* The two ways of reaching a nested line agree on it: `n` more columns
+   of offset to strip and `n` more columns of blank prefix cancel. *)
+Lemma drop_ws_upto_ws_prefix :
+  forall p n s,
+    is_blank p = true ->
+    drop_ws_upto (String.length p + n) (p ++ s) = drop_ws_upto n s.
+Proof.
+  induction p as [|c p IH]; intros n s Hp; [reflexivity|].
+  rewrite is_blank_cons in Hp. apply andb_true_iff in Hp as [Hc Hp].
+  cbn [String.length append Nat.add drop_ws_upto]. rewrite Hc. apply IH; exact Hp.
+Qed.
+
 Lemma length_append :
   forall a b, String.length (a ++ b) = String.length a + String.length b.
 Proof. induction a as [|c a IH]; intros b; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.

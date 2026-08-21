@@ -712,7 +712,7 @@ Lemma step_blank_finish :
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
 Proof.
   intros l st Hl.
-  induction st as [cur|lvl cur|f acc|done inner IH|dlen dcls ddone dinner IH
+  induction st as [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
                   |ls done inner IH|apend aind aap aslices|rind rlbl rval
                   |find flbl fdone finner IH|ppend pinner IH];
     intros Hsafe.
@@ -778,15 +778,15 @@ Lemma step_blank_lazy_false :
   forall l st, classify l = KBlank -> lazy_ok (snd (step l st)) = false.
 Proof.
   intros l st Hblank. induction st as
-    [cur|lvl cur|f acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
+    [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
     |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|ppend pinner IH].
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
   - unfold step. cbn [step_fuel]. rewrite Hblank. reflexivity.
   - destruct (fence_close f l) eqn:Hclose.
-    + rewrite (step_fence_close l f acc Hclose). reflexivity.
-    + rewrite (step_fence_content l f acc Hclose). reflexivity.
+    + rewrite (step_fence_close l f fnd acc Hclose). reflexivity.
+    + rewrite (step_fence_content l f fnd acc Hclose). reflexivity.
   - rewrite (step_quote_close l KBlank done inner [] (PPara [])
       Hblank eq_refl eq_refl eq_refl). reflexivity.
   - destruct (step l dinner) as [bs inner'] eqn:Hstep.
@@ -1388,7 +1388,12 @@ Proof.
   destruct (classify next) as [| |f|dl dc|q|lvl txt|m mc listrest|kap|flbl frest|rlbl rval|] eqn:Hclass.
   - congruence.
   - apply (Hdirect KThematic eq_refl eq_refl ltac:(discriminate) eq_refl).
-  - apply (Hdirect (KFence f) eq_refl eq_refl ltac:(discriminate) eq_refl).
+  - (* a fence records its column, so it does not open through open_kind *)
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_list_fence_close next f ls' (rev bs ++ done)%list
+                  inner' Hclass Hind')).
+    rewrite (parse_lines_step _ _ _ _ _ (step_fence_open next f Hclass)).
+    rewrite Hfin. reflexivity.
   - apply (Hdirect (KDiv dl dc) eq_refl eq_refl ltac:(discriminate) eq_refl).
   - rewrite (parse_lines_step _ _ _ _ _
                (step_list_quote_close next q ls' (rev bs ++ done)%list
