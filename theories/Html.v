@@ -185,7 +185,10 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
   | EmailLink addr =>
       "<a href=""mailto:" ++ escape_attr addr ++ """" ++ ats ++ ">"
       ++ escape addr ++ "</a>"
-  | RawInline _ _ => ""       (* TODO Phase 1 *)
+  (* Raw content in a format the renderer does not speak contributes
+     nothing at all, attributes included -- `html.ts:396-402` emits the
+     text only for `html` and never a wrapper element. *)
+  | RawInline fmt s => if String.eqb fmt "html" then s else ""
   | NonBreakingSpace => "&nbsp;"
   (* The curly quotes are the whole of what a quoted span renders as:
      djot.js wraps the children in the two characters and emits no
