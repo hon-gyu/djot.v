@@ -1,4 +1,4 @@
-.PHONY: build test shape baseline generated deep probe oracles clean
+.PHONY: build test shape baseline generated roundtrip deep probe oracles clean
 
 build:
 	dune build
@@ -26,22 +26,29 @@ generated: build
 	dune exec harness/main.exe -- --generated --verbose \
 	  --report generated-report.txt
 
-# the depth-3 enumeration (check/Deep.v), which dune does not build: it
-# is ~10 minutes, and it sits downstream of the parser, so leaving it in
-# the default build made every parser edit cost that.
+# `parse (render d) = d` over every canonical document the enumerator
+# accepts, in the extracted parser.  Depth 3 in ~5 seconds; this is the
+# one to run.
 #
-# It asserts `parse (render d) = d` over canonical documents, so the test
-# for needing it is not "did the parser change" but "can this change
-# alter parse on *canonical output*".  Two consequences worth keeping in
-# mind, both of which have saved a run:
-#   - theories/Html.v is not in its cone at all (it imports Ast, Parser,
-#     Render, Generate), so an HTML-only change never needs it;
-#   - a new scanner mode reachable only through a byte sequence that
-#     `needs_escape` prevents canonical rendering from emitting is
-#     invisible to it.  Spans are the worked example: `IClosed` is only
-#     ever followed by `(` or `[` in canonical output, never `{`.
-# So: run it when cb_ok, the enumeration, Render.v or the block parser
-# changes, and when an inline change is reachable from canonical source.
+# It replaces `make deep`, which checked the same statement in the Rocq
+# kernel and took ~20 minutes to do it.  What that cost bought was the
+# kernel certifying the computation -- and nothing depends on the result:
+# `gen_roundtrip_3` is an `Example`, not a lemma, and every other number
+# this project acts on already comes out of the same extraction.  Depths
+# 1 and 2 are still certified, by `Generate.gen_roundtrip_1` and
+# `gen_roundtrip_2`, which run on every build.
+#
+# Run it when `cb_ok`, the enumeration, `Render.v` or the block parser
+# changes.  An inline change reaches it only through `escape_str`, and
+# that is exercised at depth 1 -- what the depth buys is *nesting*, so
+# the trigger is behaviour that varies with how deep a container sits:
+# columns, offsets, container prefixes, `pad_state`.
+roundtrip: build
+	dune exec harness/main.exe -- --roundtrip 3
+
+# The same sweep in the kernel, kept for when certification is wanted
+# rather than an answer: ~20 minutes, and `make roundtrip` is the routine
+# check.  It also pins `accepted_counts`, which `--roundtrip` pins too.
 deep: build
 	rocq c -R _build/default/theories DjotV check/Deep.v
 	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \

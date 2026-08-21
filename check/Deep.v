@@ -1,33 +1,34 @@
 (* ai-disclosure: ai-generated *)
 
-(* The depth-3 half of `theories/Generate.v`, kept out of the dune build.
+(* The depth-3 half of `theories/Generate.v`, in the Rocq kernel.
 
-   Why it is here.  These two checks cost ~260s of a ~270s clean build,
-   and they are downstream of `Parser.v`, so every edit to the parser or
-   the AST paid for them.  Measured with `coqc -time`:
+   **`make roundtrip` is the routine check now.**  It runs this exact
+   sweep -- `Generate.rt_lhs` and `rt_rhs`, the same functions -- in the
+   extracted parser, at depth 3 in about five seconds, and it pins the
+   counts too.  This file does the same work in the kernel and takes
+   about twenty minutes, so run it when you want the *certification*
+   rather than the answer: before a release, or when the extraction
+   itself is in doubt.
+
+   Why the kernel is so much slower, and why the obvious fix is not one.
+   `vm_compute` normalizes the sweep and then `Qed` converts the proof
+   term again, so the cost looks like it should halve with a single
+   kernel-side cast.  Measured at depth 2 on 2026-08-21: 16.9s split
+   between tactic and `Qed`, 16.2s as one `vm_cast_no_check`.  A 4%
+   saving.  The conversion is the cost, and it is paid either way.
 
    | check              | vm_compute | Qed    |
    | ------------------ | ---------- | ------ |
    | `gen_roundtrip_3`  | 88.5s      | 87.6s  |
    | `accepted_counts`  | 42.1s      | 42.4s  |
-   | all of Generate.v besides | ~2s | |
 
-   Those were measured at 17140 accepted documents.  The reference leaves
-   took the pool to 22226 and the whole file to ~25 minutes, so budget
-   for that rather than for the table.
+   Those were measured at 17140 accepted documents; the pool is 24220 now
+   and the file takes ~20 minutes.
 
-   The `Qed` column is not a mistake: `vm_compute; reflexivity` runs the
-   conversion in the tactic, and the kernel runs it again from scratch
-   when it checks the proof term.  Both checks pay it twice, and there is
-   no way around that short of trusting the tactic.
-
-   This directory has no dune stanza, so dune ignores it.  Run it with
-   `make deep`, which compiles this file against the theory dune already
-   built.  It is not automatic: run it whenever `cb_ok`, the enumeration,
-   the renderer or the block parser changes.  The depth-1 and depth-2
-   roundtrips stay in `Generate.v` and do run on every build, so an
-   ordinary regression still surfaces in ~1s; what only depth 3 adds is
-   a container nested three deep. *)
+   This directory has no dune stanza, so dune ignores it.  The depth-1
+   and depth-2 roundtrips stay in `Generate.v` and do run on every build,
+   in ~17s, so the kernel still certifies the small instance on every
+   edit and only the deep sweep moved. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Ast Parser Render Generate.

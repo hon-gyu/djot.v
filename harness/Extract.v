@@ -39,5 +39,16 @@ Definition generated_docs (d : nat) : list string := map render_cb (accepted d).
 Definition generated : list string :=
   Eval vm_compute in (generated_docs 2 ++ map render_cb ordered_accepted)%list.
 
+(* The roundtrip sweep, as functions rather than as data.  This is the
+   one place the comment above does not apply: `--roundtrip` *does* need
+   to generate, because the check it runs is `parse (render d) = d` over
+   every canonical document, and forcing that list here would put the
+   depth-3 enumeration back into the build.  Extracted as functions it
+   costs the build nothing and the harness ~5s at depth 3, against the
+   ~20 minutes the same check costs the kernel in `check/Deep.v`.
+
+   `rt_lhs` and `rt_rhs` are `Generate.v`'s own, so the harness runs the
+   statement `gen_roundtrip_1` and `gen_roundtrip_2` prove rather than a
+   restatement of it. *)
 Extraction Language OCaml.
-Extraction "core.ml" convert generated.
+Extraction "core.ml" convert generated accepted rt_lhs rt_rhs render_cb.

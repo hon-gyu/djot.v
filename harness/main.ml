@@ -4,14 +4,17 @@
 
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
-          [--shape] [--report FILE] [--verbose] [TEST_FILES...]
+          [--shape] [--roundtrip [DEPTH]] [--report FILE] [--verbose]
+          [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
    two oracles against each other (and against expected output), ignoring
    the Gallina parser — used to seed .project/oracle-disagreements.md.
    --generated runs the enumerated corpus instead of the file corpus,
    engine against engine; see "Generated mode" below.
-   --shape compares block structure only; see "Block shape" below. *)
+   --shape compares block structure only; see "Block shape" below.
+   --roundtrip checks `parse (render d) = d` over the enumerated
+   documents and consults no oracle at all; see "Roundtrip" below. *)
 
 let root =
   (* harness runs from _build/default/harness; walk up to the repo root *)
@@ -306,6 +309,64 @@ let run_generated engines docs rbuf verbose =
   in
   any_err
 
+(*
+Roundtrip
+---------
+
+`parse (render d) = d` over every canonical document the enumerator
+accepts, which is the statement `Generate.gen_roundtrip_1` and
+`gen_roundtrip_2` prove in the kernel at depths 1 and 2.  Depth 3 used to
+be `check/Deep.v` and cost ~20 minutes, because the kernel evaluates the
+whole sweep and then evaluates it again to check the proof term.  Here it
+is ~5 seconds, on the same extracted parser every other mode runs.
+
+What that trades away is the kernel's certification of the computation.
+It buys back the only thing certification was for: nothing depends on
+`gen_roundtrip_3` -- it is an `Example`, not a lemma -- and every other
+piece of evidence this harness produces already rides on the extraction.
+The depths the kernel does certify, 1 and 2, stay where they are.
+
+`expected_counts` is the coverage witness `Deep.v`'s `accepted_counts`
+was: the fragment must grow when a construct lands, and a *shrinking*
+count is a regression that zero mismatches would not show.  Update the
+line when the fragment legitimately grows, exactly as before. *)
+
+let expected_counts = [ (1, 160); (2, 2020); (3, 24220) ]
+
+let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
+
+let run_roundtrip depth rbuf verbose =
+  let out fmt =
+    Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
+  in
+  let t0 = Unix.gettimeofday () in
+  let docs = Core.accepted (nat_of_int depth) in
+  let t1 = Unix.gettimeofday () in
+  let total = ref 0 and bad = ref 0 in
+  List.iter
+    (fun c ->
+      incr total;
+      if Core.rt_lhs c <> Core.rt_rhs c then begin
+        incr bad;
+        if !verbose || !bad <= 5 then
+          out "\n--- roundtrip mismatch %d\n%s\n" !bad (Core.render_cb c)
+      end)
+    docs;
+  let t2 = Unix.gettimeofday () in
+  out "\n== roundtrip: depth %d, %d documents, %.2fs enumerate, %.2fs check ==\n"
+    depth !total (t1 -. t0) (t2 -. t1);
+  out "parse (render d) = d   ok %6d   mismatch %4d\n" (!total - !bad) !bad;
+  let count_ok =
+    match List.assoc_opt depth expected_counts with
+    | None -> out "(no pinned count for depth %d)\n" depth; true
+    | Some n when n = !total -> true
+    | Some n ->
+      out "COUNT MOVED: expected %d accepted at depth %d, got %d\n" n depth
+        !total;
+      false
+  in
+  (!bad = 0) && count_ok
+
 let default_files () =
   let dir = root / "djot.js" / "test" in
   Sys.readdir dir |> Array.to_list
@@ -320,6 +381,7 @@ let () =
   let verbose = ref false in
   let baseline = ref false in
   let generated = ref false in
+  let roundtrip = ref None in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -335,6 +397,10 @@ let () =
     | "--shape" :: rest -> shape_mode := true; parse_args rest
     | "--verbose" :: rest -> verbose := true; parse_args rest
     | "--generated" :: rest -> generated := true; parse_args rest
+    | "--roundtrip" :: d :: rest when int_of_string_opt d <> None ->
+      roundtrip := Some (int_of_string d);
+      parse_args rest
+    | "--roundtrip" :: rest -> roundtrip := Some 3; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
   parse_args (List.tl (Array.to_list Sys.argv));
@@ -351,6 +417,14 @@ let () =
       close_out oc
     end
   in
+  (* the roundtrip consults no oracle and reads no corpus file, so it
+     answers before either is touched *)
+  (match !roundtrip with
+   | Some depth ->
+     let ok = run_roundtrip depth rbuf verbose in
+     finish_report ();
+     exit (if ok then 0 else 1)
+   | None -> ());
   if !generated then begin
     let any_err = run_generated !engines Core.generated rbuf verbose in
     finish_report ();
