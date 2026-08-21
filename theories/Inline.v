@@ -1107,6 +1107,13 @@ Definition raw_spec_ok (spec : string) : bool :=
   | EmptyString => false
   end.
 
+(* The same conditions on the format alone, which is what the canonical
+   view has in hand.  `raw_spec_ok (String eqchar fmt)` is this, and the
+   scan inversion is where the two meet. *)
+Definition raw_fmt_ok (fmt : string) : bool :=
+  (nonempty_str fmt && no_ws fmt && no_char lbrace fmt
+   && no_char rbrace fmt && no_char tick fmt)%bool.
+
 Definition raw_format (spec : string) : string :=
   match spec with String _ rest => rest | EmptyString => EmptyString end.
 
@@ -1161,7 +1168,12 @@ Inductive cinline : Type :=
      raw source rather than inline content -- and the kind is not a field
      because `auto_node` computes it from the region, exactly as the
      scanner does. *)
-  | CIAuto (s : string).
+  | CIAuto (s : string)
+  (* raw content in a named format, which is a verbatim plus its spec.
+     The format is a field because it is source the scanner reads, not
+     something computed from the content -- the one way this differs from
+     `CIAuto`. *)
+  | CIRaw (fmt s : string).
 
 Fixpoint ci_size (ci : cinline) : nat :=
   let go :=
@@ -1171,7 +1183,7 @@ Fixpoint ci_size (ci : cinline) : nat :=
       | c :: rest => ci_size c + go rest
       end in
   match ci with
-  | CIStr _ | CIVerb _ | CINote _ | CIAuto _ => 1
+  | CIStr _ | CIVerb _ | CINote _ | CIAuto _ | CIRaw _ _ => 1
   | CIDelim _ kids | CILink _ kids _ | CIRef _ kids _ => S (go kids)
   end.
 
@@ -1207,7 +1219,7 @@ Qed.
 
 Lemma ci_size_pos : forall ci, 0 < ci_size ci.
 Proof.
-  intros [s|s|k kids|img kids dst|img kids label|label|s]; cbn [ci_size]; lia.
+  intros [s|s|k kids|img kids dst|img kids label|label|s|f s]; cbn [ci_size]; lia.
 Qed.
 
 (* The last byte of `s`, or `prev` when `s` is empty. *)
@@ -1245,6 +1257,7 @@ Fixpoint ci_src (ci : cinline) : string :=
       (bracket_open img ++ (go kids ++ ref_close label EmptyString))%string
   | CINote label => note_text label
   | CIAuto s => auto_text s
+  | CIRaw fmt s => raw_text fmt s
   end.
 
 Fixpoint ci_text (cis : list cinline) : string :=
@@ -1322,6 +1335,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
   | CIRef img kids label => mk (bnode img (go kids) (Reference label))
   | CINote label => mk (FootnoteReference label)
   | CIAuto s => mk (auto_node s)
+  | CIRaw fmt s => mk (RawInline fmt s)
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
@@ -1412,6 +1426,9 @@ Definition ci_pair_ok (a b : cinline) : bool :=
   | CIStr _, CIStr _ => false
   | CIVerb _, CIVerb _ => false
   | CIVerb _, CIDelim k _ => negb (Ascii.eqb (dchar k) eqchar)
+  (* raw content opens with a backtick run of its own, so it merges with
+     a verbatim before it exactly as a second verbatim would *)
+  | CIVerb _, CIRaw _ _ => false
   | _, _ => true
   end.
 
@@ -1456,7 +1473,19 @@ Fixpoint ci_ok (ci : cinline) : bool :=
      tests claims: a region that fails them is not an autolink but the
      literal text of its own brackets, which is a `CIStr` instead. *)
   | CIAuto s => (auto_body_ok s && auto_kind_ok s)%bool
+  (* The content is a verbatim's, spelled by the same machinery and so
+     under the same conditions.  The format is what `pattRawAttribute`
+     accepts: nonempty and free of whitespace, either brace and the
+     backtick -- and unescapable, since the mode reads it raw. *)
+  | CIRaw fmt s =>
+      (nonempty_str s && verb_content_ok s && raw_fmt_ok fmt)%bool
   end.
+
+Lemma ci_ok_raw :
+  forall fmt s,
+    ci_ok (CIRaw fmt s)
+    = (nonempty_str s && verb_content_ok s && raw_fmt_ok fmt)%bool.
+Proof. reflexivity. Qed.
 
 Lemma ci_ok_auto :
   forall s, ci_ok (CIAuto s) = (auto_body_ok s && auto_kind_ok s)%bool.
@@ -3832,7 +3861,7 @@ Lemma ci_str_tail_sep :
     text_sep_ok s rest = true.
 Proof.
   intros s [|r rest] H Hs; [unfold text_sep_ok; destruct s; reflexivity|].
-  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel|label|a];
+  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
     [|unfold text_sep_ok; destruct s; reflexivity ..].
   unfold cis_ok in H. cbn [ci_sep_ok ci_pair_ok] in H.
   repeat rewrite andb_false_r in H. discriminate.
@@ -4545,6 +4574,40 @@ Proof.
     rewrite append_assoc. reflexivity.
 Qed.
 
+(* A raw spec accumulates the same way an autolink's region does, and
+   under the same kind of condition: the format's own exclusions. *)
+Lemma iscan_raw_format :
+  forall fmt acc txt o,
+    (no_ws fmt && no_char lbrace fmt && no_char rbrace fmt
+     && no_char tick fmt)%bool = true ->
+    nonempty_str acc = true ->
+    iscan_str fmt (IRaw acc txt o) = IRaw (acc ++ fmt)%string txt o.
+Proof.
+  induction fmt as [|c fmt IH]; intros acc txt o Hf Hacc.
+  - rewrite append_empty_r. reflexivity.
+  - apply andb_true_iff in Hf as [Hf Htk].
+    apply andb_true_iff in Hf as [Hf Hrb].
+    apply andb_true_iff in Hf as [Hws Hlb].
+    cbn [no_ws no_char] in Hws, Hlb, Hrb, Htk.
+    apply andb_true_iff in Hws as [Hwsc Hws].
+    apply andb_true_iff in Hlb as [Hlbc Hlb].
+    apply andb_true_iff in Hrb as [Hrbc Hrb].
+    apply andb_true_iff in Htk as [Htkc Htk].
+    apply negb_true_iff in Hwsc. apply negb_true_iff in Hlbc.
+    apply negb_true_iff in Hrbc. apply negb_true_iff in Htkc.
+    cbn [iscan_str istep]. unfold iraw_step.
+    rewrite Hrbc. cbn [andb].
+    destruct acc as [|x acc']; [discriminate|].
+    unfold raw_stop. rewrite Hlbc.
+    replace (is_ws c) with false
+      by (unfold is_ws_nl in Hwsc; apply orb_false_iff in Hwsc as [H1 _];
+          rewrite H1; reflexivity).
+    unfold is_tick. rewrite Htkc. cbn [orb].
+    rewrite (IH (String x acc' ++ one c)%string txt o)
+      by (first [rewrite Hws, Hlb, Hrb, Htk; reflexivity | reflexivity]).
+    rewrite append_assoc. reflexivity.
+Qed.
+
 (* ...and the `>` that resolves it, which is the only byte the mode
    treats as anything but region. *)
 Lemma iscan_auto_text :
@@ -4574,6 +4637,49 @@ Proof.
   cbn [one append iscan_str istep]. unfold iauto_step.
   change (Ascii.eqb gt gt) with true.
   rewrite Hbody, Hkind. reflexivity.
+Qed.
+
+(* The raw span, end to end: the verbatim's own source reaches the
+   closing run, the `{` enters the mode, the format accumulates and the
+   `}` decides the node.  `verb_content_ok` is what the verbatim half
+   needs and `raw_fmt_ok` the spec half; the `=` is where they meet. *)
+Lemma iscan_raw_text :
+  forall fmt v tail txt prev o,
+    nonempty_str v = true -> verb_content_ok v = true ->
+    raw_fmt_ok fmt = true ->
+    iscan_str (raw_text fmt v ++ tail) (IText false txt prev o)
+    = iscan_str tail
+        (IText false EmptyString (Some rbrace)
+           (oemit (mk (RawInline fmt v)) (flush_text txt o))).
+Proof.
+  intros fmt v tail txt prev o Hne Hvok Hfmt.
+  unfold raw_fmt_ok in Hfmt.
+  apply andb_true_iff in Hfmt as [Hfmt Htk].
+  apply andb_true_iff in Hfmt as [Hfmt Hrb].
+  apply andb_true_iff in Hfmt as [Hfmt Hlb].
+  apply andb_true_iff in Hfmt as [Hfne Hws].
+  unfold raw_text. rewrite append_assoc, iscan_str_app.
+  rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
+  (* the `{` after the closing run enters the mode... *)
+  cbn [append iscan_str istep].
+  rewrite nat_eqb_refl. cbn [vkind_verb andb].
+  change (Ascii.eqb lbrace lbrace) with true. cbn [andb].
+  change (is_tick lbrace) with false. cbn [andb].
+  rewrite trim_verb_pad by exact Hvok.
+  (* ...the `=` makes it a candidate, the format accumulates... *)
+  unfold istep at 1. unfold iraw_step.
+  change (Ascii.eqb "="%char rbrace) with false. cbn [andb].
+  change (negb (Ascii.eqb "="%char eqchar)) with false.
+  rewrite append_assoc, iscan_str_app.
+  change ((EmptyString ++ one "="%char)%string) with (one eqchar).
+  rewrite (iscan_raw_format fmt (one eqchar) v (flush_text txt o))
+    by (first [rewrite Hws, Hlb, Hrb, Htk; reflexivity | reflexivity]).
+  (* ...and the `}` decides the node. *)
+  cbn [one iscan_str istep append]. unfold iraw_step.
+  change (Ascii.eqb rbrace rbrace) with true.
+  unfold raw_spec_ok. cbn [append].
+  rewrite Ascii.eqb_refl, Hfne. cbn [andb].
+  unfold raw_format. reflexivity.
 Qed.
 
 Lemma ref_close_app :
@@ -4610,7 +4716,7 @@ Lemma after_verb_source_nontick :
 Proof.
   intros v [|c rest] cl Hok Hcl Hct Hnx.
   - cbn [ci_text append]. split; [assumption|split; assumption].
-  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a].
+  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
     + pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
       cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
       cbn [ci_text ci_src]. split; [|split].
@@ -4656,6 +4762,10 @@ Proof.
       split; [reflexivity|split; reflexivity].
     + cbn [ci_text ci_src auto_text append starts_tick after_verb_next].
       split; [reflexivity|split; reflexivity].
+    + (* raw content opens with a backtick run, and the pair rule is what
+         keeps it away from a verbatim *)
+      unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
+      repeat rewrite andb_false_r in Hok. discriminate.
 Qed.
 
 Lemma after_verb_rest_nontick :
@@ -4672,7 +4782,7 @@ Proof.
   destruct (after_verb_source_nontick v (c :: rest) (one rbrace) Hok
               eq_refl eq_refl eq_refl)
     as [Hne [Htick Hnx]].
-  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a].
+  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
   - pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
     cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
     cbn [ci_text ci_src]. split; [|split].
@@ -4711,6 +4821,8 @@ Proof.
   - cbn [ci_text ci_src auto_text append starts_tick nonempty_str
          after_verb_next].
     split; [reflexivity|split; reflexivity].
+  - unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
+    repeat rewrite andb_false_r in Hok. discriminate.
 Qed.
 
 Lemma orb_false_r_true : forall b, (b || false)%bool = true -> b = true.
@@ -4757,7 +4869,7 @@ Proof.
   - cbn [ci_text ci_inlines map append nonempty] in Hne |- *.
     apply Hflush. rewrite <- Hne. destruct (nonempty before), (nonempty_str txt);
       reflexivity.
-  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a].
+  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -5075,6 +5187,45 @@ Proof.
         rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
         rewrite Erest. reflexivity.
+    + (* raw content: the same leaf shape again, with the verbatim's own
+         conditions in front of the spec's *)
+      pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
+      rewrite ci_ok_raw in Hraw.
+      apply andb_true_iff in Hraw as [Hraw Hfmt].
+      apply andb_true_iff in Hraw as [Hrne Hrok].
+      assert (Hrestlt :
+        ltof (list cinline) cis_size rest (CIRaw rf rv :: rest)).
+      { unfold ltof. cbn [cis_size ci_size]. lia. }
+      assert (Hstep : forall pre,
+        nonempty pre = true ->
+        exists p,
+          iscan_str (ci_text rest ++ cl)
+            (IText false EmptyString (Some rbrace) (oemit_all pre O))
+          = iscan_str cl
+              (IText false EmptyString p
+                (oemit_all (ci_inlines rest)
+                  (flush_text EmptyString (oemit_all pre O))))).
+      { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
+          (Some rbrace) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+        rewrite Hpre. reflexivity. }
+      destruct txt as [|x txt'].
+      * destruct (Hstep (before ++ [ci_ast (CIRaw rf rv)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
+        rewrite append_assoc, iscan_raw_text by assumption.
+        rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite Erest. reflexivity.
+      * destruct (Hstep
+                    (before ++ [mk (Str (String x txt')); ci_ast (CIRaw rf rv)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
+        rewrite append_assoc, iscan_raw_text by assumption.
+        rewrite oemit_all_app in Erest.
+        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite Erest. reflexivity.
 Qed.
 
 (* The delimiter instance, which is what the two callers below use. *)
@@ -5176,7 +5327,7 @@ Proof.
     rewrite ifinish_text, flush_text_flat. reflexivity.
   - assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
     { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a].
+    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -5338,6 +5489,25 @@ Proof.
         rewrite <- List.app_assoc. reflexivity.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
+    + pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
+      rewrite ci_ok_raw in Hraw.
+      apply andb_true_iff in Hraw as [Hraw Hfmt].
+      apply andb_true_iff in Hraw as [Hrne Hrok].
+      cbn [ci_text ci_inlines map].
+      change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
+      rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
+                 (OState out []) Hrne Hrok Hfmt).
+      destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+      pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+      injection Eflat as Eout Estk. subst out' stk'.
+      cbn [oemit os_out os_stk].
+      change (mk (RawInline rf rv)) with (ci_ast (CIRaw rf rv)).
+      rewrite (IH rest Hrestlt (Some rbrace) EmptyString
+        (ci_ast (CIRaw rf rv) :: flush_out txt out)).
+      * cbn [flush_out nonempty_str ci_ast List.rev].
+        rewrite <- List.app_assoc. reflexivity.
+      * exact (cis_ok_tail _ _ Hok).
+      * reflexivity.
 Qed.
 
 (* The other half of what a canonical line owes the paragraph: it leaves
@@ -5357,7 +5527,7 @@ Proof.
   destruct cis as [|c rest]; [reflexivity|].
   assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
   { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a].
+  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
   - cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
@@ -5460,6 +5630,18 @@ Proof.
     cbn [ci_text]. change (ci_src (CIAuto a)) with (auto_text a).
     rewrite (iscan_auto_text a (ci_text rest) txt prev'
                (OState out []) Hbody Hkind).
+    destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
+    pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+    injection Eflat as Eout Estk. subst out' stk'.
+    cbn [oemit os_out os_stk].
+    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
+  - pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
+    rewrite ci_ok_raw in Hraw.
+    apply andb_true_iff in Hraw as [Hraw Hfmt].
+    apply andb_true_iff in Hraw as [Hrne Hrok].
+    cbn [ci_text]. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
+    rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
+               (OState out []) Hrne Hrok Hfmt).
     destruct (flush_text txt (OState out [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.
@@ -6271,16 +6453,19 @@ Fixpoint inline_text (il : inline) : string :=
   (* both kinds render as their own region: which one it is was computed
      from that region and is recovered by computing it again *)
   | UrlLink s | EmailLink s => auto_text s
+  (* raw content is its verbatim plus the spec that named its format *)
+  | RawInline fmt s => raw_text fmt s
   | _ => EmptyString
   end.
 
 Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
 Proof.
   fix IH 1. intro ci.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
     [reflexivity|reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
-     destruct (auto_email a); reflexivity].
+     destruct (auto_email a); reflexivity
+    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity].
   - destruct k; cbn [ci_ast ci_src dnode node_contents inline_text].
     all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
       induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
@@ -6323,10 +6508,11 @@ Lemma inline_lines_ci_ast :
     = inline_lines rest (cur ++ ci_src ci).
 Proof.
   intros ci rest cur.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
     [reflexivity|reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
-     destruct (auto_email a); reflexivity].
+     destruct (auto_email a); reflexivity
+    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity].
   - rewrite ci_ast_delim, <- inline_text_ci_ast.
     destruct k; reflexivity.
   - rewrite ci_ast_link, <- inline_text_ci_ast, ci_ast_link.
@@ -7356,6 +7542,46 @@ Example raw_pair_exclusion :
   ci_sep_ok [CIVerb "x"; CIDelim DMark [CIStr "a"]] = false /\
   ci_sep_ok [CIVerb "x"; CIDelim DEmph [CIStr "a"]] = true.
 Proof. vm_compute. split; reflexivity. Qed.
+
+(* The canonical leaf.  Unlike the autolink's, the format is a field: the
+   scanner reads it as source rather than computing it from the
+   content. *)
+Example raw_canonical_leaf :
+  ci_line [CIRaw "html" "<br>"] = "`<br>`{=html}" /\
+  ci_inlines [CIRaw "html" "<br>"] = [mk (RawInline "html" "<br>")].
+Proof. vm_compute. split; reflexivity. Qed.
+
+(* The verbatim half is spelled by the verbatim machinery, so content
+   that would close its own fence widens it -- and the spec still lands
+   on the closing run. *)
+Example raw_canonical_widens_its_fence :
+  ci_line [CIRaw "html" "a`b"] = "``a`b``{=html}" /\
+  parse_inline_line (ci_line [CIRaw "html" "a`b"])
+    = ci_inlines [CIRaw "html" "a`b"].
+Proof. vm_compute. split; reflexivity. Qed.
+
+(* The format is read raw, so what it may not hold it may not escape
+   either. *)
+Example raw_canonical_format_conditions :
+  ci_ok (CIRaw "" "x") = false /\
+  ci_ok (CIRaw "a b" "x") = false /\
+  ci_ok (CIRaw "a}b" "x") = false /\
+  ci_ok (CIRaw "a`b" "x") = false /\
+  ci_ok (CIRaw "html" "x") = true.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+
+(* And it merges with a verbatim before it exactly as a second verbatim
+   would, which is the second pair the construct costs. *)
+Example raw_pair_after_verbatim :
+  ci_sep_ok [CIVerb "x"; CIRaw "html" "y"] = false /\
+  ci_sep_ok [CIRaw "html" "y"; CIVerb "x"] = true.
+Proof. vm_compute. split; reflexivity. Qed.
+
+Example raw_canonical_roundtrip_nested :
+  parse_inline_line
+    (ci_line [CIDelim DEmph [CIStr "a"; CIRaw "html" "<br>"]])
+  = ci_inlines [CIDelim DEmph [CIStr "a"; CIRaw "html" "<br>"]].
+Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 
 (*
 The empty-span exclusion
