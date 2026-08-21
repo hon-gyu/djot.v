@@ -232,32 +232,22 @@ List uniformity applies
 
 `Parser.list_uniformity` is what `cb_ok`'s list case now asks for
 directly: `item_ok` on the item's rendering, and nothing about what is
-inside it.  So the fragment covers nested lists, and the checks below
-record how much that is worth and that the hypothesis is satisfiable on
-renderings `cb_ok` does not itself constrain.
+inside it.  So the fragment covers nested lists and code blocks, and the
+checks below record how much that is worth and that the hypothesis is
+satisfiable on renderings `cb_ok` does not itself constrain.
 *)
 
-(* No code/raw block anywhere inside -- fence content is verbatim, which
-   is what `run_pad_safe`, `item_ok`'s third conjunct, rules out.  A
-   nested list is fine, which is the point. *)
-Fixpoint no_fence (cb : cblock) : bool :=
-  let go := fix go (cs : list cblock) : bool :=
-    match cs with [] => true | c :: rest => (no_fence c && go rest)%bool end in
-  match cb with
-  | CPara _ | CThematic | CHeading _ _ | CRef _ _ => true
-  | CCode _ _ => false
-  | CList _ _ items => forallb (forallb no_fence) items
-  | CQuote inner | CDiv inner => go inner
-  end.
+(* A code block used to be excluded here, because fence content was
+   stored verbatim and a pad in front of it was not a shift.  The fence
+   records its own column now, so `run_safe` accepts one: an item may
+   contain a code block, and need only not *end* inside an open one,
+   which no canonical rendering does. *)
+Definition ok_content (c : cblock) : bool := item_ok bullet (cb_lines c).
 
-Definition ok_content (c : cblock) : bool :=
-  (no_fence c && item_ok bullet (cb_lines c))%bool.
-
-(* Every fence-free generated block's rendering, plus every two-block
-   sequence built from them.  The sequences are the informative half:
-   `item_ok` on a sequence is not implied by `item_ok` on each block,
-   since the run_pad_safe scan threads state across the blank between
-   them. *)
+(* Every generated block's rendering, plus every two-block sequence built
+   from them.  The sequences are the informative half: `item_ok` on a
+   sequence is not implied by `item_ok` on each block, since the
+   run_safe scan threads state across the blank between them. *)
 Definition item_pool : list (list string) :=
   (map cb_lines (filter ok_content (enum_cblock 2))
    ++ map (fun cs => sep_lines (map cb_lines cs))
@@ -270,6 +260,23 @@ Proof. vm_compute. reflexivity. Qed.
    whose items are themselves lists. *)
 Example nested_list_accepted :
   cb_ok (CList LKBullet Tight [[CList LKBullet Tight [[cpara ["a"]]]]]) = true.
+Proof. reflexivity. Qed.
+
+(* ...and what the fence's column bought: an item may contain a code
+   block, at any depth.  The pad the marker puts in front of the item's
+   lines now reaches the fence as a shift of its recorded column rather
+   than as content. *)
+Example item_code_accepted :
+  cb_ok (CList LKBullet Tight [[CCode "" ["x"]]]) = true.
+Proof. reflexivity. Qed.
+
+Example item_para_then_code_accepted :
+  cb_ok (CList LKBullet Loose [[cpara ["a"]; CCode "" ["x"]]]) = true.
+Proof. reflexivity. Qed.
+
+Example nested_item_code_accepted :
+  cb_ok (CList LKBullet Tight
+           [[CList LKBullet Tight [[CCode "" ["x"]]]]]) = true.
 Proof. reflexivity. Qed.
 
 (* The counts are pinned in `check/Deep.v` rather than here -- the

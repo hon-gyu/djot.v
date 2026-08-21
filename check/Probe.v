@@ -294,10 +294,12 @@ Compute fails 40 (fun s => holds (ord_items_ok (alpha_str false) RightPeriod s 3
 
 (* The real form, and the one to copy: a *conditional* statement, where
    `guarded` separates the discards out.  Read the tally first.  A shift
-   of the offset and a pad of the line agree wherever `pad_safe` holds,
-   which is `step_pad`. *)
+   of the offset and a pad of the line agree wherever `pad_safe` and
+   `fence_cols_ok` hold, which is `step_pad`.  Dropping the second
+   conjunct is a live probe of why it is there: a fence open at a column
+   left of the pad strips too little. *)
 Compute report show_sl
-  (fun p => guarded (pad_safe (fst p))
+  (fun p => guarded (pad_safe (fst p) && fence_cols_ok 1 (fst p))
               (out_eqb (step (" " ++ snd p) (fst p))
                        (step_at 1 (snd p) (fst p))))
   sl_pool.

@@ -174,6 +174,15 @@ Definition fence_close (f : fence) (l : string) : bool :=
   let (n, r) := count_run (f_ch f) (drop_leading_ws l) in
   Nat.leb (f_len f) n && is_blank r.
 
+(* The close test reads the line through `drop_leading_ws`, so a blank
+   prefix in front of it is invisible -- a closer closes at any column. *)
+Lemma fence_close_ws_prefix :
+  forall f p l, is_blank p = true -> fence_close f (p ++ l) = fence_close f l.
+Proof.
+  intros f p l Hp. unfold fence_close.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
 (* Fenced divs.  Two recognizers, not one, because the opener and the
    closer are different patterns in djot.js: `pattDivFenceStart` plus
    `pattDivFenceEnd` (block.ts:55-56) lets the opener carry a class,

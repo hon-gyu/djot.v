@@ -671,7 +671,7 @@ condition has to reach every line of the contents, nested ones included.
 But it cannot be lexical either, because of the code-block exception:
 inside an open fence a `:::` line is content, not a closer, so the
 condition depends on the state each line is reached in.  That makes it a
-run predicate of exactly the shape `run_pad_safe` has -- which is worth
+run predicate of exactly the shape `run_safe` has -- which is worth
 recording, since the container-uniformity proposal predicted a div would
 need no such thing (.project/260809.container-uniformity.md).
 

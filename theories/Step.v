@@ -1956,13 +1956,47 @@ length, and every descent consumes exactly that much more.  So padding
 needs no theorem of its own -- it reduces to the offset, and
 `step_fuel_shift` does the rest.
 
-The one state that notices is `PFence`.  It strips its own column from
-every content line, and the two sides of this equation carry the *same*
-state -- so the padded side is asked to strip a column that was recorded
-before the pad existed, and strips `String.length p` too few.  `pad_safe`
-names that exclusion; it stops at `PQuote` because a quote prefix absorbs
-the pad before handing down its residue.  (`step_fuel_shift` has no such
-problem: it moves the recorded column too.) *)
+An open fence pays for it with a side condition rather than an
+exclusion.  It strips its own column from every content line, and the two
+sides here carry the *same* state, so the padded side strips from a line
+that is `String.length p` characters longer while subtracting the same
+column: the two agree exactly when the fence sits at or right of where the
+padded line starts.  `fence_cols_ok` is that condition, and `pad_safe` is
+what is left once the fence no longer needs excluding.  Both stop at
+`PQuote`, because a quote prefix absorbs the pad before handing down its
+residue. *)
+
+(* Every fence open in this state sits at column `off` or further right.
+   `step_fuel_pad` asks it of `String.length p + off`, and the two ways of
+   supplying it are the two ways the lemma is used: at the top level `off`
+   is 0 and `pad_state` has moved every column by `String.length p`
+   (`fence_cols_ok_pad_state`), or there is no fence and it is vacuous. *)
+Fixpoint fence_cols_ok (off : nat) (st : pstate) : bool :=
+  match st with
+  | PFence _ ind _ => Nat.leb off ind
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner =>
+      fence_cols_ok off inner
+  | _ => true
+  end.
+
+(* Column zero is left of everything, which is what makes the condition
+   free at `step`. *)
+Lemma fence_cols_ok_0 : forall st, fence_cols_ok 0 st = true.
+Proof.
+  induction st as [| | | |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|ppend pinner IH];
+    cbn [fence_cols_ok]; try reflexivity; assumption.
+Qed.
+
+Lemma fence_cols_ok_pad_state :
+  forall k off st, fence_cols_ok (k + off) (pad_state k st) = fence_cols_ok off st.
+Proof.
+  intros k off st.
+  induction st as [| |f ind acc| |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|ppend pinner IH];
+    cbn [pad_state fence_cols_ok]; try reflexivity; try assumption.
+  destruct (Nat.leb off ind) eqn:E.
+  - apply Nat.leb_le. apply Nat.leb_le in E. lia.
+  - apply Nat.leb_gt. apply Nat.leb_gt in E. lia.
+Qed.
 
 (* A lazy line's pad is dropped wherever the line comes to rest -- the
    reason feed_lazy strips leading whitespace at all. *)
@@ -1980,31 +2014,54 @@ Qed.
 
 Fixpoint pad_safe (st : pstate) : bool :=
   match st with
-  | PFence _ _ _ => false
   (* PList and PDiv both hand the line down unchanged, so a pad reaches
      whatever they contain; PQuote strips its prefix, so it never does. *)
   | PList _ _ inner => pad_safe inner
   | PDiv _ _ _ inner => pad_safe inner
   | PFoot _ _ _ inner => pad_safe inner
   | PPend _ inner => pad_safe inner
-  (* PAttr is excluded for a different reason than PFence, and the two
-     lemmas this predicate guards want different things.  A pad is
-     invisible to it (`step_fuel_pad` would go through), but a *blank*
-     line inside an open spec is a continuation line rather than a
+  (* PAttr is the whole of the exclusion now, and it is not
+     `step_fuel_pad` that wants it: a pad is invisible to a spec, but a
+     *blank* line inside an open one is a continuation line rather than a
      close, so `step_blank_finish` fails.  Nothing a canonical rendering
-     emits opens a spec, so one predicate excluding both still costs
-     nothing. *)
+     emits opens a spec. *)
   | PAttr _ _ _ _ => false
   | _ => true
   end.
+
+(* The other half of what `pad_safe` used to be, and the reason the two
+   were worth separating: "a blank line closes whatever this state has
+   open".  A spec fails it because a blank inside one is a continuation
+   line, and a fence because a blank inside one is content.  Where
+   `pad_safe` is asked of *every* line of a run, this is asked only of the
+   state a run ends in -- so an item may contain a code block and still
+   satisfy it, which is exactly the case the fence exclusion used to
+   cost.  It is strictly stronger than `pad_safe`, but nothing needs to
+   say so: `run_safe` carries both, each where it is wanted. *)
+Fixpoint blank_safe (st : pstate) : bool :=
+  match st with
+  | PFence _ _ _ => false
+  | PAttr _ _ _ _ => false
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner =>
+      blank_safe inner
+  | _ => true
+  end.
+
+Lemma fence_cols_ok_pad :
+  forall k st, fence_cols_ok k (pad_state k st) = true.
+Proof.
+  intros k st. rewrite <- (Nat.add_0_r k) at 1.
+  rewrite fence_cols_ok_pad_state. apply fence_cols_ok_0.
+Qed.
 
 Lemma step_fuel_pad :
   forall n p off l st,
     is_blank p = true ->
     pad_safe st = true ->
+    fence_cols_ok (String.length p + off) st = true ->
     step_fuel n off (p ++ l) st = step_fuel n (String.length p + off) l st.
 Proof.
-  induction n as [|n IH]; intros p off l st Hp Hsafe; [reflexivity|].
+  induction n as [|n IH]; intros p off l st Hp Hsafe Hcol; [reflexivity|].
   (* natural subtraction truncates, so this needs the residue to be no
      longer than the line -- which classify always gives *)
   assert (Hc : forall rest, String.length rest <= String.length l ->
@@ -2059,7 +2116,15 @@ Proof.
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. } }
-  { discriminate Hsafe. }
+  (* inside a fence: the close test reads through the pad, and the
+     content line strips the pad along with the columns the fence's own
+     column asks for -- which is what `fence_cols_ok` leaves room for *)
+  { cbn [step_fuel]. rewrite (fence_close_ws_prefix f p l Hp).
+    destruct (fence_close f l); [reflexivity|].
+    cbn [fence_cols_ok] in Hcol. apply Nat.leb_le in Hcol.
+    replace (fnd - off)
+      with (String.length p + (fnd - (String.length p + off))) by lia.
+    rewrite (drop_ws_upto_ws_prefix p _ l Hp). reflexivity. }
   { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc mr|kap|flbl frest|rlbl rval|] eqn:E;
       try reflexivity.
@@ -2085,19 +2150,19 @@ Proof.
          cbn [close_reopen open_kind];
          rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
   (* div: the pad is invisible to the close test and passes through *)
-  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
     rewrite (div_close_ws_prefix p dlen l Hp).
     destruct (negb (in_fence dinner) && div_close dlen l)%bool; [reflexivity|].
-    rewrite (IH p off l dinner Hp Hsafe). reflexivity. }
-  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+    rewrite (IH p off l dinner Hp Hsafe Hcol). reflexivity. }
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc mr|kap|flbl frest|rlbl rval|] eqn:E.
-    { rewrite (IH p off l inner Hp Hsafe). reflexivity. }
+    { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
     all: rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
     all: destruct (Nat.ltb (ls_indent ls) (String.length p + off + indent_of l))
            eqn:Elt;
-         try (rewrite (IH p off l inner Hp Hsafe); reflexivity).
+         try (rewrite (IH p off l inner Hp Hsafe Hcol); reflexivity).
     { reflexivity. }
     { reflexivity. }
     { reflexivity. }
@@ -2126,27 +2191,27 @@ Proof.
     destruct (Nat.ltb rind (String.length p + off + indent_of l));
       [destruct (nonempty_str (drop_leading_ws l) && no_ws (drop_leading_ws l))%bool;
        [reflexivity|]|];
-      rewrite (IH p off l (PPara []) Hp eq_refl); reflexivity. }
+      rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
   (* footnote definition: padding shifts its opener and is passed through
      recursively to whichever state owns the current body line *)
-  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
     rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l).
-    { rewrite (IH p off l finner Hp Hsafe). reflexivity. }
+    { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
     { rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       destruct (Nat.ltb find (String.length p + off + indent_of l)).
-      { rewrite (IH p off l finner Hp Hsafe). reflexivity. }
-      { rewrite (IH p off l (PPara []) Hp eq_refl). reflexivity. } } }
+      { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
+      { rewrite (IH p off l (PPara []) Hp eq_refl eq_refl). reflexivity. } } }
   (* pending attributes: transparent *)
-  { cbn [pad_safe] in Hsafe. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) eqn:E;
       try (destruct (is_idle pinner);
            [unfold open_attr; rewrite (indent_of_ws_prefix p l Hp),
               (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)); reflexivity|]);
-      rewrite (IH p off l pinner Hp Hsafe); reflexivity. }
+      rewrite (IH p off l pinner Hp Hsafe Hcol); reflexivity. }
 Qed.
 
 (** A blank prefix in front of a line is exactly a shift of its starting
@@ -2154,10 +2219,12 @@ Qed.
 Lemma step_pad :
   forall p l st,
     is_blank p = true -> pad_safe st = true ->
+    fence_cols_ok (String.length p) st = true ->
     step (p ++ l) st = step_at (String.length p) l st.
 Proof.
-  intros p l st Hp Hsafe. unfold step, step_at.
-  rewrite (step_fuel_pad _ p 0 l st Hp Hsafe), Nat.add_0_r.
+  intros p l st Hp Hsafe Hcol. unfold step, step_at.
+  rewrite (step_fuel_pad _ p 0 l st Hp Hsafe
+             ltac:(rewrite Nat.add_0_r; exact Hcol)), Nat.add_0_r.
   apply step_fuel_enough_off. rewrite length_append. lia.
 Qed.
 

@@ -461,6 +461,37 @@ that genuinely needs "this row exists" -- `dstyle_of`, where a
 switched-off row is really not found -- kept its hypothesis and pays for
 it in exactly one lemma.
 
+### The same question asked of a definition, not a condition
+
+**What happened.** A code fence had to record the column it opened at,
+and there were two spellings: absolute (`off + indent_of l`, as every
+other column in the state) or relative to the offset the line arrives
+at. They compute the same thing on every input the container prefixes
+can produce, so no probe distinguishes them. Two theorems do.
+`step_fuel_shift` moves the offset and every recorded column together;
+`step_fuel_pad` pads the line and keeps the state. The relative spelling
+makes the composite pad-and-shift statement -- the one the list-item
+theorem actually uses -- true with *no* side condition, which is the
+argument that nearly settled it. It also makes `step_fuel_shift` false,
+and `step_fuel_shift` quantifies over all states and is what every
+descent goes through. The absolute spelling instead needs one side
+condition (`fence_cols_ok`) on `step_fuel_pad`, whose entire user chain
+is `step_pad` and then `step_pad_shift`, and each discharges it in a
+line.
+
+**General form.** The lesson above is about choosing a *condition*; this
+is the same trade asked of a *definition*, and it comes up whenever a
+new field is constrained by more than one standing theorem. The two
+spellings are extensionally equal, so the decision cannot be made by
+computing -- only by asking which theorem each one puts a hypothesis on,
+and how far that hypothesis has to travel from there.
+
+**What to do instead.** When a definition has two spellings that agree
+on reachable inputs, do not pick the one that makes the nearest theorem
+cheapest. List the theorems that quantify over all states, check which
+spelling each one needs, and put the side condition on the theorem with
+the fewest call sites -- never on the one every descent goes through.
+
 ### The other direction: a precondition weaker than the truth
 
 **What happened.** Attribute attachment. `iattr_attach` could not ask
