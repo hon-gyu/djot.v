@@ -106,10 +106,46 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
       table_fold rest aligns (cells_of BodyCell aligns cs :: acc)
   end.
 
+(* What a table has seen after its rows.  `TOpen` is still taking rows;
+   `TAfterBlank` has seen a blank, which ends the rows but not the table,
+   because a caption may still follow across any number of blanks; and
+   `TCaption` is accumulating a caption's lines, reversed, exactly as a
+   paragraph accumulator does.
+
+   The blank is what makes the third state necessary rather than
+   optional.  djot.js closes the table at the blank and merges the
+   caption into it afterwards, reaching backward past a container that
+   has already been reified (parse.ts:1048-1069).  Nothing here can reach
+   backward -- `step` emits blocks upward -- so the table waits instead,
+   and the two are the same function.  What waiting must not change is
+   list tightness: `blank_absorbed` stays `false` for a table, so the
+   blank arms the enclosing list exactly as it does today, which is what
+   djot.js's own `blankline` event does. *)
+Inductive tcap : Type :=
+  | TOpen
+  | TAfterBlank
+  | TCaption (lines : list string).
+
+(* The caption's lines, for the state invariant: they are a paragraph
+   accumulator and carry its condition. *)
+Definition cap_lines (c : tcap) : list string :=
+  match c with TCaption ls => ls | _ => [] end.
+
+(* An empty caption is no caption: `^ ` with nothing after it opens one
+   with no content, and djot.js renders that as no caption at all, so
+   `Some []` would be a second spelling of `None` -- which is what
+   `wf_block` rules out. *)
+Definition caption_of (c : tcap) : option inlines :=
+  match c with
+  | TOpen | TAfterBlank => None
+  | TCaption [] => None
+  | TCaption ls => Some (para_inlines (rev ls))
+  end.
+
 (* A table of separators alone has no rows at all, which is a table djot
    renders as `<table>\n</table>` (`tables.test:97`). *)
-Definition table_block (rows : list trow) : node block :=
-  mk (Table None (table_fold rows [] [])).
+Definition table_block (rows : list trow) (c : tcap) : node block :=
+  mk (Table (caption_of c) (table_fold rows [] [])).
 
 (*
 The line fold
@@ -199,7 +235,7 @@ Inductive pstate : Type :=
      and nothing in it is measured against the column the first bar sat
      at.  So this is the state that costs `step_fuel_shift` and
      `step_fuel_pad` nothing. *)
-  | PTable (rows : list trow)
+  | PTable (rows : list trow) (cap : tcap)
   (* Attributes looking for the block they decorate.  djot.js keeps them
      in a document-wide `blockAttributes` and attaches them when the next
      container *opens* (parse.ts:183); here a container is reified only
@@ -222,7 +258,7 @@ Fixpoint pstate_depth (st : pstate) : nat :=
   | PAttr _ _ _ _ => 2
   (* PRef reprocesses the line that ends it against `PPara []`, depth 0.
      PTable ends the same way. *)
-  | PRef _ _ _ | PTable _ => 1
+  | PRef _ _ _ | PTable _ _ => 1
   | PFoot _ _ _ inner => S (pstate_depth inner)
   | PPend _ inner => S (pstate_depth inner)
   end.
@@ -300,7 +336,7 @@ Fixpoint finish (st : pstate) : blocks :=
   | PPara cur => [mk (Para (para_inlines (rev cur)))]
   | PHeading lvl cur => [heading_block lvl cur]
   | PFence f _ acc => [fence_block f (rev acc)]
-  | PTable rows => [table_block (rev rows)]
+  | PTable rows cap => [table_block (rev rows) cap]
   | PQuote done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
   | PDiv _ cls done inner => [div_block cls (rev done ++ finish inner)%list]
   | PList ls done inner =>
@@ -387,7 +423,7 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PList _ _ inner => lazy_ok inner
   | PAttr _ _ _ _ => false     (* a spec is not a paragraph, however it ends *)
   | PRef _ _ _ => false        (* nor is a reference definition *)
-  | PTable _ => false          (* nor is a table: a lazy line ends it *)
+  | PTable _ _ => false        (* nor is a table: a lazy line ends it *)
   | PFoot _ _ _ inner => lazy_ok inner
   | PPend _ inner => lazy_ok inner
   end.
@@ -403,7 +439,7 @@ Fixpoint in_fence (st : pstate) : bool :=
   | PQuote _ inner | PDiv _ _ _ inner | PList _ _ inner
   | PFoot _ _ _ inner | PPend _ inner => in_fence inner
   | PPara _ | PHeading _ _ | PAttr _ _ _ _ | PRef _ _ _
-  | PTable _ => false
+  | PTable _ _ => false
   end.
 
 Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
@@ -426,7 +462,7 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   | PDiv len cls done inner => PDiv len cls done (feed_lazy l inner)
   | PList ls done inner => PList ls done (feed_lazy l inner)
   | PFoot ind lbl done inner => PFoot ind lbl done (feed_lazy l inner)
-  | PAttr _ _ _ _ | PRef _ _ _ | PTable _ => st   (* excluded by lazy_ok *)
+  | PAttr _ _ _ _ | PRef _ _ _ | PTable _ _ => st   (* excluded by lazy_ok *)
   | PPend pend inner => PPend pend (feed_lazy l inner)
   end.
 
@@ -456,7 +492,7 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KRef _ _ => ([], PPara [])        (* unreachable: see open_ref *)
   (* A table needs no column and no descent, so unlike every other
      container it opens here rather than in a wrapper of its own. *)
-  | KRow r => ([], PTable [r])
+  | KRow r => ([], PTable [r] TOpen)
   end.
 
 (* The other half of the per-line rule: this line does not continue the
@@ -847,17 +883,40 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               let (bs, st') := step_fuel n' off l (PPara []) in
               ((ref_block lbl val :: bs)%list, st')
           end
-      | PTable rows =>
-          (* Another row line continues the table; anything else, blank
-             included, closes it and is reprocessed at this level.  A
-             line that looks like a row but fails to scan (an unclosed
-             verbatim) is a `KText` line by then, so it arrives here
-             already carrying djot.js's answer. *)
-          match classify l with
-          | KRow r => ([], PTable (r :: rows))
+      | PTable rows cap =>
+          (* Four rules, and which apply depends on what the table has
+             seen.  A caption opener is read here rather than by
+             `classify`, which is what confines the construct to a table
+             (see `Line.caption_open`).  A line that looks like a row but
+             fails to scan (an unclosed verbatim) is a `KText` line by
+             then, so it arrives already carrying djot.js's answer. *)
+          match cap with
+          | TCaption ls =>
+              (* The caption owns every nonblank line, row lines
+                 included, and a blank ends it. *)
+              if is_blank l
+              then ((table_block (rev rows) cap :: nil)%list, PPara [])
+              else ([], PTable rows (TCaption (drop_leading_ws l :: ls)))
           | _ =>
-              let (bs, st') := step_fuel n' off l (PPara []) in
-              ((table_block (rev rows) :: bs)%list, st')
+              match caption_open l with
+              | Some rest => ([], PTable rows (TCaption (push_text rest [])))
+              | None =>
+                  if is_blank l
+                  then
+                    (* The rows are over, but the table is not: a caption
+                       may still follow, across any number of blanks. *)
+                    ([], PTable rows TAfterBlank)
+                  else
+                    match classify l, cap with
+                    (* A blank between two rows starts a second table,
+                       which is why `TAfterBlank` is a state and not a
+                       flag on the blank itself. *)
+                    | KRow r, TOpen => ([], PTable (r :: rows) TOpen)
+                    | _, _ =>
+                        let (bs, st') := step_fuel n' off l (PPara []) in
+                        ((table_block (rev rows) cap :: bs)%list, st')
+                    end
+              end
           end
       | PFoot ind lbl done inner =>
           if is_blank l
@@ -941,7 +1000,7 @@ Proof.
   induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
   - (* idle, or an open paragraph *)
     cbn [pstate_depth] in Hn |- *.
     destruct cur as [|c cur'].
@@ -1173,14 +1232,14 @@ Lemma pad_state_in_fence :
   forall n st, in_fence (pad_state n st) = in_fence st.
 Proof.
   intros n st.
-  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [pad_state in_fence]; try reflexivity; exact IH.
 Qed.
 
 Lemma pad_state_depth :
   forall n st, pstate_depth (pad_state n st) = pstate_depth st.
 Proof.
-  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     try reflexivity; cbn [pad_state pstate_depth]; rewrite IH; reflexivity.
 Qed.
 
@@ -1188,14 +1247,14 @@ Qed.
 Lemma pad_state_finish :
   forall n st, finish (pad_state n st) = finish st.
 Proof.
-  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
 Qed.
 
 Lemma pad_state_lazy_ok :
   forall n st, lazy_ok (pad_state n st) = lazy_ok st.
 Proof.
-  intros n st. induction st as [cur| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  intros n st. induction st as [cur| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     try reflexivity; cbn [pad_state lazy_ok]; exact IH.
 Qed.
 
@@ -1203,7 +1262,7 @@ Lemma pad_state_feed_lazy :
   forall n l st, feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
 Proof.
   intros n l st.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [pad_state feed_lazy]; try reflexivity; rewrite IH; reflexivity.
 Qed.
 
@@ -1230,7 +1289,7 @@ Proof.
   intros n st.
   induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
                   |apend aind aap aslices|rind rlbl rval
-                  |find flbl fdone finner IH|trows|ppend pinner IH];
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH];
     try reflexivity; cbn [pad_state blank_absorbed]; exact IH.
 Qed.
 
@@ -1304,7 +1363,7 @@ Lemma step_fuel_shift :
     = (fst (step_fuel n off l st), pad_state k (snd (step_fuel n off l st))).
 Proof.
   induction n as [|n IH]; intros k off l st; [reflexivity|].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
   (* idle, or an open paragraph *)
   { cbn [pad_state step_fuel].
     destruct cur as [|c cur'].
@@ -1566,11 +1625,22 @@ Proof.
   (* table: it records no column, and the line that ends it is
      reprocessed from idle *)
   { cbn [pad_state step_fuel].
-    destruct (classify l) eqn:E; try reflexivity;
-      (pose proof (IH k off l (PPara [])) as H;
-       cbn [pad_state] in H; rewrite H;
-       destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed;
-       cbn [fst snd pad_state]; reflexivity). }
+    destruct tcap as [| |ls].
+    { destruct (caption_open l) as [rest|]; [reflexivity|].
+      destruct (is_blank l); [reflexivity|].
+      destruct (classify l) eqn:E; try reflexivity;
+        (pose proof (IH k off l (PPara [])) as H;
+         cbn [pad_state] in H; rewrite H;
+         destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed;
+         cbn [fst snd pad_state]; reflexivity). }
+    { destruct (caption_open l) as [rest|]; [reflexivity|].
+      destruct (is_blank l); [reflexivity|].
+      destruct (classify l) eqn:E;
+        (pose proof (IH k off l (PPara [])) as H;
+         cbn [pad_state] in H; rewrite H;
+         destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed;
+         cbn [fst snd pad_state]; reflexivity). }
+    { destruct (is_blank l); reflexivity. } }
   (* pending attributes: transparent to the shift, since they carry no
      column and the block they decorate carries its own *)
   { cbn [pad_state step_fuel]. rewrite (pad_state_is_idle k pinner).
@@ -2094,7 +2164,7 @@ Fixpoint fence_cols_ok (off : nat) (st : pstate) : bool :=
    free at `step`. *)
 Lemma fence_cols_ok_0 : forall st, fence_cols_ok 0 st = true.
 Proof.
-  induction st as [| | | |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows|ppend pinner IH];
+  induction st as [| | | |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [fence_cols_ok]; try reflexivity; assumption.
 Qed.
 
@@ -2102,7 +2172,7 @@ Lemma fence_cols_ok_pad_state :
   forall k off st, fence_cols_ok (k + off) (pad_state k st) = fence_cols_ok off st.
 Proof.
   intros k off st.
-  induction st as [| |f ind acc| |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows|ppend pinner IH];
+  induction st as [| |f ind acc| |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [pad_state fence_cols_ok]; try reflexivity; try assumption.
   destruct (Nat.leb off ind) eqn:E.
   - apply Nat.leb_le. apply Nat.leb_le in E. lia.
@@ -2116,7 +2186,7 @@ Lemma feed_lazy_ws_prefix :
     is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
 Proof.
   intros p l st Hp.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [feed_lazy];
     try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
     try (rewrite IH; reflexivity).
@@ -2178,7 +2248,7 @@ Proof.
   assert (Hc : forall rest, String.length rest <= String.length l ->
                  consumed (p ++ l) rest = String.length p + consumed l rest).
   { intros rest Hle. unfold consumed. rewrite length_append. lia. }
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
   { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
@@ -2315,11 +2385,22 @@ Proof.
       destruct (Nat.ltb find (String.length p + off + indent_of l)).
       { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
       { rewrite (IH p off l (PPara []) Hp eq_refl eq_refl). reflexivity. } } }
-  (* table: the pad is invisible to the row scanner, and the line that
-     ends the table is reprocessed from idle *)
-  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) eqn:E; try reflexivity;
-      rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+  (* table: the pad is invisible to the row scanner and to the caption
+     opener alike, and the line that ends the table is reprocessed from
+     idle *)
+  { cbn [step_fuel]. rewrite (caption_open_ws_prefix p l Hp),
+      (is_blank_ws_prefix p l Hp), (classify_ws_prefix p l Hp),
+      (drop_leading_ws_ws_prefix p l Hp).
+    destruct tcap as [| |ls].
+    { destruct (caption_open l); [reflexivity|].
+      destruct (is_blank l); [reflexivity|].
+      destruct (classify l) eqn:E; try reflexivity;
+        rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+    { destruct (caption_open l); [reflexivity|].
+      destruct (is_blank l); [reflexivity|].
+      destruct (classify l) eqn:E;
+        rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+    { destruct (is_blank l); reflexivity. } }
   (* pending attributes: transparent *)
   { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
     rewrite (classify_ws_prefix p l Hp).

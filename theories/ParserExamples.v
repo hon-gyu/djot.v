@@ -627,3 +627,65 @@ Example parse_table_after_para :
 | a |"
   = [mk (Para [mk (Str "p"); mk SoftBreak; mk (Str "| a |")])].
 Proof. reflexivity. Qed.
+
+(* A blank ends the rows but not the table: a caption may still follow,
+   across any number of blanks. *)
+Example parse_table_caption_after_blanks :
+  parse_blocks "| a |
+
+
+^ cap"
+  = [mk (Table (Some [mk (Str "cap")])
+           [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+Proof. reflexivity. Qed.
+
+(* But a blank does end the rows: a row after one starts a second
+   table. *)
+Example parse_table_blank_splits :
+  parse_blocks "| a |
+
+| b |"
+  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+    ; mk (Table None [[Cell BodyCell AlignDefault [mk (Str "b")]]]) ].
+Proof. reflexivity. Qed.
+
+(* A caption owns every nonblank line after it, row lines included, and
+   a blank ends it. *)
+Example parse_table_caption_swallows :
+  parse_blocks "| a |
+^ cap
+| b |"
+  = [mk (Table (Some [mk (Str "cap"); mk SoftBreak; mk (Str "| b |")])
+           [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+Proof. reflexivity. Qed.
+
+(* `^ ` with nothing after it is a caption with no content, which is no
+   caption: djot.js renders it as none, and `wf_block` has no second
+   spelling for it. *)
+Example parse_table_caption_empty :
+  parse_blocks "| a |
+^ "
+  = [mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+Proof. reflexivity. Qed.
+
+(* A caption with no table before it is a paragraph.  djot.js swallows
+   the following lines into a caption and then drops the lot, rendering
+   nothing at all; this is the logged divergence, and it is structural
+   here -- there is no caption container except inside a table. *)
+Example parse_caption_without_table :
+  parse_blocks "^ cap
+| a |"
+  = [mk (Para [mk (Str "^ cap"); mk SoftBreak; mk (Str "| a |")])].
+Proof. reflexivity. Qed.
+
+(* Once a block intervenes the caption no longer reaches the table. *)
+Example parse_table_caption_too_late :
+  parse_blocks "| a |
+
+p
+
+^ cap"
+  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+    ; mk (Para [mk (Str "p")])
+    ; mk (Para [mk (Str "^ cap")]) ].
+Proof. reflexivity. Qed.

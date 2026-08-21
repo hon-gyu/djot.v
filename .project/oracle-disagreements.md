@@ -835,3 +835,34 @@ shape *and* a case the two agree on today.
 Unreachable from a canonical document: `escape_str` claims the `<`, so a
 `Str` renders one as `\<` and no canonical rendering spells a candidate
 it did not mean.
+
+## Adjudicated 2026-08-22 — ours: a caption with no table
+
+| Input | djot.js | ours (and djoths) |
+|---|---|---|
+| `^ cap` alone | *nothing at all* | `<p>^ cap</p>` |
+| `^ cap` / `\| a \|` | *nothing at all* | one paragraph of both lines |
+| `\| a \|` / blank / `p` / blank / `^ cap` | table, `<p>p</p>` | the same, plus `<p>^ cap</p>` |
+
+djot.js has a top-level `caption` container (`block.ts:236-260`): `^`
+plus a space opens it anywhere a block may start, it continues while the
+line is nonblank -- so it swallows the lines after it, a table's rows
+included -- and at `-caption` it is merged into the preceding sibling
+*only if that sibling is a table* (`parse.ts:1048-1069`). Otherwise the
+container is popped and its content is dropped, which is why a caption
+in the wrong place deletes itself and everything it ate.
+
+**Ours, and the reason is that the oracle's answer is not
+representable.** There is no AST for "a block that renders as nothing",
+and inventing one would put a node in `wf_block` that no rendering can
+produce -- the clause from
+[[project-engineering-lessons#When the oracle's answer is
+unrepresentable]]. Dropping the lines silently is worse than diverging:
+a document that renders empty is the one failure mode a reader cannot
+diagnose.
+
+**Confined by construction rather than by a special case.** `^` is not a
+`line_kind` here: `Line.caption_open` is consulted by the table's
+continuation rule and nowhere else, so there is no caption container to
+be in the wrong place. The cost is exactly the three rows above; where a
+table does precede, the two agree, blank lines between them included.

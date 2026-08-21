@@ -424,14 +424,14 @@ record where the blanks sit relative to the markers.
 Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
-  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
 Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
-  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH];
+  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
     cbn [pad_state blank_safe]; try reflexivity; exact IH.
 Qed.
 
@@ -742,7 +742,7 @@ Proof.
   intros l st Hl.
   induction st as [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
                   |ls done inner IH|apend aind aap aslices|rind rlbl rval
-                  |find flbl fdone finner IH|trows|ppend pinner IH];
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH];
     intros Hsafe.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hl eq_refl). cbn [open_kind fst snd finish app].
@@ -785,12 +785,13 @@ Proof.
     specialize (IH Hsafe). cbn [fst snd] in IH.
     rewrite rev_app_distr, rev_involutive, <- app_assoc, IH.
     reflexivity.
-  - (* a table: a blank is not a row, so it closes the table, and what
-       the close emits is what `finish` would have *)
-    unfold step. cbn [step_fuel]. rewrite Hl.
-    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-    rewrite (step_idle l KBlank Hl eq_refl).
-    cbn [open_kind fst snd finish app]. reflexivity.
+  - (* a table: a blank ends its rows but not the table, since a caption
+       may still follow, and the table it would emit is the same either
+       way -- `TOpen` and `TAfterBlank` have the same caption. *)
+    pose proof (classify_kblank_blank l Hl) as Hb.
+    unfold step. cbn [step_fuel].
+    rewrite (caption_open_blank l Hb), Hb.
+    destruct tcap; cbn [finish app]; reflexivity.
   - (* pending attributes: the blank closes what is under them, and the
        decoration rides on whatever that emits *)
     cbn [blank_safe] in Hsafe. unfold step. cbn [step_fuel]. rewrite Hl.
@@ -813,7 +814,7 @@ Lemma step_blank_lazy_false :
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows|ppend pinner IH].
+    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH].
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -850,10 +851,12 @@ Proof.
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l finner) as [bs inner'] eqn:Hs.
     cbn [snd lazy_ok] in IH |- *. exact IH.
-  - (* a table: the blank closes it and leaves the idle state *)
-    unfold step. cbn [step_fuel]. rewrite Hblank.
-    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-    rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
+  - (* a table: a blank leaves either a waiting table or the idle state,
+       and neither is a paragraph *)
+    pose proof (classify_kblank_blank l Hblank) as Hb.
+    unfold step. cbn [step_fuel].
+    rewrite (caption_open_blank l Hb), Hb.
+    destruct tcap; reflexivity.
   - unfold step. cbn [step_fuel]. rewrite Hblank.
     destruct (is_idle pinner); [reflexivity|].
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).

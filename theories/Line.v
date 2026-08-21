@@ -1007,6 +1007,71 @@ Proof. reflexivity. Qed.
 
 Local Open Scope char_scope.
 
+(* A table caption: `^` and at least one space or tab, then the first
+   line of the caption's inline content (`pattCaptionStart`,
+   block.ts:51).
+
+   Not a `line_kind`, and that is the divergence of §1.3 made
+   structural.  djot.js opens a caption anywhere a block may start, so a
+   caption with no table before it swallows the following lines and then
+   drops them, rendering nothing at all; we have no caption container at
+   top level, so the same line is a paragraph -- which is djoths'
+   answer, and the only one `wf_block` can represent.  Consulting the
+   recognizer from the table's continuation rule alone is what makes
+   that true by construction, and it keeps `classify` and `is_text`
+   exactly as they were. *)
+Definition caption_open (l : string) : option string :=
+  match drop_leading_ws l with
+  | String c rest =>
+      if negb (Ascii.eqb c "^") then None
+      else match rest with
+           | String c' _ => if is_ws c' then Some (drop_leading_ws rest) else None
+           | EmptyString => None
+           end
+  | EmptyString => None
+  end.
+
+Local Open Scope string_scope.
+
+Example caption_open_space : caption_open "^ cap" = Some "cap".
+Proof. reflexivity. Qed.
+
+(* A tab opens one too, and `^` alone does not: the pattern needs at
+   least one space or tab after the caret. *)
+Example caption_open_tab : caption_open "^	cap" = Some "cap".
+Proof. reflexivity. Qed.
+
+Example caption_open_bare : caption_open "^cap" = None.
+Proof. reflexivity. Qed.
+
+Example caption_open_empty : caption_open "^ " = Some "".
+Proof. reflexivity. Qed.
+
+Local Open Scope char_scope.
+
+(* A blank line opens nothing: the caret has to be the first nonblank
+   character, and a blank line has none. *)
+Lemma drop_leading_ws_blank :
+  forall s, is_blank s = true -> drop_leading_ws s = EmptyString.
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [is_blank drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|discriminate].
+Qed.
+
+Lemma caption_open_blank :
+  forall l, is_blank l = true -> caption_open l = None.
+Proof.
+  intros l H. unfold caption_open. rewrite (drop_leading_ws_blank l H).
+  reflexivity.
+Qed.
+
+Lemma caption_open_ws_prefix :
+  forall p l, is_blank p = true -> caption_open (p ++ l) = caption_open l.
+Proof.
+  intros p l Hp. unfold caption_open.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
 (* Leading whitespace is invisible here too. *)
 Lemma table_row_ws_prefix :
   forall p l, is_blank p = true -> table_row (p ++ l) = table_row l.
@@ -1550,13 +1615,6 @@ Proof. reflexivity. Qed.
 (* A blank line never closes a div, whatever fence length is open: the
    `3 <=` conjunct fails on the empty colon run.  This is what lets a
    blank inside a div behave exactly as it does at top level. *)
-Lemma drop_leading_ws_blank :
-  forall s, is_blank s = true -> drop_leading_ws s = EmptyString.
-Proof.
-  induction s as [|c s IH]; [reflexivity|].
-  cbn [is_blank drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|discriminate].
-Qed.
-
 Lemma div_close_blank :
   forall len l, is_blank l = true -> div_close len l = false.
 Proof.

@@ -112,6 +112,13 @@ Definition s_trow (r : trow) : string :=
   | TCells cs => "row" ++ s_list s_str cs
   end.
 
+Definition s_tcap (c : tcap) : string :=
+  match c with
+  | TOpen => "-"
+  | TAfterBlank => "b"
+  | TCaption ls => "cap" ++ s_list s_str ls
+  end.
+
 Fixpoint show_pstate (st : pstate) : string :=
   match st with
   | PPara cur => "Para" ++ s_list s_str cur
@@ -129,7 +136,7 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PFoot ind lbl done inner =>
       "Foot" ++ s_nat ind ++ s_str lbl ++ s_blocks done
       ++ "(" ++ show_pstate inner ++ ")"
-  | PTable rows => "Table" ++ s_list s_trow rows
+  | PTable rows cap => "Table" ++ s_list s_trow rows ++ s_tcap cap
   | PPend pend inner =>
       "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
   end.
@@ -171,6 +178,7 @@ Definition line_pool : list string :=
   ; "{#i}"; "{#i"                              (* KAttr, done / pending *)
   ; "[r]: u"; "[r]:"                           (* KRef, with / without a value *)
   ; "| a |"; "|---|"                           (* KRow, cells / separator *)
+  ; "^ c"                                      (* a caption opener, table-only *)
   ; "a"; "<}"                                  (* KText *)
   ; "  a"; "  - a"; "  > a"; "  ```"           (* the same, indented *)
   ].
@@ -193,6 +201,8 @@ Definition seed_prefixes : list (list string) :=
   ; ["[r]: u"]; ["  [r]:"]                     (* PRef, at column 0 / indented *)
   ; ["[^n]: a"]; ["  [^n]:"]                   (* PFoot, at column 0 / indented *)
   ; ["| a |"]; ["| a |"; "|--:|"]              (* PTable, rows / separator *)
+  ; ["| a |"; ""]                              (* PTable, waiting for a caption *)
+  ; ["| a |"; "^ c"]                           (* PTable, caption open *)
   ; ["{#i}"]; ["{#i}"; "a"]                    (* PPend *)
   ].
 
