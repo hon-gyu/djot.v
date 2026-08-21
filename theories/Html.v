@@ -174,8 +174,17 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
       end
   | Span ils => "<span" ++ ats ++ ">" ++ render_ils ils ++ "</span>"
   | FootnoteReference _ => "" (* TODO Phase 1 *)
-  | UrlLink _ => ""           (* TODO Phase 1 *)
-  | EmailLink _ => ""         (* TODO Phase 1 *)
+  (* An autolink renders as its own text under an `href`, which is an
+     extra attribute and so precedes the node's own -- `renderTag("a",
+     node, extraAttr)` (html.ts:470-481).  The two kinds differ only in
+     the `mailto:` an email prefixes to the destination; the text shown
+     is the region either way. *)
+  | UrlLink url =>
+      "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">"
+      ++ escape url ++ "</a>"
+  | EmailLink addr =>
+      "<a href=""mailto:" ++ escape_attr addr ++ """" ++ ats ++ ">"
+      ++ escape addr ++ "</a>"
   | RawInline _ _ => ""       (* TODO Phase 1 *)
   | NonBreakingSpace => "&nbsp;"
   (* The curly quotes are the whole of what a quoted span renders as:

@@ -75,7 +75,11 @@ Fixpoint inline_text (il : inline) : string :=
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
   | Superscript ils | Subscript ils | Span ils
   | Link ils _ | Image ils _ | Quoted _ ils => go ils
-  | Symbol _ | UrlLink _ | EmailLink _ | NonBreakingSpace => ""
+  (* an autolink carries its region as `text`, which `addStringContent`
+     pushes like any other (parse.ts:44) -- so it reaches a heading id
+     and an image `alt` *)
+  | UrlLink s | EmailLink s => s
+  | Symbol _ | NonBreakingSpace => ""
   end.
 
 Definition inlines_text (ils : inlines) : string :=

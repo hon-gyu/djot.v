@@ -331,7 +331,7 @@ was: the fragment must grow when a construct lands, and a *shrinking*
 count is a regression that zero mismatches would not show.  Update the
 line when the fragment legitimately grows, exactly as before. *)
 
-let expected_counts = [ (1, 160); (2, 2020); (3, 24220) ]
+let expected_counts = [ (1, 177); (2, 2234); (3, 26789) ]
 
 let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
 

@@ -796,3 +796,42 @@ price]] clause: the price is a constructor plus a field on every
 traversal, and the reachable set is smart punctuation inside a link
 label or a heading. Unreachable from a canonical document either way,
 since `escape_str` claims `'`, `"`, `-` and `.`.
+
+## Adjudicated 2026-08-21 — ours: a failed autolink candidate is flat
+
+| input | djot.js | ours |
+| ----- | ------- | ---- |
+| `<_a_>` | `&lt;<em>a</em>&gt;` | `&lt;_a_&gt;` |
+| `` <a`b`c> `` | `` &lt;a<code>b</code>c&gt; `` | `` &lt;a`b`c&gt; `` |
+| `<a[b](c)>` | `&lt;a<a href="c">b</a>&gt;` | `&lt;a[b](c)&gt;` |
+| `<a\ b>` | `&lt;a&nbsp;b&gt;` | `&lt;a\ b&gt;` |
+| `<a{.x}>` | `<span class="x">&lt;a</span>&gt;` | `&lt;a{.x}&gt;` |
+
+djot.js decides an autolink with a *regex lookahead*: `pattAutolink`
+(`inline.ts:85`) is matched at the `<`, and only if it matches and the
+captured region passes one of the two tests does the scanner skip the
+region (`inline.ts:262-280`). When the lookahead fails, the `<` becomes
+a `str` and the scanner **returns to the byte after it**, so the region
+is read a second time, now as ordinary inline content.
+
+**Boundary, and it is a clean one: the two agree whenever the candidate
+succeeds.** Nothing inside a successful autolink is dispatched on either
+side -- djot.js never scanned it, we accumulated it raw -- which is why
+`` <a:b`c> `` links to ``a:b`c`` in both. They differ only on a region
+that is bracketed by `<` and `>` on one line, contains no whitespace,
+fails both the email and the url test, *and* contains something the
+inline layer would otherwise recognize.
+
+**Ours, because the alternative is the second read.** That second read
+is what `iscan_str_no_reread` says this scanner does not do, and unlike
+the attribute reparse it cannot be confined to a shorter slice with
+recognition disabled: a delimiter opened inside the region may close
+outside it (`<_a>b_` is one emphasis to djot.js), so it is a rewind of
+the whole scan rather than a sub-parse. Nor can the region be scanned
+speculatively inside a scope: an unclosed verbatim in it would swallow
+the `>` that decides the question, and `` <a:b`c> `` is exactly that
+shape *and* a case the two agree on today.
+
+Unreachable from a canonical document: `escape_str` claims the `<`, so a
+`Str` renders one as `\<` and no canonical rendering spells a candidate
+it did not mean.

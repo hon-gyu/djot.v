@@ -44,6 +44,7 @@ Definition leaves : list cblock :=
   ; CPara [[CILink false [CIStr "l"] "u"]]
   ; CPara [[CILink true [CIStr "i"] "u"]]
   ; CPara [[CIRef false [CIStr "r"] "lab"]]
+  ; CPara [[CIAuto "u:v"]]
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"]

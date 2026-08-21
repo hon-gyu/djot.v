@@ -44,12 +44,13 @@ Proof. vm_compute. reflexivity. Qed.
    reference definition and the reference link landed together and took
    them to (150, 1861, 22226); `blank_absorbed` then admitted more
    spacings, and admitting a code block inside a list item -- which the
-   fence's recorded column bought -- gave the numbers below.  A tightness
+   fence's recorded column bought -- took them to (160, 2020, 24220).
+   The autolink leaf gave the numbers below.  A tightness
    rule or a lifted exclusion can enlarge the fragment without adding a
    construct.  Either way the count is a coverage witness: a change here
    must enlarge the generated fragment rather than only change its
    proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (160, 2020, 24220).
+                           List.length (accepted 3)) = (177, 2234, 26789).
 Proof. vm_compute. reflexivity. Qed.

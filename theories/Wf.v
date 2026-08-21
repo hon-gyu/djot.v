@@ -559,7 +559,10 @@ Definition iscan_wf (st : iscan) : bool :=
      exactly `wf_inlines`.  Neither carries the head condition the text
      states do, because the fallback reabsorbs a flushed `Str` before it
      writes anything -- that is what `opop_str` is for. *)
-  | IBang _ _ o => (oscope_ok o && negb (hd_str (ocur o)))%bool
+  (* An autolink candidate holds pending text and no children, and the
+     text is what it flushes whichever way it ends -- so it carries the
+     text states' head condition and nothing else. *)
+  | IBang _ _ o | IAuto _ _ o => (oscope_ok o && negb (hd_str (ocur o)))%bool
   | IClosed kids _ o | ISpan kids _ _ _ o | IReference kids _ _ o
   | IDest kids _ _ _ _ o =>
       (oscope_ok o && wf_inlines kids)%bool
@@ -1095,6 +1098,8 @@ Proof.
     [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
   destruct (Ascii.eqb c bang);
     [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+  destruct (Ascii.eqb c lt);
+    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
   destruct (Ascii.eqb c lbrack);
     [apply iscan_wf_text;
        [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]|].
@@ -1287,7 +1292,7 @@ Qed.
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob] H;
     cbn [istep];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
@@ -1313,7 +1318,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?]; try exact Hr.
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ?]; try exact Hr.
     cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
@@ -1397,6 +1402,20 @@ Proof.
     unfold wf_inlines in Hk. apply andb_true_iff in Hk as [Hall Hadj].
     cbn [node_contents mk]. apply wf_inline_bnode;
       [rewrite wf_ils_forallb; exact Hall | exact Hadj].
+  (* a candidate either emits its link node over the flushed text, or
+     hands the text back to `ilead` with the `<` on the end *)
+  - unfold iauto_step.
+    destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool.
+    { apply iscan_wf_text;
+        [apply oscope_ok_emit;
+           [apply iscan_wf_flush; assumption
+           |unfold auto_node; destruct (auto_email asrc); reflexivity
+           |unfold auto_node; destruct (auto_email asrc); reflexivity]
+        |rewrite ocur_emit; unfold auto_node;
+         destruct (auto_email asrc); reflexivity]. }
+    destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
+      [apply ilead_wf; assumption
+      |cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity].
 Qed.
 
 Lemma iscan_wf_str :
@@ -1440,7 +1459,7 @@ Qed.
 Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob] H;
     cbn [iresolve]; try exact H;
     cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
@@ -1462,7 +1481,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ifinish_ostate.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -1493,6 +1512,7 @@ Proof.
     destruct (bdest_lit_ok kids img esc dst ob Ho Hk) as [H1 H2].
     destruct (bdest_lit kids img esc dst ob) as [txt o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
+  - apply iscan_wf_flush; assumption.
 Qed.
 
 Lemma iscan_wf_finish_rev :
@@ -1520,7 +1540,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ibreak.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -1545,6 +1565,12 @@ Proof.
      nothing is emitted and the invariant is the one they arrived with *)
   - cbn [iscan_wf] in Hr |- *. exact Hr.
   - cbn [iscan_wf] in Hr |- *. exact Hr.
+  (* a candidate does not: the region may not hold a break, so it decays
+     to text and the break is the soft one after it *)
+  - apply (iscan_wf_text false EmptyString None);
+      [apply oscope_ok_emit;
+         [apply iscan_wf_flush; assumption | reflexivity | apply andb_false_l]
+      |rewrite ocur_emit; reflexivity].
 Qed.
 
 Lemma iscan_wf_lines :
