@@ -43,6 +43,40 @@ Definition ref_line (label dest : string) : string :=
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
 
+(* A table's two line shapes.  A cell is written with a space on each
+   side, which is what keeps the two apart under the recognizer: a
+   separator's cell must start immediately after its bar
+   (`Line.sep_cell`), so a padded row can never be read as a separator
+   and a cell may hold `---` or `:-:` with no escaping at all.
+
+   The dashes are three wide whatever the column holds.  djoths pads a
+   separator to its column's width (`Djot.hs:284`); nothing reads the
+   width back, so the fixed spelling is the same table with less to
+   prove. *)
+Definition align_dashes (a : align) : string :=
+  match a with
+  | AlignDefault => "---"
+  | AlignLeft => ":--"
+  | AlignRight => "--:"
+  | AlignCenter => ":-:"
+  end.
+
+Fixpoint sep_body (als : list align) : string :=
+  match als with
+  | [] => EmptyString
+  | a :: rest => (align_dashes a ++ "|" ++ sep_body rest)%string
+  end.
+
+Definition sep_line (als : list align) : string := ("|" ++ sep_body als)%string.
+
+Fixpoint cells_body (cs : list string) : string :=
+  match cs with
+  | [] => EmptyString
+  | c :: rest => (" " ++ c ++ " |" ++ cells_body rest)%string
+  end.
+
+Definition cells_line (cs : list string) : string := ("|" ++ cells_body cs)%string.
+
 (* The canonical fence sits at column zero, so it strips nothing from its
    content lines -- which is what keeps `cb_lines` a left inverse of the
    parser for a code block wherever it is nested. *)
@@ -64,6 +98,150 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
 
 Lemma quote_line_empty : quote_line EmptyString = quote_open.
 Proof. unfold quote_line. apply append_empty_r. Qed.
+
+(*
+Canonical table rows
+--------------------
+*)
+
+(* A canonical table row.  `Ast.Table` records, per cell, a type and an
+   alignment; what a *source* row records is a line of cells and, for a
+   header, the separator under it.  `CTHead` is the pair, and the
+   alignment a `CTBody` gets is whatever the last `CTHead` set -- which
+   is not a convention but the fold: `Step.table_fold` only ever changes
+   the alignment in force at a separator, and a separator promotes the
+   row before it, so a *body* row can never change alignment.
+
+   That is the property this type exists to make structural.  Phrased on
+   `list (list cell)` it would be a reachability condition on a fold;
+   here it is the shape of the data, and `cb_ast` covers exactly the
+   tables the parser can reach.
+
+   The one reachable shape left out is a table whose leading rows are
+   body rows aligned by a separator that precedes them (`|--:|` then
+   `| b |`).  It needs a fourth piece of state -- the alignment in force
+   before any header -- and nothing else in the view would use it. *)
+Inductive ctrow : Type :=
+  | CTBody (cells : list (list cinline))
+  | CTHead (aligns : list align) (cells : list (list cinline)).
+
+Definition ctrow_cells (r : ctrow) : list (list cinline) :=
+  match r with CTBody cs => cs | CTHead _ cs => cs end.
+
+(* A header is two lines: its cells, then the separator that makes it
+   one. *)
+Definition ctrow_lines (r : ctrow) : list string :=
+  match r with
+  | CTBody cs => [cells_line (map ci_line cs)]
+  | CTHead als cs => [cells_line (map ci_line cs); sep_line als]
+  end.
+
+(* `Step.cells_of` and `Step.head_of` with the canonical view's inlines in
+   place of the inline parser's: the same positional alignment, defaulting
+   past the end of the separator. *)
+Fixpoint ccells_of (ct : cell_type) (als : list align) (cs : list (list cinline))
+  : list cell :=
+  match cs with
+  | [] => []
+  | c :: cs' =>
+      match als with
+      | [] => Cell ct AlignDefault (ci_inlines c) :: ccells_of ct [] cs'
+      | a :: als' => Cell ct a (ci_inlines c) :: ccells_of ct als' cs'
+      end
+  end.
+
+(* `Step.table_fold`, read on the canonical rows: the alignment in force
+   is an accumulator that only a header changes. *)
+Fixpoint ctable_cells (als : list align) (rows : list ctrow) : list (list cell) :=
+  match rows with
+  | [] => []
+  | CTBody cs :: rest => ccells_of BodyCell als cs :: ctable_cells als rest
+  | CTHead als' cs :: rest => ccells_of HeadCell als' cs :: ctable_cells als' rest
+  end.
+
+(* The rows the recognizer gives back, in source order: a header line is
+   two of them, and the separator is the second. *)
+Definition ctrow_trows (r : ctrow) : list trow :=
+  match r with
+  | CTBody cs => [TCells (map ci_line cs)]
+  | CTHead als cs => [TCells (map ci_line cs); TSep als]
+  end.
+
+(* Both line shapes open with a bar, which is what keeps a table's own
+   lines out of every other recognizer's way -- the caption's included,
+   since `Line.caption_open` wants a caret first. *)
+Lemma caption_open_cells_line : forall cs, caption_open (cells_line cs) = None.
+Proof. reflexivity. Qed.
+
+Lemma caption_open_sep_line : forall als, caption_open (sep_line als) = None.
+Proof. reflexivity. Qed.
+
+Lemma is_blank_cells_line : forall cs, is_blank (cells_line cs) = false.
+Proof. reflexivity. Qed.
+
+Lemma is_blank_sep_line : forall als, is_blank (sep_line als) = false.
+Proof. reflexivity. Qed.
+
+(* A separator is spelled out of bars, colons and hyphens, so unlike a
+   row of cells it carries no obligation at all. *)
+Lemma line_ok_sep_line : forall als, line_ok (sep_line als) = true.
+Proof.
+  intros als. unfold line_ok, nonblank.
+  rewrite is_blank_sep_line.
+  assert (Hnl : no_nl (sep_line als) = true).
+  { unfold sep_line. rewrite no_nl_append.
+    assert (Hb : no_nl (sep_body als) = true).
+    { induction als as [|a als IH]; [reflexivity|].
+      cbn [sep_body]. rewrite !no_nl_append, IH. destruct a; reflexivity. }
+    rewrite Hb. reflexivity. }
+  rewrite Hnl. cbn [andb]. apply String.eqb_eq. reflexivity.
+Qed.
+
+(* The parser's fold, on a canonical table, is the canonical fold.  Both
+   halves are the same positional walk with the inline layer's answer in
+   place of the view's, so each is one induction over the cells. *)
+Lemma cells_of_ccells_of :
+  forall ct als cs,
+    forallb cis_ok cs = true ->
+    cells_of ct als (map ci_line cs) = ccells_of ct als cs.
+Proof.
+  intros ct als cs. revert als.
+  induction cs as [|c cs IH]; intros als Hok; [reflexivity|].
+  cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hc Hcs].
+  cbn [map cells_of ccells_of]. rewrite (parse_inline_line_ci c Hc).
+  destruct als as [|a als]; rewrite (IH _ Hcs); reflexivity.
+Qed.
+
+(* Promoting the row a separator sits under: the cells keep their
+   inlines and take the separator's alignments, which is `ccells_of` at
+   the header type. *)
+Lemma head_of_ccells_of :
+  forall als als0 cs,
+    head_of als (ccells_of BodyCell als0 cs) = ccells_of HeadCell als cs.
+Proof.
+  intros als als0 cs. revert als als0.
+  induction cs as [|c cs IH]; intros als als0; [reflexivity|].
+  destruct als0 as [|a0 als0']; destruct als as [|a als'];
+    cbn [ccells_of head_of]; rewrite IH; reflexivity.
+Qed.
+
+Lemma table_fold_ctable_cells :
+  forall rows als acc,
+    forallb (fun r => forallb cis_ok (ctrow_cells r)) rows = true ->
+    table_fold (flat_map ctrow_trows rows) als acc
+    = (rev acc ++ ctable_cells als rows)%list.
+Proof.
+  induction rows as [|r rows IH]; intros als acc Hok.
+  - cbn [flat_map ctable_cells table_fold]. rewrite app_nil_r. reflexivity.
+  - cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hr Hrows].
+    destruct r as [cs|als' cs]; cbn [ctrow_cells] in Hr;
+      cbn [ctrow_trows flat_map app table_fold ctable_cells].
+    + rewrite (cells_of_ccells_of BodyCell als cs Hr), (IH _ _ Hrows).
+      cbn [rev]. rewrite <- app_assoc. reflexivity.
+    + rewrite (cells_of_ccells_of BodyCell als cs Hr).
+      rewrite head_of_ccells_of, (IH _ _ Hrows).
+      cbn [rev]. rewrite <- app_assoc. reflexivity.
+Qed.
 
 (*
 Canonical blocks
@@ -101,7 +279,12 @@ Inductive cblock : Type :=
   (* A reference definition, which is a leaf: `cb_ok` keeps its label and
      destination within what one line can carry, and the document's
      reference map is derived from the block rather than stored here. *)
-  | CRef (label : string) (dest : string).
+  | CRef (label : string) (dest : string)
+  (* A table, as the rows its source spells.  No caption: a caption is
+     read by the table's own continuation rule rather than by `classify`
+     (`Line.caption_open`), so it is the one part of the construct that
+     is not a line shape, and `cb_ok` would have to state it as one. *)
+  | CTable (rows : list ctrow).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -127,6 +310,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CList k sp items =>
       list_lines sp (map litem_lines (ck_items k (itemss items)))
   | CRef label dest => [ref_line label dest]
+  | CTable rows => flat_map ctrow_lines rows
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -144,6 +328,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CDiv inner => mk (Div (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
+  | CTable rows => mk (Table None (ctable_cells [] rows))
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -190,6 +375,7 @@ Definition cblock_ind2
   (hdiv : forall inner, Q inner -> P (CDiv inner))
   (hlist : forall k sp items, R items -> P (CList k sp items))
   (href : forall label dest, P (CRef label dest))
+  (htable : forall rows, P (CTable rows))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -217,6 +403,7 @@ Definition cblock_ind2
               | it :: rest => hrcons it rest (golist it) (golistlist rest)
               end) items)
     | CRef label dest => href label dest
+    | CTable rows => htable rows
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -321,17 +508,44 @@ Definition items_seps_loosen (items : list (list cblock)) : bool :=
 Definition is_clist (cb : cblock) : bool :=
   match cb with CList _ _ _ => true | _ => false end.
 
-(** Two adjacent canonical lists cannot roundtrip as two AST nodes: the
-    separating blank makes the parser continue the first list as loose.
-    This is a property of a block sequence, not either block alone. *)
-Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
+Definition is_ctable (cb : cblock) : bool :=
+  match cb with CTable _ => true | _ => false end.
+
+(* A table stays open across the blank that separates it from the next
+   block -- a caption may still follow, across any number of blanks -- so
+   what ends it is the next block's first line.  `Line.caption_open` is
+   not a `line_kind`, so unlike a row this cannot be excluded once and
+   for all by `para_ok`'s `is_text`; it is a condition on the *pair*.
+
+   Vacuous today, and deliberately not proved so.  A canonical first line
+   is nonblank, and `^` is in `Inline.needs_escape` (the footnote marker
+   forces it) so none begins with a caret -- but the second half is a
+   fact about the inline layer's escape set, and the roundtrip should not
+   rest on it silently.  `no_canonical_caption_opener` pins it. *)
+Definition closes_table (cb : cblock) : bool :=
+  match cb_lines cb with
+  | [] => false
+  | a :: _ =>
+      negb (is_blank a)
+      && match caption_open a with Some _ => false | None => true end
+  end.
+
+(** The two ways an adjacent pair fails to roundtrip as two AST nodes.
+    Two lists: the separating blank makes the parser continue the first
+    as loose.  A block after a table: it has to be one whose first line
+    closes the table rather than captioning it.  Both are properties of a
+    sequence, not of either block alone. *)
+Definition cb_pair_ok (c1 c2 : cblock) : bool :=
+  (negb (is_clist c1 && is_clist c2)
+   && (negb (is_ctable c1) || closes_table c2))%bool.
+
+Fixpoint cb_pairs_ok (cbs : list cblock) : bool :=
   match cbs with
   | [] => true
   | c1 :: rest =>
       match rest with
       | [] => true
-      | c2 :: _ =>
-          negb (is_clist c1 && is_clist c2) && no_adjacent_lists rest
+      | c2 :: _ => cb_pair_ok c1 c2 && cb_pairs_ok rest
       end
   end.
 
@@ -339,25 +553,25 @@ Fixpoint no_adjacent_lists (cbs : list cblock) : bool :=
    pair is tested.  Recursing on the tail *after* c2 instead would test
    pairs 1-2, 3-4, ... and miss the offending pair in the third example.
    Three blocks is the shortest input that tells the two apart. *)
-Section NoAdjacentListsTests.
+Section PairTests.
   Let l : cblock := CList LKBullet Tight [[cpara ["a"]]].
   Let p : cblock := cpara ["p"].
 
-  Example no_adjacent_lists_pair : no_adjacent_lists [l; l] = false.
+  Example cb_pairs_ok_pair : cb_pairs_ok [l; l] = false.
   Proof. reflexivity. Qed.
 
-  Example no_adjacent_lists_separated : no_adjacent_lists [l; p; l] = true.
+  Example cb_pairs_ok_separated : cb_pairs_ok [l; p; l] = true.
   Proof. reflexivity. Qed.
 
-  Example no_adjacent_lists_second_pair : no_adjacent_lists [p; l; l] = false.
+  Example cb_pairs_ok_second_pair : cb_pairs_ok [p; l; l] = false.
   Proof. reflexivity. Qed.
 
-  Example no_adjacent_lists_run : no_adjacent_lists [l; l; l] = false.
+  Example cb_pairs_ok_run : cb_pairs_ok [l; l; l] = false.
   Proof. reflexivity. Qed.
 
-  Example no_adjacent_lists_singleton : no_adjacent_lists [l] = true.
+  Example cb_pairs_ok_singleton : cb_pairs_ok [l] = true.
   Proof. reflexivity. Qed.
-End NoAdjacentListsTests.
+End PairTests.
 
 (* An item's rendered lines have to satisfy `Parser.item_ok`, which is
    the hypothesis of `Parser.list_uniformity` -- the theorem that says an
@@ -379,7 +593,7 @@ End NoAdjacentListsTests.
    prefix, so an empty quote would render to nothing at all.  The parser
    *can* build `BlockQuote []` (from a bare ">"), so that one value sits
    outside the canonical view — see cb_ok_quote.  A list's items are each
-   held to the same nonempty-and-cb_ok-and-no_adjacent_lists standard as
+   held to the same nonempty-and-cb_ok-and-cb_pairs_ok standard as
    a quote's contents (`inner_ok`, reused per item), plus `item_ok` on
    the item's rendering (above) and a spacing
    condition tying `sp` back to what item_forces_loose can prove about
@@ -430,6 +644,66 @@ Proof.
   apply String.eqb_eq. reflexivity.
 Qed.
 
+(* The whole of a row's block obligation: the line it renders to scans
+   back as the row it was rendered from.  One decidable test, in the
+   shape `para_ok` states its first-line condition -- and it is what
+   subsumes every hazard a cell could carry (a bare bar, an unclosed
+   verbatim, a cell that reads as a separator). *)
+Definition row_reparses (r : trow) (l : string) : bool :=
+  match classify l with KRow r' => trow_eqb r' r | _ => false end.
+
+(* A canonical row: cells that are canonical inlines, a line the
+   recognizer gives back, and -- for a header -- one alignment per cell,
+   since the AST records the alignment on the cell and a separator wider
+   than its row would have nowhere to put the excess. *)
+Definition ctrow_ok (r : ctrow) : bool :=
+  let cs := ctrow_cells r in
+  nonempty cs
+  && forallb cis_ok cs
+  && line_ok (cells_line (map ci_line cs))
+  && row_reparses (TCells (map ci_line cs)) (cells_line (map ci_line cs))
+  && match r with
+     | CTBody _ => true
+     | CTHead als _ =>
+         Nat.eqb (List.length als) (List.length cs)
+         && row_reparses (TSep als) (sep_line als)
+     end.
+
+Lemma row_reparses_classify :
+  forall r l, row_reparses r l = true -> classify l = KRow r.
+Proof.
+  intros r l H. unfold row_reparses in H.
+  destruct (classify l) eqn:E; try discriminate.
+  apply trow_eqb_eq in H. rewrite H. reflexivity.
+Qed.
+
+Lemma ctrow_ok_parts :
+  forall r, ctrow_ok r = true ->
+    nonempty (ctrow_cells r) = true
+    /\ forallb cis_ok (ctrow_cells r) = true
+    /\ line_ok (cells_line (map ci_line (ctrow_cells r))) = true
+    /\ classify (cells_line (map ci_line (ctrow_cells r)))
+       = KRow (TCells (map ci_line (ctrow_cells r))).
+Proof.
+  intros r H. unfold ctrow_ok in H.
+  apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H Hrep].
+  apply andb_true_iff in H as [H Hlok].
+  apply andb_true_iff in H as [Hne Hcis].
+  repeat split; try assumption. apply row_reparses_classify, Hrep.
+Qed.
+
+Lemma ctrow_ok_head :
+  forall als cs, ctrow_ok (CTHead als cs) = true ->
+    List.length als = List.length cs /\ classify (sep_line als) = KRow (TSep als).
+Proof.
+  intros als cs H. unfold ctrow_ok in H.
+  apply andb_true_iff in H as [_ H].
+  apply andb_true_iff in H as [Hlen Hrep].
+  cbn [ctrow_cells] in Hlen.
+  split; [apply PeanoNat.Nat.eqb_eq, Hlen | apply row_reparses_classify, Hrep].
+Qed.
+
 Fixpoint cb_ok (cb : cblock) : bool :=
   let inner_ok :=
     fix go (cs : list cblock) : bool :=
@@ -460,25 +734,29 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CThematic => true
   | CCode info content => code_ok info content
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
-  | CQuote inner => inner_ok inner && no_adjacent_lists inner
+  | CQuote inner => inner_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
      contentless div in both oracles), so this is the one container
      without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
      side condition of Parser.div_uniformity, specialised to the lines
      this rendering produces. *)
   | CDiv inner =>
-      divs_ok inner && no_adjacent_lists inner
+      divs_ok inner && cb_pairs_ok inner
       && div_content_ok (sep_lines (map cb_lines inner))
   | CList k sp items =>
       nonempty items && items_ok items
       && ck_ok k (List.length items)
       && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
-      && forallb no_adjacent_lists items
+      && forallb cb_pairs_ok items
       && match sp with
          | Tight => negb (items_force_loose items)
          | Loose => items_seps_loosen items || items_force_loose items
          end
   | CRef label dest => ref_ok label dest
+  (* Nonempty for the reason a quote is: a table with no rows renders to
+     no lines at all.  The parser can build one (`|---|` alone), so that
+     value sits outside the canonical view. *)
+  | CTable rows => nonempty rows && forallb ctrow_ok rows
   end.
 
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
@@ -524,7 +802,7 @@ Proof. reflexivity. Qed.
 Lemma cb_ok_quote :
   forall inner,
     cb_ok (CQuote inner)
-    = (nonempty inner && forallb cb_ok inner && no_adjacent_lists inner)%bool.
+    = (nonempty inner && forallb cb_ok inner && cb_pairs_ok inner)%bool.
 Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
 
 (* The div analogues.  `divs_ok` collapses to a plain `forallb` because
@@ -542,7 +820,7 @@ Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivit
 Lemma cb_ok_div :
   forall inner,
     cb_ok (CDiv inner)
-    = (forallb cb_ok inner && no_adjacent_lists inner
+    = (forallb cb_ok inner && cb_pairs_ok inner
        && div_content_ok (sep_lines (map cb_lines inner)))%bool.
 Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
@@ -557,22 +835,33 @@ Lemma cb_lines_div :
 Proof. reflexivity. Qed.
 
 Definition cblocks_ok (cbs : list cblock) : bool :=
-  (forallb cb_ok cbs && no_adjacent_lists cbs)%bool.
+  (forallb cb_ok cbs && cb_pairs_ok cbs)%bool.
 
-Lemma no_adjacent_after_list :
-  forall k sp items next rest,
-    no_adjacent_lists (CList k sp items :: next :: rest) = true ->
-    is_clist next = false.
+(* The two halves of a pair condition, in the form `parse_cblock`'s
+   boundary hypothesis wants them. *)
+Lemma cb_pair_ok_nonlist :
+  forall c1 c2, is_clist c1 = true -> cb_pair_ok c1 c2 = true -> is_clist c2 = false.
 Proof.
-  intros k sp items next rest H. cbn [no_adjacent_lists is_clist] in H.
-  apply andb_true_iff in H as [Hnext _].
-  apply negb_true_iff in Hnext. destruct (is_clist next); [discriminate|].
-  reflexivity.
+  intros c1 c2 Hc H. unfold cb_pair_ok in H.
+  apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
+  rewrite Hc in H. cbn [andb] in H. exact H.
+Qed.
+
+Lemma cb_pair_ok_closes :
+  forall c1 c2 a rest,
+    is_ctable c1 = true -> cb_pair_ok c1 c2 = true -> cb_lines c2 = a :: rest ->
+    is_blank a = false /\ caption_open a = None.
+Proof.
+  intros c1 c2 a rest Hc H Hl. unfold cb_pair_ok in H.
+  apply andb_true_iff in H as [_ H]. rewrite Hc in H. cbn [negb orb] in H.
+  unfold closes_table in H. rewrite Hl in H.
+  apply andb_true_iff in H as [Hb Hcap]. apply negb_true_iff in Hb.
+  split; [exact Hb|]. destruct (caption_open a); [discriminate|reflexivity].
 Qed.
 
 Lemma cblocks_ok_parts :
   forall cbs, cblocks_ok cbs = true ->
-    forallb cb_ok cbs = true /\ no_adjacent_lists cbs = true.
+    forallb cb_ok cbs = true /\ cb_pairs_ok cbs = true.
 Proof.
   intros cbs H. unfold cblocks_ok in H. apply andb_true_iff in H. exact H.
 Qed.
@@ -604,7 +893,7 @@ Lemma cb_ok_list :
        && forallb (fun it => nonempty it && forallb cb_ok it)%bool items
        && ck_ok k (List.length items)
        && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
-       && forallb no_adjacent_lists items
+       && forallb cb_pairs_ok items
        && match sp with
           | Tight => negb (items_force_loose items)
           | Loose => items_seps_loosen items || items_force_loose items
@@ -612,6 +901,19 @@ Lemma cb_ok_list :
 Proof.
   intros k sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
 Qed.
+
+Lemma cb_ok_table :
+  forall rows,
+    cb_ok (CTable rows) = (nonempty rows && forallb ctrow_ok rows)%bool.
+Proof. reflexivity. Qed.
+
+Lemma cb_lines_table :
+  forall rows, cb_lines (CTable rows) = flat_map ctrow_lines rows.
+Proof. reflexivity. Qed.
+
+Lemma cb_ast_table :
+  forall rows, cb_ast (CTable rows) = mk (Table None (ctable_cells [] rows)).
+Proof. reflexivity. Qed.
 
 (*
 The renderer
@@ -643,6 +945,38 @@ Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
   | LetterUpper => LKAlpha true (ol_delim oa) (ol_start oa)
   end.
 
+(* A table's rows, back to source.  A header row is followed by the
+   separator its own cells' alignments spell, which is where the
+   alignment of the body rows after it comes from too -- so nothing has
+   to be emitted for them.  The one exception is djoths' `initialSep`
+   (`Djot.hs:290`): a table whose first row is a body row already carrying
+   an alignment was aligned by a separator that preceded it, and that
+   separator has to come back. *)
+Definition cell_text (c : cell) : string :=
+  match c with Cell _ _ ils => hd EmptyString (inline_lines ils EmptyString) end.
+
+Definition cell_align (c : cell) : align := match c with Cell _ al _ => al end.
+
+Definition render_row (r : list cell) : list string :=
+  (cells_line (map cell_text r)
+   :: match r with
+      | Cell HeadCell _ _ :: _ => [sep_line (map cell_align r)]
+      | _ => []
+      end)%list.
+
+Definition initial_sep (rows : list (list cell)) : list string :=
+  match rows with
+  | (Cell BodyCell a _ :: _) as r :: _ =>
+      if align_eqb a AlignDefault then [] else [sep_line (map cell_align r)]
+  | _ => []
+  end.
+
+Definition table_lines (rows : list (list cell)) : list string :=
+  (initial_sep rows ++ flat_map render_row rows)%list.
+
+Definition caption_line (ils : inlines) : string :=
+  ("^ " ++ hd EmptyString (inline_lines ils EmptyString))%string.
+
 Fixpoint render_block_lines (b : block) : list string :=
   let itemss :=
     fix goitems (items : list blocks) : list (list string) :=
@@ -672,6 +1006,11 @@ Fixpoint render_block_lines (b : block) : list string :=
   | OrderedList oa sp items =>
       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
   | RefDef label dest => [ref_line label dest]
+  | Table cap rows =>
+      (table_lines rows ++ match cap with
+                           | Some ils => [caption_line ils]
+                           | None => []
+                           end)%list
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
@@ -718,6 +1057,121 @@ Proof.
     rewrite H; reflexivity.
 Qed.
 
+(* The table equation `render_cb_lines` has to be matched against.  Each
+   half is one induction: a cell's text is its inlines' one line, and a
+   header's separator is its cells' alignments read back off the AST --
+   which is why `ctrow_ok` asks for one alignment per cell.
+
+   `initial_sep` never fires on a canonical table: the view has no way to
+   spell a leading body row that is already aligned. *)
+Lemma cell_text_ci : forall ct al c, cell_text (Cell ct al (ci_inlines c)) = ci_line c.
+Proof.
+  intros ct al c. unfold cell_text.
+  rewrite <- (app_nil_r (ci_inlines c)), inline_lines_ci_inlines.
+  reflexivity.
+Qed.
+
+Lemma map_cell_text_ccells :
+  forall ct als cs, map cell_text (ccells_of ct als cs) = map ci_line cs.
+Proof.
+  intros ct als cs. revert als.
+  induction cs as [|c cs IH]; intros als; [reflexivity|].
+  destruct als as [|a als']; cbn [ccells_of map]; rewrite cell_text_ci, IH;
+    reflexivity.
+Qed.
+
+Lemma map_cell_align_ccells :
+  forall ct als cs,
+    List.length als = List.length cs ->
+    map cell_align (ccells_of ct als cs) = als.
+Proof.
+  intros ct als cs. revert als.
+  induction cs as [|c cs IH]; intros [|a als'] Hlen;
+    try (cbn [List.length] in Hlen; discriminate); [reflexivity|].
+  cbn [ccells_of map cell_align]. cbn [List.length] in Hlen.
+  rewrite IH by (injection Hlen; auto). reflexivity.
+Qed.
+
+Lemma render_row_body_cells :
+  forall als c cs,
+    render_row (ccells_of BodyCell als (c :: cs))
+    = [cells_line (map ci_line (c :: cs))].
+Proof.
+  intros als c cs. destruct als as [|a als'];
+    unfold render_row; cbn [ccells_of map];
+    rewrite cell_text_ci, map_cell_text_ccells; reflexivity.
+Qed.
+
+Lemma render_row_head_cells :
+  forall als c cs,
+    List.length als = List.length (c :: cs) ->
+    render_row (ccells_of HeadCell als (c :: cs))
+    = [cells_line (map ci_line (c :: cs)); sep_line als].
+Proof.
+  intros [|a als'] c cs Hlen; [cbn [List.length] in Hlen; discriminate|].
+  unfold render_row. cbn [ccells_of map cell_align].
+  rewrite cell_text_ci, map_cell_text_ccells.
+  rewrite (map_cell_align_ccells HeadCell als' cs)
+    by (cbn [List.length] in Hlen; injection Hlen; auto).
+  reflexivity.
+Qed.
+
+Lemma render_row_ctrow :
+  forall als r, ctrow_ok r = true ->
+  render_row (match r with
+              | CTBody cs => ccells_of BodyCell als cs
+              | CTHead als' cs => ccells_of HeadCell als' cs
+              end)
+  = ctrow_lines r.
+Proof.
+  intros als [cs|als' cs] H; unfold ctrow_ok in H; cbn [ctrow_cells] in H.
+  - apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [Hne _].
+    destruct cs as [|c cs']; [discriminate Hne|].
+    cbn [ctrow_lines]. apply render_row_body_cells.
+  - apply andb_true_iff in H as [H Hhead].
+    apply andb_true_iff in Hhead as [Hlen _].
+    apply PeanoNat.Nat.eqb_eq in Hlen.
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [Hne _].
+    destruct cs as [|c cs']; [discriminate Hne|].
+    cbn [ctrow_lines]. apply render_row_head_cells. exact Hlen.
+Qed.
+
+Lemma flat_map_render_row_ctable :
+  forall rows als, forallb ctrow_ok rows = true ->
+  flat_map render_row (ctable_cells als rows) = flat_map ctrow_lines rows.
+Proof.
+  induction rows as [|r rows IH]; intros als Hok; [reflexivity|].
+  cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hr Hrows].
+  destruct r as [cs|als' cs]; cbn [ctable_cells flat_map];
+    rewrite (render_row_ctrow als _ Hr).
+  - rewrite (IH als Hrows). reflexivity.
+  - rewrite (IH als' Hrows). reflexivity.
+Qed.
+
+Lemma initial_sep_ctable :
+  forall rows, initial_sep (ctable_cells [] rows) = [].
+Proof.
+  intros [|r rows]; [reflexivity|].
+  destruct r as [cs|als' cs].
+  - destruct cs as [|c cs']; reflexivity.
+  - destruct cs as [|c cs']; [reflexivity|].
+    destruct als' as [|a als0]; reflexivity.
+Qed.
+
+Lemma table_lines_ctable :
+  forall rows, forallb ctrow_ok rows = true ->
+  table_lines (ctable_cells [] rows) = flat_map ctrow_lines rows.
+Proof.
+  intros rows Hok. unfold table_lines.
+  rewrite (initial_sep_ctable rows), (flat_map_render_row_ctable rows [] Hok).
+  reflexivity.
+Qed.
+
 (* Blocks separated by a blank line — the separator the parser reads back
    as "end the current block". *)
 Definition render_djot (bs : blocks) : string :=
@@ -728,3 +1182,11 @@ Definition render_djot (bs : blocks) : string :=
    there is no separate "paragraph layout" notion to invert. *)
 
 End WithTable.
+
+(* `cb_pairs_ok`'s caption conjunct, on the one pair that could reach it:
+   `^` is in `Inline.needs_escape`, so a paragraph of literal `^ cap`
+   renders `\^ cap` and the pair is accepted.  Read at djot's own table,
+   since the escape set is where the answer comes from. *)
+Example no_canonical_caption_opener :
+  cb_pairs_ok [CTable [CTBody [[CIStr "a"]]]; cpara ["^ cap"]] = true.
+Proof. reflexivity. Qed.

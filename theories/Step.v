@@ -2050,6 +2050,52 @@ Proof.
   destruct (Nat.ltb ind (0 + indent_of l)); reflexivity.
 Qed.
 
+(*
+Table transitions
+-----------------
+
+A table records no column, so all four rules read off the line alone --
+`step_fuel`'s offset appears in none of them.  The close rule needs no
+`step_fuel_enough` either: a table is one level deep, so the fuel left
+for the reprocessed line is exactly `step`'s own.
+*)
+
+Lemma step_row_open :
+  forall l r, classify l = KRow r -> step l (PPara []) = ([], PTable [r] TOpen).
+Proof. intros l r H. exact (step_idle l (KRow r) H eq_refl). Qed.
+
+Lemma step_table_row :
+  forall l rows r,
+    caption_open l = None -> is_blank l = false -> classify l = KRow r ->
+    step l (PTable rows TOpen) = ([], PTable (r :: rows) TOpen).
+Proof.
+  intros l rows r Hc Hb H. unfold step. cbn [step_fuel].
+  rewrite Hc, Hb, H. reflexivity.
+Qed.
+
+Lemma step_table_blank :
+  forall l rows, is_blank l = true ->
+  step l (PTable rows TOpen) = ([], PTable rows TAfterBlank).
+Proof.
+  intros l rows H. unfold step. cbn [step_fuel].
+  rewrite (caption_open_blank l H), H. reflexivity.
+Qed.
+
+Lemma step_table_close :
+  forall l rows bs st',
+    caption_open l = None -> is_blank l = false ->
+    step l (PPara []) = (bs, st') ->
+    step l (PTable rows TAfterBlank)
+    = (table_block (rev rows) TAfterBlank :: bs, st')%list.
+Proof.
+  intros l rows bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel pstate_depth].
+  rewrite Hc, Hb.
+  replace (String.length l + 1) with (S (String.length l + 0)) by lia.
+  change (step_fuel (S (String.length l + 0)) 0 l (PPara []))
+    with (step l (PPara [])).
+  rewrite Hs. destruct (classify l); reflexivity.
+Qed.
+
 Lemma step_list_ref_close :
   forall l lbl v ls done inner,
     classify l = KRef lbl v ->

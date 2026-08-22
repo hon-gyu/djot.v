@@ -6373,12 +6373,14 @@ The pass inverts the view
 =========================
 *)
 
-(** Parsing a canonical line's text gives back its inlines. *)
+(** Parsing a canonical line's text gives back its inlines.  Nothing is
+    asked of the list but `cis_ok`: the empty line is the empty scan, which
+    is what lets a table cell be empty. *)
 Lemma parse_inline_line_ci :
-  forall cis, cis_ok cis = true -> nonempty cis = true ->
+  forall cis, cis_ok cis = true ->
   parse_inline_line (ci_line cis) = ci_inlines cis.
 Proof.
-  intros cis Hok Hne.
+  intros cis Hok.
   unfold parse_inline_line, istart, ostart, ci_line.
   rewrite (iscan_cis cis None EmptyString []).
   - reflexivity.
@@ -6409,7 +6411,7 @@ Proof.
   - cbn [map] in *.
     rewrite para_inlines_cons2_closed
       by (unfold ci_line, istart; apply iscan_cis_closed, Hc).
-    rewrite ci_para_cons2, (parse_inline_line_ci cis Hc Hn).
+    rewrite ci_para_cons2, (parse_inline_line_ci cis Hc).
     f_equal. f_equal.
     apply IH; [exact Hr | exact Hnr |].
     rewrite last_cons_nonnil in Hlast by discriminate. exact Hlast.
@@ -6525,11 +6527,10 @@ Qed.
     nothing else, which is what makes the paragraph case an induction. *)
 Lemma inline_lines_ci_inlines :
   forall cis cur rest,
-    cis_ok cis = true -> nonempty cis = true ->
     inline_lines (ci_inlines cis ++ rest)%list cur
     = inline_lines rest (cur ++ ci_line cis).
 Proof.
-  intros cis cur rest Hok Hne. clear Hok Hne.
+  intros cis cur rest.
   induction cis as [|c cs IH] in cur |- *.
   - cbn [ci_inlines ci_line ci_text app inline_lines].
     rewrite append_empty_r. reflexivity.
@@ -6550,10 +6551,10 @@ Proof.
     apply andb_true_iff in Hne as [Hn Hnr].
   - rewrite ci_para_one. cbn [map].
     rewrite <- (app_nil_r (ci_inlines cis)).
-    rewrite inline_lines_ci_inlines by assumption.
+    rewrite inline_lines_ci_inlines.
     reflexivity.
   - rewrite ci_para_cons2.
-    rewrite inline_lines_ci_inlines by assumption.
+    rewrite inline_lines_ci_inlines.
     rewrite inline_lines_softbreak.
     rewrite IH by assumption.
     reflexivity.

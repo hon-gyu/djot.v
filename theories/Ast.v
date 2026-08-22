@@ -225,6 +225,18 @@ Inductive align : Type := AlignLeft | AlignRight | AlignCenter | AlignDefault.
 
 Inductive cell_type : Type := HeadCell | BodyCell.
 
+(* Decided equality on alignments, which the canonical view needs to
+   compare a rendered separator against the one it meant. *)
+Definition align_eqb (a b : align) : bool :=
+  match a, b with
+  | AlignLeft, AlignLeft | AlignRight, AlignRight
+  | AlignCenter, AlignCenter | AlignDefault, AlignDefault => true
+  | _, _ => false
+  end.
+
+Lemma align_eqb_eq : forall a b, align_eqb a b = true -> a = b.
+Proof. intros [] []; (reflexivity || discriminate). Qed.
+
 Inductive cell : Type :=
   | Cell (ct : cell_type) (al : align) (ils : inlines).
 

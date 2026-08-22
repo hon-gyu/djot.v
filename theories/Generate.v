@@ -49,7 +49,13 @@ Definition leaves : list cblock :=
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"]
-  ; CRef "r" "u" ].
+  ; CRef "r" "u"
+  (* Both table shapes: a body row alone, and a header governing one.
+     The header is right-aligned so that the separator carries something
+     the AST has to give back. *)
+  ; CTable [CTBody [[CIStr "a"]]]
+  ; CTable [CTHead [AlignRight; AlignDefault] [[CIStr "h"]; [CIStr "i"]];
+            CTBody [[CIStr "b"]; [CIStr "c"]]] ].
 
 (* Second-position fillers.  A list is among them so that "container
    after a paragraph" shapes are generated; keeping the set fixed is

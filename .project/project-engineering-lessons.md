@@ -81,6 +81,19 @@ to one, list which existing theorems quantify over all states — today
 `finish_supported` — and ask what each demands of the new one. For
 anything that records a column, run the two-line probe above first.
 
+**The same list exists for `cblock`, and it is shorter.** A canonical
+constructor's design was once settled by asking only what the *parse*
+side needs, and the table step paid for it: a source-shaped `CTable`
+carrying `Line.trow`s made the parse trivial and `render_cb_lines`
+impossible, because that lemma says the *renderer* recovers `cb_lines`
+from `cb_ast` -- so a constructor holding data the AST does not determine
+cannot be canonical, whatever `cb_ok` asks. Non-injective `cb_ast` is
+the tell. The standing quantifiers over all cblocks are
+`render_cb_lines`, `cb_ok_lines_ok`, `cb_lines_first_line_ok`,
+`nonlist_cblock_first` and `cb_ast_pristine`; check the first before
+choosing the data, since it is the one that constrains the *shape* rather
+than the side conditions.
+
 **And when the standing theorems disagree with each other.** The code
 fence later took the same field, and here `Compute` decides nothing: an
 absolute column and one relative to the offset agree on every input the

@@ -62,6 +62,52 @@ Inductive trow : Type :=
   | TSep (aligns : list align)
   | TCells (cells : list string).
 
+(* Decided equality on rows.  What wants it is the canonical view, which
+   states a table's renderability as "this line scans back as the row it
+   was rendered from" -- a comparison the block layer cannot make with
+   `classify` alone. *)
+Fixpoint aligns_eqb (xs ys : list align) : bool :=
+  match xs, ys with
+  | [], [] => true
+  | x :: xs', y :: ys' => (align_eqb x y && aligns_eqb xs' ys')%bool
+  | _, _ => false
+  end.
+
+Fixpoint strs_eqb (xs ys : list string) : bool :=
+  match xs, ys with
+  | [], [] => true
+  | x :: xs', y :: ys' => (String.eqb x y && strs_eqb xs' ys')%bool
+  | _, _ => false
+  end.
+
+Definition trow_eqb (x y : trow) : bool :=
+  match x, y with
+  | TSep a, TSep b => aligns_eqb a b
+  | TCells a, TCells b => strs_eqb a b
+  | _, _ => false
+  end.
+
+Lemma aligns_eqb_eq : forall xs ys, aligns_eqb xs ys = true -> xs = ys.
+Proof.
+  induction xs as [|x xs IH]; intros [|y ys] H; try discriminate; [reflexivity|].
+  cbn [aligns_eqb] in H. apply andb_true_iff in H as [Hx Hxs].
+  rewrite (align_eqb_eq _ _ Hx), (IH _ Hxs). reflexivity.
+Qed.
+
+Lemma strs_eqb_eq : forall xs ys, strs_eqb xs ys = true -> xs = ys.
+Proof.
+  induction xs as [|x xs IH]; intros [|y ys] H; try discriminate; [reflexivity|].
+  cbn [strs_eqb] in H. apply andb_true_iff in H as [Hx Hxs].
+  apply String.eqb_eq in Hx. rewrite Hx, (IH _ Hxs). reflexivity.
+Qed.
+
+Lemma trow_eqb_eq : forall x y, trow_eqb x y = true -> x = y.
+Proof.
+  intros [a|a] [b|b] H; try discriminate; cbn [trow_eqb] in H.
+  - rewrite (aligns_eqb_eq _ _ H). reflexivity.
+  - rewrite (strs_eqb_eq _ _ H). reflexivity.
+Qed.
+
 Inductive line_kind : Type :=
   | KBlank                 (* only whitespace *)
   | KThematic              (* thematic break: 3+ of - or * (mixed ok), ws between *)

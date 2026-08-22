@@ -186,6 +186,55 @@ Proof.
 Qed.
 
 (*
+Table equations
+---------------
+*)
+
+Lemma parse_lines_row_open :
+  forall l rest r, classify l = KRow r ->
+  parse_lines (l :: rest) (PPara []) = parse_lines rest (PTable [r] TOpen).
+Proof.
+  intros l rest r H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_row_open _ _ H)). reflexivity.
+Qed.
+
+Lemma parse_lines_table_row :
+  forall l rest rows r,
+    caption_open l = None -> is_blank l = false -> classify l = KRow r ->
+    parse_lines (l :: rest) (PTable rows TOpen)
+    = parse_lines rest (PTable (r :: rows) TOpen).
+Proof.
+  intros l rest rows r Hc Hb H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_row _ _ _ Hc Hb H)). reflexivity.
+Qed.
+
+Lemma parse_lines_table_blank :
+  forall l rest rows, is_blank l = true ->
+  parse_lines (l :: rest) (PTable rows TOpen)
+  = parse_lines rest (PTable rows TAfterBlank).
+Proof.
+  intros l rest rows H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_blank _ _ H)). reflexivity.
+Qed.
+
+(* The line is reprocessed at the enclosing level, so the whole rule is
+   "emit the table and read this line again from idle". *)
+Lemma parse_lines_table_close :
+  forall l rest rows, caption_open l = None -> is_blank l = false ->
+  parse_lines (l :: rest) (PTable rows TAfterBlank)
+  = table_block (rev rows) TAfterBlank :: parse_lines (l :: rest) (PPara []).
+Proof.
+  intros l rest rows Hc Hb.
+  destruct (step l (PPara [])) as [bs st'] eqn:Hs.
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_close _ _ _ _ Hc Hb Hs)).
+  rewrite (parse_lines_step _ _ _ _ _ Hs). reflexivity.
+Qed.
+
+Lemma parse_lines_table_eof :
+  forall rows cap, parse_lines [] (PTable rows cap) = [table_block (rev rows) cap].
+Proof. reflexivity. Qed.
+
+(*
 Fence equations
 ---------------
 *)

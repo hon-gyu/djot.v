@@ -52,5 +52,5 @@ Proof. vm_compute. reflexivity. Qed.
    proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (194, 2448, 29358).
+                           List.length (accepted 3)) = (228, 2876, 34496).
 Proof. vm_compute. reflexivity. Qed.
