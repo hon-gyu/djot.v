@@ -158,8 +158,10 @@ Record id_state : Type := IdSt
 Definition id_state_init : id_state := IdSt [] [].
 
 (* An implicit reference from the heading's text to its own id, unless
-   that label is already spoken for (djot.js checks `references` too;
-   there are none until reference definitions land). *)
+   that label is already spoken for.  djot.js checks the explicit
+   `references` too; we do not, because `Html.doc_refs` appends the
+   implicit map after the explicit one and `alist_lookup` takes the
+   first, so an explicit definition wins at lookup instead. *)
 Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
   if existsb (fun p => String.eqb (fst p) label) (id_refs st)
   then st
@@ -178,11 +180,16 @@ Definition register_id (a : attr) (st : id_state) : id_state :=
 
 Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
   (st : id_state) : id_state * node block :=
+  let text := inlines_text ils in
   match lookup_attr "id" a with
-  (* An explicit id wins, and takes its slot. *)
-  | Some _ => (register_id a st, Node p a (Heading lvl ils))
+  (* An explicit id wins, and takes its slot.  The implicit reference is
+     registered either way: djot.js reads its destination off
+     `attributes?.id || autoAttributes?.id` (parse.ts:764), so `{#foo}`
+     over `# Introduction` makes `[Introduction][]` a link to `#foo`. *)
+  | Some ident =>
+      (add_auto_ref (normalize_label text) ident (register_id a st),
+       Node p a (Heading lvl ils))
   | None =>
-      let text := inlines_text ils in
       let ident := unique_id (id_used st) (id_base text) in
       let st' := IdSt (ident :: id_used st) (id_refs st) in
       (add_auto_ref (normalize_label text) ident st',
@@ -2468,6 +2475,15 @@ Proof. reflexivity. Qed.
 Example implicit_heading_reference :
   doc_auto_references (parse_doc "# Introduction")
   = [("Introduction", ("#Introduction", []))].
+Proof. reflexivity. Qed.
+
+(* An explicit id suppresses the auto-*identifier*, not the reference:
+   the label is still the heading's text, and it points at the spec's
+   id. *)
+Example implicit_heading_reference_explicit_id :
+  doc_auto_references (parse_doc "{#foo}
+# Introduction")
+  = [("Introduction", ("#foo", []))].
 Proof. reflexivity. Qed.
 
 (* Blocks before the first heading stay at the document level. *)

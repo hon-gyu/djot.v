@@ -48,6 +48,22 @@ Definition render_attrs (a : attr) : string :=
   String.concat ""
     (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
+(* What a resolved reference definition contributes.  Its attributes are
+   extra in the same sense as `href`, so they precede the node's own --
+   but a key the node carries itself wins, since djot.js copies an entry
+   into `extraAttr` only when the node has none (html.ts:430-436).
+   Without the filter `[ref][]{title=bar}` against a `{title=foo}`
+   definition renders two `title`s.
+
+   The `class` join beside it (html.ts:112-118) is unreachable from here:
+   it needs an extra `class`, which this filter admits only when the node
+   has none to join with. *)
+Definition ref_extra (a0 a : attr) : attr :=
+  filter (fun kv => match lookup_attr (fst kv) a with
+                    | Some _ => false
+                    | None => true
+                    end) a0.
+
 (* An ordered list's `start` and `type`, djot.js html.ts:251-259.  Both
    are omitted at their HTML defaults — start 1, decimal numbering — and
    both precede the node's own attributes, because `renderAttributes`
@@ -146,15 +162,17 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
   (* `href` is an extra attribute, so it precedes the node's own and is
      omitted entirely when the target is an unresolved reference: djot.js
      drops the attribute (with a warning) when a label does not resolve.
-     A resolved reference contributes the definition's attributes, which
-     are extra in the same sense and so also precede the node's. *)
+     A resolved reference contributes the definition's attributes through
+     `ref_extra`, which are extra in the same sense and so also precede
+     the node's. *)
   | Link ils (Direct url) =>
       "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">"
       ++ render_ils ils ++ "</a>"
   | Link ils (Reference label) =>
       match lookup_reference label refs with
       | Some (url, a0) =>
-          "<a href=""" ++ escape_attr url ++ """" ++ render_attrs a0 ++ ats
+          "<a href=""" ++ escape_attr url ++ """"
+          ++ render_attrs (ref_extra a0 a) ++ ats
           ++ ">" ++ render_ils ils ++ "</a>"
       | None => "<a" ++ ats ++ ">" ++ render_ils ils ++ "</a>"
       end
@@ -167,8 +185,8 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
       match lookup_reference label refs with
       | Some (url, a0) =>
           "<img alt=""" ++ escape_attr (plain_texts ils)
-            ++ """ src=""" ++ escape_attr url ++ """" ++ render_attrs a0
-            ++ ats ++ ">"
+            ++ """ src=""" ++ escape_attr url ++ """"
+            ++ render_attrs (ref_extra a0 a) ++ ats ++ ">"
       | None => "<img alt=""" ++ escape_attr (plain_texts ils) ++ """"
                 ++ ats ++ ">"
       end
@@ -432,7 +450,7 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
           match lookup_reference label refs with
           | Some (url, a0) =>
               (st', "<a href=""" ++ escape_attr url ++ """"
-                    ++ render_attrs a0 ++ ats ++ ">" ++ s ++ "</a>")
+                    ++ render_attrs (ref_extra a0 a) ++ ats ++ ">" ++ s ++ "</a>")
           | None => (st', "<a" ++ ats ++ ">" ++ s ++ "</a>")
           end
       end
@@ -973,12 +991,32 @@ Example convert_reference_collapsed :
 Proof. reflexivity. Qed.
 
 (* The definition's own attributes follow the destination and precede
-   nothing else -- inline attributes are not parsed yet. *)
+   the node's own. *)
 Example convert_reference_attributes :
   convert "{#x .c}
 [a]: /u
 
 [a][]" = "<p><a href=""/u"" id=""x"" class=""c"">a</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* A key the link carries itself wins, and the definition's copy is
+   dropped rather than emitted beside it. *)
+Example convert_reference_attributes_link_wins :
+  convert "{title=foo .a}
+[a]: /u
+
+[a][]{title=bar .b}" = "<p><a href=""/u"" title=""bar"" class=""b"">a</a></p>
+".
+Proof. reflexivity. Qed.
+
+(* Per key, not all-or-nothing: the definition keeps what the link does
+   not spell. *)
+Example convert_reference_attributes_merge_by_key :
+  convert "{title=foo}
+[a]: /u
+
+[a][]{.b}" = "<p><a href=""/u"" title=""foo"" class=""b"">a</a></p>
 ".
 Proof. reflexivity. Qed.
 
@@ -997,6 +1035,19 @@ Example convert_reference_auto :
 [Intro][]" = "<section id=""Intro"">
 <h1>Intro</h1>
 <p><a href=""#Intro"">Intro</a></p>
+</section>
+".
+Proof. reflexivity. Qed.
+
+(* A heading with an explicit id still registers the implicit reference,
+   pointed at the id the spec gave it. *)
+Example convert_reference_auto_explicit_id :
+  convert "{#foo}
+# Intro
+
+[Intro][]" = "<section id=""foo"">
+<h1>Intro</h1>
+<p><a href=""#foo"">Intro</a></p>
 </section>
 ".
 Proof. reflexivity. Qed.
