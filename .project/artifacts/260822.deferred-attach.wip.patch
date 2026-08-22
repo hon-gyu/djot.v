@@ -1,0 +1,586 @@
+diff --git a/theories/Inline.v b/theories/Inline.v
+index d31ce88..530be62 100644
+--- a/theories/Inline.v
++++ b/theories/Inline.v
+@@ -1733,6 +1733,23 @@ which is what `clearOpeners` plus the placeholder amount to.  The
+ remaining two, *discard* and closing below the top, belong to brackets
+ and are not reachable from this table. *)
+ 
++(* What a scope accumulates.  A finished node, or an attribute spec
++   whose target is not settled yet.
++
++   djot.js attaches a spec in a pass over the *resolved* match stream, so
++   by the time it asks "what is before this?" an opener that never closed
++   is already text.  Asking during the scan gives a different answer --
++   `a *b{.c}o` attaches to `b` rather than `*b` -- and no answer
++   available at the `}` is the right one, since whether the `*` closes is
++   not yet known.  So the spec waits here and `oresolve` settles it when
++   the scope does.  `src` is what it ate, for the case where nothing
++   takes it. *)
++Inductive oitem : Type :=
++  | OIn (n : node inline)
++  | OMark (a : attr) (src : string).
++
++Definition oitems : Type := list oitem.
++
+ Inductive frame_kind : Type :=
+   | FKDelim (style : dstyle)
+   (* `image` records the `!` before the `[`, which djot.js instead reads
+@@ -1744,7 +1761,7 @@ Inductive frame_kind : Type :=
+ Record frame : Type := Frame {
+   fr_kind : frame_kind;
+   fr_marked : bool;          (* delimiter opened as `{d`; false for `[` *)
+-  fr_out : inlines           (* this scope's inlines, reversed *)
++  fr_out : oitems            (* this scope's items, reversed *)
+ }.
+ 
+ (* The opener's source text, which is what it decays to when abandoned. *)
+@@ -1755,19 +1772,19 @@ Definition fr_src (f : frame) : string :=
+   end.
+ 
+ Record ostate : Type := OState {
+-  os_out : inlines;          (* the outermost scope, reversed *)
++  os_out : oitems;           (* the outermost scope, reversed *)
+   os_stk : list frame        (* open scopes, innermost first *)
+ }.
+ 
+ Definition ostart : ostate := OState [] [].
+ 
+ (* The scope emissions land in: the innermost open one, or the bottom. *)
+-Definition ocur (o : ostate) : inlines :=
++Definition ocur (o : ostate) : oitems :=
+   match os_stk o with [] => os_out o | f :: _ => fr_out f end.
+ 
+-(* ...and the same scope, written back.  Only `oattach` needs it: every
++(* ...and the same scope, written back.  Only attachment needs it: every
+    other writer pushes rather than replaces. *)
+-Definition oset_cur (l : inlines) (o : ostate) : ostate :=
++Definition oset_cur (l : oitems) (o : ostate) : ostate :=
+   match os_stk o with
+   | [] => OState l []
+   | f :: rest => OState (os_out o) (Frame (fr_kind f) (fr_marked f) l :: rest)
+@@ -1792,20 +1809,45 @@ Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
+ 
+ (* Reversed-list splices that merge a `Str` seam, so `no_adjacent_str`
+    survives an abandoned opener becoming text next to its neighbours. *)
+-Definition osnoc (n : node inline) (out : inlines) : inlines :=
++(* An attribute-less `Str` -- the kind a neighbour merges with. *)
++Definition plain_str (n : node inline) : bool :=
++  match n with Node _ [] (Str _) => true | _ => false end.
++
++(* No two of them adjacent.  `Wf.no_adjacent_str` is this predicate; it
++   lives here because `oresolve` is the identity exactly on lists that
++   satisfy it, and the equational lemmas about closing a scope need to
++   say so. *)
++Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
++  match ns with
++  | n1 :: ((n2 :: _) as rest) =>
++      negb (plain_str n1 && plain_str n2) && no_adjacent_str rest
++  | _ => true
++  end.
++
++(* The same merge over resolved nodes, which is where it now does the
++   real work: `oresolve` rebuilds a scope's list and this is what keeps
++   two plain `Str`s from ending up adjacent in it. *)
++Definition isnoc (n : node inline) (out : inlines) : inlines :=
+   match out, n with
+   | Node p [] (Str t) :: rest, Node _ [] (Str s) =>
+       (Node p [] (Str (t ++ s)) :: rest)%list
+   | _, _ => (n :: out)%list
+   end.
+ 
++Definition osnoc (n : oitem) (out : oitems) : oitems :=
++  match out, n with
++  | OIn (Node p [] (Str t)) :: rest, OIn (Node _ [] (Str s)) =>
++      (OIn (Node p [] (Str (t ++ s))) :: rest)%list
++  | _, _ => (n :: out)%list
++  end.
++
+ (* Whether the seam could merge: exactly `Wf.plain_str` of the head, and
+    the same notion `no_adjacent_str` is stated over.  A `Str` carrying
+    attributes is a node in its own right and never merges. *)
+-Definition starts_str (out : inlines) : bool :=
+-  match out with Node _ [] (Str _) :: _ => true | _ => false end.
++Definition starts_str (out : oitems) : bool :=
++  match out with OIn (Node _ [] (Str _)) :: _ => true | _ => false end.
+ 
+-Fixpoint oapp (cur out : inlines) : inlines :=
++Fixpoint oapp (cur out : oitems) : oitems :=
+   match cur with
+   | [] => out
+   | [n] => osnoc n out
+@@ -1814,9 +1856,19 @@ Fixpoint oapp (cur out : inlines) : inlines :=
+ 
+ Definition oemit (n : node inline) (o : ostate) : ostate :=
+   match os_stk o with
+-  | [] => OState (n :: os_out o) []
++  | [] => OState (OIn n :: os_out o) []
+   | f :: rest =>
+-      OState (os_out o) (Frame (fr_kind f) (fr_marked f) (n :: fr_out f) :: rest)
++      OState (os_out o)
++        (Frame (fr_kind f) (fr_marked f) (OIn n :: fr_out f) :: rest)
++  end.
++
++(* A spec waiting for its target, emitted the same way. *)
++Definition omark (a : attr) (src : string) (o : ostate) : ostate :=
++  match os_stk o with
++  | [] => OState (OMark a src :: os_out o) []
++  | f :: rest =>
++      OState (os_out o)
++        (Frame (fr_kind f) (fr_marked f) (OMark a src :: fr_out f) :: rest)
+   end.
+ 
+ (* Emit in source order while merging a plain-`Str` seam.  Ordinary
+@@ -1826,10 +1878,10 @@ Definition oemit (n : node inline) (o : ostate) : ostate :=
+    construction. *)
+ Definition oemit_merge (n : node inline) (o : ostate) : ostate :=
+   match os_stk o with
+-  | [] => OState (osnoc n (os_out o)) []
++  | [] => OState (osnoc (OIn n) (os_out o)) []
+   | f :: rest =>
+       OState (os_out o)
+-        (Frame (fr_kind f) (fr_marked f) (osnoc n (fr_out f)) :: rest)
++        (Frame (fr_kind f) (fr_marked f) (osnoc (OIn n) (fr_out f)) :: rest)
+   end.
+ 
+ Fixpoint oemit_all_merge (ns : inlines) (o : ostate) : ostate :=
+@@ -1863,16 +1915,123 @@ Qed.
+ Lemma oemit_all_frame :
+   forall ns out kind m acc stk,
+     oemit_all ns (OState out (Frame kind m acc :: stk))
+-    = OState out (Frame kind m (List.rev ns ++ acc)%list :: stk).
++    = OState out
++        (Frame kind m (List.rev (List.map OIn ns) ++ acc)%list :: stk).
+ Proof.
+   induction ns as [|n ns IH]; intros out kind m acc stk;
+-    cbn [oemit_all List.rev app]; [reflexivity|].
+-  change (oemit_all ns (OState out (Frame kind m (n :: acc) :: stk))
++    cbn [oemit_all List.map List.rev app]; [reflexivity|].
++  change (oemit_all ns (OState out (Frame kind m (OIn n :: acc) :: stk))
+           = OState out
+-              (Frame kind m ((List.rev ns ++ [n]) ++ acc)%list :: stk)).
++              (Frame kind m
++                 ((List.rev (List.map OIn ns) ++ [OIn n]) ++ acc)%list
++               :: stk)).
+   rewrite IH, <- List.app_assoc. reflexivity.
+ Qed.
+ 
++(* The run an attribute spec attaches to when the thing before it is
++   pending text: everything after the last whitespace.  djot.js attaches
++   to the last *word*, so `foo bar{.a}` attributes only `bar` while
++   `a-b{.a}` attributes all of `a-b` -- the split is on whitespace, not
++   on word characters.  The result satisfies `s = pre ++ w` with `w`
++   whitespace-free, which is why an attributed `Str` can never contain a
++   space. *)
++Fixpoint last_ws_split (s : string) : string * string :=
++  match s with
++  | EmptyString => (EmptyString, EmptyString)
++  | String c rest =>
++      match last_ws_split rest with
++      | (EmptyString, w) =>
++          if is_ws c then (one c, w) else (EmptyString, String c w)
++      | (pre, w) => (String c pre, w)
++      end
++  end.
++
++(* A last word can only come from text there was. *)
++Lemma last_ws_split_nonempty :
++  forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.
++Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
++
++(* Where a waiting spec lands, asked of the list the scope has resolved
++   so far -- whose head is whatever sits immediately before the spec.
++   This is djot.js's `-attributes` handler (`parse.ts:446-506`), and it
++   runs where djot.js runs it: after the openers that never closed have
++   become text.
++
++   - a plain `Str` before it takes the spec on its last word.  The split
++     is on whitespace, not on word characters, so `a-b{.a}` attributes
++     all of `a-b`; an empty spec keeps the run whole instead, since
++     cutting it would only produce two plain `Str`s.
++   - a run ending in whitespace has no last word, and djot.js drops the
++     spec there rather than attaching it across the gap
++     (`endsWithSpace`).
++   - any other node takes it, which is what `*e*{.a}`, `[l](u){}` and
++     `x{.a}{.b}` need.  A `SoftBreak` is such a node and djot.js attaches
++     to it, where it renders as nothing.
++   - nothing at all before it is the one case we do not follow djot.js
++     on.  It drops the spec, leaving `# {#i}` an empty heading;
++     `wf_block` excludes those and `parse_inline_line_nonempty` denies
++     them, so the source stays as text. *)
++Definition oattach_list (a : attr) (src : string) (out : inlines) : inlines :=
++  match out with
++  | Node p [] (Str s) :: rest =>
++      let '(pre, w) := last_ws_split s in
++      if nonempty_str w
++      then match a with
++           | [] => out
++           | _ =>
++               let out1 := if nonempty_str pre
++                           then isnoc (mk (Str pre)) rest else rest in
++               isnoc (Node NoPos a (Str w)) out1
++           end
++      else out
++  | Node p a' v :: rest => Node p (attr_merge a a') v :: rest
++  | [] => isnoc (mk (Str src)) []
++  end.
++
++(* A scope's items, settled.  Walking the tail first is what puts the
++   already-resolved neighbours in front of each spec. *)
++Fixpoint oresolve (l : oitems) : inlines :=
++  match l with
++  | [] => []
++  | OIn n :: rest => isnoc n (oresolve rest)
++  | OMark a src :: rest => oattach_list a src (oresolve rest)
++  end.
++
++(* No seam to merge, so the snoc is a cons. *)
++Lemma isnoc_cons :
++  forall n m out,
++    (plain_str n && plain_str m)%bool = false ->
++    isnoc n (m :: out)%list = (n :: m :: out)%list.
++Proof.
++  intros [p a v] [q b w] out H. unfold isnoc, plain_str in H |- *.
++  destruct b as [|kv b']; [|reflexivity].
++  destruct w; try reflexivity.
++  destruct a as [|ka a']; [|reflexivity].
++  destruct v; try reflexivity.
++  cbn in H. discriminate.
++Qed.
++
++(* Nothing waiting and no seam to merge: resolution gives the list back.
++   This is what every equational lemma about closing a scope needs, since
++   those scopes are built by `oemit_all` out of nodes already settled. *)
++Lemma oresolve_map :
++  forall ns, no_adjacent_str ns = true -> oresolve (List.map OIn ns) = ns.
++Proof.
++  induction ns as [|n ns IH]; intros H; [reflexivity|].
++  cbn [List.map oresolve].
++  destruct ns as [|m ns']; [reflexivity|].
++  cbn [no_adjacent_str] in H. apply andb_true_iff in H as [Hp H].
++  rewrite (IH H). apply negb_true_iff in Hp. apply isnoc_cons, Hp.
++Qed.
++
++Lemma oresolve_map_rev :
++  forall ns,
++    no_adjacent_str (List.rev ns) = true ->
++    oresolve (List.rev (List.map OIn ns)) = List.rev ns.
++Proof.
++  intros ns H. rewrite <- List.map_rev. apply oresolve_map, H.
++Qed.
++
+ (* Walk out through the open scopes looking for one this closer matches,
+    abandoning each scope it passes.  `pend` carries what those abandoned
+    scopes contributed, ready to splice into the next level down.
+@@ -1888,39 +2047,47 @@ Qed.
+    searching, which is what made `___a___` come out `<em>_</em>a<em>_</em>`
+    instead of three nested spans, and `____` come out `<em>_</em>_`
+    instead of literal. *)
+-Fixpoint oclose_go (k : dstyle) (m : bool) (pend : inlines) (stk : list frame)
+-  : option (inlines * list frame) :=
++Fixpoint oclose_go (k : dstyle) (m : bool) (pend : oitems) (stk : list frame)
++  : option (oitems * list frame) :=
+   match stk with
+   | [] => None
+   | f :: rest =>
+       let content := oapp pend (fr_out f) in
+       if dmatch k m f
+       then (if nonempty content then Some (content, rest) else None)
+-      else oclose_go k m (oapp content [mk (Str (fr_src f))]) rest
++      else oclose_go k m (oapp content [OIn (mk (Str (fr_src f)))]) rest
+   end.
+ 
+ Definition oclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
+   match oclose_go k m [] (os_stk o) with
+   | None => None
+   | Some (content, rest) =>
+-      Some (oemit (mk (dnode k (List.rev content))) (OState (os_out o) rest))
++      Some (oemit (mk (dnode k (List.rev (oresolve content))))
++              (OState (os_out o) rest))
+   end.
+ 
++(* The seam hypothesis is what `oresolve` costs: a scope built out of
++   settled nodes resolves to itself only when no two plain `Str`s were
++   put next to each other, which is what every caller's `iscan_wf`
++   already says of the scope it is emitting into. *)
+ Lemma oclose_oemit_all_marked :
+   forall k ns base,
+     nonempty ns = true ->
++    no_adjacent_str (List.rev ns) = true ->
+     oclose k true (oemit_all ns (opush k true base))
+     = Some (oemit (mk (dnode k ns)) base).
+ Proof.
+-  intros k ns [out stk] Hne. unfold opush. rewrite oemit_all_frame.
++  intros k ns [out stk] Hne Hadj. unfold opush. rewrite oemit_all_frame.
+   unfold oclose. cbn [os_stk os_out oclose_go oapp dmatch fr_kind
+     fr_marked fr_out]. rewrite !app_nil_r.
+-  assert (Hrev : nonempty (List.rev ns) = true).
++  assert (Hrev : nonempty (List.rev (List.map OIn ns)) = true).
+   { destruct ns as [|n rest]; [discriminate|].
+-    cbn [List.rev]. destruct (List.rev rest); reflexivity. }
++    cbn [List.map List.rev]. destruct (List.rev (List.map OIn rest));
++      reflexivity. }
+   rewrite Hrev. destruct k;
+     cbn [dmatch dstyle_eqb fr_kind fr_marked andb_true_l].
+-  all: cbn; rewrite List.rev_involutive; reflexivity.
++  all: cbn -[oresolve List.rev List.map];
++       rewrite (oresolve_map_rev ns Hadj), List.rev_involutive; reflexivity.
+ Qed.
+ 
+ (* Brackets share the ordered scope stack with delimiters.  Finding a
+@@ -1929,8 +2096,8 @@ Qed.
+    it.  Unlike a delimiter close this only extracts the label content:
+    the following byte still decides link, reference, span, or literal
+    brackets. *)
+-Fixpoint bclose_go (pend : inlines) (stk : list frame)
+-  : option (inlines * bool * list frame) :=
++Fixpoint bclose_go (pend : oitems) (stk : list frame)
++  : option (oitems * bool * list frame) :=
+   match stk with
+   | [] => None
+   | f :: rest =>
+@@ -1938,7 +2105,7 @@ Fixpoint bclose_go (pend : inlines) (stk : list frame)
+       match fr_kind f with
+       | FKBracket image => Some (content, image, rest)
+       | FKDelim _ =>
+-          bclose_go (oapp content [mk (Str (fr_src f))]) rest
++          bclose_go (oapp content [OIn (mk (Str (fr_src f)))]) rest
+       end
+   end.
+ 
+@@ -1946,7 +2113,7 @@ Definition bclose (o : ostate) : option (inlines * bool * ostate) :=
+   match bclose_go [] (os_stk o) with
+   | None => None
+   | Some (content, image, rest) =>
+-      Some (List.rev content, image, OState (os_out o) rest)
++      Some (List.rev (oresolve content), image, OState (os_out o) rest)
+   end.
+ 
+ (* Take back a bracket the previous byte pushed.  Only a frame that is a
+@@ -1972,11 +2139,13 @@ Proof. intros image [out stk]. reflexivity. Qed.
+ 
+ Lemma bclose_oemit_all :
+   forall ns image base,
++    no_adjacent_str (List.rev ns) = true ->
+     bclose (oemit_all ns (bpush image base)) = Some (ns, image, base).
+ Proof.
+-  intros ns image [out stk]. unfold bpush. rewrite oemit_all_frame.
++  intros ns image [out stk] Hadj. unfold bpush. rewrite oemit_all_frame.
+   unfold bclose. cbn [os_stk os_out bclose_go fr_out fr_kind oapp].
+-  rewrite app_nil_r, List.rev_involutive. reflexivity.
++  rewrite app_nil_r, (oresolve_map_rev ns Hadj), List.rev_involutive.
++  reflexivity.
+ Qed.
+ 
+ (*
+@@ -2000,12 +2169,12 @@ Definition opop_str (o : ostate) : string * ostate :=
+   match os_stk o with
+   | [] =>
+       match os_out o with
+-      | Node _ [] (Str s) :: rest => (s, OState rest [])
++      | OIn (Node _ [] (Str s)) :: rest => (s, OState rest [])
+       | _ => (EmptyString, o)
+       end
+   | f :: fs =>
+       match fr_out f with
+-      | Node _ [] (Str s) :: rest =>
++      | OIn (Node _ [] (Str s)) :: rest =>
+           (s, OState (os_out o) (Frame (fr_kind f) (fr_marked f) rest :: fs))
+       | _ => (EmptyString, o)
+       end
+@@ -2077,16 +2246,17 @@ Fixpoint drop_nl (s : string) : string :=
+   end.
+ 
+ (* Everything still open when the paragraph ends is abandoned. *)
+-Fixpoint oflatten (pend : inlines) (stk : list frame) (bottom : inlines)
+-  : inlines :=
++Fixpoint oflatten (pend : oitems) (stk : list frame) (bottom : oitems)
++  : oitems :=
+   match stk with
+   | [] => oapp pend bottom
+   | f :: rest =>
+-      oflatten (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))]) rest bottom
++      oflatten (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
++        rest bottom
+   end.
+ 
+ Definition ofinish (o : ostate) : inlines :=
+-  oflatten [] (os_stk o) (os_out o).
++  oresolve (oflatten [] (os_stk o) (os_out o)).
+ 
+ (* What a backtick run closes into.  djot.js keeps this in
+    `verbatimType` and decides it retroactively when the closing run
+@@ -2302,96 +2472,17 @@ Definition ostate_nonempty (o : ostate) : bool :=
+   (nonempty (os_out o) || negb (null (os_stk o)))%bool.
+ 
+ 
+-(* The run an attribute spec attaches to when the thing before it is
+-   pending text: everything after the last whitespace.  djot.js attaches
+-   to the last *word*, so `foo bar{.a}` attributes only `bar` while
+-   `a-b{.a}` attributes all of `a-b` -- the split is on whitespace, not
+-   on word characters.  The result satisfies `s = pre ++ w` with `w`
+-   whitespace-free, which is why an attributed `Str` can never contain a
+-   space. *)
+-Fixpoint last_ws_split (s : string) : string * string :=
+-  match s with
+-  | EmptyString => (EmptyString, EmptyString)
+-  | String c rest =>
+-      match last_ws_split rest with
+-      | (EmptyString, w) =>
+-          if is_ws c then (one c, w) else (EmptyString, String c w)
+-      | (pre, w) => (String c pre, w)
+-      end
+-  end.
+-
+-(* A last word can only come from text there was. *)
+-Lemma last_ws_split_nonempty :
+-  forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.
+-Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
+-
+-(* The node a spec decorates when no pending text takes it: the last one
+-   emitted into the current scope, which is djot.js's `getTip()`
+-   (`parse.ts:452`).
+-
+-   A `SoftBreak` is not one, and that exclusion is what makes the
+-   question askable at all.  `oout_app` splices a previous line's output
+-   *underneath* the current scope, so a scope that has emitted nothing
+-   sees that line's last node here instead of nothing -- and a previous
+-   line always ends in the `SoftBreak` that ended it (the same fact
+-   `osnoc_nonstr` relies on).  Refusing that one constructor therefore
+-   makes the answer the same on both sides of a splice, which is what
+-   `iattr_attach_app` needs.  It is also right on its own terms: djot.js
+-   attaches to the break node and renders it identically, since a break
+-   has no tag to carry attributes on. *)
+-Definition oattach (a : attr) (o : ostate) : option ostate :=
+-  match ocur o with
+-  | Node _ _ SoftBreak :: _ | [] => None
+-  | Node p a' v :: rest => Some (oset_cur (Node p (attr_merge a a') v :: rest) o)
+-  end.
++(* Where a finished spec goes: into the scope, as a marker, with the
++   pending text flushed in front of it so that the run it will attach to
++   is the item immediately below.  `oresolve` settles it -- see
++   `oattach_list` for the rule and for the one case we do not follow
++   djot.js on.
+ 
+-(* It found a node, so the scope it wrote back to still holds one. *)
+-Lemma oattach_nonempty :
+-  forall a o o', oattach a o = Some o' -> ostate_nonempty o' = true.
+-Proof.
+-  intros a o o' H. unfold oattach in H.
+-  destruct (ocur o) as [|[p a' v] rest]; [discriminate|].
+-  destruct v; try discriminate; injection H as <-;
+-    unfold ostate_nonempty, oset_cur; destruct (os_stk o);
+-    cbn [os_out os_stk null negb]; solve [reflexivity | apply orb_true_r].
+-Qed.
+-
+-(* Where a finished spec lands.  One question, asked of the two places an
+-   answer can live, in djot.js's order (`parse.ts:446-506`):
+-
+-   - pending text takes it on its last word.  The split is on whitespace,
+-     not on word characters, so `a-b{.a}` attributes all of `a-b`; an
+-     empty spec keeps the run whole instead, since cutting it would only
+-     produce two plain `Str`s and break `no_adjacent_str`.
+-   - text ending in whitespace has no last word, and djot.js drops the
+-     spec there rather than attaching it across the gap (`endsWithSpace`).
+-   - with nothing pending, the last node emitted into this scope takes
+-     it, which is what makes `*e*{.a}`, `[l](u){}` and `x{.a}{.b}` work.
+-
+-   Nothing at all to attach to is the one case we do not follow djot.js
+-   on.  It drops the spec, leaving `# {#i}` an empty heading; `wf_block`
+-   excludes those and `parse_inline_line_nonempty` denies them, so we
+-   keep the source as text instead and log the divergence.  It is
+-   confined to a spec with no scope output and no pending text before
+-   it.  The source goes back through `battr_lit`, which is where the
+-   breaks a spec spanned become `SoftBreak`s again. *)
+-Definition iattr_attach (a : attr) (src txt : string) (prev : option ascii)
+-  (o : ostate) : iscan :=
+-  let '(pre, w) := last_ws_split txt in
+-  if nonempty_str w
+-  then match a with
+-       | [] => IText false txt prev o
+-       | _ => IText false EmptyString (Some rbrace)
+-                (oemit (Node NoPos a (Str w)) (flush_text pre o))
+-       end
+-  else if nonempty_str txt
+-  then IText false txt prev o
+-  else match oattach a o with
+-       | Some o' => IText false EmptyString (Some rbrace) o'
+-       | None =>
+-           let '(t, o') := battr_lit src EmptyString o in
+-           IText false t None o'
+-       end.
++   The source is kept for that case.  It is the whole spec, braces
++   included, because that is what would be printed. *)
++Definition iattr_mark (a : attr) (src txt : string) (o : ostate) : iscan :=
++  IText false EmptyString (Some rbrace)
++    (omark a (one lbrace ++ src)%string (flush_text txt o)).
+ 
+ (* One byte of an inline attribute spec, read with the machine block
+    attributes use.  Failure hands the byte back to `ilead` with the text
+@@ -2403,7 +2494,7 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
+   if ap_failed p'
+   then let '(t, o') := battr_lit src txt o in ilead c t None o'
+   else if ap_done p'
+-  then iattr_attach (ap_attrs p') (src ++ one c)%string txt prev o
++  then iattr_mark (ap_attrs p') (src ++ one c)%string txt o
+   else IAttr p' (src ++ one c)%string txt prev o.
+ 
+ (* A marked open with `S extra` characters of its token in hand.  It
+@@ -3175,7 +3266,7 @@ Definition istart : iscan := IText false EmptyString None ostart.
+ (* Appending at the *bottom* -- `os_out`, the outermost scope -- is what
+    makes this commute with every transition: pushing and popping scopes
+    only ever touch `os_stk`, so the suffix is out of their reach. *)
+-Definition oout_app (base : inlines) (o : ostate) : ostate :=
++Definition oout_app (base : oitems) (o : ostate) : ostate :=
+   OState (os_out o ++ base)%list (os_stk o).
+ 
+ (* What a suffix always is: empty, or a previous line, whose most recent
+@@ -3191,10 +3282,10 @@ Definition oout_app (base : inlines) (o : ostate) : ostate :=
+    *else* would make the same query answer two ways across a splice.
+    Carrying the real invariant costs one hypothesis rename and buys the
+    query. *)
+-Definition base_ok (base : inlines) : bool :=
++Definition base_ok (base : oitems) : bool :=
+   match base with
+   | [] => true
+-  | Node _ _ SoftBreak :: _ => true
++  | OIn (Node _ _ SoftBreak) :: _ => true
+   | _ => false
+   end.
+ 
+@@ -3205,7 +3296,7 @@ Proof.
+   destruct v; try reflexivity. discriminate.
+ Qed.
+ 
+-Definition iout_app (base : inlines) (st : iscan) : iscan :=
++Definition iout_app (base : oitems) (st : iscan) : iscan :=
+   match st with
+   | IText esc txt prev o => IText esc txt prev (oout_app base o)
+   | IEscWs ws txt prev o => IEscWs ws txt prev (oout_app base o)
+diff --git a/theories/Wf.v b/theories/Wf.v
+index 4214f6d..42f16f5 100644
+--- a/theories/Wf.v
++++ b/theories/Wf.v
+@@ -28,18 +28,10 @@ Canonicality of inline sequences
+ Two adjacent attribute-less Str nodes should have been merged into one
+ (djoths's Inlines Semigroup does this on append). *)
+ 
+-(* An attribute-less Str node — the kind that would have been merged
+-   with a neighbour.  A Str *with* attributes is a distinct node. *)
+-Definition plain_str (n : node inline) : bool :=
+-  match n with Node _ [] (Str _) => true | _ => false end.
+-
+-(* No two plain Str nodes sit next to each other. *)
+-Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
+-  match ns with
+-  | n1 :: ((n2 :: _) as rest) =>
+-      negb (plain_str n1 && plain_str n2) && no_adjacent_str rest
+-  | _ => true
+-  end.
++(* `plain_str` (an attribute-less `Str`, the kind that would have been
++   merged with a neighbour) and `no_adjacent_str` (no two of them side by
++   side) are defined in `Inline.v`: `oresolve` is the identity exactly on
++   lists satisfying the second, so the scanner has to name it too. *)
+ 
+ (*
+ Inline well-formedness

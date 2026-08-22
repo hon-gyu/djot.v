@@ -380,6 +380,37 @@ file that never opened a section. `Check @thm` prints the binder or does
 not, and that is the whole test; run it on every statement the step was
 for, not on a sample.
 
+## Probe the equations a new pass must preserve, not only the invariant it establishes
+
+**What happened.** Deferring attribute attachment adds a normalizing
+pass over a scope's output. The obvious risk was the well-formedness
+invariant, so that is what got probed: twenty lines, first attempt,
+closed under the global context. The real cost was somewhere else. The
+pass *merges* adjacent text, so it is not the identity — and two
+equational lemmas say that a scope built by `oemit_all` out of settled
+nodes closes back to exactly those nodes. Those became false, taking a
+side condition through their ten users, and a second family
+(`ibreak_closed`, `iscan_closed`) became false for an unrelated reason:
+an unresolved marker crossing a line break makes the line-by-line
+decomposition disagree with the whole-paragraph one. Neither showed up
+in a census that counted which definitions inspect the element type.
+
+**General form.** A pass that *establishes* a property is easy to price
+by proving it establishes the property. What it costs instead is every
+existing statement of the form "this operation gives back exactly what
+was put in", because the pass now sits between the two. Those statements
+do not mention the invariant and do not mention the element type, so
+neither a census nor an invariant probe finds them.
+
+**What to do instead.** Before adding a normalizing pass, grep for
+lemmas whose conclusion is an equation about the construct the pass will
+wrap -- here `oclose (oemit_all ns ...) = Some (... ns ...)` -- and ask
+of each whether the pass is the identity on its right-hand side. Where
+it is not, the side condition that makes it so is the real diff, and its
+users are the real cost. [[#Check whether a proof uses the structure
+before pricing its removal]] counts the proofs that inspect a structure;
+this counts the theorems that pin a value.
+
 ## Prefer the stronger precondition when the weaker one is viral
 
 **What happened.** `dconfig_ok` gained conditions the scanner needs of
