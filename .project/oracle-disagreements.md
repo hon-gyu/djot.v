@@ -764,6 +764,17 @@ gaps are a spec crossing a line break and `{% %}` comments, neither of
 which is about attachment. *(Both closed 2026-08-22; see the entry on an
 unclosed spec below, which is what is left of them.)*
 
+*Amended 2026-08-22, when attachment moved to `oresolve`.* The
+divergence is no longer "no scope output and no pending text before it"
+but the narrower "nothing before it **in its own scope** once that scope
+has resolved". `{#i} x` and `x` / `{.a}` still keep their source, and so
+does `a *{.c}b*`, where the spec is the first thing inside a `Strong`
+that closes — dropping it there would leave an empty container, which
+`wf_inline` excludes and `oclose` refuses to build. What is no longer
+divergent is everything where an *unfinished* opener sits in front: `a
+*b{.c}o` now attributes `*b`, because by resolution time the `*` is
+text.
+
 ## Adjudicated 2026-08-15 — ours: constructs inside an unclosed `[^`
 
 djot.js decides note-ness at the `]`, by reading the byte after the
@@ -1017,3 +1028,32 @@ the point is that a `Str` holding a newline does not survive a reparse,
 so it should not be in an AST we claim to round-trip. `bspan_lit` had
 the same hole — a bracketed span's spec has crossed breaks since it was
 written — and it is fixed here too.
+
+## Adjudicated 2026-08-22 — ours: a spec inside a bracket that decays
+
+Attachment now runs after the scan (`oresolve`), so an opener that never
+closed is text before a spec asks what is in front of it. A bracket is
+the one opener where that is still decided too early.
+
+| `[a{.c}b] c` | output |
+| --- | --- |
+| djot.js | `<span class="c">[a</span>b] c` |
+| ours | `[<span class="c">a</span>b] c` |
+
+**Ours, and the reason is where `bclose` sits.** A `]` has to hand
+`IClosed` the label's children *already resolved*, because the next byte
+decides whether they become a link's, an image's, a span's, or literal
+text — and three of those four are nodes that need `inlines`. So a spec
+inside the label settles at the `]`, before it is known whether the `[`
+will become text. Matching djot.js would mean carrying unresolved items
+through `bclose` and resolving a second time on the literal path, which
+is the retroactive disposition the destination
+(`links_and_images:220`) and the `[^` label already declined.
+
+**Boundary.** The two agree on every bracket that becomes a node, which
+is every bracket followed by `(`, `[` or `{`. They differ only on one
+that decays to text and contains a spec. Unreachable from a canonical
+document: `needs_escape` claims `[` and `{`.
+
+`Inline.attr_inside_a_decaying_bracket` pins it, and its deletion is
+what would confirm a fix.

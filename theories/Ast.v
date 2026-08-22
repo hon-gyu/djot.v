@@ -94,8 +94,8 @@ Definition attr_put (kv : string * string) (a : attr) : attr :=
 Definition attr_merge (new acc : attr) : attr :=
   fold_left (fun acc' kv => attr_put kv acc') new acc.
 
-(* Merging never empties a set.  `Inline.oattach` needs it: it decorates
-   whatever node the scan last emitted, and the scanner's invariant is
+(* Merging never empties a set.  `Inline.oattach_list` needs it: it
+   decorates whatever node resolution finds, and the invariant is
    phrased as "the head is not a plain `Str`" -- where *plain* means no
    attributes.  A node that already carries some must keep carrying
    some. *)

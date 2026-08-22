@@ -411,6 +411,19 @@ users are the real cost. [[#Check whether a proof uses the structure
 before pricing its removal]] counts the proofs that inspect a structure;
 this counts the theorems that pin a value.
 
+**And then try to make the pass an identity instead of paying.** Both
+costs above were avoided, and neither by proving anything. The merge was
+made conditional on one bit -- set only where a resolved spec vanished,
+which is the only place two `Str`s can meet -- and resolution became the
+identity on a settled list *definitionally*, so every side condition
+came back out. The line-break disagreement went the same way: keeping a
+refusal the old code already had (`oattach` declining a `SoftBreak`) made
+the two decompositions agree. The general form is that a pass which is
+the identity on the inputs the existing theorems quantify over costs
+nothing, and "identity on those inputs" is usually reachable by
+restricting when the pass does anything -- cheaper than carrying a
+hypothesis to every user.
+
 ## Prefer the stronger precondition when the weaker one is viral
 
 **What happened.** `dconfig_ok` gained conditions the scanner needs of

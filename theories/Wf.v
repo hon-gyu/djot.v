@@ -28,18 +28,10 @@ Canonicality of inline sequences
 Two adjacent attribute-less Str nodes should have been merged into one
 (djoths's Inlines Semigroup does this on append). *)
 
-(* An attribute-less Str node — the kind that would have been merged
-   with a neighbour.  A Str *with* attributes is a distinct node. *)
-Definition plain_str (n : node inline) : bool :=
-  match n with Node _ [] (Str _) => true | _ => false end.
-
-(* No two plain Str nodes sit next to each other. *)
-Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
-  match ns with
-  | n1 :: ((n2 :: _) as rest) =>
-      negb (plain_str n1 && plain_str n2) && no_adjacent_str rest
-  | _ => true
-  end.
+(* `plain_str` (an attribute-less `Str`, the kind that would have been
+   merged with a neighbour) and `no_adjacent_str` (no two of them side by
+   side) are defined in `Inline.v`: `oresolve` is the identity exactly on
+   lists satisfying the second, so the scanner has to name it too. *)
 
 (*
 Inline well-formedness
@@ -542,18 +534,86 @@ Proof.
       apply andb_true_iff in H as [_ H]. exact (IH a b H).
 Qed.
 
-Definition hd_str (out : inlines) : bool :=
-  match out with n :: _ => plain_str n | [] => false end.
+(* A scope holds items, not nodes, so both questions are asked of one.  A
+   waiting spec is not a plain `Str` and never merges with a neighbour --
+   but it may *vanish* when it resolves, which is what
+   `oresolve_go`'s flag is for, and why the seam obligation here is still
+   only about the nodes on either side of it. *)
+Definition plain_item (i : oitem) : bool :=
+  match i with OIn n => plain_str n | OMark _ _ => false end.
 
-Definition ilist_ok (out : inlines) : bool :=
+Fixpoint no_adjacent_item (l : oitems) : bool :=
+  match l with
+  | i1 :: ((i2 :: _) as rest) =>
+      negb (plain_item i1 && plain_item i2) && no_adjacent_item rest
+  | _ => true
+  end.
+
+Definition oitem_ok (i : oitem) : bool :=
+  match i with
+  | OIn n => wf_inline (node_contents n)
+  | OMark _ src => nonempty_str src
+  end.
+
+Definition hd_str (out : oitems) : bool :=
+  match out with i :: _ => plain_item i | [] => false end.
+
+(* What a scope carries.  What a *resolved* list carries is `rlist_ok`
+   below; `oresolve_ok` is the bridge. *)
+Definition ilist_ok (out : oitems) : bool :=
+  (forallb oitem_ok out && no_adjacent_item (List.rev out))%bool.
+
+Definition rlist_ok (out : inlines) : bool :=
   (forallb (fun n => wf_inline (node_contents n)) out
    && no_adjacent_str (List.rev out))%bool.
+
+(* `no_adjacent_item` is `no_adjacent_str` over a wider element type, so
+   the three list facts it needs are proved again rather than reused. *)
+Lemma no_adjacent_item_app2 :
+  forall l a b,
+    no_adjacent_item (l ++ [a])%list = true ->
+    (plain_item a && plain_item b)%bool = false ->
+    no_adjacent_item (l ++ [a; b])%list = true.
+Proof.
+  induction l as [|x l IH]; intros a b H Hc; cbn [app no_adjacent_item].
+  - rewrite Hc. reflexivity.
+  - destruct l as [|y l']; cbn [app no_adjacent_item] in H |- *.
+    + apply andb_true_iff in H as [H1 _]. rewrite H1, Hc. reflexivity.
+    + apply andb_true_iff in H as [H1 H2]. rewrite H1; cbn [andb].
+      exact (IH a b H2 Hc).
+Qed.
+
+Lemma no_adjacent_item_app2_l :
+  forall l a b,
+    no_adjacent_item (l ++ [a; b])%list = true ->
+    no_adjacent_item (l ++ [a])%list = true.
+Proof.
+  induction l as [|x l IH]; intros a b H; cbn [app no_adjacent_item] in H |- *.
+  - reflexivity.
+  - destruct l as [|y l']; cbn [app no_adjacent_item] in H |- *.
+    + apply andb_true_iff in H as [H1 _]. rewrite H1. reflexivity.
+    + apply andb_true_iff in H as [H1 H2]. rewrite H1; cbn [andb].
+      exact (IH a b H2).
+Qed.
+
+Lemma no_adjacent_item_app2_pair :
+  forall l a b,
+    no_adjacent_item (l ++ [a; b])%list = true ->
+    (plain_item a && plain_item b)%bool = false.
+Proof.
+  induction l as [|x l IH]; intros a b H; cbn [app no_adjacent_item] in H.
+  - apply andb_true_iff in H as [H _]. apply negb_true_iff in H. exact H.
+  - destruct l as [|y l']; cbn [app no_adjacent_item] in H.
+    + apply andb_true_iff in H as [_ H].
+      apply andb_true_iff in H as [H _]. apply negb_true_iff in H. exact H.
+    + apply andb_true_iff in H as [_ H]. exact (IH a b H).
+Qed.
 
 Lemma ilist_ok_push :
   forall n out,
     ilist_ok out = true ->
-    wf_inline (node_contents n) = true ->
-    (plain_str n && hd_str out)%bool = false ->
+    oitem_ok n = true ->
+    (plain_item n && hd_str out)%bool = false ->
     ilist_ok (n :: out) = true.
 Proof.
   intros n out H Hn Hc. unfold ilist_ok in *.
@@ -562,7 +622,7 @@ Proof.
   cbn [List.rev]. destruct out as [|m out'].
   - reflexivity.
   - cbn [List.rev] in Hadj |- *. rewrite <- app_assoc. cbn [app].
-    apply no_adjacent_str_app2; [exact Hadj|].
+    apply no_adjacent_item_app2; [exact Hadj|].
     cbn [hd_str] in Hc. rewrite andb_comm. exact Hc.
 Qed.
 
@@ -589,11 +649,28 @@ Proof.
 Qed.
 
 Lemma hd_str_is_starts_str : forall l, hd_str l = starts_str l.
-Proof. intros [|[? [|? ?] ?] ?]; reflexivity. Qed.
+Proof. intros [|[[? [|? ?] ?]|? ?] ?]; reflexivity. Qed.
+
+Lemma no_adjacent_item_snoc_ext :
+  forall l n m,
+    plain_item n = plain_item m ->
+    no_adjacent_item (l ++ [n])%list = no_adjacent_item (l ++ [m])%list.
+Proof.
+  induction l as [|x l IH]; intros n m H; [reflexivity|].
+  destruct l as [|y l']; cbn [app no_adjacent_item].
+  - rewrite H. reflexivity.
+  - f_equal. exact (IH n m H).
+Qed.
+
+Lemma no_adjacent_item_last_subst :
+  forall l a b,
+    plain_item a = plain_item b ->
+    no_adjacent_item (l ++ [a])%list = no_adjacent_item (l ++ [b])%list.
+Proof. exact no_adjacent_item_snoc_ext. Qed.
 
 (* `no_adjacent_str` reads nothing but `plain_str` of each node, so the
    element at the end may be swapped for any other with the same verdict.
-   `oattach` is the one writer that replaces a node in place. *)
+   `oattach_list` is the one writer that replaces a node in place. *)
 Lemma no_adjacent_str_snoc_ext :
   forall l n m,
     plain_str n = plain_str m ->
@@ -610,14 +687,14 @@ Qed.
    decided by `plain_str` alone. *)
 Lemma ilist_ok_reattr :
   forall n m out,
-    ilist_ok (n :: out) = true ->
+    ilist_ok (OIn n :: out) = true ->
     node_contents m = node_contents n ->
     plain_str m = false -> plain_str n = false ->
-    ilist_ok (m :: out) = true.
+    ilist_ok (OIn m :: out) = true.
 Proof.
   intros n m out H Hc Hm Hn. unfold ilist_ok in *.
-  cbn [forallb List.rev] in *. rewrite Hc.
-  rewrite (no_adjacent_str_snoc_ext (List.rev out) m n
+  cbn [forallb List.rev oitem_ok] in *. rewrite Hc.
+  rewrite (no_adjacent_item_snoc_ext (List.rev out) (OIn m) (OIn n)
              (eq_trans Hm (eq_sym Hn))).
   exact H.
 Qed.
@@ -625,40 +702,43 @@ Qed.
 Lemma ilist_ok_osnoc :
   forall n out,
     ilist_ok out = true ->
-    wf_inline (node_contents n) = true ->
+    oitem_ok n = true ->
     ilist_ok (osnoc n out) = true.
 Proof.
-  intros n out Ho Hn. destruct (plain_str n) eqn:Hpn.
+  intros n out Ho Hn. destruct (plain_item n) eqn:Hpn.
   - (* n is a plain `Str`: the head of `out` decides whether they merge *)
-    destruct n as [c [|q qs] j]; [|discriminate].
+    destruct n as [[c [|q qs] j]|na ns]; [|discriminate|discriminate].
     destruct j; try discriminate.
-    destruct out as [|[a [|p ps] i] out'];
+    destruct out as [|[[a [|p ps] i]|ma ms] out'];
       [unfold osnoc; apply ilist_ok_push;
-        [exact Ho | exact Hn | reflexivity] | |].
+        [exact Ho | exact Hn | reflexivity] | | |].
+    2: { unfold osnoc. apply ilist_ok_push;
+           [exact Ho | exact Hn | reflexivity]. }
     2: { unfold osnoc. apply ilist_ok_push;
            [exact Ho | exact Hn | reflexivity]. }
     destruct i;
       try (unfold osnoc; apply ilist_ok_push;
            [exact Ho | exact Hn | reflexivity]).
     (* the one merging case: two plain `Str` nodes become one *)
-    unfold osnoc, ilist_ok in *. cbn [node_contents wf_inline] in Hn.
+    unfold osnoc, ilist_ok in *. cbn [oitem_ok node_contents wf_inline] in Hn.
     apply andb_true_iff in Ho as [Hall Hadj].
-    cbn [forallb node_contents wf_inline] in Hall.
+    cbn [forallb oitem_ok node_contents wf_inline] in Hall.
     apply andb_true_iff in Hall as [Ht Hall].
     apply andb_true_iff. split.
-    + cbn [forallb node_contents wf_inline]. rewrite Hall, andb_true_r.
+    + cbn [forallb oitem_ok node_contents wf_inline].
+      rewrite Hall, andb_true_r.
       destruct s0; [discriminate | reflexivity].
     + cbn [List.rev] in Hadj |- *.
-      rewrite (no_adjacent_str_last_subst (List.rev out')
-                 (Node a [] (Str (s0 ++ s))) (Node a [] (Str s0)));
+      rewrite (no_adjacent_item_last_subst (List.rev out')
+                 (OIn (Node a [] (Str (s0 ++ s)))) (OIn (Node a [] (Str s0))));
         [exact Hadj | reflexivity].
   - (* n is not a plain `Str`: no merge, and nothing to check *)
     replace (osnoc n out) with (n :: out)%list;
       [apply ilist_ok_push;
         [exact Ho | exact Hn | rewrite Hpn; reflexivity]|].
-    destruct out as [|[a [|p ps] i] out']; try reflexivity.
+    destruct out as [|[[a [|p ps] i]|ma ms] out']; try reflexivity.
     destruct i; try reflexivity.
-    destruct n as [c [|q qs] j]; [|reflexivity].
+    destruct n as [[c [|q qs] j]|na ns]; try reflexivity.
     destruct j; try reflexivity. discriminate.
 Qed.
 
@@ -666,11 +746,11 @@ Lemma hd_str_oapp :
   forall cur out, nonempty cur = true -> hd_str (oapp cur out) = hd_str cur.
 Proof.
   intros [|n [|m cur']] out H; [discriminate| |rewrite oapp_cons2; reflexivity].
-  rewrite oapp_one. destruct out as [|[a [|p ps] i] out'];
-    try (unfold osnoc; destruct n as [c d j]; reflexivity).
+  rewrite oapp_one. destruct out as [|[[a [|p ps] i]|ma ms] out'];
+    try (unfold osnoc; destruct n as [[c d j]|na ns]; reflexivity).
   unfold osnoc. destruct i;
-    try (destruct n as [c d j]; reflexivity).
-  destruct n as [c [|q qs] j]; [|reflexivity].
+    try (destruct n as [[c d j]|na ns]; reflexivity).
+  destruct n as [[c [|q qs] j]|na ns]; try reflexivity.
   destruct j; reflexivity.
 Qed.
 
@@ -687,12 +767,206 @@ Proof.
   - cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
     assert (Hct : ilist_ok (m :: cur') = true).
     { unfold ilist_ok. rewrite Hall. cbn [List.rev].
-      exact (no_adjacent_str_app2_l _ _ _ Hadj). }
+      exact (no_adjacent_item_app2_l _ _ _ Hadj). }
     rewrite oapp_cons2.
     apply ilist_ok_push; [apply IH; assumption | exact Hn |].
     rewrite (hd_str_oapp (m :: cur') out eq_refl). cbn [hd_str].
-    rewrite andb_comm. exact (no_adjacent_str_app2_pair _ _ _ Hadj).
+    rewrite andb_comm. exact (no_adjacent_item_app2_pair _ _ _ Hadj).
 Qed.
+
+(*
+Resolution
+----------
+
+The scope invariant is about *items*, and `wf_inlines` is about nodes.
+`oresolve` is the bridge, and these are the list facts it needs on the
+node side -- the same three as above, over `isnoc` rather than `osnoc`.
+*)
+
+Lemma plain_str_reattr :
+  forall p a' v a,
+    plain_str (Node p a' v) = false ->
+    plain_str (Node p (attr_merge a a') v) = false.
+Proof.
+  intros p [|kv a'] v a H;
+    [|destruct (attr_merge_cons a kv a') as [x [r E]]; rewrite E; reflexivity].
+  destruct (attr_merge a []) as [|z r];
+    [destruct v; try reflexivity; discriminate H|reflexivity].
+Qed.
+
+Lemma istarts_str_cons :
+  forall m out, istarts_str (m :: out)%list = plain_str m.
+Proof.
+  intros [q [|kv b] w] out; [destruct w; reflexivity|reflexivity].
+Qed.
+
+Lemma rlist_ok_push :
+  forall n out,
+    rlist_ok out = true ->
+    wf_inline (node_contents n) = true ->
+    (plain_str n && istarts_str out)%bool = false ->
+    rlist_ok (n :: out) = true.
+Proof.
+  intros n out H Hn Hc. unfold rlist_ok in *.
+  apply andb_true_iff in H as [Hall Hadj].
+  apply andb_true_iff. split; [cbn [forallb]; rewrite Hn, Hall; reflexivity|].
+  cbn [List.rev]. destruct out as [|m out'].
+  - reflexivity.
+  - cbn [List.rev] in Hadj |- *. rewrite <- app_assoc. cbn [app].
+    apply no_adjacent_str_app2; [exact Hadj|].
+    rewrite istarts_str_cons in Hc. rewrite andb_comm. exact Hc.
+Qed.
+
+Lemma rlist_ok_tail :
+  forall n out, rlist_ok (n :: out)%list = true -> rlist_ok out = true.
+Proof.
+  intros n out H. unfold rlist_ok in *.
+  apply andb_true_iff in H as [Hall Hadj].
+  cbn [forallb] in Hall. apply andb_true_iff in Hall as [_ Hall].
+  rewrite Hall. cbn [List.rev] in Hadj.
+  destruct out as [|m out']; [reflexivity|].
+  cbn [List.rev] in Hadj |- *.
+  rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+  exact (no_adjacent_str_app2_l _ _ _ Hadj).
+Qed.
+
+Lemma rlist_ok_reattr :
+  forall n m out,
+    rlist_ok (n :: out) = true ->
+    node_contents m = node_contents n ->
+    plain_str m = false -> plain_str n = false ->
+    rlist_ok (m :: out) = true.
+Proof.
+  intros n m out H Hc Hm Hn. unfold rlist_ok in *.
+  cbn [forallb List.rev] in *. rewrite Hc.
+  rewrite (no_adjacent_str_snoc_ext (List.rev out) m n
+             (eq_trans Hm (eq_sym Hn))).
+  exact H.
+Qed.
+
+Lemma istarts_str_isnoc :
+  forall n out, istarts_str (isnoc n out) = plain_str n.
+Proof.
+  intros [p a v] out. unfold isnoc.
+  destruct out as [|[q [|kv b] w] l];
+    [ rewrite istarts_str_cons; reflexivity
+    | | rewrite istarts_str_cons; reflexivity ].
+  destruct w; try (rewrite istarts_str_cons; reflexivity).
+  destruct a as [|ka a']; [|rewrite istarts_str_cons; reflexivity].
+  destruct v; try (rewrite istarts_str_cons; reflexivity).
+Qed.
+
+Lemma rlist_ok_isnoc :
+  forall n out,
+    rlist_ok out = true ->
+    wf_inline (node_contents n) = true ->
+    rlist_ok (isnoc n out) = true.
+Proof.
+  intros n out Ho Hn. destruct (plain_str n) eqn:Hpn.
+  - destruct n as [c [|q qs] j]; [|discriminate].
+    destruct j; try discriminate.
+    destruct out as [|[a [|p ps] i] out'];
+      [unfold isnoc; apply rlist_ok_push;
+        [exact Ho | exact Hn | reflexivity] | |].
+    2: { unfold isnoc. apply rlist_ok_push;
+           [exact Ho | exact Hn | reflexivity]. }
+    destruct i;
+      try (unfold isnoc; apply rlist_ok_push;
+           [exact Ho | exact Hn | reflexivity]).
+    unfold isnoc, rlist_ok in *. cbn [node_contents wf_inline] in Hn.
+    apply andb_true_iff in Ho as [Hall Hadj].
+    cbn [forallb node_contents wf_inline] in Hall.
+    apply andb_true_iff in Hall as [Ht Hall].
+    apply andb_true_iff. split.
+    + cbn [forallb node_contents wf_inline]. rewrite Hall, andb_true_r.
+      destruct s0; [discriminate | reflexivity].
+    + cbn [List.rev] in Hadj |- *.
+      rewrite (no_adjacent_str_last_subst (List.rev out')
+                 (Node a [] (Str (s0 ++ s))) (Node a [] (Str s0)));
+        [exact Hadj | reflexivity].
+  - replace (isnoc n out) with (n :: out)%list;
+      [apply rlist_ok_push;
+        [exact Ho | exact Hn | rewrite Hpn; reflexivity]|].
+    destruct out as [|[a [|p ps] i] out']; try reflexivity.
+    destruct i; try reflexivity.
+    destruct n as [c [|q qs] j]; [|reflexivity].
+    destruct j; try reflexivity. discriminate.
+Qed.
+
+(* Where a spec lands, on a list that already satisfies the invariant.
+   Every disposition either leaves the list alone, replaces its head by a
+   node with the same payload, or snocs a `Str` that is nonempty by
+   construction. *)
+Lemma rlist_ok_attach :
+  forall a src out,
+    rlist_ok out = true -> nonempty_str src = true ->
+    rlist_ok (oattach_list a src out) = true.
+Proof.
+  intros a src out Ho Hsrc. unfold oattach_list.
+  destruct out as [|[p a' v] out].
+  - apply rlist_ok_isnoc; [exact Ho | exact Hsrc].
+  - assert (Hre : plain_str (Node p a' v) = false ->
+                  rlist_ok (Node p (attr_merge a a') v :: out) = true).
+    { intros Hp. apply rlist_ok_reattr with (n := Node p a' v);
+        [exact Ho | reflexivity | apply plain_str_reattr, Hp | exact Hp]. }
+    destruct a' as [|kv a'']; destruct v;
+      try (apply Hre; reflexivity);
+      try (apply rlist_ok_isnoc; [exact Ho | exact Hsrc]).
+    (* the one case left: a plain `Str` head, which the spec splits *)
+    destruct (last_ws_split s) as [pre w] eqn:Es.
+    destruct (nonempty_str w) eqn:Ew; [|exact Ho].
+    destruct a as [|ka a2]; [exact Ho|].
+    assert (Hrest : rlist_ok out = true) by exact (rlist_ok_tail _ _ Ho).
+    apply rlist_ok_isnoc; [|cbn [node_contents]; exact Ew].
+    destruct (nonempty_str pre) eqn:Ep; [|exact Hrest].
+    apply rlist_ok_isnoc; [exact Hrest|cbn [node_contents]; exact Ep].
+Qed.
+
+(* The bridge.  Note what the input invariant does *not* say: it allows
+   two plain `Str` items with a spec between them, because that spec may
+   vanish -- and when it does, `oresolve_go`'s flag makes the next node
+   merge rather than sit adjacent. *)
+Lemma oresolve_go_ok :
+  forall l,
+    ilist_ok l = true ->
+    rlist_ok (fst (oresolve_go l)) = true
+    /\ (snd (oresolve_go l) = false ->
+        istarts_str (fst (oresolve_go l)) = hd_str l).
+Proof.
+  induction l as [|i l IH]; intros H; [split; [reflexivity|reflexivity]|].
+  assert (Hl : ilist_ok l = true).
+  { unfold ilist_ok in H |- *.
+    apply andb_true_iff in H as [Hall Hadj].
+    cbn [forallb] in Hall. apply andb_true_iff in Hall as [_ Hall].
+    rewrite Hall. cbn [List.rev] in Hadj.
+    destruct l as [|m l']; [reflexivity|].
+    cbn [List.rev] in Hadj |- *.
+    rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+    exact (no_adjacent_item_app2_l _ _ _ Hadj). }
+  destruct (IH Hl) as [Hok Hhd].
+  unfold ilist_ok in H. apply andb_true_iff in H as [Hall Hadj].
+  cbn [forallb] in Hall. apply andb_true_iff in Hall as [Hi _].
+  cbn [oresolve_go]. destruct (oresolve_go l) as [out m]; cbn [fst snd] in *.
+  destruct i as [n|a src].
+  - cbn [oitem_ok] in Hi. destruct m.
+    + split; [apply rlist_ok_isnoc; assumption|].
+      intros _. cbn [fst]. rewrite istarts_str_isnoc. reflexivity.
+    + assert (Hseam : (plain_str n && istarts_str out)%bool = false).
+      { rewrite (Hhd eq_refl). destruct l as [|m' l']; [apply andb_false_r|].
+        cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj.
+        cbn [app] in Hadj.
+        pose proof (no_adjacent_item_app2_pair _ _ _ Hadj) as Hc.
+        cbn [plain_item hd_str] in Hc |- *. rewrite andb_comm. exact Hc. }
+      split; [apply rlist_ok_push; assumption|].
+      intros _. cbn [fst]. rewrite istarts_str_cons. reflexivity.
+  - cbn [oitem_ok] in Hi.
+    split; [apply rlist_ok_attach; assumption|].
+    cbn [fst snd]. intros Hs. exact Hs.
+Qed.
+
+Lemma oresolve_ok :
+  forall l, ilist_ok l = true -> rlist_ok (oresolve l) = true.
+Proof. intros l H. apply (proj1 (oresolve_go_ok l H)). Qed.
 
 Definition frames_ok (stk : list frame) : bool :=
   forallb (fun f => ilist_ok (fr_out f)) stk.
@@ -748,10 +1022,10 @@ Proof.
 Qed.
 
 Lemma wf_inline_dnode :
-  forall k ns, nonempty ns = true -> ilist_ok (List.rev ns) = true ->
+  forall k ns, nonempty ns = true -> rlist_ok (List.rev ns) = true ->
   wf_inline (dnode k ns) = true.
 Proof.
-  intros k ns Hne Hok. unfold ilist_ok in Hok.
+  intros k ns Hne Hok. unfold rlist_ok in Hok.
   apply andb_true_iff in Hok as [Hall Hadj].
   rewrite forallb_rev in Hall. rewrite List.rev_involutive in Hadj.
   rewrite <- wf_ils_forallb in Hall.
@@ -784,8 +1058,12 @@ The scope operations preserve it
 --------------------------------
 *)
 
-Lemma ocur_emit : forall n o, ocur (oemit n o) = (n :: ocur o)%list.
+Lemma ocur_emit : forall n o, ocur (oemit n o) = (OIn n :: ocur o)%list.
 Proof. intros n [out [|f stk]]; reflexivity. Qed.
+
+Lemma ocur_mark :
+  forall a src o, ocur (omark a src o) = (OMark a src :: ocur o)%list.
+Proof. intros a src [out [|f stk]]; reflexivity. Qed.
 
 (* A closed backtick run emits a `Verbatim` or a `Math`, and neither is
    a container or a plain `Str` -- which is all the scope invariant asks
@@ -797,7 +1075,7 @@ Lemma plain_str_vnode : forall vk s, plain_str (mk (vnode vk s)) = false.
 Proof. intros [|st] s; reflexivity. Qed.
 
 Lemma starts_str_vnode :
-  forall vk s out, starts_str (mk (vnode vk s) :: out) = false.
+  forall vk s out, starts_str (OIn (mk (vnode vk s)) :: out) = false.
 Proof. intros [|st] s out; reflexivity. Qed.
 
 Lemma oscope_ok_emit :
@@ -810,13 +1088,30 @@ Proof.
   intros n [out [|f stk]] Ho Hn Hc; unfold oscope_ok, oemit, ocur in *;
     cbn [os_out os_stk frames_ok forallb fr_out fr_kind fr_marked] in *.
   - apply andb_true_iff in Ho as [Ho _]. rewrite andb_true_r.
-    apply ilist_ok_push; [exact Ho | exact Hn |].
+    apply (ilist_ok_push (OIn n)); [exact Ho | exact Hn |].
     rewrite hd_str_is_starts_str. exact Hc.
   - apply andb_true_iff in Ho as [Hb Hf].
     apply andb_true_iff in Hf as [Hff Hf].
     rewrite Hb, Hf, !andb_true_r.
-    apply ilist_ok_push; [exact Hff | exact Hn |].
+    apply (ilist_ok_push (OIn n)); [exact Hff | exact Hn |].
     rewrite hd_str_is_starts_str. exact Hc.
+Qed.
+
+(* A waiting spec is never a plain `Str`, so it needs no seam condition:
+   whatever it resolves to, `oresolve_go` rejoins the neighbours itself. *)
+Lemma oscope_ok_mark :
+  forall a src o,
+    oscope_ok o = true -> nonempty_str src = true ->
+    oscope_ok (omark a src o) = true.
+Proof.
+  intros a src [out [|f stk]] Ho Hs; unfold oscope_ok, omark in *;
+    cbn [os_out os_stk frames_ok forallb fr_out fr_kind fr_marked] in *.
+  - apply andb_true_iff in Ho as [Ho _]. rewrite andb_true_r.
+    apply (ilist_ok_push (OMark a src)); [exact Ho | exact Hs | reflexivity].
+  - apply andb_true_iff in Ho as [Hb Hf].
+    apply andb_true_iff in Hf as [Hff Hf].
+    rewrite Hb, Hf, !andb_true_r.
+    apply (ilist_ok_push (OMark a src)); [exact Hff | exact Hs | reflexivity].
 Qed.
 
 Lemma oscope_ok_emit_merge :
@@ -889,10 +1184,11 @@ Proof.
   - destruct image; reflexivity.
 Qed.
 
-Lemma ilist_ok_src : forall f, ilist_ok [mk (Str (fr_src f))] = true.
+Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
 Proof.
-  intros f. unfold ilist_ok. cbn [forallb node_contents mk List.rev].
-  cbn [wf_inline no_adjacent_str]. rewrite (fr_src_nonempty f). reflexivity.
+  intros f. unfold ilist_ok.
+  cbn [forallb oitem_ok node_contents mk List.rev].
+  cbn [wf_inline no_adjacent_item]. rewrite (fr_src_nonempty f). reflexivity.
 Qed.
 
 Lemma oclose_go_ok :
@@ -908,7 +1204,7 @@ Proof.
   { destruct (nonempty (oapp pend (fr_out f))); [|discriminate].
     injection E as <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
     apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]. }
-  apply (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+  apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
            content rest (frames_ok_tail f stk Hs)); [|exact E].
   apply ilist_ok_oapp;
     [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -924,7 +1220,7 @@ Proof.
   destruct (dmatch k m f) eqn:Em.
   { destruct (nonempty (oapp pend (fr_out f))) eqn:En; [|discriminate].
     injection E as <- <-. exact En. }
-  exact (IH k m (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+  exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
            content rest E).
 Qed.
 
@@ -940,17 +1236,20 @@ Proof.
   apply andb_true_iff in Ho as [Hb Hs].
   pose proof (oclose_go_ok (os_stk o) k m [] content rest Hs eq_refl Eg) as Hcr.
   apply andb_true_iff in Hcr as [Hc Hr].
-  assert (Hnode : wf_inline (node_contents (mk (dnode k (List.rev content))))
-                  = true).
+  assert (Hnode :
+    wf_inline (node_contents (mk (dnode k (List.rev (oresolve content)))))
+    = true).
   { cbn [node_contents mk]. apply wf_inline_dnode.
-    - rewrite nonempty_rev.
+    - rewrite nonempty_rev. apply nonempty_oresolve.
       exact (oclose_go_nonempty (os_stk o) k m [] content rest Eg).
-    - rewrite List.rev_involutive. exact Hc. }
+    - rewrite List.rev_involutive. exact (oresolve_ok content Hc). }
   rewrite ocur_emit.
-  assert (Hplain : plain_str (mk (dnode k (List.rev content))) = false)
+  assert (Hplain :
+    plain_str (mk (dnode k (List.rev (oresolve content)))) = false)
     by (destruct k; reflexivity).
-  assert (Hstart : starts_str (mk (dnode k (List.rev content))
-                     :: ocur (OState (os_out o) rest)) = false)
+  assert (Hstart :
+    starts_str (OIn (mk (dnode k (List.rev (oresolve content))))
+                 :: ocur (OState (os_out o) rest)) = false)
     by (destruct k; reflexivity).
   rewrite Hstart, andb_true_r.
   apply oscope_ok_emit;
@@ -1000,7 +1299,7 @@ Proof.
   induction stk as [|f stk IH]; intros pend content image rest Hs Hp E;
     [discriminate|].
   cbn [bclose_go] in E. destruct (fr_kind f).
-  - apply (IH (oapp (oapp pend (fr_out f)) [mk (Str (fr_src f))])
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
             content image rest (frames_ok_tail f stk Hs)); [|exact E].
     apply ilist_ok_oapp;
       [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1021,7 +1320,8 @@ Proof.
   apply andb_true_iff in Ho as [Hb Hs].
   pose proof (bclose_go_ok (os_stk o) [] content im rest Hs eq_refl Eg) as Hcr.
   apply andb_true_iff in Hcr as [Hc Hr].
-  unfold ilist_ok in Hc. apply andb_true_iff in Hc as [Hall Hadj].
+  pose proof (oresolve_ok content Hc) as Hres.
+  unfold rlist_ok in Hres. apply andb_true_iff in Hres as [Hall Hadj].
   apply andb_true_iff. split.
   - unfold oscope_ok; cbn [os_out os_stk]. rewrite Hb, Hr. reflexivity.
   - unfold wf_inlines. rewrite forallb_rev, Hall. cbn [andb]. exact Hadj.
@@ -1047,19 +1347,20 @@ Proof.
   destruct out as [|m out']; [reflexivity|].
   cbn [List.rev] in Hadj |- *.
   rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
-  exact (no_adjacent_str_app2_l _ _ _ Hadj).
+  exact (no_adjacent_item_app2_l _ _ _ Hadj).
 Qed.
 
 Lemma ilist_ok_head_pop :
   forall n out,
-    ilist_ok (n :: out)%list = true -> plain_str n = true -> hd_str out = false.
+    ilist_ok (n :: out)%list = true -> plain_item n = true ->
+    hd_str out = false.
 Proof.
   intros n out H Hp. unfold ilist_ok in H.
   apply andb_true_iff in H as [_ Hadj].
   destruct out as [|m out']; [reflexivity|].
   cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
-  pose proof (no_adjacent_str_app2_pair _ _ _ Hadj) as Hc.
-  cbn [hd_str]. destruct (plain_str m); [|reflexivity].
+  pose proof (no_adjacent_item_app2_pair _ _ _ Hadj) as Hc.
+  cbn [hd_str]. destruct (plain_item m); [|reflexivity].
   rewrite Hp in Hc. discriminate.
 Qed.
 
@@ -1071,7 +1372,7 @@ Lemma opop_str_ok :
 Proof.
   intros [out stk] H. unfold opop_str, ocur; cbn [os_out os_stk].
   destruct stk as [|f fs].
-  - destruct out as [|[a [|p ps] i] rest]; cbn [snd os_out os_stk];
+  - destruct out as [|[[a [|p ps] i]|ma ms] rest]; cbn [snd os_out os_stk];
       try (split; [exact H | reflexivity]).
     destruct i; cbn [snd os_out os_stk];
       try (split; [exact H | reflexivity]).
@@ -1081,7 +1382,8 @@ Proof.
     rewrite <- hd_str_is_starts_str.
     exact (ilist_ok_head_pop _ _ H eq_refl).
   - destruct f as [kind marked fout]; cbn [fr_out fr_kind fr_marked].
-    destruct fout as [|[a [|p ps] i] rest]; cbn [snd os_out os_stk fr_out];
+    destruct fout as [|[[a [|p ps] i]|ma ms] rest];
+      cbn [snd os_out os_stk fr_out];
       try (split; [exact H | reflexivity]).
     destruct i; cbn [snd os_out os_stk fr_out];
       try (split; [exact H | reflexivity]).
@@ -1329,99 +1631,21 @@ Qed.
 (* Merging attributes onto a node cannot turn it into a plain `Str`:
    either it already carried some, and `attr_merge_cons` says it still
    does, or it carried none and its payload was not a `Str`. *)
-Lemma plain_str_reattr :
-  forall p a' v a,
-    plain_str (Node p a' v) = false ->
-    plain_str (Node p (attr_merge a a') v) = false.
-Proof.
-  intros p [|kv a'] v a H;
-    [|destruct (attr_merge_cons a kv a') as [x [r E]]; rewrite E; reflexivity].
-  destruct (attr_merge a []) as [|z r];
-    [destruct v; try reflexivity; discriminate H|reflexivity].
-Qed.
 
-(* The scope `oattach` wrote back is still well-formed, and its head is
-   still not a plain `Str` -- which is the pair `iscan_wf` asks of every
-   text state. *)
-(* `ocur` and `oset_cur` as a pair: reading back what was written, and
-   the invariant travelling through the write.  Stating them here is what
-   lets `oattach_ok` below say the same thing once instead of once per
-   shape of the stack. *)
-Lemma ocur_set_cur : forall l o, ocur (oset_cur l o) = l.
-Proof. intros l [out [|f stk]]; reflexivity. Qed.
-
-Lemma ilist_ok_ocur :
-  forall o, oscope_ok o = true -> ilist_ok (ocur o) = true.
-Proof.
-  intros [out [|f stk]] H; unfold oscope_ok, ocur in *;
-    cbn [os_out os_stk frames_ok forallb] in *;
-    apply andb_true_iff in H as [H1 H2]; [exact H1|].
-  apply andb_true_iff in H2 as [H2 _]. exact H2.
-Qed.
-
-Lemma oscope_ok_set_cur :
-  forall l o,
-    oscope_ok o = true -> ilist_ok l = true ->
-    oscope_ok (oset_cur l o) = true.
-Proof.
-  intros l [out [|f stk]] Ho Hl; unfold oscope_ok, oset_cur in *;
-    cbn [os_out os_stk frames_ok forallb fr_out] in *;
-    apply andb_true_iff in Ho as [Ho Hf]; [rewrite Hl; reflexivity|].
-  apply andb_true_iff in Hf as [_ Hstk]. rewrite Ho, Hl, Hstk. reflexivity.
-Qed.
-
-(* The scope `oattach` wrote back is still well-formed, and its head is
-   still not a plain `Str` -- which is the pair `iscan_wf` asks of every
-   text state.  Both halves come from the head node alone: the payload is
-   untouched, and the attributes only grow. *)
-Lemma oattach_ok :
-  forall a o o',
+(* Attachment no longer happens here, so nothing has to be said about
+   what it does to a scope: `iattr_mark` only pushes an item, and
+   `oresolve` settles it once the scope is complete. *)
+Lemma iattr_mark_wf :
+  forall a src txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
-    oattach a o = Some o' ->
-    oscope_ok o' = true /\ starts_str (ocur o') = false.
+    iscan_wf (iattr_mark a src txt o) = true.
 Proof.
-  intros a o o' Ho Hs Ea.
-  rewrite <- hd_str_is_starts_str in Hs.
-  pose proof (ilist_ok_ocur o Ho) as Hl.
-  unfold oattach in Ea.
-  destruct (ocur o) as [|[p a' v] rest]; [discriminate|].
-  cbn [hd_str] in Hs.
-  destruct v; try discriminate Ea; injection Ea as <-;
-    (split;
-     [apply oscope_ok_set_cur;
-        [exact Ho
-        |eapply ilist_ok_reattr;
-           [exact Hl | reflexivity | apply plain_str_reattr, Hs | exact Hs]]
-     |rewrite ocur_set_cur, <- hd_str_is_starts_str; cbn [hd_str];
-      apply plain_str_reattr, Hs]).
-Qed.
-
-(* Attachment keeps the scopes well-formed.  A spec taking pending text
-   emits a `Str` carrying its attributes, so that node is never
-   `plain_str` and may sit next to whatever `flush_text` left -- which is
-   what lets `foo bar{.a}` end in two adjacent `Str` nodes without
-   breaking `no_adjacent_str`.  A spec taking the node before it goes
-   through `oattach_ok`. *)
-Lemma iattr_attach_wf :
-  forall a src txt prev o,
-    oscope_ok o = true -> starts_str (ocur o) = false ->
-    iscan_wf (iattr_attach a src txt prev o) = true.
-Proof.
-  intros a src txt prev o Ho Hs. unfold iattr_attach.
-  destruct (last_ws_split txt) as [pre w].
-  destruct (nonempty_str w) eqn:Ew.
-  - destruct a as [|kv a']; [apply iscan_wf_text; assumption|].
-    apply iscan_wf_text; [|rewrite ocur_emit; reflexivity].
-    apply oscope_ok_emit;
-      [apply iscan_wf_flush; assumption | cbn [node_contents]; exact Ew
-      | reflexivity].
-  - destruct (nonempty_str txt); [apply iscan_wf_text; assumption|].
-    destruct (oattach a o) as [o'|] eqn:Ea.
-    + destruct (oattach_ok a o o' Ho Hs Ea) as [Ho' Hs'].
-      apply iscan_wf_text; assumption.
-    + destruct (battr_lit_ok src EmptyString o Ho Hs) as [H1 H2].
-      destruct (battr_lit src EmptyString o) as [t o'']; cbn [snd] in H1, H2.
-      apply iscan_wf_text; assumption.
+  intros a src txt o Ho Hs. unfold iattr_mark.
+  apply iscan_wf_text.
+  - apply oscope_ok_mark;
+      [apply iscan_wf_flush; assumption
+      |apply nonempty_str_app_r; reflexivity].
+  - rewrite ocur_mark. reflexivity.
 Qed.
 
 Lemma iattr_feed_wf :
@@ -1434,7 +1658,8 @@ Proof.
   { destruct (battr_lit_ok src txt o Ho Hs) as [H1 H2].
     destruct (battr_lit src txt o) as [t o']; cbn [snd] in H1, H2.
     apply ilead_wf; assumption. }
-  destruct (ap_done (astep p c)); [apply iattr_attach_wf; assumption|].
+  destruct (ap_done (astep p c));
+    [apply iattr_mark_wf; [exact Ho | exact Hs]|].
   cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs. reflexivity.
 Qed.
 
@@ -1619,10 +1844,10 @@ Proof.
   cbn [iscan_str]. apply IH, iscan_wf_step, H.
 Qed.
 
-Lemma wf_inlines_of_ilist :
-  forall out, ilist_ok out = true -> wf_inlines (List.rev out) = true.
+Lemma wf_inlines_of_rlist :
+  forall out, rlist_ok out = true -> wf_inlines (List.rev out) = true.
 Proof.
-  intros out H. unfold ilist_ok in H. unfold wf_inlines.
+  intros out H. unfold rlist_ok in H. unfold wf_inlines.
   apply andb_true_iff in H as [Hall Hadj].
   rewrite forallb_rev, Hall, Hadj. reflexivity.
 Qed.
@@ -1643,11 +1868,18 @@ Proof.
       |apply ilist_ok_src].
 Qed.
 
-Lemma ilist_ok_ofinish :
-  forall o, oscope_ok o = true -> ilist_ok (ofinish o) = true.
+Lemma ilist_ok_oitems_of :
+  forall o, oscope_ok o = true -> ilist_ok (oitems_of o) = true.
 Proof.
   intros o H. apply andb_true_iff in H as [Hb Hs].
-  unfold ofinish. apply ilist_ok_oflatten; [exact Hs | reflexivity | exact Hb].
+  unfold oitems_of.
+  apply ilist_ok_oflatten; [exact Hs | reflexivity | exact Hb].
+Qed.
+
+Lemma rlist_ok_ofinish :
+  forall o, oscope_ok o = true -> rlist_ok (ofinish o) = true.
+Proof.
+  intros o H. unfold ofinish. apply oresolve_ok, ilist_ok_oitems_of, H.
 Qed.
 
 Lemma iscan_wf_resolve :
@@ -1716,17 +1948,17 @@ Proof.
 Qed.
 
 Lemma iscan_wf_finish_rev :
-  forall st, iscan_wf st = true -> ilist_ok (ifinish_rev st) = true.
+  forall st, iscan_wf st = true -> rlist_ok (ifinish_rev st) = true.
 Proof.
   intros st H. unfold ifinish_rev.
-  apply ilist_ok_ofinish, iscan_wf_ostate, H.
+  apply rlist_ok_ofinish, iscan_wf_ostate, H.
 Qed.
 
 Lemma iscan_wf_finish :
   forall st, iscan_wf st = true -> wf_inlines (ifinish st) = true.
 Proof.
   intros st H. unfold ifinish.
-  apply wf_inlines_of_ilist, iscan_wf_finish_rev, H.
+  apply wf_inlines_of_rlist, iscan_wf_finish_rev, H.
 Qed.
 
 (* A line boundary pushes a `SoftBreak` into the innermost open scope,
