@@ -761,7 +761,8 @@ last branch, and the only one that does not consult `oattach`.
 `foo {.a}` drops the spec because the text ends in whitespace, and
 `foo bar{.a}` splits at the last space. The remaining `attributes.test`
 gaps are a spec crossing a line break and `{% %}` comments, neither of
-which is about attachment.
+which is about attachment. *(Both closed 2026-08-22; see the entry on an
+unclosed spec below, which is what is left of them.)*
 
 ## Adjudicated 2026-08-15 — ours: constructs inside an unclosed `[^`
 
@@ -963,3 +964,56 @@ Both constructs are one arm of djot.js's single list spec, and in both
 the second oracle's HTML differs while its parse does not.  Where the
 `dl` disagreement is about a *field* (djoths computes a spacing we
 cannot observe), this one is about tags alone.
+
+## Adjudicated 2026-08-22 — ours: an unclosed inline attribute spec
+
+A spec now crosses a line break. djot.js scans the newline as an
+ordinary byte of the subject and hands it to the attribute machine like
+any other (`inline.ts:770-808`), and the machine treats it as
+whitespace, so `hi{#id .class` / `key="value"}` is one spec and
+`Foo bar {% c` / `d %} baz.` is one comment. We do the same: `ibreak`
+feeds `nl_char` to `iattr_feed` rather than resolving the state to text,
+which is what `ISpan` already did for a bracketed span's spec. Two
+`attributes.test` cases (`:80`, `:282`) and the corpus went 278 to 280.
+
+What does not follow is the *failure* path.
+
+| `x{a="*b*"` | output |
+| --- | --- |
+| djot.js | `x{a=“<strong>b</strong>”` |
+| ours | `x{a="*b*"` |
+
+djot.js is speculative with backtracking here: while a spec is open it
+buffers the slices it fed the machine, and when the spec fails or the
+paragraph ends inside one it replays those slices through the *inline*
+scanner with attributes switched off (`reparseAttributes`,
+`inline.ts:637`). So a quote inside a dead spec turns smart, and a
+delimiter inside one can close a scope opened before the `{`:
+`*a{b="c*d` is `<strong>a{b=“c</strong>d`.
+
+**Ours, and the reason is the scan's shape rather than a theorem.** Our
+`IAttr` accumulates the spec's source and never scans it, so there is
+nothing to replay; matching would mean resuming the scanner on bytes it
+has already dispatched, which is what `iscan_str_fuel` certifies it does
+not do. It is not the "run the ordinary scan *and* accumulate source"
+price the direct link and the `[^` label declined — it is one level
+worse, because the replay reaches scopes outside the spec and so cannot
+be a subordinate scan either.
+
+**Boundary.** The two agree on every spec that *closes*, whatever it
+contains, since a closed spec's source is consumed by the machine on
+both sides. They differ only on a spec that never closes and whose
+source holds a byte an inline scan would have claimed — and the machine
+admits an arbitrary byte in exactly two states, a quoted value and a
+comment, so `{#id` and `{.class` and `{key=bare` are all agreed even
+unclosed. Unreachable from a canonical document: `needs_escape` claims
+`{`, so `escape_str` never emits one bare.
+
+**What did change on our side of the failure path.** The literal
+fallback now goes through `bsplit_nl`, the destination's rule, so the
+breaks a dead spec spanned come back as `SoftBreak`s instead of newlines
+inside a `Str`. Same HTML either way, which is why nothing measured it;
+the point is that a `Str` holding a newline does not survive a reparse,
+so it should not be in an AST we claim to round-trip. `bspan_lit` had
+the same hole — a bracketed span's spec has crossed breaks since it was
+written — and it is fixed here too.

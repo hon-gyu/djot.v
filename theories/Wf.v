@@ -1190,7 +1190,17 @@ Lemma bspan_lit_ok :
 Proof.
   intros kids image src o Ho Hk. unfold bspan_lit.
   pose proof (bclosed_lit_ok kids image o Ho Hk) as Hc.
-  destruct (bclosed_lit kids image o). exact Hc.
+  destruct (bclosed_lit kids image o) as [txt o']; cbn [snd] in Hc |- *.
+  destruct Hc as [H1 H2]. apply bsplit_nl_ok; assumption.
+Qed.
+
+Lemma battr_lit_ok :
+  forall src txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (battr_lit src txt o)) = true
+    /\ starts_str (ocur (snd (battr_lit src txt o))) = false.
+Proof.
+  intros src txt o Ho Hs. unfold battr_lit. apply bsplit_nl_ok; assumption.
 Qed.
 
 (* A marked open either waits for the rest of its token, holding the
@@ -1406,10 +1416,12 @@ Proof.
       [apply iscan_wf_flush; assumption | cbn [node_contents]; exact Ew
       | reflexivity].
   - destruct (nonempty_str txt); [apply iscan_wf_text; assumption|].
-    destruct (oattach a o) as [o'|] eqn:Ea;
-      [|apply iscan_wf_text; assumption].
-    destruct (oattach_ok a o o' Ho Hs Ea) as [Ho' Hs'].
-    apply iscan_wf_text; assumption.
+    destruct (oattach a o) as [o'|] eqn:Ea.
+    + destruct (oattach_ok a o o' Ho Hs Ea) as [Ho' Hs'].
+      apply iscan_wf_text; assumption.
+    + destruct (battr_lit_ok src EmptyString o Ho Hs) as [H1 H2].
+      destruct (battr_lit src EmptyString o) as [t o'']; cbn [snd] in H1, H2.
+      apply iscan_wf_text; assumption.
 Qed.
 
 Lemma iattr_feed_wf :
@@ -1418,7 +1430,10 @@ Lemma iattr_feed_wf :
     iscan_wf (iattr_feed c p src txt prev o) = true.
 Proof.
   intros c p src txt prev o Ho Hs. unfold iattr_feed.
-  destruct (ap_failed (astep p c)); [apply ilead_wf; assumption|].
+  destruct (ap_failed (astep p c)).
+  { destruct (battr_lit_ok src txt o Ho Hs) as [H1 H2].
+    destruct (battr_lit src txt o) as [t o']; cbn [snd] in H1, H2.
+    apply ilead_wf; assumption. }
   destruct (ap_done (astep p c)); [apply iattr_attach_wf; assumption|].
   cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs. reflexivity.
 Qed.
@@ -1679,6 +1694,9 @@ Proof.
     destruct (bspan_lit_ok kids img ssrc sob Ho Hk) as [H1 H2].
     destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
+  - destruct (battr_lit_ok asrc atxt aob Ho Hs) as [H1 H2].
+    destruct (battr_lit asrc atxt aob) as [t o']; cbn [snd] in H1, H2.
+    apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
     destruct (bref_lit_ok kids img label ob Ho Hk) as [H1 H2].
     destruct (bref_lit kids img label ob) as [txt o']; cbn [snd] in H1, H2.
@@ -1742,6 +1760,7 @@ Proof.
         |reflexivity | apply andb_false_l].
     + rewrite ocur_emit. reflexivity.
   - apply andb_true_iff in Hr as [Ho Hk]. apply ispan_feed_wf; assumption.
+  - apply iattr_feed_wf; assumption.
   - cbn [iscan_wf] in Hr |- *. exact Hr.
   (* a label and a destination both carry the break as a character, so
      nothing is emitted and the invariant is the one they arrived with *)

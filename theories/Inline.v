@@ -2023,8 +2023,8 @@ Fixpoint bflat (kids : inlines) (txt : string) (o : ostate) : string * ostate :=
   end.
 
 (* Text that spans a line break.  A `SoftBreak` is a node, so such text
-   cannot go back into the buffer whole.  Only a destination needs this:
-   it is the one buffer that survives `ibreak`. *)
+   cannot go back into the buffer whole.  The three buffers that survive
+   `ibreak` need it: a destination, and either kind of attribute spec. *)
 Fixpoint bsplit_nl (s txt : string) (o : ostate) : string * ostate :=
   match s with
   | EmptyString => (txt, o)
@@ -2041,12 +2041,18 @@ Definition bclosed_lit (kids : inlines) (image : bool) (o : ostate)
   let '(txt, o2) := bflat kids (pre ++ bracket_open image)%string o1 in
   ((txt ++ one rbrack)%string, o2).
 
-(* A span whose spec failed, or that ran out of line: the bracket's own
-   literal text, then the `{` and everything the machine read. *)
+(* A span whose spec failed, or that ran out of paragraph: the bracket's
+   own literal text, then the `{` and everything the machine read,
+   breaks included. *)
 Definition bspan_lit (kids : inlines) (image : bool) (src : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
-  ((txt ++ one lbrace ++ src)%string, o').
+  bsplit_nl src (txt ++ one lbrace) o'.
+
+(* The same for a spec with no bracket before it, where the pending text
+   the spec would have attached to is the buffer it goes back into. *)
+Definition battr_lit (src txt : string) (o : ostate) : string * ostate :=
+  bsplit_nl src (txt ++ one lbrace) o.
 
 Definition bref_lit (kids : inlines) (image : bool) (label : string)
   (o : ostate) : string * ostate :=
@@ -2367,7 +2373,8 @@ Qed.
    excludes those and `parse_inline_line_nonempty` denies them, so we
    keep the source as text instead and log the divergence.  It is
    confined to a spec with no scope output and no pending text before
-   it. *)
+   it.  The source goes back through `battr_lit`, which is where the
+   breaks a spec spanned become `SoftBreak`s again. *)
 Definition iattr_attach (a : attr) (src txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   let '(pre, w) := last_ws_split txt in
@@ -2381,17 +2388,20 @@ Definition iattr_attach (a : attr) (src txt : string) (prev : option ascii)
   then IText false txt prev o
   else match oattach a o with
        | Some o' => IText false EmptyString (Some rbrace) o'
-       | None => IText false (one lbrace ++ src)%string prev o
+       | None =>
+           let '(t, o') := battr_lit src EmptyString o in
+           IText false t None o'
        end.
 
 (* One byte of an inline attribute spec, read with the machine block
    attributes use.  Failure hands the byte back to `ilead` with the text
-   restored, as a span's does. *)
+   restored, as a span's does -- through `battr_lit`, since a spec may
+   have spanned a break by then. *)
 Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
-  then ilead c (txt ++ one lbrace ++ src)%string prev o
+  then let '(t, o') := battr_lit src txt o in ilead c t None o'
   else if ap_done p'
   then iattr_attach (ap_attrs p') (src ++ one c)%string txt prev o
   else IAttr p' (src ++ one c)%string txt prev o.
@@ -2684,8 +2694,6 @@ Definition iresolve (st : iscan) : iscan :=
   | IDollar two txt prev o => IText false (txt ++ dollars two)%string prev o
   | IPeriod two txt prev o => IText false (txt ++ periods two)%string prev o
   | IDash n txt prev o => IText false (txt ++ dashes n)%string prev o
-  | IAttr _ src txt prev o =>
-      IText false (txt ++ one lbrace ++ src)%string prev o
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
@@ -2846,13 +2854,17 @@ Definition ifinish_ostate (st : iscan) : ostate :=
       flush_text (iraw_lit spec) (oemit (mk (Verbatim txt)) o)
   | IReference kids image label o =>
       let '(txt, o') := bref_lit kids image label o in flush_text txt o'
-  (* an unclosed span is literal too: the scan does not cross the break,
-     so a spec that would have continued on the next line never closes *)
+  (* an unclosed span is literal too: there is no next line for its spec
+     to close on, and the breaks it did cross are in the source *)
   | ISpan kids image _ src o =>
       let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
-  (* unreachable: `iresolve` leaves no `IBrace`, `IAttr`, `IBang`,
+  (* a spec the paragraph ended inside never closed, and its source is
+     text: the brace, then what the machine has read since *)
+  | IAttr _ src txt _ o =>
+      let '(t, o') := battr_lit src txt o in flush_text t o'
+  (* unreachable: `iresolve` leaves no `IBrace`, `IBang`,
      `IDollar`, `IDelim` or `IClosed` *)
-  | IBrace _ _ o | IAttr _ _ _ _ o | IBang _ _ o | IDollar _ _ _ o
+  | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
   | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ _ o => o
   end.
@@ -2916,8 +2928,13 @@ Definition ibreak (st : iscan) : iscan :=
      fed rather than accumulated because the machine is what decides
      whether the break separates two tokens. *)
   | ISpan kids image p src o => ispan_feed nl_char kids image p src o
+  (* and so does a bare spec, on the same reading: `hi{#i .c` / `k="v"}`
+     attaches to `hi`.  No `SoftBreak` is emitted -- the break is inside
+     the spec's source, and djot.js's `attributeSlices` swallow it the
+     same way. *)
+  | IAttr p src txt prev o => iattr_feed nl_char p src txt prev o
   (* unreachable, as in `ifinish_ostate` *)
-  | (IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | (IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _ _) as st' => st'
   end.
@@ -2935,8 +2952,9 @@ Definition iscan_closed (st : iscan) : bool :=
   | IEscWs _ _ _ _ => false
   | IOpen _ _ _ => false
   | IVerb n run _ _ o => (Nat.eqb run n && null (os_stk o))%bool
-  (* an open destination owes the next line; `IClosed` cannot appear,
-     since `iresolve` has just turned it into text *)
+  (* an open destination or an unclosed spec owes the next line;
+     `IClosed` cannot appear, since `iresolve` has just turned it into
+     text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ _ | ISpan _ _ _ _ _
@@ -2984,10 +3002,16 @@ Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
    state rewrites such as closing or abandoning a scope spend no source
    fuel and never feed that byte back to the scanner.  This deliberately
    says nothing about the internal cost of a dispatch -- `oclose` may walk
-   the opener stack -- so it is not a linear-time theorem.  Bracket
-   attribute reparse will be a separate, strictly decreasing call with
-   attribute recognition disabled, rather than a relaxation of this
-   contract. *)
+   the opener stack -- so it is not a linear-time theorem.
+
+   djot.js does backtrack, in one place: it buffers the slices it feeds
+   the attribute machine and, when a spec dies, replays them through this
+   same scanner with attributes switched off (`reparseAttributes`).  We
+   decline that, and the price is recorded at
+   `attr_unclosed_spec_is_not_rescanned`.  It is not a call this contract
+   could accommodate as written -- the replay reaches scopes opened
+   before the `{`, so it is the scanner resumed on bytes it has already
+   dispatched, not a fresh subordinate scan. *)
 Fixpoint iscan_str_fuel (fuel : nat) (s : string) (st : iscan)
   : option iscan :=
   match s with
@@ -3372,7 +3396,18 @@ Lemma bspan_lit_app :
 Proof.
   intros kids image src o base Hb. unfold bspan_lit.
   rewrite (bclosed_lit_app kids image o base Hb).
-  destruct (bclosed_lit kids image o). reflexivity.
+  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
+  rewrite bsplit_nl_app.
+  destruct (bsplit_nl src (txt ++ one lbrace)%string o'). reflexivity.
+Qed.
+
+Lemma battr_lit_app :
+  forall src txt o base,
+    battr_lit src txt (oout_app base o) =
+    let '(t, o') := battr_lit src txt o in (t, oout_app base o').
+Proof.
+  intros src txt o base. unfold battr_lit. rewrite bsplit_nl_app.
+  destruct (bsplit_nl src (txt ++ one lbrace)%string o). reflexivity.
 Qed.
 
 Lemma iescws_resolve_app :
@@ -3454,7 +3489,9 @@ Proof.
     cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
   - destruct (nonempty_str txt); [reflexivity|].
     rewrite (oattach_app a o base Hb).
-    destruct (oattach a o) as [o'|]; reflexivity.
+    destruct (oattach a o) as [o'|]; [reflexivity|].
+    rewrite battr_lit_app.
+    destruct (battr_lit src EmptyString o) as [t o']. reflexivity.
 Qed.
 
 Lemma iattr_feed_app :
@@ -3464,7 +3501,9 @@ Lemma iattr_feed_app :
     = iout_app base (iattr_feed c p src txt prev o).
 Proof.
   intros c p src txt prev o base Hb. unfold iattr_feed.
-  destruct (ap_failed (astep p c)); [apply ilead_app|].
+  destruct (ap_failed (astep p c)).
+  { rewrite battr_lit_app. destruct (battr_lit src txt o) as [t o'].
+    apply ilead_app. }
   destruct (ap_done (astep p c)); [apply iattr_attach_app, Hb|reflexivity].
 Qed.
 
@@ -3627,6 +3666,7 @@ Proof.
   - destruct (Nat.eqb run n); [|reflexivity].
     rewrite !oemit_app. reflexivity.
   - apply ispan_feed_app, Hb.
+  - apply iattr_feed_app, Hb.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
 Qed.
 
@@ -3719,6 +3759,9 @@ Proof.
   all: try (apply ofinish_out_app, Hb).
   - rewrite (bspan_lit_app kids img ssrc sob base Hb).
     destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd].
+    rewrite flush_text_app. apply ofinish_out_app, Hb.
+  - rewrite battr_lit_app.
+    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. apply ofinish_out_app, Hb.
   - rewrite (bref_lit_app kids img label ob base Hb).
     destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd].
@@ -5922,7 +5965,7 @@ Qed.
 Lemma iresolve_resolved :
   forall st,
     match iresolve st with
-    | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+    | IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _ _ => False
     | _ => True
@@ -5970,7 +6013,17 @@ Lemma bspan_lit_productive :
 Proof.
   intros kids image src o. unfold bspan_lit.
   destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
-  apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
+  apply bsplit_nl_productive.
+  rewrite nonempty_str_app_l by reflexivity. reflexivity.
+Qed.
+
+Lemma battr_lit_productive :
+  forall src txt o,
+    (nonempty_str (fst (battr_lit src txt o))
+     || ostate_nonempty (snd (battr_lit src txt o)))%bool = true.
+Proof.
+  intros src txt o. unfold battr_lit. apply bsplit_nl_productive.
+  rewrite nonempty_str_app_l by reflexivity. reflexivity.
 Qed.
 
 (* Every disposition owes something: the literal fallback puts the text
@@ -5991,9 +6044,12 @@ Proof.
       [cbn [iscan_productive]; rewrite Et; reflexivity|].
     (* nothing pending: either a node here takes the spec, or its source
        stays as text -- and both leave something behind *)
-    destruct (oattach a o) as [o'|] eqn:Ea; cbn [iscan_productive].
-    + rewrite (oattach_nonempty a o o' Ea). apply orb_true_r.
-    + apply orb_true_iff. left. reflexivity.
+    destruct (oattach a o) as [o'|] eqn:Ea.
+    + cbn [iscan_productive]. rewrite (oattach_nonempty a o o' Ea).
+      apply orb_true_r.
+    + pose proof (battr_lit_productive src EmptyString o) as Hp.
+      destruct (battr_lit src EmptyString o) as [t o'']; cbn [fst snd] in Hp.
+      exact Hp.
 Qed.
 
 Lemma iattr_feed_productive :
@@ -6002,8 +6058,9 @@ Lemma iattr_feed_productive :
 Proof.
   intros c p src txt prev o. unfold iattr_feed.
   destruct (ap_failed (astep p c)).
-  - apply iscan_productive_lead. apply orb_true_iff. left.
-    apply nonempty_str_app_l. reflexivity.
+  - pose proof (battr_lit_productive src txt o) as Hp.
+    destruct (battr_lit src txt o) as [t o']; cbn [fst snd] in Hp.
+    apply iscan_productive_lead, Hp.
   - destruct (ap_done (astep p c)); [apply iattr_attach_productive|reflexivity].
 Qed.
 
@@ -6013,11 +6070,9 @@ Lemma ispan_feed_productive :
 Proof.
   intros c kids image p src o. unfold ispan_feed.
   destruct (ap_failed (astep p c)).
-  - pose proof (bclosed_lit_nonempty kids image o) as Hne.
-    unfold bspan_lit. destruct (bclosed_lit kids image o) as [txt o'];
-      cbn [fst] in Hne.
-    apply iscan_productive_lead. apply orb_true_iff. left.
-    apply nonempty_str_app_l. reflexivity.
+  - pose proof (bspan_lit_productive kids image src o) as Hp.
+    destruct (bspan_lit kids image src o) as [txt o']; cbn [fst snd] in Hp.
+    apply iscan_productive_lead, Hp.
   - destruct (ap_done (astep p c)); [|reflexivity].
     cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
 Qed.
@@ -6159,7 +6214,7 @@ Proof.
   destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     try contradiction;
     cbn [iscan_productive]; try reflexivity;
-    try apply ispan_feed_productive.
+    try apply ispan_feed_productive; try apply iattr_feed_productive.
   1,2,3: try unfold iesc_hard;
          rewrite ostate_nonempty_emit; apply orb_true_r.
   destruct (Nat.eqb run n); cbn [iscan_productive]; [|reflexivity].
@@ -6249,6 +6304,10 @@ Proof.
     destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd] in Hs.
     apply orb_true_iff in Hs as [Hs|Hs];
       [apply ostate_nonempty_flush_str, Hs | apply ostate_nonempty_flush, Hs].
+  - pose proof (battr_lit_productive asrc atxt aob) as Ha.
+    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd] in Ha.
+    apply orb_true_iff in Ha as [Ha|Ha];
+      [apply ostate_nonempty_flush_str, Ha | apply ostate_nonempty_flush, Ha].
   - pose proof (bref_lit_productive kids img label ob) as Hr.
     destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd] in Hr.
     apply orb_true_iff in Hr as [Hr|Hr];
@@ -7713,4 +7772,45 @@ Proof. vm_compute. reflexivity. Qed.
 Example attr_with_nothing_before_is_text :
   parse_inline_line "{#i} x"
   = [mk (Str "{#i} x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The break is a byte of the spec, so the machine is fed it and the
+   spec closes on the next line.  Nothing separates the two lines in the
+   output: the break was inside the spec's source, and djot.js's
+   `attributeSlices` swallow it the same way. *)
+Example attr_spec_crosses_a_break :
+  para_inlines ["hi{#id .class"; "key=""value""}"]
+  = [Node NoPos [("id", "id"); ("class", "class"); ("key", "value")]
+       (Str "hi")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A comment is a spec that commits nothing, so a multi-line one is a
+   spec that attaches nothing -- and the text before it ends in a space,
+   which is where a spec is dropped rather than attached. *)
+Example attr_comment_crosses_a_break :
+  para_inlines ["Foo bar {% This is a comment, spanning"; "multiple lines %} baz."]
+  = [mk (Str "Foo bar  baz.")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A spec the paragraph ended inside is its own source, and the breaks it
+   spanned come back as `SoftBreak`s: a `Str` holding a newline renders
+   the same but does not survive a reparse, so the buffer cannot go back
+   whole.  This is `bsplit_nl`, the destination's rule. *)
+Example attr_unclosed_spec_keeps_its_breaks :
+  para_inlines ["{a=x"; "hello"]
+  = [mk (Str "{a=x"); mk SoftBreak; mk (Str "hello")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Where the agreement stops.  djot.js buffers the slices it fed the
+   attribute machine and, when the spec dies, replays them through the
+   *inline* scanner with attributes switched off, so a quote inside a
+   failed spec turns smart and a delimiter inside one can close a scope
+   opened outside it.  We keep the source as text.  The two therefore
+   agree on every spec that closes, and differ only on one that does not
+   and whose source holds a byte a scan would have claimed -- which only
+   a quoted value or a comment can carry.  djot.js reads this one as
+   `x{a=“<strong>b</strong>”`. *)
+Example attr_unclosed_spec_is_not_rescanned :
+  parse_inline_line "x{a=""*b*"""
+  = [mk (Str "x{a=""*b*""")].
 Proof. vm_compute. reflexivity. Qed.
