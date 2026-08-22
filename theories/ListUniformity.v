@@ -71,7 +71,7 @@ Fixpoint scan_list_content (ls : list_state) (inner : pstate)
       let ls' :=
         match classify l with
         | KBlank => if blank_absorbed inner then ls else list_blank ls
-        | k => list_content ls k
+        | k => if div_closer l inner then list_blank ls else list_content ls k
         end in
       scan_list_content ls' inner' rest
   end.
@@ -117,11 +117,11 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls KThematic) (rev head ++ done)%list
-                   inner1 rest inner2).
-      * rewrite rev_app_distr, app_assoc. reflexivity.
-      * cbn [list_content]. exact Hind.
-      * exact Hrest.
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
+      rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KFence f) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
       2: discriminate.
@@ -129,8 +129,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KFence f)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KDiv dl dc) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
@@ -139,8 +141,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KDiv dl dc)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KQuote q) ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
@@ -149,8 +153,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KQuote q)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KHeading lvl txt)
                  ls done inner head inner1).
@@ -160,8 +166,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KHeading lvl txt)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KList m mc item)
                  ls done inner head inner1).
@@ -171,8 +179,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KList m mc item)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KAttr kap)
                  ls done inner head inner1).
@@ -182,8 +192,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KAttr kap)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KFoot flbl frest)
                  ls done inner head inner1).
@@ -193,8 +205,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KFoot flbl frest)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KRef rlbl rval)
                  ls done inner head inner1).
@@ -204,8 +218,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KRef rlbl rval)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KRow krow)
                  ls done inner head inner1).
@@ -215,8 +231,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls (KRow krow)) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
     + rewrite (step_list_indented ((mk_cont mrk) ++ l) KText ls done inner head inner1).
       2: { rewrite classify_marker_cont. exact Hclass. }
@@ -225,8 +243,10 @@ Proof.
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
-      rewrite (IH (list_content ls KText) (rev head ++ done)%list
-                   inner1 rest inner2) by (cbn [list_content]; assumption).
+      rewrite (div_closer_ws_prefix (mk_cont mrk) l inner (marker_cont_blank mrk)).
+      rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
+        by (first [destruct (div_closer l inner);
+                   cbn [list_blank list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
 Qed.
 
@@ -235,31 +255,10 @@ The scan's state algebra
 ------------------------
 *)
 
-Lemma scan_list_content_nonblank :
-  forall lines inner ind marker loose items,
-    forallb nonblank lines = true ->
-    scan_list_content (LSt ind marker loose false items) inner lines
-    = LSt ind marker loose false items.
-Proof.
-  induction lines as [|l lines IH]; intros inner ind marker loose items H;
-    [reflexivity|].
-  cbn [forallb] in H. apply andb_true_iff in H as [Hl Hrest].
-  cbn [scan_list_content].
-  destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc rest|kap|flbl frest|rlbl rval|krow|] eqn:Hclass.
-  - apply classify_kblank_blank in Hclass. unfold nonblank in Hl.
-    rewrite Hclass in Hl. discriminate.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-  - unfold list_content. rewrite Bool.orb_false_r. apply IH. exact Hrest.
-Qed.
+(* `scan_list_content_nonblank` -- "nonblank lines change nothing" --
+   stood here and had no users.  It is false since a div's closer arms
+   the flag while being nonblank, and what replaced it is `lines_gap`
+   below: the flag's value rather than a claim that it is clear. *)
 
 Lemma scan_list_content_loose :
   forall lines inner ind marker blanks items,
@@ -267,8 +266,9 @@ Lemma scan_list_content_loose :
 Proof.
   induction lines as [|l lines IH]; intros inner ind marker blanks items;
     [reflexivity|].
-  cbn [scan_list_content]. destruct (classify l); try apply IH.
-  destruct (blank_absorbed inner); apply IH.
+  cbn [scan_list_content].
+  destruct (classify l); [destruct (blank_absorbed inner)|..];
+    try (destruct (div_closer l inner)); apply IH.
 Qed.
 
 Lemma scan_list_content_app :
@@ -289,19 +289,19 @@ Lemma scan_list_content_fields :
 Proof.
   intros lines inner ls. split; [|split].
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
-    cbn [scan_list_content]. destruct (classify l);
-      try (rewrite IH; destruct ls; reflexivity).
-    destruct (blank_absorbed inner);
+    cbn [scan_list_content].
+    destruct (classify l); [destruct (blank_absorbed inner)|..];
+      try (destruct (div_closer l inner));
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
-    cbn [scan_list_content]. destruct (classify l);
-      try (rewrite IH; destruct ls; reflexivity).
-    destruct (blank_absorbed inner);
+    cbn [scan_list_content].
+    destruct (classify l); [destruct (blank_absorbed inner)|..];
+      try (destruct (div_closer l inner));
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
-    cbn [scan_list_content]. destruct (classify l);
-      try (rewrite IH; destruct ls; reflexivity).
-    destruct (blank_absorbed inner);
+    cbn [scan_list_content].
+    destruct (classify l); [destruct (blank_absorbed inner)|..];
+      try (destruct (div_closer l inner));
       rewrite IH; destruct ls; reflexivity.
 Qed.
 
@@ -312,53 +312,18 @@ Lemma scan_list_content_loose_ext :
 Proof.
   induction lines as [|l lines IH]; intros inner ind marker loose blanks done;
     [reflexivity|].
-  cbn [scan_list_content]. destruct (classify l);
-    cbn [list_blank list_content]; try apply IH.
-  destruct (blank_absorbed inner);
-    cbn [list_blank]; apply IH.
-Qed.
-
-Lemma scan_list_content_blanks_last :
-  forall lines inner ls,
-    lines <> [] -> nonblank (last lines EmptyString) = true ->
-    ls_blanks (scan_list_content ls inner lines) = false.
-Proof.
-  induction lines as [|l lines IH]; intros inner ls Hne Hlast; [congruence|].
-  destruct lines as [|l2 lines'].
-  - cbn [last scan_list_content] in Hlast |- *.
-    destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc item|kap|flbl frest|rlbl rval|krow|] eqn:Hclass;
-      cbn [list_blank list_content].
-    all: try (apply classify_kblank_blank in Hclass; unfold nonblank in Hlast;
-              rewrite Hclass in Hlast; discriminate).
-    all: destruct ls; reflexivity.
-  - cbn [last] in Hlast. cbn [scan_list_content].
-    apply IH; [discriminate|exact Hlast].
-Qed.
-
-Lemma scan_list_content_after_blank :
-  forall b rest inner ind marker items,
-    classify b <> KBlank ->
-    (forall m mc item, classify b <> KList m mc item) ->
-    ls_loose
-      (scan_list_content (list_blank (LSt ind marker false false items))
-         inner (b :: rest)) = true.
-Proof.
-  intros b rest inner ind marker items Hblank Hlist.
   cbn [scan_list_content].
-  destruct (classify b) as [| |f|dl dc|q|lvl txt|m mc item|kap|flbl frest|rlbl rval|krow|] eqn:Hclass.
-  - exfalso. apply Hblank. reflexivity.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - exfalso. apply (Hlist m mc item). reflexivity.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
-  - apply scan_list_content_loose.
+  destruct (classify l); [destruct (blank_absorbed inner)|..];
+    try (destruct (div_closer l inner));
+    cbn [list_blank list_content]; apply IH.
 Qed.
+
+
+(* `scan_list_content_after_blank` -- "an armed blank plus a nonblank
+   non-list line is loose" -- stood here and had no users either.  A div's
+   closer is such a line and re-arms rather than spending, so the
+   statement would now need that exclusion; `lines_gap` says the same
+   thing without a case analysis. *)
 
 (*
 Item and list layout
@@ -551,8 +516,33 @@ Fixpoint lines_loose (loose gap : bool) (st : pstate) (ls : list string) : bool 
       let st' := snd (step l st) in
       match classify l with
       | KBlank => lines_loose loose (if blank_absorbed st then gap else true) st' rest
-      | KList _ _ _ => lines_loose loose false st' rest
-      | _ => lines_loose (loose || gap)%bool false st' rest
+      | k =>
+          (* a div's closer arms the flag instead of spending it: after the
+             container closers have eaten the line there is nothing at the
+             tip, and djot.js fires `blankline` *)
+          if div_closer l st then lines_loose loose true st' rest
+          else match k with
+               | KList _ _ _ => lines_loose loose false st' rest
+               | _ => lines_loose (loose || gap)%bool false st' rest
+               end
+      end
+  end.
+
+(** The gap flag the same fold leaves behind -- `lines_loose`'s other
+    output, and the one an item hands across the marker to the next.
+
+    It exists because a div's closer arms the flag on a line that is not
+    blank, so "the item ends on a nonblank line" no longer decides it and
+    the scan's algebra has to name the value instead of asserting it is
+    clear. *)
+Fixpoint lines_gap (gap : bool) (st : pstate) (ls : list string) : bool :=
+  match ls with
+  | [] => gap
+  | l :: rest =>
+      let st' := snd (step l st) in
+      match classify l with
+      | KBlank => lines_gap (if blank_absorbed st then gap else true) st' rest
+      | _ => lines_gap (div_closer l st) st' rest
       end
   end.
 
@@ -560,6 +550,25 @@ Fixpoint lines_loose (loose gap : bool) (st : pstate) (ls : list string) : bool 
     outside the scan's own induction wants this one. *)
 Definition item_loose (L : list string) : bool :=
   lines_loose false false (PPara []) L.
+
+(** And the gap it leaves armed.  `cb_ok` asks this of every item: an
+    item that ends with the flag set loosens the list at the next
+    marker, so a `Tight` list cannot contain one. *)
+Definition item_gap (L : list string) : bool :=
+  lines_gap false (PPara []) L.
+
+(* A nonblank first line is read from idle, where nothing is open for it
+   to close, so an item's gap is its continuation lines'. *)
+Lemma item_gap_more :
+  forall l0 more,
+    nonblank l0 = true ->
+    item_gap (l0 :: more) = lines_gap false (snd (step l0 (PPara []))) more.
+Proof.
+  intros l0 more Hnb. unfold item_gap. cbn [lines_gap].
+  destruct (classify l0) eqn:E; cbn [div_closer]; try reflexivity.
+  unfold nonblank in Hnb.
+  rewrite (classify_kblank_blank l0 E) in Hnb. discriminate.
+Qed.
 
 (* A nonblank first line contributes nothing: it cannot arm the flag, and
    with nothing armed it cannot spend one either.  So the verdict for an
@@ -588,10 +597,29 @@ Proof.
   cbn [scan_list_content lines_loose].
   pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk) Hp) as Hsh.
   rewrite mk_cont_length in Hsh.
-  rewrite Hsh, pad_state_blank_absorbed.
+  rewrite Hsh, pad_state_blank_absorbed, pad_state_div_closer.
   destruct (classify l) eqn:E; cbn [snd];
     [ destruct (blank_absorbed st); rewrite IH by exact Hrest; reflexivity
-    | rewrite IH by exact Hrest; reflexivity ..].
+    | destruct (div_closer l st); rewrite IH by exact Hrest; reflexivity ..].
+Qed.
+
+(* The gap flag, the same way.  Together with `scan_loose_eq` this is the
+   scan's whole state: `scan_list_content_fields` pins the other three. *)
+Lemma scan_gap_eq :
+  forall lines st ls,
+    run_safe lines st = true ->
+    ls_blanks (scan_list_content ls (pad_state (mk_pad mrk) st) lines)
+    = lines_gap (ls_blanks ls) st lines.
+Proof.
+  induction lines as [|l rest IH]; intros st ls Hsafe; [reflexivity|].
+  cbn [run_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hp Hrest].
+  cbn [scan_list_content lines_gap].
+  pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk) Hp) as Hsh.
+  rewrite mk_cont_length in Hsh.
+  rewrite Hsh, pad_state_blank_absorbed, pad_state_div_closer.
+  destruct (classify l) eqn:E; cbn [snd];
+    [ destruct (blank_absorbed st); rewrite IH by exact Hrest; reflexivity
+    | destruct (div_closer l st); rewrite IH by exact Hrest; reflexivity ..].
 Qed.
 
 Lemma scan_items_eq :
@@ -725,7 +753,8 @@ Lemma lines_loose_or :
 Proof.
   induction L as [|l rest IH]; intros st lo g.
   - cbn [lines_loose]. rewrite orb_false_r. reflexivity.
-  - cbn [lines_loose]. destruct (classify l); try apply IH.
+  - cbn [lines_loose]. destruct (classify l); [|destruct (div_closer l st)..];
+      try apply IH.
     all: cbn [orb]; rewrite (IH _ (lo || g)%bool false), (IH _ g false);
          destruct lo, g; reflexivity.
 Qed.
@@ -953,7 +982,12 @@ Definition item_ok (m : marker) (L : list string) : bool :=
       (negb (is_thematic ((mk_open m) ++ l0))
        && nonblank l0
        && run_safe more (snd (step l0 (PPara [])))
-       && match more with [] => true | _ => nonblank (last more EmptyString) end)%bool
+       && match more with [] => true | _ => nonblank (last more EmptyString) end
+       (* and the item leaves no gap armed for the next marker to spend.
+          A nonblank last line used to settle this; a div's closer is a
+          nonblank line that arms, so the flag has to be asked for
+          directly. *)
+       && negb (item_gap L))%bool
   end.
 
 (* Every item recognized, and every item's marker admitting the styles
@@ -1076,6 +1110,8 @@ Proof.
          HS' Hm Hsty Hind Hmark Hok IH.
   unfold litem_lines. cbn [fst snd].
   cbn [item_ok] in Hok.
+  apply andb_prop in Hok as [Hok Hgap].
+  apply negb_true_iff in Hgap.
   apply andb_prop in Hok as [Hok Hlast].
   apply andb_prop in Hok as [Hok Hsafe].
   apply andb_prop in Hok as [Hth Hnb].
@@ -1106,10 +1142,9 @@ Proof.
   { unfold ls1. rewrite Hf2. unfold list_next, list_narrow. cbn [ls_styles].
     destruct (is_blank l0); reflexivity. }
   assert (Hblanks1 : ls_blanks ls1 = false).
-  { unfold ls1. destruct more as [|ml ms].
-    - cbn [scan_list_content]. unfold list_next, list_narrow. cbn [ls_blanks].
-      rewrite Hnb'. reflexivity.
-    - apply (scan_list_content_blanks_last m (ml :: ms) _ _ ltac:(discriminate) Hlast). }
+  { unfold ls1. rewrite (scan_gap_eq m more _ _ Hsafe).
+    unfold list_next, list_narrow. rewrite Hnb'. cbn [ls_blanks].
+    rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   assert (Hpad1 : blank_safe (pad_state (mk_pad m) (snd R)) = true).
   { rewrite blank_safe_pad_state. unfold R. apply run_safe_final.
     cbn [run_safe pad_safe]. exact Hsafe. }
@@ -1508,6 +1543,8 @@ Proof.
   apply andb_prop in HL as [Hmi HL].
   apply narrow_admits in Hstyeq.
   pose proof HL as HL'. cbn [item_ok] in HL'.
+  apply andb_prop in HL' as [HL' Hgap].
+  apply negb_true_iff in Hgap.
   apply andb_prop in HL' as [HL' Hlast].
   apply andb_prop in HL' as [HL' Hsafe].
   apply andb_prop in HL' as [Hth Hnb].
@@ -1518,8 +1555,8 @@ Proof.
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
   assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
-  { destruct more as [|ml ms]; [reflexivity|].
-    apply (scan_list_content_blanks_last m0 (ml :: ms) _ _ ltac:(discriminate) Hlast). }
+  { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
+    rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
   rewrite (run_item_open m0 Hm0 l0 more Hth Hsafe Hb). cbn [fst snd app].
@@ -1568,6 +1605,8 @@ Proof.
   destruct L0 as [|l0 more]; [cbn [item_ok] in HL; discriminate|].
   destruct L1 as [|l1 more1]; [congruence|].
   pose proof HL as HL'. cbn [item_ok] in HL'.
+  apply andb_prop in HL' as [HL' Hgap].
+  apply negb_true_iff in Hgap.
   apply andb_prop in HL' as [HL' Hlast].
   apply andb_prop in HL' as [HL' Hsafe].
   apply andb_prop in HL' as [Hth Hnb].
@@ -1578,8 +1617,8 @@ Proof.
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
   assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
-  { destruct more as [|ml ms]; [reflexivity|].
-    apply (scan_list_content_blanks_last m0 (ml :: ms) _ _ ltac:(discriminate) Hlast). }
+  { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
+    rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
   rewrite (run_item_open m0 Hm0 l0 more Hth Hsafe Hb). cbn [fst snd app].
@@ -1635,6 +1674,8 @@ Proof.
   destruct L1 as [|l1 more1]; [congruence|].
   destruct L2 as [|l2 more2]; [congruence|].
   pose proof HL as HL'. cbn [item_ok] in HL'.
+  apply andb_prop in HL' as [HL' Hgap].
+  apply negb_true_iff in Hgap.
   apply andb_prop in HL' as [HL' Hlast].
   apply andb_prop in HL' as [HL' Hsafe].
   apply andb_prop in HL' as [Hth Hnb].
@@ -1645,8 +1686,8 @@ Proof.
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
   assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
-  { destruct more as [|ml ms]; [reflexivity|].
-    apply (scan_list_content_blanks_last m0 (ml :: ms) _ _ ltac:(discriminate) Hlast). }
+  { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
+    rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
   rewrite (run_item_open m0 Hm0 l0 more Hth Hsafe Hb). cbn [fst snd app].

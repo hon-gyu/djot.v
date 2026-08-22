@@ -2252,8 +2252,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (narrow (ls_styles ls) m).
         + (* no style survives: close this list, open another *)
           destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
@@ -2287,8 +2288,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (open_attr_wf [] (off + indent_of l) kap l
                     (classify_kattr_nonblank l kap E)) as [Hob Hos].
         split; [|exact Hos].
@@ -2300,8 +2302,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (IH (off + consumed l frest) frest (PPara []) eq_refl)
           as [Hb Hs].
         destruct (step_fuel n (off + consumed l frest) frest (PPara []))
@@ -2317,8 +2320,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (open_ref_wf (off + indent_of l) l rlbl rval E) as [Hob Hos].
         split; [|exact Hos].
         cbn [close_reopen open_ref fst snd]. rewrite app_nil_r.
@@ -2330,8 +2334,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [fst snd].
         + split; [reflexivity|].
           cbn [state_wf]. rewrite Hitems, Hd. cbn [andb].
@@ -2349,8 +2354,9 @@ Proof.
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
         split; [reflexivity|].
-        cbn [state_wf ls_items list_content].
-        rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs.
+        destruct (div_closer l inner);
+          cbn [state_wf ls_items list_content list_blank];
+          rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner'].
         cbn [fst snd] in Hb, Hs.
@@ -2364,7 +2370,8 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'];
            cbn [fst snd] in Hb, Hs |- *;
            split; [reflexivity|];
-           cbn [state_wf ls_items list_content];
+           destruct (div_closer l inner);
+           cbn [state_wf ls_items list_content list_blank];
            rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs
          | first
            [ cbn [close_reopen open_fence fst snd];
@@ -2886,9 +2893,10 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
            split; [reflexivity|].
-           cbn [state_supported ls_items list_content].
-           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
-           exact Hs.
+           destruct (div_closer l inner);
+             cbn [state_supported ls_items list_content list_blank];
+             rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+             exact Hs.
          - destruct (narrow (ls_styles ls) m).
            + destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
              destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner'].
@@ -2919,9 +2927,10 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
            split; [reflexivity|].
-           cbn [state_supported ls_items list_content].
-           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
-           exact Hs.
+           destruct (div_closer l inner);
+             cbn [state_supported ls_items list_content list_blank];
+             rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+             exact Hs.
          - destruct (IH (off + consumed l frest) frest (PPara []) eq_refl)
              as [Hb Hs].
            destruct (step_fuel n (off + consumed l frest) frest (PPara []))
@@ -2935,9 +2944,10 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
            split; [reflexivity|].
-           cbn [state_supported ls_items list_content].
-           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
-           exact Hs.
+           destruct (div_closer l inner);
+             cbn [state_supported ls_items list_content list_blank];
+             rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+             exact Hs.
          - cbn [is_lazy]. destruct (lazy_ok inner); cbn [fst snd].
            + split; [reflexivity|].
              cbn [state_supported]. rewrite Hitems, Hd. cbn [andb].
@@ -2950,9 +2960,10 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
            split; [reflexivity|].
-           cbn [state_supported ls_items list_content].
-           rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd.
-           exact Hs.
+           destruct (div_closer l inner);
+             cbn [state_supported ls_items list_content list_blank];
+             rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+             exact Hs.
          - destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
            destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner'].
            cbn [fst snd] in Hb, Hs.
@@ -2964,7 +2975,8 @@ Proof.
            destruct (step_fuel n off l inner) as [bs inner'];
            cbn [fst snd] in Hb, Hs |- *;
            split; [reflexivity|];
-           cbn [state_supported ls_items list_content];
+           destruct (div_closer l inner);
+           cbn [state_supported ls_items list_content list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs
          | cbn [is_lazy close_reopen open_kind open_fence open_attr open_ref

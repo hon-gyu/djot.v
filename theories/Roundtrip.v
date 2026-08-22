@@ -1684,6 +1684,35 @@ Example nested_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
+(* A div's closing line arms the enclosing list, so an item that ends
+   with one hands a gap to the next marker and the list comes back loose.
+   `- ::: / a / ::: / - t` is the shape, and `Tight` is now unspellable
+   for it -- correctly, since the parser cannot produce it.
+
+   The second half is the coverage this costs, and it is the residue
+   named in `oracle-disagreements.md`: `item_ok` asks the gap of *every*
+   item, including the last, where nothing follows to spend it.  So the
+   two below are rejected while their renderings do round-trip.  Lifting
+   it means carrying the gap through `list_loose_of` as a fold rather
+   than an `existsb`; until then this example is the boundary, and its
+   deletion is the confirmation that the fix was real. *)
+Example div_ending_item_excluded :
+  let tight_last := [CList LKBullet Tight [[CDiv [cpara ["a"]]]]] in
+  let loose_mid :=
+    [CList LKBullet Loose [[CDiv [cpara ["a"]]]; [cpara ["t"]]]] in
+  (cblocks_ok tight_last, cblocks_ok loose_mid) = (false, false)
+  /\ parse_blocks (render_djot (blocks_of_cblocks tight_last))
+     = blocks_of_cblocks tight_last.
+Proof. split; reflexivity. Qed.
+
+(* And the one it excludes for cause: as `Tight` this AST is unreachable,
+   because the closer arms the list before the next marker arrives. *)
+Example div_then_item_is_loose :
+  parse_blocks ("- :::" ++ nl ++ "  a" ++ nl ++ "  :::" ++ nl ++ "- t")
+  = [mk (BulletList Loose
+           [[mk (Div [mk (Para [mk (Str "a")])])]; [mk (Para [mk (Str "t")])]])].
+Proof. reflexivity. Qed.
+
 (* A nested list after a paragraph in the same item: the blank the inner
    list needs does not loosen the outer one, which is the rule
    `lines_loose` encodes and `item_forces_loose` mirrors. *)

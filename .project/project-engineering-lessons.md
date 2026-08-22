@@ -290,6 +290,16 @@ merely carries it. That count is the estimate, and it is also the plan:
 the lines that use it are exactly the hypotheses the generalized
 statement has to add.
 
+**And check the users exist at all.** The div-closer rule was priced, in
+`oracle-disagreements.md`, as "three `ListUniformity` statements have to
+carry the incoming flag". Two of the three had no users anywhere and were
+deleted in a line each; the third needed a replacement, not a
+generalization, and the `ls_blanks ls = false` preconditions the note
+called viral never moved, because the condition that discharges them
+moved into `item_ok` instead. A statement with no consumers is not a cost
+and not a constraint -- it is a claim about the development that nothing
+is holding it to. Count users before counting hypotheses.
+
 ## Split a fix by proof cost before landing it, and look for the cheap spelling
 
 **What happened.** The list-tightness gap turned out to be two

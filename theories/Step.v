@@ -615,6 +615,29 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
   | _ => false
   end.
 
+(* Does this line come to rest as a container closer, leaving nothing at
+   the tip?  djot.js tests `isBlank` *after* the container `continue`s
+   have eaten the line (block.ts:1051), so a `:::` that closes a div
+   fires the same `blankline` event an empty line does -- and the
+   enclosing list is armed by a line that is not blank at all.
+
+   A fence closer does not, and the difference is which side of that test
+   consumes it: a code block eats its closer inside its own `continue`,
+   before `isBlank` runs.  Verified against the oracle both ways
+   (`.project/oracle-disagreements.md`, "a div's closing line").
+
+   Read off the state *before* the descent, like `blank_absorbed` and for
+   the same reason: `step` is deterministic, so whether the line closes
+   the div is a fact about the state it arrives at.  Only the immediate
+   inner is inspected -- a `PList` between here and the div is the list
+   that gets armed instead, exactly as it is for a blank. *)
+Fixpoint div_closer (l : string) (st : pstate) : bool :=
+  match st with
+  | PDiv len _ _ inner => (negb (in_fence inner) && div_close len l)%bool
+  | PPend _ inner => div_closer l inner
+  | _ => false
+  end.
+
 (* Content within the current item.  A line that opens a nested list is
    a `+list` event, which djot.js excludes from loosening; anything else
    loosens the list if a blank line is armed.  Either way the flag is
@@ -795,7 +818,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    is inline and verbatim text, the same open indentation
                    gap quotes and headings have. *)
                 let (bs, inner') := step_fuel n' off l inner in
-                ([], PList (list_content ls k) (rev bs ++ done)%list inner')
+                let ls' :=
+                  if div_closer l inner then list_blank ls else list_content ls k in
+                ([], PList ls' (rev bs ++ done)%list inner')
               else
                 match k with
                 | KList sty core rest =>
@@ -1283,6 +1308,28 @@ Lemma pad_state_is_idle :
   forall n st, is_idle (pad_state n st) = is_idle st.
 Proof. intros n st. destruct st; reflexivity. Qed.
 
+(* A blank prefix is invisible to the closer test, since `div_close`
+   drops leading whitespace before counting colons. *)
+Lemma div_closer_ws_prefix :
+  forall p l st, is_blank p = true -> div_closer (p ++ l) st = div_closer l st.
+Proof.
+  intros p l st Hp.
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+    cbn [div_closer]; try reflexivity.
+  - rewrite (div_close_ws_prefix p dlen l Hp). reflexivity.
+  - exact IH.
+Qed.
+
+Lemma pad_state_div_closer :
+  forall n l st, div_closer l (pad_state n st) = div_closer l st.
+Proof.
+  intros n l st.
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+    cbn [pad_state div_closer]; try reflexivity.
+  - rewrite pad_state_in_fence. reflexivity.
+  - exact IH.
+Qed.
+
 Lemma pad_state_blank_absorbed :
   forall n st, blank_absorbed (pad_state n st) = blank_absorbed st.
 Proof.
@@ -1496,25 +1543,33 @@ Proof.
     (* thematic *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* fence *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [close_reopen open_fence fst snd pad_state].
       rewrite finish_pad_list, Nat.add_assoc. reflexivity. }
     (* div *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* quote *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { rewrite <- Nat.add_assoc.
       pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -1525,13 +1580,17 @@ Proof.
     (* heading *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* list marker *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [ls_styles]. destruct (narrow (ls_styles ls) m) as [|s0 ss] eqn:Em.
       { rewrite <- !Nat.add_assoc.
         pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
@@ -1550,13 +1609,17 @@ Proof.
     (* attribute spec *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [close_reopen open_attr fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
     (* footnote definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -1567,19 +1630,25 @@ Proof.
     (* reference definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
     (* table row *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* text *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_div_closer.
+      destruct (div_closer l inner);
+        [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
@@ -1892,13 +1961,18 @@ Proof.
   rewrite Hr. reflexivity.
 Qed.
 
+(* The conclusion carries the closer test rather than excluding it by
+   hypothesis: the one line this rule has to get right is a div's closer,
+   so a `div_closer l inner = false` precondition would have to be
+   discharged precisely where it is false. *)
 Lemma step_list_indented :
   forall l k ls done inner bs inner',
     classify l = k -> k <> KBlank ->
     Nat.ltb (ls_indent ls) (indent_of l) = true ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_content ls k) (rev bs ++ done)%list inner').
+    ([], PList (if div_closer l inner then list_blank ls else list_content ls k)
+           (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
   cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l.
@@ -2389,7 +2463,8 @@ Proof.
                  (Nat.add_comm off (String.length p)).
     all: destruct (Nat.ltb (ls_indent ls) (String.length p + off + indent_of l))
            eqn:Elt;
-         try (rewrite (IH p off l inner Hp Hsafe Hcol); reflexivity).
+         try (rewrite (div_closer_ws_prefix p l inner Hp),
+                      (IH p off l inner Hp Hsafe Hcol); reflexivity).
     { reflexivity. }
     { reflexivity. }
     { reflexivity. }

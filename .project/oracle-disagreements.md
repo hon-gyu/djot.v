@@ -293,10 +293,10 @@ predicate was written, and `list_open` is now dead. Generated corpus
 3022/3085 -> **3067** of 3094 (the pool grew because `cb_ok` admits more
 spacings once `item_forces_loose` changes).
 
-### Still ours: a div's closing line does not arm the enclosing list
+### Fixed: a div's closing line arms the enclosing list
 
-The **27** that remain are the complementary shape, and unlike the family
-above they need no blank line at all:
+The **42** that remained were the complementary shape, and unlike the
+family above they need no blank line at all:
 
 ```
 - :::
@@ -313,21 +313,57 @@ consumes its closer inside its own `continue`, before that test. Hence
 `- ```/a/```/- b` is tight and `- :::/a/:::/- b` is loose -- verified
 against the oracle both ways.
 
-This one is genuinely expensive, and the price was measured rather than
-guessed. Making a *nonblank* line arm `ls_blanks` falsifies
-`scan_list_content_nonblank` and `scan_list_content_blanks_last`, and the
-`ls_blanks ls = false` precondition of `parse_list_tail` /
-`parse_item_and_tail` is *used* (two `rewrite Hblanks` collapse the loose
-formula), not merely carried -- so all three statements have to carry the
-incoming flag into their conclusions. Worse, it breaks `roundtrip_blocks`
-as it stands: a canonical `CList Tight [[CDiv [...]]; [...]]` renders
-exactly the shape above and would parse back `Loose`, so `cb_ok`'s
-spacing clause needs a new conjunct for "this item's lines end with the
-flag armed" alongside `seps_loosen`.
+**Fixed 2026-08-22.** `Step.div_closer` is the predicate, read off the
+state before the descent for the reason `blank_absorbed` is: `step` is
+deterministic, so whether the line closes the div is a fact about the
+state it arrives at. The generated corpus went 42 -> 0 and the whole
+family is gone.
 
-So the fix is: generalize the three `ListUniformity` statements over
-`ls_blanks ls`, add the conjunct to `cb_ok`, then `div_closer` in `step`
-is two lines. It is a step of its own, and the 27 are its measurement.
+The price forecast here was half right. `scan_list_content_nonblank` and
+`scan_list_content_after_blank` were indeed falsified -- and both turned
+out to have no users at all, so they were deleted rather than
+generalized. `scan_list_content_blanks_last` was falsified and *is* used;
+what replaced it is `lines_gap`, the companion fold to `lines_loose`,
+plus one conjunct on `item_ok`. The three `ls_blanks ls = false`
+preconditions never had to move, because `item_ok` now guarantees them.
+
+### Still ours: a list whose item ends with a div closer is not canonical
+
+What the fix above cost, and the residue it leaves. `item_ok` asks
+`negb (item_gap L)` of *every* item, including the last -- where nothing
+follows to spend the gap, so the condition is not needed. It is asked
+there anyway because the alternative is positional, and positional is
+what the fold below would have to become.
+
+So these two are outside the canonical view although their renderings
+round-trip:
+
+| shape | why it is fine in reality |
+|---|---|
+| `CList Tight [[CDiv [...]]]` | one item; `finish` never reads `ls_blanks` |
+| `CList Loose [[CDiv [...]]; [...]]` | already loose, so the gap changes nothing |
+
+Measured: the accepted pool went 34496 -> 31272 at depth 3, and part of
+that is correct (a `Tight` list with a div-ending item in a non-final
+position is genuinely unreachable now). `Roundtrip.div_ending_item_excluded`
+pins the boundary and its deletion is what will confirm the fix.
+
+The obligation that stopped it. `list_loose_of` is an `existsb
+item_loose` over the items; the truth is a fold carrying the gap across
+each marker:
+
+```
+loose_0 = false,  gap_0 = false
+loose_{i+1} = loose_i || (gap_i && negb (starts_list L_i)) || item_loose L_i
+gap_{i+1}   = item_gap L_i
+```
+
+which is exactly the recurrence `parse_item_and_tail_narrow`'s `Hloose1`
+already proves one step of. Turning `list_loose_of` into that fold
+changes the loose formula in `parse_list_tail` and `parse_item_and_tail`
+-- where the two `rewrite Hblanks` currently collapse it -- and then
+`cb_ok`'s spacing clause and `items_force_loose` follow. A step of its
+own, and the 3224 excluded documents are its measurement.
 
 ### Ours: a spec with nothing to attach to keeps its source
 
@@ -625,11 +661,11 @@ Found while checking the residue; pre-existing, not caused by the above.
 | `- :::` / `  a` / `  :::` (one item) | tight | tight |
 
 No blank line anywhere, and a quote in the same position does not do it.
-**Diagnosed 2026-08-14**: a div's closing line is itself a `blankline`
-event, because `isBlank` is computed after the closers have eaten the
-line. See "Still ours: a div's closing line does not arm the enclosing
-list" above, which carries the mechanism, the proof cost and the current
-count (27, up from 12 because the pool grew).
+**Diagnosed 2026-08-14, fixed 2026-08-22**: a div's closing line is
+itself a `blankline` event, because `isBlank` is computed after the
+closers have eaten the line. See "Fixed: a div's closing line arms the
+enclosing list" above, which carries the mechanism and what the fix cost
+the canonical view.
 
 ## Adjudicated 2026-08-10 — an ordered list starting at 0
 
