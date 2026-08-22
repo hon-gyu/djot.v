@@ -781,7 +781,7 @@ Lemma nonlist_cblock_first :
     is_clist cb = false -> cb_ok cb = true ->
     exists a rest,
       cb_lines cb = a :: rest /\
-      forall m mc item, classify a <> KList m mc item.
+      forall m mc chk item, classify a <> KList m mc chk item.
 Proof.
   intros cb Hnonlist Hok.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
@@ -794,12 +794,12 @@ Proof.
     + exfalso. apply Hne. reflexivity.
     + exists a, rest. split; [reflexivity|].
       apply para_ok_parts in Hok as [Ha _].
-      intros m mc item E. rewrite Ha in E. discriminate.
+      intros m mc chk item E. rewrite Ha in E. discriminate.
   - exists thematic_line, []. split; [reflexivity|].
-    intros m mc item E. unfold thematic_line in E.
+    intros m mc chk item E. unfold thematic_line in E.
     rewrite classify_canonical_thematic in E. discriminate.
   - exists (code_open info), (content ++ [code_close])%list.
-    split; [reflexivity|]. intros m mc item E.
+    split; [reflexivity|]. intros m mc chk item E.
     change (cb_ok (CCode info content)) with (code_ok info content) in Hok.
     apply code_ok_parts in Hok as [Hinfo _].
     unfold code_open in E.
@@ -811,22 +811,22 @@ Proof.
     destruct ls' as [|a rest].
     + exfalso. apply Hls. reflexivity.
     + exists (heading_line lvl a), (map (heading_line lvl) rest).
-      split; [reflexivity|]. intros m mc item E.
+      split; [reflexivity|]. intros m mc chk item E.
       rewrite (classify_canonical_heading lvl a Hlvl) in E. discriminate.
   - rewrite cb_lines_quote.
     destruct (sep_lines (map cb_lines inner)) as [|l rest] eqn:Esep.
     + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
     + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
-      intros m mc item E. rewrite classify_canonical_quote in E. discriminate.
+      intros m mc chk item E. rewrite classify_canonical_quote in E. discriminate.
   - (* div: the opening fence is the first line, whatever the contents *)
     rewrite cb_lines_div.
     exists div_fence, (sep_lines (map cb_lines dinner) ++ [div_fence])%list.
     split; [reflexivity|].
-    intros m mc item E. rewrite classify_canonical_div in E. discriminate.
+    intros m mc chk item E. rewrite classify_canonical_div in E. discriminate.
   - discriminate Hnonlist.
   - (* reference definition: one line, and it classifies as one *)
     exists (ref_line rl rd), []. split; [reflexivity|].
-    intros m mc item E. rewrite (ref_ok_classify rl rd Hok) in E. discriminate.
+    intros m mc chk item E. rewrite (ref_ok_classify rl rd Hok) in E. discriminate.
   - (* table: the first line is its first row's, and it classifies as one *)
     rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hnet Hrows].
     destruct rows as [|r rows']; [discriminate Hnet|].
@@ -836,7 +836,7 @@ Proof.
     destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
       cbn [flat_map ctrow_lines app];
       eexists; eexists; (split; [reflexivity|]);
-      intros m mc item E; rewrite Hcl in E; discriminate.
+      intros m mc chk item E; rewrite Hcl in E; discriminate.
 Qed.
 
 Lemma drop_leading_ws_indent_zero :

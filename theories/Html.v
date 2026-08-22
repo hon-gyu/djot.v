@@ -295,6 +295,23 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
           ++ "<dd>" ++ nl ++ render_bs it ++ "</dd>" ++ nl
           ++ god rest
       end in
+  (* A task item's checkbox, ahead of its content and outside whatever
+     the tightness does to that content (html.ts:219-229).  The `<ul>`
+     carries `class="task-list"` before the node's own attributes, the
+     order `ol_attrs` already establishes. *)
+  let render_task_items :=
+    fix got (sp : list_spacing)
+      (its : list (task_status * list (node block))) {struct its} : string :=
+      match its with
+      | [] => ""
+      | (st, it) :: rest =>
+          "<li>" ++ nl
+          ++ "<input disabled="""" type=""checkbox"""
+          ++ (match st with Complete => " checked=""""" | Incomplete => "" end)
+          ++ "/>" ++ nl
+          ++ render_bs_at (match sp with Tight => true | Loose => false end) it
+          ++ "</li>" ++ nl ++ got sp rest
+      end in
   let ats := render_attrs a in
   match b with
   (* A tight paragraph loses its tag, keeping the newline the tag carried.
@@ -324,7 +341,9 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       ++ render_items sp items ++ "</ol>" ++ nl
   | BulletList sp items =>
       "<ul" ++ ats ++ ">" ++ nl ++ render_items sp items ++ "</ul>" ++ nl
-  | TaskList _ _ => ""        (* TODO Phase 1 *)
+  | TaskList sp items =>
+      "<ul class=""task-list""" ++ ats ++ ">" ++ nl
+      ++ render_task_items sp items ++ "</ul>" ++ nl
   | DefinitionList _ items =>
       "<dl" ++ ats ++ ">" ++ nl ++ render_def_items items ++ "</dl>" ++ nl
   | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
@@ -502,6 +521,24 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
           let '(st2, s2) := goi st1 sp rest in
           (st2, "<li>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
       end in
+  let render_task_items :=
+    fix got (st0 : foot_state) (sp : list_spacing)
+      (its : list (task_status * list (node block))) {struct its}
+      : foot_state * string :=
+      match its with
+      | [] => (st0, "")
+      | (chk, it) :: rest =>
+          let t := match sp with Tight => true | Loose => false end in
+          let '(st1, s1) := render_bs_at st0 t it in
+          let '(st2, s2) := got st1 sp rest in
+          (st2, "<li>" ++ nl
+                ++ "<input disabled="""" type=""checkbox"""
+                ++ (match chk with
+                    | Complete => " checked="""""
+                    | Incomplete => ""
+                    end)
+                ++ "/>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
+      end in
   let render_def_items :=
     fix god (st0 : foot_state) (its : list (inlines * list (node block)))
       {struct its} : foot_state * string :=
@@ -546,6 +583,9 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | DefinitionList _ items =>
       let '(st', s) := render_def_items st items in
       (st', "<dl" ++ ats ++ ">" ++ nl ++ s ++ "</dl>" ++ nl)
+  | TaskList sp items =>
+      let '(st', s) := render_task_items st sp items in
+      (st', "<ul class=""task-list""" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
   | Table caption rows =>
       let '(st1, s1) := render_caption_foot st caption in
       let '(st2, s2) := render_rows_foot st1 rows in
@@ -728,6 +768,86 @@ a
 b
 </li>
 </ul>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(*
+Task lists
+==========
+
+Read off djot.js on 2026-08-22; see `.project/260822.task-lists` §1.
+*)
+
+Example convert_tasklist :
+  convert "- [ ] a
+- [x] b" = "<ul class=""task-list"">
+<li>
+<input disabled="""" type=""checkbox""/>
+a
+</li>
+<li>
+<input disabled="""" type=""checkbox"" checked=""""/>
+b
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* The checkbox is outside the tightness: it sits between `<li>` and the
+   item's content whether or not that content keeps its `<p>`. *)
+Example convert_tasklist_loose :
+  convert "- [ ] a
+
+- [x] b" = "<ul class=""task-list"">
+<li>
+<input disabled="""" type=""checkbox""/>
+<p>a</p>
+</li>
+<li>
+<input disabled="""" type=""checkbox"" checked=""""/>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* A task list and a bullet list do not merge: `-X` and `-` are
+   different styles, so the first list closes. *)
+Example convert_tasklist_not_bullet :
+  convert "- [ ] a
+- b" = "<ul class=""task-list"">
+<li>
+<input disabled="""" type=""checkbox""/>
+a
+</li>
+</ul>
+<ul>
+<li>
+b
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* The class precedes the node's own attributes, as `ol_attrs` does. *)
+Example convert_tasklist_attrs :
+  convert "{#i}
+- [ ] a" = "<ul class=""task-list"" id=""i"">
+<li>
+<input disabled="""" type=""checkbox""/>
+a
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(* A marker with nothing after it is an item with no content. *)
+Example convert_tasklist_empty :
+  convert "- [ ]" = "<ul class=""task-list"">
+<li>
+<input disabled="""" type=""checkbox""/>
 </li>
 </ul>
 ".

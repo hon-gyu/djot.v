@@ -29,6 +29,11 @@ Record fence : Type := Fence
    A marker yields a *set* of these — see "List markers" below. *)
 Inductive lstyle : Type :=
   | SBullet (c : ascii)
+  (* A task marker's style.  djot.js spells it `marker[0] + "X"`
+     (block.ts:12), which is what keeps `- [ ] a` and `- b` two lists;
+     the checkbox itself is *not* in it, so `- [ ]` and `- [x]` are
+     siblings. *)
+  | STask (c : ascii)
   | SOrd (n : ordered_list_style) (d : ordered_list_delim).
 
 Definition ols_eqb (a b : ordered_list_style) : bool :=
@@ -48,6 +53,7 @@ Definition old_eqb (a b : ordered_list_delim) : bool :=
 Definition lstyle_eqb (a b : lstyle) : bool :=
   match a, b with
   | SBullet x, SBullet y => Ascii.eqb x y
+  | STask x, STask y => Ascii.eqb x y
   | SOrd n d, SOrd n' d' => (ols_eqb n n' && old_eqb d d')%bool
   | _, _ => false
   end.
@@ -116,8 +122,11 @@ Inductive line_kind : Type :=
   | KQuote (rest : string) (* block-quote prefix, with the line it encloses *)
   | KHeading (level : nat) (rest : string)   (* #+ then ws, with its text *)
   (* A list marker: its candidate styles, its numeral core (empty for a
-     bullet), and the content after it. *)
-  | KList (sty : list lstyle) (core : string) (rest : string)
+     bullet), its checkbox if it is a task marker, and the content after
+     it.  The checkbox is `Some` exactly when the style set is a task
+     style, and it is per *item*: `- [ ]` and `- [x]` are siblings. *)
+  | KList (sty : list lstyle) (core : string) (chk : option task_status)
+          (rest : string)
   (* block attribute spec, with the machine's state after this line: it
      may already be complete (`ap_done`) or still want indented
      continuation lines *)
@@ -387,6 +396,12 @@ Definition is_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+"
    || Ascii.eqb c ":")%char%bool.
 
+(* The bullets a checkbox may follow: `pattTaskListMarker` is spelled
+   `[*+-]`, so the colon is excluded and `: [ ] a` is a definition item
+   whose term is `[ ] a`.  Both oracles agree. *)
+Definition is_task_bullet (c : ascii) : bool :=
+  (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+")%char%bool.
+
 (*
 Marker character classes
 ------------------------
@@ -516,19 +531,53 @@ Definition styles_of_core (core : string) (d : ordered_list_delim)
            end
   end.
 
+(* The checkbox of a task marker, and what is left of the line after it.
+   djot.js matches `[*+-] \[[Xx ]\][ \t\r\n]` (`pattTaskListMarker`,
+   block.ts:60) at the marker and lets it *replace* the bullet marker
+   when it fires, so this is read at the point the bullet's one space
+   has already been consumed: `chk` sees `[x] a`, never `- [x] a`.
+   Exactly one space before the bracket and whitespace or end of line
+   after it, which is why `-  [ ] a` and `- [ ]a` are plain bullets. *)
+Definition box_status (c : ascii) : option task_status :=
+  if Ascii.eqb c " " then Some Incomplete
+  else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then Some Complete
+  else None.
+
+Definition task_check (l : string) : option (task_status * string) :=
+  match l with
+  | String c0 (String b (String c2 r)) =>
+      if (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool
+      then match box_status b with
+           | None => None
+           | Some st =>
+               match r with
+               | EmptyString => Some (st, EmptyString)
+               | String c' r' => if is_ws c' then Some (st, r') else None
+               end
+           end
+      else None
+  | _ => None
+  end.
+
 (* A list marker: its candidate styles, its numeral core (empty for a
-   bullet, which has no number), and the content after it.  Same
-   marker-then-at-most-one-space shape as quotes and headings. *)
+   bullet, which has no number), its checkbox if it has one, and the
+   content after it.  Same marker-then-at-most-one-space shape as quotes
+   and headings. *)
 Definition list_marker (l : string)
-  : option (list lstyle * string * string) :=
+  : option (list lstyle * string * option task_status * string) :=
   match drop_leading_ws l with
   | EmptyString => None
   | String c rest =>
       if is_bullet c
       then match rest with
-           | EmptyString => Some ([SBullet c], EmptyString, EmptyString)
+           | EmptyString => Some ([SBullet c], EmptyString, None, EmptyString)
            | String c' rest' =>
-               if is_ws c' then Some ([SBullet c], EmptyString, rest') else None
+               if is_ws c'
+               then match (if is_task_bullet c then task_check rest' else None) with
+                    | Some (st, r) => Some ([STask c], EmptyString, Some st, r)
+                    | None => Some ([SBullet c], EmptyString, None, rest')
+                    end
+               else None
            end
       else
         match marker_shape (String c rest) with
@@ -538,9 +587,9 @@ Definition list_marker (l : string)
             | [] => None
             | sty =>
                 match r with
-                | EmptyString => Some (sty, core, EmptyString)
+                | EmptyString => Some (sty, core, None, EmptyString)
                 | String c' r' =>
-                    if is_ws c' then Some (sty, core, r') else None
+                    if is_ws c' then Some (sty, core, None, r') else None
                 end
             end
         end
@@ -551,20 +600,20 @@ Definition list_marker (l : string)
    definition list rests on; what the list *closes* to is decided in
    `Step.list_block`, and the term split in `Ast.def_item`. *)
 Example marker_colon :
-  list_marker ": a" = Some ([SBullet ":"%char], EmptyString, "a"%string).
+  list_marker ": a" = Some ([SBullet ":"%char], EmptyString, None, "a"%string).
 Proof. reflexivity. Qed.
 
 Example marker_colon_tab :
-  list_marker ":	a" = Some ([SBullet ":"%char], EmptyString, "a"%string).
+  list_marker ":	a" = Some ([SBullet ":"%char], EmptyString, None, "a"%string).
 Proof. reflexivity. Qed.
 
 Example marker_colon_bare :
-  list_marker ":" = Some ([SBullet ":"%char], EmptyString, EmptyString).
+  list_marker ":" = Some ([SBullet ":"%char], EmptyString, None, EmptyString).
 Proof. reflexivity. Qed.
 
 (* Content is not stripped past the one marker space, as for any bullet. *)
 Example marker_colon_wide :
-  list_marker ":   a" = Some ([SBullet ":"%char], EmptyString, "  a"%string).
+  list_marker ":   a" = Some ([SBullet ":"%char], EmptyString, None, "  a"%string).
 Proof. reflexivity. Qed.
 
 Example marker_colon_tight : list_marker ":a" = None.
@@ -576,32 +625,112 @@ Proof. reflexivity. Qed.
 Example marker_two_colons : list_marker ":: a" = None.
 Proof. reflexivity. Qed.
 
+(* The task marker, against djot.js.  It replaces the bullet marker
+   rather than extending it (`pattTaskListMarker`, block.ts:60), so the
+   style is `STask` and the residue starts after the bracket. *)
+Example marker_task_unchecked :
+  list_marker "- [ ] a"
+  = Some ([STask "-"%char], EmptyString, Some Incomplete, "a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_task_checked :
+  list_marker "- [x] a"
+  = Some ([STask "-"%char], EmptyString, Some Complete, "a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_task_checked_upper :
+  list_marker "* [X] a"
+  = Some ([STask "*"%char], EmptyString, Some Complete, "a"%string).
+Proof. reflexivity. Qed.
+
+(* A marker at end of line is a task item with no content. *)
+Example marker_task_bare :
+  list_marker "- [ ]"
+  = Some ([STask "-"%char], EmptyString, Some Incomplete, EmptyString).
+Proof. reflexivity. Qed.
+
+(* Content is not stripped past the marker's one space, as for a bullet. *)
+Example marker_task_wide :
+  list_marker "- [ ]  a"
+  = Some ([STask "-"%char], EmptyString, Some Incomplete, " a"%string).
+Proof. reflexivity. Qed.
+
+(* The three shapes that are a plain bullet instead: no space after the
+   bracket, two spaces before it, and a character that is not a box. *)
+Example marker_task_tight :
+  list_marker "- [ ]a"
+  = Some ([SBullet "-"%char], EmptyString, None, "[ ]a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_task_wide_bullet :
+  list_marker "-  [ ] a"
+  = Some ([SBullet "-"%char], EmptyString, None, " [ ] a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_task_bad_box :
+  list_marker "- [y] a"
+  = Some ([SBullet "-"%char], EmptyString, None, "[y] a"%string).
+Proof. reflexivity. Qed.
+
+(* Only a bullet takes one: `pattTaskListMarker` is `[*+-]`. *)
+Example marker_task_ordered :
+  list_marker "1. [ ] a"
+  = Some ([SOrd Decimal RightPeriod], "1"%string, None, "[ ] a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_task_colon :
+  list_marker ": [ ] a"
+  = Some ([SBullet ":"%char], EmptyString, None, "[ ] a"%string).
+Proof. reflexivity. Qed.
+
+(* A checkbox is three characters and an optional separator, so what it
+   leaves is shorter than what it was given. *)
+Lemma task_check_length :
+  forall l st r,
+    task_check l = Some (st, r) -> String.length r < String.length l.
+Proof.
+  intros [|c0 [|c1 [|c2 rest]]] st r H; try (cbn in H; discriminate H).
+  cbn [task_check] in H.
+  destruct (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool; [|discriminate H].
+  destruct (box_status c1); [|discriminate H].
+  destruct rest as [|c' rest'].
+  - injection H as _ <-. simpl. lia.
+  - destruct (is_ws c'); [|discriminate H].
+    injection H as _ <-. simpl. lia.
+Qed.
+
 (* Like quote_prefix_length: the content after a list marker is strictly
    shorter than the line, which is what makes the parser's descent into
    a list item terminate. *)
 Lemma list_marker_length :
-  forall l sty core rest,
-    list_marker l = Some (sty, core, rest) ->
+  forall l sty core chk rest,
+    list_marker l = Some (sty, core, chk, rest) ->
     String.length rest < String.length l.
 Proof.
-  intros l sty core rest H. unfold list_marker in H.
+  intros l sty core chk rest H. unfold list_marker in H.
   pose proof (drop_leading_ws_length l) as Hle.
   destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
   destruct (is_bullet c).
   - simpl in Hle.
     destruct r as [|c' r'].
-    + injection H as _ _ <-. simpl. lia.
+    + injection H as _ _ _ <-. simpl. lia.
     + destruct (is_ws c'); [|discriminate].
-      injection H as _ _ <-. simpl in *. lia.
+      destruct (if is_task_bullet c then task_check r' else None)
+        as [[st tr]|] eqn:Et.
+      * assert (Ht : String.length tr < String.length r').
+        { destruct (is_task_bullet c); [|discriminate Et].
+          exact (task_check_length r' st tr Et). }
+        injection H as _ _ _ <-. simpl in *. lia.
+      * injection H as _ _ _ <-. simpl in *. lia.
   - pose proof (marker_shape_length (String c r)) as Hms.
     destruct (marker_shape (String c r)) as [[[core' d] r0]|] eqn:Em;
       [|discriminate].
     specialize (Hms _ _ _ eq_refl).
     destruct (styles_of_core core' d) as [|s0 ss] eqn:Es; [discriminate|].
     destruct r0 as [|c' r0'].
-    + injection H as _ _ <-. simpl in *. lia.
+    + injection H as _ _ _ <-. simpl in *. lia.
     + destruct (is_ws c'); [|discriminate].
-      injection H as _ _ <-. simpl in *. lia.
+      injection H as _ _ _ <-. simpl in *. lia.
 Qed.
 
 (*
@@ -1184,7 +1313,7 @@ Definition classify (l : string) : line_kind :=
                    | None =>
                        if is_thematic l then KThematic
                        else match list_marker l with
-                            | Some (sty, core, rest) => KList sty core rest
+                            | Some (sty, core, chk, rest) => KList sty core chk rest
                             | None =>
                                 match attr_open l with
                                 | Some p => KAttr p
@@ -1218,7 +1347,7 @@ Example classify_three_colons : classify "::: a" = KDiv 3 "a".
 Proof. reflexivity. Qed.
 
 Example classify_colon_marker :
-  classify ": a" = KList [SBullet ":"%char] EmptyString "a"%string.
+  classify ": a" = KList [SBullet ":"%char] EmptyString None "a"%string.
 Proof. reflexivity. Qed.
 
 (* Headings always have a level, which is what wf_block requires of the
@@ -1237,7 +1366,7 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; [discriminate|].
@@ -1245,7 +1374,7 @@ Proof.
   - destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; [discriminate|].
@@ -1271,7 +1400,7 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+  destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; [discriminate|].
@@ -1293,7 +1422,7 @@ Proof.
     destruct (fence_open l); [discriminate|].
     destruct (div_open l) as [[dn dc]|]; [discriminate|].
     destruct (is_thematic l); [discriminate|].
-    destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+    destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
     destruct (attr_open l); [discriminate|].
     destruct (foot_open l) as [[fl fr]|]; [discriminate|].
     destruct (ref_open l) as [[rl rv]|]; [discriminate|].
@@ -1301,11 +1430,11 @@ Proof.
 Qed.
 
 Lemma classify_list_length :
-  forall l sty core rest,
-    classify l = KList sty core rest ->
+  forall l sty core chk rest,
+    classify l = KList sty core chk rest ->
     String.length rest < String.length l.
 Proof.
-  intros l sty core rest H. apply (list_marker_length l sty core).
+  intros l sty core chk rest H. apply (list_marker_length l sty core chk).
   unfold classify in H.
   destruct (is_blank l); [discriminate|].
   destruct (quote_prefix l); [discriminate|].
@@ -1313,12 +1442,12 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[[s' c'] r']|];
+  destruct (list_marker l) as [[[[s' c'] k'] r']|];
     [|destruct (attr_open l); [discriminate|];
       destruct (foot_open l) as [[fl fr]|]; [discriminate|];
       destruct (ref_open l) as [[rl rv]|]; [discriminate|];
       destruct (table_row l); discriminate].
-  injection H as <- <- <-. reflexivity.
+  injection H as <- <- <- <-. reflexivity.
 Qed.
 
 Lemma classify_not_kblank_nonblank :
@@ -1378,7 +1507,7 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+  destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [injection H as <- <-; reflexivity|].
   destruct (ref_open l) as [[rl rv]|]; [discriminate|].
@@ -1405,7 +1534,7 @@ Proof.
   destruct (fence_open l); [discriminate|].
   destruct (div_open l) as [[dn dc]|]; [discriminate|].
   destruct (is_thematic l); [discriminate|].
-  destruct (list_marker l) as [[[s0 c0] r0]|]; [discriminate|].
+  destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
   destruct (attr_open l); [discriminate|].
   destruct (foot_open l) as [[fl fr]|]; [discriminate|].
   destruct (ref_open l) as [[rl rv]|]; [|destruct (table_row l); discriminate].
@@ -2046,17 +2175,50 @@ Qed.
    the marker plus the item's own first line must not itself look like a
    thematic break ("- - -"), since `classify` tests thematic breaks
    before list markers.  A canonical item's `cb_ok` carries this. *)
-Lemma list_marker_open :
-  forall m l, marker_ok m = true ->
-    list_marker (mk_open m ++ l) = Some (mk_sty m, mk_core m, l).
+(* A bullet opener followed by a checkbox is not a bullet opener: the
+   task marker replaces it, exactly as `pattTaskListMarker` replaces
+   `pattListMarker` in djot.js.  So an item's first line has to be one
+   the marker survives, which is the condition `item_ok` already states
+   for a thematic break and states here for the same reason. *)
+Definition task_shadow (m : marker) (l : string) : bool :=
+  match m with
+  | MBullet _ => match task_check l with Some _ => true | None => false end
+  | _ => false
+  end.
+
+(* The same test with the marker left out.  `item_ok` asks *this*, not
+   `task_shadow`: the weaker, marker-dependent condition would make
+   `item_ok`'s dependence on its marker wider than the thematic test,
+   and `OrderedList.item_ok_thematic_indep` -- with nine users -- says
+   that test is the whole of it.  The stronger one costs an ordered or
+   definition item nothing it can canonically spell, since a canonical
+   `Str` escapes its brackets. *)
+Definition task_start (l : string) : bool :=
+  match task_check l with Some _ => true | None => false end.
+
+Lemma task_start_shadow :
+  forall m l, task_start l = false -> task_shadow m l = false.
 Proof.
-  intros m l Hm.
+  intros [c|core d] l H; [|reflexivity].
+  unfold task_start in H. cbn [task_shadow].
+  destruct (task_check l); [discriminate H|reflexivity].
+Qed.
+
+Lemma list_marker_open :
+  forall m l, marker_ok m = true -> task_shadow m l = false ->
+    list_marker (mk_open m ++ l) = Some (mk_sty m, mk_core m, None, l).
+Proof.
+  intros m l Hm Hts.
   destruct (marker_open_shape m l Hm) as (Hdrop & _ & _ & _ & _ & _ & _).
   unfold list_marker. rewrite Hdrop.
   destruct m as [c|core d].
   - cbn [marker_ok] in Hm. cbn [mk_open mk_sty mk_core].
     change (String c " " ++ l)%string with (String c (String " " l)).
-    cbn beta iota. rewrite Hm. reflexivity.
+    cbn beta iota. rewrite Hm.
+    cbn [task_shadow] in Hts.
+    destruct (is_task_bullet c);
+      [ destruct (task_check l) as [[st r]|]; [discriminate Hts|reflexivity]
+      | reflexivity ].
   - cbn [marker_ok] in Hm.
     apply andb_true_iff in Hm as [Hm Hsty].
     apply andb_true_iff in Hm as [Hne Hal].
@@ -2117,18 +2279,22 @@ Qed.
 
 Lemma classify_marker_open :
   forall m l, marker_ok m = true -> is_thematic (mk_open m ++ l) = false ->
-  classify (mk_open m ++ l) = KList (mk_sty m) (mk_core m) l.
+  task_shadow m l = false ->
+  classify (mk_open m ++ l) = KList (mk_sty m) (mk_core m) None l.
 Proof.
-  intros m l Hm Hth.
+  intros m l Hm Hth Hts.
   destruct (marker_open_shape m l Hm) as (_ & Hb & Hq & Hh & Hf & Hd & _).
   unfold classify. rewrite Hb, Hq, Hh, Hf, Hd, Hth.
-  rewrite (list_marker_open m l Hm). reflexivity.
+  rewrite (list_marker_open m l Hm Hts). reflexivity.
 Qed.
 
 Lemma classify_bullet_open :
   forall l, is_thematic (bullet_open ++ l) = false ->
-  classify (bullet_open ++ l) = KList [SBullet "-"%char] EmptyString l.
-Proof. intros l Hth. exact (classify_marker_open bullet l eq_refl Hth). Qed.
+  task_shadow bullet l = false ->
+  classify (bullet_open ++ l) = KList [SBullet "-"%char] EmptyString None l.
+Proof.
+  intros l Hth Hts. exact (classify_marker_open bullet l eq_refl Hth Hts).
+Qed.
 
 Lemma indent_of_marker_open :
   forall m l, marker_ok m = true -> indent_of (mk_open m ++ l) = 0.
@@ -2156,7 +2322,8 @@ Qed.
 
 Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
 Proof.
-  intros [c|n d] [c'|n' d'] H; cbn [lstyle_eqb] in H; try discriminate.
+  intros [c|c|n d] [c'|c'|n' d'] H; cbn [lstyle_eqb] in H; try discriminate.
+  - apply Ascii.eqb_eq in H. subst c'. reflexivity.
   - apply Ascii.eqb_eq in H. subst c'. reflexivity.
   - apply andb_true_iff in H as [Hn Hd].
     destruct n, n'; try discriminate; destruct d, d'; try discriminate;

@@ -89,6 +89,7 @@ Definition s_old (d : ordered_list_delim) : string :=
 Definition s_lstyle (y : lstyle) : string :=
   match y with
   | SBullet c => "b" ++ s_ascii c
+  | STask c => "t" ++ s_ascii c
   | SOrd n d => "o" ++ s_ols n ++ s_old d
   end.
 

@@ -256,6 +256,20 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                (s2, (term, it1) :: rest1)
            end) items (register_id a st) in
       (st', Node p a (DefinitionList sp items'))
+  (* A status is a leaf, so a task item's descent is the definition's
+     with the pair's other half carried through. *)
+  | TaskList sp items =>
+      let (st', items') :=
+        (fix got (its : list (task_status * blocks)) (s : id_state) {struct its}
+           : id_state * list (task_status * blocks) :=
+           match its with
+           | [] => (s, [])
+           | (chk, it) :: rest =>
+               let (s1, it1) := go it s in
+               let (s2, rest1) := got rest s1 in
+               (s2, (chk, it1) :: rest1)
+           end) items (register_id a st) in
+      (st', Node p a (TaskList sp items'))
   (* The remaining containers -- Section and the task list --
      are not reachable from the line fold yet (`Wf.supported` is the
      record of that).  Each needs its arm here when it lands, or a
@@ -301,6 +315,16 @@ Fixpoint assign_ids_def_items (its : list (inlines * blocks)) (st : id_state)
       let (s1, it1) := assign_ids_list it st in
       let (s2, rest1) := assign_ids_def_items rest s1 in
       (s2, (term, it1) :: rest1)
+  end.
+
+Fixpoint assign_ids_task_items (its : list (task_status * blocks)) (st : id_state)
+  : id_state * list (task_status * blocks) :=
+  match its with
+  | [] => (st, [])
+  | (chk, it) :: rest =>
+      let (s1, it1) := assign_ids_list it st in
+      let (s2, rest1) := assign_ids_task_items rest s1 in
+      (s2, (chk, it1) :: rest1)
   end.
 
 (* The inner fixpoints of `assign_ids`, named.  Same shape as
@@ -434,6 +458,47 @@ Proof.
   cbn [assign_ids_def_items].
   destruct (assign_ids_list it st) as [s1 it1].
   destruct (assign_ids_def_items rest s1) as [s2 rest1].
+  reflexivity.
+Qed.
+
+Lemma assign_ids_tasklist :
+  forall p a sp items st,
+    assign_ids (TaskList sp items) p a st
+    = let (st', items') := assign_ids_task_items items (register_id a st) in
+      (st', Node p a (TaskList sp items')).
+Proof.
+  assert (H : forall its st,
+             (fix got (l : list (task_status * blocks)) (s : id_state)
+                : id_state * list (task_status * blocks) :=
+                match l with
+                | [] => (s, [])
+                | (chk, it) :: rest =>
+                    let (s1, it1) :=
+                      (fix go (m : blocks) (s' : id_state) : id_state * blocks :=
+                         match m with
+                         | [] => (s', [])
+                         | Node p' a' x :: r =>
+                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s3, r1) := go r s2 in
+                             (s3, n2 :: r1)
+                         end) it s in
+                    let (s4, rest1) := got rest s1 in
+                    (s4, (chk, it1) :: rest1)
+                end) its st = assign_ids_task_items its st).
+  { induction its as [|[chk it] rest IH]; intros st; [reflexivity|].
+    cbn [assign_ids_task_items]. rewrite assign_ids_inner_go.
+    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+Qed.
+
+Lemma assign_ids_task_items_nonempty :
+  forall its st,
+    nonempty (snd (assign_ids_task_items its st)) = nonempty its.
+Proof.
+  intros [|[chk it] rest] st; [reflexivity|].
+  cbn [assign_ids_task_items].
+  destruct (assign_ids_list it st) as [s1 it1].
+  destruct (assign_ids_task_items rest s1) as [s2 rest1].
   reflexivity.
 Qed.
 
@@ -635,6 +700,19 @@ Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
                           | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
                           end) it acc)
          end) items m
+  | TaskList _ items =>
+      (fix got (its : list (task_status * blocks)) (acc : reference_map)
+         {struct its} : reference_map :=
+         match its with
+         | [] => acc
+         | (_, it) :: rest =>
+             got rest ((fix go' (ns : blocks) (acc' : reference_map)
+                          {struct ns} : reference_map :=
+                          match ns with
+                          | [] => acc'
+                          | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                          end) it acc)
+         end) items m
   | _ => add_ref p a b m
   end.
 
@@ -697,6 +775,18 @@ Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
                (acc2, (term, it1) :: rest1)
            end) items m in
       (m', Some (Node p a (DefinitionList sp items')))
+  | TaskList sp items =>
+      let (m', items') :=
+        (fix got (its : list (task_status * blocks)) (acc : note_map) {struct its}
+           : note_map * list (task_status * blocks) :=
+           match its with
+           | [] => (acc, [])
+           | (chk, it) :: rest =>
+               let (acc1, it1) := go it acc in
+               let (acc2, rest1) := got rest acc1 in
+               (acc2, (chk, it1) :: rest1)
+           end) items m in
+      (m', Some (Node p a (TaskList sp items')))
   | _ => (m, Some (Node p a b))
   end.
 
@@ -730,6 +820,16 @@ Fixpoint collect_notes_def_items (its : list (inlines * blocks)) (m : note_map)
       let (m1, it1) := collect_notes_list it m in
       let (m2, rest1) := collect_notes_def_items rest m1 in
       (m2, (term, it1) :: rest1)
+  end.
+
+Fixpoint collect_notes_task_items (its : list (task_status * blocks)) (m : note_map)
+  : note_map * list (task_status * blocks) :=
+  match its with
+  | [] => (m, [])
+  | (chk, it) :: rest =>
+      let (m1, it1) := collect_notes_list it m in
+      let (m2, rest1) := collect_notes_task_items rest m1 in
+      (m2, (chk, it1) :: rest1)
   end.
 
 Lemma collect_notes_items_nonempty :
@@ -878,6 +978,51 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma collect_notes_tasklist :
+  forall p a sp items m,
+    collect_notes (TaskList sp items) p a m
+    = let (m', items') := collect_notes_task_items items m in
+      (m', Some (Node p a (TaskList sp items'))).
+Proof.
+  assert (H : forall its m,
+             (fix got (l : list (task_status * blocks)) (acc : note_map)
+                {struct l} : note_map * list (task_status * blocks) :=
+                match l with
+                | [] => (acc, [])
+                | (chk, it) :: rest =>
+                    let (acc1, it1) :=
+                      (fix go (ns : blocks) (acc0 : note_map) {struct ns}
+                         : note_map * blocks :=
+                         match ns with
+                         | [] => (acc0, [])
+                         | Node p a b :: more =>
+                             let (acc2, n1) := collect_notes b p a acc0 in
+                             let (acc3, more1) := go more acc2 in
+                             match n1 with
+                             | Some n => (acc3, n :: more1)
+                             | None => (acc3, more1)
+                             end
+                         end) it acc in
+                    let (acc2, rest1) := got rest acc1 in
+                    (acc2, (chk, it1) :: rest1)
+                end) its m = collect_notes_task_items its m).
+  { induction its as [|[chk it] rest IH]; intros m; [reflexivity|].
+    cbn [collect_notes_task_items]. rewrite collect_notes_inner_go.
+    destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items m. cbn [collect_notes]. rewrite H. reflexivity.
+Qed.
+
+Lemma collect_notes_task_items_nonempty :
+  forall its m,
+    nonempty (snd (collect_notes_task_items its m)) = nonempty its.
+Proof.
+  intros [|[chk it] rest] m; [reflexivity|].
+  cbn [collect_notes_task_items].
+  destruct (collect_notes_list it m) as [m1 it1].
+  destruct (collect_notes_task_items rest m1) as [m2 rest1].
+  reflexivity.
+Qed.
+
 Lemma collect_notes_olist :
   forall p a oa sp items m,
     collect_notes (OrderedList oa sp items) p a m
@@ -979,6 +1124,14 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
              | [] => []
              | (term, it) :: rest => (term, go it) :: god rest
              end) items))]
+  | TaskList sp items =>
+      [Node p a (TaskList sp
+         ((fix got (its : list (task_status * blocks))
+             : list (task_status * blocks) :=
+             match its with
+             | [] => []
+             | (chk, it) :: rest => (chk, go it) :: got rest
+             end) items))]
   | _ => [Node p a b]
   end.
 
@@ -999,6 +1152,13 @@ Fixpoint undo_pass_def_items (its : list (inlines * blocks))
   match its with
   | [] => []
   | (term, it) :: rest => (term, undo_pass it) :: undo_pass_def_items rest
+  end.
+
+Fixpoint undo_pass_task_items (its : list (task_status * blocks))
+  : list (task_status * blocks) :=
+  match its with
+  | [] => []
+  | (chk, it) :: rest => (chk, undo_pass it) :: undo_pass_task_items rest
   end.
 
 Lemma undo_pass_inner_go :
@@ -1166,6 +1326,12 @@ Lemma undo_pass_deflist :
     = [Node p a (DefinitionList sp (undo_pass_def_items items))].
 Proof. reflexivity. Qed.
 
+Lemma undo_pass_tasklist :
+  forall sp items p a,
+    undo_pass_block (TaskList sp items) p a
+    = [Node p a (TaskList sp (undo_pass_task_items items))].
+Proof. reflexivity. Qed.
+
 Definition undo_pass_node (n : node block) : blocks :=
   match n with Node p a b => undo_pass_block b p a end.
 
@@ -1207,6 +1373,12 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
          | [] => true
          | (_, it) :: rest => (go it && god rest)%bool
          end) items
+  | TaskList _ items =>
+      (fix got (its : list (task_status * blocks)) : bool :=
+         match its with
+         | [] => true
+         | (_, it) :: rest => (go it && got rest)%bool
+         end) items
   | _ => true
   end.
 
@@ -1228,6 +1400,12 @@ Fixpoint pristine_def_items (its : list (inlines * blocks)) : bool :=
   match its with
   | [] => true
   | (_, it) :: rest => (pristine it && pristine_def_items rest)%bool
+  end.
+
+Fixpoint pristine_task_items (its : list (task_status * blocks)) : bool :=
+  match its with
+  | [] => true
+  | (_, it) :: rest => (pristine it && pristine_task_items rest)%bool
   end.
 
 (* Splitting the term off keeps an item pristine: the block that leaves
@@ -1288,6 +1466,12 @@ Fixpoint notes_free_block (b : block) {struct b} : bool :=
          | [] => true
          | (_, it) :: rest => (go it && god rest)%bool
          end) items
+  | TaskList _ items =>
+      (fix got (its : list (task_status * blocks)) : bool :=
+         match its with
+         | [] => true
+         | (_, it) :: rest => (go it && got rest)%bool
+         end) items
   | _ => true
   end.
 
@@ -1307,6 +1491,12 @@ Fixpoint notes_free_def_items (its : list (inlines * blocks)) : bool :=
   match its with
   | [] => true
   | (_, it) :: rest => (notes_free it && notes_free_def_items rest)%bool
+  end.
+
+Fixpoint notes_free_task_items (its : list (task_status * blocks)) : bool :=
+  match its with
+  | [] => true
+  | (_, it) :: rest => (notes_free it && notes_free_task_items rest)%bool
   end.
 
 Lemma notes_free_inner_go :
@@ -1369,6 +1559,26 @@ Proof.
              end) items).
   induction items as [|[term it] rest IH]; [reflexivity|].
   cbn [notes_free_def_items]. rewrite notes_free_inner_go, IH. reflexivity.
+Qed.
+
+Lemma notes_free_tasklist :
+  forall sp items,
+    notes_free_block (TaskList sp items) = notes_free_task_items items.
+Proof.
+  intros sp items.
+  change (notes_free_block (TaskList sp items))
+    with ((fix got (its : list (task_status * blocks)) : bool :=
+             match its with
+             | [] => true
+             | (_, it) :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ _ x :: r => (notes_free_block x && go r)%bool
+                     end) it && got rest)%bool
+             end) items).
+  induction items as [|[chk it] rest IH]; [reflexivity|].
+  cbn [notes_free_task_items]. rewrite notes_free_inner_go, IH. reflexivity.
 Qed.
 
 Lemma notes_free_blist :
@@ -1440,6 +1650,26 @@ Proof.
              end) items).
   induction items as [|[term it] rest IH]; [reflexivity|].
   cbn [pristine_def_items]. rewrite pristine_inner_go, IH. reflexivity.
+Qed.
+
+Lemma pristine_tasklist :
+  forall sp items a,
+    pristine_block (TaskList sp items) a = pristine_task_items items.
+Proof.
+  intros sp items a.
+  change (pristine_block (TaskList sp items) a)
+    with ((fix got (its : list (task_status * blocks)) : bool :=
+             match its with
+             | [] => true
+             | (_, it) :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ a' x :: r => (pristine_block x a' && go r)%bool
+                     end) it && got rest)%bool
+             end) items).
+  induction items as [|[chk it] rest IH]; [reflexivity|].
+  cbn [pristine_task_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
 Lemma pristine_blist :
@@ -1514,7 +1744,10 @@ Proof.
             undo_pass_items (snd (assign_ids_items its st)) = its)
     (D := fun its => forall st,
             pristine_def_items its = true ->
-            undo_pass_def_items (snd (assign_ids_def_items its st)) = its);
+            undo_pass_def_items (snd (assign_ids_def_items its st)) = its)
+    (K := fun its => forall st,
+            pristine_task_items its = true ->
+            undo_pass_task_items (snd (assign_ids_task_items its st)) = its);
     intros; try reflexivity.
   - (* Section: excluded by pristine *)
     discriminate.
@@ -1550,6 +1783,13 @@ Proof.
     rewrite assign_ids_blist.
     destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_blist.
+    change its' with (snd (st', its')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
+  - (* TaskList: the same over K's *)
+    rewrite pristine_tasklist in H.
+    rewrite assign_ids_tasklist.
+    destruct (assign_ids_task_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_tasklist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* DefinitionList: the bullet case again, over D's item list *)
@@ -1594,6 +1834,17 @@ Proof.
     replace rest1 with (snd (assign_ids_def_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
+  - (* K's cons: the status rides through untouched *)
+    cbn [pristine_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_task_items].
+    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
+    destruct (assign_ids_task_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [snd undo_pass_task_items].
+    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace rest1 with (snd (assign_ids_task_items rest s1))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
 (* The list version, as in Wf.v: block_ind2 proves it as its Q, but the
@@ -1627,7 +1878,10 @@ Proof.
         notes_free_items its = true -> collect_notes_items its m = (m, its))
     (D := fun its => forall m,
         notes_free_def_items its = true ->
-        collect_notes_def_items its m = (m, its));
+        collect_notes_def_items its m = (m, its))
+    (K := fun its => forall m,
+        notes_free_task_items its = true ->
+        collect_notes_task_items its m = (m, its));
     intros; try reflexivity.
   - rewrite notes_free_quote in H. rewrite collect_notes_quote, IHb by exact H.
     reflexivity.
@@ -1637,6 +1891,8 @@ Proof.
     reflexivity.
   - rewrite notes_free_blist in H. rewrite collect_notes_blist, IHb by exact H.
     reflexivity.
+  - rewrite notes_free_tasklist in H.
+    rewrite collect_notes_tasklist, IHb by exact H. reflexivity.
   - rewrite notes_free_deflist in H.
     rewrite collect_notes_deflist, IHb by exact H. reflexivity.
   - discriminate.
@@ -1648,6 +1904,9 @@ Proof.
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
     cbn [collect_notes_def_items]. rewrite IHb by exact Hit.
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [collect_notes_task_items]. rewrite IHb by exact Hit.
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
@@ -1668,13 +1927,17 @@ Proof.
     (Q := fun bs => pristine bs = true -> notes_free bs = true)
     (R := fun its => pristine_items its = true -> notes_free_items its = true)
     (D := fun its =>
-            pristine_def_items its = true -> notes_free_def_items its = true);
+            pristine_def_items its = true -> notes_free_def_items its = true)
+    (K := fun its =>
+            pristine_task_items its = true -> notes_free_task_items its = true);
     intros; try reflexivity.
   - discriminate.
   - rewrite pristine_quote in H. rewrite notes_free_quote. apply IHb. exact H.
   - rewrite pristine_div in H. rewrite notes_free_div. apply IHb. exact H.
   - rewrite pristine_olist in H. rewrite notes_free_olist. apply IHb. exact H.
   - rewrite pristine_blist in H. rewrite notes_free_blist. apply IHb. exact H.
+  - rewrite pristine_tasklist in H. rewrite notes_free_tasklist.
+    apply IHb. exact H.
   - rewrite pristine_deflist in H. rewrite notes_free_deflist.
     apply IHb. exact H.
   - discriminate.
@@ -1684,6 +1947,8 @@ Proof.
     cbn [notes_free_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
   - cbn [pristine_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
     cbn [notes_free_def_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
+  - cbn [pristine_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [notes_free_task_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
 Qed.
 
 Lemma pristine_notes_free :
@@ -1709,7 +1974,10 @@ Proof.
         notes_free_items (snd (assign_ids_items its st)) = true)
     (D := fun its => forall st,
         notes_free_def_items its = true ->
-        notes_free_def_items (snd (assign_ids_def_items its st)) = true);
+        notes_free_def_items (snd (assign_ids_def_items its st)) = true)
+    (K := fun its => forall st,
+        notes_free_task_items its = true ->
+        notes_free_task_items (snd (assign_ids_task_items its st)) = true);
     intros; try exact H; try reflexivity.
   - unfold assign_ids, assign_heading_id.
     destruct (lookup_attr "id" a); cbn [snd node_contents notes_free_block];
@@ -1729,6 +1997,11 @@ Proof.
   - rewrite notes_free_blist in H. rewrite assign_ids_blist.
     destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_blist.
+    change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
+  - rewrite notes_free_tasklist in H. rewrite assign_ids_tasklist.
+    destruct (assign_ids_task_items items (register_id a st)) as [st' items']
+      eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_tasklist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
   - rewrite notes_free_deflist in H. rewrite assign_ids_deflist.
     destruct (assign_ids_def_items items (register_id a st)) as [st' items']
@@ -1770,6 +2043,18 @@ Proof.
     rewrite IHb by exact Hit.
     replace (notes_free_def_items rest1) with
       (notes_free_def_items (snd (assign_ids_def_items rest st1)))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_task_items].
+    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
+    destruct (assign_ids_task_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd notes_free_task_items].
+    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+      by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace (notes_free_task_items rest1) with
+      (notes_free_task_items (snd (assign_ids_task_items rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.

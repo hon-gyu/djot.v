@@ -943,3 +943,23 @@ therefore a tight bullet list in both oracles.  We get this for free
 because a definition list *is* a list here too --
 `Line.is_bullet` claims `:` and `Step.list_block` picks the node from
 the style set, exactly as `-list` does.
+
+## Adjudicated 2026-08-22 — djot.js: how a task item renders
+
+| Input | djot.js (and ours) | djoths |
+|---|---|---|
+| `- [x] b` | `<li>\n<input disabled="" type="checkbox" checked=""/>\nb\n</li>` | `<li class="checked">\n<label><input type="checkbox" checked="" />b</label>\n</li>` |
+
+djoths puts the status on the `<li>` as a class and wraps the content in
+a `<label>`; djot.js emits a bare `disabled` input ahead of the content
+and leaves the `<li>` plain (`html.ts:219-229`).  The *parse* agrees on
+every case probed -- same items, same statuses, same list boundaries --
+so this is a rendering divergence and nothing more.  djot.js is the
+authority and `task_lists.test` pins it; three of the twenty-five djoths
+mismatches in the exact-HTML run are these.
+
+**Worth recording for the shape it shares with the definition list.**
+Both constructs are one arm of djot.js's single list spec, and in both
+the second oracle's HTML differs while its parse does not.  Where the
+`dl` disagreement is about a *field* (djoths computes a spacing we
+cannot observe), this one is about tags alone.

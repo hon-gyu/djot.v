@@ -126,7 +126,7 @@ Theorem nsc_uniformity_tail :
     mk_styles (nsc_marker core d start) = [(SOrd sty d, start)] ->
     items_ok (nsc_marker core d start) (nsc_items core d start lss) = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (nsc_items core d start lss))
                  ++ EmptyString :: next :: tail)%list (PPara [])
@@ -321,7 +321,7 @@ Theorem ordered_decimal_uniformity_tail :
     lss <> [] ->
     forallb (item_ok (dec_marker d start)) lss = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (dec_items d start lss))
                  ++ EmptyString :: next :: tail)%list (PPara [])
@@ -565,7 +565,9 @@ Proof.
     apply thematic_first_char; reflexivity.
 Qed.
 
-(* The whole of `item_ok`'s dependence on its marker. *)
+(* The whole of `item_ok`'s dependence on its marker.  The task-marker
+   conjunct is deliberately not one: it tests the line alone, so this
+   lemma stays exactly as strong as it was.  See `item_ok`. *)
 Lemma item_ok_thematic_indep :
   forall m m' L,
     (forall l, is_thematic (mk_open m ++ l) = false) ->
@@ -801,7 +803,7 @@ Theorem ordered_roman_uniformity_any_tail :
     lss <> [] -> 1 <= start -> start + length lss <= S roman_upper ->
     forallb (item_ok (nsc_marker (roman_str up) d start)) lss = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (nsc_items (roman_str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
@@ -1031,7 +1033,7 @@ Theorem ordered_alpha_uniformity_tail :
       (ascii_of_nat ((if up then 64 else 96) + start)) = false ->
     forallb (item_ok (nsc_marker (alpha_str up) d start)) lss = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
@@ -1179,7 +1181,7 @@ Theorem ordered_alpha_uniformity_any_tail :
          /\ alpha_roman_digit up (S (S start)) = false)) ->
     forallb (item_ok (nsc_marker (alpha_str up) d start)) lss = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (nsc_items (alpha_str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
@@ -1471,7 +1473,7 @@ Theorem ck_uniformity_tail :
     ck_ok k (length lss) = true ->
     forallb (item_ok (ck_first k)) lss = true ->
     classify next <> KBlank ->
-    (forall a b c, classify next <> KList a b c) ->
+    (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines (ck_items k lss))
                  ++ EmptyString :: next :: tail)%list (PPara [])

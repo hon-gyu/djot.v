@@ -240,10 +240,9 @@ Proof. intros [] []; (reflexivity || discriminate). Qed.
 Inductive cell : Type :=
   | Cell (ct : cell_type) (al : align) (ils : inlines).
 
-(* Block content.  Every constructor but `Section` and `TaskList` is
-   produced by `Parser.parse_lines`; those two are transcribed from the
-   oracles ahead of the parser reaching them (`Wf.supported` is the
-   record of which). *)
+(* Block content.  Every constructor but `Section` is produced by
+   `Parser.parse_lines`; that one is transcribed from the oracles ahead
+   of the parser reaching it (`Wf.supported` is the record). *)
 Inductive block : Type :=
   | Para (ils : inlines)
   | Section (bs : list (node block))
@@ -353,6 +352,25 @@ Proof. intros bs H. unfold def_item. rewrite H. reflexivity. Qed.
 Definition def_items (its : list blocks) : list (inlines * blocks) :=
   map def_item its.
 
+(* Pairing a task list's per-item checkboxes onto its items.  Recursion
+   is on the *items*, not on the pair, so a short status list pads rather
+   than truncating: `combine` would silently drop items, and every lemma
+   about this fold would have to carry a length hypothesis to say it does
+   not.  The parser pushes the two lists together (`Step.list_next`), so
+   the padding is unreachable. *)
+Fixpoint task_items (chks : list task_status) (its : list blocks)
+  : list (task_status * blocks) :=
+  match its with
+  | [] => []
+  | it :: rest =>
+      match chks with
+      | [] => (Incomplete, it) :: task_items [] rest
+      | c :: cs => (c, it) :: task_items cs rest
+      end
+  end.
+
+
+
 (* Rocq's generated `block_ind` does not descend into a container's
    contents: `blocks` is `list (node block)`, two type constructors away
    from `block`, and the guard checker will not follow that.  So every
@@ -365,14 +383,16 @@ Definition def_items (its : list blocks) : list (inlines * blocks) :=
    is what `Document.assign_ids` traversing list items forced.
    `DefinitionList` holds a list of *pairs*, which is not `R`'s type, so
    it gets a fourth predicate `D` of its own; the term half is inlines
-   and so contributes no hypothesis.  `TaskList` still gets none and
-   must be discharged outright; nothing produces one yet, and a caller
-   that needs one finds out at once, because the case becomes unprovable.
-   `Table` is not among them: its cells and its caption hold inlines, so
-   it is a leaf like `Para`. *)
+   and so contributes no hypothesis.  `TaskList`'s pairs are a third
+   type again, hence `K`.  `Section` is the one container left without a
+   hypothesis and must be discharged outright; nothing produces one yet,
+   and a caller that needs one finds out at once, because the case
+   becomes unprovable.  `Table` is not among them: its cells and its
+   caption hold inlines, so it is a leaf like `Para`. *)
 Definition block_ind2
   (P : block -> Prop) (Q : blocks -> Prop) (R : list blocks -> Prop)
   (D : list (inlines * blocks) -> Prop)
+  (K : list (task_status * blocks) -> Prop)
   (hpara : forall ils, P (Para ils))
   (hsection : forall bs, Q bs -> P (Section bs))
   (hheading : forall lvl ils, P (Heading lvl ils))
@@ -381,7 +401,7 @@ Definition block_ind2
   (hdiv : forall bs, Q bs -> P (Div bs))
   (holist : forall attrs sp items, R items -> P (OrderedList attrs sp items))
   (hblist : forall sp items, R items -> P (BulletList sp items))
-  (htlist : forall sp items, P (TaskList sp items))
+  (htlist : forall sp items, K items -> P (TaskList sp items))
   (hdlist : forall sp items, D items -> P (DefinitionList sp items))
   (hthematic : P ThematicBreak)
   (htable : forall caption rows, P (Table caption rows))
@@ -394,6 +414,8 @@ Definition block_ind2
   (hicons : forall it rest, Q it -> R rest -> R (it :: rest))
   (hdnil : D [])
   (hdcons : forall term it rest, Q it -> D rest -> D ((term, it) :: rest))
+  (hknil : K [])
+  (hkcons : forall chk it rest, Q it -> K rest -> K ((chk, it) :: rest))
   : forall b, P b :=
   fix go (b : block) : P b :=
     let golist :=
@@ -407,6 +429,13 @@ Definition block_ind2
         match its with
         | [] => hinil
         | it :: rest => hicons it rest (golist it) (goitems rest)
+        end in
+    let gotasks :=
+      fix gotasks (its : list (task_status * blocks)) : K its :=
+        match its with
+        | [] => hknil
+        | (chk, it) :: rest =>
+            hkcons chk it rest (golist it) (gotasks rest)
         end in
     let godefs :=
       fix godefs (its : list (inlines * blocks)) : D its :=
@@ -424,7 +453,7 @@ Definition block_ind2
     | Div bs => hdiv bs (golist bs)
     | OrderedList attrs sp items => holist attrs sp items (goitems items)
     | BulletList sp items => hblist sp items (goitems items)
-    | TaskList sp items => htlist sp items
+    | TaskList sp items => htlist sp items (gotasks items)
     | DefinitionList sp items => hdlist sp items (godefs items)
     | ThematicBreak => hthematic
     | Table caption rows => htable caption rows

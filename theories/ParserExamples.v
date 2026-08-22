@@ -748,3 +748,51 @@ Example parse_deflist_after_para :
 : a"
   = [mk (Para [mk (Str "p"); mk SoftBreak; mk (Str ": a")])].
 Proof. reflexivity. Qed.
+
+(*
+Task lists
+==========
+
+A task list is a bullet list whose marker carries a checkbox, so what is
+pinned here is where the checkbox goes: on the *item*, not on the list.
+*)
+
+Example parse_tasklist :
+  parse_blocks "- [ ] a
+- [x] b"
+  = [mk (TaskList Tight
+           [ (Incomplete, [mk (Para [mk (Str "a")])])
+           ; (Complete, [mk (Para [mk (Str "b")])]) ])].
+Proof. reflexivity. Qed.
+
+(* A marker at end of line is an item with no blocks at all. *)
+Example parse_tasklist_empty :
+  parse_blocks "- [ ]" = [mk (TaskList Tight [(Incomplete, [])])].
+Proof. reflexivity. Qed.
+
+(* The content after the marker is ordinary block content. *)
+Example parse_tasklist_heading :
+  parse_blocks "- [ ] # h"
+  = [mk (TaskList Tight [(Incomplete, [mk (Heading 1 [mk (Str "h")])])])].
+Proof. reflexivity. Qed.
+
+(* `-X` and `-` do not intersect, so a bullet sibling starts a new list. *)
+Example parse_tasklist_not_bullet :
+  parse_blocks "- [ ] a
+- b"
+  = [ mk (TaskList Tight [(Incomplete, [mk (Para [mk (Str "a")])])])
+    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+Proof. reflexivity. Qed.
+
+(* Two spaces before the bracket, or none after it, and the marker is an
+   ordinary bullet whose content happens to start with a bracket. *)
+Example parse_tasklist_wide :
+  parse_blocks "-  [ ] a"
+  = [mk (BulletList Tight [[mk (Para [mk (Str "[ ] a")])]])].
+Proof. reflexivity. Qed.
+
+(* And only a bullet takes one. *)
+Example parse_tasklist_colon :
+  parse_blocks ": [ ] a"
+  = [mk (DefinitionList Tight [([mk (Str "[ ] a")], [])])].
+Proof. reflexivity. Qed.

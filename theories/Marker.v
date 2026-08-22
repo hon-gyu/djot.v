@@ -443,7 +443,7 @@ Qed.
 (* `getListStart` (parse.ts:102-113). *)
 Definition style_start (s : lstyle) (core : string) : nat :=
   match s with
-  | SBullet _ => 1
+  | SBullet _ | STask _ => 1
   | SOrd Decimal _ => dec_value core
   | SOrd LetterLower _ => alpha_value false core
   | SOrd LetterUpper _ => alpha_value true core
@@ -467,7 +467,8 @@ Definition mk_styles (m : marker) : list (lstyle * nat) :=
 
 Lemma lstyle_eqb_refl : forall s, lstyle_eqb s s = true.
 Proof.
-  intros [c|n d]; cbn [lstyle_eqb].
+  intros [c|c|n d]; cbn [lstyle_eqb].
+  - apply Ascii.eqb_refl.
   - apply Ascii.eqb_refl.
   - destruct n, d; reflexivity.
 Qed.
@@ -560,7 +561,12 @@ Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
       if Ascii.eqb c ":"
       then mk (DefinitionList sp (def_items items))
       else mk (BulletList sp items)
-  | [] => mk (BulletList sp items)
+  (* A task style does not reach here.  Its statuses are per *item* and
+     so are not in the style set at all -- `Step.list_block` reads them
+     off the list state, which this function does not have -- and
+     `no_task_style` is the hypothesis that says so wherever the two are
+     related.  The arm exists because the match must be total. *)
+  | _ => mk (BulletList sp items)
   end.
 
 (* The same at a marker whose set no sibling narrows.  Bullets give a
