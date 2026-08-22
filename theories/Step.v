@@ -294,7 +294,17 @@ Definition list_block (ls : list_state) (last : blocks) : node block :=
   let items := rev (last :: ls_items ls) in
   match ls_styles ls with
   | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
-  | _ => mk (BulletList sp items)
+  (* The colon is the definition-list style, and this is the only place
+     it differs from a bullet: djot.js's `-list` picks the node from the
+     same style set (parse.ts:824), and `def_items` is the split its
+     `-list_item` runs.  Spelled as a test on the character rather than
+     as a pattern so that a proof holding an unknown bullet can case on
+     it in one step. *)
+  | (SBullet c, _) :: _ =>
+      if Ascii.eqb c ":"
+      then mk (DefinitionList sp (def_items items))
+      else mk (BulletList sp items)
+  | [] => mk (BulletList sp items)
   end.
 
 (* The block a reference definition closes to.  It carries no HTML of its

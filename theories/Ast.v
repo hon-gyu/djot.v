@@ -240,9 +240,10 @@ Proof. intros [] []; (reflexivity || discriminate). Qed.
 Inductive cell : Type :=
   | Cell (ct : cell_type) (al : align) (ils : inlines).
 
-(* Block content.  Produced so far: Para, ThematicBreak, CodeBlock,
-   RawBlock (see Parser.parse_lines); the rest are transcribed from the
-   oracles ahead of the parser reaching them. *)
+(* Block content.  Every constructor but `Section` and `TaskList` is
+   produced by `Parser.parse_lines`; those two are transcribed from the
+   oracles ahead of the parser reaching them (`Wf.supported` is the
+   record of which). *)
 Inductive block : Type :=
   | Para (ils : inlines)
   | Section (bs : list (node block))
@@ -299,6 +300,59 @@ Lemma decorate_head_cons_app :
     = decorate_head pending ((b :: bs) ++ cs)%list.
 Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
 
+(* The term/definition split, at the point a list item closes.  djot.js
+   runs it at `-list_item` (parse.ts:883-900): if the item's first child
+   is a paragraph, its *inlines* become the term and the paragraph is
+   dropped; otherwise the term is empty and the item keeps everything.
+   So the term is a fold over what the item already emitted, never a
+   revision of it, which is why a definition list needs no state of its
+   own.
+
+   The paragraph's attributes go with it.  That is djot.js's behaviour
+   and not an omission: a term is inline content, with nowhere to put
+   them, so `: {#i}` / `  t` yields a `dt` holding `t` and no id. *)
+(* What djot.js keeps out of the block tree: a reference definition goes
+   to `doc.references` and a footnote definition to `doc.footnotes`
+   before `-list_item` runs, so neither is ever `children[0]` and neither
+   can stand between an item and its term.  We keep both as blocks for
+   the roundtrip's sake, so the search has to step over them.  Both
+   oracles agree that `: [r]: u` / blank / `t` has `t` as its term. *)
+Definition invisible_block (b : block) : bool :=
+  match b with RefDef _ _ | FootnoteDef _ _ => true | _ => false end.
+
+Fixpoint def_split (bs : blocks) : option (inlines * blocks) :=
+  match bs with
+  | [] => None
+  | Node q a x :: rest =>
+      match x with
+      | Para ils => Some (ils, rest)
+      | _ =>
+          if invisible_block x
+          then match def_split rest with
+               | Some (ils, more) => Some (ils, Node q a x :: more)
+               | None => None
+               end
+          else None
+      end
+  end.
+
+Definition def_item (bs : blocks) : inlines * blocks :=
+  match def_split bs with
+  | Some r => r
+  | None => ([], bs)
+  end.
+
+Lemma def_item_some :
+  forall bs r, def_split bs = Some r -> def_item bs = r.
+Proof. intros bs r H. unfold def_item. rewrite H. reflexivity. Qed.
+
+Lemma def_item_none :
+  forall bs, def_split bs = None -> def_item bs = ([], bs).
+Proof. intros bs H. unfold def_item. rewrite H. reflexivity. Qed.
+
+Definition def_items (its : list blocks) : list (inlines * blocks) :=
+  map def_item its.
+
 (* Rocq's generated `block_ind` does not descend into a container's
    contents: `blocks` is `list (node block)`, two type constructors away
    from `block`, and the guard checker will not follow that.  So every
@@ -308,14 +362,17 @@ Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
 
    `BulletList` holds a list *of* block lists, one more constructor deep
    again, so it needs a third predicate `R` with its own nil/cons — which
-   is what `Document.assign_ids` traversing list items forced.  The other
-   list flavours still get no hypothesis for the blocks they hold and
-   must be discharged outright; nothing produces them yet, and a caller
+   is what `Document.assign_ids` traversing list items forced.
+   `DefinitionList` holds a list of *pairs*, which is not `R`'s type, so
+   it gets a fourth predicate `D` of its own; the term half is inlines
+   and so contributes no hypothesis.  `TaskList` still gets none and
+   must be discharged outright; nothing produces one yet, and a caller
    that needs one finds out at once, because the case becomes unprovable.
    `Table` is not among them: its cells and its caption hold inlines, so
    it is a leaf like `Para`. *)
 Definition block_ind2
   (P : block -> Prop) (Q : blocks -> Prop) (R : list blocks -> Prop)
+  (D : list (inlines * blocks) -> Prop)
   (hpara : forall ils, P (Para ils))
   (hsection : forall bs, Q bs -> P (Section bs))
   (hheading : forall lvl ils, P (Heading lvl ils))
@@ -325,7 +382,7 @@ Definition block_ind2
   (holist : forall attrs sp items, R items -> P (OrderedList attrs sp items))
   (hblist : forall sp items, R items -> P (BulletList sp items))
   (htlist : forall sp items, P (TaskList sp items))
-  (hdlist : forall sp items, P (DefinitionList sp items))
+  (hdlist : forall sp items, D items -> P (DefinitionList sp items))
   (hthematic : P ThematicBreak)
   (htable : forall caption rows, P (Table caption rows))
   (hraw : forall format contents, P (RawBlock format contents))
@@ -335,6 +392,8 @@ Definition block_ind2
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
   (hicons : forall it rest, Q it -> R rest -> R (it :: rest))
+  (hdnil : D [])
+  (hdcons : forall term it rest, Q it -> D rest -> D ((term, it) :: rest))
   : forall b, P b :=
   fix go (b : block) : P b :=
     let golist :=
@@ -349,6 +408,13 @@ Definition block_ind2
         | [] => hinil
         | it :: rest => hicons it rest (golist it) (goitems rest)
         end in
+    let godefs :=
+      fix godefs (its : list (inlines * blocks)) : D its :=
+        match its with
+        | [] => hdnil
+        | (term, it) :: rest =>
+            hdcons term it rest (golist it) (godefs rest)
+        end in
     match b with
     | Para ils => hpara ils
     | Section bs => hsection bs (golist bs)
@@ -359,7 +425,7 @@ Definition block_ind2
     | OrderedList attrs sp items => holist attrs sp items (goitems items)
     | BulletList sp items => hblist sp items (goitems items)
     | TaskList sp items => htlist sp items
-    | DefinitionList sp items => hdlist sp items
+    | DefinitionList sp items => hdlist sp items (godefs items)
     | ThematicBreak => hthematic
     | Table caption rows => htable caption rows
     | RawBlock format contents => hraw format contents

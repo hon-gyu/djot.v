@@ -280,16 +280,113 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
+(* The definition flavour asks *less*: `wf_def_items` has no nonemptiness
+   obligation on a term, so an item that was a lone empty paragraph —
+   ill-formed as a bullet item — is well-formed once the term is split
+   off.  That is why `wf_list_block` below is an implication where the
+   other two are equations. *)
+Lemma wf_block_deflist :
+  forall sp items,
+    wf_block (DefinitionList sp items)
+    = (nonempty items
+       && forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
+            items)%bool.
+Proof.
+  intros sp items.
+  assert (H : forall its,
+             (fix god (l : list (inlines * list (node block))) : bool :=
+                match l with
+                | [] => true
+                | (term, it) :: rest =>
+                    (wf_inlines term && wf_block (BlockQuote it) && god rest)%bool
+                end) its
+             = forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti)) its).
+  { induction its as [|[term it] rest IH]; [reflexivity|].
+    cbn [forallb fst snd]. rewrite wf_block_quote, IH. reflexivity. }
+  change (wf_block (DefinitionList sp items))
+    with (nonempty items
+          && (fix god (l : list (inlines * list (node block))) : bool :=
+                match l with
+                | [] => true
+                | (term, it) :: rest =>
+                    (wf_inlines term && wf_block (BlockQuote it) && god rest)%bool
+                end) items)%bool.
+  rewrite H. reflexivity.
+Qed.
+
+(* Splitting the term off an item keeps it well-formed: the term's
+   inlines are the leading paragraph's, which `wf_blocks` already
+   checked, and the definition is the rest of a list it checked. *)
+Lemma wf_def_split :
+  forall bs ils def,
+    wf_blocks bs = true ->
+    def_split bs = Some (ils, def) ->
+    (wf_inlines ils && wf_blocks def)%bool = true.
+Proof.
+  induction bs as [|[q a x] rest IH]; intros ils def H E; [discriminate|].
+  rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
+  cbn [def_split] in E. destruct x; try discriminate E.
+  - injection E as <- <-.
+    cbn [node_contents wf_block] in Hx. apply andb_true_iff in Hx as [_ Hi].
+    rewrite Hi, Hrest. reflexivity.
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    pose proof (IH ils' more Hrest eq_refl) as Hi.
+    apply andb_true_iff in Hi as [Hi Hm].
+    rewrite Hi, wf_blocks_cons, Hx, Hm. reflexivity.
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    pose proof (IH ils' more Hrest eq_refl) as Hi.
+    apply andb_true_iff in Hi as [Hi Hm].
+    rewrite Hi, wf_blocks_cons, Hx, Hm. reflexivity.
+Qed.
+
+Lemma wf_def_item :
+  forall bs,
+    wf_blocks bs = true ->
+    (wf_inlines (fst (def_item bs)) && wf_blocks (snd (def_item bs)))%bool
+    = true.
+Proof.
+  intros bs H. destruct (def_split bs) as [[ils def]|] eqn:E.
+  - rewrite (def_item_some bs _ E). cbn [fst snd].
+    exact (wf_def_split bs ils def H E).
+  - rewrite (def_item_none bs E). cbn [fst snd]. rewrite H. reflexivity.
+Qed.
+
+Lemma wf_def_items :
+  forall its,
+    forallb wf_blocks its = true ->
+    forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
+      (def_items its) = true.
+Proof.
+  unfold def_items. induction its as [|it rest IH]; [reflexivity|].
+  cbn [forallb map]. intros H.
+  apply andb_true_iff in H as [Hit Hrest].
+  rewrite (wf_def_item it Hit), (IH Hrest). reflexivity.
+Qed.
+
+Lemma nonempty_def_items :
+  forall its, nonempty (def_items its) = nonempty its.
+Proof. intros [|it rest]; reflexivity. Qed.
+
+(* An implication, not an equation, for the reason `wf_block_deflist`
+   gives.  Its one user needs only this direction. *)
 Lemma wf_list_block :
   forall ls last,
-    wf_block (node_contents (list_block ls last))
-    = (nonempty (rev (last :: ls_items ls))
-       && forallb wf_blocks (rev (last :: ls_items ls)))%bool.
+    (nonempty (rev (last :: ls_items ls))
+     && forallb wf_blocks (rev (last :: ls_items ls)))%bool = true ->
+    wf_block (node_contents (list_block ls last)) = true.
 Proof.
-  intros ls last. unfold list_block.
+  intros ls last H. apply andb_true_iff in H as [Hne Hall].
+  unfold list_block.
   destruct (ls_styles ls) as [|[[c|n d] st] ss];
-    cbn [node_contents mk];
-    solve [ apply wf_block_bullet | apply wf_block_olist ].
+    try destruct (Ascii.eqb c ":"); cbn [node_contents mk].
+  - rewrite wf_block_bullet. apply andb_true_iff. split; assumption.
+  - rewrite wf_block_deflist. apply andb_true_iff. split.
+    + rewrite nonempty_def_items. exact Hne.
+    + apply wf_def_items, Hall.
+  - rewrite wf_block_bullet. apply andb_true_iff. split; assumption.
+  - rewrite wf_block_olist. apply andb_true_iff. split; assumption.
 Qed.
 
 Lemma nonempty_rev :
@@ -1854,8 +1951,8 @@ Proof.
   - (* a list: the item still open, plus the ones already closed *)
     cbn [state_wf] in H. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
-    cbn [finish]. rewrite wf_blocks_cons.
-    rewrite wf_list_block, andb_true_r.
+    cbn [finish]. rewrite wf_blocks_cons, andb_true_r.
+    apply wf_list_block.
     rewrite nonempty_rev, forallb_rev. cbn [nonempty forallb].
     rewrite wf_blocks_app, wf_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
@@ -2545,6 +2642,13 @@ Fixpoint supported (b : block) : bool :=
   | BlockQuote bs | Div bs => sup_bs bs
   | BulletList _ items => sup_items items
   | OrderedList _ _ items => sup_items items
+  (* A term holds inlines, so only the definition is recursed into. *)
+  | DefinitionList _ items =>
+      (fix god (its : list (inlines * list (node block))) : bool :=
+         match its with
+         | [] => true
+         | (_, it) :: rest => sup_bs it && god rest
+         end) items
   | _ => false
   end.
 
@@ -2649,8 +2753,59 @@ Proof.
   apply H.
 Qed.
 
-(* As `wf_list_block`: `supported` cannot tell the two list flavours
-   apart either, so `finish_supported` stays one case. *)
+Lemma supported_deflist :
+  forall sp items,
+    supported (DefinitionList sp items)
+    = forallb (fun ti => supported_blocks (snd ti)) items.
+Proof.
+  intros sp items.
+  assert (Hb : forall bs,
+             (fix go (ns : list (node block)) : bool :=
+                match ns with
+                | [] => true
+                | Node _ _ x :: rest => (supported x && go rest)%bool
+                end) bs = supported_blocks bs).
+  { induction bs as [|[p a b] rest IH]; [reflexivity|].
+    cbn [supported_blocks forallb node_contents]. rewrite IH. reflexivity. }
+  cbn [supported]. induction items as [|[term it] rest IH]; [reflexivity|].
+  cbn [forallb snd]. rewrite IH, Hb. reflexivity.
+Qed.
+
+(* Unlike `wf_list_block`, this one stays an equation: the blocks the
+   split removes are a paragraph, which `supported` answers `true` for,
+   and the definitions it steps over stay in the list. *)
+Lemma supported_def_split :
+  forall bs ils def,
+    def_split bs = Some (ils, def) ->
+    supported_blocks def = supported_blocks bs.
+Proof.
+  induction bs as [|[q a x] rest IH]; intros ils def E; [discriminate|].
+  cbn [def_split] in E. destruct x; try discriminate E.
+  - injection E as <- <-.
+    rewrite supported_blocks_cons. cbn [node_contents supported]. reflexivity.
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    rewrite !supported_blocks_cons, (IH ils' more eq_refl). reflexivity.
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    rewrite !supported_blocks_cons, (IH ils' more eq_refl). reflexivity.
+Qed.
+
+Lemma supported_def_items :
+  forall its,
+    forallb (fun ti => supported_blocks (snd ti)) (def_items its)
+    = forallb supported_blocks its.
+Proof.
+  unfold def_items. induction its as [|it rest IH]; [reflexivity|].
+  cbn [forallb map]. rewrite IH. f_equal.
+  destruct (def_split it) as [[ils def]|] eqn:E.
+  - rewrite (def_item_some it _ E). cbn [snd].
+    exact (supported_def_split it ils def E).
+  - rewrite (def_item_none it E). reflexivity.
+Qed.
+
+(* `supported` cannot tell the list flavours apart, so
+   `finish_supported` stays one case. *)
 Lemma supported_list_block :
   forall ls last,
     supported (node_contents (list_block ls last))
@@ -2658,8 +2813,11 @@ Lemma supported_list_block :
 Proof.
   intros ls last. unfold list_block.
   destruct (ls_styles ls) as [|[[c|n d] st] ss];
-    cbn [node_contents mk];
-    solve [ apply supported_bullet | apply supported_olist ].
+    try destruct (Ascii.eqb c ":"); cbn [node_contents mk].
+  - apply supported_bullet.
+  - rewrite supported_deflist. apply supported_def_items.
+  - apply supported_bullet.
+  - apply supported_olist.
 Qed.
 
 Lemma fence_block_supported :
@@ -3115,11 +3273,16 @@ Proof.
             wf_blocks (snd (assign_ids_list bs st)) = true)
     (R := fun its => forall st,
             forallb wf_blocks its = true ->
-            forallb wf_blocks (snd (assign_ids_items its st)) = true);
+            forallb wf_blocks (snd (assign_ids_items its st)) = true)
+    (D := fun its => forall st,
+            forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti)) its
+            = true ->
+            forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
+              (snd (assign_ids_def_items its st)) = true);
     intros; try exact H.
-  (* Section and the remaining list/table constructors are unreachable
-     from the line fold, but the lemma is stated for every block, so they
-     are discharged by the identity branch of assign_ids above. *)
+  (* Section and the task list are unreachable from the line fold, but
+     the lemma is stated for every block, so they are discharged by the
+     identity branch of assign_ids above. *)
   - (* Heading *)
     unfold assign_ids, assign_heading_id.
     destruct (lookup_attr "id" a) as [v|]; exact H.
@@ -3162,6 +3325,18 @@ Proof.
       rewrite assign_ids_items_nonempty. exact Hne.
     + change its' with (snd (st', its')). rewrite <- E.
       apply IHb. exact Hits.
+  - (* DefinitionList: as the bullet case, over pairs *)
+    rewrite assign_ids_deflist.
+    destruct (assign_ids_def_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd node_contents].
+    rewrite wf_block_deflist in H |- *.
+    apply andb_true_iff in H as [Hne Hits].
+    apply andb_true_iff. split.
+    + replace its' with (snd (assign_ids_def_items items (register_id a st)))
+        by (rewrite E; reflexivity).
+      rewrite assign_ids_def_items_nonempty. exact Hne.
+    + change its' with (snd (st', its')). rewrite <- E.
+      apply IHb. exact Hits.
   - (* FootnoteDef: identifiers recurse through its body. *)
     rewrite assign_ids_foot.
     destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
@@ -3186,6 +3361,17 @@ Proof.
     destruct (assign_ids_items rest s1) as [s2 rest1] eqn:E2.
     cbn [snd forallb]. apply andb_true_iff. split.
     + change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
+    + change rest1 with (snd (s2, rest1)). rewrite <- E2.
+      apply IHb0. exact Hrest.
+  - (* D's cons: the term is carried, so only the definition moves *)
+    cbn [forallb fst snd] in H. apply andb_true_iff in H as [Hit Hrest].
+    apply andb_true_iff in Hit as [Hterm Hit].
+    cbn [assign_ids_def_items].
+    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
+    destruct (assign_ids_def_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [snd forallb fst]. apply andb_true_iff. split.
+    + apply andb_true_iff. split; [exact Hterm|].
+      change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
     + change rest1 with (snd (s2, rest1)). rewrite <- E2.
       apply IHb0. exact Hrest.
 Qed.
@@ -3385,7 +3571,14 @@ Proof.
       (R := fun its => forall m,
           forallb wf_blocks its = true -> wf_note_map m = true ->
           let r := collect_notes_items its m in
-          wf_note_map (fst r) = true /\ forallb wf_blocks (snd r) = true);
+          wf_note_map (fst r) = true /\ forallb wf_blocks (snd r) = true)
+      (D := fun its => forall m,
+          forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti)) its
+          = true -> wf_note_map m = true ->
+          let r := collect_notes_def_items its m in
+          wf_note_map (fst r) = true /\
+          forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
+            (snd r) = true);
     intros; try (split; assumption).
   - unfold r. rewrite wf_block_quote in H. rewrite collect_notes_quote.
     destruct (collect_notes_list bs m) as [m' bs'] eqn:E.
@@ -3413,6 +3606,15 @@ Proof.
     rewrite wf_block_bullet. apply andb_true_iff. split; [|exact Hits'].
     change items' with (snd (m', items')). rewrite <- E.
     rewrite collect_notes_items_nonempty. exact Hne.
+  - unfold r. rewrite wf_block_deflist in H.
+    apply andb_true_iff in H as [Hne Hits].
+    rewrite collect_notes_deflist.
+    destruct (collect_notes_def_items items m) as [m' items'] eqn:E.
+    specialize (IHb m Hits H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
+    destruct IHb as [Hm Hits']. split; [exact Hm|]. cbn [node_contents].
+    rewrite wf_block_deflist. apply andb_true_iff. split; [|exact Hits'].
+    change items' with (snd (m', items')). rewrite <- E.
+    rewrite collect_notes_def_items_nonempty. exact Hne.
   - unfold r. rewrite wf_block_footnote in H. apply andb_true_iff in H as [_ Hbs].
     rewrite collect_notes_foot.
     destruct (collect_notes_list bs m) as [m' bs'] eqn:E.
@@ -3442,6 +3644,16 @@ Proof.
     specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
     cbn [fst snd forallb] in IHb0 |- *. destruct IHb0 as [Hm2 Hrest'].
     split; [exact Hm2|]. rewrite Hit', Hrest'. reflexivity.
+  - unfold r. cbn [forallb fst snd] in H. apply andb_true_iff in H as [Hit Hrest].
+    apply andb_true_iff in Hit as [Hterm Hit].
+    cbn [collect_notes_def_items].
+    destruct (collect_notes_list it m) as [m1 it'] eqn:E1.
+    specialize (IHb m Hit H0). rewrite E1 in IHb.
+    cbn [fst snd] in IHb. destruct IHb as [Hm1 Hit'].
+    destruct (collect_notes_def_items rest m1) as [m2 rest'] eqn:E2.
+    specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
+    cbn [fst snd forallb] in IHb0 |- *. destruct IHb0 as [Hm2 Hrest'].
+    split; [exact Hm2|]. rewrite Hterm, Hit', Hrest'. reflexivity.
 Qed.
 
 Lemma collect_notes_list_wf :

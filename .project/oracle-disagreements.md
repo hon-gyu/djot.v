@@ -902,3 +902,44 @@ diagnose.
 continuation rule and nowhere else, so there is no caption container to
 be in the wrong place. The cost is exactly the three rows above; where a
 table does precede, the two agree, blank lines between them included.
+
+## Adjudicated 2026-08-22 — djot.js: a `dd` has no tightness of its own
+
+| Input | djot.js (and ours) | djoths |
+|---|---|---|
+| `: a` / blank / `  d` | `<dd>\n<p>d</p>\n</dd>` | `<dd>\nd\n</dd>` |
+| two items, a blank between | agree | agree |
+| `- : t` / blank / `    d` / `- x` | agree, both bare | agree |
+
+djot.js's `definition_list` node carries **no `tight` field**, where
+`bullet_list`, `ordered_list` and `task_list` all do
+(`parse.ts:824-857`), and `renderChildren` overrides the renderer's
+`tight` flag only for a node that has one (`html.ts:140-148`).  So a
+`dd` renders at whatever tightness is *in force*: `<p>`-wrapped at top
+level, bare inside a tight bullet item.  djoths computes a
+`ListSpacing` for the `dl` (`AST.hs:263`) and renders on it, which is
+why it differs on the commonest shape of all and agrees once a blank
+line between items makes both answers Loose.
+
+**djot.js, and the corpus pins it** (`definition_lists.test:6` and `:113`
+are two of the eleven djoths mismatches).  `Html.render_block` renders a
+definition at the incoming `tight` and never reads `DefinitionList`'s
+`sp`.
+
+**The field stays anyway, and not out of deference to djoths.**  The
+canonical view spells a list as `CList k sp items` and
+`render_cb_lines` says the renderer recovers `cb_lines` from `cb_ast`;
+drop `sp` and a Loose and a Tight definition list render to different
+lines and the same AST, so `cb_ast` stops being injective and the
+theorem is false.  The field is unobservable in HTML and pinned by the
+roundtrip, which is a sharper statement than either oracle makes.
+
+**A consequence worth naming, since it looks like a bug.**  A blank
+line inside a definition does *not* loosen an enclosing bullet list:
+djot.js's blankline handler arms the tip container or its parent
+(`parse.ts:1197-1205`), which inside a definition is the `dl`, whose
+flag `-list` then discards.  `- : t` / blank / `    d` / `- x` is
+therefore a tight bullet list in both oracles.  We get this for free
+because a definition list *is* a list here too --
+`Line.is_bullet` claims `:` and `Step.list_block` picks the node from
+the style set, exactly as `-list` does.

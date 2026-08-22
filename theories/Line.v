@@ -371,13 +371,21 @@ Second, a marker may be *ambiguous*: `i.` is both roman and alpha, so a
 marker yields a candidate *set*, which siblings intersect (`narrow` in
 Parser.v).  An empty intersection ends the list.
 
-Definition lists (`:`) and task-list checkboxes are still out; they are
-the other two members of djot.js's single list spec. *)
+Task-list checkboxes are still out; they are the last member of
+djot.js's single list spec. *)
 
 (* `-x` is not a marker, and `* * *` is a thematic break — `classify`
-   tests thematic first, matching djot.js's spec order. *)
+   tests thematic first, matching djot.js's spec order.
+
+   The colon is a bullet character here for the reason djot.js makes it
+   one (`getListStyles`, block.ts:9): a definition list is an ordinary
+   list whose style is `:`, and the term/definition split happens where
+   the list closes, not where its lines are read.  `::` is still not a
+   marker, since the character after it is not whitespace, and `:::` is
+   a div — `classify` tests `div_open` first. *)
 Definition is_bullet (c : ascii) : bool :=
-  (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+")%char%bool.
+  (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+"
+   || Ascii.eqb c ":")%char%bool.
 
 (*
 Marker character classes
@@ -537,6 +545,36 @@ Definition list_marker (l : string)
             end
         end
   end.
+
+(* The colon marker, against djot.js.  `:` is a bullet character here
+   (`getListStyles`, block.ts:9), so these are the list-marker facts a
+   definition list rests on; what the list *closes* to is decided in
+   `Step.list_block`, and the term split in `Ast.def_item`. *)
+Example marker_colon :
+  list_marker ": a" = Some ([SBullet ":"%char], EmptyString, "a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_colon_tab :
+  list_marker ":	a" = Some ([SBullet ":"%char], EmptyString, "a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_colon_bare :
+  list_marker ":" = Some ([SBullet ":"%char], EmptyString, EmptyString).
+Proof. reflexivity. Qed.
+
+(* Content is not stripped past the one marker space, as for any bullet. *)
+Example marker_colon_wide :
+  list_marker ":   a" = Some ([SBullet ":"%char], EmptyString, "  a"%string).
+Proof. reflexivity. Qed.
+
+Example marker_colon_tight : list_marker ":a" = None.
+Proof. reflexivity. Qed.
+
+(* Two colons are no style at all in djot.js, and here the second colon
+   is simply not the whitespace a marker needs.  Three are a div, which
+   `classify` decides before it reaches this. *)
+Example marker_two_colons : list_marker ":: a" = None.
+Proof. reflexivity. Qed.
 
 (* Like quote_prefix_length: the content after a list marker is strictly
    shorter than the line, which is what makes the parser's descent into
@@ -1170,6 +1208,19 @@ Definition classify (l : string) : line_kind :=
            end
        end.
 
+(* Two colons are no style at all in djot.js and no marker here, since
+   the second colon is not the whitespace a marker needs.  Three are a
+   div, which `classify` decides first. *)
+Example classify_two_colons : classify ":: a" = KText.
+Proof. reflexivity. Qed.
+
+Example classify_three_colons : classify "::: a" = KDiv 3 "a".
+Proof. reflexivity. Qed.
+
+Example classify_colon_marker :
+  classify ": a" = KList [SBullet ":"%char] EmptyString "a"%string.
+Proof. reflexivity. Qed.
+
 (* Headings always have a level, which is what wf_block requires of the
    `Heading` it builds. *)
 Lemma classify_heading_level :
@@ -1790,6 +1841,14 @@ Proof. reflexivity. Qed.
 Lemma plus_ok : marker_ok plus = true.
 Proof. reflexivity. Qed.
 
+(* The definition-list marker.  It is a bullet like the other three and
+   differs only in what `Step.list_block` closes it to, so every list
+   theorem below reaches it by the same instantiation. *)
+Definition colon : marker := MBullet ":".
+
+Lemma colon_ok : marker_ok colon = true.
+Proof. reflexivity. Qed.
+
 Lemma marker_cont_blank : forall m, is_blank (mk_cont m) = true.
 Proof. intros m. apply blanks_blank. Qed.
 
@@ -1815,17 +1874,20 @@ Lemma indent_of_bullet_cont :
   forall l, indent_of (bullet_cont ++ l) = item_pad + indent_of l.
 Proof. intros l. apply indent_of_marker_cont. Qed.
 
-(* The three bullet styles, enumerated: `is_bullet` is a disjunction of
+(* The four bullet styles, enumerated: `is_bullet` is a disjunction of
    character tests, so every fact about a recognized marker reduces to
-   three concrete cases. *)
+   four concrete cases. *)
 Lemma is_bullet_cases :
   forall c, is_bullet c = true ->
-    c = "-"%char \/ c = "*"%char \/ c = "+"%char.
+    c = "-"%char \/ c = "*"%char \/ c = "+"%char \/ c = ":"%char.
 Proof.
   intros c H. unfold is_bullet in H.
   destruct (Ascii.eqb c "-") eqn:E1; [left; apply Ascii.eqb_eq, E1|].
   destruct (Ascii.eqb c "*") eqn:E2; [right; left; apply Ascii.eqb_eq, E2|].
-  destruct (Ascii.eqb c "+") eqn:E3; [right; right; apply Ascii.eqb_eq, E3|].
+  destruct (Ascii.eqb c "+") eqn:E3;
+    [right; right; left; apply Ascii.eqb_eq, E3|].
+  destruct (Ascii.eqb c ":") eqn:E4;
+    [right; right; right; apply Ascii.eqb_eq, E4|].
   cbn in H. discriminate.
 Qed.
 
@@ -1857,7 +1919,7 @@ Lemma is_alnum_not_bullet :
   forall c, is_alnum c = true -> is_bullet c = false.
 Proof.
   intros c H. destruct (is_bullet c) eqn:E; [|reflexivity].
-  destruct (is_bullet_cases c E) as [F|[F|F]]; subst c; discriminate H.
+  destruct (is_bullet_cases c E) as [F|[F|[F|F]]]; subst c; discriminate H.
 Qed.
 
 Lemma is_digit_alnum : forall c, is_digit c = true -> is_alnum c = true.
@@ -1918,6 +1980,15 @@ Proof.
        end.
 Qed.
 
+(* A line whose first character is not a colon opens no div. *)
+Lemma div_open_not_colon :
+  forall c r, is_ws c = false -> Ascii.eqb c ":" = false ->
+    div_open (String c r) = None.
+Proof.
+  intros c r Hws Hcol. unfold div_open. cbn [drop_leading_ws].
+  rewrite Hws, Hcol. reflexivity.
+Qed.
+
 (* A marker opener is never blank and never starts with whitespace, so
    the recognizers `classify` runs before `list_marker` all see its first
    character and all reject it. *)
@@ -1933,15 +2004,19 @@ Lemma marker_open_shape :
 Proof.
   intros m l Hm.
   (* Every case begins with a character that is alphanumeric, "(", or a
-     bullet — none of them whitespace, ">", "#", "`", "~" or ":". *)
+     bullet — none of them whitespace, ">", "#", "`" or "~".  The colon
+     is the exception and carries its own conjunct: it *is* a bullet, so
+     the div opener has to be ruled out by what follows it rather than
+     by the first character.  A marker's opener is one character and a
+     space, and `:::` needs three. *)
   assert (Hhd : exists c r, (mk_open m ++ l)%string = String c r
                             /\ is_ws c = false
                             /\ Ascii.eqb c ">" = false /\ Ascii.eqb c "#" = false
                             /\ Ascii.eqb c "`" = false /\ Ascii.eqb c "~" = false
-                            /\ Ascii.eqb c ":" = false).
+                            /\ div_open (String c r) = None).
   { destruct m as [c|core d].
     - cbn [marker_ok] in Hm.
-      destruct (is_bullet_cases c Hm) as [E|[E|E]]; subst c;
+      destruct (is_bullet_cases c Hm) as [E|[E|[E|E]]]; subst c;
         eexists; eexists; repeat split; reflexivity.
     - cbn [marker_ok] in Hm.
       apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [Hne Hal].
@@ -1951,7 +2026,8 @@ Proof.
         | exists "("%char; eexists; repeat split; reflexivity ];
         (cbn [str_forallb] in Hal; apply andb_true_iff in Hal as [Hc _];
          destruct (is_alnum_not_special c Hc) as (H1 & H2 & H3 & H4 & H5 & H6);
-         exists c; eexists; repeat split; assumption). }
+         exists c; eexists; repeat split; try assumption;
+         apply div_open_not_colon; assumption). }
   destruct Hhd as (c & r & Heq & Hws & Hgt & Hhash & Hbq & Htil & Hcol).
   rewrite Heq.
   repeat split.
@@ -1961,8 +2037,7 @@ Proof.
   - unfold heading_open. cbn [drop_leading_ws]. rewrite Hws.
     cbn [count_run]. rewrite (Ascii.eqb_sym "#" c), Hhash. reflexivity.
   - unfold fence_open. cbn [drop_leading_ws]. rewrite Hws, Hbq, Htil. reflexivity.
-  - unfold div_open. cbn [drop_leading_ws]. rewrite Hws.
-    cbn [count_run]. rewrite (Ascii.eqb_sym ":" c), Hcol. reflexivity.
+  - exact Hcol.
   - cbn [indent_of]. rewrite Hws. reflexivity.
 Qed.
 
@@ -2133,7 +2208,7 @@ Lemma mk_open_no_nl : forall m, marker_ok m = true -> no_nl (mk_open m) = true.
 Proof.
   intros m Hm. destruct m as [c|core d].
   - cbn [marker_ok] in Hm.
-    apply is_bullet_cases in Hm as [E|[E|E]]; rewrite E; reflexivity.
+    apply is_bullet_cases in Hm as [E|[E|[E|E]]]; rewrite E; reflexivity.
   - cbn [marker_ok] in Hm.
     apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [_ Halnum].
     assert (Hcore : no_nl core = true).

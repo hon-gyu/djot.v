@@ -278,6 +278,23 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
           ++ render_bs_at (match sp with Tight => true | Loose => false end) it
           ++ "</li>" ++ nl ++ goi sp rest
       end in
+  (* A `dd` is rendered at the *incoming* tightness, not at the list's:
+     djot.js's `definition_list` node carries no `tight` field where
+     every other list does (parse.ts:824-857), and `renderChildren` only
+     overrides the flag for a node that has one (html.ts:140-148).  So a
+     definition inside a tight bullet item renders bare, and `sp` is
+     read by nothing here.  It is not dead: the roundtrip reads it, since
+     it is what records the blank lines the source had. *)
+  let render_def_items :=
+    fix god (its : list (inlines * list (node block))) {struct its}
+      : string :=
+      match its with
+      | [] => ""
+      | (term, it) :: rest =>
+          "<dt>" ++ render_inlines term ++ "</dt>" ++ nl
+          ++ "<dd>" ++ nl ++ render_bs it ++ "</dd>" ++ nl
+          ++ god rest
+      end in
   let ats := render_attrs a in
   match b with
   (* A tight paragraph loses its tag, keeping the newline the tag carried.
@@ -308,7 +325,8 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   | BulletList sp items =>
       "<ul" ++ ats ++ ">" ++ nl ++ render_items sp items ++ "</ul>" ++ nl
   | TaskList _ _ => ""        (* TODO Phase 1 *)
-  | DefinitionList _ _ => ""  (* TODO Phase 1 *)
+  | DefinitionList _ items =>
+      "<dl" ++ ats ++ ">" ++ nl ++ render_def_items items ++ "</dl>" ++ nl
   | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
   | Table caption rows =>
       "<table" ++ ats ++ ">" ++ nl ++ render_caption caption
@@ -484,6 +502,18 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
           let '(st2, s2) := goi st1 sp rest in
           (st2, "<li>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
       end in
+  let render_def_items :=
+    fix god (st0 : foot_state) (its : list (inlines * list (node block)))
+      {struct its} : foot_state * string :=
+      match its with
+      | [] => (st0, "")
+      | (term, it) :: rest =>
+          let '(st1, s1) := render_inlines_foot st0 term in
+          let '(st2, s2) := render_bs_at st1 tight it in
+          let '(st3, s3) := god st2 rest in
+          (st3, "<dt>" ++ s1 ++ "</dt>" ++ nl
+                ++ "<dd>" ++ nl ++ s2 ++ "</dd>" ++ nl ++ s3)
+      end in
   let ats := render_attrs a in
   match b with
   | Para ils =>
@@ -509,6 +539,13 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | BulletList sp items =>
       let '(st', s) := render_items st sp items in
       (st', "<ul" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
+  (* As `render_block`, with the counter threaded: a footnote reference
+     inside a definition would otherwise fall through to the stateless
+     path and be dropped, which is the bug the table step found on this
+     same line. *)
+  | DefinitionList _ items =>
+      let '(st', s) := render_def_items st items in
+      (st', "<dl" ++ ats ++ ">" ++ nl ++ s ++ "</dl>" ++ nl)
   | Table caption rows =>
       let '(st1, s1) := render_caption_foot st caption in
       let '(st2, s2) := render_rows_foot st1 rows in
@@ -691,6 +728,103 @@ a
 b
 </li>
 </ul>
+</li>
+</ul>
+".
+Proof. reflexivity. Qed.
+
+(*
+Definition lists
+================
+
+Each was read off djot.js on 2026-08-22; §1 of `.project/
+260822.definition-lists` records the probes these came from.
+*)
+
+(* The term is the item's first paragraph, and the blank line is what
+   separates it from the definition -- without one they are the same
+   paragraph and the definition is empty. *)
+Example convert_deflist :
+  convert ": apple
+
+  red fruit" = "<dl>
+<dt>apple</dt>
+<dd>
+<p>red fruit</p>
+</dd>
+</dl>
+".
+Proof. reflexivity. Qed.
+
+Example convert_deflist_term_only :
+  convert ": apple
+  red fruit" = "<dl>
+<dt>apple
+red fruit</dt>
+<dd>
+</dd>
+</dl>
+".
+Proof. reflexivity. Qed.
+
+(* An item whose first block is not a paragraph has an empty term and
+   keeps everything (djot.js parse.ts:903-912).  The heading's
+   auto-identifier is `Document.assign_ids` reaching into a definition. *)
+Example convert_deflist_no_term :
+  convert ": # h" = "<dl>
+<dt></dt>
+<dd>
+<h1 id=""h"">h</h1>
+</dd>
+</dl>
+".
+Proof. reflexivity. Qed.
+
+(* A bare marker is a list of one empty item. *)
+Example convert_deflist_bare :
+  convert ":" = "<dl>
+<dt></dt>
+<dd>
+</dd>
+</dl>
+".
+Proof. reflexivity. Qed.
+
+(* Two colons are not a marker and three are a div: `getListStyles`
+   answers with no style for "::", and `classify` tests `div_open`
+   before `list_marker`. *)
+Example convert_deflist_two_colons :
+  convert ":: a" = "<p>:: a</p>
+".
+Proof. reflexivity. Qed.
+
+Example convert_deflist_three_colons :
+  convert "::: a
+:::" = "<div class=""a"">
+</div>
+".
+Proof. reflexivity. Qed.
+
+(* The `dd` is rendered at the *incoming* tightness, not at the list's:
+   a definition inside a tight bullet item loses its `<p>`, and the blank
+   line inside it arms the definition list rather than the bullet list,
+   so the outer list stays tight.  Both halves are djot.js's, and djoths
+   renders the first `<dd>` bare in *both* documents. *)
+Example convert_deflist_inherits_tight :
+  convert "- : t
+
+    d
+- x" = "<ul>
+<li>
+<dl>
+<dt>t</dt>
+<dd>
+d
+</dd>
+</dl>
+</li>
+<li>
+x
 </li>
 </ul>
 ".

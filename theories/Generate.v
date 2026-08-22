@@ -184,6 +184,29 @@ Example gen_roundtrip_ordered :
   map rt_lhs ordered_accepted = map rt_rhs ordered_accepted.
 Proof. vm_compute. reflexivity. Qed.
 
+(*
+Definition lists
+----------------
+
+Enumerated separately for the reason the ordered kinds are, and with the
+opposite justification: a definition list's markers are a bullet's, so
+nothing about them is new.  What is new is the *item shape*, because
+`ck_block LKDef` splits a leading paragraph off as the term.  `seqs
+leaves` supplies both readings -- an item that starts with a paragraph
+has a term, one that starts with a heading or a fence has none -- and
+`item_tails` puts a second block after each, which is the case where the
+term and the definition are different blocks rather than the same one.
+*)
+Definition def_pool : list cblock :=
+  flat_map (fun its => [CList LKDef Tight its; CList LKDef Loose its])
+    (itemlists (seqs leaves)).
+
+Definition def_accepted : list cblock := filter cb_ok def_pool.
+
+Example gen_roundtrip_def :
+  map rt_lhs def_accepted = map rt_rhs def_accepted.
+Proof. vm_compute. reflexivity. Qed.
+
 (* Not vacuous, and the width boundary really is crossed: the second
    item's pad is four spaces where the first's is three. *)
 Example ordered_renumbering_lines :

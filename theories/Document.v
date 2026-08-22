@@ -243,7 +243,20 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                (s2, it1 :: rest1)
            end) items (register_id a st) in
       (st', Node p a (OrderedList oa sp items'))
-  (* The remaining containers -- Section and the other list flavours --
+  (* A term holds inlines, so only the definition is descended into. *)
+  | DefinitionList sp items =>
+      let (st', items') :=
+        (fix god (its : list (inlines * blocks)) (s : id_state) {struct its}
+           : id_state * list (inlines * blocks) :=
+           match its with
+           | [] => (s, [])
+           | (term, it) :: rest =>
+               let (s1, it1) := go it s in
+               let (s2, rest1) := god rest s1 in
+               (s2, (term, it1) :: rest1)
+           end) items (register_id a st) in
+      (st', Node p a (DefinitionList sp items'))
+  (* The remaining containers -- Section and the task list --
      are not reachable from the line fold yet (`Wf.supported` is the
      record of that).  Each needs its arm here when it lands, or a
      heading inside it silently goes without an identifier.  A table is
@@ -276,6 +289,18 @@ Fixpoint assign_ids_items (its : list blocks) (st : id_state)
       let (s1, it1) := assign_ids_list it st in
       let (s2, rest1) := assign_ids_items rest s1 in
       (s2, it1 :: rest1)
+  end.
+
+(* The same over definition items, whose term half is carried through
+   untouched: it is inlines, and no identifier is assigned inside one. *)
+Fixpoint assign_ids_def_items (its : list (inlines * blocks)) (st : id_state)
+  : id_state * list (inlines * blocks) :=
+  match its with
+  | [] => (st, [])
+  | (term, it) :: rest =>
+      let (s1, it1) := assign_ids_list it st in
+      let (s2, rest1) := assign_ids_def_items rest s1 in
+      (s2, (term, it1) :: rest1)
   end.
 
 (* The inner fixpoints of `assign_ids`, named.  Same shape as
@@ -367,6 +392,49 @@ Proof.
     cbn [assign_ids_items]. rewrite assign_ids_inner_go.
     destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
   intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+Qed.
+
+(* The definition arm, whose inner fixpoint differs from the bullet's
+   only in carrying the term past the traversal. *)
+Lemma assign_ids_deflist :
+  forall p a sp items st,
+    assign_ids (DefinitionList sp items) p a st
+    = let (st', items') := assign_ids_def_items items (register_id a st) in
+      (st', Node p a (DefinitionList sp items')).
+Proof.
+  assert (H : forall its st,
+             (fix god (l : list (inlines * blocks)) (s : id_state)
+                : id_state * list (inlines * blocks) :=
+                match l with
+                | [] => (s, [])
+                | (term, it) :: rest =>
+                    let (s1, it1) :=
+                      (fix go (m : blocks) (s' : id_state) : id_state * blocks :=
+                         match m with
+                         | [] => (s', [])
+                         | Node p' a' x :: r =>
+                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s3, r1) := go r s2 in
+                             (s3, n2 :: r1)
+                         end) it s in
+                    let (s4, rest1) := god rest s1 in
+                    (s4, (term, it1) :: rest1)
+                end) its st = assign_ids_def_items its st).
+  { induction its as [|[term it] rest IH]; intros st; [reflexivity|].
+    cbn [assign_ids_def_items]. rewrite assign_ids_inner_go.
+    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+Qed.
+
+Lemma assign_ids_def_items_nonempty :
+  forall its st,
+    nonempty (snd (assign_ids_def_items its st)) = nonempty its.
+Proof.
+  intros [|[term it] rest] st; [reflexivity|].
+  cbn [assign_ids_def_items].
+  destruct (assign_ids_list it st) as [s1 it1].
+  destruct (assign_ids_def_items rest s1) as [s2 rest1].
+  reflexivity.
 Qed.
 
 (* The ordered arm is the bullet arm with a different wrapper: djot.js
@@ -554,6 +622,19 @@ Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
   match b with
   | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
   | BulletList _ items | OrderedList _ _ items => goit items m
+  | DefinitionList _ items =>
+      (fix god (its : list (inlines * blocks)) (acc : reference_map)
+         {struct its} : reference_map :=
+         match its with
+         | [] => acc
+         | (_, it) :: rest =>
+             god rest ((fix go' (ns : blocks) (acc' : reference_map)
+                          {struct ns} : reference_map :=
+                          match ns with
+                          | [] => acc'
+                          | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                          end) it acc)
+         end) items m
   | _ => add_ref p a b m
   end.
 
@@ -604,6 +685,18 @@ Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
   | OrderedList oa sp items =>
       let (m', items') := goit items m in
       (m', Some (Node p a (OrderedList oa sp items')))
+  | DefinitionList sp items =>
+      let (m', items') :=
+        (fix god (its : list (inlines * blocks)) (acc : note_map) {struct its}
+           : note_map * list (inlines * blocks) :=
+           match its with
+           | [] => (acc, [])
+           | (term, it) :: rest =>
+               let (acc1, it1) := go it acc in
+               let (acc2, rest1) := god rest acc1 in
+               (acc2, (term, it1) :: rest1)
+           end) items m in
+      (m', Some (Node p a (DefinitionList sp items')))
   | _ => (m, Some (Node p a b))
   end.
 
@@ -627,6 +720,16 @@ Fixpoint collect_notes_items (its : list blocks) (m : note_map)
       let (m1, it1) := collect_notes_list it m in
       let (m2, rest1) := collect_notes_items rest m1 in
       (m2, it1 :: rest1)
+  end.
+
+Fixpoint collect_notes_def_items (its : list (inlines * blocks)) (m : note_map)
+  : note_map * list (inlines * blocks) :=
+  match its with
+  | [] => (m, [])
+  | (term, it) :: rest =>
+      let (m1, it1) := collect_notes_list it m in
+      let (m2, rest1) := collect_notes_def_items rest m1 in
+      (m2, (term, it1) :: rest1)
   end.
 
 Lemma collect_notes_items_nonempty :
@@ -730,6 +833,51 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma collect_notes_deflist :
+  forall p a sp items m,
+    collect_notes (DefinitionList sp items) p a m
+    = let (m', items') := collect_notes_def_items items m in
+      (m', Some (Node p a (DefinitionList sp items'))).
+Proof.
+  assert (H : forall its m,
+             (fix god (l : list (inlines * blocks)) (acc : note_map)
+                {struct l} : note_map * list (inlines * blocks) :=
+                match l with
+                | [] => (acc, [])
+                | (term, it) :: rest =>
+                    let (acc1, it1) :=
+                      (fix go (ns : blocks) (acc0 : note_map) {struct ns}
+                         : note_map * blocks :=
+                         match ns with
+                         | [] => (acc0, [])
+                         | Node p a b :: more =>
+                             let (acc2, n1) := collect_notes b p a acc0 in
+                             let (acc3, more1) := go more acc2 in
+                             match n1 with
+                             | Some n => (acc3, n :: more1)
+                             | None => (acc3, more1)
+                             end
+                         end) it acc in
+                    let (acc2, rest1) := god rest acc1 in
+                    (acc2, (term, it1) :: rest1)
+                end) its m = collect_notes_def_items its m).
+  { induction its as [|[term it] rest IH]; intros m; [reflexivity|].
+    cbn [collect_notes_def_items]. rewrite collect_notes_inner_go.
+    destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items m. cbn [collect_notes]. rewrite H. reflexivity.
+Qed.
+
+Lemma collect_notes_def_items_nonempty :
+  forall its m,
+    nonempty (snd (collect_notes_def_items its m)) = nonempty its.
+Proof.
+  intros [|[term it] rest] m; [reflexivity|].
+  cbn [collect_notes_def_items].
+  destruct (collect_notes_list it m) as [m1 it1].
+  destruct (collect_notes_def_items rest m1) as [m2 rest1].
+  reflexivity.
+Qed.
+
 Lemma collect_notes_olist :
   forall p a oa sp items m,
     collect_notes (OrderedList oa sp items) p a m
@@ -823,6 +971,14 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
   | FootnoteDef label inner => [Node p a (FootnoteDef label (go inner))]
   | BulletList sp items => [Node p a (BulletList sp (goit items))]
   | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
+  | DefinitionList sp items =>
+      [Node p a (DefinitionList sp
+         ((fix god (its : list (inlines * blocks))
+             : list (inlines * blocks) :=
+             match its with
+             | [] => []
+             | (term, it) :: rest => (term, go it) :: god rest
+             end) items))]
   | _ => [Node p a b]
   end.
 
@@ -836,6 +992,13 @@ Fixpoint undo_pass_items (its : list blocks) : list blocks :=
   match its with
   | [] => []
   | it :: rest => undo_pass it :: undo_pass_items rest
+  end.
+
+Fixpoint undo_pass_def_items (its : list (inlines * blocks))
+  : list (inlines * blocks) :=
+  match its with
+  | [] => []
+  | (term, it) :: rest => (term, undo_pass it) :: undo_pass_def_items rest
   end.
 
 Lemma undo_pass_inner_go :
@@ -994,6 +1157,15 @@ Proof.
   rewrite undo_pass_inner_goit. reflexivity.
 Qed.
 
+(* Convertible, where the bullet arm needs `undo_pass_inner_goit`: the
+   definition traversal has one inner fixpoint and `undo_pass_def_items`
+   is spelled as that fixpoint, so nothing has to be identified. *)
+Lemma undo_pass_deflist :
+  forall sp items p a,
+    undo_pass_block (DefinitionList sp items) p a
+    = [Node p a (DefinitionList sp (undo_pass_def_items items))].
+Proof. reflexivity. Qed.
+
 Definition undo_pass_node (n : node block) : blocks :=
   match n with Node p a b => undo_pass_block b p a end.
 
@@ -1029,6 +1201,12 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
   | BlockQuote inner | Div inner => go inner
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
+  | DefinitionList _ items =>
+      (fix god (its : list (inlines * blocks)) : bool :=
+         match its with
+         | [] => true
+         | (_, it) :: rest => (go it && god rest)%bool
+         end) items
   | _ => true
   end.
 
@@ -1045,6 +1223,44 @@ Fixpoint pristine_items (its : list blocks) : bool :=
   | [] => true
   | it :: rest => (pristine it && pristine_items rest)%bool
   end.
+
+Fixpoint pristine_def_items (its : list (inlines * blocks)) : bool :=
+  match its with
+  | [] => true
+  | (_, it) :: rest => (pristine it && pristine_def_items rest)%bool
+  end.
+
+(* Splitting the term off keeps an item pristine: the block that leaves
+   is a paragraph, and `pristine_block` asks nothing of one. *)
+Lemma pristine_def_split :
+  forall bs ils def,
+    pristine bs = true -> def_split bs = Some (ils, def) -> pristine def = true.
+Proof.
+  induction bs as [|[q b x] rest IH]; intros ils def H E; [discriminate|].
+  cbn [pristine] in H. apply andb_true_iff in H as [Hx Hrest].
+  cbn [def_split] in E. destruct x; try discriminate E.
+  - injection E as <- <-. exact Hrest.
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    cbn [pristine]. rewrite Hx. exact (IH ils' more Hrest eq_refl).
+  - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
+    injection E as <- <-.
+    cbn [pristine]. rewrite Hx. exact (IH ils' more Hrest eq_refl).
+Qed.
+
+Lemma pristine_def_items_split :
+  forall its,
+    pristine_items its = true -> pristine_def_items (def_items its) = true.
+Proof.
+  unfold def_items. induction its as [|it rest IH]; [reflexivity|].
+  cbn [pristine_items map pristine_def_items]. intros H.
+  apply andb_true_iff in H as [Hit Hrest].
+  destruct (def_split it) as [[ils def]|] eqn:E.
+  - rewrite (def_item_some it _ E). cbn [snd].
+    rewrite (pristine_def_split it ils def Hit E), (IH Hrest). reflexivity.
+  - rewrite (def_item_none it E). cbn [snd].
+    rewrite Hit, (IH Hrest). reflexivity.
+Qed.
 
 (* The collection pass needs only this projection of pristine: there is
    no definition node to remove.  Unlike pristine, assigned heading ids
@@ -1066,6 +1282,12 @@ Fixpoint notes_free_block (b : block) {struct b} : bool :=
   | FootnoteDef _ _ => false
   | BlockQuote bs | Div bs | Section bs => go bs
   | BulletList _ items | OrderedList _ _ items => goit items
+  | DefinitionList _ items =>
+      (fix god (its : list (inlines * blocks)) : bool :=
+         match its with
+         | [] => true
+         | (_, it) :: rest => (go it && god rest)%bool
+         end) items
   | _ => true
   end.
 
@@ -1079,6 +1301,12 @@ Fixpoint notes_free_items (its : list blocks) : bool :=
   match its with
   | [] => true
   | it :: rest => (notes_free it && notes_free_items rest)%bool
+  end.
+
+Fixpoint notes_free_def_items (its : list (inlines * blocks)) : bool :=
+  match its with
+  | [] => true
+  | (_, it) :: rest => (notes_free it && notes_free_def_items rest)%bool
   end.
 
 Lemma notes_free_inner_go :
@@ -1122,6 +1350,26 @@ Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 Lemma notes_free_div :
   forall bs, notes_free_block (Div bs) = notes_free bs.
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+
+Lemma notes_free_deflist :
+  forall sp items,
+    notes_free_block (DefinitionList sp items) = notes_free_def_items items.
+Proof.
+  intros sp items.
+  change (notes_free_block (DefinitionList sp items))
+    with ((fix god (its : list (inlines * blocks)) : bool :=
+             match its with
+             | [] => true
+             | (_, it) :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ _ x :: r => (notes_free_block x && go r)%bool
+                     end) it && god rest)%bool
+             end) items).
+  induction items as [|[term it] rest IH]; [reflexivity|].
+  cbn [notes_free_def_items]. rewrite notes_free_inner_go, IH. reflexivity.
+Qed.
 
 Lemma notes_free_blist :
   forall sp items,
@@ -1172,6 +1420,26 @@ Proof.
              | Node _ a' x :: rest => (pristine_block x a' && go rest)%bool
              end) inner).
   rewrite pristine_inner_go. reflexivity.
+Qed.
+
+Lemma pristine_deflist :
+  forall sp items a,
+    pristine_block (DefinitionList sp items) a = pristine_def_items items.
+Proof.
+  intros sp items a.
+  change (pristine_block (DefinitionList sp items) a)
+    with ((fix god (its : list (inlines * blocks)) : bool :=
+             match its with
+             | [] => true
+             | (_, it) :: rest =>
+                 ((fix go (l : blocks) : bool :=
+                     match l with
+                     | [] => true
+                     | Node _ a' x :: r => (pristine_block x a' && go r)%bool
+                     end) it && god rest)%bool
+             end) items).
+  induction items as [|[term it] rest IH]; [reflexivity|].
+  cbn [pristine_def_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
 Lemma pristine_blist :
@@ -1243,7 +1511,10 @@ Proof.
             undo_pass (snd (assign_ids_list bs st)) = bs)
     (R := fun its => forall st,
             pristine_items its = true ->
-            undo_pass_items (snd (assign_ids_items its st)) = its);
+            undo_pass_items (snd (assign_ids_items its st)) = its)
+    (D := fun its => forall st,
+            pristine_def_items its = true ->
+            undo_pass_def_items (snd (assign_ids_def_items its st)) = its);
     intros; try reflexivity.
   - (* Section: excluded by pristine *)
     discriminate.
@@ -1281,6 +1552,13 @@ Proof.
     cbn [snd undo_pass_node]. rewrite undo_pass_blist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
+  - (* DefinitionList: the bullet case again, over D's item list *)
+    rewrite pristine_deflist in H.
+    rewrite assign_ids_deflist.
+    destruct (assign_ids_def_items items (register_id a st)) as [st' its'] eqn:E.
+    cbn [snd undo_pass_node]. rewrite undo_pass_deflist.
+    change its' with (snd (st', its')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
   - (* FootnoteDef: collection removes it, so pristine excludes it. *)
     discriminate.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
@@ -1303,6 +1581,17 @@ Proof.
     replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
     replace rest1 with (snd (assign_ids_items rest s1))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - (* D's cons: the term rides through untouched *)
+    cbn [pristine_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_def_items].
+    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
+    destruct (assign_ids_def_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [snd undo_pass_def_items].
+    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace rest1 with (snd (assign_ids_def_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
@@ -1335,7 +1624,10 @@ Proof.
     (Q := fun bs => forall m,
         notes_free bs = true -> collect_notes_list bs m = (m, bs))
     (R := fun its => forall m,
-        notes_free_items its = true -> collect_notes_items its m = (m, its));
+        notes_free_items its = true -> collect_notes_items its m = (m, its))
+    (D := fun its => forall m,
+        notes_free_def_items its = true ->
+        collect_notes_def_items its m = (m, its));
     intros; try reflexivity.
   - rewrite notes_free_quote in H. rewrite collect_notes_quote, IHb by exact H.
     reflexivity.
@@ -1345,12 +1637,17 @@ Proof.
     reflexivity.
   - rewrite notes_free_blist in H. rewrite collect_notes_blist, IHb by exact H.
     reflexivity.
+  - rewrite notes_free_deflist in H.
+    rewrite collect_notes_deflist, IHb by exact H. reflexivity.
   - discriminate.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [collect_notes_list]. rewrite IHb by exact Hb.
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_items] in H. apply andb_true_iff in H as [Hit Hrest].
     cbn [collect_notes_items]. rewrite IHb by exact Hit.
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [collect_notes_def_items]. rewrite IHb by exact Hit.
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
@@ -1369,18 +1666,24 @@ Lemma pristine_notes_free_block :
 Proof.
   intros b. induction b using block_ind2 with
     (Q := fun bs => pristine bs = true -> notes_free bs = true)
-    (R := fun its => pristine_items its = true -> notes_free_items its = true);
+    (R := fun its => pristine_items its = true -> notes_free_items its = true)
+    (D := fun its =>
+            pristine_def_items its = true -> notes_free_def_items its = true);
     intros; try reflexivity.
   - discriminate.
   - rewrite pristine_quote in H. rewrite notes_free_quote. apply IHb. exact H.
   - rewrite pristine_div in H. rewrite notes_free_div. apply IHb. exact H.
   - rewrite pristine_olist in H. rewrite notes_free_olist. apply IHb. exact H.
   - rewrite pristine_blist in H. rewrite notes_free_blist. apply IHb. exact H.
+  - rewrite pristine_deflist in H. rewrite notes_free_deflist.
+    apply IHb. exact H.
   - discriminate.
   - rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [notes_free]. rewrite (IHb _ Hb), (IHb0 Hrest). reflexivity.
   - cbn [pristine_items] in H. apply andb_true_iff in H as [Hit Hrest].
     cbn [notes_free_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
+  - cbn [pristine_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [notes_free_def_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
 Qed.
 
 Lemma pristine_notes_free :
@@ -1403,7 +1706,10 @@ Proof.
         notes_free (snd (assign_ids_list bs st)) = true)
     (R := fun its => forall st,
         notes_free_items its = true ->
-        notes_free_items (snd (assign_ids_items its st)) = true);
+        notes_free_items (snd (assign_ids_items its st)) = true)
+    (D := fun its => forall st,
+        notes_free_def_items its = true ->
+        notes_free_def_items (snd (assign_ids_def_items its st)) = true);
     intros; try exact H; try reflexivity.
   - unfold assign_ids, assign_heading_id.
     destruct (lookup_attr "id" a); cbn [snd node_contents notes_free_block];
@@ -1423,6 +1729,11 @@ Proof.
   - rewrite notes_free_blist in H. rewrite assign_ids_blist.
     destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_blist.
+    change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
+  - rewrite notes_free_deflist in H. rewrite assign_ids_deflist.
+    destruct (assign_ids_def_items items (register_id a st)) as [st' items']
+      eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_deflist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
   - discriminate.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
@@ -1447,6 +1758,18 @@ Proof.
     rewrite IHb by exact Hit.
     replace (notes_free_items rest1) with
       (notes_free_items (snd (assign_ids_items rest st1)))
+      by (rewrite E2; reflexivity).
+    rewrite IHb0 by exact Hrest. reflexivity.
+  - cbn [notes_free_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
+    cbn [assign_ids_def_items].
+    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
+    destruct (assign_ids_def_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [snd notes_free_def_items].
+    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+      by (rewrite E1; reflexivity).
+    rewrite IHb by exact Hit.
+    replace (notes_free_def_items rest1) with
+      (notes_free_def_items (snd (assign_ids_def_items rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.

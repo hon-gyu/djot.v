@@ -683,13 +683,14 @@ Proof.
        spacing. *)
     intros k sp items IH H.
     rewrite cb_ok_list in H.
+    apply andb_true_iff in H as [H Hcont].
     apply andb_true_iff in H as [H Hspacing].
     apply andb_true_iff in H as [H Hsafe].
     apply andb_true_iff in H as [H Hmarker].
     apply andb_true_iff in H as [H Hckok].
     apply andb_true_iff in H as [Hne Hitems].
     assert (Hlines : forallb lines_ok (map item_lines items) = true).
-    { clear Hne Hspacing Hmarker Hsafe Hckok. revert Hitems.
+    { clear Hne Hspacing Hmarker Hsafe Hckok Hcont. revert Hitems.
       induction IH as [|it items' HQ IHrest IHind]; intros Hitems; [reflexivity|].
       cbn [forallb] in Hitems. apply andb_true_iff in Hitems as [Hit Hitems'].
       apply andb_true_iff in Hit as [Hitne Hitok].
@@ -944,7 +945,7 @@ Lemma cb_ok_list_parts :
 Proof.
   intros k sp items H. rewrite cb_ok_list in H.
   repeat rewrite andb_true_iff in H.
-  destruct H as [[[[[Hne Hitems] Hckok] Hitemok] _] Hspacing].
+  destruct H as [[[[[[Hne Hitems] Hckok] Hitemok] _] Hspacing] _].
   assert (Hne' : map item_lines items <> [])
     by (destruct items; [discriminate Hne|discriminate]).
   assert (Hmap : forallb (item_ok (ck_first k)) (map item_lines items) = true).
@@ -1207,7 +1208,7 @@ Proof.
     assert (Hparse : cb_ok (CList k sp items) = true -> items_parse items).
     { intros H. rewrite cb_ok_list in H.
       repeat rewrite andb_true_iff in H.
-      destruct H as [[[[[_ Hitems] _] _] Hadj] _]. exact (IH Hadj Hitems). }
+      destruct H as [[[[[[_ Hitems] _] _] Hadj] _] _]. exact (IH Hadj Hitems). }
     split.
     + intros next tail Hboundary Hnext Hlist.
       apply parse_canonical_list_then_nonlist; try assumption.
@@ -1409,6 +1410,7 @@ Proof.
     reflexivity.
   - intros k sp items IH H.
     rewrite cb_ok_list in H.
+    apply andb_true_iff in H as [H Hcont].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
@@ -1418,7 +1420,8 @@ Proof.
     { refine (forallb_weaken _ _ _ _ Hitems).
       intros item Hitem. apply andb_true_iff in Hitem as [_ Hitem]. exact Hitem. }
     rewrite cb_ast_list. cbn [node_contents mk].
-    rewrite render_ck_list, cb_lines_list, map_map, (IH Hokitems). reflexivity.
+    rewrite (render_ck_list _ _ _ (ck_render_ok_cb k items Hokitems Hcont)).
+    rewrite cb_lines_list, map_map, (IH Hokitems). reflexivity.
   - (* reference definition: one line, and the renderer spells it the same
        way `cb_lines` does *)
     intros label dest _. reflexivity.
@@ -1796,7 +1799,10 @@ Proof.
        rewrite pristine_div. exact IHcb. }
   3: { rewrite cb_ast_list. cbn [pristine_node mk].
        destruct k; cbn [ck_block];
-         first [rewrite pristine_blist | rewrite pristine_olist]; exact IHcb. }
+         first [ rewrite pristine_blist; exact IHcb
+               | rewrite pristine_olist; exact IHcb
+               | rewrite pristine_deflist;
+                 exact (pristine_def_items_split _ IHcb) ]. }
   4: { cbn [map pristine_items]. rewrite IHcb, IHcb0. reflexivity. }
   - (* CCode: raw or code block, depending on the info string *)
     unfold cb_ast, fence_block. cbn [f_info].

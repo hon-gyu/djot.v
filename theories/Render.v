@@ -652,6 +652,22 @@ Qed.
 Definition row_reparses (r : trow) (l : string) : bool :=
   match classify l with KRow r' => trow_eqb r' r | _ => false end.
 
+(* A definition item may not begin with a reference definition.
+   `Ast.def_split` steps over one to find the term (both oracles do, and
+   the term is inlines with nowhere to record what stood before it), so
+   `: [r]: u` / blank / `t` and `: t` / blank / `[r]: u` have the same
+   AST.  The renderer produces the second, and this is `cb_ok` saying so.
+   `CRef` is the only leaf that reaches `Ast.invisible_block`: the view
+   has no footnote definition. *)
+Definition cdef_head_ok (it : list cblock) : bool :=
+  match it with CRef _ _ :: _ => false | _ => true end.
+
+Definition ck_content_ok (k : list_kind) (items : list (list cblock)) : bool :=
+  match k with
+  | LKDef => forallb cdef_head_ok items
+  | _ => true
+  end.
+
 (* A canonical row: cells that are canonical inlines, a line the
    recognizer gives back, and -- for a header -- one alignment per cell,
    since the AST records the alignment on the cell and a separator wider
@@ -752,6 +768,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
          | Tight => negb (items_force_loose items)
          | Loose => items_seps_loosen items || items_force_loose items
          end
+      && ck_content_ok k items
   | CRef label dest => ref_ok label dest
   (* Nonempty for the reason a quote is: a table with no rows renders to
      no lines at all.  The parser can build one (`|---|` alone), so that
@@ -897,7 +914,8 @@ Lemma cb_ok_list :
        && match sp with
           | Tight => negb (items_force_loose items)
           | Loose => items_seps_loosen items || items_force_loose items
-          end)%bool.
+          end
+       && ck_content_ok k items)%bool.
 Proof.
   intros k sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
 Qed.
@@ -986,6 +1004,22 @@ Fixpoint render_block_lines (b : block) : list string :=
           sep_lines (map (fun n => render_block_lines (node_contents n)) it)
           :: goitems rest
       end in
+  (* A definition item's lines are its definition's, with the term put
+     back at the head as the paragraph it was split from.  An absent term
+     puts nothing back, which is what makes `: # h` render as one line. *)
+  let defitemss :=
+    fix godefs (its : list (inlines * blocks)) : list (list string) :=
+      match its with
+      | [] => []
+      | (term, it) :: rest =>
+          sep_lines
+            ((match term with
+              | [] => []
+              | _ => [inline_lines term EmptyString]
+              end)
+             ++ map (fun n => render_block_lines (node_contents n)) it)%list
+          :: godefs rest
+      end in
   match b with
   | Para ils => inline_lines ils EmptyString
   | Heading lvl ils => map (heading_line lvl) (inline_lines ils EmptyString)
@@ -1003,6 +1037,8 @@ Fixpoint render_block_lines (b : block) : list string :=
        ++ [div_fence])%list
   | BulletList sp items =>
       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+  | DefinitionList sp its =>
+      list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
   | OrderedList oa sp items =>
       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
   | RefDef label dest => [ref_line label dest]
@@ -1029,11 +1065,33 @@ Lemma render_block_quote :
     = map quote_line (sep_lines (render_blocks_lines bs)).
 Proof. reflexivity. Qed.
 
-(* The list equation at either kind, which is what `cb_lines_list` has to
+(* What a definition item has to look like for the split to be
+   invertible.  Two ways it is not.  A paragraph with no inlines would
+   contribute a line and no term, so rendering would lose it -- and
+   nothing canonical spells one, which is `ci_para_nonempty` below.  And
+   a leading reference or footnote definition is one `def_split` steps
+   *over*, so the term it finds sits behind it in the source and in
+   front of it in the rendering: the two spellings have the same AST,
+   and `cb_ok` picks the one the renderer produces. *)
+Definition def_head_ok (bs : blocks) : bool :=
+  match bs with
+  | Node _ _ (Para ils) :: _ => nonempty ils
+  | Node _ _ x :: _ => negb (invisible_block x)
+  | [] => true
+  end.
+
+Definition ck_render_ok (k : list_kind) (items : list blocks) : bool :=
+  match k with
+  | LKDef => forallb def_head_ok items
+  | _ => true
+  end.
+
+(* The list equation at every kind, which is what `cb_lines_list` has to
    be matched against.  `ck_block` picks the constructor and `ck_items`
-   the markers, so the two flavours share one statement. *)
+   the markers, so the flavours share one statement. *)
 Lemma render_ck_list :
   forall k sp items,
+    ck_render_ok k items = true ->
     render_block_lines (ck_block k sp items)
     = list_lines sp
         (map litem_lines
@@ -1050,11 +1108,79 @@ Proof.
             = map (fun it => sep_lines (render_blocks_lines it)) items).
   { induction items as [|it rest IH]; [reflexivity|].
     cbn [map]. rewrite IH. reflexivity. }
-  intros [|d start|up d start|up d start] sp items;
-    [| | destruct up | destruct up ];
+  assert (Hdef : forall items,
+             forallb def_head_ok items = true ->
+             (fix godefs (its : list (inlines * blocks)) : list (list string) :=
+                match its with
+                | [] => []
+                | (term, it) :: rest =>
+                    sep_lines
+                      ((match term with
+                        | [] => []
+                        | _ => [inline_lines term EmptyString]
+                        end)
+                       ++ map (fun n => render_block_lines (node_contents n)) it)%list
+                    :: godefs rest
+                end) (def_items items)
+             = map (fun it => sep_lines (render_blocks_lines it)) items).
+  { unfold def_items. induction items as [|it rest IH]; [reflexivity|].
+    cbn [map forallb]. intros Hok. apply andb_true_iff in Hok as [Hit Hrest].
+    rewrite (IH Hrest). f_equal.
+    destruct it as [|[q b x] more]; [reflexivity|].
+    destruct x; cbn [def_head_ok invisible_block negb] in Hit;
+      try discriminate Hit;
+      cbn [def_item def_split invisible_block]; try reflexivity.
+    (* the paragraph case: the split fires at the head, and `def_head_ok`
+       says the term it takes is not empty *)
+    destruct ils as [|i ils']; [discriminate Hit|].
+    cbn [render_blocks_lines map node_contents render_block_lines app].
+    reflexivity. }
+  intros [| |d start|up d start|up d start] sp items Hrok;
+    [| | | destruct up | destruct up ];
     cbn [ck_block render_block_lines lk_of_ol roman_sty alpha_sty
          ol_style ol_delim ol_start];
-    rewrite H; reflexivity.
+    try solve [rewrite H; reflexivity].
+  cbn [ck_render_ok] in Hrok. rewrite (Hdef items Hrok). reflexivity.
+Qed.
+
+(* A canonical paragraph has content: `para_ok` asks `is_text` of the
+   first line, and an empty line is blank. *)
+Lemma ci_para_nonempty :
+  forall lss, para_ok (map ci_line lss) = true -> nonempty (ci_para lss) = true.
+Proof.
+  intros [|cis rest] H; [discriminate|].
+  destruct rest as [|cis2 rest'].
+  - rewrite ci_para_one. destruct cis as [|c cs]; [|reflexivity].
+    cbn [map ci_line ci_text para_ok] in H. discriminate.
+  - rewrite ci_para_cons2. destruct (ci_inlines cis); reflexivity.
+Qed.
+
+(* `render_ck_list`'s hypothesis, discharged for every canonical list.
+   A `CPara` is the only cblock whose AST is a paragraph, and the lemma
+   above says it is not an empty one -- so the condition is a fact about
+   the canonical view rather than a clause `cb_ok` has to carry. *)
+Lemma ck_render_ok_cb :
+  forall k items,
+    forallb (forallb cb_ok) items = true ->
+    ck_content_ok k items = true ->
+    ck_render_ok k (map (map cb_ast) items) = true.
+Proof.
+  intros [| |d start|up d start|up d start] items H Hcont; try reflexivity.
+  cbn [ck_render_ok]. cbn [ck_content_ok] in Hcont.
+  induction items as [|it rest IH]; [reflexivity|].
+  cbn [map forallb] in H, Hcont |- *. apply andb_true_iff in H as [Hit Hrest].
+  apply andb_true_iff in Hcont as [Hhead Hconts].
+  rewrite (IH Hrest Hconts), andb_true_r.
+  destruct it as [|c more]; [reflexivity|].
+  cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
+  destruct c; cbn [map cb_ast def_head_ok mk node_contents invisible_block negb];
+    try reflexivity; try discriminate Hhead.
+  - cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
+    apply ci_para_nonempty, Hp.
+  - clear. unfold fence_block. cbn [f_info].
+    destruct info as [|ic irest]; [reflexivity|].
+    destruct ic as [[][][][][][][][]]; reflexivity.
+  - destruct k; reflexivity.
 Qed.
 
 (* The table equation `render_cb_lines` has to be matched against.  Each

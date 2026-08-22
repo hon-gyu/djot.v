@@ -37,7 +37,8 @@ Definition generated_docs (d : nat) : list string := map render_cb (accepted d).
    half that matters most, since the marker text is what our renderer
    invents and `renderDjot` has its own opinion about. *)
 Definition generated : list string :=
-  Eval vm_compute in (generated_docs 2 ++ map render_cb ordered_accepted)%list.
+  Eval vm_compute in (generated_docs 2 ++ map render_cb ordered_accepted
+                      ++ map render_cb def_accepted)%list.
 
 (* The roundtrip sweep, as functions rather than as data.  This is the
    one place the comment above does not apply: `--roundtrip` *does* need

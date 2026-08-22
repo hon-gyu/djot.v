@@ -689,3 +689,62 @@ p
     ; mk (Para [mk (Str "p")])
     ; mk (Para [mk (Str "^ cap")]) ].
 Proof. reflexivity. Qed.
+
+(*
+Definition lists
+================
+
+A definition list is an ordinary list whose marker style is `:`
+(`getListStyles`, block.ts:9), so what is pinned here is the one thing
+that differs: the term split `Ast.def_item` runs when an item closes.
+*)
+
+(* The item's first block, when it is a paragraph, becomes the term and
+   leaves the definition. *)
+Example parse_deflist :
+  parse_blocks ": apple
+
+  red fruit"
+  = [mk (DefinitionList Loose
+           [([mk (Str "apple")], [mk (Para [mk (Str "red fruit")])])])].
+Proof. reflexivity. Qed.
+
+(* Without the blank the two lines are one paragraph, so the whole item
+   is the term. *)
+Example parse_deflist_one_para :
+  parse_blocks ": apple
+  red fruit"
+  = [mk (DefinitionList Tight
+           [([mk (Str "apple"); mk SoftBreak; mk (Str "red fruit")], [])])].
+Proof. reflexivity. Qed.
+
+(* The term is the first paragraph wherever it starts, so a marker line
+   with nothing on it still takes the paragraph below as its term. *)
+Example parse_deflist_term_below :
+  parse_blocks ":
+
+  d"
+  = [mk (DefinitionList Loose [([mk (Str "d")], [])])].
+Proof. reflexivity. Qed.
+
+(* An item whose first block is not a paragraph has no term. *)
+Example parse_deflist_no_term :
+  parse_blocks ": # h"
+  = [mk (DefinitionList Tight [([], [mk (Heading 1 [mk (Str "h")])])])].
+Proof. reflexivity. Qed.
+
+(* A colon list and a bullet list do not merge: the style sets do not
+   intersect, so the first list closes. *)
+Example parse_deflist_not_bullet :
+  parse_blocks ": a
+- b"
+  = [ mk (DefinitionList Tight [([mk (Str "a")], [])])
+    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+Proof. reflexivity. Qed.
+
+(* And it does not interrupt a paragraph, as nothing in djot does. *)
+Example parse_deflist_after_para :
+  parse_blocks "p
+: a"
+  = [mk (Para [mk (Str "p"); mk SoftBreak; mk (Str ": a")])].
+Proof. reflexivity. Qed.

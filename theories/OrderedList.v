@@ -1303,6 +1303,10 @@ the word `eq_refl`.
 *)
 Inductive list_kind : Type :=
   | LKBullet
+  (* A definition list is a bullet list whose marker is `:`; the four
+     pieces below differ from `LKBullet`'s only in `ck_block`, which is
+     where the term split happens. *)
+  | LKDef
   | LKDecimal (d : ordered_list_delim) (start : nat)
   | LKRoman (up : bool) (d : ordered_list_delim) (start : nat)
   | LKAlpha (up : bool) (d : ordered_list_delim) (start : nat).
@@ -1310,6 +1314,7 @@ Inductive list_kind : Type :=
 Definition ck_first (k : list_kind) : marker :=
   match k with
   | LKBullet => bullet
+  | LKDef => colon
   | LKDecimal d start => dec_marker d start
   | LKRoman up d start => nsc_marker (roman_str up) d start
   | LKAlpha up d start => nsc_marker (alpha_str up) d start
@@ -1318,6 +1323,7 @@ Definition ck_first (k : list_kind) : marker :=
 Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
   match k with
   | LKBullet => same_marker bullet lss
+  | LKDef => same_marker colon lss
   | LKDecimal d start => dec_items d start lss
   | LKRoman up d start => nsc_items (roman_str up) d start lss
   | LKAlpha up d start => nsc_items (alpha_str up) d start lss
@@ -1327,6 +1333,7 @@ Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
   : block :=
   match k with
   | LKBullet => BulletList sp items
+  | LKDef => DefinitionList sp (def_items items)
   | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp items
   | LKRoman up d start => OrderedList (OLAttrs (roman_sty up) d start) sp items
   | LKAlpha up d start => OrderedList (OLAttrs (alpha_sty up) d start) sp items
@@ -1336,6 +1343,7 @@ Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
 Definition ck_ok (k : list_kind) (n : nat) : bool :=
   match k with
   | LKBullet => true
+  | LKDef => true
   | LKDecimal _ _ => true
   (* No ambiguity condition: a roman numeral's set has roman at its head
      whatever its length, and a second item narrows it to the singleton
@@ -1359,8 +1367,9 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
 Lemma ck_items_lines :
   forall k lss, map snd (ck_items k lss) = lss.
 Proof.
-  intros [|d start|up d start|up d start] lss;
-    [apply map_snd_same_marker | apply map_snd_dec_items
+  intros [| |d start|up d start|up d start] lss;
+    [apply map_snd_same_marker | apply map_snd_same_marker
+    | apply map_snd_dec_items
     | apply map_snd_nsc_items | apply map_snd_nsc_items].
 Qed.
 
@@ -1382,10 +1391,13 @@ Lemma ck_items_markers_ok :
   forall k lss, ck_ok k (length lss) = true ->
     forallb (fun it => marker_ok (fst it)) (ck_items k lss) = true.
 Proof.
-  intros [|d start|up d start|up d start] lss Hck.
+  intros [| |d start|up d start|up d start] lss Hck.
   - clear Hck. unfold ck_items, same_marker.
     induction lss as [|L rest IH]; [reflexivity|].
     cbn [map forallb fst]. rewrite bullet_ok. exact IH.
+  - clear Hck. unfold ck_items, same_marker.
+    induction lss as [|L rest IH]; [reflexivity|].
+    cbn [map forallb fst]. rewrite colon_ok. exact IH.
   - clear Hck. cbn [ck_items]. revert start.
     induction lss as [|L rest IH]; intros start; [reflexivity|].
     cbn [dec_items forallb fst]. rewrite dec_marker_ok. apply IH.
@@ -1421,10 +1433,16 @@ Theorem ck_uniformity :
     = [mk (ck_block k (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))].
 Proof.
-  intros [|d start|up d start|up d start] sp lss Hne Hck Hok.
+  intros [| |d start|up d start|up d start] sp lss Hne Hck Hok.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
     exact (list_uniformity_same bullet sp lss bullet_ok Hne Hok).
+  (* The colon reaches the same generic theorem; `marker_list colon` is
+     the `DefinitionList` arm of `Marker.styles_list` definitionally, so
+     `ck_block LKDef` needs no separate step. *)
+  - cbn [ck_items ck_block ck_first] in Hok |- *.
+    rewrite map_litem_lines_same_marker.
+    exact (list_uniformity_same colon sp lss colon_ok Hne Hok).
   - exact (ordered_decimal_uniformity d start sp lss Hne Hok).
   - cbn [ck_ok] in Hck.
     apply andb_true_iff in Hck as [Hs Hr].
@@ -1461,10 +1479,15 @@ Theorem ck_uniformity_tail :
             (map (fun L => parse_lines L (PPara [])) lss))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros [|d start|up d start|up d start] sp lss next tail Hne Hck Hok Hnb Hnl Hindent.
+  intros [| |d start|up d start|up d start] sp lss next tail
+    Hne Hck Hok Hnb Hnl Hindent.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
     exact (list_uniformity_tail_same bullet sp lss next tail bullet_ok Hne Hok
+             Hnb Hnl Hindent).
+  - cbn [ck_items ck_block ck_first] in Hok |- *.
+    rewrite map_litem_lines_same_marker.
+    exact (list_uniformity_tail_same colon sp lss next tail colon_ok Hne Hok
              Hnb Hnl Hindent).
   - exact (ordered_decimal_uniformity_tail d start sp lss next tail
              Hne Hok Hnb Hnl Hindent).
