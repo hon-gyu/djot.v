@@ -8116,12 +8116,21 @@ Proof. vm_compute. reflexivity. Qed.
    A spec first inside a scope that closes: djot.js reads the tip of the
    container, finds it empty and drops the spec, giving `<strong>b</strong>`.
    We keep the source, for the reason `attr_with_nothing_before_is_text`
-   gives -- and here it is forced twice over, since dropping would leave
-   `*{.c}*` an empty `Strong`, which `wf_inline` excludes and `oclose`
-   refuses to build. *)
+   gives.  That reason is the whole of it here -- the scope still has `b`
+   in it, so dropping would not leave anything empty. *)
 Example attr_first_in_a_closing_scope :
   parse_inline_line "a *{.c}b*"
   = [mk (Str "a "); mk (Strong [mk (Str "{.c}b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The scope whose *only* content is the spec is where the second reason
+   bites, and it is a different input from the one above: djot.js really
+   does emit `<strong></strong>` for this, and an empty `Strong` is one
+   `wf_inline` excludes and `oclose` refuses to build.  So here matching
+   is not merely declined, it is unavailable. *)
+Example attr_alone_in_a_closing_scope :
+  parse_inline_line "a *{.c}*"
+  = [mk (Str "a "); mk (Strong [mk (Str "{.c}")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A spec inside a bracket that decays.  `bclose` has to hand `IClosed`

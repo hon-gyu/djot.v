@@ -1080,3 +1080,47 @@ divergence is not specific to headings.
 
 Worth keeping the distinction: an empty heading is fine, an empty
 *rendering of a nonblank line* is not.
+
+## Correction 2026-08-23 — two reasons attached to the wrong thing
+
+Found by re-running every `ours` entry's inputs against the current
+build and djot.js. **Every verdict stands and every boundary sentence
+checks out** -- the destination that closes, the `[^` that closes, the
+autolink that succeeds, the spec that closes, the unclosed spec with no
+quoted value, the bracket that becomes a node, and the caption preceded
+by a table with or without a blank line all agree, exactly as claimed.
+What did not survive is two pieces of supporting reasoning.
+
+**1. The destination's unreachability is not `ci_ok`'s doing.**
+*2026-08-13* says "`ci_ok` must exclude a destination whose text could
+open anything". It does not: its only condition there is
+
+```coq
+| CILink _ kids dst => (no_nl dst && go kids && sep kids)%bool
+```
+
+The escaping is `escape_dest`, applied by `ci_src` when the destination
+is *written*. And the simpler fact makes the point without either: the
+divergence needs a `](` that never finds its `)`, and the canonical
+renderer always closes a destination. Unreachability is immediate from
+the renderer's shape, so the conclusion holds a fortiori.
+
+**2. The empty-container reason belongs to a different input.** The
+*2026-08-15* amendment cites `a *{.c}b*` and says "dropping it there
+would leave an empty container". It would not -- djot.js gives
+`<strong>b</strong>`, since `b` is still in the scope. That input
+diverges for the plain reason, nothing before the spec in its own scope.
+
+The input the empty-container reason is about is `a *{.c}*`, where
+djot.js really does emit `<strong></strong>`. There matching is not
+declined but unavailable, `wf_inline` excluding an empty `Strong`.
+`Inline.attr_alone_in_a_closing_scope` now pins it beside
+`attr_first_in_a_closing_scope`, which is the pair the distinction
+needed.
+
+**One row is incomplete rather than wrong.** *2026-08-15* gives djot.js's
+`# {#i}` as `<h1></h1>`; the whole output is
+`<section id="s-1">\n<h1></h1>\n</section>`, the section taking a
+generated identifier because the heading has no text to make one from.
+Ours is `<section id="i">\n<h1>{#i}</h1>\n</section>`. The divergence
+reaches the identifier, not only the heading.
