@@ -73,11 +73,13 @@ CommonMark's emphasis corner cases. The payoff for refusing it is that
 text (`md_intraword_star_is_text`), with no rule about what surrounds the
 asterisks.
 
-**Status: open.** This is the largest single surprise, and the failure is
-silent-ish: the text stays visible but the emphasis is lost. djot's own
-profile is not better here, only differently wrong, since `*italic*` is
-**bold** there. Neither profile gives italic. A warning at parse time is
-probably the right answer and does not exist yet.
+**Status: settled for this profile.** This is Markdown-like syntax, not a
+CommonMark-compatible emphasis grammar. Once that boundary is stated,
+`*italic*` remaining literal is not a surprise: this profile deliberately
+uses `_italic_` and reserves `**strong**` as the only asterisk delimiter.
+Djot's own profile makes a different explicit choice, where `*italic*` is
+strong. No diagnostic or CommonMark-style delimiter-run machinery is
+intended.
 
 ### Emphasis works inside words
 
