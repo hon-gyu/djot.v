@@ -93,6 +93,18 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
 
 #[export] Instance djot_bconfig : bconfig := BConfig no_interrupt no_underline.
 
+(* Field-local block knobs.  Each preserves the other decision, which is what
+   lets independently justified settings compose without rebuilding a record
+   by hand. *)
+Definition with_marker_interrupts
+  (f : list lstyle -> string -> option task_status -> string -> bool)
+  (K : bconfig) : bconfig :=
+  BConfig f (@bunderline K).
+
+Definition with_underline
+  (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) f.
+
 (* The other setting, and deliberately not an `Instance`, for the reason
    `markdown_table` is not one: it is named where it is wanted
    (`check/Sublist.v`) so that inference here always means djot's.
@@ -103,8 +115,10 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
    this should not start a list.` one paragraph -- djot's own regression
    test for the rule this knob relaxes, and the only corpus case the
    unrestricted knob gets wrong. *)
-Definition sublist_bconfig : bconfig := BConfig prose_safe_markers no_underline.
-Definition setext_bconfig : bconfig := BConfig no_interrupt setext_underline.
+Definition sublist_bconfig : bconfig :=
+  with_marker_interrupts prose_safe_markers djot_bconfig.
+Definition setext_bconfig : bconfig :=
+  with_underline setext_underline djot_bconfig.
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
