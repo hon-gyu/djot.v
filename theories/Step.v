@@ -39,6 +39,24 @@ Class btable : Type := BTable {
 
 #[export] Instance djot_btable : btable := BTable (fun _ _ _ _ => false).
 
+(* The knob's other inhabitant, and deliberately not an `Instance`, for
+   the reason `markdown_table` is not one: it is named where it is
+   wanted (`check/Sublist.v`) so that inference here always means
+   djot's.
+
+   A marker interrupts when it cannot be the tail of ordinary prose: a
+   bullet, whose core is empty, or the numeral `1`.  Excluding every
+   other numeral is what keeps `The civil war ended in` / `1865. And
+   this should not start a list.` one paragraph -- djot's own regression
+   test for the rule this knob relaxes, and the only corpus case the
+   unrestricted knob gets wrong. *)
+Definition sublist_table : btable :=
+  BTable (fun _ core _ _ =>
+            match core with
+            | EmptyString => true
+            | _ => String.eqb core "1"
+            end).
+
 (* Which line kinds close an open paragraph instead of extending it.
    The knob's *type* is what says only a list marker may: every other
    kind answers `false` definitionally, so a lemma about a text line

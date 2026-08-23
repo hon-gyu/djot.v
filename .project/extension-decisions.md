@@ -352,9 +352,90 @@ what keeps the run arithmetic out, which the baseline section names as
 the extension's cost -- and it is what makes `2*3*4` literal without any
 rule about what surrounds the asterisks.
 
+## Settled: `E2`, a list marker that interrupts a paragraph
+
+**Ask.** [[beyond-djot]]: in djot a sublist must always be preceded by a
+blank line; make that optional under a flag, with the question "how does
+the list-uniformity hold under this new rule?" attached.
+
+**The baseline, first.** Not "a list needs a blank line". A *sibling*
+marker already interrupts with no blank, because the list container's
+continuation rule sees the line before the paragraph does. What djot
+refuses is a marker arriving while a paragraph is open, wherever that
+paragraph is:
+
+| input | djot today |
+| ----- | ---------- |
+| `- a` / `- b` | two items |
+| `- a` / `  - b` | one item whose text is `a` / `- b` |
+| `- a` / blank / `  - b` | one item containing a nested list |
+| `p` / `1. one` | one paragraph |
+
+**The decision, and it is not taste.** The rule is stated over the open
+paragraph and *without reference to the enclosing container*. Restricting
+it to sublists -- which is what the ask says literally -- falsifies
+`list_uniformity`, whose conclusion is that an item's lines parse as they
+would at top level: a marker cannot mean one thing inside an item and
+another outside. Stated container-blind, the theorem is untouched and now
+reads `forall (T : dtable) (K : btable) ...`. That is the answer to the
+question [[beyond-djot]] attached to the ask.
+
+The price is that the extension is **not conservative**, and the ask as
+posed cannot be made conservative: `p` / `1. one` is valid djot today
+with a different meaning.
+
+**The two knobs this ships.**
+
+| | a bullet | `1.` | any other numeral |
+| --- | --- | --- | --- |
+| `djot_btable` | never interrupts | never | never |
+| `sublist_table` | interrupts | interrupts | never |
+
+The third column is the whole of the restriction, and it is settled by
+the corpus rather than by preference. Of 291 corpus cases, five contain a
+paragraph whose interior line is a marker. Four are the sublist shape the
+ask is about. The fifth is `lists.test:33`:
+
+```
+The civil war ended in
+1865. And this should not start a list.
+```
+
+which is djot's own regression test for the accidental list, with its
+intent written into the input. Admitting `1` and no other numeral keeps
+it prose, and the test is line-local -- the marker's own numeral, no
+context and no state -- so nothing about single-pass scanning moves.
+
+**The compatibility fact** (discipline 4): under `sublist_table` every
+document containing a paragraph line that begins with a bullet or `1.`
+changes meaning, and the change is silent rather than loud -- prose
+becomes a list rather than becoming literal text. Four corpus cases move,
+all of them intentionally. Prose ending in any other number, in a roman
+numeral or in an initial is untouched.
+
+**What it costs the canonical view: nothing.** `para_ok` gains one clause
+(an interior line is not a marker the knob acts on) and it is discharged
+by escaping that predates the knob: `cline` writes `- b` as `\- b`, which
+classifies as text at every setting. Filtering the generated pool by
+`cb_ok` gives the same 245 and 2910 at all three knobs, which is what the
+marker-shaped leaf in `Generate.leaves` exists to say.
+
+**Status: settled and pinned**, in `check/Sublist.v` per discipline 2 --
+`djot_swallows_the_marker`, `sublist_nests_without_a_blank`,
+`sublist_interrupts_at_top_level`, `any_marker_invents_a_list`,
+`sublist_leaves_the_year_alone`, and `sublist_roundtrip_blocks`, which is
+`roundtrip_blocks` applied to the other knob rather than reproved. The
+argument and the measurements are in
+[[260823.phase4-block-knob]].
+
+**Open inside it.** Whether `i.` should be admitted. It is excluded with
+every other numeral today, which keeps `written by` / `i. m. author`
+prose; the case for admitting it is that a roman opener is ambiguous
+anyway and the list would be one item long. Nothing forces it either way,
+so by discipline 3 it stays open.
+
 ## Deferred asks
 
-From [[beyond-djot]], not inline and not this file's business yet:
-setext headings, optional blank line before a sublist (with its
-list-uniformity question), link references. They get entries here only if
-they turn out to need a decision no oracle can settle.
+From [[beyond-djot]], not inline and not this file's business yet: setext
+headings and link references. They get entries here only if they turn out
+to need a decision no oracle can settle.
