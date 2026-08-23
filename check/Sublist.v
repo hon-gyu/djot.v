@@ -33,7 +33,7 @@ Open Scope string_scope.
 (* The rejected alternative, kept here because the case that rejects it
    is one of the examples below: a knob that lets *every* marker
    interrupt. *)
-Definition any_bconfig : bconfig := BConfig (fun _ _ _ _ => true).
+Definition any_bconfig : bconfig := BConfig (fun _ _ _ _ => true) no_underline.
 
 Local Notation Djot := (@parse_blocks _ djot_bconfig).
 Local Notation Sub := (@parse_blocks _ sublist_bconfig).

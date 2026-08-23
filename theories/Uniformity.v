@@ -140,23 +140,27 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ (step_fence_open _ _ H)). reflexivity.
 Qed.
 
+(* A text line opens a paragraph or extends one.  The `bcuts` hypothesis
+   is about the second case only -- a line that *ends* a paragraph is
+   still text when there is none open, which is how `===` opens a
+   paragraph of its own after a blank. *)
 Lemma parse_lines_text :
-  forall l rest cur, classify l = KText ->
+  forall l rest cur, classify l = KText -> bcuts l = false ->
   parse_lines (l :: rest) (PPara cur) =
   parse_lines rest (PPara (drop_leading_ws l :: cur)).
 Proof.
-  intros l rest cur H. destruct cur as [|c cur'].
+  intros l rest cur H Hc. destruct cur as [|c cur'].
   - rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
   - rewrite (parse_lines_step _ _ _ _ _
                (step_para_cont _ _ _ (fun E => ltac:(rewrite H in E; discriminate))
-                  ltac:(rewrite H; reflexivity))).
+                  Hc)).
     reflexivity.
 Qed.
 
 (* Any nonblank line continues an open paragraph. *)
 Lemma parse_lines_cont :
   forall l rest c cur',
-    classify l <> KBlank -> binterrupt (classify l) = false ->
+    classify l <> KBlank -> bcuts l = false ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
   parse_lines rest (PPara (drop_leading_ws l :: c :: cur')).
 Proof.
@@ -274,7 +278,7 @@ Seed lemmas: feeding runs of lines
 Lemma parse_lines_cont_seed :
   forall ls tail c cur',
     forallb nonblank ls = true ->
-    forallb (fun l => negb (binterrupt (classify l))) ls = true ->
+    forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines (ls ++ tail)%list (PPara (c :: cur')) =
     parse_lines tail (PPara (rev (map drop_leading_ws ls) ++ (c :: cur'))%list).
 Proof.
@@ -296,14 +300,15 @@ Qed.
 Lemma parse_lines_para_seed :
   forall a ls tail,
     classify a = KText ->
+    bcuts a = false ->
     forallb nonblank ls = true ->
-    forallb (fun l => negb (binterrupt (classify l))) ls = true ->
+    forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines ((a :: ls) ++ tail)%list (PPara []) =
     parse_lines tail (PPara (rev (map drop_leading_ws (a :: ls)))).
 Proof.
-  intros a ls tail Ha Hls His.
+  intros a ls tail Ha Hcut Hls His.
   change ((a :: ls) ++ tail)%list with (a :: (ls ++ tail))%list.
-  rewrite parse_lines_text by exact Ha.
+  rewrite parse_lines_text by (exact Ha || exact Hcut).
   rewrite parse_lines_cont_seed by (exact Hls || exact His).
   reflexivity.
 Qed.

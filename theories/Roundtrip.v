@@ -275,7 +275,7 @@ Lemma para_ok_parts :
   classify a = KText
   /\ forallb line_ok (a :: ls) = true
   /\ strip_trailing_ws (last (a :: ls) EmptyString) = last (a :: ls) EmptyString
-  /\ forallb (fun l => negb (binterrupt (classify l))) (a :: ls) = true.
+  /\ forallb (fun l => negb (bcuts l)) (a :: ls) = true.
 Proof.
   intros a ls H. unfold para_ok in H.
   apply andb_true_iff in H as [H Hlast].
@@ -1080,7 +1080,8 @@ Proof.
       apply para_ok_parts in Hp as (Htext & Hlok & _ & Hint);
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [_ Hnb'];
-      cbn [forallb] in Hint; apply andb_true_iff in Hint as [_ Hint'];
+      cbn [forallb] in Hint; apply andb_true_iff in Hint as [Hihd Hint'];
+      apply negb_true_iff in Hihd;
       destruct (rev_cons_shape a ls') as [c [cur' Erev]].
     + rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).

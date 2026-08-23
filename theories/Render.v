@@ -454,7 +454,7 @@ Definition para_ok (ls : list string) : bool :=
   | a :: _ =>
       is_text a
       && forallb line_ok ls
-      && forallb (fun l => negb (binterrupt (classify l))) ls
+      && forallb (fun l => negb (bcuts l)) ls
       && String.eqb (strip_trailing_ws (last ls EmptyString))
            (last ls EmptyString)
   end.

@@ -190,6 +190,41 @@ Lemma is_thematic_ws_prefix :
   forall p l, is_blank p = true -> is_thematic (p ++ l) = is_thematic l.
 Proof. intros p l H. unfold is_thematic. apply thematic_count_ws_prefix, H. Qed.
 
+(* An underline: one character repeated to the end of the line, with
+   nothing else on it but whitespace at either end.  `-` and `=` are
+   what a setext heading is written with, but the shape is stated
+   without naming them -- which of them underlines, and at what length,
+   is a block setting (`Step.bunderline`), so this recognizer answers
+   for any character and decides nothing.
+
+   It is a query beside `classify` rather than a `line_kind`, because
+   the kinds an underline can wear are already taken: `---` is
+   `KThematic`, `-` is a bullet marker, and `===` is `KText`.  Widening
+   `line_kind` to hold it would move that decision into the classifier,
+   where djot's answer would then have to be spelled as a kind it never
+   produces. *)
+Fixpoint all_char (c : ascii) (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String a s' => (Ascii.eqb a c && all_char c s')%bool
+  end.
+
+Definition underline_of (l : string) : option (ascii * nat) :=
+  match strip_trailing_ws (drop_leading_ws l) with
+  | EmptyString => None
+  | String c s => if all_char c s then Some (c, S (String.length s)) else None
+  end.
+
+(* Leading whitespace is dropped before anything is read, so an
+   underline survives the padding a container prefix adds -- which is
+   what `Step.step_fuel_pad` needs of every line query it calls. *)
+Lemma underline_of_ws_prefix :
+  forall p l, is_blank p = true -> underline_of (p ++ l) = underline_of l.
+Proof.
+  intros p l H. unfold underline_of.
+  rewrite (drop_leading_ws_ws_prefix p l H). reflexivity.
+Qed.
+
 (* Code fences, per djot.js pattCodeFence:
    3+ of a uniform fence char (` or ~), optional ws, one info token
    containing neither whitespace nor backticks, optional trailing ws.
@@ -1269,6 +1304,16 @@ Lemma drop_leading_ws_blank :
 Proof.
   induction s as [|c s IH]; [reflexivity|].
   cbn [is_blank drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|discriminate].
+Qed.
+
+(* A blank line underlines nothing, whatever the setting: there is no
+   run to read.  This is what keeps `step_para_flush` -- a blank ends an
+   open paragraph -- free of a side condition. *)
+Lemma underline_of_blank :
+  forall l, is_blank l = true -> underline_of l = None.
+Proof.
+  intros l H. unfold underline_of.
+  rewrite (drop_leading_ws_blank l H). reflexivity.
 Qed.
 
 Lemma caption_open_blank :

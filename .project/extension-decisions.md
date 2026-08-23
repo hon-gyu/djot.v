@@ -434,8 +434,95 @@ prose; the case for admitting it is that a roman opener is ambiguous
 anyway and the list would be one item long. Nothing forces it either way,
 so by discipline 3 it stays open.
 
+## Settled: `E3`, setext headings
+
+**Ask.** [[beyond-djot]]: bring back setext-style (underlined) headings.
+
+**The baseline, first.** djot has no underline rule at all, so both lines
+are prose -- and `---` is not even inert, since smart punctuation reads
+it as an em dash:
+
+| input | djot today |
+| ----- | ---------- |
+| `a` / `===` | one paragraph, `a` then `===` |
+| `a` / `---` | one paragraph, `a` then an em dash |
+| `a` / `-` | one paragraph (a lone `-` is a bullet marker, and markers do not interrupt) |
+| blank / `---` | a thematic break |
+
+**Where it landed, against the prediction.** [[260823.phase4-block-knob]]
+§8 guessed this would be "a different shape -- it needs the *previous*
+line, which the paragraph accumulator has but the classifier does not".
+Half right. It does need the previous lines, and that is exactly why it
+belongs in the same place the sublist setting does: the open-paragraph
+branch of `step` *is* the accumulator, so the heading's text is already
+in hand and the underline test is line-local. What it does not need is a
+new `line_kind`. The kinds an underline can wear are taken -- `===` is
+`KText`, `---` is `KThematic`, `-` is a bullet -- so `underline_of` is a
+query beside `classify` rather than a case inside it, which also keeps
+`line_kind` from widening (the cost recorded in
+[[project-engineering-lessons#A hang or a sudden slowdown is the
+definition's shape]]).
+
+**The setting.**
+
+```coq
+Definition setext_underline (c : ascii) (n : nat) : option nat :=
+  if Ascii.eqb c "=" then Some 0                                  (* level 1 *)
+  else if Ascii.eqb c "-" then (if Nat.leb 2 n then Some 1 else None)
+  else None.
+```
+
+`Some k` means level `S k`, so a setting cannot ask for a level-0
+heading and `wf_block`'s `1 <= lvl` holds without a class law -- the same
+trick that keeps `bmarker_interrupts` from needing one.
+
+**Why `-` needs two.** Not a style choice. `classify "-"` is `KList`, so
+a lone `-` already answers to the sublist setting; admitting it here
+would put one line under two settings and make the answer depend on the
+order `step` tests them in. At two or more there is no other reading.
+`a` / `--` is a level-2 heading, `a` / `-` stays prose
+(`a_single_dash_is_not_an_underline`).
+
+**Only an open paragraph underlines**, which is the whole of why a
+thematic break survives: with nothing above it, `---` is classified as it
+always was. And because the rule is stated over the paragraph rather
+than over the document, it works inside a quote or a list item without
+saying so -- the same property that keeps `list_uniformity` true at every
+setting.
+
+**The compatibility fact** (discipline 4): `a` / `---` and `a` / `===`
+are valid djot today and change meaning. **Zero of the 291 corpus cases
+contain the shape** -- no case has a nonblank line followed by a line of
+`=` or of two-or-more `-` -- so nothing in the corpus moves, but that is
+a fact about the corpus, not a conservativity claim.
+[[project-engineering-lessons#The corpus is djot.js's regression suite]]
+is the reason to say it that way round.
+
+**What it cost the canonical view: nothing**, again, and for the same
+reason: `cline` escapes both `=` and `-`, so a canonical paragraph never
+contains a line that could be an underline. Filtering the generated pool
+by `cb_ok` gives the same 245 and 2910 at djot's settings, at
+`sublist_bconfig` and at `setext_bconfig`.
+
+**The one refactor it forced, and it is an improvement.** `para_ok`'s
+side condition and `step_para_cont`'s hypothesis were both about list
+markers; they are now about `bcuts`, the single question "does a setting
+take this line out of an open paragraph". A third setting that ends a
+paragraph extends `bcuts` and touches nothing else.
+
+**Status: settled and pinned** in `check/Setext.v`, closing with
+`setext_roundtrip_blocks` -- `roundtrip_blocks` applied to the setting
+rather than reproved.
+
+**Open inside it.** Whether a setext heading should be allowed to carry
+an attribute block, and whether the underline should be renderable at
+all: the canonical renderer writes every heading `# ` style, so a setext
+heading round-trips as an ATX one. That is a choice (the AST does not
+record which spelling it came from) and it is the one that keeps the
+renderer knob-independent, but it means the extension is input-only.
+
 ## Deferred asks
 
-From [[beyond-djot]], not inline and not this file's business yet: setext
-headings and link references. They get entries here only if they turn out
+From [[beyond-djot]], not inline and not this file's business yet: link
+references. They get entries here only if they turn out
 to need a decision no oracle can settle.

@@ -2476,8 +2476,13 @@ Proof.
         apply (open_foot_wf (off + indent_of l) l flbl frest); assumption.
       * (* KRef: opens its own state too *)
         apply (open_ref_wf _ l _ _ E).
-    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [fst snd].
-      7: { (* list marker: interrupts the paragraph only when the knob says so *)
+    + destruct (bunderline_of l) as [ulvl|] eqn:Eu; cbn [fst snd].
+      { (* an underline: the open paragraph becomes a heading, and its
+           level is `S ulvl` precisely so that `1 <= lvl` is free *)
+        split; [|reflexivity].
+        apply heading_block_wf; [reflexivity | exact H]. }
+      destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [fst snd].
+      7: { (* list marker: interrupts the paragraph only when the setting says so *)
         destruct (binterrupt (KList m mc chk mr)) eqn:Ei; cbn [fst snd].
         - destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
           destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner].
@@ -3311,7 +3316,9 @@ Proof.
         cbn [fst snd] in Hb, Hs.
         cbn [open_foot fst snd state_supported]. split; [reflexivity|].
         rewrite supported_blocks_rev, Hb. exact Hs.
-    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+    + destruct (bunderline_of l) as [ulvl|] eqn:Eu;
+        [cbn [fst snd]; split; reflexivity|].
+      destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
       7: { destruct (binterrupt (KList m mc chk mr)) eqn:Ei;
              [|cbn [fst snd]; split; reflexivity].
            destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].

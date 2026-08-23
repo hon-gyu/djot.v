@@ -45,10 +45,53 @@ check, so it is a class with one field and no proof obligation.  If a
 third setting arrives the two should probably merge.
 *)
 Class bconfig : Type := BConfig {
-  bmarker_interrupts : list lstyle -> string -> option task_status -> string -> bool
+  (* May a list marker close an open paragraph?  Asked of the marker's
+     own fields, so the answer can depend on the numeral and on nothing
+     else. *)
+  bmarker_interrupts : list lstyle -> string -> option task_status -> string -> bool;
+  (* May a run of `n` copies of `c`, alone on a line, close an open
+     paragraph and turn it into a heading?  `Some k` means a heading of
+     level `S k`, so a setting cannot ask for a level-0 heading and
+     `wf_block`'s `1 <= lvl` needs no side condition to hold. *)
+  bunderline : ascii -> nat -> option nat
 }.
 
-#[export] Instance djot_bconfig : bconfig := BConfig (fun _ _ _ _ => false).
+(*
+The settings themselves
+-----------------------
+
+Named separately from the records that hold them, so that a
+configuration reads as a choice per question rather than as a tuple.
+*)
+
+(* djot's answers. *)
+Definition no_interrupt (_ : list lstyle) (_ : string)
+  (_ : option task_status) (_ : string) : bool := false.
+Definition no_underline (_ : ascii) (_ : nat) : option nat := None.
+
+(* A marker interrupts when it cannot be the tail of ordinary prose: a
+   bullet, whose core is empty, or the numeral `1`.  Excluding every
+   other numeral is what keeps `The civil war ended in` / `1865. And
+   this should not start a list.` one paragraph -- djot's own regression
+   test for the rule this setting relaxes, and the only corpus case an
+   unrestricted answer gets wrong. *)
+Definition prose_safe_markers (_ : list lstyle) (core : string)
+  (_ : option task_status) (_ : string) : bool :=
+  match core with
+  | EmptyString => true
+  | _ => String.eqb core "1"
+  end.
+
+(* Setext underlines: `=` at any length, `-` at two or more.  The length
+   condition on `-` is not a style choice -- a lone `-` is a bullet
+   marker, so admitting it would make one line answer to two settings at
+   once, and which won would depend on the order `step` tests them in. *)
+Definition setext_underline (c : ascii) (n : nat) : option nat :=
+  if Ascii.eqb c "=" then Some 0
+  else if Ascii.eqb c "-" then (if Nat.leb 2 n then Some 1 else None)
+  else None.
+
+#[export] Instance djot_bconfig : bconfig := BConfig no_interrupt no_underline.
 
 (* The other setting, and deliberately not an `Instance`, for the reason
    `markdown_table` is not one: it is named where it is wanted
@@ -60,12 +103,8 @@ Class bconfig : Type := BConfig {
    this should not start a list.` one paragraph -- djot's own regression
    test for the rule this knob relaxes, and the only corpus case the
    unrestricted knob gets wrong. *)
-Definition sublist_bconfig : bconfig :=
-  BConfig (fun _ core _ _ =>
-            match core with
-            | EmptyString => true
-            | _ => String.eqb core "1"
-            end).
+Definition sublist_bconfig : bconfig := BConfig prose_safe_markers no_underline.
+Definition setext_bconfig : bconfig := BConfig no_interrupt setext_underline.
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
@@ -75,6 +114,37 @@ Definition binterrupt `{bconfig} (k : line_kind) : bool :=
   match k with
   | KList sty core chk rest => bmarker_interrupts sty core chk rest
   | _ => false
+  end.
+
+(* The level an underline gives an open paragraph, if it gives it one. *)
+Definition bunderline_of `{bconfig} (l : string) : option nat :=
+  match underline_of l with
+  | Some (c, n) => bunderline c n
+  | None => None
+  end.
+
+Lemma bunderline_of_blank `{bconfig} :
+  forall l, is_blank l = true -> bunderline_of l = None.
+Proof.
+  intros l Hb. unfold bunderline_of. rewrite (underline_of_blank l Hb).
+  reflexivity.
+Qed.
+
+Lemma bunderline_of_ws_prefix `{bconfig} :
+  forall p l, is_blank p = true -> bunderline_of (p ++ l) = bunderline_of l.
+Proof.
+  intros p l Hp. unfold bunderline_of.
+  rewrite (underline_of_ws_prefix p l Hp). reflexivity.
+Qed.
+
+(* Whether a line takes an open paragraph away from itself, either way.
+   This is the one query the paragraph branch of `step` and the
+   canonical `para_ok` both ask, so a third setting that ends a
+   paragraph extends this and nothing else. *)
+Definition bcuts `{bconfig} (l : string) : bool :=
+  match bunderline_of l with
+  | Some _ => true
+  | None => binterrupt (classify l)
   end.
 
 (* The delimiter table this file is read at.  Implicit, so nothing below
@@ -840,6 +910,15 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | k => open_kind l k
           end
       | PPara (c :: cur') =>
+          (* The underline test runs before the classifier, because the
+             kinds an underline wears are kinds that mean something else:
+             `===` is `KText` and `---` is `KThematic`, and both of those
+             would otherwise continue the paragraph.  It is only asked of
+             an *open* paragraph, so a line that opens one is classified
+             as it always was. *)
+          match bunderline_of l with
+          | Some lvl => ([heading_block (S lvl) (c :: cur')], PPara [])
+          | None =>
           match classify l with
           | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
           | KList sty core chk rest as k =>
@@ -850,6 +929,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                         (step_fuel n' (off + consumed l rest) rest (PPara [])))
               else ([], PPara (drop_leading_ws l :: c :: cur'))
           | _ => ([], PPara (drop_leading_ws l :: c :: cur'))   (* paragraphs never interrupt *)
+          end
           end
       | PHeading lvl cur =>
           (* Unlike a paragraph, a heading *is* interruptible: only a
@@ -1585,7 +1665,9 @@ Proof.
           as [bs inner'] eqn:Ed.
         cbn [open_foot fst snd pad_state]. reflexivity. }
       { cbn [open_ref fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. } }
-    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+    { destruct (bunderline_of l) as [ulvl|] eqn:Eu;
+        [cbn [fst snd pad_state]; reflexivity|].
+      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
       rewrite <- !Nat.add_assoc.
@@ -1950,15 +2032,21 @@ Lemma step_para_flush :
   forall l c cur', classify l = KBlank ->
   step l (PPara (c :: cur')) =
   ([mk (Para (para_inlines (rev (c :: cur'))))], PPara []).
-Proof. intros l c cur' H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
+Proof.
+  intros l c cur' H. unfold step. cbn [step_fuel].
+  rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
+Qed.
 
+(* Any other line continues it -- unless a setting says the line ends a
+   paragraph, which is the whole of what `bcuts` answers. *)
 Lemma step_para_cont :
-  forall l c cur', classify l <> KBlank -> binterrupt (classify l) = false ->
+  forall l c cur', classify l <> KBlank -> bcuts l = false ->
   step l (PPara (c :: cur')) = ([], PPara (drop_leading_ws l :: c :: cur')).
 Proof.
-  intros l c cur' H Hi. unfold step. cbn [step_fuel].
+  intros l c cur' H Hc. unfold step. cbn [step_fuel].
+  unfold bcuts in Hc. destruct (bunderline_of l); [discriminate|].
   destruct (classify l) eqn:E; try (congruence || reflexivity).
-  rewrite Hi. reflexivity.
+  rewrite Hc. reflexivity.
 Qed.
 
 (*
@@ -2550,7 +2638,9 @@ Proof.
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. } }
-    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+    { rewrite (bunderline_of_ws_prefix p l Hp).
+      destruct (bunderline_of l) as [ulvl|] eqn:Eu; [reflexivity|].
+      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
         try (cbn [open_kind close_reopen];
            rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
         try reflexivity.
