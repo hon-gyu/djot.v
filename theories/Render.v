@@ -24,6 +24,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
+Context {K : btable}.
 
 (*
 Block layout
@@ -453,6 +454,7 @@ Definition para_ok (ls : list string) : bool :=
   | a :: _ =>
       is_text a
       && forallb line_ok ls
+      && forallb (fun l => negb (binterrupt (classify l))) ls
       && String.eqb (strip_trailing_ws (last ls EmptyString))
            (last ls EmptyString)
   end.

@@ -29,11 +29,32 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
+(* SPIKE (Phase 4 block-layer audit, not to be committed as is): the
+   block-layer knob.  `binterrupt k` says whether a line of kind `k`
+   closes an open paragraph instead of extending it.  djot's instance
+   answers `false` everywhere, which is the no-interruption rule. *)
+Class btable : Type := BTable {
+  bsublist : list lstyle -> string -> option task_status -> string -> bool
+}.
+
+#[export] Instance djot_btable : btable := BTable (fun _ _ _ _ => false).
+
+(* Which line kinds close an open paragraph instead of extending it.
+   The knob's *type* is what says only a list marker may: every other
+   kind answers `false` definitionally, so a lemma about a text line
+   pays nothing and needs no class law to say so. *)
+Definition binterrupt `{btable} (k : line_kind) : bool :=
+  match k with
+  | KList sty core chk rest => bsublist sty core chk rest
+  | _ => false
+  end.
+
 (* The delimiter table this file is read at.  Implicit, so nothing below
    mentions it: what it buys is that the statements quantify over the
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
+Context {K : btable}.
 
 (* Paragraph assembly is `Inline.para_inlines`. *)
 
@@ -793,6 +814,13 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
       | PPara (c :: cur') =>
           match classify l with
           | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
+          | KList sty core chk rest as k =>
+              if binterrupt k
+              then close_reopen (PPara (c :: cur'))
+                     (open_list (off + indent_of l) (with_starts sty core)
+                        (chk_status chk)
+                        (step_fuel n' (off + consumed l rest) rest (PPara [])))
+              else ([], PPara (drop_leading_ws l :: c :: cur'))
           | _ => ([], PPara (drop_leading_ws l :: c :: cur'))   (* paragraphs never interrupt *)
           end
       | PHeading lvl cur =>
@@ -1127,7 +1155,14 @@ Proof.
         rewrite (IH (String.length l) _ frest (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
-    + destruct (classify l); reflexivity.
+    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+        try reflexivity.
+      destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
+      pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      reflexivity.
   - (* an open heading: the quote and list branches recurse *)
     cbn [pstate_depth] in Hn |- *.
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
@@ -1522,7 +1557,15 @@ Proof.
           as [bs inner'] eqn:Ed.
         cbn [open_foot fst snd pad_state]. reflexivity. }
       { cbn [open_ref fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. } }
-    { destruct (classify l); reflexivity. } }
+    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+        try reflexivity.
+      destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
+      rewrite <- !Nat.add_assoc.
+      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        cbn [pad_state] in H; rewrite H.
+      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        as [bs inner'] eqn:Ed.
+      cbn [close_reopen open_list fst snd pad_state]. reflexivity. } }
   (* heading *)
   { cbn [pad_state step_fuel].
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
@@ -1882,11 +1925,12 @@ Lemma step_para_flush :
 Proof. intros l c cur' H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
 
 Lemma step_para_cont :
-  forall l c cur', classify l <> KBlank ->
+  forall l c cur', classify l <> KBlank -> binterrupt (classify l) = false ->
   step l (PPara (c :: cur')) = ([], PPara (drop_leading_ws l :: c :: cur')).
 Proof.
-  intros l c cur' H. unfold step. cbn [step_fuel].
-  destruct (classify l); (congruence || reflexivity).
+  intros l c cur' H Hi. unfold step. cbn [step_fuel].
+  destruct (classify l) eqn:E; try (congruence || reflexivity).
+  rewrite Hi. reflexivity.
 Qed.
 
 (*
@@ -2478,9 +2522,15 @@ Proof.
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. } }
-    { destruct (classify l);
+    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
         try (cbn [open_kind close_reopen];
-           rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity).
+           rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
+        try reflexivity.
+      destruct (binterrupt (KList m mc chk mr)) eqn:Ei;
+        [|rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity].
+      rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+              (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
+              (Nat.add_comm off (String.length p)).
       reflexivity. } }
   { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;

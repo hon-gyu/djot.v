@@ -20,6 +20,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
+Context {K : btable}.
 
 (*
 Canonicality of inline sequences
@@ -2476,6 +2477,23 @@ Proof.
       * (* KRef: opens its own state too *)
         apply (open_ref_wf _ l _ _ E).
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [fst snd].
+      7: { (* list marker: interrupts the paragraph only when the knob says so *)
+        destruct (binterrupt (KList m mc chk mr)) eqn:Ei; cbn [fst snd].
+        - destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
+          destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner].
+          destruct (open_list_wf (off + indent_of l) (with_starts m mc)
+                      (chk_status chk) bs inner Hb Hs) as [Hob Hos].
+          destruct (open_list (off + indent_of l) (with_starts m mc)
+                      (chk_status chk) (bs, inner)) as [obs ost].
+          cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
+          split; [|exact Hos].
+          apply flush_para_wf; [exact H | exact Hob].
+        - split; [reflexivity|];
+            cbn [state_wf];
+            rewrite forallb_nonblank_cons
+              by (rewrite is_blank_drop_leading_ws;
+                  apply classify_not_kblank_nonblank; rewrite E; discriminate);
+            exact H. }
       1: (split; [| reflexivity];
           apply flush_para_wf; [exact H | reflexivity]).
       all: split; [reflexivity|];
@@ -3293,7 +3311,19 @@ Proof.
         cbn [fst snd] in Hb, Hs.
         cbn [open_foot fst snd state_supported]. split; [reflexivity|].
         rewrite supported_blocks_rev, Hb. exact Hs.
-    + destruct (classify l); cbn [fst snd]; split; reflexivity.
+    + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+      7: { destruct (binterrupt (KList m mc chk mr)) eqn:Ei;
+             [|cbn [fst snd]; split; reflexivity].
+           destruct (IH (off + consumed l mr) mr (PPara []) eq_refl) as [Hb Hs].
+           destruct (step_fuel n (off + consumed l mr) mr (PPara [])) as [bs inner].
+           destruct (open_list_supported (off + indent_of l) (with_starts m mc)
+                       (chk_status chk) bs inner Hb Hs) as [Hob Hos].
+           destruct (open_list (off + indent_of l) (with_starts m mc)
+                       (chk_status chk) (bs, inner)) as [obs ost].
+           cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
+           rewrite supported_blocks_cons. cbn [node_contents].
+           rewrite Hob. split; [reflexivity | exact Hos]. }
+      all: cbn [fst snd]; split; reflexivity.
   - (* an open heading: Heading is supported, so only the quote branch
        carries anything to prove *)
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.

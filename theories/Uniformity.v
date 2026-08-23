@@ -21,6 +21,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
+Context {K : btable}.
 
 (*
 The fold, and uniformity for quotes and divs
@@ -147,18 +148,20 @@ Proof.
   intros l rest cur H. destruct cur as [|c cur'].
   - rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
   - rewrite (parse_lines_step _ _ _ _ _
-               (step_para_cont _ _ _ (fun E => ltac:(rewrite H in E; discriminate)))).
+               (step_para_cont _ _ _ (fun E => ltac:(rewrite H in E; discriminate))
+                  ltac:(rewrite H; reflexivity))).
     reflexivity.
 Qed.
 
 (* Any nonblank line continues an open paragraph. *)
 Lemma parse_lines_cont :
-  forall l rest c cur', classify l <> KBlank ->
+  forall l rest c cur',
+    classify l <> KBlank -> binterrupt (classify l) = false ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
   parse_lines rest (PPara (drop_leading_ws l :: c :: cur')).
 Proof.
-  intros l rest c cur' H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_para_cont _ _ _ H)). reflexivity.
+  intros l rest c cur' H Hi.
+  rewrite (parse_lines_step _ _ _ _ _ (step_para_cont _ _ _ H Hi)). reflexivity.
 Qed.
 
 (*
@@ -271,17 +274,21 @@ Seed lemmas: feeding runs of lines
 Lemma parse_lines_cont_seed :
   forall ls tail c cur',
     forallb nonblank ls = true ->
+    forallb (fun l => negb (binterrupt (classify l))) ls = true ->
     parse_lines (ls ++ tail)%list (PPara (c :: cur')) =
     parse_lines tail (PPara (rev (map drop_leading_ws ls) ++ (c :: cur'))%list).
 Proof.
-  induction ls as [|l ls IH]; intros tail c cur' H.
+  induction ls as [|l ls IH]; intros tail c cur' H Hi.
   - reflexivity.
   - simpl in H. apply andb_true_iff in H as [Hl Hls].
+    simpl in Hi. apply andb_true_iff in Hi as [Hi1 His].
+    apply negb_true_iff in Hi1.
     unfold nonblank in Hl. apply negb_true_iff in Hl.
     change ((l :: ls) ++ tail)%list with (l :: (ls ++ tail))%list.
     rewrite parse_lines_cont
-      by (intros E; rewrite (classify_kblank_blank _ E) in Hl; discriminate).
-    rewrite IH by exact Hls.
+      by (first [ intros E; rewrite (classify_kblank_blank _ E) in Hl; discriminate
+                | exact Hi1 ]).
+    rewrite IH by (exact Hls || exact His).
     simpl rev. rewrite <- app_assoc. reflexivity.
 Qed.
 
@@ -290,13 +297,14 @@ Lemma parse_lines_para_seed :
   forall a ls tail,
     classify a = KText ->
     forallb nonblank ls = true ->
+    forallb (fun l => negb (binterrupt (classify l))) ls = true ->
     parse_lines ((a :: ls) ++ tail)%list (PPara []) =
     parse_lines tail (PPara (rev (map drop_leading_ws (a :: ls)))).
 Proof.
-  intros a ls tail Ha Hls.
+  intros a ls tail Ha Hls His.
   change ((a :: ls) ++ tail)%list with (a :: (ls ++ tail))%list.
   rewrite parse_lines_text by exact Ha.
-  rewrite parse_lines_cont_seed by exact Hls.
+  rewrite parse_lines_cont_seed by (exact Hls || exact His).
   reflexivity.
 Qed.
 
@@ -896,6 +904,7 @@ deliberate step, not a surprise.
    admissible table, like the fold equations above them. *)
 Section WithTableDet.
 Context {T : dtable}.
+Context {K : btable}.
 
 Definition committed (xs : list string) (st : pstate) : blocks :=
   fst (run_lines xs st).

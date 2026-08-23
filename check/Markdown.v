@@ -202,18 +202,18 @@ family, and `markdown_table` is one of its inhabitants.
 
 Theorem md_roundtrip_blocks :
   forall cbs,
-    @cblocks_ok markdown_table cbs = true ->
-    @parse_blocks markdown_table
+    @cblocks_ok markdown_table _ cbs = true ->
+    @parse_blocks markdown_table _
       (@render_djot markdown_table (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
-Proof. exact (@roundtrip_blocks markdown_table). Qed.
+Proof. exact (@roundtrip_blocks markdown_table _). Qed.
 
 Theorem md_roundtrip_doc :
   forall cbs,
-    @cblocks_ok markdown_table cbs = true ->
+    @cblocks_ok markdown_table _ cbs = true ->
     undo_pass
       (doc_blocks
-         (@parse_doc markdown_table
+         (@parse_doc markdown_table _
             (@render_djot markdown_table (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
-Proof. exact (@roundtrip_doc markdown_table). Qed.
+Proof. exact (@roundtrip_doc markdown_table _). Qed.

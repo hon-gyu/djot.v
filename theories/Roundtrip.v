@@ -39,6 +39,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
+Context {K : btable}.
 
 (*
 Splitting a rendered document
@@ -273,15 +274,18 @@ Lemma para_ok_parts :
   forall a ls, para_ok (a :: ls) = true ->
   classify a = KText
   /\ forallb line_ok (a :: ls) = true
-  /\ strip_trailing_ws (last (a :: ls) EmptyString) = last (a :: ls) EmptyString.
+  /\ strip_trailing_ws (last (a :: ls) EmptyString) = last (a :: ls) EmptyString
+  /\ forallb (fun l => negb (binterrupt (classify l))) (a :: ls) = true.
 Proof.
   intros a ls H. unfold para_ok in H.
   apply andb_true_iff in H as [H Hlast].
+  apply andb_true_iff in H as [H Hint].
   apply andb_true_iff in H as [Htext Hlok].
   repeat split.
   - apply is_text_classify. exact Htext.
   - exact Hlok.
   - apply String.eqb_eq. exact Hlast.
+  - exact Hint.
 Qed.
 
 Lemma forallb_weaken :
@@ -473,7 +477,7 @@ Proof.
   intros lss H. rewrite cb_ok_para in H.
   apply andb_true_iff in H as [Hp Hc].
   destruct (map ci_line lss) as [|a ls'] eqn:E; [discriminate|].
-  apply para_ok_parts in Hp as (_ & Hlok & Hlast).
+  apply para_ok_parts in Hp as (_ & Hlok & Hlast & _).
   rewrite <- E in Hlok, Hlast |- *.
   cbn [cb_ast]. f_equal. f_equal.
   apply para_inlines_ci_para;
@@ -1073,9 +1077,10 @@ Proof.
       apply andb_true_iff in H as [Hp _];
       cbn [cb_lines];
       destruct (map ci_line lss) as [|a ls'] eqn:E; try discriminate;
-      apply para_ok_parts in Hp as (Htext & Hlok & _);
+      apply para_ok_parts in Hp as (Htext & Hlok & _ & Hint);
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [_ Hnb'];
+      cbn [forallb] in Hint; apply andb_true_iff in Hint as [_ Hint'];
       destruct (rev_cons_shape a ls') as [c [cur' Erev]].
     + rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
@@ -1785,6 +1790,7 @@ carries an explicit id, and it builds no sections.
    any admissible table, like the block-level one it rests on. *)
 Section WithTableDoc.
 Context {T : dtable}.
+Context {K : btable}.
 
 Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
 Proof.
