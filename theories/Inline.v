@@ -24,7 +24,7 @@
    did once a side outgrows the other. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Wf_nat Arith.
-From DjotV Require Import Strings Ast Attributes.
+From DjotV Require Import Config Strings Ast Attributes.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -372,6 +372,69 @@ Definition dconfig_rows_ok (C : dconfig) : bool :=
 
 Definition dconfig_ok (C : dconfig) : bool :=
   (dconfig_distinct C && dconfig_rows_ok C)%bool.
+
+(* The first executable Phase 4 obligation.  Turning a row off is a knob on
+   delimiter configurations; admissibility is the invariant it must preserve.
+   The operation changes only whether the selected row participates in lookup.
+   In particular it does not repair a malformed row by hiding it: row validity
+   remains an obligation even for disabled rows, as documented above. *)
+Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C)
+    (fun k => if dstyle_eq k target then DOff else dc_syntax C k)
+    (dc_decay C).
+
+Definition delimiter_admissible : invariant dconfig :=
+  fun C => dconfig_ok C = true.
+
+Lemma denabled_disable_row :
+  forall C target k,
+    denabled (disable_row target C) k = true -> denabled C k = true.
+Proof.
+  intros C target k H.
+  unfold disable_row in H. cbn in H.
+  unfold denabled in H |- *. cbn in H.
+  destruct (dstyle_eq k target); [discriminate|].
+  exact H.
+Qed.
+
+Lemma drow_ok_disable_row :
+  forall C target k, drow_ok (disable_row target C) k = drow_ok C k.
+Proof. reflexivity. Qed.
+
+Lemma dconfig_distinct_disable_row :
+  forall C target,
+    dconfig_distinct C = true ->
+    dconfig_distinct (disable_row target C) = true.
+Proof.
+  intros C target H.
+  unfold dconfig_distinct in H |- *.
+  rewrite forallb_forall in H |- *.
+  intros k Hk. specialize (H k Hk).
+  rewrite forallb_forall in H |- *.
+  intros k' Hk'. specialize (H k' Hk').
+  unfold implb in H |- *. cbn [disable_row] in H |- *.
+  destruct (denabled (disable_row target C) k) eqn:Ek; cbn; [|reflexivity].
+  destruct (denabled (disable_row target C) k') eqn:Ek'; cbn; [|reflexivity].
+  apply denabled_disable_row in Ek.
+  apply denabled_disable_row in Ek'.
+  rewrite Ek, Ek' in H. cbn in H. exact H.
+Qed.
+
+Lemma dconfig_rows_ok_disable_row :
+  forall C target,
+    dconfig_rows_ok (disable_row target C) = dconfig_rows_ok C.
+Proof. reflexivity. Qed.
+
+Theorem disable_row_preserves_admissible :
+  forall target, preserves (disable_row target) delimiter_admissible.
+Proof.
+  intros target C H.
+  unfold delimiter_admissible in H |- *.
+  apply andb_true_iff in H as [Hd Hr].
+  apply andb_true_iff. split.
+  - exact (dconfig_distinct_disable_row C target Hd).
+  - rewrite dconfig_rows_ok_disable_row. exact Hr.
+Qed.
 
 Lemma dconfig_ok_distinct :
   forall C, dconfig_ok C = true -> dconfig_distinct C = true.
