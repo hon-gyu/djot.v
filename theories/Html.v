@@ -5,14 +5,14 @@
    serialization diverges on attribute order, section wrapping, and task
    items, and we follow djot.js on all three).
 
-   Every element goes through `render_tag` / `in_tags`, which are
-   djot.js's `renderTag` / `inTags` (html.ts:109-127) transcribed, and
-   every attribute value through `attr_str` or `render_attrs`.  So a tag
-   name is written once rather than at its opening and again at its
-   closing, and the escaping of a value is decided in one place rather
-   than at each site that builds one. *)
+   The renderer builds an output tree (`helt`) and `serialize` writes it
+   out.  So a tag is opened and closed by one constructor rather than by
+   two string literals, and escaping happens in exactly two places --
+   `render_attrs` for a value, `serialize_elt` for text.  `serialize_lt_tags`
+   at the end of the file is what that buys: every `<` in the output opens
+   or closes a tag, so no source text can produce one. *)
 
-From Stdlib Require Import String Ascii List.
+From Stdlib Require Import String Ascii List Bool Arith Lia.
 From DjotV Require Import Strings Ast Parser Document.
 Import ListNotations.
 
@@ -51,36 +51,93 @@ Definition render_attrs (a : attr) : string :=
   String.concat ""
     (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
-(* One attribute a construct contributes itself, its value escaped.
-   `render_attrs` does the same for the node's own; routing the rest
-   through here is what keeps the quoting out of the call sites. *)
-Definition attr_str (k v : string) : string :=
-  " " ++ k ++ "=""" ++ escape_attr v ++ """".
+(*
+The output tree
+===============
 
-(* djot.js's `renderTag` and `inTags` (html.ts:109-127), transcribed.
-   Every element below is spelled with them, so a tag name is written
-   once rather than at its opening and again at its closing.
+The renderer builds this and `serialize` writes it out, rather than
+concatenating strings directly.  Two things follow that a flat string
+cannot express.
 
-   `extra` is `extraAttrs`, what the construct contributes itself, which
-   djot.js emits ahead of the node's own.  `nls` is `newlines`: 2 puts a
-   newline after the opening tag and after the closing one, 1 after the
-   closing one only, 0 neither. *)
-Definition render_tag (tag extra : string) (a : attr) : string :=
-  "<" ++ tag ++ extra ++ render_attrs a ++ ">".
+A tag is opened and closed by one constructor, so an unbalanced one
+cannot be written down.  And source text reaches the output only through
+`HText`, which `serialize` escapes, so `HRaw` is the whole of how an
+unescaped byte gets out -- reachable from a document only through a raw
+block or a raw inline, and otherwise carrying a constant this file
+chose.
+*)
 
-Definition in_tags (tag : string) (nls : nat) (extra : string) (a : attr)
-  (body : string) : string :=
-  render_tag tag extra a
-  ++ (if Nat.leb 2 nls then nl else "")
-  ++ body ++ "</" ++ tag ++ ">"
-  ++ (if Nat.leb 1 nls then nl else "").
+Inductive helt : Type :=
+  | HText (s : string)
+  | HRaw (s : string)
+  (* An element with no closing tag.  `self` spells it `<tag/>`, which
+     djot.js does for the task-list checkbox and nowhere else. *)
+  | HVoid (tag : string) (self : bool) (attrs : attr)
+  (* `nls` is djot.js's `newlines` (`inTags`, html.ts:122-127): 2 puts a
+     newline after the opening tag and after the closing one, 1 after the
+     closing one only, 0 neither.
 
-(* A task item's checkbox: the one tag here that closes itself, so it is
-   the one `render_tag` does not spell (html.ts:219-229). *)
-Definition checkbox_tag (chk : task_status) : string :=
-  "<input disabled="""" type=""checkbox"""
-  ++ (match chk with Complete => " checked=""""" | Incomplete => "" end)
-  ++ "/>".
+     Attributes are one list, in output order.  What djot.js calls
+     `extraAttrs` -- what a construct contributes itself, ahead of the
+     node's own -- is just the front of it. *)
+  | HElem (tag : string) (nls : nat) (attrs : attr) (kids : list helt).
+
+Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
+  "<" ++ tag ++ render_attrs a ++ (if self then "/>" else ">").
+
+(* Recursion on the element with the children walked by an inner `fix`,
+   which is what the guard checker accepts through `list helt` -- a plain
+   fixpoint on the list is rejected, since `kids` is not a subterm of the
+   list being matched.  `serialize_elt_elem` below recovers the equation
+   that spelling costs. *)
+Fixpoint serialize_elt (e : helt) : string :=
+  let go :=
+    fix go (es : list helt) : string :=
+      match es with
+      | [] => ""
+      | e' :: rest => serialize_elt e' ++ go rest
+      end in
+  match e with
+  | HText s => escape s
+  | HRaw s => s
+  | HVoid tag self a => open_tag tag self a
+  | HElem tag nls a kids =>
+      open_tag tag false a
+      ++ (if Nat.leb 2 nls then nl else "")
+      ++ go kids ++ "</" ++ tag ++ ">"
+      ++ (if Nat.leb 1 nls then nl else "")
+  end.
+
+Fixpoint serialize (es : list helt) : string :=
+  match es with
+  | [] => ""
+  | e :: rest => serialize_elt e ++ serialize rest
+  end.
+
+Lemma serialize_elt_elem : forall tag nls a kids,
+  serialize_elt (HElem tag nls a kids)
+  = open_tag tag false a
+    ++ (if Nat.leb 2 nls then nl else "")
+    ++ serialize kids ++ "</" ++ tag ++ ">"
+    ++ (if Nat.leb 1 nls then nl else "").
+Proof.
+  intros tag nls a kids. cbn [serialize_elt].
+  assert (H : forall ks,
+    (fix go (es : list helt) : string :=
+       match es with
+       | [] => ""
+       | e' :: rest => serialize_elt e' ++ go rest
+       end) ks = serialize ks).
+  { induction ks as [|k ks' IH]; [reflexivity|].
+    cbn [serialize]. rewrite <- IH. reflexivity. }
+  rewrite H. reflexivity.
+Qed.
+
+(* A task item's checkbox (html.ts:219-229). *)
+Definition checkbox_elt (chk : task_status) : helt :=
+  HVoid "input" true
+    ([("disabled", ""); ("type", "checkbox")]
+     ++ match chk with Complete => [("checked", "")] | Incomplete => [] end)%list.
 
 (* What a resolved reference definition contributes.  Its attributes are
    extra in the same sense as `href`, so they precede the node's own --
@@ -102,16 +159,16 @@ Definition ref_extra (a0 a : attr) : attr :=
    are omitted at their HTML defaults — start 1, decimal numbering — and
    both precede the node's own attributes, because `renderAttributes`
    emits `extraAttrs` first (html.ts:76-88). *)
-Definition ol_attrs (oa : ordered_list_attributes) : string :=
-  (if Nat.eqb (ol_start oa) 1
-   then "" else attr_str "start" (nat_str (ol_start oa)))
-  ++ (match ol_style oa with
-      | Decimal => ""
-      | LetterLower => attr_str "type" "a"
-      | LetterUpper => attr_str "type" "A"
-      | RomanLower => attr_str "type" "i"
-      | RomanUpper => attr_str "type" "I"
-      end).
+Definition ol_attrs (oa : ordered_list_attributes) : attr :=
+  ((if Nat.eqb (ol_start oa) 1
+    then [] else [("start", nat_str (ol_start oa))])
+   ++ (match ol_style oa with
+       | Decimal => []
+       | LetterLower => [("type", "a")]
+       | LetterUpper => [("type", "A")]
+       | RomanLower => [("type", "i")]
+       | RomanUpper => [("type", "I")]
+       end))%list.
 
 (*
 Inlines
@@ -164,36 +221,34 @@ Context (refs : reference_map).
    attributed one in a `<span>` and leaves a bare one alone
    (html.ts:246) -- which is why `foo{.a}` is a `str` carrying attributes
    in the AST and a span only in the output. *)
-Fixpoint render_inline (il : inline) (a : attr) : string :=
+Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   let render_ils :=
-    fix go (ns : list (node inline)) : string :=
+    fix go (ns : list (node inline)) : list helt :=
       match ns with
-      | [] => ""
-      | Node _ a' x :: rest => render_inline x a' ++ go rest
+      | [] => []
+      | Node _ a' x :: rest => (render_inline x a' ++ go rest)%list
       end in
   match il with
   | Str s =>
       match a with
-      | [] => escape s
-      | _ => in_tags "span" 0 "" a (escape s)
+      | [] => [HText s]
+      | _ => [HElem "span" 0 a [HText s]]
       end
-  | Emph ils => in_tags "em" 0 "" a (render_ils ils)
-  | Strong ils => in_tags "strong" 0 "" a (render_ils ils)
-  | Highlight ils => in_tags "mark" 0 "" a (render_ils ils)
-  | Insert ils => in_tags "ins" 0 "" a (render_ils ils)
-  | Delete ils => in_tags "del" 0 "" a (render_ils ils)
-  | Superscript ils => in_tags "sup" 0 "" a (render_ils ils)
-  | Subscript ils => in_tags "sub" 0 "" a (render_ils ils)
-  | Verbatim s => in_tags "code" 0 "" a (escape s)
-  | Symbol s => ":" ++ escape s ++ ":"
+  | Emph ils => [HElem "em" 0 a (render_ils ils)]
+  | Strong ils => [HElem "strong" 0 a (render_ils ils)]
+  | Highlight ils => [HElem "mark" 0 a (render_ils ils)]
+  | Insert ils => [HElem "ins" 0 a (render_ils ils)]
+  | Delete ils => [HElem "del" 0 a (render_ils ils)]
+  | Superscript ils => [HElem "sup" 0 a (render_ils ils)]
+  | Subscript ils => [HElem "sub" 0 a (render_ils ils)]
+  | Verbatim s => [HElem "code" 0 a [HText s]]
+  | Symbol s => [HText (":" ++ s ++ ":")]
   (* djot.js emits a span carrying the class and wraps the content in
      TeX delimiters, escaping it as text (`html.ts:330-338`). *)
   | Math InlineMath s =>
-      in_tags "span" 0 (attr_str "class" "math inline") []
-        ("\(" ++ escape s ++ "\)")
+      [HElem "span" 0 [("class", "math inline")] [HText ("\(" ++ s ++ "\)")]]
   | Math DisplayMath s =>
-      in_tags "span" 0 (attr_str "class" "math display") []
-        ("\[" ++ escape s ++ "\]")
+      [HElem "span" 0 [("class", "math display")] [HText ("\[" ++ s ++ "\]")]]
   (* `href` is an extra attribute, so it precedes the node's own and is
      omitted entirely when the target is an unresolved reference: djot.js
      drops the attribute (with a warning) when a label does not resolve.
@@ -201,57 +256,56 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
      `ref_extra`, which are extra in the same sense and so also precede
      the node's. *)
   | Link ils (Direct url) =>
-      in_tags "a" 0 (attr_str "href" url) a (render_ils ils)
+      [HElem "a" 0 (("href", url) :: a) (render_ils ils)]
   | Link ils (Reference label) =>
       match lookup_reference label refs with
       | Some (url, a0) =>
-          in_tags "a" 0
-            (attr_str "href" url ++ render_attrs (ref_extra a0 a)) a
-            (render_ils ils)
-      | None => in_tags "a" 0 "" a (render_ils ils)
+          [HElem "a" 0
+             (("href", url) :: ref_extra a0 a ++ a)%list (render_ils ils)]
+      | None => [HElem "a" 0 a (render_ils ils)]
       end
   (* `alt` precedes `src`, both extra attributes, in that order
      (html.ts:452). *)
   | Image ils (Direct url) =>
-      render_tag "img"
-        (attr_str "alt" (plain_texts ils) ++ attr_str "src" url) a
+      [HVoid "img" false
+         (("alt", plain_texts ils) :: ("src", url) :: a)]
   | Image ils (Reference label) =>
       match lookup_reference label refs with
       | Some (url, a0) =>
-          render_tag "img"
-            (attr_str "alt" (plain_texts ils) ++ attr_str "src" url
-             ++ render_attrs (ref_extra a0 a)) a
-      | None => render_tag "img" (attr_str "alt" (plain_texts ils)) a
+          [HVoid "img" false
+             (("alt", plain_texts ils) :: ("src", url)
+              :: ref_extra a0 a ++ a)%list]
+      | None => [HVoid "img" false (("alt", plain_texts ils) :: a)]
       end
-  | Span ils => in_tags "span" 0 "" a (render_ils ils)
-  | FootnoteReference _ => "" (* TODO Phase 1 *)
+  | Span ils => [HElem "span" 0 a (render_ils ils)]
+  | FootnoteReference _ => [] (* numbered on the `_foot` path *)
   (* An autolink renders as its own text under an `href`, which is an
      extra attribute and so precedes the node's own -- `renderTag("a",
      node, extraAttr)` (html.ts:470-481).  The two kinds differ only in
      the `mailto:` an email prefixes to the destination; the text shown
      is the region either way. *)
-  | UrlLink url =>
-      in_tags "a" 0 (attr_str "href" url) a (escape url)
+  | UrlLink url => [HElem "a" 0 (("href", url) :: a) [HText url]]
   | EmailLink addr =>
-      in_tags "a" 0 (attr_str "href" ("mailto:" ++ addr)) a (escape addr)
+      [HElem "a" 0 (("href", "mailto:" ++ addr) :: a) [HText addr]]
   (* Raw content in a format the renderer does not speak contributes
      nothing at all, attributes included -- `html.ts:396-402` emits the
      text only for `html` and never a wrapper element. *)
-  | RawInline fmt s => if String.eqb fmt "html" then s else ""
-  | NonBreakingSpace => "&nbsp;"
+  | RawInline fmt s => if String.eqb fmt "html" then [HRaw s] else []
+  (* The one constant this file writes unescaped. *)
+  | NonBreakingSpace => [HRaw "&nbsp;"]
   (* The curly quotes are the whole of what a quoted span renders as:
      djot.js wraps the children in the two characters and emits no
      element (`html.ts:353-358`). *)
-  | Quoted SingleQuotes ils => lsquo ++ render_ils ils ++ rsquo
-  | Quoted DoubleQuotes ils => ldquo ++ render_ils ils ++ rdquo
-  | SoftBreak => nl
-  | HardBreak => render_tag "br" "" [] ++ nl
+  | Quoted SingleQuotes ils =>
+      ([HText lsquo] ++ render_ils ils ++ [HText rsquo])%list
+  | Quoted DoubleQuotes ils =>
+      ([HText ldquo] ++ render_ils ils ++ [HText rdquo])%list
+  | SoftBreak => [HText nl]
+  | HardBreak => [HVoid "br" false []; HText nl]
   end.
 
-Definition render_inlines (ils : inlines) : string :=
-  String.concat "" (map (fun n => match n with
-                                  | Node _ a x => render_inline x a
-                                  end) ils).
+Definition render_inlines (ils : inlines) : list helt :=
+  flat_map (fun n => match n with Node _ a x => render_inline x a end) ils.
 
 (*
 Table rows
@@ -262,28 +316,28 @@ touching `render_block`'s recursion.  Alignment is a style attribute on
 the cell, and `AlignDefault` carries none (html.ts, and confirmed
 against the oracle on every combination in `tables.test`). *)
 
-Definition align_attr (al : align) : string :=
+Definition align_attr (al : align) : attr :=
   match al with
-  | AlignDefault => ""
-  | AlignLeft => attr_str "style" "text-align: left;"
-  | AlignRight => attr_str "style" "text-align: right;"
-  | AlignCenter => attr_str "style" "text-align: center;"
+  | AlignDefault => []
+  | AlignLeft => [("style", "text-align: left;")]
+  | AlignRight => [("style", "text-align: right;")]
+  | AlignCenter => [("style", "text-align: center;")]
   end.
 
-Definition render_cell (c : cell) : string :=
+Definition render_cell (c : cell) : helt :=
   match c with
   | Cell ct al ils =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
-      in_tags tag 1 (align_attr al) [] (render_inlines ils)
+      HElem tag 1 (align_attr al) (render_inlines ils)
   end.
 
-Definition render_row (r : list cell) : string :=
-  in_tags "tr" 2 "" [] (String.concat "" (map render_cell r)).
+Definition render_row (r : list cell) : helt :=
+  HElem "tr" 2 [] (map render_cell r).
 
-Definition render_caption (caption : option inlines) : string :=
+Definition render_caption (caption : option inlines) : list helt :=
   match caption with
-  | None => ""
-  | Some ils => in_tags "caption" 1 "" [] (render_inlines ils)
+  | None => []
+  | Some ils => [HElem "caption" 1 [] (render_inlines ils)]
   end.
 
 (*
@@ -306,25 +360,25 @@ Blocks
    on `block` — `list (node block)` is two type constructors deep, which
    the guard checker will not follow from a `node block` argument. *)
 Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
-  : string :=
+  : list helt :=
   (* Takes the flag as an argument so that one list recursion serves both
      the containers, which pass it through, and the items, which set it. *)
   let render_bs_at :=
-    fix go (t : bool) (ns : list (node block)) : string :=
+    fix go (t : bool) (ns : list (node block)) : list helt :=
       match ns with
-      | [] => ""
-      | Node _ a' x :: rest => render_block t x a' ++ go t rest
+      | [] => []
+      | Node _ a' x :: rest => (render_block t x a' ++ go t rest)%list
       end in
   let render_bs := render_bs_at tight in
   let render_items :=
     fix goi (sp : list_spacing) (its : list (list (node block))) {struct its}
-      : string :=
+      : list helt :=
       match its with
-      | [] => ""
+      | [] => []
       | it :: rest =>
-          in_tags "li" 2 "" []
-            (render_bs_at (match sp with Tight => true | Loose => false end) it)
-          ++ goi sp rest
+          (HElem "li" 2 []
+             (render_bs_at (match sp with Tight => true | Loose => false end) it)
+           :: goi sp rest)%list
       end in
   (* A `dd` is rendered at the *incoming* tightness, not at the list's:
      djot.js's `definition_list` node carries no `tight` field where
@@ -335,13 +389,13 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
      it is what records the blank lines the source had. *)
   let render_def_items :=
     fix god (its : list (inlines * list (node block))) {struct its}
-      : string :=
+      : list helt :=
       match its with
-      | [] => ""
+      | [] => []
       | (term, it) :: rest =>
-          in_tags "dt" 1 "" [] (render_inlines term)
-          ++ in_tags "dd" 2 "" [] (render_bs it)
-          ++ god rest
+          (HElem "dt" 1 [] (render_inlines term)
+           :: HElem "dd" 2 [] (render_bs it)
+           :: god rest)%list
       end in
   (* A task item's checkbox, ahead of its content and outside whatever
      the tightness does to that content (html.ts:219-229).  The `<ul>`
@@ -349,65 +403,65 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
      order `ol_attrs` already establishes. *)
   let render_task_items :=
     fix got (sp : list_spacing)
-      (its : list (task_status * list (node block))) {struct its} : string :=
+      (its : list (task_status * list (node block))) {struct its}
+      : list helt :=
       match its with
-      | [] => ""
+      | [] => []
       | (st, it) :: rest =>
-          in_tags "li" 2 "" []
-            (checkbox_tag st ++ nl
-             ++ render_bs_at (match sp with Tight => true | Loose => false end) it)
-          ++ got sp rest
+          (HElem "li" 2 []
+             (checkbox_elt st :: HText nl
+              :: render_bs_at
+                   (match sp with Tight => true | Loose => false end) it)%list
+           :: got sp rest)%list
       end in
   match b with
   (* A tight paragraph loses its tag, keeping the newline the tag carried.
      Its attributes go with the tag; djot.js drops them the same way, and
      nothing produces them here yet. *)
   | Para ils =>
-      if tight then render_inlines ils ++ nl
-      else in_tags "p" 1 "" a (render_inlines ils)
-  | Section bs => in_tags "section" 2 "" a (render_bs bs)
+      if tight then (render_inlines ils ++ [HText nl])%list
+      else [HElem "p" 1 a (render_inlines ils)]
+  | Section bs => [HElem "section" 2 a (render_bs bs)]
   | Heading lvl ils =>
-      in_tags ("h" ++ nat_str lvl) 1 "" a (render_inlines ils)
-  | BlockQuote bs => in_tags "blockquote" 2 "" a (render_bs bs)
+      [HElem ("h" ++ nat_str lvl) 1 a (render_inlines ils)]
+  | BlockQuote bs => [HElem "blockquote" 2 a (render_bs bs)]
   (* The language is escaped as an attribute value, which djot.js does
      too (`escapeAttribute`, html.ts code_block).  Spelling it by hand
      here did not, so a fence tagged with a quote broke out of the
      class attribute. *)
   | CodeBlock lang code =>
-      in_tags "pre" 1 "" a
-        (in_tags "code" 0
-           (match lang with
-            | EmptyString => ""
-            | _ => attr_str "class" ("language-" ++ lang)
-            end) [] (escape code))
-  | Div bs => in_tags "div" 2 "" a (render_bs bs)
+      [HElem "pre" 1 a
+         [HElem "code" 0
+            (match lang with
+             | EmptyString => []
+             | _ => [("class", "language-" ++ lang)]
+             end) [HText code]]]
+  | Div bs => [HElem "div" 2 a (render_bs bs)]
   | OrderedList oa sp items =>
-      in_tags "ol" 2 (ol_attrs oa) a (render_items sp items)
-  | BulletList sp items => in_tags "ul" 2 "" a (render_items sp items)
+      [HElem "ol" 2 (ol_attrs oa ++ a)%list (render_items sp items)]
+  | BulletList sp items => [HElem "ul" 2 a (render_items sp items)]
   | TaskList sp items =>
-      in_tags "ul" 2 (attr_str "class" "task-list") a
-        (render_task_items sp items)
-  | DefinitionList _ items =>
-      in_tags "dl" 2 "" a (render_def_items items)
-  | ThematicBreak => render_tag "hr" "" a ++ nl
+      [HElem "ul" 2 (("class", "task-list") :: a) (render_task_items sp items)]
+  | DefinitionList _ items => [HElem "dl" 2 a (render_def_items items)]
+  | ThematicBreak => [HVoid "hr" false a; HText nl]
   | Table caption rows =>
-      in_tags "table" 2 "" a
-        (render_caption caption ++ String.concat "" (map render_row rows))
+      [HElem "table" 2 a
+         (render_caption caption ++ map render_row rows)%list]
   | RawBlock fmt contents =>
-      if String.eqb fmt "html" then contents else ""
+      if String.eqb fmt "html" then [HRaw contents] else []
   (* A reference definition is not content: djot.js keeps it out of the
      block tree entirely and emits nothing for it. *)
-  | RefDef _ _ => ""
+  | RefDef _ _ => []
   (* Collected by the later document pass; while it remains in the block
      tree it is metadata rather than visible document content. *)
-  | FootnoteDef _ _ => ""
+  | FootnoteDef _ _ => []
   end.
 
-Definition render_node (n : node block) : string :=
+Definition render_node (n : node block) : list helt :=
   match n with Node _ a b => render_block false b a end.
 
-Definition render_blocks (bs : blocks) : string :=
-  String.concat "" (map render_node bs).
+Definition render_blocks (bs : blocks) : list helt :=
+  flat_map render_node bs.
 
 (* Footnote indices are assigned by the HTML traversal, including traversals
    through note bodies.  Keeping this path beside the stateless renderer
@@ -431,51 +485,50 @@ Definition number_footnote (label : string) (st : foot_state)
   end.
 
 Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
-  {struct il} : foot_state * string :=
+  {struct il} : foot_state * list helt :=
   let render_ils :=
     fix go (st0 : foot_state) (ns : list (node inline))
-      : foot_state * string :=
+      : foot_state * list helt :=
       match ns with
-      | [] => (st0, "")
+      | [] => (st0, [])
       | Node _ a' x :: rest =>
           let '(st1, s1) := render_inline_foot st0 x a' in
           let '(st2, s2) := go st1 rest in
-          (st2, s1 ++ s2)
+          (st2, (s1 ++ s2)%list)
       end in
   match il with
   | Emph ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "em" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "em" 0 a s])
   | Strong ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "strong" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "strong" 0 a s])
   | Highlight ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "mark" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "mark" 0 a s])
   | Insert ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "ins" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "ins" 0 a s])
   | Delete ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "del" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "del" 0 a s])
   | Superscript ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "sup" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "sup" 0 a s])
   | Subscript ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "sub" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "sub" 0 a s])
   | Span ils =>
-      let '(st', s) := render_ils st ils in (st', in_tags "span" 0 "" a s)
+      let '(st', s) := render_ils st ils in (st', [HElem "span" 0 a s])
   | Quoted q ils =>
       let '(st', s) := render_ils st ils in
       match q with
-      | SingleQuotes => (st', lsquo ++ s ++ rsquo)
-      | DoubleQuotes => (st', ldquo ++ s ++ rdquo)
+      | SingleQuotes => (st', ([HText lsquo] ++ s ++ [HText rsquo])%list)
+      | DoubleQuotes => (st', ([HText ldquo] ++ s ++ [HText rdquo])%list)
       end
   | Link ils target =>
       let '(st', s) := render_ils st ils in
       match target with
-      | Direct url => (st', in_tags "a" 0 (attr_str "href" url) a s)
+      | Direct url => (st', [HElem "a" 0 (("href", url) :: a) s])
       | Reference label =>
           match lookup_reference label refs with
           | Some (url, a0) =>
-              (st', in_tags "a" 0
-                      (attr_str "href" url ++ render_attrs (ref_extra a0 a))
-                      a s)
-          | None => (st', in_tags "a" 0 "" a s)
+              (st', [HElem "a" 0
+                       (("href", url) :: ref_extra a0 a ++ a)%list s])
+          | None => (st', [HElem "a" 0 a s])
           end
       end
   (* Image children become alt text and are not visited by djot.js's HTML
@@ -484,192 +537,183 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | FootnoteReference label =>
       let '(st', n, first) := number_footnote label st in
       let sn := nat_str n in
-      (st', in_tags "a" 0
-              ((if first then attr_str "id" ("fnref" ++ sn) else "")
-               ++ attr_str "href" ("#fn" ++ sn)
-               ++ attr_str "role" "doc-noteref") a
-              (in_tags "sup" 0 "" [] sn))
+      (st', [HElem "a" 0
+               ((if first then [("id", ("fnref" ++ sn)%string)] else [])
+                ++ [("href", ("#fn" ++ sn)%string); ("role", "doc-noteref")]
+                ++ a)%list
+               [HElem "sup" 0 [] [HText sn]]])
   | _ => (st, render_inline il a)
   end.
 
 Definition render_inlines_foot (st : foot_state) (ils : inlines)
-  : foot_state * string :=
+  : foot_state * list helt :=
   fold_left
     (fun acc n =>
        let '(st0, out) := acc in
        let '(st1, s) :=
          match n with Node _ a x => render_inline_foot st0 x a end in
-       (st1, out ++ s))
-    ils (st, "").
+       (st1, (out ++ s)%list))
+    ils (st, []).
 
 (* The table renderers again, threading the footnote counter: a cell may
    carry a footnote reference, and it is numbered in source order like
    any other. *)
-Definition render_cell_foot (st : foot_state) (c : cell) : foot_state * string :=
+Definition render_cell_foot (st : foot_state) (c : cell)
+  : foot_state * helt :=
   match c with
   | Cell ct al ils =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
       let '(st', s) := render_inlines_foot st ils in
-      (st', in_tags tag 1 (align_attr al) [] s)
+      (st', HElem tag 1 (align_attr al) s)
   end.
 
 Fixpoint render_cells_foot (st : foot_state) (r : list cell)
-  : foot_state * string :=
+  : foot_state * list helt :=
   match r with
-  | [] => (st, "")
+  | [] => (st, [])
   | c :: rest =>
-      let '(st1, s1) := render_cell_foot st c in
-      let '(st2, s2) := render_cells_foot st1 rest in
-      (st2, s1 ++ s2)
+      let '(st1, e) := render_cell_foot st c in
+      let '(st2, es) := render_cells_foot st1 rest in
+      (st2, e :: es)
   end.
 
 Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
-  : foot_state * string :=
+  : foot_state * list helt :=
   match rows with
-  | [] => (st, "")
+  | [] => (st, [])
   | r :: rest =>
-      let '(st1, s1) := render_cells_foot st r in
-      let '(st2, s2) := render_rows_foot st1 rest in
-      (st2, in_tags "tr" 2 "" [] s1 ++ s2)
+      let '(st1, cells) := render_cells_foot st r in
+      let '(st2, es) := render_rows_foot st1 rest in
+      (st2, HElem "tr" 2 [] cells :: es)
   end.
 
 Definition render_caption_foot (st : foot_state) (caption : option inlines)
-  : foot_state * string :=
+  : foot_state * list helt :=
   match caption with
-  | None => (st, "")
+  | None => (st, [])
   | Some ils =>
       let '(st', s) := render_inlines_foot st ils in
-      (st', in_tags "caption" 1 "" [] s)
+      (st', [HElem "caption" 1 [] s])
   end.
 
 Fixpoint render_block_foot (st : foot_state) (tight : bool)
-  (b : block) (a : attr) {struct b} : foot_state * string :=
+  (b : block) (a : attr) {struct b} : foot_state * list helt :=
   let render_bs_at :=
     fix go (st0 : foot_state) (t : bool) (ns : list (node block))
-      : foot_state * string :=
+      : foot_state * list helt :=
       match ns with
-      | [] => (st0, "")
+      | [] => (st0, [])
       | Node _ a' x :: rest =>
           let '(st1, s1) := render_block_foot st0 t x a' in
           let '(st2, s2) := go st1 t rest in
-          (st2, s1 ++ s2)
+          (st2, (s1 ++ s2)%list)
       end in
   let render_items :=
     fix goi (st0 : foot_state) (sp : list_spacing)
-      (its : list (list (node block))) {struct its} : foot_state * string :=
+      (its : list (list (node block))) {struct its}
+      : foot_state * list helt :=
       match its with
-      | [] => (st0, "")
+      | [] => (st0, [])
       | it :: rest =>
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := goi st1 sp rest in
-          (st2, in_tags "li" 2 "" [] s1 ++ s2)
+          (st2, HElem "li" 2 [] s1 :: s2)
       end in
   let render_task_items :=
     fix got (st0 : foot_state) (sp : list_spacing)
       (its : list (task_status * list (node block))) {struct its}
-      : foot_state * string :=
+      : foot_state * list helt :=
       match its with
-      | [] => (st0, "")
+      | [] => (st0, [])
       | (chk, it) :: rest =>
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := got st1 sp rest in
-          (st2, in_tags "li" 2 "" [] (checkbox_tag chk ++ nl ++ s1) ++ s2)
+          (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
       end in
   let render_def_items :=
     fix god (st0 : foot_state) (its : list (inlines * list (node block)))
-      {struct its} : foot_state * string :=
+      {struct its} : foot_state * list helt :=
       match its with
-      | [] => (st0, "")
+      | [] => (st0, [])
       | (term, it) :: rest =>
           let '(st1, s1) := render_inlines_foot st0 term in
           let '(st2, s2) := render_bs_at st1 tight it in
           let '(st3, s3) := god st2 rest in
-          (st3, in_tags "dt" 1 "" [] s1 ++ in_tags "dd" 2 "" [] s2 ++ s3)
+          (st3, HElem "dt" 1 [] s1 :: HElem "dd" 2 [] s2 :: s3)
       end in
   match b with
   | Para ils =>
       let '(st', s) := render_inlines_foot st ils in
-      if tight then (st', s ++ nl)
-      else (st', in_tags "p" 1 "" a s)
+      if tight then (st', (s ++ [HText nl])%list)
+      else (st', [HElem "p" 1 a s])
   | Heading lvl ils =>
       let '(st', s) := render_inlines_foot st ils in
-      (st', in_tags ("h" ++ nat_str lvl) 1 "" a s)
+      (st', [HElem ("h" ++ nat_str lvl) 1 a s])
   | Section bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', in_tags "section" 2 "" a s)
+      (st', [HElem "section" 2 a s])
   | BlockQuote bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', in_tags "blockquote" 2 "" a s)
+      (st', [HElem "blockquote" 2 a s])
   | Div bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', in_tags "div" 2 "" a s)
+      (st', [HElem "div" 2 a s])
   | OrderedList oa sp items =>
       let '(st', s) := render_items st sp items in
-      (st', in_tags "ol" 2 (ol_attrs oa) a s)
+      (st', [HElem "ol" 2 (ol_attrs oa ++ a)%list s])
   | BulletList sp items =>
       let '(st', s) := render_items st sp items in
-      (st', in_tags "ul" 2 "" a s)
+      (st', [HElem "ul" 2 a s])
   (* As `render_block`, with the counter threaded: a footnote reference
      inside a definition would otherwise fall through to the stateless
      path and be dropped, which is the bug the table step found on this
      same line. *)
   | DefinitionList _ items =>
       let '(st', s) := render_def_items st items in
-      (st', in_tags "dl" 2 "" a s)
+      (st', [HElem "dl" 2 a s])
   | TaskList sp items =>
       let '(st', s) := render_task_items st sp items in
-      (st', in_tags "ul" 2 (attr_str "class" "task-list") a s)
+      (st', [HElem "ul" 2 (("class", "task-list") :: a) s])
   | Table caption rows =>
       let '(st1, s1) := render_caption_foot st caption in
       let '(st2, s2) := render_rows_foot st1 rows in
-      (st2, in_tags "table" 2 "" a (s1 ++ s2))
+      (st2, [HElem "table" 2 a (s1 ++ s2)%list])
   | _ => (st, render_block tight b a)
   end.
 
 Definition render_blocks_foot (st : foot_state) (bs : blocks)
-  : foot_state * string :=
+  : foot_state * list helt :=
   fold_left
     (fun acc n =>
        let '(st0, out) := acc in
        let '(st1, s) :=
          match n with Node _ a b => render_block_foot st0 false b a end in
-       (st1, out ++ s))
-    bs (st, "").
+       (st1, (out ++ s)%list))
+    bs (st, []).
 
-Definition ends_with (suffix s : string) : bool :=
-  let n := String.length s in
-  let m := String.length suffix in
-  String.eqb (String.substring (n - m) m s) suffix.
+Definition note_backlink (n : nat) : helt :=
+  HElem "a" 0
+    [("href", "#fnref" ++ nat_str n); ("role", "doc-backlink")]
+    [HText "↩︎"].
 
-Definition note_backlink (n : nat) : string :=
-  in_tags "a" 0
-    (attr_str "href" ("#fnref" ++ nat_str n)
-     ++ attr_str "role" "doc-backlink") [] "↩︎".
-
-Fixpoint split_line_endings_rev (r endings : string) : string * string :=
-  match r with
-  | EmptyString => ("", endings)
-  | String c rest =>
-      if (Ascii.eqb c "010"%char || Ascii.eqb c "013"%char)%bool
-      then split_line_endings_rev rest (String c endings)
-      else (rev_string r, endings)
+(* The backlink goes inside the note's last paragraph where there is one
+   and in a paragraph of its own otherwise.  djot.js decides that by
+   matching `/<\/p>[\r\n]*$/` against the rendered string (`addBacklink`);
+   on the tree it is a look at the last element, which is the same
+   question asked of the structure rather than of its serialization. *)
+Definition add_backlink (body : list helt) (n : nat) : list helt :=
+  match rev body with
+  | HElem tag nls a kids :: earlier =>
+      if String.eqb tag "p"
+      then rev (HElem tag nls a (kids ++ [note_backlink n])%list :: earlier)
+      else (body ++ [HElem "p" 1 [] [note_backlink n]])%list
+  | _ => (body ++ [HElem "p" 1 [] [note_backlink n]])%list
   end.
 
-Definition split_trailing_line_endings (s : string) : string * string :=
-  split_line_endings_rev (rev_string s) "".
-
-Definition add_backlink (body : string) (n : nat) : string :=
-  let back := note_backlink n in
-  let '(core, endings) := split_trailing_line_endings body in
-  if ends_with "</p>" core then
-    String.substring 0 (String.length core - 4) core
-    ++ back ++ "</p>" ++ endings
-  else body ++ "<p>" ++ back ++ "</p>" ++ nl.
-
 Fixpoint render_note_defs (st : foot_state) (notes : note_map)
-  : foot_state * list (string * string) :=
+  : foot_state * list (string * list helt) :=
   match notes with
   | [] => (st, [])
   | (label, bs) :: rest =>
@@ -686,32 +730,34 @@ Fixpoint label_at (n : nat) (numbers : list (string * nat)) : option string :=
   end.
 
 Definition rendered_note_at (n : nat) (st : foot_state)
-  (rendered : list (string * string)) : string :=
+  (rendered : list (string * list helt)) : list helt :=
   match label_at n (foot_numbers st) with
-  | None => ""
-  | Some label => match alist_lookup label rendered with Some s => s | None => "" end
+  | None => []
+  | Some label =>
+      match alist_lookup label rendered with Some s => s | None => [] end
   end.
 
 Fixpoint render_note_items (fuel n : nat) (st : foot_state)
-  (rendered : list (string * string)) : string :=
+  (rendered : list (string * list helt)) : list helt :=
   match fuel with
-  | O => ""
+  | O => []
   | S fuel' =>
-      in_tags "li" 2 (attr_str "id" ("fn" ++ nat_str n)) []
+      HElem "li" 2 [("id", "fn" ++ nat_str n)]
         (add_backlink (rendered_note_at n st rendered) n)
-      ++ render_note_items fuel' (S n) st rendered
+      :: render_note_items fuel' (S n) st rendered
   end.
 
-Definition render_document_foot (blocks : blocks) (notes : note_map) : string :=
+Definition render_document_foot (blocks : blocks) (notes : note_map)
+  : list helt :=
   let '(st1, body) := render_blocks_foot foot_initial blocks in
   if Nat.eqb (foot_next st1) 1 then body
   else
     let '(st2, rendered) := render_note_defs st1 notes in
-    body
-    ++ in_tags "section" 2 (attr_str "role" "doc-endnotes") []
-         (render_tag "hr" "" [] ++ nl
-          ++ in_tags "ol" 2 "" []
-               (render_note_items (foot_next st2 - 1) 1 st2 rendered)).
+    (body
+     ++ [HElem "section" 2 [("role", "doc-endnotes")]
+           [HVoid "hr" false []; HText nl;
+            HElem "ol" 2 []
+              (render_note_items (foot_next st2 - 1) 1 st2 rendered)]])%list.
 
 End WithRefs.
 
@@ -720,8 +766,12 @@ End WithRefs.
 Definition doc_refs (d : doc) : reference_map :=
   (doc_references d ++ doc_auto_references d)%list.
 
-Definition render_html (d : doc) : string :=
+(* The output tree of a whole document, named because the safety
+   statements below are about it rather than about its serialization. *)
+Definition html_tree (d : doc) : list helt :=
   render_document_foot (doc_refs d) (doc_blocks d) (doc_footnotes d).
+
+Definition render_html (d : doc) : string := serialize (html_tree d).
 
 (* The single entry point the harness extracts: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
@@ -1213,8 +1263,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* A fence's language is an attribute value and is escaped as one.
    Spelling the class by hand did not escape it, so a language carrying a
-   quote broke out of the attribute; `attr_str` is what closes it, and
-   djot.js agrees byte for byte. *)
+   quote broke out of the attribute; carrying it as an attribute pair is
+   what closes it, and djot.js agrees byte for byte. *)
 Example convert_code_lang_escaped :
   convert "``` a""onx=""y
 z
@@ -1222,4 +1272,279 @@ z
   = "<pre><code class=""language-a&quot;onx=&quot;y"">z
 </code></pre>
 ".
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Output safety
+=============
+
+The one thing the tree makes statable that a flat string could not.
+
+`serialize` writes a `<` when it opens or closes a tag and at no other
+time, because the two routes from a document into the output -- text and
+attribute values -- both go through an escaper that removes it.  So the
+count of `<` in the output is determined by the tree's shape alone, and
+no byte of source text can add one.
+
+Two hypotheses carry the conditions this rests on rather than leaving
+them as coincidences of the call sites.  `HRaw` is excluded, since it is
+the deliberate hole (a raw block, a raw inline, or the one entity this
+file writes).  And a tag name and an attribute *key* must carry no `<`
+themselves: `render_attrs` escapes a value but emits a key as it stands,
+which is safe today only because `Attributes.is_key_char` admits no `<`.
+Saying so here is what turns that into a stated condition.
+*)
+
+Fixpoint count_char (c : ascii) (s : string) : nat :=
+  match s with
+  | EmptyString => 0
+  | String c' s' =>
+      (if Ascii.eqb c c' then 1 else 0) + count_char c s'
+  end.
+
+Lemma count_char_app : forall c s1 s2,
+  count_char c (s1 ++ s2) = count_char c s1 + count_char c s2.
+Proof.
+  intros c s1 s2. induction s1 as [|c' s1' IH]; cbn; [reflexivity|].
+  rewrite IH. lia.
+Qed.
+
+Definition lt_char : ascii := "<"%char.
+
+Lemma escape_no_lt : forall s, count_char lt_char (escape s) = 0.
+Proof.
+  induction s as [|c s' IH]; cbn [escape]; [reflexivity|].
+  rewrite count_char_app, IH, Nat.add_0_r.
+  unfold escape_char; destruct c as [b0 b1 b2 b3 b4 b5 b6 b7];
+    destruct b0, b1, b2, b3, b4, b5, b6, b7; reflexivity.
+Qed.
+
+Lemma escape_attr_no_lt : forall s, count_char lt_char (escape_attr s) = 0.
+Proof.
+  induction s as [|c s' IH]; cbn [escape_attr]; [reflexivity|].
+  rewrite count_char_app, IH, Nat.add_0_r.
+  unfold escape_attr_char, escape_char;
+    destruct c as [b0 b1 b2 b3 b4 b5 b6 b7];
+    destruct b0, b1, b2, b3, b4, b5, b6, b7; reflexivity.
+Qed.
+
+Definition no_lt (s : string) : bool := Nat.eqb (count_char lt_char s) 0.
+
+Definition attr_ok (a : attr) : bool := forallb (fun kv => no_lt (fst kv)) a.
+
+Lemma concat_empty_cons : forall x l,
+  String.concat "" (x :: l) = x ++ String.concat "" l.
+Proof.
+  intros x l. destruct l as [|y l'];
+    [cbn [String.concat]; symmetry; apply append_empty_r | reflexivity].
+Qed.
+
+Lemma count_char_concat : forall c l,
+  count_char c (String.concat "" l)
+  = fold_right (fun s n => count_char c s + n) 0 l.
+Proof.
+  intros c. induction l as [|x l' IH]; [reflexivity|].
+  rewrite concat_empty_cons, count_char_app, IH. reflexivity.
+Qed.
+
+Lemma render_attrs_no_lt : forall a,
+  attr_ok a = true -> count_char lt_char (render_attrs a) = 0.
+Proof.
+  intros a. unfold render_attrs, attr_ok. rewrite count_char_concat.
+  induction a as [|kv a' IH]; intros H; [reflexivity|].
+  cbn [forallb] in H. apply andb_true_iff in H as [Hk Ha].
+  unfold no_lt in Hk. apply Nat.eqb_eq in Hk.
+  cbn [map fold_right]. rewrite IH by exact Ha.
+  rewrite !count_char_app, escape_attr_no_lt, Hk. reflexivity.
+Qed.
+
+(* The two hypotheses, as functions on the tree.  Both take the shape
+   `serialize_elt` does -- an outer fixpoint on the element, an inner one
+   on the children -- and pay for it with the same equation lemma. *)
+Fixpoint helt_ok (e : helt) : bool :=
+  let go :=
+    fix go (es : list helt) : bool :=
+      match es with
+      | [] => true
+      | e' :: rest => (helt_ok e' && go rest)%bool
+      end in
+  match e with
+  | HText _ => true
+  | HRaw _ => false
+  | HVoid tag _ a => (no_lt tag && attr_ok a)%bool
+  | HElem tag _ a kids => (no_lt tag && attr_ok a && go kids)%bool
+  end.
+
+Fixpoint helts_ok (es : list helt) : bool :=
+  match es with
+  | [] => true
+  | e :: rest => (helt_ok e && helts_ok rest)%bool
+  end.
+
+Lemma helt_ok_elem : forall tag nls a kids,
+  helt_ok (HElem tag nls a kids)
+  = (no_lt tag && attr_ok a && helts_ok kids)%bool.
+Proof.
+  intros tag nls a kids. cbn [helt_ok].
+  assert (H : forall ks,
+    (fix go (es : list helt) : bool :=
+       match es with
+       | [] => true
+       | e' :: rest => (helt_ok e' && go rest)%bool
+       end) ks = helts_ok ks).
+  { induction ks as [|k ks' IH]; [reflexivity|].
+    cbn [helts_ok]. rewrite <- IH. reflexivity. }
+  rewrite H. reflexivity.
+Qed.
+
+(* Two per element with a closing tag, one per element without. *)
+Fixpoint helt_tags (e : helt) : nat :=
+  let go :=
+    fix go (es : list helt) : nat :=
+      match es with
+      | [] => 0
+      | e' :: rest => helt_tags e' + go rest
+      end in
+  match e with
+  | HText _ => 0
+  | HRaw _ => 0
+  | HVoid _ _ _ => 1
+  | HElem _ _ _ kids => 2 + go kids
+  end.
+
+Fixpoint helts_tags (es : list helt) : nat :=
+  match es with
+  | [] => 0
+  | e :: rest => helt_tags e + helts_tags rest
+  end.
+
+Lemma helt_tags_elem : forall tag nls a kids,
+  helt_tags (HElem tag nls a kids) = 2 + helts_tags kids.
+Proof.
+  intros tag nls a kids. cbn [helt_tags].
+  assert (H : forall ks,
+    (fix go (es : list helt) : nat :=
+       match es with
+       | [] => 0
+       | e' :: rest => helt_tags e' + go rest
+       end) ks = helts_tags ks).
+  { induction ks as [|k ks' IH]; [reflexivity|].
+    cbn [helts_tags]. rewrite <- IH. reflexivity. }
+  rewrite H. reflexivity.
+Qed.
+
+(* Induction that reaches the children, in the shape `Render.cblock_ind2`
+   established: the inner `fix` is what carries `P` through `list helt`. *)
+Definition helt_ind2
+  (P : helt -> Prop) (Q : list helt -> Prop)
+  (htext : forall s, P (HText s))
+  (hraw : forall s, P (HRaw s))
+  (hvoid : forall tag self a, P (HVoid tag self a))
+  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
+  (hnil : Q [])
+  (hcons : forall e es, P e -> Q es -> Q (e :: es))
+  : forall e, P e :=
+  fix go (e : helt) : P e :=
+    let golist :=
+      fix golist (es : list helt) : Q es :=
+        match es with
+        | [] => hnil
+        | e' :: rest => hcons e' rest (go e') (golist rest)
+        end in
+    match e with
+    | HText s => htext s
+    | HRaw s => hraw s
+    | HVoid tag self a => hvoid tag self a
+    | HElem tag nls a kids => helem tag nls a kids (golist kids)
+    end.
+
+Definition helts_ind2
+  (P : helt -> Prop) (Q : list helt -> Prop)
+  (htext : forall s, P (HText s))
+  (hraw : forall s, P (HRaw s))
+  (hvoid : forall tag self a, P (HVoid tag self a))
+  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
+  (hnil : Q [])
+  (hcons : forall e es, P e -> Q es -> Q (e :: es))
+  : forall es, Q es :=
+  fix golist (es : list helt) : Q es :=
+    match es with
+    | [] => hnil
+    | e :: rest =>
+        hcons e rest
+          (helt_ind2 P Q htext hraw hvoid helem hnil hcons e) (golist rest)
+    end.
+
+Lemma open_tag_lt : forall tag self a,
+  no_lt tag = true -> attr_ok a = true ->
+  count_char lt_char (open_tag tag self a) = 1.
+Proof.
+  intros tag self a Ht Ha. unfold open_tag, no_lt in *.
+  apply Nat.eqb_eq in Ht.
+  cbn [count_char Ascii.eqb].
+  rewrite !count_char_app, Ht, (render_attrs_no_lt _ Ha).
+  destruct self; reflexivity.
+Qed.
+
+(** Every `<` in the output opens or closes a tag.  So no byte of source
+    text can produce one: the count is fixed by the tree's shape. *)
+Theorem serialize_lt_tags : forall es,
+  helts_ok es = true ->
+  count_char lt_char (serialize es) = helts_tags es.
+Proof.
+  apply (helts_ind2
+    (fun e => helt_ok e = true ->
+              count_char lt_char (serialize_elt e) = helt_tags e)
+    (fun es => helts_ok es = true ->
+               count_char lt_char (serialize es) = helts_tags es)).
+  - intros s _. cbn [serialize_elt helt_tags]. apply escape_no_lt.
+  - intros s H. discriminate H.
+  - intros tag self a H. cbn [helt_ok helt_tags] in *.
+    apply andb_true_iff in H as [Ht Ha]. apply open_tag_lt; assumption.
+  - intros tag nls a kids IH H.
+    rewrite helt_ok_elem in H. rewrite helt_tags_elem, serialize_elt_elem.
+    apply andb_true_iff in H as [H' Hk].
+    apply andb_true_iff in H' as [Ht Ha].
+    rewrite !count_char_app, (open_tag_lt _ false _ Ht Ha), (IH Hk).
+    unfold no_lt in Ht. apply Nat.eqb_eq in Ht. rewrite Ht.
+    destruct (Nat.leb 2 nls), (Nat.leb 1 nls); cbn; lia.
+  - intros _. reflexivity.
+  - intros e es IHe IHes H. cbn [helts_ok helts_tags serialize] in *.
+    apply andb_true_iff in H as [He Hes].
+    rewrite count_char_app, (IHe He), (IHes Hes). reflexivity.
+Qed.
+
+(* The key condition has teeth.  `render_attrs` escapes a value but emits
+   a key as it stands, so a key carrying `<` puts a tag in the output
+   that no element asked for -- three `<` where the tree has two.  What
+   keeps that unreachable from a document is `Attributes.is_key_char`,
+   which admits letters, digits, `_`, `:` and `-` and nothing else. *)
+Example attr_key_lt_injects :
+  let bad := [HElem "p" 1 [("x<img src=y", "")] []] in
+  helts_ok bad = false
+  /\ count_char lt_char (serialize bad) = 3
+  /\ helts_tags bad = 2.
+Proof. vm_compute. repeat split. Qed.
+
+(* What the parser produces satisfies it, so the theorem applies to real
+   documents -- attributes, headings, task lists, footnotes and a quote
+   inside a note all pass. *)
+Example convert_tree_ok :
+  helts_ok (html_tree (parse_doc "{#i .c}
+# h[^n]
+
+- [ ] a *b* <s>
+
+| x |
+
+[^n]: > q")) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Except through the deliberate hole.  A raw inline or a raw block is
+   the one way a document puts bytes in the output unexamined, and
+   `helt_ok` refuses it rather than pretending otherwise -- so the
+   theorem says nothing about a document that uses one, which is the
+   honest reading of what `{=html}` means. *)
+Example convert_tree_raw_excluded :
+  helts_ok (html_tree (parse_doc "`<script>`{=html}")) = false.
 Proof. vm_compute. reflexivity. Qed.
