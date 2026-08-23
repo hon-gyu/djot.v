@@ -14,6 +14,37 @@ From Stdlib Require Import String List Ascii.
 From DjotV Require Import Config Ast Line Parser.
 Import ListNotations.
 
+(* The inline guarantees Phase 3 established independently are one structural
+   invariant of an admissible delimiter table.  They intentionally say no
+   more than the original theorems: one unit of fuel per source byte, and no
+   dependence on resolution environments while classifying source. *)
+Record inline_invariants (T : dtable) : Prop := {
+  inline_single_pass :
+    forall s st,
+      @iscan_str_fuel T (String.length s) s st =
+      Some (@iscan_str T s st);
+  inline_classification_locality :
+    forall a b l,
+      @classify_inlines T a l = @classify_inlines T b l
+}.
+
+Definition inline_structural : invariant dtable := inline_invariants.
+
+Theorem inline_structural_holds : forall T, inline_structural T.
+Proof.
+  intros T. constructor.
+  - exact (@iscan_str_no_reread T).
+  - exact (@classify_inlines_locality T).
+Qed.
+
+(* These properties come from the scanner's control-flow shape, not from any
+   row value.  Consequently every total edit of an already-admissible table
+   preserves them; row compatibility is needed to construct the output
+   [dtable], not to re-prove either structural guarantee. *)
+Theorem dtable_knob_preserves_inline_structural :
+  forall k, preserves k inline_structural.
+Proof. intros k T _. apply inline_structural_holds. Qed.
+
 Record incremental_invariants (T : dtable) (K : bconfig) : Prop := {
   incremental_prefix_determinism :
     forall xs ys st,

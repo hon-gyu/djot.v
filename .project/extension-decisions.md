@@ -115,7 +115,7 @@ condition on both sides of every bare delimiter, and the ambiguity it
 exists to prevent is already prevented by one character having one
 width.
 
-**Status: in progress.** The table is now a record (`dconfig` in
+**Status: settled and pinned.** The table is now a record (`dconfig` in
 `theories/Inline.v`) carrying, per row, the character it is written
 with, how wide it is and how it may be written; `djot_config` and
 `markdown_config` are its two inhabitants. `dstyle_of` looks a character
