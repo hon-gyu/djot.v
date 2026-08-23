@@ -29,20 +29,30 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
-(* SPIKE (Phase 4 block-layer audit, not to be committed as is): the
-   block-layer knob.  `binterrupt k` says whether a line of kind `k`
-   closes an open paragraph instead of extending it.  djot's instance
-   answers `false` everywhere, which is the no-interruption rule. *)
-Class btable : Type := BTable {
-  bsublist : list lstyle -> string -> option task_status -> string -> bool
+(*
+Block settings
+==============
+
+What the block layer is configurable in.  Today that is one question:
+may a list marker close an open paragraph rather than extend it?  djot
+answers no, which is the rule usually stated as "a sublist must be
+preceded by a blank line".
+
+Its inline counterpart is `Inline.dconfig`, which is a genuine table --
+a row per delimiter -- and carries a side condition that admissible
+tables have to satisfy.  This one is a single decision with nothing to
+check, so it is a class with one field and no proof obligation.  If a
+third setting arrives the two should probably merge.
+*)
+Class bconfig : Type := BConfig {
+  bmarker_interrupts : list lstyle -> string -> option task_status -> string -> bool
 }.
 
-#[export] Instance djot_btable : btable := BTable (fun _ _ _ _ => false).
+#[export] Instance djot_bconfig : bconfig := BConfig (fun _ _ _ _ => false).
 
-(* The knob's other inhabitant, and deliberately not an `Instance`, for
-   the reason `markdown_table` is not one: it is named where it is
-   wanted (`check/Sublist.v`) so that inference here always means
-   djot's.
+(* The other setting, and deliberately not an `Instance`, for the reason
+   `markdown_table` is not one: it is named where it is wanted
+   (`check/Sublist.v`) so that inference here always means djot's.
 
    A marker interrupts when it cannot be the tail of ordinary prose: a
    bullet, whose core is empty, or the numeral `1`.  Excluding every
@@ -50,20 +60,20 @@ Class btable : Type := BTable {
    this should not start a list.` one paragraph -- djot's own regression
    test for the rule this knob relaxes, and the only corpus case the
    unrestricted knob gets wrong. *)
-Definition sublist_table : btable :=
-  BTable (fun _ core _ _ =>
+Definition sublist_bconfig : bconfig :=
+  BConfig (fun _ core _ _ =>
             match core with
             | EmptyString => true
             | _ => String.eqb core "1"
             end).
 
 (* Which line kinds close an open paragraph instead of extending it.
-   The knob's *type* is what says only a list marker may: every other
+   The setting's *type* is what says only a list marker may: every other
    kind answers `false` definitionally, so a lemma about a text line
    pays nothing and needs no class law to say so. *)
-Definition binterrupt `{btable} (k : line_kind) : bool :=
+Definition binterrupt `{bconfig} (k : line_kind) : bool :=
   match k with
-  | KList sty core chk rest => bsublist sty core chk rest
+  | KList sty core chk rest => bmarker_interrupts sty core chk rest
   | _ => false
   end.
 
@@ -72,7 +82,7 @@ Definition binterrupt `{btable} (k : line_kind) : bool :=
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 (* Paragraph assembly is `Inline.para_inlines`. *)
 

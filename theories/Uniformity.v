@@ -21,7 +21,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 (*
 The fold, and uniformity for quotes and divs
@@ -904,7 +904,7 @@ deliberate step, not a surprise.
    admissible table, like the fold equations above them. *)
 Section WithTableDet.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 Definition committed (xs : list string) (st : pstate) : blocks :=
   fst (run_lines xs st).

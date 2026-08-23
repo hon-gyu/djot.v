@@ -28,7 +28,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 (*
 Ordered lists

@@ -377,7 +377,7 @@ it to sublists -- which is what the ask says literally -- falsifies
 `list_uniformity`, whose conclusion is that an item's lines parse as they
 would at top level: a marker cannot mean one thing inside an item and
 another outside. Stated container-blind, the theorem is untouched and now
-reads `forall (T : dtable) (K : btable) ...`. That is the answer to the
+reads `forall (T : dtable) (K : bconfig) ...`. That is the answer to the
 question [[beyond-djot]] attached to the ask.
 
 The price is that the extension is **not conservative**, and the ask as
@@ -388,8 +388,8 @@ with a different meaning.
 
 | | a bullet | `1.` | any other numeral |
 | --- | --- | --- | --- |
-| `djot_btable` | never interrupts | never | never |
-| `sublist_table` | interrupts | interrupts | never |
+| `djot_bconfig` | never interrupts | never | never |
+| `sublist_bconfig` | interrupts | interrupts | never |
 
 The third column is the whole of the restriction, and it is settled by
 the corpus rather than by preference. Of 291 corpus cases, five contain a
@@ -406,7 +406,7 @@ intent written into the input. Admitting `1` and no other numeral keeps
 it prose, and the test is line-local -- the marker's own numeral, no
 context and no state -- so nothing about single-pass scanning moves.
 
-**The compatibility fact** (discipline 4): under `sublist_table` every
+**The compatibility fact** (discipline 4): under `sublist_bconfig` every
 document containing a paragraph line that begins with a bullet or `1.`
 changes meaning, and the change is silent rather than loud -- prose
 becomes a list rather than becoming literal text. Four corpus cases move,

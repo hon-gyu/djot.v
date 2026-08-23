@@ -39,7 +39,7 @@ Local Open Scope string_scope.
    family rather than over djot's spelling. *)
 Section WithTable.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 (*
 Splitting a rendered document
@@ -1790,7 +1790,7 @@ carries an explicit id, and it builds no sections.
    any admissible table, like the block-level one it rests on. *)
 Section WithTableDoc.
 Context {T : dtable}.
-Context {K : btable}.
+Context {K : bconfig}.
 
 Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
 Proof.

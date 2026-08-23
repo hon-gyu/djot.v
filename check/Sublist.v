@@ -7,7 +7,7 @@ The sublist knob, pinned
 The block layer's first configuration parameter: whether a list marker
 closes an open paragraph instead of extending it.  djot's answer is
 never, which is the rule "a sublist must be preceded by a blank line";
-`sublist_table` answers yes for a bullet or the numeral `1`.
+`sublist_bconfig` answers yes for a bullet or the numeral `1`.
 
 Every line here was measured.  It needs no recipe and no second build:
 the knob is a parameter, so these examples name the other instance and
@@ -33,11 +33,11 @@ Open Scope string_scope.
 (* The rejected alternative, kept here because the case that rejects it
    is one of the examples below: a knob that lets *every* marker
    interrupt. *)
-Definition any_table : btable := BTable (fun _ _ _ _ => true).
+Definition any_bconfig : bconfig := BConfig (fun _ _ _ _ => true).
 
-Local Notation Djot := (@parse_blocks _ djot_btable).
-Local Notation Sub := (@parse_blocks _ sublist_table).
-Local Notation Any := (@parse_blocks _ any_table).
+Local Notation Djot := (@parse_blocks _ djot_bconfig).
+Local Notation Sub := (@parse_blocks _ sublist_bconfig).
+Local Notation Any := (@parse_blocks _ any_bconfig).
 
 (*
 The sublist
@@ -144,11 +144,11 @@ setting.  That is why the accepted fragment does not move with the knob.
 *)
 
 Example para_ok_rejects_a_bare_marker_line :
-  @para_ok sublist_table ["a"; "- b"] = false.
+  @para_ok sublist_bconfig ["a"; "- b"] = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_takes_the_escaped_one :
-  @para_ok sublist_table ["a"; "\- b"] = true.
+  @para_ok sublist_bconfig ["a"; "\- b"] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 Example the_renderer_writes_the_escaped_one :
@@ -156,7 +156,7 @@ Example the_renderer_writes_the_escaped_one :
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_keeps_the_year :
-  @para_ok sublist_table ["a"; "1865. x"] = true.
+  @para_ok sublist_bconfig ["a"; "1865. x"] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (*
@@ -169,7 +169,7 @@ other knob.
 
 Theorem sublist_roundtrip_blocks :
   forall cbs,
-    @cblocks_ok _ sublist_table cbs = true ->
-    @parse_blocks _ sublist_table (render_djot (blocks_of_cblocks cbs))
+    @cblocks_ok _ sublist_bconfig cbs = true ->
+    @parse_blocks _ sublist_bconfig (render_djot (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
-Proof. exact (@roundtrip_blocks _ sublist_table). Qed.
+Proof. exact (@roundtrip_blocks _ sublist_bconfig). Qed.
