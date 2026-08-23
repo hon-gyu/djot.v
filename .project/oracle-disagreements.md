@@ -1057,3 +1057,26 @@ document: `needs_escape` claims `[` and `{`.
 
 `Inline.attr_inside_a_decaying_bracket` pins it, and its deletion is
 what would confirm a fix.
+
+## Correction 2026-08-23 — to *a spec with nothing before it*
+
+That entry gives two reasons where only one holds. "A block with no
+children is not in `wf_block`" is true of `Para` and `Section`, whose
+cases carry `nonempty`, and **false of `Heading`**, whose case is
+
+```coq
+| Heading level ils => Nat.leb 1 level && wf_inlines ils
+```
+
+with no nonemptiness obligation at all. `parse_blocks "#"` gives
+`Heading 1 []` and `wf_parse` covers it, so djot.js's `<h1></h1>` is not
+unrepresentable on that ground.
+
+The verdict is unchanged, because the other reason is the real one and
+is exact: `parse_inline_line_nonempty` says a *nonblank* line yields at
+least one inline, and `{#i}` is nonblank. Dropping the spec would
+falsify it whatever block the line sits in, which is also why the
+divergence is not specific to headings.
+
+Worth keeping the distinction: an empty heading is fine, an empty
+*rendering of a nonblank line* is not.

@@ -62,11 +62,19 @@ the attribute machine, so it vanishes.
 
 **Forced by a theorem.** The deciding input is not either corpus case
 but `# {#i}`, where the spec is a heading's whole content and djot.js
-renders `<h1></h1>`. A block with no children is not in `wf_block`, and
-`parse_inline_line_nonempty` -- which every `wf_block` obligation on
-paragraphs and headings rests on -- says a nonblank line yields at least
-one inline. Dropping the spec would falsify it for the string `{#i}`,
-which our own parser can reach.
+renders `<h1></h1>`. `parse_inline_line_nonempty` says a nonblank line
+yields at least one inline; `para_inlines_nonempty` and the `wf_block`
+obligation on paragraphs rest on it. Dropping the spec would falsify it
+for the string `{#i}`, which our own parser can reach.
+
+Note what the argument is *not*. `wf_block` does not forbid an empty
+heading -- its case is `Nat.leb 1 level && wf_inlines ils`, and
+`parse_blocks "#"` really does give `Heading 1 []`. What an empty
+heading would break is the *inline* theorem, and only because `{#i}` is
+a nonblank line. `oracle-disagreements.md`'s entry says "a block with no
+children is not in `wf_block`" alongside the real reason; that clause is
+true of `Para` and `Section` and false of `Heading`, and a correction is
+appended under the entry.
 
 Argument in `oracle-disagreements.md` under *2026-08-15 -- ours: a spec
 with nothing before it*, amended 2026-08-22 when attachment moved after
