@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Four things are configurable today, and this document describes the
+Five things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -27,10 +27,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | djot-only delimiter containers | disabled (`markdown_like_config`) | highlight, insert, delete, super/subscript and smart quotes enabled |
 | sublist without a blank line | allowed (`markdown_bconfig`) | not allowed (`djot_bconfig`) |
 | `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
+| pipe tables and captions | disabled (`markdown_bconfig`) | enabled |
 
 The first two compose in `markdown_like_config`: it starts from the doubled
 strong spelling and applies the proved multi-row disable operation. The last
-two live in one record with one field each. `markdown_bconfig`
+three live in one record with one field each. `markdown_bconfig`
 composes their field-local knobs, and `check/Markdown.v` pins the combined
 profile as well as the individual settings in `check/Sublist.v` and
 `check/Setext.v`.
@@ -48,7 +49,6 @@ non-delimiter inline constructs remain enabled. See
 - `- item`, `* item`, `+ item`, `1. item`, `1) item`
 - `[text](url)`, `[text][ref]` with `[ref]: url`, `![alt](url)`
 - `***` and `---` on their own line as a thematic break
-- pipe tables, GitHub style, with an alignment row
 - task lists, `- [x]` and `- [ ]`
 - footnotes, `[^1]` with `[^1]: text`
 - `**strong**` and `_emphasis_` (in the Markdown-facing profile)
@@ -229,8 +229,15 @@ compositionally. This removes them from the canonical view too, so the
 roundtrip theorem specializes to the reduced table rather than being
 restated for it.
 
+**Already switched off in `markdown_bconfig`.** Djot pipe rows and their
+caption continuation are a single table capability. With it off, row-shaped
+source is paragraph text and canonical tables are outside the accepted
+roundtrip fragment. GFM-style tables are therefore not currently part of the
+Markdown-like profile either; adding a separate caption-free GFM table mode
+would be a new extension.
+
 **Would need a new setting.** Em dash and ellipsis (hardwired scanner
-dispatch), attributes, divs, spans, math, footnotes, tables, definition
+dispatch), attributes, divs, spans, math, footnotes, definition
 lists, raw blocks and raw inline (all hardwired in the block layer).
 
 **The shape the work takes** is known, since it was done once for the

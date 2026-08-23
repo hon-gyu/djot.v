@@ -559,17 +559,17 @@ Proof.
 Qed.
 
 Lemma parse_ctrow_open :
-  forall r rest, ctrow_ok r = true ->
+  forall r rest, btables = true -> ctrow_ok r = true ->
   parse_lines (ctrow_lines r ++ rest) (PPara [])
   = parse_lines rest (PTable (rev (ctrow_trows r)) TOpen).
 Proof.
-  intros r rest H.
+  intros r rest Htables H.
   pose proof (ctrow_ok_parts _ H) as (_ & _ & _ & Hcl).
   destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
     cbn [ctrow_lines ctrow_trows rev app].
-  - rewrite (parse_lines_row_open _ _ _ Hcl). reflexivity.
+  - rewrite (parse_lines_row_open _ _ _ Htables Hcl). reflexivity.
   - apply ctrow_ok_head in H as [_ Hsep].
-    rewrite (parse_lines_row_open _ _ _ Hcl).
+    rewrite (parse_lines_row_open _ _ _ Htables Hcl).
     rewrite (parse_lines_table_row _ _ _ _ (caption_open_sep_line _)
                (is_blank_sep_line _) Hsep).
     reflexivity.
@@ -590,14 +590,15 @@ Qed.
 (* The whole table, from idle: the state it leaves is the rows in reverse
    source order, which is what `finish` folds. *)
 Lemma parse_ctable :
-  forall rows rest, nonempty rows = true -> forallb ctrow_ok rows = true ->
+  forall rows rest, btables = true ->
+  nonempty rows = true -> forallb ctrow_ok rows = true ->
   parse_lines (flat_map ctrow_lines rows ++ rest) (PPara [])
   = parse_lines rest (PTable (rev (flat_map ctrow_trows rows)) TOpen).
 Proof.
-  intros [|r rows] rest Hne Hok; [discriminate Hne|].
+  intros [|r rows] rest Htables Hne Hok; [discriminate Hne|].
   cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hr Hrows].
   cbn [flat_map]. rewrite <- app_assoc.
-  rewrite (parse_ctrow_open _ _ Hr), (parse_ctrows _ _ _ Hrows).
+  rewrite (parse_ctrow_open _ _ Htables Hr), (parse_ctrows _ _ _ Hrows).
   rewrite rev_app_distr. reflexivity.
 Qed.
 
@@ -717,7 +718,8 @@ Proof.
   - (* table: every line is a row line, so the three conditions come off
        `line_ok` the way a paragraph's do *)
     intros rows H. rewrite cb_ok_table in H.
-    apply andb_true_iff in H as [Hne Hrows].
+    apply andb_true_iff in H as [H Hrows].
+    apply andb_true_iff in H as [_ Hne].
     pose proof (ctable_lines_forallb _ Hrows) as Hlok.
     rewrite cb_lines_table.
     destruct rows as [|r rows']; [discriminate Hne|].
@@ -832,8 +834,9 @@ Proof.
     exists (ref_line rl rd), []. split; [reflexivity|].
     intros m mc chk item E. rewrite (ref_ok_classify rl rd Hok) in E. discriminate.
   - (* table: the first line is its first row's, and it classifies as one *)
-    rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hnet Hrows].
-    destruct rows as [|r rows']; [discriminate Hnet|].
+    rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hok Hrows].
+    apply andb_true_iff in Hok as [_ Hrows_nonempty].
+    destruct rows as [|r rows']; [discriminate Hrows_nonempty|].
     cbn [forallb] in Hrows. apply andb_true_iff in Hrows as [Hr _].
     apply ctrow_ok_parts in Hr as (_ & _ & _ & Hcl).
     rewrite cb_lines_table.
@@ -910,8 +913,9 @@ Proof.
   - discriminate Hnonlist.
   - cbn [cb_lines] in Hlines. injection Hlines as <- <-.
     apply (ref_line_ok rl rd Hok).
-  - rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hne Hrows].
-    destruct rows as [|r rows']; [discriminate Hne|].
+  - rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hok Hrows].
+    apply andb_true_iff in Hok as [_ Hrows_nonempty].
+    destruct rows as [|r rows']; [discriminate Hrows_nonempty|].
     cbn [forallb] in Hrows. apply andb_true_iff in Hrows as [Hr _].
     pose proof (ctrow_lines_ok _ Hr) as Hlok.
     rewrite cb_lines_table in Hlines.
@@ -1236,25 +1240,29 @@ Proof.
        says that line does not caption instead. *)
     intros rows.
     assert (Hparts : cb_ok (CTable rows) = true ->
-                     nonempty rows = true /\ forallb ctrow_ok rows = true).
-    { intros H. rewrite cb_ok_table in H. apply andb_true_iff in H. exact H. }
+                     btables = true /\ nonempty rows = true
+                     /\ forallb ctrow_ok rows = true).
+    { intros H. rewrite cb_ok_table in H.
+      apply andb_true_iff in H as [Htn Hrows].
+      apply andb_true_iff in Htn as [Htables Hne].
+      repeat split; assumption. }
     split.
     + intros next tail Hpair Hnext H.
-      destruct (Hparts H) as [Hne Hrows].
+      destruct (Hparts H) as [Htables [Hne Hrows]].
       destruct (cb_lines next) as [|a ls] eqn:Enext.
       { exfalso. pose proof (cb_ok_lines_ok next Hnext) as Hl.
         rewrite Enext in Hl. discriminate Hl. }
       destruct (cb_pair_ok_closes (CTable rows) next a ls eq_refl Hpair Enext)
         as [Hblank Hcap].
-      rewrite cb_lines_table, (parse_ctable _ _ Hne Hrows).
+      rewrite cb_lines_table, (parse_ctable _ _ Htables Hne Hrows).
       rewrite (parse_lines_table_blank EmptyString _ _ (eq_refl true)).
       cbn [app].
       rewrite (parse_lines_table_close _ _ _ Hcap Hblank).
       rewrite (table_block_ctable rows TAfterBlank Hrows (eq_refl None)).
       reflexivity.
-    + intros H. destruct (Hparts H) as [Hne Hrows].
+    + intros H. destruct (Hparts H) as [Htables [Hne Hrows]].
       rewrite cb_lines_table, <- (app_nil_r (flat_map ctrow_lines rows)).
-      rewrite (parse_ctable _ _ Hne Hrows), parse_lines_table_eof.
+      rewrite (parse_ctable _ _ Htables Hne Hrows), parse_lines_table_eof.
       rewrite (table_block_ctable rows TOpen Hrows (eq_refl None)). reflexivity.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.

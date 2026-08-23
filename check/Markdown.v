@@ -233,6 +233,20 @@ Example md_sublist_without_blank :
              mk (BulletList Tight [[mk (Para [mk (Str "b")])]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
+(* Core CommonMark has no table construct. The classifier still recognizes
+   row-shaped source, but this profile opens it as ordinary paragraph text. *)
+Example markdown_like_table_source_is_prose :
+  @parse_blocks markdown_like_table markdown_bconfig "| a |
+|---|"
+  = [mk (Para [mk (Str "| a |"); mk SoftBreak;
+               mk (Str ("|" ++ emdash ++ "|"))])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_table_is_disabled :
+  @cb_ok markdown_like_table markdown_bconfig
+    (CTable [CTBody [[CIStr "a"]]]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
 Theorem markdown_block_incremental :
   block_incremental markdown_table markdown_bconfig.
 Proof. apply block_incremental_holds. Qed.

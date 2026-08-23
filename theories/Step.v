@@ -33,15 +33,16 @@ Local Open Scope string_scope.
 Block settings
 ==============
 
-What the block layer is configurable in.  Today that is two questions:
-may a list marker close an open paragraph rather than extend it, and may
-an underline turn that paragraph into a heading?  Djot answers no to both.
+What the block layer is configurable in.  Today that is three questions:
+may a list marker close an open paragraph rather than extend it, may an
+underline turn that paragraph into a heading, and are pipe tables enabled?
+Djot answers no to the first two and yes to tables.
 
 Its inline counterpart is `Inline.dconfig`, which is a genuine table --
 a row per delimiter -- and carries a side condition that admissible
-tables have to satisfy.  This pair's single overlap is checked separately
-by `Invariants.block_prefix_ok`; keeping the class computational avoids
-threading a proof through the parser.
+tables have to satisfy.  The first two decisions' single overlap is checked
+separately by `Invariants.block_prefix_ok`; keeping the class computational
+avoids threading a proof through the parser.
 *)
 Class bconfig : Type := BConfig {
   (* May a list marker close an open paragraph?  Asked of the marker's
@@ -52,7 +53,10 @@ Class bconfig : Type := BConfig {
      paragraph and turn it into a heading?  `Some k` means a heading of
      level `S k`, so a setting cannot ask for a level-0 heading and
      `wf_block`'s `1 <= lvl` needs no side condition to hold. *)
-  bunderline : ascii -> nat -> option nat
+  bunderline : ascii -> nat -> option nat;
+  (* Does a classified pipe row open a djot table?  When false the complete
+     source line is ordinary paragraph text. *)
+  btables : bool
 }.
 
 (*
@@ -90,7 +94,8 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else if Ascii.eqb c "-" then (if Nat.leb 2 n then Some 1 else None)
   else None.
 
-#[export] Instance djot_bconfig : bconfig := BConfig no_interrupt no_underline.
+#[export] Instance djot_bconfig : bconfig :=
+  BConfig no_interrupt no_underline true.
 
 (* Field-local block knobs.  Each preserves the other decision, which is what
    lets independently justified settings compose without rebuilding a record
@@ -98,11 +103,14 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
 Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_status -> string -> bool)
   (K : bconfig) : bconfig :=
-  BConfig f (@bunderline K).
+  BConfig f (@bunderline K) (@btables K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
-  BConfig (@bmarker_interrupts K) f.
+  BConfig (@bmarker_interrupts K) f (@btables K).
+
+Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) enabled.
 
 (* The other setting, and deliberately not an `Instance`, for the reason
    `markdown_table` is not one: it is named where it is wanted
@@ -119,12 +127,13 @@ Definition sublist_bconfig : bconfig :=
 Definition setext_bconfig : bconfig :=
   with_underline setext_underline djot_bconfig.
 
-(* The block half of the Markdown-facing profile.  Apply the two field-local
+(* The block half of the Markdown-facing profile.  Apply the field-local
    knobs rather than spelling a record so adding another independent block
-   setting has one composition point. *)
+   setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_underline setext_underline
-    (with_marker_interrupts prose_safe_markers djot_bconfig).
+  with_tables false
+    (with_underline setext_underline
+      (with_marker_interrupts prose_safe_markers djot_bconfig)).
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
@@ -687,7 +696,7 @@ Definition push_text (rest : string) (cur : list string) : list string :=
    inside `step_fuel`.  The split is deliberate: every equation lemma
    downstream is stated over `open_kind`, which is exactly why fuel
    appears in no lemma statement anywhere in the development. *)
-Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
+Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KBlank => ([], PPara [])
   | KThematic => ([mk ThematicBreak], PPara [])
@@ -701,8 +710,11 @@ Definition open_kind (l : string) (k : line_kind) : blocks * pstate :=
   | KFoot _ _ => ([], PPara [])       (* unreachable: see open_foot *)
   | KRef _ _ => ([], PPara [])        (* unreachable: see open_ref *)
   (* A table needs no column and no descent, so unlike every other
-     container it opens here rather than in a wrapper of its own. *)
-  | KRow r => ([], PTable [r] TOpen)
+     container it opens here rather than in a wrapper of its own.  A profile
+     that disables tables keeps the complete row spelling as paragraph text. *)
+  | KRow r =>
+      if btables then ([], PTable [r] TOpen)
+      else ([], PPara [drop_leading_ws l])
   end.
 
 (* The other half of the per-line rule: this line does not continue the
@@ -1684,7 +1696,8 @@ Proof.
         destruct (step_fuel n (off + consumed l frest) frest (PPara []))
           as [bs inner'] eqn:Ed.
         cbn [open_foot fst snd pad_state]. reflexivity. }
-      { cbn [open_ref fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. } }
+      { cbn [open_ref fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. }
+      { cbn [open_kind]. destruct (@btables K); reflexivity. } }
     { destruct (bunderline_of l) as [ulvl|] eqn:Eu;
         [cbn [fst snd pad_state]; reflexivity|].
       destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
@@ -1728,7 +1741,8 @@ Proof.
       cbn [close_reopen open_foot fst snd pad_state]. reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc. reflexivity. }
-    { reflexivity. }                    (* row: opens, records no column *)
+    { cbn [close_reopen open_kind fst snd pad_state].
+      destruct (@btables K); reflexivity. }
     { reflexivity. } }
   (* fence: the column moves with the offset, and the content lines are
      measured against the difference, which the shift leaves alone *)
@@ -1773,7 +1787,8 @@ Proof.
       rewrite Nat.add_assoc, finish_pad_quote. reflexivity. }
     { (* row: not lazy, and it opens a state with no column *)
       cbn [is_lazy close_reopen open_kind fst snd pad_state].
-      rewrite finish_pad_quote. reflexivity. }
+      destruct (@btables K); cbn [close_reopen fst snd pad_state];
+        rewrite finish_pad_quote; reflexivity. }
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
@@ -1899,7 +1914,8 @@ Proof.
       destruct (div_closer l inner);
         [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
-      rewrite finish_pad_list. reflexivity. }
+      destruct (@btables K); cbn [close_reopen fst snd pad_state];
+        rewrite finish_pad_list; reflexivity. }
     (* text *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -2402,8 +2418,22 @@ for the reprocessed line is exactly `step`'s own.
 *)
 
 Lemma step_row_open :
-  forall l r, classify l = KRow r -> step l (PPara []) = ([], PTable [r] TOpen).
-Proof. intros l r H. exact (step_idle l (KRow r) H eq_refl). Qed.
+  forall l r, btables = true -> classify l = KRow r ->
+    step l (PPara []) = ([], PTable [r] TOpen).
+Proof.
+  intros l r Htables H.
+  rewrite (step_idle l (KRow r) H eq_refl).
+  cbn [open_kind]. rewrite Htables. reflexivity.
+Qed.
+
+Lemma step_row_disabled :
+  forall l r, btables = false -> classify l = KRow r ->
+    step l (PPara []) = ([], PPara [drop_leading_ws l]).
+Proof.
+  intros l r Htables H.
+  rewrite (step_idle l (KRow r) H eq_refl).
+  cbn [open_kind]. rewrite Htables. reflexivity.
+Qed.
 
 Lemma step_table_row :
   forall l rows r,
@@ -2657,6 +2687,8 @@ Proof.
       { unfold open_ref. rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        reflexivity. }
+      { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. } }
     { rewrite (bunderline_of_ws_prefix p l Hp).
       destruct (bunderline_of l) as [ulvl|] eqn:Eu; [reflexivity|].
@@ -2691,7 +2723,9 @@ Proof.
     { cbn [close_reopen]; unfold open_ref. rewrite (indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
-        reflexivity. } }
+        reflexivity. }
+    { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+      reflexivity. } }
   (* inside a fence: the close test reads through the pad, and the
      content line strips the pad along with the columns the fence's own
      column asks for -- which is what `fence_cols_ok` leaves room for *)
@@ -2721,6 +2755,8 @@ Proof.
               (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen]; unfold open_ref. rewrite (indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [is_lazy close_reopen open_kind].
+      rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
     { cbn [is_lazy]. destruct (lazy_ok inner);
         [rewrite (feed_lazy_ws_prefix p l _ Hp)|
          cbn [close_reopen open_kind];
@@ -2755,7 +2791,8 @@ Proof.
     { rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { reflexivity. }
-    { cbn [is_lazy close_reopen open_kind]. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind].
+      rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
     { cbn [is_lazy]. destruct (lazy_ok inner);
         [rewrite (feed_lazy_ws_prefix p l _ Hp)|
          cbn [close_reopen open_kind];

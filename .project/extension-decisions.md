@@ -553,3 +553,37 @@ renderer knob-independent, but it means the extension is input-only.
 From [[beyond-djot]], not inline and not this file's business yet: link
 references. They get entries here only if they turn out
 to need a decision no oracle can settle.
+
+## Settled: `E4`, tables as a profile capability
+
+**Ask.** The reduced Markdown-like profile should not expose djot tables.
+Core CommonMark defines no table construct; GFM adds pipe tables but no
+caption syntax. Captions therefore remain a separate future extension rather
+than being invented as part of this profile.
+
+**Boundary.** `Line.classify` continues to recognize a syntactic row as
+`KRow`; classification is shared evidence, not a feature decision. A new
+block setting answers one question at `Step.open_kind`: does `KRow` open a
+`PTable`, or does its complete source line open an ordinary paragraph?
+Continuation of an explicit `PTable` state is unchanged. This keeps the gate
+at one entry point and preserves the meaning of state-based theorems.
+
+**Canonical consequence.** `Render.cb_ok (CTable rows)` must include the same
+setting. When tables are off, canonical tables are outside the roundtrip
+domain; ordinary paragraphs containing pipe-row source remain inside it and
+are escaped only as existing paragraph rules require.
+
+**Predicted obligations.** The idle-row equation gains the setting premise;
+the three table fold equations do not. The all-state `step` proofs split the
+new boolean only in their `KRow` case. The canonical table cases in
+`Roundtrip.v` receive the enabled fact from `cb_ok`. No AST, classifier, table
+assembly, caption, or renderer data type changes.
+
+**Status: settled and pinned.** The prediction held. `btables` is the third
+field of `bconfig`; `with_tables` preserves block incrementality and the
+lone-dash compatibility invariant. Djot and the individual sublist/setext
+profiles keep it enabled, while `markdown_bconfig` disables it.
+`check/Markdown.v` pins a two-row table spelling as one paragraph and checks
+that `CTable` is outside that profile's canonical fragment. The paragraph's
+`---` still becomes an em dash, which exposes typography as the next
+independent profile gate rather than a table concern.

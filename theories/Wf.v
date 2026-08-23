@@ -2370,6 +2370,12 @@ Proof.
     split; [reflexivity|].
     cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). cbn [andb].
     apply forallb_nonblank_push_text. reflexivity.
+  - (* KRow: either opens a table or becomes one nonblank paragraph line. *)
+    destruct (@btables K) eqn:Htables; split; try reflexivity.
+    cbn [snd state_wf]. rewrite forallb_nonblank_cons
+      by (rewrite is_blank_drop_leading_ws;
+          apply classify_not_kblank_nonblank; congruence).
+    reflexivity.
   - (* KText: the accumulator gains one line, which must be nonblank *)
     split; [reflexivity|].
     cbn [state_wf].
@@ -2552,10 +2558,12 @@ Proof.
       destruct (open_ref_wf (off + indent_of l) l rlbl rval E) as [Hob Hos].
       split; [|exact Hos].
       cbn [close_reopen open_ref finish fst snd]. rewrite app_nil_r. exact Hhb. }
-    (* KRow now sits between KRef and KText, and closing a heading in
-       front of a table is the same as closing it in front of a thematic
-       break: the `all:` below covers it. *)
-    6: { (* lazy text *)
+    5: { (* row: close the heading, then open either table or paragraph *)
+      destruct (open_kind_wf l (KRow krow) E) as [Hob Hos].
+      unfold close_reopen. destruct (open_kind l (KRow krow)) as [obs ost].
+      cbn [finish fst snd] in Hob, Hos |- *. split; [|exact Hos].
+      rewrite wf_blocks_app, Hhb, Hob. reflexivity. }
+    5: { (* lazy text *)
       cbn [fst snd]. split; [reflexivity|].
       cbn [state_wf]. rewrite Hlv. cbn [andb].
       rewrite forallb_nonblank_cons
@@ -3316,6 +3324,7 @@ Proof.
         cbn [fst snd] in Hb, Hs.
         cbn [open_foot fst snd state_supported]. split; [reflexivity|].
         rewrite supported_blocks_rev, Hb. exact Hs.
+      * cbn [open_kind fst snd]. destruct (@btables K); split; reflexivity.
     + destruct (bunderline_of l) as [ulvl|] eqn:Eu;
         [cbn [fst snd]; split; reflexivity|].
       destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
@@ -3355,6 +3364,8 @@ Proof.
          cbn [fst snd] in Hb, Hs.
          cbn [close_reopen open_foot finish app fst snd]. split; [reflexivity|].
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
+    7: { cbn [close_reopen open_kind finish app fst snd].
+         destruct (@btables K); split; reflexivity. }
     all: cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
@@ -3390,7 +3401,11 @@ Proof.
          - rewrite supported_blocks_cons. cbn [node_contents mk].
            rewrite Hbq. reflexivity.
          - cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    9: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd].
+    8: { cbn [is_lazy open_kind]. destruct (@btables K);
+         cbn [close_reopen finish app fst snd]; split; try reflexivity;
+         rewrite supported_blocks_cons; cbn [node_contents mk];
+         rewrite Hbq; reflexivity. }
+    8: { cbn [is_lazy]. destruct (lazy_ok inner); cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd].
          - split; [reflexivity|].
            cbn [state_supported]. rewrite Hd. cbn [andb].
            apply feed_lazy_supported. exact Hi.
@@ -3476,7 +3491,19 @@ Proof.
            cbn [close_reopen open_foot fst snd]. split.
            + rewrite app_nil_r. apply finish_supported. exact H.
            + cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    9: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    8: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+         - destruct (IH off l inner Hi) as [Hb Hs].
+           destruct (step_fuel n off l inner) as [bs inner'].
+           cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
+           destruct (div_closer l inner);
+             cbn [state_supported ls_items list_content list_blank];
+             rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
+             exact Hs.
+         - cbn [is_lazy open_kind]. destruct (@btables K);
+             cbn [close_reopen fst snd]; split; try reflexivity;
+             rewrite supported_blocks_app, (finish_supported _ H);
+             reflexivity. }
+    8: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.

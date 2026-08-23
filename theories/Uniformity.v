@@ -198,11 +198,12 @@ Table equations
 *)
 
 Lemma parse_lines_row_open :
-  forall l rest r, classify l = KRow r ->
+  forall l rest r, btables = true -> classify l = KRow r ->
   parse_lines (l :: rest) (PPara []) = parse_lines rest (PTable [r] TOpen).
 Proof.
-  intros l rest r H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_row_open _ _ H)). reflexivity.
+  intros l rest r Htables H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_row_open _ _ Htables H)).
+  reflexivity.
 Qed.
 
 Lemma parse_lines_table_row :

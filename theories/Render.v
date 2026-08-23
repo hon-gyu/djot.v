@@ -775,7 +775,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   (* Nonempty for the reason a quote is: a table with no rows renders to
      no lines at all.  The parser can build one (`|---|` alone), so that
      value sits outside the canonical view. *)
-  | CTable rows => nonempty rows && forallb ctrow_ok rows
+  | CTable rows => btables && nonempty rows && forallb ctrow_ok rows
   end.
 
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
@@ -924,7 +924,8 @@ Qed.
 
 Lemma cb_ok_table :
   forall rows,
-    cb_ok (CTable rows) = (nonempty rows && forallb ctrow_ok rows)%bool.
+    cb_ok (CTable rows) =
+    (btables && nonempty rows && forallb ctrow_ok rows)%bool.
 Proof. reflexivity. Qed.
 
 Lemma cb_lines_table :
