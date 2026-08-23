@@ -28,7 +28,8 @@ pay for -- and not because it needs special treatment any more.
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Inline Parser Document Render Roundtrip Invariants.
+From DjotV Require Import Ast Inline Parser Document Render Roundtrip Invariants
+  Profile.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -277,6 +278,39 @@ Proof. vm_compute. reflexivity. Qed.
 Example markdown_single_line_canonical_heading_is_enabled :
   @cb_ok markdown_table markdown_bconfig
     (CHeading 1 [[CIStr "a"]]) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example djot_profile_keeps_divs :
+  parse_profile_blocks djot_profile ":::
+a
+:::"
+  = [mk (Div [mk (Para [mk (Str "a")])])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_profile_reads_divs_as_text :
+  parse_profile_blocks markdown_like_profile ":::
+a
+:::"
+  = [mk (Para [mk (Str ":::"); mk SoftBreak; mk (Str "a");
+               mk SoftBreak; mk (Str ":::")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_div_is_disabled :
+  @cb_ok markdown_like_table markdown_bconfig (CDiv [CPara [[CIStr "a"]]])
+  = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* A named profile is a starting point, not a closed flavor enum. *)
+Definition markdown_with_divs : profile :=
+  with_block_profile (with_divs true markdown_bconfig) markdown_like_profile.
+
+Example customized_markdown_profile_restores_only_divs :
+  parse_profile_blocks markdown_with_divs ":::
+a
+:::"
+  = parse_profile_blocks djot_profile ":::
+a
+:::".
 Proof. vm_compute. reflexivity. Qed.
 
 (* Core CommonMark has no table construct. The classifier still recognizes

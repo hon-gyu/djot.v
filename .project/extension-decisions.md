@@ -613,3 +613,21 @@ therefore splits locally between the old accumulation lemma and an empty
 rendered suffix, while block incrementality and prefix compatibility remain
 parametric. `check/Markdown.v` pins adjacent headings, lazy text, and both
 sides of the canonical-view boundary.
+
+## Settled: profiles are open compositions, and divs are optional
+
+`Profile.profile` pairs a `dtable` with a `bconfig`; it is not an enum.
+`djot_profile` and `markdown_like_profile` are reviewed starting points, while
+`with_inline_profile` and `with_block_profile` retain arbitrary combinations
+of the fine-grained knobs.
+
+Fenced divs are the first Djot-only block construct switched off in the
+Markdown-like value. `bdivs` acts only at `KDiv` opening, and `cb_ok` excludes
+`CDiv` at the same setting. Djot remains enabled, and a customization witness
+restores divs on top of every other Markdown-like choice.
+
+Task lists deliberately do not receive a nominal boolean in this step. Their
+classifier erases `[x]` versus `[X]`, source that is required when task syntax
+falls back to literal bullet content, and their per-item statuses remain the
+one deferred canonical-roundtrip case. GFM tables similarly wait for a
+distinct recognizer before `btables` becomes a dialect mode.

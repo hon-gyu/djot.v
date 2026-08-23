@@ -105,6 +105,10 @@ Theorem with_heading_continuation_preserves_incremental :
     preserves (with_heading_continuation enabled) (block_incremental T).
 Proof. intros T enabled K _. apply block_incremental_holds. Qed.
 
+Theorem with_divs_preserves_incremental :
+  forall T enabled, preserves (with_divs enabled) (block_incremental T).
+Proof. intros T enabled K _. apply block_incremental_holds. Qed.
+
 (* The only line that can answer both block decisions is a lone dash: it is
    the bullet marker with no body, and it is also a one-character underline.
    Longer dash runs are not list markers, and equals runs are never markers.
@@ -159,6 +163,10 @@ Proof. intros enabled K H. exact H. Qed.
 Theorem with_heading_continuation_preserves_prefix_admissible :
   forall enabled,
     preserves (with_heading_continuation enabled) block_prefix_admissible.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_divs_preserves_prefix_admissible :
+  forall enabled, preserves (with_divs enabled) block_prefix_admissible.
 Proof. intros enabled K H. exact H. Qed.
 
 Example djot_prefix_admissible : block_prefix_ok djot_bconfig = true.

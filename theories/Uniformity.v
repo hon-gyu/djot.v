@@ -838,17 +838,21 @@ Qed.
     would at top level, for any contents that leave the div open. *)
 Theorem div_uniformity :
   forall content,
+    bdivs = true ->
     div_content_ok content = true ->
     parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
     = [mk (Div (parse_lines content (PPara [])))].
 Proof.
-  intros content Hok. unfold div_content_ok in Hok.
+  intros content Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf].
   apply negb_true_iff in Hf. rename Hf into Hfence.
-  rewrite (parse_lines_step _ _ _ _ _
-             (step_idle div_fence (KDiv 3 EmptyString)
-                classify_canonical_div eq_refl)).
-  cbn [open_kind fst snd app].
+  assert (Hstep : step div_fence (PPara []) =
+                    ([], PDiv 3 EmptyString [] (PPara []))).
+  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
+               classify_canonical_div eq_refl).
+    cbn [open_kind]. rewrite Hdivs. reflexivity. }
+  rewrite (parse_lines_step _ _ _ _ _ Hstep).
+  cbn [fst snd app].
   rewrite (parse_lines_div_cont content [] [] (PPara []) Hopen Hfence).
   reflexivity.
 Qed.
@@ -858,17 +862,21 @@ Qed.
    returns the parser to idle. *)
 Theorem div_uniformity_tail :
   forall content tail,
+    bdivs = true ->
     div_content_ok content = true ->
     parse_lines (div_fence :: content ++ div_fence :: EmptyString :: tail)%list
                 (PPara [])
     = mk (Div (parse_lines content (PPara []))) :: parse_lines tail (PPara []).
 Proof.
-  intros content tail Hok. unfold div_content_ok in Hok.
+  intros content tail Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
-  rewrite (parse_lines_step _ _ _ _ _
-             (step_idle div_fence (KDiv 3 EmptyString)
-                classify_canonical_div eq_refl)).
-  cbn [open_kind fst snd app].
+  assert (Hstep : step div_fence (PPara []) =
+                    ([], PDiv 3 EmptyString [] (PPara []))).
+  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
+               classify_canonical_div eq_refl).
+    cbn [open_kind]. rewrite Hdivs. reflexivity. }
+  rewrite (parse_lines_step _ _ _ _ _ Hstep).
+  cbn [fst snd app].
   rewrite (parse_lines_div_cont content (EmptyString :: tail) []
              (PPara []) Hopen Hf).
   cbn [rev app].

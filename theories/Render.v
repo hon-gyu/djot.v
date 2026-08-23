@@ -760,7 +760,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
      side condition of Parser.div_uniformity, specialised to the lines
      this rendering produces. *)
   | CDiv inner =>
-      divs_ok inner && cb_pairs_ok inner
+      bdivs && divs_ok inner && cb_pairs_ok inner
       && div_content_ok (sep_lines (map cb_lines inner))
   | CList k sp items =>
       nonempty items && items_ok items
@@ -840,7 +840,7 @@ Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivit
 Lemma cb_ok_div :
   forall inner,
     cb_ok (CDiv inner)
-    = (forallb cb_ok inner && cb_pairs_ok inner
+    = (bdivs && forallb cb_ok inner && cb_pairs_ok inner
        && div_content_ok (sep_lines (map cb_lines inner)))%bool.
 Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 

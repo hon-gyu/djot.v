@@ -33,11 +33,11 @@ Local Open Scope string_scope.
 Block settings
 ==============
 
-What the block layer is configurable in.  Today that is four questions:
+What the block layer is configurable in.  Today that is five questions:
 may a list marker close an open paragraph rather than extend it, may an
-underline turn that paragraph into a heading, and are pipe tables enabled?
-May an open ATX heading consume another source line? Djot answers no to the
-first two and yes to tables and heading continuation.
+underline turn that paragraph into a heading, are pipe tables enabled, may an
+open ATX heading consume another source line, and are fenced divs enabled?
+Djot answers no to the first two and yes to the last three.
 
 Its inline counterpart is `Inline.dconfig`, which is a genuine table --
 a row per delimiter -- and carries a side condition that admissible
@@ -62,6 +62,9 @@ Class bconfig : Type := BConfig {
      line?  Djot says yes; the Markdown-facing profile uses one source line
      per heading. *)
   bheading_continues : bool
+  ; (* Are fenced div containers enabled?  When false their complete opener
+       spelling is ordinary paragraph text. *)
+  bdivs : bool
 }.
 
 (*
@@ -100,30 +103,35 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true.
+  BConfig no_interrupt no_underline true true true.
 
-(* Field-local block knobs.  Each preserves the other decision, which is what
+(* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
    by hand. *)
 Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_status -> string -> bool)
   (K : bconfig) : bconfig :=
-  BConfig f (@bunderline K) (@btables K) (@bheading_continues K).
+  BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
-  BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K).
+  BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
+    (@bdivs K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
-    (@bheading_continues K).
+    (@bheading_continues K) (@bdivs K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
-  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled.
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
+    (@bdivs K).
 
-(* The other setting, and deliberately not an `Instance`, for the reason
-   `markdown_table` is not one: it is named where it is wanted
-   (`check/Sublist.v`) so that inference here always means djot's.
+Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) enabled.
+
+(* Other settings, deliberately not `Instance`s: they are named where wanted
+   (for example, in `check/Sublist.v`) so inference here always means Djot's.
 
    A marker interrupts when it cannot be the tail of ordinary prose: a
    bullet, whose core is empty, or the numeral `1`.  Excluding every
@@ -140,10 +148,11 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_heading_continuation false
-    (with_tables false
-      (with_underline setext_underline
-        (with_marker_interrupts prose_safe_markers djot_bconfig))).
+  with_divs false
+    (with_heading_continuation false
+      (with_tables false
+        (with_underline setext_underline
+          (with_marker_interrupts prose_safe_markers djot_bconfig)))).
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
@@ -712,7 +721,9 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
   | KThematic => ([mk ThematicBreak], PPara [])
   | KFence _ => ([], PPara [])        (* unreachable: see open_fence *)
   | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
-  | KDiv len cls => ([], PDiv len cls [] (PPara []))
+  | KDiv len cls =>
+      if bdivs then ([], PDiv len cls [] (PPara []))
+      else ([], PPara [drop_leading_ws l])
   | KText => ([], PPara [drop_leading_ws l])
   | KQuote _ => ([], PPara [])        (* unreachable: see open_quote *)
   | KList _ _ _ _ => ([], PPara [])     (* unreachable: see open_list *)
@@ -1714,6 +1725,7 @@ Proof.
         try reflexivity;
         try (cbn [open_fence fst snd pad_state]; rewrite Nat.add_assoc;
              reflexivity).
+      { cbn [open_kind fst snd pad_state]. destruct bdivs; reflexivity. }
       { rewrite <- Nat.add_assoc.
         pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
@@ -1754,7 +1766,8 @@ Proof.
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen open_fence fst snd pad_state].
       rewrite Nat.add_assoc. reflexivity. }
-    { reflexivity. }                    (* div: opens, records no column *)
+    { cbn [close_reopen open_kind fst snd pad_state].
+      destruct bdivs; reflexivity. }    (* div: opens, records no column *)
     { rewrite <- Nat.add_assoc.
       pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -1788,15 +1801,17 @@ Proof.
   (* quote *)
   { cbn [pad_state step_fuel].
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
-    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
-      rewrite finish_pad_quote. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state];
+      destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
+      rewrite finish_pad_quote; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_quote. reflexivity. }
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen open_fence fst snd pad_state].
       rewrite finish_pad_quote, Nat.add_assoc. reflexivity. }
-    { cbn [is_lazy close_reopen open_kind fst snd pad_state].
-      rewrite finish_pad_quote. reflexivity. }
+    { cbn [is_lazy close_reopen open_kind fst snd pad_state];
+      destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
+      rewrite finish_pad_quote; reflexivity. }
     { rewrite <- Nat.add_assoc.
       rewrite (IH k (off + consumed l rest) rest inner).
       destruct (step_fuel n (off + consumed l rest) rest inner)
@@ -1872,7 +1887,8 @@ Proof.
       destruct (div_closer l inner);
         [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
-      rewrite finish_pad_list. reflexivity. }
+      destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
+      rewrite finish_pad_list; reflexivity. }
     (* quote *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -2710,6 +2726,8 @@ Proof.
       { (* fence: opens at the column its border sits at *)
         unfold open_fence. rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
+      { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
+        destruct (@bdivs K); reflexivity. }
       { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
                 Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
       { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
@@ -2746,6 +2764,9 @@ Proof.
       cbn [close_reopen]; unfold open_fence.
       rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [close_reopen open_kind].
+      rewrite (drop_leading_ws_ws_prefix p l Hp).
+      destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
@@ -2779,6 +2800,9 @@ Proof.
       cbn [close_reopen]; unfold open_fence.
       rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [close_reopen open_kind].
+      rewrite (drop_leading_ws_ws_prefix p l Hp).
+      destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
@@ -2815,7 +2839,9 @@ Proof.
                       (IH p off l inner Hp Hsafe Hcol); reflexivity).
     { reflexivity. }
     { reflexivity. }
-    { reflexivity. }
+    { cbn [is_lazy open_kind close_reopen].
+      rewrite (drop_leading_ws_ws_prefix p l Hp).
+      destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { reflexivity. }

@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Six things are configurable today, and this document describes the
+Seven things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -29,6 +29,7 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
 | pipe tables and captions | disabled (`markdown_bconfig`) | enabled |
 | ATX heading continuation | one source line (`markdown_bconfig`) | same-level markers and lazy text continue |
+| fenced divs | disabled (`markdown_bconfig`) | enabled |
 
 The first two compose in `markdown_like_config`: it starts from the doubled
 strong spelling and applies the proved multi-row disable operation. The last
@@ -243,7 +244,7 @@ roundtrip fragment. GFM-style tables are therefore not currently part of the
 Markdown-like profile either; adding a separate caption-free GFM table mode
 would be a new extension.
 
-**Would need a new setting.** Attributes, divs, spans, math, footnotes, definition
+**Would need a new setting.** Attributes, spans, math, footnotes, definition
 lists, raw blocks and raw inline (all hardwired in the block layer).
 
 **The shape the work takes** is known, since it was done once for the

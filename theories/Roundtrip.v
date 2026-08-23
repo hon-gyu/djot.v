@@ -682,7 +682,8 @@ Proof.
        there is nothing to prove about nonemptiness *)
     intros inner IH H.
     rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
-    apply andb_true_iff in H as [Hok _].
+    apply andb_true_iff in H as [H Hinner].
+    apply andb_true_iff in H as [_ Hok].
     rewrite cb_lines_div. unfold lines_ok.
     cbn [nonempty forallb]. rewrite last_cons_app, forallb_app. cbn [forallb].
     rewrite (sep_lines_no_nl _ (IH Hok)). reflexivity.
@@ -1205,22 +1206,24 @@ Proof.
        only to drive the contents' induction hypothesis. *)
     intros inner IH.
     assert (Hparts : cb_ok (CDiv inner) = true ->
-                     parse_lines (sep_lines (map cb_lines inner)) (PPara [])
+                     bdivs = true
+                     /\ parse_lines (sep_lines (map cb_lines inner)) (PPara [])
                      = map cb_ast inner
                      /\ div_content_ok (sep_lines (map cb_lines inner)) = true).
     { intros H. rewrite cb_ok_div in H.
       apply andb_true_iff in H as [H Hcontent].
-      apply andb_true_iff in H as [Hok Hadj].
-      split; [exact (IH Hadj Hok) | exact Hcontent]. }
+      apply andb_true_iff in H as [H Hadj].
+      apply andb_true_iff in H as [Hdivs Hok].
+      repeat split; [exact Hdivs | exact (IH Hadj Hok) | exact Hcontent]. }
     split.
     + intros next tail _ _ H.
-      destruct (Hparts H) as [IHinner Hcontent].
+      destruct (Hparts H) as [Hdivs [IHinner Hcontent]].
       rewrite cb_lines_div, cb_ast_div. cbn [app]. rewrite <- app_assoc.
       cbn [app].
-      rewrite (div_uniformity_tail _ _ Hcontent), IHinner. reflexivity.
-    + intros H. destruct (Hparts H) as [IHinner Hcontent].
+      rewrite (div_uniformity_tail _ _ Hdivs Hcontent), IHinner. reflexivity.
+    + intros H. destruct (Hparts H) as [Hdivs [IHinner Hcontent]].
       rewrite cb_lines_div, cb_ast_div.
-      rewrite (div_uniformity _ Hcontent), IHinner. reflexivity.
+      rewrite (div_uniformity _ Hdivs Hcontent), IHinner. reflexivity.
   - (* list: every item's contents come from the induction hypothesis,
        and Parser.ck_uniformity assembles them *)
     intros k sp items IH.
@@ -1425,7 +1428,8 @@ Proof.
   - (* div: same shape as the quote, with fences instead of a prefix *)
     intros inner IH H.
     rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
-    apply andb_true_iff in H as [Hok _].
+    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [_ Hok].
     rewrite cb_ast_div. cbn [node_contents mk].
     rewrite render_block_div.
     fold (render_blocks_lines (map cb_ast inner)).

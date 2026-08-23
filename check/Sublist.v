@@ -35,7 +35,7 @@ Open Scope string_scope.
    is one of the examples below: a knob that lets *every* marker
    interrupt. *)
 Definition any_bconfig : bconfig :=
-  BConfig (fun _ _ _ _ => true) no_underline true true.
+  BConfig (fun _ _ _ _ => true) no_underline true true true.
 
 Local Notation Djot := (@parse_blocks _ djot_bconfig).
 Local Notation Sub := (@parse_blocks _ sublist_bconfig).
