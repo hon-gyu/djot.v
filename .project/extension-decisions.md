@@ -300,6 +300,14 @@ buys is saying so in the statements rather than by rebuilding.
   `clashing_config_ok_when_off` shows switching a row off frees its
   character.
 
+  The condition is also local now. `update_drow` replaces one `dentry`, and
+  `drow_update_compatible` checks exactly what is not inherited from the
+  input table: the new row is intrinsically valid and its trigger differs
+  from every unchanged enabled row. `update_drow_preserves_admissible` proves that
+  check sufficient. `markdown_config` is the update of djot's strong row to
+  `markdown_strong_entry`; executable controls reject a clash with `_`, a
+  scanner-reserved backslash, and width zero.
+
 - *A row can be switched off.* `dsyntax` is three-valued -- off, braces
   required, braces optional -- where the old `dbare` was a boolean.
   Djot's rows are all on: braces required for `{= =}` and `{+ +}`,

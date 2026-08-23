@@ -11,6 +11,12 @@ Definition knob (C : Type) : Type := C -> C.
 Definition preserves {C : Type} (k : knob C) (I : invariant C) : Prop :=
   forall c, I c -> I (k c).
 
+(* A local edit may have a decidable compatibility obligation that depends on
+   the configuration it is applied to. *)
+Definition preserves_when {C : Type}
+  (compatible : C -> Prop) (k : knob C) (I : invariant C) : Prop :=
+  forall c, compatible c -> I c -> I (k c).
+
 Definition compose_knob {C : Type} (k1 k2 : knob C) : knob C :=
   fun c => k2 (k1 c).
 

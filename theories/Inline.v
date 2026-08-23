@@ -271,22 +271,6 @@ Definition djot_dwidth (_ : dstyle) : nat := 1.
 Definition djot_config : dconfig :=
   DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay.
 
-(* The second table this development intends to ship: Markdown's
-   spelling, with djot's rules.  `_` stays emphasis and `**` becomes
-   strong, which is what a reader coming from Markdown expects; a single
-   `*` is then not a delimiter at all, since a row's width is fixed and a
-   run shorter than it is literal.
-
-   Markdown-*like*, not CommonMark: the delimiters do not disambiguate by
-   run length or flanking, because there is nothing to disambiguate --
-   one character, one row, one width.  That is djot's property, and
-   keeping it is the point of spelling the extension as a table rather
-   than as rules. *)
-Definition markdown_config : dconfig :=
-  DConfig (fun k => match k with DStrong => "*"%char | _ => djot_dchar k end)
-          (fun k => match k with DStrong => 2 | _ => 1 end)
-          djot_dsyntax djot_ddecay.
-
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
 
@@ -373,67 +357,256 @@ Definition dconfig_rows_ok (C : dconfig) : bool :=
 Definition dconfig_ok (C : dconfig) : bool :=
   (dconfig_distinct C && dconfig_rows_ok C)%bool.
 
-(* The first executable Phase 4 obligation.  Turning a row off is a knob on
-   delimiter configurations; admissibility is the invariant it must preserve.
-   The operation changes only whether the selected row participates in lookup.
-   In particular it does not repair a malformed row by hiding it: row validity
-   remains an obligation even for disabled rows, as documented above. *)
-Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
-  DConfig (dc_char C) (dc_width C)
-    (fun k => if dstyle_eq k target then DOff else dc_syntax C k)
-    (dc_decay C).
-
 Definition delimiter_admissible : invariant dconfig :=
   fun C => dconfig_ok C = true.
 
-Lemma denabled_disable_row :
-  forall C target k,
-    denabled (disable_row target C) k = true -> denabled C k = true.
+(* A row update is the local edit Phase 4's table knobs make.  Keeping the
+   payload together matters: compatibility is checked of the replacement row
+   as a unit rather than as four unrelated function updates. *)
+Record dentry : Type := DEntry {
+  de_char : ascii;
+  de_width : nat;
+  de_syntax : dsyntax;
+  de_decay : ddecay
+}.
+
+Definition dentry_of (C : dconfig) (k : dstyle) : dentry :=
+  DEntry (dc_char C k) (dc_width C k) (dc_syntax C k) (dc_decay C k).
+
+Definition update_drow
+  (target : dstyle) (e : dentry) (C : dconfig) : dconfig :=
+  DConfig
+    (fun k => if dstyle_eq k target then de_char e else dc_char C k)
+    (fun k => if dstyle_eq k target then de_width e else dc_width C k)
+    (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
+    (fun k => if dstyle_eq k target then de_decay e else dc_decay C k).
+
+Definition drow_trigger_compatible
+  (C : dconfig) (target : dstyle) (e : dentry) : bool :=
+  let C' := update_drow target e C in
+  forallb
+    (fun k =>
+       implb
+         (negb (dstyle_eq k target)
+          && denabled C' k && denabled C' target)%bool
+         (negb (Ascii.eqb (dc_char C' k) (dc_char C' target))))
+    dstyles.
+
+(* The replacement has to be a valid row, and its enabled trigger must differ
+   from every unchanged enabled row.  Those are precisely the two facts not
+   inherited from an admissible input table; no whole-table recheck is part of
+   this compatibility predicate. *)
+Definition drow_update_compatible
+  (C : dconfig) (target : dstyle) (e : dentry) : bool :=
+  (drow_ok (update_drow target e C) target
+   && drow_trigger_compatible C target e)%bool.
+
+Lemma denabled_update_drow_other :
+  forall C target e k,
+    dstyle_eq k target = false ->
+    denabled (update_drow target e C) k = denabled C k.
 Proof.
-  intros C target k H.
-  unfold disable_row in H. cbn in H.
-  unfold denabled in H |- *. cbn in H.
-  destruct (dstyle_eq k target); [discriminate|].
-  exact H.
+  intros C target e k H. unfold update_drow, denabled. cbn.
+  rewrite H. reflexivity.
 Qed.
+
+Lemma denabled_update_drow_target :
+  forall C target e,
+    denabled (update_drow target e C) target =
+    match de_syntax e with DOff => false | _ => true end.
+Proof.
+  intros C [] e; unfold denabled, update_drow; cbn;
+    destruct (de_syntax e); reflexivity.
+Qed.
+
+Lemma dchar_update_drow_other :
+  forall C target e k,
+    dstyle_eq k target = false ->
+    dc_char (update_drow target e C) k = dc_char C k.
+Proof.
+  intros C target e k H. unfold update_drow. cbn.
+  rewrite H. reflexivity.
+Qed.
+
+Lemma dchar_update_drow_target :
+  forall C target e,
+    dc_char (update_drow target e C) target = de_char e.
+Proof. intros C [] e; reflexivity. Qed.
+
+Lemma no_trigger_collision :
+  forall a b same conclusion,
+    implb (a && b) (negb same) = true ->
+    implb (a && b && same) conclusion = true.
+Proof. intros [] [] [] []; reflexivity || discriminate. Qed.
+
+Lemma no_trigger_collision_sym :
+  forall a b same conclusion,
+    implb (a && b) (negb same) = true ->
+    implb (b && a && same) conclusion = true.
+Proof. intros [] [] [] []; reflexivity || discriminate. Qed.
+
+Lemma dconfig_distinct_update_drow :
+  forall C target e,
+    dconfig_distinct C = true ->
+    drow_trigger_compatible C target e = true ->
+    dconfig_distinct (update_drow target e C) = true.
+Proof.
+  intros C target e Hbase Hlocal.
+  unfold dconfig_distinct in Hbase |- *.
+  rewrite forallb_forall in Hbase |- *.
+  unfold drow_trigger_compatible in Hlocal.
+  rewrite forallb_forall in Hlocal.
+  intros k Hk. specialize (Hbase k Hk).
+  rewrite forallb_forall in Hbase |- *.
+  intros k' Hk'. specialize (Hbase k' Hk').
+  pose proof (Hlocal k Hk) as Hlocal_k.
+  pose proof (Hlocal k' Hk') as Hlocal_k'.
+  unfold implb in Hbase, Hlocal_k, Hlocal_k' |- *.
+  destruct (dstyle_eq k target) eqn:Ek.
+  - apply dstyle_eq_true in Ek. subst k.
+    destruct (dstyle_eq k' target) eqn:Ek'.
+    + apply dstyle_eq_true in Ek'. subst k'.
+      rewrite !denabled_update_drow_target, !dchar_update_drow_target,
+        Ascii.eqb_refl.
+      assert (Etarget : dstyle_eq target target = true)
+        by (destruct target; reflexivity).
+      rewrite Etarget. destruct (de_syntax e); reflexivity.
+    + rewrite denabled_update_drow_other in Hlocal_k' by exact Ek'.
+      rewrite denabled_update_drow_target in Hlocal_k'.
+      rewrite dchar_update_drow_other in Hlocal_k' by exact Ek'.
+      rewrite dchar_update_drow_target in Hlocal_k'.
+      rewrite denabled_update_drow_target,
+        denabled_update_drow_other by exact Ek'.
+      rewrite dchar_update_drow_target,
+        dchar_update_drow_other by exact Ek'.
+      rewrite Ascii.eqb_sym.
+      exact (no_trigger_collision_sym _ _ _ _ Hlocal_k').
+  - destruct (dstyle_eq k' target) eqn:Ek'.
+    + apply dstyle_eq_true in Ek'. subst k'.
+      rewrite denabled_update_drow_other in Hlocal_k by exact Ek.
+      rewrite denabled_update_drow_target in Hlocal_k.
+      rewrite dchar_update_drow_other in Hlocal_k by exact Ek.
+      rewrite dchar_update_drow_target in Hlocal_k.
+      rewrite denabled_update_drow_other by exact Ek.
+      rewrite denabled_update_drow_target.
+      rewrite dchar_update_drow_other by exact Ek.
+      rewrite dchar_update_drow_target.
+      exact (no_trigger_collision _ _ _ _ Hlocal_k).
+    + rewrite !denabled_update_drow_other by assumption.
+      rewrite !dchar_update_drow_other by assumption.
+      exact Hbase.
+Qed.
+
+Lemma drow_ok_update_drow_other :
+  forall C target e k,
+    dstyle_eq k target = false ->
+    drow_ok (update_drow target e C) k = drow_ok C k.
+Proof.
+  intros C target e k H. unfold drow_ok, update_drow. cbn.
+  rewrite H. reflexivity.
+Qed.
+
+Lemma drow_ok_update_drow_target :
+  forall C target e,
+    drow_ok (update_drow target e C) target =
+    (negb (Nat.eqb (de_width e) 0) && is_punct (de_char e)
+     && negb (dreserved (de_char e)) && ddecay_ok (de_decay e))%bool.
+Proof. intros C [] e; reflexivity. Qed.
+
+Theorem update_drow_preserves_admissible :
+  forall target e,
+    preserves_when
+      (fun C => drow_update_compatible C target e = true)
+      (update_drow target e)
+      delimiter_admissible.
+Proof.
+  intros target e C Hcompat HC.
+  unfold drow_update_compatible in Hcompat.
+  apply andb_true_iff in Hcompat as [Htarget Htrigger].
+  unfold delimiter_admissible, dconfig_ok in HC |- *.
+  apply andb_true_iff in HC as [Hdistinct Hrows].
+  apply andb_true_iff. split.
+  - exact (dconfig_distinct_update_drow C target e Hdistinct Htrigger).
+  - unfold dconfig_rows_ok in Hrows |- *.
+    rewrite forallb_forall in Hrows |- *.
+    intros k Hk.
+    destruct (dstyle_eq k target) eqn:Hsame.
+    + apply dstyle_eq_true in Hsame. subst k. exact Htarget.
+    + rewrite drow_ok_update_drow_other by exact Hsame.
+      exact (Hrows k Hk).
+Qed.
+
+(* The second table this development ships is now one checked row update:
+   Markdown's `**` spelling for strong, with djot's semantics everywhere
+   else.  A single `*` is literal because the row has one fixed width; there
+   is no run-length disambiguation or flanking rule. *)
+Definition markdown_strong_entry : dentry :=
+  DEntry "*"%char 2 DBare DDSelf.
+
+Definition markdown_config : dconfig :=
+  update_drow DStrong markdown_strong_entry djot_config.
+
+(* Executable witnesses for each part of the compatibility boundary. *)
+Example markdown_strong_compatible :
+  drow_update_compatible djot_config DStrong markdown_strong_entry = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example clashing_strong_incompatible :
+  drow_update_compatible djot_config DStrong
+    (DEntry "_"%char 2 DBare DDSelf) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example reserved_strong_incompatible :
+  drow_update_compatible djot_config DStrong
+    (DEntry bslash 2 DBare DDSelf) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example empty_strong_incompatible :
+  drow_update_compatible djot_config DStrong
+    (DEntry "*"%char 0 DBare DDSelf) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Disabling is the first specialization.  It changes only the syntax field;
+   the row remains intrinsically valid even while switched off. *)
+Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
+  DEntry (dc_char C target) (dc_width C target) DOff (dc_decay C target).
+
+Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
+  update_drow target (disable_entry C target) C.
 
 Lemma drow_ok_disable_row :
   forall C target k, drow_ok (disable_row target C) k = drow_ok C k.
-Proof. reflexivity. Qed.
+Proof. intros C [] []; reflexivity. Qed.
 
-Lemma dconfig_distinct_disable_row :
+Lemma disable_row_compatible :
   forall C target,
-    dconfig_distinct C = true ->
-    dconfig_distinct (disable_row target C) = true.
+    delimiter_admissible C ->
+    drow_update_compatible C target (disable_entry C target) = true.
 Proof.
   intros C target H.
-  unfold dconfig_distinct in H |- *.
-  rewrite forallb_forall in H |- *.
-  intros k Hk. specialize (H k Hk).
-  rewrite forallb_forall in H |- *.
-  intros k' Hk'. specialize (H k' Hk').
-  unfold implb in H |- *. cbn [disable_row] in H |- *.
-  destruct (denabled (disable_row target C) k) eqn:Ek; cbn; [|reflexivity].
-  destruct (denabled (disable_row target C) k') eqn:Ek'; cbn; [|reflexivity].
-  apply denabled_disable_row in Ek.
-  apply denabled_disable_row in Ek'.
-  rewrite Ek, Ek' in H. cbn in H. exact H.
+  unfold drow_update_compatible.
+  change ((drow_ok (disable_row target C) target
+           && drow_trigger_compatible C target
+                (disable_entry C target))%bool = true).
+  apply andb_true_iff. split.
+  - rewrite drow_ok_disable_row.
+    unfold delimiter_admissible, dconfig_ok in H.
+    apply andb_true_iff in H as [_ Hrows].
+    unfold dconfig_rows_ok in Hrows. rewrite forallb_forall in Hrows.
+    exact (Hrows target (dstyles_complete target)).
+  - unfold drow_trigger_compatible.
+    rewrite forallb_forall. intros k Hk.
+    unfold implb. rewrite denabled_update_drow_target.
+    unfold disable_entry. cbn. rewrite andb_false_r. reflexivity.
 Qed.
-
-Lemma dconfig_rows_ok_disable_row :
-  forall C target,
-    dconfig_rows_ok (disable_row target C) = dconfig_rows_ok C.
-Proof. reflexivity. Qed.
 
 Theorem disable_row_preserves_admissible :
   forall target, preserves (disable_row target) delimiter_admissible.
 Proof.
   intros target C H.
-  unfold delimiter_admissible in H |- *.
-  apply andb_true_iff in H as [Hd Hr].
-  apply andb_true_iff. split.
-  - exact (dconfig_distinct_disable_row C target Hd).
-  - rewrite dconfig_rows_ok_disable_row. exact Hr.
+  apply (update_drow_preserves_admissible target (disable_entry C target) C).
+  - exact (disable_row_compatible C target H).
+  - exact H.
 Qed.
 
 Lemma dconfig_ok_distinct :
