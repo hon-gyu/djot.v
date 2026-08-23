@@ -18,22 +18,26 @@ drifts; those do not.
 
 ## The profile this describes
 
-Three things are configurable today, and this document describes the
+Four things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
 | --- | --- | --- |
 | strong / emphasis spelling | `**strong**`, `_emph_` (`markdown_config`) | `*strong*`, `_emph_` (`djot_config`) |
+| djot-only delimiter containers | disabled (`markdown_like_config`) | highlight, insert, delete, super/subscript and smart quotes enabled |
 | sublist without a blank line | allowed (`markdown_bconfig`) | not allowed (`djot_bconfig`) |
 | `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
 
-The last two live in one record with one field each. `markdown_bconfig`
+The first two compose in `markdown_like_config`: it starts from the doubled
+strong spelling and applies the proved multi-row disable operation. The last
+two live in one record with one field each. `markdown_bconfig`
 composes their field-local knobs, and `check/Markdown.v` pins the combined
 profile as well as the individual settings in `check/Sublist.v` and
 `check/Setext.v`.
 
-Everything else in this document is fixed and not currently a setting.
-See [What could become opt-in](#what-could-become-opt-in).
+The profile is not yet a CommonMark implementation: djot-only block and
+non-delimiter inline constructs remain enabled. See
+[What could become opt-in](#what-could-become-opt-in).
 
 ## Works exactly as you expect
 
@@ -218,12 +222,12 @@ The characters to watch are `{`, `}`, `[`, `]`, `$`, `^`, `~`, `:` and
 Asked because a Markdown user should not have to learn what they are not
 using. Where things stand:
 
-**Already switchable, and the proofs go through at the switched-off
-setting.** Highlight, insert, delete, superscript, subscript, single and
-double curly quotes are rows in the delimiter table, and a row can be set
-to off. Turning a row off removes it from the canonical view too, so the
-roundtrip theorem holds at the reduced table rather than being restated
-for it.
+**Already switched off in `markdown_like_config`, and the proofs go through
+there.** Highlight, insert, delete, superscript, subscript, single and double
+curly quotes are rows in the delimiter table. `disable_rows` turns them off
+compositionally. This removes them from the canonical view too, so the
+roundtrip theorem specializes to the reduced table rather than being
+restated for it.
 
 **Would need a new setting.** Em dash and ellipsis (hardwired scanner
 dispatch), attributes, divs, spans, math, footnotes, tables, definition

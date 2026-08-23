@@ -4,10 +4,12 @@
 The Markdown-like table, pinned
 ===============================
 
-The second table this development means to ship: `_` for emphasis and
-`**` for strong, with djot's rules unchanged.  Markdown's *spelling*,
-djot's *semantics* -- no run-length arithmetic and no flanking rules,
-because a character belongs to one row at one width and there is
+The Markdown-facing tables this development means to ship: `_` for emphasis
+and `**` for strong, with djot's delimiter rules unchanged. `markdown_table`
+isolates that spelling decision; `markdown_like_table` additionally disables
+the seven delimiter containers CommonMark does not have. Markdown's
+*spelling*, djot's *semantics* -- no run-length arithmetic and no flanking
+rules, because a character belongs to one row at one width and there is
 nothing to disambiguate.
 
 Every line here was measured, not predicted.
@@ -33,6 +35,7 @@ Open Scope string_scope.
 (* Everything below is read at the Markdown-like table.  Naming it here
    rather than declaring it an instance is what keeps djot's the one
    inference finds everywhere else. *)
+Local Notation ProfileInline := (@parse_inline_line markdown_like_table).
 Local Notation parse_inline_line := (@parse_inline_line markdown_table).
 Local Notation escape_str := (@escape_str markdown_table).
 Local Notation ci_line := (@ci_line markdown_table).
@@ -191,6 +194,30 @@ Example md_canonical_nested_roundtrip :
   = ci_inlines [CIDelim DEmph [CIStr "a"; CIDelim DStrong [CIStr "b"]]].
 Proof. vm_compute. reflexivity. Qed.
 
+(*
+The narrower inline profile
+---------------------------
+
+`markdown_table` isolates the doubled-strong spelling.  The named
+Markdown-like profile starts there and disables djot's seven additional
+delimiter containers, leaving emphasis and strong as the only enabled rows.
+*)
+
+Example markdown_like_keeps_emphasis_and_strong :
+  ProfileInline "_a_ and **b**"
+  = [mk (Emph [mk (Str "a")]); mk (Str " and ");
+     mk (Strong [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_reads_djot_delimiters_literally :
+  ProfileInline "{=a=} {+b+} {-c-} ^d^ ~e~ 'f' ""g"""
+  = [mk (Str "{=a=} {+b+} {-c-} ^d^ ~e~ 'f' ""g""")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_rejects_disabled_canonical_nodes :
+  @ci_ok markdown_like_table (CIDelim DMark [CIStr "a"]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
 (* The block half names the composition of both Markdown-facing decisions,
    rather than silently inferring djot's block instance. *)
 Example md_setext_heading :
@@ -237,3 +264,13 @@ Theorem md_roundtrip_doc :
             (@render_djot markdown_table (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_doc markdown_table markdown_bconfig). Qed.
+
+Theorem markdown_like_roundtrip_doc :
+  forall cbs,
+    @cblocks_ok markdown_like_table markdown_bconfig cbs = true ->
+    undo_pass
+      (doc_blocks
+         (@parse_doc markdown_like_table markdown_bconfig
+            (@render_djot markdown_like_table (blocks_of_cblocks cbs))))
+    = blocks_of_cblocks cbs.
+Proof. exact (@roundtrip_doc markdown_like_table markdown_bconfig). Qed.

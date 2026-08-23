@@ -89,13 +89,16 @@ it is the reason CommonMark's emphasis rules are what they are.
 strong character differs from the emphasis character, configurably, with
 djot as the instance that disables it.
 
-**The two tables this ships.** The point is not "a knob"; it is two
-named configurations, both inhabitants of one family.
+**The tables this ships.** The point is not "a knob"; it is named
+configurations, all inhabitants of one family. `markdown_config` isolates
+the doubled-strong decision; `markdown_like_config` starts there and disables
+the seven djot-only delimiter containers.
 
 | | emphasis | strong | a lone `*` |
 | --- | --- | --- | --- |
 | `djot_config` | `_` | `*` | strong |
 | `markdown_config` | `_` | `**` | literal text |
+| `markdown_like_config` | `_` | `**` | literal text |
 
 The second is Markdown's *spelling* with djot's *semantics*: no run-length
 arithmetic, no flanking rules, no "three means both". A character belongs
@@ -313,6 +316,12 @@ buys is saying so in the statements rather than by rebuilding.
   Djot's rows are all on: braces required for `{= =}` and `{+ +}`,
   optional for the rest. Off is what makes "which containers exist" a
   setting rather than a fixed list.
+
+- *A reduced profile composes those switches.* `disable_rows` lifts the
+  single-row preservation theorem over an explicit list.
+  `markdown_like_config` disables superscript, subscript, highlight, insert,
+  delete and both quote rows; `check/Markdown.v` pins their literal reading,
+  rejection from the canonical fragment, and document roundtrip.
 
 **The open sub-questions, now measured.** `check/Markdown.v` pins
 `markdown_config`'s behaviour -- thirty examples, with the two-step

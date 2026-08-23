@@ -609,6 +609,35 @@ Proof.
   - exact H.
 Qed.
 
+(* Profiles switch off several independent containers by composing the same
+   proved row operation.  The order is immaterial to behaviour, but keeping it
+   as an explicit list makes the profile's surface syntax reviewable. *)
+Fixpoint disable_rows (targets : list dstyle) (C : dconfig) : dconfig :=
+  match targets with
+  | [] => C
+  | target :: rest => disable_rows rest (disable_row target C)
+  end.
+
+Theorem disable_rows_preserves_admissible :
+  forall targets, preserves (disable_rows targets) delimiter_admissible.
+Proof.
+  induction targets as [|target rest IH]; intros C H; cbn.
+  - exact H.
+  - apply IH. exact (disable_row_preserves_admissible target C H).
+Qed.
+
+(* CommonMark has only emphasis and strong among these delimiter containers.
+   This is intentionally called Markdown-like rather than CommonMark: the
+   scanner still uses djot's simpler opening and closing rules. *)
+Definition markdown_like_disabled_rows : list dstyle :=
+  [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
+
+Definition markdown_like_config : dconfig :=
+  disable_rows markdown_like_disabled_rows markdown_config.
+
+Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
+Proof. vm_compute. reflexivity. Qed.
+
 Lemma dconfig_ok_distinct :
   forall C, dconfig_ok C = true -> dconfig_distinct C = true.
 Proof. intros C H. apply andb_true_iff in H as [H _]. exact H. Qed.
@@ -7179,6 +7208,11 @@ one class in one scope is how the wrong table gets inferred.
    that inference in this development always means djot's. *)
 Definition markdown_table : dtable :=
   DTable markdown_config eq_refl.
+
+(* The narrower profile keeps Markdown spelling and switches off every
+   djot-only delimiter container. *)
+Definition markdown_like_table : dtable :=
+  DTable markdown_like_config eq_refl.
 
 Example escaped_punct_literal : parse_inline_line "\*" = [mk (Str "*")].
 Proof. reflexivity. Qed.
