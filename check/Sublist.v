@@ -26,7 +26,8 @@ restriction, are in `.project/260823.phase4-block-knob.md`.
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Line Inline Parser Document Render Roundtrip.
+From DjotV Require Import Ast Line Inline Parser Document Render Roundtrip
+  Invariants.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -132,6 +133,20 @@ Example sublist_leaves_an_initial_alone :
 i. m. author" = Djot "written by
 i. m. author".
 Proof. vm_compute. reflexivity. Qed.
+
+(* The examples above have one configuration-level statement.  Its exact
+   local precondition says an interrupting policy is pointwise no more
+   permissive than [prose_safe_markers]; the generic theorem proves that this
+   condition is both necessary and sufficient for the installed knob. *)
+Theorem sublist_is_accidental_list_immune :
+  accidental_list_immune sublist_bconfig.
+Proof. exact sublist_accidental_list_immune. Qed.
+
+Theorem accidental_list_immunity_precondition_is_exact :
+  forall f K,
+    accidental_list_immune (with_marker_interrupts f K) <->
+    marker_interrupt_precondition f.
+Proof. exact with_marker_interrupts_accidental_list_immune_iff. Qed.
 
 (*
 What the canonical view says

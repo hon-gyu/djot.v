@@ -442,13 +442,23 @@ classifies as text at every setting. Filtering the generated pool by
 `cb_ok` gives the same 245 and 2910 at all three knobs, which is what the
 marker-shaped leaf in `Generate.leaves` exists to say.
 
-**Status: settled and pinned**, in `check/Sublist.v` per discipline 2 --
+**Status: settled, pinned, and proved as a configuration property**, in
+`check/Sublist.v` per discipline 2 --
 `djot_swallows_the_marker`, `sublist_nests_without_a_blank`,
 `sublist_interrupts_at_top_level`, `any_marker_invents_a_list`,
 `sublist_leaves_the_year_alone`, and `sublist_roundtrip_blocks`, which is
 `roundtrip_blocks` applied to the other knob rather than reproved. The
 argument and the measurements are in
 [[260823.phase4-block-knob]].
+
+The Phase 5 refinement is `Invariants.accidental_list_immune`.  Its extracted
+local condition, `marker_interrupt_precondition`, says exactly that a policy
+can interrupt only where `prose_safe_markers` does.
+`with_marker_interrupts_accidental_list_immune_iff` proves the condition both
+necessary and sufficient, rather than presenting it as a conservative recipe.
+Thus `prose_safe_markers` is the maximally permissive immune policy;
+`sublist_bconfig` is the promised setting strictly more permissive than djot,
+and the unrestricted setting is rejected by the `1865.` witness.
 
 **Open inside it.** Whether `i.` should be admitted. It is excluded with
 every other numeral today, which keeps `written by` / `i. m. author`

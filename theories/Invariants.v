@@ -13,6 +13,7 @@
 From Stdlib Require Import String List Ascii.
 From DjotV Require Import Config Ast Line Parser.
 Import ListNotations.
+Local Open Scope string_scope.
 
 (* The inline guarantees Phase 3 established independently are one structural
    invariant of an admissible delimiter table.  They intentionally say no
@@ -166,3 +167,70 @@ Example lone_dash_overlap_rejected :
   block_prefix_ok
     (with_underline (fun _ _ => Some 0) sublist_bconfig) = false.
 Proof. reflexivity. Qed.
+
+(*
+Accidental-list immunity
+------------------------
+
+An interrupting ordered marker is safe in ordinary prose only at the
+conventional list start [1].  Bullets have an empty core and are unambiguous;
+every other nonempty core includes years, initials, and other text that may
+legitimately begin a continuation line.  State the boundary over the marker
+policy itself, so it is independent of parser state and can be checked before
+installing the knob. *)
+Definition marker_interrupt_precondition
+  (f : list lstyle -> string -> option task_status -> string -> bool) : Prop :=
+  forall sty core chk rest,
+    f sty core chk rest = true ->
+    prose_safe_markers sty core chk rest = true.
+
+Definition accidental_list_immune : invariant bconfig :=
+  fun K => marker_interrupt_precondition (@bmarker_interrupts K).
+
+(* This is the extracted weakest precondition for the field-local update:
+   because [with_marker_interrupts] replaces exactly this field, the updated
+   configuration has the property iff the replacement policy satisfies the
+   local condition. *)
+Theorem with_marker_interrupts_accidental_list_immune_iff :
+  forall f K,
+    accidental_list_immune (with_marker_interrupts f K) <->
+    marker_interrupt_precondition f.
+Proof. reflexivity. Qed.
+
+Theorem with_marker_interrupts_preserves_accidental_list_immunity :
+  forall f,
+    preserves_when
+      (fun _ => marker_interrupt_precondition f)
+      (with_marker_interrupts f)
+      accidental_list_immune.
+Proof. intros f K Hsafe _. exact Hsafe. Qed.
+
+Theorem prose_safe_markers_is_immune :
+  marker_interrupt_precondition prose_safe_markers.
+Proof. intros sty core chk rest H. exact H. Qed.
+
+(* [prose_safe_markers] is the maximally permissive immune policy: every
+   policy satisfying the property is pointwise below it. *)
+Theorem prose_safe_markers_maximal :
+  forall f,
+    marker_interrupt_precondition f ->
+    forall sty core chk rest,
+      f sty core chk rest = true ->
+      prose_safe_markers sty core chk rest = true.
+Proof. intros f Hsafe sty core chk rest H. exact (Hsafe _ _ _ _ H). Qed.
+
+Example djot_accidental_list_immune :
+  accidental_list_immune djot_bconfig.
+Proof. intros sty core chk rest H. discriminate H. Qed.
+
+Example sublist_accidental_list_immune :
+  accidental_list_immune sublist_bconfig.
+Proof. exact prose_safe_markers_is_immune. Qed.
+
+Example unrestricted_markers_are_not_accidental_list_immune :
+  ~ marker_interrupt_precondition (fun _ _ _ _ => true).
+Proof.
+  intros H.
+  specialize (H [SOrd Decimal RightPeriod] "1865" None "x" eq_refl).
+  vm_compute in H. discriminate H.
+Qed.
