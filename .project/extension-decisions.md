@@ -594,6 +594,6 @@ field of `bconfig`; `with_tables` preserves block incrementality and the
 lone-dash compatibility invariant. Djot and the individual sublist/setext
 profiles keep it enabled, while `markdown_bconfig` disables it.
 `check/Markdown.v` pins a two-row table spelling as one paragraph and checks
-that `CTable` is outside that profile's canonical fragment. The paragraph's
-`---` still becomes an em dash, which exposes typography as the next
-independent profile gate rather than a table concern.
+that `CTable` is outside that profile's canonical fragment. Typography stays
+independent of tables: `dc_smart_typography` now makes `---` literal in the
+Markdown-like profile while djot continues to read it as an em dash.

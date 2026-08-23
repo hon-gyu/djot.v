@@ -153,9 +153,10 @@ ellipsis, and `"` and `'` become curly quotes. (`parse_no_interrupt`,
 stays literal, and so does a fenced code block or `` `verbatim` ``, which
 are never touched.
 
-Curly quotes are already a row in the delimiter table and can be switched
-off. The dashes and the ellipsis are not rows; they are hardwired
-scanner dispatch, so turning them off needs a new setting.
+Curly quotes are rows in the delimiter table and are switched off in
+`markdown_like_config`. Dashes and ellipses remain scanner dispatch, but the
+same profile now sets `dc_smart_typography` to false, so all three spellings
+above stay literal there. Djot's configuration keeps them enabled.
 
 ### A hard line break is a trailing backslash
 
@@ -236,8 +237,7 @@ roundtrip fragment. GFM-style tables are therefore not currently part of the
 Markdown-like profile either; adding a separate caption-free GFM table mode
 would be a new extension.
 
-**Would need a new setting.** Em dash and ellipsis (hardwired scanner
-dispatch), attributes, divs, spans, math, footnotes, definition
+**Would need a new setting.** Attributes, divs, spans, math, footnotes, definition
 lists, raw blocks and raw inline (all hardwired in the block layer).
 
 **The shape the work takes** is known, since it was done once for the

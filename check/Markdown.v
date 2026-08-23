@@ -41,6 +41,13 @@ Local Notation escape_str := (@escape_str markdown_table).
 Local Notation ci_line := (@ci_line markdown_table).
 Local Notation MdBlocks := (@parse_blocks markdown_table markdown_bconfig).
 
+(* A typography-only variant keeps djot's delimiter rows enabled.  It pins
+   the interaction between literal hyphen runs and a delete closer. *)
+Definition literal_typography_table : dtable :=
+  DTable (with_smart_typography false djot_config) eq_refl.
+Local Notation LiteralTypographyInline :=
+  (@Inline.parse_inline_line literal_typography_table).
+
 (* `ci_inlines` needs no instance: the AST a canonical inline denotes is
    the same whatever the table spells it with.  Only the source and the
    acceptance predicate depend on the table -- which is the roundtrip
@@ -88,6 +95,23 @@ Example md_single_star_is_text : parse_inline_line "*a*" = [mk (Str "*a*")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example md_arithmetic_is_text : parse_inline_line "2*3*4" = [mk (Str "2*3*4")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The reduced profile also switches off the scanner-level typography
+   capability.  Curly quotes are separate delimiter rows; these witnesses pin
+   the two hardwired rewrites that the capability controls. *)
+Example markdown_like_periods_are_literal :
+  ProfileInline "a...b" = [mk (Str "a...b")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_hyphens_are_literal :
+  (ProfileInline "a--b", ProfileInline "a---b")
+  = ([mk (Str "a--b")], [mk (Str "a---b")]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example literal_hyphens_still_give_back_a_delete_closer :
+  LiteralTypographyInline "{-a---}"
+  = [mk (Delete [mk (Str "a--")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example md_intraword_star_is_text :
@@ -239,7 +263,7 @@ Example markdown_like_table_source_is_prose :
   @parse_blocks markdown_like_table markdown_bconfig "| a |
 |---|"
   = [mk (Para [mk (Str "| a |"); mk SoftBreak;
-               mk (Str ("|" ++ emdash ++ "|"))])].
+               mk (Str "|---|")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example markdown_like_canonical_table_is_disabled :

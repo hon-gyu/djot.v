@@ -221,7 +221,8 @@ Record dconfig : Type := DConfig {
   dc_char : dstyle -> ascii;
   dc_width : dstyle -> nat;
   dc_syntax : dstyle -> dsyntax;
-  dc_decay : dstyle -> ddecay
+  dc_decay : dstyle -> ddecay;
+  dc_smart_typography : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -269,7 +270,7 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay.
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -379,7 +380,17 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_char e else dc_char C k)
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
-    (fun k => if dstyle_eq k target then de_decay e else dc_decay C k).
+    (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
+    (dc_smart_typography C).
+
+(* Smart dashes and ellipses are scanner capabilities rather than delimiter
+   rows.  This field-local knob leaves every row unchanged. *)
+Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled.
+
+Theorem with_smart_typography_preserves_admissible :
+  forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
   (C : dconfig) (target : dstyle) (e : dentry) : bool :=
@@ -633,7 +644,8 @@ Definition markdown_like_disabled_rows : list dstyle :=
   [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
 
 Definition markdown_like_config : dconfig :=
-  disable_rows markdown_like_disabled_rows markdown_config.
+  with_smart_typography false
+    (disable_rows markdown_like_disabled_rows markdown_config).
 
 Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -734,7 +746,7 @@ Example clashing_config_not_ok :
   dconfig_ok (DConfig (fun k => match k with
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
-                      djot_dwidth djot_dsyntax djot_ddecay) = false.
+                      djot_dwidth djot_dsyntax djot_ddecay true) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 (* Switching a row off frees its character, so the clash disappears
@@ -747,7 +759,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay) = true.
+                      djot_ddecay true) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -775,6 +787,8 @@ Definition dchar (k : dstyle) : ascii := dc_char cfg k.
 Definition dsyntax_of (k : dstyle) : dsyntax := dc_syntax cfg k.
 
 Definition dwidth (k : dstyle) : nat := dc_width cfg k.
+
+Definition smart_typography : bool := dc_smart_typography cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -3022,6 +3036,9 @@ Definition emdash : string :=
 Definition periods (two : bool) : string :=
   if two then String period (one period) else one period.
 
+Definition typography_ellipsis : string :=
+  if smart_typography then ellipsis else chars period 3.
+
 Fixpoint srep (s : string) (n : nat) : string :=
   match n with O => EmptyString | S m => (s ++ srep s m)%string end.
 
@@ -3046,6 +3063,9 @@ Definition dash_counts (n : nat) : nat * nat * nat :=
 Definition dashes (n : nat) : string :=
   let '(em, en, lit) := dash_counts n in
   (srep emdash em ++ srep endash en ++ chars hyphen lit)%string.
+
+Definition typography_dashes (n : nat) : string :=
+  if smart_typography then dashes n else chars hyphen n.
 
 (* The counts pinned on the runs that decide the arithmetic: the two
    homogeneous cases, the two remainders, and the lone hyphen. *)
@@ -3084,7 +3104,10 @@ Definition idollar_step (c : ascii) (two : bool) (txt : string)
 Definition iperiod_step (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c period
-  then (if two then IText false (txt ++ ellipsis)%string (Some c) o
+  then (if two then
+          IText false
+            (txt ++ typography_ellipsis)%string
+            (Some c) o
         else IPeriod true txt prev o)
   else ilead c (txt ++ periods two)%string prev o.
 
@@ -3105,19 +3128,20 @@ Definition idash_step (c : ascii) (n : nat) (txt : string)
               parameter and `iscan_marked_close_step` is stated for every
               row, so the arithmetic has to be the row's *)
            if Nat.leb (dwidth k) n
-           then idelim_resolve k (txt ++ dashes (n - dwidth k))%string
+           then idelim_resolve k
+                  (txt ++ typography_dashes (n - dwidth k))%string
                   None true (Some c) o
-           else IText false (txt ++ dashes n ++ one rbrace)%string None o
-       | None => IText false (txt ++ dashes n ++ one rbrace)%string None o
+           else IText false (txt ++ typography_dashes n ++ one rbrace)%string None o
+       | None => IText false (txt ++ typography_dashes n ++ one rbrace)%string None o
        end
-  else ilead c (txt ++ dashes n)%string prev o.
+  else ilead c (txt ++ typography_dashes n)%string prev o.
 
 Definition iresolve (st : iscan) : iscan :=
   match st with
   | IBrace txt prev o => IText false (txt ++ one lbrace)%string prev o
   | IDollar two txt prev o => IText false (txt ++ dollars two)%string prev o
   | IPeriod two txt prev o => IText false (txt ++ periods two)%string prev o
-  | IDash n txt prev o => IText false (txt ++ dashes n)%string prev o
+  | IDash n txt prev o => IText false (txt ++ typography_dashes n)%string prev o
   | IBang txt prev o => IText false (txt ++ one bang)%string prev o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
@@ -4571,7 +4595,9 @@ Proof.
     change (Ascii.eqb rbrace hyphen) with false.
     rewrite Ascii.eqb_refl, <- Hhy, (dstyle_of_dchar k Hen), Ew.
     rewrite Nat.leb_refl, Nat.sub_diag.
-    change (dashes 0) with EmptyString. rewrite (append_empty_r txt).
+    assert (Ezero : typography_dashes 0 = EmptyString).
+    { unfold typography_dashes. destruct smart_typography; reflexivity. }
+    rewrite Ezero, (append_empty_r txt).
     unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
   unfold one. cbn [iscan_str istep].
@@ -6368,6 +6394,10 @@ Proof. intros []; reflexivity. Qed.
 Lemma periods_nonempty : forall two, nonempty_str (periods two) = true.
 Proof. intros []; reflexivity. Qed.
 
+Lemma typography_ellipsis_nonempty :
+  nonempty_str typography_ellipsis = true.
+Proof. unfold typography_ellipsis. destruct smart_typography; reflexivity. Qed.
+
 Lemma srep_nonempty :
   forall s n, nonempty_str s = true -> nonempty_str (srep s (S n)) = true.
 Proof. intros s n H. cbn [srep]. apply nonempty_str_app_r, H. Qed.
@@ -6399,6 +6429,17 @@ Proof.
   destruct (Nat.eqb (Nat.modulo (S n) 6) 5);
     (apply nonempty_str_app_l, nonempty_str_app_r;
      apply srep_nonempty; reflexivity).
+Qed.
+
+Lemma typography_dashes_0 : typography_dashes 0 = EmptyString.
+Proof. unfold typography_dashes. destruct smart_typography; reflexivity. Qed.
+
+Lemma typography_dashes_nonempty :
+  forall n, nonempty_str (typography_dashes (S n)) = true.
+Proof.
+  intros n. unfold typography_dashes. destruct smart_typography.
+  - apply dashes_nonempty.
+  - reflexivity.
 Qed.
 
 Lemma iscan_productive_lead :
@@ -6539,10 +6580,10 @@ Proof.
   (* a hyphen run: what it counted, cut into dashes *)
   - cbn [iscan_productive] in H |- *. destruct dn as [|dn].
     { cbn [Nat.ltb Nat.leb orb] in H.
-      change (dashes 0) with EmptyString.
+      rewrite typography_dashes_0.
       rewrite (append_empty_r dtx). exact H. }
     apply orb_true_iff. left.
-    apply nonempty_str_app_l, dashes_nonempty.
+    apply nonempty_str_app_l, typography_dashes_nonempty.
   - pose proof (bclosed_lit_nonempty kids img ob) as Hne.
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
     cbn [iscan_productive]. rewrite Hne. reflexivity.
@@ -6658,7 +6699,7 @@ Proof.
     unfold iperiod_step. destruct (Ascii.eqb c period).
     { destruct ptwo; [|reflexivity].
       cbn [iscan_productive]. apply orb_true_iff. left.
-      apply nonempty_str_app_l. reflexivity. }
+      apply nonempty_str_app_l, typography_ellipsis_nonempty. }
     apply iscan_productive_lead, orb_true_iff. left.
     apply nonempty_str_app_l, periods_nonempty.
   - (* a hyphen run owes what it has counted *)
@@ -6671,9 +6712,10 @@ Proof.
          apply nonempty_str_app_l, nonempty_str_app_l; reflexivity). }
     apply iscan_productive_lead. cbn [iscan_productive] in H.
     destruct dn as [|dn].
-    { cbn [Nat.ltb orb] in H. change (dashes 0) with EmptyString.
+    { cbn [Nat.ltb orb] in H. rewrite typography_dashes_0.
       rewrite (append_empty_r dtx). exact H. }
-    apply orb_true_iff. left. apply nonempty_str_app_l, dashes_nonempty.
+    apply orb_true_iff. left.
+    apply nonempty_str_app_l, typography_dashes_nonempty.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack).
     + cbn [iscan_productive]. rewrite ostate_nonempty_bpush. apply orb_true_r.
     + apply iscan_productive_lead. apply orb_true_iff. left.
