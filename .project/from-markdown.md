@@ -24,12 +24,13 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | setting | Markdown-facing | djot |
 | --- | --- | --- |
 | strong / emphasis spelling | `**strong**`, `_emph_` (`markdown_config`) | `*strong*`, `_emph_` (`djot_config`) |
-| sublist without a blank line | allowed (`sublist_bconfig`) | not allowed (`djot_bconfig`) |
-| `===` / `--` underlines a heading | allowed (`setext_bconfig`) | not allowed |
+| sublist without a blank line | allowed (`markdown_bconfig`) | not allowed (`djot_bconfig`) |
+| `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
 
-The last two live in one record with one field each, so the combination
-of both is a one-line definition. Nobody has named it yet; the settings
-are pinned separately in `check/Sublist.v` and `check/Setext.v`.
+The last two live in one record with one field each. `markdown_bconfig`
+composes their field-local knobs, and `check/Markdown.v` pins the combined
+profile as well as the individual settings in `check/Sublist.v` and
+`check/Setext.v`.
 
 Everything else in this document is fixed and not currently a setting.
 See [What could become opt-in](#what-could-become-opt-in).

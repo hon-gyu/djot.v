@@ -120,6 +120,13 @@ Definition sublist_bconfig : bconfig :=
 Definition setext_bconfig : bconfig :=
   with_underline setext_underline djot_bconfig.
 
+(* The block half of the Markdown-facing profile.  Apply the two field-local
+   knobs rather than spelling a record so adding another independent block
+   setting has one composition point. *)
+Definition markdown_bconfig : bconfig :=
+  with_underline setext_underline
+    (with_marker_interrupts prose_safe_markers djot_bconfig).
+
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
    kind answers `false` definitionally, so a lemma about a text line

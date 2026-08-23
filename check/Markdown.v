@@ -26,7 +26,7 @@ pay for -- and not because it needs special treatment any more.
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Inline Parser Document Render Roundtrip.
+From DjotV Require Import Ast Inline Parser Document Render Roundtrip Invariants.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -36,6 +36,7 @@ Open Scope string_scope.
 Local Notation parse_inline_line := (@parse_inline_line markdown_table).
 Local Notation escape_str := (@escape_str markdown_table).
 Local Notation ci_line := (@ci_line markdown_table).
+Local Notation MdBlocks := (@parse_blocks markdown_table markdown_bconfig).
 
 (* `ci_inlines` needs no instance: the AST a canonical inline denotes is
    the same whatever the table spells it with.  Only the source and the
@@ -190,6 +191,25 @@ Example md_canonical_nested_roundtrip :
   = ci_inlines [CIDelim DEmph [CIStr "a"; CIDelim DStrong [CIStr "b"]]].
 Proof. vm_compute. reflexivity. Qed.
 
+(* The block half names the composition of both Markdown-facing decisions,
+   rather than silently inferring djot's block instance. *)
+Example md_setext_heading :
+  MdBlocks "a
+===" = [mk (Heading 1 [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example md_sublist_without_blank :
+  MdBlocks "- a
+  - b"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "a")]);
+             mk (BulletList Tight [[mk (Para [mk (Str "b")])]])]])].
+Proof. vm_compute. reflexivity. Qed.
+
+Theorem markdown_block_incremental :
+  block_incremental markdown_table markdown_bconfig.
+Proof. apply block_incremental_holds. Qed.
+
 (*
 The theorems, at this table
 ---------------------------
@@ -202,18 +222,18 @@ family, and `markdown_table` is one of its inhabitants.
 
 Theorem md_roundtrip_blocks :
   forall cbs,
-    @cblocks_ok markdown_table _ cbs = true ->
-    @parse_blocks markdown_table _
+    @cblocks_ok markdown_table markdown_bconfig cbs = true ->
+    @parse_blocks markdown_table markdown_bconfig
       (@render_djot markdown_table (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
-Proof. exact (@roundtrip_blocks markdown_table _). Qed.
+Proof. exact (@roundtrip_blocks markdown_table markdown_bconfig). Qed.
 
 Theorem md_roundtrip_doc :
   forall cbs,
-    @cblocks_ok markdown_table _ cbs = true ->
+    @cblocks_ok markdown_table markdown_bconfig cbs = true ->
     undo_pass
       (doc_blocks
-         (@parse_doc markdown_table _
+         (@parse_doc markdown_table markdown_bconfig
             (@render_djot markdown_table (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
-Proof. exact (@roundtrip_doc markdown_table _). Qed.
+Proof. exact (@roundtrip_doc markdown_table markdown_bconfig). Qed.
