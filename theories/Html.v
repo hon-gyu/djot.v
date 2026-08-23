@@ -5,9 +5,12 @@
    serialization diverges on attribute order, section wrapping, and task
    items, and we follow djot.js on all three).
 
-   Phase 1 status: paragraphs are rendered faithfully; the remaining
-   constructors have placeholder output (empty or skeletal) that will be
-   filled in alongside the parser, driven by the corpus diff. *)
+   Every element goes through `render_tag` / `in_tags`, which are
+   djot.js's `renderTag` / `inTags` (html.ts:109-127) transcribed, and
+   every attribute value through `attr_str` or `render_attrs`.  So a tag
+   name is written once rather than at its opening and again at its
+   closing, and the escaping of a value is decided in one place rather
+   than at each site that builds one. *)
 
 From Stdlib Require Import String Ascii List.
 From DjotV Require Import Strings Ast Parser Document.
@@ -48,6 +51,37 @@ Definition render_attrs (a : attr) : string :=
   String.concat ""
     (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
+(* One attribute a construct contributes itself, its value escaped.
+   `render_attrs` does the same for the node's own; routing the rest
+   through here is what keeps the quoting out of the call sites. *)
+Definition attr_str (k v : string) : string :=
+  " " ++ k ++ "=""" ++ escape_attr v ++ """".
+
+(* djot.js's `renderTag` and `inTags` (html.ts:109-127), transcribed.
+   Every element below is spelled with them, so a tag name is written
+   once rather than at its opening and again at its closing.
+
+   `extra` is `extraAttrs`, what the construct contributes itself, which
+   djot.js emits ahead of the node's own.  `nls` is `newlines`: 2 puts a
+   newline after the opening tag and after the closing one, 1 after the
+   closing one only, 0 neither. *)
+Definition render_tag (tag extra : string) (a : attr) : string :=
+  "<" ++ tag ++ extra ++ render_attrs a ++ ">".
+
+Definition in_tags (tag : string) (nls : nat) (extra : string) (a : attr)
+  (body : string) : string :=
+  render_tag tag extra a
+  ++ (if Nat.leb 2 nls then nl else "")
+  ++ body ++ "</" ++ tag ++ ">"
+  ++ (if Nat.leb 1 nls then nl else "").
+
+(* A task item's checkbox: the one tag here that closes itself, so it is
+   the one `render_tag` does not spell (html.ts:219-229). *)
+Definition checkbox_tag (chk : task_status) : string :=
+  "<input disabled="""" type=""checkbox"""
+  ++ (match chk with Complete => " checked=""""" | Incomplete => "" end)
+  ++ "/>".
+
 (* What a resolved reference definition contributes.  Its attributes are
    extra in the same sense as `href`, so they precede the node's own --
    but a key the node carries itself wins, since djot.js copies an entry
@@ -70,13 +104,13 @@ Definition ref_extra (a0 a : attr) : attr :=
    emits `extraAttrs` first (html.ts:76-88). *)
 Definition ol_attrs (oa : ordered_list_attributes) : string :=
   (if Nat.eqb (ol_start oa) 1
-   then "" else " start=""" ++ nat_str (ol_start oa) ++ """")
+   then "" else attr_str "start" (nat_str (ol_start oa)))
   ++ (match ol_style oa with
       | Decimal => ""
-      | LetterLower => " type=""a"""
-      | LetterUpper => " type=""A"""
-      | RomanLower => " type=""i"""
-      | RomanUpper => " type=""I"""
+      | LetterLower => attr_str "type" "a"
+      | LetterUpper => attr_str "type" "A"
+      | RomanLower => attr_str "type" "i"
+      | RomanUpper => attr_str "type" "I"
       end).
 
 (*
@@ -137,28 +171,29 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
       | [] => ""
       | Node _ a' x :: rest => render_inline x a' ++ go rest
       end in
-  let ats := render_attrs a in
   match il with
   | Str s =>
       match a with
       | [] => escape s
-      | _ => "<span" ++ ats ++ ">" ++ escape s ++ "</span>"
+      | _ => in_tags "span" 0 "" a (escape s)
       end
-  | Emph ils => "<em" ++ ats ++ ">" ++ render_ils ils ++ "</em>"
-  | Strong ils => "<strong" ++ ats ++ ">" ++ render_ils ils ++ "</strong>"
-  | Highlight ils => "<mark" ++ ats ++ ">" ++ render_ils ils ++ "</mark>"
-  | Insert ils => "<ins" ++ ats ++ ">" ++ render_ils ils ++ "</ins>"
-  | Delete ils => "<del" ++ ats ++ ">" ++ render_ils ils ++ "</del>"
-  | Superscript ils => "<sup" ++ ats ++ ">" ++ render_ils ils ++ "</sup>"
-  | Subscript ils => "<sub" ++ ats ++ ">" ++ render_ils ils ++ "</sub>"
-  | Verbatim s => "<code" ++ ats ++ ">" ++ escape s ++ "</code>"
+  | Emph ils => in_tags "em" 0 "" a (render_ils ils)
+  | Strong ils => in_tags "strong" 0 "" a (render_ils ils)
+  | Highlight ils => in_tags "mark" 0 "" a (render_ils ils)
+  | Insert ils => in_tags "ins" 0 "" a (render_ils ils)
+  | Delete ils => in_tags "del" 0 "" a (render_ils ils)
+  | Superscript ils => in_tags "sup" 0 "" a (render_ils ils)
+  | Subscript ils => in_tags "sub" 0 "" a (render_ils ils)
+  | Verbatim s => in_tags "code" 0 "" a (escape s)
   | Symbol s => ":" ++ escape s ++ ":"
   (* djot.js emits a span carrying the class and wraps the content in
      TeX delimiters, escaping it as text (`html.ts:330-338`). *)
   | Math InlineMath s =>
-      "<span class=""math inline"">\(" ++ escape s ++ "\)</span>"
+      in_tags "span" 0 (attr_str "class" "math inline") []
+        ("\(" ++ escape s ++ "\)")
   | Math DisplayMath s =>
-      "<span class=""math display"">\[" ++ escape s ++ "\]</span>" 
+      in_tags "span" 0 (attr_str "class" "math display") []
+        ("\[" ++ escape s ++ "\]")
   (* `href` is an extra attribute, so it precedes the node's own and is
      omitted entirely when the target is an unresolved reference: djot.js
      drops the attribute (with a warning) when a label does not resolve.
@@ -166,31 +201,29 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
      `ref_extra`, which are extra in the same sense and so also precede
      the node's. *)
   | Link ils (Direct url) =>
-      "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">"
-      ++ render_ils ils ++ "</a>"
+      in_tags "a" 0 (attr_str "href" url) a (render_ils ils)
   | Link ils (Reference label) =>
       match lookup_reference label refs with
       | Some (url, a0) =>
-          "<a href=""" ++ escape_attr url ++ """"
-          ++ render_attrs (ref_extra a0 a) ++ ats
-          ++ ">" ++ render_ils ils ++ "</a>"
-      | None => "<a" ++ ats ++ ">" ++ render_ils ils ++ "</a>"
+          in_tags "a" 0
+            (attr_str "href" url ++ render_attrs (ref_extra a0 a)) a
+            (render_ils ils)
+      | None => in_tags "a" 0 "" a (render_ils ils)
       end
   (* `alt` precedes `src`, both extra attributes, in that order
      (html.ts:452). *)
   | Image ils (Direct url) =>
-      "<img alt=""" ++ escape_attr (plain_texts ils)
-        ++ """ src=""" ++ escape_attr url ++ """" ++ ats ++ ">"
+      render_tag "img"
+        (attr_str "alt" (plain_texts ils) ++ attr_str "src" url) a
   | Image ils (Reference label) =>
       match lookup_reference label refs with
       | Some (url, a0) =>
-          "<img alt=""" ++ escape_attr (plain_texts ils)
-            ++ """ src=""" ++ escape_attr url ++ """"
-            ++ render_attrs (ref_extra a0 a) ++ ats ++ ">"
-      | None => "<img alt=""" ++ escape_attr (plain_texts ils) ++ """"
-                ++ ats ++ ">"
+          render_tag "img"
+            (attr_str "alt" (plain_texts ils) ++ attr_str "src" url
+             ++ render_attrs (ref_extra a0 a)) a
+      | None => render_tag "img" (attr_str "alt" (plain_texts ils)) a
       end
-  | Span ils => "<span" ++ ats ++ ">" ++ render_ils ils ++ "</span>"
+  | Span ils => in_tags "span" 0 "" a (render_ils ils)
   | FootnoteReference _ => "" (* TODO Phase 1 *)
   (* An autolink renders as its own text under an `href`, which is an
      extra attribute and so precedes the node's own -- `renderTag("a",
@@ -198,11 +231,9 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
      the `mailto:` an email prefixes to the destination; the text shown
      is the region either way. *)
   | UrlLink url =>
-      "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">"
-      ++ escape url ++ "</a>"
+      in_tags "a" 0 (attr_str "href" url) a (escape url)
   | EmailLink addr =>
-      "<a href=""mailto:" ++ escape_attr addr ++ """" ++ ats ++ ">"
-      ++ escape addr ++ "</a>"
+      in_tags "a" 0 (attr_str "href" ("mailto:" ++ addr)) a (escape addr)
   (* Raw content in a format the renderer does not speak contributes
      nothing at all, attributes included -- `html.ts:396-402` emits the
      text only for `html` and never a wrapper element. *)
@@ -214,7 +245,7 @@ Fixpoint render_inline (il : inline) (a : attr) : string :=
   | Quoted SingleQuotes ils => lsquo ++ render_ils ils ++ rsquo
   | Quoted DoubleQuotes ils => ldquo ++ render_ils ils ++ rdquo
   | SoftBreak => nl
-  | HardBreak => "<br>" ++ nl
+  | HardBreak => render_tag "br" "" [] ++ nl
   end.
 
 Definition render_inlines (ils : inlines) : string :=
@@ -234,26 +265,25 @@ against the oracle on every combination in `tables.test`). *)
 Definition align_attr (al : align) : string :=
   match al with
   | AlignDefault => ""
-  | AlignLeft => " style=""text-align: left;"""
-  | AlignRight => " style=""text-align: right;"""
-  | AlignCenter => " style=""text-align: center;"""
+  | AlignLeft => attr_str "style" "text-align: left;"
+  | AlignRight => attr_str "style" "text-align: right;"
+  | AlignCenter => attr_str "style" "text-align: center;"
   end.
 
 Definition render_cell (c : cell) : string :=
   match c with
   | Cell ct al ils =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
-      "<" ++ tag ++ align_attr al ++ ">" ++ render_inlines ils
-      ++ "</" ++ tag ++ ">" ++ nl
+      in_tags tag 1 (align_attr al) [] (render_inlines ils)
   end.
 
 Definition render_row (r : list cell) : string :=
-  "<tr>" ++ nl ++ String.concat "" (map render_cell r) ++ "</tr>" ++ nl.
+  in_tags "tr" 2 "" [] (String.concat "" (map render_cell r)).
 
 Definition render_caption (caption : option inlines) : string :=
   match caption with
   | None => ""
-  | Some ils => "<caption>" ++ render_inlines ils ++ "</caption>" ++ nl
+  | Some ils => in_tags "caption" 1 "" [] (render_inlines ils)
   end.
 
 (*
@@ -292,9 +322,9 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       match its with
       | [] => ""
       | it :: rest =>
-          "<li>" ++ nl
-          ++ render_bs_at (match sp with Tight => true | Loose => false end) it
-          ++ "</li>" ++ nl ++ goi sp rest
+          in_tags "li" 2 "" []
+            (render_bs_at (match sp with Tight => true | Loose => false end) it)
+          ++ goi sp rest
       end in
   (* A `dd` is rendered at the *incoming* tightness, not at the list's:
      djot.js's `definition_list` node carries no `tight` field where
@@ -309,8 +339,8 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       match its with
       | [] => ""
       | (term, it) :: rest =>
-          "<dt>" ++ render_inlines term ++ "</dt>" ++ nl
-          ++ "<dd>" ++ nl ++ render_bs it ++ "</dd>" ++ nl
+          in_tags "dt" 1 "" [] (render_inlines term)
+          ++ in_tags "dd" 2 "" [] (render_bs it)
           ++ god rest
       end in
   (* A task item's checkbox, ahead of its content and outside whatever
@@ -323,51 +353,46 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       match its with
       | [] => ""
       | (st, it) :: rest =>
-          "<li>" ++ nl
-          ++ "<input disabled="""" type=""checkbox"""
-          ++ (match st with Complete => " checked=""""" | Incomplete => "" end)
-          ++ "/>" ++ nl
-          ++ render_bs_at (match sp with Tight => true | Loose => false end) it
-          ++ "</li>" ++ nl ++ got sp rest
+          in_tags "li" 2 "" []
+            (checkbox_tag st ++ nl
+             ++ render_bs_at (match sp with Tight => true | Loose => false end) it)
+          ++ got sp rest
       end in
-  let ats := render_attrs a in
   match b with
   (* A tight paragraph loses its tag, keeping the newline the tag carried.
      Its attributes go with the tag; djot.js drops them the same way, and
      nothing produces them here yet. *)
   | Para ils =>
       if tight then render_inlines ils ++ nl
-      else "<p" ++ ats ++ ">" ++ render_inlines ils ++ "</p>" ++ nl
-  | Section bs =>
-      "<section" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</section>" ++ nl
+      else in_tags "p" 1 "" a (render_inlines ils)
+  | Section bs => in_tags "section" 2 "" a (render_bs bs)
   | Heading lvl ils =>
-      "<h" ++ nat_str lvl ++ ats ++ ">" ++ render_inlines ils
-      ++ "</h" ++ nat_str lvl ++ ">" ++ nl
-  | BlockQuote bs =>
-      "<blockquote" ++ ats ++ ">" ++ nl ++ render_bs bs
-      ++ "</blockquote>" ++ nl
+      in_tags ("h" ++ nat_str lvl) 1 "" a (render_inlines ils)
+  | BlockQuote bs => in_tags "blockquote" 2 "" a (render_bs bs)
+  (* The language is escaped as an attribute value, which djot.js does
+     too (`escapeAttribute`, html.ts code_block).  Spelling it by hand
+     here did not, so a fence tagged with a quote broke out of the
+     class attribute. *)
   | CodeBlock lang code =>
-      "<pre" ++ ats ++ "><code"
-      ++ (match lang with
-          | EmptyString => ""
-          | _ => " class=""language-" ++ lang ++ """"
-          end)
-      ++ ">" ++ escape code ++ "</code></pre>" ++ nl
-  | Div bs => "<div" ++ ats ++ ">" ++ nl ++ render_bs bs ++ "</div>" ++ nl
+      in_tags "pre" 1 "" a
+        (in_tags "code" 0
+           (match lang with
+            | EmptyString => ""
+            | _ => attr_str "class" ("language-" ++ lang)
+            end) [] (escape code))
+  | Div bs => in_tags "div" 2 "" a (render_bs bs)
   | OrderedList oa sp items =>
-      "<ol" ++ ol_attrs oa ++ ats ++ ">" ++ nl
-      ++ render_items sp items ++ "</ol>" ++ nl
-  | BulletList sp items =>
-      "<ul" ++ ats ++ ">" ++ nl ++ render_items sp items ++ "</ul>" ++ nl
+      in_tags "ol" 2 (ol_attrs oa) a (render_items sp items)
+  | BulletList sp items => in_tags "ul" 2 "" a (render_items sp items)
   | TaskList sp items =>
-      "<ul class=""task-list""" ++ ats ++ ">" ++ nl
-      ++ render_task_items sp items ++ "</ul>" ++ nl
+      in_tags "ul" 2 (attr_str "class" "task-list") a
+        (render_task_items sp items)
   | DefinitionList _ items =>
-      "<dl" ++ ats ++ ">" ++ nl ++ render_def_items items ++ "</dl>" ++ nl
-  | ThematicBreak => "<hr" ++ ats ++ ">" ++ nl
+      in_tags "dl" 2 "" a (render_def_items items)
+  | ThematicBreak => render_tag "hr" "" a ++ nl
   | Table caption rows =>
-      "<table" ++ ats ++ ">" ++ nl ++ render_caption caption
-      ++ String.concat "" (map render_row rows) ++ "</table>" ++ nl
+      in_tags "table" 2 "" a
+        (render_caption caption ++ String.concat "" (map render_row rows))
   | RawBlock fmt contents =>
       if String.eqb fmt "html" then contents else ""
   (* A reference definition is not content: djot.js keeps it out of the
@@ -417,24 +442,23 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
           let '(st2, s2) := go st1 rest in
           (st2, s1 ++ s2)
       end in
-  let ats := render_attrs a in
   match il with
   | Emph ils =>
-      let '(st', s) := render_ils st ils in (st', "<em" ++ ats ++ ">" ++ s ++ "</em>")
+      let '(st', s) := render_ils st ils in (st', in_tags "em" 0 "" a s)
   | Strong ils =>
-      let '(st', s) := render_ils st ils in (st', "<strong" ++ ats ++ ">" ++ s ++ "</strong>")
+      let '(st', s) := render_ils st ils in (st', in_tags "strong" 0 "" a s)
   | Highlight ils =>
-      let '(st', s) := render_ils st ils in (st', "<mark" ++ ats ++ ">" ++ s ++ "</mark>")
+      let '(st', s) := render_ils st ils in (st', in_tags "mark" 0 "" a s)
   | Insert ils =>
-      let '(st', s) := render_ils st ils in (st', "<ins" ++ ats ++ ">" ++ s ++ "</ins>")
+      let '(st', s) := render_ils st ils in (st', in_tags "ins" 0 "" a s)
   | Delete ils =>
-      let '(st', s) := render_ils st ils in (st', "<del" ++ ats ++ ">" ++ s ++ "</del>")
+      let '(st', s) := render_ils st ils in (st', in_tags "del" 0 "" a s)
   | Superscript ils =>
-      let '(st', s) := render_ils st ils in (st', "<sup" ++ ats ++ ">" ++ s ++ "</sup>")
+      let '(st', s) := render_ils st ils in (st', in_tags "sup" 0 "" a s)
   | Subscript ils =>
-      let '(st', s) := render_ils st ils in (st', "<sub" ++ ats ++ ">" ++ s ++ "</sub>")
+      let '(st', s) := render_ils st ils in (st', in_tags "sub" 0 "" a s)
   | Span ils =>
-      let '(st', s) := render_ils st ils in (st', "<span" ++ ats ++ ">" ++ s ++ "</span>")
+      let '(st', s) := render_ils st ils in (st', in_tags "span" 0 "" a s)
   | Quoted q ils =>
       let '(st', s) := render_ils st ils in
       match q with
@@ -444,14 +468,14 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | Link ils target =>
       let '(st', s) := render_ils st ils in
       match target with
-      | Direct url =>
-          (st', "<a href=""" ++ escape_attr url ++ """" ++ ats ++ ">" ++ s ++ "</a>")
+      | Direct url => (st', in_tags "a" 0 (attr_str "href" url) a s)
       | Reference label =>
           match lookup_reference label refs with
           | Some (url, a0) =>
-              (st', "<a href=""" ++ escape_attr url ++ """"
-                    ++ render_attrs (ref_extra a0 a) ++ ats ++ ">" ++ s ++ "</a>")
-          | None => (st', "<a" ++ ats ++ ">" ++ s ++ "</a>")
+              (st', in_tags "a" 0
+                      (attr_str "href" url ++ render_attrs (ref_extra a0 a))
+                      a s)
+          | None => (st', in_tags "a" 0 "" a s)
           end
       end
   (* Image children become alt text and are not visited by djot.js's HTML
@@ -460,9 +484,11 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | FootnoteReference label =>
       let '(st', n, first) := number_footnote label st in
       let sn := nat_str n in
-      (st', "<a" ++ (if first then " id=""fnref" ++ sn ++ """" else "")
-            ++ " href=""#fn" ++ sn ++ """ role=""doc-noteref""" ++ ats
-            ++ "><sup>" ++ sn ++ "</sup></a>")
+      (st', in_tags "a" 0
+              ((if first then attr_str "id" ("fnref" ++ sn) else "")
+               ++ attr_str "href" ("#fn" ++ sn)
+               ++ attr_str "role" "doc-noteref") a
+              (in_tags "sup" 0 "" [] sn))
   | _ => (st, render_inline il a)
   end.
 
@@ -484,7 +510,7 @@ Definition render_cell_foot (st : foot_state) (c : cell) : foot_state * string :
   | Cell ct al ils =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
       let '(st', s) := render_inlines_foot st ils in
-      (st', "<" ++ tag ++ align_attr al ++ ">" ++ s ++ "</" ++ tag ++ ">" ++ nl)
+      (st', in_tags tag 1 (align_attr al) [] s)
   end.
 
 Fixpoint render_cells_foot (st : foot_state) (r : list cell)
@@ -504,7 +530,7 @@ Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
   | r :: rest =>
       let '(st1, s1) := render_cells_foot st r in
       let '(st2, s2) := render_rows_foot st1 rest in
-      (st2, "<tr>" ++ nl ++ s1 ++ "</tr>" ++ nl ++ s2)
+      (st2, in_tags "tr" 2 "" [] s1 ++ s2)
   end.
 
 Definition render_caption_foot (st : foot_state) (caption : option inlines)
@@ -513,7 +539,7 @@ Definition render_caption_foot (st : foot_state) (caption : option inlines)
   | None => (st, "")
   | Some ils =>
       let '(st', s) := render_inlines_foot st ils in
-      (st', "<caption>" ++ s ++ "</caption>" ++ nl)
+      (st', in_tags "caption" 1 "" [] s)
   end.
 
 Fixpoint render_block_foot (st : foot_state) (tight : bool)
@@ -537,7 +563,7 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := goi st1 sp rest in
-          (st2, "<li>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
+          (st2, in_tags "li" 2 "" [] s1 ++ s2)
       end in
   let render_task_items :=
     fix got (st0 : foot_state) (sp : list_spacing)
@@ -549,13 +575,7 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := got st1 sp rest in
-          (st2, "<li>" ++ nl
-                ++ "<input disabled="""" type=""checkbox"""
-                ++ (match chk with
-                    | Complete => " checked="""""
-                    | Incomplete => ""
-                    end)
-                ++ "/>" ++ nl ++ s1 ++ "</li>" ++ nl ++ s2)
+          (st2, in_tags "li" 2 "" [] (checkbox_tag chk ++ nl ++ s1) ++ s2)
       end in
   let render_def_items :=
     fix god (st0 : foot_state) (its : list (inlines * list (node block)))
@@ -566,48 +586,45 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
           let '(st1, s1) := render_inlines_foot st0 term in
           let '(st2, s2) := render_bs_at st1 tight it in
           let '(st3, s3) := god st2 rest in
-          (st3, "<dt>" ++ s1 ++ "</dt>" ++ nl
-                ++ "<dd>" ++ nl ++ s2 ++ "</dd>" ++ nl ++ s3)
+          (st3, in_tags "dt" 1 "" [] s1 ++ in_tags "dd" 2 "" [] s2 ++ s3)
       end in
-  let ats := render_attrs a in
   match b with
   | Para ils =>
       let '(st', s) := render_inlines_foot st ils in
       if tight then (st', s ++ nl)
-      else (st', "<p" ++ ats ++ ">" ++ s ++ "</p>" ++ nl)
+      else (st', in_tags "p" 1 "" a s)
   | Heading lvl ils =>
       let '(st', s) := render_inlines_foot st ils in
-      (st', "<h" ++ nat_str lvl ++ ats ++ ">" ++ s
-            ++ "</h" ++ nat_str lvl ++ ">" ++ nl)
+      (st', in_tags ("h" ++ nat_str lvl) 1 "" a s)
   | Section bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', "<section" ++ ats ++ ">" ++ nl ++ s ++ "</section>" ++ nl)
+      (st', in_tags "section" 2 "" a s)
   | BlockQuote bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', "<blockquote" ++ ats ++ ">" ++ nl ++ s ++ "</blockquote>" ++ nl)
+      (st', in_tags "blockquote" 2 "" a s)
   | Div bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', "<div" ++ ats ++ ">" ++ nl ++ s ++ "</div>" ++ nl)
+      (st', in_tags "div" 2 "" a s)
   | OrderedList oa sp items =>
       let '(st', s) := render_items st sp items in
-      (st', "<ol" ++ ol_attrs oa ++ ats ++ ">" ++ nl ++ s ++ "</ol>" ++ nl)
+      (st', in_tags "ol" 2 (ol_attrs oa) a s)
   | BulletList sp items =>
       let '(st', s) := render_items st sp items in
-      (st', "<ul" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
+      (st', in_tags "ul" 2 "" a s)
   (* As `render_block`, with the counter threaded: a footnote reference
      inside a definition would otherwise fall through to the stateless
      path and be dropped, which is the bug the table step found on this
      same line. *)
   | DefinitionList _ items =>
       let '(st', s) := render_def_items st items in
-      (st', "<dl" ++ ats ++ ">" ++ nl ++ s ++ "</dl>" ++ nl)
+      (st', in_tags "dl" 2 "" a s)
   | TaskList sp items =>
       let '(st', s) := render_task_items st sp items in
-      (st', "<ul class=""task-list""" ++ ats ++ ">" ++ nl ++ s ++ "</ul>" ++ nl)
+      (st', in_tags "ul" 2 (attr_str "class" "task-list") a s)
   | Table caption rows =>
       let '(st1, s1) := render_caption_foot st caption in
       let '(st2, s2) := render_rows_foot st1 rows in
-      (st2, "<table" ++ ats ++ ">" ++ nl ++ s1 ++ s2 ++ "</table>" ++ nl)
+      (st2, in_tags "table" 2 "" a (s1 ++ s2))
   | _ => (st, render_block tight b a)
   end.
 
@@ -627,7 +644,9 @@ Definition ends_with (suffix s : string) : bool :=
   String.eqb (String.substring (n - m) m s) suffix.
 
 Definition note_backlink (n : nat) : string :=
-  "<a href=""#fnref" ++ nat_str n ++ """ role=""doc-backlink"">↩︎</a>".
+  in_tags "a" 0
+    (attr_str "href" ("#fnref" ++ nat_str n)
+     ++ attr_str "role" "doc-backlink") [] "↩︎".
 
 Fixpoint split_line_endings_rev (r endings : string) : string * string :=
   match r with
@@ -678,9 +697,9 @@ Fixpoint render_note_items (fuel n : nat) (st : foot_state)
   match fuel with
   | O => ""
   | S fuel' =>
-      "<li id=""fn" ++ nat_str n ++ """>" ++ nl
-      ++ add_backlink (rendered_note_at n st rendered) n
-      ++ "</li>" ++ nl ++ render_note_items fuel' (S n) st rendered
+      in_tags "li" 2 (attr_str "id" ("fn" ++ nat_str n)) []
+        (add_backlink (rendered_note_at n st rendered) n)
+      ++ render_note_items fuel' (S n) st rendered
   end.
 
 Definition render_document_foot (blocks : blocks) (notes : note_map) : string :=
@@ -688,9 +707,11 @@ Definition render_document_foot (blocks : blocks) (notes : note_map) : string :=
   if Nat.eqb (foot_next st1) 1 then body
   else
     let '(st2, rendered) := render_note_defs st1 notes in
-    body ++ "<section role=""doc-endnotes"">" ++ nl ++ "<hr>" ++ nl ++ "<ol>" ++ nl
-    ++ render_note_items (foot_next st2 - 1) 1 st2 rendered
-    ++ "</ol>" ++ nl ++ "</section>" ++ nl.
+    body
+    ++ in_tags "section" 2 (attr_str "role" "doc-endnotes") []
+         (render_tag "hr" "" [] ++ nl
+          ++ in_tags "ol" 2 "" []
+               (render_note_items (foot_next st2 - 1) 1 st2 rendered)).
 
 End WithRefs.
 
@@ -1187,5 +1208,18 @@ Example convert_table_footnote_cell :
 </li>
 </ol>
 </section>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+(* A fence's language is an attribute value and is escaped as one.
+   Spelling the class by hand did not escape it, so a language carrying a
+   quote broke out of the attribute; `attr_str` is what closes it, and
+   djot.js agrees byte for byte. *)
+Example convert_code_lang_escaped :
+  convert "``` a""onx=""y
+z
+```"
+  = "<pre><code class=""language-a&quot;onx=&quot;y"">z
+</code></pre>
 ".
 Proof. vm_compute. reflexivity. Qed.
