@@ -35,11 +35,18 @@ The alphabet
 ============
 *)
 
-(* One inhabitant per leaf construct, plus a two-line paragraph so that
-   interior-line handling is exercised. *)
+(* One inhabitant per leaf construct, plus two two-line paragraphs so
+   that interior-line handling is exercised.  The second interior line
+   is a bullet marker, which `cline` escapes: it is the only leaf that
+   reaches the escaper's line-initial rule.  That rule is why the
+   accepted fragment does not move with the block knob -- filtering this
+   pool by `cb_ok` at a knob that lets markers interrupt gives the same
+   245 and 2910 -- and without this leaf no generated document could
+   say so. *)
 Definition leaves : list cblock :=
   [ cpara ["a"]
   ; cpara ["a"; "b"]
+  ; cpara ["a"; "- b"]
   ; CPara [[CIDelim DEmph [CIStr "e"]]]
   ; CPara [[CILink false [CIStr "l"] "u"]]
   ; CPara [[CILink true [CIStr "i"] "u"]]
