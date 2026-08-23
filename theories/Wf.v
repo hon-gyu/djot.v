@@ -2534,12 +2534,17 @@ Proof.
       split; [exact Hhb|].
       cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs. }
     5: { (* matching or differing level *)
-      destruct (Nat.eqb kl hlvl) eqn:Elv;
-        cbn [close_reopen open_kind finish app fst snd].
-      - split; [reflexivity|].
-        cbn [state_wf]. rewrite Hlv. cbn [andb].
-        apply forallb_nonblank_push_text. exact Hc.
-      - split; [exact Hhb|].
+      destruct bheading_continues eqn:Hcontinues.
+      - destruct (Nat.eqb kl hlvl) eqn:Elv;
+          cbn [close_reopen open_kind finish app fst snd].
+        + split; [reflexivity|].
+          cbn [state_wf]. rewrite Hlv. cbn [andb].
+          apply forallb_nonblank_push_text. exact Hc.
+        + split; [exact Hhb|].
+          cbn [state_wf]. rewrite (classify_heading_level _ _ _ E). cbn [andb].
+          apply forallb_nonblank_push_text. reflexivity.
+      - cbn [close_reopen open_kind finish app fst snd].
+        split; [exact Hhb|].
         cbn [state_wf]. rewrite (classify_heading_level _ _ _ E). cbn [andb].
         apply forallb_nonblank_push_text. reflexivity. }
     5: { (* attribute spec: close the heading, then open the spec *)
@@ -2564,12 +2569,18 @@ Proof.
       cbn [finish fst snd] in Hob, Hos |- *. split; [|exact Hos].
       rewrite wf_blocks_app, Hhb, Hob. reflexivity. }
     5: { (* lazy text *)
-      cbn [fst snd]. split; [reflexivity|].
-      cbn [state_wf]. rewrite Hlv. cbn [andb].
-      rewrite forallb_nonblank_cons
-        by (rewrite is_blank_drop_leading_ws;
-            apply classify_ktext_nonblank; exact E).
-      exact Hc. }
+      destruct bheading_continues.
+      - cbn [fst snd]. split; [reflexivity|].
+        cbn [state_wf]. rewrite Hlv. cbn [andb].
+        rewrite forallb_nonblank_cons
+          by (rewrite is_blank_drop_leading_ws;
+              apply classify_ktext_nonblank; exact E).
+        exact Hc.
+      - cbn [close_reopen open_kind finish app fst snd]. split; [exact Hhb|].
+        cbn [state_wf]. rewrite forallb_nonblank_cons
+          by (rewrite is_blank_drop_leading_ws;
+              apply classify_ktext_nonblank; exact E).
+        reflexivity. }
     (* blank, thematic, fence: close the heading and reopen outside it *)
     all: cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split;
          [ rewrite wf_blocks_cons in Hhb |- *;
@@ -3356,7 +3367,10 @@ Proof.
          cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    5: { destruct (Nat.eqb kl hlvl); cbn [fst snd]; split; reflexivity. }
+    5: { destruct bheading_continues;
+           [destruct (Nat.eqb kl hlvl)|];
+           cbn [close_reopen open_kind finish app fst snd];
+           split; reflexivity. }
     6: { destruct (IH (off + consumed l frest) frest (PPara []) eq_refl)
            as [Hb Hs].
          destruct (step_fuel n (off + consumed l frest) frest (PPara []))
@@ -3366,7 +3380,9 @@ Proof.
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
     7: { cbn [close_reopen open_kind finish app fst snd].
          destruct (@btables K); split; reflexivity. }
-    all: cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity.
+    all: destruct bheading_continues;
+         cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd];
+         split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
     + split; reflexivity.

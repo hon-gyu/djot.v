@@ -257,6 +257,28 @@ Example md_sublist_without_blank :
              mk (BulletList Tight [[mk (Para [mk (Str "b")])]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
+Example md_adjacent_headings_stay_separate :
+  MdBlocks "# a
+# b"
+  = [mk (Heading 1 [mk (Str "a")]); mk (Heading 1 [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example md_text_after_heading_is_a_paragraph :
+  MdBlocks "# a
+b"
+  = [mk (Heading 1 [mk (Str "a")]); mk (Para [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_multiline_canonical_heading_is_disabled :
+  @cb_ok markdown_table markdown_bconfig
+    (CHeading 1 [[CIStr "a"]; [CIStr "b"]]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_single_line_canonical_heading_is_enabled :
+  @cb_ok markdown_table markdown_bconfig
+    (CHeading 1 [[CIStr "a"]]) = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

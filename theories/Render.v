@@ -478,6 +478,7 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
   Nat.leb 1 lvl
   && nonempty ls
   && forallb line_ok ls
+  && (bheading_continues || Nat.eqb (List.length ls) 1)%bool
   && String.eqb (strip_trailing_ws (last ls EmptyString)) (last ls EmptyString).
 
 (* Tight/loose, on the item's lines rather than on its block tree.

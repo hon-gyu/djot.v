@@ -450,16 +450,19 @@ Qed.
 Lemma heading_ok_parts :
   forall lvl ls, heading_ok lvl ls = true ->
   1 <= lvl /\ ls <> [] /\ forallb line_ok ls = true
+  /\ (bheading_continues || Nat.eqb (List.length ls) 1)%bool = true
   /\ strip_trailing_ws (last ls EmptyString) = last ls EmptyString.
 Proof.
   intros lvl ls H. unfold heading_ok in H.
   apply andb_true_iff in H as [H Hlast].
+  apply andb_true_iff in H as [H Hcontinues].
   apply andb_true_iff in H as [H Hlok].
   apply andb_true_iff in H as [Hlvl Hne].
   repeat split.
   - apply Nat.leb_le. exact Hlvl.
   - destruct ls; [discriminate | congruence].
   - exact Hlok.
+  - exact Hcontinues.
   - apply String.eqb_eq. exact Hlast.
 Qed.
 
@@ -490,7 +493,7 @@ Lemma cb_ast_heading_of_lines :
 Proof.
   intros lvl lss H. rewrite cb_ok_heading in H.
   apply andb_true_iff in H as [Hh Hc].
-  apply heading_ok_parts in Hh as (_ & _ & Hlok & Hlast).
+  apply heading_ok_parts in Hh as (_ & _ & Hlok & _ & Hlast).
   cbn [cb_ast]. f_equal. f_equal.
   apply para_inlines_ci_para;
     [exact Hc | apply cis_nonempty_of_lines; exact Hlok | exact Hlast].
@@ -657,7 +660,7 @@ Proof.
     intros lvl lss H. rewrite cb_ok_heading in H.
     apply andb_true_iff in H as [H _].
     cbn [cb_lines]. remember (map ci_line lss) as ls eqn:E. clear E lss.
-    apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _).
+    apply heading_ok_parts in H as (Hlvl & Hne & Hlok & _ & _).
     apply lines_ok_map.
     + intros l Hl. rewrite heading_line_no_nl. exact Hl.
     + intros l. apply heading_line_nonempty. exact Hlvl.
@@ -1129,9 +1132,15 @@ Proof.
       pose proof (cb_ast_heading_of_lines lvl ls H) as Hast;
       rewrite cb_ok_heading in H;
       apply andb_true_iff in H as [Hh _];
-      apply heading_ok_parts in Hh as (Hlvl & Hne & Hlok & _);
+      apply heading_ok_parts in Hh as (Hlvl & Hne & Hlok & Hcontinues & _);
       cbn [cb_lines];
       destruct (map ci_line ls) as [|a ls'] eqn:E; [congruence| |congruence|];
+      assert (Htail :
+        (bheading_continues || Nat.eqb (List.length ls') 0)%bool = true)
+        by (destruct bheading_continues; [reflexivity|];
+            cbn in Hcontinues |- *;
+            apply Nat.eqb_eq in Hcontinues; apply Nat.eqb_eq;
+            inversion Hcontinues; reflexivity);
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [Hna Hnb'];
       unfold nonblank in Hna; apply negb_true_iff in Hna;
@@ -1143,14 +1152,14 @@ Proof.
         by (unfold push_text; rewrite Hna;
             rewrite (line_ok_no_leading_ws _ Hlok_a); reflexivity).
     + rewrite <- Hast.
-      rewrite parse_lines_heading_seed by assumption.
+      rewrite parse_lines_heading_seed_ok by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
       reflexivity.
     + rewrite <- Hast.
       rewrite <- (app_nil_r (map (heading_line lvl) ls')).
-      rewrite parse_lines_heading_seed by assumption.
+      rewrite parse_lines_heading_seed_ok by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_nil. cbn [finish].
       unfold heading_block. rewrite rev_app_distr, rev_involutive.
@@ -1399,7 +1408,7 @@ Proof.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     intros lvl ls H.
     rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
-    apply heading_ok_parts in Hh as (_ & Hne & Hlok & _).
+    apply heading_ok_parts in Hh as (_ & Hne & Hlok & _ & _).
     cbn [cb_ast cb_lines node_contents mk render_block_lines].
     f_equal.
     apply inline_lines_ci.

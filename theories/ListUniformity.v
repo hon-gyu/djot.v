@@ -869,7 +869,8 @@ Proof.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
-  - unfold step. cbn [step_fuel]. rewrite Hblank. reflexivity.
+  - unfold step. cbn [step_fuel]. destruct bheading_continues;
+      rewrite Hblank; reflexivity.
   - destruct (fence_close f l) eqn:Hclose.
     + rewrite (step_fence_close l f fnd acc Hclose). reflexivity.
     + rewrite (step_fence_content l f fnd acc Hclose). reflexivity.

@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Five things are configurable today, and this document describes the
+Six things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -28,10 +28,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | sublist without a blank line | allowed (`markdown_bconfig`) | not allowed (`djot_bconfig`) |
 | `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
 | pipe tables and captions | disabled (`markdown_bconfig`) | enabled |
+| ATX heading continuation | one source line (`markdown_bconfig`) | same-level markers and lazy text continue |
 
 The first two compose in `markdown_like_config`: it starts from the doubled
 strong spelling and applies the proved multi-row disable operation. The last
-three live in one record with one field each. `markdown_bconfig`
+four live in one record with one field each. `markdown_bconfig`
 composes their field-local knobs, and `check/Markdown.v` pins the combined
 profile as well as the individual settings in `check/Sublist.v` and
 `check/Setext.v`.
@@ -119,7 +120,7 @@ been done.
 **Why.** Same rule as `#hi` not being a heading, which CommonMark also
 enforces. Consistency, at a small cost.
 
-### Consecutive headings of the same level merge
+### Consecutive headings of the same level merge in djot
 
 ```
 # a
@@ -138,10 +139,13 @@ A heading continues until something ends it: a blank line, a different
 level, or a block construct. (`parse_heading_level_change`,
 `parse_heading_interrupted`)
 
-**Status: open, and the most likely real-world trap after `*a*`.** Two
-adjacent one-line headings is a shape people actually write. The reason
-is uniform continuation, which is a genuine simplification, but the cost
-here looks higher than the benefit and it deserves a second look.
+**Markdown-profile status: fixed.** `markdown_bconfig` closes an ATX heading
+after its first source line, so the first example is two headings and the
+second is a heading followed by a paragraph
+(`md_adjacent_headings_stay_separate`,
+`md_text_after_heading_is_a_paragraph`). Djot retains lazy continuation.
+Canonical multiline headings are excluded only at the single-line setting,
+which keeps the generic roundtrip theorem valid for both profiles.
 
 ### `--` and `...` become typography
 

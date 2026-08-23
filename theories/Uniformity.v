@@ -338,10 +338,12 @@ Heading equations
 
 Lemma step_heading_cont :
   forall l lvl txt cur,
+    bheading_continues = true ->
     classify l = KHeading lvl txt ->
     step l (PHeading lvl cur) = ([], PHeading lvl (push_text txt cur)).
 Proof.
-  intros l lvl txt cur H. unfold step. cbn [step_fuel]. rewrite H.
+  intros l lvl txt cur Hcontinues H. unfold step. cbn [step_fuel].
+  rewrite Hcontinues, H.
   rewrite Nat.eqb_refl. reflexivity.
 Qed.
 
@@ -350,7 +352,8 @@ Lemma step_heading_close :
     classify l = KBlank ->
     step l (PHeading lvl cur) = ([heading_block lvl cur], PPara []).
 Proof.
-  intros l lvl cur H. unfold step. cbn [step_fuel]. rewrite H. reflexivity.
+  intros l lvl cur H. unfold step. cbn [step_fuel].
+  destruct bheading_continues; rewrite H; reflexivity.
 Qed.
 
 Lemma parse_lines_heading_open :
@@ -365,12 +368,14 @@ Qed.
 
 Lemma parse_lines_heading_cont :
   forall l rest lvl txt cur,
+    bheading_continues = true ->
     classify l = KHeading lvl txt ->
     parse_lines (l :: rest) (PHeading lvl cur) =
     parse_lines rest (PHeading lvl (push_text txt cur)).
 Proof.
-  intros l rest lvl txt cur H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_heading_cont _ _ _ _ H)).
+  intros l rest lvl txt cur Hcontinues H.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_heading_cont _ _ _ _ Hcontinues H)).
   reflexivity.
 Qed.
 
@@ -390,21 +395,40 @@ Qed.
    paragraph lines do. *)
 Lemma parse_lines_heading_seed :
   forall lvl ls tail cur,
+    bheading_continues = true ->
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
     parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
 Proof.
-  intros lvl ls. induction ls as [|a ls IH]; intros tail cur Hlvl H.
+  intros lvl ls. induction ls as [|a ls IH];
+    intros tail cur Hcontinues Hlvl H.
   - reflexivity.
   - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
     unfold nonblank in Ha. apply negb_true_iff in Ha.
     cbn [map app].
-    rewrite (parse_lines_heading_cont _ _ _ a _
+    rewrite (parse_lines_heading_cont _ _ _ a _ Hcontinues
                (classify_canonical_heading lvl a Hlvl)).
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
     cbn [rev map]. rewrite <- app_assoc. reflexivity.
+Qed.
+
+(* A canonical single-line heading has no continuation lines to consume, so
+   the same equation is available when continuation is disabled and the
+   remaining rendered suffix is empty. *)
+Lemma parse_lines_heading_seed_ok :
+  forall lvl ls tail cur,
+    (bheading_continues || Nat.eqb (List.length ls) 0)%bool = true ->
+    1 <= lvl ->
+    forallb nonblank ls = true ->
+    parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
+    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+Proof.
+  intros lvl ls tail cur Hmode Hlvl Hlines.
+  destruct bheading_continues eqn:Hcontinues.
+  - apply parse_lines_heading_seed; assumption.
+  - cbn in Hmode. apply Nat.eqb_eq in Hmode. destruct ls; [reflexivity|discriminate].
 Qed.
 
 (* Same, seen through an all-whitespace pad: classify_canonical_heading_pad
@@ -415,22 +439,40 @@ Qed.
 Lemma parse_lines_heading_seed_pad :
   forall pad, is_blank pad = true ->
   forall lvl ls tail cur,
+    bheading_continues = true ->
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
                 (PHeading lvl cur) =
     parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
 Proof.
-  intros pad Hpad lvl ls. induction ls as [|a ls IH]; intros tail cur Hlvl H.
+  intros pad Hpad lvl ls. induction ls as [|a ls IH];
+    intros tail cur Hcontinues Hlvl H.
   - reflexivity.
   - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
     unfold nonblank in Ha. apply negb_true_iff in Ha.
     cbn [map app].
-    rewrite (parse_lines_heading_cont _ _ _ a _
+    rewrite (parse_lines_heading_cont _ _ _ a _ Hcontinues
                (classify_canonical_heading_pad pad lvl a Hpad Hlvl)).
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
     cbn [rev map]. rewrite <- app_assoc. reflexivity.
+Qed.
+
+Lemma parse_lines_heading_seed_pad_ok :
+  forall pad, is_blank pad = true ->
+  forall lvl ls tail cur,
+    (bheading_continues || Nat.eqb (List.length ls) 0)%bool = true ->
+    1 <= lvl ->
+    forallb nonblank ls = true ->
+    parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
+                (PHeading lvl cur) =
+    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+Proof.
+  intros pad Hpad lvl ls tail cur Hmode Hlvl Hlines.
+  destruct bheading_continues eqn:Hcontinues.
+  - apply parse_lines_heading_seed_pad; assumption.
+  - cbn in Hmode. apply Nat.eqb_eq in Hmode. destruct ls; [reflexivity|discriminate].
 Qed.
 
 (*

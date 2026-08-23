@@ -597,3 +597,19 @@ profiles keep it enabled, while `markdown_bconfig` disables it.
 that `CTable` is outside that profile's canonical fragment. Typography stays
 independent of tables: `dc_smart_typography` now makes `---` literal in the
 Markdown-like profile while djot continues to read it as an em dash.
+
+## Settled: single-line ATX headings in the Markdown profile
+
+Djot lets a same-level heading marker or a plain text line continue an open
+heading. This makes `# a` / `# b` one heading, a silent surprise for Markdown
+authors. `bheading_continues` now states that choice explicitly: djot keeps it
+enabled and `markdown_bconfig` disables it.
+
+The disabled transition closes the heading and opens the current line exactly
+as the idle state would, without a second source read or another fuel step.
+`heading_ok` admits multiple canonical source lines only when continuation is
+enabled; at the Markdown setting it requires exactly one. The roundtrip proof
+therefore splits locally between the old accumulation lemma and an empty
+rendered suffix, while block incrementality and prefix compatibility remain
+parametric. `check/Markdown.v` pins adjacent headings, lazy text, and both
+sides of the canonical-view boundary.

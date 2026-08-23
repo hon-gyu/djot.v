@@ -33,10 +33,11 @@ Local Open Scope string_scope.
 Block settings
 ==============
 
-What the block layer is configurable in.  Today that is three questions:
+What the block layer is configurable in.  Today that is four questions:
 may a list marker close an open paragraph rather than extend it, may an
 underline turn that paragraph into a heading, and are pipe tables enabled?
-Djot answers no to the first two and yes to tables.
+May an open ATX heading consume another source line? Djot answers no to the
+first two and yes to tables and heading continuation.
 
 Its inline counterpart is `Inline.dconfig`, which is a genuine table --
 a row per delimiter -- and carries a side condition that admissible
@@ -56,7 +57,11 @@ Class bconfig : Type := BConfig {
   bunderline : ascii -> nat -> option nat;
   (* Does a classified pipe row open a djot table?  When false the complete
      source line is ordinary paragraph text. *)
-  btables : bool
+  btables : bool;
+  (* May an open ATX heading consume a same-level heading line or a lazy text
+     line?  Djot says yes; the Markdown-facing profile uses one source line
+     per heading. *)
+  bheading_continues : bool
 }.
 
 (*
@@ -95,7 +100,7 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true.
+  BConfig no_interrupt no_underline true true.
 
 (* Field-local block knobs.  Each preserves the other decision, which is what
    lets independently justified settings compose without rebuilding a record
@@ -103,14 +108,18 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
 Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_status -> string -> bool)
   (K : bconfig) : bconfig :=
-  BConfig f (@bunderline K) (@btables K).
+  BConfig f (@bunderline K) (@btables K) (@bheading_continues K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
-  BConfig (@bmarker_interrupts K) f (@btables K).
+  BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
-  BConfig (@bmarker_interrupts K) (@bunderline K) enabled.
+  BConfig (@bmarker_interrupts K) (@bunderline K) enabled
+    (@bheading_continues K).
+
+Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled.
 
 (* The other setting, and deliberately not an `Instance`, for the reason
    `markdown_table` is not one: it is named where it is wanted
@@ -131,9 +140,10 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_tables false
-    (with_underline setext_underline
-      (with_marker_interrupts prose_safe_markers djot_bconfig)).
+  with_heading_continuation false
+    (with_tables false
+      (with_underline setext_underline
+        (with_marker_interrupts prose_safe_markers djot_bconfig))).
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
@@ -968,11 +978,17 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              matching-level marker or a lazy text line continues it. *)
           match classify l with
           | KHeading lvl' rest =>
-              if Nat.eqb lvl' lvl
-              then ([], PHeading lvl (push_text rest cur))
+              if bheading_continues
+              then if Nat.eqb lvl' lvl
+                   then ([], PHeading lvl (push_text rest cur))
+                   else close_reopen (PHeading lvl cur)
+                          (open_kind l (KHeading lvl' rest))
               else close_reopen (PHeading lvl cur)
                      (open_kind l (KHeading lvl' rest))
-          | KText => ([], PHeading lvl (drop_leading_ws l :: cur))
+          | KText =>
+              if bheading_continues
+              then ([], PHeading lvl (drop_leading_ws l :: cur))
+              else close_reopen (PHeading lvl cur) (open_kind l KText)
           | KQuote rest =>
               close_reopen (PHeading lvl cur)
                 (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
@@ -1305,6 +1321,27 @@ Proof.
       reflexivity.
   - (* an open heading: the quote and list branches recurse *)
     cbn [pstate_depth] in Hn |- *.
+    destruct bheading_continues eqn:Hheading.
+    2: {
+      destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
+      - pose proof (classify_quote_length _ _ E) as Hlt.
+        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ rest (PPara []))
+          by (cbn [pstate_depth]; lia).
+        reflexivity.
+      - pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ mr (PPara []))
+          by (cbn [pstate_depth]; lia).
+        reflexivity.
+      - pose proof (classify_foot_length _ _ _ E) as Hlt.
+        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        rewrite (IH n' _ frest (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ frest (PPara []))
+          by (cbn [pstate_depth]; lia).
+        reflexivity. }
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
     + pose proof (classify_quote_length _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
@@ -1724,7 +1761,7 @@ Proof.
       destruct (step_fuel n (off + consumed l rest) rest (PPara []))
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_quote fst snd pad_state]. reflexivity. }
-    { destruct (klvl =? hlvl)%nat; reflexivity. }
+    { destruct bheading_continues; [destruct (klvl =? hlvl)%nat|]; reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -1743,7 +1780,7 @@ Proof.
       rewrite Nat.add_assoc. reflexivity. }
     { cbn [close_reopen open_kind fst snd pad_state].
       destruct (@btables K); reflexivity. }
-    { reflexivity. } }
+    { destruct bheading_continues; reflexivity. } }
   (* fence: the column moves with the offset, and the content lines are
      measured against the difference, which the shift leaves alone *)
   { cbn [pad_state step_fuel]. destruct (fence_close f l); [reflexivity|].
