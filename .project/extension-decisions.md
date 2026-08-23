@@ -421,6 +421,11 @@ becomes a list rather than becoming literal text. Four corpus cases move,
 all of them intentionally. Prose ending in any other number, in a roman
 numeral or in an initial is untouched.
 
+At the configuration boundary, `block_prefix_ok` also checks that a marker
+setting admitting the bodyless `-` bullet is not combined with an underline
+setting admitting the same lone dash. `bmarker_update_compatible` is the local
+obligation when this setting is installed.
+
 **What it costs the canonical view: nothing.** `para_ok` gains one clause
 (an interior line is not a marker the knob acts on) and it is discharged
 by escaping that predates the knob: `cline` writes `- b` as `\- b`, which
@@ -490,6 +495,11 @@ would put one line under two settings and make the answer depend on the
 order `step` tests them in. At two or more there is no other reading.
 `a` / `--` is a level-2 heading, `a` / `-` stays prose
 (`a_single_dash_is_not_an_underline`).
+
+This is machine-checked by `block_prefix_ok`; `bunderline_update_compatible`
+is the local obligation for installing an underline setting, and an
+executable counterexample rejects a setting that admits the lone dash over
+`sublist_bconfig`.
 
 **Only an open paragraph underlines**, which is the whole of why a
 thematic break survives: with nothing above it, `---` is classified as it

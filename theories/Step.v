@@ -33,16 +33,15 @@ Local Open Scope string_scope.
 Block settings
 ==============
 
-What the block layer is configurable in.  Today that is one question:
-may a list marker close an open paragraph rather than extend it?  djot
-answers no, which is the rule usually stated as "a sublist must be
-preceded by a blank line".
+What the block layer is configurable in.  Today that is two questions:
+may a list marker close an open paragraph rather than extend it, and may
+an underline turn that paragraph into a heading?  Djot answers no to both.
 
 Its inline counterpart is `Inline.dconfig`, which is a genuine table --
 a row per delimiter -- and carries a side condition that admissible
-tables have to satisfy.  This one is a single decision with nothing to
-check, so it is a class with one field and no proof obligation.  If a
-third setting arrives the two should probably merge.
+tables have to satisfy.  This pair's single overlap is checked separately
+by `Invariants.block_prefix_ok`; keeping the class computational avoids
+threading a proof through the parser.
 *)
 Class bconfig : Type := BConfig {
   (* May a list marker close an open paragraph?  Asked of the marker's
