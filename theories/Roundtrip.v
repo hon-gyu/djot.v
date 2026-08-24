@@ -1714,6 +1714,20 @@ Example nested_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
+(* Task lists already belong to the parser and AST, but not yet to [cblock]:
+   their per-item statuses are precisely the information the generic list
+   uniformity chain currently erases.  Pin the completed source-renderer
+   prerequisite independently: mixed statuses and an empty item both render
+   to source that the parser recovers exactly. *)
+Example task_list_source_render_roundtrip :
+  let b := TaskList Tight
+             [(Incomplete, [mk (Para [mk (Str "a")])]);
+              (Complete, []); (Complete, [mk (Para [mk (Str "b")])])] in
+  render_block_lines b
+    = ["- [ ] a"; "- [x]"; "- [x] b"]
+  /\ parse_blocks (render_djot [mk b]) = [mk b].
+Proof. split; reflexivity. Qed.
+
 (* A div's closing line arms the enclosing list, so an item that ends
    with one hands a gap to the next marker and the list comes back loose.
    `- ::: / a / ::: / - t` is the shape, and `Tight` is now unspellable

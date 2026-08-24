@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Djot rendering (AST -> djot source), modeled on djoths's Djot.hs,
    together with the canonical form it inverts.
@@ -999,6 +999,26 @@ Definition table_lines (rows : list (list cell)) : list string :=
 Definition caption_line (ils : inlines) : string :=
   ("^ " ++ hd EmptyString (inline_lines ils EmptyString))%string.
 
+(* A task marker carries data per item, unlike the list kinds handled by
+   [ck_items].  Keep its source spelling here, next to the source renderer,
+   until the canonical-list proof learns to carry checkbox statuses through
+   the uniformity chain.  The continuation prefix is six columns wide for
+   both statuses.  An empty item omits the otherwise trailing separator
+   space, matching the source shape accepted by [Line.task_check]. *)
+Definition task_open (chk : task_status) : string :=
+  match chk with Complete => "- [x] " | Incomplete => "- [ ] " end.
+
+Definition task_empty (chk : task_status) : string :=
+  match chk with Complete => "- [x]" | Incomplete => "- [ ]" end.
+
+Definition task_litem_lines (it : task_status * list string) : list string :=
+  match it with
+  | (chk, []) => [task_empty chk]
+  | (chk, l0 :: more) =>
+      ((task_open chk ++ l0)%string
+       :: map (fun l => (blanks 6 ++ l)%string) more)%list
+  end.
+
 Fixpoint render_block_lines (b : block) : list string :=
   let itemss :=
     fix goitems (items : list blocks) : list (list string) :=
@@ -1007,6 +1027,16 @@ Fixpoint render_block_lines (b : block) : list string :=
       | it :: rest =>
           sep_lines (map (fun n => render_block_lines (node_contents n)) it)
           :: goitems rest
+      end in
+  let taskitemss :=
+    fix gotasks (items : list (task_status * blocks))
+      : list (task_status * list string) :=
+      match items with
+      | [] => []
+      | (chk, it) :: rest =>
+          (chk, sep_lines
+                  (map (fun n => render_block_lines (node_contents n)) it))
+          :: gotasks rest
       end in
   (* A definition item's lines are its definition's, with the term put
      back at the head as the paragraph it was split from.  An absent term
@@ -1045,6 +1075,8 @@ Fixpoint render_block_lines (b : block) : list string :=
       list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
   | OrderedList oa sp items =>
       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+  | TaskList sp items =>
+      list_lines sp (map task_litem_lines (taskitemss items))
   | RefDef label dest => [ref_line label dest]
   | Table cap rows =>
       (table_lines rows ++ match cap with
