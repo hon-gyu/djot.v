@@ -1827,9 +1827,11 @@ Proof.
         |rewrite ocur_emit; reflexivity]. }
     destruct Hv as [Hvo Hvs].
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
-    { apply iscan_wf_text;
-        [apply oscope_ok_emit; [exact H | reflexivity | apply andb_false_l]
-        |rewrite ocur_emit; reflexivity]. }
+    { destruct raw_inline_enabled.
+      - apply iscan_wf_text;
+          [apply oscope_ok_emit; [exact H | reflexivity | apply andb_false_l]
+          |rewrite ocur_emit; reflexivity].
+      - apply ilead_wf; assumption. }
     destruct rspec as [|x rspec'].
     + destruct (negb (Ascii.eqb c eqchar)); [|cbn [iscan_wf]; exact H].
       unfold ibrace_step. destruct (dstyle_of c);

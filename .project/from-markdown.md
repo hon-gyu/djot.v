@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Nine things are configurable today, and this document describes the
+Ten things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -32,10 +32,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | fenced divs | disabled (`markdown_bconfig`) | enabled |
 | task-list checkboxes | literal bullet text (`markdown_bconfig`) | task-list items |
 | fenced `=format` blocks | ordinary code blocks (`markdown_bconfig`) | raw output blocks |
+| inline `` `code`{=format} `` | code plus literal format text (`markdown_like_config`) | raw inline output |
 
-The first two compose in `markdown_like_config`: it starts from the doubled
-strong spelling and applies the proved multi-row disable operation. The last
-seven live in one record with one field each. `markdown_bconfig`
+The first two and raw inline compose in `markdown_like_config`: it starts from
+the doubled strong spelling and applies field-local capability updates. The
+last seven live in one record with one field each. `markdown_bconfig`
 composes their field-local knobs, and `check/Markdown.v` pins the combined
 profile as well as the individual settings in `check/Sublist.v` and
 `check/Setext.v`.
@@ -221,7 +222,7 @@ characters literally may read differently.
 | `{=highlight=}`, `{+insert+}`, `{-delete-}` | marked spans |
 | `^super^`, `~sub~` | super and subscript |
 | `$math$`, `$$display$$` | math |
-| `` `code`{=html} `` | raw inline for one format |
+| `` `code`{=html} `` | raw inline in Djot (code plus literal `{=html}` here) |
 | `: term` | definition lists |
 | `` ` `` fence with `=format` | a raw block in Djot (a code block here) |
 
@@ -236,9 +237,10 @@ using. Where things stand:
 **Already switched off in `markdown_like_config`, and the proofs go through
 there.** Highlight, insert, delete, superscript, subscript, single and double
 curly quotes are rows in the delimiter table. `disable_rows` turns them off
-compositionally. This removes them from the canonical view too, so the
-roundtrip theorem specializes to the reduced table rather than being
-restated for it.
+compositionally. Raw inline is a separate scanner capability; when disabled,
+the verbatim remains code and its complete `{=format}` suffix is text. These
+constructs are removed from the canonical view too, so the roundtrip theorem
+specializes to the reduced table rather than being restated for it.
 
 **Already switched off in `markdown_bconfig`.** Djot pipe rows and their
 caption continuation are a single table capability. Fenced divs, task-list
@@ -251,8 +253,8 @@ block. GFM-style tables are therefore not currently part of the Markdown-like
 profile either; adding a separate caption-free GFM table mode would be a new
 extension.
 
-**Would need a new setting.** Attributes, spans, math, footnotes, definition
-lists and raw inline.
+**Would need a new setting.** Attributes, spans, math, footnotes and definition
+lists.
 
 **The shape the work takes** is known, since it was done once for the
 delimiter rows and twice in the block layer: a predicate in the settings

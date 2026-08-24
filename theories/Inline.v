@@ -222,7 +222,8 @@ Record dconfig : Type := DConfig {
   dc_width : dstyle -> nat;
   dc_syntax : dstyle -> dsyntax;
   dc_decay : dstyle -> ddecay;
-  dc_smart_typography : bool
+  dc_smart_typography : bool;
+  dc_raw_inline : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -270,7 +271,7 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true.
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -381,15 +382,24 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
-    (dc_smart_typography C).
+    (dc_smart_typography C) (dc_raw_inline C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
-  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled.
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
+    (dc_raw_inline C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) enabled.
+
+Theorem with_raw_inline_preserves_admissible :
+  forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
@@ -644,8 +654,9 @@ Definition markdown_like_disabled_rows : list dstyle :=
   [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
 
 Definition markdown_like_config : dconfig :=
-  with_smart_typography false
-    (disable_rows markdown_like_disabled_rows markdown_config).
+  with_raw_inline false
+    (with_smart_typography false
+      (disable_rows markdown_like_disabled_rows markdown_config)).
 
 Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -746,7 +757,7 @@ Example clashing_config_not_ok :
   dconfig_ok (DConfig (fun k => match k with
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
-                      djot_dwidth djot_dsyntax djot_ddecay true) = false.
+                      djot_dwidth djot_dsyntax djot_ddecay true true) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 (* Switching a row off frees its character, so the clash disappears
@@ -759,7 +770,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true) = true.
+                      djot_ddecay true true) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -789,6 +800,8 @@ Definition dsyntax_of (k : dstyle) : dsyntax := dc_syntax cfg k.
 Definition dwidth (k : dstyle) : nat := dc_width cfg k.
 
 Definition smart_typography : bool := dc_smart_typography cfg.
+
+Definition raw_inline_enabled : bool := dc_raw_inline cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -1757,13 +1770,15 @@ Fixpoint ci_ok (ci : cinline) : bool :=
      accepts: nonempty and free of whitespace, either brace and the
      backtick -- and unescapable, since the mode reads it raw. *)
   | CIRaw fmt s =>
-      (nonempty_str s && verb_content_ok s && raw_fmt_ok fmt)%bool
+      (raw_inline_enabled && nonempty_str s
+       && verb_content_ok s && raw_fmt_ok fmt)%bool
   end.
 
 Lemma ci_ok_raw :
   forall fmt s,
     ci_ok (CIRaw fmt s)
-    = (nonempty_str s && verb_content_ok s && raw_fmt_ok fmt)%bool.
+    = (raw_inline_enabled && nonempty_str s
+       && verb_content_ok s && raw_fmt_ok fmt)%bool.
 Proof. reflexivity. Qed.
 
 Lemma ci_ok_auto :
@@ -2962,8 +2977,10 @@ Definition iraw_lit (spec : string) : string :=
 
 Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
   if (Ascii.eqb c rbrace && raw_spec_ok spec)%bool
-  then IText false EmptyString (Some rbrace)
-         (oemit (mk (RawInline (raw_format spec) txt)) o)
+  then if raw_inline_enabled
+       then IText false EmptyString (Some rbrace)
+              (oemit (mk (RawInline (raw_format spec) txt)) o)
+       else ilead c (iraw_lit spec) None (oemit (mk (Verbatim txt)) o)
   else if (match spec with
            (* the `=` is the pattern's second character, so anything else
               here is not a candidate at all -- and must behave exactly
@@ -4068,15 +4085,17 @@ Proof.
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_app | reflexivity].
   - unfold iraw_step.
-    destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool;
-      [cbn [iout_app]; rewrite oemit_app; reflexivity|].
-    destruct rspec as [|x rspec'].
-    + destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
-      rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
-      unfold ibrace_step; destruct (dstyle_of c);
-        [apply idelim_marked_out_app | apply iattr_feed_app, Hb].
-    + destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
-      rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
+    destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
+    + destruct raw_inline_enabled.
+      * cbn [iout_app]. rewrite oemit_app. reflexivity.
+      * rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
+    + destruct rspec as [|x rspec'].
+      * destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
+        rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
+        unfold ibrace_step; destruct (dstyle_of c);
+          [apply idelim_marked_out_app | apply iattr_feed_app, Hb].
+      * destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
+        rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
 Qed.
 
 Lemma iscan_str_out_app :
@@ -5232,6 +5251,7 @@ Qed.
    needs and `raw_fmt_ok` the spec half; the `=` is where they meet. *)
 Lemma iscan_raw_text :
   forall fmt v tail txt prev o,
+    raw_inline_enabled = true ->
     nonempty_str v = true -> verb_content_ok v = true ->
     raw_fmt_ok fmt = true ->
     iscan_str (raw_text fmt v ++ tail) (IText false txt prev o)
@@ -5239,7 +5259,7 @@ Lemma iscan_raw_text :
         (IText false EmptyString (Some rbrace)
            (oemit (mk (RawInline fmt v)) (flush_text txt o))).
 Proof.
-  intros fmt v tail txt prev o Hne Hvok Hfmt.
+  intros fmt v tail txt prev o Hraw Hne Hvok Hfmt.
   unfold raw_fmt_ok in Hfmt.
   apply andb_true_iff in Hfmt as [Hfmt Htk].
   apply andb_true_iff in Hfmt as [Hfmt Hrb].
@@ -5266,7 +5286,7 @@ Proof.
   change (Ascii.eqb rbrace rbrace) with true.
   unfold raw_spec_ok. cbn [append].
   rewrite Ascii.eqb_refl, Hfne. cbn [andb].
-  unfold raw_format. reflexivity.
+  rewrite Hraw. unfold raw_format. reflexivity.
 Qed.
 
 Lemma ref_close_app :
@@ -5779,7 +5799,8 @@ Proof.
       pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
       rewrite ci_ok_raw in Hraw.
       apply andb_true_iff in Hraw as [Hraw Hfmt].
-      apply andb_true_iff in Hraw as [Hrne Hrok].
+      apply andb_true_iff in Hraw as [Hraw Hrok].
+      apply andb_true_iff in Hraw as [Hcap Hrne].
       assert (Hrestlt :
         ltof (list cinline) cis_size rest (CIRaw rf rv :: rest)).
       { unfold ltof. cbn [cis_size ci_size]. lia. }
@@ -6092,11 +6113,12 @@ Proof.
     + pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
       rewrite ci_ok_raw in Hraw.
       apply andb_true_iff in Hraw as [Hraw Hfmt].
-      apply andb_true_iff in Hraw as [Hrne Hrok].
+      apply andb_true_iff in Hraw as [Hraw Hrok].
+      apply andb_true_iff in Hraw as [Hcap Hrne].
       cbn [ci_text ci_inlines map].
       change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
       rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
-                 (OState (List.map OIn out) []) Hrne Hrok Hfmt).
+                 (OState (List.map OIn out) []) Hcap Hrne Hrok Hfmt).
       destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
       injection Eflat as Eout Estk. subst out' stk'.
@@ -6241,10 +6263,11 @@ Proof.
   - pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
     rewrite ci_ok_raw in Hraw.
     apply andb_true_iff in Hraw as [Hraw Hfmt].
-    apply andb_true_iff in Hraw as [Hrne Hrok].
+    apply andb_true_iff in Hraw as [Hraw Hrok].
+    apply andb_true_iff in Hraw as [Hcap Hrne].
     cbn [ci_text]. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
     rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
-               (OState (List.map OIn out) []) Hrne Hrok Hfmt).
+               (OState (List.map OIn out) []) Hcap Hrne Hrok Hfmt).
     destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.
@@ -6751,7 +6774,10 @@ Proof.
   (* and a raw spec owes the verbatim it is deciding the node of *)
   - unfold iraw_step.
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
-    { cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r. }
+    { destruct raw_inline_enabled.
+      - cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
+      - apply iscan_productive_lead, orb_true_iff. right.
+        apply ostate_nonempty_emit. }
     destruct rspec as [|x rspec'].
     + destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
       unfold ibrace_step. destruct (dstyle_of c);

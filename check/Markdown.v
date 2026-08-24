@@ -110,6 +110,33 @@ Example markdown_like_hyphens_are_literal :
   = ([mk (Str "a--b")], [mk (Str "a---b")]).
 Proof. vm_compute. reflexivity. Qed.
 
+(* Raw recognition keeps using the shared verbatim/spec scanner. With raw
+   semantics disabled, its successful candidate takes the scanner's existing
+   literal fallback: the verbatim node stands and the complete spec is text. *)
+Example markdown_like_raw_inline_is_verbatim_and_text :
+  ProfileInline "`<a>`{=html}"
+  = [mk (Verbatim "<a>"); mk (Str "{=html}")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_raw_inline_is_disabled :
+  @ci_ok markdown_like_table (CIRaw "html" "<a>") = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_raw_inline_table : dtable :=
+  DTable (with_raw_inline true markdown_like_config) eq_refl.
+
+Example customized_markdown_table_restores_raw_inline :
+  @Inline.parse_inline_line markdown_with_raw_inline_table "`<a>`{=html}"
+  = [mk (RawInline "html" "<a>")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_raw_inline_preserves_other_inline_settings :
+  let C := with_raw_inline false djot_config in
+  (dc_smart_typography C, dc_char C DStrong, dc_width C DStrong,
+   dc_syntax C DStrong)
+  = (true, "*"%char, 1, DBare).
+Proof. reflexivity. Qed.
+
 Example literal_hyphens_still_give_back_a_delete_closer :
   LiteralTypographyInline "{-a---}"
   = [mk (Delete [mk (Str "a--")])].
