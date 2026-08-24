@@ -113,6 +113,10 @@ Theorem with_tasks_preserves_incremental :
   forall T enabled, preserves (with_tasks enabled) (block_incremental T).
 Proof. intros T enabled K _. apply block_incremental_holds. Qed.
 
+Theorem with_raw_blocks_preserves_incremental :
+  forall T enabled, preserves (with_raw_blocks enabled) (block_incremental T).
+Proof. intros T enabled K _. apply block_incremental_holds. Qed.
+
 (* The only line that can answer both block decisions is a lone dash: it is
    the bullet marker with no body, and it is also a one-character underline.
    Longer dash runs are not list markers, and equals runs are never markers.
@@ -151,7 +155,7 @@ Theorem with_marker_interrupts_preserves_prefix_admissible :
       (with_marker_interrupts f)
       block_prefix_admissible.
 Proof.
-  intros f [bm bu tables headings divs tasks] Hcompatible _.
+  intros f [bm bu tables headings divs tasks raw] Hcompatible _.
   unfold block_prefix_admissible, block_prefix_ok,
     bmarker_update_compatible, with_marker_interrupts in *.
   cbn [bunderline_of binterrupt configured_list_styles configured_list_rest] in *.
@@ -165,7 +169,7 @@ Theorem with_underline_preserves_prefix_admissible :
       (with_underline f)
       block_prefix_admissible.
 Proof.
-  intros f [bm bu tables headings divs tasks] Hcompatible _.
+  intros f [bm bu tables headings divs tasks raw] Hcompatible _.
   unfold block_prefix_admissible, block_prefix_ok,
     bunderline_update_compatible, with_underline in *.
   cbn [bunderline_of binterrupt configured_list_styles configured_list_rest] in *.
@@ -188,9 +192,13 @@ Proof. intros enabled K H. exact H. Qed.
 Theorem with_tasks_preserves_prefix_admissible :
   forall enabled, preserves (with_tasks enabled) block_prefix_admissible.
 Proof.
-  intros enabled [bm bu tables headings divs tasks] H.
+  intros enabled [bm bu tables headings divs tasks raw] H.
   destruct enabled, tasks; exact H.
 Qed.
+
+Theorem with_raw_blocks_preserves_prefix_admissible :
+  forall enabled, preserves (with_raw_blocks enabled) block_prefix_admissible.
+Proof. intros enabled K H. exact H. Qed.
 
 Example djot_prefix_admissible : block_prefix_ok djot_bconfig = true.
 Proof. reflexivity. Qed.

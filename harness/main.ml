@@ -1,3 +1,5 @@
+(* ai-disclosure: autonomous *)
+
 (* Differential test harness: runs corpus cases through the extracted
    Gallina parser and the two oracles (djot.js, djoths), and reports
    agreement per engine and per case.
@@ -331,7 +333,7 @@ was: the fragment must grow when a construct lands, and a *shrinking*
 count is a regression that zero mismatches would not show.  Update the
 line when the fragment legitimately grows, exactly as before. *)
 
-let expected_counts = [ (1, 245); (2, 2910); (3, 33605) ]
+let expected_counts = [ (1, 262); (2, 3112); (3, 35938) ]
 
 let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
 

@@ -350,6 +350,55 @@ Example with_tasks_preserves_other_block_settings :
   = (true, true, true).
 Proof. reflexivity. Qed.
 
+Example djot_profile_keeps_raw_blocks :
+  parse_profile_blocks djot_profile "```=html
+<b>
+```"
+  = [mk (RawBlock "html" "<b>
+")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_raw_fence_is_code :
+  parse_profile_blocks markdown_like_profile "```=html
+<b>
+```"
+  = [mk (CodeBlock "=html" "<b>
+")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_raw_block_is_disabled :
+  @cb_ok markdown_like_table markdown_bconfig (CRaw "html" ["<b>"])
+  = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_equal_info_code_is_enabled :
+  @cb_ok markdown_like_table markdown_bconfig (CCode "=html" ["<b>"])
+  = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example djot_canonical_equal_info_code_is_disabled :
+  @cb_ok djot_table djot_bconfig (CCode "=html" ["<b>"]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_raw_blocks : profile :=
+  with_block_profile (with_raw_blocks true markdown_bconfig)
+    markdown_like_profile.
+
+Example customized_markdown_profile_restores_raw_blocks :
+  parse_profile_blocks markdown_with_raw_blocks "```=html
+<b>
+```"
+  = parse_profile_blocks djot_profile "```=html
+<b>
+```".
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_raw_blocks_preserves_other_block_settings :
+  let K := with_raw_blocks false djot_bconfig in
+  (@btables K, @bheading_continues K, @bdivs K, @btasks K)
+  = (true, true, true, true).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

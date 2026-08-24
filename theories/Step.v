@@ -33,11 +33,12 @@ Local Open Scope string_scope.
 Block settings
 ==============
 
-What the block layer is configurable in.  Today that is five questions:
+What the block layer is configurable in.  Today that is seven questions:
 may a list marker close an open paragraph rather than extend it, may an
 underline turn that paragraph into a heading, are pipe tables enabled, may an
-open ATX heading consume another source line, and are fenced divs enabled?
-Djot answers no to the first two and yes to the last three.
+open ATX heading consume another source line, are fenced divs enabled, are task
+markers semantic, and do `=format` fences produce raw blocks? Djot answers no
+to the first two and yes to the remaining five.
 
 Its inline counterpart is `Inline.dconfig`, which is a genuine table --
 a row per delimiter -- and carries a side condition that admissible
@@ -68,6 +69,9 @@ Class bconfig : Type := BConfig {
   (* Are task markers semantic task-list items?  When false they remain
      ordinary bullet items whose content starts with the preserved box. *)
   btasks : bool
+  ; (* Does an info string beginning with `=` make a raw block?  When false
+       the same fence is an ordinary code block whose language retains `=`. *)
+  braw_blocks : bool
 }.
 
 (*
@@ -106,7 +110,7 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true true true.
+  BConfig no_interrupt no_underline true true true true true.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -115,28 +119,32 @@ Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
-    (@btasks K).
+    (@btasks K) (@braw_blocks K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
-    (@bdivs K) (@btasks K).
+    (@bdivs K) (@btasks K) (@braw_blocks K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
-    (@bheading_continues K) (@bdivs K) (@btasks K).
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
-    (@bdivs K) (@btasks K).
+    (@bdivs K) (@btasks K) (@braw_blocks K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) enabled (@btasks K).
+    (@bheading_continues K) enabled (@btasks K) (@braw_blocks K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) (@bdivs K) enabled.
+    (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K).
+
+Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -156,12 +164,13 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_tasks false
-   (with_divs false
-    (with_heading_continuation false
-      (with_tables false
-        (with_underline setext_underline
-          (with_marker_interrupts prose_safe_markers djot_bconfig))))).
+  with_raw_blocks false
+   (with_tasks false
+    (with_divs false
+     (with_heading_continuation false
+       (with_tables false
+         (with_underline setext_underline
+           (with_marker_interrupts prose_safe_markers djot_bconfig)))))).
 
 (* Classification remains profile-independent.  This projection is the
    construct-creation gate: disabling tasks changes only a recognized task
@@ -262,7 +271,9 @@ Fenced block assembly
 Definition fence_block (f : fence) (content : list string) : node block :=
   let text := join_nl content in
   match f_info f with
-  | String "="%char fmt => mk (RawBlock fmt text)
+  | String "="%char fmt =>
+      if braw_blocks then mk (RawBlock fmt text)
+      else mk (CodeBlock (String "="%char fmt) text)
   | info => mk (CodeBlock info text)
   end.
 

@@ -2089,12 +2089,8 @@ Lemma fence_block_wf :
 Proof.
   intros f content. unfold fence_block.
   destruct (f_info f) as [|c info]; [reflexivity|].
-  destruct (Ascii.eqb c "=")%char eqn:E.
-  - apply Ascii.eqb_eq in E. subst c. reflexivity.
-  - (* CodeBlock branch: the match on c is a 256-way character match;
-       wf_block is true for both CodeBlock and RawBlock, so conversion
-       closes it after destructing c's bits *)
-    destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+  destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]];
+    destruct braw_blocks; reflexivity.
 Qed.
 
 (* The fold's invariant: an open paragraph only ever holds nonblank
@@ -3246,9 +3242,8 @@ Lemma fence_block_supported :
 Proof.
   intros f content. unfold fence_block.
   destruct (f_info f) as [|c info]; [reflexivity|].
-  destruct (Ascii.eqb c "=")%char eqn:E.
-  - apply Ascii.eqb_eq in E. subst c. reflexivity.
-  - destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]]; reflexivity.
+  destruct c as [[|] [|] [|] [|] [|] [|] [|] [|]];
+    destruct braw_blocks; reflexivity.
 Qed.
 
 (* The same shape as state_wf: only a quote's closed blocks carry an

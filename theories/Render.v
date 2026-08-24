@@ -266,6 +266,7 @@ Inductive cblock : Type :=
   | CPara (lss : list (list cinline))
   | CThematic
   | CCode (info : string) (content : list string)
+  | CRaw (format : string) (content : list string)
   | CHeading (level : nat) (lss : list (list cinline))
   | CQuote (inner : list cblock)
   (* A canonical div: bare `:::` at both ends, no class.  The fence
@@ -299,6 +300,8 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CPara lss => map ci_line lss
   | CThematic => [thematic_line]
   | CCode info content => (code_open info :: content ++ [code_close])%list
+  | CRaw format content =>
+      (code_open (String "="%char format) :: content ++ [code_close])%list
   | CHeading lvl lss => map (heading_line lvl) (map ci_line lss)
   | CQuote inner => map quote_line (sep_lines (map cb_lines inner))
   | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
@@ -323,7 +326,8 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   match cb with
   | CPara lss => mk (Para (ci_para lss))
   | CThematic => mk ThematicBreak
-  | CCode info content => fence_block (Fence "`"%char 3 info) content
+  | CCode info content => mk (CodeBlock info (join_nl content))
+  | CRaw format content => mk (RawBlock format (join_nl content))
   | CHeading lvl lss => mk (Heading lvl (ci_para lss))
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
   | CDiv inner => mk (Div (map cb_ast inner))
@@ -371,6 +375,7 @@ Definition cblock_ind2
   (hpara : forall ls, P (CPara ls))
   (hthem : P CThematic)
   (hcode : forall info content, P (CCode info content))
+  (hraw : forall format content, P (CRaw format content))
   (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
   (hdiv : forall inner, Q inner -> P (CDiv inner))
@@ -393,6 +398,7 @@ Definition cblock_ind2
     | CPara ls => hpara ls
     | CThematic => hthem
     | CCode info content => hcode info content
+    | CRaw format content => hraw format content
     | CHeading lvl ls => hhead lvl ls
     | CQuote inner => hquote inner (golist inner)
     | CDiv inner => hdiv inner (golist inner)
@@ -467,6 +473,9 @@ Definition code_ok (info : string) (content : list string) : bool :=
   && forallb
        (fun l => no_nl l && negb (fence_close (Fence "`"%char 3 info) l))
        content.
+
+Definition raw_ok (format : string) (content : list string) : bool :=
+  code_ok (String "="%char format) content.
 
 (* A canonical heading: a real level, and text lines that are nonblank
    and newline-free with the last one pre-stripped (the parser strips
@@ -751,7 +760,13 @@ Fixpoint cb_ok (cb : cblock) : bool :=
      last line pre-stripped) stated where they were. *)
   | CPara lss => para_ok (map ci_line lss) && forallb cis_ok lss
   | CThematic => true
-  | CCode info content => code_ok info content
+  | CCode info content =>
+      code_ok info content
+      && match info with
+         | String "="%char _ => negb braw_blocks
+         | _ => true
+         end
+  | CRaw format content => braw_blocks && raw_ok format content
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
   | CQuote inner => inner_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
@@ -1253,9 +1268,6 @@ Proof.
       try reflexivity; try discriminate Hhead.
     + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
       apply ci_para_nonempty, Hp.
-    + clear. unfold fence_block. cbn [f_info].
-      destruct info as [|ic irest]; [reflexivity|].
-      destruct ic as [[][][][][][][][]]; reflexivity.
     + destruct k; reflexivity.
   - cbn [ck_render_ok]. apply andb_true_iff. split.
     + apply Nat.eqb_eq. cbn [ck_ok] in Hck.

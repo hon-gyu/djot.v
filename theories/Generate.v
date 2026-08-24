@@ -56,6 +56,7 @@ Definition leaves : list cblock :=
   ; CThematic
   ; cheading 1 ["h"]
   ; CCode "" ["x"]
+  ; CRaw "html" ["x"]
   ; CRef "r" "u"
   (* Both table shapes: a body row alone, and a header governing one.
      The header is right-aligned so that the separator carries something
