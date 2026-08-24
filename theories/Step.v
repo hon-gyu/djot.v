@@ -472,10 +472,8 @@ Definition list_block (ls : list_state) (last : blocks) : node block :=
   let checks := rev (ls_check ls :: ls_checks ls) in
   match ls_styles ls with
   | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
-  (* The one node whose shape needs per-item data, which is why
-     `Marker.styles_list` cannot build it and `list_block_styles` asks
-     `no_task_style`.  `combine` pairs two lists the state pushes
-     together, so neither is ever the shorter. *)
+  (* The one node whose shape needs per-item data.  [styles_list_checked]
+     carries the same parallel status list through the uniformity proof. *)
   | (STask _, _) :: _ => mk (TaskList sp (task_items checks items))
   (* The colon is the definition-list style, and this is the only place
      it differs from a bullet: djot.js's `-list` picks the node from the
@@ -556,92 +554,51 @@ Fixpoint finish (st : pstate) : blocks :=
    list whose first marker is ambiguous closes to a block that marker
    alone does not name, because siblings narrow the set.  The marker form
    below is the instance where nothing narrows. *)
-(* The style sets `styles_list` answers for.  A task style is the one it
-   cannot: its node's shape needs the per-item checkboxes, which live in
-   the state and not in the set.  Nothing canonical produces one today --
-   `mk_styles` has no task marker to build from -- so every user
-   discharges this by inspecting its own marker. *)
-(* Stated of every candidate rather than of the head, because narrowing
-   filters: a set whose head is safe can have a task style behind it, and
-   `narrow` would bring it forward. *)
-Definition no_task_style (S : list (lstyle * nat)) : bool :=
-  forallb (fun p => match fst p with STask _ => false | _ => true end) S.
-
-Lemma no_task_style_marker : forall m, no_task_style (mk_styles m) = true.
-Proof.
-  assert (Hsoc : forall core d,
-             forallb (fun s => match s with STask _ => false | _ => true end)
-               (styles_of_core core d) = true).
-  { intros core d. unfold styles_of_core.
-    destruct core as [|c0 core']; [reflexivity|].
-    repeat (match goal with
-            | |- context [if ?b then _ else _] => destruct b
-            end); reflexivity. }
-  intros m. unfold no_task_style, mk_styles, with_starts.
-  destruct m as [c|core d]; [reflexivity|]. cbn [mk_sty].
-  specialize (Hsoc core d).
-  induction (styles_of_core core d) as [|s l IH]; [reflexivity|].
-  cbn [map forallb fst] in Hsoc |- *.
-  apply andb_true_iff in Hsoc as [Hs Hl]. rewrite Hs. apply IH, Hl.
-Qed.
-
-(* Narrowing filters, so it cannot introduce a style the set lacked. *)
-Lemma no_task_style_narrow :
-  forall S ns, no_task_style S = true -> no_task_style (narrow S ns) = true.
-Proof.
-  intros S ns H. unfold narrow, no_task_style in *.
-  induction S as [|p S' IH]; [reflexivity|].
-  cbn [forallb] in H. apply andb_true_iff in H as [Hp HS].
-  cbn [filter]. destruct (existsb (lstyle_eqb (fst p)) ns).
-  - cbn [forallb]. rewrite Hp. apply IH, HS.
-  - apply IH, HS.
-Qed.
-
 Lemma list_block_styles :
   forall S ls last,
     ls_styles ls = S ->
-    no_task_style S = true ->
     list_block ls last
-    = styles_list S (if ls_loose ls then Loose else Tight)
-        (rev (last :: ls_items ls)).
+    = styles_list_checked S (if ls_loose ls then Loose else Tight)
+        (rev (ls_check ls :: ls_checks ls)) (rev (last :: ls_items ls)).
 Proof.
-  intros S ls last H Hnt. unfold list_block, styles_list. rewrite H.
-  destruct S as [|[[c|c|n d] st] ss]; try reflexivity. discriminate Hnt.
+  intros S ls last H. unfold list_block, styles_list_checked, styles_list.
+  rewrite H. destruct S as [|[[c|c|n d] st] ss]; reflexivity.
 Qed.
 
 Lemma list_block_marker :
   forall m ls last,
     ls_styles ls = mk_styles m ->
     list_block ls last
-    = marker_list m (if ls_loose ls then Loose else Tight)
-        (rev (last :: ls_items ls)).
+    = marker_list_checked m (if ls_loose ls then Loose else Tight)
+        (rev (ls_check ls :: ls_checks ls)) (rev (last :: ls_items ls)).
 Proof.
-  intros m ls last H. unfold marker_list.
-  rewrite (list_block_styles (mk_styles m) ls last H (no_task_style_marker m)).
+  intros m ls last H. unfold marker_list_checked.
+  rewrite (list_block_styles (mk_styles m) ls last H).
   reflexivity.
 Qed.
 
 Lemma finish_list_styles :
   forall S ls done inner,
     ls_styles ls = S ->
-    no_task_style S = true ->
     finish (PList ls done inner)
-    = [styles_list S (if ls_loose ls then Loose else Tight)
+    = [styles_list_checked S (if ls_loose ls then Loose else Tight)
+         (rev (ls_check ls :: ls_checks ls))
          (rev ((rev done ++ finish inner)%list :: ls_items ls))].
 Proof.
-  intros S ls done inner H Hnt. cbn [finish].
-  rewrite (list_block_styles S ls _ H Hnt). reflexivity.
+  intros S ls done inner H. cbn [finish].
+  rewrite (list_block_styles S ls _ H). reflexivity.
 Qed.
 
 Lemma finish_list_marker :
   forall m ls done inner,
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
-    = [marker_list m (if ls_loose ls then Loose else Tight)
+    = [marker_list_checked m (if ls_loose ls then Loose else Tight)
+         (rev (ls_check ls :: ls_checks ls))
          (rev ((rev done ++ finish inner)%list :: ls_items ls))].
 Proof.
-  intros m ls done inner H. unfold marker_list.
-  apply (finish_list_styles _ _ _ _ H (no_task_style_marker m)).
+  intros m ls done inner H. unfold marker_list_checked.
+  apply (finish_list_styles _ _ _ _ H).
 Qed.
 
 (* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise

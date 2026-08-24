@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Exhaustive generation of canonical blocks, and the roundtrip checked
    on every generated inhabitant by computation.
@@ -213,6 +213,47 @@ Definition def_accepted : list cblock := filter cb_ok def_pool.
 Example gen_roundtrip_def :
   map rt_lhs def_accepted = map rt_rhs def_accepted.
 Proof. vm_compute. reflexivity. Qed.
+
+(* Task lists vary data per item rather than per list.  Alternate statuses so
+   every two-item generated list exercises the status-preserving uniformity
+   path; derive the list length structurally so [ck_ok]'s equality is never a
+   hand-maintained side condition. *)
+Definition alternating_checks (items : list (list cblock)) : list task_status :=
+  match items with
+  | [] => []
+  | _ :: rest =>
+      Incomplete ::
+        (fix go (complete : bool) (xs : list (list cblock)) :=
+           match xs with
+           | [] => []
+           | _ :: ys => (if complete then Complete else Incomplete) :: go (negb complete) ys
+           end) true rest
+  end.
+
+Definition task_pool : list cblock :=
+  flat_map
+    (fun its =>
+       let k := LKTask (alternating_checks its) in
+       [CList k Tight its; CList k Loose its])
+    (itemlists (seqs leaves)).
+
+Definition task_accepted : list cblock := filter cb_ok task_pool.
+
+Example gen_roundtrip_task :
+  map rt_lhs task_accepted = map rt_rhs task_accepted.
+Proof. vm_compute. reflexivity. Qed.
+
+Example mixed_task_lines :
+  cb_lines (CList (LKTask [Incomplete; Complete]) Tight
+              [[cpara ["a"; "a2"]]; [cpara ["b"]]])
+  = ["- [ ] a"; "      a2"; "- [x] b"].
+Proof. reflexivity. Qed.
+
+Example mixed_task_roundtrips :
+  let c := CList (LKTask [Incomplete; Complete]) Tight
+             [[cpara ["a"; "a2"]]; [cpara ["b"]]] in
+  cb_ok c = true /\ rt_lhs c = rt_rhs c.
+Proof. split; reflexivity. Qed.
 
 (* Not vacuous, and the width boundary really is crossed: the second
    item's pad is four spaces where the first's is three. *)

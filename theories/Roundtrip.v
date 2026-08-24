@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Roundtrip:  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs
    for canonical blocks (Render.v).  Exact equality — canonicality is in
@@ -40,6 +40,18 @@ Local Open Scope string_scope.
 Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
+
+Lemma pristine_task_items_of_items :
+  forall checks items,
+    pristine_items items = true ->
+    pristine_task_items (task_items checks items) = true.
+Proof.
+  intros checks items. induction items as [|it rest IH] in checks |- *;
+    [reflexivity|].
+  cbn [pristine_items]. intros H. apply andb_true_iff in H as [Hit Hrest].
+  destruct checks; cbn [task_items pristine_task_items]; rewrite Hit;
+    apply IH, Hrest.
+Qed.
 
 (*
 Splitting a rendered document
@@ -1440,14 +1452,16 @@ Proof.
     apply andb_true_iff in H as [H Hcont].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
-    apply andb_true_iff in H as [H _].
-    apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [H Hitemok].
+    apply andb_true_iff in H as [H Hckok].
     apply andb_true_iff in H as [_ Hitems].
     assert (Hokitems : forallb (forallb cb_ok) items = true).
     { refine (forallb_weaken _ _ _ _ Hitems).
       intros item Hitem. apply andb_true_iff in Hitem as [_ Hitem]. exact Hitem. }
     rewrite cb_ast_list. cbn [node_contents mk].
-    rewrite (render_ck_list _ _ _ (ck_render_ok_cb k items Hokitems Hcont)).
+    rewrite (render_ck_list _ _ _
+               (ck_render_ok_cb k items Hokitems Hckok Hitemok
+                  (IH Hokitems) Hcont)).
     rewrite cb_lines_list, map_map, (IH Hokitems). reflexivity.
   - (* reference definition: one line, and the renderer spells it the same
        way `cb_lines` does *)
@@ -1714,11 +1728,8 @@ Example nested_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* Task lists already belong to the parser and AST, but not yet to [cblock]:
-   their per-item statuses are precisely the information the generic list
-   uniformity chain currently erases.  Pin the completed source-renderer
-   prerequisite independently: mixed statuses and an empty item both render
-   to source that the parser recovers exactly. *)
+(* The total source renderer also covers empty task items, which sit outside
+   [cblock]'s nonempty-item canonical fragment. *)
 Example task_list_source_render_roundtrip :
   let b := TaskList Tight
              [(Incomplete, [mk (Para [mk (Str "a")])]);
@@ -1727,6 +1738,18 @@ Example task_list_source_render_roundtrip :
     = ["- [ ] a"; "- [x]"; "- [x] b"]
   /\ parse_blocks (render_djot [mk b]) = [mk b].
 Proof. split; reflexivity. Qed.
+
+(* Inside the canonical fragment, task lists use the ordinary [CList] case:
+   [LKTask] carries source-order statuses and [ck_ok] ties them to the item
+   count, so the public theorem needs no task-specific branch. *)
+Example canonical_task_list_roundtrip :
+  let cbs :=
+    [CList (LKTask [Incomplete; Complete]) Tight
+       [[cpara ["a"; "a2"]]; [cpara ["b"]]]] in
+  render_djot (blocks_of_cblocks cbs)
+    = ("- [ ] a" ++ nl ++ "      a2" ++ nl ++ "- [x] b")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 
 (* A div's closing line arms the enclosing list, so an item that ends
    with one hands a gap to the next marker and the list comes back loose.
@@ -1843,6 +1866,8 @@ Proof.
        destruct k; cbn [ck_block];
          first [ rewrite pristine_blist; exact IHcb
                | rewrite pristine_olist; exact IHcb
+               | rewrite pristine_tasklist;
+                 apply pristine_task_items_of_items; exact IHcb
                | rewrite pristine_deflist;
                  exact (pristine_def_items_split _ IHcb) ]. }
   4: { cbn [map pristine_items]. rewrite IHcb, IHcb0. reflexivity. }

@@ -13,7 +13,7 @@
    cblock constructor, a canonical rendering, and a cb_ok obligation —
    that is the whole roundtrip extension recipe. *)
 
-From Stdlib Require Import String Ascii List Bool.
+From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Parser.
 Import ListNotations.
 
@@ -1119,8 +1119,29 @@ Definition def_head_ok (bs : blocks) : bool :=
 Definition ck_render_ok (k : list_kind) (items : list blocks) : bool :=
   match k with
   | LKDef => forallb def_head_ok items
+  | LKTask checks =>
+      (Nat.eqb (length checks) (length items)
+       && forallb
+            (fun it => nonempty (sep_lines (render_blocks_lines it))) items)%bool
   | _ => true
   end.
+
+Lemma render_forallb_map :
+  forall {A B : Type} (f : B -> bool) (g : A -> B) xs,
+    forallb f (map g xs) = forallb (fun x => f (g x)) xs.
+Proof. induction xs as [|x xs IH]; [reflexivity|cbn; rewrite IH; reflexivity]. Qed.
+
+Lemma forallb_item_ok_nonempty :
+  forall m items,
+    forallb (fun it => item_ok m (item_lines it)) items = true ->
+    forallb (fun it => nonempty (item_lines it)) items = true.
+Proof.
+  intros m items. induction items as [|it rest IH]; [reflexivity|].
+  cbn [forallb]. intros H. apply andb_true_iff in H as [Hit Hrest].
+  apply andb_true_iff. split.
+  - destruct (item_lines it); [discriminate Hit|reflexivity].
+  - apply IH, Hrest.
+Qed.
 
 (* The list equation at every kind, which is what `cb_lines_list` has to
    be matched against.  `ck_block` picks the constructor and `ck_items`
@@ -1171,12 +1192,25 @@ Proof.
     destruct ils as [|i ils']; [discriminate Hit|].
     cbn [render_blocks_lines map node_contents render_block_lines app].
     reflexivity. }
-  intros [| |d start|up d start|up d start] sp items Hrok;
-    [| | | destruct up | destruct up ];
+  intros [| |checks|d start|up d start|up d start] sp items Hrok;
+    [| | | | destruct up | destruct up ];
     cbn [ck_block render_block_lines lk_of_ol roman_sty alpha_sty
          ol_style ol_delim ol_start];
     try solve [rewrite H; reflexivity].
-  cbn [ck_render_ok] in Hrok. rewrite (Hdef items Hrok). reflexivity.
+  - cbn [ck_render_ok] in Hrok. rewrite (Hdef items Hrok). reflexivity.
+  - cbn [ck_render_ok] in Hrok. apply andb_true_iff in Hrok as [Hlen Hne].
+    apply Nat.eqb_eq in Hlen.
+    f_equal.
+    revert checks Hlen Hne. induction items as [|it items IH];
+      intros [|chk checks] Hlen Hne; try discriminate; [reflexivity|].
+    cbn [length forallb] in Hlen, Hne. injection Hlen as Hlen.
+    apply andb_true_iff in Hne as [Hit Hitems].
+    cbn [task_items render_block_lines ck_items task_ck_items map fst snd].
+    destruct (sep_lines (render_blocks_lines it)) as [|l0 more] eqn:E;
+      [discriminate Hit|].
+    fold (render_blocks_lines it). rewrite E.
+    cbn [task_litem_lines litem_lines indent_lines mk_open mk_cont].
+    destruct chk; cbn [task_open]; f_equal; apply IH; assumption.
 Qed.
 
 (* A canonical paragraph has content: `para_ok` asks `is_text` of the
@@ -1198,25 +1232,39 @@ Qed.
 Lemma ck_render_ok_cb :
   forall k items,
     forallb (forallb cb_ok) items = true ->
+    ck_ok k (length items) = true ->
+    forallb (fun it => item_ok (ck_first k) (item_lines it)) items = true ->
+    map (fun it => sep_lines (render_blocks_lines (map cb_ast it))) items
+      = map item_lines items ->
     ck_content_ok k items = true ->
     ck_render_ok k (map (map cb_ast) items) = true.
 Proof.
-  intros [| |d start|up d start|up d start] items H Hcont; try reflexivity.
-  cbn [ck_render_ok]. cbn [ck_content_ok] in Hcont.
-  induction items as [|it rest IH]; [reflexivity|].
-  cbn [map forallb] in H, Hcont |- *. apply andb_true_iff in H as [Hit Hrest].
-  apply andb_true_iff in Hcont as [Hhead Hconts].
-  rewrite (IH Hrest Hconts), andb_true_r.
-  destruct it as [|c more]; [reflexivity|].
-  cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
-  destruct c; cbn [map cb_ast def_head_ok mk node_contents invisible_block negb];
-    try reflexivity; try discriminate Hhead.
-  - cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
-    apply ci_para_nonempty, Hp.
-  - clear. unfold fence_block. cbn [f_info].
-    destruct info as [|ic irest]; [reflexivity|].
-    destruct ic as [[][][][][][][][]]; reflexivity.
-  - destruct k; reflexivity.
+  intros [| |checks|d start|up d start|up d start] items H Hck Hitem Hrender Hcont;
+    try reflexivity.
+  - cbn [ck_render_ok]. cbn [ck_content_ok] in Hcont.
+    clear Hck Hitem Hrender.
+    induction items as [|it rest IH]; [reflexivity|].
+    cbn [map forallb] in H, Hcont |- *. apply andb_true_iff in H as [Hit Hrest].
+    apply andb_true_iff in Hcont as [Hhead Hconts].
+    rewrite (IH Hrest Hconts), andb_true_r.
+    destruct it as [|c more]; [reflexivity|].
+    cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
+    destruct c; cbn [map cb_ast def_head_ok mk node_contents invisible_block negb];
+      try reflexivity; try discriminate Hhead.
+    + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
+      apply ci_para_nonempty, Hp.
+    + clear. unfold fence_block. cbn [f_info].
+      destruct info as [|ic irest]; [reflexivity|].
+      destruct ic as [[][][][][][][][]]; reflexivity.
+    + destruct k; reflexivity.
+  - cbn [ck_render_ok]. apply andb_true_iff. split.
+    + apply Nat.eqb_eq. cbn [ck_ok] in Hck. apply Nat.eqb_eq in Hck.
+      rewrite length_map. exact Hck.
+    + pose proof (forallb_item_ok_nonempty _ _ Hitem) as Hnonempty.
+      rewrite <- render_forallb_map in Hnonempty.
+      rewrite <- Hrender in Hnonempty.
+      rewrite render_forallb_map in Hnonempty.
+      rewrite render_forallb_map. exact Hnonempty.
 Qed.
 
 (* The table equation `render_cb_lines` has to be matched against.  Each

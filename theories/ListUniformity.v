@@ -503,7 +503,7 @@ Lemma step_item_open :
     is_thematic ((mk_open mrk) ++ l0) = false ->
     task_shadow mrk l0 = false ->
     step ((mk_open mrk) ++ l0) (PPara [])
-    = ([], PList (LSt 0 (mk_styles mrk) false false [] Incomplete [])
+    = ([], PList (LSt 0 (mk_styles mrk) false false [] (mk_check mrk) [])
             (rev (fst (step l0 (PPara []))))
             (pad_state (mk_pad mrk) (snd (step l0 (PPara []))))).
 Proof.
@@ -511,7 +511,8 @@ Proof.
   destruct (step l0 (PPara [])) as [bs inner] eqn:Es. cbn [fst snd].
   rewrite (step_list_open _ _ _ _ _ _ _
              (classify_marker_open mrk l0 Hmrk Hth Hts) Es).
-  rewrite (indent_of_marker_open mrk _ Hmrk), consumed_marker_open. reflexivity.
+  rewrite (indent_of_marker_open mrk _ Hmrk), consumed_marker_open.
+  destruct mrk; reflexivity.
 Qed.
 
 (** The tight/loose verdict, read off the lines.  A blank arms the flag;
@@ -672,12 +673,12 @@ Lemma run_item_open :
     is_thematic ((mk_open mrk) ++ l0) = false ->
     task_shadow mrk l0 = false ->
     run_safe rest (snd (step l0 (PPara []))) = true ->
-    ls_blanks (scan_list_content (LSt 0 (mk_styles mrk) false false [] Incomplete [])
+    ls_blanks (scan_list_content (LSt 0 (mk_styles mrk) false false [] (mk_check mrk) [])
                  (pad_state (mk_pad mrk) (snd (step l0 (PPara [])))) rest) = false ->
     run_lines (indent_lines (mk_open mrk) (mk_cont mrk) (l0 :: rest)) (PPara [])
     = ([], PList (LSt 0 (mk_styles mrk)
                     (lines_loose false false (snd (step l0 (PPara []))) rest)
-                    false [] Incomplete [])
+                    false [] (mk_check mrk) [])
             (rev (fst (run_lines (l0 :: rest) (PPara []))))
             (pad_state (mk_pad mrk) (snd (run_lines (l0 :: rest) (PPara []))))).
 Proof.
@@ -687,7 +688,7 @@ Proof.
   pose proof (run_lines_pad_shift (mk_cont mrk) rest (snd (step l0 (PPara [])))
                 (marker_cont_blank mrk) Hsafe) as Hrun.
   rewrite mk_cont_length in Hrun.
-  rewrite (run_lines_list_cont rest (LSt 0 (mk_styles mrk) false false [] Incomplete [])
+  rewrite (run_lines_list_cont rest (LSt 0 (mk_styles mrk) false false [] (mk_check mrk) [])
              (rev (fst (step l0 (PPara [])))) _ _ _ eq_refl Hrun).
   rewrite (scan_shape rest _ _ Hsafe Hb).
   cbn [ls_indent ls_styles ls_loose ls_blanks ls_items ls_check ls_checks].
@@ -713,7 +714,7 @@ Lemma run_item_sibling_narrow :
     run_lines (indent_lines (mk_open mrk) (mk_cont mrk) (l0 :: rest)) (PList ls done inner)
     = ([], PList (scan_list_content
                     (list_next (list_narrow ls (narrow (ls_styles ls) (mk_sty mrk)))
-                               (rev done ++ finish inner)%list Incomplete l0)
+                               (rev done ++ finish inner)%list (mk_check mrk) l0)
                     (pad_state (mk_pad mrk) (snd (step l0 (PPara [])))) rest)
             (rev (fst (run_lines (l0 :: rest) (PPara []))))
             (pad_state (mk_pad mrk) (snd (run_lines (l0 :: rest) (PPara []))))).
@@ -727,17 +728,20 @@ Proof.
              (classify_marker_open mrk l0 Hmrk Hth Hts) Hn
              (ltac:(rewrite Hind, (indent_of_marker_open mrk _ Hmrk); reflexivity))
              Es).
-  cbn [chk_status]. rewrite consumed_marker_open.
+  assert (Hcheck : chk_status
+      (match mrk with MTask _ chk => Some chk | _ => None end) = mk_check mrk)
+    by (destruct mrk; reflexivity).
+  rewrite Hcheck, consumed_marker_open.
   pose proof (run_lines_pad_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
   cbn [snd] in Hsafe. specialize (Hrun Hsafe).
   rewrite mk_cont_length in Hrun.
   assert (Hi0 : ls_indent (list_next (list_narrow ls (s0 :: ss))
-                             (rev done ++ finish inner)%list Incomplete l0) = 0).
+                             (rev done ++ finish inner)%list (mk_check mrk) l0) = 0).
   { unfold list_next, list_narrow. cbn [ls_indent].
     destruct (is_blank l0); exact Hind. }
   rewrite (run_lines_list_cont rest
              (list_next (list_narrow ls (s0 :: ss)) (rev done ++ finish inner)%list
-                        Incomplete l0)
+                        (mk_check mrk) l0)
              (rev b) (pad_state (mk_pad mrk) i) _ _ Hi0 Hrun).
   destruct (run_lines rest i) as [more i'] eqn:Er. cbn [fst snd app].
   rewrite rev_app_distr. reflexivity.
@@ -756,7 +760,7 @@ Lemma run_item_sibling :
     run_safe rest (snd (step l0 (PPara []))) = true ->
     run_lines (indent_lines (mk_open mrk) (mk_cont mrk) (l0 :: rest)) (PList ls done inner)
     = ([], PList (scan_list_content
-                    (list_next ls (rev done ++ finish inner)%list Incomplete l0)
+                    (list_next ls (rev done ++ finish inner)%list (mk_check mrk) l0)
                     (pad_state (mk_pad mrk) (snd (step l0 (PPara [])))) rest)
             (rev (fst (run_lines (l0 :: rest) (PPara []))))
             (pad_state (mk_pad mrk) (snd (run_lines (l0 :: rest) (PPara []))))).
@@ -958,6 +962,11 @@ Fixpoint list_tail_lines (sp : list_spacing) (items : list litem) : list string 
   | it :: rest => (item_sep sp ++ litem_lines it ++ list_tail_lines sp rest)%list
   end.
 
+Definition item_checks (ls : list_state) (items : list litem)
+  : list task_status :=
+  (rev (ls_check ls :: ls_checks ls)
+   ++ map (fun it => mk_check (fst it)) items)%list.
+
 Lemma list_lines_cons2 :
   forall sp x xs, xs <> [] ->
     list_lines sp (x :: xs) = (x ++ item_sep sp ++ list_lines sp xs)%list.
@@ -1119,17 +1128,19 @@ Lemma parse_item_and_tail_narrow :
        ls_indent ls2 = 0 -> ls_styles ls2 = S' -> ls_blanks ls2 = false ->
        blank_safe inner2 = true ->
        parse_lines (list_tail_lines sp rest ++ post)%list (PList ls2 done2 inner2)
-       = styles_list Sout (if (ls_loose ls2 || list_loose_of sp inner2 (map snd rest))%bool
+       = styles_list_checked Sout (if (ls_loose ls2 || list_loose_of sp inner2 (map snd rest))%bool
                          then Loose else Tight)
+                (item_checks ls2 rest)
                 (rev (ls_items ls2) ++ (rev done2 ++ finish inner2)%list
                  :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out) ->
     parse_lines (litem_lines (m, l0 :: more)
                  ++ (list_tail_lines sp rest ++ post))%list (PList ls done inner)
-    = styles_list Sout
+    = styles_list_checked Sout
              (if ((ls_loose ls || (ls_blanks ls && negb (starts_list (l0 :: more))))
                   || item_loose (l0 :: more)
                   || list_loose_of sp (snd (run_lines (l0 :: more) (PPara []))) (map snd rest))%bool
               then Loose else Tight)
+             (item_checks ls ((m, l0 :: more) :: rest))
              (rev (ls_items ls) ++ (rev done ++ finish inner)%list
               :: parse_lines (l0 :: more) (PPara [])
               :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out.
@@ -1157,14 +1168,20 @@ Proof.
   rewrite Hmark, Hsty.
   cbn [fst snd app].
   set (item := (rev done ++ finish inner)%list).
-  set (ls1 := scan_list_content m (list_next (list_narrow ls S') item Incomplete l0)
+  set (ls1 := scan_list_content m (list_next (list_narrow ls S') item (mk_check m) l0)
                 (pad_state (mk_pad m) (snd (step l0 (PPara [])))) more).
   set (R := run_lines (l0 :: more) (PPara [])).
   pose proof (scan_list_content_fields m more (pad_state (mk_pad m) (snd (step l0 (PPara []))))
-                (list_next (list_narrow ls S') item Incomplete l0)) as [Hf1 [Hf2 [Hf3 _]]].
+                (list_next (list_narrow ls S') item (mk_check m) l0))
+    as [Hf1 [Hf2 [Hf3 [Hf4 Hf5]]]].
   assert (Hitems : ls_items ls1 = item :: ls_items ls).
   { unfold ls1. rewrite Hf3. unfold list_next, list_narrow. cbn [ls_items].
     rewrite Hnb'. reflexivity. }
+  assert (Hchecks : item_checks ls1 rest
+                    = item_checks ls ((m, l0 :: more) :: rest)).
+  { unfold item_checks, ls1. rewrite Hf4, Hf5.
+    unfold list_next, list_narrow. rewrite Hnb'. cbn [ls_check ls_checks map fst].
+    cbn [rev]. rewrite <- app_assoc. reflexivity. }
   assert (Hind1 : ls_indent ls1 = 0).
   { unfold ls1. rewrite Hf1. unfold list_next, list_narrow. cbn [ls_indent].
     destruct (is_blank l0); exact Hind. }
@@ -1192,7 +1209,7 @@ Proof.
   { rewrite rev_involutive, pad_state_finish. unfold R.
     symmetry. apply parse_lines_run, surjective_pairing. }
   rewrite (IH ls1 (rev (fst R)) (pad_state (mk_pad m) (snd R)) Hind1 Hmark1 Hblanks1 Hpad1).
-  rewrite Hitems, Hloose1, Hdone1, list_loose_of_pad.
+  rewrite Hitems, Hchecks, Hloose1, Hdone1, list_loose_of_pad.
   cbn [rev]. rewrite <- app_assoc. reflexivity.
 Qed.
 
@@ -1208,17 +1225,19 @@ Lemma parse_item_and_tail :
        ls_indent ls2 = 0 -> ls_styles ls2 = S -> ls_blanks ls2 = false ->
        blank_safe inner2 = true ->
        parse_lines (list_tail_lines sp rest ++ post)%list (PList ls2 done2 inner2)
-       = styles_list S (if (ls_loose ls2 || list_loose_of sp inner2 (map snd rest))%bool
+       = styles_list_checked S (if (ls_loose ls2 || list_loose_of sp inner2 (map snd rest))%bool
                          then Loose else Tight)
+                (item_checks ls2 rest)
                 (rev (ls_items ls2) ++ (rev done2 ++ finish inner2)%list
                  :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out) ->
     parse_lines (litem_lines (m, l0 :: more)
                  ++ (list_tail_lines sp rest ++ post))%list (PList ls done inner)
-    = styles_list S
+    = styles_list_checked S
              (if ((ls_loose ls || (ls_blanks ls && negb (starts_list (l0 :: more))))
                   || item_loose (l0 :: more)
                   || list_loose_of sp (snd (run_lines (l0 :: more) (PPara []))) (map snd rest))%bool
               then Loose else Tight)
+             (item_checks ls ((m, l0 :: more) :: rest))
              (rev (ls_items ls) ++ (rev done ++ finish inner)%list
               :: parse_lines (l0 :: more) (PPara [])
               :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out.
@@ -1255,20 +1274,21 @@ Lemma parse_list_tail :
        = (finish (PList ls2 done2 inner2) ++ out)%list) ->
     ls_indent ls = 0 -> ls_styles ls = S -> ls_blanks ls = false ->
     blank_safe inner = true ->
-    no_task_style S = true ->
     items_ok_at S items = true ->
     parse_lines (list_tail_lines sp items ++ post)%list (PList ls done inner)
-    = styles_list S (if (ls_loose ls || list_loose_of sp inner (map snd items))%bool
+    = styles_list_checked S (if (ls_loose ls || list_loose_of sp inner (map snd items))%bool
                       then Loose else Tight)
+             (item_checks ls items)
              (rev (ls_items ls) ++ (rev done ++ finish inner)%list
               :: map (fun it => parse_lines (snd it) (PPara [])) items) :: out.
 Proof.
   intros S sp items. induction items as [|it rest IH];
-    intros post out ls done inner HS Hclose Hind Hmark Hblanks Hpad Hnt Hok.
+    intros post out ls done inner HS Hclose Hind Hmark Hblanks Hpad Hok.
   - cbn [list_tail_lines app map]. rewrite (Hclose ls done inner Hind Hpad).
     cbn [finish rev app].
     unfold list_loose_of. cbn [existsb map fst snd].
-    rewrite (list_block_styles S ls _ Hmark Hnt).
+    rewrite (list_block_styles S ls _ Hmark).
+    unfold item_checks. cbn [map]. rewrite app_nil_r.
     cbn [rev app]. destruct sp; rewrite ?orb_false_r; reflexivity.
   - destruct it as [mi L]. destruct L as [|l0 more];
       [cbn [items_ok_at forallb item_ok fst snd] in Hok;
@@ -1284,7 +1304,7 @@ Proof.
       rewrite (parse_item_and_tail S mi Tight l0 more rest post out ls done inner
                  HS Hmi Hstyeq Hind Hmark HL
                  (fun a b c H1 H2 H3 H4 =>
-                    IH post out a b c HS Hclose H1 H2 H3 H4 Hnt Hrest)).
+                    IH post out a b c HS Hclose H1 H2 H3 H4 Hrest)).
       rewrite Hblanks. unfold list_loose_of. cbn [existsb orb map fst snd].
       rewrite ?orb_false_r.
       destruct (ls_loose ls), (item_loose (l0 :: more)),
@@ -1306,7 +1326,7 @@ Proof.
                  ltac:(destruct (blank_absorbed inner); [exact Hmark|cbn [list_blank]; exact Hmark])
                  HL
                  (fun a b c H1 H2 H3 H4 =>
-                    IH post out a b c HS Hclose H1 H2 H3 H4 Hnt Hrest)).
+                    IH post out a b c HS Hclose H1 H2 H3 H4 Hrest)).
       assert (Hls : forall A (f : list_state -> A),
                  f (if blank_absorbed inner then ls else list_blank ls)
                  = if blank_absorbed inner then f ls else f (list_blank ls))
@@ -1344,19 +1364,21 @@ Lemma parse_item_peel :
        ls_indent ls2 = 0 -> ls_styles ls2 = S' -> ls_blanks ls2 = false ->
        blank_safe inner2 = true ->
        parse_lines (list_tail_lines sp rest ++ post)%list (PList ls2 done2 inner2)
-       = styles_list Sout
+       = styles_list_checked Sout
            (if (ls_loose ls2 || list_loose_of sp inner2 (map snd rest))%bool
             then Loose else Tight)
+           (item_checks ls2 rest)
            (rev (ls_items ls2) ++ (rev done2 ++ finish inner2)%list
             :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out) ->
     ls_indent ls = 0 -> ls_styles ls = S -> ls_blanks ls = false ->
     blank_safe inner = true ->
     parse_lines (list_tail_lines sp ((mi, l0 :: more) :: rest) ++ post)%list
                 (PList ls done inner)
-    = styles_list Sout
+    = styles_list_checked Sout
         (if (ls_loose ls
              || list_loose_of sp inner (map snd ((mi, l0 :: more) :: rest)))%bool
          then Loose else Tight)
+        (item_checks ls ((mi, l0 :: more) :: rest))
         (rev (ls_items ls) ++ (rev done ++ finish inner)%list
          :: map (fun it => parse_lines (snd it) (PPara []))
                 ((mi, l0 :: more) :: rest)) :: out.
@@ -1424,24 +1446,24 @@ Lemma parse_list_tail_head_narrow :
        = (finish (PList ls2 done2 inner2) ++ out)%list) ->
     ls_indent ls = 0 -> ls_styles ls = S -> ls_blanks ls = false ->
     blank_safe inner = true ->
-    no_task_style S' = true ->
     parse_lines (list_tail_lines sp ((mi, l0 :: more) :: rest) ++ post)%list
                 (PList ls done inner)
-    = styles_list S'
+    = styles_list_checked S'
         (if (ls_loose ls
              || list_loose_of sp inner (map snd ((mi, l0 :: more) :: rest)))%bool
          then Loose else Tight)
+        (item_checks ls ((mi, l0 :: more) :: rest))
         (rev (ls_items ls) ++ (rev done ++ finish inner)%list
          :: map (fun it => parse_lines (snd it) (PPara []))
                 ((mi, l0 :: more) :: rest)) :: out.
 Proof.
   intros S S' sp mi l0 more rest post out ls done inner
-         HS' Hmi Hstyeq HL Hrest Hclose Hind Hmark Hblanks Hpad Hnt.
+         HS' Hmi Hstyeq HL Hrest Hclose Hind Hmark Hblanks Hpad.
   apply (parse_item_peel S S' S' sp mi l0 more rest post out ls done inner
            HS' Hmi Hstyeq HL); try assumption.
   intros ls2 done2 inner2 H1 H2 H3 H4.
   exact (parse_list_tail S' sp rest post out ls2 done2 inner2
-           HS' Hclose H1 H2 H3 H4 Hnt Hrest).
+           HS' Hclose H1 H2 H3 H4 Hrest).
 Qed.
 
 (* What closes a list: not the blank line -- that only records a gap --
@@ -1560,7 +1582,8 @@ Theorem list_uniformity_gen :
     items_ok m0 ((m0, L0) :: tail) = true ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: tail))
                  ++ post)%list (PPara [])
-    = marker_list m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
+    = marker_list_checked m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: tail)) :: out.
 Proof.
@@ -1587,7 +1610,7 @@ Proof.
   { unfold nonblank in Hnb. apply negb_true_iff in Hnb. exact Hnb. }
   assert (Hcl : classify l0 <> KBlank).
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
-  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] Incomplete [])
+  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] (mk_check m0) [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
   { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
@@ -1600,11 +1623,10 @@ Proof.
   rewrite (parse_list_tail (mk_styles m0) sp tail post out
              (LSt 0 (mk_styles m0)
                 (lines_loose false false (snd (step l0 (PPara []))) more) false []
-                Incomplete [])
+                (mk_check m0) [])
              (rev (fst (run_lines (l0 :: more) (PPara []))))
              (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara []))))
-             (mk_styles_nonempty m0 Hm0) Hclose eq_refl eq_refl eq_refl Hpad1
-             (no_task_style_marker m0) Htail).
+             (mk_styles_nonempty m0 Hm0) Hclose eq_refl eq_refl eq_refl Hpad1 Htail).
   cbn [ls_loose ls_items rev app].
   rewrite rev_involutive, pad_state_finish.
   rewrite <- (parse_lines_run (l0 :: more) (PPara []) _ _ (surjective_pairing _)).
@@ -1633,7 +1655,8 @@ Theorem list_uniformity_gen_narrow :
     item_ok m0 L0 = true ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: (m1, L1) :: tail))
                  ++ post)%list (PPara [])
-    = styles_list S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: tail)))
+    = styles_list_checked S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: tail)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: (m1, L1) :: tail))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: tail)) :: out.
 Proof.
@@ -1653,7 +1676,7 @@ Proof.
   { unfold nonblank in Hnb. apply negb_true_iff in Hnb. exact Hnb. }
   assert (Hcl : classify l0 <> KBlank).
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
-  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] Incomplete [])
+  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] (mk_check m0) [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
   { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
@@ -1666,13 +1689,10 @@ Proof.
   rewrite (parse_list_tail_head_narrow (mk_styles m0) S' sp m1 l1 more1 tail post out
              (LSt 0 (mk_styles m0)
                 (lines_loose false false (snd (step l0 (PPara []))) more) false []
-                Incomplete [])
+                (mk_check m0) [])
              (rev (fst (run_lines (l0 :: more) (PPara []))))
              (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara []))))
-             HS' Hm1 Hnar Hok1 Htail Hclose eq_refl eq_refl eq_refl Hpad1
-             (eq_ind _ (fun S => no_task_style S = true)
-                     (no_task_style_narrow _ (mk_sty m1)
-                        (no_task_style_marker m0)) _ Hnar)).
+             HS' Hm1 Hnar Hok1 Htail Hclose eq_refl eq_refl eq_refl Hpad1).
   cbn [ls_loose ls_items rev app].
   rewrite rev_involutive, pad_state_finish.
   rewrite <- (parse_lines_run (l0 :: more) (PPara []) _ _ (surjective_pairing _)).
@@ -1705,8 +1725,10 @@ Theorem list_uniformity_gen_narrow2 :
     parse_lines (list_lines sp
                    (map litem_lines ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail))
                  ++ post)%list (PPara [])
-    = styles_list S2
+    = styles_list_checked S2
              (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)))
+             (map (fun it => mk_check (fst it))
+                  ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)) :: out.
 Proof.
@@ -1728,7 +1750,7 @@ Proof.
   { unfold nonblank in Hnb. apply negb_true_iff in Hnb. exact Hnb. }
   assert (Hcl : classify l0 <> KBlank).
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
-  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] Incomplete [])
+  assert (Hb : ls_blanks (scan_list_content m0 (LSt 0 (mk_styles m0) false false [] (mk_check m0) [])
                             (pad_state (mk_pad m0) (snd (step l0 (PPara [])))) more) = false).
   { rewrite (scan_gap_eq m0 more _ _ Hsafe). cbn [ls_blanks].
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
@@ -1742,19 +1764,13 @@ Proof.
              ((m2, l2 :: more2) :: tail) post out
              (LSt 0 (mk_styles m0)
                 (lines_loose false false (snd (step l0 (PPara []))) more) false []
-                Incomplete [])
+                (mk_check m0) [])
              (rev (fst (run_lines (l0 :: more) (PPara []))))
              (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara []))))
              HS1 Hm1 Hnar1 Hok1
              (fun a b c H1 H2 H3 H4 =>
                 parse_list_tail_head_narrow S1 S2 sp m2 l2 more2 tail post out a b c
-                  HS2 Hm2 Hnar2 Hok2 Htail Hclose H1 H2 H3 H4
-                  (eq_ind _ (fun S => no_task_style S = true)
-                          (no_task_style_narrow _ (mk_sty m2)
-                             (eq_ind _ (fun S => no_task_style S = true)
-                                     (no_task_style_narrow _ (mk_sty m1)
-                                        (no_task_style_marker m0)) _ Hnar1))
-                          _ Hnar2))
+                  HS2 Hm2 Hnar2 Hok2 Htail Hclose H1 H2 H3 H4)
              eq_refl eq_refl eq_refl Hpad1).
   cbn [ls_loose ls_items rev app].
   rewrite rev_involutive, pad_state_finish.
@@ -1777,7 +1793,8 @@ Theorem list_uniformity :
     marker_ok m0 = true ->
     items_ok m0 ((m0, L0) :: tail) = true ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: tail))) (PPara [])
-    = [marker_list m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
+    = [marker_list_checked m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: tail))].
 Proof.
@@ -1802,7 +1819,8 @@ Theorem list_uniformity_narrow :
     items_ok_at S' tail = true ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: (m1, L1) :: tail)))
                 (PPara [])
-    = [styles_list S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: tail)))
+    = [styles_list_checked S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: tail)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: (m1, L1) :: tail))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: tail))].
 Proof.
@@ -1827,7 +1845,8 @@ Theorem list_uniformity_narrow_tail :
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: (m1, L1) :: items))
                  ++ EmptyString :: next :: tail)%list (PPara [])
-    = styles_list S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: items)))
+    = styles_list_checked S' (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: items)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: (m1, L1) :: items))
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: items))
       :: parse_lines (next :: tail) (PPara []).
@@ -1858,8 +1877,10 @@ Theorem list_uniformity_narrow2 :
     parse_lines (list_lines sp
                    (map litem_lines ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)))
                 (PPara [])
-    = [styles_list S2
+    = [styles_list_checked S2
          (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)))
+         (map (fun it => mk_check (fst it))
+              ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail))
          (map (fun it => parse_lines (snd it) (PPara []))
               ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail))].
 Proof.
@@ -1889,8 +1910,10 @@ Theorem list_uniformity_narrow2_tail :
     parse_lines (list_lines sp
                    (map litem_lines ((m0, L0) :: (m1, L1) :: (m2, L2) :: items))
                  ++ EmptyString :: next :: tail)%list (PPara [])
-    = styles_list S2
+    = styles_list_checked S2
         (list_spacing_of sp (map snd ((m0, L0) :: (m1, L1) :: (m2, L2) :: items)))
+        (map (fun it => mk_check (fst it))
+             ((m0, L0) :: (m1, L1) :: (m2, L2) :: items))
         (map (fun it => parse_lines (snd it) (PPara []))
              ((m0, L0) :: (m1, L1) :: (m2, L2) :: items))
       :: parse_lines (next :: tail) (PPara []).
@@ -1914,7 +1937,8 @@ Theorem list_uniformity_tail :
     indent_of next = 0 ->
     parse_lines (list_lines sp (map litem_lines ((m0, L0) :: items))
                  ++ EmptyString :: next :: tail)%list (PPara [])
-    = marker_list m0 (list_spacing_of sp (map snd ((m0, L0) :: items)))
+    = marker_list_checked m0 (list_spacing_of sp (map snd ((m0, L0) :: items)))
+             (map (fun it => mk_check (fst it)) ((m0, L0) :: items))
              (map (fun it => parse_lines (snd it) (PPara [])) ((m0, L0) :: items))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
@@ -1968,7 +1992,8 @@ Corollary list_uniformity_same :
     forallb (item_ok m) lss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open m) (mk_cont m)) lss))
                 (PPara [])
-    = [marker_list m (list_spacing_of sp lss)
+    = [marker_list_checked m (list_spacing_of sp lss)
+             (map (fun _ => mk_check m) lss)
              (map (fun L => parse_lines L (PPara [])) lss)].
 Proof.
   intros m sp lss Hm Hne Hok.
@@ -1982,7 +2007,7 @@ Proof.
     with (map litem_lines ((m, L0) :: same_marker m rest)).
   rewrite Hu.
   cbn [map snd]. rewrite map_snd_same_marker.
-  unfold same_marker. rewrite map_map. cbn [snd]. reflexivity.
+  unfold same_marker. rewrite !map_map. cbn [fst snd]. reflexivity.
 Qed.
 
 Corollary list_uniformity_tail_same :
@@ -1994,7 +2019,8 @@ Corollary list_uniformity_tail_same :
     indent_of next = 0 ->
     parse_lines (list_lines sp (map (indent_lines (mk_open m) (mk_cont m)) lss)
                  ++ EmptyString :: next :: tail)%list (PPara [])
-    = marker_list m (list_spacing_of sp lss)
+    = marker_list_checked m (list_spacing_of sp lss)
+             (map (fun _ => mk_check m) lss)
              (map (fun L => parse_lines L (PPara [])) lss)
       :: parse_lines (next :: tail) (PPara []).
 Proof.
@@ -2010,7 +2036,7 @@ Proof.
     with (map litem_lines ((m, L0) :: same_marker m rest)).
   rewrite Hu.
   cbn [map snd]. rewrite map_snd_same_marker.
-  unfold same_marker. rewrite map_map. cbn [snd]. reflexivity.
+  unfold same_marker. rewrite !map_map. cbn [fst snd]. reflexivity.
 Qed.
 
 End WithTable.

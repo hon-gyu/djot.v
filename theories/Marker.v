@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Marker numerals and the candidate styles a marker admits.
 
@@ -561,12 +561,20 @@ Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
       if Ascii.eqb c ":"
       then mk (DefinitionList sp (def_items items))
       else mk (BulletList sp items)
-  (* A task style does not reach here.  Its statuses are per *item* and
-     so are not in the style set at all -- `Step.list_block` reads them
-     off the list state, which this function does not have -- and
-     `no_task_style` is the hypothesis that says so wherever the two are
-     related.  The arm exists because the match must be total. *)
+  (* The state-free form cannot construct a task list because statuses are
+     per item.  [styles_list_checked] below is the uniformity result used for
+     that style; this fallback keeps the older projection total. *)
   | _ => mk (BulletList sp items)
+  end.
+
+(* The state-aware form used by list uniformity.  Non-task styles ignore the
+   parallel status list; task styles pair it with the item blocks exactly as
+   [Step.list_block] does at close. *)
+Definition styles_list_checked (S : list (lstyle * nat)) (sp : list_spacing)
+    (checks : list task_status) (items : list blocks) : node block :=
+  match S with
+  | (STask _, _) :: _ => mk (TaskList sp (task_items checks items))
+  | _ => styles_list S sp items
   end.
 
 (* The same at a marker whose set no sibling narrows.  Bullets give a
@@ -575,3 +583,7 @@ Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
    `OrderedList` its style and start. *)
 Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
   : node block := styles_list (mk_styles m) sp items.
+
+Definition marker_list_checked (m : marker) (sp : list_spacing)
+    (checks : list task_status) (items : list blocks) : node block :=
+  styles_list_checked (mk_styles m) sp checks items.

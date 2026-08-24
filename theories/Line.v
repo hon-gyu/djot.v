@@ -1949,11 +1949,14 @@ Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks String.length]. rewri
    nothing. *)
 Inductive marker : Type :=
   | MBullet (c : ascii)
+  | MTask (c : ascii) (chk : task_status)
   | MOrd (core : string) (d : ordered_list_delim).
 
 Definition mk_open (m : marker) : string :=
   match m with
   | MBullet c => String c " "
+  | MTask c Complete => String c " [x] "
+  | MTask c Incomplete => String c " [ ] "
   | MOrd core RightPeriod => core ++ ". "
   | MOrd core RightParen => core ++ ") "
   | MOrd core LeftRightParen => "(" ++ core ++ ") "
@@ -1968,11 +1971,15 @@ Definition mk_cont (m : marker) : string := blanks (mk_pad m).
 Definition mk_sty (m : marker) : list lstyle :=
   match m with
   | MBullet c => [SBullet c]
+  | MTask c _ => [STask c]
   | MOrd core d => styles_of_core core d
   end.
 
 Definition mk_core (m : marker) : string :=
-  match m with MBullet _ => EmptyString | MOrd core _ => core end.
+  match m with MBullet _ | MTask _ _ => EmptyString | MOrd core _ => core end.
+
+Definition mk_check (m : marker) : task_status :=
+  match m with MTask _ chk => chk | _ => Incomplete end.
 
 (* Which markers the classifier actually recognizes.  An ordered core has
    to be alphanumeric (so `marker_shape` scans exactly it) and has to name
@@ -1980,6 +1987,7 @@ Definition mk_core (m : marker) : string :=
 Definition marker_ok (m : marker) : bool :=
   match m with
   | MBullet c => is_bullet c
+  | MTask c _ => is_task_bullet c
   | MOrd core d =>
       (nonempty_str core && str_forallb is_alnum core
        && nonempty (styles_of_core core d))%bool
@@ -2062,6 +2070,18 @@ Proof.
     [right; right; left; apply Ascii.eqb_eq, E3|].
   destruct (Ascii.eqb c ":") eqn:E4;
     [right; right; right; apply Ascii.eqb_eq, E4|].
+  cbn in H. discriminate.
+Qed.
+
+Lemma is_task_bullet_cases :
+  forall c, is_task_bullet c = true ->
+    c = "-"%char \/ c = "*"%char \/ c = "+"%char.
+Proof.
+  intros c H. unfold is_task_bullet in H.
+  destruct (Ascii.eqb c "-") eqn:E1; [left; apply Ascii.eqb_eq, E1|].
+  destruct (Ascii.eqb c "*") eqn:E2; [right; left; apply Ascii.eqb_eq, E2|].
+  destruct (Ascii.eqb c "+") eqn:E3;
+    [right; right; apply Ascii.eqb_eq, E3|].
   cbn in H. discriminate.
 Qed.
 
@@ -2188,10 +2208,13 @@ Proof.
                             /\ Ascii.eqb c ">" = false /\ Ascii.eqb c "#" = false
                             /\ Ascii.eqb c "`" = false /\ Ascii.eqb c "~" = false
                             /\ div_open (String c r) = None).
-  { destruct m as [c|core d].
+  { destruct m as [c|c chk|core d].
     - cbn [marker_ok] in Hm.
       destruct (is_bullet_cases c Hm) as [E|[E|[E|E]]]; subst c;
         eexists; eexists; repeat split; reflexivity.
+    - cbn [marker_ok] in Hm.
+      destruct (is_task_bullet_cases c Hm) as [E|[E|E]]; subst c;
+        destruct chk; eexists; eexists; repeat split; reflexivity.
     - cbn [marker_ok] in Hm.
       apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [Hne Hal].
       destruct d; cbn [mk_open];
@@ -2244,19 +2267,21 @@ Definition task_start (l : string) : bool :=
 Lemma task_start_shadow :
   forall m l, task_start l = false -> task_shadow m l = false.
 Proof.
-  intros [c|core d] l H; [|reflexivity].
+  intros [c|c chk|core d] l H; [|reflexivity|reflexivity].
   unfold task_start in H. cbn [task_shadow].
   destruct (task_check l); [discriminate H|reflexivity].
 Qed.
 
 Lemma list_marker_open :
   forall m l, marker_ok m = true -> task_shadow m l = false ->
-    list_marker (mk_open m ++ l) = Some (mk_sty m, mk_core m, None, l).
+    list_marker (mk_open m ++ l) =
+      Some (mk_sty m, mk_core m,
+              match m with MTask _ chk => Some chk | _ => None end, l).
 Proof.
   intros m l Hm Hts.
   destruct (marker_open_shape m l Hm) as (Hdrop & _ & _ & _ & _ & _ & _).
   unfold list_marker. rewrite Hdrop.
-  destruct m as [c|core d].
+  destruct m as [c|c chk|core d].
   - cbn [marker_ok] in Hm. cbn [mk_open mk_sty mk_core].
     change (String c " " ++ l)%string with (String c (String " " l)).
     cbn beta iota. rewrite Hm.
@@ -2264,6 +2289,9 @@ Proof.
     destruct (is_task_bullet c);
       [ destruct (task_check l) as [[st r]|]; [discriminate Hts|reflexivity]
       | reflexivity ].
+  - cbn [marker_ok] in Hm.
+    destruct (is_task_bullet_cases c Hm) as [E|[E|E]]; subst c;
+      destruct chk; reflexivity.
   - cbn [marker_ok] in Hm.
     apply andb_true_iff in Hm as [Hm Hsty].
     apply andb_true_iff in Hm as [Hne Hal].
@@ -2325,7 +2353,9 @@ Qed.
 Lemma classify_marker_open :
   forall m l, marker_ok m = true -> is_thematic (mk_open m ++ l) = false ->
   task_shadow m l = false ->
-  classify (mk_open m ++ l) = KList (mk_sty m) (mk_core m) None l.
+  classify (mk_open m ++ l) =
+    KList (mk_sty m) (mk_core m)
+      (match m with MTask _ chk => Some chk | _ => None end) l.
 Proof.
   intros m l Hm Hth Hts.
   destruct (marker_open_shape m l Hm) as (_ & Hb & Hq & Hh & Hf & Hd & _).
@@ -2358,8 +2388,9 @@ Qed.
 Lemma mk_sty_cons :
   forall m, marker_ok m = true -> exists s ss, mk_sty m = s :: ss.
 Proof.
-  intros m Hm. destruct m as [c|core d].
+  intros m Hm. destruct m as [c|c chk|core d].
   - exists (SBullet c), []. reflexivity.
+  - exists (STask c), []. reflexivity.
   - cbn [marker_ok] in Hm. apply andb_true_iff in Hm as [_ Hsty].
     cbn [mk_sty]. destruct (styles_of_core core d) as [|s ss];
       [discriminate Hsty|]. exists s, ss. reflexivity.
@@ -2380,8 +2411,9 @@ Proof. intros m. unfold mk_cont. apply blanks_length. Qed.
 
 Lemma mk_pad_pos : forall m, marker_ok m = true -> 0 < mk_pad m.
 Proof.
-  intros m Hm. unfold mk_pad. destruct m as [c|core d].
+  intros m Hm. unfold mk_pad. destruct m as [c|c chk|core d].
   - cbn [mk_open String.length]. lia.
+  - destruct chk; cbn [mk_open String.length]; lia.
   - cbn [marker_ok] in Hm.
     apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [Hne _].
     destruct d; cbn [mk_open]; rewrite !length_append;
@@ -2418,9 +2450,12 @@ Qed.
 
 Lemma mk_open_no_nl : forall m, marker_ok m = true -> no_nl (mk_open m) = true.
 Proof.
-  intros m Hm. destruct m as [c|core d].
+  intros m Hm. destruct m as [c|c chk|core d].
   - cbn [marker_ok] in Hm.
     apply is_bullet_cases in Hm as [E|[E|[E|E]]]; rewrite E; reflexivity.
+  - cbn [marker_ok] in Hm.
+    apply is_task_bullet_cases in Hm as [E|[E|E]]; rewrite E;
+      destruct chk; reflexivity.
   - cbn [marker_ok] in Hm.
     apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [_ Halnum].
     assert (Hcore : no_nl core = true).
