@@ -313,6 +313,43 @@ a
 :::".
 Proof. vm_compute. reflexivity. Qed.
 
+(* Task recognition is also a construction gate.  Disabled mode preserves
+   the complete checkbox token as ordinary bullet-item text: case and the
+   separator after the box are not reconstructed from the semantic status. *)
+Example markdown_like_task_boxes_are_literal :
+  MdBlocks "- [ ] a
+- [x] b
+- [X]	c"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "[ ] a")])];
+            [mk (Para [mk (Str "[x] b")])];
+            [mk (Para [mk (Str "[X]	c")])]])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_task_list_is_disabled :
+  @cb_ok markdown_table markdown_bconfig
+    (CList (LKTask [Incomplete]) Tight [[CPara [[CIStr "a"]]]]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_tasks : profile :=
+  with_block_profile (with_tasks true markdown_bconfig) markdown_like_profile.
+
+Example customized_markdown_profile_restores_tasks :
+  parse_profile_blocks markdown_with_tasks "- [ ] a
+- [x] b
+- [X]	c"
+  = [mk (TaskList Tight
+           [(Incomplete, [mk (Para [mk (Str "a")])]);
+            (Complete, [mk (Para [mk (Str "b")])]);
+            (Complete, [mk (Para [mk (Str "c")])])])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_tasks_preserves_other_block_settings :
+  let K := with_tasks false djot_bconfig in
+  (@btables K, @bheading_continues K, @bdivs K)
+  = (true, true, true).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

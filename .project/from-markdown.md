@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Seven things are configurable today, and this document describes the
+Eight things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -30,10 +30,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | pipe tables and captions | disabled (`markdown_bconfig`) | enabled |
 | ATX heading continuation | one source line (`markdown_bconfig`) | same-level markers and lazy text continue |
 | fenced divs | disabled (`markdown_bconfig`) | enabled |
+| task-list checkboxes | literal bullet text (`markdown_bconfig`) | task-list items |
 
 The first two compose in `markdown_like_config`: it starts from the doubled
 strong spelling and applies the proved multi-row disable operation. The last
-four live in one record with one field each. `markdown_bconfig`
+six live in one record with one field each. `markdown_bconfig`
 composes their field-local knobs, and `check/Markdown.v` pins the combined
 profile as well as the individual settings in `check/Sublist.v` and
 `check/Setext.v`.
@@ -51,7 +52,6 @@ non-delimiter inline constructs remain enabled. See
 - `- item`, `* item`, `+ item`, `1. item`, `1) item`
 - `[text](url)`, `[text][ref]` with `[ref]: url`, `![alt](url)`
 - `***` and `---` on their own line as a thematic break
-- task lists, `- [x]` and `- [ ]`
 - footnotes, `[^1]` with `[^1]: text`
 - `**strong**` and `_emphasis_` (in the Markdown-facing profile)
 - `\` before punctuation escapes it
@@ -214,6 +214,7 @@ characters literally may read differently.
 | --- | --- |
 | `{#id .class key=val}` | attributes, on a block or an inline span |
 | `:::` | a div, a named block container |
+| `- [x] item` | a task-list item (ordinary bullet text in the Markdown-facing profile) |
 | `[text]{.class}` | a span |
 | `{=highlight=}`, `{+insert+}`, `{-delete-}` | marked spans |
 | `^super^`, `~sub~` | super and subscript |
@@ -238,11 +239,13 @@ roundtrip theorem specializes to the reduced table rather than being
 restated for it.
 
 **Already switched off in `markdown_bconfig`.** Djot pipe rows and their
-caption continuation are a single table capability. With it off, row-shaped
-source is paragraph text and canonical tables are outside the accepted
-roundtrip fragment. GFM-style tables are therefore not currently part of the
-Markdown-like profile either; adding a separate caption-free GFM table mode
-would be a new extension.
+caption continuation are a single table capability. Fenced divs and task-list
+checkboxes are independent capabilities. When task semantics are off, the
+complete checkbox token remains ordinary bullet-item text, including `[x]`
+versus `[X]` and its following separator. Each disabled canonical construct is
+outside the accepted roundtrip fragment. GFM-style tables are therefore not
+currently part of the Markdown-like profile either; adding a separate
+caption-free GFM table mode would be a new extension.
 
 **Would need a new setting.** Attributes, spans, math, footnotes, definition
 lists, raw blocks and raw inline (all hardwired in the block layer).

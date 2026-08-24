@@ -1258,7 +1258,8 @@ Proof.
       destruct ic as [[][][][][][][][]]; reflexivity.
     + destruct k; reflexivity.
   - cbn [ck_render_ok]. apply andb_true_iff. split.
-    + apply Nat.eqb_eq. cbn [ck_ok] in Hck. apply Nat.eqb_eq in Hck.
+    + apply Nat.eqb_eq. cbn [ck_ok] in Hck.
+      apply andb_true_iff in Hck as [_ Hck]. apply Nat.eqb_eq in Hck.
       rewrite length_map. exact Hck.
     + pose proof (forallb_item_ok_nonempty _ _ Hitem) as Hnonempty.
       rewrite <- render_forallb_map in Hnonempty.

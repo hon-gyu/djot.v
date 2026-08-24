@@ -109,6 +109,10 @@ Theorem with_divs_preserves_incremental :
   forall T enabled, preserves (with_divs enabled) (block_incremental T).
 Proof. intros T enabled K _. apply block_incremental_holds. Qed.
 
+Theorem with_tasks_preserves_incremental :
+  forall T enabled, preserves (with_tasks enabled) (block_incremental T).
+Proof. intros T enabled K _. apply block_incremental_holds. Qed.
+
 (* The only line that can answer both block decisions is a lone dash: it is
    the bullet marker with no body, and it is also a one-character underline.
    Longer dash runs are not list markers, and equals runs are never markers.
@@ -125,7 +129,7 @@ Definition block_prefix_admissible : invariant bconfig :=
 
 (* Each field-local edit checks only its half of the lone-dash boundary. *)
 Definition bmarker_update_compatible
-  (f : list lstyle -> string -> option task_status -> string -> bool)
+  (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bool :=
   match @bunderline K "-"%char 1 with
   | Some _ => negb (f [SBullet "-"%char] EmptyString None EmptyString)
@@ -146,7 +150,13 @@ Theorem with_marker_interrupts_preserves_prefix_admissible :
       (fun K => bmarker_update_compatible f K = true)
       (with_marker_interrupts f)
       block_prefix_admissible.
-Proof. intros f K Hcompatible _. exact Hcompatible. Qed.
+Proof.
+  intros f [bm bu tables headings divs tasks] Hcompatible _.
+  unfold block_prefix_admissible, block_prefix_ok,
+    bmarker_update_compatible, with_marker_interrupts in *.
+  cbn [bunderline_of binterrupt configured_list_styles configured_list_rest] in *.
+  destruct tasks; exact Hcompatible.
+Qed.
 
 Theorem with_underline_preserves_prefix_admissible :
   forall f,
@@ -154,7 +164,13 @@ Theorem with_underline_preserves_prefix_admissible :
       (fun K => bunderline_update_compatible f K = true)
       (with_underline f)
       block_prefix_admissible.
-Proof. intros f K Hcompatible _. exact Hcompatible. Qed.
+Proof.
+  intros f [bm bu tables headings divs tasks] Hcompatible _.
+  unfold block_prefix_admissible, block_prefix_ok,
+    bunderline_update_compatible, with_underline in *.
+  cbn [bunderline_of binterrupt configured_list_styles configured_list_rest] in *.
+  destruct tasks; exact Hcompatible.
+Qed.
 
 Theorem with_tables_preserves_prefix_admissible :
   forall enabled, preserves (with_tables enabled) block_prefix_admissible.
@@ -168,6 +184,13 @@ Proof. intros enabled K H. exact H. Qed.
 Theorem with_divs_preserves_prefix_admissible :
   forall enabled, preserves (with_divs enabled) block_prefix_admissible.
 Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_tasks_preserves_prefix_admissible :
+  forall enabled, preserves (with_tasks enabled) block_prefix_admissible.
+Proof.
+  intros enabled [bm bu tables headings divs tasks] H.
+  destruct enabled, tasks; exact H.
+Qed.
 
 Example djot_prefix_admissible : block_prefix_ok djot_bconfig = true.
 Proof. reflexivity. Qed.
@@ -197,7 +220,7 @@ legitimately begin a continuation line.  State the boundary over the marker
 policy itself, so it is independent of parser state and can be checked before
 installing the knob. *)
 Definition marker_interrupt_precondition
-  (f : list lstyle -> string -> option task_status -> string -> bool) : Prop :=
+  (f : list lstyle -> string -> option task_marker -> string -> bool) : Prop :=
   forall sty core chk rest,
     f sty core chk rest = true ->
     prose_safe_markers sty core chk rest = true.

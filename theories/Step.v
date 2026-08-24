@@ -49,7 +49,7 @@ Class bconfig : Type := BConfig {
   (* May a list marker close an open paragraph?  Asked of the marker's
      own fields, so the answer can depend on the numeral and on nothing
      else. *)
-  bmarker_interrupts : list lstyle -> string -> option task_status -> string -> bool;
+  bmarker_interrupts : list lstyle -> string -> option task_marker -> string -> bool;
   (* May a run of `n` copies of `c`, alone on a line, close an open
      paragraph and turn it into a heading?  `Some k` means a heading of
      level `S k`, so a setting cannot ask for a level-0 heading and
@@ -64,7 +64,10 @@ Class bconfig : Type := BConfig {
   bheading_continues : bool
   ; (* Are fenced div containers enabled?  When false their complete opener
        spelling is ordinary paragraph text. *)
-  bdivs : bool
+  bdivs : bool;
+  (* Are task markers semantic task-list items?  When false they remain
+     ordinary bullet items whose content starts with the preserved box. *)
+  btasks : bool
 }.
 
 (*
@@ -77,7 +80,7 @@ configuration reads as a choice per question rather than as a tuple.
 
 (* djot's answers. *)
 Definition no_interrupt (_ : list lstyle) (_ : string)
-  (_ : option task_status) (_ : string) : bool := false.
+  (_ : option task_marker) (_ : string) : bool := false.
 Definition no_underline (_ : ascii) (_ : nat) : option nat := None.
 
 (* A marker interrupts when it cannot be the tail of ordinary prose: a
@@ -87,7 +90,7 @@ Definition no_underline (_ : ascii) (_ : nat) : option nat := None.
    test for the rule this setting relaxes, and the only corpus case an
    unrestricted answer gets wrong. *)
 Definition prose_safe_markers (_ : list lstyle) (core : string)
-  (_ : option task_status) (_ : string) : bool :=
+  (_ : option task_marker) (_ : string) : bool :=
   match core with
   | EmptyString => true
   | _ => String.eqb core "1"
@@ -103,32 +106,37 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true true.
+  BConfig no_interrupt no_underline true true true true.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
    by hand. *)
 Definition with_marker_interrupts
-  (f : list lstyle -> string -> option task_status -> string -> bool)
+  (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bconfig :=
-  BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K).
+  BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
+    (@btasks K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
-    (@bdivs K).
+    (@bdivs K) (@btasks K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
-    (@bheading_continues K) (@bdivs K).
+    (@bheading_continues K) (@bdivs K) (@btasks K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
-    (@bdivs K).
+    (@bdivs K) (@btasks K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) enabled.
+    (@bheading_continues K) enabled (@btasks K).
+
+Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -148,11 +156,47 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_divs false
+  with_tasks false
+   (with_divs false
     (with_heading_continuation false
       (with_tables false
         (with_underline setext_underline
-          (with_marker_interrupts prose_safe_markers djot_bconfig)))).
+          (with_marker_interrupts prose_safe_markers djot_bconfig))))).
+
+(* Classification remains profile-independent.  This projection is the
+   construct-creation gate: disabling tasks changes only a recognized task
+   marker into the bullet marker and literal item prefix it came from. *)
+Definition configured_list_styles `{bconfig}
+  (sty : list lstyle) (chk : option task_marker) : list lstyle :=
+  if btasks then sty else
+  match sty, chk with
+  | [STask c], Some _ => [SBullet c]
+  | _, _ => sty
+  end.
+
+Definition configured_list_check `{bconfig}
+  (chk : option task_marker) : task_status :=
+  if btasks then
+    match chk with Some m => tm_status m | None => Incomplete end
+  else Incomplete.
+
+Definition configured_list_rest `{bconfig}
+  (chk : option task_marker) (rest : string) : string :=
+  if btasks then rest else
+  match chk with
+  | Some m => task_marker_source m ++ rest
+  | None => rest
+  end.
+
+Lemma configured_list_rest_length `{bconfig} :
+  forall l sty core chk rest,
+    classify l = KList sty core chk rest ->
+    String.length (configured_list_rest chk rest) < String.length l.
+Proof.
+  intros l sty core chk rest E. unfold configured_list_rest.
+  destruct btasks; [exact (classify_list_length _ _ _ _ _ E)|].
+  exact (classify_list_literal_length _ _ _ _ _ E).
+Qed.
 
 (* Which line kinds close an open paragraph instead of extending it.
    The setting's *type* is what says only a list marker may: every other
@@ -160,7 +204,9 @@ Definition markdown_bconfig : bconfig :=
    pays nothing and needs no class law to say so. *)
 Definition binterrupt `{bconfig} (k : line_kind) : bool :=
   match k with
-  | KList sty core chk rest => bmarker_interrupts sty core chk rest
+  | KList sty core chk rest =>
+      bmarker_interrupts (configured_list_styles sty chk) core
+        (if btasks then chk else None) (configured_list_rest chk rest)
   | _ => false
   end.
 
@@ -761,8 +807,8 @@ Definition open_foot (ind : nat) (lbl : string) (descended : blocks * pstate)
    it loose, and starts with every style its marker admits. *)
 (* A non-task marker's item is `Incomplete`, which nothing reads: see
    `ls_check`. *)
-Definition chk_status (chk : option task_status) : task_status :=
-  match chk with Some st => st | None => Incomplete end.
+Definition chk_status (chk : option task_marker) : task_status :=
+  match chk with Some m => tm_status m | None => Incomplete end.
 
 Definition open_list (ind : nat) (sty : list (lstyle * nat))
   (chk : task_status) (descended : blocks * pstate) : blocks * pstate :=
@@ -909,8 +955,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           match classify l with
           | KQuote rest => open_quote (step_fuel n' (off + consumed l rest) rest (PPara []))
           | KList sty core chk rest =>
-              open_list (off + indent_of l) (with_starts sty core) (chk_status chk)
-                (step_fuel n' (off + consumed l rest) rest (PPara []))
+              open_list (off + indent_of l)
+                (with_starts (configured_list_styles sty chk) core)
+                (configured_list_check chk)
+                (step_fuel n' (off + consumed l (configured_list_rest chk rest))
+                   (configured_list_rest chk rest) (PPara []))
           | KAttr ap => open_attr [] (off + indent_of l) ap l
           | KFoot lbl rest =>
               open_foot (off + indent_of l) lbl
@@ -934,9 +983,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | KList sty core chk rest as k =>
               if binterrupt k
               then close_reopen (PPara (c :: cur'))
-                     (open_list (off + indent_of l) (with_starts sty core)
-                        (chk_status chk)
-                        (step_fuel n' (off + consumed l rest) rest (PPara [])))
+                     (open_list (off + indent_of l)
+                        (with_starts (configured_list_styles sty chk) core)
+                        (configured_list_check chk)
+                        (step_fuel n'
+                           (off + consumed l (configured_list_rest chk rest))
+                           (configured_list_rest chk rest) (PPara [])))
               else ([], PPara (drop_leading_ws l :: c :: cur'))
           | _ => ([], PPara (drop_leading_ws l :: c :: cur'))   (* paragraphs never interrupt *)
           end
@@ -962,8 +1014,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
           | KList sty core chk rest =>
               close_reopen (PHeading lvl cur)
-                (open_list (off + indent_of l) (with_starts sty core) (chk_status chk)
-                   (step_fuel n' (off + consumed l rest) rest (PPara [])))
+                (open_list (off + indent_of l)
+                   (with_starts (configured_list_styles sty chk) core)
+                   (configured_list_check chk)
+                   (step_fuel n' (off + consumed l (configured_list_rest chk rest))
+                      (configured_list_rest chk rest) (PPara [])))
           | KAttr ap =>
               close_reopen (PHeading lvl cur)
                 (open_attr [] (off + indent_of l) ap l)
@@ -988,8 +1043,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               ([], PQuote (rev bs ++ done)%list inner')
           | KList sty core chk rest =>
               close_reopen (PQuote done inner)
-                (open_list (off + indent_of l) (with_starts sty core) (chk_status chk)
-                   (step_fuel n' (off + consumed l rest) rest (PPara [])))
+                (open_list (off + indent_of l)
+                   (with_starts (configured_list_styles sty chk) core)
+                   (configured_list_check chk)
+                   (step_fuel n' (off + consumed l (configured_list_rest chk rest))
+                      (configured_list_rest chk rest) (PPara [])))
           | KAttr ap =>
               close_reopen (PQuote done inner)
                 (open_attr [] (off + indent_of l) ap l)
@@ -1057,20 +1115,28 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               else
                 match k with
                 | KList sty core chk rest =>
-                    match narrow (ls_styles ls) sty with
+                    match narrow (ls_styles ls) (configured_list_styles sty chk) with
                     | [] =>
                         (* no style survives: a different list *)
                         close_reopen (PList ls done inner)
-                          (open_list (off + indent_of l) (with_starts sty core) (chk_status chk)
-                             (step_fuel n' (off + consumed l rest) rest (PPara [])))
+                          (open_list (off + indent_of l)
+                             (with_starts (configured_list_styles sty chk) core)
+                             (configured_list_check chk)
+                             (step_fuel n'
+                                (off + consumed l (configured_list_rest chk rest))
+                                (configured_list_rest chk rest) (PPara [])))
                     | ns =>
                         (* a sibling item: narrow the style set, close the
                            current item, open the next around the rest of
                            the line *)
                         let item := (rev done ++ finish inner)%list in
                         let (bs, inner') :=
-                          step_fuel n' (off + consumed l rest) rest (PPara []) in
-                        ([], PList (list_next (list_narrow ls ns) item (chk_status chk) rest)
+                          step_fuel n'
+                            (off + consumed l (configured_list_rest chk rest))
+                            (configured_list_rest chk rest) (PPara []) in
+                        ([], PList (list_next (list_narrow ls ns) item
+                               (configured_list_check chk)
+                               (configured_list_rest chk rest))
                                (rev bs) inner')
                     end
                 | KQuote rest =>
@@ -1268,10 +1334,12 @@ Proof.
         rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         reflexivity.
-      * pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+      * pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
         cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-        rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
-        rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+        rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+          by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
+          by (cbn [pstate_depth]; lia).
         reflexivity.
       * pose proof (classify_foot_length _ _ _ E) as Hlt.
         cbn [pstate_depth]; rewrite ?Nat.add_0_r.
@@ -1282,10 +1350,12 @@ Proof.
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
-      pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+      pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+        by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
+        by (cbn [pstate_depth]; lia).
       reflexivity.
   - (* an open heading: the quote and list branches recurse *)
     cbn [pstate_depth] in Hn |- *.
@@ -1298,10 +1368,11 @@ Proof.
         rewrite (IH (String.length l) _ rest (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
-      - pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+      - pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
         cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-        rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
-        rewrite (IH (String.length l) _ mr (PPara []))
+        rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+          by (cbn [pstate_depth]; lia).
+        rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
       - pose proof (classify_foot_length _ _ _ E) as Hlt.
@@ -1316,10 +1387,12 @@ Proof.
       rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
       rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
       reflexivity.
-    + pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+    + pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
-      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l) _ mr (PPara [])) by (cbn [pstate_depth]; lia).
+      rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+        by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
+        by (cbn [pstate_depth]; lia).
       reflexivity.
     + pose proof (classify_foot_length _ _ _ E) as Hlt.
       cbn [pstate_depth]; rewrite ?Nat.add_0_r.
@@ -1335,9 +1408,11 @@ Proof.
       rewrite (IH n' _ rest inner) by lia.
       rewrite (IH (String.length l + S (pstate_depth inner)) _ rest inner) by lia.
       reflexivity.
-    + pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
-      rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia).
-      rewrite (IH (String.length l + S (pstate_depth inner)) _ mr (PPara []))
+    + pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
+      rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+        by (cbn [pstate_depth]; lia).
+      rewrite (IH (String.length l + S (pstate_depth inner)) _
+                 (configured_list_rest chk mr) (PPara []))
         by (cbn [pstate_depth]; lia).
       reflexivity.
     + pose proof (classify_foot_length _ _ _ E) as Hlt.
@@ -1366,14 +1441,16 @@ Proof.
           by (cbn [pstate_depth]; lia).
         reflexivity. }
     7: { (* a bullet marker: a sibling item, or a list of another style *)
-      pose proof (classify_list_length _ _ _ _ _ E) as Hlt.
+      pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
       - rewrite (IH n' _ l inner) by lia.
         rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
-      - destruct (narrow (ls_styles ls) m);
-          rewrite (IH n' _ mr (PPara [])) by (cbn [pstate_depth]; lia);
-          rewrite (IH (String.length l + S (pstate_depth inner)) _ mr (PPara []))
+      - destruct (narrow (ls_styles ls) (configured_list_styles m chk));
+          rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
+            by (cbn [pstate_depth]; lia);
+          rewrite (IH (String.length l + S (pstate_depth inner)) _
+                     (configured_list_rest chk mr) (PPara []))
             by (cbn [pstate_depth]; lia);
           reflexivity. }
     1: { (* a blank line goes to the item's contents *)
@@ -1690,9 +1767,11 @@ Proof.
           as [bs inner'] eqn:Ed.
         cbn [open_quote fst snd pad_state]. reflexivity. }
       { rewrite <- !Nat.add_assoc.
-        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                      (configured_list_rest chk mr) (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
-        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara []))
           as [bs inner'] eqn:Ed.
         cbn [open_list fst snd pad_state]. reflexivity. }
       { cbn [open_attr fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. }
@@ -1710,9 +1789,11 @@ Proof.
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
       rewrite <- !Nat.add_assoc.
-      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+      pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
-      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+      destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                  (configured_list_rest chk mr) (PPara []))
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state]. reflexivity. } }
   (* heading *)
@@ -1733,9 +1814,11 @@ Proof.
       cbn [close_reopen open_quote fst snd pad_state]. reflexivity. }
     { destruct bheading_continues; [destruct (klvl =? hlvl)%nat|]; reflexivity. }
     { rewrite <- !Nat.add_assoc.
-      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+      pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
-      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+      destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                  (configured_list_rest chk mr) (PPara []))
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state]. reflexivity. }
     { cbn [close_reopen open_attr fst snd pad_state].
@@ -1777,9 +1860,11 @@ Proof.
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_quote. reflexivity. }
     { rewrite <- !Nat.add_assoc.
-      pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+      pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
-      destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+      destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                  (configured_list_rest chk mr) (PPara []))
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state].
       rewrite finish_pad_quote. reflexivity. }
@@ -1873,18 +1958,24 @@ Proof.
       cbn [fst snd pad_state]. rewrite pad_state_div_closer.
       destruct (div_closer l inner);
         [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
-    { cbn [ls_styles]. destruct (narrow (ls_styles ls) m) as [|s0 ss] eqn:Em.
+    { cbn [ls_styles].
+      destruct (narrow (ls_styles ls) (configured_list_styles m chk))
+        as [|s0 ss] eqn:Em.
       { rewrite <- !Nat.add_assoc.
-        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                      (configured_list_rest chk mr) (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
-        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara []))
           as [bs inner'] eqn:Ed.
         cbn [close_reopen open_list fst snd pad_state].
         rewrite finish_pad_list. reflexivity. }
       { rewrite <- Nat.add_assoc, (pad_state_finish k inner).
-        pose proof (IH k (off + consumed l mr) mr (PPara [])) as H;
+        pose proof (IH k (off + consumed l (configured_list_rest chk mr))
+                      (configured_list_rest chk mr) (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
-        destruct (step_fuel n (off + consumed l mr) mr (PPara []))
+        destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara []))
           as [bs inner'] eqn:Ed.
         cbn [fst snd pad_state].
         rewrite pad_list_narrow, pad_list_next. reflexivity. } }
@@ -2218,21 +2309,31 @@ a matching marker is a sibling, a different marker opens a new list, and
 Lemma step_list_open :
   forall l sty core chk rest bs inner,
     classify l = KList sty core chk rest ->
-    step rest (PPara []) = (bs, inner) ->
+    step (configured_list_rest chk rest) (PPara []) = (bs, inner) ->
     step l (PPara []) =
-      ([], PList (LSt (indent_of l) (with_starts sty core) false false []
-                      (chk_status chk) [])
-             (rev bs) (pad_state (consumed l rest) inner)).
+      ([], PList (LSt (indent_of l)
+                      (with_starts (configured_list_styles sty chk) core)
+                      false false [] (configured_list_check chk) [])
+             (rev bs)
+             (pad_state (consumed l (configured_list_rest chk rest)) inner)).
 Proof.
   intros l sty core chk rest bs inner H Hr. unfold step at 1. cbn [step_fuel].
   rewrite H.
-  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
-    with (step_fuel n (consumed l rest) rest (PPara [])).
-  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
-    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ _ _ H); lia).
-  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
-            (consumed l rest) rest (PPara []))
-    with (step_at (consumed l rest) rest (PPara [])).
+  change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_fuel n (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l (configured_list_rest chk rest))
+             (configured_list_rest chk rest) (PPara []))
+    by (cbn [pstate_depth];
+        pose proof (configured_list_rest_length _ _ _ _ _ H); lia).
+  change (step_fuel
+            (S (String.length (configured_list_rest chk rest)
+                + pstate_depth (PPara [])))
+            (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_at (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
@@ -2276,49 +2377,68 @@ Qed.
 Lemma step_list_sibling :
   forall l sty core chk rest ls done inner bs inner' s0 ss,
     classify l = KList sty core chk rest ->
-    narrow (ls_styles ls) sty = s0 :: ss ->
+    narrow (ls_styles ls) (configured_list_styles sty chk) = s0 :: ss ->
     Nat.ltb (ls_indent ls) (indent_of l) = false ->
-    step rest (PPara []) = (bs, inner') ->
+    step (configured_list_rest chk rest) (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
     ([], PList (list_next (list_narrow ls (s0 :: ss))
-                  (rev done ++ finish inner)%list (chk_status chk) rest)
-           (rev bs) (pad_state (consumed l rest) inner')).
+                  (rev done ++ finish inner)%list (configured_list_check chk)
+                  (configured_list_rest chk rest))
+           (rev bs)
+           (pad_state (consumed l (configured_list_rest chk rest)) inner')).
 Proof.
   intros l sty core chk rest ls done inner bs inner' s0 ss H Hm Hind Hr.
   unfold step at 1.
   cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
-  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
-    with (step_fuel n (consumed l rest) rest (PPara [])).
-  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
-    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ _ _ H); lia).
-  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
-            (consumed l rest) rest (PPara []))
-    with (step_at (consumed l rest) rest (PPara [])).
+  change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_fuel n (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l (configured_list_rest chk rest))
+             (configured_list_rest chk rest) (PPara []))
+    by (cbn [pstate_depth];
+        pose proof (configured_list_rest_length _ _ _ _ _ H); lia).
+  change (step_fuel
+            (S (String.length (configured_list_rest chk rest)
+                + pstate_depth (PPara [])))
+            (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_at (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
 Lemma step_list_diffstyle :
   forall l sty core chk rest ls done inner bs inner',
     classify l = KList sty core chk rest ->
-    narrow (ls_styles ls) sty = [] ->
+    narrow (ls_styles ls) (configured_list_styles sty chk) = [] ->
     Nat.ltb (ls_indent ls) (indent_of l) = false ->
-    step rest (PPara []) = (bs, inner') ->
+    step (configured_list_rest chk rest) (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
     (finish (PList ls done inner),
-     PList (LSt (indent_of l) (with_starts sty core) false false []
-                (chk_status chk) []) (rev bs)
-       (pad_state (consumed l rest) inner')).
+     PList (LSt (indent_of l)
+                (with_starts (configured_list_styles sty chk) core)
+                false false [] (configured_list_check chk) []) (rev bs)
+       (pad_state (consumed l (configured_list_rest chk rest)) inner')).
 Proof.
   intros l sty core chk rest ls done inner bs inner' H Hm Hind Hr.
   unfold step at 1.
   cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
-  change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
-    with (step_fuel n (consumed l rest) rest (PPara [])).
-  rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
-    by (cbn [pstate_depth]; pose proof (classify_list_length _ _ _ _ _ H); lia).
-  change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
-            (consumed l rest) rest (PPara []))
-    with (step_at (consumed l rest) rest (PPara [])).
+  change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_fuel n (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
+  rewrite (step_fuel_enough_off _ (consumed l (configured_list_rest chk rest))
+             (configured_list_rest chk rest) (PPara []))
+    by (cbn [pstate_depth];
+        pose proof (configured_list_rest_length _ _ _ _ _ H); lia).
+  change (step_fuel
+            (S (String.length (configured_list_rest chk rest)
+                + pstate_depth (PPara [])))
+            (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara []))
+    with (step_at (consumed l (configured_list_rest chk rest))
+            (configured_list_rest chk rest) (PPara [])).
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
@@ -2687,7 +2807,8 @@ Proof.
         destruct (@bdivs K); reflexivity. }
       { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
                 Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-      { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+      { rewrite (Hc (configured_list_rest chk mr)
+                   ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
                 (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
         reflexivity. }
       { unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
@@ -2710,7 +2831,8 @@ Proof.
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei;
         [|rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity].
-      rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+      rewrite (Hc (configured_list_rest chk mr)
+                 ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
               (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       reflexivity. } }
@@ -2726,7 +2848,8 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+    { rewrite (Hc (configured_list_rest chk mr)
+                 ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
               (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen]; unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
@@ -2762,7 +2885,8 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+    { rewrite (Hc (configured_list_rest chk mr)
+                 ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
               (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen]; unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
@@ -2802,8 +2926,9 @@ Proof.
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { reflexivity. }
-    { destruct (narrow (ls_styles ls) m);
-        rewrite (Hc mr ltac:(pose proof (classify_list_length _ _ _ _ _ E); lia)),
+    { destruct (narrow (ls_styles ls) (configured_list_styles m chk));
+        rewrite (Hc (configured_list_rest chk mr)
+                   ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
                 !Nat.add_assoc, (Nat.add_comm off (String.length p));
         reflexivity. }
     { cbn [close_reopen]; unfold open_attr.

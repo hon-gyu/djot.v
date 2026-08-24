@@ -36,6 +36,28 @@ Inductive lstyle : Type :=
   | STask (c : ascii)
   | SOrd (n : ordered_list_style) (d : ordered_list_delim).
 
+(* The classifier keeps the source token as well as its semantic status.
+   The AST needs only [tm_status], but a profile which disables task-list
+   semantics must recover the ordinary bullet item's literal prefix exactly,
+   including [x] versus [X] and the optional separator after the box. *)
+Record task_marker : Type := TaskMarker {
+  tm_status : task_status;
+  tm_box : ascii;
+  tm_sep : option ascii
+}.
+
+Definition task_marker_source (m : task_marker) : string :=
+  String "[" (String (tm_box m) (String "]"
+    (match tm_sep m with Some c => String c EmptyString | None => EmptyString end))).
+
+Definition task_literal_rest (chk : option task_marker) (rest : string) : string :=
+  match chk with Some m => task_marker_source m ++ rest | None => rest end.
+
+Definition canonical_task_marker (st : task_status) : task_marker :=
+  TaskMarker st
+    (match st with Complete => "x"%char | Incomplete => " "%char end)
+    (Some " "%char).
+
 Definition ols_eqb (a b : ordered_list_style) : bool :=
   match a, b with
   | Decimal, Decimal | LetterUpper, LetterUpper | LetterLower, LetterLower
@@ -125,7 +147,7 @@ Inductive line_kind : Type :=
      bullet), its checkbox if it is a task marker, and the content after
      it.  The checkbox is `Some` exactly when the style set is a task
      style, and it is per *item*: `- [ ]` and `- [x]` are siblings. *)
-  | KList (sty : list lstyle) (core : string) (chk : option task_status)
+  | KList (sty : list lstyle) (core : string) (chk : option task_marker)
           (rest : string)
   (* block attribute spec, with the machine's state after this line: it
      may already be complete (`ap_done`) or still want indented
@@ -578,7 +600,7 @@ Definition box_status (c : ascii) : option task_status :=
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then Some Complete
   else None.
 
-Definition task_check (l : string) : option (task_status * string) :=
+Definition task_check (l : string) : option (task_marker * string) :=
   match l with
   | String c0 (String b (String c2 r)) =>
       if (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool
@@ -586,8 +608,9 @@ Definition task_check (l : string) : option (task_status * string) :=
            | None => None
            | Some st =>
                match r with
-               | EmptyString => Some (st, EmptyString)
-               | String c' r' => if is_ws c' then Some (st, r') else None
+               | EmptyString => Some (TaskMarker st b None, EmptyString)
+               | String c' r' =>
+                   if is_ws c' then Some (TaskMarker st b (Some c'), r') else None
                end
            end
       else None
@@ -599,7 +622,7 @@ Definition task_check (l : string) : option (task_status * string) :=
    content after it.  Same marker-then-at-most-one-space shape as quotes
    and headings. *)
 Definition list_marker (l : string)
-  : option (list lstyle * string * option task_status * string) :=
+  : option (list lstyle * string * option task_marker * string) :=
   match drop_leading_ws l with
   | EmptyString => None
   | String c rest =>
@@ -609,7 +632,7 @@ Definition list_marker (l : string)
            | String c' rest' =>
                if is_ws c'
                then match (if is_task_bullet c then task_check rest' else None) with
-                    | Some (st, r) => Some ([STask c], EmptyString, Some st, r)
+                    | Some (chk, r) => Some ([STask c], EmptyString, Some chk, r)
                     | None => Some ([SBullet c], EmptyString, None, rest')
                     end
                else None
@@ -665,29 +688,34 @@ Proof. reflexivity. Qed.
    style is `STask` and the residue starts after the bracket. *)
 Example marker_task_unchecked :
   list_marker "- [ ] a"
-  = Some ([STask "-"%char], EmptyString, Some Incomplete, "a"%string).
+  = Some ([STask "-"%char], EmptyString,
+          Some (TaskMarker Incomplete " "%char (Some " "%char)), "a"%string).
 Proof. reflexivity. Qed.
 
 Example marker_task_checked :
   list_marker "- [x] a"
-  = Some ([STask "-"%char], EmptyString, Some Complete, "a"%string).
+  = Some ([STask "-"%char], EmptyString,
+          Some (TaskMarker Complete "x"%char (Some " "%char)), "a"%string).
 Proof. reflexivity. Qed.
 
 Example marker_task_checked_upper :
   list_marker "* [X] a"
-  = Some ([STask "*"%char], EmptyString, Some Complete, "a"%string).
+  = Some ([STask "*"%char], EmptyString,
+          Some (TaskMarker Complete "X"%char (Some " "%char)), "a"%string).
 Proof. reflexivity. Qed.
 
 (* A marker at end of line is a task item with no content. *)
 Example marker_task_bare :
   list_marker "- [ ]"
-  = Some ([STask "-"%char], EmptyString, Some Incomplete, EmptyString).
+  = Some ([STask "-"%char], EmptyString,
+          Some (TaskMarker Incomplete " "%char None), EmptyString).
 Proof. reflexivity. Qed.
 
 (* Content is not stripped past the marker's one space, as for a bullet. *)
 Example marker_task_wide :
   list_marker "- [ ]  a"
-  = Some ([STask "-"%char], EmptyString, Some Incomplete, " a"%string).
+  = Some ([STask "-"%char], EmptyString,
+          Some (TaskMarker Incomplete " "%char (Some " "%char)), " a"%string).
 Proof. reflexivity. Qed.
 
 (* The three shapes that are a plain bullet instead: no space after the
@@ -734,6 +762,22 @@ Proof.
     injection H as _ <-. simpl. lia.
 Qed.
 
+Lemma task_check_source :
+  forall l m r, task_check l = Some (m, r) -> l = task_marker_source m ++ r.
+Proof.
+  intros [|c0 [|c1 [|c2 rest]]] m r H; try (cbn in H; discriminate H).
+  cbn [task_check] in H.
+  destruct (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool eqn:E;
+    [|discriminate H].
+  apply andb_true_iff in E as [E0 E2].
+  apply Ascii.eqb_eq in E0, E2. subst c0 c2.
+  destruct (box_status c1) eqn:Es; [|discriminate H].
+  destruct rest as [|c' rest'].
+  - injection H as <- <-. reflexivity.
+  - destruct (is_ws c') eqn:Ew; [|discriminate H].
+    injection H as <- <-. reflexivity.
+Qed.
+
 (* Like quote_prefix_length: the content after a list marker is strictly
    shorter than the line, which is what makes the parser's descent into
    a list item terminate. *)
@@ -766,6 +810,37 @@ Proof.
     + injection H as _ _ _ <-. simpl in *. lia.
     + destruct (is_ws c'); [|discriminate].
       injection H as _ _ _ <-. simpl in *. lia.
+Qed.
+
+Lemma list_marker_literal_length :
+  forall l sty core chk rest,
+    list_marker l = Some (sty, core, chk, rest) ->
+    String.length (task_literal_rest chk rest) < String.length l.
+Proof.
+  intros l sty core chk rest H. unfold list_marker in H.
+  pose proof (drop_leading_ws_length l) as Hle.
+  destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
+  destruct (is_bullet c).
+  - simpl in Hle. destruct r as [|c' r'].
+    + injection H as _ _ <- <-. cbn [task_literal_rest]. simpl. lia.
+    + destruct (is_ws c'); [|discriminate].
+      destruct (if is_task_bullet c then task_check r' else None)
+        as [[m tr]|] eqn:Et.
+      * injection H as _ _ <- <-.
+        unfold task_literal_rest.
+        assert (Hr : r' = task_marker_source m ++ tr).
+        { destruct (is_task_bullet c); [exact (task_check_source _ _ _ Et)|discriminate Et]. }
+        rewrite <- Hr. simpl in *. lia.
+      * injection H as _ _ <- <-. cbn [task_literal_rest]. simpl in *. lia.
+  - pose proof (marker_shape_length (String c r)) as Hms.
+    destruct (marker_shape (String c r)) as [[[core' d] r0]|] eqn:Em;
+      [|discriminate].
+    specialize (Hms _ _ _ eq_refl).
+    destruct (styles_of_core core' d) as [|s0 ss] eqn:Es; [discriminate|].
+    destruct r0 as [|c' r0'].
+    + injection H as _ _ <- <-. cbn [task_literal_rest]. simpl in *. lia.
+    + destruct (is_ws c'); [|discriminate].
+      injection H as _ _ <- <-. cbn [task_literal_rest]. simpl in *. lia.
 Qed.
 
 (*
@@ -1495,6 +1570,28 @@ Proof.
   injection H as <- <- <- <-. reflexivity.
 Qed.
 
+Lemma classify_list_literal_length :
+  forall l sty core chk rest,
+    classify l = KList sty core chk rest ->
+    String.length (task_literal_rest chk rest) < String.length l.
+Proof.
+  intros l sty core chk rest H.
+  apply (list_marker_literal_length l sty core chk).
+  unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[[s' c'] k'] r']|];
+    [|destruct (attr_open l); [discriminate|];
+      destruct (foot_open l) as [[fl fr]|]; [discriminate|];
+      destruct (ref_open l) as [[rl rv]|]; [discriminate|];
+      destruct (table_row l); discriminate].
+  injection H as <- <- <- <-. reflexivity.
+Qed.
+
 Lemma classify_not_kblank_nonblank :
   forall l, classify l <> KBlank -> is_blank l = false.
 Proof.
@@ -1981,6 +2078,15 @@ Definition mk_core (m : marker) : string :=
 Definition mk_check (m : marker) : task_status :=
   match m with MTask _ chk => chk | _ => Incomplete end.
 
+Definition mk_task_marker (m : marker) : option task_marker :=
+  match m with
+  | MTask _ chk => Some (canonical_task_marker chk)
+  | _ => None
+  end.
+
+Definition marker_tasks_ok (enabled : bool) (m : marker) : bool :=
+  match m with MTask _ _ => enabled | _ => true end.
+
 (* Which markers the classifier actually recognizes.  An ordered core has
    to be alphanumeric (so `marker_shape` scans exactly it) and has to name
    at least one style (so `list_marker` does not reject it). *)
@@ -2276,7 +2382,10 @@ Lemma list_marker_open :
   forall m l, marker_ok m = true -> task_shadow m l = false ->
     list_marker (mk_open m ++ l) =
       Some (mk_sty m, mk_core m,
-              match m with MTask _ chk => Some chk | _ => None end, l).
+              match m with
+              | MTask _ chk => Some (canonical_task_marker chk)
+              | _ => None
+              end, l).
 Proof.
   intros m l Hm Hts.
   destruct (marker_open_shape m l Hm) as (Hdrop & _ & _ & _ & _ & _ & _).
@@ -2355,7 +2464,7 @@ Lemma classify_marker_open :
   task_shadow m l = false ->
   classify (mk_open m ++ l) =
     KList (mk_sty m) (mk_core m)
-      (match m with MTask _ chk => Some chk | _ => None end) l.
+      (mk_task_marker m) l.
 Proof.
   intros m l Hm Hth Hts.
   destruct (marker_open_shape m l Hm) as (_ & Hb & Hq & Hh & Hf & Hd & _).

@@ -62,6 +62,36 @@ Section ItemMarker.
    item* and instantiates these facts once per item. *)
 Variable mrk : marker.
 Hypothesis Hmrk : marker_ok mrk = true.
+Hypothesis Htasks : marker_tasks_ok (@btasks K) mrk = true.
+
+Lemma configured_mrk_styles :
+  @configured_list_styles K (mk_sty mrk) (mk_task_marker mrk) = mk_sty mrk.
+Proof.
+  unfold configured_list_styles. destruct (@btasks K);
+    [reflexivity|].
+  destruct mrk as [c|c chk|core d]; cbn [marker_tasks_ok] in Htasks.
+  - reflexivity.
+  - discriminate Htasks.
+  - cbn [mk_sty mk_task_marker].
+    destruct (styles_of_core core d) as [|x rest]; [reflexivity|].
+    destruct rest as [|y ys]; destruct x; reflexivity.
+Qed.
+
+Lemma configured_mrk_check :
+  @configured_list_check K (mk_task_marker mrk) = mk_check mrk.
+Proof.
+  unfold configured_list_check. destruct (@btasks K);
+    [destruct mrk; reflexivity|].
+  destruct mrk; cbn [marker_tasks_ok] in Htasks; try discriminate; reflexivity.
+Qed.
+
+Lemma configured_mrk_rest :
+  forall l, @configured_list_rest K (mk_task_marker mrk) l = l.
+Proof.
+  intros l. unfold configured_list_rest. destruct (@btasks K);
+    [reflexivity|].
+  destruct mrk; cbn [marker_tasks_ok] in Htasks; try discriminate; reflexivity.
+Qed.
 
 Fixpoint scan_list_content (ls : list_state) (inner : pstate)
                            (lines : list string) : list_state :=
@@ -509,10 +539,12 @@ Lemma step_item_open :
 Proof.
   intros l0 Hth Hts.
   destruct (step l0 (PPara [])) as [bs inner] eqn:Es. cbn [fst snd].
+  rewrite <- (configured_mrk_rest l0) in Es.
   rewrite (step_list_open _ _ _ _ _ _ _
              (classify_marker_open mrk l0 Hmrk Hth Hts) Es).
+  rewrite configured_mrk_styles, configured_mrk_check, configured_mrk_rest.
   rewrite (indent_of_marker_open mrk _ Hmrk), consumed_marker_open.
-  destruct mrk; reflexivity.
+  reflexivity.
 Qed.
 
 (** The tight/loose verdict, read off the lines.  A blank arms the flag;
@@ -724,14 +756,13 @@ Proof.
   destruct (step l0 (PPara [])) as [b i] eqn:Es.
   destruct (narrow (ls_styles ls) (mk_sty mrk)) as [|s0 ss] eqn:Hn;
     [contradiction|].
+  rewrite <- configured_mrk_styles in Hn.
+  rewrite <- (configured_mrk_rest l0) in Es.
   rewrite (step_list_sibling _ _ _ _ _ _ _ _ _ _ _ _
              (classify_marker_open mrk l0 Hmrk Hth Hts) Hn
              (ltac:(rewrite Hind, (indent_of_marker_open mrk _ Hmrk); reflexivity))
              Es).
-  assert (Hcheck : chk_status
-      (match mrk with MTask _ chk => Some chk | _ => None end) = mk_check mrk)
-    by (destruct mrk; reflexivity).
-  rewrite Hcheck, consumed_marker_open.
+  rewrite configured_mrk_check, configured_mrk_rest, consumed_marker_open.
   pose proof (run_lines_pad_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
   cbn [snd] in Hsafe. specialize (Hrun Hsafe).
   rewrite mk_cont_length in Hrun.
@@ -1034,7 +1065,9 @@ Definition item_ok (m : marker) (L : list string) : bool :=
    same style; a roman list satisfies it whenever its first numeral is
    unambiguous, since every later numeral still offers roman. *)
 Definition items_ok_at (S : list (lstyle * nat)) (items : list litem) : bool :=
-  forallb (fun it => marker_ok (fst it) && item_ok (fst it) (snd it)
+  forallb (fun it => marker_ok (fst it)
+                     && marker_tasks_ok (@btasks K) (fst it)
+                     && item_ok (fst it) (snd it)
                      && admits_styles S (fst it))%bool items.
 
 (* The instance where the list's set is exactly its first marker's, which
@@ -1120,7 +1153,7 @@ Qed.
 
 Lemma parse_item_and_tail_narrow :
   forall S S' Sout m sp l0 more rest post out ls done inner,
-    S' <> [] -> marker_ok m = true ->
+    S' <> [] -> marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
     narrow S (mk_sty m) = S' ->
     ls_indent ls = 0 -> ls_styles ls = S ->
     item_ok m (l0 :: more) = true ->
@@ -1146,7 +1179,7 @@ Lemma parse_item_and_tail_narrow :
               :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out.
 Proof.
   intros S S' Sout m sp l0 more rest post out ls done inner
-         HS' Hm Hsty Hind Hmark Hok IH.
+         HS' Hm Htasks Hsty Hind Hmark Hok IH.
   unfold litem_lines. cbn [fst snd].
   cbn [item_ok] in Hok.
   apply andb_prop in Hok as [Hok Hgap].
@@ -1162,7 +1195,7 @@ Proof.
   assert (Hcl : classify l0 <> KBlank).
   { intros E. apply classify_kblank_blank in E. rewrite E in Hnb'. discriminate. }
   rewrite parse_lines_app_run.
-  rewrite (run_item_sibling_narrow m Hm l0 more ls done inner Hind
+  rewrite (run_item_sibling_narrow m Hm Htasks l0 more ls done inner Hind
              (ltac:(rewrite Hmark, Hsty; exact HS'))
              Hth Hts Hsafe).
   rewrite Hmark, Hsty.
@@ -1217,7 +1250,7 @@ Qed.
    set where it was. *)
 Lemma parse_item_and_tail :
   forall S m sp l0 more rest post out ls done inner,
-    S <> [] -> marker_ok m = true ->
+    S <> [] -> marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
     narrow S (mk_sty m) = S ->
     ls_indent ls = 0 -> ls_styles ls = S ->
     item_ok m (l0 :: more) = true ->
@@ -1242,9 +1275,10 @@ Lemma parse_item_and_tail :
               :: parse_lines (l0 :: more) (PPara [])
               :: map (fun it => parse_lines (snd it) (PPara [])) rest) :: out.
 Proof.
-  intros S m sp l0 more rest post out ls done inner HS Hm Hsty Hind Hmark Hok IH.
+  intros S m sp l0 more rest post out ls done inner
+    HS Hm Htasks Hsty Hind Hmark Hok IH.
   exact (parse_item_and_tail_narrow S S S m sp l0 more rest post out ls done inner
-           HS Hm Hsty Hind Hmark Hok IH).
+           HS Hm Htasks Hsty Hind Hmark Hok IH).
 Qed.
 
 (* `Hclose` is the whole of what the ending contributes: from any list
@@ -1298,11 +1332,12 @@ Proof.
     cbn [fst snd] in HL.
     apply andb_prop in HL as [HL Hstyeq].
     apply andb_prop in HL as [Hmi HL].
+    apply andb_prop in Hmi as [Hmi Htasks].
     apply narrow_admits_styles in Hstyeq.
     cbn [list_tail_lines]. rewrite <- !app_assoc. destruct sp.
     + cbn [item_sep app].
       rewrite (parse_item_and_tail S mi Tight l0 more rest post out ls done inner
-                 HS Hmi Hstyeq Hind Hmark HL
+                 HS Hmi Htasks Hstyeq Hind Hmark HL
                  (fun a b c H1 H2 H3 H4 =>
                     IH post out a b c HS Hclose H1 H2 H3 H4 Hrest)).
       rewrite Hblanks. unfold list_loose_of. cbn [existsb orb map fst snd].
@@ -1321,7 +1356,7 @@ Proof.
                  (if blank_absorbed inner then ls else list_blank ls)
                  (rev (fst (step EmptyString inner)) ++ done)%list
                  (snd (step EmptyString inner))
-                 HS Hmi Hstyeq
+                 HS Hmi Htasks Hstyeq
                  ltac:(destruct (blank_absorbed inner); [exact Hind|cbn [list_blank]; exact Hind])
                  ltac:(destruct (blank_absorbed inner); [exact Hmark|cbn [list_blank]; exact Hmark])
                  HL
@@ -1357,7 +1392,7 @@ Qed.
    it. *)
 Lemma parse_item_peel :
   forall S S' Sout sp mi l0 more rest post out ls done inner,
-    S' <> [] -> marker_ok mi = true ->
+    S' <> [] -> marker_ok mi = true -> marker_tasks_ok (@btasks K) mi = true ->
     narrow S (mk_sty mi) = S' ->
     item_ok mi (l0 :: more) = true ->
     (forall ls2 done2 inner2,
@@ -1384,11 +1419,11 @@ Lemma parse_item_peel :
                 ((mi, l0 :: more) :: rest)) :: out.
 Proof.
   intros S S' Sout sp mi l0 more rest post out ls done inner
-         HS' Hmi Hstyeq HL IH Hind Hmark Hblanks Hpad.
+         HS' Hmi Htasks Hstyeq HL IH Hind Hmark Hblanks Hpad.
   cbn [list_tail_lines]. rewrite <- !app_assoc. destruct sp.
   - cbn [item_sep app].
       rewrite (parse_item_and_tail_narrow S S' Sout mi Tight l0 more rest post out ls done inner
-                 HS' Hmi Hstyeq Hind Hmark HL
+                 HS' Hmi Htasks Hstyeq Hind Hmark HL
                  IH).
       rewrite Hblanks. unfold list_loose_of. cbn [existsb orb map fst snd].
       rewrite ?orb_false_r.
@@ -1406,7 +1441,7 @@ Proof.
                  (if blank_absorbed inner then ls else list_blank ls)
                  (rev (fst (step EmptyString inner)) ++ done)%list
                  (snd (step EmptyString inner))
-                 HS' Hmi Hstyeq
+                 HS' Hmi Htasks Hstyeq
                  ltac:(destruct (blank_absorbed inner); [exact Hind|cbn [list_blank]; exact Hind])
                  ltac:(destruct (blank_absorbed inner); [exact Hmark|cbn [list_blank]; exact Hmark])
                  HL
@@ -1436,7 +1471,7 @@ Qed.
 (* One peel: the set resolves at this item and the rest holds it. *)
 Lemma parse_list_tail_head_narrow :
   forall S S' sp mi l0 more rest post out ls done inner,
-    S' <> [] -> marker_ok mi = true ->
+    S' <> [] -> marker_ok mi = true -> marker_tasks_ok (@btasks K) mi = true ->
     narrow S (mk_sty mi) = S' ->
     item_ok mi (l0 :: more) = true ->
     items_ok_at S' rest = true ->
@@ -1458,9 +1493,9 @@ Lemma parse_list_tail_head_narrow :
                 ((mi, l0 :: more) :: rest)) :: out.
 Proof.
   intros S S' sp mi l0 more rest post out ls done inner
-         HS' Hmi Hstyeq HL Hrest Hclose Hind Hmark Hblanks Hpad.
+         HS' Hmi Htasks Hstyeq HL Hrest Hclose Hind Hmark Hblanks Hpad.
   apply (parse_item_peel S S' S' sp mi l0 more rest post out ls done inner
-           HS' Hmi Hstyeq HL); try assumption.
+           HS' Hmi Htasks Hstyeq HL); try assumption.
   intros ls2 done2 inner2 H1 H2 H3 H4.
   exact (parse_list_tail S' sp rest post out ls2 done2 inner2
            HS' Hclose H1 H2 H3 H4 Hrest).
@@ -1595,7 +1630,8 @@ Proof.
   change (forallb _ tail) with (items_ok_at (mk_styles m0) tail) in Htail.
   cbn [fst snd] in HL.
   apply andb_prop in HL as [HL Hstyeq].
-  apply andb_prop in HL as [Hmi HL].
+  apply andb_prop in HL as [HLmi HL].
+  apply andb_prop in HLmi as [Hmi Htasks].
   apply narrow_admits in Hstyeq.
   pose proof HL as HL'. cbn [item_ok] in HL'.
   apply andb_prop in HL' as [HL' Hgap].
@@ -1616,7 +1652,8 @@ Proof.
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
-  rewrite (run_item_open m0 Hm0 l0 more Hth Hts Hsafe Hb). cbn [fst snd app].
+  rewrite (run_item_open m0 Hm0 Htasks l0 more Hth Hts Hsafe Hb).
+  cbn [fst snd app].
   assert (Hpad1 : blank_safe (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara [])))) = true).
   { rewrite blank_safe_pad_state. apply run_safe_final.
     cbn [run_safe pad_safe]. exact Hsafe. }
@@ -1645,6 +1682,8 @@ Qed.
 Theorem list_uniformity_gen_narrow :
   forall m0 m1 S' sp L0 L1 tail post out,
     marker_ok m0 = true -> marker_ok m1 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
     S' <> [] -> narrow (mk_styles m0) (mk_sty m1) = S' ->
     item_ok m1 L1 = true -> L1 <> [] ->
     items_ok_at S' tail = true ->
@@ -1660,7 +1699,8 @@ Theorem list_uniformity_gen_narrow :
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: tail)) :: out.
 Proof.
-  intros m0 m1 S' sp L0 L1 tail post out Hm0 Hm1 HS' Hnar Hok1 HL1ne Htail Hclose HL.
+  intros m0 m1 S' sp L0 L1 tail post out Hm0 Hm1 Htasks0 Htasks1
+    HS' Hnar Hok1 HL1ne Htail Hclose HL.
   destruct L0 as [|l0 more]; [cbn [item_ok] in HL; discriminate|].
   destruct L1 as [|l1 more1]; [congruence|].
   pose proof HL as HL'. cbn [item_ok] in HL'.
@@ -1682,7 +1722,8 @@ Proof.
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
-  rewrite (run_item_open m0 Hm0 l0 more Hth Hts Hsafe Hb). cbn [fst snd app].
+  rewrite (run_item_open m0 Hm0 Htasks0 l0 more Hth Hts Hsafe Hb).
+  cbn [fst snd app].
   assert (Hpad1 : blank_safe (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara [])))) = true).
   { rewrite blank_safe_pad_state. apply run_safe_final.
     cbn [run_safe pad_safe]. exact Hsafe. }
@@ -1692,7 +1733,8 @@ Proof.
                 (mk_check m0) [])
              (rev (fst (run_lines (l0 :: more) (PPara []))))
              (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara []))))
-             HS' Hm1 Hnar Hok1 Htail Hclose eq_refl eq_refl eq_refl Hpad1).
+             HS' Hm1 Htasks1 Hnar Hok1 Htail Hclose
+             eq_refl eq_refl eq_refl Hpad1).
   cbn [ls_loose ls_items rev app].
   rewrite rev_involutive, pad_state_finish.
   rewrite <- (parse_lines_run (l0 :: more) (PPara []) _ _ (surjective_pairing _)).
@@ -1711,6 +1753,9 @@ Qed.
 Theorem list_uniformity_gen_narrow2 :
   forall m0 m1 m2 S1 S2 sp L0 L1 L2 tail post out,
     marker_ok m0 = true -> marker_ok m1 = true -> marker_ok m2 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
+    marker_tasks_ok (@btasks K) m2 = true ->
     S1 <> [] -> S2 <> [] ->
     narrow (mk_styles m0) (mk_sty m1) = S1 ->
     narrow S1 (mk_sty m2) = S2 ->
@@ -1733,7 +1778,8 @@ Theorem list_uniformity_gen_narrow2 :
                   ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)) :: out.
 Proof.
   intros m0 m1 m2 S1 S2 sp L0 L1 L2 tail post out
-         Hm0 Hm1 Hm2 HS1 HS2 Hnar1 Hnar2 Hok1 HL1ne Hok2 HL2ne Htail Hclose HL.
+         Hm0 Hm1 Hm2 Htasks0 Htasks1 Htasks2
+         HS1 HS2 Hnar1 Hnar2 Hok1 HL1ne Hok2 HL2ne Htail Hclose HL.
   destruct L0 as [|l0 more]; [cbn [item_ok] in HL; discriminate|].
   destruct L1 as [|l1 more1]; [congruence|].
   destruct L2 as [|l2 more2]; [congruence|].
@@ -1756,7 +1802,8 @@ Proof.
     rewrite <- (item_gap_more l0 more Hnb). exact Hgap. }
   rewrite list_lines_cons, <- app_assoc, parse_lines_app_run.
   unfold litem_lines at 1. cbn [fst snd].
-  rewrite (run_item_open m0 Hm0 l0 more Hth Hts Hsafe Hb). cbn [fst snd app].
+  rewrite (run_item_open m0 Hm0 Htasks0 l0 more Hth Hts Hsafe Hb).
+  cbn [fst snd app].
   assert (Hpad1 : blank_safe (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara [])))) = true).
   { rewrite blank_safe_pad_state. apply run_safe_final.
     cbn [run_safe pad_safe]. exact Hsafe. }
@@ -1767,10 +1814,10 @@ Proof.
                 (mk_check m0) [])
              (rev (fst (run_lines (l0 :: more) (PPara []))))
              (pad_state (mk_pad m0) (snd (run_lines (l0 :: more) (PPara []))))
-             HS1 Hm1 Hnar1 Hok1
+             HS1 Hm1 Htasks1 Hnar1 Hok1
              (fun a b c H1 H2 H3 H4 =>
                 parse_list_tail_head_narrow S1 S2 sp m2 l2 more2 tail post out a b c
-                  HS2 Hm2 Hnar2 Hok2 Htail Hclose H1 H2 H3 H4)
+                  HS2 Hm2 Htasks2 Hnar2 Hok2 Htail Hclose H1 H2 H3 H4)
              eq_refl eq_refl eq_refl Hpad1).
   cbn [ls_loose ls_items rev app].
   rewrite rev_involutive, pad_state_finish.
@@ -1814,6 +1861,8 @@ Qed.
 Theorem list_uniformity_narrow :
   forall m0 m1 S' sp L0 L1 tail,
     marker_ok m0 = true -> marker_ok m1 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
     S' <> [] -> narrow (mk_styles m0) (mk_sty m1) = S' ->
     item_ok m0 L0 = true -> item_ok m1 L1 = true -> L1 <> [] ->
     items_ok_at S' tail = true ->
@@ -1824,11 +1873,13 @@ Theorem list_uniformity_narrow :
              (map (fun it => parse_lines (snd it) (PPara []))
                   ((m0, L0) :: (m1, L1) :: tail))].
 Proof.
-  intros m0 m1 S' sp L0 L1 tail Hm0 Hm1 HS' Hnar HL0 HL1 HL1ne Htail.
+  intros m0 m1 S' sp L0 L1 tail Hm0 Hm1 Htasks0 Htasks1
+    HS' Hnar HL0 HL1 HL1ne Htail.
   rewrite <- (app_nil_r (list_lines sp
                 (map litem_lines ((m0, L0) :: (m1, L1) :: tail)))).
   apply (list_uniformity_gen_narrow m0 m1 S' sp L0 L1 tail [] []);
-    [exact Hm0 | exact Hm1 | exact HS' | exact Hnar | exact HL1 | exact HL1ne
+    [exact Hm0 | exact Hm1 | exact Htasks0 | exact Htasks1
+    | exact HS' | exact Hnar | exact HL1 | exact HL1ne
     | exact Htail | | exact HL0].
   intros ls2 done2 inner2 _ _. rewrite parse_lines_nil, app_nil_r. reflexivity.
 Qed.
@@ -1837,6 +1888,8 @@ Qed.
 Theorem list_uniformity_narrow_tail :
   forall m0 m1 S' sp L0 L1 items next tail,
     marker_ok m0 = true -> marker_ok m1 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
     S' <> [] -> narrow (mk_styles m0) (mk_sty m1) = S' ->
     item_ok m0 L0 = true -> item_ok m1 L1 = true -> L1 <> [] ->
     items_ok_at S' items = true ->
@@ -1851,10 +1904,12 @@ Theorem list_uniformity_narrow_tail :
                   ((m0, L0) :: (m1, L1) :: items))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros m0 m1 S' sp L0 L1 items next tail Hm0 Hm1 HS' Hnar HL0 HL1 HL1ne Hitems
+  intros m0 m1 S' sp L0 L1 items next tail Hm0 Hm1 Htasks0 Htasks1
+         HS' Hnar HL0 HL1 HL1ne Hitems
          Hnb Hnl Hindent.
   apply (list_uniformity_gen_narrow m0 m1 S' sp L0 L1 items);
-    [exact Hm0 | exact Hm1 | exact HS' | exact Hnar | exact HL1 | exact HL1ne
+    [exact Hm0 | exact Hm1 | exact Htasks0 | exact Htasks1
+    | exact HS' | exact Hnar | exact HL1 | exact HL1ne
     | exact Hitems | | exact HL0].
   intros ls2 done2 inner2 Hind2 Hpad2.
   apply parse_list_close; try assumption.
@@ -1867,6 +1922,9 @@ Qed.
 Theorem list_uniformity_narrow2 :
   forall m0 m1 m2 S1 S2 sp L0 L1 L2 tail,
     marker_ok m0 = true -> marker_ok m1 = true -> marker_ok m2 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
+    marker_tasks_ok (@btasks K) m2 = true ->
     S1 <> [] -> S2 <> [] ->
     narrow (mk_styles m0) (mk_sty m1) = S1 ->
     narrow S1 (mk_sty m2) = S2 ->
@@ -1885,7 +1943,8 @@ Theorem list_uniformity_narrow2 :
               ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail))].
 Proof.
   intros m0 m1 m2 S1 S2 sp L0 L1 L2 tail
-         Hm0 Hm1 Hm2 HS1 HS2 Hnar1 Hnar2 HL0 HL1 HL1ne HL2 HL2ne Htail.
+         Hm0 Hm1 Hm2 Htasks0 Htasks1 Htasks2
+         HS1 HS2 Hnar1 Hnar2 HL0 HL1 HL1ne HL2 HL2ne Htail.
   rewrite <- (app_nil_r (list_lines sp
                 (map litem_lines ((m0, L0) :: (m1, L1) :: (m2, L2) :: tail)))).
   apply (list_uniformity_gen_narrow2 m0 m1 m2 S1 S2 sp L0 L1 L2 tail [] []);
@@ -1897,6 +1956,9 @@ Qed.
 Theorem list_uniformity_narrow2_tail :
   forall m0 m1 m2 S1 S2 sp L0 L1 L2 items next tail,
     marker_ok m0 = true -> marker_ok m1 = true -> marker_ok m2 = true ->
+    marker_tasks_ok (@btasks K) m0 = true ->
+    marker_tasks_ok (@btasks K) m1 = true ->
+    marker_tasks_ok (@btasks K) m2 = true ->
     S1 <> [] -> S2 <> [] ->
     narrow (mk_styles m0) (mk_sty m1) = S1 ->
     narrow S1 (mk_sty m2) = S2 ->
@@ -1919,7 +1981,8 @@ Theorem list_uniformity_narrow2_tail :
       :: parse_lines (next :: tail) (PPara []).
 Proof.
   intros m0 m1 m2 S1 S2 sp L0 L1 L2 items next tail
-         Hm0 Hm1 Hm2 HS1 HS2 Hnar1 Hnar2 HL0 HL1 HL1ne HL2 HL2ne Hitems
+         Hm0 Hm1 Hm2 Htasks0 Htasks1 Htasks2
+         HS1 HS2 Hnar1 Hnar2 HL0 HL1 HL1ne HL2 HL2ne Hitems
          Hnb Hnl Hindent.
   apply (list_uniformity_gen_narrow2 m0 m1 m2 S1 S2 sp L0 L1 L2 items);
     try assumption.
@@ -1956,13 +2019,14 @@ Definition same_marker (m : marker) (lss : list (list string)) : list litem :=
 
 Lemma items_ok_same_marker :
   forall m lss,
-    marker_ok m = true -> forallb (item_ok m) lss = true ->
+    marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
+    forallb (item_ok m) lss = true ->
     items_ok m (same_marker m lss) = true.
 Proof.
-  intros m lss Hm Hok. unfold items_ok, items_ok_at, same_marker.
+  intros m lss Hm Htasks Hok. unfold items_ok, items_ok_at, same_marker.
   revert Hok. induction lss as [|L rest IH]; [reflexivity|].
   cbn [map forallb fst snd]. intros H. apply andb_prop in H as [HL Hrest].
-  rewrite Hm, HL, (admits_styles_refl m), (IH Hrest). reflexivity.
+  rewrite Hm, Htasks, HL, (admits_styles_refl m), (IH Hrest). reflexivity.
 Qed.
 
 Lemma map_snd_same_marker :
@@ -1988,7 +2052,7 @@ Qed.
    theorem above is what a renumbering list needs. *)
 Corollary list_uniformity_same :
   forall m sp lss,
-    marker_ok m = true -> lss <> [] ->
+    marker_ok m = true -> marker_tasks_ok (@btasks K) m = true -> lss <> [] ->
     forallb (item_ok m) lss = true ->
     parse_lines (list_lines sp (map (indent_lines (mk_open m) (mk_cont m)) lss))
                 (PPara [])
@@ -1996,9 +2060,9 @@ Corollary list_uniformity_same :
              (map (fun _ => mk_check m) lss)
              (map (fun L => parse_lines L (PPara [])) lss)].
 Proof.
-  intros m sp lss Hm Hne Hok.
+  intros m sp lss Hm Htasks Hne Hok.
   destruct lss as [|L0 rest]; [congruence|].
-  pose proof (items_ok_same_marker m (L0 :: rest) Hm Hok) as Hio.
+  pose proof (items_ok_same_marker m (L0 :: rest) Hm Htasks Hok) as Hio.
   unfold same_marker in Hio. cbn [map] in Hio.
   pose proof (list_uniformity m sp L0 (same_marker m rest) Hm Hio) as Hu.
   rewrite <- (map_litem_lines_same_marker m (L0 :: rest)).
@@ -2012,7 +2076,7 @@ Qed.
 
 Corollary list_uniformity_tail_same :
   forall m sp lss next tail,
-    marker_ok m = true -> lss <> [] ->
+    marker_ok m = true -> marker_tasks_ok (@btasks K) m = true -> lss <> [] ->
     forallb (item_ok m) lss = true ->
     classify next <> KBlank ->
     (forall a b c d, classify next <> KList a b c d) ->
@@ -2024,9 +2088,9 @@ Corollary list_uniformity_tail_same :
              (map (fun L => parse_lines L (PPara [])) lss)
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros m sp lss next tail Hm Hne Hok Hnb Hnl Hindent.
+  intros m sp lss next tail Hm Htasks Hne Hok Hnb Hnl Hindent.
   destruct lss as [|L0 rest]; [congruence|].
-  pose proof (items_ok_same_marker m (L0 :: rest) Hm Hok) as Hio.
+  pose proof (items_ok_same_marker m (L0 :: rest) Hm Htasks Hok) as Hio.
   unfold same_marker in Hio. cbn [map] in Hio.
   pose proof (list_uniformity_tail m sp L0 (same_marker m rest) next tail
                 Hm Hio Hnb Hnl Hindent) as Hu.

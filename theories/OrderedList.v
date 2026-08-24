@@ -596,7 +596,8 @@ Proof.
   destruct (Hrun 0 ltac:(cbn [length]; lia)) as (Hmk & Had & Hth).
   rewrite Nat.add_0_r in Hmk, Had, Hth.
   cbn [nsc_items items_ok items_ok_at forallb fst snd].
-  rewrite Hmk, Had, (item_ok_thematic_indep _ m0 L Hth Hm0), HL. cbn [andb].
+  rewrite Hmk, Had, (item_ok_thematic_indep _ m0 L Hth Hm0), HL.
+  cbn [andb].
   change (forallb _ (nsc_items core d (S n) rest))
     with (items_ok_at Sty (nsc_items core d (S n) rest)).
   apply IH; [|exact Hm0|exact Hrest].
@@ -793,7 +794,7 @@ Proof.
                (nsc_marker (roman_str up) d (S start))
                [(SOrd (roman_sty up) d, start)] sp L0 (l1 :: more1)
                (nsc_items (roman_str up) d (S (S start)) rest)
-               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
                ltac:(discriminate) Hitems).
@@ -858,7 +859,7 @@ Proof.
                (nsc_marker (roman_str up) d (S start))
                [(SOrd (roman_sty up) d, start)] sp L0 (l1 :: more1)
                (nsc_items (roman_str up) d (S (S start)) rest) next tl
-               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
                ltac:(discriminate) Hitems Hnb Hnl Hindent).
@@ -1118,7 +1119,7 @@ Proof.
                (nsc_marker (alpha_str up) d (S start))
                [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1)
                (nsc_items (alpha_str up) d (S (S start)) rest)
-               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
                ltac:(discriminate) Hitems).
@@ -1167,7 +1168,8 @@ Proof.
                (mk_styles (nsc_marker (alpha_str up) d start))
                [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1) (l2 :: more2)
                (nsc_items (alpha_str up) d (S (S (S start))) rest)
-               Hmk0 Hmk1 Hmk2 (mk_styles_nonempty _ Hmk0) ltac:(discriminate)
+               Hmk0 Hmk1 Hmk2 eq_refl eq_refl eq_refl
+               (mk_styles_nonempty _ Hmk0) ltac:(discriminate)
                HS1 HS2 HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1)) ltac:(discriminate)
@@ -1232,7 +1234,7 @@ Proof.
                (nsc_marker (alpha_str up) d (S start))
                [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1)
                (nsc_items (alpha_str up) d (S (S start)) rest) next tl
-               Hmk0 Hmk1 ltac:(discriminate) HS HL0
+               Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
                ltac:(discriminate) Hitems Hnb Hnl Hindent).
@@ -1281,7 +1283,8 @@ Proof.
                (mk_styles (nsc_marker (alpha_str up) d start))
                [(SOrd (alpha_sty up) d, start)] sp L0 (l1 :: more1) (l2 :: more2)
                (nsc_items (alpha_str up) d (S (S (S start))) rest) next tl
-               Hmk0 Hmk1 Hmk2 (mk_styles_nonempty _ Hmk0) ltac:(discriminate)
+               Hmk0 Hmk1 Hmk2 eq_refl eq_refl eq_refl
+               (mk_styles_nonempty _ Hmk0) ltac:(discriminate)
                HS1 HS2 HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1)) ltac:(discriminate)
@@ -1371,7 +1374,7 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
   match k with
   | LKBullet => true
   | LKDef => true
-  | LKTask checks => Nat.eqb (length checks) n
+  | LKTask checks => (@btasks K) && Nat.eqb (length checks) n
   | LKDecimal _ _ => true
   (* No ambiguity condition: a roman numeral's set has roman at its head
      whatever its length, and a second item narrows it to the singleton
@@ -1442,19 +1445,25 @@ Proof. intros [] [] [|l more]; reflexivity. Qed.
 
 Lemma task_ck_items_ok :
   forall checks lss,
+    (@btasks K) = true ->
     length checks = length lss ->
     forallb (item_ok (MTask "-" (hd Incomplete checks))) lss = true ->
     items_ok (MTask "-" (hd Incomplete checks))
       (task_ck_items checks lss) = true.
 Proof.
-  intros checks lss Hlen Hok.
+  intros checks lss Htasks Hlen Hok.
+  assert (Hbullet : is_task_bullet "-" = true) by reflexivity.
+  assert (Had : forall st,
+      admits_styles [(STask "-", 1)] (MTask "-" st) = true)
+    by (intros []; reflexivity).
   destruct checks as [|c checks]; destruct lss as [|L rest]; try discriminate;
     [reflexivity|].
   cbn [length] in Hlen. injection Hlen as Hlen.
   cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL Hrest].
   cbn [hd] in HL, Hrest.
   unfold items_ok, items_ok_at. cbn [task_ck_items forallb fst snd hd].
-  rewrite HL. cbn [marker_ok mk_sty mk_styles with_starts mk_core style_start
+  rewrite HL, Htasks.
+  cbn [marker_ok marker_tasks_ok mk_sty mk_styles with_starts mk_core style_start
                     admits_styles narrow lstyle_eqb].
   assert (Htail : items_ok_at [(STask "-"%char, 1)]
                     (task_ck_items checks rest) = true).
@@ -1464,12 +1473,16 @@ Proof.
     cbn [length] in Hlen. injection Hlen as Hlen.
     cbn [forallb] in Hrest. apply andb_true_iff in Hrest as [HL' Hrest].
     unfold items_ok_at.
-    cbn [task_ck_items forallb fst snd].
+    cbn [task_ck_items forallb fst snd marker_ok]. rewrite Htasks, Hbullet.
     rewrite (item_ok_task_status c' c L'), HL'.
-    cbn [marker_ok mk_sty mk_styles with_starts mk_core style_start
+    rewrite Had.
+    cbn [marker_tasks_ok
+         mk_sty mk_styles with_starts mk_core style_start
          admits_styles lstyle_eqb andb].
-    apply IH; assumption. }
-  exact Htail.
+    specialize (IH rest Hlen Hrest). unfold items_ok_at in IH.
+    rewrite Htasks in IH. exact IH. }
+  rewrite Hbullet, Had. cbn [andb].
+  unfold items_ok_at in Htail. rewrite Htasks in Htail. exact Htail.
 Qed.
 
 Lemma nsc_items_markers_ok :
@@ -1526,7 +1539,7 @@ Qed.
 
 Lemma task_uniformity :
   forall checks sp lss,
-    lss <> [] -> length checks = length lss ->
+    (@btasks K) = true -> lss <> [] -> length checks = length lss ->
     forallb (item_ok (MTask "-" (hd Incomplete checks))) lss = true ->
     parse_lines (list_lines sp (map litem_lines (task_ck_items checks lss)))
       (PPara []) =
@@ -1534,11 +1547,11 @@ Lemma task_uniformity :
            (task_items checks
              (map (fun L => parse_lines L (PPara [])) lss)))].
 Proof.
-  intros checks sp lss Hne Hlen Hok.
+  intros checks sp lss Htasks Hne Hlen Hok.
   destruct checks as [|c checks]; destruct lss as [|L0 rest]; try contradiction;
     try discriminate.
   cbn [length] in Hlen. injection Hlen as Hlen.
-  pose proof (task_ck_items_ok (c :: checks) (L0 :: rest)
+  pose proof (task_ck_items_ok (c :: checks) (L0 :: rest) Htasks
                 ltac:(cbn [length]; congruence) Hok) as Hio.
   cbn [task_ck_items] in Hio |- *.
   rewrite (list_uniformity (MTask "-" c) sp L0
@@ -1552,7 +1565,7 @@ Qed.
 
 Lemma task_uniformity_tail :
   forall checks sp lss next tail,
-    lss <> [] -> length checks = length lss ->
+    (@btasks K) = true -> lss <> [] -> length checks = length lss ->
     forallb (item_ok (MTask "-" (hd Incomplete checks))) lss = true ->
     classify next <> KBlank ->
     (forall a b c d, classify next <> KList a b c d) ->
@@ -1564,12 +1577,12 @@ Lemma task_uniformity_tail :
           (task_items checks (map (fun L => parse_lines L (PPara [])) lss)))
     :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros checks sp lss next tail Hne Hlen Hok Hnb Hnl Hindent.
+  intros checks sp lss next tail Htasks Hne Hlen Hok Hnb Hnl Hindent.
   destruct checks as [|c checks]; destruct lss as [|L0 rest]; try contradiction;
     try discriminate.
   cbn [length] in Hlen. injection Hlen as Hlen.
   pose proof (task_ck_items_ok (c :: checks) (L0 :: rest)
-                ltac:(cbn [length]; congruence) Hok) as Hio.
+                Htasks ltac:(cbn [length]; congruence) Hok) as Hio.
   cbn [task_ck_items] in Hio |- *.
   rewrite (list_uniformity_tail (MTask "-" c) sp L0
              (task_ck_items checks rest) next tail eq_refl Hio Hnb Hnl Hindent).
@@ -1595,15 +1608,16 @@ Proof.
   intros [| |checks|d start|up d start|up d start] sp lss Hne Hck Hok.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
-    exact (list_uniformity_same bullet sp lss bullet_ok Hne Hok).
+    exact (list_uniformity_same bullet sp lss bullet_ok eq_refl Hne Hok).
   (* The colon reaches the same generic theorem; `marker_list colon` is
      the `DefinitionList` arm of `Marker.styles_list` definitionally, so
      `ck_block LKDef` needs no separate step. *)
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
-    exact (list_uniformity_same colon sp lss colon_ok Hne Hok).
-  - cbn [ck_ok] in Hck. apply Nat.eqb_eq in Hck.
-    exact (task_uniformity checks sp lss Hne Hck Hok).
+    exact (list_uniformity_same colon sp lss colon_ok eq_refl Hne Hok).
+  - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].
+    apply Nat.eqb_eq in Hck.
+    exact (task_uniformity checks sp lss Htasks Hne Hck Hok).
   - exact (ordered_decimal_uniformity d start sp lss Hne Hok).
   - cbn [ck_ok] in Hck.
     apply andb_true_iff in Hck as [Hs Hr].
@@ -1644,14 +1658,15 @@ Proof.
     Hne Hck Hok Hnb Hnl Hindent.
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
-    exact (list_uniformity_tail_same bullet sp lss next tail bullet_ok Hne Hok
+    exact (list_uniformity_tail_same bullet sp lss next tail bullet_ok eq_refl Hne Hok
              Hnb Hnl Hindent).
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
-    exact (list_uniformity_tail_same colon sp lss next tail colon_ok Hne Hok
+    exact (list_uniformity_tail_same colon sp lss next tail colon_ok eq_refl Hne Hok
              Hnb Hnl Hindent).
-  - cbn [ck_ok] in Hck. apply Nat.eqb_eq in Hck.
-    exact (task_uniformity_tail checks sp lss next tail Hne Hck Hok
+  - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].
+    apply Nat.eqb_eq in Hck.
+    exact (task_uniformity_tail checks sp lss next tail Htasks Hne Hck Hok
              Hnb Hnl Hindent).
   - exact (ordered_decimal_uniformity_tail d start sp lss next tail
              Hne Hok Hnb Hnl Hindent).
@@ -1764,7 +1779,8 @@ Proof.
   intros sp.
   exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "ii" RightPeriod)
            [(SOrd RomanLower RightPeriod, 1)] sp ["a"] ["b"] []
-           eq_refl eq_refl ltac:(discriminate) eq_refl eq_refl eq_refl
+           eq_refl eq_refl eq_refl eq_refl
+           ltac:(discriminate) eq_refl eq_refl eq_refl
            ltac:(discriminate) eq_refl).
 Qed.
 
@@ -1784,7 +1800,8 @@ Proof.
   intros sp.
   exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "j" RightPeriod)
            [(SOrd LetterLower RightPeriod, 9)] sp ["a"] ["b"] []
-           eq_refl eq_refl ltac:(discriminate) eq_refl eq_refl eq_refl
+           eq_refl eq_refl eq_refl eq_refl
+           ltac:(discriminate) eq_refl eq_refl eq_refl
            ltac:(discriminate) eq_refl).
 Qed.
 
@@ -1814,7 +1831,7 @@ Corollary star_uniformity :
     = [marker_list_checked star (list_spacing_of sp lss)
              (map (fun _ => mk_check star) lss)
              (map (fun L => parse_lines L (PPara [])) lss)].
-Proof. intros sp lss. exact (list_uniformity_same star sp lss star_ok). Qed.
+Proof. intros sp lss. exact (list_uniformity_same star sp lss star_ok eq_refl). Qed.
 
 Corollary plus_uniformity :
   forall sp lss,
@@ -1824,7 +1841,7 @@ Corollary plus_uniformity :
     = [marker_list_checked plus (list_spacing_of sp lss)
              (map (fun _ => mk_check plus) lss)
              (map (fun L => parse_lines L (PPara [])) lss)].
-Proof. intros sp lss. exact (list_uniformity_same plus sp lss plus_ok). Qed.
+Proof. intros sp lss. exact (list_uniformity_same plus sp lss plus_ok eq_refl). Qed.
 
 (* The section reaches ordered markers too, and that is the point of
    generalizing `marker` past a style character: `1.` is an instance in
@@ -1847,7 +1864,11 @@ Corollary ordered_uniformity :
     = [marker_list_checked m (list_spacing_of sp itemss)
              (map (fun _ => mk_check m) itemss)
              (map (fun L => parse_lines L (PPara [])) itemss)].
-Proof. intros m sp itemss Hm. exact (list_uniformity_same m sp itemss Hm). Qed.
+Proof.
+  intros m sp itemss Hm.
+  assert (Htasks : marker_tasks_ok btasks m = true) by (destruct m; reflexivity).
+  exact (list_uniformity_same m sp itemss Hm Htasks).
+Qed.
 
 (* The point of a marker per item, and the case a repeated marker cannot
    express: a renumbering list whose continuation indent changes in the
