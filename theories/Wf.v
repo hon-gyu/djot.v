@@ -2410,11 +2410,11 @@ Lemma open_attr_wf :
     wf_blocks (fst (open_attr pend ind ap l)) = true
     /\ state_wf (snd (open_attr pend ind ap l)) = true.
 Proof.
-  intros pend ind ap l Hl. cbn [open_attr fst snd state_wf].
-  split; [reflexivity|].
-  rewrite forallb_nonblank_cons
-    by (rewrite is_blank_drop_leading_ws; exact Hl).
-  reflexivity.
+  intros pend ind ap l Hl. unfold open_attr.
+  destruct (@battrs K); cbn [fst snd state_wf]; split; try reflexivity;
+    rewrite forallb_nonblank_cons
+      by (rewrite is_blank_drop_leading_ws; exact Hl);
+    reflexivity.
 Qed.
 
 (* Opening a code fence: it carries no invariant at all, its column
@@ -2571,8 +2571,8 @@ Proof.
     4: { (* attribute spec: close the heading, then open the spec *)
       destruct (open_attr_wf [] (off + indent_of l) kap l
                   (classify_kattr_nonblank l kap E)) as [Hob Hos].
-      split; [|exact Hos].
-      cbn [close_reopen open_attr finish fst snd]. rewrite app_nil_r. exact Hhb. }
+      rewrite close_reopen_attr. cbn [fst snd].
+      split; [exact Hhb|exact Hos]. }
     4: { (* footnote definition: close the heading, then descend *)
       destruct (IH (off + consumed l frest) frest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner].
@@ -2644,9 +2644,9 @@ Proof.
     6: { (* attribute spec: closes the quote and opens outside it *)
       destruct (open_attr_wf [] (off + indent_of l) kap l
                   (classify_kattr_nonblank l kap E)) as [Hob Hos].
-      split; [|exact Hos].
-      cbn [close_reopen open_attr finish fst snd]. rewrite app_nil_r.
-      rewrite wf_blocks_cons. cbn [node_contents mk]. rewrite Hbq. reflexivity. }
+      rewrite close_reopen_attr. cbn [fst snd]. split; [|exact Hos].
+      cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
+      rewrite Hbq. reflexivity. }
     6: { (* footnote definition: closes the quote and opens outside it *)
       destruct (IH (off + consumed l frest) frest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner'].
@@ -2769,8 +2769,7 @@ Proof.
           rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - destruct (open_attr_wf [] (off + indent_of l) kap l
                     (classify_kattr_nonblank l kap E)) as [Hob Hos].
-        split; [|exact Hos].
-        cbn [close_reopen open_attr fst snd]. rewrite app_nil_r.
+        rewrite close_reopen_attr. cbn [fst snd]. split; [|exact Hos].
         apply finish_wf. exact H. }
     6: { (* footnote definition: item contents when indented, else close *)
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
@@ -3368,6 +3367,9 @@ Proof.
         destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
           (configured_list_rest chk mr) (PPara [])) as [bs inner].
         apply open_list_supported; assumption.
+      * unfold open_attr. destruct (@battrs K);
+          cbn [close_reopen finish app fst snd state_supported];
+          split; reflexivity.
       * destruct (IH (off + consumed l frest) frest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner].
         cbn [fst snd] in Hb, Hs.
@@ -3430,8 +3432,9 @@ Proof.
          cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
     6: { cbn [close_reopen open_kind finish app fst snd].
          destruct (@btables K); split; reflexivity. }
-    all: destruct bheading_continues;
-         cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd];
+    all: destruct bheading_continues; unfold open_attr;
+         try destruct (@battrs K);
+         cbn [close_reopen open_quote finish app open_kind open_fence open_ref fst snd];
          split; reflexivity.
   - destruct (fence_close f l); cbn [fst snd].
     + rewrite supported_blocks_cons, fence_block_supported. split; reflexivity.
@@ -3488,11 +3491,11 @@ Proof.
          - split; [| reflexivity].
            rewrite supported_blocks_cons. cbn [node_contents mk].
            rewrite Hbq. cbn [andb]. reflexivity. }
-    all: cbn [is_lazy close_reopen open_quote finish app open_kind open_fence
-              open_attr open_ref fst snd]; split;
-         [ rewrite supported_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
-           cbn [andb]; reflexivity
-         | reflexivity ].
+    all: unfold open_attr; try destruct (@battrs K);
+         cbn [is_lazy close_reopen open_quote finish app open_kind open_fence
+              open_ref fst snd]; split; try reflexivity;
+         rewrite supported_blocks_cons; cbn [node_contents mk]; rewrite Hbq;
+         cbn [andb]; reflexivity.
   - (* a div: close, or descend; the same two goals as in step_fuel_wf *)
     pose proof H as H0. cbn [state_supported] in H0.
     apply andb_true_iff in H0 as [Hd Hi].
@@ -3639,9 +3642,9 @@ Proof.
            cbn [state_supported ls_items list_content list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs
-         | cbn [is_lazy close_reopen open_kind open_fence open_attr open_ref
-                fst snd];
-           split; [|reflexivity];
+         | unfold open_attr; try destruct (@battrs K);
+           cbn [is_lazy close_reopen open_kind open_fence open_ref fst snd];
+           split; try reflexivity;
            rewrite supported_blocks_app, (finish_supported _ H);
            reflexivity ].
   - (* an attribute spec emits nothing until it resolves *)
@@ -3693,7 +3696,9 @@ Proof.
           exact Hb).
   - cbn [state_supported] in H.
     destruct (classify l) eqn:E;
-      try (destruct (is_idle pinner); [split; reflexivity|]);
+      try (destruct (is_idle pinner);
+           [try unfold open_attr; try destruct (@battrs K);
+            split; reflexivity|]);
       destruct (IH off l pinner H) as [Hb Hs];
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [fst snd] in Hb, Hs;

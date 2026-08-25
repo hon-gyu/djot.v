@@ -1571,8 +1571,10 @@ Proof.
   - rewrite (parse_lines_step _ _ _ _ _
                (step_list_attr_close next kap ls' (rev bs ++ done)%list
                   inner' Hclass Hind')).
-    rewrite (parse_lines_step _ _ _ _ _ (step_attr_open next kap Hclass)).
-    rewrite Hfin. reflexivity.
+    rewrite (parse_lines_step _ _ _ _ _
+               (eq_trans (step_attr_open next kap Hclass)
+                  (surjective_pairing _))).
+    rewrite Hfin, open_attr_fst. reflexivity.
   - destruct (step frest (PPara [])) as [fbs finner] eqn:Hfoot.
     rewrite (parse_lines_step _ _ _ _ _
                (step_list_foot_close next flbl frest ls'

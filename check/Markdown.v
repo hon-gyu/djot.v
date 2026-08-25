@@ -509,6 +509,38 @@ Example with_deflists_preserves_other_block_settings :
   = (true, true, true, true, true).
 Proof. reflexivity. Qed.
 
+(* Block attributes are the ninth block capability.  With them off a `{...}`
+   line opens nothing, so it is the paragraph text its own spelling makes and
+   the block that followed keeps the attributes it was never given. *)
+Example djot_profile_keeps_block_attributes :
+  parse_profile_blocks djot_profile "{#id}
+para"
+  = [Node NoPos [("id", "id")] (Para [mk (Str "para")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_block_attribute_is_prose :
+  parse_profile_blocks markdown_like_profile "{#id}
+para"
+  = [mk (Para [mk (Str "{#id}"); mk SoftBreak; mk (Str "para")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_block_attrs : profile :=
+  with_block_profile (with_block_attrs true markdown_bconfig)
+    markdown_like_profile.
+
+Example customized_markdown_profile_restores_block_attrs :
+  parse_profile_blocks markdown_with_block_attrs "{#id}
+para"
+  = [Node NoPos [("id", "id")] (Para [mk (Str "para")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_block_attrs_preserves_other_block_settings :
+  let K := with_block_attrs false djot_bconfig in
+  (@btables K, @bheading_continues K, @bdivs K, @btasks K, @braw_blocks K,
+   @bdeflists K)
+  = (true, true, true, true, true, true).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

@@ -76,6 +76,10 @@ Class bconfig : Type := BConfig {
        are an ordinary bullet list whose items keep their colon markers, so
        the term/definition split is what goes away and nothing else. *)
   bdeflists : bool
+  ; (* Does a `{...}` line open a block attribute spec?  When false the
+       complete spelling is ordinary paragraph text, and a spec spanning
+       several lines is the paragraph those lines make. *)
+  battrs : bool
 }.
 
 (*
@@ -114,7 +118,7 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true true true true true.
+  BConfig no_interrupt no_underline true true true true true true true.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -123,39 +127,46 @@ Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
-    (@btasks K) (@braw_blocks K) (@bdeflists K).
+    (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
-    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K).
+    (@bdeflists K) (@battrs K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
-    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
-    (@bdeflists K).
+    (@bdeflists K) (@battrs K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
-    (@bdeflists K).
+    (@bdeflists K) (@battrs K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K).
+    (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K)
+    (@battrs K).
 
 Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled.
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled
+    (@battrs K).
+
+Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -175,14 +186,15 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_deflists false
-   (with_raw_blocks false
-    (with_tasks false
-     (with_divs false
-      (with_heading_continuation false
-        (with_tables false
-          (with_underline setext_underline
-            (with_marker_interrupts prose_safe_markers djot_bconfig))))))).
+  with_block_attrs false
+   (with_deflists false
+    (with_raw_blocks false
+     (with_tasks false
+      (with_divs false
+       (with_heading_continuation false
+         (with_tables false
+           (with_underline setext_underline
+             (with_marker_interrupts prose_safe_markers djot_bconfig)))))))).
 
 (* Classification remains profile-independent.  This projection is the
    construct-creation gate: disabling tasks changes only a recognized task
@@ -855,9 +867,31 @@ Definition open_quote (descended : blocks * pstate) : blocks * pstate :=
    offset, or padding the line — have to record the same number
    (`step_fuel_shift`, `step_fuel_pad`).  That is also why it is not part
    of `open_kind`, which never sees the offset. *)
+(* With block attributes off the spec never opens, so `PAttr` is
+   unreachable and the line is the paragraph text its own spelling makes.
+   The pending attribute is dropped with it, which is sound because
+   nothing can be pending: the only source of one is a `PAttr` that
+   closed. *)
 Definition open_attr (pend : attr) (ind : nat) (ap : aparser) (l : string)
   : blocks * pstate :=
-  ([], PAttr pend ind ap [drop_leading_ws l]).
+  if battrs then ([], PAttr pend ind ap [drop_leading_ws l])
+  else ([], PPara [drop_leading_ws l]).
+
+(* Neither setting closes anything, which is what the two step equations
+   below need in order to be stated without a case split. *)
+Lemma open_attr_fst :
+  forall pend ind ap l, fst (open_attr pend ind ap l) = [].
+Proof. intros. unfold open_attr. destruct battrs; reflexivity. Qed.
+
+(* And so closing into a spec emits exactly what the closed state does. *)
+Lemma close_reopen_attr :
+  forall st pend ind ap l,
+    close_reopen st (open_attr pend ind ap l)
+    = (finish st, snd (open_attr pend ind ap l)).
+Proof.
+  intros. unfold close_reopen, open_attr. destruct battrs; cbn [snd];
+    rewrite app_nil_r; reflexivity.
+Qed.
 
 (* A code fence opens at the column its border sits at, and for the same
    reason as `open_attr` is not part of `open_kind`: the column is
@@ -1850,7 +1884,8 @@ Proof.
                     (configured_list_rest chk mr) (PPara []))
           as [bs inner'] eqn:Ed.
         cbn [open_list fst snd pad_state]. reflexivity. }
-      { cbn [open_attr fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. }
+      { unfold open_attr. destruct (@battrs K); cbn [fst snd pad_state];
+        rewrite ?Nat.add_assoc; reflexivity. }
       { rewrite <- !Nat.add_assoc.
         pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
@@ -1897,8 +1932,9 @@ Proof.
                   (configured_list_rest chk mr) (PPara []))
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state]. reflexivity. }
-    { cbn [close_reopen open_attr fst snd pad_state].
-      rewrite Nat.add_assoc. reflexivity. }
+    { unfold open_attr. destruct (@battrs K);
+        cbn [close_reopen fst snd pad_state];
+        rewrite ?Nat.add_assoc; reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -1944,8 +1980,9 @@ Proof.
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state].
       rewrite finish_pad_quote. reflexivity. }
-    { cbn [close_reopen open_attr fst snd pad_state].
-      rewrite Nat.add_assoc, finish_pad_quote. reflexivity. }
+    { unfold open_attr. destruct (@battrs K);
+        cbn [close_reopen fst snd pad_state];
+        rewrite ?Nat.add_assoc, finish_pad_quote; reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -2061,8 +2098,9 @@ Proof.
       cbn [fst snd pad_state]. rewrite pad_state_div_closer.
       destruct (div_closer l inner);
         [rewrite pad_list_blank | rewrite pad_list_content]; reflexivity. }
-    { cbn [close_reopen open_attr fst snd pad_state].
-      rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
+    { unfold open_attr. destruct (@battrs K);
+        cbn [close_reopen fst snd pad_state];
+        rewrite ?Nat.add_assoc, finish_pad_list; reflexivity. }
     (* footnote definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -2165,7 +2203,8 @@ Proof.
   { cbn [pad_state step_fuel]. rewrite (pad_state_is_idle k pinner).
     destruct (classify l) eqn:E;
       try (destruct (is_idle pinner);
-           [cbn [open_attr fst snd pad_state]; rewrite ?Nat.add_assoc; reflexivity|]);
+           [unfold open_attr; destruct (@battrs K); cbn [fst snd pad_state];
+             rewrite ?Nat.add_assoc; reflexivity|]);
       rewrite (IH k off l pinner);
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [pend_result fst snd pad_state];
@@ -2521,9 +2560,12 @@ Qed.
 (* An attribute spec is not `direct_open` — it records a column, so it
    opens through `open_attr` rather than `open_kind` — which is why it
    needs its own pair of equations, exactly as a quote does. *)
+(* Stated through `open_attr` rather than through `PAttr`, because the
+   spec opens only where the capability is on and the two consumers below
+   need the equation at either setting. *)
 Lemma step_attr_open :
   forall l ap, classify l = KAttr ap ->
-  step l (PPara []) = ([], PAttr [] (indent_of l) ap [drop_leading_ws l]).
+  step l (PPara []) = open_attr [] (indent_of l) ap l.
 Proof. intros l ap H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
 
 Lemma step_list_attr_close :
@@ -2531,12 +2573,12 @@ Lemma step_list_attr_close :
     classify l = KAttr ap ->
     Nat.ltb (ls_indent ls) (indent_of l) = false ->
     step l (PList ls done inner)
-    = (finish (PList ls done inner),
-       PAttr [] (indent_of l) ap [drop_leading_ws l]).
+    = (finish (PList ls done inner), snd (open_attr [] (indent_of l) ap l)).
 Proof.
   intros l ap ls done inner H Hind. unfold step. cbn [step_fuel pstate_depth].
   rewrite H, !Nat.add_0_l, Hind.
-  cbn [close_reopen open_attr]. rewrite app_nil_r. reflexivity.
+  unfold close_reopen, open_attr. destruct (@battrs K); cbn [fst snd];
+    rewrite app_nil_r; reflexivity.
 Qed.
 
 (* A footnote definition consumes its opener and then parses the residue

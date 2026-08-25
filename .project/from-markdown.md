@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Twelve things are configurable today, and this document describes the
+Thirteen things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -35,10 +35,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | inline `` `code`{=format} `` | code plus literal format text (`markdown_like_config`) | raw inline output |
 | ``$`x` `` and ``$$`x` `` | literal dollars plus code (`markdown_like_config`) | inline and display math |
 | `: term` | a bullet item (`markdown_bconfig`) | a definition list |
+| `{#id}` on its own line | paragraph text (`markdown_bconfig`) | attributes for the next block |
 
 The first two, raw inline and math compose in `markdown_like_config`: it
 starts from the doubled strong spelling and applies field-local capability
-updates. The eight block settings live in one record with one field each,
+updates. The nine block settings live in one record with one field each,
 and `markdown_bconfig` composes their field-local knobs. `check/Markdown.v`
 pins the combined profile, and `check/Sublist.v` and `check/Setext.v` pin the
 individual settings.
@@ -217,7 +218,7 @@ characters literally may read differently.
 
 | syntax | what |
 | --- | --- |
-| `{#id .class key=val}` | attributes, on a block or an inline span |
+| `{#id .class key=val}` | attributes, on a block (inline only, in the Markdown-facing profile) or an inline span |
 | `:::` | a div, a named block container |
 | `- [x] item` | a task-list item (ordinary bullet text in the Markdown-facing profile) |
 | `[text]{.class}` | a span |
@@ -266,7 +267,12 @@ block. GFM-style tables are therefore not currently part of the Markdown-like
 profile either; adding a separate caption-free GFM table mode would be a new
 extension.
 
-**Would need a new setting.** Attributes, spans and footnotes.
+**Would need a new setting.** Inline attributes, spans and footnotes. The
+*block* half of attributes is already a capability: with `battrs` off a
+`{...}` line opens nothing and is the paragraph text it spells
+(`markdown_like_block_attribute_is_prose`). Until the inline half follows,
+the Markdown-facing profile still reads a brace inside a paragraph as an
+attribute spec.
 
 **The shape the work takes** is known, since it was done once for the
 delimiter rows and twice in the block layer: a predicate in the settings
