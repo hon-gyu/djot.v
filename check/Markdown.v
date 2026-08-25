@@ -541,6 +541,56 @@ Example with_block_attrs_preserves_other_block_settings :
   = (true, true, true, true, true, true).
 Proof. reflexivity. Qed.
 
+(* The inline half.  `dc_attrs` covers both things a `{` can do that are not
+   a delimiter row: attach an attribute, and -- after a `]` -- open a span.
+   With it off each is the literal text it spells. *)
+Example markdown_like_inline_attribute_is_text :
+  ProfileInline "x{#i .c}y" = [mk (Str "x{#i .c}y")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_span_is_text :
+  ProfileInline "[s]{.c}" = [mk (Str "[s]{.c}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Both halves together are what makes a multi-line spec read as prose: the
+   block layer no longer opens it and the inline layer no longer eats the
+   break, so the paragraph keeps its lines. *)
+Example markdown_like_multiline_attribute_is_prose :
+  parse_profile_blocks markdown_like_profile "{#i
+ .c}
+para"
+  = [mk (Para [mk (Str "{#i"); mk SoftBreak; mk (Str ".c}");
+               mk SoftBreak; mk (Str "para")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The braced delimiter rows are a separate decision, reached from the same
+   `{`: a table with attributes off and djot's rows still reads `{-x-}` as a
+   delete. *)
+Definition no_attrs_table : dtable :=
+  DTable (with_inline_attrs false djot_config) eq_refl.
+
+Example rows_survive_inline_attrs_off :
+  (@Inline.parse_inline_line no_attrs_table "a{-b-}c",
+   @Inline.parse_inline_line no_attrs_table "a{#i}c")
+  = ([mk (Str "a"); mk (Delete [mk (Str "b")]); mk (Str "c")],
+     [mk (Str "a{#i}c")]).
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_inline_attrs_table : dtable :=
+  DTable (with_inline_attrs true markdown_like_config) eq_refl.
+
+Example customized_markdown_table_restores_inline_attrs :
+  @Inline.parse_inline_line markdown_with_inline_attrs_table "[s]{.c}"
+  = [Node NoPos [("class", "c")] (Span [mk (Str "s")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_inline_attrs_preserves_other_inline_settings :
+  let C := with_inline_attrs false djot_config in
+  (dc_smart_typography C, dc_raw_inline C, dc_math C, dc_char C DStrong,
+   dc_width C DStrong, dc_syntax C DStrong)
+  = (true, true, true, "*"%char, 1, DBare).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

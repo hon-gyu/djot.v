@@ -226,7 +226,12 @@ Record dconfig : Type := DConfig {
   dc_raw_inline : bool;
   (* Does a `$` or `$$` before a verbatim make the span math?  When false the
      dollars are ordinary text and the verbatim is ordinary code. *)
-  dc_math : bool
+  dc_math : bool;
+  (* Do `{...}` specs attach attributes, and does `]{`  open a span?  When
+     false both are literal text.  The braced delimiter rows are a separate
+     decision: they are reached from the same `{` but are rows in this very
+     table. *)
+  dc_attrs : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -274,7 +279,7 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true.
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true true.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -385,13 +390,13 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C).
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
-    (dc_raw_inline C) (dc_math C).
+    (dc_raw_inline C) (dc_math C) (dc_attrs C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -399,7 +404,7 @@ Proof. intros enabled C H. exact H. Qed.
 
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) enabled (dc_math C).
+    (dc_smart_typography C) enabled (dc_math C) (dc_attrs C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
@@ -409,10 +414,20 @@ Proof. intros enabled C H. exact H. Qed.
    character, which no table may claim, and its own scanner state. *)
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) enabled.
+    (dc_smart_typography C) (dc_raw_inline C) enabled (dc_attrs C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Inline attributes and spans.  The rows keep their own switches: a table
+   whose delete row is on still reads `{-` as a delete opener here. *)
+Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled.
+
+Theorem with_inline_attrs_preserves_admissible :
+  forall enabled, preserves (with_inline_attrs enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
@@ -667,10 +682,11 @@ Definition markdown_like_disabled_rows : list dstyle :=
   [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
 
 Definition markdown_like_config : dconfig :=
-  with_math false
-    (with_raw_inline false
-      (with_smart_typography false
-        (disable_rows markdown_like_disabled_rows markdown_config))).
+  with_inline_attrs false
+    (with_math false
+      (with_raw_inline false
+        (with_smart_typography false
+          (disable_rows markdown_like_disabled_rows markdown_config)))).
 
 Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -771,7 +787,8 @@ Example clashing_config_not_ok :
   dconfig_ok (DConfig (fun k => match k with
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
-                      djot_dwidth djot_dsyntax djot_ddecay true true true)
+                      djot_dwidth djot_dsyntax djot_ddecay true true true
+                      true)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -785,7 +802,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true) = true.
+                      djot_ddecay true true true true) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -819,6 +836,8 @@ Definition smart_typography : bool := dc_smart_typography cfg.
 Definition raw_inline_enabled : bool := dc_raw_inline cfg.
 
 Definition math_enabled : bool := dc_math cfg.
+
+Definition inline_attrs_enabled : bool := dc_attrs cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -2908,7 +2927,13 @@ Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   match dstyle_of c with
   | Some k => idelim_marked k 0 txt o
-  | None => iattr_feed c ap_init EmptyString txt prev o
+  | None =>
+      if inline_attrs_enabled
+      then iattr_feed c ap_init EmptyString txt prev o
+      (* The spec's own immediate-failure path, taken before the first
+         byte is read: `{` goes back into the text and this byte is
+         dispatched afresh. *)
+      else let '(t, o') := battr_lit EmptyString txt o in ilead c t None o'
   end.
 
 (* A span ignores the image marker: `![x]{.a}` is a literal `!` followed
@@ -3277,7 +3302,7 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
   | IClosed kids image o =>
       if Ascii.eqb c lparen then IDest kids image false 0 EmptyString o
       else if Ascii.eqb c lbrack then IReference kids image EmptyString o
-      else if Ascii.eqb c lbrace
+      else if (Ascii.eqb c lbrace && inline_attrs_enabled)%bool
       then ISpan kids image ap_init EmptyString o
       else let '(txt, o') := bclosed_lit kids image o in ilead c txt None o'
   | ISpan kids image p src o => ispan_feed c kids image p src o
@@ -4050,7 +4075,10 @@ Proof.
     destruct (iescws_resolve ews etxt eprev eob) as [[t p] o']; cbn [fst snd].
     apply ilead_app.
   - unfold ibrace_step. destruct (dstyle_of c);
-      [apply idelim_marked_out_app|apply iattr_feed_app, Hb].
+      [apply idelim_marked_out_app|].
+    destruct inline_attrs_enabled; [apply iattr_feed_app, Hb|].
+    rewrite battr_lit_app. destruct (battr_lit EmptyString txt o) as [t o'].
+    apply ilead_app.
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { destruct (Ascii.eqb c (dchar k)); [|apply ilead_app].
       destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
@@ -4086,7 +4114,7 @@ Proof.
       |apply ilead_app].
   - destruct (Ascii.eqb c lparen); [reflexivity|].
     destruct (Ascii.eqb c lbrack); [reflexivity|].
-    destruct (Ascii.eqb c lbrace); [reflexivity|].
+    destruct (Ascii.eqb c lbrace && inline_attrs_enabled)%bool; [reflexivity|].
     rewrite (bclosed_lit_app kids img ob base Hb).
     destruct (bclosed_lit kids img ob) as [txt o']. apply ilead_app.
   - apply ispan_feed_app, Hb.
@@ -4117,7 +4145,10 @@ Proof.
       * destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
         unfold ibrace_step; destruct (dstyle_of c);
-          [apply idelim_marked_out_app | apply iattr_feed_app, Hb].
+          [apply idelim_marked_out_app|].
+        destruct inline_attrs_enabled; [apply iattr_feed_app, Hb|].
+        rewrite battr_lit_app. destruct (battr_lit EmptyString "") as [t o'].
+        apply ilead_app.
       * destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
 Qed.
@@ -6716,7 +6747,11 @@ Proof.
     destruct (iescws_resolve ews etxt eprev eob) as [[t p] o'].
     apply iscan_productive_lead, Hr.
   - unfold ibrace_step. destruct (dstyle_of c);
-      [apply idelim_marked_productive|apply iattr_feed_productive].
+      [apply idelim_marked_productive|].
+    destruct inline_attrs_enabled; [apply iattr_feed_productive|].
+    pose proof (battr_lit_productive EmptyString txt o) as Hp.
+    destruct (battr_lit EmptyString txt o) as [t o']; cbn [fst snd] in Hp.
+    apply iscan_productive_lead, Hp.
   - (* whichever way the pending delimiter resolves, something is owed:
        either a scope is open, or its spelling is in the text buffer *)
     destruct (Nat.ltb (S seen) (dwidth k)).
@@ -6770,7 +6805,7 @@ Proof.
   - (* a literal bracket owes its own source; a destination owes more *)
     destruct (Ascii.eqb c lparen); [reflexivity|].
     destruct (Ascii.eqb c lbrack); [reflexivity|].
-    destruct (Ascii.eqb c lbrace); [reflexivity|].
+    destruct (Ascii.eqb c lbrace && inline_attrs_enabled)%bool; [reflexivity|].
     pose proof (bclosed_lit_nonempty kids img ob) as Hne.
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
     apply iscan_productive_lead. rewrite Hne. reflexivity.
@@ -6805,8 +6840,13 @@ Proof.
     destruct rspec as [|x rspec'].
     + destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
       unfold ibrace_step. destruct (dstyle_of c);
-        [apply idelim_marked_productive
-        |apply iattr_feed_productive].
+        [apply idelim_marked_productive|].
+      destruct inline_attrs_enabled; [apply iattr_feed_productive|].
+      pose proof (battr_lit_productive EmptyString ""
+                    (oemit (mk (Verbatim rtxt)) rob)) as Hp.
+      destruct (battr_lit EmptyString "" (oemit (mk (Verbatim rtxt)) rob))
+        as [t o']; cbn [fst snd] in Hp.
+      apply iscan_productive_lead, Hp.
     + destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
       apply iscan_productive_lead, orb_true_iff. right.
       apply ostate_nonempty_emit.

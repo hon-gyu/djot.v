@@ -1706,8 +1706,11 @@ Proof.
     destruct (iescws_resolve ews etxt eprev eob) as [[t p] o'].
     destruct Hr as [Ho' Hs']. apply ilead_wf; assumption.
   - unfold ibrace_step.
-    destruct (dstyle_of c);
-      [apply idelim_marked_wf; assumption|apply iattr_feed_wf; assumption].
+    destruct (dstyle_of c); [apply idelim_marked_wf; assumption|].
+    destruct inline_attrs_enabled; [apply iattr_feed_wf; assumption|].
+    destruct (battr_lit_ok EmptyString txt o Ho Hs) as [H1 H2].
+    destruct (battr_lit EmptyString txt o) as [t o']; cbn [snd] in H1, H2.
+    apply ilead_wf; assumption.
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { destruct (Ascii.eqb c (dchar k));
         [|apply ilead_wf; assumption].
@@ -1763,7 +1766,7 @@ Proof.
       [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
     destruct (Ascii.eqb c lbrack);
       [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
-    destruct (Ascii.eqb c lbrace);
+    destruct (Ascii.eqb c lbrace && inline_attrs_enabled)%bool;
       [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
     destruct (bclosed_lit_ok kids img ob Ho Hk) as [H1 H2].
     destruct (bclosed_lit kids img ob) as [txt o']; cbn [snd] in H1, H2.
@@ -1835,7 +1838,13 @@ Proof.
     destruct rspec as [|x rspec'].
     + destruct (negb (Ascii.eqb c eqchar)); [|cbn [iscan_wf]; exact H].
       unfold ibrace_step. destruct (dstyle_of c);
-        [apply idelim_marked_wf; assumption | apply iattr_feed_wf; assumption].
+        [apply idelim_marked_wf; assumption|].
+      destruct inline_attrs_enabled; [apply iattr_feed_wf; assumption|].
+      destruct (battr_lit_ok EmptyString ""
+                  (oemit (mk (Verbatim rtxt)) rob) Hvo Hvs) as [H1 H2].
+      destruct (battr_lit EmptyString "" (oemit (mk (Verbatim rtxt)) rob))
+        as [t o']; cbn [snd] in H1, H2.
+      apply ilead_wf; assumption.
     + destruct (Ascii.eqb c rbrace || raw_stop c)%bool;
         [apply ilead_wf; assumption | cbn [iscan_wf]; exact H].
 Qed.
