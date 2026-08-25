@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* Uniformity for lists: the rendering of a list whose items are
+(** * List uniformity
+
+   Uniformity for lists: the rendering of a list whose items are
    canonical parses back to that list, with each item's blocks the parse
    of that item's own lines.
 

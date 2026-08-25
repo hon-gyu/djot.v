@@ -1,6 +1,8 @@
 (* ai-disclosure: ai-generated *)
 
-(* The fold's equation lemmas, and uniformity for block quotes and
+(** * Block uniformity and prefix determinism
+
+   The fold's equation lemmas, and uniformity for block quotes and
    fenced divs: a container's contents parse exactly as they would at
    top level.
 

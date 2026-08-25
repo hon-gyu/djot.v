@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* Djot rendering (AST -> djot source), modeled on djoths's Djot.hs,
+(** * Canonical Djot rendering
+
+   Djot rendering (AST -> djot source), modeled on djoths's Djot.hs,
    together with the canonical form it inverts.
 
    `cblock` is the canonical (renderable) view of a block: the parser's

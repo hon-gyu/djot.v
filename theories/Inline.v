@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* The inline layer: the parser's pass over a paragraph's text, and the
+(** * Single-pass inline parsing
+
+   The inline layer is the parser's pass over a paragraph's text, and the
    canonical (renderable) view it inverts.
 
    The same two-sided shape as the block layer, one level down.  There,

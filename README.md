@@ -22,3 +22,12 @@ A verified [djot](https://djot.net) parser in Rocq.
 - opam switch with Rocq 9.x, dune ≥ 3.20, and the `coq` compatibility
   package (dune's Coq mode still invokes `coqc`): `opam install coq`
 - node ≥ 17 (djot.js oracle), GHC + cabal (djoths oracle)
+
+## Documentation
+
+Build the reader-facing Rocqdoc site with:
+
+```sh
+make doc
+open _build/doc/index.html
+```

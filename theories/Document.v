@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* The whole-document pass: the part of parsing that is a function of the
+(** * Whole-document resolution
+
+   The whole-document pass is the part of parsing that is a function of the
    finished block list rather than of a single line.
 
    It runs strictly *after* `Parser.parse_blocks`, never inside the fold.
@@ -1050,7 +1052,8 @@ Definition doc_pass (bs : blocks) : doc :=
    ; doc_auto_references := rev (id_refs st)
    ; doc_auto_identifiers := rev (id_used st) |}.
 
-(** Parse a djot document: the line fold, then the whole-document pass. *)
+(** Parse a Djot document: first run the line fold, then perform
+    whole-document resolution. *)
 Definition parse_doc (s : string) : doc := doc_pass (parse_blocks s).
 
 (*

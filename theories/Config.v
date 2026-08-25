@@ -1,17 +1,25 @@
 (* ai-disclosure: autonomous *)
 
-(* The vocabulary for Phase 4's configuration obligations.  An invariant
+(** * Configuration changes and invariant preservation
+
+   The vocabulary for configuration obligations. An invariant
    describes the configurations admitted by a development; a knob changes a
    configuration; preservation is the local proof that the change stays
-   inside the admitted family. *)
+   inside the admitted family.
+
+   Feature-specific work proves [preserves] (or [preserves_when] under a
+   local compatibility condition). [preserves_compose] then combines those
+   local results without a proof for every named profile. *)
 
 Definition invariant (C : Type) : Type := C -> Prop.
 Definition knob (C : Type) : Type := C -> C.
 
+(** [preserves k I] says that applying [k] to any configuration admitted by
+    [I] produces another admitted configuration. *)
 Definition preserves {C : Type} (k : knob C) (I : invariant C) : Prop :=
   forall c, I c -> I (k c).
 
-(* A local edit may have a decidable compatibility obligation that depends on
+(** A local edit may have a decidable compatibility obligation that depends on
    the configuration it is applied to. *)
 Definition preserves_when {C : Type}
   (compatible : C -> Prop) (k : knob C) (I : invariant C) : Prop :=

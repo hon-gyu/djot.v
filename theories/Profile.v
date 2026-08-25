@@ -1,9 +1,15 @@
 (* ai-disclosure: autonomous *)
 
-(* A profile is a reviewed pairing of the independently customizable inline
+(** * Composable syntax profiles
+
+   A profile is a reviewed pairing of the independently customizable inline
    and block configurations.  It is intentionally not an enum: callers may
    start from a named profile, update either fine-grained configuration, and
-   bundle the result again. *)
+   bundle the result again.
+
+   [djot_profile] is the compatibility baseline. [markdown_like_profile] is
+   a separately composed starting point, not a claim of full CommonMark or
+   GFM compatibility. *)
 
 From Stdlib Require Import String.
 From DjotV Require Import Ast Inline Step Parser Document.
@@ -19,7 +25,7 @@ Definition with_inline_profile (T : dtable) (P : profile) : profile :=
 Definition with_block_profile (K : bconfig) (P : profile) : profile :=
   Profile (profile_inline P) K.
 
-(* The one capability that spans both layers.  A footnote reference and a
+(** The one capability that spans both layers. A footnote reference and a
    footnote definition are two halves of one construct, and neither
    record can name the other's field, so this is where they move
    together.  The half-knobs stay exported for a caller who really means
@@ -34,7 +40,7 @@ Definition with_footnotes (enabled : bool) (P : profile) : profile :=
 Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
-(* This remains deliberately "Markdown-like": Djot-only constructs are being
+(** This remains deliberately "Markdown-like": Djot-only constructs are being
    removed capability by capability, and GFM tables do not yet exist. *)
 Definition markdown_like_profile : profile :=
   Profile markdown_like_table markdown_bconfig.

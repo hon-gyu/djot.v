@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* Block parsing: a fold over classified lines with an explicit state.
+(** * Block parsing as an incremental fold
+
+   Block parsing is a fold over classified lines with an explicit state.
 
    The state is a *container stack*, growing inward: an open paragraph
    accumulator (empty = idle), an open code fence collecting verbatim
@@ -29,9 +31,7 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
-(*
-Block settings
-==============
+(** ** Block settings
 
 What the block layer is configurable in.  Today that is seven questions:
 may a list marker close an open paragraph rather than extend it, may an
@@ -1424,7 +1424,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
 Definition step (l : string) (st : pstate) : blocks * pstate :=
   step_fuel (S (String.length l + pstate_depth st)) 0 l st.
 
-(* The parser: fold the transition over the lines, then close the stack.
+(** Fold the transition over the lines, then close the stack.
    Structurally recursive on `lines`, so it always terminates and proofs
    can step it one line at a time. *)
 Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
@@ -1435,7 +1435,7 @@ Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
       (bs ++ parse_lines rest st')%list
   end.
 
-(* Entry point of the line fold: split the source into lines and fold from
+(** Entry point of the block parser: split the source into lines and fold from
    the idle state.  This is the whole block structure, and the layer every
    theorem in Wf.v and Roundtrip.v is stated against.  Document.parse_doc
    composes the whole-document pass on top to build the `doc` record. *)

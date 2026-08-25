@@ -1,7 +1,17 @@
-.PHONY: build test shape baseline generated roundtrip deep probe oracles clean
+.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe oracles clean
 
 build:
 	dune build
+
+# Reader-facing Rocqdoc site.  Use Dune's copied sources so the adjacent
+# globalization files provide cross-module identifier links.
+doc: build
+	mkdir -p _build/doc
+	rocq doc --html --toc --utf8 --gallina --index rocq-index \
+	  -R _build/default/theories DjotV \
+	  -d _build/doc \
+	  _build/default/theories/*.v
+	cp _build/doc/DjotV.Overview.html _build/doc/index.html
 
 # full differential run: gallina vs djot.js vs djoths over the corpus,
 # then over the enumerated corpus (fast: djot.js is batched, one process)

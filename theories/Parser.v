@@ -1,6 +1,8 @@
 (* ai-disclosure: ai-generated *)
 
-(* The block parser, as one name.  Everything is defined in the five
+(** * Parser interface
+
+   The block parser, as one name. Everything is defined in the five
    files below; this is the interface the rest of the development and the
    harness require, so splitting the implementation moved no `Require`
    anywhere else.

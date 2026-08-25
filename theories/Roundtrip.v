@@ -1,6 +1,11 @@
 (* ai-disclosure: autonomous *)
 
-(* Roundtrip:  parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs
+(** * Canonical rendering roundtrips
+
+   The central block theorem states:
+
+   [parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs]
+
    for canonical blocks (Render.v).  Exact equality — canonicality is in
    the cb_ok hypothesis, so no quotient is needed.
 
@@ -26,7 +31,7 @@
    section only matches `cb_lines`'s shape to `list_lines`'s and reads
    the spacing verdict off `cb_ok`, reaching the two lemmas the block
    layer consumes: `parse_canonical_list_end` and
-   `parse_canonical_list_then_nonlist`. *)
+   [parse_canonical_list_then_nonlist]. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Parser Document Render.

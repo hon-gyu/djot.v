@@ -1,6 +1,10 @@
 (* ai-disclosure: autonomous *)
 
-(* Phase 4's first parser-level invariant bundle.
+(** * Structural guarantees and configurable extensions
+
+   This module packages the parser properties intended to remain true across
+   admitted language profiles and proves preservation results for exported
+   configuration updates.
 
    This bundle is deliberately narrower than "everything proved about the
    parser": its three fields say exactly that the block fold commits a prefix,
@@ -15,7 +19,9 @@ From DjotV Require Import Config Ast Line Parser.
 Import ListNotations.
 Local Open Scope string_scope.
 
-(* The inline guarantees Phase 3 established independently are one structural
+(** ** Inline scanning
+
+   The inline guarantees are one structural
    invariant of an admissible delimiter table.  They intentionally say no
    more than the original theorems: one unit of fuel per source byte, and no
    dependence on resolution environments while classifying source. *)
@@ -46,6 +52,10 @@ Theorem dtable_knob_preserves_inline_structural :
   forall k, preserves k inline_structural.
 Proof. intros k T _. apply inline_structural_holds. Qed.
 
+(** ** Incremental block parsing
+
+    These fields state prefix determinism, independence from future input,
+    and sufficiency of the explicit parser state. *)
 Record incremental_invariants (T : dtable) (K : bconfig) : Prop := {
   incremental_prefix_determinism :
     forall xs ys st,
@@ -117,7 +127,9 @@ Theorem with_raw_blocks_preserves_incremental :
   forall T enabled, preserves (with_raw_blocks enabled) (block_incremental T).
 Proof. intros T enabled K _. apply block_incremental_holds. Qed.
 
-(* The only line that can answer both block decisions is a lone dash: it is
+(** ** Compatibility of block-prefix choices
+
+   The only line that can answer both block decisions is a lone dash: it is
    the bullet marker with no body, and it is also a one-character underline.
    Longer dash runs are not list markers, and equals runs are never markers.
    Keeping this invariant about the settings, rather than the order in which

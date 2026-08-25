@@ -1,6 +1,8 @@
 (* ai-disclosure: autonomous *)
 
-(* The djot AST, transcribed from djoths (src/Djot/AST.hs) with djot.js
+(** * Abstract syntax tree
+
+   The Djot AST, transcribed from djoths (src/Djot/AST.hs) with djot.js
    (src/ast.ts) as tie-breaker where they disagree.
 
    Representation choices:
@@ -8,7 +10,11 @@
      native OCaml strings via ExtrOcamlNativeString)
    - Seq a -> list a
    - Map  -> association list keyed by normalized labels
-   - Int  -> nat *)
+   - Int  -> nat
+
+   Nodes carry attributes and source positions uniformly. The executable
+   parser produces this syntax; [Render] separately defines the canonical
+   subset for which source rendering is invertible. *)
 
 From Stdlib Require Import String Ascii List Bool.
 Import ListNotations.
