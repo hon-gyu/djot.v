@@ -72,6 +72,10 @@ Class bconfig : Type := BConfig {
   ; (* Does an info string beginning with `=` make a raw block?  When false
        the same fence is an ordinary code block whose language retains `=`. *)
   braw_blocks : bool
+  ; (* Is a `:` marker's list a definition list?  When false the same lines
+       are an ordinary bullet list whose items keep their colon markers, so
+       the term/definition split is what goes away and nothing else. *)
+  bdeflists : bool
 }.
 
 (*
@@ -110,7 +114,7 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true true true true.
+  BConfig no_interrupt no_underline true true true true true true.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -119,32 +123,39 @@ Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
-    (@btasks K) (@braw_blocks K).
+    (@btasks K) (@braw_blocks K) (@bdeflists K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
-    (@bdivs K) (@btasks K) (@braw_blocks K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
-    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K).
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
-    (@bdivs K) (@btasks K) (@braw_blocks K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) enabled (@btasks K) (@braw_blocks K).
+    (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
+    (@bdeflists K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K).
+    (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
+    (@bdeflists K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
-    (@bheading_continues K) (@bdivs K) (@btasks K) enabled.
+    (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K).
+
+Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -164,13 +175,14 @@ Definition setext_bconfig : bconfig :=
    knobs rather than spelling a record so adding another independent block
    setting has one composition point. Core CommonMark has no tables. *)
 Definition markdown_bconfig : bconfig :=
-  with_raw_blocks false
-   (with_tasks false
-    (with_divs false
-     (with_heading_continuation false
-       (with_tables false
-         (with_underline setext_underline
-           (with_marker_interrupts prose_safe_markers djot_bconfig)))))).
+  with_deflists false
+   (with_raw_blocks false
+    (with_tasks false
+     (with_divs false
+      (with_heading_continuation false
+        (with_tables false
+          (with_underline setext_underline
+            (with_marker_interrupts prose_safe_markers djot_bconfig))))))).
 
 (* Classification remains profile-independent.  This projection is the
    construct-creation gate: disabling tasks changes only a recognized task
@@ -517,33 +529,87 @@ Definition div_block (cls : string) (bs : blocks) : node block :=
   then mk (Div bs)
   else Node NoPos [("class", cls)] (Div bs).
 
-(* The list a `PList` closes to.  djot.js takes the first surviving
-   candidate — "take first if ambiguous", parse.ts:817 — which is why
-   `styles_of_core` lists the roman reading before the alpha one.  The
-   empty case is unreachable: `open_list` is only reached from a `KList`,
-   whose style set `list_marker` has already found nonempty, and
-   `narrow` replaces the set only when the result is nonempty. *)
-Definition list_block (ls : list_state) (last : blocks) : node block :=
-  let sp := if ls_loose ls then Loose else Tight in
-  let items := rev (last :: ls_items ls) in
-  let checks := rev (ls_check ls :: ls_checks ls) in
-  match ls_styles ls with
+(* The block a list closes to, read off the candidate set its state
+   carries.  Stated on the *set* rather than on a marker because the set
+   is what `list_block` matches on, and because siblings narrow it: a
+   list whose first marker is ambiguous closes to a block that marker
+   alone does not determine.
+
+   It lives here rather than beside the markers because of its one
+   configured arm: the colon needs `bdeflists`, and the section variable
+   is what keeps that argument implicit at its twenty-odd call sites in
+   the uniformity chain. *)
+Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
+                       (items : list blocks) : node block :=
+  match S with
   | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
-  (* The one node whose shape needs per-item data.  [styles_list_checked]
-     carries the same parallel status list through the uniformity proof. *)
-  | (STask _, _) :: _ => mk (TaskList sp (task_items checks items))
   (* The colon is the definition-list style, and this is the only place
      it differs from a bullet: djot.js's `-list` picks the node from the
      same style set (parse.ts:824), and `def_items` is the split its
      `-list_item` runs.  Spelled as a test on the character rather than
      as a pattern so that a proof holding an unknown bullet can case on
-     it in one step. *)
+     it in one step.
+
+     With definition lists off the split is what goes away: the items are
+     the same items, their markers are still colons, and the list is the
+     bullet list any other marker would have made. *)
   | (SBullet c, _) :: _ =>
-      if Ascii.eqb c ":"
+      if (Ascii.eqb c ":" && bdeflists)%bool
       then mk (DefinitionList sp (def_items items))
       else mk (BulletList sp items)
-  | [] => mk (BulletList sp items)
+  (* The state-free form cannot construct a task list because statuses are
+     per item.  [styles_list_checked] below is the uniformity result used for
+     that style; this fallback keeps the older projection total. *)
+  | _ => mk (BulletList sp items)
   end.
+
+(* The state-aware form used by list uniformity.  Non-task styles ignore the
+   parallel status list; task styles pair it with the item blocks exactly as
+   [list_block] does at close. *)
+Definition styles_list_checked (S : list (lstyle * nat)) (sp : list_spacing)
+    (checks : list task_status) (items : list blocks) : node block :=
+  match S with
+  | (STask _, _) :: _ => mk (TaskList sp (task_items checks items))
+  | _ => styles_list S sp items
+  end.
+
+(* The same at a marker whose set no sibling narrows.  Bullets give a
+   `BulletList` definitionally, so instantiating the uniformity chain at
+   `bullet` still reads as it did; an ordered marker gives the
+   `OrderedList` its style and start. *)
+Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
+  : node block := styles_list (mk_styles m) sp items.
+
+Definition marker_list_checked (m : marker) (sp : list_spacing)
+    (checks : list task_status) (items : list blocks) : node block :=
+  styles_list_checked (mk_styles m) sp checks items.
+
+(* The colon's own instance, which is the whole of the capability: with
+   definition lists on it is the split, and the generic uniformity chain
+   reaches `ck_block LKDef` through this one rewrite. *)
+Lemma marker_list_checked_colon :
+  forall sp checks items,
+    bdeflists = true ->
+    marker_list_checked colon sp checks items
+    = mk (DefinitionList sp (def_items items)).
+Proof.
+  intros sp checks items H.
+  unfold marker_list_checked, styles_list_checked, styles_list, colon,
+    mk_styles, with_starts, mk_sty.
+  cbn [map fst snd]. rewrite H. reflexivity.
+Qed.
+
+(* The list a `PList` closes to.  djot.js takes the first surviving
+   candidate -- "take first if ambiguous", parse.ts:817 -- which is why
+   `styles_of_core` lists the roman reading before the alpha one.  The
+   empty case is unreachable: `open_list` is only reached from a `KList`,
+   whose style set `list_marker` has already found nonempty, and
+   `narrow` replaces the set only when the result is nonempty. *)
+Definition list_block (ls : list_state) (last : blocks) : node block :=
+  styles_list_checked (ls_styles ls)
+    (if ls_loose ls then Loose else Tight)
+    (rev (ls_check ls :: ls_checks ls))
+    (rev (last :: ls_items ls)).
 
 (* The block a reference definition closes to.  It carries no HTML of its
    own — `Html.v` renders it as nothing, as djot.js does, which keeps it a
@@ -618,8 +684,7 @@ Lemma list_block_styles :
     = styles_list_checked S (if ls_loose ls then Loose else Tight)
         (rev (ls_check ls :: ls_checks ls)) (rev (last :: ls_items ls)).
 Proof.
-  intros S ls last H. unfold list_block, styles_list_checked, styles_list.
-  rewrite H. destruct S as [|[[c|c|n d] st] ss]; reflexivity.
+  intros S ls last H. unfold list_block. rewrite H. reflexivity.
 Qed.
 
 Lemma list_block_marker :

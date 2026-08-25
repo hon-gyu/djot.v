@@ -416,11 +416,11 @@ Lemma wf_list_block :
     wf_block (node_contents (list_block ls last)) = true.
 Proof.
   intros ls last H. apply andb_true_iff in H as [Hne Hall].
-  unfold list_block.
+  unfold list_block, styles_list_checked, styles_list.
   destruct (ls_styles ls) as [|[[c|c|n d] st] ss].
   - cbn [node_contents mk].
     rewrite wf_block_bullet. apply andb_true_iff. split; assumption.
-  - destruct (Ascii.eqb c ":"); cbn [node_contents mk].
+  - destruct (Ascii.eqb c ":" && bdeflists)%bool; cbn [node_contents mk].
     + rewrite wf_block_deflist. apply andb_true_iff. split.
       * rewrite nonempty_def_items. exact Hne.
       * apply wf_def_items, Hall.
@@ -3228,10 +3228,10 @@ Lemma supported_list_block :
     supported (node_contents (list_block ls last))
     = forallb supported_blocks (rev (last :: ls_items ls)).
 Proof.
-  intros ls last. unfold list_block.
+  intros ls last. unfold list_block, styles_list_checked, styles_list.
   destruct (ls_styles ls) as [|[[c|c|n d] st] ss].
   - cbn [node_contents mk]. apply supported_bullet.
-  - destruct (Ascii.eqb c ":"); cbn [node_contents mk].
+  - destruct (Ascii.eqb c ":" && bdeflists)%bool; cbn [node_contents mk].
     + rewrite supported_deflist. apply supported_def_items.
     + apply supported_bullet.
   - cbn [node_contents mk].

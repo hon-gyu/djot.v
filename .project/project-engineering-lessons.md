@@ -370,6 +370,31 @@ pricing its removal]] one level up: there the question was which proofs
 *use* the structure, here whether the uses have to *name* it. Both fail
 the same way, by counting the diff instead of the work.
 
+### When the parameter cannot reach, move the definition
+
+**What happened.** Gating definition lists needed `styles_list` to read
+`bdeflists`, and `styles_list` sat in `Marker.v`, below the file that
+defines `bconfig`. The obvious move was an explicit bool parameter, priced
+at the 36 mentions of `styles_list` and `styles_list_checked` -- most of
+them statements in the uniformity chain. The four definitions had no user
+inside `Marker.v` at all, so moving them into `Step.v`'s `Section
+WithTable` made the argument a section variable: 36 mentions, zero call
+sites edited, four proof sites total.
+
+**General form.** The clause above asks whether a parameter can stay
+implicit *where it is*. This is the prior question: a definition placed
+below the configuration in the dependency order cannot have an implicit
+parameter, so the choice is not "explicit or implicit" but "explicit here
+or implicit one file up". The placement is usually historical rather than
+forced -- `styles_list` was in `Marker.v` because it is about markers, not
+because anything there used it.
+
+**What to do instead.** Before parameterizing a definition that sits below
+`Step.v`, grep for its users *within its own file*. If there are none, the
+move is the cheaper change and it costs one `git mv`-shaped diff. Check the
+other direction too: every file that imports the donor already imports
+`Step.v` here, which is what made the move invisible to them.
+
 ### The check that a parameterization took
 
 The failure mode is silent. A statement written after a section's `End`

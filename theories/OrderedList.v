@@ -1373,7 +1373,10 @@ Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
 Definition ck_ok (k : list_kind) (n : nat) : bool :=
   match k with
   | LKBullet => true
-  | LKDef => true
+  (* The colon marker is canonical at every setting; what needs the
+     capability is the term split, which is the only thing `ck_block`
+     does with it. *)
+  | LKDef => (@bdeflists K)
   | LKTask checks => (@btasks K) && Nat.eqb (length checks) n
   | LKDecimal _ _ => true
   (* No ambiguity condition: a roman numeral's set has roman at its head
@@ -1610,10 +1613,14 @@ Proof.
     rewrite map_litem_lines_same_marker.
     exact (list_uniformity_same bullet sp lss bullet_ok eq_refl Hne Hok).
   (* The colon reaches the same generic theorem; `marker_list colon` is
-     the `DefinitionList` arm of `Marker.styles_list` definitionally, so
-     `ck_block LKDef` needs no separate step. *)
+     the `DefinitionList` arm of `styles_list` once the capability is
+     known on, which is what `ck_ok LKDef` says, so `ck_block LKDef`
+     needs no separate step. *)
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
+    cbn [ck_ok] in Hck.
+    rewrite <- (marker_list_checked_colon _
+                  (map (fun _ => mk_check colon) lss) _ Hck).
     exact (list_uniformity_same colon sp lss colon_ok eq_refl Hne Hok).
   - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].
     apply Nat.eqb_eq in Hck.
@@ -1662,6 +1669,9 @@ Proof.
              Hnb Hnl Hindent).
   - cbn [ck_items ck_block ck_first] in Hok |- *.
     rewrite map_litem_lines_same_marker.
+    cbn [ck_ok] in Hck.
+    rewrite <- (marker_list_checked_colon _
+                  (map (fun _ => mk_check colon) lss) _ Hck).
     exact (list_uniformity_tail_same colon sp lss next tail colon_ok eq_refl Hne Hok
              Hnb Hnl Hindent).
   - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].

@@ -459,6 +459,56 @@ Example with_raw_blocks_preserves_other_block_settings :
   = (true, true, true, true).
 Proof. reflexivity. Qed.
 
+(* Definition lists are the eighth block capability, and the only one whose
+   gate is the closing projection rather than the opening one.  Recognition
+   is untouched at both settings: the colon is a bullet character, the item
+   is the same item, and what the capability decides is whether its content
+   is split into a term and a definition. *)
+Example djot_profile_keeps_definition_lists :
+  parse_profile_blocks djot_profile ": t
+
+  d"
+  = [mk (DefinitionList Loose
+           [([mk (Str "t")], [mk (Para [mk (Str "d")])])])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_definition_list_is_a_bullet_list :
+  parse_profile_blocks markdown_like_profile ": t
+
+  d"
+  = [mk (BulletList Loose
+           [[mk (Para [mk (Str "t")]); mk (Para [mk (Str "d")])]])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_canonical_deflist_is_disabled :
+  @cb_ok markdown_like_table markdown_bconfig
+    (CList LKDef Tight [[CPara [[CIStr "t"]]]]) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example djot_canonical_deflist_is_enabled :
+  @cb_ok djot_table djot_bconfig
+    (CList LKDef Tight [[CPara [[CIStr "t"]]]]) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_deflists : profile :=
+  with_block_profile (with_deflists true markdown_bconfig)
+    markdown_like_profile.
+
+Example customized_markdown_profile_restores_deflists :
+  parse_profile_blocks markdown_with_deflists ": t
+
+  d"
+  = parse_profile_blocks djot_profile ": t
+
+  d".
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_deflists_preserves_other_block_settings :
+  let K := with_deflists false djot_bconfig in
+  (@btables K, @bheading_continues K, @bdivs K, @btasks K, @braw_blocks K)
+  = (true, true, true, true, true).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

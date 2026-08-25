@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Eleven things are configurable today, and this document describes the
+Twelve things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -34,10 +34,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | fenced `=format` blocks | ordinary code blocks (`markdown_bconfig`) | raw output blocks |
 | inline `` `code`{=format} `` | code plus literal format text (`markdown_like_config`) | raw inline output |
 | ``$`x` `` and ``$$`x` `` | literal dollars plus code (`markdown_like_config`) | inline and display math |
+| `: term` | a bullet item (`markdown_bconfig`) | a definition list |
 
 The first two, raw inline and math compose in `markdown_like_config`: it
 starts from the doubled strong spelling and applies field-local capability
-updates. The seven block settings live in one record with one field each,
+updates. The eight block settings live in one record with one field each,
 and `markdown_bconfig` composes their field-local knobs. `check/Markdown.v`
 pins the combined profile, and `check/Sublist.v` and `check/Setext.v` pin the
 individual settings.
@@ -224,7 +225,7 @@ characters literally may read differently.
 | `^super^`, `~sub~` | super and subscript |
 | ``$`x` ``, ``$$`x` `` | math (literal dollars plus code here) |
 | `` `code`{=html} `` | raw inline in Djot (code plus literal `{=html}` here) |
-| `: term` | definition lists |
+| `: term` | a definition list (an ordinary bullet item here) |
 | `` ` `` fence with `=format` | a raw block in Djot (a code block here) |
 
 The characters to watch are `{`, `}`, `[`, `]`, `$`, `^`, `~`, `:` and
@@ -251,7 +252,12 @@ followed by `` `x` `` (`markdown_like_math_is_code_and_text`).
 
 **Already switched off in `markdown_bconfig`.** Djot pipe rows and their
 caption continuation are a single table capability. Fenced divs, task-list
-checkboxes, and raw blocks are independent capabilities. When task semantics
+checkboxes, raw blocks and definition lists are independent capabilities.
+The definition list is the one gated at the close rather than at the open,
+because it has no opener of its own: `: t` is an ordinary list item at every
+setting, and what the capability decides is whether the item's content is
+split into a term and a definition
+(`markdown_like_definition_list_is_a_bullet_list`). When task semantics
 are off, the complete checkbox token remains ordinary bullet-item text,
 including `[x]` versus `[X]` and its following separator. Each disabled
 canonical construct is outside the accepted roundtrip fragment. A disabled
@@ -260,8 +266,7 @@ block. GFM-style tables are therefore not currently part of the Markdown-like
 profile either; adding a separate caption-free GFM table mode would be a new
 extension.
 
-**Would need a new setting.** Attributes, spans, footnotes and definition
-lists.
+**Would need a new setting.** Attributes, spans and footnotes.
 
 **The shape the work takes** is known, since it was done once for the
 delimiter rows and twice in the block layer: a predicate in the settings
