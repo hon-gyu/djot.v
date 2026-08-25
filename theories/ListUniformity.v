@@ -1580,8 +1580,9 @@ Proof.
                (step_list_foot_close next flbl frest ls'
                   (rev bs ++ done)%list inner' fbs finner Hclass Hind' Hfoot)).
     rewrite (parse_lines_step _ _ _ _ _
-               (step_foot_open next flbl frest fbs finner Hclass Hfoot)).
-    rewrite Hfin. reflexivity.
+               (eq_trans (step_foot_open next flbl frest fbs finner Hclass Hfoot)
+                  (surjective_pairing _))).
+    rewrite Hfin, open_foot_fst. reflexivity.
   - rewrite (parse_lines_step _ _ _ _ _
                (step_list_ref_close next rlbl rval ls' (rev bs ++ done)%list
                   inner' Hclass Hind')).

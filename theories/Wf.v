@@ -1579,7 +1579,7 @@ Proof.
       [|apply iscan_wf_text; assumption].
     cbn [iscan_wf].
     exact (bclose_ok _ _ _ _ (iscan_wf_flush txt o Ho Hs) Eb). }
-  destruct (Ascii.eqb c hat && note_pos txt prev)%bool;
+  destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [destruct (bunpush o) as [[image o']|] eqn:Eu;
        [cbn [iscan_wf]; exact (oscope_ok_bunpush o image o' Ho Eu)|]|];
     destruct (dstyle_of c);
@@ -2309,6 +2309,15 @@ Proof.
   intros l p H. apply classify_not_kblank_nonblank. rewrite H. discriminate.
 Qed.
 
+(* And a footnote definition's opening line, for the same reason: with
+   footnotes off `open_foot` records it as paragraph text. *)
+Lemma classify_kfoot_nonblank :
+  forall l lbl rest, classify l = KFoot lbl rest -> is_blank l = false.
+Proof.
+  intros l lbl rest H. apply classify_not_kblank_nonblank.
+  rewrite H. discriminate.
+Qed.
+
 (* The line a KText classification describes is nonblank. *)
 Lemma classify_ktext_nonblank :
   forall l, classify l = KText -> is_blank l = false.
@@ -2452,14 +2461,19 @@ Lemma open_foot_wf :
   forall ind l lbl rest bs inner,
     classify l = KFoot lbl rest ->
     wf_blocks bs = true -> state_wf inner = true ->
-    wf_blocks (fst (open_foot ind lbl (bs, inner))) = true /\
-    state_wf (snd (open_foot ind lbl (bs, inner))) = true.
+    wf_blocks (fst (open_foot l ind lbl (bs, inner))) = true /\
+    state_wf (snd (open_foot l ind lbl (bs, inner))) = true.
 Proof.
   intros ind l lbl rest bs inner Hclass Hbs Hinner.
   pose proof (foot_open_label_ok _ _ _ (classify_kfoot _ _ _ Hclass)) as Hlbl.
   apply andb_true_iff in Hlbl as [Hnonempty _].
-  cbn [open_foot fst snd state_wf]. split; [reflexivity|].
-  rewrite Hnonempty, wf_blocks_rev, Hbs, Hinner. reflexivity.
+  unfold open_foot. destruct (@bfootnotes K); cbn [fst snd state_wf];
+    split; try reflexivity;
+    [rewrite Hnonempty, wf_blocks_rev, Hbs, Hinner; reflexivity
+    |rewrite forallb_nonblank_cons
+       by (rewrite is_blank_drop_leading_ws;
+           exact (classify_kfoot_nonblank l lbl rest Hclass));
+     reflexivity].
 Qed.
 
 Lemma step_fuel_wf :
@@ -2587,8 +2601,8 @@ Proof.
       destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner].
       destruct (open_foot_wf (off + indent_of l) l flbl frest bs inner E Hb Hs)
         as [Hob Hos].
-      split; [|exact Hos].
-      cbn [close_reopen open_foot finish fst snd]. rewrite app_nil_r. exact Hhb. }
+      rewrite close_reopen_foot. cbn [fst snd].
+      split; [exact Hhb|exact Hos]. }
     4: { (* reference definition: close the heading, then open it *)
       destruct (open_ref_wf (off + indent_of l) l rlbl rval E) as [Hob Hos].
       split; [|exact Hos].
@@ -2661,9 +2675,9 @@ Proof.
       destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner'].
       destruct (open_foot_wf (off + indent_of l) l flbl frest bs inner' E Hb Hs)
         as [Hob Hos].
-      split; [|exact Hos].
-      cbn [close_reopen open_foot finish fst snd]. rewrite app_nil_r.
-      rewrite wf_blocks_cons. cbn [node_contents mk]. rewrite Hbq. reflexivity. }
+      rewrite close_reopen_foot. cbn [fst snd]. split; [|exact Hos].
+      cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
+      rewrite Hbq. reflexivity. }
     6: { (* reference definition: closes the quote and opens outside it *)
       destruct (open_ref_wf (off + indent_of l) l rlbl rval E) as [Hob Hos].
       split; [|exact Hos].
@@ -2795,8 +2809,7 @@ Proof.
           as [bs inner'].
         destruct (open_foot_wf (off + indent_of l) l flbl frest bs inner'
                     E Hb Hs) as [Hob Hos].
-        split; [|exact Hos].
-        cbn [close_reopen open_foot fst snd]. rewrite app_nil_r.
+        rewrite close_reopen_foot. cbn [fst snd]. split; [|exact Hos].
         apply finish_wf. exact H. }
     6: { (* reference definition: item contents when indented, else close *)
       destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
@@ -3382,7 +3395,8 @@ Proof.
       * destruct (IH (off + consumed l frest) frest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner].
         cbn [fst snd] in Hb, Hs.
-        cbn [open_foot fst snd state_supported]. split; [reflexivity|].
+        unfold open_foot. destruct (@bfootnotes K);
+          cbn [fst snd state_supported]; split; try reflexivity.
         rewrite supported_blocks_rev, Hb. exact Hs.
       * cbn [open_kind fst snd]. destruct (@btables K); split; reflexivity.
     + destruct (bunderline_of l) as [ulvl|] eqn:Eu;
@@ -3437,8 +3451,9 @@ Proof.
          destruct (step_fuel n (off + consumed l frest) frest (PPara []))
            as [bs inner].
          cbn [fst snd] in Hb, Hs.
-         cbn [close_reopen open_foot finish app fst snd]. split; [reflexivity|].
-         cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
+         unfold open_foot. destruct (@bfootnotes K);
+           cbn [close_reopen finish app fst snd]; split; try reflexivity;
+           cbn [state_supported]; rewrite supported_blocks_rev, Hb; exact Hs. }
     6: { cbn [close_reopen open_kind finish app fst snd].
          destruct (@btables K); split; reflexivity. }
     all: destruct bheading_continues; unfold open_attr;
@@ -3485,10 +3500,12 @@ Proof.
          destruct (step_fuel n (off + consumed l frest) frest (PPara []))
            as [bs inner'].
          cbn [fst snd] in Hb, Hs.
-         cbn [close_reopen open_foot finish app fst snd]. split.
-         - rewrite supported_blocks_cons. cbn [node_contents mk].
-           rewrite Hbq. reflexivity.
-         - cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
+         unfold open_foot. destruct (@bfootnotes K);
+           cbn [close_reopen finish app fst snd]; split;
+           try (rewrite supported_blocks_cons; cbn [node_contents mk];
+                rewrite Hbq; reflexivity);
+           try reflexivity;
+           cbn [state_supported]; rewrite supported_blocks_rev, Hb; exact Hs. }
     7: { cbn [is_lazy open_kind]. destruct (@btables K);
          cbn [close_reopen finish app fst snd]; split; try reflexivity;
          rewrite supported_blocks_cons; cbn [node_contents mk];
@@ -3596,9 +3613,11 @@ Proof.
            destruct (step_fuel n (off + consumed l frest) frest (PPara []))
              as [bs inner'].
            cbn [fst snd] in Hb, Hs.
-           cbn [close_reopen open_foot fst snd]. split.
-           + rewrite app_nil_r. apply finish_supported. exact H.
-           + cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
+           rewrite close_reopen_foot. cbn [fst snd]. split.
+           + apply finish_supported. exact H.
+           + unfold open_foot in *. destruct (@bfootnotes K);
+               cbn [snd state_supported]; try reflexivity.
+             rewrite supported_blocks_rev, Hb. exact Hs. }
     7: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].

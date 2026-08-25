@@ -591,6 +591,58 @@ Example with_inline_attrs_preserves_other_inline_settings :
   = (true, true, true, "*"%char, 1, DBare).
 Proof. reflexivity. Qed.
 
+(*
+Footnotes: one capability across two records
+--------------------------------------------
+
+A reference nothing can define and a definition nothing can reference are
+not settings anyone wants, so the knob that should be reached for is the
+profile-level one.  Both profiles keep footnotes on -- CommonMark lacks
+them but GFM has them -- so this is pinned at a profile of its own rather
+than in `markdown_like_profile`.
+*)
+Definition no_footnotes_profile : profile := with_footnotes false djot_profile.
+
+Example djot_profile_keeps_footnotes :
+  parse_profile_blocks djot_profile "a[^1]
+
+[^1]: note"
+  = [mk (Para [mk (Str "a"); mk (FootnoteReference "1")]);
+     mk (FootnoteDef "1" [mk (Para [mk (Str "note")])])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example no_footnotes_profile_reads_both_halves_as_prose :
+  parse_profile_blocks no_footnotes_profile "a[^1]
+
+[^1]: note"
+  = [mk (Para [mk (Str "a[^1]")]);
+     mk (Para [mk (Str "[^1]: note")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example no_footnotes_canonical_note_is_disabled :
+  (@ci_ok (profile_inline no_footnotes_profile) (CINote "a"),
+   @ci_ok (profile_inline djot_profile) (CINote "a"))
+  = (false, true).
+Proof. vm_compute. reflexivity. Qed.
+
+Example markdown_like_profile_keeps_footnotes :
+  parse_profile_blocks markdown_like_profile "a[^1]
+
+[^1]: note"
+  = parse_profile_blocks djot_profile "a[^1]
+
+[^1]: note".
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_footnotes_preserves_other_settings :
+  let P := with_footnotes false djot_profile in
+  let K := profile_block P in
+  let C := @cfg (profile_inline P) in
+  (@btables K, @bdivs K, @btasks K, @bdeflists K, @battrs K,
+   dc_math C, dc_attrs C, dc_char C DStrong)
+  = (true, true, true, true, true, true, true, "*"%char).
+Proof. reflexivity. Qed.
+
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :

@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Fourteen things are configurable today, and this document describes the
+Fifteen things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -37,6 +37,7 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | `: term` | a bullet item (`markdown_bconfig`) | a definition list |
 | `{#id}` on its own line | paragraph text (`markdown_bconfig`) | attributes for the next block |
 | `x{#id}` and `[s]{.c}` | literal text (`markdown_like_config`) | inline attributes and spans |
+| `[^1]` and `[^1]: text` | footnotes, as in GFM (`with_footnotes`) | footnotes |
 
 The first two, raw inline, math and inline attributes compose in
 `markdown_like_config`: it starts from the doubled strong spelling and
@@ -277,9 +278,16 @@ the paragraph its lines make
 are not covered by either: they are reached from the same `{` one branch
 earlier, so switching them off remains a question for the table.
 
-**Would need a new setting.** Footnotes, which are the last construct on
-this list without one -- and the only one CommonMark lacks that GFM has, so
-the Markdown-facing profile would keep them on.
+**A capability, but on in both profiles.** Footnotes. CommonMark has none
+and GFM has them, so the Markdown-facing answer is not "off" -- but the
+setting exists, because a dialect that wants prose only should be able to
+say so. It is the one capability with a field in each record, since the
+reference is an inline decision and the definition a block one;
+`Profile.with_footnotes` moves both
+(`no_footnotes_profile_reads_both_halves_as_prose`).
+
+**Nothing left on this list.** Every construct named above now has a
+setting.
 
 **The shape the work takes** is known, since it was done once for the
 delimiter rows and twice in the block layer: a predicate in the settings

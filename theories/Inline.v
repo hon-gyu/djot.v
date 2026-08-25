@@ -231,7 +231,10 @@ Record dconfig : Type := DConfig {
      false both are literal text.  The braced delimiter rows are a separate
      decision: they are reached from the same `{` but are rows in this very
      table. *)
-  dc_attrs : bool
+  dc_attrs : bool;
+  (* Does `[^label]` make a footnote reference?  The other half of the
+     capability is `Step.bfootnotes`; `Profile.with_footnotes` moves both. *)
+  dc_footnotes : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -279,7 +282,8 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true true.
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true true
+    true.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -390,13 +394,14 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C).
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    (dc_footnotes C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
-    (dc_raw_inline C) (dc_math C) (dc_attrs C).
+    (dc_raw_inline C) (dc_math C) (dc_attrs C) (dc_footnotes C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -404,7 +409,8 @@ Proof. intros enabled C H. exact H. Qed.
 
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) enabled (dc_math C) (dc_attrs C).
+    (dc_smart_typography C) enabled (dc_math C) (dc_attrs C)
+    (dc_footnotes C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
@@ -414,7 +420,8 @@ Proof. intros enabled C H. exact H. Qed.
    character, which no table may claim, and its own scanner state. *)
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) enabled (dc_attrs C).
+    (dc_smart_typography C) (dc_raw_inline C) enabled (dc_attrs C)
+    (dc_footnotes C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
@@ -424,10 +431,23 @@ Proof. intros enabled C H. exact H. Qed.
    whose delete row is on still reads `{-` as a delete opener here. *)
 Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled.
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
+    (dc_footnotes C).
 
 Theorem with_inline_attrs_preserves_admissible :
   forall enabled, preserves (with_inline_attrs enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Exported, but `Profile.with_footnotes` is what a caller should reach
+   for: this half alone leaves definitions nothing can reference. *)
+Definition with_inline_footnotes (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    enabled.
+
+Theorem with_inline_footnotes_preserves_admissible :
+  forall enabled,
+    preserves (with_inline_footnotes enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
@@ -788,7 +808,7 @@ Example clashing_config_not_ok :
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
                       djot_dwidth djot_dsyntax djot_ddecay true true true
-                      true)
+                      true true)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -802,7 +822,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true true) = true.
+                      djot_ddecay true true true true true) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -838,6 +858,8 @@ Definition raw_inline_enabled : bool := dc_raw_inline cfg.
 Definition math_enabled : bool := dc_math cfg.
 
 Definition inline_attrs_enabled : bool := dc_attrs cfg.
+
+Definition notes_enabled : bool := dc_footnotes cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -1796,7 +1818,8 @@ Fixpoint ci_ok (ci : cinline) : bool :=
        && String.eqb (normalize_label label) label
        && go kids && sep kids)%bool
   | CINote label =>
-      (note_label_safe label && String.eqb (normalize_label label) label)%bool
+      (notes_enabled && note_label_safe label
+       && String.eqb (normalize_label label) label)%bool
   (* The region has to be one the pattern accepts and one of the two
      tests claims: a region that fails them is not an autolink but the
      literal text of its own brackets, which is a `CIStr` instead. *)
@@ -1824,7 +1847,8 @@ Proof. reflexivity. Qed.
 Lemma ci_ok_note :
   forall label,
     ci_ok (CINote label)
-    = (note_label_safe label && String.eqb (normalize_label label) label)%bool.
+    = (notes_enabled && note_label_safe label
+       && String.eqb (normalize_label label) label)%bool.
 Proof. reflexivity. Qed.
 
 (* Pairwise source separation: adjacent strings merge, and adjacent
@@ -2851,7 +2875,7 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
      Written as a guard on `bunpush` rather than as a claim about the
      stack, so a `^` anywhere else falls through to the table, where it
      is the superscript row as it always was. *)
-  else match (if (Ascii.eqb c hat && note_pos txt prev)%bool
+  else match (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
               then bunpush o else None) with
        | Some (image, o') => INote false image EmptyString o'
        | None =>
@@ -3962,7 +3986,7 @@ Proof.
   destruct (Ascii.eqb c rbrack);
     [rewrite flush_text_app, bclose_app;
      destruct (bclose (flush_text txt o)) as [[[kids image] o']|]; reflexivity|].
-  destruct (Ascii.eqb c hat && note_pos txt prev)%bool;
+  destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite bunpush_app; destruct (bunpush o) as [[image o']|]; [reflexivity|]|];
     destruct (dstyle_of c); reflexivity.
 Qed.
@@ -5175,6 +5199,7 @@ Qed.
 
 Lemma iscan_note_text :
   forall label tail txt prev o,
+    notes_enabled = true ->
     note_label_safe label = true ->
     iscan_str (note_text label ++ tail)
       (IText false txt prev o)
@@ -5183,7 +5208,7 @@ Lemma iscan_note_text :
           (oemit (mk (FootnoteReference (normalize_label label)))
             (flush_text txt o))).
 Proof.
-  intros label tail txt prev o Hsafe.
+  intros label tail txt prev o Hnotes Hsafe.
   replace (note_text label ++ tail)%string with
     (bracket_open false ++ (one hat ++ (label ++ one rbrack ++ tail)))%string
     by (unfold note_text, bracket_open; cbn [append];
@@ -5203,6 +5228,7 @@ Proof.
   change (Ascii.eqb hat rbrack) with false.
   change (Ascii.eqb hat hat && note_pos EmptyString (Some lbrack))%bool
     with true.
+  rewrite Hnotes. cbn [andb].
   rewrite bunpush_bpush.
   rewrite (iscan_note_label label tail false false EmptyString
              (flush_text txt o) Hsafe).
@@ -5778,7 +5804,8 @@ Proof.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
     + pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
       rewrite ci_ok_note in Hnote.
-      apply andb_true_iff in Hnote as [Hsafe Hnorm].
+      apply andb_true_iff in Hnote as [Hnote Hnorm].
+      apply andb_true_iff in Hnote as [Hnotes Hsafe].
       apply String.eqb_eq in Hnorm.
       assert (Hrestlt : ltof (list cinline) cis_size rest (CINote label :: rest)).
       { unfold ltof. cbn [cis_size ci_size]. lia. }
@@ -6128,12 +6155,13 @@ Proof.
       * reflexivity.
     + pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
       rewrite ci_ok_note in Hnote.
-      apply andb_true_iff in Hnote as [Hsafe Hnorm].
+      apply andb_true_iff in Hnote as [Hnote Hnorm].
+      apply andb_true_iff in Hnote as [Hnotes Hsafe].
       apply String.eqb_eq in Hnorm.
       cbn [ci_text ci_inlines map].
       change (ci_src (CINote label)) with (note_text label).
       rewrite (iscan_note_text label (ci_text rest) txt prev'
-                 (OState (List.map OIn out) []) Hsafe), Hnorm.
+                 (OState (List.map OIn out) []) Hnotes Hsafe), Hnorm.
       destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
       injection Eflat as Eout Estk. subst out' stk'.
@@ -6295,10 +6323,11 @@ Proof.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
     rewrite ci_ok_note in Hnote.
-    apply andb_true_iff in Hnote as [Hsafe Hnorm].
+    apply andb_true_iff in Hnote as [Hnote Hnorm].
+    apply andb_true_iff in Hnote as [Hnotes Hsafe].
     cbn [ci_text]. change (ci_src (CINote label)) with (note_text label).
     rewrite (iscan_note_text label (ci_text rest) txt prev'
-               (OState (List.map OIn out) []) Hsafe).
+               (OState (List.map OIn out) []) Hnotes Hsafe).
     destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.
@@ -6541,7 +6570,7 @@ Proof.
      [reflexivity|];
      cbn [iscan_productive];
      rewrite nonempty_str_app_l by reflexivity; reflexivity|].
-  destruct (Ascii.eqb c hat && note_pos txt prev)%bool;
+  destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [destruct (bunpush o) as [[image o']|]; [reflexivity|]|];
     (destruct (dstyle_of c); [reflexivity|]);
     cbn [iscan_productive]; apply orb_true_iff; left;
@@ -7017,7 +7046,8 @@ Proof.
   (* nothing is open at the start, so a `]` is text *)
   destruct (Ascii.eqb c rbrack); [reflexivity|].
   (* and nothing is pushed, so a `^` is the superscript row *)
-  destruct (Ascii.eqb c hat && note_pos EmptyString None)%bool;
+  destruct (Ascii.eqb c hat && note_pos EmptyString None
+            && notes_enabled)%bool;
     destruct (dstyle_of c); reflexivity.
 Qed.
 

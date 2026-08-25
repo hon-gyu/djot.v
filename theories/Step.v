@@ -80,6 +80,10 @@ Class bconfig : Type := BConfig {
        complete spelling is ordinary paragraph text, and a spec spanning
        several lines is the paragraph those lines make. *)
   battrs : bool
+  ; (* Does a `[^label]:` line open a footnote definition?  Half of one
+       capability: the other half is `dconfig`'s `dc_footnotes`, and
+       `Profile.with_footnotes` is what moves the two together. *)
+  bfootnotes : bool
 }.
 
 (*
@@ -118,7 +122,8 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
   else None.
 
 #[export] Instance djot_bconfig : bconfig :=
-  BConfig no_interrupt no_underline true true true true true true true.
+  BConfig no_interrupt no_underline true true true true true true true
+    true.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -127,46 +132,57 @@ Definition with_marker_interrupts
   (f : list lstyle -> string -> option task_marker -> string -> bool)
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
-    (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
+    (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
+    (@bfootnotes K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
-    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
+    (@bfootnotes K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
-    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K).
+    (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
+    (@bfootnotes K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
-    (@bdeflists K) (@battrs K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K)
-    (@battrs K).
+    (@battrs K) (@bfootnotes K).
 
 Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled
-    (@battrs K).
+    (@battrs K) (@bfootnotes K).
 
 Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) enabled.
+    (@bdeflists K) enabled (@bfootnotes K).
+
+(* Exported, but the profile-level `with_footnotes` is what a caller
+   should reach for: a reference the document cannot define, or a
+   definition nothing can reference, is not a setting anyone wants. *)
+Definition with_block_footnotes (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K) (@battrs K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -907,10 +923,28 @@ Definition open_fence (ind : nat) (f : fence) : blocks * pstate :=
 Definition open_ref (ind : nat) (lbl val : string) : blocks * pstate :=
   ([], PRef ind lbl val).
 
-Definition open_foot (ind : nat) (lbl : string) (descended : blocks * pstate)
-  : blocks * pstate :=
-  let (bs, inner) := descended in
-  ([], PFoot ind lbl (rev bs) inner).
+(* With footnotes off the definition never opens, so `PFoot` is
+   unreachable and the complete `[^label]:` line is paragraph text.  The
+   descent is computed either way and discarded here, which costs nothing
+   and keeps the four call sites identical. *)
+Definition open_foot (l : string) (ind : nat) (lbl : string)
+  (descended : blocks * pstate) : blocks * pstate :=
+  if bfootnotes
+  then let (bs, inner) := descended in ([], PFoot ind lbl (rev bs) inner)
+  else ([], PPara [drop_leading_ws l]).
+
+Lemma open_foot_fst :
+  forall l ind lbl d, fst (open_foot l ind lbl d) = [].
+Proof. intros. unfold open_foot. destruct bfootnotes; [destruct d|]; reflexivity. Qed.
+
+Lemma close_reopen_foot :
+  forall st l ind lbl d,
+    close_reopen st (open_foot l ind lbl d)
+    = (finish st, snd (open_foot l ind lbl d)).
+Proof.
+  intros. unfold close_reopen, open_foot.
+  destruct bfootnotes; [destruct d|]; cbn [snd]; rewrite app_nil_r; reflexivity.
+Qed.
 
 (* A list marker opens a fresh list, whose first item holds whatever the
    rest of the line parsed to.  A new list is tight until something makes
@@ -1072,7 +1106,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    (configured_list_rest chk rest) (PPara []))
           | KAttr ap => open_attr [] (off + indent_of l) ap l
           | KFoot lbl rest =>
-              open_foot (off + indent_of l) lbl
+              open_foot l (off + indent_of l) lbl
                 (step_fuel n' (off + consumed l rest) rest (PPara []))
           | KRef lbl v => open_ref (off + indent_of l) lbl v
           | KFence f => open_fence (off + indent_of l) f
@@ -1134,7 +1168,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 (open_attr [] (off + indent_of l) ap l)
           | KFoot lbl rest =>
               close_reopen (PHeading lvl cur)
-                (open_foot (off + indent_of l) lbl
+                (open_foot l (off + indent_of l) lbl
                   (step_fuel n' (off + consumed l rest) rest (PPara [])))
           | KRef lbl v =>
               close_reopen (PHeading lvl cur)
@@ -1163,7 +1197,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 (open_attr [] (off + indent_of l) ap l)
           | KFoot lbl frest =>
               close_reopen (PQuote done inner)
-                (open_foot (off + indent_of l) lbl
+                (open_foot l (off + indent_of l) lbl
                   (step_fuel n' (off + consumed l frest) frest (PPara [])))
           | KRef lbl v =>
               close_reopen (PQuote done inner)
@@ -1257,7 +1291,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                       (open_attr [] (off + indent_of l) ap l)
                 | KFoot lbl frest =>
                     close_reopen (PList ls done inner)
-                      (open_foot (off + indent_of l) lbl
+                      (open_foot l (off + indent_of l) lbl
                         (step_fuel n' (off + consumed l frest) frest (PPara [])))
                 | KRef lbl v =>
                     close_reopen (PList ls done inner)
@@ -1891,7 +1925,8 @@ Proof.
           cbn [pad_state] in H; rewrite H.
         destruct (step_fuel n (off + consumed l frest) frest (PPara []))
           as [bs inner'] eqn:Ed.
-        cbn [open_foot fst snd pad_state]. reflexivity. }
+        unfold open_foot. destruct (@bfootnotes K);
+          cbn [fst snd pad_state]; reflexivity. }
       { cbn [open_ref fst snd pad_state]. rewrite Nat.add_assoc. reflexivity. }
       { cbn [open_kind]. destruct (@btables K); reflexivity. } }
     { destruct (bunderline_of l) as [ulvl|] eqn:Eu;
@@ -1940,7 +1975,8 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l frest) frest (PPara []))
         as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_foot fst snd pad_state]. reflexivity. }
+      unfold open_foot. destruct (@bfootnotes K);
+        cbn [close_reopen fst snd pad_state]; reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc. reflexivity. }
     { cbn [close_reopen open_kind fst snd pad_state].
@@ -1988,8 +2024,8 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l frest) frest (PPara []))
         as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_foot fst snd pad_state].
-      rewrite finish_pad_quote. reflexivity. }
+      unfold open_foot. destruct (@bfootnotes K);
+        cbn [close_reopen fst snd pad_state]; rewrite finish_pad_quote; reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_quote. reflexivity. }
     { (* row: not lazy, and it opens a state with no column *)
@@ -2112,8 +2148,8 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l frest) frest (PPara []))
         as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_foot fst snd pad_state].
-      rewrite finish_pad_list. reflexivity. }
+      unfold open_foot. destruct (@bfootnotes K);
+        cbn [close_reopen fst snd pad_state]; rewrite finish_pad_list; reflexivity. }
     (* reference definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -2588,8 +2624,7 @@ Lemma step_foot_open :
     classify l = KFoot lbl rest ->
     step rest (PPara []) = (bs, inner) ->
     step l (PPara []) =
-      ([], PFoot (indent_of l) lbl (rev bs)
-             (pad_state (consumed l rest) inner)).
+      open_foot l (indent_of l) lbl (bs, pad_state (consumed l rest) inner).
 Proof.
   intros l lbl rest bs inner H Hr. unfold step at 1. cbn [step_fuel].
   rewrite H.
@@ -2610,8 +2645,8 @@ Lemma step_list_foot_close :
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
       (finish (PList ls done inner),
-       PFoot (indent_of l) lbl (rev bs)
-         (pad_state (consumed l rest) inner')).
+       snd (open_foot l (indent_of l) lbl
+              (bs, pad_state (consumed l rest) inner'))).
 Proof.
   intros l lbl rest ls done inner bs inner' H Hind Hr.
   unfold step at 1. cbn [step_fuel pstate_depth].
@@ -2623,8 +2658,7 @@ Proof.
   change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
             (consumed l rest) rest (PPara []))
     with (step_at (consumed l rest) rest (PPara [])).
-  rewrite step_at_idle, Hr. cbn [close_reopen open_foot].
-  rewrite app_nil_r. reflexivity.
+  rewrite step_at_idle, Hr. rewrite close_reopen_foot. reflexivity.
 Qed.
 
 (* And a reference definition is not `direct_open` either, for the same
@@ -2932,9 +2966,11 @@ Proof.
       { unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
           (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
-      { rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-                (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
-                (Nat.add_comm off (String.length p)). reflexivity. }
+      { unfold open_foot.
+        rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
+                (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+                !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        reflexivity. }
       { unfold open_ref. rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
@@ -2972,10 +3008,11 @@ Proof.
     { cbn [close_reopen]; unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
-    { cbn [close_reopen].
+    { cbn [close_reopen]; unfold open_foot.
       rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-              (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
-              (Nat.add_comm off (String.length p)). reflexivity. }
+              (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+              !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+      reflexivity. }
     { cbn [close_reopen]; unfold open_ref. rewrite (indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [open_kind]. rewrite (drop_leading_ws_ws_prefix p l Hp).
@@ -3009,10 +3046,11 @@ Proof.
     { cbn [close_reopen]; unfold open_attr. rewrite (indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
-    { cbn [close_reopen].
+    { cbn [close_reopen]; unfold open_foot.
       rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-              (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
-              (Nat.add_comm off (String.length p)). reflexivity. }
+              (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+              !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+      reflexivity. }
     { cbn [close_reopen]; unfold open_ref. rewrite (indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [is_lazy close_reopen open_kind].
@@ -3051,7 +3089,9 @@ Proof.
         reflexivity. }
     { cbn [close_reopen]; unfold open_attr.
       rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
-    { rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
+    { unfold open_foot.
+      rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
+              ?(drop_leading_ws_ws_prefix p l Hp),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { reflexivity. }
     { cbn [is_lazy close_reopen open_kind].

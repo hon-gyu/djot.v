@@ -19,6 +19,18 @@ Definition with_inline_profile (T : dtable) (P : profile) : profile :=
 Definition with_block_profile (K : bconfig) (P : profile) : profile :=
   Profile (profile_inline P) K.
 
+(* The one capability that spans both layers.  A footnote reference and a
+   footnote definition are two halves of one construct, and neither
+   record can name the other's field, so this is where they move
+   together.  The half-knobs stay exported for a caller who really means
+   one of them. *)
+Definition with_footnotes (enabled : bool) (P : profile) : profile :=
+  let T := profile_inline P in
+  Profile
+    (DTable (with_inline_footnotes enabled (@cfg T))
+       (with_inline_footnotes_preserves_admissible enabled (@cfg T) (@cfg_ok T)))
+    (with_block_footnotes enabled (profile_block P)).
+
 Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
