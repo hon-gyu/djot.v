@@ -223,7 +223,10 @@ Record dconfig : Type := DConfig {
   dc_syntax : dstyle -> dsyntax;
   dc_decay : dstyle -> ddecay;
   dc_smart_typography : bool;
-  dc_raw_inline : bool
+  dc_raw_inline : bool;
+  (* Does a `$` or `$$` before a verbatim make the span math?  When false the
+     dollars are ordinary text and the verbatim is ordinary code. *)
+  dc_math : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -271,7 +274,7 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true.
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -382,13 +385,13 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
-    (dc_smart_typography C) (dc_raw_inline C).
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
-    (dc_raw_inline C).
+    (dc_raw_inline C) (dc_math C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -396,10 +399,20 @@ Proof. intros enabled C H. exact H. Qed.
 
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) enabled.
+    (dc_smart_typography C) enabled (dc_math C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Math is the dollar prefix on a verbatim, not a row: it has its own
+   character, which no table may claim, and its own scanner state. *)
+Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) enabled.
+
+Theorem with_math_preserves_admissible :
+  forall enabled, preserves (with_math enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
@@ -654,9 +667,10 @@ Definition markdown_like_disabled_rows : list dstyle :=
   [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
 
 Definition markdown_like_config : dconfig :=
-  with_raw_inline false
-    (with_smart_typography false
-      (disable_rows markdown_like_disabled_rows markdown_config)).
+  with_math false
+    (with_raw_inline false
+      (with_smart_typography false
+        (disable_rows markdown_like_disabled_rows markdown_config))).
 
 Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -757,7 +771,8 @@ Example clashing_config_not_ok :
   dconfig_ok (DConfig (fun k => match k with
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
-                      djot_dwidth djot_dsyntax djot_ddecay true true) = false.
+                      djot_dwidth djot_dsyntax djot_ddecay true true true)
+  = false.
 Proof. vm_compute. reflexivity. Qed.
 
 (* Switching a row off frees its character, so the clash disappears
@@ -770,7 +785,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true) = true.
+                      djot_ddecay true true true) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -802,6 +817,8 @@ Definition dwidth (k : dstyle) : nat := dc_width cfg k.
 Definition smart_typography : bool := dc_smart_typography cfg.
 
 Definition raw_inline_enabled : bool := dc_raw_inline cfg.
+
+Definition math_enabled : bool := dc_math cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -3103,13 +3120,19 @@ Definition dollars (two : bool) : string :=
 (* Resolving a `$`: another `$` widens the prefix to display math, a
    backtick run opens the span it prefixes, and anything else makes the
    dollars text.  A third `$` keeps the last two, which is djot.js
-   popping exactly two matches, so the extra one is flushed here. *)
+   popping exactly two matches, so the extra one is flushed here.
+
+   With math off the backtick takes the same exit as any other byte: the
+   dollars join the pending text and `ilead` opens the verbatim they were
+   about to prefix.  So a disabled prefix is not dropped and not
+   announced -- it is the code span it sits on, with its dollars as
+   literal text before it. *)
 Definition idollar_step (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c dollar
   then (if two then IDollar true (txt ++ one dollar)%string prev o
         else IDollar true txt prev o)
-  else if is_tick c
+  else if (is_tick c && math_enabled)%bool
   then IOpen 1 (VMath (if two then DisplayMath else InlineMath))
          (flush_text txt o)
   else ilead c (txt ++ dollars two)%string prev o.
@@ -4045,7 +4068,8 @@ Proof.
   - (* a pending `$` either grows, opens a math span, or is text *)
     unfold idollar_step. destruct (Ascii.eqb c dollar);
       [destruct dtwo; reflexivity|].
-    destruct (is_tick c); [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
+    destruct (is_tick c && math_enabled)%bool;
+      [cbn [iout_app]; rewrite flush_text_app; reflexivity|].
     apply ilead_app.
   - (* a pending `.` either grows, completes an ellipsis, or is text *)
     unfold iperiod_step. destruct (Ascii.eqb c period);
@@ -6715,7 +6739,7 @@ Proof.
   - (* a pending `$` owes its own dollars, or the span it opens *)
     unfold idollar_step. destruct (Ascii.eqb c dollar);
       [destruct dtwo; reflexivity|].
-    destruct (is_tick c); [reflexivity|].
+    destruct (is_tick c && math_enabled)%bool; [reflexivity|].
     apply iscan_productive_lead, orb_true_iff. left.
     apply nonempty_str_app_l, dollars_nonempty.
   - (* and a pending `.` owes its own periods, or the ellipsis they make *)

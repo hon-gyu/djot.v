@@ -137,6 +137,39 @@ Example with_raw_inline_preserves_other_inline_settings :
   = (true, "*"%char, 1, DBare).
 Proof. reflexivity. Qed.
 
+(* Math is the dollar prefix on a verbatim span.  With it off the prefix is
+   not dropped: the dollars join the pending text and the span they were
+   about to mark is the code span it already was.  Both widths, and the
+   third dollar djot itself leaves as text, survive literally. *)
+Example markdown_like_math_is_code_and_text :
+  (ProfileInline "$`x`", ProfileInline "$$`x`", ProfileInline "$$$`x`")
+  = ([mk (Str "$"); mk (Verbatim "x")],
+     [mk (Str "$$"); mk (Verbatim "x")],
+     [mk (Str "$$$"); mk (Verbatim "x")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A dollar not on a verbatim was already text at every setting, so the
+   capability moves nothing here. *)
+Example markdown_like_bare_dollar_is_text :
+  ProfileInline "a $b$ c" = [mk (Str "a $b$ c")].
+Proof. vm_compute. reflexivity. Qed.
+
+Definition markdown_with_math_table : dtable :=
+  DTable (with_math true markdown_like_config) eq_refl.
+
+Example customized_markdown_table_restores_math :
+  (@Inline.parse_inline_line markdown_with_math_table "$`x`",
+   @Inline.parse_inline_line markdown_with_math_table "$$`x`")
+  = ([mk (Math InlineMath "x")], [mk (Math DisplayMath "x")]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_math_preserves_other_inline_settings :
+  let C := with_math false djot_config in
+  (dc_smart_typography C, dc_raw_inline C, dc_char C DStrong,
+   dc_width C DStrong, dc_syntax C DStrong)
+  = (true, true, "*"%char, 1, DBare).
+Proof. reflexivity. Qed.
+
 Example literal_hyphens_still_give_back_a_delete_closer :
   LiteralTypographyInline "{-a---}"
   = [mk (Delete [mk (Str "a--")])].

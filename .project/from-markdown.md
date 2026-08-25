@@ -18,7 +18,7 @@ drifts; those do not.
 
 ## The profile this describes
 
-Ten things are configurable today, and this document describes the
+Eleven things are configurable today, and this document describes the
 Markdown-facing choice for each. djot's own answer is in the last column.
 
 | setting | Markdown-facing | djot |
@@ -33,13 +33,14 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 | task-list checkboxes | literal bullet text (`markdown_bconfig`) | task-list items |
 | fenced `=format` blocks | ordinary code blocks (`markdown_bconfig`) | raw output blocks |
 | inline `` `code`{=format} `` | code plus literal format text (`markdown_like_config`) | raw inline output |
+| ``$`x` `` and ``$$`x` `` | literal dollars plus code (`markdown_like_config`) | inline and display math |
 
-The first two and raw inline compose in `markdown_like_config`: it starts from
-the doubled strong spelling and applies field-local capability updates. The
-last seven live in one record with one field each. `markdown_bconfig`
-composes their field-local knobs, and `check/Markdown.v` pins the combined
-profile as well as the individual settings in `check/Sublist.v` and
-`check/Setext.v`.
+The first two, raw inline and math compose in `markdown_like_config`: it
+starts from the doubled strong spelling and applies field-local capability
+updates. The seven block settings live in one record with one field each,
+and `markdown_bconfig` composes their field-local knobs. `check/Markdown.v`
+pins the combined profile, and `check/Sublist.v` and `check/Setext.v` pin the
+individual settings.
 
 The profile is not yet a CommonMark implementation: djot-only block and
 non-delimiter inline constructs remain enabled. See
@@ -221,7 +222,7 @@ characters literally may read differently.
 | `[text]{.class}` | a span |
 | `{=highlight=}`, `{+insert+}`, `{-delete-}` | marked spans |
 | `^super^`, `~sub~` | super and subscript |
-| `$math$`, `$$display$$` | math |
+| ``$`x` ``, ``$$`x` `` | math (literal dollars plus code here) |
 | `` `code`{=html} `` | raw inline in Djot (code plus literal `{=html}` here) |
 | `: term` | definition lists |
 | `` ` `` fence with `=format` | a raw block in Djot (a code block here) |
@@ -242,6 +243,12 @@ the verbatim remains code and its complete `{=format}` suffix is text. These
 constructs are removed from the canonical view too, so the roundtrip theorem
 specializes to the reduced table rather than being restated for it.
 
+Math is the third scanner capability and the one that cost nothing on the
+canonical side, because the canonical view never had a math constructor. With
+it off the dollar prefix is not dropped and not announced: it becomes literal
+text before the code span it was about to mark, so ``$`x` `` reads as `$`
+followed by `` `x` `` (`markdown_like_math_is_code_and_text`).
+
 **Already switched off in `markdown_bconfig`.** Djot pipe rows and their
 caption continuation are a single table capability. Fenced divs, task-list
 checkboxes, and raw blocks are independent capabilities. When task semantics
@@ -253,7 +260,7 @@ block. GFM-style tables are therefore not currently part of the Markdown-like
 profile either; adding a separate caption-free GFM table mode would be a new
 extension.
 
-**Would need a new setting.** Attributes, spans, math, footnotes and definition
+**Would need a new setting.** Attributes, spans, footnotes and definition
 lists.
 
 **The shape the work takes** is known, since it was done once for the

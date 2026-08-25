@@ -1735,7 +1735,7 @@ Proof.
     unfold idollar_step. destruct (Ascii.eqb c dollar);
       [destruct dtwo;
          (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity)|].
-    destruct (is_tick c);
+    destruct (is_tick c && math_enabled)%bool;
       [cbn [iscan_wf]; apply iscan_wf_flush; assumption
       |apply ilead_wf; assumption].
   - (* and the periods either grow, complete an ellipsis, or become text;
