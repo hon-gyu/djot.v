@@ -1008,6 +1008,78 @@ Proof.
   rewrite !prefix_determinism. unfold committed. rewrite H. reflexivity.
 Qed.
 
+(*
+Replacing a span of lines
+-------------------------
+
+An editor holding source text splits a document as `pre ++ mid ++ post`
+and replaces `mid`.  The three theorems above are what says it need not
+look at `pre` or `post` again, and `parse_span` puts them in the form
+that says it: three summands, one per region.
+*)
+
+(** The parse of a three-way split, region by region.  `pre` contributes
+    `committed pre st` and a state; `mid` contributes `committed mid` from
+    that state and a state of its own; `post` is parsed from the second.
+    Every dependence between regions is one `pstate`. *)
+Lemma parse_span :
+  forall pre mid post st,
+    parse_lines (pre ++ mid ++ post)%list st
+    = (committed pre st
+       ++ committed mid (snd (run_lines pre st))
+       ++ parse_lines post (snd (run_lines mid (snd (run_lines pre st)))))%list.
+Proof.
+  intros pre mid post st. rewrite prefix_determinism, prefix_determinism.
+  reflexivity.
+Qed.
+
+(** Reparsing only the replacement.  If the new lines leave the parser in
+    the state the old ones did, the edited document's parse is the old
+    first summand, the new middle, and the old third summand -- the two
+    conclusions share `parse_lines post ...` as a subterm, so `post` is
+    not merely equal after the edit, it is never reached.
+
+    The hypothesis is the whole cost of the optimization, and it is
+    decidable by running `new` from the saved state and comparing.  When
+    it fails the theorem says nothing: parsing has to continue into `post`
+    until the two states agree again, and nothing here promises they ever
+    do. *)
+Theorem reparse_only_new :
+  forall pre old new post st,
+    snd (run_lines new (snd (run_lines pre st)))
+      = snd (run_lines old (snd (run_lines pre st))) ->
+    parse_lines (pre ++ old ++ post)%list st
+      = (committed pre st
+         ++ committed old (snd (run_lines pre st))
+         ++ parse_lines post (snd (run_lines old (snd (run_lines pre st)))))%list
+    /\ parse_lines (pre ++ new ++ post)%list st
+      = (committed pre st
+         ++ committed new (snd (run_lines pre st))
+         ++ parse_lines post (snd (run_lines old (snd (run_lines pre st)))))%list.
+Proof.
+  intros pre old new post st H. split; [apply parse_span|].
+  rewrite parse_span, H. reflexivity.
+Qed.
+
+(** The check an implementation actually runs.  A replaced span that both
+    starts and ends at a block boundary leaves the parser idle, and `PPara
+    []` is a closed term, so the hypothesis above is two comparisons
+    against a constant rather than an equality between two runs. *)
+Corollary reparse_only_new_idle :
+  forall pre old new post st,
+    snd (run_lines new (snd (run_lines pre st))) = PPara [] ->
+    snd (run_lines old (snd (run_lines pre st))) = PPara [] ->
+    parse_lines (pre ++ new ++ post)%list st
+    = (committed pre st
+       ++ committed new (snd (run_lines pre st))
+       ++ parse_lines post (PPara []))%list.
+Proof.
+  intros pre old new post st Hnew Hold.
+  destruct (reparse_only_new pre old new post st
+              ltac:(rewrite Hnew, Hold; reflexivity)) as [_ Hedit].
+  rewrite Hedit, Hold. reflexivity.
+Qed.
+
 Lemma app_cons_app :
   forall {A : Type} (xs : list A) x ys tail,
     ((xs ++ (x :: ys)) ++ tail)%list =
@@ -1018,3 +1090,19 @@ Proof.
 Qed.
 
 End WithTableDet.
+
+(* Why the state hypothesis of `reparse_only_new` is not decoration.  Both
+   replacements are one line and both are paragraphs at top level, but the
+   second opens a code fence, so it leaves a state the first does not and
+   the line after the edit stops being a paragraph of its own.  An
+   implementation that reused the tail here would be wrong. *)
+Example reparse_state_matters :
+  let pre := ["a"; ""]%list in
+  let post := ["c"]%list in
+  parse_lines (pre ++ ["b"] ++ post)%list (PPara [])
+  <> parse_lines (pre ++ ["```"] ++ post)%list (PPara []).
+Proof. vm_compute. discriminate. Qed.
+
+Example reparse_state_matters_states :
+  snd (run_lines ["```"]%list (PPara [])) <> snd (run_lines ["b"]%list (PPara [])).
+Proof. vm_compute. discriminate. Qed.

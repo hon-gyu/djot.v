@@ -1585,6 +1585,42 @@ Proof.
   apply parse_sep; assumption.
 Qed.
 
+(** Replacing one block in a canonical document leaves the parse of every
+    other block untouched.  The right-hand side names `pre` and `post`
+    through the same `map cb_ast` they had before the edit, so "the rest
+    of the document is preserved" is the statement rather than a reading
+    of it.  Only the new document need be canonical: the block coming out
+    is not mentioned.
+
+    An address is not needed either.  Splitting the list is what picks the
+    block, so nothing has to connect an AST node to a source span.
+
+    The document here is a `cblock` list and the edit is list surgery, so
+    an editor holding one has no reparse to skip: this is the guarantee
+    that whoever parses its rendering gets the list back.  An editor
+    holding arbitrary source text is the case outside this file.  That
+    text need not be in the image of `render_djot`, so the block being
+    replaced has no `cb_lines` and the statement below does not apply to
+    it.  That case is `Uniformity.reparse_only_new`, stated over line
+    lists and needing no canonicality at all. *)
+Corollary block_replace :
+  forall pre new post,
+    cblocks_ok (pre ++ new :: post)%list = true ->
+    parse_blocks (render_djot (blocks_of_cblocks (pre ++ new :: post)))
+    = (map cb_ast pre ++ cb_ast new :: map cb_ast post)%list.
+Proof.
+  intros pre new post H.
+  rewrite (roundtrip_blocks _ H). unfold blocks_of_cblocks.
+  rewrite map_app. reflexivity.
+Qed.
+
+(* The obligation the corollary leaves an editor is local: `pre` and
+   `post` were already canonical, so `cblocks_ok` reduces to `cb_ok new`
+   and the two pairs the new block joins.  Neither is bureaucratic -- a
+   list dropped next to a list is the pair `cb_pairs_ok` rejects, and it
+   is rejected because the separating blank really does make the parser
+   continue the first list as loose (`Render.cb_pairs_ok_pair`). *)
+
 (*
 Worked examples
 ===============
