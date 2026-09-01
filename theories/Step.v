@@ -1102,7 +1102,7 @@ Definition direct_open (k : line_kind) : bool :=
    call site.  A line-local column would make `step_fuel_shift` false --
    see the block-attribute entry in
    .project/project-engineering-lessons.md. *)
-Definition open_line `{bconfig} (descend : string -> blocks * pstate)
+Definition open_line (descend : string -> blocks * pstate)
   (ind : nat) (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KQuote rest => open_quote (descend rest)

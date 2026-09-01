@@ -463,3 +463,236 @@ Proof. intros H. vm_compute in H. discriminate. Qed.
 Example wrap_moves_trailing_space :
   @para_inlines djot_table ["a  "; "b"] <> @para_inlines djot_table ["a   b"].
 Proof. intros H. vm_compute in H. discriminate. Qed.
+
+(*
+Where a setting is read
+-----------------------
+
+Each block setting should have an effect, and a bounded sphere of
+effect.  The effect is a document whose parse changes when the setting
+is turned off; the bound is that the setting is read in one named place
+and is invisible everywhere else the fold looks at the configuration.
+
+The fold reads the configuration through `open_line` (which covers
+`open_kind`, `open_attr`, `open_foot` and the list-marker projections),
+through `bunderline_of` and `binterrupt`, through `bheading_continues`,
+and through `finish` and `fence_block`.  The eight boolean settings
+divide over those: five cannot change what a line opens, five cannot
+change what a state closes to, and the two that reach neither are read
+only at a raw fence and at a colon bullet.
+
+This is locality per query, not per document.  The document-level
+statement -- a source with no row line anywhere parses identically with
+tables off -- needs a predicate saying the trigger kind arises at no
+depth of the container descent, and `step`'s descent is what would have
+to carry it.  See .project/260901.knob-isolation.md. *)
+
+Theorem with_tables_opens_only_rows :
+  forall enabled K descend ind l k,
+    (forall r, k <> KRow r) ->
+    @open_line (with_tables enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof.
+  intros enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. eapply H. reflexivity.
+Qed.
+
+Theorem with_divs_opens_only_divs :
+  forall enabled K descend ind l k,
+    (forall len cls, k <> KDiv len cls) ->
+    @open_line (with_divs enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof.
+  intros enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. eapply H. reflexivity.
+Qed.
+
+Theorem with_block_attrs_opens_only_attrs :
+  forall enabled K descend ind l k,
+    (forall ap, k <> KAttr ap) ->
+    @open_line (with_block_attrs enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof.
+  intros enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. eapply H. reflexivity.
+Qed.
+
+Theorem with_block_footnotes_opens_only_footnotes :
+  forall enabled K descend ind l k,
+    (forall lbl rest, k <> KFoot lbl rest) ->
+    @open_line (with_block_footnotes enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof.
+  intros enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. eapply H. reflexivity.
+Qed.
+
+Theorem with_tasks_opens_only_lists :
+  forall enabled K descend ind l k,
+    (forall sty core chk rest, k <> KList sty core chk rest) ->
+    @open_line (with_tasks enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof.
+  intros enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. eapply H. reflexivity.
+Qed.
+
+(* The other three cannot change what any line opens, at any kind. *)
+Theorem with_deflists_opens_nothing :
+  forall enabled K descend ind l k,
+    @open_line (with_deflists enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+
+Theorem with_raw_blocks_opens_nothing :
+  forall enabled K descend ind l k,
+    @open_line (with_raw_blocks enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+
+Theorem with_heading_continuation_opens_nothing :
+  forall enabled K descend ind l k,
+    @open_line (with_heading_continuation enabled K) descend ind l k
+    = @open_line K descend ind l k.
+Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+
+(* The other half: what a state closes to.  `finish` reads the
+   configuration only through the two block builders that have a
+   configured arm. *)
+Lemma finish_config_ext :
+  forall T K1 K2,
+    (forall f content, @fence_block K1 f content = @fence_block K2 f content) ->
+    (forall ls items, @list_block K1 ls items = @list_block K2 ls items) ->
+    forall st, @finish T K1 st = @finish T K2 st.
+Proof.
+  intros T K1 K2 Hf Hl st.
+  induction st; cbn [finish]; try reflexivity;
+    try (rewrite IHst; try rewrite Hl; reflexivity).
+  rewrite Hf. reflexivity.
+Qed.
+
+Theorem with_tables_finishes_nothing :
+  forall T enabled K st, @finish T (with_tables enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+Theorem with_divs_finishes_nothing :
+  forall T enabled K st, @finish T (with_divs enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+Theorem with_block_attrs_finishes_nothing :
+  forall T enabled K st,
+    @finish T (with_block_attrs enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+Theorem with_block_footnotes_finishes_nothing :
+  forall T enabled K st,
+    @finish T (with_block_footnotes enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+Theorem with_heading_continuation_finishes_nothing :
+  forall T enabled K st,
+    @finish T (with_heading_continuation enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+(* The two settings that reach neither opening nor closing: each has one
+   arm, and it is guarded by the construct's own spelling. *)
+Theorem with_raw_blocks_only_at_raw_fences :
+  forall enabled K f content,
+    (forall fmt, f_info f <> String "="%char fmt) ->
+    @fence_block (with_raw_blocks enabled K) f content = @fence_block K f content.
+Proof.
+  intros enabled K f content H. unfold fence_block.
+  destruct (f_info f) as [|c rest] eqn:E; [reflexivity|].
+  destruct (Ascii.eqb c "="%char) eqn:Ec.
+  - apply Ascii.eqb_eq in Ec. subst c. exfalso. apply (H rest). reflexivity.
+  - destruct c as [b0 b1 b2 b3 b4 b5 b6 b7];
+      destruct b0, b1, b2, b3, b4, b5, b6, b7; try reflexivity; discriminate Ec.
+Qed.
+
+Theorem with_deflists_only_at_colon_bullets :
+  forall enabled K S sp items,
+    (forall n rest, S <> ((SBullet ":"%char), n) :: rest) ->
+    @styles_list (with_deflists enabled K) S sp items
+    = @styles_list K S sp items.
+Proof.
+  intros enabled K S sp items H.
+  destruct S as [|[sty n] rest]; [reflexivity|].
+  destruct sty; try reflexivity.
+  cbn [styles_list]. destruct (Ascii.eqb c ":"%char) eqn:Ec; cbn [andb].
+  - apply Ascii.eqb_eq in Ec. subst c. exfalso. eapply H. reflexivity.
+  - reflexivity.
+Qed.
+
+(*
+That each setting has an effect
+-------------------------------
+
+One document per setting, parsed with Djot's answers and with that one
+answer taken away.  A setting whose witness stopped failing would be a
+setting the parser had stopped reading. *)
+Definition djot_off (k : bool -> bconfig -> bconfig) : bconfig :=
+  k false djot_bconfig.
+
+Example tables_have_an_effect :
+  @parse_blocks djot_table djot_bconfig "| a |
+" <> @parse_blocks djot_table (djot_off with_tables) "| a |
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example divs_have_an_effect :
+  @parse_blocks djot_table djot_bconfig ":::
+x
+:::
+" <> @parse_blocks djot_table (djot_off with_divs) ":::
+x
+:::
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example block_attrs_have_an_effect :
+  @parse_blocks djot_table djot_bconfig "{#i}
+para
+" <> @parse_blocks djot_table (djot_off with_block_attrs) "{#i}
+para
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example block_footnotes_have_an_effect :
+  @parse_blocks djot_table djot_bconfig "[^1]: note
+" <> @parse_blocks djot_table (djot_off with_block_footnotes) "[^1]: note
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example tasks_have_an_effect :
+  @parse_blocks djot_table djot_bconfig "- [ ] x
+" <> @parse_blocks djot_table (djot_off with_tasks) "- [ ] x
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example deflists_have_an_effect :
+  @parse_blocks djot_table djot_bconfig ": term
+
+  def
+" <> @parse_blocks djot_table (djot_off with_deflists) ": term
+
+  def
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example raw_blocks_have_an_effect :
+  @parse_blocks djot_table djot_bconfig "```=html
+<b>
+```
+" <> @parse_blocks djot_table (djot_off with_raw_blocks) "```=html
+<b>
+```
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example heading_continuation_has_an_effect :
+  @parse_blocks djot_table djot_bconfig "# a
+# b
+" <> @parse_blocks djot_table (djot_off with_heading_continuation) "# a
+# b
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
