@@ -865,7 +865,7 @@ Proof.
     destruct (step l finner) as [bs inner'] eqn:Hs.
     assert (Hfoot : step l (PFoot find flbl fdone finner) =
               ([], PFoot find flbl (rev bs ++ fdone)%list inner')).
-    { unfold step. cbn [step_fuel pstate_depth].
+    { unfold step. cbn [step_fuel open_line pstate_depth].
       rewrite (classify_kblank_blank l Hl).
       rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
       rewrite Hs. reflexivity. }
@@ -877,12 +877,12 @@ Proof.
        may still follow, and the table it would emit is the same either
        way -- `TOpen` and `TAfterBlank` have the same caption. *)
     pose proof (classify_kblank_blank l Hl) as Hb.
-    unfold step. cbn [step_fuel].
+    unfold step. cbn [step_fuel open_line].
     rewrite (caption_open_blank l Hb), Hb.
     destruct tcap; cbn [finish app]; reflexivity.
   - (* pending attributes: the blank closes what is under them, and the
        decoration rides on whatever that emits *)
-    cbn [blank_safe] in Hsafe. unfold step. cbn [step_fuel]. rewrite Hl.
+    cbn [blank_safe] in Hsafe. unfold step. cbn [step_fuel open_line]. rewrite Hl.
     destruct (is_idle pinner) eqn:Hidle.
     { destruct pinner as [cur| | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [reflexivity|discriminate Hidle]. }
@@ -906,7 +906,7 @@ Proof.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
-  - unfold step. cbn [step_fuel]. destruct bheading_continues;
+  - unfold step. cbn [step_fuel open_line]. destruct bheading_continues;
       rewrite Hblank; reflexivity.
   - destruct (fence_close f l) eqn:Hclose.
     + rewrite (step_fence_close l f fnd acc Hclose). reflexivity.
@@ -920,10 +920,10 @@ Proof.
   - destruct (step l inner) as [bs inner'] eqn:Hstep.
     rewrite (step_list_blank l ls done inner bs inner' Hblank Hstep).
     cbn [snd lazy_ok]. exact IH.
-  - unfold step. cbn [step_fuel].
+  - unfold step. cbn [step_fuel open_line].
     destruct (ap_done aap).
     { rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-      unfold step. cbn [step_fuel]. rewrite Hblank. reflexivity. }
+      unfold step. cbn [step_fuel open_line]. rewrite Hblank. reflexivity. }
     assert (Hfall : lazy_ok (snd (step_fuel
               (String.length l + pstate_depth (PAttr apend aind aap aslices))
               0 l (PPara aslices))) = false).
@@ -936,17 +936,17 @@ Proof.
       |exact Hfall].
   - (* a reference definition: the blank closes it, leaving the idle state *)
     rewrite (step_ref_blank l rind rlbl rval Hblank). reflexivity.
-  - unfold step. cbn [step_fuel]. rewrite (classify_kblank_blank l Hblank).
+  - unfold step. cbn [step_fuel open_line]. rewrite (classify_kblank_blank l Hblank).
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l finner) as [bs inner'] eqn:Hs.
     cbn [snd lazy_ok] in IH |- *. exact IH.
   - (* a table: a blank leaves either a waiting table or the idle state,
        and neither is a paragraph *)
     pose proof (classify_kblank_blank l Hblank) as Hb.
-    unfold step. cbn [step_fuel].
+    unfold step. cbn [step_fuel open_line].
     rewrite (caption_open_blank l Hb), Hb.
     destruct tcap; reflexivity.
-  - unfold step. cbn [step_fuel]. rewrite Hblank.
+  - unfold step. cbn [step_fuel open_line]. rewrite Hblank.
     destruct (is_idle pinner); [reflexivity|].
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l pinner) as [bs st'] eqn:Hs.

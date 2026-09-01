@@ -344,7 +344,7 @@ Lemma step_heading_cont :
     classify l = KHeading lvl txt ->
     step l (PHeading lvl cur) = ([], PHeading lvl (push_text txt cur)).
 Proof.
-  intros l lvl txt cur Hcontinues H. unfold step. cbn [step_fuel].
+  intros l lvl txt cur Hcontinues H. unfold step. cbn [step_fuel open_line].
   rewrite Hcontinues, H.
   rewrite Nat.eqb_refl. reflexivity.
 Qed.
@@ -354,7 +354,7 @@ Lemma step_heading_close :
     classify l = KBlank ->
     step l (PHeading lvl cur) = ([heading_block lvl cur], PPara []).
 Proof.
-  intros l lvl cur H. unfold step. cbn [step_fuel].
+  intros l lvl cur H. unfold step. cbn [step_fuel open_line].
   destruct bheading_continues; rewrite H; reflexivity.
 Qed.
 

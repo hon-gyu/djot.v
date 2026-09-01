@@ -1079,11 +1079,64 @@ Definition list_next (ls : list_state) (item : blocks) (chk : task_status)
 Definition consumed (l rest : string) : nat :=
   String.length l - String.length rest.
 
+(* Kinds `open_kind` handles: everything but those that open a container
+   by parsing part of the line again, or that record a column. *)
+Definition direct_open (k : line_kind) : bool :=
+  match k with
+  | KQuote _ | KList _ _ _ _ | KAttr _ | KFoot _ _ | KRef _ _ | KFence _ => false
+  | _ => true
+  end.
+
+(* What a line opens, when it opens something.  `open_kind` answers for
+   every kind that needs neither a column nor a second look at the line;
+   the six that do are the six `direct_open` excludes, and they are
+   collected here so that the answer is given once rather than at each
+   state that can be interrupted.
+
+   `descend` is the parse of a container prefix's residue, which is
+   `step_fuel`'s one recursion.  Taking it as an argument rather than
+   making the two mutually recursive is what keeps the fuel out of this
+   definition, and therefore out of every lemma stated over it.
+
+   `ind` is the opener's *absolute* column, `off + indent_of l` at every
+   call site.  A line-local column would make `step_fuel_shift` false --
+   see the block-attribute entry in
+   .project/project-engineering-lessons.md. *)
+Definition open_line `{bconfig} (descend : string -> blocks * pstate)
+  (ind : nat) (l : string) (k : line_kind) : blocks * pstate :=
+  match k with
+  | KQuote rest => open_quote (descend rest)
+  | KList sty core chk rest =>
+      open_list ind
+        (with_starts (configured_list_styles sty chk) core)
+        (configured_list_check chk)
+        (descend (configured_list_rest chk rest))
+  | KAttr ap => open_attr [] ind ap l
+  | KFoot lbl rest => open_foot l ind lbl (descend rest)
+  | KRef lbl v => open_ref ind lbl v
+  | KFence f => open_fence ind f
+  | k => open_kind l k
+  end.
+
+(* `open_line` is a case split on `direct_open` and nothing else, which
+   is what lets a lemma about a kind it does not name stay stated over
+   `open_kind`. *)
+Lemma open_line_direct :
+  forall descend ind l k,
+    direct_open k = true -> open_line descend ind l k = open_kind l k.
+Proof. intros descend ind l k H. destruct k; (reflexivity || discriminate). Qed.
+
 Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
   : blocks * pstate :=
   match n with
   | O => ([], st)                     (* unreachable from step *)
   | S n' =>
+      (* The one recursion: a container prefix's residue, parsed from
+         idle at the offset the prefix ate.  Named once because
+         `open_line` is its only consumer and three of that definition's
+         branches want it. *)
+      let descend := fun rest =>
+        step_fuel n' (off + consumed l rest) rest (PPara []) in
       match st with
       | PFence f ind acc =>
           (* Verbatim: only the close test, and the closing line is
@@ -1096,22 +1149,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           else ([], PFence f ind (drop_ws_upto (ind - off) l :: acc))
       | PPara [] =>
           (* Idle: nothing to close, so the line just opens its block. *)
-          match classify l with
-          | KQuote rest => open_quote (step_fuel n' (off + consumed l rest) rest (PPara []))
-          | KList sty core chk rest =>
-              open_list (off + indent_of l)
-                (with_starts (configured_list_styles sty chk) core)
-                (configured_list_check chk)
-                (step_fuel n' (off + consumed l (configured_list_rest chk rest))
-                   (configured_list_rest chk rest) (PPara []))
-          | KAttr ap => open_attr [] (off + indent_of l) ap l
-          | KFoot lbl rest =>
-              open_foot l (off + indent_of l) lbl
-                (step_fuel n' (off + consumed l rest) rest (PPara []))
-          | KRef lbl v => open_ref (off + indent_of l) lbl v
-          | KFence f => open_fence (off + indent_of l) f
-          | k => open_kind l k
-          end
+          open_line descend (off + indent_of l) l (classify l)
       | PPara (c :: cur') =>
           (* The underline test runs before the classifier, because the
              kinds an underline wears are kinds that mean something else:
@@ -1124,17 +1162,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | None =>
           match classify l with
           | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
-          | KList sty core chk rest as k =>
+          | k =>
               if binterrupt k
               then close_reopen (PPara (c :: cur'))
-                     (open_list (off + indent_of l)
-                        (with_starts (configured_list_styles sty chk) core)
-                        (configured_list_check chk)
-                        (step_fuel n'
-                           (off + consumed l (configured_list_rest chk rest))
-                           (configured_list_rest chk rest) (PPara [])))
+                     (open_line descend (off + indent_of l) l k)
               else ([], PPara (drop_leading_ws l :: c :: cur'))
-          | _ => ([], PPara (drop_leading_ws l :: c :: cur'))   (* paragraphs never interrupt *)
           end
           end
       | PHeading lvl cur =>
@@ -1153,30 +1185,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               if bheading_continues
               then ([], PHeading lvl (drop_leading_ws l :: cur))
               else close_reopen (PHeading lvl cur) (open_kind l KText)
-          | KQuote rest =>
+          | k =>
               close_reopen (PHeading lvl cur)
-                (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
-          | KList sty core chk rest =>
-              close_reopen (PHeading lvl cur)
-                (open_list (off + indent_of l)
-                   (with_starts (configured_list_styles sty chk) core)
-                   (configured_list_check chk)
-                   (step_fuel n' (off + consumed l (configured_list_rest chk rest))
-                      (configured_list_rest chk rest) (PPara [])))
-          | KAttr ap =>
-              close_reopen (PHeading lvl cur)
-                (open_attr [] (off + indent_of l) ap l)
-          | KFoot lbl rest =>
-              close_reopen (PHeading lvl cur)
-                (open_foot l (off + indent_of l) lbl
-                  (step_fuel n' (off + consumed l rest) rest (PPara [])))
-          | KRef lbl v =>
-              close_reopen (PHeading lvl cur)
-                (open_ref (off + indent_of l) lbl v)
-          | KFence f =>
-              close_reopen (PHeading lvl cur)
-                (open_fence (off + indent_of l) f)
-          | k => close_reopen (PHeading lvl cur) (open_kind l k)
+                (open_line descend (off + indent_of l) l k)
           end
       | PQuote done inner =>
           match classify l with
@@ -1185,30 +1196,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                  what it has closed so far *)
               let (bs, inner') := step_fuel n' (off + consumed l rest) rest inner in
               ([], PQuote (rev bs ++ done)%list inner')
-          | KList sty core chk rest =>
-              close_reopen (PQuote done inner)
-                (open_list (off + indent_of l)
-                   (with_starts (configured_list_styles sty chk) core)
-                   (configured_list_check chk)
-                   (step_fuel n' (off + consumed l (configured_list_rest chk rest))
-                      (configured_list_rest chk rest) (PPara [])))
-          | KAttr ap =>
-              close_reopen (PQuote done inner)
-                (open_attr [] (off + indent_of l) ap l)
-          | KFoot lbl frest =>
-              close_reopen (PQuote done inner)
-                (open_foot l (off + indent_of l) lbl
-                  (step_fuel n' (off + consumed l frest) frest (PPara [])))
-          | KRef lbl v =>
-              close_reopen (PQuote done inner)
-                (open_ref (off + indent_of l) lbl v)
-          | KFence f =>
-              close_reopen (PQuote done inner)
-                (open_fence (off + indent_of l) f)
           | k =>
               if is_lazy k inner
               then ([], PQuote done (feed_lazy l inner))
-              else close_reopen (PQuote done inner) (open_kind l k)
+              else close_reopen (PQuote done inner)
+                     (open_line descend (off + indent_of l) l k)
           end
       | PDiv len cls done inner =>
           (* The close test runs before the line reaches anything nested
@@ -1263,12 +1255,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                     | [] =>
                         (* no style survives: a different list *)
                         close_reopen (PList ls done inner)
-                          (open_list (off + indent_of l)
-                             (with_starts (configured_list_styles sty chk) core)
-                             (configured_list_check chk)
-                             (step_fuel n'
-                                (off + consumed l (configured_list_rest chk rest))
-                                (configured_list_rest chk rest) (PPara [])))
+                          (open_line descend (off + indent_of l) l
+                             (KList sty core chk rest))
                     | ns =>
                         (* a sibling item: narrow the style set, close the
                            current item, open the next around the rest of
@@ -1283,26 +1271,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                                (configured_list_rest chk rest))
                                (rev bs) inner')
                     end
-                | KQuote rest =>
-                    close_reopen (PList ls done inner)
-                      (open_quote (step_fuel n' (off + consumed l rest) rest (PPara [])))
-                | KAttr ap =>
-                    close_reopen (PList ls done inner)
-                      (open_attr [] (off + indent_of l) ap l)
-                | KFoot lbl frest =>
-                    close_reopen (PList ls done inner)
-                      (open_foot l (off + indent_of l) lbl
-                        (step_fuel n' (off + consumed l frest) frest (PPara [])))
-                | KRef lbl v =>
-                    close_reopen (PList ls done inner)
-                      (open_ref (off + indent_of l) lbl v)
-                | KFence f =>
-                    close_reopen (PList ls done inner)
-                      (open_fence (off + indent_of l) f)
                 | _ =>
                     if is_lazy k inner
                     then ([], PList ls done (feed_lazy l inner))
-                    else close_reopen (PList ls done inner) (open_kind l k)
+                    else close_reopen (PList ls done inner)
+                           (open_line descend
+                              (off + indent_of l) l k)
                 end
           end
       | PAttr pend ind ap slices =>
@@ -1467,26 +1441,26 @@ Lemma step_fuel_stable :
 Proof.
   induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
-  cbn [step_fuel].
+  cbn [step_fuel open_line].
   destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
   - (* idle, or an open paragraph *)
     cbn [pstate_depth] in Hn |- *.
     destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
       * pose proof (classify_quote_length _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         reflexivity.
       * pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
           by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
       * pose proof (classify_foot_length _ _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ frest (PPara [])) by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ frest (PPara []))
           by (cbn [pstate_depth]; lia).
@@ -1495,7 +1469,7 @@ Proof.
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
       pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
-      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
       rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
         by (cbn [pstate_depth]; lia).
       rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
@@ -1507,39 +1481,39 @@ Proof.
     2: {
       destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
       - pose proof (classify_quote_length _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ rest (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
       - pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
           by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity.
       - pose proof (classify_foot_length _ _ _ E) as Hlt.
-        cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+        cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
         rewrite (IH n' _ frest (PPara [])) by (cbn [pstate_depth]; lia).
         rewrite (IH (String.length l) _ frest (PPara []))
           by (cbn [pstate_depth]; lia).
         reflexivity. }
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; try reflexivity.
     + pose proof (classify_quote_length _ _ E) as Hlt.
-      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
       rewrite (IH n' _ rest (PPara [])) by (cbn [pstate_depth]; lia).
       rewrite (IH (String.length l) _ rest (PPara [])) by (cbn [pstate_depth]; lia).
       reflexivity.
     + pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
-      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
       rewrite (IH n' _ (configured_list_rest chk mr) (PPara []))
         by (cbn [pstate_depth]; lia).
       rewrite (IH (String.length l) _ (configured_list_rest chk mr) (PPara []))
         by (cbn [pstate_depth]; lia).
       reflexivity.
     + pose proof (classify_foot_length _ _ _ E) as Hlt.
-      cbn [pstate_depth]; rewrite ?Nat.add_0_r.
+      cbn [open_line pstate_depth]; rewrite ?Nat.add_0_r.
       rewrite (IH n' _ frest (PPara [])) by (cbn [pstate_depth]; lia).
       rewrite (IH (String.length l) _ frest (PPara []))
         by (cbn [pstate_depth]; lia).
@@ -1897,9 +1871,9 @@ Proof.
   induction n as [|n IH]; intros k off l st; [reflexivity|].
   destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
   (* idle, or an open paragraph *)
-  { cbn [pad_state step_fuel].
+  { cbn [pad_state step_fuel open_line].
     destruct cur as [|c cur'].
-    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try reflexivity;
         try (cbn [open_fence fst snd pad_state]; rewrite Nat.add_assoc;
              reflexivity).
@@ -1931,7 +1905,7 @@ Proof.
       { cbn [open_kind]. destruct (@btables K); reflexivity. } }
     { destruct (bunderline_of l) as [ulvl|] eqn:Eu;
         [cbn [fst snd pad_state]; reflexivity|].
-      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try reflexivity.
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
       rewrite <- !Nat.add_assoc.
@@ -1943,8 +1917,8 @@ Proof.
         as [bs inner'] eqn:Ed.
       cbn [close_reopen open_list fst snd pad_state]. reflexivity. } }
   (* heading *)
-  { cbn [pad_state step_fuel].
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+  { cbn [pad_state step_fuel open_line].
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { reflexivity. }
     { reflexivity. }
     { (* fence: opens at the column its border sits at *)
@@ -1984,11 +1958,11 @@ Proof.
     { destruct bheading_continues; reflexivity. } }
   (* fence: the column moves with the offset, and the content lines are
      measured against the difference, which the shift leaves alone *)
-  { cbn [pad_state step_fuel]. destruct (fence_close f l); [reflexivity|].
+  { cbn [pad_state step_fuel open_line]. destruct (fence_close f l); [reflexivity|].
     replace (k + fnd - (k + off)) with (fnd - off) by lia. reflexivity. }
   (* quote *)
-  { cbn [pad_state step_fuel].
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+  { cbn [pad_state step_fuel open_line].
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { cbn [is_lazy close_reopen open_kind fst snd pad_state];
       destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
       rewrite finish_pad_quote; reflexivity. }
@@ -2039,15 +2013,15 @@ Proof.
         rewrite finish_pad_quote. reflexivity. } } }
   (* div: the close test reads the line, never the offset, and the
      descent passes both through untouched *)
-  { cbn [pad_state step_fuel]. rewrite (pad_state_in_fence k dinner).
+  { cbn [pad_state step_fuel open_line]. rewrite (pad_state_in_fence k dinner).
     destruct (negb (in_fence dinner) && div_close dlen l)%bool.
     { cbn [fst snd pad_state]. rewrite (pad_state_finish k dinner). reflexivity. }
     { rewrite (IH k off l dinner).
       destruct (step_fuel n off l dinner) as [bs inner'] eqn:Ed.
       cbn [fst snd pad_state]. reflexivity. } }
   (* list: every recorded column lives here *)
-  { cbn [pad_state step_fuel].
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+  { cbn [pad_state step_fuel open_line].
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
       cbn [fst snd pad_state]. rewrite pad_state_blank_absorbed.
@@ -2180,7 +2154,7 @@ Proof.
         rewrite finish_pad_list. reflexivity. } } }
   (* attribute spec: it records no column, and neither does anything it
      turns into *)
-  { cbn [pad_state step_fuel].
+  { cbn [pad_state step_fuel open_line].
     destruct (ap_done aap).
     { pose proof (IH k off l (PPend (attr_merge (ap_attrs aap) apend) (PPara [])))
         as H; cbn [pad_state] in H; rewrite H; reflexivity. }
@@ -2193,7 +2167,7 @@ Proof.
           cbn [pad_state] in H; rewrite H; reflexivity. } } }
   (* reference definition: its column shifts with the run, and the line
      that ends it is reprocessed from idle *)
-  { cbn [pad_state step_fuel]. rewrite <- Nat.add_assoc, ltb_add_mono_l.
+  { cbn [pad_state step_fuel open_line]. rewrite <- Nat.add_assoc, ltb_add_mono_l.
     destruct (if Nat.ltb rind (off + indent_of l) then ref_cont l else None);
       [reflexivity|].
     pose proof (IH k off l (PPara [])) as H; cbn [pad_state] in H; rewrite H.
@@ -2201,7 +2175,7 @@ Proof.
     cbn [fst snd pad_state]. reflexivity. }
   (* footnote definition: its opener column shifts, while its contents
      follow the same shifted run recursively *)
-  { cbn [pad_state step_fuel].
+  { cbn [pad_state step_fuel open_line].
     destruct (is_blank l).
     { rewrite (IH k off l finner).
       destruct (step_fuel n off l finner) as [bs inner'] eqn:Ed.
@@ -2217,18 +2191,18 @@ Proof.
         cbn [fst snd pad_state]. rewrite (pad_state_finish k finner). reflexivity. } } }
   (* table: it records no column, and the line that ends it is
      reprocessed from idle *)
-  { cbn [pad_state step_fuel].
+  { cbn [pad_state step_fuel open_line].
     destruct tcap as [| |ls].
     { destruct (caption_open l) as [rest|]; [reflexivity|].
       destruct (is_blank l); [reflexivity|].
-      destruct (classify l) eqn:E; try reflexivity;
+      destruct (classify l) eqn:E; cbn [open_line is_lazy]; try reflexivity;
         (pose proof (IH k off l (PPara [])) as H;
          cbn [pad_state] in H; rewrite H;
          destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed;
          cbn [fst snd pad_state]; reflexivity). }
     { destruct (caption_open l) as [rest|]; [reflexivity|].
       destruct (is_blank l); [reflexivity|].
-      destruct (classify l) eqn:E;
+      destruct (classify l) eqn:E; cbn [open_line is_lazy];
         (pose proof (IH k off l (PPara [])) as H;
          cbn [pad_state] in H; rewrite H;
          destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed;
@@ -2236,8 +2210,8 @@ Proof.
     { destruct (is_blank l); reflexivity. } }
   (* pending attributes: transparent to the shift, since they carry no
      column and the block they decorate carries its own *)
-  { cbn [pad_state step_fuel]. rewrite (pad_state_is_idle k pinner).
-    destruct (classify l) eqn:E;
+  { cbn [pad_state step_fuel open_line]. rewrite (pad_state_is_idle k pinner).
+    destruct (classify l) eqn:E; cbn [open_line is_lazy];
       try (destruct (is_idle pinner);
            [unfold open_attr; destruct (@battrs K); cbn [fst snd pad_state];
              rewrite ?Nat.add_assoc; reflexivity|]);
@@ -2281,18 +2255,10 @@ The transition, branch by branch
 --------------------------------
 *)
 
-(* Kinds `open_kind` handles: everything but those that open a container
-   by parsing part of the line again, or that record a column. *)
-Definition direct_open (k : line_kind) : bool :=
-  match k with
-  | KQuote _ | KList _ _ _ _ | KAttr _ | KFoot _ _ | KRef _ _ | KFence _ => false
-  | _ => true
-  end.
-
 Lemma step_fence_close :
   forall l f ind acc, fence_close f l = true ->
   step l (PFence f ind acc) = ([fence_block f (rev acc)], PPara []).
-Proof. intros l f ind acc H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
+Proof. intros l f ind acc H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 (* The content line keeps what it is indented past the fence's own
    column.  `step` runs at offset 0, so that column is the whole of the
@@ -2302,7 +2268,7 @@ Lemma step_fence_content :
   forall l f ind acc, fence_close f l = false ->
   step l (PFence f ind acc) = ([], PFence f ind (drop_ws_upto ind l :: acc)).
 Proof.
-  intros l f ind acc H. unfold step. cbn [step_fuel]. rewrite H, Nat.sub_0_r.
+  intros l f ind acc H. unfold step. cbn [step_fuel open_line]. rewrite H, Nat.sub_0_r.
   reflexivity.
 Qed.
 
@@ -2312,7 +2278,7 @@ Lemma step_idle :
   step l (PPara []) = open_kind l k.
 Proof.
   intros l k H Hk. unfold step. cbn [step_fuel]. rewrite H.
-  destruct k; (reflexivity || discriminate).
+  apply open_line_direct, Hk.
 Qed.
 
 (* An open paragraph is flushed by a blank line and by nothing else. *)
@@ -2321,7 +2287,7 @@ Lemma step_para_flush :
   step l (PPara (c :: cur')) =
   ([mk (Para (para_inlines (rev (c :: cur'))))], PPara []).
 Proof.
-  intros l c cur' H. unfold step. cbn [step_fuel].
+  intros l c cur' H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
 Qed.
 
@@ -2331,7 +2297,7 @@ Lemma step_para_cont :
   forall l c cur', classify l <> KBlank -> bcuts l = false ->
   step l (PPara (c :: cur')) = ([], PPara (drop_leading_ws l :: c :: cur')).
 Proof.
-  intros l c cur' H Hc. unfold step. cbn [step_fuel].
+  intros l c cur' H Hc. unfold step. cbn [step_fuel open_line].
   unfold bcuts in Hc. destruct (bunderline_of l); [discriminate|].
   destruct (classify l) eqn:E; try (congruence || reflexivity).
   rewrite Hc. reflexivity.
@@ -2351,7 +2317,7 @@ Lemma step_quote_open :
     step l (PPara [])
     = ([], PQuote (rev bs) (pad_state (consumed l rest) inner)).
 Proof.
-  intros l rest bs inner H Hr. unfold step at 1. cbn [step_fuel]. rewrite H.
+  intros l rest bs inner H Hr. unfold step at 1. cbn [step_fuel open_line]. rewrite H. cbn [open_line].
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
@@ -2369,7 +2335,7 @@ Lemma step_quote_cont :
     step l (PQuote done inner) = ([], PQuote (rev bs ++ done)%list inner').
 Proof.
   intros l rest done inner bs inner' H Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H.
+  cbn [step_fuel open_line pstate_depth]. rewrite H.
   change (step_fuel ?n (0 + consumed l rest) rest inner)
     with (step_fuel n (consumed l rest) rest inner).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest inner)
@@ -2386,7 +2352,7 @@ Lemma step_quote_lazy :
     classify l = KText -> lazy_ok inner = true ->
     step l (PQuote done inner) = ([], PQuote done (feed_lazy l inner)).
 Proof.
-  intros l done inner H Hl. unfold step. cbn [step_fuel]. rewrite H.
+  intros l done inner H Hl. unfold step. cbn [step_fuel open_line]. rewrite H.
   cbn [is_lazy]. rewrite Hl. reflexivity.
 Qed.
 
@@ -2399,7 +2365,7 @@ Lemma step_quote_close :
     step l (PQuote done inner) =
     (mk (BlockQuote (rev done ++ finish inner)%list) :: bs, st').
 Proof.
-  intros l k done inner bs st' H Hk Hlz Ho. unfold step. cbn [step_fuel].
+  intros l k done inner bs st' H Hk Hlz Ho. unfold step. cbn [step_fuel open_line].
   rewrite H.
   destruct k; try discriminate; rewrite Hlz; rewrite Ho; reflexivity.
 Qed.
@@ -2419,7 +2385,7 @@ Lemma step_div_close :
     step l (PDiv len cls done inner)
     = ([div_block cls (rev done ++ finish inner)%list], PPara []).
 Proof.
-  intros l len cls done inner Hf H. unfold step. cbn [step_fuel].
+  intros l len cls done inner Hf H. unfold step. cbn [step_fuel open_line].
   rewrite Hf, H. reflexivity.
 Qed.
 
@@ -2431,7 +2397,7 @@ Lemma step_div_cont :
     = ([], PDiv len cls (rev bs ++ done)%list inner').
 Proof.
   intros l len cls done inner bs inner' H Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H.
+  cbn [step_fuel open_line pstate_depth]. rewrite H.
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
   rewrite Hr. reflexivity.
 Qed.
@@ -2468,8 +2434,8 @@ Lemma step_list_open :
              (rev bs)
              (pad_state (consumed l (configured_list_rest chk rest)) inner)).
 Proof.
-  intros l sty core chk rest bs inner H Hr. unfold step at 1. cbn [step_fuel].
-  rewrite H.
+  intros l sty core chk rest bs inner H Hr. unfold step at 1. cbn [step_fuel open_line].
+  rewrite H. cbn [open_line].
   change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
             (configured_list_rest chk rest) (PPara []))
     with (step_fuel n (consumed l (configured_list_rest chk rest))
@@ -2499,7 +2465,7 @@ Lemma step_list_blank :
                (rev bs ++ done)%list inner').
 Proof.
   intros l ls done inner bs inner' H Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H.
+  cbn [step_fuel open_line pstate_depth]. rewrite H.
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
   rewrite Hr. reflexivity.
 Qed.
@@ -2518,7 +2484,7 @@ Lemma step_list_indented :
            (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l.
+  cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l.
   destruct k eqn:Ek; try congruence;
     rewrite Hind;
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia);
@@ -2540,7 +2506,7 @@ Lemma step_list_sibling :
 Proof.
   intros l sty core chk rest ls done inner bs inner' s0 ss H Hm Hind Hr.
   unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
   change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
             (configured_list_rest chk rest) (PPara []))
     with (step_fuel n (consumed l (configured_list_rest chk rest))
@@ -2574,7 +2540,7 @@ Lemma step_list_diffstyle :
 Proof.
   intros l sty core chk rest ls done inner bs inner' H Hm Hind Hr.
   unfold step at 1.
-  cbn [step_fuel pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
   change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
             (configured_list_rest chk rest) (PPara []))
     with (step_fuel n (consumed l (configured_list_rest chk rest))
@@ -2602,7 +2568,7 @@ Qed.
 Lemma step_attr_open :
   forall l ap, classify l = KAttr ap ->
   step l (PPara []) = open_attr [] (indent_of l) ap l.
-Proof. intros l ap H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
+Proof. intros l ap H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 Lemma step_list_attr_close :
   forall l ap ls done inner,
@@ -2611,7 +2577,7 @@ Lemma step_list_attr_close :
     step l (PList ls done inner)
     = (finish (PList ls done inner), snd (open_attr [] (indent_of l) ap l)).
 Proof.
-  intros l ap ls done inner H Hind. unfold step. cbn [step_fuel pstate_depth].
+  intros l ap ls done inner H Hind. unfold step. cbn [step_fuel open_line pstate_depth].
   rewrite H, !Nat.add_0_l, Hind.
   unfold close_reopen, open_attr. destruct (@battrs K); cbn [fst snd];
     rewrite app_nil_r; reflexivity.
@@ -2626,8 +2592,8 @@ Lemma step_foot_open :
     step l (PPara []) =
       open_foot l (indent_of l) lbl (bs, pad_state (consumed l rest) inner).
 Proof.
-  intros l lbl rest bs inner H Hr. unfold step at 1. cbn [step_fuel].
-  rewrite H.
+  intros l lbl rest bs inner H Hr. unfold step at 1. cbn [step_fuel open_line].
+  rewrite H. cbn [open_line].
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
@@ -2649,7 +2615,7 @@ Lemma step_list_foot_close :
               (bs, pad_state (consumed l rest) inner'))).
 Proof.
   intros l lbl rest ls done inner bs inner' H Hind Hr.
-  unfold step at 1. cbn [step_fuel pstate_depth].
+  unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite H, !Nat.add_0_l, Hind.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
@@ -2666,7 +2632,7 @@ Qed.
 Lemma step_ref_open :
   forall l lbl v, classify l = KRef lbl v ->
   step l (PPara []) = ([], PRef (indent_of l) lbl v).
-Proof. intros l lbl v H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
+Proof. intros l lbl v H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 (* A code fence is not `direct_open` either, and for the same reason: it
    records the column its border sits at, so it opens through
@@ -2674,7 +2640,7 @@ Proof. intros l lbl v H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Q
 Lemma step_fence_open :
   forall l f, classify l = KFence f ->
   step l (PPara []) = ([], PFence f (indent_of l) []).
-Proof. intros l f H. unfold step. cbn [step_fuel]. rewrite H. reflexivity. Qed.
+Proof. intros l f H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 (* A blank line closes an open definition, emitting it, and leaves the
    idle state: `ref_cont` refuses a blank line at any column. *)
@@ -2682,7 +2648,7 @@ Lemma step_ref_blank :
   forall l ind lbl v, classify l = KBlank ->
   step l (PRef ind lbl v) = ([ref_block lbl v], PPara []).
 Proof.
-  intros l ind lbl v H. unfold step. cbn [step_fuel].
+  intros l ind lbl v H. unfold step. cbn [step_fuel open_line].
   rewrite (ref_cont_blank l (classify_kblank_blank l H)),
           step_fuel_enough by (cbn [pstate_depth]; lia).
   rewrite (step_idle l KBlank H eq_refl).
@@ -2722,7 +2688,7 @@ Lemma step_table_row :
     caption_open l = None -> is_blank l = false -> classify l = KRow r ->
     step l (PTable rows TOpen) = ([], PTable (r :: rows) TOpen).
 Proof.
-  intros l rows r Hc Hb H. unfold step. cbn [step_fuel].
+  intros l rows r Hc Hb H. unfold step. cbn [step_fuel open_line].
   rewrite Hc, Hb, H. reflexivity.
 Qed.
 
@@ -2730,7 +2696,7 @@ Lemma step_table_blank :
   forall l rows, is_blank l = true ->
   step l (PTable rows TOpen) = ([], PTable rows TAfterBlank).
 Proof.
-  intros l rows H. unfold step. cbn [step_fuel].
+  intros l rows H. unfold step. cbn [step_fuel open_line].
   rewrite (caption_open_blank l H), H. reflexivity.
 Qed.
 
@@ -2741,7 +2707,7 @@ Lemma step_table_close :
     step l (PTable rows TAfterBlank)
     = (table_block (rev rows) TAfterBlank :: bs, st')%list.
 Proof.
-  intros l rows bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel pstate_depth].
+  intros l rows bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite Hc, Hb.
   replace (String.length l + 1) with (S (String.length l + 0)) by lia.
   change (step_fuel (S (String.length l + 0)) 0 l (PPara []))
@@ -2756,7 +2722,7 @@ Lemma step_list_ref_close :
     step l (PList ls done inner)
     = (finish (PList ls done inner), PRef (indent_of l) lbl v).
 Proof.
-  intros l lbl v ls done inner H Hind. unfold step. cbn [step_fuel pstate_depth].
+  intros l lbl v ls done inner H Hind. unfold step. cbn [step_fuel open_line pstate_depth].
   rewrite H, !Nat.add_0_l, Hind.
   cbn [close_reopen open_ref]. rewrite app_nil_r. reflexivity.
 Qed.
@@ -2771,7 +2737,7 @@ Lemma step_list_quote_close :
        PQuote (rev bs) (pad_state (consumed l rest) inner')).
 Proof.
   intros l rest ls done inner bs inner' H Hind Hr.
-  unfold step at 1. cbn [step_fuel pstate_depth].
+  unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite H, !Nat.add_0_l, Hind.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
@@ -2793,7 +2759,7 @@ Lemma step_list_fence_close :
     step l (PList ls done inner) =
       (finish (PList ls done inner), PFence f (indent_of l) []).
 Proof.
-  intros l f ls done inner H Hind. unfold step. cbn [step_fuel].
+  intros l f ls done inner H Hind. unfold step. cbn [step_fuel open_line].
   rewrite H, !Nat.add_0_l, Hind. cbn [close_reopen open_fence].
   rewrite app_nil_r. reflexivity.
 Qed.
@@ -2804,7 +2770,7 @@ Lemma step_list_lazy :
     lazy_ok inner = true ->
     step l (PList ls done inner) = ([], PList ls done (feed_lazy l inner)).
 Proof.
-  intros l ls done inner H Hind Hl. unfold step. cbn [step_fuel].
+  intros l ls done inner H Hind Hl. unfold step. cbn [step_fuel open_line].
   rewrite H, !Nat.add_0_l, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
 Qed.
 
@@ -2816,7 +2782,7 @@ Lemma step_list_close :
     open_kind l k = (bs, st') ->
     step l (PList ls done inner) = (finish (PList ls done inner) ++ bs, st')%list.
 Proof.
-  intros l k ls done inner bs st' H Hk Hnb Hind Hlz Ho. unfold step. cbn [step_fuel].
+  intros l k ls done inner bs st' H Hk Hnb Hind Hlz Ho. unfold step. cbn [step_fuel open_line].
   rewrite H, !Nat.add_0_l.
   destruct k;
     [congruence | idtac | discriminate | idtac | discriminate | idtac
@@ -2948,9 +2914,9 @@ Proof.
                  consumed (p ++ l) rest = String.length p + consumed l rest).
   { intros rest Hle. unfold consumed. rewrite length_append. lia. }
   destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
-  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
+  { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
-    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+    { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try reflexivity.
       { (* fence: opens at the column its border sits at *)
         unfold open_fence. rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
@@ -2979,7 +2945,7 @@ Proof.
         reflexivity. } }
     { rewrite (bunderline_of_ws_prefix p l Hp).
       destruct (bunderline_of l) as [ulvl|] eqn:Eu; [reflexivity|].
-      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+      destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try (cbn [open_kind close_reopen];
            rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
         try reflexivity.
@@ -2990,8 +2956,8 @@ Proof.
               (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       reflexivity. } }
-  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+  { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
       try reflexivity.
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
@@ -3022,14 +2988,14 @@ Proof.
   (* inside a fence: the close test reads through the pad, and the
      content line strips the pad along with the columns the fence's own
      column asks for -- which is what `fence_cols_ok` leaves room for *)
-  { cbn [step_fuel]. rewrite (fence_close_ws_prefix f p l Hp).
+  { cbn [step_fuel open_line]. rewrite (fence_close_ws_prefix f p l Hp).
     destruct (fence_close f l); [reflexivity|].
     cbn [fence_cols_ok] in Hcol. apply Nat.leb_le in Hcol.
     replace (fnd - off)
       with (String.length p + (fnd - (String.length p + off))) by lia.
     rewrite (drop_ws_upto_ws_prefix p _ l Hp). reflexivity. }
-  { cbn [step_fuel]. rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E;
+  { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
       try reflexivity.
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
@@ -3060,13 +3026,13 @@ Proof.
          cbn [close_reopen open_kind];
          rewrite (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
   (* div: the pad is invisible to the close test and passes through *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (div_close_ws_prefix p dlen l Hp).
     destruct (negb (in_fence dinner) && div_close dlen l)%bool; [reflexivity|].
     rewrite (IH p off l dinner Hp Hsafe Hcol). reflexivity. }
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
+    destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
     all: rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
@@ -3103,7 +3069,7 @@ Proof.
   { discriminate Hsafe. }
   (* reference definition: the pad moves the opener's column, and the
      continuation test reads the line through drop_leading_ws *)
-  { cbn [step_fuel]. unfold ref_cont.
+  { cbn [step_fuel open_line]. unfold ref_cont.
     rewrite (indent_of_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp),
       Nat.add_assoc, (Nat.add_comm off (String.length p)).
     destruct (Nat.ltb rind (String.length p + off + indent_of l));
@@ -3112,7 +3078,7 @@ Proof.
       rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
   (* footnote definition: padding shifts its opener and is passed through
      recursively to whichever state owns the current body line *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l).
     { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
@@ -3124,23 +3090,23 @@ Proof.
   (* table: the pad is invisible to the row scanner and to the caption
      opener alike, and the line that ends the table is reprocessed from
      idle *)
-  { cbn [step_fuel]. rewrite (caption_open_ws_prefix p l Hp),
+  { cbn [step_fuel open_line]. rewrite (caption_open_ws_prefix p l Hp),
       (is_blank_ws_prefix p l Hp), (classify_ws_prefix p l Hp),
       (drop_leading_ws_ws_prefix p l Hp).
     destruct tcap as [| |ls].
     { destruct (caption_open l); [reflexivity|].
       destruct (is_blank l); [reflexivity|].
-      destruct (classify l) eqn:E; try reflexivity;
+      destruct (classify l) eqn:E; cbn [open_line is_lazy]; try reflexivity;
         rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
     { destruct (caption_open l); [reflexivity|].
       destruct (is_blank l); [reflexivity|].
-      destruct (classify l) eqn:E;
+      destruct (classify l) eqn:E; cbn [open_line is_lazy];
         rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
     { destruct (is_blank l); reflexivity. } }
   (* pending attributes: transparent *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel].
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (classify_ws_prefix p l Hp).
-    destruct (classify l) eqn:E;
+    destruct (classify l) eqn:E; cbn [open_line is_lazy];
       try (destruct (is_idle pinner);
            [unfold open_attr; rewrite (indent_of_ws_prefix p l Hp),
               (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
