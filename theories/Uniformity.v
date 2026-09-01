@@ -316,6 +316,54 @@ Proof.
   reflexivity.
 Qed.
 
+(* The paragraph run, closed.  A text line and any run of nonblank lines
+   after it are one paragraph and nothing else: the lines' shapes are
+   never consulted past `bcuts`, so no line in the run can open a block.
+   This is what says a paragraph's block structure is decided by its
+   blank lines alone. *)
+Lemma parse_lines_para_run :
+  forall a ls,
+    classify a = KText ->
+    bcuts a = false ->
+    forallb nonblank ls = true ->
+    forallb (fun l => negb (bcuts l)) ls = true ->
+    parse_lines (a :: ls) (PPara []) =
+    [mk (Para (para_inlines (map drop_leading_ws (a :: ls))))].
+Proof.
+  intros a ls Ha Hcut Hls His.
+  rewrite <- (app_nil_r (a :: ls)).
+  rewrite (parse_lines_para_seed a ls [] Ha Hcut Hls His).
+  rewrite app_nil_r. cbn [parse_lines].
+  destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
+  - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
+    cbn in E. discriminate.
+  - cbn [finish]. rewrite <- E, rev_involutive. reflexivity.
+Qed.
+
+(* The same run with a document after it.  The blank line is what ends
+   the paragraph, and the parser is idle again on the other side of it,
+   so the run's lines reach nothing that follows. *)
+Lemma parse_lines_para_run_blank :
+  forall a ls b rest,
+    classify a = KText ->
+    bcuts a = false ->
+    forallb nonblank ls = true ->
+    forallb (fun l => negb (bcuts l)) ls = true ->
+    is_blank b = true ->
+    parse_lines ((a :: ls) ++ b :: rest)%list (PPara []) =
+    mk (Para (para_inlines (map drop_leading_ws (a :: ls))))
+    :: parse_lines rest (PPara []).
+Proof.
+  intros a ls b rest Ha Hcut Hls His Hb.
+  rewrite (parse_lines_para_seed a ls (b :: rest) Ha Hcut Hls His).
+  destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
+  - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
+    cbn in E. discriminate.
+  - rewrite (parse_lines_step _ _ _ _ _
+               (step_para_flush _ _ _ (classify_blank _ Hb))).
+    rewrite <- E, rev_involutive. reflexivity.
+Qed.
+
 (* A run of non-closing lines accumulates (reversed) into an open fence. *)
 Lemma parse_lines_fence_seed :
   forall ls tail f ind acc,

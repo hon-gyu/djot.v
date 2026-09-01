@@ -15,7 +15,7 @@
    fold's incremental behaviour. *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Config Ast Line Parser.
+From DjotV Require Import Config Ast Strings Line Parser.
 Import ListNotations.
 Local Open Scope string_scope.
 
@@ -295,3 +295,171 @@ Proof.
   specialize (H [SOrd Decimal RightPeriod] "1865" None "x" eq_refl).
   vm_compute in H. discriminate H.
 Qed.
+
+(*
+Hard wrapping
+-------------
+
+Djot's rationale asks that a paragraph survive being re-wrapped: moving a
+line break must not turn a continuation line into a list, a heading, a
+quote or a thematic break.  The parser asks one question of a continuation
+line, [bcuts], and the two settings it reads are the two fields below.  A
+configuration answering "no" on both cannot let any line shape reach the
+block layer from inside a paragraph.
+
+The condition is on the *fields* rather than on [bcuts] itself.  Stated
+the derived way it would be a claim about the lines each setting can
+reach, and [with_tasks] changes which argument tuples [bmarker_interrupts]
+is asked about -- so the eight settings that touch neither field would
+each need an argument instead of copying the hypothesis.  Nothing is lost:
+a setting that never fires is spelled as one that never fires.  This is
+[accidental_list_immunity] taken to its limit, and it implies it. *)
+Definition wrap_neutral : invariant bconfig := fun K =>
+  (forall sty core chk rest,
+     @bmarker_interrupts K sty core chk rest = false)
+  /\ (forall c n, @bunderline K c n = None).
+
+Lemma wrap_neutral_bcuts :
+  forall K, wrap_neutral K -> forall l, @bcuts K l = false.
+Proof.
+  intros K [Hm Hu] l. unfold bcuts, bunderline_of.
+  destruct (underline_of l) as [[c n]|]; [rewrite Hu|]; unfold binterrupt;
+    destruct (classify l); try reflexivity; apply Hm.
+Qed.
+
+Lemma wrap_neutral_accidental_list_immune :
+  forall K, wrap_neutral K -> accidental_list_immune K.
+Proof. intros K [Hm _] sty core chk rest H. rewrite Hm in H. discriminate. Qed.
+
+(* The property itself: a text line and any run of nonblank lines after it
+   are one paragraph, whatever those lines look like. *)
+Theorem hard_wrap_one_para :
+  forall T K, wrap_neutral K ->
+  forall a ls,
+    classify a = KText ->
+    forallb nonblank ls = true ->
+    @parse_lines T K (a :: ls) (PPara []) =
+    [mk (Para (@para_inlines T (map drop_leading_ws (a :: ls))))].
+Proof.
+  intros T K Hn a ls Ha Hls.
+  apply parse_lines_para_run; try assumption;
+    [apply (wrap_neutral_bcuts _ Hn)|].
+  apply forallb_forall. intros x _.
+  rewrite (wrap_neutral_bcuts _ Hn). reflexivity.
+Qed.
+
+(* And the run reaches nothing after it: the blank line that ends the
+   paragraph leaves the parser idle, so the document past it is parsed
+   from the state it would have had anyway. *)
+Theorem hard_wrap_para_then_rest :
+  forall T K, wrap_neutral K ->
+  forall a ls b rest,
+    classify a = KText ->
+    forallb nonblank ls = true ->
+    is_blank b = true ->
+    @parse_lines T K ((a :: ls) ++ b :: rest)%list (PPara []) =
+    mk (Para (@para_inlines T (map drop_leading_ws (a :: ls))))
+    :: @parse_lines T K rest (PPara []).
+Proof.
+  intros T K Hn a ls b rest Ha Hls Hb.
+  apply parse_lines_para_run_blank; try assumption;
+    [apply (wrap_neutral_bcuts _ Hn)|].
+  apply forallb_forall. intros x _.
+  rewrite (wrap_neutral_bcuts _ Hn). reflexivity.
+Qed.
+
+(* The two field-local settings are the only ones that can lose the
+   property, and each has its own weakest precondition. *)
+Theorem with_marker_interrupts_preserves_wrap_neutral :
+  forall f,
+    preserves_when
+      (fun _ => forall sty core chk rest, f sty core chk rest = false)
+      (with_marker_interrupts f) wrap_neutral.
+Proof. intros f K Hf [_ Hu]. split; [exact Hf | exact Hu]. Qed.
+
+Theorem with_underline_preserves_wrap_neutral :
+  forall f,
+    preserves_when (fun _ => forall c n, f c n = None)
+      (with_underline f) wrap_neutral.
+Proof. intros f K Hf [Hm _]. split; [exact Hm | exact Hf]. Qed.
+
+(* Every other setting copies both fields, so it preserves the property
+   with no side condition -- including [with_tasks], which is why the
+   condition is on the fields. *)
+Theorem with_tables_preserves_wrap_neutral :
+  forall enabled, preserves (with_tables enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_heading_continuation_preserves_wrap_neutral :
+  forall enabled, preserves (with_heading_continuation enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_divs_preserves_wrap_neutral :
+  forall enabled, preserves (with_divs enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_tasks_preserves_wrap_neutral :
+  forall enabled, preserves (with_tasks enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_raw_blocks_preserves_wrap_neutral :
+  forall enabled, preserves (with_raw_blocks enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_deflists_preserves_wrap_neutral :
+  forall enabled, preserves (with_deflists enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_block_attrs_preserves_wrap_neutral :
+  forall enabled, preserves (with_block_attrs enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_block_footnotes_preserves_wrap_neutral :
+  forall enabled, preserves (with_block_footnotes enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
+Example djot_wrap_neutral : wrap_neutral djot_bconfig.
+Proof. split; reflexivity. Qed.
+
+(* The five shapes the rationale names, all as continuation lines. *)
+Example djot_wrap_keeps_one_block :
+  List.length (@parse_blocks djot_table djot_bconfig
+    "text
+- item
+# not a heading
+> not a quote
+***
+1. not a list
+") = 1.
+Proof. vm_compute. reflexivity. Qed.
+
+(* The Markdown-facing profile is deliberately not wrap-neutral: it sets
+   both fields, and a bullet on a continuation line ends the paragraph. *)
+Example markdown_wrap_splits :
+  List.length (@parse_blocks djot_table markdown_bconfig "text
+- item
+") = 2.
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+What wrap-neutrality does not say
+---------------------------------
+
+Only the block structure is fixed.  The paragraph's *content* is
+[para_inlines] of its lines, and a line break is not a space there: a
+verbatim span keeps the newline, a trailing backslash makes the break
+hard, and whitespace before a break survives into the preceding [Str].
+So a re-wrap that moves a break across any of these three changes the
+inlines, and no statement above says otherwise.  These are the witnesses;
+they are expected to keep failing. *)
+Example wrap_moves_verbatim_content :
+  @para_inlines djot_table ["`a"; "b`"] <> @para_inlines djot_table ["`a b`"].
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example wrap_moves_hard_break :
+  @para_inlines djot_table ["a\"; "b"] <> @para_inlines djot_table ["a\ b"].
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+Example wrap_moves_trailing_space :
+  @para_inlines djot_table ["a  "; "b"] <> @para_inlines djot_table ["a   b"].
+Proof. intros H. vm_compute in H. discriminate. Qed.
