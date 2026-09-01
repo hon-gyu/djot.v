@@ -352,11 +352,19 @@ Definition ddecay_ok (d : ddecay) : bool :=
   | DDPair _ l r => (nonempty_str l && nonempty_str r)%bool
   end.
 
+(* Is the row read from the source directly, rather than from inside a
+   `{...}` pair?  The hyphen condition below is asked of the bare
+   spellings only, because a braced row is reached from the brace and
+   never from `ilead`. *)
+Definition dsyntax_bare (s : dsyntax) : bool :=
+  match s with DBare | DBareAfterBreak => true | _ => false end.
+
 Definition drow_ok (C : dconfig) (k : dstyle) : bool :=
   (negb (Nat.eqb (dc_width C k) 0)
    && is_punct (dc_char C k)
    && negb (dreserved (dc_char C k))
-   && ddecay_ok (dc_decay C k))%bool.
+   && ddecay_ok (dc_decay C k)
+   && negb (dsyntax_bare (dc_syntax C k) && Ascii.eqb (dc_char C k) hyphen))%bool.
 
 Definition dconfig_distinct (C : dconfig) : bool :=
   forallb
@@ -581,7 +589,8 @@ Lemma drow_ok_update_drow_target :
   forall C target e,
     drow_ok (update_drow target e C) target =
     (negb (Nat.eqb (de_width e) 0) && is_punct (de_char e)
-     && negb (dreserved (de_char e)) && ddecay_ok (de_decay e))%bool.
+     && negb (dreserved (de_char e)) && ddecay_ok (de_decay e)
+     && negb (dsyntax_bare (de_syntax e) && Ascii.eqb (de_char e) hyphen))%bool.
 Proof. intros C [] e; reflexivity. Qed.
 
 Theorem update_drow_preserves_admissible :
@@ -637,6 +646,24 @@ Example empty_strong_incompatible :
     (DEntry "*"%char 0 DBare DDSelf) = false.
 Proof. vm_compute. reflexivity. Qed.
 
+(* The hyphen is condition 4's remaining case, and it is the one the
+   character alone does not settle.  `ilead` claims a hyphen before it
+   consults the table, so a row declaring itself bare and spelled `-`
+   would be read in its braced spelling and in no other: `{-x-}` marks
+   the span and `-x-` is a smart dash.  A row that does not do what its
+   syntax says is not admissible. *)
+Example bare_hyphen_incompatible :
+  drow_update_compatible djot_config DEmph
+    (DEntry hyphen 1 DBare DDSelf) = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* The braced spelling is reached from the brace, so the condition does
+   not touch it -- which is what keeps djot's own delete row legal. *)
+Example braced_hyphen_row_ok :
+  drow_ok (update_drow DEmph (DEntry hyphen 1 DBraced DDSelf) djot_config)
+    DEmph = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (* Disabling is the first specialization.  It changes only the syntax field;
    the row remains intrinsically valid even while switched off. *)
 Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
@@ -645,9 +672,18 @@ Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
 Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
   update_drow target (disable_entry C target) C.
 
+(* Disabling can only make a row more admissible: it keeps every field
+   but the syntax, and a switched-off row is not a bare one, so the
+   hyphen condition is discharged rather than carried. *)
 Lemma drow_ok_disable_row :
-  forall C target k, drow_ok (disable_row target C) k = drow_ok C k.
-Proof. intros C [] []; reflexivity. Qed.
+  forall C target k,
+    drow_ok C k = true -> drow_ok (disable_row target C) k = true.
+Proof.
+  intros C target k H. destruct target, k; cbn - [dreserved is_punct] in H |- *;
+    try exact H;
+    repeat (apply andb_true_iff in H as [H ?]);
+    repeat (apply andb_true_iff; split); try assumption; reflexivity.
+Qed.
 
 Lemma disable_row_compatible :
   forall C target,
@@ -660,7 +696,7 @@ Proof.
            && drow_trigger_compatible C target
                 (disable_entry C target))%bool = true).
   apply andb_true_iff. split.
-  - rewrite drow_ok_disable_row.
+  - apply drow_ok_disable_row.
     unfold delimiter_admissible, dconfig_ok in H.
     apply andb_true_iff in H as [_ Hrows].
     unfold dconfig_rows_ok in Hrows. rewrite forallb_forall in Hrows.
@@ -945,6 +981,7 @@ Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
   unfold dwidth. destruct (dc_width cfg k); [discriminate|]. discriminate.
 Qed.
@@ -963,6 +1000,7 @@ Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
@@ -972,7 +1010,24 @@ Lemma dchar_free : forall k, dreserved (dchar k) = false.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [_ H]. apply negb_true_iff in H. exact H.
+Qed.
+
+(* And a bare row's character is not the hyphen.  `ilead` claims that
+   character before the lookup, so a row declaring itself bare and
+   spelled with it would be read in its braced spelling and in no other.
+   A braced row may be spelled with it, which is where djot's delete row
+   lives. *)
+Lemma dchar_bare_free :
+  forall k,
+    dsyntax_bare (dsyntax_of k) = true ->
+    Ascii.eqb (dchar k) hyphen = false.
+Proof.
+  intros k H. pose proof (drow_ok_of k) as Hr.
+  unfold drow_ok in Hr. apply andb_true_iff in Hr as [_ Hr].
+  apply negb_true_iff, andb_false_iff in Hr as [Hr|Hr];
+    [unfold dsyntax_of in H; rewrite H in Hr; discriminate|exact Hr].
 Qed.
 
 (* What condition 5 buys, in the form the scanner uses it. *)
@@ -980,7 +1035,8 @@ Lemma ddecay_str_nonempty :
   forall k om cm, nonempty_str (ddecay_str k om cm) = true.
 Proof.
   intros k om cm. pose proof (drow_ok_of k) as H.
-  unfold drow_ok in H. apply andb_true_iff in H as [_ H].
+  unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H].
   unfold ddecay_str. destruct (dc_decay cfg k) as [|dfl l r] eqn:E.
   - pose proof (dtoken_nonempty k) as Ht.
     destruct om; [reflexivity|].
@@ -4595,6 +4651,21 @@ Proof.
   unfold ilead.
   rewrite Hb, Ht, Hdol, Hpd, Hhy, Hlb, Hlt, Hlk, Hrk, Hbg, Hup.
   rewrite (dstyle_of_dchar k Hen). destruct (_ && _)%bool; reflexivity.
+Qed.
+
+(* Which is what condition 4 promises, with no hypothesis left over: a
+   row that says it is bare is reached from the source in its bare
+   spelling.  `ilead_dchar` keeps the hypothesis because
+   `iscan_marked_close_step` calls it for a braced row too. *)
+Lemma ilead_dchar_bare :
+  forall k txt prev o,
+    denabled_of k = true ->
+    dsyntax_bare (dsyntax_of k) = true ->
+    bunpush o = None ->
+    ilead (dchar k) txt prev o = IDelim k 0 txt (str_last txt prev) false o.
+Proof.
+  intros k txt prev o Hen Hb Hup.
+  exact (ilead_dchar k txt prev o Hen (dchar_bare_free k Hb) Hup).
 Qed.
 
 (* Spelling a token, one character at a time: each of the row's
