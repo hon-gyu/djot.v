@@ -2399,6 +2399,16 @@ Example section_duplicate_ids :
 ## Foo  bar") = ["Foo-bar"; "Foo-bar-1"].
 Proof. reflexivity. Qed.
 
+(* Explicit ids occupy the same rendered fragment namespace as automatic
+   heading ids.  They remain distinct for editing: only the former came
+   from stable source identity. *)
+Example explicit_id_displaces_auto_id :
+  doc_auto_identifiers (parse_doc "{#x}
+a
+
+# x") = ["x"; "x-1"].
+Proof. reflexivity. Qed.
+
 (* Sections are top-level only: inside a quote the heading keeps its id. *)
 Example quote_heading_unsectioned :
   doc_blocks (parse_doc "> # Heading")

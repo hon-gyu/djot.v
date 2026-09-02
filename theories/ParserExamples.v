@@ -331,6 +331,26 @@ Okay"
        (Para [mk (Str "Okay")])].
 Proof. reflexivity. Qed.
 
+(* Duplicate explicit ids are source data, not a parser error.  The
+   editing layer may reject this document as ambiguous, but parsing must
+   retain both occurrences. *)
+Example parse_attr_duplicate_ids_preserved :
+  parse_blocks "{#x}
+a
+
+{#x}
+b"
+  = [ Node NoPos [("id", "x")] (Para [mk (Str "a")])
+    ; Node NoPos [("id", "x")] (Para [mk (Str "b")]) ].
+Proof. reflexivity. Qed.
+
+(* An empty id token contributes no attribute; this is distinct from an
+   invalid spec, which falls back to paragraph text below. *)
+Example parse_attr_empty_id_absent :
+  parse_blocks "{# }
+a" = [mk (Para [mk (Str "a")])].
+Proof. reflexivity. Qed.
+
 (* The attributes land on the container, not on its first child, and
    nesting is by the container the spec sits in. *)
 Example parse_attr_nested_quote :
@@ -342,6 +362,13 @@ Example parse_attr_nested_quote :
               (BlockQuote
                  [Node NoPos [("class", "bar")]
                     (Para [mk (Str "nested")])])])].
+Proof. reflexivity. Qed.
+
+Example parse_attr_id_nested_quote :
+  parse_blocks "> {#x}
+> a"
+  = [mk (BlockQuote
+          [Node NoPos [("id", "x")] (Para [mk (Str "a")])])].
 Proof. reflexivity. Qed.
 
 (* An indented line continues a spec across a line break. *)
