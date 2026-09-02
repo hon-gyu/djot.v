@@ -449,6 +449,35 @@ nothing, and "identity on those inputs" is usually reachable by
 restricting when the pass does anything -- cheaper than carrying a
 hypothesis to every user.
 
+## A wrapper constructor splits the predicates, not the theorems
+
+**What happened.** `CId` puts one source line in front of an existing
+block. The plan listed the standing theorems to re-run and predicted
+they would gain arms rather than change; the arms were indeed cheap, and
+three *definitions* changed instead. `cb_pair_ok` asked `is_clist` of
+both arguments, but its first slot means "what does this block still
+have open" and its second "what does this block's first line look like"
+-- one function answering two questions that a wrapper separates
+(`ends_clist`, `ends_ctable`). `render_blocks_lines` rendered
+`node_contents` and so dropped every node's attributes, which was
+invisible while every canonical AST was `mk`-wrapped and became false
+the moment one was not. `cdef_head_ok` had to exclude a named head
+because `def_split` drops a term paragraph's attributes.
+
+**General form.** A constructor that wraps rather than adds leaves every
+theorem statement standing and changes what the predicates *mean*. The
+standing-quantifier checklist finds the theorems, since they mention the
+type; it does not find the definitions, because those still typecheck
+and still compute.
+
+**What to do instead.** Before adding a wrapper, list the definitions
+that match on the constructor set and ask of each whether it is reading
+the block's first line, the state it leaves behind, or its AST. Any one
+whose call sites want different answers is the real diff, and it splits
+in two. Then ask separately what the renderer throws away -- a
+projection that was total on the old fragment is where a wrapper's
+payload goes missing, and the roundtrip is the only thing that notices.
+
 ## Prefer the stronger precondition when the weaker one is viral
 
 **What happened.** `dconfig_ok` gained conditions the scanner needs of

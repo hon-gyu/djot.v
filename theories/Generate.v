@@ -87,9 +87,14 @@ Definition itemlists (items : list (list cblock)) : list (list (list cblock)) :=
   (map (fun it => [it]) items
    ++ flat_map (fun it => map (fun t => [it; t]) item_tails) items)%list.
 
+(* `CId` is a wrapper rather than a leaf, so it belongs here: one named
+   copy of every block in the pool.  At depth two the pool already holds
+   named blocks, so the nested spellings `cb_ok` rejects are generated
+   too. *)
 Definition containers (pool : list cblock) : list cblock :=
   (map CQuote (seqs pool)
    ++ map CDiv (seqs pool)
+   ++ map (CId "i") pool
    ++ flat_map (fun its => [CList LKBullet Tight its; CList LKBullet Loose its])
         (itemlists (seqs pool)))%list.
 

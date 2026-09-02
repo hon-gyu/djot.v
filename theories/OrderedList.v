@@ -1728,6 +1728,66 @@ change to twelve statements rather than to one hypothesis.
 *)
 
 (* Covered: roman from 2, running through the ambiguous `v`. *)
+(* The first item's marker is the one `item_ok` is asked for: every
+   flavour builds its items left to right and `ck_first` names what it
+   starts with. *)
+Lemma ck_items_first :
+  forall k L rest, exists more, ck_items k (L :: rest) = (ck_first k, L) :: more.
+Proof.
+  intros [| |checks|d start|up d start|up d start] L rest;
+    cbn [ck_items ck_first same_marker task_ck_items dec_items nsc_items];
+    try (eexists; reflexivity).
+  destruct checks; eexists; reflexivity.
+Qed.
+
+(* A rendered list opens with a marker line, so it neither drops pending
+   block attributes nor claims them for a spec of its own.  This is the
+   list arm of `Roundtrip.cb_lines_first_ready`; the other constructors
+   read their first line's classification off their own opener. *)
+Lemma ck_lines_first_ready :
+  forall k sp lss a rest,
+    ck_ok k (length lss) = true ->
+    forallb (item_ok (ck_first k)) lss = true ->
+    list_lines sp (map litem_lines (ck_items k lss)) = (a :: rest)%list ->
+    pend_ready (PPara []) a = true.
+Proof.
+  intros k sp lss a rest Hck Hok Hlines.
+  destruct lss as [|L lss'];
+    [destruct k;
+     cbn [ck_items same_marker task_ck_items dec_items nsc_items map list_lines]
+       in Hlines; discriminate Hlines|].
+  destruct (ck_items_first k L lss') as [more Hitems].
+  pose proof (ck_items_markers_ok k (L :: lss') Hck) as Hm.
+  rewrite Hitems in Hm. cbn [forallb fst] in Hm.
+  apply andb_true_iff in Hm as [Hm _].
+  cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hitem _].
+  destruct L as [|l0 more']; [discriminate Hitem|].
+  cbn [item_ok] in Hitem.
+  apply andb_true_iff in Hitem as [Hitem _].
+  apply andb_true_iff in Hitem as [Hitem _].
+  apply andb_true_iff in Hitem as [Hitem _].
+  apply andb_true_iff in Hitem as [Hth _].
+  apply andb_true_iff in Hth as [Hth Hts].
+  apply negb_true_iff in Hth. apply negb_true_iff in Hts.
+  rewrite Hitems in Hlines. cbn [map] in Hlines.
+  assert (Hhd : forall x xs yss,
+             exists tl, list_lines sp ((x :: xs) :: yss) = x :: tl).
+  { intros x xs [|y yss]; [exists xs; reflexivity|].
+    rewrite (list_lines_cons2 sp (x :: xs) (y :: yss) ltac:(discriminate)).
+    cbn [app]. eexists; reflexivity. }
+  unfold litem_lines in Hlines. cbn [fst snd indent_lines] in Hlines.
+  destruct (Hhd (mk_open (ck_first k) ++ l0)
+              (map (fun x : string => mk_cont (ck_first k) ++ x) more')
+              (map (fun it : litem =>
+                      indent_lines (mk_open (fst it)) (mk_cont (fst it)) (snd it))
+                   more)) as [tl Htl].
+  rewrite Htl in Hlines. injection Hlines as <- _.
+  unfold pend_ready.
+  rewrite (classify_marker_open (ck_first k) l0 Hm Hth
+             (task_start_shadow _ _ Hts)).
+  reflexivity.
+Qed.
+
 End WithTable.
 
 Example roman_from_two_items_ok :

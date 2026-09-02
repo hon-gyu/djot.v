@@ -159,6 +159,9 @@ Definition mk {A : Type} (x : A) : node A := Node NoPos [] x.
 Definition node_contents {A : Type} (n : node A) : A :=
   match n with Node _ _ x => x end.
 
+Definition node_attrs {A : Type} (n : node A) : attr :=
+  match n with Node _ a _ => a end.
+
 Definition add_attr {A : Type} (a : attr) (n : node A) : node A :=
   match n with Node p a' x => Node p (attr_union a' a) x end.
 

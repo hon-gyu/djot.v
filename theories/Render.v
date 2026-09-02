@@ -16,7 +16,7 @@
    that is the whole roundtrip extension recipe. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
-From DjotV Require Import Strings Line Ast Parser.
+From DjotV Require Import Strings Line Ast Attributes Parser.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -288,7 +288,11 @@ Inductive cblock : Type :=
      read by the table's own continuation rule rather than by `classify`
      (`Line.caption_open`), so it is the one part of the construct that
      is not a line shape, and `cb_ok` would have to state it as one. *)
-  | CTable (rows : list ctrow).
+  | CTable (rows : list ctrow)
+  (* A source-level stable address.  Only the id subset of block
+     attributes is canonical here; the wrapper preserves whether the id
+     was explicit, which the document pass's AST cannot recover. *)
+  | CId (id : string) (inner : cblock).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -317,6 +321,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
       list_lines sp (map litem_lines (ck_items k (itemss items)))
   | CRef label dest => [ref_line label dest]
   | CTable rows => flat_map ctrow_lines rows
+  | CId id inner => ("{#" ++ id ++ "}") :: cb_lines inner
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -336,6 +341,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table None (ctable_cells [] rows))
+  | CId id inner => add_attr [("id", id)] (cb_ast inner)
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -384,6 +390,7 @@ Definition cblock_ind2
   (hlist : forall k sp items, R items -> P (CList k sp items))
   (href : forall label dest, P (CRef label dest))
   (htable : forall rows, P (CTable rows))
+  (hid : forall id inner, P inner -> P (CId id inner))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -413,6 +420,7 @@ Definition cblock_ind2
               end) items)
     | CRef label dest => href label dest
     | CTable rows => htable rows
+    | CId id inner => hid id inner (go inner)
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -522,8 +530,55 @@ Definition items_seps_loosen (items : list (list cblock)) : bool :=
 Definition is_clist (cb : cblock) : bool :=
   match cb with CList _ _ _ => true | _ => false end.
 
-Definition is_ctable (cb : cblock) : bool :=
-  match cb with CTable _ => true | _ => false end.
+Definition is_cid (cb : cblock) : bool :=
+  match cb with CId _ _ => true | _ => false end.
+
+(* What the parser still has open when the block's lines run out.  An id
+   wrapper is a line in front of its block and changes nothing about the
+   end of it, which is why `cb_pair_ok` reads these of its first argument
+   and `is_clist` -- a question about the first line -- of its second. *)
+Fixpoint ends_clist (cb : cblock) : bool :=
+  match cb with
+  | CList _ _ _ => true
+  | CId _ inner => ends_clist inner
+  | _ => false
+  end.
+
+Fixpoint ends_ctable (cb : cblock) : bool :=
+  match cb with
+  | CTable _ => true
+  | CId _ inner => ends_ctable inner
+  | _ => false
+  end.
+
+Fixpoint is_cref (cb : cblock) : bool :=
+  match cb with
+  | CRef _ _ => true
+  | CId _ inner => is_cref inner
+  | _ => false
+  end.
+
+Fixpoint id_chars_ok (id : string) : bool :=
+  match id with
+  | EmptyString => true
+  | String c rest => is_id_char c && id_chars_ok rest
+  end.
+
+Definition explicit_id_ok (id : string) : bool :=
+  nonempty_str id && id_chars_ok id.
+
+Lemma id_chars_ok_no_nl :
+  forall id, id_chars_ok id = true -> no_nl id = true.
+Proof.
+  induction id as [|c rest IH]; intros H; [reflexivity|].
+  cbn [id_chars_ok] in H. apply andb_true_iff in H as [Hc Hr].
+  cbn [no_nl]. destruct (Ascii.eqb c "010") eqn:E.
+  - assert (Hw : attr_ws c = true).
+    { unfold attr_ws. rewrite E.
+      destruct (is_ws c), (Ascii.eqb c "012"), (Ascii.eqb c "011"); reflexivity. }
+    unfold is_id_char in Hc. rewrite Hw in Hc. discriminate.
+  - rewrite (IH Hr). reflexivity.
+Qed.
 
 (* A table stays open across the blank that separates it from the next
    block -- a caption may still follow, across any number of blanks -- so
@@ -550,8 +605,8 @@ Definition closes_table (cb : cblock) : bool :=
     closes the table rather than captioning it.  Both are properties of a
     sequence, not of either block alone. *)
 Definition cb_pair_ok (c1 c2 : cblock) : bool :=
-  (negb (is_clist c1 && is_clist c2)
-   && (negb (is_ctable c1) || closes_table c2))%bool.
+  (negb (ends_clist c1 && is_clist c2)
+   && (negb (ends_ctable c1) || closes_table c2))%bool.
 
 Fixpoint cb_pairs_ok (cbs : list cblock) : bool :=
   match cbs with
@@ -673,8 +728,12 @@ Definition row_reparses (r : trow) (l : string) : bool :=
    AST.  The renderer produces the second, and this is `cb_ok` saying so.
    `CRef` is the only leaf that reaches `Ast.invisible_block`: the view
    has no footnote definition. *)
+(* A definition item's head is also where its term comes from, and
+   `Ast.def_split` drops that paragraph's attributes -- djot.js does too
+   -- so a named head cannot round-trip and the canonical view has no
+   spelling for one. *)
 Definition cdef_head_ok (it : list cblock) : bool :=
-  match it with CRef _ _ :: _ => false | _ => true end.
+  match it with c :: _ => negb (is_cid c || is_cref c) | [] => true end.
 
 Definition ck_content_ok (k : list_kind) (items : list (list cblock)) : bool :=
   match k with
@@ -794,7 +853,18 @@ Fixpoint cb_ok (cb : cblock) : bool :=
      no lines at all.  The parser can build one (`|---|` alone), so that
      value sits outside the canonical view. *)
   | CTable rows => btables && nonempty rows && forallb ctrow_ok rows
+  (* Nested wrappers would render as consecutive specs, whose later id
+     overwrites the earlier one.  That source has only one AST value, so
+     it is not canonical. *)
+  | CId id inner =>
+      battrs && explicit_id_ok id && negb (is_cid inner) && cb_ok inner
   end.
+
+Lemma cb_ok_id :
+  forall id inner,
+    cb_ok (CId id inner)
+    = (battrs && explicit_id_ok id && negb (is_cid inner) && cb_ok inner)%bool.
+Proof. reflexivity. Qed.
 
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
    item are renderable exactly when nonempty and every cblock in them is
@@ -877,7 +947,7 @@ Definition cblocks_ok (cbs : list cblock) : bool :=
 (* The two halves of a pair condition, in the form `parse_cblock`'s
    boundary hypothesis wants them. *)
 Lemma cb_pair_ok_nonlist :
-  forall c1 c2, is_clist c1 = true -> cb_pair_ok c1 c2 = true -> is_clist c2 = false.
+  forall c1 c2, ends_clist c1 = true -> cb_pair_ok c1 c2 = true -> is_clist c2 = false.
 Proof.
   intros c1 c2 Hc H. unfold cb_pair_ok in H.
   apply andb_true_iff in H as [H _]. apply negb_true_iff in H.
@@ -886,7 +956,7 @@ Qed.
 
 Lemma cb_pair_ok_closes :
   forall c1 c2 a rest,
-    is_ctable c1 = true -> cb_pair_ok c1 c2 = true -> cb_lines c2 = a :: rest ->
+    ends_ctable c1 = true -> cb_pair_ok c1 c2 = true -> cb_lines c2 = a :: rest ->
     is_blank a = false /\ caption_open a = None.
 Proof.
   intros c1 c2 a rest Hc H Hl. unfold cb_pair_ok in H.
@@ -1036,13 +1106,22 @@ Definition task_litem_lines (it : task_status * list string) : list string :=
        :: map (fun l => (blanks 6 ++ l)%string) more)%list
   end.
 
+(* The attribute line a node carries into its own rendering.  Only an
+   `id` is spelled: a div's class is part of its fence, and no other
+   canonical block carries attributes at all. *)
+Definition id_spec_lines (n : node block) : list string :=
+  match lookup_attr "id" (node_attrs n) with
+  | Some v => [("{#" ++ v ++ "}")%string]
+  | None => []
+  end.
+
 Fixpoint render_block_lines (b : block) : list string :=
   let itemss :=
     fix goitems (items : list blocks) : list (list string) :=
       match items with
       | [] => []
       | it :: rest =>
-          sep_lines (map (fun n => render_block_lines (node_contents n)) it)
+          sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)
           :: goitems rest
       end in
   let taskitemss :=
@@ -1052,7 +1131,7 @@ Fixpoint render_block_lines (b : block) : list string :=
       | [] => []
       | (chk, it) :: rest =>
           (chk, sep_lines
-                  (map (fun n => render_block_lines (node_contents n)) it))
+                  (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it))
           :: gotasks rest
       end in
   (* A definition item's lines are its definition's, with the term put
@@ -1068,7 +1147,7 @@ Fixpoint render_block_lines (b : block) : list string :=
               | [] => []
               | _ => [inline_lines term EmptyString]
               end)
-             ++ map (fun n => render_block_lines (node_contents n)) it)%list
+             ++ map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)%list
           :: godefs rest
       end in
   match b with
@@ -1081,10 +1160,10 @@ Fixpoint render_block_lines (b : block) : list string :=
       (code_open ("=" ++ fmt) :: split_lines text ++ [code_close])%list
   | BlockQuote bs =>
       map quote_line
-        (sep_lines (map (fun n => render_block_lines (node_contents n)) bs))
+        (sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) bs))
   | Div bs =>
       (div_fence
-       :: sep_lines (map (fun n => render_block_lines (node_contents n)) bs)
+       :: sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) bs)
        ++ [div_fence])%list
   | BulletList sp items =>
       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
@@ -1103,8 +1182,32 @@ Fixpoint render_block_lines (b : block) : list string :=
   | _ => []   (* TODO: extend with the parser, construct by construct *)
   end.
 
+(* One node's lines: its attribute line, then its block's. *)
+Definition render_node_lines (n : node block) : list string :=
+  (id_spec_lines n ++ render_block_lines (node_contents n))%list.
+
 Definition render_blocks_lines (bs : blocks) : list (list string) :=
-  map (fun n => render_block_lines (node_contents n)) bs.
+  map render_node_lines bs.
+
+(* Every canonical block but a named one is `mk`-wrapped, which is what
+   makes `add_attr` on top of it a one-key attribute set. *)
+Lemma cb_ast_mk : forall cb, is_cid cb = false -> exists x, cb_ast cb = mk x.
+Proof.
+  intros cb H. destruct cb; try (eexists; reflexivity); discriminate H.
+Qed.
+
+Lemma render_node_lines_mk :
+  forall x, render_node_lines (mk x) = render_block_lines x.
+Proof. reflexivity. Qed.
+
+Lemma render_node_lines_noid :
+  forall q a x,
+    lookup_attr "id" a = None ->
+    render_node_lines (Node q a x) = render_block_lines x.
+Proof.
+  intros q a x H. unfold render_node_lines, id_spec_lines.
+  cbn [node_attrs node_contents]. rewrite H. reflexivity.
+Qed.
 
 Lemma render_block_div :
   forall bs,
@@ -1126,9 +1229,12 @@ Proof. reflexivity. Qed.
    *over*, so the term it finds sits behind it in the source and in
    front of it in the rendering: the two spellings have the same AST,
    and `cb_ok` picks the one the renderer produces. *)
+Definition has_id (a : attr) : bool :=
+  match lookup_attr "id" a with Some _ => true | None => false end.
+
 Definition def_head_ok (bs : blocks) : bool :=
   match bs with
-  | Node _ _ (Para ils) :: _ => nonempty ils
+  | Node _ a (Para ils) :: _ => nonempty ils && negb (has_id a)
   | Node _ _ x :: _ => negb (invisible_block x)
   | [] => true
   end.
@@ -1176,7 +1282,7 @@ Proof.
                match its with
                | [] => []
                | it :: rest =>
-                   sep_lines (map (fun n => render_block_lines (node_contents n)) it)
+                   sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)
                    :: goitems rest
                end) items
             = map (fun it => sep_lines (render_blocks_lines it)) items).
@@ -1193,7 +1299,7 @@ Proof.
                         | [] => []
                         | _ => [inline_lines term EmptyString]
                         end)
-                       ++ map (fun n => render_block_lines (node_contents n)) it)%list
+                       ++ map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)%list
                     :: godefs rest
                 end) (def_items items)
              = map (fun it => sep_lines (render_blocks_lines it)) items).
@@ -1205,10 +1311,14 @@ Proof.
       try discriminate Hit;
       cbn [def_item def_split invisible_block]; try reflexivity.
     (* the paragraph case: the split fires at the head, and `def_head_ok`
-       says the term it takes is not empty *)
+       says the term it takes is not empty and carries no id -- the split
+       drops the paragraph's attributes, so a spec line here would have
+       nothing to come back to. *)
     destruct ils as [|i ils']; [discriminate Hit|].
-    cbn [render_blocks_lines map node_contents render_block_lines app].
-    reflexivity. }
+    apply andb_true_iff in Hit as [_ Hid]. apply negb_true_iff in Hid.
+    unfold has_id in Hid. destruct (lookup_attr "id" b) eqn:Eb; [discriminate Hid|].
+    cbn [render_blocks_lines map]. rewrite (render_node_lines_noid q b _ Eb).
+    cbn [render_block_lines app]. reflexivity. }
   intros [| |checks|d start|up d start|up d start] sp items Hrok;
     [| | | | destruct up | destruct up ];
     cbn [ck_block render_block_lines lk_of_ol roman_sty alpha_sty
@@ -1225,6 +1335,9 @@ Proof.
     cbn [task_items render_block_lines ck_items task_ck_items map fst snd].
     destruct (sep_lines (render_blocks_lines it)) as [|l0 more] eqn:E;
       [discriminate Hit|].
+    change (fun n : node block =>
+              (id_spec_lines n ++ render_block_lines (node_contents n))%list)
+      with render_node_lines.
     fold (render_blocks_lines it). rewrite E.
     cbn [task_litem_lines litem_lines indent_lines mk_open mk_cont].
     destruct chk; cbn [task_open]; f_equal; apply IH; assumption.
@@ -1266,10 +1379,11 @@ Proof.
     rewrite (IH Hrest Hconts), andb_true_r.
     destruct it as [|c more]; [reflexivity|].
     cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
-    destruct c; cbn [map cb_ast def_head_ok mk node_contents invisible_block negb];
+    destruct c; cbn [map cb_ast def_head_ok has_id lookup_attr mk node_contents
+                     invisible_block negb andb];
       try reflexivity; try discriminate Hhead.
     + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
-      apply ci_para_nonempty, Hp.
+      rewrite (ci_para_nonempty _ Hp). reflexivity.
     + destruct k; reflexivity.
   - cbn [ck_render_ok]. apply andb_true_iff. split.
     + apply Nat.eqb_eq. cbn [ck_ok] in Hck.

@@ -34,7 +34,7 @@
    [parse_canonical_list_then_nonlist]. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
-From DjotV Require Import Strings Line Ast Parser Document Render.
+From DjotV Require Import Strings Line Ast Attributes Inline Parser Document Render.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -647,7 +647,7 @@ Proof.
                         forallb lines_ok (map cb_lines cbs) = true)
             (Forall (fun cbs => forallb cb_ok cbs = true ->
                                  forallb lines_ok (map cb_lines cbs) = true))
-            _ _ _ _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
+            _ _ _ _ _ _ _ _ _ _ _ _ _ (Forall_nil _) (fun item items Hi Hr => Forall_cons _ Hi Hr)).
   - (* paragraph: line_ok everywhere implies the split conditions.  The
        inline conjunct of cb_ok says nothing about line shape, so this
        case reads exactly as it did over `list string`. *)
@@ -763,6 +763,20 @@ Proof.
     pose proof (forallb_last _ _ _ Hlok) as Hl.
     apply line_ok_nonblank, nonblank_nonempty in Hl.
     rewrite Hl. reflexivity.
+  - (* explicit id: its attribute line is newline-free, while the last
+       line and every inner line come from the wrapped block *)
+    intros id inner IH H. rewrite cb_ok_id in H.
+    apply andb_true_iff in H as [Hid Hinner].
+    apply andb_true_iff in Hid as [Hid _].
+    apply andb_true_iff in Hid as [_ Hid].
+    unfold explicit_id_ok in Hid. apply andb_true_iff in Hid as [_ Hchars].
+    specialize (IH Hinner). unfold lines_ok in IH |- *.
+    apply andb_true_iff in IH as [IH Hlast].
+    apply andb_true_iff in IH as [Hne Hlines].
+    cbn [cb_lines nonempty forallb].
+    rewrite !no_nl_append, (id_chars_ok_no_nl _ Hchars), Hlines.
+    destruct (cb_lines inner) as [|a rest]; [discriminate Hne|].
+    destruct rest; cbn [no_nl last] in Hlast |- *; rewrite Hlast; reflexivity.
   - reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -826,7 +840,7 @@ Proof.
   intros cb Hnonlist Hok.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
   apply lines_ok_parts in Hlines as (Hne & _ & _).
-  destruct cb as [ls| |info content|format content|lvl ls|inner|dinner|k sp items|rl rd|rows].
+  destruct cb as [ls| |info content|format content|lvl ls|inner|dinner|k sp items|rl rd|rows|id named].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hne |- *.
     remember (map ci_line ls) as ls' eqn:E. clear E.
@@ -885,6 +899,21 @@ Proof.
       cbn [flat_map ctrow_lines app];
       eexists; eexists; (split; [reflexivity|]);
       intros m mc chk item E; rewrite Hcl in E; discriminate.
+  - exists ("{#" ++ id ++ "}"), (cb_lines named). split; [reflexivity|].
+    intros m mc chk item E.
+    assert (Hm : list_marker ("{#" ++ id ++ "}") = None) by reflexivity.
+    unfold classify in E.
+    destruct (is_blank ("{#" ++ id ++ "}")); [discriminate|].
+    destruct (quote_prefix ("{#" ++ id ++ "}")); [discriminate|].
+    destruct (heading_open ("{#" ++ id ++ "}")) as [[lvl r2]|]; [discriminate|].
+    destruct (fence_open ("{#" ++ id ++ "}")); [discriminate|].
+    destruct (div_open ("{#" ++ id ++ "}")) as [[dn dc]|]; [discriminate|].
+    destruct (is_thematic ("{#" ++ id ++ "}")); [discriminate|].
+    rewrite Hm in E.
+    destruct (Attributes.attr_open ("{#" ++ id ++ "}")); [discriminate|].
+    destruct (foot_open ("{#" ++ id ++ "}")) as [[fl fr]|]; [discriminate|].
+    destruct (ref_open ("{#" ++ id ++ "}")) as [[rl rv]|]; [discriminate|].
+    destruct (table_row ("{#" ++ id ++ "}")); discriminate.
 Qed.
 
 Lemma drop_leading_ws_indent_zero :
@@ -905,7 +934,7 @@ Lemma cb_lines_first_line_ok :
     cb_lines cb = first :: rest -> line_ok first = true.
 Proof.
   intros cb first rest Hnonlist Hok Hlines.
-  destruct cb as [ls| |info content|format content|lvl ls|inner|dinner|k sp items|rl rd|rows].
+  destruct cb as [ls| |info content|format content|lvl ls|inner|dinner|k sp items|rl rd|rows|id named].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hlines.
     remember (map ci_line ls) as ls0 eqn:E. clear E.
@@ -971,6 +1000,86 @@ Proof.
     destruct r as [cs|als cs]; cbn [flat_map ctrow_lines app forallb] in *;
       injection Hlines as <- _;
       apply andb_true_iff in Hlok as [Hfirst _]; exact Hfirst.
+  - rewrite cb_ok_id in Hok. apply andb_true_iff in Hok as [Hid _].
+    apply andb_true_iff in Hid as [Hid _].
+    apply andb_true_iff in Hid as [_ Hid]. unfold explicit_id_ok in Hid.
+    apply andb_true_iff in Hid as [_ Hchars].
+    cbn [cb_lines] in Hlines. injection Hlines as <- <-.
+    unfold line_ok. apply andb_true_iff; split.
+    + apply andb_true_iff; split; [reflexivity|].
+      cbn [no_nl]. rewrite no_nl_append, (id_chars_ok_no_nl _ Hchars).
+      reflexivity.
+    + apply String.eqb_eq. reflexivity.
+Qed.
+
+(* The one symbolic fact the CId roundtrip needs from the attribute
+   scanner: feeding identifier characters accumulates exactly that id.
+   The token is reversed in the scanner, hence the accumulator form. *)
+Lemma afeed_id_acc :
+  forall id tok key attrs,
+    id_chars_ok id = true -> nonempty_str tok = true ->
+    afeed (id ++ ("}" ++ attr_nl)) (AP AId tok key attrs)
+    = (AP ADone "" key (attr_set "id" (rev_string tok ++ id) attrs), attr_nl).
+Proof.
+  induction id as [|c rest IH]; intros tok key attrs Hids Htok.
+  - cbn [append afeed ap_st astep].
+    assert (Hclose : is_id_char "}" = false) by reflexivity.
+    rewrite Hclose. cbn. unfold ap_commit_id, ap_token.
+    cbn [ap_tok ap_key ap_attrs]. pose proof Htok as Hrev.
+    rewrite <- rev_nonempty_str in Hrev.
+    destruct (rev_string tok) eqn:E; [discriminate Hrev|].
+    cbn [String.eqb]. unfold attr_nl. cbn [afeed ap_st append].
+    rewrite append_empty_r. reflexivity.
+  - cbn [id_chars_ok] in Hids.
+    apply andb_true_iff in Hids as [Hc Hr].
+    cbn [append afeed ap_st astep]. rewrite Hc.
+    unfold ap_push. cbn [ap_st ap_tok ap_key ap_attrs].
+    specialize (IH (String c tok) key attrs Hr eq_refl).
+    etransitivity; [exact IH|].
+    rewrite rev_string_cons, !append_assoc. reflexivity.
+Qed.
+
+Lemma attr_open_canonical_id :
+  forall id, explicit_id_ok id = true ->
+    Attributes.attr_open ("{#" ++ id ++ "}")
+    = Some (AP ADone "" "" [("id", id)]).
+Proof.
+  intros [|c rest] H; [discriminate|].
+  unfold explicit_id_ok in H. apply andb_true_iff in H as [_ Hchars].
+  cbn [id_chars_ok] in Hchars.
+  apply andb_true_iff in Hchars as [Hc Hr].
+  unfold Attributes.attr_open.
+  cbn [drop_leading_ws is_ws append afeed ap_st astep ap_begin].
+  assert (Hb : is_ws "{" = false) by reflexivity. rewrite Hb.
+  cbn [append afeed ap_st astep ap_begin].
+  cbn [ap_init ap_st astep ap_begin].
+  assert (Hws : attr_ws "#" = false) by reflexivity.
+  assert (Hneq : Ascii.eqb "#" "}" = false) by reflexivity.
+  assert (Heq : Ascii.eqb "#" "#" = true) by reflexivity.
+  rewrite Hws, Hneq, Heq. cbn [ap_begin ap_st astep]. rewrite Hc.
+  unfold ap_push, ap_begin, ap_init. cbn [ap_st ap_tok ap_key ap_attrs].
+  pose proof (afeed_id_acc rest (String c "") "" [] Hr eq_refl) as Ha.
+  rewrite append_assoc, Ha.
+  cbn [rev_string append ap_failed ap_done blank_to_eol negb andb
+       attr_set alist_set].
+  reflexivity.
+Qed.
+
+Lemma classify_canonical_id :
+  forall id, explicit_id_ok id = true ->
+    classify ("{#" ++ id ++ "}")
+    = KAttr (AP ADone "" "" [("id", id)]).
+Proof.
+  intros id H. unfold classify.
+  assert (Hb : is_blank ("{#" ++ id ++ "}") = false) by reflexivity.
+  assert (Hq : quote_prefix ("{#" ++ id ++ "}") = None) by reflexivity.
+  assert (Hh : heading_open ("{#" ++ id ++ "}") = None) by reflexivity.
+  assert (Hf : fence_open ("{#" ++ id ++ "}") = None) by reflexivity.
+  assert (Hd : div_open ("{#" ++ id ++ "}") = None) by reflexivity.
+  assert (Ht : is_thematic ("{#" ++ id ++ "}") = false) by reflexivity.
+  assert (Hl : list_marker ("{#" ++ id ++ "}") = None) by reflexivity.
+  rewrite Hb, Hq, Hh, Hf, Hd, Ht, Hl, (attr_open_canonical_id id H).
+  reflexivity.
 Qed.
 
 (* The items' contents, as the mutual induction supplies them: each
@@ -1018,6 +1127,82 @@ Proof.
   - apply orb_true_iff in Hspacing as [Hseps | Hforced].
     + unfold items_seps_loosen in Hseps. rewrite Hseps, orb_true_r. reflexivity.
     + rewrite Hforced. reflexivity.
+Qed.
+
+(* A canonical block that is not itself named opens with a line that
+   neither drops pending block attributes nor claims them: every
+   constructor's first line has a classification of its own, and a list's
+   is a marker (`Parser.ck_lines_first_ready`).  This is what lets an id
+   reach the block it names. *)
+Lemma cb_lines_first_ready :
+  forall cb a rest,
+    is_cid cb = false -> cb_ok cb = true -> cb_lines cb = (a :: rest)%list ->
+    pend_ready (PPara []) a = true.
+Proof.
+  intros cb a rest Hnotid Hok Hlines.
+  destruct cb as [ls| |info content|format content|lvl ls|inner|dinner
+                 |k sp items|rl rd|rows|id named];
+    [| | | | | | | | | |discriminate Hnotid].
+  - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
+    cbn [cb_lines] in Hlines.
+    destruct (map ci_line ls) as [|a0 rest0] eqn:E; [discriminate Hlines|].
+    injection Hlines as <- _.
+    apply para_ok_parts in Hok as [Ha _]. unfold pend_ready. rewrite Ha.
+    reflexivity.
+  - cbn [cb_lines] in Hlines. injection Hlines as <- _.
+    unfold pend_ready, thematic_line. rewrite classify_canonical_thematic.
+    reflexivity.
+  - cbn [cb_lines] in Hlines. injection Hlines as <- _.
+    cbn [cb_ok] in Hok. apply andb_true_iff in Hok as [Hok _].
+    apply code_ok_parts in Hok as [Hinfo _].
+    unfold pend_ready, code_open. rewrite (classify_backtick_fence info Hinfo).
+    reflexivity.
+  - cbn [cb_lines] in Hlines. injection Hlines as <- _.
+    cbn [cb_ok] in Hok. apply andb_true_iff in Hok as [_ Hok].
+    unfold raw_ok in Hok. apply code_ok_parts in Hok as [Hinfo _].
+    unfold pend_ready, code_open. rewrite (classify_backtick_fence _ Hinfo).
+    reflexivity.
+  - rewrite cb_ok_heading in Hok. apply andb_true_iff in Hok as [Hok _].
+    apply heading_ok_parts in Hok as [Hlvl [Hls _]].
+    cbn [cb_lines] in Hlines.
+    destruct (map ci_line ls) as [|a0 rest0] eqn:E; [contradiction|].
+    cbn [map] in Hlines. injection Hlines as <- _.
+    unfold pend_ready. rewrite (classify_canonical_heading lvl a0 Hlvl).
+    reflexivity.
+  - rewrite cb_lines_quote in Hlines.
+    destruct (sep_lines (map cb_lines inner)) as [|l0 rest0] eqn:Esep;
+      [discriminate Hlines|].
+    cbn [map] in Hlines. injection Hlines as <- _.
+    unfold pend_ready. rewrite classify_canonical_quote. reflexivity.
+  - rewrite cb_lines_div in Hlines. injection Hlines as <- _.
+    unfold pend_ready. rewrite classify_canonical_div. reflexivity.
+  - destruct (cb_ok_list_parts k sp items Hok) as (_ & Hckok & Hitemok & _).
+    rewrite cb_lines_list in Hlines.
+    exact (ck_lines_first_ready k sp (map item_lines items) a rest
+             Hckok Hitemok Hlines).
+  - cbn [cb_lines] in Hlines. injection Hlines as <- _.
+    unfold pend_ready. rewrite (ref_ok_classify rl rd Hok). reflexivity.
+  - rewrite cb_ok_table in Hok. apply andb_true_iff in Hok as [Hok Hrows].
+    apply andb_true_iff in Hok as [_ Hne].
+    destruct rows as [|r rows']; [discriminate Hne|].
+    cbn [forallb] in Hrows. apply andb_true_iff in Hrows as [Hr _].
+    apply ctrow_ok_parts in Hr as (_ & _ & _ & Hcl).
+    rewrite cb_lines_table in Hlines.
+    destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
+      cbn [flat_map ctrow_lines app] in Hlines;
+      injection Hlines as <- _; unfold pend_ready; rewrite Hcl; reflexivity.
+Qed.
+
+(* Attaching the pending id to the block the parser emits is what
+   `cb_ast` does to the block it wraps.  The two spellings agree on the
+   attribute sets a canonical block carries -- none, or a div's class --
+   which is why the wrapper may not nest. *)
+Lemma decorate_head_cb_ast :
+  forall id cb bs, is_cid cb = false ->
+    decorate_head [("id", id)] (cb_ast cb :: bs) = (cb_ast (CId id cb) :: bs)%list.
+Proof.
+  intros id cb bs Hnotid. cbn [cb_ast add_attr].
+  destruct cb; try reflexivity; discriminate Hnotid.
 Qed.
 
 Lemma fence_block_canonical_code :
@@ -1142,7 +1327,7 @@ Proof.
                forallb cb_pairs_ok items = true ->
                forallb (fun it => (nonempty it && forallb cb_ok it)%bool) items = true ->
                items_parse items)
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph.  The parse is the same line-level argument as before the
        inline layer existed; `cb_ast_para_of_lines` is the one new step,
        identifying what the parser built with what `cb_ast` names.
@@ -1368,6 +1553,49 @@ Proof.
       rewrite cb_lines_table, <- (app_nil_r (flat_map ctrow_lines rows)).
       rewrite (parse_ctable _ _ Htables Hne Hrows), parse_lines_table_eof.
       rewrite (table_block_ctable rows TOpen Hrows (eq_refl None)). reflexivity.
+  - (* explicit id: the spec is complete on its own line, so it resolves
+       against the wrapped block's first line and rides on whatever that
+       block emits (`Parser.attr_uniformity`).  Nothing else about the
+       run changes, which is why the case needs no line-shape reasoning
+       of its own beyond `cb_lines_first_ready`. *)
+    intros id inner [IHtail IHend].
+    assert (Hparts : cb_ok (CId id inner) = true ->
+              battrs = true /\ explicit_id_ok id = true
+              /\ is_cid inner = false /\ cb_ok inner = true).
+    { intros H. rewrite cb_ok_id in H.
+      apply andb_true_iff in H as [H Hin].
+      apply andb_true_iff in H as [H Hnid].
+      apply andb_true_iff in H as [Ha Hid].
+      apply negb_true_iff in Hnid. repeat split; assumption. }
+    split.
+    + intros next tail Hpair Hnext H.
+      destruct (Hparts H) as (Hattrs & Hid & Hnid & Hinner).
+      destruct (cb_lines inner) as [|a more] eqn:El.
+      { exfalso. pose proof (cb_ok_lines_ok inner Hinner) as Hl.
+        rewrite El in Hl. discriminate Hl. }
+      cbn [cb_lines app]. rewrite El. cbn [app].
+      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone "" "" [("id", id)])
+                 (a :: more ++ "" :: cb_lines next ++ tail)%list Hattrs
+                 (classify_canonical_id id Hid) eq_refl
+                 (cb_lines_first_ready inner a more Hnid Hinner El)).
+      cbn [ap_attrs attr_merge fold_left].
+      change (attr_put ("id", id) []) with [("id", id)].
+      cbn [app] in IHtail. rewrite (IHtail next tail Hpair Hnext Hinner).
+      apply decorate_head_cb_ast, Hnid.
+    + intros H.
+      destruct (Hparts H) as (Hattrs & Hid & Hnid & Hinner).
+      destruct (cb_lines inner) as [|a more] eqn:El.
+      { exfalso. pose proof (cb_ok_lines_ok inner Hinner) as Hl.
+        rewrite El in Hl. discriminate Hl. }
+      cbn [cb_lines]. rewrite El.
+      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone "" "" [("id", id)])
+                 (a :: more)%list Hattrs
+                 (classify_canonical_id id Hid) eq_refl
+                 (cb_lines_first_ready inner a more Hnid Hinner El)).
+      cbn [ap_attrs attr_merge fold_left].
+      change (attr_put ("id", id) []) with [("id", id)].
+      rewrite (IHend Hinner).
+      apply decorate_head_cb_ast, Hnid.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.
   - (* the list side: one block, then the rest after a blank line *)
@@ -1450,12 +1678,11 @@ The renderer emits exactly the canonical lines
    induction predicate handles a list's list of item lists. *)
 Lemma render_cb_lines :
   forall cb, cb_ok cb = true ->
-  render_block_lines (node_contents (cb_ast cb)) = cb_lines cb.
+  render_node_lines (cb_ast cb) = cb_lines cb.
 Proof.
   refine (cblock_ind2
             (fun cb => cb_ok cb = true ->
-                       render_block_lines (node_contents (cb_ast cb))
-                       = cb_lines cb)
+                       render_node_lines (cb_ast cb) = cb_lines cb)
             (fun cbs => forallb cb_ok cbs = true ->
                         render_blocks_lines (map cb_ast cbs)
                         = map cb_lines cbs)
@@ -1463,14 +1690,15 @@ Proof.
                           map (fun it => sep_lines (render_blocks_lines
                                                       (map cb_ast it))) items
                           = map item_lines items)
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _).
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _).
   - (* paragraph: `inline_lines_ci` is the whole case.  The destruct is
        only there to reach `para_ok_parts`, which wants a cons. *)
     intros ls H. rewrite cb_ok_para in H. apply andb_true_iff in H as [Hp Hc].
     destruct (map ci_line ls) as [|a ls'] eqn:E; [discriminate|].
     apply para_ok_parts in Hp as (_ & Hlok & _).
     rewrite <- E in Hlok.
-    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+         cb_ast cb_lines node_contents mk render_block_lines].
     apply inline_lines_ci.
     + exact Hc.
     + apply cis_nonempty_of_lines. exact Hlok.
@@ -1480,19 +1708,22 @@ Proof.
     intros info content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [H _].
     apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+         cb_ast cb_lines node_contents mk render_block_lines].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* raw block *)
     intros format content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [_ H].
     unfold raw_ok in H. apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+         cb_ast cb_lines node_contents mk render_block_lines].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     intros lvl ls H.
     rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
     apply heading_ok_parts in Hh as (_ & Hne & Hlok & _ & _).
-    cbn [cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+         cb_ast cb_lines node_contents mk render_block_lines].
     f_equal.
     apply inline_lines_ci.
     + exact Hc.
@@ -1502,7 +1733,7 @@ Proof.
     intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [_ Hok].
-    rewrite cb_ast_quote. cbn [node_contents mk].
+    rewrite cb_ast_quote, render_node_lines_mk.
     rewrite render_block_quote, (IH Hok), cb_lines_quote.
     reflexivity.
   - (* div: same shape as the quote, with fences instead of a prefix *)
@@ -1510,7 +1741,7 @@ Proof.
     rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [_ Hok].
-    rewrite cb_ast_div. cbn [node_contents mk].
+    rewrite cb_ast_div, render_node_lines_mk.
     rewrite render_block_div.
     fold (render_blocks_lines (map cb_ast inner)).
     rewrite (IH Hok), cb_lines_div.
@@ -1526,7 +1757,7 @@ Proof.
     assert (Hokitems : forallb (forallb cb_ok) items = true).
     { refine (forallb_weaken _ _ _ _ Hitems).
       intros item Hitem. apply andb_true_iff in Hitem as [_ Hitem]. exact Hitem. }
-    rewrite cb_ast_list. cbn [node_contents mk].
+    rewrite cb_ast_list, render_node_lines_mk.
     rewrite (render_ck_list _ _ _
                (ck_render_ok_cb k items Hokitems Hckok Hitemok
                   (IH Hokitems) Hcont)).
@@ -1538,9 +1769,24 @@ Proof.
        the renderer's caption line is the empty append. *)
     intros rows H. rewrite cb_ok_table in H.
     apply andb_true_iff in H as [_ Hrows].
-    rewrite cb_ast_table. cbn [node_contents mk render_block_lines].
+    rewrite cb_ast_table, render_node_lines_mk. cbn [render_block_lines].
     rewrite app_nil_r, cb_lines_table.
     apply table_lines_ctable. exact Hrows.
+  - (* explicit id: the spec is its own line, and the only attribute the
+       renderer spells.  Every wrapped block is `mk`-wrapped, so the set
+       `add_attr` builds holds exactly the id. *)
+    intros id inner IH H.
+    rewrite cb_ok_id in H.
+    apply andb_true_iff in H as [Hid Hinner].
+    apply andb_true_iff in Hid as [_ Hnid]. apply negb_true_iff in Hnid.
+    destruct (cb_ast_mk inner Hnid) as [x Ex].
+    specialize (IH Hinner). rewrite Ex, render_node_lines_mk in IH.
+    cbn [cb_ast cb_lines]. rewrite Ex.
+    cbn [add_attr mk attr_union fold_right integrate lookup_attr
+         String.eqb Ascii.eqb].
+    unfold render_node_lines, id_spec_lines.
+    cbn [node_attrs node_contents lookup_attr String.eqb Ascii.eqb app].
+    rewrite IH. reflexivity.
   - intros _. reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -1937,6 +2183,48 @@ Example table_exclusions :
 Proof. reflexivity. Qed.
 
 (*
+Explicit ids
+------------
+*)
+
+(* A named block: the spec is its own line, and the id comes back on the
+   block the spec names. *)
+Example id_para_roundtrip :
+  let cbs := [CId "x" (cpara ["a"])] in
+  render_djot (blocks_of_cblocks cbs) = ("{#x}" ++ nl ++ "a")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* The spec line separates two lists that would otherwise merge across
+   the blank, which is why `cb_pair_ok` reads `is_clist` of its second
+   argument and `ends_clist` of its first. *)
+Example id_list_after_list_roundtrip :
+  let l := CList LKBullet Tight [[cpara ["a"]]] in
+  let cbs := [l; CId "x" l] in
+  render_djot (blocks_of_cblocks cbs)
+    = ("- a" ++ nl ++ nl ++ "{#x}" ++ nl ++ "- a")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
+
+(* And what naming does not buy: a named *list* still closes into the
+   next one, since the spec sits in front of it and not behind. *)
+Example id_list_before_list_excluded :
+  let l := CList LKBullet Tight [[cpara ["a"]]] in
+  cb_pairs_ok [CId "x" l; l] = false.
+Proof. reflexivity. Qed.
+
+(* Three spellings outside the canonical view.  Two specs in a row have
+   one AST between them; an empty id is not an id; and a definition
+   item's head is where its term comes from, and `Ast.def_split` drops
+   that paragraph's attributes. *)
+Example id_exclusions :
+  (cb_ok (CId "x" (CId "y" (cpara ["a"]))),
+   cb_ok (CId "" (cpara ["a"])),
+   cb_ok (CList LKDef Tight [[CId "x" (cpara ["a"])]]))
+  = (false, false, false).
+Proof. reflexivity. Qed.
+
+(*
 Above the block layer
 =====================
 
@@ -1967,52 +2255,19 @@ Proof.
   intros cbs H. unfold parse_doc. f_equal. apply roundtrip_blocks, H.
 Qed.
 
-Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
-Proof.
-  intros cb.
-  induction cb using cblock_ind2 with
-    (Q := fun cbs => pristine (map cb_ast cbs) = true)
-    (R := fun iss => pristine_items (map (map cb_ast) iss) = true);
-    try reflexivity.
-  - (* CQuote *)
-    rewrite cb_ast_quote. cbn [pristine_node mk].
-    rewrite pristine_quote. exact IHcb.
-  - (* CDiv *)
-    rewrite cb_ast_div. cbn [pristine_node mk].
-    rewrite pristine_div. exact IHcb.
-  - (* CList *)
-    rewrite cb_ast_list. cbn [pristine_node mk].
-    destruct k; cbn [ck_block];
-      first [ rewrite pristine_blist; exact IHcb
-            | rewrite pristine_olist; exact IHcb
-            | rewrite pristine_tasklist;
-              apply pristine_task_items_of_items; exact IHcb
-            | rewrite pristine_deflist;
-              exact (pristine_def_items_split _ IHcb) ].
-  - (* c :: rest *)
-    cbn [map]. rewrite pristine_cons_node, IHcb, IHcb0. reflexivity.
-  - (* item :: items *)
-    cbn [map pristine_items]. rewrite IHcb, IHcb0. reflexivity.
-Qed.
-
-Lemma blocks_of_cblocks_pristine :
-  forall cbs, pristine (blocks_of_cblocks cbs) = true.
-Proof.
-  induction cbs as [|cb rest IH]; [reflexivity|].
-  unfold blocks_of_cblocks in *. cbn [map].
-  rewrite pristine_cons_node, cb_ast_pristine, IH. reflexivity.
-Qed.
-
 (** The roundtrip at the parser's entry point: render, parse, undo the
-    whole-document pass, and you are back where you started. *)
+    whole-document pass, and you are back where you started.  Explicitly
+    named canonical blocks are outside this erasure view: the general
+    result for them is [roundtrip_doc_pass] above. *)
 Theorem roundtrip_doc :
   forall cbs, cblocks_ok cbs = true ->
+  pristine (blocks_of_cblocks cbs) = true ->
   undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
   = blocks_of_cblocks cbs.
 Proof.
-  intros cbs H. unfold parse_doc.
+  intros cbs H Hpristine. unfold parse_doc.
   rewrite (roundtrip_blocks _ H).
-  apply pass_erase, blocks_of_cblocks_pristine.
+  apply pass_erase, Hpristine.
 Qed.
 
 End WithTableDoc.

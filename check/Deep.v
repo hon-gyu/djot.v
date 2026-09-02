@@ -49,11 +49,13 @@ Proof. vm_compute. reflexivity. Qed.
    paragraph whose interior line is an escaped bullet marker -- the leaf
    that reaches the escaper's line-initial rule -- took them to
    (245, 2910, 33605). Splitting raw blocks from code blocks in the
-   canonical generator gives the numbers below. A tightness rule or a lifted
+   canonical generator took them to (262, 3112, 35938), and the explicit
+   id -- a wrapper, so one named copy of every block in the pool -- gives
+   the numbers below. A tightness rule or a lifted
    exclusion can enlarge the fragment without adding a construct. Either way
    the count is a coverage witness: a change here must enlarge the generated
    fragment rather than only change its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (262, 3112, 35938).
+                           List.length (accepted 3)) = (278, 3470, 41186).
 Proof. vm_compute. reflexivity. Qed.

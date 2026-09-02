@@ -940,6 +940,161 @@ Qed.
 (* Why the side condition cannot be "no *top-level* content line closes
    the div": here the closing line is a list-item continuation, and the
    div takes it anyway.  Both oracles agree with the left-hand side. *)
+(*
+Block attributes
+----------------
+*)
+
+(* Can a state carry pending attributes down to the block that will
+   claim them?  Three cannot: the idle state hands a blank line back as
+   nothing at all, and `PAttr` and `PPend` are the two states that read
+   the pending set themselves rather than passing it on. *)
+Definition pend_carriable (st : pstate) : bool :=
+  match st with
+  | PPara [] | PAttr _ _ _ _ | PPend _ _ => false
+  | _ => true
+  end.
+
+(* The same question of a state and the line about to reach it.  An idle
+   state is carriable for every line but the two `PPend` answers itself:
+   a blank drops the pending set (parse.ts:1231) and a spec merges into
+   it. *)
+Definition pend_ready (st : pstate) (l : string) : bool :=
+  match st with
+  | PPara [] => match classify l with KBlank | KAttr _ => false | _ => true end
+  | PAttr _ _ _ _ | PPend _ _ => false
+  | _ => true
+  end.
+
+Lemma pend_carriable_ready :
+  forall st l, pend_carriable st = true -> pend_ready st l = true.
+Proof.
+  intros [cur| | | | | | | | | |] l H; try exact H;
+    destruct cur; [discriminate|reflexivity].
+Qed.
+
+(* On a ready state the wrapper is transparent: the line goes down
+   unchanged and `pend_result` decides what to do with what comes back. *)
+Lemma step_pend_pass :
+  forall l pend st, pend_ready st l = true ->
+  step l (PPend pend st) = pend_result pend (step l st).
+Proof.
+  intros l pend st H. unfold step at 1. cbn [step_fuel pstate_depth].
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+  destruct st as [cur| | | | | | | | | |]; cbn [pend_ready] in H;
+    try discriminate H;
+    try (destruct (classify l); reflexivity).
+  destruct cur as [|c cur'];
+    [ destruct (classify l); try discriminate H; reflexivity
+    | destruct (classify l); cbn [is_idle]; reflexivity ].
+Qed.
+
+(* What a line opens is carriable, save for the two kinds `pend_ready`
+   excludes: a blank opens nothing and a spec opens the state that reads
+   the pending set. *)
+Lemma open_line_carriable :
+  forall descend ind l k,
+    match k with KBlank | KAttr _ => false | _ => true end = true ->
+    fst (open_line descend ind l k) = [] ->
+    pend_carriable (snd (open_line descend ind l k)) = true.
+Proof.
+  intros descend ind l k Hk Hempty. destruct k; try discriminate Hk;
+    cbn [open_line open_kind] in Hempty |- *;
+    unfold open_quote, open_list, open_foot, open_ref, open_fence in *;
+    repeat (match goal with
+            | |- context [match ?x with _ => _ end] => destruct x
+            end);
+    cbn [fst snd pend_carriable] in Hempty |- *;
+    try reflexivity; try discriminate.
+Qed.
+
+(* The step that keeps the wrapper alive keeps it carriable: a state that
+   emits nothing has not yet handed the pending set anywhere, and what it
+   became can still carry it.  Every close emits, so the cases that would
+   lose the set are the ones the hypothesis rules out. *)
+Lemma step_empty_carriable :
+  forall l st, pend_ready st l = true -> fst (step l st) = [] ->
+  pend_carriable (snd (step l st)) = true.
+Proof.
+  intros l st Hready Hempty. unfold step in *.
+  destruct st as [cur|lvl cur|f fnd acc|done inner|dlen dcls ddone dinner
+                 |ls ldone linner|apend aind aap aslices|rind rlbl rval
+                 |find flbl fdone finner|trows tcap|ppend pinner];
+    cbn [pend_ready] in Hready; try discriminate Hready;
+    cbn [step_fuel] in Hempty |- *;
+    unfold close_reopen, open_quote, open_list, open_foot, open_ref,
+           open_fence, open_attr in *;
+    repeat (match goal with
+            | |- context [match ?x with _ => _ end] => destruct x eqn:?
+            end);
+    cbn [fst snd pend_carriable finish app open_line open_kind]
+      in Hempty |- *;
+    try reflexivity; try discriminate.
+  apply open_line_carriable; [exact Hready | exact Hempty].
+Qed.
+
+(* Pending attributes are invisible to the fold except at its head: the
+   run under the wrapper is the run without it, decorated.  The side
+   condition is on the first line only, because after it the wrapper
+   either is gone or sits on a carriable state. *)
+Lemma parse_lines_pend :
+  forall ls pend st,
+    match ls with [] => True | l :: _ => pend_ready st l = true end ->
+    parse_lines ls (PPend pend st) = decorate_head pend (parse_lines ls st).
+Proof.
+  induction ls as [|l rest IH]; intros pend st H; [reflexivity|].
+  cbn [parse_lines]. rewrite (step_pend_pass l pend st H).
+  destruct (step l st) as [bs st'] eqn:Es. cbn [pend_result].
+  destruct bs as [|b bs'].
+  - cbn [app]. apply IH.
+    destruct rest as [|l2 rest']; [exact I|].
+    apply pend_carriable_ready.
+    pose proof (step_empty_carriable l st H) as Hc.
+    rewrite Es in Hc. cbn [fst snd] in Hc. exact (Hc eq_refl).
+  - cbn [app]. rewrite decorate_head_cons_app. reflexivity.
+Qed.
+
+(* A finished spec refuses the line and resolves to the pending set over
+   an idle state, on the same line. *)
+Lemma step_attr_done :
+  forall l pend ind ap slices, ap_done ap = true ->
+  step l (PAttr pend ind ap slices)
+  = step l (PPend (attr_merge (ap_attrs ap) pend) (PPara [])).
+Proof.
+  intros l pend ind ap slices H. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H.
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia). reflexivity.
+Qed.
+
+Lemma parse_lines_attr_done :
+  forall ls pend ind ap slices, ap_done ap = true ->
+  parse_lines ls (PAttr pend ind ap slices)
+  = parse_lines ls (PPend (attr_merge (ap_attrs ap) pend) (PPara [])).
+Proof.
+  intros [|l rest] pend ind ap slices H;
+    [cbn [parse_lines finish decorate_head]; rewrite H; reflexivity|].
+  cbn [parse_lines]. rewrite (step_attr_done l pend ind ap slices H). reflexivity.
+Qed.
+
+(** Uniformity for a block attribute line: a document preceded by a
+    complete spec parses as that document with the spec's attributes on
+    its first block.  The side condition is the one line the spec can
+    still claim for itself -- a blank drops it, and a second spec merges
+    into it. *)
+Theorem attr_uniformity :
+  forall l ap ls,
+    battrs = true -> classify l = KAttr ap -> ap_done ap = true ->
+    match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
+    parse_lines (l :: ls) (PPara [])
+    = decorate_head (attr_merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
+Proof.
+  intros l ap ls Hattrs Hcl Hdone Hready.
+  cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).
+  unfold open_attr. rewrite Hattrs. cbn [fst snd app].
+  rewrite (parse_lines_attr_done _ [] (indent_of l) ap _ Hdone).
+  apply parse_lines_pend, Hready.
+Qed.
+
 End WithTable.
 
 Example div_indented_close_differs :
