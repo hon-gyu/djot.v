@@ -1941,12 +1941,12 @@ Above the block layer
 =====================
 
 roundtrip_blocks is about `parse_blocks`, the line fold.  The parser's
-actual entry point is `Document.parse_doc`, which runs the
-whole-document pass on top — so the theorem only reaches the entry point
-once the pass is shown to add nothing that erasure cannot take back
-(Document.pass_erase).  The canonical fragment is exactly the kind of
-input that theorem wants: cb_ast builds bare `mk` nodes, so no heading
-carries an explicit id, and it builds no sections.
+actual entry point is `Document.parse_doc`, which runs the whole-document
+pass on top.  The primary theorem therefore says render-and-parse
+commutes with that pass and retains all of its derived data.  The older
+erasure theorem remains useful on the pristine fragment: cb_ast builds
+bare `mk` nodes, so no heading carries an explicit id, and it builds no
+sections.
 *)
 
 (* Back into the family: the document-level roundtrip is a theorem about
@@ -1954,6 +1954,18 @@ carries an explicit id, and it builds no sections.
 Section WithTableDoc.
 Context {T : dtable}.
 Context {K : bconfig}.
+
+(** The whole-document pass commutes with canonical render-and-parse.
+    Unlike [roundtrip_doc] below, this statement retains the derived side
+    tables and needs no pristine-input hypothesis: the block roundtrip
+    supplies exactly the input on which [doc_pass] is run. *)
+Theorem roundtrip_doc_pass :
+  forall cbs, cblocks_ok cbs = true ->
+  parse_doc (render_djot (blocks_of_cblocks cbs))
+  = doc_pass (blocks_of_cblocks cbs).
+Proof.
+  intros cbs H. unfold parse_doc. f_equal. apply roundtrip_blocks, H.
+Qed.
 
 Lemma cb_ast_pristine : forall cb, pristine_node (cb_ast cb) = true.
 Proof.
