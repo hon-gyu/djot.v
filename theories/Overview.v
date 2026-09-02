@@ -25,6 +25,9 @@ From DjotV Require Import Ast Profile Invariants Render Roundtrip.
     - {{DjotV.Roundtrip.html#roundtrip_blocks}roundtrip_blocks} and
       {{DjotV.Roundtrip.html#roundtrip_doc}roundtrip_doc} prove that
       parsing canonical rendered output recovers the original value.
+    - {{DjotV.Address.html}Address} names a block by its explicit
+      [{#id}] and resolves that name to a split of the document, so an
+      edit can be applied where the roundtrip theorems already talk.
     - {{DjotV.Uniformity.html}Uniformity} and
       {{DjotV.ListUniformity.html}ListUniformity} prove that container contents
       parse by the same rules as top-level input.
