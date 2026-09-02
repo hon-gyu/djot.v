@@ -449,6 +449,36 @@ nothing, and "identity on those inputs" is usually reachable by
 restricting when the pass does anything -- cheaper than carrying a
 hypothesis to every user.
 
+## A parameter's laws need the parameter's own domain
+
+**What happened.** The link codec was first written with
+`l_parse self (l_spell self p) = Some p` for every path, plus `no_nl`
+and `no_ws` of every spelled destination. No convention satisfies
+either: a flat vault cannot spell a nested note at all, and a path with
+a space in it spells a destination with a space. The repair was a
+field rather than a hypothesis -- `l_ok : path -> bool`, which paths
+this convention can name -- with every law quantified over it. The cost
+was one side condition on the single theorem that substitutes a path,
+where it reads "the new name is one this convention can spell", which is
+a check an implementation runs anyway. The two admissibility conditions
+were dropped instead of scoped: nothing used them, because the theorem
+that will (a renamed site is still canonical) is not proved yet, so they
+went into prose beside that obligation.
+
+**General form.** When a parameter is a *convention* rather than a table
+of values, its laws hold on a subset of the type, and the subset belongs
+in the parameter. Quantifying over the whole type makes every real
+instance unprovable; threading the subset as a hypothesis makes it viral
+([[#Prefer the stronger precondition when the weaker one is viral]]). A
+field is neither.
+
+**What to do instead.** Before proving a parameterization's laws, write
+the smallest real instance and check each law against it -- a flat
+vault, a one-row table. A law the instance falsifies is either a wrong
+instance or a law whose domain is missing, and it is usually the latter.
+Then drop the laws with no users: one an unproved theorem will need is
+documented next to that obligation, not carried in the predicate.
+
 ## A wrapper constructor splits the predicates, not the theorems
 
 **What happened.** `CId` puts one source line in front of an existing

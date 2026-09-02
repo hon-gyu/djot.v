@@ -28,9 +28,10 @@ From DjotV Require Import Ast Profile Invariants Render Roundtrip.
     - {{DjotV.Address.html}Address} names a block by its explicit
       [{#id}] and resolves that name to a split of the document, so an
       edit can be applied where the roundtrip theorems already talk.
-    - {{DjotV.Site.html}Site} routes a directory of notes to URLs and
-      proves the build local: an edit that preserves a note's summary
-      leaves every other page's rendering identical.
+    - {{DjotV.Site.html}Site} routes a directory of notes to URLs, proves
+      the build local, and renames a note: the link convention is a
+      parameter, so the rewrite and the link checker are derived from one
+      codec rather than fixed by the file.
     - {{DjotV.Uniformity.html}Uniformity} and
       {{DjotV.ListUniformity.html}ListUniformity} prove that container contents
       parse by the same rules as top-level input.
