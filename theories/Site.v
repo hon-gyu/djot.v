@@ -215,6 +215,81 @@ Qed.
 End Build.
 
 (*
+Links between notes
+===================
+
+The link checker needs to know what a summary *holds*, and only that:
+`s_links` names the projection, so a summary stays whatever an
+implementation wants it to be.  Naming the projection rather than the
+record is what keeps `build_local` above quantified over any summary
+type at all.
+*)
+
+Section Links.
+Context {S : Type}.
+Variable summ : list cblock -> S.
+Variable s_links : S -> list path.
+
+Definition path_eqb (p q : path) : bool := url_eqb p q.
+
+(* No broken links, decidable: every note a page points at is a note the
+   site has.  Stated over paths rather than URLs, since a path is what an
+   author writes and `route` is not injective (`route_collide`). *)
+Definition links_closed (s : site) : bool :=
+  forallb (fun pd => forallb (fun t => existsb (path_eqb t) (dom s))
+                       (s_links (summ (snd pd)))) s.
+
+Theorem links_closed_target :
+  forall s p d t,
+    links_closed s = true ->
+    In (p, d) s -> In t (s_links (summ d)) -> In t (dom s).
+Proof.
+  intros s p d t Hclosed Hin Ht.
+  unfold links_closed in Hclosed.
+  rewrite forallb_forall in Hclosed.
+  specialize (Hclosed (p, d) Hin). cbn [snd] in Hclosed.
+  rewrite forallb_forall in Hclosed.
+  specialize (Hclosed t Ht).
+  apply existsb_exists in Hclosed as [x [Hx Heq]].
+  apply url_eqb_true in Heq. subst x. exact Hx.
+Qed.
+
+(* The notes that would have to be rewritten if this one were renamed.
+   Computable from the environment alone, which is what makes the
+   efficiency claim about rename a corollary of build locality rather
+   than a new induction. *)
+Definition backlinks (s : site) (p : path) : list path :=
+  map fst (filter (fun pd => existsb (path_eqb p) (s_links (summ (snd pd)))) s).
+
+Theorem backlinks_sound :
+  forall s p q,
+    In q (backlinks s p) ->
+    exists d, In (q, d) s /\ In p (s_links (summ d)).
+Proof.
+  intros s p q H. unfold backlinks in H.
+  apply in_map_iff in H as [[q' d] [Heq Hin]]. cbn [fst] in Heq. subst q'.
+  apply filter_In in Hin as [Hin Hlink]. cbn [snd] in Hlink.
+  apply existsb_exists in Hlink as [x [Hx Heq]].
+  apply url_eqb_true in Heq. subst x.
+  exists d. split; assumption.
+Qed.
+
+(* And a note nobody points at is a note a rename need not touch: this is
+   the half of the efficiency claim that says the set is small, and it is
+   read off the environment without opening a document. *)
+Theorem backlinks_complete :
+  forall s p q d,
+    In (q, d) s -> In p (s_links (summ d)) -> In q (backlinks s p).
+Proof.
+  intros s p q d Hin Hlink. unfold backlinks.
+  apply in_map_iff. exists (q, d). split; [reflexivity|].
+  apply filter_In. split; [exact Hin|]. cbn [snd].
+  apply existsb_exists. exists p. split; [exact Hlink | apply url_eqb_refl].
+Qed.
+
+End Links.
+
+(*
 Worked examples
 ===============
 *)
@@ -240,4 +315,22 @@ Example ordinary_tree_ok :
   let s : site := [([index_name], []); (["a"], []); (["a"; "b"], []);
                    (["a"; "c"], []); (["d"; index_name], [])] in
   routes_ok s = true.
+Proof. reflexivity. Qed.
+
+(* The link checker, computing.  `demo_links` stands in for a real link
+   extractor -- what a note's links *are* needs a link syntax this file
+   deliberately does not fix -- and exists only for the two examples
+   below: every nonempty note points at `a.dj`. *)
+Definition demo_links (d : list cblock) : list path :=
+  match d with [] => [] | _ => [["a"]] end.
+
+Example broken_link_detected :
+  links_closed demo_links (fun x => x) [(["b"], [cpara ["x"]])] = false.
+Proof. reflexivity. Qed.
+
+Example closed_site_and_backlinks :
+  let s : site := [(["a"], []); (["b"], [cpara ["x"]])] in
+  (links_closed demo_links (fun x => x) s,
+   backlinks demo_links (fun x => x) s ["a"])
+  = (true, [["b"]]).
 Proof. reflexivity. Qed.
