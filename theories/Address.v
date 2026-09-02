@@ -21,8 +21,8 @@
    than choosing the first occurrence, since choosing would make
    inserting a duplicate silently retarget the next edit. *)
 
-From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Parser Render Roundtrip.
+From Stdlib Require Import String Ascii List Bool Lia.
+From DjotV Require Import Strings Line Ast Parser Document Render Roundtrip.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -286,6 +286,133 @@ Proof.
   apply block_replace, Hok.
 Qed.
 
+(*
+Generated blocks
+================
+
+A block a build step writes rather than an author: a table of contents,
+an index, a list of backlinks.  It is a *section of a projection* -- the
+view says what it is made of, the id says where it goes -- and what
+makes a build a function rather than an iteration is that installing it
+once is enough.
+*)
+
+Lemma find_top_ids_app :
+  forall i xs ys,
+    find_top_ids i (xs ++ ys)%list
+    = (map (fun s => let '(p, c, q) := s in (p, c, (q ++ ys)%list))
+           (find_top_ids i xs)
+       ++ map (fun s => let '(p, c, q) := s in ((xs ++ p)%list, c, q))
+              (find_top_ids i ys))%list.
+Proof.
+  induction xs as [|x xs IH]; intros ys.
+  - cbn [app find_top_ids map].
+    induction (find_top_ids i ys) as [|[[p c] q] more IHm]; [reflexivity|].
+    cbn [map]. rewrite <- IHm. reflexivity.
+  - cbn [app find_top_ids]. rewrite IH, !map_app, !map_map.
+    destruct (top_id x) as [j|] eqn:Ej; [destruct (String.eqb i j) eqn:Eij|];
+      cbn [map]; rewrite ?map_app, ?map_map; cbn [app];
+      f_equal; try (apply map_ext; intros [[p c] q]; reflexivity).
+    all: f_equal; apply map_ext; intros [[p c] q]; reflexivity.
+Qed.
+
+(* A name that resolves occurs nowhere else, so neither side of the
+   split can hide a second occurrence.  This is what survives the edit:
+   the id the caller used still resolves in the document the edit
+   produced. *)
+Lemma find_top_ids_singleton_parts :
+  forall i pre c post,
+    top_id c = Some i ->
+    find_top_ids i (pre ++ c :: post)%list = [(pre, c, post)] ->
+    find_top_ids i pre = [] /\ find_top_ids i post = [].
+Proof.
+  intros i pre c post Hid H.
+  rewrite find_top_ids_app in H.
+  cbn [find_top_ids] in H. rewrite Hid, String.eqb_refl in H.
+  pose proof (f_equal (@length _) H) as Hlen.
+  rewrite length_app, !length_map in Hlen. cbn [length] in Hlen.
+  rewrite length_map in Hlen.
+  split; apply length_zero_iff_nil; lia.
+Qed.
+
+Lemma find_top_ids_replace :
+  forall i body pre post,
+    find_top_ids i pre = [] -> find_top_ids i post = [] ->
+    find_top_ids i (pre ++ CId i body :: post)%list = [(pre, CId i body, post)].
+Proof.
+  intros i body pre post Hpre Hpost.
+  rewrite find_top_ids_app, Hpre. cbn [map app find_top_ids top_id].
+  rewrite String.eqb_refl, Hpost. cbn [map app]. rewrite app_nil_r. reflexivity.
+Qed.
+
+(** Writing the same body twice is writing it once.  The wrapper is what
+    makes this true: the edit leaves the address it used exactly where it
+    found it, so the second edit resolves to the same split. *)
+Theorem replace_at_id_idem :
+  forall i body cbs cbs',
+    replace_at_id i body cbs = inl cbs' ->
+    replace_at_id i body cbs' = inl cbs'.
+Proof.
+  intros i body cbs cbs' H.
+  unfold replace_at_id in H.
+  destruct (resolve_top_id i cbs) as [[[pre c] post]|e] eqn:Eres;
+    [|discriminate H].
+  injection H as <-.
+  destruct (resolve_top_id_split i cbs pre c post Eres) as [Hsplit Hid].
+  unfold resolve_top_id in Eres. rewrite Hsplit in Eres.
+  destruct (find_top_ids i (pre ++ c :: post)) as [|s [|s' more]] eqn:Efind;
+    try discriminate Eres.
+  injection Eres as Eres. subst s.
+  destruct (find_top_ids_singleton_parts i pre c post Hid Efind) as [Hp Hq].
+  unfold replace_at_id, resolve_top_id.
+  rewrite (find_top_ids_replace i body pre post Hp Hq). reflexivity.
+Qed.
+
+(* A generated block, as the three things a build step has to name: where
+   it goes, what it is made of, and how the one becomes the other.  The
+   view is a projection of the whole document, since that is what a table
+   of contents reads. *)
+Record derived (V : Type) : Type := Derived {
+  d_id : string;
+  d_view : list cblock -> V;
+  d_make : V -> cblock }.
+
+(* Global, since the record is what a caller writes and none of it
+   depends on the section's table. *)
+#[global] Arguments Derived {V} d_id d_view d_make.
+#[global] Arguments d_id {V} d.
+#[global] Arguments d_view {V} d.
+#[global] Arguments d_make {V} d.
+
+Definition refresh {V : Type} (D : derived V) (cbs : list cblock)
+  : sum (list cblock) address_error :=
+  replace_at_id (d_id D) (d_make D (d_view D cbs)) cbs.
+
+(** One-step convergence, which is what lets a build run the step once
+    rather than to a fixed point.  The hypothesis is the whole content of
+    it, and it is decidable by running the view again -- so a build
+    checks it rather than assuming it.  `refresh_view_can_move` below is
+    a document where it fails. *)
+Theorem refresh_stable :
+  forall (V : Type) (D : derived V) cbs cbs',
+    refresh D cbs = inl cbs' ->
+    d_view D cbs' = d_view D cbs ->
+    refresh D cbs' = inl cbs'.
+Proof.
+  intros V D cbs cbs' H Hview. unfold refresh in H |- *.
+  rewrite Hview. apply (replace_at_id_idem _ _ cbs), H.
+Qed.
+
+(* And a refresh spends no addresses, its own included, so a document
+   with several generated blocks can be refreshed in any order. *)
+Theorem refresh_ids :
+  forall (V : Type) (D : derived V) cbs cbs',
+    refresh D cbs = inl cbs' -> top_level_ids cbs' = top_level_ids cbs.
+Proof.
+  intros V D cbs cbs' H. unfold refresh in H.
+  apply (replace_at_id_ids _ _ _ _ H).
+Qed.
+
 End WithTable.
 
 (*
@@ -336,3 +463,61 @@ Example scopes_differ :
   let doc := [CQuote [CId "x" (cpara ["a"])]] in
   (top_level_ids doc, page_ids doc) = ([], ["x"]).
 Proof. reflexivity. Qed.
+
+(*
+A generated block, and the one thing that can go wrong with it
+-------------------------------------------------------------
+*)
+
+(* The view a table of contents wants is a projection of the whole
+   document, so it is computed the way a reader sees it: render, parse,
+   read the pass's own answer. *)
+Definition auto_ids (cbs : list cblock) : list string :=
+  doc_auto_identifiers (parse_doc (render_djot (blocks_of_cblocks cbs))).
+
+Definition toc_doc : list cblock :=
+  [ CId "toc" (cpara ["stale"]) ; CHeading 1 [[CIStr "H"]] ].
+
+Definition refresh_twice {V : Type} (D : derived V) (cbs : list cblock)
+  : sum (list cblock) address_error :=
+  match refresh D cbs with inl cbs' => refresh D cbs' | inr e => inr e end.
+
+(* A generated block that holds a heading.  Installing it gives that
+   heading the automatic id the document's own heading had, and the
+   document's heading becomes `H-1` -- so the view this block is built
+   from moved because the block was installed.  `refresh_stable`'s
+   hypothesis is exactly what this document fails. *)
+Definition toc_make (v : list string) : cblock :=
+  CDiv (CHeading 1 [[CIStr "H"]] :: map (fun s => cpara [s]) v).
+
+Definition toc : derived (list string) := Derived "toc" auto_ids toc_make.
+
+Example refresh_view_can_move :
+  auto_ids toc_doc = ["toc"; "H"]
+  /\ match refresh toc toc_doc with
+     | inl cbs => auto_ids cbs
+     | inr _ => []
+     end = ["toc"; "H"; "H-1"].
+Proof. split; reflexivity. Qed.
+
+(* And so the build does not converge: a second refresh writes a
+   different block.  This is the document-level echo of
+   `Uniformity.reparse_only_new`'s state hypothesis -- return the check,
+   never assume it. *)
+Example refresh_not_stable : refresh_twice toc toc_doc <> refresh toc toc_doc.
+Proof. vm_compute. discriminate. Qed.
+
+(* The same view with a block that generates no heading converges in one
+   step, and `refresh_stable` is what says so: the only obligation is the
+   view equality, which the build can run. *)
+Definition ids_make (v : list string) : cblock :=
+  CDiv (map (fun s => cpara [s]) v).
+
+Definition ids_block : derived (list string) := Derived "toc" auto_ids ids_make.
+
+Example refresh_converges :
+  forall cbs, refresh ids_block toc_doc = inl cbs -> refresh ids_block cbs = inl cbs.
+Proof.
+  intros cbs H. apply (refresh_stable _ ids_block toc_doc cbs H).
+  vm_compute in H. injection H as <-. vm_compute. reflexivity.
+Qed.
