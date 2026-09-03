@@ -16,14 +16,14 @@ a reference, not an oracle, and nothing below depends on having read it.
 
 ## 0. The idea
 
-A colon is a binary connective. It takes **inline content** on the left
-and a **block** on the right, and builds a node saying "this block is
-what this label names". The left operand is content, not one element: a
-label may be a word, a styled run, a link, or a mix.
+A colon is a binary connective. It takes **one inline** on the left and
+a **block** on the right, and pairs them.
 
-<!-- CR: hmm, I don't understand how "inline content" differ from "inline"? could you explain?
-Also, I don't want to say "A names B". It's just a loose connective and the semantics should be decided by the reader and the writer.
- -->
+One inline, not a sequence of them: a run of text, or an emphasis, or a
+link, or a verbatim span. A paragraph holds a sequence; a label is one
+element of the kind a paragraph is made of. A run of text is one element
+however long it is, so most labels are just words. 3.2 says what the
+rule rules out and why the boundary falls where it does.
 
 ```
 label : block
@@ -83,12 +83,8 @@ foo:
 
 The label is everything before the colon. The block is the next one.
 
-The colon has to be a real one, by the same test 3.2 uses: everything
-before it must be settled. So `` a `b:` `` is not a key,
-because its final colon is inside a verbatim span.
-
-<!-- CR: the final result that this is not a key looks intuitive but I wonder how we can implement this? 
-what will happen at the byte of the colon? how can we know if the backtick will be closed or not? -->
+The colon has to be a real one, by the same test 3.2 uses. So
+`` a `b:` `` is not a key: its final colon is inside a verbatim span.
 
 ### 3.2 Inline
 
@@ -107,69 +103,115 @@ distinguishes the two forms. They differ only in whether the block
 starts on the key line.
 
 **Which colon.** The first one that is not escaped, is followed by a
-space or the end of the line, and is a point where the label is
-**settled**.
+space or the end of the line, and arrives while the inline scanner has
+**nothing open**: no verbatim run, no attribute brace, no bracket, no
+delimiter that a later character could still close.
 
-Settled means: nothing later in the line can change how the text before
-the colon reads. That is the property a split has to preserve, because
-the split throws the rest of the line away as far as the label is
-concerned, and a label that reads differently once cut is a label the
-writer did not write.
+The scanner already carries that bit, so the test is a query at each
+candidate position and one pass over the line answers it at all of them.
+It is a scan, not a search with backtracking: the split point is found
+in one pass and never revised.
 
-It is not a claim that the text before the colon is *valid*. Every
-string is valid inline content in djot, which has no inline errors:
-`x{title="a` on a line of its own is fine, and reads as the literal text
-`x{title=` followed by a curly quote and `a`. That is exactly why it is
-not settled. Inside `x{title="a: b"}y: z` the same characters read as
-the word `x` carrying a title. Splitting at the first colon would
-silently give the label the first reading, so that colon is not a
-candidate and the scan goes on to the next one.
+**It needs no lookahead**, which is the part worth checking. Take
+`` a `b:` ``. At the byte of the colon the scanner is inside a verbatim
+run, and the question "will that run be closed?" never has to be
+answered, because both answers give the same verdict. If a closing run
+comes, the colon was inside the span. If none comes, djot runs the
+verbatim to the end of the line, so the colon is inside the span anyway.
+Either way it is not a connective, and the decision is available at the
+colon itself.
 
-Operationally the test is one bit of the inline scanner's own state:
-**nothing is open**. No verbatim run, no attribute brace, no bracket, no
-delimiter that a later character could still close. The scanner already
-carries exactly that, so the whole test is a query at each candidate
-position, and reading the line once answers it at all of them. This is a
-scan, not a search with backtracking: the split point is found in one
-pass and never revised.
-<!-- CR: this is good. but writing-wise we should move this to an earlier point so that it's clearer.
-I believe this paragraph also answers my previous CR question, right? If so, no need to answer that one.-->
+That is the shape of the whole rule. Where the scanner is unsure at the
+colon, the line is not a key, and the writer gets the paragraph they
+would have got before keys existed. Declining is always safe; splitting
+is what has to be justified.
 
-| #   | line                              | splits at       | label              |
-| --- | --------------------------------- | --------------- | ------------------ |
-| 1   | `foo: bar`                        | the first colon | `foo`              |
-| 2   | `` `a: b` is how you write it ``  | nowhere         | not a key          |
-| 3   | `` `code`: a description ``       | after the span  | `` `code` ``       |
-| 4   | `[see: here](x) is the reference` | nowhere         | not a key          |
-| 5   | `[see](x): the reference`         | after the link  | `[see](x)`         |
-| 6   | `foo{#my-foo}: bar`               | after the brace | `foo{#my-foo}`     |
-| 7   | `x{title="a: b"}y: z`             | after `y`       | `x{title="a: b"}y` |
-| 8   | `"foo: bar" and more`             | nowhere         | not a key          |
-| 9   | `"foo": bar`                      | after the quote | `"foo"`            |
-| 10  | `_a: b_`                          | nowhere         | not a key          |
+**What it buys.** Splitting at a colon throws the rest of the line away
+as far as the label is concerned, so it may only happen where throwing
+it away costs nothing: nothing later in the line may change how the text
+before the colon reads. "Nothing open" delivers that, and it is not a
+claim that the text before the colon is *valid* on its own. Every string
+is valid inline content in djot, which has no inline errors.
+`x{title="a` on a line of its own is fine, and reads as the literal
+`x{title=`, a curly quote, and `a`. That is exactly why it is not a
+split point: inside `x{title="a: b"}y: z` the same characters read as
+the word `x` carrying a title, so splitting at the first colon would
+silently give the label the other reading. The scan goes on to the next
+colon instead.
 
-Rows 2, 4, 8 and 10 have exactly one candidate colon and it is inside an
-open construct, so those lines are not keys. Row 10 is the one worth
-staring at: `_a: b_` is emphasis over `a: b`, and the label `_a` would
-be the literal characters `_a`, so the colon is not a connective. Rows
-8 and 9 are the same construct opened and closed, since a quotation mark
-pairs in djot like any other delimiter.
+The implication runs one way only. `_a: b` has an unmatched `_`, which
+djot leaves as literal text, so splitting there would in fact have
+changed nothing; the scanner declines anyway, because at the colon it
+cannot yet know the `_` is unmatched. That conservatism is the price of
+no lookahead and it is worth it.
 
-**A label is inline content, not one element.** Row 7's label is two
-nodes, the word `x` carrying a title and the word `y`. Nothing requires
-it to be a single inline, and requiring that would buy nothing: adjacent
-words are one text node anyway, so the restriction would only reject
-labels that mix a styled run with plain text.
-<!-- CR: hmm, I am confused about this rule. What is the AST like for `x{title="a: b"}y` today?
-are you suggesting that x`y`: z can be a key? -->
+| #   | line                              | splits at       |
+| --- | --------------------------------- | --------------- |
+| 1   | `foo: bar`                        | the first colon |
+| 2   | `` `a: b` is how you write it ``  | nowhere         |
+| 3   | `` `code`: a description ``       | after the span  |
+| 4   | `[see: here](x) is the reference` | nowhere         |
+| 5   | `[see](x): the reference`         | after the link  |
+| 6   | `foo{#my-foo}: bar`               | after the brace |
+| 7   | `x{title="a: b"}y: z`             | after `y`       |
+| 8   | `"foo: bar" and more`             | nowhere         |
+| 9   | `"foo": bar`                      | after the quote |
+| 10  | `_a: b_`                          | nowhere         |
 
-**Attributes carry through**, which is row 6. A label is inline content
-like any other, so it may hold emphasis, a link, a verbatim span, or an
+Rows 2, 4, 8 and 10 have exactly one candidate colon and it arrives with
+something open, so those lines have no split point at all. Row 10 is the
+one worth staring at: `_a: b_` is emphasis over `a: b`, and the label
+`_a` would be the literal characters `_a`. Rows 8 and 9 are the same
+construct open and closed, since a quotation mark pairs in djot like any
+other delimiter.
+
+**What the label may be: one inline.** A split point is necessary and
+not sufficient. The text before the colon, with trailing whitespace
+removed, has to be a single inline element.
+
+The counts are not obvious from the source, because resolution merges
+adjacent text and decayed punctuation merges with its neighbours:
+
+| label source            | nodes | what they are                     | key? |
+| ----------------------- | ----- | --------------------------------- | ---- |
+| `foo`                   | 1     | a text run                        | yes  |
+| `foo bar baz`           | 1     | still one text run                | yes  |
+| `it's`                  | 1     | the apostrophe curls and merges   | yes  |
+| `a -- b`                | 1     | the dash likewise                 | yes  |
+| `foo\: bar`             | 1     | the escape leaves one run         | yes  |
+| `` `code` ``            | 1     | a verbatim span                   | yes  |
+| `[see](x)`              | 1     | a link                            | yes  |
+| `"foo"`                 | 1     | a quotation                       | yes  |
+| `*bold*`                | 1     | a strong span                     | yes  |
+| `x{title="a"}`          | 1     | a text run carrying an attribute  | yes  |
+| ``x`y` ``               | 2     | a text run and a verbatim span    | no   |
+| `x{title="a: b"}y`      | 2     | two runs, only one with the title | no   |
+| ``the `--flag` option`` | 3     | text, verbatim, text              | no   |
+
+So a label is one thing: a phrase, however long and however much
+punctuation it holds, or one marked-up element. What it may not be is a
+phrase with markup embedded in it. An attribute brace is not a second
+thing, since attributes ride on the element in front of them, which is
+why `x{title="a"}` is a key and `x{title="a: b"}y` is not: the second
+has a second run, and two runs carrying different attributes cannot
+merge.
+
+The test costs no lookahead either. Nothing is open at the split point,
+so everything before it is already resolved and already merged, and the
+count is available right there. It is also monotone: once the label is
+two elements no later colon can bring it back to one, because collapsing
+two settled elements into one would take a construct opening before both
+of them, and that would have made the earlier point unsettled. A line
+whose label has gone to two elements is not a key, and the scan can stop
+rather than looking further along.
+
+**Attributes carry through.** A label is an inline like any other, so it
+may be an emphasis, a link, a verbatim span, or a text run carrying an
 attribute brace, and the attribute attaches inside the label exactly as
 it would in a paragraph. In `foo{#my-foo}: bar` the id lands on the word
-`foo`, because that is the inline element the brace follows. It does
-**not** name the keyed node. To name the node, put the attribute on its
-own line above, which already works and is already what an address is:
+`foo`, because that is the element the brace follows. Note that it does not
+identify the keyed node. To name the node, put the attribute on its
+own line above:
 
 ```
 {#my-foo}
@@ -178,10 +220,10 @@ foo: bar
 
 **One key per line.** A line is split at most once. What follows the
 colon opens a paragraph and is not read again as a key line, so
-`foo: bar: baz` is `foo` naming a paragraph whose text is `bar: baz`,
+`foo: bar: baz` pairs `foo` with a paragraph whose text is `bar: baz`,
 not a chain. That paragraph continues onto later lines like any other;
 what it does not do is split a second time. `foo: bar:` is likewise
-`foo` naming a paragraph reading `bar:`, trailing colon and all.
+`foo` paired with a paragraph reading `bar:`, trailing colon and all.
 
 Nesting is by line:
 
@@ -190,7 +232,7 @@ foo:
 bar: baz
 ```
 
-is `foo` naming `bar` naming `baz`, because line 2 is a fresh line and
+is `foo` over `bar` over `baz`, because line 2 is a fresh line and
 gets its own split.
 
 One colon per line, one level per line. The alternative, re-reading the
@@ -199,10 +241,8 @@ a single prose sentence nest twice: `Note: see this: it matters` would
 be two accidental levels rather than one. Splitting once bounds the
 damage of the case below at one level.
 
-The price is that the one-line form is not quite sugar for the two-line
-one. For almost every value the two spell the same tree:
-
-<!-- CR: writing-wise, I don't really think this is a "price" at all. -->
+The one place the two forms come apart is worth naming, because it is
+the only one. For almost every value they spell the same tree:
 
 ```
 foo: bar
@@ -213,7 +253,7 @@ foo:
 bar
 ```
 
-Both give `foo` naming `Para "bar"`. But when the value would itself be
+Both give `foo` paired with `Para "bar"`. But when the value would itself be
 a key line, they part:
 
 ```
@@ -225,11 +265,11 @@ foo:
 bar: baz
 ```
 
-The first is `foo` naming `Para "bar: baz"`, one level. The second is
-`foo` naming `bar` naming `Para "baz"`, two levels, because line 2 of
-the second is a line and gets a line's split. That single exception is
-the entire cost of the rule, which is why there is no setting for it: a
-setting would exist to move one sentence.
+The first pairs `foo` with `Para "bar: baz"`, one level. The second
+pairs `foo` with `bar` paired with `Para "baz"`, two levels, because
+line 2 of the second is a line and gets a line's split. So the one-line
+form is not quite sugar for the two-line one, and that single case is
+the whole of the difference.
 
 **Colons in ordinary prose are keyed.**
 
@@ -256,25 +296,25 @@ Note\: this matters.
 | 6   | `:::`                               | div opener             | the line is read as a div first   |
 | 7   | `:` alone                           | plain paragraph        | the label would be empty          |
 | 8   | the leading one of `: term`         | definition-list marker | initial, not final                |
-| 9   | the one in `{#i}: bar`              | plain paragraph        | the label would be empty          |
+| 9   | the one in `{#i}: bar`              | plain paragraph        | no label element survives         |
 | 10  | the one in `# foo:`                 | plain heading          | a key opens from a text line only |
 | 11  | any colon inside a fence            | verbatim               | fences are not classified         |
 
 `foo\: bar:` is therefore keyed, with label `foo: bar`: the escaped
 colon is text and the final one is the connective.
 
-Row 9 is an instance of row 7 rather than a rule of its own, and it is
-the one case where that takes an argument. `{#i}` at the head of a line
-is an inline attribute with no inline in front of it to decorate, so
+Row 9 is the one that takes an argument, and it is an instance of the
+one-inline rule rather than a case of its own. `{#i}` at the head of a
+line is an inline attribute with nothing in front of it to decorate, so
 djot drops it: `{#i}: bar` is one paragraph holding the single text node
-`: bar`, with no attribute anywhere, and the identifier is gone. The
-label a split would produce is therefore not the string `{#i}` but the
-empty sequence, which row 7 already refuses. The parse is the same with
+`: bar`, with no attribute anywhere and the identifier gone. The label a
+split would produce is therefore not the string `{#i}` but *no* element
+at all, and a label has to be exactly one. The parse is the same with
 keys on and with keys off.
 
 This is worth knowing rather than worth fixing. A writer who meant to
-name the node wants the block-attribute line of 3.2, on its own line
-above; a writer who meant the literal braces escapes the first one.
+identify the node wants the attribute on its own line above, as in 3.2;
+a writer who meant the literal braces escapes the first one.
 
 The heading row is a decision rather than a consequence. Headings
 already build document structure through sections, and a line that was
@@ -411,8 +451,8 @@ foo:
 `````
 
 The first is at top level, where no list is being held open, so the key
-names a list with nothing overridden. The second indents the fence into
-the item the ordinary way. A key names any block at all; only the
+takes a list with nothing overridden. The second indents the fence into
+the item the ordinary way. A key takes any block at all; only the
 unindented spelling inside a container asks anything of the block.
 
 ## 6. Retraction
@@ -558,7 +598,7 @@ of its own. `baz` is a paragraph, which ends at end of input; that ends
 `bar`'s block, which is `foo`'s block, so both close together.
 
 This is the only spelling of that tree. `foo: bar: baz` on one line is
-`foo` naming the paragraph `bar: baz`, by the one-key-per-line rule in
+`foo` paired with the paragraph `bar: baz`, by the one-key-per-line rule in
 3.2: a level costs a line.
 
 ## 8. What this costs the development
@@ -588,6 +628,16 @@ or `step_fuel_pad` fails; normalising the line first is enough. And
 every concrete `Example` that parses a text line now scans it twice, a
 constant factor rather than a branching one, but worth a `coqc -time`
 reading before and after.
+
+**The label test depends on the merge pass.** Whether a label is one
+inline or two is a fact about the *resolved* inline list, so it turns on
+resolution merging adjacent text and on decayed punctuation merging with
+its neighbours. `it's` and `foo\: bar` are keys because of that pass and
+would not be without it. This is a coupling to record rather than a
+problem: the pass is what makes "one text run is one thing" true, and it
+is why the rule can be stated on node counts at all. It does mean the
+rule is about our normalised inline list and not about djot.js's, which
+does not merge these and would count `it's` as three.
 
 **Free**: `prefix_determinism`, `no_future_line_dependence` and
 `prefix_state_suffices`. All three are facts about `parse_lines` being a
@@ -623,25 +673,25 @@ worth landing sections 3, 4, 6 and 7.1 to 7.3 without it.
 
 ## 9. Open questions
 
-### 9.1 Does "nothing is open" really mean "settled"?
+### 9.1 Is "nothing open" enough, on every construct?
 
-Section 3.2 gives the split rule twice: once as what it must achieve,
-that no later character changes how the label reads, and once as how it
-is tested, that the scanner has nothing open at that point. Those are
-two different statements and the spec assumes they coincide.
+Section 3.2 states the split rule as a test, "nothing open at the
+colon", and separately as what the test is for, "no later character
+changes how the label reads". The test has to imply the property. It
+does not have to be implied by it, and deliberately is not: `_a: b` is
+declined although splitting it would have been harmless.
 
-They do on every row of that section's table, and they had better,
-because the test is what runs and the property is what a writer relies
-on. The direction that could fail is a construct whose reading depends
-on what follows while the scanner considers nothing open. Smart quotes
-looked like a candidate, since a lone `"` is a curly quote and a paired
-one is a quotation, but djot pairs them like any other delimiter and the
-opener is on the stack, so the test already refuses the split.
+The direction that matters could still fail, on a construct whose
+reading depends on what follows while the scanner holds nothing open.
+Smart quotes were the obvious candidate, since a lone `"` is a curly
+quote and a paired one is a quotation, but djot pairs them like every
+other delimiter and the opener is on the stack, so the test refuses the
+split already.
 
-So this is an obligation rather than a question: state it, and either
-prove it or find the construct that breaks it. It is the one place where
-the block layer's decision rests on an inline-layer invariant, which is
-also what makes it worth stating rather than assuming.
+So this is an obligation, not a question: state the implication, then
+either prove it or produce the construct that breaks it. It is the one
+place a block-level decision rests on an inline-layer invariant, which
+is why it should be written down rather than assumed.
 
 ### 9.2 The cost of claiming out of column
 
