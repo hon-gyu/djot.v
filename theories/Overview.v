@@ -32,6 +32,9 @@ From DjotV Require Import Ast Profile Invariants Render Roundtrip.
       the build local, and renames a note: the link convention is a
       parameter, so the rewrite and the link checker are derived from one
       codec rather than fixed by the file.
+      {{DjotV.Site.html#rename_canonical_local}rename_canonical_local}
+      confines a rename's canonicity check to the renamed note and the
+      notes that link to it.
     - {{DjotV.Uniformity.html}Uniformity} and
       {{DjotV.ListUniformity.html}ListUniformity} prove that container contents
       parse by the same rules as top-level input.

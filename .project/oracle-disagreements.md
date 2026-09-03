@@ -1124,3 +1124,50 @@ needed.
 generated identifier because the heading has no text to make one from.
 Ours is `<section id="i">\n<h1>{#i}</h1>\n</section>`. The divergence
 reaches the identifier, not only the heading.
+
+## Adjudicated 2026-09-03 — ours, and wrong: an escaped backtick in a table row
+
+Found while asking what a rename may write into a destination
+(`Site.dest_backtick_breaks_row`), not by the corpus: no generated
+document puts a backtick in a table cell, so `make generated` reports
+5438/5438 while the shape below is unreachable from `cb_ok`.
+
+```
+| a\`b |
+```
+
+djot.js reads that as a table row whose one cell renders `` a`b ``. We
+read it as `KText`:
+
+```coq
+Compute classify "| a\`b |".        (* KText  -- djot.js: a row *)
+Compute classify "| a`b |".         (* KText  -- djot.js agrees   *)
+Compute classify "| a\`b\`c |".     (* KRow   -- djot.js agrees   *)
+```
+
+The second line is the control and it is why this is narrow rather than
+a disagreement about verbatim: an *unescaped* odd backtick really does
+open a verbatim span that swallows the closing bar, and both engines
+make the line a paragraph. The divergence is only about the escape.
+`Line.row_cells` moves `vb_step` on every backtick it sees; the inline
+scanner honours a preceding `\` and the row scanner does not, so the two
+disagree about where the cell ends.
+
+**Verdict: ours, and it is a bug rather than a choice.** No theorem
+rests on it and no `wf_block` condition excludes the row, so the
+argument of *When the oracle's answer is unrepresentable* does not
+apply -- the row is representable and we simply do not build it. The
+fix is in `row_cells`: skip the character after a backslash, as the
+inline scanner already does.
+
+**Why it is logged rather than fixed here.** `classify` is what every
+block theorem quantifies over, and widening `row_cells` changes which
+lines are rows -- `ctrow_ok`, `cb_pair_ok`'s `closes_table`, and the
+table arm of the roundtrip all read it. That is its own step, and its
+first move is a probe of how many lines change kind, not an edit.
+
+**What it cost the caller here.** A rename may not write a backtick into
+a destination, and the reason is this bug rather than anything about
+destinations. When it is fixed, `dest_backtick_breaks_row` is the
+example that has to be deleted -- and its deletion is the confirmation
+that the fix was real.

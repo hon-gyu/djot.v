@@ -547,14 +547,16 @@ spelled the way this codec spells it, which is what makes re-targeting
 the identity where nothing moved; it also hands back `l_ok`, so a
 parsed target is one the codec can re-spell.
 
-Two conditions are *not* here, deliberately.  A rename rewrites source,
-so the destinations it writes must be ones the canonical view accepts --
-`no_nl` for a link (`Inline.ci_ok`) and `no_ws` for a reference
-definition (`Render.ref_ok`).  Nothing below uses them, because nothing
-below proves the renamed site is still canonical: `cblocks_ok` is
-decidable and an implementation runs it, exactly as
-`Address.replace_at_id_parse` asks it of the document coming out.  When
-that theorem is written, those two conditions are what it will need. *)
+No condition here mentions what a destination may *contain*, and that
+is deliberate: the canonical view's conditions on a destination are not
+conditions on the codec, they are conditions on the rendered line, and
+they are not the two an earlier note predicted.  `no_nl` (`Inline.ci_ok`)
+and `no_ws` (`Render.ref_ok`) are necessary and are not sufficient --
+`dest_bar_breaks_row` and `dest_backtick_breaks_row` below are
+`no_ws` destinations that leave a table uncanonical.  So the general
+statement is not available, and `rename_canonical_local` is what stands
+in its place: the check is decidable, an implementation runs it, and the
+theorem says it need only run on the notes a rename can reach. *)
 
 Record lcodec : Type := LCodec {
   l_ok : path -> bool;
@@ -743,6 +745,223 @@ Proof.
 Qed.
 
 (*
+What a rename leaves alone
+==========================
+
+`rename_correct` says where the links go; it says nothing about whether
+the source it writes is still canonical, and that is a separate
+question because `cb_ok` reads the *rendered line* while a destination
+is only a field of the AST.  The two examples at the end of the file
+show a destination breaking a line, so no unconditional theorem is
+available here.
+
+What is available, and is what a build actually runs on, is that the
+question is *local*.  A note the rename does not re-target is carried
+across as the same value, so `cblocks_ok` need only be re-run on the
+note itself and the notes that link to it -- the set `backlinks`
+already computes.  The three identity lemmas below are the naturality
+law `cb_dests_map`'s other half: mapping with a function that fixes
+every destination fixes the document.
+*)
+
+Lemma ci_map_dest_id :
+  forall f c, (forall s, In s (ci_dests c) -> f s = s) -> ci_map_dest f c = c.
+Proof.
+  intros f.
+  refine (cinline_ind2
+    (fun c => (forall s, In s (ci_dests c) -> f s = s) -> ci_map_dest f c = c)
+    (fun cs => (forall s, In s (flat_map ci_dests cs) -> f s = s)
+               -> map (ci_map_dest f) cs = cs)
+    _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+  - intros k kids IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros img kids dst IH H. cbn [ci_map_dest].
+    rewrite IH; [rewrite H; [reflexivity | cbn [ci_dests]; left; reflexivity]|].
+    intros s Hs. apply H. cbn [ci_dests]. right. exact Hs.
+  - intros img kids label IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros c cs IHc IHcs H. cbn [map].
+    rewrite IHc, IHcs; [reflexivity| |].
+    + intros s Hs. apply H. cbn [flat_map]. apply in_or_app. right. exact Hs.
+    + intros s Hs. apply H. cbn [flat_map]. apply in_or_app. left. exact Hs.
+Qed.
+
+Lemma cis_map_dest_id :
+  forall f cs, (forall s, In s (cis_dests cs) -> f s = s) -> cis_map_dest f cs = cs.
+Proof.
+  intros f. induction cs as [|c cs IH]; [reflexivity|]. intros H.
+  unfold cis_dests, cis_map_dest in *. cbn [map flat_map] in *.
+  rewrite ci_map_dest_id, IH; [reflexivity| |].
+  - intros s Hs. apply H, in_or_app. right. exact Hs.
+  - intros s Hs. apply H, in_or_app. left. exact Hs.
+Qed.
+
+Lemma css_map_dest_id :
+  forall f lss, (forall s, In s (css_dests lss) -> f s = s) -> css_map_dest f lss = lss.
+Proof.
+  intros f. induction lss as [|cs lss IH]; [reflexivity|]. intros H.
+  unfold css_dests, css_map_dest in *. cbn [map flat_map] in *.
+  rewrite cis_map_dest_id, IH; [reflexivity| |].
+  - intros s Hs. apply H, in_or_app. right. exact Hs.
+  - intros s Hs. apply H, in_or_app. left. exact Hs.
+Qed.
+
+Lemma ctrow_map_dest_id :
+  forall f r, (forall s, In s (ctrow_dests r) -> f s = s) -> ctrow_map_dest f r = r.
+Proof.
+  intros f [cs|als cs] H; unfold ctrow_dests in H; cbn [ctrow_cells] in H;
+    cbn [ctrow_map_dest]; rewrite css_map_dest_id; auto.
+Qed.
+
+Lemma cb_map_dest_id :
+  forall f cb, (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb.
+Proof.
+  intros f.
+  refine (cblock_ind2
+    (fun cb => (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb)
+    (fun cbs => (forall s, In s (flat_map cb_dests cbs) -> f s = s)
+                -> map (cb_map_dest f) cbs = cbs)
+    (fun items => (forall s, In s (flat_map (flat_map cb_dests) items) -> f s = s)
+                  -> map (map (cb_map_dest f)) items = items)
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+  - intros ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
+  - intros lvl ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
+  - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros k sp items IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros label dest H. cbn [cb_map_dest]. rewrite H; [reflexivity|left; reflexivity].
+  - intros rows H. cbn [cb_map_dest] in *. f_equal.
+    induction rows as [|r rows IHr]; [reflexivity|].
+    cbn [map flat_map] in *. rewrite ctrow_map_dest_id, IHr; [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
+  - intros i inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros c rest IHc IHrest H. cbn [map flat_map] in *.
+    rewrite IHc, IHrest; [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
+  - intros item items IHitem IHitems H. cbn [map flat_map] in *.
+    rewrite IHitem, IHitems; [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
+Qed.
+
+Lemma doc_map_dest_id :
+  forall f d, (forall s, In s (doc_dests d) -> f s = s) -> doc_map_dest f d = d.
+Proof.
+  intros f. induction d as [|cb d IH]; [reflexivity|]. intros H.
+  unfold doc_dests, doc_map_dest in *. cbn [map flat_map] in *.
+  rewrite cb_map_dest_id, IH; [reflexivity| |].
+  - intros s Hs. apply H, in_or_app. right. exact Hs.
+  - intros s Hs. apply H, in_or_app. left. exact Hs.
+Qed.
+
+Lemma links_of_in :
+  forall L self d s t,
+    In s (doc_dests d) -> l_parse L self s = Some t -> In t (links_of L self d).
+Proof.
+  intros L self d s t Hs Hp. unfold links_of. apply in_flat_map.
+  exists s. rewrite Hp. split; [exact Hs | left; reflexivity].
+Qed.
+
+(** Re-targeting a note that stays where it is, by a substitution that
+    fixes every note it points at, rewrites nothing.  `l_spell_canonical`
+    is what carries it: a destination that parses is already spelled the
+    way this codec spells it, so the branch that re-spells returns the
+    string it started from. *)
+Lemma retarget_id :
+  forall L self g d,
+    lcodec_ok L ->
+    (forall t, In t (links_of L self d) -> g t = t) ->
+    retarget L self self g d = d.
+Proof.
+  intros L self g d (_ & _ & Hcanon) Hg. unfold retarget.
+  apply doc_map_dest_id. intros s Hs.
+  destruct (l_parse L self s) as [t|] eqn:Es; [|reflexivity].
+  rewrite (Hg t (links_of_in L self d s t Hs Es)).
+  destruct (Hcanon self s t Es) as [Hspell _]. exact Hspell.
+Qed.
+
+(*
+The check is local
+==================
+*)
+
+(* One entry's half of a rename, named so a theorem can say which
+   entries move.  `rename` is this mapped over the site. *)
+Definition rename_entry (L : lcodec) (p q : path) (pd : path * list cblock)
+  : path * list cblock :=
+  (subst_path p q (fst pd),
+   retarget L (fst pd) (subst_path p q (fst pd)) (subst_path p q) (snd pd)).
+
+Lemma rename_map_entry :
+  forall L p q s, rename L p q s = map (rename_entry L p q) s.
+Proof. reflexivity. Qed.
+
+(* Which entries a rename can move: the note being renamed, and a note
+   that links to it.  Decidable, and computed from the environment
+   rather than by opening a document twice -- it is `backlinks`'
+   membership test with the note itself added. *)
+Definition touched_entry (L : lcodec) (p : path) (pd : path * list cblock) : bool :=
+  (path_eqb (fst pd) p || existsb (path_eqb p) (links_of L (fst pd) (snd pd)))%bool.
+
+Lemma touched_entry_shape :
+  forall L p r d,
+    touched_entry L p (r, d) = true -> r = p \/ In p (links_of L r d).
+Proof.
+  intros L p r d H. unfold touched_entry in H. cbn [fst snd] in H.
+  apply orb_true_iff in H as [H|H].
+  - left. apply url_eqb_true, H.
+  - right. apply existsb_exists in H as [x [Hx Heq]].
+    apply url_eqb_true in Heq. subst x. exact Hx.
+Qed.
+
+Lemma url_eqb_false : forall u v, u <> v -> url_eqb u v = false.
+Proof.
+  intros u v H. unfold url_eqb.
+  destruct (list_eq_dec String.string_dec u v); [contradiction|reflexivity].
+Qed.
+
+(** An untouched note is carried across as the same value.  This is the
+    whole of why a rename's canonicity question is local: the entry the
+    build would have to re-check is literally the entry it already
+    checked. *)
+Lemma rename_entry_untouched :
+  forall L p q pd,
+    lcodec_ok L -> touched_entry L p pd = false -> rename_entry L p q pd = pd.
+Proof.
+  intros L p q [r d] HL H. unfold touched_entry in H. cbn [fst snd] in H.
+  apply orb_false_iff in H as [Hr Hlinks].
+  unfold rename_entry, subst_path. cbn [fst snd]. rewrite Hr.
+  rewrite retarget_id; [reflexivity|exact HL|].
+  intros t Ht. destruct (path_eqb t p) eqn:Etp; [|reflexivity].
+  exfalso. apply url_eqb_true in Etp. subst t.
+  assert (Hex : existsb (path_eqb p) (links_of L r d) = true).
+  { apply existsb_exists. exists p. split; [exact Ht | apply url_eqb_refl]. }
+  rewrite Hex in Hlinks. discriminate.
+Qed.
+
+(** Canonicity after a rename, reduced to the touched notes.  The
+    hypothesis is the check an implementation runs, and the theorem says
+    which entries it has to run on: `p` and the notes that link to `p`,
+    which `backlinks` names without opening a document. *)
+Theorem rename_canonical_local :
+  forall L p q s,
+    lcodec_ok L ->
+    forallb (fun pd => cblocks_ok (snd pd)) s = true ->
+    forallb (fun pd => cblocks_ok (snd (rename_entry L p q pd)))
+            (filter (touched_entry L p) s) = true ->
+    forallb (fun pd => cblocks_ok (snd pd)) (rename L p q s) = true.
+Proof.
+  intros L p q s HL Hs Htouched.
+  rewrite rename_map_entry, forallb_forall. intros e He.
+  apply in_map_iff in He as [pd [<- Hpd]].
+  destruct (touched_entry L p pd) eqn:Et.
+  - rewrite forallb_forall in Htouched. apply Htouched, filter_In.
+    split; [exact Hpd | exact Et].
+  - rewrite (rename_entry_untouched L p q pd HL Et).
+    rewrite forallb_forall in Hs. exact (Hs pd Hpd).
+Qed.
+
+(*
 One codec, and one rename it performs
 =====================================
 
@@ -811,14 +1030,72 @@ Proof.
     + destruct Ht as [<-|[]]. cbn [dom map fst]. left. reflexivity.
 Qed.
 
-(* The obligation this file does not discharge in general, discharged
-   here: the renamed site is still canonical, so it can be rendered.
-   `cblocks_ok` is decidable and a build runs it -- the general theorem
-   needs the two codec conditions named above and a fact about what a
-   destination can do to a rendered line. *)
+(* The renamed site is still canonical, so it can be rendered.
+   `cblocks_ok` is decidable and a build runs it; what
+   `rename_canonical_local` buys is that it need not run it here at all,
+   since `b` is the only touched note. *)
 Example flat_rename_stays_canonical :
   forallb (fun pd => cblocks_ok (snd pd)) (rename flat ["a"] ["c"] flat_site)
   = true.
+Proof. reflexivity. Qed.
+
+Example flat_rename_touches_one :
+  map fst (filter (touched_entry flat ["a"]) flat_site) = [["a"]; ["b"]].
+Proof. reflexivity. Qed.
+
+(* The same conclusion through the theorem: the two touched entries are
+   the whole of what the check has to visit, and `a`'s own note carries
+   no link at all. *)
+Example flat_rename_canonical_by_theorem :
+  forallb (fun pd => cblocks_ok (snd pd)) (rename flat ["a"] ["c"] flat_site)
+  = true.
+Proof.
+  apply (rename_canonical_local flat ["a"] ["c"] flat_site flat_lcodec_ok);
+    reflexivity.
+Qed.
+
+(*
+What a destination can do to a rendered line
+============================================
+
+Why the paragraph above says the general theorem is not available, in
+three destinations that a codec obeying `no_nl` would happily spell.
+
+The first is the condition the note already predicted, and it is real:
+a reference definition puts its destination on a line the parser splits
+at whitespace.
+*)
+
+Example dest_ws_breaks_ref : cb_ok (CRef "r" "a b") = false.
+Proof. reflexivity. Qed.
+
+(* The other two are not predicted by anything about links, and they are
+   what makes the obligation more than a codec condition: both are
+   `no_ws`, both are fine in a paragraph, and both leave a *table*
+   uncanonical, because a cell is delimited on the rendered line rather
+   than in the AST.  The bar closes the cell it sits in.  The backtick
+   is the sharper one -- `escape_dest` does escape it, and the escape
+   does not help, because the line-level row scanner counts verbatim
+   runs without honouring a backslash (see
+   `.project/oracle-disagreements.md`: djot.js reads that line as a
+   row). *)
+Example dest_bar_breaks_row :
+  (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a|b"]]]),
+   cb_ok (CPara [[CILink false [CIStr "a"] "a|b"]]))
+  = (false, true).
+Proof. reflexivity. Qed.
+
+Example dest_backtick_breaks_row :
+  (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a`b"]]]),
+   cb_ok (CPara [[CILink false [CIStr "a"] "a`b"]]))
+  = (false, true).
+Proof. reflexivity. Qed.
+
+(* And the same table with an ordinary destination, so that the two
+   above are read as a condition on the destination rather than on the
+   table. *)
+Example dest_plain_row_ok :
+  cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a-b"]]]) = true.
 Proof. reflexivity. Qed.
 
 (* The two shapes of new name, from `route_collide`: turning a note into
