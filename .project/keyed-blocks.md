@@ -320,6 +320,52 @@ The heading row is a decision rather than a consequence. Headings
 already build document structure through sections, and a line that was
 both a heading and a key would carry two nesting effects at once.
 
+### 3.4 When the split happens
+
+Once, when the line is classified, and never again.
+
+A line is tested for a split exactly when it would otherwise open a
+paragraph: it is text, nothing else has claimed it, and nothing is open
+at that level. That is one moment in the line fold, and it is the same
+moment at which a fence, a quote, a list marker or a table row would
+have been recognised instead.
+
+Three things follow, and they are most of what a writer needs to know.
+
+**Continuation lines are never tested.** A paragraph is already open
+when its second line arrives, so a colon there is text:
+
+```
+foo
+bar: baz
+```
+
+is one paragraph. This is why 3.1 says "arriving when nothing is open at
+that level", and it is the reason a key can be read off the line that
+starts a block rather than off the block as a whole.
+
+**The test runs on what is left of the line.** Container prefixes come
+off first, so inside a blockquote the split is looked for in `foo: bar`,
+not in `> foo: bar`. Leading indentation is stripped the same way, which
+is also what keeps a line's reading independent of how deep it sits.
+
+**What the split produces is an index, not a tree.** The parser records
+two pieces of source, the label's and the value's, and nothing more. The
+label's inlines are built later, when the keyed node is constructed,
+exactly as a paragraph's inlines are built when the paragraph closes. So
+the scan at classification is used to find a byte offset and to answer
+two yes/no questions; it builds nothing that is kept.
+
+That is what makes retraction exact. When a key gets no block the state
+still holds the line as it was written, so it becomes the paragraph it
+would have been, colon and all, with no reconstruction and nothing to
+get wrong. The decision at classification is never revised; the only
+thing that can happen to it is being dropped whole.
+
+The cost is that the line's bytes are scanned twice, once to find the
+split and once when the label and value become nodes. It is a constant
+factor, not a branching one.
+
 ## 4. Scope: exactly one block
 
 A key claims **one** block, and its scope ends when that block ends.
@@ -617,17 +663,18 @@ and 27 mentions of `PDiv`; most of the new arms are the `PDiv` arm
 copied. `finish`, `lazy_ok`, `feed_lazy`, `pstate_depth`,
 `blank_absorbed`, `blank_safe` and `pad_safe` each take one.
 
-**The split test reaches into the inline layer.** Deciding where a line
-splits needs to know whether the scanner has anything open, which
-`classify` cannot see:
-`Line.v` sits below `Inline.v`. It does not have to. The test belongs in
-`open_kind`'s text arm, in `Step.v`, which already imports `Inline`, so
-the layering costs nothing and no existing definition moves. Two things
-it does cost. The test has to be stable under a leading run of spaces,
-or `step_fuel_pad` fails; normalising the line first is enough. And
-every concrete `Example` that parses a text line now scans it twice, a
-constant factor rather than a branching one, but worth a `coqc -time`
-reading before and after.
+**The split test reaches into the inline layer, and that is affordable.**
+It needs the scanner's opener state and the resolved node count, neither
+of which `classify` can see, since `Line.v` sits below `Inline.v`. It
+does not have to. The test belongs in `open_kind`'s text arm in
+`Step.v`, which already imports `Inline` and, more to the point, already
+sits inside `Section WithTable`: the delimiter table is a section
+variable there, so the argument stays implicit and no call site moves.
+Two smaller costs remain. The test has to be stable under a leading run
+of spaces or `step_fuel_pad` fails, and normalising the line first is
+enough. And every concrete `Example` that parses a text line scans it
+twice, a constant factor rather than a branching one, but worth a
+`coqc -time` reading before and after.
 
 **The label test depends on the merge pass.** Whether a label is one
 inline or two is a fact about the *resolved* inline list, so it turns on
