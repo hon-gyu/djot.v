@@ -3,9 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **specification under discussion**. Nothing is implemented, and
-this file stands on its own: it is the definition of the construct, not
-a staging area, and it stays here once the construct exists.
+Status: **specification mostly settled, implementation not started**.
+The rules below are decided except where section 9 says otherwise;
+nothing of the construct exists in the parser yet. This file stands on
+its own: it is the definition of the construct, not a staging area, and
+it stays here once the construct exists.
 
 Prose first. Sections 0 to 7 define the syntax without naming a single
 identifier in the development; everything that touches the code is
@@ -20,10 +22,13 @@ A colon is a binary connective. It takes **one inline** on the left and
 a **block** on the right, and pairs them.
 
 One inline, not a sequence of them: a run of text, or an emphasis, or a
-link, or a verbatim span. A paragraph holds a sequence; a label is one
-element of the kind a paragraph is made of. A run of text is one element
-however long it is, so most labels are just words. 3.2 says what the
-rule rules out and why the boundary falls where it does.
+link, or a verbatim span. A run of text is one element however long it
+is, so most labels are just words. The restriction is deliberate and it
+is the construct's main defence: a label that has to be one element
+cannot run away with a sentence, so a colon deep inside a marked-up
+paragraph can never quietly become a key, and a writer is pushed toward
+names short enough to be names. 3.2 says where the boundary falls and
+3.6 says what it declines.
 
 ```
 label : block
@@ -35,9 +40,15 @@ every rule below exists to protect:
 > When I see a colon, I am one level deeper in the abstraction stack.
 > When the block after it finishes, I am back where I was.
 
-Everything the colon does is tree shape. It moves no text, it consumes
-no prefix, it shifts no column. Two documents that differ only in
-whether keys are enabled hold the same inline content in the same order.
+**A key changes the tree, not the text.** No line is reindented, no
+container prefix is consumed, no column shifts. The only bytes a key
+removes from the content are the connective colon and the whitespace
+after it, and the inlines on either side read exactly as they would have
+read with keys off. What moves is where those inlines sit in the tree.
+
+That last clause is a claim, not a convention, and 9.1 is the obligation
+to make it good: it is true because a split is only taken at a position
+where nothing later in the line can change how the label reads.
 
 ## 1. Baseline: what djot does with these documents today
 
@@ -70,47 +81,40 @@ it means keys are a mode, not a default.
 
 ## 3. Where a colon is a connective
 
-Two positions, and only two.
+One rule, asked once per line.
 
-### 3.1 Line-final
+### 3.1 The split
 
-A text line whose content, after trailing whitespace is removed, ends
-with an unescaped `:`, arriving when nothing is open at that level.
+A line is split at its first colon that is
 
-```
-foo:
-```
-
-The label is everything before the colon. The block is the next one.
-
-The colon has to be a real one, by the same test 3.2 uses. So
-`` a `b:` `` is not a key: its final colon is inside a verbatim span.
-
-### 3.2 Inline
-
-A `:` on such a line, followed by a space or by the end of the line,
-splits it into a label and a value.
+- **unescaped**;
+- **not preceded by whitespace**, so the colon sits against the label;
+- **followed by a space or by the end of the line**, where a tab is not
+  a space; and
+- reached while the inline scanner has **nothing open**: no verbatim
+  run, no attribute brace, no bracket, no delimiter that a later
+  character could still close.
 
 ```
 foo: bar
 ```
 
-The label is `foo`. The block is the paragraph starting at `bar`.
+The label is `foo`, the value is `bar`, and the block is the paragraph
+the value starts.
 
-The line-final case is the same rule with an empty value: the block has
-to come from the following lines instead. That is why nothing below
-distinguishes the two forms. They differ only in whether the block
-starts on the key line.
+The value may be empty:
 
-**Which colon.** The first one that is not escaped, is followed by a
-space or the end of the line, and arrives while the inline scanner has
-**nothing open**: no verbatim run, no attribute brace, no bracket, no
-delimiter that a later character could still close.
+```
+foo:
+```
 
-The scanner already carries that bit, so the test is a query at each
-candidate position and one pass over the line answers it at all of them.
-It is a scan, not a search with backtracking: the split point is found
-in one pass and never revised.
+This is the same rule with nothing after the colon, so the block comes
+from the following lines instead. The two spellings are one construct.
+They differ only in where the block comes from, which is 3.3.
+
+The colon has to be a real one by the test above rather than by
+appearance, so `` a `b:` `` is not a key: its only colon is inside a
+verbatim span.
 
 **It needs no lookahead**, which is the part worth checking. Take
 `` a `b:` ``. At the byte of the colon the scanner is inside a verbatim
@@ -126,24 +130,31 @@ colon, the line is not a key, and the writer gets the paragraph they
 would have got before keys existed. Declining is always safe; splitting
 is what has to be justified.
 
-**What it buys.** Splitting at a colon throws the rest of the line away
-as far as the label is concerned, so it may only happen where throwing
-it away costs nothing: nothing later in the line may change how the text
-before the colon reads. "Nothing open" delivers that, and it is not a
-claim that the text before the colon is *valid* on its own. Every string
-is valid inline content in djot, which has no inline errors.
-`x{title="a` on a line of its own is fine, and reads as the literal
-`x{title=`, a curly quote, and `a`. That is exactly why it is not a
-split point: inside `x{title="a: b"}y: z` the same characters read as
-the word `x` carrying a title, so splitting at the first colon would
-silently give the label the other reading. The scan goes on to the next
-colon instead.
+The scanner already carries the open-construct bit, so the test is a
+query at each candidate position, and one pass over the line answers it
+at all of them. It is a scan, not a search with backtracking: the split
+point is found in one pass and never revised.
+
+**What "nothing open" buys.** Splitting at a colon throws the rest of
+the line away as far as the label is concerned, so it may only happen
+where throwing it away costs nothing: nothing later in the line may
+change how the text before the colon reads. "Nothing open" delivers
+that, and it is not a claim that the text before the colon is *valid* on
+its own. Every string is valid inline content in djot, which has no
+inline errors. `x{title="a` on a line of its own is fine, and reads as
+the literal `x{title=`, a curly quote, and `a`. That is exactly why it
+is not a split point: inside `x{title="a: b"}y: z` the same characters
+read as the word `x` carrying a title, so splitting at the first colon
+would silently give the label the other reading. The scan goes on to the
+next colon instead.
 
 The implication runs one way only. `_a: b` has an unmatched `_`, which
 djot leaves as literal text, so splitting there would in fact have
 changed nothing; the scanner declines anyway, because at the colon it
 cannot yet know the `_` is unmatched. That conservatism is the price of
-no lookahead and it is worth it.
+no lookahead and it is worth it. That the implication holds in the
+direction that matters is 9.1, and it is the formal content of the
+promise section 0 makes.
 
 | #   | line                              | splits at       |
 | --- | --------------------------------- | --------------- |
@@ -157,17 +168,20 @@ no lookahead and it is worth it.
 | 8   | `"foo: bar" and more`             | nowhere         |
 | 9   | `"foo": bar`                      | after the quote |
 | 10  | `_a: b_`                          | nowhere         |
+| 11  | `foo : bar`                       | nowhere         |
 
 Rows 2, 4, 8 and 10 have exactly one candidate colon and it arrives with
 something open, so those lines have no split point at all. Row 10 is the
 one worth staring at: `_a: b_` is emphasis over `a: b`, and the label
 `_a` would be the literal characters `_a`. Rows 8 and 9 are the same
 construct open and closed, since a quotation mark pairs in djot like any
-other delimiter.
+other delimiter. Row 11 is the adjacency rule, which exists so that the
+spacing prose uses for a punctuating colon keeps it punctuation.
 
-**What the label may be: one inline.** A split point is necessary and
-not sufficient. The text before the colon, with trailing whitespace
-removed, has to be a single inline element.
+### 3.2 What the label may be: one inline
+
+A split point is necessary and not sufficient. The text before the
+colon has to be a single inline element.
 
 The counts are not obvious from the source, because resolution merges
 adjacent text and decayed punctuation merges with its neighbours:
@@ -196,6 +210,15 @@ why `x{title="a"}` is a key and `x{title="a: b"}y` is not: the second
 has a second run, and two runs carrying different attributes cannot
 merge.
 
+**Why one, and not any number.** The restriction is the point. A label
+that has to be one element cannot run away with a sentence, so a colon
+sitting deep inside a marked-up paragraph can never quietly become a
+key. And a writer structuring knowledge with this syntax is pushed
+toward names short enough to be names, which is the property that keeps
+a keyed document tractable as data: every label is one element, not an
+arbitrary run of prose. The lines it declines are the price, and 3.6
+names them, because the boundary is not visible in the output.
+
 The test costs no lookahead either. Nothing is open at the split point,
 so everything before it is already resolved and already merged, and the
 count is available right there. It is also monotone: once the label is
@@ -217,6 +240,20 @@ own line above:
 {#my-foo}
 foo: bar
 ```
+
+### 3.3 What follows the colon
+
+**The value is inline content, never block syntax.** What follows the
+colon on the key line opens a paragraph, and is not classified as a line
+of its own. So `foo: - bar` is `foo` over the paragraph `- bar`, not
+over a list, and `foo: # h` is `foo` over the paragraph `# h`.
+
+A list marker does the opposite with the rest of its line, and djot.js
+confirms it: `- # foo` is a heading inside the item, `- > q` a
+blockquote inside it. A key departs from that precedent deliberately.
+The text on the key line is the key's *value*, and a writer who wants a
+block writes it on the lines below, where it is read as a block like any
+other.
 
 **One key per line.** A line is split at most once. What follows the
 colon opens a paragraph and is not read again as a key line, so
@@ -241,35 +278,21 @@ a single prose sentence nest twice: `Note: see this: it matters` would
 be two accidental levels rather than one. Splitting once bounds the
 damage of the case below at one level.
 
-The one place the two forms come apart is worth naming, because it is
-the only one. For almost every value they spell the same tree:
+**So the one-line form is not sugar for the two-line one.** The two
+agree whenever the value is ordinary text, and part whenever it is
+anything a line can mean:
 
-```
-foo: bar
-```
+| value      | on the key line   | on the line below       |
+| ---------- | ----------------- | ----------------------- |
+| `bar`      | `Para "bar"`      | `Para "bar"`            |
+| `bar: baz` | `Para "bar: baz"` | `bar` over `Para "baz"` |
+| `- bar`    | `Para "- bar"`    | a list                  |
+| `# h`      | `Para "# h"`      | a heading               |
+| ` ``` `    | `` Para "```" ``  | an open code fence      |
+| `> q`      | `Para "> q"`      | a blockquote            |
 
-```
-foo:
-bar
-```
-
-Both give `foo` paired with `Para "bar"`. But when the value would itself be
-a key line, they part:
-
-```
-foo: bar: baz
-```
-
-```
-foo:
-bar: baz
-```
-
-The first pairs `foo` with `Para "bar: baz"`, one level. The second
-pairs `foo` with `bar` paired with `Para "baz"`, two levels, because
-line 2 of the second is a line and gets a line's split. So the one-line
-form is not quite sugar for the two-line one, and that single case is
-the whole of the difference.
+Every row is the same fact: the one-line form is for values, the
+two-line form is for blocks.
 
 **Colons in ordinary prose are keyed.**
 
@@ -284,26 +307,42 @@ accepted; a writer who means punctuation escapes it.
 Note\: this matters.
 ```
 
-### 3.3 Where a colon is not a connective
+### 3.4 Where a colon is not a connective
 
 | #   | colon                               | reading                | why                               |
 | --- | ----------------------------------- | ---------------------- | --------------------------------- |
 | 1   | `foo\: bar`                         | literal text           | escaped                           |
 | 2   | `` `a: b` ``                        | literal text           | inside an unclosed construct      |
 | 3   | `http://x`                          | literal text           | not followed by a space           |
-| 4   | the second colon in `foo: bar: baz` | literal text           | the line is split once            |
-| 5   | the second colon of `foo: bar:`     | literal text           | same, and it is the value's text  |
-| 6   | `:::`                               | div opener             | the line is read as a div first   |
-| 7   | `:` alone                           | plain paragraph        | the label would be empty          |
-| 8   | the leading one of `: term`         | definition-list marker | initial, not final                |
-| 9   | the one in `{#i}: bar`              | plain paragraph        | no label element survives         |
-| 10  | the one in `# foo:`                 | plain heading          | a key opens from a text line only |
-| 11  | any colon inside a fence            | verbatim               | fences are not classified         |
+| 4   | `foo:<tab>bar`                      | literal text           | a tab is not a space              |
+| 5   | `foo : bar`                         | literal text           | whitespace in front of it         |
+| 6   | the second colon in `foo: bar: baz` | literal text           | the line is split once            |
+| 7   | the second colon of `foo: bar:`     | literal text           | same, and it is the value's text  |
+| 8   | `:::`                               | div opener             | the line is read as a div first   |
+| 9   | `:` alone                           | plain paragraph        | the label would be empty          |
+| 10  | the leading one of `: term`         | definition-list marker | initial, not final                |
+| 11  | the one in `[see]: bar`             | reference definition   | the line is a definition first    |
+| 12  | the one in `[^n]: text`             | footnote definition    | likewise                          |
+| 13  | the one in `{#i}: bar`              | plain paragraph        | no label element survives         |
+| 14  | the one in `# foo:`                 | plain heading          | a key opens from a text line only |
+| 15  | any colon inside a fence            | verbatim               | fences are not classified         |
 
 `foo\: bar:` is therefore keyed, with label `foo: bar`: the escaped
 colon is text and the final one is the connective.
 
-Row 9 is the one that takes an argument, and it is an instance of the
+Rows 11 and 12 are the harshest, because they are the two where the
+writer gets no paragraph to look at. A line beginning with a bracketed
+phrase and a colon is already a reference definition, and one beginning
+with a caret label is already a footnote definition; both produce *no
+output at all*, so a mistyped key of that shape disappears. The
+consequence to know is that a bare bracketed phrase cannot be a label.
+`[see](x): bar` is a key, because that is a link; `[see]: bar` is not.
+
+Row 10 holds only while definition lists are on, since a leading `: `
+is their marker. With them off the line is text and the colon is
+declined by row 9 instead, the label being empty either way.
+
+Row 13 is the one that takes an argument, and it is an instance of the
 one-inline rule rather than a case of its own. `{#i}` at the head of a
 line is an inline attribute with nothing in front of it to decorate, so
 djot drops it: `{#i}: bar` is one paragraph holding the single text node
@@ -320,7 +359,7 @@ The heading row is a decision rather than a consequence. Headings
 already build document structure through sections, and a line that was
 both a heading and a key would carry two nesting effects at once.
 
-### 3.4 When the split happens
+### 3.5 When the split happens
 
 Once, when the line is classified, and never again.
 
@@ -340,9 +379,9 @@ foo
 bar: baz
 ```
 
-is one paragraph. This is why 3.1 says "arriving when nothing is open at
-that level", and it is the reason a key can be read off the line that
-starts a block rather than off the block as a whole.
+is one paragraph. This is the reason a key can be read off the line that
+starts a block rather than off the block as a whole, and it is why a key
+directly under a paragraph needs a blank line in front of it.
 
 **The test runs on what is left of the line.** Container prefixes come
 off first, so inside a blockquote the split is looked for in `foo: bar`,
@@ -365,6 +404,28 @@ thing that can happen to it is being dropped whole.
 The cost is that the line's bytes are scanned twice, once to find the
 split and once when the label and value become nodes. It is a constant
 factor, not a branching one.
+
+### 3.6 Where a line does not read as it looks
+
+The unintuitive cases, collected. Each one follows from a rule above and
+from no special case, and each parses differently from what its shape
+suggests. There are two kinds: a line that looks like a key and is
+declined, and a line that is split somewhere other than where the eye
+lands. Nothing in the output says which rule applied, which is the
+reason to have the list at all.
+
+| line                                  | what it is                 | why                                    |
+| ------------------------------------- | -------------------------- | -------------------------------------- |
+| `foo:bar`                             | a paragraph                | no space after the colon               |
+| `foo:<tab>bar`                        | a paragraph                | a tab is not a space                   |
+| `foo : bar`                           | a paragraph                | a space before the colon               |
+| ``the `--flag` option: what it does`` | a paragraph                | the label is three elements            |
+| `x{title="a: b"}y: z`                 | a paragraph                | the label is two runs                  |
+| `[see]: bar`                          | nothing at all             | a reference definition                 |
+| `{#i}foo: bar`                        | a key named `foo`          | djot drops a leading brace, id and all |
+| `see http://x: it works`              | a key named `see http://x` | the second colon splits                |
+| a key line under a paragraph          | more of the paragraph      | a key cannot interrupt one             |
+| `> foo:` then an unprefixed block     | `Para "foo:"` in the quote | the quote ended first (5.1, 6.1)       |
 
 ## 4. Scope: exactly one block
 
@@ -392,7 +453,23 @@ and the consequences differ by block:
 
 The split in this table is what section 5 turns on. The first four rows
 end on a line the block itself consumes and nobody else needs to see.
-The last four end on a line that belongs to whatever is outside.
+The last four end on a line that belongs to whatever is outside. The
+heading row is the one that depends on a setting, and 5.2 explains why
+that keeps it out of the first group in practice.
+
+**A line may end the key's block and go on to produce another.** A step
+that closes a paragraph can emit a thematic break in the same breath:
+
+```
+foo:
+bar
+***
+```
+
+The key's block is `Para "bar"`; the break is not inside the key, it is
+the next block at the enclosing level. The rule is that a key takes the
+*first* block that comes out and nothing after it, which is forced by
+the node holding a single block rather than a list of them.
 
 ## 5. Claiming a block out of column
 
@@ -431,12 +508,18 @@ it is that same list's second item.
 It does not remove a blockquote's `>` prefix and does not neutralise a
 div's closing fence.
 
-A key is a claim about where a block *sits*, and column is the only
-containment that is about where a block sits. A quote prefix and a div
-fence are marks on the line, present or absent; letting a key drop them
-silently would make a quoted region's extent depend on a colon several
-lines above it. So inside a blockquote the key's block still carries the
-prefix:
+The reason is 5.2's, one level up. The override is tolerable only
+because it is *bounded*: the block it holds open announces its own end,
+and the override ends with it. A quote has no such end. What ends a
+quote is the absence of the prefix, so a key that dropped prefixes would
+delete the very thing that says where the quote stops, and the override
+would have nothing to last until. The same goes for a div's closing
+fence.
+
+Column is different in exactly that respect, and not because it is
+somehow less binding: a claim about where a block *sits* leaves the
+block's own ending intact. So inside a blockquote the key's block still
+carries the prefix:
 
 `````
 > foo:
@@ -473,10 +556,18 @@ never resumes. That is not one level deeper, it is a takeover, and it is
 the one reading this construct exists to rule out.
 
 Read off the table in section 4, the blocks whose end is on a line of
-their own are fenced code, raw blocks, fenced divs, thematic breaks and
-single-line headings. Those are the ones a key can pull out of column.
-Paragraphs, lists, tables and blockquotes end by being interrupted, and
-the interrupting line is the one the container outside needed to see.
+their own are fenced code, raw blocks, fenced divs and thematic breaks.
+Those are the ones a key can pull out of column. Paragraphs, lists,
+tables and blockquotes end by being interrupted, and the interrupting
+line is the one the container outside needed to see.
+
+Headings are not on that list, although section 4 says a heading ends on
+its own line. That row is conditional: in djot a plain text line
+continues a heading (`# h` then `more` is one heading, checked against
+the oracle), so a heading announces its end only in a profile with
+heading continuation switched off. Rather than make the override depend
+on a second setting, headings are excluded outright; a key over a
+heading has to indent it like any other block.
 
 None of this is a limit on what a key may name. It is a limit on where
 that block may sit, and it applies only when a key is holding a
@@ -503,8 +594,11 @@ unindented spelling inside a container asks anything of the block.
 
 ## 6. Retraction
 
-A key that never gets a block is not a key. The colon is literal text
-and the line is the paragraph it would have been.
+**To retract is to become the paragraph the key line would have been
+with keys off.** The key's state is discarded, the colon goes back to
+being literal text, and the *key line alone* becomes a paragraph, at the
+place and in the container the key line sat in. Nothing that arrived
+after it is part of that paragraph.
 
 ```
 foo:
@@ -517,15 +611,67 @@ Para "foo:"
 Para "bar"
 ```
 
-The same at end of input: a document that is only `foo:` is one
-paragraph. The same inside a list: `- foo:` then a blank then `- bar` is
-a loose two-item list whose first item is `Para "foo:"`, and the blank
-makes it loose exactly as it does today.
-
 Nothing is undone by this. A key produces no node until it closes, so
 retraction discards a state rather than revising a result. Block
 attributes and table captions already work this way: both wait, and both
 turn back into ordinary text if what they were waiting for never comes.
+And because the state kept the line as written (3.5), the paragraph is
+the original bytes rather than something reassembled.
+
+### 6.1 When it happens
+
+A key retracts when it is ended while it has **nothing open under it**.
+That is the whole test, and it is deliberately a question about the
+key's own state rather than about what the document goes on to do.
+
+| input                            | outcome                                    |
+| -------------------------------- | ------------------------------------------ |
+| `foo:` / blank / `bar`           | retract, then `Para "bar"`                 |
+| `foo:` alone at end of input     | retract                                    |
+| `- foo:` / `- bar`               | retract, two items (5.2)                   |
+| `> foo:` / a line with no `>`    | quote ends, retract inside it              |
+| `:::` / `foo:` / `:::`           | div closes, retract inside it              |
+| `foo:` / `- a` / blank / `- b`   | **no** retraction, the blank is the list's |
+| `foo:` / fence / blank inside it | **no** retraction, the blank is content    |
+
+The last two rows are why the test cannot be "a blank retracts". A blank
+line reaches the key only when nothing under the key has claimed it
+first, and every container that survives a blank claims it.
+
+The list case behaves as it does today: `- foo:` then a blank then
+`- bar` is a loose two-item list whose first item is `Para "foo:"`, and
+the blank is what makes it loose.
+
+### 6.2 The corner: started, but producing nothing
+
+A block attribute line starts something without producing a block:
+
+```
+foo:
+{#i}
+
+bar
+```
+
+At the blank, the key has an attribute spec open, so it does not
+retract, and it goes on to take `Para "bar"` from below the blank. That
+contradicts the first row of the table above, and it is accepted rather
+than repaired: the alternative is a notion of "started but may still
+vanish" that nothing else in the parser has, for a two-line shape nobody
+writes on purpose. Revisit it if it ever shows up in real documents.
+
+The same corner at end of input has to go the other way, and does:
+
+```
+foo:
+{#i}
+```
+
+A lone attribute line contributes no block at all (checked against the
+oracle: `{#i}` on its own renders nothing). So the key ends with no
+block and retracts, giving `Para "foo:"` and nothing else. The `{#i}`
+line vanishes exactly as it does today. Retraction reproduces the key
+line, never the lines that followed it.
 
 ## 7. Worked examples
 
@@ -645,23 +791,46 @@ of its own. `baz` is a paragraph, which ends at end of input; that ends
 
 This is the only spelling of that tree. `foo: bar: baz` on one line is
 `foo` paired with the paragraph `bar: baz`, by the one-key-per-line rule in
-3.2: a level costs a line.
+3.3: a level costs a line.
 
 ## 8. What this costs the development
 
 The one section that names things in the code.
 
-**A new block constructor**, `Keyed`, holding one inline label and its
-children. Around thirteen sites match on the block type across `Wf.v`,
-`Html.v`, `Document.v`, `Render.v` and `Ast.v`'s induction principle.
+**A new block constructor**, `Keyed`, holding one inline label and one
+`node block`, not a list of them. Section 4 is the reason: the scope is
+exactly one block, so `wf_block` needs no singleton side condition and
+the "first block only" rule of section 4 is forced rather than checked.
+`BlockQuote`, the nearest existing container, is mentioned 85 times
+across eight files; the ones that will want a real arm rather than a
+copied one are `Ast.v`'s induction principle, `Wf.v`, `Html.v`,
+`Render.v`, `Uniformity.v` and `Document.v`, the last being the file the
+site and rename model has to traverse through.
 
-**A new parser state**, sitting in the container stack beside `PDiv`,
-which it closely resembles: it eats no prefix and shifts no column, so
-it records no column either, and `step_fuel_shift` and `step_fuel_pad`
-cost nothing. There are 25 explicit `destruct` sites over the state type
-and 27 mentions of `PDiv`; most of the new arms are the `PDiv` arm
-copied. `finish`, `lazy_ok`, `feed_lazy`, `pstate_depth`,
-`blank_absorbed`, `blank_safe` and `pad_safe` each take one.
+**A new parser state**. It sits in the container stack and, like `PDiv`,
+eats no prefix and shifts no column, so it records no column either and
+`step_fuel_shift` and `step_fuel_pad` cost nothing on its own account.
+But its *continuation rule* is `PPend`'s, not `PDiv`'s: a div closes
+when a line says so, a key closes when the state under it emits a block,
+and `pend_result` is the only existing shape for that. Read the new arm
+off `PPend` and the state's column-freedom off `PDiv`.
+
+There are 25 explicit `destruct` sites over the state type and 27
+mentions of `PDiv`. Twelve functions recurse over the state and each
+needs an arm: `finish`, `lazy_ok`, `feed_lazy`, `pstate_depth`,
+`blank_absorbed`, `blank_safe`, `pad_safe`, `is_idle`, `in_fence`,
+`div_closer`, `pad_state` and `fence_cols_ok`. Two of those have
+behaviour attached and are not mechanical:
+
+- `in_fence` must see through a key, or a `:::` line inside a code block
+  inside a key would close an enclosing div.
+- `div_closer` must see through a key, or `- foo:` / `:::` / `bar` /
+  `:::` / `- baz` gets its tightness wrong: the div's closing line is
+  what arms the enclosing list.
+
+`is_idle` is what 6.1's retraction test asks, which is why the rule is
+stated as "nothing open under it" rather than as a claim about the
+document.
 
 **The split test reaches into the inline layer, and that is affordable.**
 It needs the scanner's opener state and the resolved node count, neither
@@ -670,6 +839,14 @@ does not have to. The test belongs in `open_kind`'s text arm in
 `Step.v`, which already imports `Inline` and, more to the point, already
 sits inside `Section WithTable`: the delimiter table is a section
 variable there, so the argument stays implicit and no call site moves.
+
+That placement is what 3.3's value rule buys. `open_kind` gets neither
+the offset nor a way to re-enter the line parser, so a key whose value
+were classified could not live there: it would join the six kinds
+`direct_open` excludes and would need a column, a descent and a fuel
+step, like `open_list`. A value that is always a paragraph opens with
+`([], PKey lbl (PPara [value]))` and needs none of it.
+
 Two smaller costs remain. The test has to be stable under a leading run
 of spaces or `step_fuel_pad` fails, and normalising the line first is
 enough. And every concrete `Example` that parses a text line scans it
@@ -699,13 +876,42 @@ and `with_underline` as one that preserves the property only under a
 side condition, which for a bool is that it is off.
 
 **Canonical spelling**, for the roundtrip fragment: the two-line form
-rather than the inline one, the block at the key's own column with no
-blank between, and labels whose rendering would end in a colon excluded
-from the fragment rather than escaped, the way a fence its own content
-would close is excluded. The canonical constructor is then a wrapper of
-exactly the shape `CId` has, one source line in front of an existing
-block, and it inherits that constructor's arms in `ends_clist`,
-`is_clist` and the pair predicates.
+rather than the inline one, and the block at the key's own column with
+no blank between. The canonical constructor is then a wrapper of exactly
+the shape `CId` has, one source line in front of an existing block, and
+it inherits that constructor's arms in `ends_clist`, `is_clist` and the
+pair predicates.
+
+**And a rendering obligation that is wider than the label.** With keys
+on, any first line carrying a split point comes back as a key, so it is
+not only labels that are at risk:
+
+- A label containing a splitting colon breaks in place. `Keyed "Note:
+  this" b` renders `Note: this:`, which splits at the *first* colon and
+  returns `Keyed "Note"` over `Para "this:"`. Trailing colons are the
+  obvious case but not the only one.
+- Every canonical paragraph is at risk too, not just those under a key.
+  `Para "Note: this matters"` renders as itself and reparses as a key.
+  `para_ok` asks `is_text` of a paragraph's first line so that reparsing
+  opens a paragraph there; with keys on, `is_text` stops being enough
+  and a first-line condition has to join it, next to the existing
+  `negb (bcuts l)` conjunct.
+
+The decision is to **escape rather than exclude**. `\:` reads as a plain
+colon, so escaping preserves the content exactly, where excluding would
+throw a large share of ordinary paragraphs out of the tested fragment
+for no gain. Only the first line of a block needs it, since 3.5 says
+continuation lines are never tested.
+
+**The oracle stops covering this.** djot.js has no keyed construct, so
+every keyed document is a divergence by construction and the
+differential harness cannot adjudicate one. What is left is the
+extracted roundtrip sweep and the generated corpus against our own
+parser. That is a real reduction in what the project's usual safety net
+covers, and worth knowing before the construct grows.
+
+**Minor.** `def_split` takes an item's leading paragraph as a definition
+list term, so an item whose first block is a `Keyed` has no term.
 
 **Unscoped**, and the reason section 5 is separated from the rest: an
 item holding a block claimed out of column renders some of its lines
@@ -722,11 +928,13 @@ worth landing sections 3, 4, 6 and 7.1 to 7.3 without it.
 
 ### 9.1 Is "nothing open" enough, on every construct?
 
-Section 3.2 states the split rule as a test, "nothing open at the
+Section 3.1 states the split rule as a test, "nothing open at the
 colon", and separately as what the test is for, "no later character
 changes how the label reads". The test has to imply the property. It
 does not have to be implied by it, and deliberately is not: `_a: b` is
-declined although splitting it would have been harmless.
+declined although splitting it would have been harmless. This is also
+the formal content of section 0's promise that a key changes the tree
+and not the text.
 
 The direction that matters could still fail, on a construct whose
 reading depends on what follows while the scanner holds nothing open.
@@ -734,6 +942,16 @@ Smart quotes were the obvious candidate, since a lone `"` is a curly
 quote and a paired one is a quotation, but djot pairs them like every
 other delimiter and the opener is on the stack, so the test refuses the
 split already.
+
+The second candidate is subtler and is not about a delimiter at all. An
+element can *vanish* during resolution: an attribute brace that finds
+nothing to decorate is dropped, and its neighbours then merge, so
+`a {#i}b: c` resolves to the single run `a b` (checked against the
+oracle). That is a case where what precedes the colon changes shape with
+nothing open, and 3.2's monotonicity argument reasons only about merging
+adjacent elements, not about one disappearing. The argument still looks
+sound, since the brace is already resolved at the colon, but it is
+stated for the wrong operation and should be restated to cover both.
 
 So this is an obligation, not a question: state the implication, then
 either prove it or produce the construct that breaks it. It is the one
