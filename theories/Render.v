@@ -460,15 +460,22 @@ Renderability
 -------------
 *)
 
-(* A canonical paragraph: nonempty; its first line classifies as text (so
-   reparsing opens a paragraph there rather than another block); every
-   line is nonblank and newline-free; and the last line already has no
-   trailing whitespace, since the parser would strip it. *)
+(* A canonical paragraph: nonempty; its first line classifies as text
+   and carries no key connective (so reparsing opens a paragraph there
+   rather than another block, and not a key either); every line is
+   nonblank and newline-free; and the last line already has no trailing
+   whitespace, since the parser would strip it.
+
+   `keyless` is the first-line condition keys add, and it sits beside
+   `is_text` for the same reason: both are about what the line *opens*,
+   and keyed-blocks 3.5 says continuation lines are never tested.  With
+   the setting off it is `true` for every line. *)
 Definition para_ok (ls : list string) : bool :=
   match ls with
   | [] => false
   | a :: _ =>
       is_text a
+      && keyless a
       && forallb line_ok ls
       && forallb (fun l => negb (bcuts l)) ls
       && String.eqb (strip_trailing_ws (last ls EmptyString))

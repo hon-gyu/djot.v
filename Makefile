@@ -1,4 +1,4 @@
-.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe oracles clean
+.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe keyed oracles clean
 
 build:
 	dune build
@@ -63,6 +63,16 @@ deep: build
 	rocq c -R _build/default/theories DjotV check/Deep.v
 	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \
 	       check/.Deep.aux
+
+# the keyed-block construct, pinned as whole documents against
+# `keyed_bconfig`.  Out of the dune build for check/Markdown.v's reason:
+# `vm_compute` over documents is not something a parser edit should pay
+# for.  Run it when `key_split`, `open_text` or the `PKey` transitions
+# change.
+keyed: build
+	rocq c -R _build/default/theories DjotV check/Keyed.v
+	@rm -f check/Keyed.vo check/Keyed.vok check/Keyed.vos check/Keyed.glob \
+	       check/.Keyed.aux
 
 # falsify a candidate lemma before proving it: add a `Compute` to
 # check/Probe.v and run this.  ~0.5s.  Out of the dune build because

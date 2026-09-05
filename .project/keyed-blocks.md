@@ -3,16 +3,20 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **specification mostly settled, section 3 and the AST
-implemented**. The rules below are decided except where section 9 says
-otherwise. `Inline.key_split` is the split rule of 3.1 and the
-one-inline rule of 3.2, with every row of section 3's three tables
-pinned as an `Example` beside it, and `Ast.Keyed` is the node with its
-arms in `Wf.v`, `Html.v` and `Document.v`. What is missing is the
-parser: no source produces a `Keyed` yet, which is why `Wf.supported`
-excludes it. This file stands
-on its own: it is the definition of the construct, not a staging area,
-and it stays here once the construct exists.
+Status: **implemented except section 5**. `Inline.key_split` is the
+split rule of 3.1 and the one-inline rule of 3.2, with every row of
+section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
+is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
+parser produces one, through `Step.bkeyed`, `Step.open_text` and the
+`PKey` state. Sections 3, 4, 6 and the worked examples 7.1, 7.2, 7.3
+and 7.6 are pinned as whole documents in `check/Keyed.v` (`make
+keyed`). Section 5 -- claiming a block out of column -- is not
+implemented and 9.2 is why; `out_of_column_is_not_claimed` in that file
+is what the parser does instead. What is left besides 5 is the
+canonical spelling in `Render.v`, so no keyed document is in the
+roundtrip fragment yet. This file stands on its own: it is the
+definition of the construct, not a staging area, and it stays here once
+the construct exists.
 
 Prose first. Sections 0 to 7 define the syntax without naming a single
 identifier in the development; everything that touches the code is
@@ -854,9 +858,28 @@ step, like `open_list`. A value that is always a paragraph opens with
 
 Two smaller costs remain. The test has to be stable under a leading run
 of spaces or `step_fuel_pad` fails, and normalising the line first is
-enough. And every concrete `Example` that parses a text line scans it
-twice, a constant factor rather than a branching one, but worth a
-`coqc -time` reading before and after.
+enough -- `open_kind`'s arm takes the *already normalised* line
+(`open_text (drop_leading_ws l)`) so that the rewrite every pad proof
+already performs is the whole of the argument. And every concrete
+`Example` that parses a text line scans it twice, a constant factor
+rather than a branching one: a clean build went from 99s to 105s.
+
+**What the placement costs that this section did not say.** Putting the
+test in `open_kind` gives `open_line` a `dtable` parameter, because
+`key_label_ok` resolves inlines. Nine statements in `Invariants.v`
+spell `@open_line K` explicitly and every one of them became
+`@open_line T K`; the change is a `sed` and no proof moved, but the
+*spelling* of a theorem is not something a "which proofs use the
+structure" census counts.
+
+**And the first-line condition cannot be deferred.** `keyless` was
+meant to arrive with the renderer, but `parse_lines_text` is where a
+text line opens a paragraph and it needs the hypothesis on the spot.
+Its users are `parse_lines_para_seed`, `parse_lines_para_run` and
+`parse_lines_para_run_blank`, and those terminate in exactly two
+places: `wrap_neutral` (which gains `bkeyed = false` as its third
+conjunct, as this section predicted) and `para_ok`. So the parser half
+and `para_ok`'s new conjunct are one step, not two.
 
 **The label test depends on the merge pass.** Whether a label is one
 inline or two is a fact about the *resolved* inline list, so it turns on
@@ -968,8 +991,10 @@ is why it should be written down rather than assumed.
 The last entry in section 8. Until it is measured, the price of section
 5 is unknown, and section 5 is the half that delivers the unindented
 spelling. Sections 3, 4, 6 and the first three worked examples do not
-depend on it, so the question is whether to land them first and measure
-section 5 separately. The recommendation here is yes.
+depend on it, and they have now landed without it, so what is left is
+the measurement. `check/Keyed.v`'s `out_of_column_is_not_claimed` is
+the example that has to change when it is paid, and 7.4 and 7.5 are the
+trees it has to produce.
 
 ### 9.3 How a keyed node renders
 

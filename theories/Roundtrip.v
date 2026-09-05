@@ -292,17 +292,20 @@ Lemma para_ok_parts :
   classify a = KText
   /\ forallb line_ok (a :: ls) = true
   /\ strip_trailing_ws (last (a :: ls) EmptyString) = last (a :: ls) EmptyString
-  /\ forallb (fun l => negb (bcuts l)) (a :: ls) = true.
+  /\ forallb (fun l => negb (bcuts l)) (a :: ls) = true
+  /\ keyless a = true.
 Proof.
   intros a ls H. unfold para_ok in H.
   apply andb_true_iff in H as [H Hlast].
   apply andb_true_iff in H as [H Hint].
-  apply andb_true_iff in H as [Htext Hlok].
+  apply andb_true_iff in H as [H Hlok].
+  apply andb_true_iff in H as [Htext Hkey].
   repeat split.
   - apply is_text_classify. exact Htext.
   - exact Hlok.
   - apply String.eqb_eq. exact Hlast.
   - exact Hint.
+  - exact Hkey.
 Qed.
 
 Lemma forallb_weaken :
@@ -497,7 +500,7 @@ Proof.
   intros lss H. rewrite cb_ok_para in H.
   apply andb_true_iff in H as [Hp Hc].
   destruct (map ci_line lss) as [|a ls'] eqn:E; [discriminate|].
-  apply para_ok_parts in Hp as (_ & Hlok & Hlast & _).
+  apply para_ok_parts in Hp as (_ & Hlok & Hlast & _ & _).
   rewrite <- E in Hlok, Hlast |- *.
   cbn [cb_ast]. f_equal. f_equal.
   apply para_inlines_ci_para;
@@ -1339,7 +1342,7 @@ Proof.
       apply andb_true_iff in H as [Hp _];
       cbn [cb_lines];
       destruct (map ci_line lss) as [|a ls'] eqn:E; try discriminate;
-      apply para_ok_parts in Hp as (Htext & Hlok & _ & Hint);
+      apply para_ok_parts in Hp as (Htext & Hlok & _ & Hint & Hkey);
       pose proof (forallb_line_ok_nonblank _ Hlok) as Hnb;
       cbn [forallb] in Hnb; apply andb_true_iff in Hnb as [_ Hnb'];
       cbn [forallb] in Hint; apply andb_true_iff in Hint as [Hihd Hint'];

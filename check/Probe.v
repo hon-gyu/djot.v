@@ -140,6 +140,8 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PTable rows cap => "Table" ++ s_list s_trow rows ++ s_tcap cap
   | PPend pend inner =>
       "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
+  | PKey lbl src inner =>
+      "Key" ++ s_str lbl ++ s_str src ++ "(" ++ show_pstate inner ++ ")"
   end.
 
 Definition st_eqb (a b : pstate) : bool :=
@@ -205,6 +207,11 @@ Definition seed_prefixes : list (list string) :=
   ; ["| a |"; ""]                              (* PTable, waiting for a caption *)
   ; ["| a |"; "^ c"]                           (* PTable, caption open *)
   ; ["{#i}"]; ["{#i}"; "a"]                    (* PPend *)
+  (* No `PKey` seed.  The pools run at the ambient configuration and
+     `bkeyed` is off there, so no source reaches the state; a seed would
+     have to name a keyed `bconfig`, and then every probe over the pool
+     would be mixing two configurations.  A keyed pool belongs beside a
+     keyed profile, when there is one. *)
   ].
 
 Definition state_pool : list pstate :=

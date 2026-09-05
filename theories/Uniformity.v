@@ -146,13 +146,20 @@ Qed.
    is about the second case only -- a line that *ends* a paragraph is
    still text when there is none open, which is how `===` opens a
    paragraph of its own after a blank. *)
+(* `keyless` is about the first case only, for the same reason `bcuts`
+   is about the second: a line that *continues* a paragraph is never
+   tested for a split (keyed-blocks 3.5), so an open paragraph swallows
+   a colon that would have keyed a fresh line. *)
 Lemma parse_lines_text :
   forall l rest cur, classify l = KText -> bcuts l = false ->
+  keyless l = true ->
   parse_lines (l :: rest) (PPara cur) =
   parse_lines rest (PPara (drop_leading_ws l :: cur)).
 Proof.
-  intros l rest cur H Hc. destruct cur as [|c cur'].
-  - rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
+  intros l rest cur H Hc Hk. destruct cur as [|c cur'].
+  - rewrite (parse_lines_step _ _ _ _ _
+               (eq_trans (step_idle _ _ H eq_refl) (open_text_keyless _ Hk))).
+    reflexivity.
   - rewrite (parse_lines_step _ _ _ _ _
                (step_para_cont _ _ _ (fun E => ltac:(rewrite H in E; discriminate))
                   Hc)).
@@ -304,14 +311,15 @@ Lemma parse_lines_para_seed :
   forall a ls tail,
     classify a = KText ->
     bcuts a = false ->
+    keyless a = true ->
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines ((a :: ls) ++ tail)%list (PPara []) =
     parse_lines tail (PPara (rev (map drop_leading_ws (a :: ls)))).
 Proof.
-  intros a ls tail Ha Hcut Hls His.
+  intros a ls tail Ha Hcut Hkey Hls His.
   change ((a :: ls) ++ tail)%list with (a :: (ls ++ tail))%list.
-  rewrite parse_lines_text by (exact Ha || exact Hcut).
+  rewrite parse_lines_text by (exact Ha || exact Hcut || exact Hkey).
   rewrite parse_lines_cont_seed by (exact Hls || exact His).
   reflexivity.
 Qed.
@@ -325,14 +333,15 @@ Lemma parse_lines_para_run :
   forall a ls,
     classify a = KText ->
     bcuts a = false ->
+    keyless a = true ->
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines (a :: ls) (PPara []) =
     [mk (Para (para_inlines (map drop_leading_ws (a :: ls))))].
 Proof.
-  intros a ls Ha Hcut Hls His.
+  intros a ls Ha Hcut Hkey Hls His.
   rewrite <- (app_nil_r (a :: ls)).
-  rewrite (parse_lines_para_seed a ls [] Ha Hcut Hls His).
+  rewrite (parse_lines_para_seed a ls [] Ha Hcut Hkey Hls His).
   rewrite app_nil_r. cbn [parse_lines].
   destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
   - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
@@ -347,6 +356,7 @@ Lemma parse_lines_para_run_blank :
   forall a ls b rest,
     classify a = KText ->
     bcuts a = false ->
+    keyless a = true ->
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
     is_blank b = true ->
@@ -354,8 +364,8 @@ Lemma parse_lines_para_run_blank :
     mk (Para (para_inlines (map drop_leading_ws (a :: ls))))
     :: parse_lines rest (PPara []).
 Proof.
-  intros a ls b rest Ha Hcut Hls His Hb.
-  rewrite (parse_lines_para_seed a ls (b :: rest) Ha Hcut Hls His).
+  intros a ls b rest Ha Hcut Hkey Hls His Hb.
+  rewrite (parse_lines_para_seed a ls (b :: rest) Ha Hcut Hkey Hls His).
   destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
   - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
     cbn in E. discriminate.
@@ -969,7 +979,7 @@ Definition pend_ready (st : pstate) (l : string) : bool :=
 Lemma pend_carriable_ready :
   forall st l, pend_carriable st = true -> pend_ready st l = true.
 Proof.
-  intros [cur| | | | | | | | | |] l H; try exact H;
+  intros [cur| | | | | | | | | | |] l H; try exact H;
     destruct cur; [discriminate|reflexivity].
 Qed.
 
@@ -981,7 +991,7 @@ Lemma step_pend_pass :
 Proof.
   intros l pend st H. unfold step at 1. cbn [step_fuel pstate_depth].
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-  destruct st as [cur| | | | | | | | | |]; cbn [pend_ready] in H;
+  destruct st as [cur| | | | | | | | | | |]; cbn [pend_ready] in H;
     try discriminate H;
     try (destruct (classify l); reflexivity).
   destruct cur as [|c cur'];
@@ -1000,7 +1010,8 @@ Lemma open_line_carriable :
 Proof.
   intros descend ind l k Hk Hempty. destruct k; try discriminate Hk;
     cbn [open_line open_kind] in Hempty |- *;
-    unfold open_quote, open_list, open_foot, open_ref, open_fence in *;
+    unfold open_quote, open_list, open_foot, open_ref, open_fence,
+      open_text in *;
     repeat (match goal with
             | |- context [match ?x with _ => _ end] => destruct x
             end);
@@ -1019,11 +1030,11 @@ Proof.
   intros l st Hready Hempty. unfold step in *.
   destruct st as [cur|lvl cur|f fnd acc|done inner|dlen dcls ddone dinner
                  |ls ldone linner|apend aind aap aslices|rind rlbl rval
-                 |find flbl fdone finner|trows tcap|ppend pinner];
+                 |find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner];
     cbn [pend_ready] in Hready; try discriminate Hready;
     cbn [step_fuel] in Hempty |- *;
     unfold close_reopen, open_quote, open_list, open_foot, open_ref,
-           open_fence, open_attr in *;
+           open_fence, open_attr, open_text, key_result in *;
     repeat (match goal with
             | |- context [match ?x with _ => _ end] => destruct x eqn:?
             end);

@@ -317,12 +317,17 @@ a setting that never fires is spelled as one that never fires.  This is
 Definition wrap_neutral : invariant bconfig := fun K =>
   (forall sty core chk rest,
      @bmarker_interrupts K sty core chk rest = false)
-  /\ (forall c n, @bunderline K c n = None).
+  /\ (forall c n, @bunderline K c n = None)
+  (* And keys off.  This one is not about a continuation line: a key
+     line and the lines under it are no longer one paragraph at all, so
+     the first line of a run is what the setting reaches.  A bool's
+     weakest side condition is that it is false. *)
+  /\ @bkeyed K = false.
 
 Lemma wrap_neutral_bcuts :
   forall K, wrap_neutral K -> forall l, @bcuts K l = false.
 Proof.
-  intros K [Hm Hu] l. unfold bcuts, bunderline_of.
+  intros K [Hm [Hu _]] l. unfold bcuts, bunderline_of.
   destruct (underline_of l) as [[c n]|]; [rewrite Hu|]; unfold binterrupt;
     destruct (classify l); try reflexivity; apply Hm.
 Qed.
@@ -330,6 +335,10 @@ Qed.
 Lemma wrap_neutral_accidental_list_immune :
   forall K, wrap_neutral K -> accidental_list_immune K.
 Proof. intros K [Hm _] sty core chk rest H. rewrite Hm in H. discriminate. Qed.
+
+Lemma wrap_neutral_keyless :
+  forall K, wrap_neutral K -> forall T l, @keyless T K l = true.
+Proof. intros K [_ [_ Hk]] T l. unfold keyless. rewrite Hk. reflexivity. Qed.
 
 (* The property itself: a text line and any run of nonblank lines after it
    are one paragraph, whatever those lines look like. *)
@@ -343,7 +352,7 @@ Theorem hard_wrap_one_para :
 Proof.
   intros T K Hn a ls Ha Hls.
   apply parse_lines_para_run; try assumption;
-    [apply (wrap_neutral_bcuts _ Hn)|].
+    [apply (wrap_neutral_bcuts _ Hn) | apply (wrap_neutral_keyless _ Hn) |].
   apply forallb_forall. intros x _.
   rewrite (wrap_neutral_bcuts _ Hn). reflexivity.
 Qed.
@@ -363,7 +372,7 @@ Theorem hard_wrap_para_then_rest :
 Proof.
   intros T K Hn a ls b rest Ha Hls Hb.
   apply parse_lines_para_run_blank; try assumption;
-    [apply (wrap_neutral_bcuts _ Hn)|].
+    [apply (wrap_neutral_bcuts _ Hn) | apply (wrap_neutral_keyless _ Hn) |].
   apply forallb_forall. intros x _.
   rewrite (wrap_neutral_bcuts _ Hn). reflexivity.
 Qed.
@@ -381,7 +390,13 @@ Theorem with_underline_preserves_wrap_neutral :
   forall f,
     preserves_when (fun _ => forall c n, f c n = None)
       (with_underline f) wrap_neutral.
-Proof. intros f K Hf [Hm _]. split; [exact Hm | exact Hf]. Qed.
+Proof. intros f K Hf [Hm [_ Hk]]. split; [exact Hm | split; [exact Hf | exact Hk]]. Qed.
+
+(* The keyed setting is the third that can lose the property, and its
+   weakest precondition is that it is off. *)
+Theorem with_keyed_preserves_wrap_neutral :
+  preserves_when (fun _ => True) (with_keyed false) wrap_neutral.
+Proof. intros K _ [Hm [Hu _]]. split; [exact Hm | split; [exact Hu | reflexivity]]. Qed.
 
 (* Every other setting copies both fields, so it preserves the property
    with no side condition -- including [with_tasks], which is why the
@@ -419,7 +434,7 @@ Theorem with_block_footnotes_preserves_wrap_neutral :
 Proof. intros enabled K H. exact H. Qed.
 
 Example djot_wrap_neutral : wrap_neutral djot_bconfig.
-Proof. split; reflexivity. Qed.
+Proof. split; [reflexivity | split; reflexivity]. Qed.
 
 (* The five shapes the rationale names, all as continuation lines. *)
 Example djot_wrap_keeps_one_block :
@@ -476,8 +491,8 @@ and is invisible everywhere else the fold looks at the configuration.
 The fold reads the configuration through `open_line` (which covers
 `open_kind`, `open_attr`, `open_foot` and the list-marker projections),
 through `bunderline_of` and `binterrupt`, through `bheading_continues`,
-and through `finish` and `fence_block`.  The eight boolean settings
-divide over those: five cannot change what a line opens, five cannot
+and through `finish` and `fence_block`.  The nine boolean settings
+divide over those: five cannot change what a line opens, six cannot
 change what a state closes to, and the two that reach neither are read
 only at a raw fence and at a colon bullet.
 
@@ -488,73 +503,87 @@ depth of the container descent, and `step`'s descent is what would have
 to carry it.  See .project/260901.knob-isolation.md. *)
 
 Theorem with_tables_opens_only_rows :
-  forall enabled K descend ind l k,
+  forall T enabled K descend ind l k,
     (forall r, k <> KRow r) ->
-    @open_line (with_tables enabled K) descend ind l k
-    = @open_line K descend ind l k.
+    @open_line T (with_tables enabled K) descend ind l k
+    = @open_line T K descend ind l k.
 Proof.
-  intros enabled K descend ind l k H.
+  intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
 Qed.
 
 Theorem with_divs_opens_only_divs :
-  forall enabled K descend ind l k,
+  forall T enabled K descend ind l k,
     (forall len cls, k <> KDiv len cls) ->
-    @open_line (with_divs enabled K) descend ind l k
-    = @open_line K descend ind l k.
+    @open_line T (with_divs enabled K) descend ind l k
+    = @open_line T K descend ind l k.
 Proof.
-  intros enabled K descend ind l k H.
+  intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
 Qed.
 
 Theorem with_block_attrs_opens_only_attrs :
-  forall enabled K descend ind l k,
+  forall T enabled K descend ind l k,
     (forall ap, k <> KAttr ap) ->
-    @open_line (with_block_attrs enabled K) descend ind l k
-    = @open_line K descend ind l k.
+    @open_line T (with_block_attrs enabled K) descend ind l k
+    = @open_line T K descend ind l k.
 Proof.
-  intros enabled K descend ind l k H.
+  intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
 Qed.
 
 Theorem with_block_footnotes_opens_only_footnotes :
-  forall enabled K descend ind l k,
+  forall T enabled K descend ind l k,
     (forall lbl rest, k <> KFoot lbl rest) ->
-    @open_line (with_block_footnotes enabled K) descend ind l k
-    = @open_line K descend ind l k.
+    @open_line T (with_block_footnotes enabled K) descend ind l k
+    = @open_line T K descend ind l k.
 Proof.
-  intros enabled K descend ind l k H.
+  intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
 Qed.
 
 Theorem with_tasks_opens_only_lists :
-  forall enabled K descend ind l k,
+  forall T enabled K descend ind l k,
     (forall sty core chk rest, k <> KList sty core chk rest) ->
-    @open_line (with_tasks enabled K) descend ind l k
-    = @open_line K descend ind l k.
+    @open_line T (with_tasks enabled K) descend ind l k
+    = @open_line T K descend ind l k.
 Proof.
-  intros enabled K descend ind l k H.
+  intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
 Qed.
 
 (* The other three cannot change what any line opens, at any kind. *)
 Theorem with_deflists_opens_nothing :
-  forall enabled K descend ind l k,
-    @open_line (with_deflists enabled K) descend ind l k
-    = @open_line K descend ind l k.
-Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+  forall T enabled K descend ind l k,
+    @open_line T (with_deflists enabled K) descend ind l k
+    = @open_line T K descend ind l k.
+Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
 Theorem with_raw_blocks_opens_nothing :
-  forall enabled K descend ind l k,
-    @open_line (with_raw_blocks enabled K) descend ind l k
-    = @open_line K descend ind l k.
-Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+  forall T enabled K descend ind l k,
+    @open_line T (with_raw_blocks enabled K) descend ind l k
+    = @open_line T K descend ind l k.
+Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
 Theorem with_heading_continuation_opens_nothing :
-  forall enabled K descend ind l k,
-    @open_line (with_heading_continuation enabled K) descend ind l k
-    = @open_line K descend ind l k.
-Proof. intros enabled K descend ind l k. destruct k; reflexivity. Qed.
+  forall T enabled K descend ind l k,
+    @open_line T (with_heading_continuation enabled K) descend ind l k
+    = @open_line T K descend ind l k.
+Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
+
+(* Keys are read at a text line and nowhere else, which is the block-level
+   content of `.project/keyed-blocks.md` 3.5: a line is tested for a
+   split exactly when it would otherwise open a paragraph. *)
+Theorem with_keyed_opens_only_text :
+  forall T enabled K descend ind l k,
+    k <> KText ->
+    @open_line T (with_keyed enabled K) descend ind l k
+    = @open_line T K descend ind l k.
+Proof.
+  intros T enabled K descend ind l k H.
+  destruct k; try reflexivity. exfalso. apply H. reflexivity.
+Qed.
+
 
 (* The other half: what a state closes to.  `finish` reads the
    configuration only through the two block builders that have a
@@ -592,6 +621,10 @@ Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
 Theorem with_heading_continuation_finishes_nothing :
   forall T enabled K st,
     @finish T (with_heading_continuation enabled K) st = @finish T K st.
+Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
+
+Theorem with_keyed_finishes_nothing :
+  forall T enabled K st, @finish T (with_keyed enabled K) st = @finish T K st.
 Proof. intros T enabled K. apply finish_config_ext; reflexivity. Qed.
 
 (* The two settings that reach neither opening nor closing: each has one

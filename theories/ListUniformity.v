@@ -434,14 +434,14 @@ record where the blanks sit relative to the markers.
 Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
-  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
 Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
-  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state blank_safe]; try reflexivity; exact IH.
 Qed.
 
@@ -830,7 +830,7 @@ Proof.
   intros l st Hl.
   induction st as [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
                   |ls done inner IH|apend aind aap aslices|rind rlbl rval
-                  |find flbl fdone finner IH|trows tcap|ppend pinner IH];
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros Hsafe.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hl eq_refl). cbn [open_kind fst snd finish app].
@@ -884,7 +884,7 @@ Proof.
        decoration rides on whatever that emits *)
     cbn [blank_safe] in Hsafe. unfold step. cbn [step_fuel open_line]. rewrite Hl.
     destruct (is_idle pinner) eqn:Hidle.
-    { destruct pinner as [cur| | | | | | | | | |]; try discriminate Hidle.
+    { destruct pinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [reflexivity|discriminate Hidle]. }
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     specialize (IH Hsafe).
@@ -893,6 +893,25 @@ Proof.
     destruct bs as [|b bs'].
     + cbn [fst snd finish app]. rewrite <- IH. reflexivity.
     + cbn [fst snd finish]. rewrite decorate_head_cons_app, <- IH. reflexivity.
+  - (* an open key: with nothing under it the blank retracts, which is
+       what `finish` would have done; otherwise the blank closes what is
+       under it and `key_close` wraps the first block either way *)
+    cbn [blank_safe] in Hsafe.
+    destruct (is_idle kinner) eqn:Hidle.
+    { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
+      destruct cur; [|discriminate Hidle].
+      rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hl)).
+      reflexivity. }
+    rewrite (step_key_pass l klbl ksrc kinner
+               ltac:(rewrite Hidle, andb_false_r; reflexivity)).
+    specialize (IH Hsafe).
+    destruct (step l kinner) as [bs st'] eqn:Hs.
+    cbn [fst snd] in IH. cbn [key_result].
+    destruct bs as [|b bs'].
+    cbn [app] in IH.
+    + cbn [fst snd]. rewrite !finish_key, IH. reflexivity.
+    + cbn [fst snd]. rewrite finish_key, <- IH.
+      cbn [key_close]. rewrite <- app_comm_cons. reflexivity.
 Qed.
 
 (* A blank line leaves no state a later text line could continue lazily.
@@ -902,7 +921,7 @@ Lemma step_blank_lazy_false :
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH].
+    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH].
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -951,6 +970,17 @@ Proof.
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l pinner) as [bs st'] eqn:Hs.
     destruct bs; cbn [pend_result snd lazy_ok]; exact IH.
+  - (* an open key: the retraction leaves the idle state, and otherwise
+       the key is still there over a state the induction covers *)
+    destruct (is_idle kinner) eqn:Hidle.
+    { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
+      destruct cur; [|discriminate Hidle].
+      rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hblank)).
+      reflexivity. }
+    rewrite (step_key_pass l klbl ksrc kinner
+               ltac:(rewrite Hidle, andb_false_r; reflexivity)).
+    destruct (step l kinner) as [bs st'] eqn:Hs.
+    destruct bs; cbn [key_result snd lazy_ok]; exact IH.
 Qed.
 
 Lemma run_safe_final :

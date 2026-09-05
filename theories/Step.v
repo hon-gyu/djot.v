@@ -84,6 +84,13 @@ Class bconfig : Type := BConfig {
        capability: the other half is `dconfig`'s `dc_footnotes`, and
        `Profile.with_footnotes` is what moves the two together. *)
   bfootnotes : bool
+  ; (* Does a colon on a text line pair a label with the block that
+       follows?  The one setting that is *non-conservative*: every
+       spelling it recognizes is already a valid djot paragraph, so
+       turning it on changes documents that parse today.  That is why it
+       is off in `djot_bconfig` where every other block setting is on.
+       See `.project/keyed-blocks.md`. *)
+  bkeyed : bool
 }.
 
 (*
@@ -123,7 +130,7 @@ Definition setext_underline (c : ascii) (n : nat) : option nat :=
 
 #[export] Instance djot_bconfig : bconfig :=
   BConfig no_interrupt no_underline true true true true true true true
-    true.
+    true false.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -133,48 +140,48 @@ Definition with_marker_interrupts
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
     (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K).
+    (@bfootnotes K) (@bkeyed K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K).
+    (@bfootnotes K) (@bkeyed K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K).
+    (@bfootnotes K) (@bkeyed K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K)
-    (@battrs K) (@bfootnotes K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K).
 
 Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled
-    (@battrs K) (@bfootnotes K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K).
 
 Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) enabled (@bfootnotes K).
+    (@bdeflists K) enabled (@bfootnotes K) (@bkeyed K).
 
 (* Exported, but the profile-level `with_footnotes` is what a caller
    should reach for: a reference the document cannot define, or a
@@ -182,7 +189,13 @@ Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
 Definition with_block_footnotes (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) enabled.
+    (@bdeflists K) (@battrs K) enabled (@bkeyed K).
+
+(* Keys are a mode, not a default: see `bkeyed`. *)
+Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K) (@battrs K) (@bfootnotes K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
    (for example, in `check/Sublist.v`) so inference here always means Djot's.
@@ -197,6 +210,11 @@ Definition sublist_bconfig : bconfig :=
   with_marker_interrupts prose_safe_markers djot_bconfig.
 Definition setext_bconfig : bconfig :=
   with_underline setext_underline djot_bconfig.
+
+(* Keys on, and everything else djot's.  Named here rather than built at
+   each use because it is the configuration the whole of
+   `.project/keyed-blocks.md` is stated against. *)
+Definition keyed_bconfig : bconfig := with_keyed true djot_bconfig.
 
 (* The block half of the Markdown-facing profile.  Apply the field-local
    knobs rather than spelling a record so adding another independent block
@@ -516,7 +534,19 @@ Inductive pstate : Type :=
      when it closes, so they ride along until it emits.  `inner` is idle
      exactly while they are still unclaimed, which is what makes "a blank
      line drops them" a test on `inner` rather than a separate state. *)
-  | PPend (pend : attr) (inner : pstate).
+  | PPend (pend : attr) (inner : pstate)
+  (* An open key: the label's source, the key line as written, and the
+     state its block is being built in.  Like `PDiv` it eats no prefix
+     and shifts no column, so it records none.  Its continuation rule is
+     `PPend`'s rather than `PDiv`'s: a div closes when a line says so, a
+     key closes when the state under it emits a block, which is
+     `key_result` below.
+
+     The line is kept because retraction reproduces it byte for byte:
+     a key that gets no block becomes the paragraph it would have been
+     with the setting off, and nothing is reassembled
+     (`.project/keyed-blocks.md` 3.5, 6). *)
+  | PKey (lbl : string) (src : string) (inner : pstate).
 
 (* Container nesting depth.  Half of the parser's termination measure:
    a quote descent shortens the line, but a list descent hands the line
@@ -535,6 +565,7 @@ Fixpoint pstate_depth (st : pstate) : nat :=
   | PRef _ _ _ | PTable _ _ => 1
   | PFoot _ _ _ inner => S (pstate_depth inner)
   | PPend _ inner => S (pstate_depth inner)
+  | PKey _ _ inner => S (pstate_depth inner)
   end.
 
 (* Is nothing open here?  `PPara []` is the idle state, and the only one:
@@ -648,6 +679,21 @@ Definition ref_block (lbl val : string) : node block := mk (RefDef lbl val).
 Definition foot_block (lbl : string) (bs : blocks) : node block :=
   mk (FootnoteDef lbl bs).
 
+(* What an open key becomes once the state under it has been closed.
+   Both cases are the same fact read two ways: a key claims the *first*
+   block that comes out and nothing after it (section 4), so no block at
+   all is a key that never got one, and that retracts to the paragraph
+   its own line would have been with the setting off (section 6).
+
+   The label's inlines are built here rather than at classification,
+   exactly as a paragraph's are built when the paragraph closes: the
+   scan that found the split kept a byte offset and nothing else. *)
+Definition key_close (lbl src : string) (bs : blocks) : blocks :=
+  match bs with
+  | [] => [mk (Para (para_inlines [src]))]
+  | b :: rest => (mk (Keyed (para_inlines [lbl]) b) :: rest)%list
+  end.
+
 (* A continuation line's contribution: one whitespace-free run, whitespace
    stripped, and nothing else on the line (djot.js block.ts:308-313).  A
    blank line is excluded by `nonempty_str`, which is what closes an open
@@ -696,6 +742,7 @@ Fixpoint finish (st : pstate) : blocks :=
   | PFoot _ lbl done inner =>
       [foot_block lbl (rev done ++ finish inner)%list]
   | PPend pend inner => decorate_head pend (finish inner)
+  | PKey lbl src inner => key_close lbl src (finish inner)
   end.
 
 (* `list_block`'s match, resolved for a bullet.  The uniformity chain
@@ -771,6 +818,9 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PTable _ _ => false        (* nor is a table: a lazy line ends it *)
   | PFoot _ _ _ inner => lazy_ok inner
   | PPend _ inner => lazy_ok inner
+  (* A lazy line continues whatever paragraph the key has open, and
+     continues nothing when the key is still waiting for its block. *)
+  | PKey _ _ inner => lazy_ok inner
   end.
 
 (* djot.js's `this.tip()`: the innermost open container.  Nothing can be
@@ -781,8 +831,10 @@ Fixpoint lazy_ok (st : pstate) : bool :=
 Fixpoint in_fence (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => true
+  (* A key is see-through here, or a `:::` line inside a code block
+     inside a key would close an enclosing div. *)
   | PQuote _ inner | PDiv _ _ _ inner | PList _ _ inner
-  | PFoot _ _ _ inner | PPend _ inner => in_fence inner
+  | PFoot _ _ _ inner | PPend _ inner | PKey _ _ inner => in_fence inner
   | PPara _ | PHeading _ _ | PAttr _ _ _ _ | PRef _ _ _
   | PTable _ _ => false
   end.
@@ -809,6 +861,7 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   | PFoot ind lbl done inner => PFoot ind lbl done (feed_lazy l inner)
   | PAttr _ _ _ _ | PRef _ _ _ | PTable _ _ => st   (* excluded by lazy_ok *)
   | PPend pend inner => PPend pend (feed_lazy l inner)
+  | PKey lbl src inner => PKey lbl src (feed_lazy l inner)
   end.
 
 (* A heading's text, pushed onto its accumulator.  `# ` with nothing
@@ -816,6 +869,57 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
    which is what keeps the accumulator's nonblank invariant. *)
 Definition push_text (rest : string) (cur : list string) : list string :=
   if is_blank rest then cur else drop_leading_ws rest :: cur.
+
+(* A text line's opening, taken on the line already normalized.  Passing
+   the normalized line rather than the raw one is what makes the whole
+   arm blind to a leading pad: `step_fuel_pad` needs a padded line and a
+   shifted offset to be the same descent, and every proof site already
+   rewrites `drop_leading_ws (p ++ l)` to `drop_leading_ws l`.
+
+   The value is inline content and never block syntax (3.3), so it opens
+   a paragraph directly and the key needs neither a column nor a
+   descent; that is what keeps this inside `open_kind` and out of the six
+   kinds `direct_open` excludes.  `push_text` supplies the line-final
+   form, where the value is empty and the block comes from the lines
+   below. *)
+Definition open_text `{bconfig} (t : string) : blocks * pstate :=
+  match (if bkeyed then key_split t else None) with
+  | Some (lbl, v) => ([], PKey lbl t (PPara (push_text v [])))
+  | None => ([], PPara [t])
+  end.
+
+(* Does this line open a paragraph rather than a key?  With the setting
+   off every line does, so this conjunct costs a djot document nothing;
+   with it on it is what a canonical rendering has to keep true of a
+   paragraph's *first* line, since 3.5 says continuation lines are never
+   tested.  That is section 8's rendering obligation, and it is wider
+   than the label: `Para "Note: this matters"` renders as itself and
+   reparses as a key. *)
+Definition keyless `{bconfig} (l : string) : bool :=
+  match (if bkeyed then key_split l else None) with
+  | Some _ => false
+  | None => true
+  end.
+
+Lemma open_text_keyless :
+  forall l,
+    keyless l = true ->
+    open_text (drop_leading_ws l) = ([], PPara [drop_leading_ws l]).
+Proof.
+  intros l H. unfold keyless in H. unfold open_text.
+  rewrite key_split_drop_leading_ws.
+  destruct (if bkeyed then key_split l else None) as [[lbl v]|];
+    [discriminate|reflexivity].
+Qed.
+
+(* And a pad is invisible to it, which is what `step_fuel_pad`'s users
+   need wherever the condition travels. *)
+Lemma keyless_ws_prefix :
+  forall p l, is_blank p = true -> keyless (p ++ l) = keyless l.
+Proof.
+  intros p l Hp. unfold keyless. rewrite (key_split_ws_prefix p l Hp).
+  reflexivity.
+Qed.
 
 (* What a line opens, for every kind but KQuote — a quote has to parse
    the line it encloses, which is the parser's one recursion, so it stays
@@ -831,7 +935,12 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
   | KDiv len cls =>
       if bdivs then ([], PDiv len cls [] (PPara []))
       else ([], PPara [drop_leading_ws l])
-  | KText => ([], PPara [drop_leading_ws l])
+  (* The one place a key can open.  3.5: a line is tested for a split
+     exactly when it would otherwise open a paragraph, which is this arm
+     and no other -- an open paragraph's continuation lines never reach
+     here, and the fallback arms below belong to constructs a setting has
+     switched off rather than to text. *)
+  | KText => open_text (drop_leading_ws l)
   | KQuote _ => ([], PPara [])        (* unreachable: see open_quote *)
   | KList _ _ _ _ => ([], PPara [])     (* unreachable: see open_list *)
   | KAttr _ => ([], PPara [])         (* unreachable: see open_attr *)
@@ -869,6 +978,19 @@ Definition pend_result (pend : attr) (r : blocks * pstate) : blocks * pstate :=
   match bs with
   | [] => ([], PPend pend st')
   | _ => (decorate_head pend bs, st')
+  end.
+
+(* The result of a line handed down through an open key.  `PPend`'s
+   shape and for `PPend`'s reason: nothing emitted means the block the
+   key is waiting for is still open, and the first block emitted is that
+   block.  What differs is only what the key does with it, and that a
+   key with nothing emitted is retracted rather than dropped. *)
+Definition key_result (lbl src : string) (r : blocks * pstate)
+  : blocks * pstate :=
+  let (bs, st') := r in
+  match bs with
+  | [] => ([], PKey lbl src st')
+  | _ => (key_close lbl src bs, st')
   end.
 
 (* A quote prefix opens a fresh quote around whatever its enclosed line
@@ -1008,7 +1130,11 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
   match st with
   | PFence _ _ _ | PDiv _ _ _ _ | PList _ _ _ | PAttr _ _ _ _
   | PFoot _ _ _ _ => true
-  | PPend _ inner => blank_absorbed inner
+  (* A key absorbs nothing of its own: with its block still unopened a
+     blank retracts it, which closes rather than continues, so an
+     enclosing list is armed exactly as `- foo:` / blank / `- bar`
+     needs (6.1). *)
+  | PPend _ inner | PKey _ _ inner => blank_absorbed inner
   | _ => false
   end.
 
@@ -1031,7 +1157,10 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
 Fixpoint div_closer (l : string) (st : pstate) : bool :=
   match st with
   | PDiv len _ _ inner => (negb (in_fence inner) && div_close len l)%bool
-  | PPend _ inner => div_closer l inner
+  (* See-through for the same reason `in_fence` is: the div's closing
+     line is what arms the enclosing list, and a key between the two
+     must not hide it. *)
+  | PPend _ inner | PKey _ _ inner => div_closer l inner
   | _ => false
   end.
 
@@ -1386,6 +1515,19 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               else pend_result pend (step_fuel n' off l inner)
           | _ => pend_result pend (step_fuel n' off l inner)
           end
+      | PKey lbl src inner =>
+          (* One line is the key's own business.  A blank arriving while
+             nothing is open under it ends the key with no block, which
+             is retraction (6.1); the test is `is_idle` and nothing else,
+             because a blank reaches here only when nothing under the key
+             claimed it first, and every container that survives a blank
+             claims it.
+
+             Every other line goes down and is answered by
+             `key_result`. *)
+          if (is_blank l && is_idle inner)%bool
+          then ([mk (Para (para_inlines [src]))], PPara [])
+          else key_result lbl src (step_fuel n' off l inner)
       end
   end.
 
@@ -1442,7 +1584,7 @@ Proof.
   induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
   - (* idle, or an open paragraph *)
     cbn [pstate_depth] in Hn |- *.
     destruct cur as [|c cur'].
@@ -1646,6 +1788,13 @@ Proof.
       rewrite (IH n' _ l pinner) by lia;
       rewrite (IH (String.length l + S (pstate_depth pinner)) _ l pinner) by lia;
       reflexivity.
+  - (* an open key: a blank arriving at an idle inner retracts it and
+       recurses into nothing; every other line descends *)
+    cbn [pstate_depth] in Hn |- *.
+    destruct (is_blank l && is_idle kinner)%bool; [reflexivity|].
+    rewrite (IH n' _ l kinner) by lia.
+    rewrite (IH (String.length l + S (pstate_depth kinner)) _ l kinner) by lia.
+    reflexivity.
 Qed.
 
 Lemma step_fuel_enough :
@@ -1698,6 +1847,7 @@ Fixpoint pad_state (n : nat) (st : pstate) : pstate :=
   | PFoot ind lbl done inner =>
       PFoot (n + ind) lbl done (pad_state n inner)
   | PPend pend inner => PPend pend (pad_state n inner)
+  | PKey lbl src inner => PKey lbl src (pad_state n inner)
   | _ => st
   end.
 
@@ -1713,14 +1863,14 @@ Lemma pad_state_in_fence :
   forall n st, in_fence (pad_state n st) = in_fence st.
 Proof.
   intros n st.
-  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state in_fence]; try reflexivity; exact IH.
 Qed.
 
 Lemma pad_state_depth :
   forall n st, pstate_depth (pad_state n st) = pstate_depth st.
 Proof.
-  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state pstate_depth]; rewrite IH; reflexivity.
 Qed.
 
@@ -1728,14 +1878,14 @@ Qed.
 Lemma pad_state_finish :
   forall n st, finish (pad_state n st) = finish st.
 Proof.
-  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  intros n st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
 Qed.
 
 Lemma pad_state_lazy_ok :
   forall n st, lazy_ok (pad_state n st) = lazy_ok st.
 Proof.
-  intros n st. induction st as [cur| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  intros n st. induction st as [cur| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state lazy_ok]; exact IH.
 Qed.
 
@@ -1743,7 +1893,7 @@ Lemma pad_state_feed_lazy :
   forall n l st, feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
 Proof.
   intros n l st.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state feed_lazy]; try reflexivity; rewrite IH; reflexivity.
 Qed.
 
@@ -1770,9 +1920,10 @@ Lemma div_closer_ws_prefix :
   forall p l st, is_blank p = true -> div_closer (p ++ l) st = div_closer l st.
 Proof.
   intros p l st Hp.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [div_closer]; try reflexivity.
   - rewrite (div_close_ws_prefix p dlen l Hp). reflexivity.
+  - exact IH.
   - exact IH.
 Qed.
 
@@ -1780,9 +1931,10 @@ Lemma pad_state_div_closer :
   forall n l st, div_closer l (pad_state n st) = div_closer l st.
 Proof.
   intros n l st.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state div_closer]; try reflexivity.
   - rewrite pad_state_in_fence. reflexivity.
+  - exact IH.
   - exact IH.
 Qed.
 
@@ -1792,7 +1944,7 @@ Proof.
   intros n st.
   induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
                   |apend aind aap aslices|rind rlbl rval
-                  |find flbl fdone finner IH|trows tcap|ppend pinner IH];
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state blank_absorbed]; exact IH.
 Qed.
 
@@ -1860,6 +2012,17 @@ Proof.
   reflexivity.
 Qed.
 
+(* `open_kind`'s text arm is a case split now (a line that opens a
+   paragraph may open a key instead), and the shift and pad proofs meet
+   it wherever a line opens one.  Neither branch records a column, so
+   both close the same way. *)
+Ltac key_open_cases :=
+  cbn [open_kind]; unfold open_text;
+  match goal with
+  | [ |- context [ if ?b then key_split ?l else None ] ] =>
+      destruct (if b then key_split l else None) as [[? ?]|]
+  end.
+
 (** Moving the whole run `k` columns to the right moves every recorded
     column by `k` and changes nothing else -- not the blocks, not the
     tight/loose flags, not which branch any line takes. *)
@@ -1869,12 +2032,12 @@ Lemma step_fuel_shift :
     = (fst (step_fuel n off l st), pad_state k (snd (step_fuel n off l st))).
 Proof.
   induction n as [|n IH]; intros k off l st; [reflexivity|].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
   (* idle, or an open paragraph *)
   { cbn [pad_state step_fuel open_line].
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
-        try reflexivity;
+        try reflexivity; try (key_open_cases; reflexivity);
         try (cbn [open_fence fst snd pad_state]; rewrite Nat.add_assoc;
              reflexivity).
       { cbn [open_kind fst snd pad_state]. destruct bdivs; reflexivity. }
@@ -1906,7 +2069,7 @@ Proof.
     { destruct (bunderline_of l) as [ulvl|] eqn:Eu;
         [cbn [fst snd pad_state]; reflexivity|].
       destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
-        try reflexivity.
+        try reflexivity; try (key_open_cases; reflexivity).
       destruct (binterrupt (KList m mc chk mr)) eqn:Ei; [|reflexivity].
       rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l (configured_list_rest chk mr))
@@ -1955,7 +2118,8 @@ Proof.
       rewrite Nat.add_assoc. reflexivity. }
     { cbn [close_reopen open_kind fst snd pad_state].
       destruct (@btables K); reflexivity. }
-    { destruct bheading_continues; reflexivity. } }
+    { destruct bheading_continues;
+        [reflexivity|key_open_cases; reflexivity]. } }
   (* fence: the column moves with the offset, and the content lines are
      measured against the difference, which the shift leaves alone *)
   { cbn [pad_state step_fuel open_line]. destruct (fence_close f l); [reflexivity|].
@@ -2009,8 +2173,9 @@ Proof.
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
-      { cbn [close_reopen open_kind fst snd pad_state].
-        rewrite finish_pad_quote. reflexivity. } } }
+      { key_open_cases;
+        cbn [close_reopen open_kind fst snd pad_state];
+        rewrite finish_pad_quote; reflexivity. } } }
   (* div: the close test reads the line, never the offset, and the
      descent passes both through untouched *)
   { cbn [pad_state step_fuel open_line]. rewrite (pad_state_in_fence k dinner).
@@ -2150,8 +2315,9 @@ Proof.
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
-      { cbn [close_reopen open_kind fst snd pad_state].
-        rewrite finish_pad_list. reflexivity. } } }
+      { key_open_cases;
+        cbn [close_reopen open_kind fst snd pad_state];
+        rewrite finish_pad_list; reflexivity. } } }
   (* attribute spec: it records no column, and neither does anything it
      turns into *)
   { cbn [pad_state step_fuel open_line].
@@ -2219,6 +2385,13 @@ Proof.
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [pend_result fst snd pad_state];
       destruct bs; reflexivity. }
+  (* an open key: it records no column either, and both the retraction
+     and the descent are blind to the offset *)
+  { cbn [pad_state step_fuel open_line]. rewrite (pad_state_is_idle k kinner).
+    destruct (is_blank l && is_idle kinner)%bool; [reflexivity|].
+    rewrite (IH k off l kinner).
+    destruct (step_fuel n off l kinner) as [bs st'] eqn:Ed.
+    cbn [key_result fst snd pad_state]. destruct bs; reflexivity. }
 Qed.
 
 (* `step` at a nonzero column.  Descents run here: only the outermost
@@ -2655,6 +2828,46 @@ Proof.
   destruct (Nat.ltb ind (0 + indent_of l)); reflexivity.
 Qed.
 
+(* Stated rather than reduced: proofs that rewrite with it keep `finish`
+   a constant, where `cbn [finish]` leaves a term that no longer matches
+   an induction hypothesis. *)
+Lemma finish_key :
+  forall lbl src inner,
+    finish (PKey lbl src inner) = key_close lbl src (finish inner).
+Proof. reflexivity. Qed.
+
+(*
+Key transitions
+---------------
+
+Two rules and nothing else.  A key records no column, so neither reads
+the offset.
+*)
+
+(* A blank arriving while nothing is open under the key ends it with no
+   block, which is retraction: the key line becomes the paragraph it
+   would have been with the setting off (keyed-blocks 6). *)
+Lemma step_key_retract :
+  forall l lbl src, is_blank l = true ->
+  step l (PKey lbl src (PPara []))
+  = ([mk (Para (para_inlines [src]))], PPara []).
+Proof.
+  intros l lbl src H. unfold step. cbn [step_fuel open_line is_idle].
+  rewrite H. reflexivity.
+Qed.
+
+(* Every other line goes down to the block being built, and `key_result`
+   answers with what comes back. *)
+Lemma step_key_pass :
+  forall l lbl src inner,
+    (is_blank l && is_idle inner)%bool = false ->
+    step l (PKey lbl src inner) = key_result lbl src (step l inner).
+Proof.
+  intros l lbl src inner H. unfold step at 1.
+  cbn [step_fuel pstate_depth]. rewrite H.
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia). reflexivity.
+Qed.
+
 (*
 Table transitions
 -----------------
@@ -2820,8 +3033,8 @@ residue. *)
 Fixpoint fence_cols_ok (off : nat) (st : pstate) : bool :=
   match st with
   | PFence _ ind _ => Nat.leb off ind
-  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner =>
-      fence_cols_ok off inner
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner
+  | PKey _ _ inner => fence_cols_ok off inner
   | _ => true
   end.
 
@@ -2829,7 +3042,7 @@ Fixpoint fence_cols_ok (off : nat) (st : pstate) : bool :=
    free at `step`. *)
 Lemma fence_cols_ok_0 : forall st, fence_cols_ok 0 st = true.
 Proof.
-  induction st as [| | | |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [| | | |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [fence_cols_ok]; try reflexivity; assumption.
 Qed.
 
@@ -2837,7 +3050,7 @@ Lemma fence_cols_ok_pad_state :
   forall k off st, fence_cols_ok (k + off) (pad_state k st) = fence_cols_ok off st.
 Proof.
   intros k off st.
-  induction st as [| |f ind acc| |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [| |f ind acc| |dlen dcls ddone dinner IH|ls done inner IH| | |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state fence_cols_ok]; try reflexivity; try assumption.
   destruct (Nat.leb off ind) eqn:E.
   - apply Nat.leb_le. apply Nat.leb_le in E. lia.
@@ -2851,7 +3064,7 @@ Lemma feed_lazy_ws_prefix :
     is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
 Proof.
   intros p l st Hp.
-  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH];
+  induction st as [cur|lvl cur| |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [feed_lazy];
     try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
     try (rewrite IH; reflexivity).
@@ -2866,6 +3079,7 @@ Fixpoint pad_safe (st : pstate) : bool :=
   | PDiv _ _ _ inner => pad_safe inner
   | PFoot _ _ _ inner => pad_safe inner
   | PPend _ inner => pad_safe inner
+  | PKey _ _ inner => pad_safe inner
   (* PAttr is the whole of the exclusion now, and it is not
      `step_fuel_pad` that wants it: a pad is invisible to a spec, but a
      *blank* line inside an open one is a continuation line rather than a
@@ -2888,8 +3102,8 @@ Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => false
   | PAttr _ _ _ _ => false
-  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner =>
-      blank_safe inner
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner
+  | PKey _ _ inner => blank_safe inner
   | _ => true
   end.
 
@@ -2913,11 +3127,11 @@ Proof.
   assert (Hc : forall rest, String.length rest <= String.length l ->
                  consumed (p ++ l) rest = String.length p + consumed l rest).
   { intros rest Hle. unfold consumed. rewrite length_append. lia. }
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
-        try reflexivity.
+        try reflexivity; try (key_open_cases; reflexivity).
       { (* fence: opens at the column its border sits at *)
         unfold open_fence. rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
@@ -2958,7 +3172,7 @@ Proof.
       reflexivity. } }
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
-      try reflexivity.
+      try reflexivity; try (key_open_cases; reflexivity).
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
       rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
@@ -2996,7 +3210,7 @@ Proof.
     rewrite (drop_ws_upto_ws_prefix p _ l Hp). reflexivity. }
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
-      try reflexivity.
+      try reflexivity; try (key_open_cases; reflexivity).
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
       rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
@@ -3112,6 +3326,12 @@ Proof.
               (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)); reflexivity|]);
       rewrite (IH p off l pinner Hp Hsafe Hcol); reflexivity. }
+  (* an open key: transparent too -- the pad reaches the retraction test
+     only through `is_blank`, which reads through it *)
+  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol.
+    cbn [step_fuel open_line]. rewrite (is_blank_ws_prefix p l Hp).
+    destruct (is_blank l && is_idle kinner)%bool; [reflexivity|].
+    rewrite (IH p off l kinner Hp Hsafe Hcol). reflexivity. }
 Qed.
 
 (** A blank prefix in front of a line is exactly a shift of its starting

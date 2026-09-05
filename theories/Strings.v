@@ -270,6 +270,14 @@ Proof.
   - reflexivity.
 Qed.
 
+Lemma drop_leading_ws_idem :
+  forall s, drop_leading_ws (drop_leading_ws s) = drop_leading_ws s.
+Proof.
+  induction s as [|c s' IH]; [reflexivity|].
+  cbn [drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|].
+  cbn [drop_leading_ws]. rewrite E. reflexivity.
+Qed.
+
 (* An all-whitespace prefix is invisible to drop_leading_ws, is_blank and
    indent_of: they all just keep scanning through it into `l`.  This is
    what lets a list's "  " continuation indent be pushed through the

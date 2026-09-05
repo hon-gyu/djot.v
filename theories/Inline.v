@@ -7262,6 +7262,79 @@ Definition key_split (l : string) : option (string * string) :=
   | None => None
   end.
 
+(* Leading whitespace is dropped before the scan, so a pad is invisible
+   to the whole test.  `step_fuel_pad` is what needs it: a padded line
+   and a shifted offset are the same descent, and a key opened by one
+   has to be the key opened by the other. *)
+Lemma key_point_ws_prefix :
+  forall p l, is_blank p = true -> key_point (p ++ l) = key_point l.
+Proof.
+  intros p l Hp. unfold key_point.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
+
+(* A label is never blank: the split rule asks the byte before the colon
+   not to be whitespace, so the accumulator is headed by that byte.  The
+   invariant is what the recursion has to carry, since the character is
+   `prev` at the split and the head of the accumulator one step later. *)
+Lemma key_scan_label_nonblank :
+  forall s acc prev st r v,
+    (forall c, prev = Some c -> is_ws c = false -> is_blank acc = false) ->
+    key_scan s acc prev st = Some (r, v) -> nonblank r = true.
+Proof.
+  induction s as [|c rest IH]; intros acc prev st r v Hinv H; [discriminate|].
+  cbn [key_scan] in H.
+  destruct (Ascii.eqb c ":"%char && key_before prev && key_after rest
+            && iscan_closed st)%bool eqn:E; [|apply (IH (String c acc) (Some c)
+      (istep c st) r v); [|exact H];
+      intros c0 Hc0 Hws; injection Hc0 as <-;
+      rewrite is_blank_cons, Hws; reflexivity].
+  injection H as <- _.
+  apply andb_true_iff in E as [E _]. apply andb_true_iff in E as [E _].
+  apply andb_true_iff in E as [_ E].
+  unfold key_before in E. destruct prev as [c0|]; [|discriminate].
+  apply negb_true_iff in E.
+  unfold nonblank. rewrite rev_blank, (Hinv c0 eq_refl E). reflexivity.
+Qed.
+
+Lemma key_point_label_nonblank :
+  forall l lbl v, key_point l = Some (lbl, v) -> nonblank lbl = true.
+Proof.
+  intros l lbl v H. unfold key_point in H.
+  refine (key_scan_label_nonblank _ _ _ _ _ _ _ H).
+  intros c Hc. discriminate Hc.
+Qed.
+
+Lemma key_split_label_nonblank :
+  forall l lbl v, key_split l = Some (lbl, v) -> nonblank lbl = true.
+Proof.
+  intros l lbl v H. unfold key_split in H.
+  destruct (key_point l) as [[lbl0 v0]|] eqn:E; [|discriminate].
+  destruct (key_label_ok lbl0); [|discriminate]. injection H as <- <-.
+  exact (key_point_label_nonblank _ _ _ E).
+Qed.
+
+(* The same fact in the form the block layer wants: `open_kind` hands
+   the arm the line already normalized. *)
+Lemma key_point_drop_leading_ws :
+  forall l, key_point (drop_leading_ws l) = key_point l.
+Proof.
+  intros l. unfold key_point. rewrite drop_leading_ws_idem. reflexivity.
+Qed.
+
+Lemma key_split_drop_leading_ws :
+  forall l, key_split (drop_leading_ws l) = key_split l.
+Proof.
+  intros l. unfold key_split. rewrite key_point_drop_leading_ws. reflexivity.
+Qed.
+
+Lemma key_split_ws_prefix :
+  forall p l, is_blank p = true -> key_split (p ++ l) = key_split l.
+Proof.
+  intros p l Hp. unfold key_split. rewrite (key_point_ws_prefix p l Hp).
+  reflexivity.
+Qed.
+
 (* The canonical view's paragraph, laid out the same way. *)
 Fixpoint ci_para (lss : list (list cinline)) : inlines :=
   match lss with
