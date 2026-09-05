@@ -6,10 +6,8 @@ The key connective, pinned
 
 `.project/keyed-blocks.md` defines the construct; this is every rule of
 it that the parser implements, as a closed document apiece.  Sections 3
-and 4, retraction (6), and the first three worked examples (7.1 to 7.3)
-plus the nesting one (7.6).  Section 5 -- claiming a block out of column
--- is not implemented, and the example at the end of this file is what
-the parser does instead.
+to 6, including claiming a block out of column (5), and every worked
+example of section 7.
 
 The split rule itself is pinned line by line beside `Inline.key_split`;
 here the unit is a document, and what is being checked is where the
@@ -30,6 +28,14 @@ Open Scope string_scope.
 
 Local Notation Djot := (@parse_blocks _ djot_bconfig).
 Local Notation Key := (@parse_blocks _ keyed_bconfig).
+
+(* 7.5 is the one worked example that needs a second setting as well as
+   keys: a sublist must be able to interrupt its item's paragraph, which
+   djot does not allow and `sublist_bconfig` does.  Keys neither supply
+   that nor stand in for it, so it is the one document below stated
+   against a composed configuration. *)
+Definition keyed_sublist_bconfig : bconfig := with_keyed true sublist_bconfig.
+Local Notation KeySub := (@parse_blocks _ keyed_sublist_bconfig).
 
 Definition para (s : string) : node block :=
   mk (Para [mk (Str s)]).
@@ -410,6 +416,41 @@ bar
            [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
             [para "baz"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* 7.5, the same discipline two levels deep.  Line 3 passes through both
+   lists that the open key is holding open and reaches the fence.  Line
+   5, at column 2 with the key finished, is content to the outer list
+   and a marker to the inner one, so `baz` is `foo`'s sibling. *)
+Example out_of_column_returns_to_a_nested_list :
+  KeySub "- tt
+  - foo:
+```
+bar
+```
+  - baz"
+  = [mk (BulletList Tight
+           [[para "tt";
+             mk (BulletList Tight
+                   [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))];
+                    [para "baz"]])]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Without the second setting there is no inner list for `foo` to be an
+   item of: line 2 is lazy text of `tt`, so its colon is never tested. *)
+Example a_nested_key_needs_the_sublist_setting :
+  Key "- tt
+  - foo:
+```
+bar
+```
+  - baz"
+  = [mk (BulletList Tight
+           [[mk (Para [mk (Str "tt"); mk SoftBreak; mk (Str "- foo:")])]]);
+     mk (CodeBlock "" "bar
+");
+     mk (BulletList Tight [[para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A thematic break emits immediately, so the same claim closes the key

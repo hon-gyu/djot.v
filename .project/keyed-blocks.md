@@ -15,11 +15,12 @@ split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
 parser produces one, through `Step.bkeyed`, `Step.open_text` and the
-`PKey` state. Sections 3, 4, 5, 6 and the worked examples 7.1, 7.2, 7.3, 7.4
-and 7.6 are pinned as whole documents in `check/Keyed.v` (`make
-keyed`). `out_of_column_is_not_claimed` in that file
-was what the parser did before section 5; `out_of_column_is_claimed`
-is the same document now. `Render.CKey` gives keys a canonical
+`PKey` state. Sections 3, 4, 5, 6 and every worked example of section 7 are
+pinned as whole documents in `check/Keyed.v` (`make keyed`); 7.5 is
+stated against `keyed_sublist_bconfig`, since it needs the sublist
+setting as well as keys. `out_of_column_needs_the_setting` in that
+file is what the parser does with keys off, and
+`out_of_column_is_claimed` is the same document with them on. `Render.CKey` gives keys a canonical
 two-line spelling and the existing `roundtrip_blocks` theorem covers
 them. `make keyed` checks the worked documents and a separate extracted
 keyed pool; no external parser provides an oracle for that pool.
