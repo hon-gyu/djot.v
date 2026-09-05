@@ -5,10 +5,12 @@ ai-disclosure: ai-generated
 
 Status: **implemented**. 9.1 is closed: the split test was wrong for a
 delimiter run against the colon, and `iscan_settled` is the repair.
-Section 5 is in, for fenced code and raw blocks; a fenced div is the
-one block 5.2 admits that a key cannot yet claim, and 9.2 says why. 9.3
-settles the HTML shape as a one-term description list carrying the
-`keyed` class. `Inline.key_split` is the
+Section 5 is in for every block it admits: fenced code and raw blocks,
+fenced divs, and thematic breaks. `claimable` handles their opening
+lines; `announces_end` keeps a fence or div claimed until its closer.
+9.2 records the blank-safety refinement the div required. 9.3 settles
+the HTML shape as a one-term description list carrying the `keyed`
+class. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
@@ -991,7 +993,7 @@ hypothesis through four lemmas in the item chain, and two inductions
 about the state a blank leaves behind. 9.2 has the table and the one
 state that had to be excluded to make the second induction true.
 
-## 9. Open questions
+## 9. Questions resolved during implementation
 
 ### 9.1 Is "nothing open" enough, on every construct?
 
@@ -1046,7 +1048,7 @@ already settled and counted.
 
 ### 9.2 The cost of claiming out of column
 
-Paid, for fences. What is left is the fenced div.
+Paid, for fences, thematic breaks and fenced divs.
 
 The estimate that mattered was not the one this section first made. Two
 things it got wrong, both found by building the change:
@@ -1080,14 +1082,15 @@ What it cost, in the end:
 | `ListUniformity.v` | one hypothesis through four lemmas, and two new inductions |
 
 The two inductions are the discharge. `step_blank_key_claims` says no
-key is left able to claim after a blank, which is what
-`parse_list_close` and the item chain need and what `blank_safe`
-already gives them; `step_blank_inner_settled` is what its `PKey` case
-needs, that a block which produced nothing on a blank kept its
-container. `parse_list_close`'s *statement* did not change: the
-override is ruled out inside the proof. Where the arriving line is a
-sibling marker the discharge is simpler still -- a marker opens no
-announced-end block, so `key_claims_not_claimable` settles it.
+key admitted by `blank_safe` is left able to claim after a blank, which
+is what `parse_list_close` and the item chain need.
+`step_blank_inner_settled` is what its `PKey` case needs: a block which
+produced nothing on a blank kept its container and, unless it already
+held an announced-end block, did not acquire one. `parse_list_close`'s
+*statement* did not change: the override is ruled out inside the proof.
+Where the arriving line is a sibling marker the discharge is simpler
+still -- a marker opens no announced-end block, so
+`key_claims_not_claimable` settles it.
 
 **One state had to be excluded to make that true.** `blank_safe`'s
 `PPend` arm now also asks that what is under the pending attribute is
@@ -1098,17 +1101,24 @@ says retracts it. No run produces the shape: the line that settles an
 attribute is also the line that starts the block it decorates. The
 sweeps are unchanged, which is the evidence that no document was lost.
 
-**The fenced div is deferred.** 5.2 admits it and `announces_end` does
-not, because `blank_safe` is false on an open fence and reads straight
-through an open div. That asymmetry is the whole difference: with
-fences, `blank_safe st = true` already rules the override out, and with
-divs it does not. `- foo:` / `  :::` / blank / `next` reaches
-`parse_list_close` with the key still holding the div open, and today
-the list closes while the override would give `next` to the div. Paying
-for it means `blank_safe`'s `PKey` arm asking `announces_end` itself,
-and then `step_blank_inner_settled` needs a blank not to leave a div on
-top -- a second family of cases, not a wider quantifier on the ones
-above.
+**The thematic break is the direct case.** `claimable KThematic` hands
+the line to a waiting key, and the block it emits closes the key in that
+same step. There is no live state and therefore no blank-line
+obligation.
+
+**The fenced div is in, and the old falsifier chose the boundary.** A
+plain `PDiv` remains `blank_safe`: a blank advances its contents while
+the div stays open, and the ordinary finish equation still holds. A
+`PKey` holding that div is different, because it still owns every line
+through the closing `:::`. Its `blank_safe` arm now additionally rejects
+an `announces_end` child. `step_blank_inner_settled` carries the matching
+precondition, so the list-close proof excludes only the transient keyed
+state rather than excluding divs generally.
+
+`div_out_of_column_is_claimed` pins the whole transition: text after a
+blank remains inside the keyed div, its closing fence arms the outer
+list's loose flag, and the following marker resumes that same list.
+`key_over_div_is_not_blank_safe` pins the proof boundary directly.
 
 ### 9.3 How a keyed node renders
 

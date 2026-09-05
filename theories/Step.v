@@ -1146,13 +1146,17 @@ can only be open once the line has been taken, which is what the test
 decides.
 *)
 
-(* A fenced div belongs here too by 5.2 and is deferred; 9.2 has the
-   obligation that stops it. *)
 Definition announces_end (st : pstate) : bool :=
-  match st with PFence _ _ _ => true | _ => false end.
+  match st with
+  | PFence _ _ _ | PDiv _ _ _ _ => true
+  | _ => false
+  end.
 
 Definition claimable (k : line_kind) : bool :=
-  match k with KFence _ => true | _ => false end.
+  match k with
+  | KThematic | KFence _ | KDiv _ _ => true
+  | _ => false
+  end.
 
 Fixpoint key_claims (l : string) (st : pstate) : bool :=
   match st with
@@ -3208,8 +3212,12 @@ Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => false
   | PAttr _ _ _ _ => false
-  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner
-  | PKey _ _ inner => blank_safe inner
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner => blank_safe inner
+  (* A div remains open across a blank.  That is safe for the ordinary
+     finish equation, but not while a key is using the div to hold an
+     enclosing container open: the key still owns the next line until
+     the div's closing fence. *)
+  | PKey _ _ inner => (blank_safe inner && negb (announces_end inner))%bool
   (* A settled attribute with nothing under it yet: a blank drops it, so
      the state is closed in this predicate's own sense, but the drop
      leaves an *idle* state behind, and a key above would then still be
@@ -3223,9 +3231,9 @@ Fixpoint blank_safe (st : pstate) : bool :=
 
 (* Two ways the override is ruled out.  A line that opens no
    announced-end block cannot be claimed by a key that is still waiting,
-   and `blank_safe` is false on an open fence, so a key that is holding
-   one is not in this state either.  Together they discharge the
-   override wherever the arriving line is a marker. *)
+   and the `PKey` arm of `blank_safe` excludes a key that is already
+   holding one.  Together they discharge the override wherever the
+   arriving line is a marker. *)
 Lemma key_claims_not_claimable :
   forall l st, claimable (classify l) = false -> blank_safe st = true ->
     key_claims l st = false.
@@ -3237,8 +3245,9 @@ Proof.
     cbn [blank_safe key_claims]; try reflexivity; try discriminate;
     try (intro H; exact (IH H)).
   - intro H. apply andb_true_iff in H as [H _]. exact (IH H).
-  - intro H. destruct (is_idle kinner); [exact Hcl|].
-    destruct kinner; reflexivity || discriminate H.
+  - intro H. apply andb_true_iff in H as [_ Hnot].
+    destruct (is_idle kinner); [exact Hcl|].
+    apply negb_true_iff in Hnot. exact Hnot.
 Qed.
 
 Lemma fence_cols_ok_pad :

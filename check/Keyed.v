@@ -394,7 +394,7 @@ Proof. vm_compute. reflexivity. Qed.
 Claiming a block out of column
 ------------------------------
 
-Section 5, and the two worked examples that turn on it.  Line 2 sits at
+Section 5, and the worked examples that turn on it.  Line 2 sits at
 the marker's own column, so ordinarily the list ends there; the open key
 holds it open and takes the fence, and the fence's closing line ends the
 key, which ends the override.  Line 5 is then a marker the list sees.
@@ -409,6 +409,17 @@ bar
   = [mk (BulletList Tight
            [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
+            [para "baz"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A thematic break emits immediately, so the same claim closes the key
+   in the step that opens it; there is no live announced-end state. *)
+Example thematic_out_of_column_is_claimed :
+  Key "- foo:
+* * * *
+- baz"
+  = [mk (BulletList Tight
+           [[mk (Keyed [mk (Str "foo")] (mk ThematicBreak))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -475,21 +486,25 @@ Example out_of_column_tree_is_reachable :
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The falsifier section 5 has to pay for, from 9.2's census.
-   `blank_safe` is false on an open fence but reads through an open div,
-   so this document reaches `parse_list_close` with a key still holding
-   the div open.  Today the list closes and `next` is its sibling; with
-   the override the div claims `next` and the lemma is false. *)
-Example key_over_div_does_not_claim :
+(* A div survives a blank and keeps the claim until its own closing
+   fence.  The blank belongs to the div, while the closing fence arms
+   the enclosing list's loose flag before the following marker resumes
+   that same list. *)
+Example div_out_of_column_is_claimed :
   Key "- foo:
   :::
 
-next"
-  = [mk (BulletList Tight [[mk (Keyed [mk (Str "foo")] (mk (Div [])))]]);
-     para "next"].
+next
+:::
+- baz"
+  = [mk (BulletList Loose
+           [[mk (Keyed [mk (Str "foo")] (mk (Div [para "next"])))];
+            [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
-Example key_over_div_survives_a_blank :
+(* The ordinary div remains blank-safe, but a key holding it is not:
+   after the blank the key still owns lines through the div closer. *)
+Example key_over_div_is_not_blank_safe :
   blank_safe (match snd (@run_lines _ keyed_bconfig ["- foo:"; "  :::"] (PPara []))
-              with PList _ _ inner => inner | st => st end) = true.
+              with PList _ _ inner => inner | st => st end) = false.
 Proof. vm_compute. reflexivity. Qed.

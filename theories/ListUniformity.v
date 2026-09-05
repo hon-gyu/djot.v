@@ -443,7 +443,8 @@ Lemma blank_safe_pad_state :
 Proof.
   intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state blank_safe]; try reflexivity; try exact IH.
-  rewrite IH, pad_state_is_idle. reflexivity.
+  - rewrite IH, pad_state_is_idle. reflexivity.
+  - rewrite IH, pad_state_announces_end. reflexivity.
 Qed.
 
 (* The fence side condition `step_pad` asks for is free here: `pad_state`
@@ -903,6 +904,7 @@ Proof.
        what `finish` would have done; otherwise the blank closes what is
        under it and `key_close` wraps the first block either way *)
     cbn [blank_safe] in Hsafe.
+    apply andb_true_iff in Hsafe as [Hsafe _].
     destruct (is_idle kinner) eqn:Hidle.
     { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [|discriminate Hidle].
@@ -923,25 +925,28 @@ Qed.
 (* A blank line leaves no state a later text line could continue lazily.
    `step_list_close` needs this to route the line that closes a list. *)
 (* Section 5's discharge.  A blank retracts a key that is still waiting
-   and closes one whose block has produced something, and `blank_safe`
-   is false on an open fence, so no key is left able to claim any line
-   after a blank.  This is what lets `parse_list_close` and the item
-   chain rule the override out from the hypothesis they already carry.
-   Probed over the keyed pool in `check/Probe.v` before being proved. *)
+   and closes one whose block has produced something.  When a key holds
+   a fence or div instead, its own `blank_safe` clause is false until the
+   announced closer arrives.  Thus a safe blank leaves no key able to
+   claim the next line.  This is what lets `parse_list_close` and the
+   item chain rule the override out from the hypothesis they already
+   carry.  Probed over the keyed pool in `check/Probe.v` before being
+   proved. *)
 (* What a key's block looks like after a blank, when the block produced
-   nothing and so the key is still open.  Neither half can hold: a state
-   that emitted nothing on a blank kept its container, so it is not idle,
-   and a blank opens no fence. *)
+   nothing and so the key is still open.  A state that emitted nothing
+   kept its container, so it is not idle; when it did not already hold
+   an announced-end block, a blank cannot create one. *)
 Lemma step_blank_inner_settled :
   forall l st, classify l = KBlank -> blank_safe st = true ->
-    is_idle st = false -> fst (step l st) = [] ->
+    announces_end st = false -> is_idle st = false -> fst (step l st) = [] ->
     (is_idle (snd (step l st)) = false
      /\ announces_end (snd (step l st)) = false).
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
     |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
-    intros Hsafe Hidle Hempty; try discriminate Hsafe.
+    intros Hsafe Hannounce Hidle Hempty;
+    try discriminate Hsafe; try discriminate Hannounce.
   all: try (destruct cur as [|c cur']; [discriminate Hidle|];
             rewrite (step_para_flush l c cur' Hblank) in Hempty; discriminate Hempty).
   all: try (rewrite (step_quote_close l KBlank done inner [] (PPara [])
@@ -974,7 +979,7 @@ Proof.
     destruct bs as [|b bs'];
     [split; reflexivity
     |destruct b; cbn [pend_result fst snd decorate_head] in Hempty; discriminate Hempty]. }
-  cbn [blank_safe] in Hsafe.
+  cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe _].
   destruct (is_idle kinner) eqn:Hki.
   { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hki.
     destruct cur; [|discriminate Hki].
@@ -982,8 +987,7 @@ Proof.
     cbn [fst] in Hempty. discriminate Hempty. }
   rewrite (step_key_pass l klbl ksrc kinner
              ltac:(rewrite Hki, andb_false_r; reflexivity)) in Hempty |- *.
-  specialize (IH Hsafe eq_refl).
-  destruct (step l kinner) as [bs st'] eqn:Hs. cbn [fst snd] in IH, Hempty |- *.
+  destruct (step l kinner) as [bs st'] eqn:Hs. cbn [fst snd] in Hempty |- *.
   destruct bs as [|b bs']; cbn [key_result fst snd] in Hempty |- *;
     [split; reflexivity|discriminate Hempty].
 Qed.
@@ -1036,6 +1040,8 @@ Proof.
     destruct bs as [|b bs']; cbn [pend_result snd key_claims];
       [exact IH|destruct b; cbn [snd]; exact IH].
   - cbn [blank_safe] in Hsafe.
+    apply andb_true_iff in Hsafe as [Hsafe Hnot].
+    apply negb_true_iff in Hnot.
     destruct (is_idle kinner) eqn:Hki.
     { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hki.
       destruct cur; [|discriminate Hki].
@@ -1043,7 +1049,7 @@ Proof.
       reflexivity. }
     rewrite (step_key_pass l klbl ksrc kinner
                ltac:(rewrite Hki, andb_false_r; reflexivity)).
-    pose proof (step_blank_inner_settled l kinner Hblank Hsafe Hki) as Hset.
+    pose proof (step_blank_inner_settled l kinner Hblank Hsafe Hnot Hki) as Hset.
     specialize (IH Hsafe next).
     destruct (step l kinner) as [bs st'] eqn:Hs. cbn [snd] in IH, Hset.
     destruct bs as [|b bs']; cbn [key_result snd key_claims];
@@ -1731,9 +1737,9 @@ Proof.
     rewrite Hb in H. cbn [snd] in H. exact H. }
   (* The override has to be ruled out as well as the column.  The blank
      is what rules it out: it retracts a key that was still waiting and
-     closes one whose block produced something, and `blank_safe` is
-     false on an open fence, so nothing the item still holds can claim
-     `next` (5). *)
+     closes one whose block produced something.  A key still holding a
+     fence or div is itself not `blank_safe`, so nothing admitted by this
+     theorem can claim `next` (5). *)
   assert (Hkc : key_claims next inner' = false).
   { pose proof (step_blank_key_claims EmptyString inner
                   (classify_blank EmptyString eq_refl) Hpad next) as H.
