@@ -445,6 +445,7 @@ Fixpoint cb_dests (cb : cblock) : list string :=
   | CRef _ dest => [dest]
   | CTable rows => flat_map ctrow_dests rows
   | CId _ inner => cb_dests inner
+  | CKey label inner => (ci_dests label ++ cb_dests inner)%list
   | _ => []
   end.
 
@@ -458,6 +459,7 @@ Fixpoint cb_map_dest (f : string -> string) (cb : cblock) : cblock :=
   | CRef label dest => CRef label (f dest)
   | CTable rows => CTable (map (ctrow_map_dest f) rows)
   | CId i inner => CId i (cb_map_dest f inner)
+  | CKey label inner => CKey (ci_map_dest f label) (cb_map_dest f inner)
   | cb => cb
   end.
 
@@ -499,7 +501,7 @@ Proof.
             (fun items => flat_map (flat_map cb_dests)
                             (map (map (cb_map_dest f)) items)
                           = map f (flat_map (flat_map cb_dests) items))
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     try reflexivity.
   - intros ls. apply css_dests_map.
   - intros lvl ls. apply css_dests_map.
@@ -510,6 +512,8 @@ Proof.
     induction rows as [|r rows IH]; [reflexivity|].
     cbn [map flat_map]. rewrite map_app, ctrow_dests_map, IH. reflexivity.
   - intros i inner IH. exact IH.
+  - intros label inner IH. cbn [cb_dests cb_map_dest].
+    rewrite map_app, ci_dests_map, IH. reflexivity.
   - intros c rest IHc IHrest. cbn [map flat_map].
     rewrite map_app, IHc, IHrest. reflexivity.
   - intros item items IHitem IHitems. cbn [map flat_map].
@@ -821,7 +825,7 @@ Proof.
                 -> map (cb_map_dest f) cbs = cbs)
     (fun items => (forall s, In s (flat_map (flat_map cb_dests) items) -> f s = s)
                   -> map (map (cb_map_dest f)) items = items)
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
   - intros ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros lvl ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
@@ -834,6 +838,10 @@ Proof.
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
   - intros i inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros label inner IH H. cbn [cb_map_dest cb_dests] in *.
+    rewrite ci_map_dest_id, IH; [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
   - intros c rest IHc IHrest H. cbn [map flat_map] in *.
     rewrite IHc, IHrest; [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.

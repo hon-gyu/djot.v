@@ -118,6 +118,25 @@ Definition rt_lhs (c : cblock) : blocks :=
 
 Definition rt_rhs (c : cblock) : blocks := blocks_of_cblocks [c].
 
+(* Keys have no differential oracle.  Keep their pool separate so the
+   djot.js corpus stays meaningful, and exercise both sides of nesting:
+   a key over each ordinary child, and containers over each key. *)
+Definition keyed_pool (d : nat) : list cblock :=
+  flat_map (fun label =>
+    flat_map (fun child =>
+      let key := CKey label child in
+      [key; CKey (CIStr "outer") key; CQuote [key]; CDiv [key];
+       CList LKBullet Tight [[key]]; CId "key" key])
+      (enum_cblock d))
+    [CIStr "Note: this"; CIVerb "code";
+     CIDelim DStrong [CIStr "strong"]; CILink false [CIStr "see"] "note"].
+
+Definition keyed_accepted (d : nat) : list cblock :=
+  filter (@cb_ok _ keyed_bconfig) (keyed_pool d).
+
+Definition keyed_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks _ keyed_bconfig (render_djot (blocks_of_cblocks [c])).
+
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.
 

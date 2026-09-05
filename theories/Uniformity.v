@@ -1106,6 +1106,98 @@ Proof.
   apply parse_lines_pend, Hready.
 Qed.
 
+(* A key passes every line that pending attributes can pass.  Reusing
+   that invariant lets a completed child prefix admit any suffix. *)
+Lemma pend_ready_key_pass :
+  forall st l, pend_ready st l = true ->
+    (is_blank l && is_idle st)%bool = false.
+Proof.
+  intros [cur| | | | | | | | | | |] l H;
+    cbn [is_idle]; try apply andb_false_r.
+  destruct cur; [|apply andb_false_r]. rewrite andb_true_r.
+  destruct (is_blank l) eqn:E; [|reflexivity].
+  cbn [pend_ready] in H. rewrite (classify_blank l E) in H. discriminate.
+Qed.
+
+(* Pending attributes around a live child are safe too: the key wraps
+   the attributed node after the pending wrapper has decorated it. *)
+Definition key_carriable (st : pstate) : bool :=
+  match st with
+  | PPend _ inner => pend_carriable inner
+  | _ => pend_carriable st
+  end.
+
+Lemma key_carriable_pass :
+  forall st l, key_carriable st = true ->
+    (is_blank l && is_idle st)%bool = false.
+Proof.
+  intros st l H. destruct st; try apply andb_false_r.
+  apply pend_ready_key_pass, pend_carriable_ready, H.
+Qed.
+
+Lemma step_empty_key_carriable :
+  forall l st, key_carriable st = true -> fst (step l st) = [] ->
+    key_carriable (snd (step l st)) = true.
+Proof.
+  intros l st H Hempty.
+  assert (Hp : forall st, pend_carriable st = true -> key_carriable st = true).
+  { intros st0 H0. destruct st0; try exact H0. discriminate H0. }
+  destruct st as [cur|lvl cur|f fnd acc|done inner|dlen dcls ddone dinner
+                 |ls ldone linner|apend aind aap aslices|rind rlbl rval
+                 |find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner];
+    try (apply Hp, (step_empty_carriable l _ (pend_carriable_ready _ l H)), Hempty).
+  cbn [key_carriable] in H.
+  pose proof (pend_carriable_ready pinner l H) as Hr.
+  rewrite (step_pend_pass l ppend pinner Hr) in Hempty |- *.
+  destruct (step l pinner) as [bs st'] eqn:E. destruct bs as [|b bs].
+  - cbn [pend_result snd key_carriable].
+    pose proof (step_empty_carriable l pinner Hr) as Hc.
+    rewrite E in Hc. exact (Hc eq_refl).
+  - destruct b as [p a x]. destruct x; discriminate Hempty.
+Qed.
+
+Lemma parse_lines_key_carriable :
+  forall ls lbl src st, key_carriable st = true ->
+    parse_lines ls (PKey lbl src st) = key_close lbl src (parse_lines ls st).
+Proof.
+  induction ls as [|l rest IH]; intros lbl src st H; [reflexivity|].
+  cbn [parse_lines].
+  rewrite (step_key_pass l lbl src st (key_carriable_pass st l H)).
+  destruct (step l st) as [bs st'] eqn:E. cbn [key_result].
+  destruct bs as [|b bs].
+  - cbn [app]. apply IH.
+    pose proof (step_empty_key_carriable l st H) as Hc.
+    rewrite E in Hc. exact (Hc eq_refl).
+  - reflexivity.
+Qed.
+
+(* Until the first emission, no blank may retract the key.  If the
+   prefix emits nothing, its final state must carry the wrapper through
+   any suffix.  In particular, a complete attribute line alone fails,
+   while that line followed by its child can pass. *)
+Fixpoint key_content_ok (ls : list string) (st : pstate) : bool :=
+  match ls with
+  | [] => key_carriable st
+  | l :: rest =>
+      negb (is_blank l && is_idle st) &&
+      let '(bs, st') := step l st in
+      match bs with [] => key_content_ok rest st' | _ => true end
+  end.
+
+Lemma parse_lines_key_content :
+  forall ls tail lbl src st, key_content_ok ls st = true ->
+    parse_lines (ls ++ tail) (PKey lbl src st)
+    = key_close lbl src (parse_lines (ls ++ tail) st).
+Proof.
+  induction ls as [|l rest IH]; intros tail lbl src st H.
+  - apply parse_lines_key_carriable, H.
+  - cbn [key_content_ok] in H. apply andb_true_iff in H as [Hr H].
+    apply negb_true_iff in Hr. cbn [app parse_lines].
+    rewrite (step_key_pass l lbl src st Hr).
+    destruct (step l st) as [bs st'] eqn:E. cbn [key_result] in *.
+    destruct bs as [|b bs]; [cbn [app]; apply IH, H|reflexivity].
+Qed.
+
 End WithTable.
 
 Example div_indented_close_differs :

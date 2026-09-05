@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Extraction prelude: produces core.ml for the harness executable.
    ExtrOcamlNativeString maps Gallina strings to native OCaml strings, so
    the harness needs no conversion glue. *)
@@ -52,4 +54,5 @@ Definition generated : list string :=
    statement `gen_roundtrip_1` and `gen_roundtrip_2` prove rather than a
    restatement of it. *)
 Extraction Language OCaml.
-Extraction "core.ml" convert generated accepted rt_lhs rt_rhs render_cb.
+Extraction "core.ml" convert generated accepted rt_lhs rt_rhs render_cb
+  keyed_accepted keyed_rt_lhs.

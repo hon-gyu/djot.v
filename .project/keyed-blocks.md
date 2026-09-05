@@ -12,9 +12,11 @@ parser produces one, through `Step.bkeyed`, `Step.open_text` and the
 and 7.6 are pinned as whole documents in `check/Keyed.v` (`make
 keyed`). Section 5 -- claiming a block out of column -- is not
 implemented and 9.2 is why; `out_of_column_is_not_claimed` in that file
-is what the parser does instead. What is left besides 5 is the
-canonical spelling in `Render.v`, so no keyed document is in the
-roundtrip fragment yet. This file stands on its own: it is the
+is what the parser does instead. `Render.CKey` gives keys a canonical
+two-line spelling and the existing `roundtrip_blocks` theorem covers
+them. `make keyed` checks the worked documents and a separate extracted
+keyed pool; no external parser provides an oracle for that pool.
+This file stands on its own: it is the
 definition of the construct, not a staging area, and it stays here once
 the construct exists.
 
@@ -939,8 +941,22 @@ escapes on continuation lines and with keys off decode to the same
 text. `check/Keyed.v` pins acceptance and roundtrip for literal-colon
 paragraphs at top level, inside quotes and lists, and under an explicit
 id; it also pins an escaped label followed by the real connective.
-The `CKey` wrapper and its rendering/roundtrip arms remain the next
-increment.
+`CKey` carries one `cinline` and one child block. Its label check asks
+that the rendered line classify as text, split at the appended colon,
+and retain the label's trailing whitespace when parsed. Empty labels,
+trailing whitespace, and spellings that take precedence as another
+block (for example a footnote reference followed by a colon) are outside
+the canonical fragment.
+
+**One more obligation than `CId`.** A blank while the key waits for a
+child retracts it. `key_content_ok` checks the child's prefix until its
+first emission, or until the prefix ends in a state that can carry the
+key through any suffix. It admits pending attributes around a live
+child, so both `CKey label (CId id child)` and `CId id (CKey label child)`
+round-trip. The proof reuses the pending-attribute preservation lemma;
+no existing theorem statement gains a hypothesis. Destination traversal
+visits both the label and the child, and explicit-id collection visits
+the child. List and table endings remain visible through the wrapper.
 
 **The oracle stops covering this.** djot.js has no keyed construct, so
 every keyed document is a divergence by construction and the

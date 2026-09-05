@@ -67,12 +67,13 @@ deep: build
 # the keyed-block construct, pinned as whole documents against
 # `keyed_bconfig`.  Out of the dune build for check/Markdown.v's reason:
 # `vm_compute` over documents is not something a parser edit should pay
-# for.  Run it when `key_split`, `open_text` or the `PKey` transitions
-# change.
+# for.  Run it when key recognition, transitions, or canonical rendering
+# change.  The extracted sweep covers keyed children and containers.
 keyed: build
 	rocq c -R _build/default/theories DjotV check/Keyed.v
 	@rm -f check/Keyed.vo check/Keyed.vok check/Keyed.vos check/Keyed.glob \
 	       check/.Keyed.aux
+	dune exec harness/main.exe -- --keyed-roundtrip 1
 
 # falsify a candidate lemma before proving it: add a `Compute` to
 # check/Probe.v and run this.  ~0.5s.  Out of the dune build because

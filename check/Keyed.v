@@ -287,6 +287,63 @@ Example escaped_colon_label :
     = [mk (Keyed [mk (Str "Note: this")] (para "value: text"))].
 Proof. split; vm_compute; reflexivity. Qed.
 
+(* Canonical keys retain both wrapper orders, nest, and leave the
+   child's list/table boundary conditions visible to its next sibling. *)
+Definition canonical_key_documents : list (list cblock) :=
+  let key := CKey (CIStr "Note: this") in
+  let p := cpara ["value: text"] in
+  let l := CList LKBullet Tight [[p]] in
+  let t := CTable [CTBody [[CIStr "cell"]]] in
+  [[key p]; [key (CId "child" p)]; [CId "key" (key p)];
+   [key (key p)]; [key (CCode "" ["code"])]; [key (CDiv [])];
+   [CQuote [key p]]; [CDiv [key p]]; [CList LKBullet Tight [[key p]]];
+   [key l; p]; [key l; key l]; [key t; p]; [key p; key p];
+   [CKey (CIVerb "code") p];
+   [CKey (CIDelim DStrong [CIStr "strong"]) p];
+   [CKey (CILink false [CIStr "see"] "note") p];
+   [CKey (CIRef false [CIStr "see"] "ref") p]].
+
+Example canonical_key_documents_accepted :
+  forallb (@cblocks_ok _ keyed_bconfig) canonical_key_documents = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example canonical_key_documents_roundtrip :
+  forall cbs, In cbs canonical_key_documents ->
+    Key (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof.
+  intros cbs Hin. apply roundtrip_blocks.
+  pose proof canonical_key_documents_accepted as H.
+  rewrite forallb_forall in H. exact (H cbs Hin).
+Qed.
+
+Example canonical_key_source :
+  render_djot [cb_ast (CKey (CIStr "Note: this") (CId "child" (cpara ["value: text"])))]
+    = "Note\: this:" ++ nl ++ "{#child}" ++ nl ++ "value\: text".
+Proof. reflexivity. Qed.
+
+Example canonical_key_exclusions :
+  let p := cpara ["value"] in
+  (@cb_ok _ djot_bconfig (CKey (CIStr "key") p),
+   @cb_ok _ keyed_bconfig (CKey (CIStr "") p),
+   @cb_ok _ keyed_bconfig (CKey (CIStr "trailing ") p),
+   @cb_ok _ keyed_bconfig (CKey (CINote "note") p))
+    = (false, false, false, false).
+Proof. vm_compute. reflexivity. Qed.
+
+Example keyed_list_boundary :
+  let l := CList LKBullet Tight [[cpara ["a"]]] in
+  @cblocks_ok _ keyed_bconfig [CKey (CIStr "key") l; l] = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* A blank before a child retracts; an unfinished attribute prefix has
+   no child to promise to the key.  Neither may pass the prefix check. *)
+Example key_content_requires_a_child :
+  (@key_content_ok _ keyed_bconfig [""] (PPara []),
+   @key_content_ok _ keyed_bconfig ["{#i}"] (PPara []),
+   @key_content_ok _ keyed_bconfig ["{#i}"; "value"] (PPara []))
+    = (false, false, true).
+Proof. vm_compute. reflexivity. Qed.
+
 (*
 Section 5 is not implemented
 ----------------------------

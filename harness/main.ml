@@ -6,7 +6,7 @@
 
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
-          [--shape] [--roundtrip [DEPTH]] [--report FILE] [--verbose]
+          [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]] [--report FILE] [--verbose]
           [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
@@ -335,31 +335,39 @@ line when the fragment legitimately grows, exactly as before. *)
 
 let expected_counts = [ (1, 278); (2, 3470); (3, 41186) ]
 
+(* Same witness for the keyed pool, which no oracle covers: the only
+   evidence a key generator still reaches keys is the count. *)
+let keyed_expected_counts = [ (1, 6224); (2, 76568) ]
+
 let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
 
-let run_roundtrip depth rbuf verbose =
+let run_roundtrip ~keyed depth rbuf verbose =
   let out fmt =
     Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
   in
   let t0 = Unix.gettimeofday () in
-  let docs = Core.accepted (nat_of_int depth) in
+  let accepted, lhs, counts =
+    if keyed then Core.keyed_accepted, Core.keyed_rt_lhs, keyed_expected_counts
+    else Core.accepted, Core.rt_lhs, expected_counts
+  in
+  let docs = accepted (nat_of_int depth) in
   let t1 = Unix.gettimeofday () in
   let total = ref 0 and bad = ref 0 in
   List.iter
     (fun c ->
       incr total;
-      if Core.rt_lhs c <> Core.rt_rhs c then begin
+      if lhs c <> Core.rt_rhs c then begin
         incr bad;
         if !verbose || !bad <= 5 then
           out "\n--- roundtrip mismatch %d\n%s\n" !bad (Core.render_cb c)
       end)
     docs;
   let t2 = Unix.gettimeofday () in
-  out "\n== roundtrip: depth %d, %d documents, %.2fs enumerate, %.2fs check ==\n"
-    depth !total (t1 -. t0) (t2 -. t1);
+  out "\n== %sroundtrip: depth %d, %d documents, %.2fs enumerate, %.2fs check ==\n"
+    (if keyed then "keyed " else "") depth !total (t1 -. t0) (t2 -. t1);
   out "parse (render d) = d   ok %6d   mismatch %4d\n" (!total - !bad) !bad;
   let count_ok =
-    match List.assoc_opt depth expected_counts with
+    match List.assoc_opt depth counts with
     | None -> out "(no pinned count for depth %d)\n" depth; true
     | Some n when n = !total -> true
     | Some n ->
@@ -384,6 +392,7 @@ let () =
   let baseline = ref false in
   let generated = ref false in
   let roundtrip = ref None in
+  let keyed_roundtrip = ref false in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -399,6 +408,10 @@ let () =
     | "--shape" :: rest -> shape_mode := true; parse_args rest
     | "--verbose" :: rest -> verbose := true; parse_args rest
     | "--generated" :: rest -> generated := true; parse_args rest
+    | "--keyed-roundtrip" :: d :: rest when int_of_string_opt d <> None ->
+      keyed_roundtrip := true; roundtrip := Some (int_of_string d); parse_args rest
+    | "--keyed-roundtrip" :: rest ->
+      keyed_roundtrip := true; roundtrip := Some 1; parse_args rest
     | "--roundtrip" :: d :: rest when int_of_string_opt d <> None ->
       roundtrip := Some (int_of_string d);
       parse_args rest
@@ -423,7 +436,7 @@ let () =
      answers before either is touched *)
   (match !roundtrip with
    | Some depth ->
-     let ok = run_roundtrip depth rbuf verbose in
+     let ok = run_roundtrip ~keyed:!keyed_roundtrip depth rbuf verbose in
      finish_report ();
      exit (if ok then 0 else 1)
    | None -> ());

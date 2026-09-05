@@ -292,7 +292,9 @@ Inductive cblock : Type :=
   (* A source-level stable address.  Only the id subset of block
      attributes is canonical here; the wrapper preserves whether the id
      was explicit, which the document pass's AST cannot recover. *)
-  | CId (id : string) (inner : cblock).
+  | CId (id : string) (inner : cblock)
+  (* One inline label, then a child at the same column on the next line. *)
+  | CKey (label : cinline) (inner : cblock).
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -322,6 +324,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CRef label dest => [ref_line label dest]
   | CTable rows => flat_map ctrow_lines rows
   | CId id inner => ("{#" ++ id ++ "}") :: cb_lines inner
+  | CKey label inner => (ci_line [label] ++ ":") :: cb_lines inner
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -342,6 +345,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table None (ctable_cells [] rows))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
+  | CKey label inner => mk (Keyed [ci_ast label] (cb_ast inner))
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -391,6 +395,7 @@ Definition cblock_ind2
   (href : forall label dest, P (CRef label dest))
   (htable : forall rows, P (CTable rows))
   (hid : forall id inner, P inner -> P (CId id inner))
+  (hkey : forall label inner, P inner -> P (CKey label inner))
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -421,6 +426,7 @@ Definition cblock_ind2
     | CRef label dest => href label dest
     | CTable rows => htable rows
     | CId id inner => hid id inner (go inner)
+    | CKey label inner => hkey label inner (go inner)
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -548,6 +554,7 @@ Fixpoint ends_clist (cb : cblock) : bool :=
   match cb with
   | CList _ _ _ => true
   | CId _ inner => ends_clist inner
+  | CKey _ inner => ends_clist inner
   | _ => false
   end.
 
@@ -555,6 +562,7 @@ Fixpoint ends_ctable (cb : cblock) : bool :=
   match cb with
   | CTable _ => true
   | CId _ inner => ends_ctable inner
+  | CKey _ inner => ends_ctable inner
   | _ => false
   end.
 
@@ -562,6 +570,7 @@ Fixpoint is_cref (cb : cblock) : bool :=
   match cb with
   | CRef _ _ => true
   | CId _ inner => is_cref inner
+  | CKey _ inner => is_cref inner
   | _ => false
   end.
 
@@ -800,6 +809,39 @@ Proof.
   split; [apply PeanoNat.Nat.eqb_eq, Hlen | apply row_reparses_classify, Hrep].
 Qed.
 
+(* The rendered label must open as text, split at the appended colon,
+   and decode without losing trailing whitespace.  Testing the split
+   also excludes labels whose inline syntax has precedence as a block. *)
+Definition ckey_label_ok (label : cinline) : bool :=
+  let src := ci_line [label] in
+  let l := src ++ ":" in
+  cis_ok [label] && line_ok l && is_text l
+  && String.eqb (strip_trailing_ws src) src
+  && match key_split l with
+     | Some (lbl, value) => String.eqb lbl src && String.eqb value ""
+     | None => false
+     end.
+
+Lemma ckey_label_ok_parts :
+  forall label, ckey_label_ok label = true ->
+    cis_ok [label] = true /\ line_ok (ci_line [label] ++ ":") = true
+    /\ classify (ci_line [label] ++ ":") = KText
+    /\ strip_trailing_ws (ci_line [label]) = ci_line [label]
+    /\ key_split (ci_line [label] ++ ":") = Some (ci_line [label], "").
+Proof.
+  intros label H. unfold ckey_label_ok in H.
+  apply andb_true_iff in H as [H Hsplit].
+  apply andb_true_iff in H as [H Hstrip].
+  apply andb_true_iff in H as [H Htext].
+  apply andb_true_iff in H as [Hcis Hline].
+  apply String.eqb_eq in Hstrip. apply is_text_classify in Htext.
+  destruct (key_split (ci_line [label] ++ ":")) as [[lbl value]|] eqn:E;
+    [|discriminate Hsplit].
+  apply andb_true_iff in Hsplit as [Hl Hv].
+  apply String.eqb_eq in Hl, Hv. subst lbl value.
+  repeat split; assumption.
+Qed.
+
 Fixpoint cb_ok (cb : cblock) : bool :=
   let inner_ok :=
     fix go (cs : list cblock) : bool :=
@@ -865,7 +907,19 @@ Fixpoint cb_ok (cb : cblock) : bool :=
      it is not canonical. *)
   | CId id inner =>
       battrs && explicit_id_ok id && negb (is_cid inner) && cb_ok inner
+  | CKey label inner =>
+      bkeyed && ckey_label_ok label && cb_ok inner
+      && key_content_ok (cb_lines inner) (PPara [])
   end.
+
+Lemma cb_ok_key_parts :
+  forall label inner, cb_ok (CKey label inner) = true ->
+    bkeyed = true /\ ckey_label_ok label = true /\ cb_ok inner = true
+    /\ key_content_ok (cb_lines inner) (PPara []) = true.
+Proof.
+  intros label inner H. cbn [cb_ok] in H.
+  repeat rewrite andb_true_iff in H. tauto.
+Qed.
 
 Lemma cb_ok_id :
   forall id inner,
@@ -1181,6 +1235,9 @@ Fixpoint render_block_lines (b : block) : list string :=
   | TaskList sp items =>
       list_lines sp (map task_litem_lines (taskitemss items))
   | RefDef label dest => [ref_line label dest]
+  | Keyed label inner =>
+      (String.concat "" (map (fun n => inline_text (node_contents n)) label) ++ ":")
+      :: (id_spec_lines inner ++ render_block_lines (node_contents inner))%list
   | Table cap rows =>
       (table_lines rows ++ match cap with
                            | Some ils => [caption_line ils]
