@@ -556,11 +556,12 @@ is deliberate: the canonical view's conditions on a destination are not
 conditions on the codec, they are conditions on the rendered line, and
 they are not the two an earlier note predicted.  `no_nl` (`Inline.ci_ok`)
 and `no_ws` (`Render.ref_ok`) are necessary and are not sufficient --
-`dest_bar_breaks_row` and `dest_backtick_breaks_row` below are
-`no_ws` destinations that leave a table uncanonical.  So the general
-statement is not available, and `rename_canonical_local` is what stands
-in its place: the check is decidable, an implementation runs it, and the
-theorem says it need only run on the notes a rename can reach. *)
+`dest_bar_breaks_row` below is a `no_ws` destination that leaves a table
+uncanonical.  `dest_backtick_row_ok` is the contrasting repaired case:
+the destination escaper and row scanner now agree.  The general statement
+is still not available, and `rename_canonical_local` is what stands in its
+place: the check is decidable, an implementation runs it, and the theorem
+says it need only run on the notes a rename can reach. *)
 
 Record lcodec : Type := LCodec {
   l_ok : path -> bool;
@@ -1077,26 +1078,23 @@ at whitespace.
 Example dest_ws_breaks_ref : cb_ok (CRef "r" "a b") = false.
 Proof. reflexivity. Qed.
 
-(* The other two are not predicted by anything about links, and they are
-   what makes the obligation more than a codec condition: both are
-   `no_ws`, both are fine in a paragraph, and both leave a *table*
-   uncanonical, because a cell is delimited on the rendered line rather
-   than in the AST.  The bar closes the cell it sits in.  The backtick
-   is the sharper one -- `escape_dest` does escape it, and the escape
-   does not help, because the line-level row scanner counts verbatim
-   runs without honouring a backslash (see
-   `.project/oracle-disagreements.md`: djot.js reads that line as a
-   row). *)
+(* The bar is not predicted by anything about links, and it makes the
+   obligation more than a codec condition: it is `no_ws`, is fine in a
+   paragraph, and leaves a *table* uncanonical because a cell is delimited
+   on the rendered line rather than in the AST. *)
 Example dest_bar_breaks_row :
   (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a|b"]]]),
    cb_ok (CPara [[CILink false [CIStr "a"] "a|b"]]))
   = (false, true).
 Proof. reflexivity. Qed.
 
-Example dest_backtick_breaks_row :
+(* A backtick used to be a second counterexample.  Unlike a bar,
+   `escape_dest` protects it; `row_cells` now honours that escape before
+   updating its verbatim state, so both enclosing blocks remain canonical. *)
+Example dest_backtick_row_ok :
   (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a`b"]]]),
    cb_ok (CPara [[CILink false [CIStr "a"] "a`b"]]))
-  = (false, true).
+  = (true, true).
 Proof. reflexivity. Qed.
 
 (* And the same table with an ordinary destination, so that the two

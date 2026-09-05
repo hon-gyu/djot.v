@@ -62,6 +62,10 @@ Definition leaves : list cblock :=
      The header is right-aligned so that the separator carries something
      the AST has to give back. *)
   ; CTable [CTBody [[CIStr "a"]]]
+  (* The destination renderer escapes the backtick.  This leaf keeps the
+     row scanner and inline scanner aligned on that escape; without it the
+     2026-09-05 row-classification bug was outside the generated corpus. *)
+  ; CTable [CTBody [[CILink false [CIStr "a"] "a`b"]]]
   ; CTable [CTHead [AlignRight; AlignDefault] [[CIStr "h"]; [CIStr "i"]];
             CTBody [[CIStr "b"]; [CIStr "c"]]] ].
 

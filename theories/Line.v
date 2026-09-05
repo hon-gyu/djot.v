@@ -1187,26 +1187,41 @@ Definition vb_step (vb run : nat) : nat :=
          end
   end.
 
-(* `cur` and `acc` are reversed; `bs` records whether the previous byte
-   was a backslash. *)
+(* `cur` and `acc` are reversed; `bs` records whether the previous source
+   byte was a backslash.  Outside verbatim, a backslash and the byte after
+   it are consumed together.  That gives inline escapes their parity --
+   after two backslashes a following backtick still opens verbatim -- while
+   `bs` retains djot.js's separate, byte-local rule
+   that a bar immediately after any backslash does not close a cell. *)
 Fixpoint row_cells
   (s : string) (vb run : nat) (bs : bool) (cur : string) (acc : list string)
   : option (list string) :=
   match s with
   | EmptyString =>
       (* The interior ends where the line's last bar is, so the cell open
-         here is closed by that bar -- unless a verbatim swallowed it,
-         which is the one way a row line fails to be a row. *)
-      match vb_step vb run with
-      | O => Some (rev (cell_trim (rev_string cur) :: acc))
-      | _ => None
-      end
+         here is closed by that bar -- unless a backslash escapes it or a
+         verbatim span swallowed it. *)
+      if bs then None
+      else match vb_step vb run with
+           | O => Some (rev (cell_trim (rev_string cur) :: acc))
+           | _ => None
+           end
   | String c s' =>
       if Ascii.eqb c "`"
       then row_cells s' vb (S run) false (String c cur) acc
       else
         let vb' := vb_step vb run in
-        if (Ascii.eqb c "|" && Nat.eqb vb' O && negb bs)%bool
+        (* The inline scanner consumes an escape and its following byte in
+           one step.  Do that only outside verbatim: inside a verbatim span
+           a backslash is literal and cannot protect its closing run. *)
+        if (Nat.eqb vb' O && Ascii.eqb c "\")%bool
+        then match s' with
+             | EmptyString => None
+             | String c' s'' =>
+                 row_cells s'' O O (Ascii.eqb c' "\")
+                   (String c' (String c cur)) acc
+             end
+        else if (Ascii.eqb c "|" && Nat.eqb vb' O && negb bs)%bool
         then row_cells s' O O false EmptyString
                (cell_trim (rev_string cur) :: acc)
         else row_cells s' vb' O (Ascii.eqb c "\") (String c cur) acc
@@ -1308,8 +1323,33 @@ Proof. reflexivity. Qed.
 Example row_escaped_bar : table_row "| a\|b | c |" = Some (TCells ["a\|b"; "c"]).
 Proof. reflexivity. Qed.
 
+(* Escapes affect the inline verbatim scan too, with ordinary parity.
+   One and three backslashes make the backtick literal; two leave it able
+   to open an unclosed verbatim span. *)
+Example row_escaped_backtick :
+  table_row "| a\`b |" = Some (TCells ["a\`b"]).
+Proof. reflexivity. Qed.
+
+Example row_double_backslash_before_backtick : table_row "| a\\`b |" = None.
+Proof. reflexivity. Qed.
+
+Example row_triple_backslash_before_backtick :
+  table_row "| a\\\`b |" = Some (TCells ["a\\\`b"]).
+Proof. reflexivity. Qed.
+
+(* `row_inner` removes the last bar before scanning.  A trailing
+   backslash says that bar was escaped, so it cannot close the row. *)
+Example row_escaped_final_bar : table_row "| a\|" = None.
+Proof. reflexivity. Qed.
+
 Example row_verbatim_bar :
   table_row "| `a|b` | c |" = Some (TCells ["`a|b`"; "c"]).
+Proof. reflexivity. Qed.
+
+(* Backslashes are literal inside verbatim, including immediately before
+   the run that closes it. *)
+Example row_backslash_does_not_escape_verbatim_close :
+  table_row "| `a\` b | c |" = Some (TCells ["`a\` b"; "c"]).
 Proof. reflexivity. Qed.
 
 (* A verbatim closes only on a run of its own length, and one left open

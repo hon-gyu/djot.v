@@ -1125,19 +1125,19 @@ generated identifier because the heading has no text to make one from.
 Ours is `<section id="i">\n<h1>{#i}</h1>\n</section>`. The divergence
 reaches the identifier, not only the heading.
 
-## Adjudicated 2026-09-03 — ours, and wrong: an escaped backtick in a table row
+## Fixed 2026-09-05 — an escaped backtick in a table row
 
-Found while asking what a rename may write into a destination
-(`Site.dest_backtick_breaks_row`), not by the corpus: no generated
-document puts a backtick in a table cell, so `make generated` reports
-5438/5438 while the shape below is unreachable from `cb_ok`.
+Found while asking what a rename may write into a destination (the former
+`Site.dest_backtick_breaks_row`), not by the corpus: at the time no generated
+document put a backtick in a table cell, so the shape below was unreachable
+from the generator even though the corrected `cb_ok` admits it.
 
 ```
 | a\`b |
 ```
 
-djot.js reads that as a table row whose one cell renders `` a`b ``. We
-read it as `KText`:
+djot.js reads that as a table row whose one cell renders `` a`b ``. Before
+the repair we read it as `KText`:
 
 ```coq
 Compute classify "| a\`b |".        (* KText  -- djot.js: a row *)
@@ -1145,29 +1145,34 @@ Compute classify "| a`b |".         (* KText  -- djot.js agrees   *)
 Compute classify "| a\`b\`c |".     (* KRow   -- djot.js agrees   *)
 ```
 
+The first result is now `KRow`; the other two controls remain unchanged.
+
 The second line is the control and it is why this is narrow rather than
 a disagreement about verbatim: an *unescaped* odd backtick really does
 open a verbatim span that swallows the closing bar, and both engines
 make the line a paragraph. The divergence is only about the escape.
-`Line.row_cells` moves `vb_step` on every backtick it sees; the inline
-scanner honours a preceding `\` and the row scanner does not, so the two
-disagree about where the cell ends.
+`Line.row_cells` moved `vb_step` on every backtick it saw; the inline
+scanner honoured a preceding `\` and the row scanner did not, so the two
+disagreed about where the cell ended.
 
-**Verdict: ours, and it is a bug rather than a choice.** No theorem
-rests on it and no `wf_block` condition excludes the row, so the
+**Verdict: ours, and it was a bug rather than a choice.** No theorem
+rested on it and no `wf_block` condition excluded the row, so the
 argument of *When the oracle's answer is unrepresentable* does not
-apply -- the row is representable and we simply do not build it. The
-fix is in `row_cells`: skip the character after a backslash, as the
-inline scanner already does.
+apply -- the row is representable and we simply did not build it.
 
-**Why it is logged rather than fixed here.** `classify` is what every
-block theorem quantifies over, and widening `row_cells` changes which
-lines are rows -- `ctrow_ok`, `cb_pair_ok`'s `closes_table`, and the
-table arm of the roundtrip all read it. That is its own step, and its
-first move is a probe of how many lines change kind, not an edit.
+**The repair.** Outside verbatim, `row_cells` now consumes a backslash
+and its following byte together, matching the inline scanner's escape
+parity. Inside verbatim the backslash stays literal, so it cannot protect
+a closing backtick run. An escaped final bar is also rejected rather than
+mistaken for the row closer.
 
-**What it cost the caller here.** A rename may not write a backtick into
-a destination, and the reason is this bug rather than anything about
-destinations. When it is fixed, `dest_backtick_breaks_row` is the
-example that has to be deleted -- and its deletion is the confirmation
-that the fix was real.
+Before the edit, a five-character alphabet probe (`a`, space, `\`, `` ` ``,
+`|`) enumerated all 19,531 bar-wrapped lines through interior length six.
+The repaired scanner makes 1,178 of them rows, rejects 2,074 false rows
+whose final bar was escaped, and changes the cell split of 12 surviving
+rows. Focused one-, two- and three-backslash controls match djot.js.
+
+**What changed for the caller.** A rename may write a backtick into a
+destination when the surrounding block otherwise remains canonical.
+`Site.dest_backtick_breaks_row` has become `dest_backtick_row_ok`; the
+bar counterexample remains, because destinations do not escape bars.

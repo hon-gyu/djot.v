@@ -333,11 +333,11 @@ was: the fragment must grow when a construct lands, and a *shrinking*
 count is a regression that zero mismatches would not show.  Update the
 line when the fragment legitimately grows, exactly as before. *)
 
-let expected_counts = [ (1, 278); (2, 3470); (3, 41186) ]
+let expected_counts = [ (1, 296); (2, 3695); (3, 43857) ]
 
 (* Same witness for the keyed pool, which no oracle covers: the only
    evidence a key generator still reaches keys is the count. *)
-let keyed_expected_counts = [ (1, 6224); (2, 76568) ]
+let keyed_expected_counts = [ (1, 6628); (2, 81536) ]
 
 let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
 
