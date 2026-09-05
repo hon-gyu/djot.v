@@ -3,11 +3,10 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **implemented except section 5**, whose price is now measured
-in 9.2 and is smaller than section 8 first read it. One known defect:
-9.1's implication is false as implemented, and a delimiter run against
-the colon splits when it should not. Canonical labels escape the
-delimiter, so the roundtrip fragment is unaffected. `Inline.key_split` is the
+Status: **implemented except section 5**, whose price is measured in
+9.2 and is smaller than section 8 first read it. 9.1 is closed: the
+split test was wrong for a delimiter run against the colon, and
+`iscan_settled` is the repair. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
@@ -106,9 +105,11 @@ A line is split at its first colon that is
 - **not preceded by whitespace**, so the colon sits against the label;
 - **followed by a space or by the end of the line**, where a tab is not
   a space; and
-- reached while the inline scanner has **nothing open**: no verbatim
-  run, no attribute brace, no bracket, no delimiter that a later
-  character could still close.
+- reached while the inline scanner has **nothing open and nothing
+  undecided**: no verbatim run, no attribute brace, no bracket, no
+  delimiter that a later character could still close, and no delimiter
+  run still being spelled, whose role the byte after it would settle.
+  The last clause is 9.1; `iscan_settled` is the test.
 
 ```
 foo: bar
@@ -184,9 +185,14 @@ promise section 0 makes.
 | 9   | `"foo": bar`                      | after the quote |
 | 10  | `_a: b_`                          | nowhere         |
 | 11  | `foo : bar`                       | nowhere         |
+| 12  | `a*: b*`                          | nowhere         |
 
 Rows 2, 4, 8 and 10 have exactly one candidate colon and it arrives with
-something open, so those lines have no split point at all. Row 10 is the
+something open, so those lines have no split point at all. Row 12 is
+9.1: the `*` is a delimiter run still being spelled, so at the colon it
+is undecided rather than open, and settling it needs the byte the colon
+occupies. Alone it would be the literal `a*`; in place it opens the
+strong span that swallows the colon. Row 10 is the
 one worth staring at: `_a: b_` is emphasis over `a: b`, and the label
 `_a` would be the literal characters `_a`. Rows 8 and 9 are the same
 construct open and closed, since a quotation mark pairs in djot like any
@@ -972,122 +978,83 @@ covers, and worth knowing before the construct grows.
 **Minor.** `def_split` takes an item's leading paragraph as a definition
 list term, so an item whose first block is a `Keyed` has no term.
 
-**Section 5, and why it is still separated.** The worry here was that
-an item holding a block claimed out of column renders some of its lines
-unindented: `litem_lines` indents an item's lines uniformly and
-`list_uniformity` reads an item's content as its lines with that indent
-removed, so a block at column 0 inside an item at column 2 has no
-indent to remove and the item stops being related to its top-level
-reading by `pad_state`, which is what `step_fuel_pad` runs through.
+**Section 5, and why it is still separated.** The worry was that an item
+holding a block claimed out of column renders some lines unindented:
+`litem_lines` indents an item's lines uniformly and `list_uniformity`
+reads an item's content as its lines with that indent removed, so a
+block at column 0 inside an item at column 2 has no indent to remove and
+the item stops being related to its top-level reading by `pad_state`,
+which is what `step_fuel_pad` runs through.
 
-That cost is real but *optional*, and 9.2 has the measurement. It is
-owed only if the unindented spelling becomes canonical, and it need not
-be: both spellings denote the same tree, so `cb_lines` can keep
-indenting and `ListUniformity.v` is untouched. What section 5 actually
-costs is a weakened descent test in `step`, one conjunct on ten
-close-side statements, and one genuinely false lemma
-(`parse_list_close`). Sections 3, 4, 6 and 7.1 to 7.3 landed without it
-because they do not need it, not because its price was unknown.
+That cost is real but optional, and 9.2 has the measurement. It is owed
+only if the unindented spelling becomes canonical, and it need not:
+both spellings denote the same tree, so `cb_lines` can keep indenting
+and `ListUniformity.v` is untouched. What section 5 costs is a weakened
+descent test in `step`, one conjunct on ten close-side statements, and
+one false lemma (`parse_list_close`). Sections 3, 4, 6 and 7.1 to 7.3
+landed without it because they do not need it, not because its price was
+unknown.
 
 ## 9. Open questions
 
 ### 9.1 Is "nothing open" enough, on every construct?
 
-**No. Answered by counterexample, and the rule as implemented is
-wrong.**
+No, as first implemented. Found by counterexample and fixed.
 
-Section 3.1 states the split rule as a test, "nothing open at the
-colon", and separately as what the test is for, "no later character
-changes how the label reads". The test has to imply the property. It
-does not have to be implied by it, and deliberately is not: `_a: b` is
-declined although splitting it would have been harmless. This is also
-the formal content of section 0's promise that a key changes the tree
-and not the text.
+The rule states a test, "nothing open at the colon", and separately what
+the test is for, "no later character changes how the label reads". The
+test has to imply the property. It does not have to be implied by it,
+and deliberately is not: `_a: b` is declined although splitting it would
+have been harmless.
 
-**The implication, stated.** For every line `l` with
-`key_split l = Some (lbl, v)`: reading `lbl` alone gives the same
-element that reading `l` gives at that position. `key_label_ok` forces
-the label to one element, so this is checkable as a single comparison --
-equal attributes, and either the same element or a text run whose
-content is a prefix of the line's first run.
+Stated: for every line with `key_split l = Some (lbl, v)`, reading `lbl`
+alone gives the same element that reading `l` gives at that position.
+`key_label_ok` forces the label to one element, so this is one
+comparison.
 
-**The falsifier is a delimiter run against the colon.**
+It was false for a delimiter run against the colon. `a*: b*` split with
+label `a*`, which alone is one text run; in place the line reads as `a`
+followed by a strong span over `: b`, so the `*` opened and took the
+colon. The keys-off and keys-on readings disagreed about the text, not
+only the tree. Every delimiter did it: `*`, `_`, `^`, `~` and `"`.
 
-```
-a*: b*
-```
+The cause was `iscan_closed`, which calls `iresolve` first. `iresolve`
+is the end-of-line disposition and settles a pending delimiter run as
+literal text. A byte following the run makes it an opener instead,
+because the opening test in `idelim_done` consults that byte and
+`iresolve` passes `None`. So `iscan_closed` answers "would everything be
+closed if the line ended here", which is what `ibreak_closed` wants, and
+the split needs "is anything waiting on what comes next".
 
-`key_split` returns `Some ("a*", "b*")`. Alone, `a*` reads as one text
-run `a*`, so `key_label_ok` passes. In place, the line reads as `a`
-followed by a strong span over `: b` -- the `*` opened, and it swallowed
-the colon. The label reads one way alone and another way in the line,
-which is the property failing, and the keys-off and keys-on readings
-disagree about the *text*, which is section 0's promise failing.
+The fix is `iscan_settled c st`: resolve with `c` known to follow, then
+ask the same question. `iscan_closed` keeps its meaning and its eleven
+users, since the body moved to `iclosed_at` and both predicates call it.
+Only `IDelim` answers differently, and only about opening, so a run that
+closes is unaffected and row 9 of 3.1's table still splits. Nothing else
+in 3.1 or 3.2 moved and no sweep changed.
 
-It is not one construct but every delimiter: `*`, `_`, `^`, `~` all do
-it, with `Strong`, `Emph`, `Superscript` and `Subscript` respectively.
-Row 10 of 3.1's table (`_a: b_`, declined) and this line differ only in
-which side of the label the delimiter sits on.
+Only canonical labels escape the delimiter, so no canonical document
+reached the gap and the roundtrip fragment never saw it. It was
+reachable only from hand-written source, where neither the corpus nor
+the generated pool looks, because djot.js has no keyed construct to
+compare against.
 
-**The cause is a predicate answering a slightly different question.**
-At the colon the raw scan state is `IDelim DStrong 0 "a" (Some "a")
-false`, a delimiter *being spelled*, whose role the next byte decides.
-`iscan_closed` calls `iresolve` first, and `iresolve` is the
-end-of-line disposition: it settles the pending run as the literal text
-`a*` with an empty stack, so `iscan_closed` reports closed. That is the
-right answer to "would everything be closed if the line ended here",
-which is what `ibreak_closed` needs it for. It is the wrong answer to
-"is anything still undecided here", which is what the split needs, and
-the two differ exactly on a pending delimiter run. Note `IBrace` -- "a
-`{` whose role the next byte decides" -- is reported open, but only
-because `iresolve` leaves it alone rather than settling it.
-
-**The fix is a second predicate, not a change to `iscan_closed`.** That
-one has its own users with the end-of-line question, and 3.1's
-no-lookahead argument survives intact: a pending delimiter run is
-undecided *at the colon*, so declining it needs no lookahead and is the
-conservative direction the rule already takes everywhere else. What has
-to move is `key_scan`'s test and 3.1's table, which gains the row.
-
-**Not a roundtrip failure.** Canonical labels escape the delimiter --
-`ci_line [CIStr "a*"]` is `a\*` -- so no canonical document reaches the
-gap and the sweeps pass unchanged. This is the same protection the
-literal colon gets, and the reason the bug survived the roundtrip
-fragment. It is reachable only from hand-written source, which is
-exactly where the corpus and the generated pool do not look, because
-djot.js has no keyed construct to compare against.
-
-**The first candidate is clean.** Smart quotes were the obvious worry,
-since a lone `"` is a curly quote and a paired one is a quotation, but
-djot pairs them like every other delimiter and the opener is on the
-stack, so the test refuses the split already.
-
-**The second candidate is also clean, and was the one this section
-predicted.** An element can *vanish* during resolution: an attribute
-brace that finds nothing to decorate is dropped, and its neighbours then
-merge, so `a {#i}b: c` resolves to the single run `a b` (checked against
-the oracle). 3.2's monotonicity argument reasons about merging adjacent
-elements, not about one disappearing, so it is stated for the wrong
-operation. Restated to cover both: resolution may merge adjacent
-settled elements and may delete a settled element, and neither can
-change an element that is already settled *and* already counted, because
-both operations act on the resolved list at or after the point in
-question. That leaves the argument sound, and the probe agrees -- `a
-{#i}b: c` reads as the label `a b` in both directions.
-
-So the section's own two candidates hold and a third, which it did not
-predict, does not. The obligation is discharged as a refutation: the
-test does not imply the property, the gap is one named family, and the
-repair is local.
+The two candidates this section predicted are both clean. Smart quotes
+pair like every other delimiter and the opener is on the stack, so the
+test refused them already. An attribute brace that decorates nothing is
+dropped and its neighbours merge, so `a {#i}b: c` resolves to the single
+run `a b`; 3.2's monotonicity argument is stated for merging and has to
+cover deletion as well. Restated: both operations act on the resolved
+list at or after the point in question, so neither can change an element
+already settled and counted.
 
 ### 9.2 The cost of claiming out of column
 
-**Measured.** Section 8 left this unknown on the reading that an item
-holding a claimed block *renders* some of its lines unindented, which
+Measured. Section 8 left this unknown on the reading that an item
+holding a claimed block renders some of its lines unindented, which
 would take the item out of `pad_state`'s reach and through
-`step_fuel_pad`. That reading assumed the unindented spelling has to
-become canonical. It does not, and the reason is that the two spellings
-denote the same tree:
+`step_fuel_pad`. That assumed the unindented spelling has to become
+canonical. It does not, because the two spellings denote the same tree:
 
 `````
 - foo:            - foo:
@@ -1097,35 +1064,32 @@ bar                 bar
 - baz             - baz
 `````
 
-The right-hand column parses to section 5's tree *today*, with no
-override at all. So section 5 adds no document to the fragment, only a
-second way to spell one already in it. `cb_lines` keeps indenting,
-`litem_lines` stays uniform, and `list_uniformity`, `pad_state` and
-`step_fuel_pad` are untouched. The unscoped entry in section 8 was
-pricing a change that section 5 does not require.
+The right-hand column parses to section 5's tree today, with no override
+at all. Section 5 adds no document to the fragment, only a second way to
+spell one already in it, so `cb_lines` keeps indenting, `litem_lines`
+stays uniform, and `list_uniformity`, `pad_state` and `step_fuel_pad`
+are untouched.
 
-What is left is the parser half, and it is a *weakening* of one
-condition rather than a new branch: `PList`'s descent test becomes
-`key_claims inner || Nat.ltb (ls_indent ls) (off + indent_of l)`, with
-`key_claims` true when a key below holds a block whose end is announced
-on its own line (5.2's list: fenced code, raw blocks, fenced divs,
-thematic breaks). Weakening keeps the descend branch true and costs the
-close branch a conjunct. The census over the 33 sites that mention the
-test:
+The parser half is a weakening of one condition rather than a new
+branch. `PList`'s descent test becomes `key_claims inner || Nat.ltb
+(ls_indent ls) (off + indent_of l)`, where `key_claims` is true when a
+key below holds a block whose end is announced on its own line: 5.2's
+list of fenced code, raw blocks, fenced divs and thematic breaks.
+Weakening keeps the descend branch true and costs the close branch a
+conjunct. Over the 33 sites that mention the test:
 
 | sites | what they are | cost |
 | --- | --- | --- |
 | 1 | the test in `step` | the change itself |
 | 20 | bare `destruct` in a proof (14 in `Wf.v`, 6 in `Step.v`) | mechanical if the condition is named |
-| 1 | `= true` hypothesis (the descend side) | free: weakening preserves it |
-| 10 | `= false` hypothesis (the close side) | one conjunct each, 13 call sites in total |
+| 1 | `= true` hypothesis, the descend side | free, weakening preserves it |
+| 10 | `= false` hypothesis, the close side | one conjunct each, 13 call sites |
 
-Two of the ten, `step_list_diffstyle` and `step_list_lazy`, have no
-users anywhere and are not a cost.
+`step_list_diffstyle` and `step_list_lazy` have no users anywhere and
+are not a cost.
 
-**The one real falsifier is `parse_list_close`**, and it is not
-hypothetical. `blank_safe` is false on an open fence but reads straight
-through an open div, so
+One of the ten is false rather than merely weaker. `blank_safe` is false
+on an open fence but reads through an open div, so
 
 ```
 - foo:
@@ -1134,18 +1098,16 @@ through an open div, so
 next
 ```
 
-reaches that lemma with `inner = PKey "foo" "foo:" (PDiv 3 "" [] ...)`
-and `blank_safe inner = true`. Today the list closes and `next` is a
-paragraph; with the override the div claims it. The lemma has four
-users. The cheap discharge to try first is strengthening `blank_safe`
-on `PKey` rather than adding a hypothesis, since every user of that
-statement already carries `blank_safe`; the viral spelling is a fresh
-`key_claims inner = false` threaded from nowhere.
+reaches `parse_list_close` with `inner = PKey "foo" "foo:" (PDiv 3 "" []
+...)` and `blank_safe inner = true`. Today the list closes and `next` is
+a paragraph; with the override the div claims it. That lemma has four
+users. Try strengthening `blank_safe` on `PKey` before adding a
+hypothesis: every user of the statement already carries `blank_safe`,
+while a fresh `key_claims inner = false` has nowhere to come from.
 
-`check/Keyed.v`'s `out_of_column_is_not_claimed` is still the example
-that has to change when this is paid, `key_over_div_does_not_claim` is
-the falsifier above, and 7.4 and 7.5 are the trees section 5 has to
-produce.
+`check/Keyed.v`'s `out_of_column_is_not_claimed` is the example that has
+to change when this is paid, `key_over_div_does_not_claim` is the
+falsifier above, and 7.4 and 7.5 are the trees section 5 has to produce.
 
 ### 9.3 How a keyed node renders
 

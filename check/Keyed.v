@@ -345,49 +345,46 @@ Example key_content_requires_a_child :
 Proof. vm_compute. reflexivity. Qed.
 
 (*
-A delimiter against the colon splits when it should not
--------------------------------------------------------
+A delimiter against the colon is not settled
+--------------------------------------------
 
-`.project/keyed-blocks.md` 9.1.  The split test asks `iscan_closed`,
-which resolves the scan state first, and `iresolve` is the *end of
-line* disposition: a delimiter run still being spelled settles as
-literal text with an empty stack, so the test reports nothing open.
-The line does not end there, and `istep` on the colon then decides the
-run opens.  So the label reads one way alone and another way in place,
-which is the implication 3.1 owes.
-
-Canonical labels escape the delimiter, so no canonical document reaches
-this and the roundtrip sweeps are unaffected; these pin the gap on
-hand-written source until the test is repaired.
+`.project/keyed-blocks.md` 9.1.  `iscan_closed` resolves the state as
+if the line ended, and a delimiter run settles there as literal text;
+with a byte following it opens instead.  The split asks
+`iscan_settled`, which resolves with the colon known to follow, so
+these decline.  Before that they split, and the label read as one text
+run alone and as an opener in place.
 *)
 
-Example delimiter_against_colon_splits :
-  (key_split "a*: b*", key_split "a_: b_",
-   key_split "a^: b^", key_split "a~: b~")
-  = (Some ("a*", "b*"), Some ("a_", "b_"),
-     Some ("a^", "b^"), Some ("a~", "b~")).
+Example delimiter_against_colon_declines :
+  (key_split "a*: b*", key_split "a_: b_", key_split "a^: b^",
+   key_split "a~: b~", key_split "a"": b""")
+  = (None, None, None, None, None).
 Proof. vm_compute. reflexivity. Qed.
 
-(* the label reads as one text run alone... *)
-Example delimiter_label_alone :
-  para_inlines ["a*"] = [mk (Str "a*")].
+(* the readings that made it wrong: one text run alone, an opener in
+   place.  Both still hold; only the split changed. *)
+Example delimiter_label_reads_two_ways :
+  (para_inlines ["a*"], para_inlines ["a*: b*"])
+  = ([mk (Str "a*")], [mk (Str "a"); mk (Strong [mk (Str ": b")])]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* ...and as a strong span swallowing the colon in place, so the two
-   readings disagree about the text, not only the tree *)
-Example delimiter_label_in_place :
-  para_inlines ["a*: b*"]
-  = [mk (Str "a"); mk (Strong [mk (Str ": b")])].
+(* so the line is a paragraph under either setting, and the keys-on and
+   keys-off readings agree *)
+Example delimiter_line_is_not_a_key :
+  Key "a*: b*" = Djot "a*: b*".
 Proof. vm_compute. reflexivity. Qed.
 
-Example delimiter_key_diverges_from_keyless :
-  (Key "a*: b*", Djot "a*: b*")
-  = ([mk (Keyed [mk (Str "a*")] (para "b*"))],
-     [mk (Para [mk (Str "a"); mk (Strong [mk (Str ": b")])])]).
+(* a run that *closes* consults no following byte, so 3.1's row 9 is
+   unaffected, and neither is a canonical label ending in an escape *)
+Example closing_delimiter_still_splits :
+  (key_split """foo"": bar", key_split "`code`: a description",
+   key_split "it's: bar", key_split "a -- b: c")
+  = (Some ("""foo""", "bar"), Some ("`code`", "a description"),
+     Some ("it's", "bar"), Some ("a -- b", "c")).
 Proof. vm_compute. reflexivity. Qed.
 
-(* the canonical spelling escapes the delimiter, which is why the
-   roundtrip fragment never reaches the gap *)
+(* the canonical spelling escapes the delimiter either way *)
 Example delimiter_label_is_escaped_canonically :
   (ci_line [CIStr "a*"], @cb_ok _ keyed_bconfig (CKey (CIStr "a*") (cpara ["b*"])))
   = ("a\*", true).

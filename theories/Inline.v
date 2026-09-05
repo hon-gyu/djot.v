@@ -3557,8 +3557,8 @@ Definition ibreak (st : iscan) : iscan :=
    agrees with `ifinish` on what was emitted.  What fails it is a span
    still open across the break -- an unterminated backtick run, a
    verbatim whose closer has not arrived, or any open scope. *)
-Definition iscan_closed (st : iscan) : bool :=
-  match iresolve st with
+Definition iclosed_at (st : iscan) : bool :=
+  match st with
   (* a pending backslash is not closed: it owes the *next* byte a hard
      break or a literal, so the line does not end with a soft one *)
   | IText esc _ _ o => (negb esc && null (os_stk o))%bool
@@ -3578,6 +3578,30 @@ Definition iscan_closed (st : iscan) : bool :=
   | IAuto _ _ o | IRaw _ _ o => null (os_stk o)
   end.
 
+Definition iscan_closed (st : iscan) : bool := iclosed_at (iresolve st).
+
+(* `iresolve` is the end-of-line disposition.  When a byte is known to
+   follow, only `IDelim` answers differently, and only about opening:
+   `idelim_done` consults that byte and `iresolve` passes `None`, so a
+   run that cannot close settles as text at the end of a line and opens
+   in the middle of one. *)
+Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
+  match st with
+  | IDelim k extra txt before marked o =>
+      if Nat.ltb (S extra) (dwidth k)
+      then IText false (txt ++ idelim_run k extra marked)%string None o
+      else idelim_resolve k txt before marked (Some c) o
+  | _ => iresolve st
+  end.
+
+(* "Nothing is open, and nothing is waiting on what comes after `c`".
+   Strictly stronger than `iscan_closed`, and the two differ exactly on
+   a delimiter run that would open: `a*` is closed at a line's end and
+   an opener before a colon, which is why the split test asks this one.
+   See `.project/keyed-blocks.md` 9.1. *)
+Definition iscan_settled (c : ascii) (st : iscan) : bool :=
+  iclosed_at (iresolve_next c st).
+
 Lemma ibreak_closed :
   forall st,
     iscan_closed st = true ->
@@ -3585,7 +3609,7 @@ Lemma ibreak_closed :
                   (OState (OIn (mk SoftBreak) :: ifinish_items st) []).
 Proof.
   intros st H.
-  unfold iscan_closed, ibreak, ifinish_items, oitems_of, ifinish_ostate in *.
+  unfold iscan_closed, iclosed_at, ibreak, ifinish_items, oitems_of, ifinish_ostate in *.
   destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
@@ -6328,7 +6352,7 @@ Proof.
     rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
     rewrite flush_text_flat.
     destruct rest as [|r rest'].
-    + cbn [ci_text iscan_str iscan_closed iresolve os_stk null].
+    + cbn [ci_text iscan_str iscan_closed iclosed_at iresolve os_stk null].
       rewrite nat_eqb_refl. reflexivity.
     + destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
       rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).
@@ -7247,7 +7271,7 @@ Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
   | EmptyString => None
   | String c rest =>
       if (Ascii.eqb c ":"%char && key_before prev && key_after rest
-          && iscan_closed st)%bool
+          && iscan_settled c st)%bool
       then Some (rev_string lbl, drop_leading_ws rest)
       else key_scan rest (String c lbl) (Some c) (istep c st)
   end.
@@ -7297,7 +7321,7 @@ Proof.
   induction s as [|c rest IH]; intros acc prev st r v Hinv H; [discriminate|].
   cbn [key_scan] in H.
   destruct (Ascii.eqb c ":"%char && key_before prev && key_after rest
-            && iscan_closed st)%bool eqn:E; [|apply (IH (String c acc) (Some c)
+            && iscan_settled c st)%bool eqn:E; [|apply (IH (String c acc) (Some c)
       (istep c st) r v); [|exact H];
       intros c0 Hc0 Hws; injection Hc0 as <-;
       rewrite is_blank_cons, Hws; reflexivity].
@@ -8898,6 +8922,18 @@ Proof. vm_compute. reflexivity. Qed.
 (* Declined although splitting would have been harmless: the `_` is
    unmatched, but at the colon the scan cannot know that yet. *)
 Example key_inside_emphasis : key_point "_a: b_" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* 9.1.  A delimiter run against the colon is undecided rather than
+   open: settling it needs the byte the colon occupies, and it settles
+   as an opener there and as literal text at a line's end.  Alone the
+   label would be `a*`; in place the `*` opens the span that swallows
+   the colon.  A run that *closes* consults no following byte, which is
+   why `key_after_quotation` is unaffected. *)
+Example key_pending_delimiter :
+  (key_point "a*: b*", key_point "a_: b_", key_point "a^: b^",
+   key_point "a~: b~", key_point "a"": b""")
+  = (None, None, None, None, None).
 Proof. vm_compute. reflexivity. Qed.
 
 Example key_needs_adjacency : key_point "foo : bar" = None.
