@@ -367,3 +367,38 @@ bar
 ");
      mk (BulletList Tight [[para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
+
+(* ...and the tree it would produce is already reachable, by indenting
+   the fence into the item.  Section 5 adds a spelling, not a document,
+   which is why the canonical renderer can decline it and
+   `ListUniformity.v` stays out of section 5's price. *)
+Example out_of_column_tree_is_reachable :
+  Key "- foo:
+  ```
+  bar
+  ```
+- baz"
+  = [mk (BulletList Tight
+           [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))];
+            [para "baz"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The falsifier section 5 has to pay for, from 9.2's census.
+   `blank_safe` is false on an open fence but reads through an open div,
+   so this document reaches `parse_list_close` with a key still holding
+   the div open.  Today the list closes and `next` is its sibling; with
+   the override the div claims `next` and the lemma is false. *)
+Example key_over_div_does_not_claim :
+  Key "- foo:
+  :::
+
+next"
+  = [mk (BulletList Tight [[mk (Keyed [mk (Str "foo")] (mk (Div [])))]]);
+     para "next"].
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_over_div_survives_a_blank :
+  blank_safe (match snd (@run_lines _ keyed_bconfig ["- foo:"; "  :::"] (PPara []))
+              with PList _ _ inner => inner | st => st end) = true.
+Proof. vm_compute. reflexivity. Qed.

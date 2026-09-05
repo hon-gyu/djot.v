@@ -3,7 +3,8 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **implemented except section 5**. `Inline.key_split` is the
+Status: **implemented except section 5**, whose price is now measured
+in 9.2 and is smaller than section 8 first read it. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
@@ -968,16 +969,22 @@ covers, and worth knowing before the construct grows.
 **Minor.** `def_split` takes an item's leading paragraph as a definition
 list term, so an item whose first block is a `Keyed` has no term.
 
-**Unscoped**, and the reason section 5 is separated from the rest: an
-item holding a block claimed out of column renders some of its lines
-unindented. Today `litem_lines` indents an item's lines uniformly and
+**Section 5, and why it is still separated.** The worry here was that
+an item holding a block claimed out of column renders some of its lines
+unindented: `litem_lines` indents an item's lines uniformly and
 `list_uniformity` reads an item's content as its lines with that indent
-removed. A block at column 0 inside an item at column 2 has no indent to
-remove, so the item is no longer related to its top-level reading by
-`pad_state`, and `step_fuel_pad` is the lemma that relation runs
-through. Nothing here says how much of `ListUniformity.v` that touches.
-This is the only part of the proposal whose cost is unknown, and it is
-worth landing sections 3, 4, 6 and 7.1 to 7.3 without it.
+removed, so a block at column 0 inside an item at column 2 has no
+indent to remove and the item stops being related to its top-level
+reading by `pad_state`, which is what `step_fuel_pad` runs through.
+
+That cost is real but *optional*, and 9.2 has the measurement. It is
+owed only if the unindented spelling becomes canonical, and it need not
+be: both spellings denote the same tree, so `cb_lines` can keep
+indenting and `ListUniformity.v` is untouched. What section 5 actually
+costs is a weakened descent test in `step`, one conjunct on ten
+close-side statements, and one genuinely false lemma
+(`parse_list_close`). Sections 3, 4, 6 and 7.1 to 7.3 landed without it
+because they do not need it, not because its price was unknown.
 
 ## 9. Open questions
 
@@ -1015,13 +1022,70 @@ is why it should be written down rather than assumed.
 
 ### 9.2 The cost of claiming out of column
 
-The last entry in section 8. Until it is measured, the price of section
-5 is unknown, and section 5 is the half that delivers the unindented
-spelling. Sections 3, 4, 6 and the first three worked examples do not
-depend on it, and they have now landed without it, so what is left is
-the measurement. `check/Keyed.v`'s `out_of_column_is_not_claimed` is
-the example that has to change when it is paid, and 7.4 and 7.5 are the
-trees it has to produce.
+**Measured.** Section 8 left this unknown on the reading that an item
+holding a claimed block *renders* some of its lines unindented, which
+would take the item out of `pad_state`'s reach and through
+`step_fuel_pad`. That reading assumed the unindented spelling has to
+become canonical. It does not, and the reason is that the two spellings
+denote the same tree:
+
+`````
+- foo:            - foo:
+```                 ```
+bar                 bar
+```                 ```
+- baz             - baz
+`````
+
+The right-hand column parses to section 5's tree *today*, with no
+override at all. So section 5 adds no document to the fragment, only a
+second way to spell one already in it. `cb_lines` keeps indenting,
+`litem_lines` stays uniform, and `list_uniformity`, `pad_state` and
+`step_fuel_pad` are untouched. The unscoped entry in section 8 was
+pricing a change that section 5 does not require.
+
+What is left is the parser half, and it is a *weakening* of one
+condition rather than a new branch: `PList`'s descent test becomes
+`key_claims inner || Nat.ltb (ls_indent ls) (off + indent_of l)`, with
+`key_claims` true when a key below holds a block whose end is announced
+on its own line (5.2's list: fenced code, raw blocks, fenced divs,
+thematic breaks). Weakening keeps the descend branch true and costs the
+close branch a conjunct. The census over the 33 sites that mention the
+test:
+
+| sites | what they are | cost |
+| --- | --- | --- |
+| 1 | the test in `step` | the change itself |
+| 20 | bare `destruct` in a proof (14 in `Wf.v`, 6 in `Step.v`) | mechanical if the condition is named |
+| 1 | `= true` hypothesis (the descend side) | free: weakening preserves it |
+| 10 | `= false` hypothesis (the close side) | one conjunct each, 13 call sites in total |
+
+Two of the ten, `step_list_diffstyle` and `step_list_lazy`, have no
+users anywhere and are not a cost.
+
+**The one real falsifier is `parse_list_close`**, and it is not
+hypothetical. `blank_safe` is false on an open fence but reads straight
+through an open div, so
+
+```
+- foo:
+  :::
+
+next
+```
+
+reaches that lemma with `inner = PKey "foo" "foo:" (PDiv 3 "" [] ...)`
+and `blank_safe inner = true`. Today the list closes and `next` is a
+paragraph; with the override the div claims it. The lemma has four
+users. The cheap discharge to try first is strengthening `blank_safe`
+on `PKey` rather than adding a hypothesis, since every user of that
+statement already carries `blank_safe`; the viral spelling is a fresh
+`key_claims inner = false` threaded from nowhere.
+
+`check/Keyed.v`'s `out_of_column_is_not_claimed` is still the example
+that has to change when this is paid, `key_over_div_does_not_claim` is
+the falsifier above, and 7.4 and 7.5 are the trees section 5 has to
+produce.
 
 ### 9.3 How a keyed node renders
 
