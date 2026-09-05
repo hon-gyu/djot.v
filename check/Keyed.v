@@ -345,6 +345,55 @@ Example key_content_requires_a_child :
 Proof. vm_compute. reflexivity. Qed.
 
 (*
+A delimiter against the colon splits when it should not
+-------------------------------------------------------
+
+`.project/keyed-blocks.md` 9.1.  The split test asks `iscan_closed`,
+which resolves the scan state first, and `iresolve` is the *end of
+line* disposition: a delimiter run still being spelled settles as
+literal text with an empty stack, so the test reports nothing open.
+The line does not end there, and `istep` on the colon then decides the
+run opens.  So the label reads one way alone and another way in place,
+which is the implication 3.1 owes.
+
+Canonical labels escape the delimiter, so no canonical document reaches
+this and the roundtrip sweeps are unaffected; these pin the gap on
+hand-written source until the test is repaired.
+*)
+
+Example delimiter_against_colon_splits :
+  (key_split "a*: b*", key_split "a_: b_",
+   key_split "a^: b^", key_split "a~: b~")
+  = (Some ("a*", "b*"), Some ("a_", "b_"),
+     Some ("a^", "b^"), Some ("a~", "b~")).
+Proof. vm_compute. reflexivity. Qed.
+
+(* the label reads as one text run alone... *)
+Example delimiter_label_alone :
+  para_inlines ["a*"] = [mk (Str "a*")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* ...and as a strong span swallowing the colon in place, so the two
+   readings disagree about the text, not only the tree *)
+Example delimiter_label_in_place :
+  para_inlines ["a*: b*"]
+  = [mk (Str "a"); mk (Strong [mk (Str ": b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example delimiter_key_diverges_from_keyless :
+  (Key "a*: b*", Djot "a*: b*")
+  = ([mk (Keyed [mk (Str "a*")] (para "b*"))],
+     [mk (Para [mk (Str "a"); mk (Strong [mk (Str ": b")])])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* the canonical spelling escapes the delimiter, which is why the
+   roundtrip fragment never reaches the gap *)
+Example delimiter_label_is_escaped_canonically :
+  (ci_line [CIStr "a*"], @cb_ok _ keyed_bconfig (CKey (CIStr "a*") (cpara ["b*"])))
+  = ("a\*", true).
+Proof. vm_compute. reflexivity. Qed.
+
+(*
 Section 5 is not implemented
 ----------------------------
 

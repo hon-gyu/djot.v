@@ -4,7 +4,10 @@ ai-disclosure: ai-generated
 # Keyed blocks
 
 Status: **implemented except section 5**, whose price is now measured
-in 9.2 and is smaller than section 8 first read it. `Inline.key_split` is the
+in 9.2 and is smaller than section 8 first read it. One known defect:
+9.1's implication is false as implemented, and a delimiter run against
+the colon splits when it should not. Canonical labels escape the
+delimiter, so the roundtrip fragment is unaffected. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
@@ -990,6 +993,9 @@ because they do not need it, not because its price was unknown.
 
 ### 9.1 Is "nothing open" enough, on every construct?
 
+**No. Answered by counterexample, and the rule as implemented is
+wrong.**
+
 Section 3.1 states the split rule as a test, "nothing open at the
 colon", and separately as what the test is for, "no later character
 changes how the label reads". The test has to imply the property. It
@@ -998,27 +1004,81 @@ declined although splitting it would have been harmless. This is also
 the formal content of section 0's promise that a key changes the tree
 and not the text.
 
-The direction that matters could still fail, on a construct whose
-reading depends on what follows while the scanner holds nothing open.
-Smart quotes were the obvious candidate, since a lone `"` is a curly
-quote and a paired one is a quotation, but djot pairs them like every
-other delimiter and the opener is on the stack, so the test refuses the
-split already.
+**The implication, stated.** For every line `l` with
+`key_split l = Some (lbl, v)`: reading `lbl` alone gives the same
+element that reading `l` gives at that position. `key_label_ok` forces
+the label to one element, so this is checkable as a single comparison --
+equal attributes, and either the same element or a text run whose
+content is a prefix of the line's first run.
 
-The second candidate is subtler and is not about a delimiter at all. An
-element can *vanish* during resolution: an attribute brace that finds
-nothing to decorate is dropped, and its neighbours then merge, so
-`a {#i}b: c` resolves to the single run `a b` (checked against the
-oracle). That is a case where what precedes the colon changes shape with
-nothing open, and 3.2's monotonicity argument reasons only about merging
-adjacent elements, not about one disappearing. The argument still looks
-sound, since the brace is already resolved at the colon, but it is
-stated for the wrong operation and should be restated to cover both.
+**The falsifier is a delimiter run against the colon.**
 
-So this is an obligation, not a question: state the implication, then
-either prove it or produce the construct that breaks it. It is the one
-place a block-level decision rests on an inline-layer invariant, which
-is why it should be written down rather than assumed.
+```
+a*: b*
+```
+
+`key_split` returns `Some ("a*", "b*")`. Alone, `a*` reads as one text
+run `a*`, so `key_label_ok` passes. In place, the line reads as `a`
+followed by a strong span over `: b` -- the `*` opened, and it swallowed
+the colon. The label reads one way alone and another way in the line,
+which is the property failing, and the keys-off and keys-on readings
+disagree about the *text*, which is section 0's promise failing.
+
+It is not one construct but every delimiter: `*`, `_`, `^`, `~` all do
+it, with `Strong`, `Emph`, `Superscript` and `Subscript` respectively.
+Row 10 of 3.1's table (`_a: b_`, declined) and this line differ only in
+which side of the label the delimiter sits on.
+
+**The cause is a predicate answering a slightly different question.**
+At the colon the raw scan state is `IDelim DStrong 0 "a" (Some "a")
+false`, a delimiter *being spelled*, whose role the next byte decides.
+`iscan_closed` calls `iresolve` first, and `iresolve` is the
+end-of-line disposition: it settles the pending run as the literal text
+`a*` with an empty stack, so `iscan_closed` reports closed. That is the
+right answer to "would everything be closed if the line ended here",
+which is what `ibreak_closed` needs it for. It is the wrong answer to
+"is anything still undecided here", which is what the split needs, and
+the two differ exactly on a pending delimiter run. Note `IBrace` -- "a
+`{` whose role the next byte decides" -- is reported open, but only
+because `iresolve` leaves it alone rather than settling it.
+
+**The fix is a second predicate, not a change to `iscan_closed`.** That
+one has its own users with the end-of-line question, and 3.1's
+no-lookahead argument survives intact: a pending delimiter run is
+undecided *at the colon*, so declining it needs no lookahead and is the
+conservative direction the rule already takes everywhere else. What has
+to move is `key_scan`'s test and 3.1's table, which gains the row.
+
+**Not a roundtrip failure.** Canonical labels escape the delimiter --
+`ci_line [CIStr "a*"]` is `a\*` -- so no canonical document reaches the
+gap and the sweeps pass unchanged. This is the same protection the
+literal colon gets, and the reason the bug survived the roundtrip
+fragment. It is reachable only from hand-written source, which is
+exactly where the corpus and the generated pool do not look, because
+djot.js has no keyed construct to compare against.
+
+**The first candidate is clean.** Smart quotes were the obvious worry,
+since a lone `"` is a curly quote and a paired one is a quotation, but
+djot pairs them like every other delimiter and the opener is on the
+stack, so the test refuses the split already.
+
+**The second candidate is also clean, and was the one this section
+predicted.** An element can *vanish* during resolution: an attribute
+brace that finds nothing to decorate is dropped, and its neighbours then
+merge, so `a {#i}b: c` resolves to the single run `a b` (checked against
+the oracle). 3.2's monotonicity argument reasons about merging adjacent
+elements, not about one disappearing, so it is stated for the wrong
+operation. Restated to cover both: resolution may merge adjacent
+settled elements and may delete a settled element, and neither can
+change an element that is already settled *and* already counted, because
+both operations act on the resolved list at or after the point in
+question. That leaves the argument sound, and the probe agrees -- `a
+{#i}b: c` reads as the label `a b` in both directions.
+
+So the section's own two candidates hold and a third, which it did not
+predict, does not. The obligation is discharged as a refutation: the
+test does not imply the property, the gap is one named family, and the
+repair is local.
 
 ### 9.2 The cost of claiming out of column
 
