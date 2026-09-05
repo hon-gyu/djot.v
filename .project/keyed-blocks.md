@@ -3,11 +3,14 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **specification mostly settled, section 3 implemented**.
-The rules below are decided except where section 9 says otherwise.
-`Inline.key_split` is the split rule of 3.1 and the one-inline rule of
-3.2, with every row of section 3's three tables pinned as an `Example`
-beside it; nothing above the inline layer exists yet. This file stands
+Status: **specification mostly settled, section 3 and the AST
+implemented**. The rules below are decided except where section 9 says
+otherwise. `Inline.key_split` is the split rule of 3.1 and the
+one-inline rule of 3.2, with every row of section 3's three tables
+pinned as an `Example` beside it, and `Ast.Keyed` is the node with its
+arms in `Wf.v`, `Html.v` and `Document.v`. What is missing is the
+parser: no source produces a `Keyed` yet, which is why `Wf.supported`
+excludes it. This file stands
 on its own: it is the definition of the construct, not a staging area,
 and it stays here once the construct exists.
 
@@ -970,11 +973,27 @@ section 5 separately. The recommendation here is yes.
 
 ### 9.3 How a keyed node renders
 
-There is no djot.js image and no HTML precedent. A description list with
-one term and one definition reuses vocabulary that says roughly the
-right thing. A section with a heading says something about document
-structure that is probably too strong. A div with the label as an
-attribute says the least and is the easiest to change later.
+**Answered provisionally: a one-term description list carrying a
+class.** `Keyed [Str "foo"] (Para "bar")` renders
 
-Deliberately the last question, because nothing above depends on the
-answer.
+```html
+<dl class="keyed">
+<dt>foo</dt>
+<dd>
+<p>bar</p>
+</dd>
+</dl>
+```
+
+There is no djot.js image and no HTML precedent, so this is a choice
+rather than a finding. The description-list vocabulary says roughly the
+right thing and keeps the label as inline content, which the third
+candidate could not: a label is an inline, and an attribute value is a
+string, so a div naming the key in an attribute would lose a label's
+markup. A section with a heading says something about document structure
+that is probably too strong. The class is what keeps a keyed node and a
+one-term definition list from rendering identically.
+
+Still the last question, because nothing above depends on the answer:
+`render_keyed_description_list` in `Html.v` is the only thing that would
+change.

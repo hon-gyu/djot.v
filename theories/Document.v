@@ -229,6 +229,11 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   | FootnoteDef label bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (FootnoteDef label bs'))
+  (* Its one block is a node, not a list, so the recursion is on the
+     payload directly and no list wrapper is needed. *)
+  | Keyed label (Node p' a' x) =>
+      let (st', n') := assign_ids x p' a' (register_id a st) in
+      (st', Node p a (Keyed label n'))
   | BulletList sp items =>
       let (st', items') :=
         (fix goit (its : list blocks) (s : id_state) {struct its}
@@ -696,6 +701,7 @@ Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
       end in
   match b with
   | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
+  | Keyed _ (Node p' a' x) => collect_refs x p' a' m
   | BulletList _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
       (fix god (its : list (inlines * blocks)) (acc : reference_map)
@@ -767,6 +773,14 @@ Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
       let (m', bs') := go bs m in (m', Some (Node p a (BlockQuote bs')))
   | Div bs =>
       let (m', bs') := go bs m in (m', Some (Node p a (Div bs')))
+  (* A key whose one block is a definition has nothing left to name, so
+     it goes with it.  Every other container keeps its (shorter) list. *)
+  | Keyed label (Node p' a' x) =>
+      let (m', o) := collect_notes x p' a' m in
+      (m', match o with
+           | Some n' => Some (Node p a (Keyed label n'))
+           | None => None
+           end)
   | BulletList sp items =>
       let (m', items') := goit items m in
       (m', Some (Node p a (BulletList sp items')))
@@ -1125,6 +1139,12 @@ Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
   | Div inner => [Node p a (Div (go inner))]
   | FootnoteDef label inner => [Node p a (FootnoteDef label (go inner))]
+  (* `Section` is the one block whose undo is not a single node, and
+     `sectionize` builds none below the top level, so the default is
+     unreachable and the payload comes back as itself. *)
+  | Keyed label (Node p' a' x) =>
+      [Node p a (Keyed label
+         (hd (Node p' a' x) (undo_pass_block x p' a')))]
   | BulletList sp items => [Node p a (BulletList sp (goit items))]
   | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
   | DefinitionList sp items =>
@@ -1376,6 +1396,7 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
       match lookup_attr "id" a with Some _ => false | None => true end
   | FootnoteDef _ _ => false
   | BlockQuote inner | Div inner => go inner
+  | Keyed _ (Node _ a' x) => pristine_block x a'
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
@@ -1470,6 +1491,7 @@ Fixpoint notes_free_block (b : block) {struct b} : bool :=
   match b with
   | FootnoteDef _ _ => false
   | BlockQuote bs | Div bs | Section bs => go bs
+  | Keyed _ (Node _ _ x) => notes_free_block x
   | BulletList _ items | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
       (fix god (its : list (inlines * blocks)) : bool :=
@@ -1812,6 +1834,19 @@ Proof.
     rewrite IHb by exact H. reflexivity.
   - (* FootnoteDef: collection removes it, so pristine excludes it. *)
     discriminate.
+  - (* Keyed: its one block, through Q at the singleton. *)
+    destruct b as [p' a' x].
+    cbn [pristine_block] in H.
+    specialize (IHb (register_id a st)).
+    cbn [assign_ids assign_ids_list assign_ids_node undo_pass undo_pass_node
+      snd] in *.
+    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    cbn [snd] in *.
+    assert (Hu : undo_pass [n1] = [Node p' a' x])
+      by (apply IHb; cbn [pristine pristine_node]; rewrite H; reflexivity).
+    destruct n1 as [q b1 y].
+    cbn [undo_pass undo_pass_node] in Hu. rewrite app_nil_r in Hu.
+    cbn [undo_pass_node undo_pass_block]. rewrite Hu. reflexivity.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
     rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [assign_ids_list assign_ids_node].
@@ -1907,6 +1942,16 @@ Proof.
   - rewrite notes_free_deflist in H.
     rewrite collect_notes_deflist, IHb by exact H. reflexivity.
   - discriminate.
+  - (* Keyed: `Q` at the singleton says the block survives collection,
+       and a key with a surviving block survives with it. *)
+    destruct b as [p' a' x]. cbn [notes_free_block] in H.
+    specialize (IHb m). cbn [notes_free] in IHb.
+    rewrite H in IHb. cbn [collect_notes_list] in IHb.
+    destruct (collect_notes x p' a' m) as [m1 n1] eqn:E1.
+    destruct n1 as [n0|].
+    + injection (IHb eq_refl) as <- ->.
+      cbn [collect_notes]. rewrite E1. reflexivity.
+    + discriminate (f_equal snd (IHb eq_refl)).
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [collect_notes_list]. rewrite IHb by exact Hb.
     rewrite IHb0 by exact Hrest. reflexivity.
@@ -1952,6 +1997,10 @@ Proof.
   - rewrite pristine_deflist in H. rewrite notes_free_deflist.
     apply IHb. exact H.
   - discriminate.
+  - (* Keyed: both predicates read straight through to the one block. *)
+    destruct b as [p' a' x]. cbn [pristine_block notes_free_block] in *.
+    cbn [pristine notes_free] in IHb. rewrite H in IHb.
+    specialize (IHb eq_refl). rewrite andb_true_r in IHb. exact IHb.
   - rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [notes_free]. rewrite (IHb _ Hb), (IHb0 Hrest). reflexivity.
   - cbn [pristine_items] in H. apply andb_true_iff in H as [Hit Hrest].
@@ -2020,6 +2069,16 @@ Proof.
     cbn [snd node_contents]. rewrite notes_free_deflist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
   - discriminate.
+  - (* Keyed: the payload is one node, so `Q` at the singleton is the
+       statement about it with a `&& true` on the end. *)
+    destruct b as [p' a' x]. cbn [notes_free_block] in H.
+    specialize (IHb (register_id a st)). cbn [notes_free] in IHb.
+    rewrite H in IHb. specialize (IHb eq_refl).
+    cbn [assign_ids assign_ids_list assign_ids_node] in *.
+    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    cbn [snd notes_free node_contents] in *.
+    destruct n1 as [q b1 y]. cbn [notes_free_block] in *.
+    rewrite andb_true_r in IHb. exact IHb.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [assign_ids_list assign_ids_node].
     destruct (assign_ids b p a st) as [st1 n1] eqn:E1.

@@ -285,7 +285,15 @@ Inductive block : Type :=
      the tree.  Keeping it means the source line has somewhere to
      round-trip *to*, which is what `Roundtrip.v` quantifies over — the
      map is derived from it, never the other way. *)
-  | RefDef (label : string) (dest : string).
+  | RefDef (label : string) (dest : string)
+  (* A label paired with the one block it names.  Not djot's: it is the
+     keyed-block extension of `.project/keyed-blocks.md`, and it holds a
+     single block rather than a list because the scope is exactly one, so
+     "the key takes the first block and nothing after it" is forced by
+     the type rather than checked.  The label is a list only because the
+     parser builds it with `para_inlines`; that it is one element is the
+     canonical view's condition, not `wf_block`'s. *)
+  | Keyed (label : inlines) (b : node block).
 
 Definition blocks : Type := list (node block).
 
@@ -417,6 +425,9 @@ Definition block_ind2
   (hraw : forall format contents, P (RawBlock format contents))
   (hfoot : forall label bs, Q bs -> P (FootnoteDef label bs))
   (hrefdef : forall label dest, P (RefDef label dest))
+  (* Its one block reaches the caller as a singleton list, so a key needs
+     no hypothesis of its own beyond the one every container has. *)
+  (hkeyed : forall label b, Q [b] -> P (Keyed label b))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
@@ -469,6 +480,7 @@ Definition block_ind2
     | RawBlock format contents => hraw format contents
     | FootnoteDef label bs => hfoot label bs (golist bs)
     | RefDef label dest => hrefdef label dest
+    | Keyed label b => hkeyed label b (golist [b])
     end.
 
 (*

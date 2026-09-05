@@ -455,6 +455,17 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   (* Collected by the later document pass; while it remains in the block
      tree it is metadata rather than visible document content. *)
   | FootnoteDef _ _ => []
+  (* Provisional, and `.project/keyed-blocks.md` 9.3 is the question it
+     answers: no oracle has this construct, so there is no image to
+     match.  The description-list vocabulary is the one that says "this
+     names that" while keeping the label as inline content, which a
+     label carried in an attribute could not.  The class is what keeps
+     the two apart, since a one-term definition list would otherwise
+     render identically. *)
+  | Keyed label b =>
+      [HElem "dl" 2 (("class", "keyed") :: a)
+         [HElem "dt" 1 [] (render_inlines label);
+          HElem "dd" 2 [] (render_bs [b])]]
   end.
 
 Definition render_node (n : node block) : list helt :=
@@ -680,6 +691,14 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
       let '(st1, s1) := render_caption_foot st caption in
       let '(st2, s2) := render_rows_foot st1 rows in
       (st2, [HElem "table" 2 a (s1 ++ s2)%list])
+  (* The label is inline content like a term's, so a note referenced
+     from it is numbered here rather than dropped by the stateless
+     path. *)
+  | Keyed label b =>
+      let '(st1, s1) := render_inlines_foot st label in
+      let '(st2, s2) := render_bs_at st1 tight [b] in
+      (st2, [HElem "dl" 2 (("class", "keyed") :: a)
+               [HElem "dt" 1 [] s1; HElem "dd" 2 [] s2]])
   | _ => (st, render_block tight b a)
   end.
 
@@ -1272,6 +1291,30 @@ z
   = "<pre><code class=""language-a&quot;onx=&quot;y"">z
 </code></pre>
 ".
+Proof. vm_compute. reflexivity. Qed.
+
+(* A keyed block, which no source produces yet: the parser reaches this
+   construct after the AST does.  `.project/keyed-blocks.md` 9.3 is the
+   question these two pin an answer to, and it is provisional. *)
+Example render_keyed_description_list :
+  serialize (render_blocks []
+    [mk (Keyed [mk (Str "foo")] (mk (Para [mk (Str "bar")])))])
+  = "<dl class=""keyed"">
+<dt>foo</dt>
+<dd>
+<p>bar</p>
+</dd>
+</dl>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+(* Both halves are reached by the numbering traversal: a label's note and
+   a block's each take an index, where the stateless fallback would have
+   dropped both. *)
+Example render_keyed_numbers_both_notes :
+  foot_next (fst (render_blocks_foot [] foot_initial
+    [mk (Keyed [mk (FootnoteReference "a")]
+           (mk (Para [mk (FootnoteReference "b")])))])) = 3.
 Proof. vm_compute. reflexivity. Qed.
 
 (*

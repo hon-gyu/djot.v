@@ -143,6 +143,13 @@ Fixpoint wf_block (b : block) : bool :=
                 row)
            rows
   | RawBlock _ _ => true
+  (* A label is nonempty and well formed, exactly as a paragraph's
+     inlines are.  That it is *one* inline is not asked here: a label of
+     two elements is not something the parser produces, but the reason it
+     is excluded is that it does not render back, which is the canonical
+     view's business.  Compare `Para`, which carries no such condition
+     either although the same rendering obligation applies to it. *)
+  | Keyed label b => nonempty label && wf_inlines label && wf_bs [b]
   end.
 
 Definition wf_blocks (bs : blocks) : bool :=
@@ -156,6 +163,12 @@ Proof.
   induction bs as [|[p a b] rest IH]; [reflexivity|].
   cbn [wf_blocks forallb node_contents]. rewrite IH. reflexivity.
 Qed.
+
+Lemma wf_block_keyed :
+  forall label b,
+    wf_block (Keyed label b)
+    = (nonempty label && wf_inlines label && wf_blocks [b])%bool.
+Proof. intros label [p a x]. reflexivity. Qed.
 
 (* Well-formedness reads payloads, never attributes, so hanging block
    attributes on a node is invisible to it. *)
@@ -3019,10 +3032,11 @@ Completeness
 Definition wf_complete : Prop :=
   forall bs, wf_blocks bs = true -> exists s, parse_blocks s = bs.
 
-(* The block constructs Parser.v has a rule for.  `Section` is the only
-   one left without: it is the document pass's, not the line fold's.
-   Recursive, so a quote whose contents are unreachable is itself
-   unreachable. *)
+(* The block constructs Parser.v has a rule for.  Two are left without.
+   `Section` is the document pass's, not the line fold's; `Keyed` has no
+   rule yet, the keyed-block extension having reached the AST before the
+   parser.  Recursive, so a quote whose contents are unreachable is
+   itself unreachable. *)
 Fixpoint supported (b : block) : bool :=
   let sup_bs :=
     fix go (ns : list (node block)) : bool :=
@@ -3898,6 +3912,17 @@ Proof.
     apply andb_true_iff in H as [Hlbl Hbs].
     apply andb_true_iff. split; [exact Hlbl|].
     change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact Hbs.
+  - (* Keyed: the label is untouched and the block is `Q` at a
+       singleton. *)
+    rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
+    destruct b as [p' a' x].
+    cbn [assign_ids] in *.
+    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    cbn [snd node_contents]. rewrite wf_block_keyed.
+    apply andb_true_iff. split; [exact Hlbl|].
+    specialize (IHb (register_id a st) Hb).
+    cbn [assign_ids_list assign_ids_node] in IHb. rewrite E1 in IHb.
+    cbn [snd] in IHb. exact IHb.
   - (* Node p a b :: rest *)
     rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
     cbn [assign_ids_list assign_ids_node].
@@ -4199,6 +4224,19 @@ Proof.
     specialize (IHb m Hbs H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hbs']. split; [|exact I].
     apply wf_note_map_set; assumption.
+  - (* Keyed: a key whose block is collected away goes with it, which is
+       the `None` case, and otherwise it keeps a well-formed block. *)
+    unfold r. rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
+    specialize (IHb m Hb H0).
+    destruct b as [p' a' x]. cbn [collect_notes] in *.
+    destruct (collect_notes x p' a' m) as [m1 [n0|]] eqn:E1;
+      cbn [collect_notes_list fst snd] in IHb |- *; rewrite E1 in IHb;
+      cbn [fst snd] in IHb.
+    + destruct IHb as [Hm1 Hn]. rewrite wf_blocks_cons in Hn.
+      apply andb_true_iff in Hn as [Hn _].
+      split; [exact Hm1|]. cbn [node_contents]. rewrite wf_block_keyed.
+      rewrite Hlbl. cbn [wf_blocks forallb]. rewrite Hn. reflexivity.
+    + destruct IHb as [Hm1 _]. split; [exact Hm1| exact I].
   - unfold r. rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [collect_notes_list].
     destruct (collect_notes b p a m) as [m1 [n|]] eqn:E1.
