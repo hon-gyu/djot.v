@@ -3,11 +3,13 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **specification mostly settled, implementation not started**.
-The rules below are decided except where section 9 says otherwise;
-nothing of the construct exists in the parser yet. This file stands on
-its own: it is the definition of the construct, not a staging area, and
-it stays here once the construct exists.
+Status: **specification mostly settled, section 3 implemented**.
+The rules below are decided except where section 9 says otherwise.
+`Inline.key_split` is the split rule of 3.1 and the one-inline rule of
+3.2, with every row of section 3's three tables pinned as an `Example`
+beside it; nothing above the inline layer exists yet. This file stands
+on its own: it is the definition of the construct, not a staging area,
+and it stays here once the construct exists.
 
 Prose first. Sections 0 to 7 define the syntax without naming a single
 identifier in the development; everything that touches the code is
@@ -323,9 +325,8 @@ Note\: this matters.
 | 10  | the leading one of `: term`         | definition-list marker | initial, not final                |
 | 11  | the one in `[see]: bar`             | reference definition   | the line is a definition first    |
 | 12  | the one in `[^n]: text`             | footnote definition    | likewise                          |
-| 13  | the one in `{#i}: bar`              | plain paragraph        | no label element survives         |
-| 14  | the one in `# foo:`                 | plain heading          | a key opens from a text line only |
-| 15  | any colon inside a fence            | verbatim               | fences are not classified         |
+| 13  | the one in `# foo:`                 | plain heading          | a key opens from a text line only |
+| 14  | any colon inside a fence            | verbatim               | fences are not classified         |
 
 `foo\: bar:` is therefore keyed, with label `foo: bar`: the escaped
 colon is text and the final one is the connective.
@@ -342,18 +343,19 @@ Row 10 holds only while definition lists are on, since a leading `: `
 is their marker. With them off the line is text and the colon is
 declined by row 9 instead, the label being empty either way.
 
-Row 13 is the one that takes an argument, and it is an instance of the
-one-inline rule rather than a case of its own. `{#i}` at the head of a
-line is an inline attribute with nothing in front of it to decorate, so
-djot drops it: `{#i}: bar` is one paragraph holding the single text node
-`: bar`, with no attribute anywhere and the identifier gone. The label a
-split would produce is therefore not the string `{#i}` but *no* element
-at all, and a label has to be exactly one. The parse is the same with
-keys on and with keys off.
+A line beginning with a brace is not a case here, although djot.js makes
+it one. There an inline attribute with nothing in front of it to
+decorate is dropped, so `{#i}: bar` is a paragraph holding `: bar` alone
+and there is no label element for a split to take. We keep such a spec
+as literal text, on purpose and for a reason that predates keys
+(`oracle-disagreements.md`, 2026-08-15: dropping it would falsify
+`parse_inline_line_nonempty`). So `{#i}: bar` is a key whose label is
+the four literal characters `{#i}`, and `{#i}foo: bar` a key labelled
+`{#i}foo` rather than `foo`.
 
 This is worth knowing rather than worth fixing. A writer who meant to
 identify the node wants the attribute on its own line above, as in 3.2;
-a writer who meant the literal braces escapes the first one.
+a writer who meant the literal braces has them already.
 
 The heading row is a decision rather than a consequence. Headings
 already build document structure through sections, and a line that was
@@ -422,7 +424,7 @@ reason to have the list at all.
 | ``the `--flag` option: what it does`` | a paragraph                | the label is three elements            |
 | `x{title="a: b"}y: z`                 | a paragraph                | the label is two runs                  |
 | `[see]: bar`                          | nothing at all             | a reference definition                 |
-| `{#i}foo: bar`                        | a key named `foo`          | djot drops a leading brace, id and all |
+| `{#i}foo: bar`                        | a key labelled `{#i}foo`   | a leading brace is literal text here   |
 | `see http://x: it works`              | a key named `see http://x` | the second colon splits                |
 | a key line under a paragraph          | more of the paragraph      | a key cannot interrupt one             |
 | `> foo:` then an unprefixed block     | `Para "foo:"` in the quote | the quote ended first (5.1, 6.1)       |

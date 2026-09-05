@@ -7194,6 +7194,74 @@ Proof.
   cbn [List.rev]. rewrite <- List.app_assoc. reflexivity.
 Qed.
 
+(*
+The key connective
+==================
+
+Where a colon on a line pairs a label with what follows it, which is
+`.project/keyed-blocks.md` sections 3.1 and 3.2.  The block layer asks
+this of a line that would otherwise open a paragraph; both questions it
+has to answer are inline ones -- what the scan still has open at a byte,
+and how many nodes the text before that byte resolves to -- which is why
+the test lives here and not beside the other line recognizers in
+`Line.v`.
+*)
+
+(* The colon sits against its label: the byte before it is not
+   whitespace, and a line-initial colon has no label at all. *)
+Definition key_before (prev : option ascii) : bool :=
+  match prev with None => false | Some c => negb (is_ws c) end.
+
+(* And a space or the end of the line follows it.  A tab is neither, so
+   this is spelled out rather than reusing `is_space`, which admits one. *)
+Definition key_after (rest : string) : bool :=
+  match rest with
+  | EmptyString => true
+  | String c _ => Ascii.eqb c " "%char
+  end.
+
+(* The line's split point: the label's source and the value's.  One
+   left-to-right pass with the scan state carried alongside, so no byte
+   is read twice and no candidate needs a lookahead.  `iscan_closed` is
+   the "nothing open" test: a colon the scan is unsure about is not a
+   split point and the pass goes on to the next, which is what sends
+   `x{title="a: b"}y: z` to its second colon.
+
+   An escaped colon is declined by that same test, a pending backslash
+   being an open state, so `foo\: bar` needs no case of its own. *)
+Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
+  : option (string * string) :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if (Ascii.eqb c ":"%char && key_before prev && key_after rest
+          && iscan_closed st)%bool
+      then Some (rev_string lbl, drop_leading_ws rest)
+      else key_scan rest (String c lbl) (Some c) (istep c st)
+  end.
+
+(* The line is normalised first, which is what makes the answer
+   independent of the indentation a container prefix leaves behind. *)
+Definition key_point (l : string) : option (string * string) :=
+  key_scan (drop_leading_ws l) EmptyString None istart.
+
+(* Is the label one inline?  A fact about the *resolved* list, so it
+   turns on the merge in `oresolve`: `it's` and `foo\: bar` are one run
+   because of it, and ``x`y` `` is two because a verbatim span cannot
+   merge with the text beside it. *)
+Definition key_label_ok (lbl : string) : bool :=
+  match para_inlines [lbl] with [_] => true | _ => false end.
+
+(* The split, when the line is a key.  Only the first split point is
+   tried: a label already two elements cannot come back to one, since
+   collapsing two settled elements would take a construct opening before
+   both, and that would have left the earlier point unsettled. *)
+Definition key_split (l : string) : option (string * string) :=
+  match key_point l with
+  | Some (lbl, v) => if key_label_ok lbl then Some (lbl, v) else None
+  | None => None
+  end.
+
 (* The canonical view's paragraph, laid out the same way. *)
 Fixpoint ci_para (lss : list (list cinline)) : inlines :=
   match lss with
@@ -8690,4 +8758,174 @@ Proof. vm_compute. reflexivity. Qed.
 Example attr_unclosed_spec_is_not_rescanned :
   parse_inline_line "x{a=""*b*"""
   = [mk (Str "x{a=""*b*""")].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+The key connective, pinned
+==========================
+
+The three tables of `.project/keyed-blocks.md` section 3, one example
+per row.  `key_point` is the split rule of 3.1, `key_label_ok` the
+one-inline rule of 3.2, and `key_split` the two together, which is what
+the block layer asks.
+*)
+
+(* 3.1, the split rule *)
+
+Example key_first_colon : key_point "foo: bar" = Some ("foo", "bar").
+Proof. vm_compute. reflexivity. Qed.
+
+(* Nothing is decided by whether the run closes: an unclosed one runs to
+   the end of the line, so the colon is inside the span either way. *)
+Example key_inside_verbatim :
+  key_point "`a: b` is how you write it" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_after_verbatim :
+  key_point "`code`: a description" = Some ("`code`", "a description").
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_inside_link : key_point "[see: here](x) is the reference" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_after_link :
+  key_point "[see](x): the reference" = Some ("[see](x)", "the reference").
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_after_brace :
+  key_point "foo{#my-foo}: bar" = Some ("foo{#my-foo}", "bar").
+Proof. vm_compute. reflexivity. Qed.
+
+(* The first colon reads as part of a title, so the scan goes on. *)
+Example key_after_quoted_value :
+  key_point "x{title=""a: b""}y: z" = Some ("x{title=""a: b""}y", "z").
+Proof. vm_compute. reflexivity. Qed.
+
+(* A quotation mark pairs like any other delimiter, so these two are the
+   same construct open and closed. *)
+Example key_inside_quotation : key_point """foo: bar"" and more" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_after_quotation :
+  key_point """foo"": bar" = Some ("""foo""", "bar").
+Proof. vm_compute. reflexivity. Qed.
+
+(* Declined although splitting would have been harmless: the `_` is
+   unmatched, but at the colon the scan cannot know that yet. *)
+Example key_inside_emphasis : key_point "_a: b_" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_needs_adjacency : key_point "foo : bar" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_needs_space_after : key_point "foo:bar" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_tab_is_not_a_space : key_point "foo:	bar" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* The value may be empty, which is the two-line spelling's key line. *)
+Example key_line_final : key_point "foo:" = Some ("foo", "").
+Proof. vm_compute. reflexivity. Qed.
+
+(* One split per line: what follows is the value's text, colons and all. *)
+Example key_one_per_line : key_point "foo: bar: baz" = Some ("foo", "bar: baz").
+Proof. vm_compute. reflexivity. Qed.
+
+(* An escaped colon is text, and a pending backslash is not a closed
+   state, so the rule needs no case for it. *)
+Example key_escaped_colon : key_point "foo\: bar:" = Some ("foo\: bar", "").
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_empty_label : key_point ":" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_leading_colon : key_point ": term" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* The line is normalised, so a container prefix's indentation cannot
+   change the answer. *)
+Example key_ignores_indentation : key_point "    foo: bar" = key_point "foo: bar".
+Proof. vm_compute. reflexivity. Qed.
+
+(* 3.2, the one-inline rule.  The counts are of the resolved list, which
+   is why the first five are one node and not two or three. *)
+
+Example key_label_run : key_label_ok "foo" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_phrase : key_label_ok "foo bar baz" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_apostrophe : key_label_ok "it's" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_dash : key_label_ok "a -- b" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_escape : key_label_ok "foo\: bar" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_verbatim : key_label_ok "`code`" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_link : key_label_ok "[see](x)" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_quotation : key_label_ok """foo""" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_strong : key_label_ok "*bold*" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* An attribute is not a second element: it rides on the element in
+   front of it. *)
+Example key_label_attributed : key_label_ok "x{title=""a""}" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_two_kinds : key_label_ok "x`y`" = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* Two runs, and they cannot merge: only one carries the title. *)
+Example key_label_split_attribute : key_label_ok "x{title=""a: b""}y" = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_label_embedded_markup : key_label_ok "the `--flag` option" = false.
+Proof. vm_compute. reflexivity. Qed.
+
+(* An attribute spec that finds nothing to decorate vanishes, and its
+   neighbours merge, so the label is the one run they make. *)
+Example key_label_vanished_spec : key_label_ok "a {#i}b" = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* 3.6, where a line does not read as it looks *)
+
+Example key_prose_colon :
+  key_split "Note: this matters." = Some ("Note", "this matters.").
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_declines_embedded_markup :
+  key_split "the `--flag` option: what it does" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_declines_split_attribute :
+  key_split "x{title=""a: b""}y: z" = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_second_colon_splits :
+  key_split "see http://x: it works" = Some ("see http://x", "it works").
+Proof. vm_compute. reflexivity. Qed.
+
+(* A spec with nothing before it keeps its source here, where djot.js
+   drops it (`.project/oracle-disagreements.md`, 2026-08-15), so the
+   label is the literal braces and not what they would have named.  Both
+   of these are keys, and 3.2's advice stands for a different reason
+   than the one that file gives: an attribute meant for the keyed node
+   goes on its own line above. *)
+Example key_leading_brace_is_literal :
+  key_split "{#i}: bar" = Some ("{#i}", "bar").
+Proof. vm_compute. reflexivity. Qed.
+
+Example key_leading_brace_keeps_its_source :
+  key_split "{#i}foo: bar" = Some ("{#i}foo", "bar").
 Proof. vm_compute. reflexivity. Qed.
