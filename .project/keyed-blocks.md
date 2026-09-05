@@ -1109,6 +1109,55 @@ while a fresh `key_claims inner = false` has nowhere to come from.
 to change when this is paid, `key_over_div_does_not_claim` is the
 falsifier above, and 7.4 and 7.5 are the trees section 5 has to produce.
 
+**Correction, from attempting it.** The table above is right about the
+33 sites and wrong about what they cost, for two reasons found by
+building the change and throwing it away.
+
+First, the call sites are not spread across the development. Twelve of
+the thirteen are in `ListUniformity.v`, so the claim above that the file
+is untouched holds only for `litem_lines` and the pad chain, not for the
+file. Each one has to discharge the override, and the discharge is the
+one this section guessed: `blank_safe` is false on an open fence, so
+`blank_safe st = true -> key_claims st = false` is provable and every
+site that needs it already carries `blank_safe`. Two supporting lemmas
+make it go through -- a blank opens no fence, so no state a blank leaves
+behind announces its own end, and none has a key claiming out of column.
+With those, `parse_list_close`'s *statement* does not change at all: the
+override is ruled out inside the proof. Restricting the override to
+fences and deferring fenced divs is what makes that work, and it is the
+cost split the div falsifier above was pointing at.
+
+Second, and decisively: **the override cannot be a predicate on the
+state alone.** Written that way it is inert. On
+
+`````
+- foo:
+```
+bar
+```
+`````
+
+the fence line arrives while the state is `PList _ _ (PKey "foo" "foo:"
+(PPara []))` -- the key is still *waiting*, and its block is not open,
+so a test that asks whether a key holds an announced-end block answers
+no and the list closes exactly as before. The block can only be open if
+the line was already accepted, which is what the test was supposed to
+decide. Every proof above goes through and the parser does nothing new.
+
+So `key_claims` has to read the arriving line: a key below is waiting
+*and* the line opens a block whose end is announced, or a key below is
+already holding one. That is a larger change than the census measures,
+because the discharge lemmas then quantify over the line too --
+`blank_safe st = true -> key_claims l st = false` is false for a waiting
+key and a fence line, and what replaces it is a claim about retraction
+(after a blank no key is left waiting), which is a fresh induction.
+
+The measurement to trust is therefore: the descend side is free, the
+Step.v and Wf.v sites are mechanical, the `ListUniformity.v` chain costs
+one hypothesis threaded through five lemmas with a real discharge, and
+the line-dependent form of the test is unpriced. Restricting to fences
+is the first increment; the div case is the second.
+
 ### 9.3 How a keyed node renders
 
 **Answered provisionally: a one-term description list carrying a
