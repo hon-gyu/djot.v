@@ -1109,7 +1109,7 @@ Proof.
 Qed.
 
 (* The claimed characters: the ones the scanner reserves, the ones the
-   table hands out, and `^`.
+   table hands out, and the punctuation claimed independently below.
 
    `^` is listed on its own because it is the one character that is both.
    It marks a footnote after a `[`, so canonical text must escape it; but
@@ -1124,12 +1124,13 @@ Qed.
    a canonical `Str` must escape it under *every* table -- otherwise
    `iscan_escape` is false for a table whose rows avoid the hyphen. *)
 Definition needs_escape (c : ascii) : bool :=
-  (dreserved c || is_delim c || Ascii.eqb c hat || Ascii.eqb c hyphen)%bool.
+  (dreserved c || is_delim c || Ascii.eqb c hat || Ascii.eqb c hyphen
+   || Ascii.eqb c ":"%char)%bool.
 
 (* Obligation 1: an escaped character must be one the decoder accepts.
-   Half of it is the seven reserved characters, which are punctuation by
-   computation; the other half is the table's, and holds because an
-   admissible row is spelled with punctuation. *)
+   The fixed characters are punctuation by computation; the table's
+   characters satisfy the obligation because an admissible row is
+   spelled with punctuation. *)
 Lemma dreserved_punct : forall c, dreserved c = true -> is_punct c = true.
 Proof.
   intros [b0 b1 b2 b3 b4 b5 b6 b7] H.
@@ -1140,6 +1141,8 @@ Qed.
 Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
 Proof.
   intros c H. apply orb_true_iff in H as [H|H];
+    [|apply Ascii.eqb_eq in H; subst c; reflexivity].
+  apply orb_true_iff in H as [H|H];
     [|apply Ascii.eqb_eq in H; subst c; reflexivity].
   apply orb_true_iff in H as [H|H];
     [|apply Ascii.eqb_eq in H; subst c; reflexivity].
@@ -1201,6 +1204,14 @@ Proof. reflexivity. Qed.
    image, which is exactly the reading djot.js gives `\![a](u)`. *)
 Lemma needs_escape_bang : needs_escape bang = true.
 Proof. reflexivity. Qed.
+
+(* A literal colon must not become a key connective when its line opens
+   a paragraph.  Escaping it in the shared inline spelling also protects
+   labels, and works with keys off: the inline decoder reads [\:] as [:]
+   in either mode.  Like the other escapes, it is emitted on every line,
+   so rendering does not need a block setting or a first-line variant. *)
+Lemma needs_escape_colon : needs_escape ":"%char = true.
+Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
 (* Inside a destination the scanner dispatches on two more characters,
    the parentheses that move its depth counter, and on none of the
@@ -4514,6 +4525,7 @@ Lemma ilead_plain :
     ilead c txt prev o = IText false (txt ++ one c)%string prev o.
 Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
+  apply orb_false_iff in Hc as [Hc Hcolon].
   apply orb_false_iff in Hc as [Hc Hhyp].
   apply orb_false_iff in Hc as [Hc Hhat].
   apply orb_false_iff in Hc as [Hres Hdl].
@@ -8430,7 +8442,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* Canonical text escapes the `<`, so a `Str` can never spell one. *)
 Example auto_bracket_escaped_in_canonical_text :
-  ci_line [CIStr "<a:b>"] = "\<a:b>".
+  ci_line [CIStr "<a:b>"] = "\<a\:b>".
 Proof. vm_compute. reflexivity. Qed.
 
 (* The canonical leaf: one constructor for both kinds, since the kind is

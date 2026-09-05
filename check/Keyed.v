@@ -24,7 +24,7 @@ dune build && rocq c -R _build/default/theories DjotV check/Keyed.v
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Line Inline Parser Render.
+From DjotV Require Import Strings Ast Line Inline Parser Render Roundtrip.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -238,6 +238,54 @@ Example a_sibling_marker_retracts :
   = Djot "- foo:
 - bar".
 Proof. vm_compute. reflexivity. Qed.
+
+(*
+Literal colons in canonical source
+---------------------------------
+
+The same spelling works in both modes.  The shared inline escape also
+protects continuation lines and text inside containers; no first-line
+renderer is needed.  Pin acceptance separately from roundtrip so these
+documents cannot silently leave the canonical fragment.
+*)
+
+Example literal_colon_source :
+  cb_lines (cpara ["Note: this matters."; "ends:"])
+    = ["Note\: this matters\."; "ends\:"].
+Proof. reflexivity. Qed.
+
+Definition literal_colon_documents : list (list cblock) :=
+  let p := cpara ["Note: this matters."; "ends:"] in
+  [[p]; [cpara ["Note\: this matters."]];
+   [CQuote [p]]; [CList LKBullet Tight [[p]]];
+   [CId "note" p]; [p; p]].
+
+Example literal_colon_documents_accepted :
+  forallb (@cblocks_ok _ keyed_bconfig) literal_colon_documents = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example literal_colon_documents_roundtrip :
+  forall cbs, In cbs literal_colon_documents ->
+    Key (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof.
+  intros cbs Hin. apply roundtrip_blocks.
+  pose proof literal_colon_documents_accepted as H.
+  rewrite forallb_forall in H. exact (H cbs Hin).
+Qed.
+
+Example literal_colon_source_with_keys_off :
+  Djot (render_djot [para "Note: this matters."])
+    = [para "Note: this matters."].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Appending the connective to the escaped label must split at that
+   final colon, and keep both the label's colon and the value's colon. *)
+Example escaped_colon_label :
+  let label := ci_line [CIStr "Note: this"] in
+  key_split (label ++ ":") = Some (label, "")
+  /\ Key (label ++ ":" ++ nl ++ ci_line [CIStr "value: text"])
+    = [mk (Keyed [mk (Str "Note: this")] (para "value: text"))].
+Proof. split; vm_compute; reflexivity. Qed.
 
 (*
 Section 5 is not implemented

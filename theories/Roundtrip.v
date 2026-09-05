@@ -1962,12 +1962,18 @@ Example quote_in_div_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* And a div whose contents would close it is not renderable, so
-   `roundtrip_blocks` never sees it.  This is `cb_ok`'s side condition
-   doing its job. *)
-Example div_containing_fence_rejected :
-  cblocks_ok [CDiv [cpara [":::"]]] = false.
-Proof. reflexivity. Qed.
+(* Literal colons are escaped, so text that resembles a div fence no
+   longer closes the container and belongs to the canonical fragment. *)
+Example div_containing_literal_fence_roundtrip :
+  let cbs := [CDiv [cpara [":::"]]] in
+  cblocks_ok cbs = true
+  /\ render_djot (blocks_of_cblocks cbs)
+    = (":::" ++ nl ++ "\:\:\:" ++ nl ++ ":::")%string
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof.
+  split; [reflexivity|].
+  split; [reflexivity|apply roundtrip_blocks; reflexivity].
+Qed.
 
 (* Nesting roundtrips too, with no extra hypotheses. *)
 Example nested_quote_roundtrip :

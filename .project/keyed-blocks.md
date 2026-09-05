@@ -931,6 +931,17 @@ throw a large share of ordinary paragraphs out of the tested fragment
 for no gain. Only the first line of a block needs it, since 3.5 says
 continuation lines are never tested.
 
+**Implemented:** `Inline.needs_escape` claims the colon, so the shared
+inline spelling escapes it on every line, with either block setting.
+This keeps the renderer independent of the block configuration and
+protects future canonical labels as well as paragraphs. The extra
+escapes on continuation lines and with keys off decode to the same
+text. `check/Keyed.v` pins acceptance and roundtrip for literal-colon
+paragraphs at top level, inside quotes and lists, and under an explicit
+id; it also pins an escaped label followed by the real connective.
+The `CKey` wrapper and its rendering/roundtrip arms remain the next
+increment.
+
 **The oracle stops covering this.** djot.js has no keyed construct, so
 every keyed document is a divergence by construction and the
 differential harness cannot adjudicate one. What is left is the
