@@ -391,19 +391,64 @@ Example delimiter_label_is_escaped_canonically :
 Proof. vm_compute. reflexivity. Qed.
 
 (*
-Section 5 is not implemented
-----------------------------
+Claiming a block out of column
+------------------------------
 
-A block at a column the enclosing container would refuse is still
-refused: the list ends at line 2, the key retracts, and the fence and
-the second marker are read outside it.  Section 5 would make this one
-list whose first item is `Keyed "foo"` over the code block.  The cost of
-getting there is `.project/keyed-blocks.md` 9.2, and this example is
-what has to change when it is paid.
+Section 5, and the two worked examples that turn on it.  Line 2 sits at
+the marker's own column, so ordinarily the list ends there; the open key
+holds it open and takes the fence, and the fence's closing line ends the
+key, which ends the override.  Line 5 is then a marker the list sees.
 *)
 
-Example out_of_column_is_not_claimed :
+Example out_of_column_is_claimed :
   Key "- foo:
+```
+bar
+```
+- baz"
+  = [mk (BulletList Tight
+           [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))];
+            [para "baz"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* 5.2: a list is not a block whose end is announced, so it is never
+   claimed.  `foo:` is not a key here and the colon is literal text --
+   the same document a writer gets from typing two bullets. *)
+Example a_list_is_not_claimed :
+  Key "- foo:
+- bar"
+  = [mk (BulletList Tight [[para "foo:"]; [para "bar"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* 5.1: the override is about column only.  A quote keeps its prefix... *)
+Example quote_prefix_survives_the_override :
+  Key "> foo:
+> ```
+> bar
+> ```"
+  = [mk (BlockQuote
+           [mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* ...and a div's closing fence still closes it. *)
+Example div_closer_survives_the_override :
+  Key ":::
+- foo:
+```
+bar
+```
+:::"
+  = [mk (Div [mk (BulletList Tight
+                    [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))]])])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* With keys off nothing above changes: the list ends at line 2, the
+   fence is read outside it, and the second marker opens a new list. *)
+Example out_of_column_needs_the_setting :
+  Djot "- foo:
 ```
 bar
 ```

@@ -1126,6 +1126,55 @@ Proof. intros ls. destruct ls. reflexivity. Qed.
    after: `step` is deterministic and a blank's effect on the top
    constructor depends on nothing else.  Reading it off `inner` rather
    than `inner'` is why every pad lemma below stays one line. *)
+(*
+Claiming a block out of column
+------------------------------
+
+Section 5 of `.project/keyed-blocks.md`.  While a key's block is open
+the enclosing containers stop asking about column and the line goes
+straight down to the key.  The override lasts exactly as long as the
+block, so the block has to announce its own end on a line of its own; a
+paragraph, list, table or quote ends by being interrupted, and the
+interrupting line is the one the container outside needed to see, so
+there would be nothing for the override to last until (5.2).
+
+The test reads the arriving line and not only the state, and that is
+forced rather than convenient: on `- foo:` the key is still *waiting*
+when the fence line arrives, so a test that asks whether a key holds an
+open block answers no, the list closes, and nothing happens.  The block
+can only be open once the line has been taken, which is what the test
+decides.
+*)
+
+(* A fenced div belongs here too by 5.2 and is deferred; 9.2 has the
+   obligation that stops it. *)
+Definition announces_end (st : pstate) : bool :=
+  match st with PFence _ _ _ => true | _ => false end.
+
+Definition claimable (k : line_kind) : bool :=
+  match k with KFence _ => true | _ => false end.
+
+Fixpoint key_claims (l : string) (st : pstate) : bool :=
+  match st with
+  (* `is_idle` is the key's own retraction test (6.1), which is what
+     makes a blank end the override: the same condition that says the
+     key may still claim says a blank retracts it. *)
+  | PKey _ _ inner =>
+      if is_idle inner then claimable (classify l) else announces_end inner
+  (* Not a quote: 5.1 keeps the `>` prefix, so a line the override hands
+     down could not enter one anyway.  These are the states `blank_safe`
+     reads through, which is what ties the two together. *)
+  | PList _ _ inner | PDiv _ _ _ inner
+  | PFoot _ _ _ inner | PPend _ inner => key_claims l inner
+  | _ => false
+  end.
+
+(* Whether a list hands this line to the current item: ordinarily the
+   column test, and whatever the column when a key below claims it. *)
+Definition list_takes (ls : list_state) (off : nat) (l : string)
+  (inner : pstate) : bool :=
+  (key_claims l inner || Nat.ltb (ls_indent ls) (off + indent_of l))%bool.
+
 Fixpoint blank_absorbed (st : pstate) : bool :=
   match st with
   | PFence _ _ _ | PDiv _ _ _ _ | PList _ _ _ | PAttr _ _ _ _
@@ -1365,7 +1414,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               let ls' := if blank_absorbed inner then ls else list_blank ls in
               ([], PList ls' (rev bs ++ done)%list inner')
           | k =>
-              if Nat.ltb (ls_indent ls) (off + indent_of l)
+              if list_takes ls off l inner
               then
                 (* indented past the marker: contents of the current
                    item.  The line is passed down unchanged — every
@@ -1691,7 +1740,7 @@ Proof.
     cbn [pstate_depth] in Hn |- *.
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E.
     9: { (* an unindented footnote closes the list and opens outside it *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - rewrite (IH n' _ l inner) by lia.
         rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
@@ -1702,7 +1751,7 @@ Proof.
         reflexivity. }
     7: { (* a bullet marker: a sibling item, or a list of another style *)
       pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlt.
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - rewrite (IH n' _ l inner) by lia.
         rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
@@ -1718,7 +1767,7 @@ Proof.
       rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
       reflexivity. }
     4: { (* an unindented quote closes the list and opens outside it *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - rewrite (IH n' _ l inner) by lia.
         rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia.
         reflexivity.
@@ -1729,7 +1778,7 @@ Proof.
         reflexivity. }
     (* every other kind: contents of the item when indented past the
        marker, and otherwise nothing that recurses *)
-    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l));
+    all: destruct (list_takes ls off l inner);
          [ rewrite (IH n' _ l inner) by lia;
            rewrite (IH (String.length l + S (pstate_depth inner)) _ l inner) by lia;
            reflexivity
@@ -1948,6 +1997,50 @@ Proof.
     try reflexivity; cbn [pad_state blank_absorbed]; exact IH.
 Qed.
 
+
+(* A pad shifts columns and moves no line, and `key_claims` reads a line
+   and a shape but no column, so the override survives `step_fuel_shift`
+   and `step_fuel_pad` on its own account. *)
+Lemma pad_state_announces_end :
+  forall n st, announces_end (pad_state n st) = announces_end st.
+Proof. intros n st. destruct st; reflexivity. Qed.
+
+Lemma pad_state_key_claims :
+  forall n l st, key_claims l (pad_state n st) = key_claims l st.
+Proof.
+  intros n l st.
+  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
+                  |apend aind aap aslices|rind rlbl rval
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    try reflexivity; cbn [pad_state key_claims]; try exact IH.
+  rewrite pad_state_is_idle, pad_state_announces_end. reflexivity.
+Qed.
+
+(* A pad is invisible to the override for the same reason it is
+   invisible to the classifier: the line's kind is what the test reads. *)
+Lemma key_claims_ws_prefix :
+  forall p l st, is_blank p = true ->
+    key_claims (p ++ l) st = key_claims l st.
+Proof.
+  intros p l st Hp.
+  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
+                  |apend aind aap aslices|rind rlbl rval
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    try reflexivity; cbn [key_claims]; try exact IH.
+  rewrite (classify_ws_prefix p l Hp). reflexivity.
+Qed.
+
+Lemma pad_state_list_takes :
+  forall n ls off l inner,
+    list_takes (LSt (n + ls_indent ls) (ls_styles ls) (ls_loose ls)
+                    (ls_blanks ls) (ls_items ls) (ls_check ls) (ls_checks ls))
+               (n + off) l (pad_state n inner)
+    = list_takes ls off l inner.
+Proof.
+  intros n ls off l inner. unfold list_takes.
+  rewrite pad_state_key_claims. cbn [ls_indent].
+  rewrite <- Nat.add_assoc, ltb_add_mono_l. reflexivity.
+Qed.
 
 Lemma pad_list_content :
   forall n ls k,
@@ -2192,8 +2285,8 @@ Proof.
       cbn [fst snd pad_state]. rewrite pad_state_blank_absorbed.
       destruct (blank_absorbed inner); [reflexivity|].
       rewrite pad_list_blank. reflexivity. }
-    all: cbn [ls_indent]; rewrite <- Nat.add_assoc, ltb_add_mono_l.
-    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l)) eqn:Elt.
+    all: rewrite pad_state_list_takes.
+    all: destruct (list_takes ls off l inner) eqn:Elt.
     (* thematic *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -2643,6 +2736,17 @@ Proof.
   rewrite Hr. reflexivity.
 Qed.
 
+(* The descend side keeps its column hypothesis: the override only
+   weakens the test, so a line already indented past the marker is taken
+   whatever any key below is doing. *)
+Lemma list_takes_of_ltb :
+  forall ls off l inner,
+    Nat.ltb (ls_indent ls) (off + indent_of l) = true ->
+    list_takes ls off l inner = true.
+Proof.
+  intros ls off l inner H. unfold list_takes. rewrite H. apply orb_true_r.
+Qed.
+
 (* The conclusion carries the closer test rather than excluding it by
    hypothesis: the one line this rule has to get right is a div's closer,
    so a `div_closer l inner = false` precondition would have to be
@@ -2658,8 +2762,10 @@ Lemma step_list_indented :
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l.
+  pose proof (list_takes_of_ltb ls 0 l inner
+                (eq_trans (f_equal _ (Nat.add_0_l _)) Hind)) as Ht.
   destruct k eqn:Ek; try congruence;
-    rewrite Hind;
+    rewrite Ht;
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia);
     rewrite Hr; reflexivity.
 Qed.
@@ -2668,7 +2774,7 @@ Lemma step_list_sibling :
   forall l sty core chk rest ls done inner bs inner' s0 ss,
     classify l = KList sty core chk rest ->
     narrow (ls_styles ls) (configured_list_styles sty chk) = s0 :: ss ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step (configured_list_rest chk rest) (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
     ([], PList (list_next (list_narrow ls (s0 :: ss))
@@ -2679,7 +2785,7 @@ Lemma step_list_sibling :
 Proof.
   intros l sty core chk rest ls done inner bs inner' s0 ss H Hm Hind Hr.
   unfold step at 1.
-  cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  cbn [step_fuel open_line pstate_depth]. rewrite H, ?Nat.add_0_l, Hind, Hm.
   change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
             (configured_list_rest chk rest) (PPara []))
     with (step_fuel n (consumed l (configured_list_rest chk rest))
@@ -2702,7 +2808,7 @@ Lemma step_list_diffstyle :
   forall l sty core chk rest ls done inner bs inner',
     classify l = KList sty core chk rest ->
     narrow (ls_styles ls) (configured_list_styles sty chk) = [] ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step (configured_list_rest chk rest) (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
     (finish (PList ls done inner),
@@ -2713,7 +2819,7 @@ Lemma step_list_diffstyle :
 Proof.
   intros l sty core chk rest ls done inner bs inner' H Hm Hind Hr.
   unfold step at 1.
-  cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l, Hind, Hm.
+  cbn [step_fuel open_line pstate_depth]. rewrite H, ?Nat.add_0_l, Hind, Hm.
   change (step_fuel ?n (0 + consumed l (configured_list_rest chk rest))
             (configured_list_rest chk rest) (PPara []))
     with (step_fuel n (consumed l (configured_list_rest chk rest))
@@ -2746,12 +2852,12 @@ Proof. intros l ap H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexi
 Lemma step_list_attr_close :
   forall l ap ls done inner,
     classify l = KAttr ap ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step l (PList ls done inner)
     = (finish (PList ls done inner), snd (open_attr [] (indent_of l) ap l)).
 Proof.
   intros l ap ls done inner H Hind. unfold step. cbn [step_fuel open_line pstate_depth].
-  rewrite H, !Nat.add_0_l, Hind.
+  rewrite H, ?Nat.add_0_l, Hind.
   unfold close_reopen, open_attr. destruct (@battrs K); cbn [fst snd];
     rewrite app_nil_r; reflexivity.
 Qed.
@@ -2780,7 +2886,7 @@ Qed.
 Lemma step_list_foot_close :
   forall l lbl rest ls done inner bs inner',
     classify l = KFoot lbl rest ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
       (finish (PList ls done inner),
@@ -2789,7 +2895,7 @@ Lemma step_list_foot_close :
 Proof.
   intros l lbl rest ls done inner bs inner' H Hind Hr.
   unfold step at 1. cbn [step_fuel open_line pstate_depth].
-  rewrite H, !Nat.add_0_l, Hind.
+  rewrite H, ?Nat.add_0_l, Hind.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
@@ -2931,19 +3037,19 @@ Qed.
 Lemma step_list_ref_close :
   forall l lbl v ls done inner,
     classify l = KRef lbl v ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step l (PList ls done inner)
     = (finish (PList ls done inner), PRef (indent_of l) lbl v).
 Proof.
   intros l lbl v ls done inner H Hind. unfold step. cbn [step_fuel open_line pstate_depth].
-  rewrite H, !Nat.add_0_l, Hind.
+  rewrite H, ?Nat.add_0_l, Hind.
   cbn [close_reopen open_ref]. rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma step_list_quote_close :
   forall l rest ls done inner bs inner',
     classify l = KQuote rest ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
       (finish (PList ls done inner),
@@ -2951,7 +3057,7 @@ Lemma step_list_quote_close :
 Proof.
   intros l rest ls done inner bs inner' H Hind Hr.
   unfold step at 1. cbn [step_fuel open_line pstate_depth].
-  rewrite H, !Nat.add_0_l, Hind.
+  rewrite H, ?Nat.add_0_l, Hind.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
@@ -2968,29 +3074,29 @@ Qed.
 Lemma step_list_fence_close :
   forall l f ls done inner,
     classify l = KFence f ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     step l (PList ls done inner) =
       (finish (PList ls done inner), PFence f (indent_of l) []).
 Proof.
   intros l f ls done inner H Hind. unfold step. cbn [step_fuel open_line].
-  rewrite H, !Nat.add_0_l, Hind. cbn [close_reopen open_fence].
+  rewrite H, ?Nat.add_0_l, Hind. cbn [close_reopen open_fence].
   rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma step_list_lazy :
   forall l ls done inner,
-    classify l = KText -> Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    classify l = KText -> list_takes ls 0 l inner = false ->
     lazy_ok inner = true ->
     step l (PList ls done inner) = ([], PList ls done (feed_lazy l inner)).
 Proof.
   intros l ls done inner H Hind Hl. unfold step. cbn [step_fuel open_line].
-  rewrite H, !Nat.add_0_l, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
+  rewrite H, ?Nat.add_0_l, Hind. cbn [is_lazy]. rewrite Hl. reflexivity.
 Qed.
 
 Lemma step_list_close :
   forall l k ls done inner bs st',
     classify l = k -> direct_open k = true -> k <> KBlank ->
-    Nat.ltb (ls_indent ls) (indent_of l) = false ->
+    list_takes ls 0 l inner = false ->
     is_lazy k inner = false ->
     open_kind l k = (bs, st') ->
     step l (PList ls done inner) = (finish (PList ls done inner) ++ bs, st')%list.
@@ -3102,10 +3208,38 @@ Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => false
   | PAttr _ _ _ _ => false
-  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner | PPend _ inner
+  | PList _ _ inner | PDiv _ _ _ inner | PFoot _ _ _ inner
   | PKey _ _ inner => blank_safe inner
+  (* A settled attribute with nothing under it yet: a blank drops it, so
+     the state is closed in this predicate's own sense, but the drop
+     leaves an *idle* state behind, and a key above would then still be
+     waiting after a blank that section 6 says retracts it.  No run
+     produces this shape -- the line that settles an attribute is also
+     the line that starts the block it decorates -- so excluding it costs
+     no document and makes `step_blank_inner_settled` true as stated. *)
+  | PPend _ inner => (blank_safe inner && negb (is_idle inner))%bool
   | _ => true
   end.
+
+(* Two ways the override is ruled out.  A line that opens no
+   announced-end block cannot be claimed by a key that is still waiting,
+   and `blank_safe` is false on an open fence, so a key that is holding
+   one is not in this state either.  Together they discharge the
+   override wherever the arriving line is a marker. *)
+Lemma key_claims_not_claimable :
+  forall l st, claimable (classify l) = false -> blank_safe st = true ->
+    key_claims l st = false.
+Proof.
+  intros l st Hcl.
+  induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH
+                  |apend aind aap aslices|rind rlbl rval
+                  |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    cbn [blank_safe key_claims]; try reflexivity; try discriminate;
+    try (intro H; exact (IH H)).
+  - intro H. apply andb_true_iff in H as [H _]. exact (IH H).
+  - intro H. destruct (is_idle kinner); [exact Hcl|].
+    destruct kinner; reflexivity || discriminate H.
+Qed.
 
 Lemma fence_cols_ok_pad :
   forall k st, fence_cols_ok k (pad_state k st) = true.
@@ -3248,9 +3382,12 @@ Proof.
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
+    all: unfold list_takes; rewrite (key_claims_ws_prefix p l inner Hp).
     all: rewrite (indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
-    all: destruct (Nat.ltb (ls_indent ls) (String.length p + off + indent_of l))
+    all: destruct (key_claims l inner
+                   || Nat.ltb (ls_indent ls)
+                        (String.length p + off + indent_of l))%bool
            eqn:Elt;
          try (rewrite (div_closer_ws_prefix p l inner Hp),
                       (IH p off l inner Hp Hsafe Hcol); reflexivity).

@@ -2794,7 +2794,7 @@ Proof.
     { rewrite wf_blocks_app, wf_blocks_rev, Hd, (finish_wf _ Hi). reflexivity. }
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     7: { (* a bullet marker *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - (* indented past the marker: contents of the current item *)
         destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
@@ -2839,7 +2839,7 @@ Proof.
       destruct (blank_absorbed inner); cbn [ls_items list_blank];
         rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs. }
     6: { (* attribute spec: item contents when indented, else close *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
@@ -2852,7 +2852,7 @@ Proof.
         rewrite close_reopen_attr. cbn [fst snd]. split; [|exact Hos].
         apply finish_wf. exact H. }
     6: { (* footnote definition: item contents when indented, else close *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
@@ -2869,7 +2869,7 @@ Proof.
         rewrite close_reopen_foot. cbn [fst snd]. split; [|exact Hos].
         apply finish_wf. exact H. }
     6: { (* reference definition: item contents when indented, else close *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
@@ -2883,7 +2883,7 @@ Proof.
         apply finish_wf. exact H. }
     (* KRow is an ordinary close-and-reopen kind: the `all:` below. *)
     7: { (* text: lazy continuation into the item, or close the list *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
@@ -2903,7 +2903,7 @@ Proof.
           rewrite wf_blocks_app, Hob, andb_true_r.
           apply finish_wf. exact H. }
     4: { (* a quote either belongs to the item or opens after the list *)
-      destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+      destruct (list_takes ls off l inner).
       - destruct (IH off l inner Hi) as [Hb Hs].
         destruct (step_fuel n off l inner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *.
@@ -2919,7 +2919,7 @@ Proof.
         + cbn [state_wf]. rewrite wf_blocks_rev, Hb. exact Hs. }
     (* every other kind: item contents when indented, else close the
        list and reopen outside it *)
-    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l));
+    all: destruct (list_takes ls off l inner);
          [ destruct (IH off l inner Hi) as [Hb Hs];
            destruct (step_fuel n off l inner) as [bs inner'];
            cbn [fst snd] in Hb, Hs |- *;
@@ -3640,7 +3640,7 @@ Proof.
     { rewrite supported_blocks_app, supported_blocks_rev, Hd,
         (finish_supported _ Hi). reflexivity. }
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
-    4: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    4: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
@@ -3652,7 +3652,7 @@ Proof.
              cbn [close_reopen fst snd]; split; try reflexivity;
              rewrite supported_blocks_app, (finish_supported _ H);
              reflexivity. }
-    6: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    6: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
@@ -3694,7 +3694,7 @@ Proof.
          destruct (blank_absorbed inner); cbn [ls_items list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs. }
-    6: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    6: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
@@ -3713,7 +3713,7 @@ Proof.
            + unfold open_foot in *. destruct (@bfootnotes K);
                cbn [snd state_supported]; try reflexivity.
              rewrite supported_blocks_rev, Hb. exact Hs. }
-    7: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    7: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
@@ -3725,7 +3725,7 @@ Proof.
              cbn [close_reopen fst snd]; split; try reflexivity;
              rewrite supported_blocks_app, (finish_supported _ H);
              reflexivity. }
-    7: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    7: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
@@ -3745,7 +3745,7 @@ Proof.
                (split; [|reflexivity]);
                rewrite supported_blocks_app, (finish_supported _ H);
                reflexivity. }
-    3: { destruct (Nat.ltb (ls_indent ls) (off + indent_of l)).
+    3: { destruct (list_takes ls off l inner).
          - destruct (IH off l inner Hi) as [Hb Hs].
            destruct (step_fuel n off l inner) as [bs inner'].
            cbn [fst snd] in Hb, Hs |- *.
@@ -3760,7 +3760,7 @@ Proof.
            cbn [close_reopen open_quote fst snd]. split.
            + rewrite app_nil_r. apply finish_supported. exact H.
            + cbn [state_supported]. rewrite supported_blocks_rev, Hb. exact Hs. }
-    all: destruct (Nat.ltb (ls_indent ls) (off + indent_of l));
+    all: destruct (list_takes ls off l inner);
          [ destruct (IH off l inner Hi) as [Hb Hs];
            destruct (step_fuel n off l inner) as [bs inner'];
            cbn [fst snd] in Hb, Hs |- *;

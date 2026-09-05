@@ -3,19 +3,19 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
-Status: **implemented except section 5**, whose price is measured in
-9.2 and is smaller than section 8 first read it. 9.1 is closed: the
-split test was wrong for a delimiter run against the colon, and
-`iscan_settled` is the repair. `Inline.key_split` is the
+Status: **implemented**. 9.1 is closed: the split test was wrong for a
+delimiter run against the colon, and `iscan_settled` is the repair.
+Section 5 is in, for fenced code and raw blocks; a fenced div is the
+one block 5.2 admits that a key cannot yet claim, and 9.2 says why. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
 parser produces one, through `Step.bkeyed`, `Step.open_text` and the
-`PKey` state. Sections 3, 4, 6 and the worked examples 7.1, 7.2, 7.3
+`PKey` state. Sections 3, 4, 5, 6 and the worked examples 7.1, 7.2, 7.3, 7.4
 and 7.6 are pinned as whole documents in `check/Keyed.v` (`make
-keyed`). Section 5 -- claiming a block out of column -- is not
-implemented and 9.2 is why; `out_of_column_is_not_claimed` in that file
-is what the parser does instead. `Render.CKey` gives keys a canonical
+keyed`). `out_of_column_is_not_claimed` in that file
+was what the parser did before section 5; `out_of_column_is_claimed`
+is the same document now. `Render.CKey` gives keys a canonical
 two-line spelling and the existing `roundtrip_blocks` theorem covers
 them. `make keyed` checks the worked documents and a separate extracted
 keyed pool; no external parser provides an oracle for that pool.
@@ -978,22 +978,16 @@ covers, and worth knowing before the construct grows.
 **Minor.** `def_split` takes an item's leading paragraph as a definition
 list term, so an item whose first block is a `Keyed` has no term.
 
-**Section 5, and why it is still separated.** The worry was that an item
-holding a block claimed out of column renders some lines unindented:
-`litem_lines` indents an item's lines uniformly and `list_uniformity`
-reads an item's content as its lines with that indent removed, so a
-block at column 0 inside an item at column 2 has no indent to remove and
-the item stops being related to its top-level reading by `pad_state`,
-which is what `step_fuel_pad` runs through.
-
-That cost is real but optional, and 9.2 has the measurement. It is owed
-only if the unindented spelling becomes canonical, and it need not:
-both spellings denote the same tree, so `cb_lines` can keep indenting
-and `ListUniformity.v` is untouched. What section 5 costs is a weakened
-descent test in `step`, one conjunct on ten close-side statements, and
-one false lemma (`parse_list_close`). Sections 3, 4, 6 and 7.1 to 7.3
-landed without it because they do not need it, not because its price was
-unknown.
+**Section 5, and what it actually cost.** The worry here was that an
+item holding a block claimed out of column renders some lines
+unindented, which would take the item out of `pad_state`'s reach and
+through `step_fuel_pad`. That never came due: both spellings denote the
+same tree, so `cb_lines` keeps indenting and `ListUniformity.v`'s
+rendering side is untouched. What it cost instead was a weakened descent
+test in `step`, one conjunct on ten close-side statements, one
+hypothesis through four lemmas in the item chain, and two inductions
+about the state a blank leaves behind. 9.2 has the table and the one
+state that had to be excluded to make the second induction true.
 
 ## 9. Open questions
 
@@ -1050,127 +1044,69 @@ already settled and counted.
 
 ### 9.2 The cost of claiming out of column
 
-Measured. Section 8 left this unknown on the reading that an item
-holding a claimed block renders some of its lines unindented, which
-would take the item out of `pad_state`'s reach and through
-`step_fuel_pad`. That assumed the unindented spelling has to become
-canonical. It does not, because the two spellings denote the same tree:
+Paid, for fences. What is left is the fenced div.
 
-`````
-- foo:            - foo:
-```                 ```
-bar                 bar
-```                 ```
-- baz             - baz
-`````
+The estimate that mattered was not the one this section first made. Two
+things it got wrong, both found by building the change:
 
-The right-hand column parses to section 5's tree today, with no override
-at all. Section 5 adds no document to the fragment, only a second way to
-spell one already in it, so `cb_lines` keeps indenting, `litem_lines`
-stays uniform, and `list_uniformity`, `pad_state` and `step_fuel_pad`
-are untouched.
+**The canonical spelling never had to move.** Section 8 priced the
+override off the rendering -- an item holding a claimed block renders
+some lines unindented, which takes it out of `pad_state`'s reach. That
+is owed only if the unindented spelling becomes canonical, and it need
+not: both spellings denote the same tree, so `cb_lines` keeps indenting
+and `list_uniformity` is untouched. Section 5 adds a spelling, not a
+document.
 
-The parser half is a weakening of one condition rather than a new
-branch. `PList`'s descent test becomes `key_claims inner || Nat.ltb
-(ls_indent ls) (off + indent_of l)`, where `key_claims` is true when a
-key below holds a block whose end is announced on its own line: 5.2's
-list of fenced code, raw blocks, fenced divs and thematic breaks.
-Weakening keeps the descend branch true and costs the close branch a
-conjunct. Over the 33 sites that mention the test:
+**The test cannot read the state alone.** Written as "is a key holding
+a block that announces its own end" the override is inert, because the
+fence line arrives while the key is still *waiting* and its block is not
+open; the block can only be open once the line has been taken, which is
+what the test decides. `key_claims` reads the arriving line as well: a
+key below is waiting and the line opens a block whose end is announced,
+or a key below is already holding one. `is_idle` is the waiting test,
+which is the key's own retraction condition (6.1) -- the same condition
+that says the key may still claim says a blank retracts it, and that is
+what makes the override end with a blank.
 
-| sites | what they are | cost |
-| --- | --- | --- |
-| 1 | the test in `step` | the change itself |
-| 20 | bare `destruct` in a proof (14 in `Wf.v`, 6 in `Step.v`) | mechanical if the condition is named |
-| 1 | `= true` hypothesis, the descend side | free, weakening preserves it |
-| 10 | `= false` hypothesis, the close side | one conjunct each, 13 call sites |
+What it cost, in the end:
 
-`step_list_diffstyle` and `step_list_lazy` have no users anywhere and
-are not a cost.
+| where | what |
+| --- | --- |
+| `Step.v` | the test, three pad lemmas, `key_claims_not_claimable` |
+| `Step.v`, `Wf.v` | 20 `destruct` sites, mechanical once the test is named |
+| `Step.v` | 10 close-side statements gain the test as their hypothesis; the one descend-side statement keeps its column hypothesis and derives the weaker test |
+| `ListUniformity.v` | one hypothesis through four lemmas, and two new inductions |
 
-One of the ten is false rather than merely weaker. `blank_safe` is false
-on an open fence but reads through an open div, so
+The two inductions are the discharge. `step_blank_key_claims` says no
+key is left able to claim after a blank, which is what
+`parse_list_close` and the item chain need and what `blank_safe`
+already gives them; `step_blank_inner_settled` is what its `PKey` case
+needs, that a block which produced nothing on a blank kept its
+container. `parse_list_close`'s *statement* did not change: the
+override is ruled out inside the proof. Where the arriving line is a
+sibling marker the discharge is simpler still -- a marker opens no
+announced-end block, so `key_claims_not_claimable` settles it.
 
-```
-- foo:
-  :::
+**One state had to be excluded to make that true.** `blank_safe`'s
+`PPend` arm now also asks that what is under the pending attribute is
+not idle. A settled attribute with nothing under it yet is closed in
+`blank_safe`'s own sense -- a blank drops it -- but the drop leaves an
+idle state, and a key above would still be waiting after a blank that 6
+says retracts it. No run produces the shape: the line that settles an
+attribute is also the line that starts the block it decorates. The
+sweeps are unchanged, which is the evidence that no document was lost.
 
-next
-```
-
-reaches `parse_list_close` with `inner = PKey "foo" "foo:" (PDiv 3 "" []
-...)` and `blank_safe inner = true`. Today the list closes and `next` is
-a paragraph; with the override the div claims it. That lemma has four
-users. Try strengthening `blank_safe` on `PKey` before adding a
-hypothesis: every user of the statement already carries `blank_safe`,
-while a fresh `key_claims inner = false` has nowhere to come from.
-
-`check/Keyed.v`'s `out_of_column_is_not_claimed` is the example that has
-to change when this is paid, `key_over_div_does_not_claim` is the
-falsifier above, and 7.4 and 7.5 are the trees section 5 has to produce.
-
-**Correction, from attempting it.** The table above is right about the
-33 sites and wrong about what they cost, for two reasons found by
-building the change and throwing it away.
-
-First, the call sites are not spread across the development. Twelve of
-the thirteen are in `ListUniformity.v`, so the claim above that the file
-is untouched holds only for `litem_lines` and the pad chain, not for the
-file. Each one has to discharge the override, and the discharge is the
-one this section guessed: `blank_safe` is false on an open fence, so
-`blank_safe st = true -> key_claims st = false` is provable and every
-site that needs it already carries `blank_safe`. Two supporting lemmas
-make it go through -- a blank opens no fence, so no state a blank leaves
-behind announces its own end, and none has a key claiming out of column.
-With those, `parse_list_close`'s *statement* does not change at all: the
-override is ruled out inside the proof. Restricting the override to
-fences and deferring fenced divs is what makes that work, and it is the
-cost split the div falsifier above was pointing at.
-
-Second, and decisively: **the override cannot be a predicate on the
-state alone.** Written that way it is inert. On
-
-`````
-- foo:
-```
-bar
-```
-`````
-
-the fence line arrives while the state is `PList _ _ (PKey "foo" "foo:"
-(PPara []))` -- the key is still *waiting*, and its block is not open,
-so a test that asks whether a key holds an announced-end block answers
-no and the list closes exactly as before. The block can only be open if
-the line was already accepted, which is what the test was supposed to
-decide. Every proof above goes through and the parser does nothing new.
-
-So `key_claims` has to read the arriving line: a key below is waiting
-*and* the line opens a block whose end is announced, or a key below is
-already holding one. That is a larger change than the census measures,
-because the discharge lemmas then quantify over the line too --
-`blank_safe st = true -> key_claims l st = false` is false for a waiting
-key and a fence line, and what replaces it is a claim about retraction
-(after a blank no key is left waiting), which is a fresh induction.
-
-The measurement to trust is therefore: the descend side is free, the
-Step.v and Wf.v sites are mechanical, the `ListUniformity.v` chain costs
-one hypothesis threaded through five lemmas with a real discharge, and
-the line-dependent form of the test needs one lemma the state-only form
-did not. Restricting to fences is the first increment; the div case is
-the second.
-
-**That lemma probed clean.** `check/Probe.v` has a keyed pool now -- the
-file wanted one as soon as a keyed profile existed, and `keyed_bconfig`
-is it. `key_claims` is written there in the line-reading form, ahead of
-being proved, and three runs pin what it has to do. It fires on the
-fence line after `- foo:`, which is the case the state-only form gets
-wrong; it refuses a list marker, ordinary text and a blank; and once the
-block is open it takes every line, which is what makes the override end
-with the block rather than with a column. The candidate itself -- after
-a blank no key is left able to claim -- runs over the keyed pool against
-every line shape, guarded by `blank_safe`: 476 pass, 0 fail, 204 skip.
-So section 5's remaining cost is a chain that has been built once and a
-lemma that no input refutes.
+**The fenced div is deferred.** 5.2 admits it and `announces_end` does
+not, because `blank_safe` is false on an open fence and reads straight
+through an open div. That asymmetry is the whole difference: with
+fences, `blank_safe st = true` already rules the override out, and with
+divs it does not. `- foo:` / `  :::` / blank / `next` reaches
+`parse_list_close` with the key still holding the div open, and today
+the list closes while the override would give `next` to the div. Paying
+for it means `blank_safe`'s `PKey` arm asking `announces_end` itself,
+and then `step_blank_inner_settled` needs a blank not to leave a div on
+top -- a second family of cases, not a wider quantifier on the ones
+above.
 
 ### 9.3 How a keyed node renders
 
