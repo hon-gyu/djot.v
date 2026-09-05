@@ -1155,8 +1155,22 @@ key and a fence line, and what replaces it is a claim about retraction
 The measurement to trust is therefore: the descend side is free, the
 Step.v and Wf.v sites are mechanical, the `ListUniformity.v` chain costs
 one hypothesis threaded through five lemmas with a real discharge, and
-the line-dependent form of the test is unpriced. Restricting to fences
-is the first increment; the div case is the second.
+the line-dependent form of the test needs one lemma the state-only form
+did not. Restricting to fences is the first increment; the div case is
+the second.
+
+**That lemma probed clean.** `check/Probe.v` has a keyed pool now -- the
+file wanted one as soon as a keyed profile existed, and `keyed_bconfig`
+is it. `key_claims` is written there in the line-reading form, ahead of
+being proved, and three runs pin what it has to do. It fires on the
+fence line after `- foo:`, which is the case the state-only form gets
+wrong; it refuses a list marker, ordinary text and a blank; and once the
+block is open it takes every line, which is what makes the override end
+with the block rather than with a column. The candidate itself -- after
+a blank no key is left able to claim -- runs over the keyed pool against
+every line shape, guarded by `blank_safe`: 476 pass, 0 fail, 204 skip.
+So section 5's remaining cost is a chain that has been built once and a
+lemma that no input refutes.
 
 ### 9.3 How a keyed node renders
 

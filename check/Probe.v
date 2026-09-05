@@ -336,3 +336,96 @@ Compute report show_sl
               (out_eqb (step (" " ++ snd p) (fst p))
                        (step_at 1 (snd p) (fst p))))
   sl_pool.
+
+(*
+The keyed pool
+==============
+
+The pool above runs at the ambient configuration, where `bkeyed` is
+off, so no seed there reaches `PKey`.  These run at `keyed_bconfig`
+instead, which is why they are a second pool rather than more seeds:
+mixing the two configurations in one pool would make every tally above
+mean two things.
+
+What they are for is section 5 of `.project/keyed-blocks.md`, which is
+not implemented.  `key_claims` below is the override's test, written
+here so it can be probed before it is proved.  The shape matters: a
+test on the *state alone* -- "is a key holding a block that announces
+its own end" -- is inert, because the fence line arrives while the key
+is still waiting and its block is not open yet.  It has to read the
+arriving line too.
+*)
+
+Local Notation kstep := (@step djot_table keyed_bconfig).
+Local Notation krun := (@run_lines djot_table keyed_bconfig).
+
+Definition announces_end (st : pstate) : bool :=
+  match st with PFence _ _ _ => true | _ => false end.
+
+Definition key_waiting (st : pstate) : bool :=
+  match st with PPara nil => true | _ => false end.
+
+(* 5.2: only a block whose end is on a line of its own may be claimed.
+   Fenced divs belong here too and are deferred with them; see 9.2. *)
+Definition claimable (k : line_kind) : bool :=
+  match k with KFence _ => true | _ => false end.
+
+Fixpoint key_claims (l : string) (st : pstate) : bool :=
+  match st with
+  | PKey _ _ inner =>
+      if key_waiting inner then claimable (classify l) else announces_end inner
+  | PList _ _ inner | PDiv _ _ _ inner
+  | PFoot _ _ _ inner | PPend _ inner => key_claims l inner
+  | _ => false
+  end.
+
+Definition keyed_seeds : list (list string) :=
+  [ ["foo:"]; ["foo:"; "```"]; ["foo:"; "```"; "x"]
+  ; ["- foo:"]; ["- foo:"; "  ```"]; ["- foo:"; "  ```"; "  x"]
+  ; ["- foo:"; "  a"]; ["- foo:"; "  - b"]
+  ; ["> foo:"]; ["> foo:"; "> ```"]
+  ; ["::: c"; "foo:"]; ["::: c"; "foo:"; "```"]
+  ; ["{#i}"; "foo:"]; ["- a"; ""; "- foo:"]
+  ; ["- foo:"; "  bar:"]; ["- foo:"; "  bar:"; "  ```"]
+  ; ["[^n]: foo:"]; ["| a |"]; ["a"]; []
+  ].
+
+Definition keyed_pool : list pstate :=
+  map (fun ls => snd (krun ls (PPara []))) keyed_seeds.
+
+Definition keyed_sl : list (pstate * string) := pairs keyed_pool line_pool.
+
+(* Sanity, and the reason to read the tallies below: a pool with no
+   `PKey` in it refutes nothing about a key. *)
+Fixpoint holds_key (st : pstate) : bool :=
+  match st with
+  | PKey _ _ _ => true
+  | PList _ _ i | PDiv _ _ _ i | PFoot _ _ _ i | PPend _ i | PQuote _ i =>
+      holds_key i
+  | _ => false
+  end.
+Compute List.length (filter holds_key keyed_pool).
+
+(* The override fires where section 5 says and nowhere else.  The first
+   is the one a state-only test gets wrong; the rest are 5.2 (a list
+   cannot be claimed), ordinary text, and retraction. *)
+Compute
+  let st := snd (krun ["- foo:"] (PPara [])) in
+  (key_claims "```" st, key_claims "- bar" st,
+   key_claims "a" st, key_claims "" st).
+
+(* Once the block is open every line goes to it, which is what makes the
+   override end with the block rather than with a column. *)
+Compute
+  let st := snd (krun ["- foo:"; "  ```"] (PPara [])) in
+  (key_claims "bar" st, key_claims "```" st, key_claims "- b" st).
+
+(* The candidate section 5 rests on, and the one lemma its cost was
+   unknown for: after a blank, no key is left able to claim.  It is what
+   discharges the override at `parse_list_close` and through the item
+   chain, where `blank_safe` is the hypothesis already carried.  The
+   guard is `blank_safe`, so read `t_pass` before believing a `None`. *)
+Compute report show_sl
+  (fun p => guarded (blank_safe (fst p))
+              (negb (key_claims (snd p) (snd (kstep "" (fst p))))))
+  keyed_sl.
