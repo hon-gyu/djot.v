@@ -6,7 +6,9 @@ ai-disclosure: ai-generated
 Status: **implemented**. 9.1 is closed: the split test was wrong for a
 delimiter run against the colon, and `iscan_settled` is the repair.
 Section 5 is in, for fenced code and raw blocks; a fenced div is the
-one block 5.2 admits that a key cannot yet claim, and 9.2 says why. `Inline.key_split` is the
+one block 5.2 admits that a key cannot yet claim, and 9.2 says why. 9.3
+settles the HTML shape as a one-term description list carrying the
+`keyed` class. `Inline.key_split` is the
 split rule of 3.1 and the one-inline rule of 3.2, with every row of
 section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
@@ -1110,7 +1112,7 @@ above.
 
 ### 9.3 How a keyed node renders
 
-**Answered provisionally: a one-term description list carrying a
+**Answered: a one-term description list carrying a
 class.** `Keyed [Str "foo"] (Para "bar")` renders
 
 ```html
@@ -1131,6 +1133,6 @@ markup. A section with a heading says something about document structure
 that is probably too strong. The class is what keeps a keyed node and a
 one-term definition list from rendering identically.
 
-Still the last question, because nothing above depends on the answer:
-`render_keyed_description_list` in `Html.v` is the only thing that would
-change.
+`render_keyed_description_list` in `Html.v` pins the choice. It is an
+output contract rather than an oracle finding: changing it later would be
+a deliberate presentation change, not a parser correction.

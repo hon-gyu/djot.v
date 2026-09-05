@@ -43,6 +43,11 @@ From DjotV Require Import Ast Profile Invariants Render Roundtrip.
     - {{DjotV.Profile.html}Profile} exposes reviewed Djot and Markdown-like
       profiles while keeping their inline and block capabilities independently
       composable.
+    - {{DjotV.Step.html#keyed_bconfig}keyed_bconfig} opts into keyed blocks,
+      an extension that pairs one resolved inline label with exactly one block.
+      {{DjotV.Inline.html#key_split_contract}key_split_contract} proves that an
+      accepted label is nonblank, resolves to one inline node, and has no open
+      or undecided inline construct at its connective colon.
 
     ** Main guarantees
 
@@ -86,7 +91,9 @@ From DjotV Require Import Ast Profile Invariants Render Roundtrip.
     of the roundtrip theorem. Source positions, command-line behavior, and
     the oracle implementations themselves are outside the verified boundary.
     The extracted exhaustive checks complement the proofs; they do not replace
-    them.
+    them. Keyed blocks are a DjotV extension with no external parser oracle;
+    their focused checks therefore combine machine-checked contracts with an
+    extracted canonical roundtrip sweep.
 
     ** Suggested reading order
 

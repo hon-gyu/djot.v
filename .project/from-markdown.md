@@ -18,8 +18,11 @@ drifts; those do not.
 
 ## The profile this describes
 
-Fifteen things are configurable today, and this document describes the
-Markdown-facing choice for each. djot's own answer is in the last column.
+Fifteen settings describe the Djot/Markdown-facing surface, and this document
+gives the Markdown-facing choice for each. djot's own answer is in the last
+column. A sixteenth block setting, `bkeyed`, enables the separate keyed-block
+extension; it is off in both shipped profiles and is specified in
+[[keyed-blocks]].
 
 | setting | Markdown-facing | djot |
 | --- | --- | --- |
@@ -41,11 +44,11 @@ Markdown-facing choice for each. djot's own answer is in the last column.
 
 The first two, raw inline, math and inline attributes compose in
 `markdown_like_config`: it starts from the doubled strong spelling and
-applies field-local capability updates. The nine block settings live in one
-record with one field each,
-and `markdown_bconfig` composes their field-local knobs. `check/Markdown.v`
-pins the combined profile, and `check/Sublist.v` and `check/Setext.v` pin the
-individual settings.
+applies field-local capability updates. The nine block settings in the table
+and the separate keyed-block setting live in one record with one field each;
+`markdown_bconfig` composes the nine profile-facing knobs and leaves keys off.
+`check/Markdown.v` pins the combined profile, and `check/Sublist.v` and
+`check/Setext.v` pin the individual settings.
 
 The profile is not yet a CommonMark implementation: djot-only block and
 non-delimiter inline constructs remain enabled. See

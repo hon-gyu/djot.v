@@ -455,13 +455,12 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   (* Collected by the later document pass; while it remains in the block
      tree it is metadata rather than visible document content. *)
   | FootnoteDef _ _ => []
-  (* Provisional, and `.project/keyed-blocks.md` 9.3 is the question it
-     answers: no oracle has this construct, so there is no image to
-     match.  The description-list vocabulary is the one that says "this
-     names that" while keeping the label as inline content, which a
-     label carried in an attribute could not.  The class is what keeps
-     the two apart, since a one-term definition list would otherwise
-     render identically. *)
+  (* No oracle has this construct, so there is no image to match.  A
+     one-term description list says "this names that" while keeping the
+     label as inline content, which a label carried in an attribute could
+     not.  The class keeps the construct distinct from an ordinary
+     one-term definition list.  `.project/keyed-blocks.md` 9.3 records
+     the choice. *)
   | Keyed label b =>
       [HElem "dl" 2 (("class", "keyed") :: a)
          [HElem "dt" 1 [] (render_inlines label);
@@ -1293,9 +1292,8 @@ z
 ".
 Proof. vm_compute. reflexivity. Qed.
 
-(* A keyed block, which no source produces yet: the parser reaches this
-   construct after the AST does.  `.project/keyed-blocks.md` 9.3 is the
-   question these two pin an answer to, and it is provisional. *)
+(* The chosen keyed-block HTML shape.  `.project/keyed-blocks.md` 9.3
+   records why the label is a term rather than an attribute or heading. *)
 Example render_keyed_description_list :
   serialize (render_blocks []
     [mk (Keyed [mk (Str "foo")] (mk (Para [mk (Str "bar")])))])

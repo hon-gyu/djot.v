@@ -7350,6 +7350,84 @@ Proof.
   exact (key_point_label_nonblank _ _ _ E).
 Qed.
 
+(* The state carried by [key_scan] is exactly the scan of the reversed
+   accumulator it returns as the label.  This is the bridge between the
+   test performed during the one-pass search and a statement about the
+   returned label itself. *)
+Lemma key_scan_label_settled :
+  forall s acc prev st lbl v,
+    st = iscan_str (rev_string acc) istart ->
+    key_scan s acc prev st = Some (lbl, v) ->
+    iscan_settled ":"%char (iscan_str lbl istart) = true.
+Proof.
+  induction s as [|c rest IH]; intros acc prev st lbl v Hst Hsplit.
+  - discriminate.
+  - cbn [key_scan] in Hsplit.
+    destruct (Ascii.eqb c ":"%char && key_before prev && key_after rest
+              && iscan_settled c st)%bool eqn:E.
+    + apply andb_true_iff in E as [E Hsettled].
+      apply andb_true_iff in E as [E _].
+      apply andb_true_iff in E as [Ec _].
+      apply Ascii.eqb_eq in Ec. subst c.
+      injection Hsplit as <- _.
+      rewrite <- Hst. exact Hsettled.
+    + apply (IH (String c acc) (Some c) (istep c st) lbl v).
+      * subst st. rewrite rev_string_cons, iscan_str_app.
+        cbn [one iscan_str]. reflexivity.
+      * exact Hsplit.
+Qed.
+
+Lemma key_point_label_settled :
+  forall l lbl v,
+    key_point l = Some (lbl, v) ->
+    iscan_settled ":"%char (iscan_str lbl istart) = true.
+Proof.
+  intros l lbl v H. unfold key_point in H.
+  eapply key_scan_label_settled; [reflexivity|exact H].
+Qed.
+
+Lemma key_split_label_settled :
+  forall l lbl v,
+    key_split l = Some (lbl, v) ->
+    iscan_settled ":"%char (iscan_str lbl istart) = true.
+Proof.
+  intros l lbl v H. unfold key_split in H.
+  destruct (key_point l) as [[lbl0 v0]|] eqn:E; [|discriminate].
+  destruct (key_label_ok lbl0); [|discriminate].
+  injection H as <- <-. eapply key_point_label_settled; exact E.
+Qed.
+
+Lemma key_split_label_one :
+  forall l lbl v,
+    key_split l = Some (lbl, v) ->
+    exists x, para_inlines [lbl] = [x].
+Proof.
+  intros l lbl v H. unfold key_split in H.
+  destruct (key_point l) as [[lbl0 v0]|] eqn:E; [|discriminate].
+  destruct (key_label_ok lbl0) eqn:Hok; [|discriminate].
+  injection H as <- <-. unfold key_label_ok in Hok.
+  destruct (para_inlines [lbl0]) as [|x xs] eqn:Hils; [discriminate|].
+  destruct xs as [|y ys]; [exists x; reflexivity|discriminate].
+Qed.
+
+(** A successful key split has one nonblank resolved label, and the scan
+    of that label is settled with the connective colon known as the next
+    byte.  Thus the block layer consumes only split points for which the
+    inline layer has no open or undecided construct. *)
+Theorem key_split_contract :
+  forall l lbl v,
+    key_split l = Some (lbl, v) ->
+    nonblank lbl = true /\
+    (exists x, para_inlines [lbl] = [x]) /\
+    iscan_settled ":"%char (iscan_str lbl istart) = true.
+Proof.
+  intros l lbl v H. split.
+  - exact (key_split_label_nonblank _ _ _ H).
+  - split.
+    + exact (key_split_label_one _ _ _ H).
+    + exact (key_split_label_settled _ _ _ H).
+Qed.
+
 (* The same fact in the form the block layer wants: `open_kind` hands
    the arm the line already normalized. *)
 Lemma key_point_drop_leading_ws :
