@@ -454,7 +454,7 @@ The line fold
    Tight/loose is a stateful rule, and djot.js decides it on the *event*
    stream rather than on the finished tree: a blank line arms
    `ls_blanks`, and the next event that is neither a blank nor a list
-   boundary turns the list loose (parse.ts ~line 1237).  That is why
+   boundary turns the list loose (parse.ts:1242-1256).  That is why
    `- a`, blank, `  - b` stays tight even though a blank line separates
    the item's two children — the next event opens a list.  The textbook
    "blank line between block children" rule gets that case wrong.

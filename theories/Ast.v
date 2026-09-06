@@ -171,7 +171,7 @@ Proof.
   apply IH.
 Qed.
 
-(* `addBlockAttributes` (parse.ts:183): the pending set onto the node a
+(* `addBlockAttributes` (parse.ts:184): the pending set onto the node a
    block opens with.  Plain assignment -- no class rule here, which is
    djot.js's behaviour and not obviously intended. *)
 Local Definition attr_apply (pending a : attr) : attr :=
