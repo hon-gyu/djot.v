@@ -149,34 +149,40 @@ out. If no, the oracle wins and `wf_block` is what has to give. Here the
 answer was yes, and `push_text` confined the divergence to specs that
 both span a blank line and fail.
 
-### When it is representable, but only at a price
+### Canonical unreachability bounds a conformance gap; it does not close it
 
-**What happened.** Direct links. djot.js has no destination *mode*: it
-keeps every matcher running inside `](` and calls `strMatches` over the
-region only when the balanced `)` arrives. Our destination accumulates
-literal text instead, and one `links_and_images` case got worse on a step
-that added +11 overall. Nothing forbade matching the oracle — no theorem
-was at stake, and the canonical view can never produce such a document.
-The reflex was to implement `strMatches`. What stopped it was asking
-which inputs actually reach the difference: when the destination closes
-the two agree, so the gap is confined to a `](` that never finds its `)`.
-Matching that shape alone would have meant running the ordinary scan
-*and* accumulating source beside it, discarding one at the close — a
-third retroactive disposition, in the middle of a step about dispatch.
+**What happened.** Direct links. djot.js keeps every matcher running
+inside `](` and calls `strMatches` over the region only when the balanced
+`)` arrives. Our destination accumulates literal text instead, so the
+two disagree only when the destination never closes. The difference was
+logged and treated as settled because canonical rendering always supplies
+the close and matching would require another piece of scanner state.
+The same reasoning was later used for two unattached-attribute cases:
+unconditional helper lemmas were easier to keep if malformed source did
+not follow djot.js's recovery.
 
-**General form.** The clause above is about oracle behaviour we *cannot*
-represent. This is the more common case: behaviour we could match, at a
-cost, where the deciding fact is neither fidelity nor provability but the
-*reachable set* of the divergence. A gap confined to inputs the canonical
-view excludes is a corpus number; a gap on inputs the parser meets
-routinely is a bug. The corpus reports both as one line.
+That conclusion was backwards. Running an ordinary scan while retaining
+candidate source is still one pass, and the attribute lemmas can take
+side conditions that canonical callers already satisfy. Implementation
+and proof cost explain why a gap remains; they do not turn it into chosen
+language semantics.
 
-**What to do instead.** When a step makes some case worse, characterize
-the inputs that reach it before deciding anything. State the boundary as
-a sentence — "we agree whenever the destination closes" — and check that
-sentence against the oracle. If the divergent set is one the canonical
-view excludes, log it under "ours" with that sentence and move on; the
-fix belongs with the construct that needs the machinery anyway.
+**General form.** There are two independent questions. Canonical
+reachability says whether a disagreement threatens roundtrip. Oracle
+fidelity says whether the parser matches the designated implementation
+on the source in front of it. A negative answer to the first bounds the
+impact of a gap but says nothing favorable about the second. Likewise, a
+theorem blocks the oracle only when the theorem states a property the
+project intends on that input domain; a stronger helper lemma is allowed
+to acquire the side condition its real callers can discharge.
+
+**What to do instead.** Characterize the divergent input set and check
+whether matching requires source re-read or violates another chosen
+semantic property. If it does, record an intentional boundary. If it
+does not, keep the item open as conformance work even when it is
+noncanonical or expensive. Name the affected lemmas and the side
+conditions a repair would require; do not use proof convenience or
+implementation effort as an adjudication verdict.
 
 ## The corpus is djot.js's regression suite, not a map of the grammar
 

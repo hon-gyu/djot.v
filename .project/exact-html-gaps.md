@@ -1,7 +1,7 @@
 ---
 ai-disclosure: ai-generated
 ---
-# The exact-HTML gaps, and what "adjudicated" means
+# The exact-HTML gaps, and what their status means
 
 Evergreen, per [[README]]: it says what the gap is now. The list below
 is regenerated with
@@ -17,14 +17,15 @@ disagrees on. Ours are the ones with a `gallina:` line.
 
 `make shape` compares block structure with inline content dropped, and
 is **287/287**. `make test` compares exact HTML and is **283/287**. The
-four cases in the difference are all inline, all in the same two
-families, and all deliberate.
+four cases in the difference are all inline and all in the same two
+families. One is an intentional property boundary; the other three are
+open conformance gaps.
 
 They are also all unreachable from a canonical document, which is why
-the generated corpus is 5090/5090 and the roundtrip is clean: none of
-these shapes can occur in output the renderer produces. They are
-fidelity gaps against djot.js's hand-written regression suite, not
-defects in anything the theorems quantify over.
+the generated corpus and roundtrip are clean: none of these shapes can
+occur in output the renderer produces. That bounds their effect and
+keeps them out of the roundtrip theorem. It does not make a difference
+from the designated djot.js oracle correct or finished.
 
 ## The four
 
@@ -60,21 +61,28 @@ container and returns without doing anything when there is none
 (`parse.ts:452`). The spec's source is already gone by then, consumed by
 the attribute machine, so it vanishes.
 
-**Forced by a theorem.** The deciding input is not either corpus case
-but `# {#i}`, where the spec is a heading's whole content and djot.js
-renders `<h1></h1>`. `parse_inline_line_nonempty` says a nonblank line
-yields at least one inline; `para_inlines_nonempty` and the `wf_block`
-obligation on paragraphs rest on it. Dropping the spec would falsify it
-for the string `{#i}`, which our own parser can reach.
+**Open conformance gap.** The current implementation preserves a useful
+unconditional productivity theorem: `parse_inline_line_nonempty` says a
+nonblank line yields at least one inline. Following djot.js would falsify
+that statement for `{#i}`. But the statement is a helper theorem, not a
+djot semantic commitment. It can be narrowed to exclude input erased by
+unattached attributes, while the block parser omits an empty paragraph
+instead of constructing `Para []`. An empty heading already fits
+`wf_block`.
 
-Note what the argument is *not*. `wf_block` does not forbid an empty
-heading -- its case is `Nat.leb 1 level && wf_inlines ils`, and
-`parse_blocks "#"` really does give `Heading 1 []`. What an empty
-heading would break is the *inline* theorem, and only because `{#i}` is
-a nonblank line. `oracle-disagreements.md`'s entry says "a block with no
-children is not in `wf_block`" alongside the real reason; that clause is
-true of `Para` and `Section` and false of `Heading`, and a correction is
-appended under the entry.
+The second case exposes a different proof boundary. Letting a spec at
+the start of a line disappear against the preceding `SoftBreak` makes
+resolution sensitive to whether the paragraph is scanned whole or
+decomposed at that line. The current `oresolve_app` and
+`para_inlines_cons2_closed` statements rule that out unconditionally.
+They can instead acquire a side condition saying that no unresolved
+attribute at the split may inspect the appended prefix. Canonical text
+already discharges such a condition.
+
+Neither repair requires source replay. The present behaviour kept the
+theorems and their users simpler, but theorem convenience is not a
+semantic reason to override the reference implementation. These two
+cases remain work to do if exact djot.js recovery is the target.
 
 Argument in `oracle-disagreements.md` under *2026-08-15 -- ours: a spec
 with nothing before it*, amended 2026-08-22 when attachment moved after
@@ -129,14 +137,14 @@ djot.js has no destination *mode*. It leaves every matcher running
 inside `](` and turns the region literal only when the balanced `)`
 arrives (`inline.ts:470`). With no `)`, it keeps what it matched.
 
-**A cost decision, and the only one of the four that is.** Nothing
-forbids matching this: no theorem is at stake and the canonical view can
-never produce such a document. Our destination accumulates literal text;
-djot.js can afford not to because it holds the subject string and
-re-slices it. To match we would have to run the ordinary scan *and*
-accumulate the source beside it, discarding one at the close -- a third
-retroactive disposition, which belongs with the construct that needs the
-machinery anyway rather than with direct links.
+**Open conformance gap.** Nothing forbids matching this: no theorem is at
+stake and no source has to be re-read. A conforming one-pass state can
+run the ordinary inline scan while also retaining the candidate
+destination source. It keeps the source when `)` closes the destination
+and keeps the inline interpretation at end of input. That is additional
+state and proof work, but it is compatible with the no-backtracking
+contract. The canonical renderer always closes a destination, so the
+work changes malformed-input recovery rather than roundtrip behaviour.
 
 **Boundary.** We agree whenever the destination closes, since a closed
 destination's content is literal either way.
@@ -144,7 +152,7 @@ destination's content is literal either way.
 Argument under *2026-08-13 -- ours: constructs inside an unterminated
 destination*.
 
-## What "adjudicated" means
+## Diagnosis is not closure
 
 `oracle-disagreements.md` is append-only, one entry per divergence, and
 every entry ends in a verdict naming an authority:
@@ -156,42 +164,40 @@ every entry ends in a verdict naming an authority:
 | `djoths-bug` | djoths contradicts the prose spec |
 | `djotjs-bug` | djot.js contradicts the prose where djoths follows it |
 | `SPEC-GAP` | the prose is silent; the corpus is the only authority |
-| `ours` | we know what djot.js does and deliberately do not match |
+| `ours` | our output differs after the behaviour and boundary have been diagnosed |
 
 Most of the log is the first four. Those are not our gaps at all: they
 are djoths disagreeing with djot.js, recorded in a baseline run before
 any Gallina existed so that later work would not chase ghosts. It is why
 djoths shows 25 mismatches in the same run that gives us 4.
 
-Only `ours` appears in our number, and adjudicating one means: the input
-is reproduced, djot.js's behaviour is pinned by running it, a reason is
-written down, and the boundary of the divergence is stated as a sentence
-and checked against the oracle.
+Only `ours` appears in our number. Diagnosis means that the input is
+reproduced, djot.js's behaviour is pinned by running it, and the boundary
+of the divergence is stated and checked. It does **not** mean that the
+difference is closed or excused.
 
-**It is not "excused".** The bar is one of two things, and each entry
-has to say which:
+There are two statuses after diagnosis:
 
-1. **Matching would falsify a theorem** about output the parser can
-   reach. The question is asked in that form -- *would matching break
-   `parse (render d) = d` for a `d` the parser produces?* -- because
-   `wf_block` is not a convention but the set of ASTs the roundtrip
-   theorem quantifies over.
-2. **The divergent inputs are unreachable from the canonical view**, so
-   the gap is a corpus number rather than a bug. This one is only
-   admissible with the boundary written out, since "unreachable" is a
-   claim about `cb_ok` and `ci_ok` that has to be true.
+1. **Intentional property boundary.** Matching would contradict a
+   property the project has chosen to guarantee on the relevant input
+   domain, and adding a side condition would evade that intended
+   guarantee. `attributes:370` is the one case here: djot.js re-feeds
+   consumed source through tokenization, while our scanner guarantees no
+   source re-read.
+2. **Open conformance gap.** Matching is compatible with the chosen
+   properties, but needs implementation work or narrower helper lemmas.
+   `attributes:89`, `attributes:95`, and `links_and_images:220` are in
+   this class.
 
-Of the four above, two are (1), one is (1) against the no-backtracking
-theorem rather than the roundtrip, and one is (2).
+Canonical unreachability is still important: it proves that an open gap
+cannot invalidate canonical roundtrip. It is not evidence that the
+parser already follows djot.js on that input.
 
 ## The caveat
 
-`ours` is a verdict the project passes on itself, so the discipline is
-only as strong as the requirement that each entry name the lemma that
-would break or state a boundary and check it. All four do.
-
-But it does mean 283/287 is not directly comparable to another
-implementation's score against the same corpus. Four of the gap are
-choices, and three of them could be closed by giving up either
-`wf_block` or the no-backtracking theorem. Quote the number with that
-attached, or quote 287/287 on shape, which has no such asterisk.
+`ours` is a verdict the project passes on itself, so 283/287 must be
+reported as three open compatibility gaps plus one intentional
+no-source-re-read divergence. The three open cases need not give up
+`wf_block`, canonical roundtrip, or no-backtracking: their helper
+theorems can be stated on the domain their consumers actually need.
+Quote 287/287 on shape separately; it has no such qualification.

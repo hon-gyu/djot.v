@@ -308,8 +308,10 @@ default. Profiles, not flags.
 ## The four known conformance gaps
 
 Against djot.js on its own 287-case corpus: block structure agrees
-287/287, exact HTML agrees 283/287. All four differences are deliberate
-and argued in `.project/oracle-disagreements.md`. Three involve an
-attribute block that never closes or has nothing before it in its scope,
-one an unterminated link destination. None is reachable from a document
-this renderer can produce.
+287/287, exact HTML agrees 283/287. One difference is intentional:
+matching djot.js's failed-attribute replay would violate the project's
+no-source-re-read guarantee. The other three are open conformance gaps,
+two for unattached inline attributes and one for an unterminated link
+destination. All four are outside canonical renderer output, so they do
+not affect roundtrip; that boundary does not make the three open cases
+conforming. See `.project/exact-html-gaps.md` for the current analysis.

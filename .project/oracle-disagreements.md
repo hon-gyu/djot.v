@@ -1176,3 +1176,33 @@ rows. Focused one-, two- and three-backslash controls match djot.js.
 destination when the surrounding block otherwise remains canonical.
 `Site.dest_backtick_breaks_row` has become `dest_backtick_row_ok`; the
 bar counterexample remains, because destinations do not escape bars.
+
+## Reclassified 2026-09-06 — three exact-HTML differences remain open
+
+The earlier entries correctly reproduce djot.js and locate each
+divergence, but they treated canonical unreachability or proof cost as
+enough to close a difference. Those facts bound impact; they do not
+establish conformance to the designated oracle.
+
+`attributes.test:89` can follow djot.js by allowing an unattached spec to
+produce no inline. `parse_inline_line_nonempty` must then exclude that
+recovery case, and the block parser must omit an empty paragraph rather
+than emit `Para []`. `attributes.test:95` can follow djot.js by allowing
+the marker to disappear against the preceding `SoftBreak`;
+`oresolve_app` and `para_inlines_cons2_closed` then need a side condition
+excluding a pending attribute whose attachment depends on the appended
+prefix. Canonical callers already avoid both shapes. Neither change
+requires source replay.
+
+`links_and_images.test:220` can also remain single-pass. The destination
+state can retain both the ordinary inline interpretation and the exact
+candidate source, choosing the source when `)` arrives and the inline
+interpretation at end of input. This adds state and proof obligations,
+but does not feed any byte through tokenization twice.
+
+**Revised status.** Those three cases are open conformance work, not
+intentional semantics. `attributes.test:370` remains the sole intentional
+exact-HTML divergence: djot.js's failed-spec recovery calls
+`reparseAttributes` on already-consumed source, directly conflicting
+with `iscan_str_no_reread`. All four remain unreachable from canonical
+renderer output and therefore do not threaten roundtrip.
