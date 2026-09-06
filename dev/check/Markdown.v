@@ -19,10 +19,10 @@ these examples name the other instance and the ordinary build checks
 them.
 
 ```
-dune build && rocq c -R _build/default/theories DjotV check/Markdown.v
+dune build && rocq c -R _build/default/theories DjotV dev/check/Markdown.v
 ```
 
-It is out of the dune build for the same reason `check/Deep.v` is --
+It is out of the dune build for the same reason `dev/check/Deep.v` is --
 `vm_compute` over whole documents is not something a parser edit should
 pay for -- and not because it needs special treatment any more.
 *)

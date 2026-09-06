@@ -19,7 +19,7 @@
    and sequences take their tail from a fixed set, so the pool grows
    linearly (5, 110, 2315, 48620) instead of quadratically.
 
-   Depth 3 is not here.  It is in `check/Deep.v`, which dune does not
+   Depth 3 is not here.  It is in `dev/check/Deep.v`, which dune does not
    build, because those two checks were ~260s of a ~270s clean build and
    this file sits downstream of `Parser.v`.  `make deep` runs them; that
    file says what they cost and why. *)
@@ -147,7 +147,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example gen_roundtrip_2 : map rt_lhs (accepted 2) = map rt_rhs (accepted 2).
 Proof. vm_compute. reflexivity. Qed.
 
-(* Depth 3 lives in `check/Deep.v`, outside the dune build: it costs
+(* Depth 3 lives in `dev/check/Deep.v`, outside the dune build: it costs
    ~176s, and this file is downstream of Parser.v, so every parser edit
    was paying it.  `make deep` runs it. *)
 
@@ -387,7 +387,7 @@ Example nested_item_code_accepted :
            [[CList LKBullet Tight [[CCode "" ["x"]]]]]) = true.
 Proof. reflexivity. Qed.
 
-(* The counts are pinned in `check/Deep.v` rather than here -- the
+(* The counts are pinned in `dev/check/Deep.v` rather than here -- the
    depth-3 length alone is expensive, which is a lot for a documentation
    number.  They move whenever `leaves` gains a canonical construct. *)
 

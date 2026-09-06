@@ -10,8 +10,9 @@ A verified [djot](https://djot.net) parser in Rocq.
   `Document.v` is the whole-document pass, `Html.v` the HTML converter,
   and `Generate.v` is the typed enumerator used by the executable checks.
 - `dev/` — the private `DjotVDev` theory: concrete parser regressions,
-  falsification support, and the historical fuel-vs-measure spike. These
-  files support the development but are not results of it.
+  falsification support, focused checks under `dev/check/`, and the
+  historical fuel-vs-measure spike. These files support the development
+  but are not results of it.
 - `harness/` — extraction (`Extract.v` → `core.ml`) and the OCaml
   differential test runner.
 - `djot.js/`, `djoths/` — submodules: the two oracle implementations.

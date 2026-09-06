@@ -2103,7 +2103,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    round-trip and it is the roman one.  At length 2 the letters `c` and
    `d` are *both* roman digits, so `c. / d.` is still unresolved after
    its second marker and reads as roman from 100.  The last is the wrap:
-   `z` leaves no 27th letter.  Measured in `check/Probe.v`. *)
+   `z` leaves no 27th letter.  Measured in `dev/check/Probe.v`. *)
 (* These were the boundary until the two-peel form landed: `cb_ok`
    rejected them while their renderings round-tripped, and the example
    here asserted both halves.  It is now an ordinary roundtrip, proved

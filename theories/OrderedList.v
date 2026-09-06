@@ -359,7 +359,7 @@ Later markers are unconstrained either way, because `admits` asks only
 that a sibling still offer what the list opened with, and every roman
 numeral offers roman just as every letter offers alpha.
 
-`check/Probe.v` measures the two exception sets rather than trusting this
+`dev/check/Probe.v` measures the two exception sets rather than trusting this
 argument: `items_ok` fails at roman starts 1, 5, 10 (and 50, 100, 500,
 1000 above the probed range) and at alpha starts 3, 4, 9, 12, 13, 22, 24,
 which are exactly `c`, `d`, `i`, `l`, `m`, `v`, `x`.  The same probe
@@ -670,7 +670,7 @@ holds it.
 
 Alpha gets no such theorem: `c` and `d` are adjacent and both roman
 digits, as are `l` and `m`, so an alpha list from 3 or 12 is still
-unresolved after its second marker.  Measured in `check/Probe.v`.
+unresolved after its second marker.  Measured in `dev/check/Probe.v`.
 *)
 
 Lemma styles_of_core_roman_single :

@@ -647,7 +647,7 @@ Consequence worth recording: `cb_ok` accepts strictly fewer `Loose`
 spellings, because a list whose next item opens with a marker genuinely
 cannot round-trip as `Loose` — both its spellings parse back `Tight`.
 The generated corpus shrank from 888 documents to 796 for that reason,
-and `check/Deep.v`'s depth-3 counts went `(68, 888, 11368)` to
+and `dev/check/Deep.v`'s depth-3 counts went `(68, 888, 11368)` to
 `(65, 796, 9511)`.
 
 ### Still open, same area: a div in an item loosens the list

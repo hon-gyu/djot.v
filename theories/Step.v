@@ -198,7 +198,7 @@ Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
     (@bdeflists K) (@battrs K) (@bfootnotes K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
-   (for example, in `check/Sublist.v`) so inference here always means Djot's.
+   (for example, in `dev/check/Sublist.v`) so inference here always means Djot's.
 
    A marker interrupts when it cannot be the tail of ordinary prose: a
    bullet, whose core is empty, or the numeral `1`.  Excluding every

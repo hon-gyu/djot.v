@@ -47,8 +47,8 @@ The first two, raw inline, math and inline attributes compose in
 applies field-local capability updates. The nine block settings in the table
 and the separate keyed-block setting live in one record with one field each;
 `markdown_bconfig` composes the nine profile-facing knobs and leaves keys off.
-`check/Markdown.v` pins the combined profile, and `check/Sublist.v` and
-`check/Setext.v` pin the individual settings.
+`dev/check/Markdown.v` pins the combined profile, and `dev/check/Sublist.v` and
+`dev/check/Setext.v` pin the individual settings.
 
 The profile is not yet a CommonMark implementation: djot-only block and
 non-delimiter inline constructs remain enabled. See

@@ -17,7 +17,7 @@
    Stdlib only, by design.  Nothing here mentions the parser, so this
    file never rebuilds when the parser changes and costs nothing to keep
    in the default build.  The pools, the comparisons and the probe runs
-   are parser-coupled and live in `check/Probe.v`, which dune does not
+   are parser-coupled and live in `dev/check/Probe.v`, which dune does not
    build. *)
 
 From Stdlib Require Import String List Bool.

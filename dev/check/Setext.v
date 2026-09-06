@@ -12,11 +12,11 @@ length for level 1, `-` at two or more for level 2.
 Every line here was measured.
 
 ```
-dune build && rocq c -R _build/default/theories DjotV check/Setext.v
+dune build && rocq c -R _build/default/theories DjotV dev/check/Setext.v
 ```
 
-Out of the dune build for the reason `check/Markdown.v` and
-`check/Sublist.v` are.  The argument is in `.project/extension-decisions.md`
+Out of the dune build for the reason `dev/check/Markdown.v` and
+`dev/check/Sublist.v` are.  The argument is in `.project/extension-decisions.md`
 under `E3`.
 *)
 

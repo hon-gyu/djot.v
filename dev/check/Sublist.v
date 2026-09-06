@@ -14,10 +14,10 @@ the knob is a parameter, so these examples name the other instance and
 the ordinary build checks them.
 
 ```
-dune build && rocq c -R _build/default/theories DjotV check/Sublist.v
+dune build && rocq c -R _build/default/theories DjotV dev/check/Sublist.v
 ```
 
-It is out of the dune build for the reason `check/Markdown.v` is --
+It is out of the dune build for the reason `dev/check/Markdown.v` is --
 `vm_compute` over whole documents is not something a parser edit should
 pay for.
 

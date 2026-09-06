@@ -7685,7 +7685,7 @@ Djot's instance
 ---------------
 
 The table in force for everything downstream: the harness, the corpus,
-and the examples below.  A second one lives in `check/Markdown.v`, which
+and the examples below.  A second one lives in `dev/check/Markdown.v`, which
 names it explicitly rather than putting it in scope -- two instances of
 one class in one scope is how the wrong table gets inferred.
 *)
@@ -7694,7 +7694,7 @@ one class in one scope is how the wrong table gets inferred.
   DTable djot_config eq_refl.
 
 (* The Markdown-like table, as an instance but deliberately *not* an
-   `Instance`: it is named where it is wanted (`check/Markdown.v`) so
+   `Instance`: it is named where it is wanted (`dev/check/Markdown.v`) so
    that inference in this development always means djot's. *)
 Definition markdown_table : dtable :=
   DTable markdown_config eq_refl.

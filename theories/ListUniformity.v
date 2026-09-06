@@ -930,7 +930,7 @@ Qed.
    announced closer arrives.  Thus a safe blank leaves no key able to
    claim the next line.  This is what lets `parse_list_close` and the
    item chain rule the override out from the hypothesis they already
-   carry.  Probed over the keyed pool in `check/Probe.v` before being
+   carry.  Probed over the keyed pool in `dev/check/Probe.v` before being
    proved. *)
 (* What a key's block looks like after a blank, when the block produced
    nothing and so the key is still open.  A state that emitted nothing

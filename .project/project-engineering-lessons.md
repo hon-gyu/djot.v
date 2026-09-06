@@ -35,7 +35,7 @@ better than a paragraph of prose, and its deletion when the bug is fixed
 is the confirmation that the fix was real
 (`pad_nested_list_unshifted` was one).
 
-`check/Probe.v` does the part that was awkward, which was never the
+`dev/check/Probe.v` does the part that was awkward, which was never the
 computing but having to guess the input: it runs a candidate over a
 curated pool of reachable states and line shapes (`make probe`, ~0.5s).
 Two rules for reading it. `None` is not a proof, only "no counterexample

@@ -61,31 +61,31 @@ roundtrip: build
 # rather than an answer: ~20 minutes, and `make roundtrip` is the routine
 # check.  It also pins `accepted_counts`, which `--roundtrip` pins too.
 deep: build
-	rocq c -R _build/default/theories DjotV check/Deep.v
-	@rm -f check/Deep.vo check/Deep.vok check/Deep.vos check/Deep.glob \
-	       check/.Deep.aux
+	rocq c -R _build/default/theories DjotV dev/check/Deep.v
+	@rm -f dev/check/Deep.vo dev/check/Deep.vok dev/check/Deep.vos dev/check/Deep.glob \
+	       dev/check/.Deep.aux
 
 # the keyed-block construct, pinned as whole documents against
-# `keyed_bconfig`.  Out of the dune build for check/Markdown.v's reason:
+# `keyed_bconfig`.  Out of the dune build for dev/check/Markdown.v's reason:
 # `vm_compute` over documents is not something a parser edit should pay
 # for.  Run it when key recognition, transitions, or canonical rendering
 # change.  The extracted sweep covers keyed children and containers.
 keyed: build
-	rocq c -R _build/default/theories DjotV check/Keyed.v
-	@rm -f check/Keyed.vo check/Keyed.vok check/Keyed.vos check/Keyed.glob \
-	       check/.Keyed.aux
+	rocq c -R _build/default/theories DjotV dev/check/Keyed.v
+	@rm -f dev/check/Keyed.vo dev/check/Keyed.vok dev/check/Keyed.vos dev/check/Keyed.glob \
+	       dev/check/.Keyed.aux
 	dune exec harness/main.exe -- --keyed-roundtrip 1
 
 # falsify a candidate lemma before proving it: add a `Compute` to
-# check/Probe.v and run this.  ~0.5s.  Out of the dune build because
-# check/Probe.v matches on every `pstate` constructor, so a parser edit
+# dev/check/Probe.v and run this.  ~0.5s.  Out of the dune build because
+# dev/check/Probe.v matches on every `pstate` constructor, so a parser edit
 # should break `make probe` and not `dune build`.  The combinators live
 # in dev/Probe.v, which is Stdlib-only and does build.
 probe: build
 	rocq c -R _build/default/theories DjotV \
-	  -R _build/default/dev DjotVDev check/Probe.v
-	@rm -f check/Probe.vo check/Probe.vok check/Probe.vos check/Probe.glob \
-	       check/.Probe.aux
+	  -R _build/default/dev DjotVDev dev/check/Probe.v
+	@rm -f dev/check/Probe.vo dev/check/Probe.vok dev/check/Probe.vos dev/check/Probe.glob \
+	       dev/check/.Probe.aux
 
 oracles:
 	cd djot.js && npm install --no-audit --no-fund && npm run build
