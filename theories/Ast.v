@@ -24,13 +24,58 @@ Local Open Scope string_scope.
 (*
 Attributes and positions
 ========================
+
+Association lists
+-----------------
+
+Attribute sets and the document's reference map are both string-keyed
+alists, and share these two operations.  Look-ups take the first match;
+`alist_set` assigns JS-object style, so a key already present keeps its
+position and takes the new value while a new key lands at the end
+(djot.js `references[lab] = r`, parse.ts:336).
 *)
 
-(* Attributes are key/value pairs in source order (djoths uses a Map;
-   an alist keeps the representation extraction-friendly). *)
-Definition attr : Type := list (string * string).
+Fixpoint alist_lookup {A : Type} (k : string) (m : list (string * A))
+  : option A :=
+  match m with
+  | [] => None
+  | (k', v) :: rest =>
+      if String.eqb k k' then Some v else alist_lookup k rest
+  end.
 
-(* CR: what does it mean that it's "extraction-friendly"? Extracting to OCaml? *)
+Fixpoint alist_set {A : Type} (k : string) (v : A) (m : list (string * A))
+  : list (string * A) :=
+  match m with
+  | [] => [(k, v)]
+  | (k', v') :: rest =>
+      if String.eqb k k'
+      then (k, v) :: rest
+      else (k', v') :: alist_set k v rest
+  end.
+
+(* Setting never empties a map.  `Inline.oattach_list` needs it: it
+   decorates whatever node resolution finds, and the invariant is
+   phrased as "the head is not a plain `Str`" -- where *plain* means no
+   attributes.  A node that already carries some must keep carrying
+   some. *)
+Local Lemma alist_set_cons :
+  forall A k (v : A) m, exists x r, alist_set k v m = (x :: r)%list.
+Proof.
+  intros A k v [|[k' v'] m]; cbn [alist_set]; [eauto|].
+  destruct (String.eqb k k'); eauto.
+Qed.
+
+(*
+Attributes
+----------
+
+Key/value pairs in source order.  djoths uses a Map; an alist keeps the
+representation extraction-friendly, in that `harness/Extract.v` maps a
+Gallina list straight onto an OCaml list, where Stdlib's `Map` would
+have to have its functor instantiated first.
+*)
+
+Definition attr : Type := list (string * string).
 
 Fixpoint lookup_attr (k : string) (a : attr) : option string :=
   match a with
@@ -38,10 +83,17 @@ Fixpoint lookup_attr (k : string) (a : attr) : option string :=
   | (k', v) :: rest => if String.eqb k k' then Some v else lookup_attr k rest
   end.
 
-(* djoths's `integrate`: later-inserted keys win, except "class", whose
-   values concatenate (space-separated, left operand's classes first). *)
+(*
+Merging, djoths
+---------------
 
-Definition integrate (kv : string * string) (kvs : attr) : attr :=
+`integrate`: later-inserted keys win, except "class", whose values
+concatenate (space-separated, left operand's classes first).  Reached
+only through `add_attr`, and `cb_ok` admits no nested `CId`, so the one
+canonical call site has an empty left operand.
+*)
+
+Local Definition integrate (kv : string * string) (kvs : attr) : attr :=
   let (k, v) := kv in
   match lookup_attr k kvs with
   | None => (k, v) :: kvs
@@ -53,31 +105,18 @@ Definition integrate (kv : string * string) (kvs : attr) : attr :=
   end.
 
 (* Merge two attribute sets, integrating a's bindings into b one by one. *)
-Definition attr_union (a b : attr) : attr := fold_right integrate b a.
+Local Definition attr_union (a b : attr) : attr := fold_right integrate b a.
 
 (*
-Insertion-order update
-----------------------
+Merging, djot.js
+----------------
 
 djot.js builds attributes as a JS object and assigns into it, so a key
 already present keeps its position and takes the new value, while a new
-key lands at the end.  `attr_union` above cannot express that — it
-prepends — and attribute *order* is observable in the rendered tag, so
-the block-attribute path (Attributes.v, Parser.v) uses these instead. *)
-
-(* Assignment into a string-keyed alist, JS-object style: a key already
-   present keeps its position and takes the new value, a new key lands at
-   the end.  Attributes are one instance; the document's reference map is
-   the other (djot.js `references[lab] = r`, parse.ts:336). *)
-Fixpoint alist_set {A : Type} (k : string) (v : A) (m : list (string * A))
-  : list (string * A) :=
-  match m with
-  | [] => [(k, v)]
-  | (k', v') :: rest =>
-      if String.eqb k k'
-      then (k, v) :: rest
-      else (k', v') :: alist_set k v rest
-  end.
+key lands at the end.  `attr_union` above cannot express that -- it
+prepends -- and attribute *order* is observable in the rendered tag, so
+the block-attribute path (Attributes.v, Parser.v) uses these instead.
+*)
 
 Definition attr_set (k v : string) (a : attr) : attr := alist_set k v a.
 
@@ -91,7 +130,7 @@ Definition attr_add_class (v : string) (a : attr) : attr :=
   end.
 
 (* One key/value into a set, with the class rule. *)
-Definition attr_put (kv : string * string) (a : attr) : attr :=
+Local Definition attr_put (kv : string * string) (a : attr) : attr :=
   if String.eqb (fst kv) "class"
   then attr_add_class (snd kv) a
   else attr_set (fst kv) (snd kv) a.
@@ -100,19 +139,20 @@ Definition attr_put (kv : string * string) (a : attr) : attr :=
 Definition attr_merge (new acc : attr) : attr :=
   fold_left (fun acc' kv => attr_put kv acc') new acc.
 
-(* Merging never empties a set.  `Inline.oattach_list` needs it: it
-   decorates whatever node resolution finds, and the invariant is
-   phrased as "the head is not a plain `Str`" -- where *plain* means no
-   attributes.  A node that already carries some must keep carrying
-   some. *)
-Lemma alist_set_cons :
-  forall A k (v : A) m, exists x r, alist_set k v m = (x :: r)%list.
+(* A one-key spec folded into nothing is that key.  The canonical id
+   path is the caller: an explicit `{#i}` is a spec of exactly one
+   binding, merged into an empty pending set. *)
+Lemma attr_merge_one : forall kv, attr_merge [kv] [] = [kv].
 Proof.
-  intros A k v [|[k' v'] m]; cbn [alist_set]; [eauto|].
-  destruct (String.eqb k k'); eauto.
+  intros [k v]. unfold attr_merge, attr_put, attr_add_class, attr_set.
+  cbn [fold_left fst snd].
+  destruct (String.eqb k "class") eqn:E;
+    [apply String.eqb_eq in E; subst k|];
+    cbn [lookup_attr alist_set]; reflexivity.
 Qed.
 
-Lemma attr_put_cons :
+(* Merging never empties a set; see `alist_set_cons`. *)
+Local Lemma attr_put_cons :
   forall kv a, exists x r, attr_put kv a = (x :: r)%list.
 Proof.
   intros kv a. unfold attr_put, attr_add_class, attr_set.
@@ -132,9 +172,9 @@ Proof.
 Qed.
 
 (* `addBlockAttributes` (parse.ts:183): the pending set onto the node a
-   block opens with.  Plain assignment — no class rule here, which is
+   block opens with.  Plain assignment -- no class rule here, which is
    djot.js's behaviour and not obviously intended. *)
-Definition attr_apply (pending a : attr) : attr :=
+Local Definition attr_apply (pending a : attr) : attr :=
   fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
 
 (* Source positions: start line/col, end line/col.  Carried for fidelity
@@ -164,6 +204,13 @@ Definition node_attrs {A : Type} (n : node A) : attr :=
 
 Definition add_attr {A : Type} (a : attr) (n : node A) : node A :=
   match n with Node p a' x => Node p (attr_union a' a) x end.
+
+(* A bare node has nothing to merge with, so the set `add_attr` leaves is
+   the one it was handed.  `Roundtrip.render_cb_lines` is the caller:
+   every canonical block but a named one is `mk`-wrapped. *)
+Lemma add_attr_mk :
+  forall A (a : attr) (x : A), add_attr a (mk x) = Node NoPos a x.
+Proof. reflexivity. Qed.
 
 (*
 Inline elements
@@ -494,7 +541,7 @@ Documents
    separator.  Labels use whitespace (below); auto-identifiers use a wider
    class (Document.is_id_sep). *)
 
-Fixpoint words_aux (sep : ascii -> bool) (s : string) (cur : string)
+Local Fixpoint words_aux (sep : ascii -> bool) (s : string) (cur : string)
   (acc : list string) : list string :=
   match s with
   | EmptyString =>
@@ -515,7 +562,7 @@ Definition words (sep : ascii -> bool) (s : string) : list string :=
 (* Labels are normalized by collapsing runs of whitespace to single
    spaces and trimming (djoths normalizeLabel). *)
 
-Definition is_label_ws (c : ascii) : bool :=
+Local Definition is_label_ws (c : ascii) : bool :=
   (Ascii.eqb c " " || Ascii.eqb c "009" || Ascii.eqb c "013"
    || Ascii.eqb c "010")%char%bool.
 
@@ -527,14 +574,6 @@ Definition normalize_label (s : string) : string :=
    key first — never with alist_lookup directly. *)
 Definition note_map : Type := list (string * blocks).
 Definition reference_map : Type := list (string * (string * attr)).
-
-Fixpoint alist_lookup {A : Type} (k : string) (m : list (string * A))
-  : option A :=
-  match m with
-  | [] => None
-  | (k', v) :: rest =>
-      if String.eqb k k' then Some v else alist_lookup k rest
-  end.
 
 Definition lookup_note (label : string) (m : note_map) : option blocks :=
   alist_lookup (normalize_label label) m.
