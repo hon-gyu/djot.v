@@ -308,10 +308,11 @@ default. Profiles, not flags.
 ## The four known conformance gaps
 
 Against djot.js on its own 287-case corpus: block structure agrees
-287/287, exact HTML agrees 283/287. One difference is intentional:
-matching djot.js's failed-attribute replay would violate the project's
-no-source-re-read guarantee. The other three are open conformance gaps,
-two for unattached inline attributes and one for an unterminated link
-destination. All four are outside canonical renderer output, so they do
-not affect roundtrip; that boundary does not make the three open cases
-conforming. See `.project/exact-html-gaps.md` for the current analysis.
+287/287, exact HTML agrees 283/287. All four differences are open
+conformance gaps: two concern unattached inline attributes, one an
+unclosed attribute spec, and one an unterminated link destination.
+djot.js implements failed-attribute recovery by replaying source, but a
+a product state can produce the same result without backtracking.
+All four are outside canonical renderer output, so they do not affect
+roundtrip; that boundary does not make them conforming. See
+[[exact-html-gaps]] and [[no-backtracking]] for the current analysis.

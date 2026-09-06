@@ -16,8 +16,8 @@ marked by whether they were verified.
 Two questions, in dependency order:
 
 1. Does djot actually have the properties it is designed around — container
-   uniformity, render roundtrip, local link classification, no-backtracking
-   block parsing?
+   uniformity, render roundtrip, local link classification, block prefix
+   determinism, and no-backtracking parsing?
 2. Given those properties, **how far can djot be extended before they break?**
 
 The second is the real goal. The working complaint is that djot is too
@@ -38,12 +38,17 @@ of testing rather than proving, and disappear under formalization (§4.1).
 
 ## 2. The Reference Materials
 
-Three artifacts, playing different roles:
+Four artifacts, playing different roles:
 
 - **The prose spec** — `doc/syntax.md` in the djot repo (mirrored at
   `reference/djot-syntax-reference.md`). Normative, informal. Crucially, it
   makes explicit design commitments (§4 below) that can be formalized as
   theorem statements.
+- **The djot README rationale** — mirrored at
+  `reference/djot-repo-readme.md`. It states the broader design goal that it
+  should be possible to parse djot markup in linear time without
+  backtracking. This is an existential implementation and performance claim,
+  not the block grammar rule the syntax reference states.
 - **djot.js** — the reference implementation, ~4,300 LOC TypeScript. The
   authority on edge cases. Not a viable verification *target*: there is no
   mechanized TS semantics, so no path from that source to a Rocq theorem.
@@ -103,14 +108,13 @@ Facts from reading the source, relevant to feasibility.
 Obstacles:
 
 - **Combinator backtracking.** djoths uses `Alternative`/`<|>` with
-  `lookahead` and even `peekBack`. The single-pass, no-backtracking discipline
-  that djot.js's inline parser has *by construction* (one left-to-right pass,
-  an opener stack, resolution by annotating an earlier match) is not
-  structurally evident in djoths. Since no-backtracking is one of the theorems
-  (§4.2), the right hybrid is: djoths's architecture (state monad, BlockSpec
-  table, byte-level input) with djot.js's *inline strategy* (opener stack,
-  single pass) as the algorithm actually formalized. Model `peekBack` as a
-  bounded, pure observation so it cannot smuggle in lookbehind dependence.
+  `lookahead` and even `peekBack`. djot.js's ordinary delimiter strategy is a
+  better starting point: one left-to-right pass, an opener stack, and
+  resolution by annotating an earlier match. It is not itself a complete
+  witness for the goal, because `reparseAttributes` re-feeds failed attribute
+  slices. The Gallina parser should preserve djot.js behaviour with monotone
+  source consumption, using compound state where a special parse
+  needs an ordinary-inline fallback. See `.project/no-backtracking.md`.
 - **`many`/`some` termination.** The classic Rocq annoyance with combinator
   parsers: each repetition needs a progress argument (consumes input or
   fails). Well-trodden — this is precisely what the verified-PEG literature
@@ -172,25 +176,36 @@ pass and must be excluded from any locality statement (§4.3).
 
 ### 4.2 No-backtracking — the honest form of the performance claim
 
-The spec claims blocks "can be parsed line by line with no backtracking." It
-does **not** claim linear time, anywhere — and the folklore linear-time claim
-is probably false as stated: djot.js's closer resolution scans the opener
-stack under a key (`OpenerMap`), which is O(stack depth) per closer, so the
-honest worst case is O(n²). `pathological.spec.ts` is a wall-clock timing
-test, not a complexity proof.
+Two source claims had previously been conflated here. The README explicitly
+says that it should be possible to parse djot markup in linear time without
+backtracking. The syntax reference states a narrower semantic rule: blocks
+can be parsed line by line, and a line's contribution to block structure does
+not depend on a future line. The first covers the whole parser as an
+existential design goal; the second directly supports a block prefix theorem.
+
+Here, backtracking means consuming a region, discovering later that a
+speculative interpretation failed, then submitting that consumed region to
+parsing again. It does not forbid opener-stack annotation, delayed decisions,
+or a product state whose alternatives advance together on each new
+byte. In particular, djot.js's `reparseAttributes` backtracks, but its
+observable recovery can be reproduced without replay by maintaining an
+ordinary-inline shadow while the attribute candidate is open. The full source
+interpretation and its consequences are recorded in
+`.project/no-backtracking.md`.
 
 The provable theorems, in order of strength:
 
-1. **No-backtracking** (what the spec promises): each input position is
-   consumed at most once by the top-level scanner. For blocks this is the
-   prefix-determinism lemma again; for inlines it requires formalizing the
-   single-pass opener-stack algorithm (§3).
-2. **A step-count bound**, via a cost-counting state monad
+1. **Block prefix determinism** (what the syntax reference promises): future
+   lines do not change an earlier line's contribution to block shape.
+2. **Monotone source consumption** (a witness for the README goal): the
+   parser never restarts tokenization on a consumed region. For inlines this
+   permits opener stacks and compound states, but not buffered replay.
+3. **A step-count bound**, via a cost-counting state monad
    (`steps (parse s) ≤ f |s|`), if wanted later. Gallina has no cost model
    and extraction erases complexity, but the parser is pure, so no Iris or
-   time credits are needed. Do not put a *linear* bound on the critical path;
-   the amortization argument for opener-stack scanning is separate work and
-   the claim may simply not hold.
+   time credits are needed. The README's linear-time goal is not discharged
+   by monotone consumption alone: closer resolution may inspect opener-stack
+   depth, so a separate amortization or counterexample analysis is required.
 
 ### 4.3 Locality of inline classification — djot's most distinctive claim
 
@@ -426,8 +441,8 @@ committing**, and worth adopting djoths's `BlockSpec` shape where it does not.
 
 **Secondary risks:**
 
-- The linear-time folklore (§4.2) may not hold; only the no-backtracking form
-  is on the critical path.
+- The README's linear-time goal (§4.2) needs a cost model and may need an
+  amortization argument; monotone source consumption alone is insufficient.
 - The oracles may disagree with each other in corners the prose spec leaves
   open. Budget for adjudicating these rather than being surprised by them.
 - Theorem-statement traps: prefix determinism must be about tree shape (the
@@ -444,12 +459,13 @@ committing**, and worth adopting djoths's `BlockSpec` shape where it does not.
 | 3 | Prefix-determinism lemma → uniformity for all containers; locality of classification | 1–2 mo |
 | 4 | Knob-indexed parser (djoths architecture, djot.js inline strategy) + ~50 `preserves k I` obligations | 3–6 mo |
 | 5 | Frame lemma for disjoint trigger sets | the research |
-| — | Cost-monad complexity bound | deferred; claim is shaky |
+| — | Cost-monad complexity bound | deferred; requires separate cost and amortization analysis |
 
 Steps 1–2 pay for themselves even if the effort stops there: they eliminate
 the generator-correctness testing burden and the canonicalization quotient,
 both live costs in the QCheck harness today. Step 3 adds the two theorems that are
-djot's actual design commitments — the spec's no-backtracking promise and its
-locality promise — at which point the formalization is already saying
+djot's actual design commitments — the syntax reference's block prefix rule,
+the README's no-backtracking goal, and the spec's locality promise — at which
+point the formalization is already saying
 something true and citable about djot itself. Step 5 is where this stops being
 engineering.

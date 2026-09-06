@@ -2119,12 +2119,13 @@ The scanner
 -----------
 
 One character at a time, structurally recursive on the remaining input.
-That is not an accident of style: it makes "the scanner never re-feeds a
-source position through tokenization" structural, which is the project's
-precise no-backtracking claim (see `.project/260811.inline-parser.md`
-§2.4).  It does not forbid retroactive scope-stack changes, and it is not
-a linear-time claim: resolving one byte may still walk the opener stack.
-It also matches djot.js's `feed`, which is a position-at-a-time loop over
+That makes the current outer scan's source consumption structural: it
+never re-feeds a source position through tokenization.  The project's
+no-backtracking interpretation (see `.project/no-backtracking.md`) also
+permits retroactive scope-stack changes and compound states whose
+alternatives advance together.  This structure is not a linear-time
+claim: resolving one byte may still walk the opener stack.  It also
+matches djot.js's ordinary `feed`, which is a position-at-a-time loop over
 a mode flag.
 
 A verbatim closer is a run of *exactly* the opening width, so a run
@@ -2872,17 +2873,17 @@ Inductive iscan : Type :=
      break, so this is the second state `ibreak` carries across one. *)
   | IDest (kids : inlines) (image esc : bool) (depth : nat) (dst : string)
           (o : ostate)
-  (* inside a `<`, holding the region read so far.  Not a scope and not a
-     parallel parse: the region is raw source, so a backtick or a
+  (* inside a `<`, holding the region read so far.  The region is raw
+     source, so a backtick or a
      delimiter inside a *successful* autolink is content
      (`<a:b`c>` links to ``a:b`c``), which is only true because nothing
      in here is dispatched.
 
      `txt` is the text pending when the `<` arrived, kept because a
-     candidate that fails is put back as literal text -- and there
-     [[260811.inline-parser]] logs a divergence: djot.js decides with a
-     regex lookahead and rescans the region as inline content when the
-     lookahead fails, which a scanner that re-reads no byte cannot do. *)
+     candidate that fails is put back as literal text.  djot.js instead
+     scans a failed candidate as ordinary inline content.  The current
+     state does not reproduce that recovery, but an ordinary-inline
+     shadow could do so without replay; see `.project/no-backtracking.md`. *)
   | IAuto (src txt : string) (o : ostate)
   (* a verbatim span that closed onto a `{`, holding its content and the
      spec source read since.  The `Verbatim` node is deliberately *not*
@@ -3635,21 +3636,21 @@ Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
   | String c rest => iscan_str rest (istep c st)
   end.
 
-(* An executable certificate for the sense in which this scan does not
-   backtrack.  One unit of fuel authorizes dispatching one source byte;
+(* An executable certificate for this outer scan's source dispatch.  One
+   unit of fuel authorizes dispatching one source byte;
    state rewrites such as closing or abandoning a scope spend no source
    fuel and never feed that byte back to the scanner.  This deliberately
    says nothing about the internal cost of a dispatch -- `oclose` may walk
    the opener stack -- so it is not a linear-time theorem.
 
-   djot.js does backtrack, in one place: it buffers the slices it feeds
-   the attribute machine and, when a spec dies, replays them through this
-   same scanner with attributes switched off (`reparseAttributes`).  We
-   decline that, and the price is recorded at
-   `attr_unclosed_spec_is_not_rescanned`.  It is not a call this contract
-   could accommodate as written -- the replay reaches scopes opened
-   before the `{`, so it is the scanner resumed on bytes it has already
-   dispatched, not a fresh subordinate scan. *)
+   djot.js's `reparseAttributes` does backtrack: it buffers slices fed to
+   the attribute machine and, when a spec dies, replays them through the
+   inline scanner with attributes switched off.  The current state does
+   not reproduce that recovery, as recorded at
+   `attr_unclosed_spec_is_not_rescanned`.  This lemma is not an
+   impossibility result: an ordinary-inline shadow can advance with
+   the attribute candidate and preserve this fuel discipline.  See
+   `.project/no-backtracking.md`. *)
 Fixpoint iscan_str_fuel (fuel : nat) (s : string) (st : iscan)
   : option iscan :=
   match s with
@@ -8529,11 +8530,12 @@ Example auto_unclosed_decays :
   parse_inline_line "x <a:b" = [mk (Str "x <a:b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The divergence.  djot.js decides with a regex lookahead and, when it
-   fails, rescans the region as ordinary inline content: `<_a_>` is
-   `&lt;<em>a</em>&gt;` there and `&lt;_a_&gt;` here.  A scanner that
-   re-reads no byte cannot do the second pass, and the canonical view
-   cannot produce the shape -- `escape_str` claims the `<`. *)
+(* The open divergence.  djot.js decides with a regex lookahead and, when
+   it fails, scans the region as ordinary inline content: `<_a_>` is
+   `&lt;<em>a</em>&gt;` there and `&lt;_a_&gt;` here.  The current state
+   does not keep that interpretation, but a shadow can do so
+   without replay.  The canonical view cannot produce the shape because
+   `escape_str` claims the `<`; see `.project/no-backtracking.md`. *)
 Example auto_failed_region_is_flat :
   parse_inline_line "<_a_>" = [mk (Str "<_a_>")].
 Proof. vm_compute. reflexivity. Qed.
@@ -8940,8 +8942,10 @@ Proof. vm_compute. reflexivity. Qed.
    opened outside it.  We keep the source as text.  The two therefore
    agree on every spec that closes, and differ only on one that does not
    and whose source holds a byte a scan would have claimed -- which only
-   a quoted value or a comment can carry.  djot.js reads this one as
-   `x{a=“<strong>b</strong>”`. *)
+   a quoted value or a comment can carry.  This is an open conformance
+   gap: an ordinary-inline shadow can produce djot.js's result
+   without replay, as explained in `.project/no-backtracking.md`.
+   djot.js reads this one as `x{a=“<strong>b</strong>”`. *)
 Example attr_unclosed_spec_is_not_rescanned :
   parse_inline_line "x{a=""*b*"""
   = [mk (Str "x{a=""*b*""")].

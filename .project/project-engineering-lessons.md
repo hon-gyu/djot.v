@@ -176,13 +176,16 @@ theorem blocks the oracle only when the theorem states a property the
 project intends on that input domain; a stronger helper lemma is allowed
 to acquire the side condition its real callers can discharge.
 
-**What to do instead.** Characterize the divergent input set and check
-whether matching requires source re-read or violates another chosen
-semantic property. If it does, record an intentional boundary. If it
-does not, keep the item open as conformance work even when it is
-noncanonical or expensive. Name the affected lemmas and the side
-conditions a repair would require; do not use proof convenience or
-implementation effort as an adjudication verdict.
+**What to do instead.** Characterize the divergent input set. First ask
+whether the oracle implementation replays source; then separately ask
+whether the observable result inherently requires replay, including
+whether a product state can compute it in one pass. Only the
+second can justify an intentional no-backtracking boundary. Otherwise
+keep the item open as conformance work even when it is noncanonical or
+expensive. Name the affected lemmas and the side conditions a repair
+would require; do not use proof convenience, implementation effort, or
+the oracle's implementation strategy as an adjudication verdict. See
+[[no-backtracking]].
 
 ## The corpus is djot.js's regression suite, not a map of the grammar
 

@@ -1206,3 +1206,23 @@ exact-HTML divergence: djot.js's failed-spec recovery calls
 `reparseAttributes` on already-consumed source, directly conflicting
 with `iscan_str_no_reread`. All four remain unreachable from canonical
 renderer output and therefore do not threaten roundtrip.
+
+## Reclassified 2026-09-06 — `attributes:370` is open too
+
+The preceding correction still inferred too much from djot.js's
+implementation. `reparseAttributes` does backtrack: it buffers a failed
+attribute region and submits it to the inline scanner again. But the
+observable result does not require that algorithm.
+
+A parser can initialize an ordinary-inline shadow from the state before
+`{` and advance it beside the attribute candidate on each new byte. If
+the spec closes, it selects the attribute branch. If the candidate dies
+at end of input, it selects the already-current shadow, which has turned
+quotes smart and allowed delimiters to interact with scopes opened before
+the `{`. No byte is replayed.
+
+**Revised status.** `attributes.test:370` is an open conformance gap.
+All four exact-HTML differences are now open and none requires weakening
+the no-backtracking goal. See [[no-backtracking]] for the interpretation
+that distinguishes an oracle implementation's replay from behaviour
+that inherently requires replay.

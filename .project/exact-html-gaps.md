@@ -18,8 +18,7 @@ disagrees on. Ours are the ones with a `gallina:` line.
 `make shape` compares block structure with inline content dropped, and
 is **287/287**. `make test` compares exact HTML and is **283/287**. The
 four cases in the difference are all inline and all in the same two
-families. One is an intentional property boundary; the other three are
-open conformance gaps.
+families. All four are open conformance gaps.
 
 They are also all unreachable from a canonical document, which is why
 the generated corpus and roundtrip are clean: none of these shapes can
@@ -105,11 +104,18 @@ already fed the attribute machine through the *inline* scanner with
 attributes switched off (`reparseAttributes`, `inline.ts:637`), so the
 `"` turns smart on the second pass.
 
-**Forced by the no-backtracking commitment.** That replay re-reads bytes
-the scanner has already dispatched, which is the one instance of genuine
-backtracking in either engine and exactly what `iscan_str_fuel`
-certifies we do not do. Matching would mean giving up the property the
-project exists to state.
+**Open conformance gap.** djot.js's implementation backtracks here, but
+its output does not require backtracking. A one-pass parser can advance
+the attribute candidate and an ordinary-inline shadow together as each
+new byte arrives. A closing `}` selects the attribute branch; end of input
+selects the shadow, which has already interpreted the quote and any
+delimiters in their original context. No consumed byte is replayed.
+
+That product state is more involved than the current `IAttr` state, but
+implementation and proof work are not semantic reasons to reject the
+oracle result. `iscan_str_no_reread` describes the current outer scanner;
+it does not prove this recovery behaviour impossible. See
+[[no-backtracking]] for the project-wide interpretation.
 
 **Boundary.** The two agree on every spec that *closes*, whatever it
 contains. They differ only on a spec that never closes and whose source
@@ -118,7 +124,10 @@ machine admits an arbitrary byte in exactly two states -- a quoted value
 and a `{% %}` comment. So `{#id`, `{.class` and `{key=bare` are agreed
 even unclosed.
 
-Argument under *2026-08-22 -- ours: an unclosed inline attribute spec*.
+The implementation trace is under *2026-08-22 -- ours: an unclosed
+inline attribute spec*. Because that log is append-only, its old verdict
+is superseded by *Reclassified 2026-09-06 -- `attributes:370` is open
+too* at the end of the file.
 
 ### An unterminated link destination
 
@@ -176,18 +185,17 @@ reproduced, djot.js's behaviour is pinned by running it, and the boundary
 of the divergence is stated and checked. It does **not** mean that the
 difference is closed or excused.
 
-There are two statuses after diagnosis:
+There can be two statuses after diagnosis:
 
 1. **Intentional property boundary.** Matching would contradict a
    property the project has chosen to guarantee on the relevant input
    domain, and adding a side condition would evade that intended
-   guarantee. `attributes:370` is the one case here: djot.js re-feeds
-   consumed source through tokenization, while our scanner guarantees no
-   source re-read.
+   guarantee.
 2. **Open conformance gap.** Matching is compatible with the chosen
    properties, but needs implementation work or narrower helper lemmas.
-   `attributes:89`, `attributes:95`, and `links_and_images:220` are in
-   this class.
+   All four cases in this note are currently in this class. For
+   `attributes:370`, the oracle's implementation replays source, but a
+   product state can compute the same output without replay.
 
 Canonical unreachability is still important: it proves that an open gap
 cannot invalidate canonical roundtrip. It is not evidence that the
@@ -196,8 +204,7 @@ parser already follows djot.js on that input.
 ## The caveat
 
 `ours` is a verdict the project passes on itself, so 283/287 must be
-reported as three open compatibility gaps plus one intentional
-no-source-re-read divergence. The three open cases need not give up
+reported as four open compatibility gaps. They need not give up
 `wf_block`, canonical roundtrip, or no-backtracking: their helper
 theorems can be stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
