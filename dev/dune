@@ -1,0 +1,4 @@
+(coq.theory
+ (name DjotVDev)
+ (synopsis "Development checks and historical experiments for DjotV")
+ (theories DjotV Stdlib))

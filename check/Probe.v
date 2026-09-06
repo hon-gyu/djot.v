@@ -10,7 +10,7 @@
    printer ignores would silently compare equal to a different one), but
    it should land on `make probe` rather than on `dune build`, so that a
    parser edit is never blocked by a testing file.  The combinators it
-   uses are in `theories/Probe.v`, which is Stdlib-only and does build.
+   uses are in `dev/Probe.v`, which is Stdlib-only and does build.
 
    How to use it.  To decide whether a candidate lemma is worth proving,
    add a `Compute` below and run `make probe`.  A `Some` is a
@@ -19,7 +19,8 @@
    0, because the guard discarded everything. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Attributes Parser Render Probe.
+From DjotV Require Import Strings Line Ast Attributes Parser Render.
+From DjotVDev Require Import Probe.
 Import ListNotations.
 
 Local Open Scope string_scope.

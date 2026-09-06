@@ -16,7 +16,7 @@
    | `ListUniformity.v` | lists                                        |
    | `OrderedList.v`    | ordered lists at the canonical rendering     |
 
-   Concrete regressions are in `ParserExamples.v`, which nothing
+   Concrete regressions are in `dev/ParserExamples.v`, which nothing
    requires. *)
 
 From DjotV Require Export Inline Marker Step Uniformity ListUniformity OrderedList.

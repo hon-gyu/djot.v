@@ -6,6 +6,7 @@ build:
 # Reader-facing Rocqdoc site.  Use Dune's copied sources so the adjacent
 # globalization files provide cross-module identifier links.
 doc: build
+	rm -rf _build/doc
 	mkdir -p _build/doc
 	rocq doc --html --toc --utf8 --gallina --index rocq-index \
 	  -R _build/default/theories DjotV \
@@ -79,9 +80,10 @@ keyed: build
 # check/Probe.v and run this.  ~0.5s.  Out of the dune build because
 # check/Probe.v matches on every `pstate` constructor, so a parser edit
 # should break `make probe` and not `dune build`.  The combinators live
-# in theories/Probe.v, which is Stdlib-only and does build.
+# in dev/Probe.v, which is Stdlib-only and does build.
 probe: build
-	rocq c -R _build/default/theories DjotV check/Probe.v
+	rocq c -R _build/default/theories DjotV \
+	  -R _build/default/dev DjotVDev check/Probe.v
 	@rm -f check/Probe.vo check/Probe.vok check/Probe.vos check/Probe.glob \
 	       check/.Probe.aux
 
