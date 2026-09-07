@@ -68,13 +68,16 @@ Qed.
 (*
 Attributes
 ----------
-
-Key/value pairs in source order.  djoths uses a Map; an alist keeps the
-representation extraction-friendly, in that `harness/Extract.v` maps a
-Gallina list straight onto an OCaml list, where Stdlib's `Map` would
-have to have its functor instantiated first.
 *)
 
+(* Key/value pairs in source order.  
+
+<decision>
+djoths uses a Map; an alist keeps the representation extraction-friendly 
+(Gallina list -> OCaml list), where Stdlib's `Map` would have to have 
+its functor instantiated first.
+</decision>
+*)
 Definition attr : Type := list (string * string).
 
 Fixpoint lookup_attr (k : string) (a : attr) : option string :=
@@ -86,13 +89,13 @@ Fixpoint lookup_attr (k : string) (a : attr) : option string :=
 (*
 Merging, djoths
 ---------------
-
-`integrate`: later-inserted keys win, except "class", whose values
-concatenate (space-separated, left operand's classes first).  Reached
-only through `add_attr`, and `cb_ok` admits no nested `CId`, so the one
-canonical call site has an empty left operand.
 *)
 
+
+(* later-inserted keys win, except "class", whose values
+concatenate (space-separated, left operand's classes first).  Reached
+only through `add_attr`, and `cb_ok` admits no nested `CId`, so the one
+canonical call site has an empty left operand. *)
 Local Definition integrate (kv : string * string) (kvs : attr) : attr :=
   let (k, v) := kv in
   match lookup_attr k kvs with
@@ -180,7 +183,6 @@ Local Definition attr_apply (pending a : attr) : attr :=
 (* Source positions: start line/col, end line/col.  Carried for fidelity
    with the oracles; the harness skips sourcepos cases, so nothing renders
    these yet. *)
-
 Inductive pos : Type :=
   | NoPos
   | SomePos (sl sc el ec : nat).
@@ -227,9 +229,10 @@ Inductive target : Type :=
 
 Inductive quote_type : Type := SingleQuotes | DoubleQuotes.
 
-(* Inline content.  Only Str and SoftBreak are produced so far — the
-   parser has no inline pass yet; paragraphs become one Str per source
-   line, separated by SoftBreak (see Parser.para_inlines). *)
+(* Inline content.  `Inline.para_inlines` is the pass that produces it,
+   one call per paragraph, with the source lines joined by SoftBreak.
+   Every constructor below is reachable from it except `Symbol`, which
+   has no scanner: `:name:` stays literal text. *)
 Inductive inline : Type :=
   | Str (s : string)
   | Emph (ils : list (node inline))
@@ -363,6 +366,15 @@ Lemma decorate_head_cons_app :
     = decorate_head pending ((b :: bs) ++ cs)%list.
 Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
 
+(* What djot.js keeps out of the block tree: a reference definition goes
+   to `doc.references` and a footnote definition to `doc.footnotes`
+   before `-list_item` runs, so neither is ever `children[0]` and neither
+   can stand between an item and its term.  We keep both as blocks for
+   the roundtrip's sake, so the search has to step over them.  Both
+   oracles agree that `: [r]: u` / blank / `t` has `t` as its term. *)
+Definition invisible_block (b : block) : bool :=
+  match b with RefDef _ _ | FootnoteDef _ _ => true | _ => false end.
+
 (* The term/definition split, at the point a list item closes.  djot.js
    runs it at `-list_item` (parse.ts:883-900): if the item's first child
    is a paragraph, its *inlines* become the term and the paragraph is
@@ -374,15 +386,6 @@ Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
    The paragraph's attributes go with it.  That is djot.js's behaviour
    and not an omission: a term is inline content, with nowhere to put
    them, so `: {#i}` / `  t` yields a `dt` holding `t` and no id. *)
-(* What djot.js keeps out of the block tree: a reference definition goes
-   to `doc.references` and a footnote definition to `doc.footnotes`
-   before `-list_item` runs, so neither is ever `children[0]` and neither
-   can stand between an item and its term.  We keep both as blocks for
-   the roundtrip's sake, so the search has to step over them.  Both
-   oracles agree that `: [r]: u` / blank / `t` has `t` as its term. *)
-Definition invisible_block (b : block) : bool :=
-  match b with RefDef _ _ | FootnoteDef _ _ => true | _ => false end.
-
 Fixpoint def_split (bs : blocks) : option (inlines * blocks) :=
   match bs with
   | [] => None
