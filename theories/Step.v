@@ -1628,10 +1628,6 @@ Fuel is an implementation detail of `step_fuel`: any amount past the
 line's length gives the same answer, so `step` can fix it and no
 downstream statement ever mentions it. *)
 
-(* CR global(repo): I feel like all the sectext heading usage is really weird in  
-this codebase. It's having content after the heading, but the heading should 
-actually be attached to the next definition?*)
-
 Lemma step_fuel_stable :
   forall bound n off l st,
     n <= bound -> S (String.length l + pstate_depth st) <= n ->

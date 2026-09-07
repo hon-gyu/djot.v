@@ -3,10 +3,6 @@
    parser-agnostic; Line.v builds classification on top, Parser.v the
    block structure. *)
 
-(* CR global: would it be more clearer to name this file as `StringUtils.v`
-or `String_utils.v` etc? I think this file is more about utilities instead of
-a definition for THE string type. *)
-
 From Stdlib Require Import String Ascii List Bool Lia.
 From Stdlib Require DecimalString.
 Import ListNotations.

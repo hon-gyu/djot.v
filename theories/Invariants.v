@@ -239,6 +239,7 @@ every other nonempty core includes years, initials, and other text that may
 legitimately begin a continuation line.  State the boundary over the marker
 policy itself, so it is independent of parser state and can be checked before
 installing the knob. *)
+
 Definition marker_interrupt_precondition
   (f : list lstyle -> string -> option task_marker -> string -> bool) : Prop :=
   forall sty core chk rest,
@@ -314,6 +315,7 @@ is asked about -- so the eight settings that touch neither field would
 each need an argument instead of copying the hypothesis.  Nothing is lost:
 a setting that never fires is spelled as one that never fires.  This is
 [accidental_list_immunity] taken to its limit, and it implies it. *)
+
 Definition wrap_neutral : invariant bconfig := fun K =>
   (forall sty core chk rest,
      @bmarker_interrupts K sty core chk rest = false)
@@ -467,6 +469,7 @@ hard, and whitespace before a break survives into the preceding [Str].
 So a re-wrap that moves a break across any of these three changes the
 inlines, and no statement above says otherwise.  These are the witnesses;
 they are expected to keep failing. *)
+
 Example wrap_moves_verbatim_content :
   @para_inlines djot_table ["`a"; "b`"] <> @para_inlines djot_table ["`a b`"].
 Proof. intros H. vm_compute in H. discriminate. Qed.
@@ -663,6 +666,7 @@ That each setting has an effect
 One document per setting, parsed with Djot's answers and with that one
 answer taken away.  A setting whose witness stopped failing would be a
 setting the parser had stopped reading. *)
+
 Definition djot_off (k : bool -> bconfig -> bconfig) : bconfig :=
   k false djot_bconfig.
 

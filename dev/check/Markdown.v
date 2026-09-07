@@ -601,6 +601,7 @@ profile-level one.  Both profiles keep footnotes on -- CommonMark lacks
 them but GFM has them -- so this is pinned at a profile of its own rather
 than in `markdown_like_profile`.
 *)
+
 Definition no_footnotes_profile : profile := with_footnotes false djot_profile.
 
 Example djot_profile_keeps_footnotes :

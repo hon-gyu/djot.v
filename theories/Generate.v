@@ -159,6 +159,7 @@ are chosen to cross a width boundary: at start 9 the second item's
 marker is `10.` and its continuation pad is one wider than the first's,
 which is the case a single marker per list could not express.
 *)
+
 Definition ordered_kinds : list list_kind :=
   [ LKDecimal RightPeriod 1
   ; LKDecimal RightPeriod 9
@@ -229,6 +230,7 @@ has a term, one that starts with a heading or a fence has none -- and
 `item_tails` puts a second block after each, which is the case where the
 term and the definition are different blocks rather than the same one.
 *)
+
 Definition def_pool : list cblock :=
   flat_map (fun its => [CList LKDef Tight its; CList LKDef Loose its])
     (itemlists (seqs leaves)).
@@ -418,6 +420,7 @@ The three below pin the boundary: the `Tight` tree is what the source
 denotes, the `Loose` tree is unreachable and `cb_ok` rejects it, and the
 `Tight` rendering carries no separator blank at all.
 *)
+
 Definition end_blank_shape (sp : list_spacing) : cblock :=
   CList LKBullet sp [ [CList LKBullet Tight [ [cpara ["b"]] ]] ; [cpara ["d"]] ].
 

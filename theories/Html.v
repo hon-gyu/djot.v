@@ -212,6 +212,7 @@ autoReferences[lab]` (html.ts:420).  It is a section variable rather than
 a threaded argument because every recursion here would otherwise carry it
 unchanged.
 *)
+
 Section WithRefs.
 Context (refs : reference_map).
 
