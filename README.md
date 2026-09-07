@@ -12,7 +12,10 @@ A verified [djot](https://djot.net) parser in Rocq.
 - `dev/` — the private `DjotVDev` theory: concrete parser regressions,
   falsification support, focused checks under `dev/check/`, and the
   historical fuel-vs-measure spike. These files support the development
-  but are not results of it.
+  but are not results of it. `dev/check/` builds with everything else,
+  less two files it excludes by name: `Deep.v`, which a parser edit
+  should not pay for, and `Probe.v`, whose `Compute`s print. `make deep`
+  and `make probe` run those.
 - `harness/` — extraction (`Extract.v` → `core.ml`) and the OCaml
   differential test runner.
 - `djot.js/`, `djoths/` — submodules: the two oracle implementations.

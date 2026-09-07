@@ -130,11 +130,11 @@ never contains a line that could be one.
 *)
 
 Example para_ok_rejects_a_bare_underline :
-  @para_ok setext_bconfig ["a"; "==="] = false.
+  @para_ok _ setext_bconfig ["a"; "==="] = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_takes_the_escaped_one :
-  @para_ok setext_bconfig ["a"; "\=\=\="] = true.
+  @para_ok _ setext_bconfig ["a"; "\=\=\="] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 Example the_renderer_writes_the_escaped_one :

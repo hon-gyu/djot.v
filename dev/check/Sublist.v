@@ -160,11 +160,11 @@ setting.  That is why the accepted fragment does not move with the knob.
 *)
 
 Example para_ok_rejects_a_bare_marker_line :
-  @para_ok sublist_bconfig ["a"; "- b"] = false.
+  @para_ok _ sublist_bconfig ["a"; "- b"] = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_takes_the_escaped_one :
-  @para_ok sublist_bconfig ["a"; "\- b"] = true.
+  @para_ok _ sublist_bconfig ["a"; "\- b"] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 Example the_renderer_writes_the_escaped_one :
@@ -172,7 +172,7 @@ Example the_renderer_writes_the_escaped_one :
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_keeps_the_year :
-  @para_ok sublist_bconfig ["a"; "1865. x"] = true.
+  @para_ok _ sublist_bconfig ["a"; "1865. x"] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (*

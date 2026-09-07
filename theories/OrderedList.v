@@ -1,5 +1,8 @@
 (* ai-disclosure: autonomous *)
 
+(* CR Question: what is the location of this file in the dependency graph?
+Is it purely for rendering? *)
+
 (* Ordered lists at the canonical rendering: one style, one delimiter,
    consecutive numbering from a start, so each item carries its own
    marker rather than the list carrying one.
@@ -16,6 +19,10 @@
    fails is `items_ok`, and closing it needs the list state's style set
    to become a running narrowing.  See
    .project/260810.ordered-lists.md. *)
+(* CR: is the reference to the project file still valid?
+Can we remove it? Or at least tag it with <dev> tag so that it's clearly 
+separated from rest of the comment.
+ *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From DjotV Require Import Strings Line Ast Attributes Inline Marker Step Uniformity ListUniformity.

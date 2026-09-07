@@ -1,5 +1,8 @@
 (* ai-disclosure: autonomous *)
 
+(* CR module: is this file a strict downstream of the `Render` module?
+If so, would it be better to rename this file to `Render_roundtrip.v`? *)
+
 (** * Canonical rendering roundtrips
 
    The central block theorem states:
