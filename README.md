@@ -4,6 +4,10 @@ A verified [djot](https://djot.net) parser in Rocq.
 
 ## Layout
 
+`ARCHITECTURE.md` is the module-level map: the dependency spine, where the
+type definitions live, the headline theorems and what supports them.
+
+
 - `theories/` — the paper-facing Gallina development (theory name `DjotV`).
   `Line.v` classifies a line, `Parser.v` steps the block state machine,
   `Render.v` prints a canonical document, `Roundtrip.v` relates them,
