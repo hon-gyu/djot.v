@@ -191,11 +191,11 @@ Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string
    Not a matter of taste: with the branches inlined the recursive call
    appears in all thirteen of them, so *symbolically* normalizing
    `roman_str up n` at an unknown `n` unfolds to 13^16 branches and any
-   conversion check that reaches it does not terminate.  It was found by
-   `Qed` hanging on a lemma whose tactics all ran instantly -- the cost
-   is invisible until the kernel tries to convert.  Factoring the choice
-   into `roman_pick` leaves one recursive call per level, so the same
-   expansion is linear in the fuel. *)
+   conversion check that reaches it does not terminate.  The cost is
+   invisible until the kernel tries to convert, so it shows up as `Qed`
+   hanging on a lemma whose tactics all ran instantly.  Factoring the
+   choice into `roman_pick` leaves one recursive call per level, so the
+   same expansion is linear in the fuel. *)
 Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
   match fuel with
   | O => EmptyString

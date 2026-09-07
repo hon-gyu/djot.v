@@ -1088,9 +1088,9 @@ Example dest_bar_breaks_row :
   = (false, true).
 Proof. reflexivity. Qed.
 
-(* A backtick used to be a second counterexample.  Unlike a bar,
-   `escape_dest` protects it; `row_cells` now honours that escape before
-   updating its verbatim state, so both enclosing blocks remain canonical. *)
+(* A backtick is not a second counterexample.  Unlike a bar,
+   `escape_dest` protects it, and `row_cells` honours that escape before
+   updating its verbatim state, so both enclosing blocks stay canonical. *)
 Example dest_backtick_row_ok :
   (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a`b"]]]),
    cb_ok (CPara [[CILink false [CIStr "a"] "a`b"]]))

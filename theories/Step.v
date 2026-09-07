@@ -1628,6 +1628,10 @@ Fuel is an implementation detail of `step_fuel`: any amount past the
 line's length gives the same answer, so `step` can fix it and no
 downstream statement ever mentions it. *)
 
+(* CR global(repo): I feel like all the sectext heading usage is really weird in  
+this codebase. It's having content after the heading, but the heading should 
+actually be attached to the next definition?*)
+
 Lemma step_fuel_stable :
   forall bound n off l st,
     n <= bound -> S (String.length l + pstate_depth st) <= n ->
@@ -3199,15 +3203,13 @@ Fixpoint pad_safe (st : pstate) : bool :=
   | _ => true
   end.
 
-(* The other half of what `pad_safe` used to be, and the reason the two
-   were worth separating: "a blank line closes whatever this state has
-   open".  A spec fails it because a blank inside one is a continuation
-   line, and a fence because a blank inside one is content.  Where
-   `pad_safe` is asked of *every* line of a run, this is asked only of the
-   state a run ends in -- so an item may contain a code block and still
-   satisfy it, which is exactly the case the fence exclusion used to
-   cost.  It is strictly stronger than `pad_safe`, but nothing needs to
-   say so: `run_safe` carries both, each where it is wanted. *)
+(* "A blank line closes whatever this state has open".  A spec fails it
+   because a blank inside one is a continuation line, and a fence because
+   a blank inside one is content.  Where `pad_safe` is asked of *every*
+   line of a run, this is asked only of the state a run ends in, which is
+   why an item may contain a code block and still satisfy it.  It is
+   strictly stronger than `pad_safe`, but nothing needs to say so:
+   `run_safe` carries both, each where it is wanted. *)
 Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => false

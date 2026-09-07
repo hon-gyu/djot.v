@@ -1224,8 +1224,8 @@ Definition item_ok (m : marker) (L : list string) : bool :=
        && run_safe more (snd (step l0 (PPara [])))
        && match more with [] => true | _ => nonblank (last more EmptyString) end
        (* and the item leaves no gap armed for the next marker to spend.
-          A nonblank last line used to settle this; a div's closer is a
-          nonblank line that arms, so the flag has to be asked for
+          A nonblank last line does not settle this, since a div's closer
+          is a nonblank line that arms, so the flag is asked for
           directly. *)
        && negb (item_gap L))%bool
   end.

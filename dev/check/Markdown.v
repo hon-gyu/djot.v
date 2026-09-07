@@ -666,9 +666,8 @@ The theorems, at this table
 ---------------------------
 
 Not a rebuild and not a re-proof: the same proof term, applied to the
-other instance.  This is what threading the table bought that the
-rebuild audit could not -- the roundtrip is one theorem about the
-family, and `markdown_table` is one of its inhabitants.
+other instance.  The roundtrip is one theorem about the family, and
+`markdown_table` is one of its inhabitants.
 *)
 
 Theorem md_roundtrip_blocks :

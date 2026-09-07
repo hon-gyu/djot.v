@@ -1973,10 +1973,8 @@ Example escaped_punct_is_literal :
   parse_blocks "a\*b" = [mk (Para [mk (Str "a*b")])].
 Proof. reflexivity. Qed.
 
-(* The boundary the delimiter table moved.  This read `["*a*"]` while `*`
-   had no inline meaning; now that the table claims it, a `Str`
-   containing one renders escaped, which is what keeps the text a `Str`
-   on the way back. *)
+(* The delimiter table claims `*`, so a `Str` containing one renders
+   escaped, which is what keeps the text a `Str` on the way back. *)
 Example star_escaped_in_str : cb_lines (cpara ["*a*"]) = ["\*a\*"].
 Proof. reflexivity. Qed.
 
@@ -2093,20 +2091,7 @@ Example roman_from_one_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* What `cb_ok` still excludes, and why each is excluded.  An alpha list
-   from `i` at length 1 renders `i. a`, which is also what roman from 1
-   renders -- two canonical ASTs, one source, so at most one can
-   round-trip and it is the roman one.  At length 2 the letters `c` and
-   `d` are *both* roman digits, so `c. / d.` is still unresolved after
-   its second marker and reads as roman from 100.  The last is the wrap:
-   `z` leaves no 27th letter.  Measured in `dev/check/Probe.v`. *)
-(* These were the boundary until the two-peel form landed: `cb_ok`
-   rejected them while their renderings round-tripped, and the example
-   here asserted both halves.  It is now an ordinary roundtrip, proved
-   through `roundtrip_blocks` rather than by computation, which is the
-   confirmation the old example existed to give.
-
-   `c` and `d` are both roman digits, so `c.` / `d.` leaves the candidate
+(* `c` and `d` are both roman digits, so `c.` / `d.` leaves the candidate
    set where it was and only `e.` settles it; same for `l`, `m`, `n`.
    With these, every ordered start that can round-trip does. *)
 Example alpha_two_roman_digits_roundtrip :
@@ -2124,8 +2109,14 @@ Proof.
   repeat split; try reflexivity; apply roundtrip_blocks; reflexivity.
 Qed.
 
-(* Excluded and impossible.  Each of these three cannot round-trip at
-   all, so no theorem will ever admit them. *)
+(* Excluded and impossible: each of these three cannot round-trip at
+   all, so no theorem will ever admit them, and why each is excluded.  An
+   alpha list from `i` at length 1 renders `i. a`, which is also what
+   roman from 1 renders -- two canonical ASTs, one source, so at most one
+   can round-trip and it is the roman one.  At length 2 the letters `c`
+   and `d` are *both* roman digits, so `c. / d.` is still unresolved
+   after its second marker and reads as roman from 100.  The last is the
+   wrap: `z` leaves no 27th letter.  Measured in `dev/check/Probe.v`. *)
 Example excluded_ordered_starts :
   (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[cpara ["a"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 3) Tight

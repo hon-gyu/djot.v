@@ -311,6 +311,10 @@ Definition denabled (C : dconfig) (k : dstyle) : bool :=
 Lemma dstyles_complete : forall k, In k dstyles.
 Proof. intros []; cbn; tauto. Qed.
 
+(* Look a character up in the table rather than repeating it, which is
+   what makes `dstyle_of_dchar` below a fact about the search rather than
+   a coincidence between two spellings.  A row switched off is not found,
+   so `DOff` removes the character from the scanner entirely. *)
 Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
   find (fun k => denabled C k && Ascii.eqb (dc_char C k) c)%bool dstyles.
 
@@ -825,12 +829,6 @@ Definition dnode (k : dstyle) (ns : inlines) : inline :=
   | DSQuote => Quoted SingleQuotes ns | DDQuote => Quoted DoubleQuotes ns
   end.
 
-(* Look a character up in the table rather than repeating it: the two
-   spellings used to be written out separately and kept in step by
-   `dstyle_of_dchar` below, which is now a fact about the search instead
-   of a coincidence to maintain.  A row switched off is not found, so
-   `DOff` removes the character from the scanner entirely. *)
-
 (* Djot's table satisfies the side condition: its six characters are
    distinct.  Checked rather than assumed. *)
 Example djot_config_ok : dconfig_ok djot_config = true.
@@ -1190,9 +1188,9 @@ Proof. reflexivity. Qed.
 Lemma needs_escape_rbrace : needs_escape rbrace = true.
 Proof. reflexivity. Qed.
 
-(* And the same for the brackets, now that the scanner dispatches on
-   them: a `[` in a `Str` would open a scope, and a `]` would close one
-   that a later construct opened. *)
+(* And the same for the brackets, on which the scanner dispatches: a `[`
+   in a `Str` would open a scope, and a `]` would close one that a later
+   construct opened. *)
 Lemma needs_escape_lbrack : needs_escape lbrack = true.
 Proof. reflexivity. Qed.
 
@@ -3823,15 +3821,12 @@ Definition oout_app (base : oitems) (o : ostate) : ostate :=
    -- discharges it by `reflexivity`, because it builds the suffix by
    consing that very break.
 
-   It used to be spelt as the weaker `starts_str base = false`, which is
-   all the seam merge in `osnoc_nonstr` needs.  That was enough until
-   attachment had to read the current scope: a scope that has emitted
-   nothing sees the suffix's head there, so a suffix headed by anything
-   *else* would make the same query answer two ways across a splice.
-   Deferring the attachment did not remove that -- it moved it into
-   `oresolve`, which asks the same question of the same list -- so the
-   invariant is still what is carried, and `oattach_list` still refuses a
-   `SoftBreak` for it. *)
+   The weaker `starts_str base = false` is all the seam merge in
+   `osnoc_nonstr` needs, but not enough for attachment, which reads the
+   current scope: a scope that has emitted nothing sees the suffix's head
+   there, so a suffix headed by anything *else* would make the same query
+   answer two ways across a splice.  `oresolve` asks that question of
+   that same list, which is why `oattach_list` refuses a `SoftBreak`. *)
 Definition base_ok (base : oitems) : bool :=
   match base with
   | [] => true
