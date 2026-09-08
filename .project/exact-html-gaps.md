@@ -45,20 +45,43 @@ Hello.
 | djot.js | `<p>{%\nSPDX-FileCopyrightText: 2025\n%}</p>` then `<p>Hello.</p>` |
 | ours | `<p></p>` then `<p>Hello.</p>` |
 
-The block attribute machine fails on the three lines and both engines
-retract to a paragraph of them. djot.js emits the consumed source as
-literal text; we re-parse it, and the inline attribute machine reads
-`{%`..`%}` as a comment spec that closes, attaches to nothing and is
-dropped. Dropping is right -- `x{% c` / `%}y` is `xy` in djot.js too --
-so the difference is only that djot.js never runs the inline scan over
-those lines.
+**The mechanism, pinned** (`block.ts:533-596`). The container opens on a
+`{` at the start of a line and keeps a live `AttributeParser`. Its
+`continue` requires `this.indent > container.extra.indent`, so a
+continuation line must be *more* indented than the brace -- which is our
+rule too, `Nat.ltb aind (off + indent_of l)`. When the parser fails, or
+when the indent runs out with the spec unfinished, djot.js converts the
+container to a paragraph and calls
+`para.inlineParser.reparseAttributes()` on the slices it accumulated:
+the consumed source is scanned by the *inline* parser with attribute
+recognition disabled, and the paragraph then continues normally, with
+attributes enabled again, from `lastpos + 1`.
 
-**Open conformance gap.** It is the block-level member of the family the
-two below belong to, and takes the same repair: keep the candidate's
-source beside an ordinary scan and choose the source when the candidate
-dies. Two adjacent inputs stay in agreement and mark the boundary --
-`{#i` / `*a*` and `{a=x` / `*b*}` both match, because there the re-parse
-reproduces the source.
+We accumulate the same slices and re-scan them with attributes **on**.
+That is the whole difference. Four probes fix the boundary, and we match
+djot.js on all of them: `{#i` / `  .c}` / `x` succeeds as one multi-line
+spec on both sides (modulo the known attribute-ordering `render-only`
+difference), `{%` / `  c` / `  %}` / `x` likewise, and the two
+unindented recoveries `{#i` / `*a*` and `{a=x` / `hello` agree because
+there the re-scan happens to reproduce the source. `:253` differs only
+because its slices re-scan into a *comment* spec that closes, attaches
+to nothing and is now dropped.
+
+**Open conformance gap, and not a cheap one.** The obvious shortcut is
+refuted: escaping the slices' braces so an ordinary scan reads them
+literally is not the same as scanning with attributes off, because
+`ibrace_step` checks `dstyle_of` *before* `inline_attrs_enabled` -- so
+attributes-off still opens `{-`, `{+` and the other marked delimiters,
+and `\{` would not. `with_inline_attrs false` and the `DTable`
+construction in `Profile.v` make "the same table with attributes off"
+expressible in one definition, but the scan is not uniform: only the
+*slices* are attributes-off, and the rest of the paragraph is not. The
+faithful shape is a shadow scan advanced beside the candidate as lines
+arrive, adopted on failure -- the same design as the two below, with the
+difference that here it costs a `pstate` change (a paragraph state that
+can continue a scan someone else started) rather than a self-recursive
+`iscan`. `PPara` has 556 mentions, so a field on it is the wrong end;
+a separate constructor pays the standing-quantifier list instead.
 
 This one *is* reachable from a canonical document in principle, since it
 is the parser's own paragraph that differs; it does not threaten
@@ -67,7 +90,8 @@ consistently.
 
 Logged 2026-09-08 under *Closed -- `attributes:89` and `attributes:95`*,
 which is what exposed it: the case matched by accident while an
-unattached spec kept its source.
+unattached spec kept its source. The mechanism above was pinned the same
+day.
 
 ### An unclosed spec whose source an inline scan would have claimed
 

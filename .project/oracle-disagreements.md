@@ -1318,3 +1318,46 @@ reconstruction. `state_wf`'s `forallb nonblank` clauses had no consumer
 left once `Para` lost its nonemptiness obligation, so `PPara`,
 `PHeading`'s accumulator, `PAttr`'s slices, `PTable`'s caption lines and
 `PKey`'s two strings carry nothing now. Net -845 lines.
+
+## Probed 2026-09-08 — what `attributes:253` actually needs
+
+Ten minutes against `block.ts:533-596` and djot.js, before designing
+anything. Three results.
+
+**Our continuation rule is already djot.js's.** The block attribute
+container requires `this.indent > container.extra.indent` of a
+continuation line, which is `Nat.ltb aind (off + indent_of l)`. A
+multi-line spec succeeds on both sides when its later lines are indented
+(`{#i` / `  .c}` / `x`, `{%` / `  c` / `  %}` / `x`) and fails on both
+when they are not. Nothing to change there.
+
+**The whole difference is one flag.** On failure djot.js calls
+`para.inlineParser.reparseAttributes()` over the slices it accumulated:
+the consumed source goes through the inline scanner with attribute
+recognition *disabled*, and the paragraph resumes with it enabled. We
+re-scan the same slices with attributes on. Every probe where the
+re-scan reproduces the source agrees (`{#i` / `*a*`, `{a=x` / `hello`);
+`:253` differs because `{%`..`%}` re-scans into a comment spec that
+closes and is dropped.
+
+One probe was a red herring and is worth recording so it is not chased
+again: `{a=x` / `*b*}` renders literally on both sides, which looked
+like the recovery suppressing emphasis. It is not -- `q` / `*b*}` is
+literal too. A `*` closer followed by `}` simply cannot close.
+
+**The cheap fix does not exist.** Escaping the slices' braces so an
+ordinary scan reads them literally is not attributes-off:
+`ibrace_step` consults `dstyle_of` before `inline_attrs_enabled`, so
+attributes-off still opens `{-`, `{+` and every other marked delimiter,
+while `\{` would not. And `with_inline_attrs false` cannot be applied to
+the whole paragraph, because only the slices are attributes-off.
+
+**Verdict: ours, open, and it is the same repair as the other two.** A
+shadow scan advanced beside the candidate and adopted on failure. The
+block layer's version is cheaper in one way -- `PAttr` can carry an
+`iscan` without making `iscan` recursive -- and dearer in another: the
+paragraph it retracts into has to be able to continue a scan someone
+else started. `PPara` is mentioned 556 times, so that is a constructor,
+not a field, and it pays the standing-quantifier list (`pad_state`,
+`pstate_depth`, `lazy_ok`, `is_idle`, `in_fence`, `nested_container`,
+`state_wf`, `finish`). Not the small independent step it was scoped as.
