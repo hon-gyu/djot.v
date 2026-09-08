@@ -2178,7 +2178,22 @@ Inductive frame_kind : Type :=
      back off the subject at the close (`inline.ts:475`).  We cannot: the
      text before the bracket has been flushed by then, and an escaped
      `\!` is indistinguishable from a bare one once it is in the buffer. *)
-  | FKBracket (image : bool).
+  | FKBracket (image : bool)
+  (* The scope an unterminated destination decays into.  `](` does not
+     end the bracket construct upstream: the `[` opener stays on the
+     stack until the balanced `)` resolves it, so the destination's
+     source is scanned as ordinary content that only becomes literal at
+     the close (`inline.ts:470`).  This frame is that opener, still open,
+     with the label and the `](` already inside it as text -- which is
+     why its decay is the bracket's own byte and not the whole region.
+
+     It differs from `FKBracket` in one way, and it is the one
+     `inline.ts:150` states: a delimiter closer inside a destination may
+     not reach an opener from outside the link construct, so this frame
+     stops the walk that `FKBracket` lets through.  `[u](a ]{.c}`, where
+     upstream re-enters the bracket, is not matched: `bclose_go` still
+     stops here.  See `.project/exact-html-gaps.md`. *)
+  | FKDest (image : bool).
 
 Record frame : Type := Frame {
   fr_kind : frame_kind;
@@ -2190,7 +2205,15 @@ Record frame : Type := Frame {
 Definition fr_src (f : frame) : string :=
   match fr_kind f with
   | FKDelim k => ddecay_str k (fr_marked f) false
-  | FKBracket image => bracket_open image
+  | FKBracket image | FKDest image => bracket_open image
+  end.
+
+(* Whether a closer's search out through the open scopes stops here
+   rather than abandoning this one and carrying on. *)
+Definition fr_barrier (f : frame) : bool :=
+  match fr_kind f with
+  | FKDest _ => true
+  | FKDelim _ | FKBracket _ => false
   end.
 
 Record ostate : Type := OState {
@@ -2226,7 +2249,7 @@ Definition dstyle_eqb (a b : dstyle) : bool :=
 Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
   match fr_kind f with
   | FKDelim k' => (dstyle_eqb k k' && Bool.eqb m (fr_marked f))%bool
-  | FKBracket _ => false
+  | FKBracket _ | FKDest _ => false
   end.
 
 (* Reversed-list splices that merge a `Str` seam, so `no_adjacent_str`
@@ -2377,6 +2400,11 @@ Definition opush (k : dstyle) (m : bool) (o : ostate) : ostate :=
 
 Definition bpush (image : bool) (o : ostate) : ostate :=
   OState (os_out o) (Frame (FKBracket image) false [] :: os_stk o).
+
+(* The same push for a `](`: the bracket's opener stays open, and what
+   goes into it is the label put back as text. *)
+Definition dpush (image : bool) (o : ostate) : ostate :=
+  OState (os_out o) (Frame (FKDest image) false [] :: os_stk o).
 
 Lemma oemit_all_app :
   forall a b o, oemit_all (a ++ b)%list o = oemit_all b (oemit_all a o).
@@ -2548,8 +2576,26 @@ Fixpoint oclose_go (k : dstyle) (m : bool) (pend : oitems) (stk : list frame)
       let content := oapp pend (fr_out f) in
       if dmatch k m f
       then (if nonempty content then Some (content, rest) else None)
+      else if fr_barrier f then None
       else oclose_go k m (oapp content [OIn (mk (Str (fr_src f)))]) rest
   end.
+
+(* Whether the search above stopped at a barrier with a scope this closer
+   would otherwise have matched below it.  Upstream distinguishes the two
+   failures: an opener barred by a destination makes the token *text*
+   and returns (`inline.ts:155-158`), where no opener at all lets it
+   become one. *)
+Fixpoint oclose_barred_go (k : dstyle) (m : bool) (past : bool)
+  (stk : list frame) : bool :=
+  match stk with
+  | [] => false
+  | f :: rest =>
+      if dmatch k m f then past
+      else oclose_barred_go k m (past || fr_barrier f)%bool rest
+  end.
+
+Definition oclose_barred (k : dstyle) (m : bool) (o : ostate) : bool :=
+  oclose_barred_go k m false (os_stk o).
 
 Definition oclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
   match oclose_go k m [] (os_stk o) with
@@ -2592,6 +2638,9 @@ Fixpoint bclose_go (pend : oitems) (stk : list frame)
       let content := oapp pend (fr_out f) in
       match fr_kind f with
       | FKBracket image => Some (content, image, rest)
+      (* the destination's own opener is not offered back yet; see the
+         constructor's comment *)
+      | FKDest _ => None
       | FKDelim _ =>
           bclose_go (oapp content [OIn (mk (Str (fr_src f)))]) rest
       end
@@ -2714,14 +2763,6 @@ Definition bref_lit (kids : inlines) (image : bool) (label : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
   ((txt ++ one lbrack ++ label)%string, o').
-
-(* A destination that never closed: the above, then `(` and what the
-   destination had accumulated, including the breaks it spanned. *)
-Definition bdest_lit (kids : inlines) (image esc : bool) (dst : string)
-  (o : ostate) : string * ostate :=
-  let '(txt, o') := bclosed_lit kids image o in
-  bsplit_nl (if esc then (dst ++ one bslash)%string else dst)
-            (txt ++ one lparen)%string o'.
 
 (* The destination itself drops the breaks (`parse.ts:612`), which is why
    they are kept as characters until it is known to close. *)
@@ -2872,9 +2913,19 @@ Inductive iscan : Type :=
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
      pending backslash, as in text mode.  A destination survives a line
-     break, so this is the second state `ibreak` carries across one. *)
+     break, so this is the second state `ibreak` carries across one.
+
+     Two readings of the same bytes run here, because upstream keeps only
+     one and decides between them at the end.  `kids`, `dst` and `o` are
+     the destination reading, used by the balanced `)` and nothing else.
+     `sh` is the ordinary one -- the same scanner, fed the same bytes,
+     inside the `FKDest` scope this state opened -- and it is what the
+     end of the paragraph keeps, since upstream turns the region literal
+     only *at* the close (`inline.ts:470`).  Neither is a replay of the
+     other: both advance on each byte, and the byte that ends the state
+     picks one. *)
   | IDest (kids : inlines) (image esc : bool) (depth : nat) (dst : string)
-          (o : ostate)
+          (sh : iscan) (o : ostate)
   (* inside a `<`, holding the region read so far.  The region is raw
      source, so a backtick or a
      delimiter inside a *successful* autolink is content
@@ -2952,6 +3003,20 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
            | None => IText false (txt ++ one c)%string prev o
            end
        end.
+
+(* The ordinary reading of a `](`, as a state.  The bracket's opener is
+   pushed back -- as `FKDest`, so a delimiter closer cannot reach past it
+   -- and the label goes into it as text, through `bflat`, which keeps a
+   classified child classified and merges the `Str` seam by
+   construction.  The two bytes that opened the destination are the head
+   of the buffer, so a spec that attaches here attaches to `[u](a` whole,
+   as upstream's does.
+
+   `fr_src` supplies the `[` at the flatten, not this, which is why the
+   frame is pushed rather than the byte written. *)
+Definition idest_open (kids : inlines) (image : bool) (o : ostate) : iscan :=
+  let '(txt, o') := bflat kids EmptyString (dpush image o) in
+  IText false (txt ++ one rbrack ++ one lparen)%string (Some lparen) o'.
 
 Definition null {A} (l : list A) : bool :=
   match l with [] => true | _ => false end.
@@ -3156,7 +3221,12 @@ Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
        | Some o' =>
            IText false EmptyString
              (Some (if marker then rbrace else dchar k)) o'
-       | None => idelim_done k txt before marker next o
+       (* a barred opener is the one failure that does not offer the
+          token as an opener in its turn *)
+       | None =>
+           if oclose_barred k marker o
+           then IText false (idelim_lit k txt marker) None o
+           else idelim_done k txt before marker next o
        end
   else idelim_done k txt before marker next o.
 
@@ -3327,7 +3397,9 @@ Definition iescws_resolve (ws txt : string) (prev : option ascii)
 Definition iesc_hard (txt : string) (o : ostate) : ostate :=
   oemit (mk HardBreak) (flush_text (strip_trailing_ws txt) o).
 
-Definition istep (c : ascii) (st : iscan) : iscan :=
+(* Recursive in exactly one place: a destination advances the ordinary
+   reading of its own region, which is this same scanner one scope in. *)
+Fixpoint istep (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt prev o =>
       if is_ws c then IEscWs (one c) txt prev o
@@ -3385,7 +3457,9 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
                  || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool
              then bclose (flush_text txt o) else None) with
       | Some (kids, image, o') =>
-          if Ascii.eqb c lparen then IDest kids image false 0 EmptyString o'
+          if Ascii.eqb c lparen
+          then IDest kids image false 0 EmptyString
+                 (idest_open kids image o') o'
           else if Ascii.eqb c lbrack then IReference kids image EmptyString o'
           else ISpan kids image ap_init EmptyString o'
       | None => ilead c (txt ++ one rbrack)%string (Some rbrack) o
@@ -3404,23 +3478,26 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
            IText false EmptyString (Some rbrack)
              (oemit (mk (bnode image kids (Reference (normalize_label key)))) o)
       else IReference kids image (label ++ one c)%string o
-  | IDest kids image true depth dst o =>
+  | IDest kids image true depth dst sh o =>
       IDest kids image false depth
         (dst ++ (if is_punct c then one c
-                 else String bslash (one c)))%string o
-  | IDest kids image false depth dst o =>
-      if is_bslash c then IDest kids image true depth dst o
+                 else String bslash (one c)))%string (istep c sh) o
+  | IDest kids image false depth dst sh o =>
+      if is_bslash c then IDest kids image true depth dst (istep c sh) o
       else if Ascii.eqb c lparen
-      then IDest kids image false (S depth) (dst ++ one lparen)%string o
+      then IDest kids image false (S depth) (dst ++ one lparen)%string
+             (istep c sh) o
       else if Ascii.eqb c rparen
       then match depth with
            | O =>
-               (* the balanced close: the one byte that builds the node *)
+               (* the balanced close: the one byte that builds the node,
+                  and the one that discards the ordinary reading *)
                IText false EmptyString (Some rparen)
                  (oemit (mk (bnode image kids (Direct (drop_nl dst)))) o)
-           | S d => IDest kids image false d (dst ++ one rparen)%string o
+           | S d => IDest kids image false d (dst ++ one rparen)%string
+                      (istep c sh) o
            end
-      else IDest kids image false depth (dst ++ one c)%string o
+      else IDest kids image false depth (dst ++ one c)%string (istep c sh) o
   end.
 
 (* End of line.  An unclosed verbatim closes here, as djot.js does in
@@ -3429,8 +3506,8 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
    (`escapes.test:30`).  It cannot arise from a canonical rendering,
    since `escape_str` never emits a backslash that is not followed by
    punctuation. *)
-Definition ifinish_ostate (st : iscan) : ostate :=
-  match iresolve st with
+Definition ifinish_ostate_flat (st : iscan) : ostate :=
+  match st with
   | IText true txt _ o => iesc_hard txt o
   | IEscWs _ txt _ o => iesc_hard txt o
   | IText false txt _ o => flush_text txt o
@@ -3438,9 +3515,9 @@ Definition ifinish_ostate (st : iscan) : ostate :=
   | IVerb n run txt vk o =>
       oemit (mk (vnode vk (trim_verb
                    (if Nat.eqb run n then txt else txt ++ ticks run)%string))) o
-  (* an unclosed destination is literal, breaks and all *)
-  | IDest kids image esc _ dst o =>
-      let '(txt, o') := bdest_lit kids image esc dst o in flush_text txt o'
+  (* unreachable: `ifinish_ostate` takes a destination's shadow before it
+     gets here, and `iresolve` builds no `IDest` *)
+  | IDest _ _ _ _ _ _ o => o
   | INote esc image label o =>
       let '(txt, o') := bnote_lit esc image label o in flush_text txt o'
   (* a candidate the line ended inside is literal: the region may not
@@ -3467,6 +3544,16 @@ Definition ifinish_ostate (st : iscan) : ostate :=
   | IDelim _ _ _ _ _ o | IClosed _ o => o
   end.
 
+(* An unclosed destination is not literal: upstream turns the region into
+   source at the *close*, so a region that never closes keeps the reading
+   the ordinary scan gave it, and the `[` and `](` come back out of the
+   `FKDest` frame when `oflatten` abandons it. *)
+Fixpoint ifinish_ostate (st : iscan) : ostate :=
+  match st with
+  | IDest _ _ _ _ _ sh _ => ifinish_ostate sh
+  | _ => ifinish_ostate_flat (iresolve st)
+  end.
+
 Definition ifinish_items (st : iscan) : oitems :=
   oitems_of (ifinish_ostate st).
 
@@ -3490,8 +3577,8 @@ Definition ifinish (st : iscan) : inlines := List.rev (ifinish_rev st).
    which is why it arrives here as `one nl` rather than closing anything;
    a resolved closing run (`run = n`) is the one case where the span ends
    *at* the break and the newline is the soft break after it. *)
-Definition ibreak (st : iscan) : iscan :=
-  match iresolve st with
+Definition ibreak_flat (st : iscan) : iscan :=
+  match st with
   (* A hard break replaces the soft one: it is the break, rendered. *)
   | IText true txt _ o => IText false EmptyString None (iesc_hard txt o)
   | IEscWs _ txt _ o => IText false EmptyString None (iesc_hard txt o)
@@ -3503,13 +3590,8 @@ Definition ibreak (st : iscan) : iscan :=
       then IText false EmptyString None
              (oemit (mk SoftBreak) (oemit (mk (vnode vk (trim_verb txt))) o))
       else IVerb n 0 (txt ++ ticks run ++ nl)%string vk o
-  (* A destination crosses the break: djot.js keeps scanning and strips
-     the newline from the destination text at the close, so the byte is
-     accumulated and dropped later rather than dropped here -- the
-     literal fallback still needs it if the destination never closes. *)
-  | IDest kids image esc depth dst o =>
-      IDest kids image false depth
-        (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string o
+  (* unreachable, as in `ifinish_ostate_flat` *)
+  | IDest _ _ _ _ _ _ _ as st' => st'
   (* A label crosses a break and the newline is whitespace to
      `normalize_label`, so `[^a` / `b]` is one reference to `a b`. *)
   | INote esc image label o =>
@@ -3544,6 +3626,20 @@ Definition ibreak (st : iscan) : iscan :=
     | IDelim _ _ _ _ _ _ | IClosed _ _) as st' => st'
   end.
 
+(* A destination crosses the break: djot.js keeps scanning and strips the
+   newline from the destination text at the close, so the byte is
+   accumulated and dropped later rather than dropped here.  The ordinary
+   reading takes the break as the soft one it is, which is why it is
+   `ibreak` and not `istep nl` that the shadow gets. *)
+Fixpoint ibreak (st : iscan) : iscan :=
+  match st with
+  | IDest kids image esc depth dst sh o =>
+      IDest kids image false depth
+        (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string
+        (ibreak sh) o
+  | _ => ibreak_flat (iresolve st)
+  end.
+
 (* A state that owes nothing to the next line: every construct it has
    seen is resolved, so the boundary just ends the line and `ibreak`
    agrees with `ifinish` on what was emitted.  What fails it is a span
@@ -3563,7 +3659,7 @@ Definition iclosed_at (st : iscan) : bool :=
   | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _
-  | INote _ _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ => false
+  | INote _ _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ _ => false
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
      is text on this line *)
@@ -3594,6 +3690,24 @@ Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
 Definition iscan_settled (c : ascii) (st : iscan) : bool :=
   iclosed_at (iresolve_next c st).
 
+(* The two recursive definitions above take their own branch on a
+   destination and go through `iresolve` on everything else.  Every lemma
+   below that reasons by cases on the resolved state wants the second
+   half, and a state open on a destination is one none of them is about
+   -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
+Definition is_dest (st : iscan) : bool :=
+  match st with IDest _ _ _ _ _ _ _ => true | _ => false end.
+
+Lemma ibreak_nondest :
+  forall st, is_dest st = false -> ibreak st = ibreak_flat (iresolve st).
+Proof. intros st H. destruct st; try reflexivity. discriminate H. Qed.
+
+Lemma ifinish_ostate_nondest :
+  forall st,
+    is_dest st = false ->
+    ifinish_ostate st = ifinish_ostate_flat (iresolve st).
+Proof. intros st H. destruct st; try reflexivity. discriminate H. Qed.
+
 Lemma ibreak_closed :
   forall st,
     iscan_closed st = true ->
@@ -3601,7 +3715,12 @@ Lemma ibreak_closed :
                   (OState (OIn (mk SoftBreak) :: ifinish_items st) []).
 Proof.
   intros st H.
-  unfold iscan_closed, iclosed_at, ibreak, ifinish_items, oitems_of, ifinish_ostate in *.
+  assert (Hd : is_dest st = false)
+    by (destruct st; try reflexivity; cbn in H; discriminate H).
+  rewrite (ibreak_nondest st Hd).
+  unfold ifinish_items, oitems_of.
+  rewrite (ifinish_ostate_nondest st Hd).
+  unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
   destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
@@ -3834,7 +3953,7 @@ Proof.
   destruct v; try reflexivity. discriminate.
 Qed.
 
-Definition iout_app (base : oitems) (st : iscan) : iscan :=
+Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   match st with
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
   | IEscWs ws txt prev o => IEscWs ws txt prev (oout_app base o)
@@ -3852,8 +3971,8 @@ Definition iout_app (base : oitems) (st : iscan) : iscan :=
   | INote esc image label o => INote esc image label (oout_app base o)
   | IReference kids image label o =>
       IReference kids image label (oout_app base o)
-  | IDest kids image esc depth dst o =>
-      IDest kids image esc depth dst (oout_app base o)
+  | IDest kids image esc depth dst sh o =>
+      IDest kids image esc depth dst (iout_app base sh) (oout_app base o)
   | IAuto src txt o => IAuto src txt (oout_app base o)
   | IRaw spec txt o => IRaw spec txt (oout_app base o)
   end.
@@ -3904,7 +4023,7 @@ Lemma bunpush_app :
     = option_map (fun p => (fst p, oout_app base (snd p))) (bunpush o).
 Proof.
   intros [out [|f stk]] base; [reflexivity|].
-  destruct f as [[k|im] m [|n l]]; reflexivity.
+  destruct f as [[k|im|im] m [|n l]]; reflexivity.
 Qed.
 
 Lemma bclose_app :
@@ -3964,6 +4083,22 @@ Proof.
     [rewrite flush_text_app, oemit_app|]; apply IH.
 Qed.
 
+Lemma dpush_app :
+  forall image o base,
+    dpush image (oout_app base o) = oout_app base (dpush image o).
+Proof. intros image o base. reflexivity. Qed.
+
+Lemma idest_open_app :
+  forall kids image o base,
+    idest_open kids image (oout_app base o)
+    = iout_app base (idest_open kids image o).
+Proof.
+  intros kids image o base. unfold idest_open.
+  rewrite dpush_app, bflat_app.
+  destruct (bflat kids EmptyString (dpush image o)) as [txt o1].
+  reflexivity.
+Qed.
+
 Lemma bclosed_lit_app :
   forall kids image o base,
     base_ok base = true ->
@@ -3977,19 +4112,6 @@ Proof.
   rewrite bflat_app.
   destruct (bflat kids (pre ++ bracket_open image)%string o1) as [txt o2].
   reflexivity.
-Qed.
-
-Lemma bdest_lit_app :
-  forall kids image esc dst o base,
-    base_ok base = true ->
-    bdest_lit kids image esc dst (oout_app base o)
-    = (fst (bdest_lit kids image esc dst o),
-       oout_app base (snd (bdest_lit kids image esc dst o))).
-Proof.
-  intros kids image esc dst o base Hb. unfold bdest_lit.
-  rewrite (bclosed_lit_app kids image o base Hb).
-  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
-  apply bsplit_nl_app.
 Qed.
 
 Lemma bref_lit_app :
@@ -4138,7 +4260,10 @@ Proof.
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
   unfold idelim_resolve. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   rewrite flush_text_app, oclose_app.
-  destruct (oclose k marker (flush_text txt o)); [reflexivity | apply Hdone].
+  destruct (oclose k marker (flush_text txt o)); [reflexivity|].
+  unfold oclose_barred, oout_app; cbn [os_stk].
+  destruct (oclose_barred_go k marker false (os_stk o)); [reflexivity|].
+  apply Hdone.
 Qed.
 
 Lemma iresolve_app :
@@ -4167,7 +4292,8 @@ Lemma istep_out_app :
     base_ok base = true ->
     istep c (iout_app base st) = iout_app base (istep c st).
 Proof.
-  intros c base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros c base st Hb.
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
     cbn [iout_app istep].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -4220,7 +4346,8 @@ Proof.
     destruct (bclose (flush_text cltxt clob)) as [[[kids image] o']|];
       [|apply ilead_app].
     cbn [option_map].
-    destruct (Ascii.eqb c lparen); [reflexivity|].
+    destruct (Ascii.eqb c lparen);
+      [rewrite idest_open_app; reflexivity|].
     destruct (Ascii.eqb c lbrack); reflexivity.
   - apply ispan_feed_app, Hb.
   - apply iattr_feed_app, Hb.
@@ -4231,11 +4358,15 @@ Proof.
     destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
     rewrite oemit_app. reflexivity.
-  - destruct esc; [reflexivity|].
-    destruct (is_bslash c); [reflexivity|].
-    destruct (Ascii.eqb c lparen); [reflexivity|].
-    destruct (Ascii.eqb c rparen); [|reflexivity].
-    destruct depth; [cbn [iout_app]; rewrite oemit_app|]; reflexivity.
+  - (* both readings advance, and only the balanced close names one *)
+    destruct esc; [cbn [iout_app]; rewrite IHsh; reflexivity|].
+    destruct (is_bslash c); [cbn [iout_app]; rewrite IHsh; reflexivity|].
+    destruct (Ascii.eqb c lparen); [cbn [iout_app]; rewrite IHsh; reflexivity|].
+    destruct (Ascii.eqb c rparen);
+      [|cbn [iout_app]; rewrite IHsh; reflexivity].
+    destruct depth;
+      [cbn [iout_app]; rewrite oemit_app; reflexivity
+      |cbn [iout_app]; rewrite IHsh; reflexivity].
   - unfold iauto_step.
     destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool;
       [cbn [iout_app]; rewrite flush_text_app, oemit_app; reflexivity|].
@@ -4267,14 +4398,13 @@ Proof.
   rewrite istep_out_app by exact Hb. apply IH, Hb.
 Qed.
 
-Lemma ibreak_out_app :
+Lemma ibreak_flat_app :
   forall base st,
     base_ok base = true ->
-    ibreak (iout_app base st) = iout_app base (ibreak st).
+    ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base st Hb. unfold ibreak. rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
-    cbn [iout_app]; try reflexivity.
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+    cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
   - destruct (Nat.eqb run n); [|reflexivity].
@@ -4282,6 +4412,29 @@ Proof.
   - apply ispan_feed_app, Hb.
   - apply iattr_feed_app, Hb.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
+Qed.
+
+Lemma ibreak_nondest_app :
+  forall base st,
+    base_ok base = true -> is_dest st = false ->
+    ibreak (iout_app base st) = iout_app base (ibreak st).
+Proof.
+  intros base st Hb Hd.
+  assert (Hd' : is_dest (iout_app base st) = false)
+    by (destruct st; try reflexivity; discriminate Hd).
+  rewrite (ibreak_nondest _ Hd'), (ibreak_nondest _ Hd).
+  rewrite iresolve_app by exact Hb. apply ibreak_flat_app, Hb.
+Qed.
+
+Lemma ibreak_out_app :
+  forall base st,
+    base_ok base = true ->
+    ibreak (iout_app base st) = iout_app base (ibreak st).
+Proof.
+  intros base st Hb.
+  induction st; try (apply ibreak_nondest_app; [exact Hb|reflexivity]).
+  (* the destination, where the shadow takes the break too *)
+  cbn [ibreak iout_app]. rewrite IHst. reflexivity.
 Qed.
 
 Lemma iscan_lines_cons2 :
@@ -4440,39 +4593,68 @@ Proof.
   rewrite oflatten_app by exact Hb. apply oresolve_app, Hb.
 Qed.
 
+Lemma ifinish_ostate_flat_app :
+  forall base st,
+    base_ok base = true ->
+    ifinish_ostate_flat (iout_app base st)
+    = oout_app base (ifinish_ostate_flat st).
+Proof.
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+    cbn [iout_app ifinish_ostate_flat].
+  1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
+  1: rewrite flush_text_app; reflexivity.
+  1,2: reflexivity.
+  1,2: rewrite oemit_app; reflexivity.
+  all: try reflexivity.
+  - rewrite (bspan_lit_app kids img ssrc sob base Hb).
+    destruct (bspan_lit kids img ssrc sob) as [t o']; cbn [fst snd].
+    rewrite flush_text_app. reflexivity.
+  - rewrite battr_lit_app.
+    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd].
+    rewrite flush_text_app. reflexivity.
+  - rewrite (bref_lit_app kids img label ob base Hb).
+    destruct (bref_lit kids img label ob) as [t o']; cbn [fst snd].
+    rewrite flush_text_app. reflexivity.
+  - rewrite (bnote_lit_app nesc nimg nlab nob base Hb).
+    destruct (bnote_lit nesc nimg nlab nob) as [t o']; cbn [fst snd].
+    rewrite flush_text_app. reflexivity.
+  - rewrite flush_text_app. reflexivity.
+  - rewrite oemit_app, flush_text_app. reflexivity.
+Qed.
+
+Lemma ifinish_ostate_nondest_app :
+  forall base st,
+    base_ok base = true -> is_dest st = false ->
+    ifinish_ostate (iout_app base st) = oout_app base (ifinish_ostate st).
+Proof.
+  intros base st Hb Hd.
+  assert (Hd' : is_dest (iout_app base st) = false)
+    by (destruct st; try reflexivity; discriminate Hd).
+  rewrite (ifinish_ostate_nondest _ Hd'), (ifinish_ostate_nondest _ Hd).
+  rewrite iresolve_app by exact Hb. apply ifinish_ostate_flat_app, Hb.
+Qed.
+
+Lemma ifinish_ostate_out_app :
+  forall base st,
+    base_ok base = true ->
+    ifinish_ostate (iout_app base st) = oout_app base (ifinish_ostate st).
+Proof.
+  intros base st Hb.
+  induction st;
+    try (apply ifinish_ostate_nondest_app; [exact Hb|reflexivity]).
+  (* the destination hands the question to its shadow *)
+  cbn [ifinish_ostate iout_app]. exact IHst.
+Qed.
+
 Lemma ifinish_rev_out_app :
   forall base st,
     base_ok base = true ->
     ifinish_rev (iout_app base st)
     = (ifinish_rev st ++ oresolve base)%list.
 Proof.
-  intros base st Hb. unfold ifinish_rev, ifinish_ostate.
-  rewrite iresolve_app by exact Hb.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
-    cbn [iout_app].
-  1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app;
-       apply ofinish_out_app, Hb.
-  1: rewrite flush_text_app; apply ofinish_out_app, Hb.
-  1,2: apply ofinish_out_app, Hb.
-  1,2: rewrite oemit_app; apply ofinish_out_app, Hb.
-  all: try (apply ofinish_out_app, Hb).
-  - rewrite (bspan_lit_app kids img ssrc sob base Hb).
-    destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd].
-    rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite battr_lit_app.
-    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd].
-    rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite (bref_lit_app kids img label ob base Hb).
-    destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd].
-    rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite (bnote_lit_app nesc nimg nlab nob base Hb).
-    destruct (bnote_lit nesc nimg nlab nob) as [txt o']; cbn [fst snd].
-    rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite (bdest_lit_app kids img esc dst ob base Hb).
-    destruct (bdest_lit kids img esc dst ob) as [txt o']; cbn [fst snd].
-    rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite flush_text_app. apply ofinish_out_app, Hb.
-  - rewrite oemit_app, flush_text_app. apply ofinish_out_app, Hb.
+  intros base st Hb. unfold ifinish_rev.
+  rewrite ifinish_ostate_out_app by exact Hb.
+  apply ofinish_out_app, Hb.
 Qed.
 
 Lemma ifinish_out_app :
@@ -4502,7 +4684,8 @@ Lemma ifinish_text :
     = List.rev (oresolve (os_out (flush_text txt (OState out [])))).
 Proof.
   intros txt prev out.
-  unfold ifinish, ifinish_rev, ifinish_ostate, iresolve, ofinish, oitems_of.
+  unfold ifinish, ifinish_rev, ofinish, oitems_of.
+  cbn [ifinish_ostate ifinish_ostate_flat iresolve].
   unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
   destruct (nonempty_str txt); reflexivity.
 Qed.
@@ -4795,7 +4978,7 @@ Qed.
 Lemma bunpush_flush :
   forall txt o, bunpush o = None -> bunpush (flush_text txt o) = None.
 Proof.
-  intros txt [out [|[[k|im] m [|n l]] stk]] H; unfold flush_text;
+  intros txt [out [|[[k|im|im] m [|n l]] stk]] H; unfold flush_text;
     destruct (nonempty_str txt); solve [exact H | reflexivity | discriminate H].
 Qed.
 
@@ -5065,11 +5248,12 @@ Qed.
    does: `needs_escape_dest` claims every byte the mode dispatches on,
    and its escapes decode because each such byte is punctuation. *)
 Lemma iscan_dest_escape :
-  forall s kids image depth dst o,
-    iscan_str (escape_dest s) (IDest kids image false depth dst o)
-    = IDest kids image false depth (dst ++ s)%string o.
+  forall s kids image depth dst sh o,
+    iscan_str (escape_dest s) (IDest kids image false depth dst sh o)
+    = IDest kids image false depth (dst ++ s)%string
+        (iscan_str (escape_dest s) sh) o.
 Proof.
-  induction s as [|c s IH]; intros kids image depth dst o;
+  induction s as [|c s IH]; intros kids image depth dst sh o;
     cbn [escape_dest]; [rewrite append_empty_r; reflexivity|].
   assert (Hsplit : forall t, (dst ++ String c t)%string
                              = ((dst ++ one c) ++ t)%string).
@@ -5121,7 +5305,8 @@ Qed.
 Lemma istep_lparen_dest :
   forall txt o kids image o',
     bclose (flush_text txt o) = Some (kids, image, o') ->
-    istep lparen (IClosed txt o) = IDest kids image false 0 EmptyString o'.
+    istep lparen (IClosed txt o)
+    = IDest kids image false 0 EmptyString (idest_open kids image o') o'.
 Proof.
   intros txt o kids image o' H. cbn [istep].
   change (Ascii.eqb lparen lparen) with true. cbn [orb].
@@ -6138,7 +6323,8 @@ Proof.
       destruct rest as [|r rest'].
       * cbn [ci_text ci_inlines map append].
         cbn [iscan_str].
-        unfold ifinish, ifinish_rev, ifinish_ostate, iresolve.
+        unfold ifinish, ifinish_rev;
+        cbn [ifinish_ostate ifinish_ostate_flat iresolve].
         rewrite nat_eqb_refl, trim_verb_pad by exact Hvok. cbn [vnode].
         unfold oemit, ofinish, oitems_of; cbn [os_stk os_out oflatten oapp].
         rewrite <- ?List.map_cons, oresolve_map. cbn [List.rev ci_ast]. reflexivity.
@@ -6473,8 +6659,8 @@ Lemma idelim_resolve_text :
 Proof.
   intros k txt bef marker next o. unfold idelim_resolve.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_text].
-  destruct (oclose k marker (flush_text txt o));
-    [eauto | apply idelim_done_text].
+  destruct (oclose k marker (flush_text txt o)); [eauto|].
+  destruct (oclose_barred k marker o); [eauto | apply idelim_done_text].
 Qed.
 
 Lemma iresolve_resolved :
@@ -6499,7 +6685,8 @@ Lemma parse_inline_line_escape :
 Proof.
   intros s H. unfold parse_inline_line, istart. rewrite iscan_escape.
   change (EmptyString ++ s)%string with s.
-  unfold ifinish, ifinish_rev, ifinish_ostate, iresolve, flush_text.
+  unfold ifinish, ifinish_rev.
+  cbn [ifinish_ostate ifinish_ostate_flat iresolve]. unfold flush_text.
   rewrite H. reflexivity.
 Qed.
 
@@ -7455,6 +7642,30 @@ Proof. vm_compute. reflexivity. Qed.
 Example bracket_literal_keeps_children :
   parse_inline_line "[_a_]x"
   = [mk (Str "["); mk (Emph [mk (Str "a")]); mk (Str "]x")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An unterminated destination is not literal source: upstream turns the
+   region literal only at the balanced `)`, so a region that never gets
+   one keeps what the ordinary scan made of it.  The `[` and the `](`
+   come back out of the `FKDest` scope the state opened. *)
+Example dest_unterminated_is_scanned :
+  para_inlines ["[unclosed](hello *a"; "b*"]
+  = [mk (Str "[unclosed](hello ");
+     mk (Strong [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The scope is a barrier as well as a container: `inline.ts:150` refuses
+   a closer inside a destination an opener from before the `[`, which is
+   what `fr_barrier` stops `oclose_go` for. *)
+Example dest_bars_an_outer_opener :
+  parse_inline_line "*x [u](a* b" = [mk (Str "*x [u](a* b")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* ...and only that: a delimiter opened *inside* the region closes there,
+   around a link that closed inside it. *)
+Example dest_inner_matching_is_ordinary :
+  parse_inline_line "[u](a *b* c"
+  = [mk (Str "[u](a "); mk (Strong [mk (Str "b")]); mk (Str " c")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A delimiter opened inside a label is abandoned by the close, since the

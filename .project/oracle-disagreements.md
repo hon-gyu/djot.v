@@ -1477,3 +1477,57 @@ No implementation is proposed here. What is settled is that the three
 gaps do not share one repair: `attributes:253` and `attributes:370` want
 a scan with a different table, and this one wants a scope with a
 different closing rule.
+
+## Closed 2026-09-09 — an unterminated link destination
+
+`links_and_images.test:220`. Upstream turns a destination's region into
+source *at* the balanced `)` (`inline.ts:470`); with no `)` it keeps
+whatever the ordinary scan made of it, so `[unclosed](hello *a` / `b*`
+emphasises across the break and we rendered the region literally.
+
+The probe entry above this one is what settled the shape: the region is
+not a free-standing scan spliced after a literal `[u](`, because a
+delimiter closer in it may not reach an opener from before the `[`
+(`inline.ts:150`). It is the bracket's own opener, still open.
+
+**So the `](` pushes the opener back.** `FKDest` is that frame: `[` or
+`![` as its decay, a bracket to `fr_src`, and a barrier to `oclose_go`,
+which now stops rather than abandoning it. `IDest` carries the ordinary
+reading beside the destination one -- `sh : iscan`, the same scanner one
+scope in, fed the same bytes -- and the byte that ends the state picks:
+the balanced `)` builds the node from `kids` and `dst` and drops the
+shadow, and the end of the paragraph keeps the shadow and drops the
+rest. Neither is a replay.
+
+`iscan` is recursive as a result, so `istep`, `ibreak`,
+`ifinish_ostate`, `iout_app` and `iscan_wf` are fixpoints. The cost of
+that was smaller than it looks: `ibreak` and `ifinish_ostate` split into
+a `_flat` half over resolved states, which every existing case analysis
+now runs on unchanged, and a two-line recursive half. `bdest_lit` and
+its two lemmas are gone -- there is no literal fallback any more.
+
+**One thing the probes did not predict.** A closer barred by the frame
+must become *text*, not an opener: upstream adds a default match and
+returns (`inline.ts:155-158`), where "no opener at all" falls through to
+opening. `oclose_barred` is that distinction, and without it
+`*[(](*\*[[` emphasised a backslash. It cost one arm in
+`idelim_resolve` and one line in each of that function's three lemmas.
+
+**Measured** over 260,806 documents in two alphabets (`[](){}*_a!\` and
+`[](*_a` plus space and backtick, exhaustive at length 5, sampled to
+12): mismatches against djot.js **1452 -> 943**, with 510 documents
+moving onto the oracle, one off it and five changed without reaching it.
+The corpus goes **284/287 -> 285/287**; shape, roundtrip, generated and
+keyed are unchanged.
+
+**Verdict: closed, with a named residue.** All six of those documents,
+and the one that moved off, are the rule this step did not take: a `]`
+inside a destination re-enters the bracket, so `[u](a ](b) c` is a link
+labelled `u](a `. That wants `bclose_go` to offer the frame back *and* a
+rule retiring `IDest` when its shadow consumes the frame, since
+otherwise two candidates stay live. The barrier's exact extent is a
+second, smaller residue: upstream applies it only when the top `[`
+opener is the explicit link, so a plain `[` opened inside the
+destination switches it off. Both are stated in
+`.project/exact-html-gaps.md` under *The residue of the destination
+gap*.

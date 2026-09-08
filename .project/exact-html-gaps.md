@@ -16,18 +16,21 @@ disagrees on. Ours are the ones with a `gallina:` line.
 ## What the two corpus numbers are measuring
 
 `make shape` compares block structure with inline content dropped, and
-is **287/287**. `make test` compares exact HTML and is **284/287**. The
-three cases in the difference are one family: djot.js keeps a candidate
-running beside the ordinary scan and we do not, so the source a failed
-candidate consumed comes back differently. All three are open
-conformance gaps.
+is **287/287**. `make test` compares exact HTML and is **285/287**. Both
+remaining cases are the same shape: djot.js re-reads the source a failed
+attribute candidate consumed, with attribute recognition switched off,
+and we re-read it with attributes on. Both are open conformance gaps.
 
-Two of them are unreachable from a canonical document, which is why the
+Neither is reachable from a canonical document, which is why the
 generated corpus and roundtrip are clean. That bounds their effect and
 keeps them out of the roundtrip theorem. It does not make a difference
 from the designated djot.js oracle correct or finished.
 
-## The three
+The third case, an unterminated link destination
+(`links_and_images.test:220`), was closed on 2026-09-09; what is left of
+it is below, under *The residue*.
+
+## The two
 
 ### A block-attribute candidate's lines, re-parsed
 
@@ -135,49 +138,35 @@ inline attribute spec*. Because that log is append-only, its old verdict
 is superseded by *Reclassified 2026-09-06 -- `attributes:370` is open
 too* at the end of the file.
 
-### An unterminated link destination
+## The residue of the destination gap
 
-`links_and_images.test:220`
+`links_and_images.test:220` is closed: an unterminated destination now
+keeps the reading the ordinary scan gave it, because the `](` pushes the
+bracket's opener back as an `FKDest` scope and scans the region inside
+it. The scope decays to the `[` when the paragraph ends, so the label
+and the `](` come back as the text they are.
 
-```
-[unclosed](hello *a
-b*
-```
-| | |
-| --- | --- |
-| djot.js | `<p>[unclosed](hello <strong>a\nb</strong></p>` |
-| ours | `<p>[unclosed](hello *a\nb*</p>` |
+What is not matched is one rule inside that scope, and it is worth
+stating precisely because six documents in a 260k sweep still turn on
+it:
 
-djot.js has no destination *mode*. It leaves every matcher running
-inside `](` and turns the region literal only when the balanced `)`
-arrives (`inline.ts:470`). With no `)`, it keeps what it matched.
+**A `]` inside a destination re-enters the bracket.** Upstream's `]`
+handler finds the same `[` opener it always does, so `[u](a ](b) c` is a
+link whose *label* is `u](a `, and `[u](a ]{.c} b` is a span of it. The
+re-entry also clears every opener between the `[` and the new `]`, which
+is why `(_[](*](***[` is literal upstream and emphasised here. Our
+`bclose_go` stops at an `FKDest` frame instead of offering it back.
 
-**Open conformance gap.** Nothing forbids matching this: no theorem is at
-stake and no source has to be re-read. A conforming one-pass state can
-run the ordinary inline scan while also retaining the candidate
-destination source. It keeps the source when `)` closes the destination
-and keeps the inline interpretation at end of input. That is additional
-state and proof work, but it is compatible with the no-backtracking
-contract. The canonical renderer always closes a destination, so the
-work changes malformed-input recovery rather than roundtrip behaviour.
+Matching it needs two things the current shape does not have: `bclose_go`
+treating the frame as a bracket, and a rule retiring the `IDest` state
+when its shadow consumes the frame -- otherwise the outer candidate and
+the re-entered one both stay live and a later `)` has two answers.
 
-**The scan is not an ordinary one, though**, and the 2026-09-09 probes
-in `oracle-disagreements.md` are what say so. The destination region is
-still *inside the bracket construct*: a delimiter closer in it may not
-reach an opener from before the `[` (`inline.ts:150`), a `]` in it
-re-enters the bracket rather than being text (`[u](a ](b) c` is a link
-labelled `u](a `), and the barrier is lifted only by the closing `)`,
-not by that `]`. So the failure half of the state is a frame on the
-ordinary scope stack -- transparent to `bclose`, opaque to `oclose_go`
--- holding the label and the `](` as text, and the success half is the
-`kids` and `dst` we already keep. That is not the shadow the other two
-gaps want, and this note previously said it was.
-
-**Boundary.** We agree whenever the destination closes, since a closed
-destination's content is literal either way.
-
-Argument under *2026-08-13 -- ours: constructs inside an unterminated
-destination*.
+**And one upstream quirk the barrier does not reproduce.** The
+`inline.ts:150` check applies only when the *top* `[` opener is the
+explicit link, so a plain `[` opened inside the destination switches the
+barrier off: `_[]([!a*[*_` closes the outer `_` upstream. `fr_barrier`
+bars unconditionally.
 
 ## Diagnosis is not closure
 
@@ -211,9 +200,10 @@ There can be two statuses after diagnosis:
    guarantee.
 2. **Open conformance gap.** Matching is compatible with the chosen
    properties, but needs implementation work or narrower helper lemmas.
-   All three cases in this note are currently in this class. For
+   Both cases in this note are currently in this class. For
    `attributes:370`, the oracle's implementation replays source, but a
-   product state can compute the same output without replay.
+   product state can compute the same output without replay -- which is
+   what the destination gap turned out to want, and got.
 
 Canonical unreachability is still important: it proves that an open gap
 cannot invalidate canonical roundtrip. It is not evidence that the
@@ -221,8 +211,8 @@ parser already follows djot.js on that input.
 
 ## The caveat
 
-`ours` is a verdict the project passes on itself, so 284/287 must be
-reported as three open compatibility gaps. They need not give up
+`ours` is a verdict the project passes on itself, so 285/287 must be
+reported as two open compatibility gaps. They need not give up
 `wf_block`, canonical roundtrip, or no-backtracking: their helper
 theorems can be stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
