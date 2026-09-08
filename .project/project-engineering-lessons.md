@@ -206,6 +206,36 @@ exists before asking whether the comparison would show it. `cblock` +
 against djot.js — and a property the generator cannot reach is a gap in
 `cb_ok`, which is usually the more interesting finding.
 
+### And the generator cannot reach what the renderer escapes
+
+**What happened.** `[u]b](c)` -- a `]` whose next byte makes no
+construct, which djot.js leaves as text with the `[` opener still alive
+-- was wrong for the whole life of the bracket scanner. No corpus case
+has the shape, and no *generated* document can: `escape_str` escapes a
+`]` inside a label, which is exactly what stops the input from
+existing. Both corpora were clean before the fix and clean after it, and
+the exact-HTML number did not move. What found it was reading djot.js's
+`]` handler while investigating a *different* gap (the unterminated
+destination); what measured it was 200k documents in a bracket-shaped
+alphabet run through both parsers and the oracle, 826 mismatches to 447.
+
+**General form.** The clause above says the corpus is not the grammar
+and points at the generator. But the generator emits *canonical* source,
+so anything the renderer escapes, quotes or normalizes is outside its
+image by construction -- and the parser's recovery on those very bytes
+is where divergences live. The two corpora agree with each other about
+what neither can see.
+
+**What to do instead.** When a construct's scanner is under suspicion,
+enumerate over its own alphabet -- the bytes it dispatches on, plus a
+letter -- and diff against djot.js directly, rather than looking for the
+shape in either corpus. `harness/main.exe --convert --batch` takes the
+same length-delimited framing `djotjs.mjs --batch` does, so a sweep is
+two subprocesses and 200k short documents cost about a minute. Run it
+against the parent commit too: "did this regress anything" then gets a
+partition -- moved onto the oracle, moved off it, changed and still
+wrong -- instead of a total, and the second class is the one to explain.
+
 ## Predict the falsifier at the right granularity, or the prediction teaches nothing
 
 **What happened.** Ordered lists. The plan predicted the classifier step
