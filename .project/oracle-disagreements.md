@@ -1361,3 +1361,119 @@ else started. `PPara` is mentioned 556 times, so that is a constructor,
 not a field, and it pays the standing-quantifier list (`pad_state`,
 `pstate_depth`, `lazy_ok`, `is_idle`, `in_fence`, `nested_container`,
 `state_wf`, `finish`). Not the small independent step it was scoped as.
+
+## Closed 2026-09-09 — a `]` that closes nothing keeps its opener
+
+Found while probing the destination gap, not from the corpus: no case in
+the 287 has the shape, and the generated corpus cannot reach it either,
+since our renderer escapes a `]` in a label.
+
+```
+[u]b](c) d
+```
+| | |
+| --- | --- |
+| djot.js | `<a href="c">u]b</a> d` |
+| ours, before | `[u]b](c) d` |
+
+djot.js's `]` handler (`inline.ts:401-440`) closes the bracket for
+exactly three following bytes -- `(`, `[`, `{` -- and returns null for
+every other one, which leaves the `]` as an ordinary `str` match *and
+the `[` opener on the stack*. So a later `]` can still close it, and
+nothing between the two is cleared: `[*u]b*](c)` links a label of
+`<strong>u]b</strong>`.
+
+We closed at the `]` itself and put the brackets back as literal text
+when the next byte disagreed, which resolved the label, abandoned any
+delimiter scope opened inside it, and popped the frame -- all three
+irreversible.
+
+**The fix was to move the close one byte later.** `IClosed` now holds
+the pending text and the untouched state (`IClosed (txt : string) (o :
+ostate)`, down from three fields), `ilead`'s `]` arm is
+`IClosed txt o` with no test at all, and `bclose` runs in the arm that
+dispatches the next byte. Its `None` needs no unreachable case: no
+bracket open means the `]` was text, which is the same fall-through.
+Behaviour on every other input is unchanged, and `bclosed_lit` is now
+reached only through the span, reference and destination fallbacks.
+
+Two things came out of it rather than being paid for. `iresolve`'s
+`IClosed` arm is a text state instead of a literal reconstruction, so
+`iscan_wf_resolve` closes it by `exact H`; and
+`attr_inside_a_decaying_bracket` moved to djot.js's reading
+(`[a{.c}b] c` is `<span class="c">[a</span>b] c`) without being aimed
+at -- the scope stays open, `oflatten` merges the opener's `[` into the
+`Str` the spec attaches to. The note claiming a match would need
+resolving twice was wrong, and is gone.
+
+**Verdict: closed.** Measured over 200,966 documents in the alphabet
+`[](){}*_a!\` (exhaustive at length 5, sampled at 6-11), run through
+both parsers and djot.js: mismatches against djot.js go 826 -> 447. Of
+the 391 documents whose output changed, 384 moved onto djot.js, five
+moved off it and two changed without reaching it.
+
+The seven are one thing, and it is not a mistake in the rule. Keeping
+the opener alive makes a *later* `]` close it, so inputs that used to
+stop at literal brackets now reach `IReference` and `IDest` -- and those
+two read their region as raw source where djot.js keeps scanning it.
+`_*[]][a_` is the shape: the trailing `_` closes the emphasis for
+djot.js and is swallowed by our reference label. That is
+`links_and_images:220`'s family (§*An unterminated link destination*)
+plus its reference-label sibling, now reachable from more inputs rather
+than newly wrong.
+
+`make probe` runs the sweep's shape in miniature; the sweep itself used
+`harness/main.exe --convert [--batch]`, added here so ours can be driven
+on one document like the two oracle scripts can.
+
+**Two adjacent gaps the sweep turned up, both predating this change and
+both confirmed against the parent commit.** A backslash does not protect
+a `]` in a reference label -- `[a][b\]c] d` is `<a>a</a> d` upstream and
+`<a>a</a>c] d` here, because `INote` carries an `esc` flag and
+`IReference` does not. And a `_` directly after a `{` cannot open:
+`{a_x_` is `{a<em>x</em>` upstream and literal here, which has nothing
+to do with brackets and accounts for 101 of the 447.
+
+## Probed 2026-09-09 — `links_and_images:220` is not an ordinary shadow
+
+The note under *An unterminated link destination* priced the repair as
+"run the ordinary inline scan beside the candidate and keep it at end of
+input". Probing djot.js refutes that shape three times over, and each
+refutation is a constraint on whatever replaces it.
+
+**The region is not a fresh scope, and not the ambient one either.**
+`*x [u](a* b` is literal on both sides: a delimiter closer inside a
+destination may not reach an opener from before the `[`. That is
+`inline.ts:150` in so many words -- "When inside a link destination,
+don't match openers from outside the link construct" -- and it is a
+barrier the ambient scope stack does not have, since `oclose_go` walks
+straight past a `FKBracket`. `[u](a *b [v](c) d* e` shows the barrier is
+only at the bottom: matching inside the region is ordinary.
+
+**The barrier is on `self.destination`, which a `]` does not clear.**
+Only the closing `)` sets it false (`inline.ts:493`). So `*x [u](a ]b* c`
+is still literal after the `]`, while `*x [u](a ](b) c* d` matches once
+the destination has actually resolved.
+
+**And a `]` inside the destination re-enters the bracket rather than
+being text.** `[u](a ](b) c` is a link whose *label* is `u](a `, and
+`[u](a ]{.c} b` is a span of the same. The opener is the original `[`,
+so the region a failed destination gives back is not free-standing
+content spliced after a literal `[u](` -- it is the label of a construct
+that may still complete. `[u](a ]b ](c) d` is a link labelled
+`u](a ]b `, which is that composed with the `]`-keeps-its-opener rule
+above.
+
+So the failure state is the bracket's own scope, still open, with the
+label content and the `](` inside it as text; the success state is the
+resolved `kids` and the accumulated `dst`. Both have to be live at once,
+which is the two-state shape the note assumed, but the failure half is
+a *frame* on the ordinary stack -- bracket-transparent to `bclose`,
+opaque to `oclose_go` -- rather than an independent scan. Whether
+`IDest` should carry an `iscan` at all is therefore open again: what it
+needs is a frame kind, and the ordinary scanner running in it.
+
+No implementation is proposed here. What is settled is that the three
+gaps do not share one repair: `attributes:253` and `attributes:370` want
+a scan with a different table, and this one wants a scope with a
+different closing rule.

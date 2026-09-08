@@ -1018,9 +1018,12 @@ Definition iscan_wf (st : iscan) : bool :=
      writes anything -- that is what `opop_str` is for. *)
   (* An autolink candidate holds pending text and no children, and the
      text is what it flushes whichever way it ends -- so it carries the
-     text states' head condition and nothing else. *)
-  | IBang _ _ o | IAuto _ _ o => (oscope_ok o && negb (hd_str (ocur o)))%bool
-  | IClosed kids _ o | ISpan kids _ _ _ o | IReference kids _ _ o
+     text states' head condition and nothing else.  A `]` waiting for the
+     byte after it is the same shape: it has closed nothing, and its
+     buffer is the one the literal continuation appends to. *)
+  | IBang _ _ o | IAuto _ _ o | IClosed _ o =>
+      (oscope_ok o && negb (hd_str (ocur o)))%bool
+  | ISpan kids _ _ _ o | IReference kids _ _ o
   | IDest kids _ _ _ _ o =>
       (oscope_ok o && wf_inlines kids)%bool
   (* A footnote label carries no children -- it discards what the
@@ -1591,11 +1594,8 @@ Proof.
   destruct (Ascii.eqb c lbrack);
     [apply iscan_wf_text;
        [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]|].
-  destruct (Ascii.eqb c rbrack).
-  { destruct (bclose (flush_text txt o)) as [[[kids image] o']|] eqn:Eb;
-      [|apply iscan_wf_text; assumption].
-    cbn [iscan_wf].
-    exact (bclose_ok _ _ _ _ (iscan_wf_flush txt o Ho Hs) Eb). }
+  destruct (Ascii.eqb c rbrack);
+    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [destruct (bunpush o) as [[image o']|] eqn:Eu;
        [cbn [iscan_wf]; exact (oscope_ok_bunpush o image o' Ho Eu)|]|];
@@ -1702,7 +1702,7 @@ Qed.
 Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
-  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
+  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
     cbn [istep];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
@@ -1731,7 +1731,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; try exact Hr.
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; try exact Hr.
     cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
@@ -1772,16 +1772,16 @@ Proof.
       [apply iscan_wf_text;
          [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]
       |apply ilead_wf; assumption].
-  - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
-    destruct (Ascii.eqb c lparen);
-      [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
-    destruct (Ascii.eqb c lbrack);
-      [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
-    destruct (Ascii.eqb c lbrace && inline_attrs_enabled)%bool;
-      [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
-    destruct (bclosed_lit_ok kids img ob Ho Hk) as [H1 H2].
-    destruct (bclosed_lit kids img ob) as [txt o']; cbn [snd] in H1, H2.
-    apply ilead_wf; assumption.
+  - (* the byte after a `]`: either it closes the bracket, and the three
+       constructs inherit `bclose`'s obligation, or the `]` is text *)
+    destruct ((Ascii.eqb c lparen || Ascii.eqb c lbrack
+               || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool);
+      [|apply ilead_wf; assumption].
+    destruct (bclose (flush_text cltxt clob)) as [[[kids image] o']|] eqn:Eb;
+      [|apply ilead_wf; assumption].
+    pose proof (bclose_ok _ _ _ _ (iscan_wf_flush cltxt clob Ho Hs) Eb) as Hb.
+    destruct (Ascii.eqb c lparen); [cbn [iscan_wf]; exact Hb|].
+    destruct (Ascii.eqb c lbrack); cbn [iscan_wf]; exact Hb.
   - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
     apply ispan_feed_wf; assumption.
   - apply iattr_feed_wf; assumption.
@@ -1908,19 +1908,16 @@ Qed.
 Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
     cbn [iresolve]; try exact H;
     cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
      at the text buffer, and resolving a brace only moves a byte into
-     it.  `IDelim` is the one that can close a scope, and `IClosed` the
-     one that puts a bracket back as text. *)
+     it, which is `IClosed`'s case too.  `IDelim` is the one that can
+     close a scope. *)
   - apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
     destruct (Nat.ltb (S seen) (dwidth k));
       [apply iscan_wf_text; assumption|apply idelim_resolve_wf; assumption].
-  - destruct (bclosed_lit_ok kids img ob Ho Hs) as [H1 H2].
-    destruct (bclosed_lit kids img ob) as [txt o']; cbn [snd] in H1, H2.
-    apply iscan_wf_text; assumption.
 Qed.
 
 Lemma iscan_wf_ostate :
@@ -1930,7 +1927,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ifinish_ostate.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -1995,7 +1992,7 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   unfold ibreak.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     try contradiction;
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).

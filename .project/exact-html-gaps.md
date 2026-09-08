@@ -161,6 +161,18 @@ state and proof work, but it is compatible with the no-backtracking
 contract. The canonical renderer always closes a destination, so the
 work changes malformed-input recovery rather than roundtrip behaviour.
 
+**The scan is not an ordinary one, though**, and the 2026-09-09 probes
+in `oracle-disagreements.md` are what say so. The destination region is
+still *inside the bracket construct*: a delimiter closer in it may not
+reach an opener from before the `[` (`inline.ts:150`), a `]` in it
+re-enters the bracket rather than being text (`[u](a ](b) c` is a link
+labelled `u](a `), and the barrier is lifted only by the closing `)`,
+not by that `]`. So the failure half of the state is a frame on the
+ordinary scope stack -- transparent to `bclose`, opaque to `oclose_go`
+-- holding the label and the `](` as text, and the success half is the
+`kids` and `dst` we already keep. That is not the shadow the other two
+gaps want, and this note previously said it was.
+
 **Boundary.** We agree whenever the destination closes, since a closed
 destination's content is literal either way.
 
@@ -214,3 +226,10 @@ reported as three open compatibility gaps. They need not give up
 `wf_block`, canonical roundtrip, or no-backtracking: their helper
 theorems can be stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
+
+And three is what the *corpus* shows, which is not what is left.
+`[u]b](c)` -- a `]` whose next byte makes no construct, which djot.js
+leaves as text with the `[` opener still alive -- was a divergence on
+plain input that no corpus case and no generated document contains. It
+was found by probing the destination gap and closed on 2026-09-09
+without either number moving.

@@ -393,6 +393,11 @@ let () =
   let generated = ref false in
   let roundtrip = ref None in
   let keyed_roundtrip = ref false in
+  (* the same interface the oracle scripts have: one document on stdin,
+     its HTML on stdout.  Probing a divergence means running all three on
+     the same bytes, and without this ours is the one that cannot be. *)
+  let convert_stdin = ref false in
+  let convert_batch = ref false in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -416,9 +421,35 @@ let () =
       roundtrip := Some (int_of_string d);
       parse_args rest
     | "--roundtrip" :: rest -> roundtrip := Some 3; parse_args rest
+    | "--convert" :: rest -> convert_stdin := true; parse_args rest
+    | "--batch" :: rest -> convert_batch := true; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
   parse_args (List.tl (Array.to_list Sys.argv));
+  if !convert_stdin then begin
+    let input = In_channel.input_all stdin in
+    if not !convert_batch then print_string (Core.convert input)
+    else begin
+      (* the framing djotjs.mjs --batch uses: "<byte-length>\n" then that
+         many bytes, both ways.  A djot document may contain any bytes,
+         so the length is what delimits it. *)
+      let buf = Buffer.create (String.length input) in
+      let at = ref 0 in
+      (try
+         while true do
+           let nl = String.index_from input !at '\n' in
+           let len = int_of_string (String.sub input !at (nl - !at)) in
+           let doc = String.sub input (nl + 1) len in
+           at := nl + 1 + len;
+           let html = Core.convert doc in
+           Buffer.add_string buf
+             (Printf.sprintf "%d\n%s" (String.length html) html)
+         done
+       with Not_found | Invalid_argument _ | Failure _ -> ());
+      print_string (Buffer.contents buf)
+    end;
+    exit 0
+  end;
   if List.exists (fun e -> e.ename = "djoths") !engines then find_djoths ();
   let files = if !files = [] then default_files () else List.rev !files in
   let rbuf = Buffer.create 4096 in
