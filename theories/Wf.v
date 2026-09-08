@@ -49,8 +49,14 @@ Fixpoint wf_inline (il : inline) : bool :=
       | [] => true
       | Node _ _ x :: rest => wf_inline x && go rest
       end in
+  (* No nonempty obligation: a delimiter scope whose whole content is an
+     attribute spec with nothing to attach to closes onto nothing, and
+     djot.js builds the empty node for it (`*{.a}*` is
+     `<strong></strong>`).  Such a node does not render back -- `**` is
+     literal -- but rendering back is `cb_ok`'s condition, asked of
+     canonical documents, and this is not one. *)
   let wf_container :=
-    fun ns => nonempty ns && wf_ils ns && no_adjacent_str ns in
+    fun ns => wf_ils ns && no_adjacent_str ns in
   match il with
   | Str s => nonempty_str s
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
@@ -106,7 +112,10 @@ Fixpoint wf_block (b : block) : bool :=
       | (term, it) :: rest => wf_inlines term && wf_bs it && god rest
       end in
   match b with
-  | Para ils => nonempty ils && wf_inlines ils
+  (* A paragraph may be empty for the reason a delimiter node may: its
+     line held nothing but a spec with nothing to attach to.  djot.js
+     emits `<p></p>` for `{.a}{.b}` and so do we. *)
+  | Para ils => wf_inlines ils
   | Section bs => nonempty bs && wf_bs bs
   (* A block quote may be empty: a bare ">" line is a valid, contentless
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
@@ -143,13 +152,13 @@ Fixpoint wf_block (b : block) : bool :=
                 row)
            rows
   | RawBlock _ _ => true
-  (* A label is nonempty and well formed, exactly as a paragraph's
-     inlines are.  That it is *one* inline is not asked here: a label of
-     two elements is not something the parser produces, but the reason it
-     is excluded is that it does not render back, which is the canonical
-     view's business.  Compare `Para`, which carries no such condition
-     either although the same rendering obligation applies to it. *)
-  | Keyed label b => nonempty label && wf_inlines label && wf_bs [b]
+  (* A label is well formed, exactly as a paragraph's inlines are.  That
+     it is *one* inline is not asked here: a label of two elements is not
+     something the parser produces -- `key_label_ok` is what stops it --
+     but the reason it is excluded is that it does not render back, which
+     is the canonical view's business.  Nonemptiness is the same
+     condition one notch weaker, and is left out for the same reason. *)
+  | Keyed label b => wf_inlines label && wf_bs [b]
   end.
 
 Definition wf_blocks (bs : blocks) : bool :=
@@ -167,7 +176,7 @@ Qed.
 Lemma wf_block_keyed :
   forall label b,
     wf_block (Keyed label b)
-    = (nonempty label && wf_inlines label && wf_blocks [b])%bool.
+    = (wf_inlines label && wf_blocks [b])%bool.
 Proof. intros label [p a x]. reflexivity. Qed.
 
 (* Well-formedness reads payloads, never attributes, so hanging block
@@ -336,8 +345,7 @@ Proof.
   rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
   cbn [def_split] in E. destruct x; try discriminate E.
   - injection E as <- <-.
-    cbn [node_contents wf_block] in Hx. apply andb_true_iff in Hx as [_ Hi].
-    rewrite Hi, Hrest. reflexivity.
+    cbn [node_contents wf_block] in Hx. rewrite Hx, Hrest. reflexivity.
   - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
     injection E as <- <-.
     pose proof (IH ils' more Hrest eq_refl) as Hi.
@@ -554,7 +562,7 @@ Qed.
    `oresolve_go`'s flag is for, and why the seam obligation here is still
    only about the nodes on either side of it. *)
 Definition plain_item (i : oitem) : bool :=
-  match i with OIn n => plain_str n | OMark _ _ => false end.
+  match i with OIn n => plain_str n | OMark _ => false end.
 
 Fixpoint no_adjacent_item (l : oitems) : bool :=
   match l with
@@ -563,10 +571,12 @@ Fixpoint no_adjacent_item (l : oitems) : bool :=
   | _ => true
   end.
 
+(* A waiting spec has no condition of its own: it carries no source, and
+   what it resolves to is `rlist_ok_attach`'s business. *)
 Definition oitem_ok (i : oitem) : bool :=
   match i with
   | OIn n => wf_inline (node_contents n)
-  | OMark _ src => nonempty_str src
+  | OMark _ => true
   end.
 
 Definition hd_str (out : oitems) : bool :=
@@ -663,7 +673,7 @@ Proof.
 Qed.
 
 Lemma hd_str_is_starts_str : forall l, hd_str l = starts_str l.
-Proof. intros [|[[? [|? ?] ?]|? ?] ?]; reflexivity. Qed.
+Proof. intros [|[[? [|? ?] ?]|?] ?]; reflexivity. Qed.
 
 Lemma no_adjacent_item_snoc_ext :
   forall l n m,
@@ -721,9 +731,9 @@ Lemma ilist_ok_osnoc :
 Proof.
   intros n out Ho Hn. destruct (plain_item n) eqn:Hpn.
   - (* n is a plain `Str`: the head of `out` decides whether they merge *)
-    destruct n as [[c [|q qs] j]|na ns]; [|discriminate|discriminate].
+    destruct n as [[c [|q qs] j]|na]; [|discriminate|discriminate].
     destruct j; try discriminate.
-    destruct out as [|[[a [|p ps] i]|ma ms] out'];
+    destruct out as [|[[a [|p ps] i]|ma] out'];
       [unfold osnoc; apply ilist_ok_push;
         [exact Ho | exact Hn | reflexivity] | | |].
     2: { unfold osnoc. apply ilist_ok_push;
@@ -750,9 +760,9 @@ Proof.
     replace (osnoc n out) with (n :: out)%list;
       [apply ilist_ok_push;
         [exact Ho | exact Hn | rewrite Hpn; reflexivity]|].
-    destruct out as [|[[a [|p ps] i]|ma ms] out']; try reflexivity.
+    destruct out as [|[[a [|p ps] i]|ma] out']; try reflexivity.
     destruct i; try reflexivity.
-    destruct n as [[c [|q qs] j]|na ns]; try reflexivity.
+    destruct n as [[c [|q qs] j]|na]; try reflexivity.
     destruct j; try reflexivity. discriminate.
 Qed.
 
@@ -760,11 +770,11 @@ Lemma hd_str_oapp :
   forall cur out, nonempty cur = true -> hd_str (oapp cur out) = hd_str cur.
 Proof.
   intros [|n [|m cur']] out H; [discriminate| |rewrite oapp_cons2; reflexivity].
-  rewrite oapp_one. destruct out as [|[[a [|p ps] i]|ma ms] out'];
-    try (unfold osnoc; destruct n as [[c d j]|na ns]; reflexivity).
+  rewrite oapp_one. destruct out as [|[[a [|p ps] i]|ma] out'];
+    try (unfold osnoc; destruct n as [[c d j]|na]; reflexivity).
   unfold osnoc. destruct i;
-    try (destruct n as [[c d j]|na ns]; reflexivity).
-  destruct n as [[c [|q qs] j]|na ns]; try reflexivity.
+    try (destruct n as [[c d j]|na]; reflexivity).
+  destruct n as [[c [|q qs] j]|na]; try reflexivity.
   destruct j; reflexivity.
 Qed.
 
@@ -911,24 +921,22 @@ Proof.
 Qed.
 
 (* Where a spec lands, on a list that already satisfies the invariant.
-   Every disposition either leaves the list alone, replaces its head by a
-   node with the same payload, or snocs a `Str` that is nonempty by
-   construction. *)
+   Every disposition either leaves the list alone or replaces its head
+   by nodes carrying its payload, so no condition on the spec is
+   needed. *)
 Lemma rlist_ok_attach :
-  forall a src out,
-    rlist_ok out = true -> nonempty_str src = true ->
-    rlist_ok (oattach_list a src out) = true.
+  forall a out,
+    rlist_ok out = true -> rlist_ok (oattach_list a out) = true.
 Proof.
-  intros a src out Ho Hsrc. unfold oattach_list.
+  intros a out Ho. unfold oattach_list.
   destruct out as [|[p a' v] out].
-  - apply rlist_ok_isnoc; [exact Ho | exact Hsrc].
+  - exact Ho.
   - assert (Hre : plain_str (Node p a' v) = false ->
                   rlist_ok (Node p (attr_merge a a') v :: out) = true).
     { intros Hp. apply rlist_ok_reattr with (n := Node p a' v);
         [exact Ho | reflexivity | apply plain_str_reattr, Hp | exact Hp]. }
     destruct a' as [|kv a'']; destruct v;
-      try (apply Hre; reflexivity);
-      try (apply rlist_ok_isnoc; [exact Ho | exact Hsrc]).
+      try (apply Hre; reflexivity); try exact Ho.
     (* the one case left: a plain `Str` head, which the spec splits *)
     destruct (last_ws_split s) as [pre w] eqn:Es.
     destruct (nonempty_str w) eqn:Ew; [|exact Ho].
@@ -964,7 +972,7 @@ Proof.
   unfold ilist_ok in H. apply andb_true_iff in H as [Hall Hadj].
   cbn [forallb] in Hall. apply andb_true_iff in Hall as [Hi _].
   cbn [oresolve_go]. destruct (oresolve_go l) as [out m]; cbn [fst snd] in *.
-  destruct i as [n|a src].
+  destruct i as [n|a].
   - cbn [oitem_ok] in Hi. destruct m.
     + split; [apply rlist_ok_isnoc; assumption|].
       intros _. cbn [fst]. rewrite istarts_str_isnoc. reflexivity.
@@ -1039,25 +1047,22 @@ Proof.
 Qed.
 
 Lemma wf_inline_dnode :
-  forall k ns, nonempty ns = true -> rlist_ok (List.rev ns) = true ->
-  wf_inline (dnode k ns) = true.
+  forall k ns, rlist_ok (List.rev ns) = true -> wf_inline (dnode k ns) = true.
 Proof.
-  intros k ns Hne Hok. unfold rlist_ok in Hok.
+  intros k ns Hok. unfold rlist_ok in Hok.
   apply andb_true_iff in Hok as [Hall Hadj].
   rewrite forallb_rev in Hall. rewrite List.rev_involutive in Hadj.
   rewrite <- wf_ils_forallb in Hall.
   destruct k; cbn [dnode];
     match goal with
     | |- wf_inline ?X = true =>
-        change (wf_inline X)
-          with (nonempty ns && wf_ils ns && no_adjacent_str ns)%bool
+        change (wf_inline X) with (wf_ils ns && no_adjacent_str ns)%bool
     end;
-    rewrite Hne, Hall, Hadj; reflexivity.
+    rewrite Hall, Hadj; reflexivity.
 Qed.
 
-(* The bracket node, both spellings.  A link's or image's text may be
-   empty -- `[](u)` is a link -- so there is no nonemptiness conjunct
-   here, which is the one way this differs from `wf_inline_dnode`. *)
+(* The bracket node, both spellings.  Same two conditions as
+   `wf_inline_dnode`, since neither carries a nonemptiness one. *)
 Lemma wf_inline_bnode :
   forall img ns tgt,
     wf_ils ns = true -> no_adjacent_str ns = true ->
@@ -1079,8 +1084,8 @@ Lemma ocur_emit : forall n o, ocur (oemit n o) = (OIn n :: ocur o)%list.
 Proof. intros n [out [|f stk]]; reflexivity. Qed.
 
 Lemma ocur_mark :
-  forall a src o, ocur (omark a src o) = (OMark a src :: ocur o)%list.
-Proof. intros a src [out [|f stk]]; reflexivity. Qed.
+  forall a o, ocur (omark a o) = (OMark a :: ocur o)%list.
+Proof. intros a [out [|f stk]]; reflexivity. Qed.
 
 (* A closed backtick run emits a `Verbatim` or a `Math`, and neither is
    a container or a plain `Str` -- which is all the scope invariant asks
@@ -1117,18 +1122,16 @@ Qed.
 (* A waiting spec is never a plain `Str`, so it needs no seam condition:
    whatever it resolves to, `oresolve_go` rejoins the neighbours itself. *)
 Lemma oscope_ok_mark :
-  forall a src o,
-    oscope_ok o = true -> nonempty_str src = true ->
-    oscope_ok (omark a src o) = true.
+  forall a o, oscope_ok o = true -> oscope_ok (omark a o) = true.
 Proof.
-  intros a src [out [|f stk]] Ho Hs; unfold oscope_ok, omark in *;
+  intros a [out [|f stk]] Ho; unfold oscope_ok, omark in *;
     cbn [os_out os_stk frames_ok forallb fr_out fr_kind fr_marked] in *.
   - apply andb_true_iff in Ho as [Ho _]. rewrite andb_true_r.
-    apply (ilist_ok_push (OMark a src)); [exact Ho | exact Hs | reflexivity].
+    apply (ilist_ok_push (OMark a)); [exact Ho | reflexivity | reflexivity].
   - apply andb_true_iff in Ho as [Hb Hf].
     apply andb_true_iff in Hf as [Hff Hf].
     rewrite Hb, Hf, !andb_true_r.
-    apply (ilist_ok_push (OMark a src)); [exact Hff | exact Hs | reflexivity].
+    apply (ilist_ok_push (OMark a)); [exact Hff | reflexivity | reflexivity].
 Qed.
 
 Lemma oscope_ok_emit_merge :
@@ -1257,9 +1260,7 @@ Proof.
     wf_inline (node_contents (mk (dnode k (List.rev (oresolve content)))))
     = true).
   { cbn [node_contents mk]. apply wf_inline_dnode.
-    - rewrite nonempty_rev. apply nonempty_oresolve.
-      exact (oclose_go_nonempty (os_stk o) k m [] content rest Eg).
-    - rewrite List.rev_involutive. exact (oresolve_ok content Hc). }
+    rewrite List.rev_involutive. exact (oresolve_ok content Hc). }
   rewrite ocur_emit.
   assert (Hplain :
     plain_str (mk (dnode k (List.rev (oresolve content)))) = false)
@@ -1389,7 +1390,7 @@ Lemma opop_str_ok :
 Proof.
   intros [out stk] H. unfold opop_str, ocur; cbn [os_out os_stk].
   destruct stk as [|f fs].
-  - destruct out as [|[[a [|p ps] i]|ma ms] rest]; cbn [snd os_out os_stk];
+  - destruct out as [|[[a [|p ps] i]|ma] rest]; cbn [snd os_out os_stk];
       try (split; [exact H | reflexivity]).
     destruct i; cbn [snd os_out os_stk];
       try (split; [exact H | reflexivity]).
@@ -1399,7 +1400,7 @@ Proof.
     rewrite <- hd_str_is_starts_str.
     exact (ilist_ok_head_pop _ _ H eq_refl).
   - destruct f as [kind marked fout]; cbn [fr_out fr_kind fr_marked].
-    destruct fout as [|[[a [|p ps] i]|ma ms] rest];
+    destruct fout as [|[[a [|p ps] i]|ma] rest];
       cbn [snd os_out os_stk fr_out];
       try (split; [exact H | reflexivity]).
     destruct i; cbn [snd os_out os_stk fr_out];
@@ -1649,15 +1650,13 @@ Qed.
    `iattr_mark` only pushes an item, and `oresolve` settles it once the
    scope is complete. *)
 Lemma iattr_mark_wf :
-  forall a src txt o,
+  forall a txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
-    iscan_wf (iattr_mark a src txt o) = true.
+    iscan_wf (iattr_mark a txt o) = true.
 Proof.
-  intros a src txt o Ho Hs. unfold iattr_mark.
+  intros a txt o Ho Hs. unfold iattr_mark.
   apply iscan_wf_text.
-  - apply oscope_ok_mark;
-      [apply iscan_wf_flush; assumption
-      |apply nonempty_str_app_r; reflexivity].
+  - apply oscope_ok_mark, iscan_wf_flush; assumption.
   - rewrite ocur_mark. reflexivity.
 Qed.
 
@@ -2062,23 +2061,8 @@ Paragraph assembly is well-formed
 =================================
 *)
 
-Lemma para_inlines_nonempty :
-  forall ls, forallb nonblank ls = true -> ls <> [] ->
-  nonempty (para_inlines ls) = true.
-Proof.
-  intros [|x [|y r]] Hnb H; [congruence| |].
-  - cbn [forallb] in Hnb. apply andb_true_iff in Hnb as [Hx _].
-    rewrite para_inlines_one. apply parse_inline_line_nonempty.
-    apply strip_trailing_ws_nonempty.
-    unfold nonblank in Hx. apply negb_true_iff in Hx. exact Hx.
-  - unfold para_inlines. rewrite iscan_lines_cons2.
-    apply iscan_productive_finish, iscan_productive_lines,
-          iscan_productive_break.
-Qed.
-
-(* No hypothesis: the scan's invariant does not care what the lines look
-   like, and the blankness the callers carry was only ever needed for
-   nonemptiness. *)
+(* No hypothesis: the scan's invariant does not care what the lines
+   look like. *)
 Lemma para_inlines_wf :
   forall ls, wf_inlines (para_inlines ls) = true.
 Proof.
@@ -2087,40 +2071,28 @@ Proof.
 Qed.
 
 Lemma flush_para_wf :
-  forall c cur' k,
-    forallb nonblank (c :: cur') = true ->
+  forall cur k,
     wf_blocks k = true ->
-    wf_blocks (mk (Para (para_inlines (rev (c :: cur')))) :: k) = true.
+    wf_blocks (mk (Para (para_inlines cur)) :: k) = true.
 Proof.
-  intros c cur' k Hcur Hk.
+  intros cur k Hk.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
-  rewrite para_inlines_wf.
-  rewrite Hk.
-  rewrite para_inlines_nonempty;
-    [reflexivity | rewrite forallb_rev; exact Hcur |].
-  simpl rev. destruct (rev cur'); discriminate.
+  rewrite para_inlines_wf, Hk. reflexivity.
 Qed.
 
 (* What an open key closes to, either way.  With no block it is the
    paragraph the key line retracts to, which is `flush_para_wf` at a
    one-line accumulator; with one it is the key, whose only condition
-   beyond its block's is that the label is a nonempty, well-formed
-   inline list -- and one line's `para_inlines` is both. *)
+   beyond its block's is that the label is a well-formed inline list. *)
 Lemma key_close_wf :
   forall lbl src bs,
-    nonblank lbl = true ->
-    nonblank src = true ->
-    wf_blocks bs = true ->
-    wf_blocks (key_close lbl src bs) = true.
+    wf_blocks bs = true -> wf_blocks (key_close lbl src bs) = true.
 Proof.
-  intros lbl src bs Hlbl Hsrc Hbs. destruct bs as [|b rest].
-  - exact (flush_para_wf src [] [] ltac:(cbn [forallb]; rewrite Hsrc;
-      reflexivity) eq_refl).
+  intros lbl src bs Hbs. destruct bs as [|b rest].
+  - exact (flush_para_wf [src] [] eq_refl).
   - cbn [key_close]. rewrite wf_blocks_cons in Hbs |- *.
     apply andb_true_iff in Hbs as [Hb Hrest].
     cbn [node_contents mk]. rewrite wf_block_keyed, para_inlines_wf, Hrest.
-    rewrite para_inlines_nonempty by
-      (cbn [forallb]; (rewrite Hlbl; reflexivity) || discriminate).
     rewrite wf_blocks_cons, Hb. reflexivity.
 Qed.
 
@@ -2147,10 +2119,13 @@ Qed.
    unconditionally well-formed. *)
 Fixpoint state_wf (st : pstate) : bool :=
   match st with
-  | PPara cur => forallb nonblank cur
-  (* A heading additionally carries its level, which `Heading` requires
-     to be at least 1. *)
-  | PHeading lvl cur => Nat.leb 1 lvl && forallb nonblank cur
+  (* A paragraph accumulator carries nothing: `wf_block` asks only that
+     the inlines are well formed, and `para_inlines_wf` says they are
+     whatever the lines look like. *)
+  | PPara _ => true
+  (* A heading carries its level, which `Heading` requires to be at
+     least 1, and nothing else. *)
+  | PHeading lvl _ => Nat.leb 1 lvl
   | PFence _ _ _ => true
   | PQuote done inner => wf_blocks done && state_wf inner
   (* A div carries no invariant its fence length or class could break:
@@ -2161,11 +2136,9 @@ Fixpoint state_wf (st : pstate) : bool :=
      open state. *)
   | PList ls done inner =>
       forallb wf_blocks (ls_items ls) && wf_blocks done && state_wf inner
-  (* The slices are the paragraph a failed spec becomes, so they carry
-     the paragraph accumulator's invariant.  `push_text` is what keeps
-     it: a blank continuation line is fed to the machine but not
-     recorded. *)
-  | PAttr _ _ _ slices => forallb nonblank slices
+  (* The slices are the paragraph a failed spec becomes, and a paragraph
+     accumulator carries nothing. *)
+  | PAttr _ _ _ _ => true
   (* A definition's label and destination carry `wf_block (RefDef _ _)`
      itself: they are fixed when the state opens, and a continuation line
      only appends another whitespace-free run to the destination. *)
@@ -2175,17 +2148,14 @@ Fixpoint state_wf (st : pstate) : bool :=
       nonempty_str lbl && wf_blocks done && state_wf inner
   (* A table's rows carry no invariant: a cell's inlines come from
      `parse_inline_line`, which is well-formed for any string.  Its
-     caption is a paragraph accumulator, and carries the same condition
-     one does -- which is what makes the caption `wf_block` asks for
-     nonempty. *)
-  | PTable _ cap => forallb nonblank (cap_lines cap)
+     caption carries none either -- `caption_of` answers `None` rather
+     than an empty caption, whatever its lines hold. *)
+  | PTable _ _ => true
   (* Pending attributes add nothing of their own. *)
   | PPend _ inner => state_wf inner
-  (* A key becomes one of two blocks and both are paragraphs' business:
-     the label's inlines carry `wf_block (Keyed _ _)`'s nonempty
-     condition, and the kept line carries the paragraph accumulator's,
-     since retraction turns it into exactly that paragraph. *)
-  | PKey lbl src inner => nonblank lbl && nonblank src && state_wf inner
+  (* A key becomes one of two blocks and both are paragraphs' business,
+     so it carries what a paragraph accumulator does: nothing. *)
+  | PKey _ _ inner => state_wf inner
   end.
 
 (* Every cell a table is built from is well-formed, whichever of the two
@@ -2231,48 +2201,41 @@ Proof.
 Qed.
 
 (* A caption is well-formed when it is present at all: `caption_of`
-   answers `None` for an empty accumulator, so the `nonempty` half of
-   `wf_block`'s clause is exactly `para_inlines_nonempty` on a list of
-   lines the state only ever pushes nonblank. *)
+   answers `None` unless what its lines resolve to is nonempty, which is
+   the `nonempty` half of `wf_block`'s clause read straight off the
+   definition.  The lines' own shape says nothing -- a line with content
+   can still leave no inlines. *)
 Lemma caption_of_wf :
   forall c,
-    forallb nonblank (cap_lines c) = true ->
     match caption_of c with
     | Some ils => (nonempty ils && wf_inlines ils)%bool
     | None => true
     end = true.
 Proof.
-  intros [| |ls] H; try reflexivity.
-  destruct ls as [|x ls']; [reflexivity|].
-  cbn [caption_of]. rewrite para_inlines_wf, andb_true_r.
-  apply para_inlines_nonempty.
-  - rewrite forallb_rev. exact H.
-  - intros Hcontra. apply (f_equal (@List.length string)) in Hcontra.
-    rewrite List.length_rev in Hcontra. discriminate.
+  intros [| |ls]; try reflexivity.
+  cbn [caption_of]. destruct (nonempty (para_inlines (rev ls))) eqn:E;
+    [|reflexivity].
+  rewrite E, para_inlines_wf. reflexivity.
 Qed.
 
 Lemma table_block_wf :
-  forall rows c,
-    forallb nonblank (cap_lines c) = true ->
-    wf_blocks [table_block rows c] = true.
+  forall rows c, wf_blocks [table_block rows c] = true.
 Proof.
-  intros rows c H. unfold table_block.
+  intros rows c. unfold table_block.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
   rewrite table_fold_wf by reflexivity.
   rewrite andb_true_r, andb_true_r.
-  pose proof (caption_of_wf c H) as Hc.
+  pose proof (caption_of_wf c) as Hc.
   destruct (caption_of c); [exact Hc | reflexivity].
 Qed.
 
 (* Closing the stack at end of input preserves the invariant. *)
-(* A heading block is well-formed as soon as its level is and its lines
-   are nonblank; unlike a paragraph it may be empty. *)
+(* A heading block is well-formed as soon as its level is. *)
 Lemma heading_block_wf :
   forall lvl cur,
-    Nat.leb 1 lvl = true -> forallb nonblank cur = true ->
-    wf_blocks [heading_block lvl cur] = true.
+    Nat.leb 1 lvl = true -> wf_blocks [heading_block lvl cur] = true.
 Proof.
-  intros lvl cur Hl Hc. unfold heading_block.
+  intros lvl cur Hl. unfold heading_block.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
   rewrite Hl, para_inlines_wf.
   reflexivity.
@@ -2286,9 +2249,8 @@ Proof.
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros H.
   - destruct cur as [|c cur']; [reflexivity|].
-    cbn [finish]. apply flush_para_wf; [exact H | reflexivity].
-  - cbn [state_wf] in H. apply andb_true_iff in H as [Hl Hc].
-    cbn [finish]. apply heading_block_wf; assumption.
+    cbn [finish]. apply flush_para_wf. reflexivity.
+  - cbn [state_wf] in H. cbn [finish]. apply heading_block_wf, H.
   - cbn [finish]. rewrite wf_blocks_cons, fence_block_wf. reflexivity.
   - cbn [state_wf] in H. apply andb_true_iff in H as [Hd Hi].
     cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
@@ -2308,10 +2270,10 @@ Proof.
     reflexivity.
   - (* an attribute spec: a finished one contributes nothing, an
        unfinished one the paragraph of the lines it ate *)
-    cbn [state_wf] in H. cbn [finish].
+    cbn [finish].
     destruct (ap_done aap); [reflexivity|].
     destruct aslices as [|c cur']; [reflexivity|].
-    apply (flush_para_wf c cur' [] H eq_refl).
+    apply flush_para_wf. reflexivity.
   - (* a reference definition: the state's invariant is the block's *)
     cbn [state_wf] in H. cbn [finish].
     rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block].
@@ -2324,99 +2286,38 @@ Proof.
     reflexivity.
   - (* a table: its rows are well-formed by construction, and its
        caption by the state's invariant *)
-    cbn [finish]. apply table_block_wf. exact H.
+    cbn [finish]. apply table_block_wf.
   - cbn [state_wf] in H. cbn [finish].
     rewrite wf_blocks_decorate_head. exact (IH H).
-  - cbn [state_wf] in H. apply andb_true_iff in H as [Hboth Hinner].
-    apply andb_true_iff in Hboth as [Hlbl Hsrc].
-    rewrite finish_key. exact (key_close_wf _ _ _ Hlbl Hsrc (IH Hinner)).
+  - cbn [state_wf] in H.
+    rewrite finish_key. exact (key_close_wf _ _ _ (IH H)).
 Qed.
 
-(* Pushing a nonblank line onto a paragraph accumulator is invisible to
-   the invariant.  Stated as a lemma because `unfold nonblank` under
-   forallb's function argument leaves nothing to rewrite. *)
-Lemma forallb_nonblank_cons :
-  forall l cur,
-    is_blank l = false ->
-    forallb nonblank (l :: cur) = forallb nonblank cur.
-Proof.
-  intros l cur H. cbn [forallb]. unfold nonblank. rewrite H. reflexivity.
-Qed.
-
-(* An attribute spec's opening line is nonblank -- it has a brace on it.
-   `open_attr` records that line, so this is what keeps the slices'
-   invariant true from the start. *)
-Lemma classify_kattr_nonblank :
-  forall l p, classify l = KAttr p -> is_blank l = false.
-Proof.
-  intros l p H. apply classify_not_kblank_nonblank. rewrite H. discriminate.
-Qed.
-
-(* And a footnote definition's opening line, for the same reason: with
-   footnotes off `open_foot` records it as paragraph text. *)
-Lemma classify_kfoot_nonblank :
-  forall l lbl rest, classify l = KFoot lbl rest -> is_blank l = false.
-Proof.
-  intros l lbl rest H. apply classify_not_kblank_nonblank.
-  rewrite H. discriminate.
-Qed.
-
-(* The line a KText classification describes is nonblank. *)
-Lemma classify_ktext_nonblank :
-  forall l, classify l = KText -> is_blank l = false.
-Proof.
-  intros l H. apply classify_not_kblank_nonblank. rewrite H. discriminate.
-Qed.
-
-(* A lazy line joins the innermost paragraph; nonblank is all that
-   paragraph accumulator needs. *)
+(* A lazy line joins the innermost paragraph, which asks nothing of it. *)
 Lemma feed_lazy_wf :
-  forall l st,
-    is_blank l = false -> state_wf st = true ->
-    state_wf (feed_lazy l st) = true.
+  forall l st, state_wf st = true -> state_wf (feed_lazy l st) = true.
 Proof.
   induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
     |ls done inner IH|apend aind aap aslices|rind rlbl rval
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
-    intros Hl H;
-    (* feed_lazy strips the line's leading whitespace, which cannot turn a
-       nonblank line blank *)
-    assert (Hnb : is_blank (drop_leading_ws l) = false)
-      by (rewrite is_blank_drop_leading_ws; exact Hl).
-  - cbn [feed_lazy state_wf] in *. rewrite forallb_nonblank_cons by exact Hnb.
-    exact H.
-  - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hlv Hc].
-    apply andb_true_iff. split; [exact Hlv|].
-    rewrite forallb_nonblank_cons by exact Hnb. exact Hc.
+    intros H.
+  - reflexivity.
+  - cbn [feed_lazy state_wf] in *. exact H.
   - reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
-    rewrite Hd, (IH Hl Hi). reflexivity.
+    rewrite Hd, (IH Hi). reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
-    rewrite Hd, (IH Hl Hi). reflexivity.
+    rewrite Hd, (IH Hi). reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
-    rewrite Hitems, Hd, (IH Hl Hi). reflexivity.
+    rewrite Hitems, Hd, (IH Hi). reflexivity.
   - exact H.                            (* excluded by lazy_ok *)
   - exact H.                            (* excluded by lazy_ok *)
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hfixed Hi].
-    rewrite Hfixed, (IH Hl Hi). reflexivity.
+    rewrite Hfixed, (IH Hi). reflexivity.
   - exact H.                            (* excluded by lazy_ok *)
-  - cbn [feed_lazy state_wf] in *. exact (IH Hl H).
-  - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hboth Hi].
-    rewrite Hboth, (IH Hl Hi). reflexivity.
-Qed.
-
-(* push_text only ever adds a nonblank line, by construction. *)
-Lemma forallb_nonblank_push_text :
-  forall txt cur,
-    forallb nonblank cur = true ->
-    forallb nonblank (push_text txt cur) = true.
-Proof.
-  intros txt cur H. unfold push_text.
-  destruct (is_blank txt) eqn:E; [exact H|].
-  rewrite forallb_nonblank_cons
-    by (rewrite is_blank_drop_leading_ws; exact E).
-  exact H.
+  - cbn [feed_lazy state_wf] in *. exact (IH H).
+  - cbn [feed_lazy state_wf] in *. exact (IH H).
 Qed.
 
 (* Opening a block from an idle state. *)
@@ -2428,38 +2329,18 @@ Lemma open_kind_wf :
 Proof.
   intros l k H. destruct k; cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; try (split; reflexivity).
   - (* KDiv: opens the container when enabled, otherwise literal text. *)
-    destruct (@bdivs K); split; try reflexivity.
-    cbn [snd state_wf]. rewrite forallb_nonblank_cons
-      by (rewrite is_blank_drop_leading_ws;
-          apply classify_not_kblank_nonblank; congruence).
-    reflexivity.
-  - (* KHeading: the level comes from the classifier *)
+    destruct (@bdivs K); split; reflexivity.
+  - (* KHeading: the level comes from the classifier, and is the only
+       thing a heading state carries *)
     split; [reflexivity|].
-    cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). cbn [andb].
-    apply forallb_nonblank_push_text. reflexivity.
-  - (* KRow: either opens a table or becomes one nonblank paragraph line. *)
-    destruct (@btables K) eqn:Htables; split; try reflexivity.
-    cbn [snd state_wf]. rewrite forallb_nonblank_cons
-      by (rewrite is_blank_drop_leading_ws;
-          apply classify_not_kblank_nonblank; congruence).
-    reflexivity.
-  - (* KText: either the accumulator gains one line, which must be
-       nonblank, or the line opens a key -- whose kept line is that same
-       line, and whose label the split rule leaves nonblank. *)
-    assert (Hnb : is_blank (drop_leading_ws l) = false)
-      by (rewrite is_blank_drop_leading_ws; apply classify_ktext_nonblank;
-          exact H).
+    cbn [state_wf]. rewrite (classify_heading_level _ _ _ H). reflexivity.
+  - (* KRow: either opens a table or becomes one paragraph line. *)
+    destruct (@btables K); split; reflexivity.
+  - (* KText: the accumulator gains a line, or the line opens a key --
+       and neither state asks anything of it. *)
     unfold open_text.
     destruct (if @bkeyed K then key_split (drop_leading_ws l) else None)
-      as [[lbl v]|] eqn:Ek.
-    + split; [reflexivity|]. cbn [snd state_wf is_idle].
-      unfold nonblank at 2. rewrite Hnb, andb_true_r.
-      destruct (@bkeyed K); [|discriminate Ek].
-      rewrite (key_split_label_nonblank _ _ _ Ek).
-      cbn [state_wf]. apply forallb_nonblank_push_text. reflexivity.
-    + split; [reflexivity|].
-      cbn [snd state_wf]. rewrite forallb_nonblank_cons by exact Hnb.
-      reflexivity.
+      as [[lbl v]|]; split; reflexivity.
 Qed.
 
 (* One transition preserves the invariant and emits only well-formed
@@ -2477,18 +2358,14 @@ Proof.
   split; [reflexivity|]. rewrite wf_blocks_rev, Hb, Hi. reflexivity.
 Qed.
 
-(* Opening an attribute spec: one recorded line, and it is nonblank. *)
+(* Opening an attribute spec: the recorded line carries no condition. *)
 Lemma open_attr_wf :
   forall pend ind ap l,
-    is_blank l = false ->
     wf_blocks (fst (open_attr pend ind ap l)) = true
     /\ state_wf (snd (open_attr pend ind ap l)) = true.
 Proof.
-  intros pend ind ap l Hl. unfold open_attr.
-  destruct (@battrs K); cbn [fst snd state_wf]; split; try reflexivity;
-    rewrite forallb_nonblank_cons
-      by (rewrite is_blank_drop_leading_ws; exact Hl);
-    reflexivity.
+  intros pend ind ap l. unfold open_attr.
+  destruct (@battrs K); cbn [fst snd state_wf]; split; reflexivity.
 Qed.
 
 (* Opening a code fence: it carries no invariant at all, its column
@@ -2524,12 +2401,8 @@ Proof.
   pose proof (foot_open_label_ok _ _ _ (classify_kfoot _ _ _ Hclass)) as Hlbl.
   apply andb_true_iff in Hlbl as [Hnonempty _].
   unfold open_foot. destruct (@bfootnotes K); cbn [fst snd state_wf];
-    split; try reflexivity;
-    [rewrite Hnonempty, wf_blocks_rev, Hbs, Hinner; reflexivity
-    |rewrite forallb_nonblank_cons
-       by (rewrite is_blank_drop_leading_ws;
-           exact (classify_kfoot_nonblank l lbl rest Hclass));
-     reflexivity].
+    split; try reflexivity.
+  rewrite Hnonempty, wf_blocks_rev, Hbs, Hinner. reflexivity.
 Qed.
 
 Lemma step_fuel_wf :
@@ -2560,7 +2433,7 @@ Proof.
                     (configured_list_rest chk mr) (PPara [])) as [bs inner].
         apply open_list_wf; assumption.
       * (* KAttr: opens its own state, not through open_kind *)
-        apply open_attr_wf, (classify_kattr_nonblank l kap E).
+        apply open_attr_wf.
       * (* KFoot: descend into the first body line *)
         destruct (IH (off + consumed l frest) frest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l frest) frest (PPara [])) as [bs inner].
@@ -2571,7 +2444,7 @@ Proof.
       { (* an underline: the open paragraph becomes a heading, and its
            level is `S ulvl` precisely so that `1 <= lvl` is free *)
         split; [|reflexivity].
-        apply heading_block_wf; [reflexivity | exact H]. }
+        apply heading_block_wf. reflexivity. }
       destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; cbn [fst snd].
       7: { (* list marker: interrupts the paragraph only when the setting says so *)
         destruct (binterrupt (KList m mc chk mr)) eqn:Ei; cbn [fst snd].
@@ -2587,28 +2460,17 @@ Proof.
                       (configured_list_check chk) (bs, inner)) as [obs ost].
           cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
           split; [|exact Hos].
-          apply flush_para_wf; [exact H | exact Hob].
-        - split; [reflexivity|];
-            cbn [state_wf];
-            rewrite forallb_nonblank_cons
-              by (rewrite is_blank_drop_leading_ws;
-                  apply classify_not_kblank_nonblank; rewrite E; discriminate);
-            exact H. }
-      1: (split; [| reflexivity];
-          apply flush_para_wf; [exact H | reflexivity]).
+          apply flush_para_wf, Hob.
+        - split; reflexivity. }
+      1: (split; [|reflexivity]; apply flush_para_wf; reflexivity).
       (* every remaining kind reaches the same interrupt test, and
          `binterrupt` answers `false` on each of them definitionally --
          its type is what says only a list marker may interrupt. *)
-      all: cbn [binterrupt fst snd]; split; [reflexivity|];
-           cbn [state_wf];
-           rewrite forallb_nonblank_cons
-             by (rewrite is_blank_drop_leading_ws;
-                 apply classify_not_kblank_nonblank; rewrite E; discriminate);
-           exact H.
+      all: cbn [binterrupt fst snd]; split; reflexivity.
   - (* an open heading *)
-    cbn [state_wf] in H. apply andb_true_iff in H as [Hlv Hc].
+    cbn [state_wf] in H. rename H into Hlv.
     assert (Hhb : wf_blocks [heading_block hlvl hcur] = true)
-      by (apply heading_block_wf; assumption).
+      by (apply heading_block_wf, Hlv).
     destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     4: { (* div: close the heading, then obey the div capability. *)
       destruct (open_kind_wf l (KDiv dl dc) E) as [Hob Hos].
@@ -2640,19 +2502,14 @@ Proof.
       destruct bheading_continues eqn:Hcontinues.
       - destruct (Nat.eqb kl hlvl) eqn:Elv;
           cbn [close_reopen open_kind finish app fst snd].
-        + split; [reflexivity|].
-          cbn [state_wf]. rewrite Hlv. cbn [andb].
-          apply forallb_nonblank_push_text. exact Hc.
+        + split; [reflexivity|]. cbn [state_wf]. exact Hlv.
         + split; [exact Hhb|].
-          cbn [state_wf]. rewrite (classify_heading_level _ _ _ E). cbn [andb].
-          apply forallb_nonblank_push_text. reflexivity.
+          cbn [state_wf]. exact (classify_heading_level _ _ _ E).
       - cbn [close_reopen open_kind finish app fst snd].
         split; [exact Hhb|].
-        cbn [state_wf]. rewrite (classify_heading_level _ _ _ E). cbn [andb].
-        apply forallb_nonblank_push_text. reflexivity. }
+        cbn [state_wf]. exact (classify_heading_level _ _ _ E). }
     4: { (* attribute spec: close the heading, then open the spec *)
-      destruct (open_attr_wf [] (off + indent_of l) kap l
-                  (classify_kattr_nonblank l kap E)) as [Hob Hos].
+      destruct (open_attr_wf [] (off + indent_of l) kap l) as [Hob Hos].
       rewrite close_reopen_attr. cbn [fst snd].
       split; [exact Hhb|exact Hos]. }
     4: { (* footnote definition: close the heading, then descend *)
@@ -2673,12 +2530,7 @@ Proof.
       rewrite wf_blocks_app, Hhb, Hob. reflexivity. }
     4: { (* lazy text *)
       destruct bheading_continues.
-      - cbn [fst snd]. split; [reflexivity|].
-        cbn [state_wf]. rewrite Hlv. cbn [andb].
-        rewrite forallb_nonblank_cons
-          by (rewrite is_blank_drop_leading_ws;
-              apply classify_ktext_nonblank; exact E).
-        exact Hc.
+      - cbn [fst snd]. split; [reflexivity|]. cbn [state_wf]. exact Hlv.
       - destruct (open_kind_wf l KText E) as [Hob Hos].
         unfold close_reopen. destruct (open_kind l KText) as [obs ost].
         cbn [finish fst snd] in Hob, Hos |- *. split; [|exact Hos].
@@ -2723,8 +2575,7 @@ Proof.
       split; [reflexivity|].
       cbn [state_wf]. rewrite wf_blocks_app, wf_blocks_rev, Hb, Hd. exact Hs. }
     6: { (* attribute spec: closes the quote and opens outside it *)
-      destruct (open_attr_wf [] (off + indent_of l) kap l
-                  (classify_kattr_nonblank l kap E)) as [Hob Hos].
+      destruct (open_attr_wf [] (off + indent_of l) kap l) as [Hob Hos].
       rewrite close_reopen_attr. cbn [fst snd]. split; [|exact Hos].
       cbn [finish]. rewrite wf_blocks_cons. cbn [node_contents mk].
       rewrite Hbq. reflexivity. }
@@ -2748,8 +2599,7 @@ Proof.
       - cbn [close_reopen open_quote finish app open_fence open_attr open_ref fst snd].
         split; [reflexivity|].
         cbn [state_wf]. rewrite Hd. cbn [andb].
-        apply feed_lazy_wf;
-          [apply classify_ktext_nonblank; exact E | exact Hi].
+        apply feed_lazy_wf, Hi.
       - destruct (open_kind_wf l KText E) as [Hob Hos].
         unfold close_reopen. destruct (open_kind l KText) as [obs ost].
         cbn [finish fst snd] in Hob, Hos |- *. split; [|exact Hos].
@@ -2846,8 +2696,7 @@ Proof.
         destruct (div_closer l inner);
           cbn [state_wf ls_items list_content list_blank];
           rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
-      - destruct (open_attr_wf [] (off + indent_of l) kap l
-                    (classify_kattr_nonblank l kap E)) as [Hob Hos].
+      - destruct (open_attr_wf [] (off + indent_of l) kap l) as [Hob Hos].
         rewrite close_reopen_attr. cbn [fst snd]. split; [|exact Hos].
         apply finish_wf. exact H. }
     6: { (* footnote definition: item contents when indented, else close *)
@@ -2893,8 +2742,7 @@ Proof.
       - cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [fst snd].
         + split; [reflexivity|].
           cbn [state_wf]. rewrite Hitems, Hd. cbn [andb].
-          apply feed_lazy_wf;
-            [apply classify_ktext_nonblank; exact E | exact Hi].
+          apply feed_lazy_wf, Hi.
         + destruct (open_kind_wf l _ E) as [Hob Hos].
           destruct (open_kind l _) as [obs ost] eqn:Eo.
           cbn [close_reopen fst snd] in Hob, Hos |- *.
@@ -2938,15 +2786,13 @@ Proof.
              [ rewrite wf_blocks_app, Hob, andb_true_r; apply finish_wf; exact H
              | exact Hos ] ] ].
   - (* an open attribute spec: every branch either hands the line to a
-       state this invariant already covers, or records a nonblank line *)
-    cbn [state_wf] in H.
+       state this invariant already covers, or records one more line *)
     destruct (ap_done aap); [apply IH; reflexivity|].
     destruct (Nat.ltb aind (off + indent_of l));
       [destruct (ap_failed (attr_feed l aap))|].
-    + apply IH. cbn [state_wf]. exact H.
-    + cbn [fst snd]. split; [reflexivity|].
-      cbn [state_wf]. apply forallb_nonblank_push_text. exact H.
-    + apply IH. cbn [state_wf]. exact H.
+    + apply IH. reflexivity.
+    + cbn [fst snd]. split; reflexivity.
+    + apply IH. reflexivity.
   - (* an open reference definition: a continuation line appends another
        whitespace-free run, and closing emits the block the invariant
        already describes *)
@@ -2992,18 +2838,13 @@ Proof.
        blank leaves it waiting, and anything else emits it and
        reprocesses the line from idle *)
     assert (Htb : wf_blocks [table_block (rev trows) tcap] = true)
-      by (apply table_block_wf; exact H).
+      by apply table_block_wf.
     destruct tcap as [| |ls].
     3: { destruct (is_blank l) eqn:Eb; cbn [fst snd].
          - split; [exact Htb | reflexivity].
-         - split; [reflexivity|]. cbn [state_wf cap_lines] in H |- *.
-           rewrite forallb_nonblank_cons
-             by (rewrite is_blank_drop_leading_ws; exact Eb).
-           exact H. }
+         - split; reflexivity. }
     all: destruct (caption_open l) as [rest|] eqn:Ec;
-         [ split; [reflexivity|];
-           cbn [state_wf cap_lines]; apply forallb_nonblank_push_text;
-           reflexivity
+         [ split; reflexivity
          | destruct (is_blank l) eqn:Eb; [split; reflexivity|] ].
     { destruct (classify l) eqn:E; cbn [open_line is_lazy]; try (split; reflexivity);
         (destruct (IH off l (PPara []) eq_refl) as [Hb Hs];
@@ -3026,8 +2867,7 @@ Proof.
     cbn [state_wf] in H.
     destruct (classify l) eqn:E; cbn [open_line is_lazy];
       try (destruct (is_idle pinner);
-           [ solve [ split; reflexivity
-                   | apply open_attr_wf, (classify_kattr_nonblank l _ E) ] |]);
+           [ solve [ split; reflexivity | apply open_attr_wf ] |]);
       destruct (IH off l pinner H) as [Hb Hs];
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [fst snd] in Hb, Hs;
@@ -3035,18 +2875,16 @@ Proof.
       (split; [rewrite ?wf_blocks_decorate_head; exact Hb | exact Hs]).
   - (* an open key: the retraction is a paragraph of the line it kept,
        and otherwise `key_close` wraps whatever comes back *)
-    cbn [state_wf] in H. apply andb_true_iff in H as [Hboth Hi].
-    apply andb_true_iff in Hboth as [Hlbl Hsrc].
+    cbn [state_wf] in H. rename H into Hi.
     cbn [step_fuel]. destruct (is_blank l && is_idle kinner)%bool.
     { cbn [fst snd]. split; [|reflexivity].
-      exact (flush_para_wf ksrc [] []
-               ltac:(cbn [forallb]; rewrite Hsrc; reflexivity) eq_refl). }
+      exact (flush_para_wf [ksrc] [] eq_refl). }
     destruct (IH off l kinner Hi) as [Hb Hs].
     destruct (step_fuel n off l kinner) as [bs st'] eqn:Ed.
     cbn [fst snd] in Hb, Hs.
     destruct bs as [|b bs']; cbn [key_result fst snd state_wf].
-    + split; [reflexivity|]. rewrite Hlbl, Hsrc, Hs. reflexivity.
-    + split; [exact (key_close_wf _ _ _ Hlbl Hsrc Hb) | exact Hs].
+    + split; [reflexivity | exact Hs].
+    + split; [exact (key_close_wf _ _ _ Hb) | exact Hs].
 Qed.
 
 Lemma step_wf :

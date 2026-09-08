@@ -348,8 +348,8 @@ Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
    a delimiter carrying "this row exists".  Only `dstyle_of` itself needs
    that, since a switched-off row is genuinely not found. *)
 (* A row's decay leaves something behind: an empty one would let a token
-   vanish, and `iscan_productive` -- the statement that every state owes
-   the output something -- would be false. *)
+   vanish, so a document could hold a delimiter run that reaches neither
+   a node nor the text. *)
 Definition ddecay_ok (d : ddecay) : bool :=
   match d with
   | DDSelf => true
@@ -2164,11 +2164,11 @@ and are not reachable from this table. *)
    `a *b{.c}o` attaches to `b` rather than `*b` -- and no answer
    available at the `}` is the right one, since whether the `*` closes is
    not yet known.  So the spec waits here and `oresolve` settles it when
-   the scope does.  `src` is what it ate, for the case where nothing
-   takes it. *)
+   the scope does.  The spec's source is not kept: nothing takes it
+   back, since a spec with nothing to attach to is dropped. *)
 Inductive oitem : Type :=
   | OIn (n : node inline)
-  | OMark (a : attr) (src : string).
+  | OMark (a : attr).
 
 Definition oitems : Type := list oitem.
 
@@ -2336,12 +2336,12 @@ Definition oemit (n : node inline) (o : ostate) : ostate :=
   end.
 
 (* A spec waiting for its target, emitted the same way. *)
-Definition omark (a : attr) (src : string) (o : ostate) : ostate :=
+Definition omark (a : attr) (o : ostate) : ostate :=
   match os_stk o with
-  | [] => OState (OMark a src :: os_out o) []
+  | [] => OState (OMark a :: os_out o) []
   | f :: rest =>
       OState (os_out o)
-        (Frame (fr_kind f) (fr_marked f) (OMark a src :: fr_out f) :: rest)
+        (Frame (fr_kind f) (fr_marked f) (OMark a :: fr_out f) :: rest)
   end.
 
 (* Emit in source order while merging a plain-`Str` seam.  Ordinary
@@ -2439,19 +2439,16 @@ Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
      (`endsWithSpace`).
    - any other node takes it, which is what `*e*{.a}`, `[l](u){}` and
      `x{.a}{.b}` need.
-   - nothing before it is the one case we do not follow djot.js on.  It
-     drops the spec, leaving `# {#i}` an empty heading; `wf_block`
-     excludes those and `parse_inline_line_nonempty` denies them, so the
-     source stays as text.
-   - a `SoftBreak` counts as nothing, and that is the second divergence.
-     djot.js attaches to the break, where it renders as nothing, so
-     `x` / `{.a}` loses the spec.  Refusing the one constructor is what
-     keeps the answer the same on both sides of an `oout_app` splice: a
-     suffix is always a previous line headed by the break that ended it,
-     so a marker at the bottom of a scope must not be able to see it.
-     Every `_app` lemma rests on that, and `attributes:95` is the
-     price. *)
-Definition oattach_list (a : attr) (src : string) (out : inlines) : inlines :=
+   - nothing before it drops the spec, and so does a `SoftBreak`, which
+     is nothing as far as attachment is concerned.  djot.js reaches the
+     second by attaching to the break node, where the spec renders as
+     nothing; dropping is the same observation and keeps the two arms
+     one case.  They have to move together: the head below a spec is a
+     `SoftBreak` exactly when an `oout_app` splice put a previous line
+     there, so an arm that distinguished the empty scope from the
+     spliced one would make attachment see the splice, and every `_app`
+     lemma rests on it not seeing it. *)
+Definition oattach_list (a : attr) (out : inlines) : inlines :=
   match out with
   | Node p [] (Str s) :: rest =>
       let '(pre, w) := last_ws_split s in
@@ -2464,7 +2461,7 @@ Definition oattach_list (a : attr) (src : string) (out : inlines) : inlines :=
                isnoc (Node NoPos a (Str w)) out1
            end
       else out
-  | Node _ _ SoftBreak :: _ | [] => isnoc (mk (Str src)) out
+  | Node _ _ SoftBreak :: _ | [] => out
   | Node p a' v :: rest => Node p (attr_merge a a') v :: rest
   end.
 
@@ -2485,9 +2482,9 @@ Fixpoint oresolve_go (l : oitems) : inlines * bool :=
   | OIn n :: rest =>
       let '(out, m) := oresolve_go rest in
       ((if m then isnoc n out else (n :: out)%list), false)
-  | OMark a src :: rest =>
+  | OMark a :: rest =>
       let '(out, _) := oresolve_go rest in
-      let out' := oattach_list a src out in
+      let out' := oattach_list a out in
       (out', istarts_str out')
   end.
 
@@ -2536,7 +2533,13 @@ Qed.
    -- abandoning it would dissolve the opener into text and keep
    searching, which is what made `___a___` come out `<em>_</em>a<em>_</em>`
    instead of three nested spans, and `____` come out `<em>_</em>_`
-   instead of literal. *)
+   instead of literal.
+
+   The test is on the items, not on what they resolve to, which is
+   djot.js's order too: a scope holding nothing but an attribute spec
+   with nothing to attach to closes, and closes onto nothing.  That is
+   the one place an empty delimiter node comes from, and `wf_inline`
+   admits it for that reason. *)
 Fixpoint oclose_go (k : dstyle) (m : bool) (pend : oitems) (stk : list frame)
   : option (oitems * list frame) :=
   match stk with
@@ -2789,8 +2792,7 @@ Inductive iscan : Type :=
      that is short of `dwidth` the token is still being spelled, and once
      it reaches `dwidth` the token is complete and the next byte decides
      its role.  Counting from the second character rather than the first
-     is what keeps every state productive -- there is no state holding an
-     empty token.
+     is what keeps the state from holding an empty token.
 
      `marked` says the token is the one after a `{`, which needs no byte
      after it: it opens on sight, so `idelim_marked` pushes the scope the
@@ -2956,23 +2958,13 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
 Definition null {A} (l : list A) : bool :=
   match l with [] => true | _ => false end.
 
-(* Has the scan produced anything here?  An open scope counts: it is
-   abandoned at the end and its opener becomes text. *)
-Definition ostate_nonempty (o : ostate) : bool :=
-  (nonempty (os_out o) || negb (null (os_stk o)))%bool.
-
-
 (* Where a finished spec goes: into the scope, as a marker, with the
    pending text flushed in front of it so that the run it will attach to
    is the item immediately below.  `oresolve` settles it -- see
    `oattach_list` for the rule and for the one case we do not follow
-   djot.js on.
-
-   The source is kept for that case.  It is the whole spec, braces
-   included, because that is what would be printed. *)
-Definition iattr_mark (a : attr) (src txt : string) (o : ostate) : iscan :=
-  IText false EmptyString (Some rbrace)
-    (omark a (one lbrace ++ src)%string (flush_text txt o)).
+   djot.js on. *)
+Definition iattr_mark (a : attr) (txt : string) (o : ostate) : iscan :=
+  IText false EmptyString (Some rbrace) (omark a (flush_text txt o)).
 
 (* One byte of an inline attribute spec, read with the machine block
    attributes use.  Failure hands the byte back to `ilead` with the text
@@ -2984,7 +2976,7 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
   if ap_failed p'
   then let '(t, o') := battr_lit src txt o in ilead c t None o'
   else if ap_done p'
-  then iattr_mark (ap_attrs p') (src ++ one c)%string txt o
+  then iattr_mark (ap_attrs p') txt o
   else IAttr p' (src ++ one c)%string txt prev o.
 
 (* A marked open with `S extra` characters of its token in hand.  It
@@ -3326,8 +3318,8 @@ Definition iescws_resolve (ws txt : string) (prev : option ascii)
       then (rest, Some c, oemit (mk NonBreakingSpace) (flush_text txt o))
       else ((txt ++ one bslash ++ ws)%string, prev, o)
   (* unreachable: `IEscWs` is only ever built with a byte in hand.  Spelt
-     as the bare backslash anyway, so that every `IEscWs` owes something
-     and `iscan_productive` needs no side condition. *)
+     as the bare backslash anyway, so the state's own source survives on
+     every path out of it. *)
   | EmptyString => ((txt ++ one bslash)%string, prev, o)
   end.
 
@@ -3837,7 +3829,7 @@ Definition base_ok (base : oitems) : bool :=
 Lemma base_ok_starts_str :
   forall base, base_ok base = true -> starts_str base = false.
 Proof.
-  intros [|[[p [|kv a'] v]|ma msrc] base] H; try reflexivity.
+  intros [|[[p [|kv a'] v]|ma] base] H; try reflexivity.
   destruct v; try reflexivity. discriminate.
 Qed.
 
@@ -3939,12 +3931,12 @@ Proof.
   intros [out stk] base Hb. unfold opop_str, oout_app; cbn [os_out os_stk].
   destruct stk as [|f fs].
   - destruct out as [|n rest]; cbn [app].
-    + destruct base as [|[[a [|p ps] i]|ma ms] base']; try reflexivity.
+    + destruct base as [|[[a [|p ps] i]|ma] base']; try reflexivity.
       destruct i; try reflexivity. discriminate.
-    + destruct n as [[a [|p ps] i]|ma ms]; try reflexivity.
+    + destruct n as [[a [|p ps] i]|ma]; try reflexivity.
       destruct i; reflexivity.
   - destruct (fr_out f) as [|n rest]; [reflexivity|].
-    destruct n as [[a [|p ps] i]|ma ms]; try reflexivity.
+    destruct n as [[a [|p ps] i]|ma]; try reflexivity.
     destruct i; reflexivity.
 Qed.
 
@@ -4092,18 +4084,17 @@ Proof.
 Qed.
 
 Lemma omark_app :
-  forall a src o base,
-    omark a src (oout_app base o) = oout_app base (omark a src o).
+  forall a o base,
+    omark a (oout_app base o) = oout_app base (omark a o).
 Proof.
-  intros a src [out [|f stk]] base; reflexivity.
+  intros a [out [|f stk]] base; reflexivity.
 Qed.
 
 Lemma iattr_mark_app :
-  forall a src txt o base,
-    iattr_mark a src txt (oout_app base o)
-    = iout_app base (iattr_mark a src txt o).
+  forall a txt o base,
+    iattr_mark a txt (oout_app base o) = iout_app base (iattr_mark a txt o).
 Proof.
-  intros a src txt o base. unfold iattr_mark.
+  intros a txt o base. unfold iattr_mark.
   cbn [iout_app]. rewrite flush_text_app, omark_app. reflexivity.
 Qed.
 
@@ -4318,9 +4309,9 @@ Qed.
 Lemma osnoc_nonstr :
   forall n out, starts_str out = false -> osnoc n out = (n :: out)%list.
 Proof.
-  intros n [|[[a [|x xs] i]|ma ms] out'] H; try reflexivity.
+  intros n [|[[a [|x xs] i]|ma] out'] H; try reflexivity.
   cbn [starts_str] in H. destruct i; try reflexivity.
-  destruct n as [[c [|y ys] j]|na ns]; try reflexivity.
+  destruct n as [[c [|y ys] j]|na]; try reflexivity.
   destruct j; try reflexivity. discriminate.
 Qed.
 
@@ -4340,9 +4331,9 @@ Proof.
   destruct cur as [|m cur'].
   - rewrite !oapp_one. destruct out as [|x out']; cbn [app].
     + rewrite (osnoc_nonstr n base (base_ok_starts_str base Hb)). reflexivity.
-    + destruct x as [[a [|p ps] i]|xa xs2]; [|reflexivity|reflexivity].
+    + destruct x as [[a [|p ps] i]|xa]; [|reflexivity|reflexivity].
       destruct i; try reflexivity.
-      destruct n as [[c [|q qs] j]|na ns]; [|reflexivity|reflexivity].
+      destruct n as [[c [|q qs] j]|na]; [|reflexivity|reflexivity].
       destruct j; reflexivity.
   - rewrite !oapp_cons2. cbn [app]. f_equal. apply (IH out base Hb).
 Qed.
@@ -4364,7 +4355,7 @@ Lemma oresolve_base_head :
   forall base,
     base_ok base = true -> ibase_ok (oresolve base) = true.
 Proof.
-  intros [|[[p a v]|ma ms] base'] H; try discriminate; [reflexivity|].
+  intros [|[[p a v]|ma] base'] H; try discriminate; [reflexivity|].
   destruct v; try discriminate.
   unfold oresolve; cbn [oresolve_go].
   destruct (oresolve_go base') as [out m]; cbn [fst].
@@ -4377,47 +4368,27 @@ Qed.
 Lemma oresolve_go_base :
   forall base, base_ok base = true -> snd (oresolve_go base) = false.
 Proof.
-  intros [|[[p a v]|ma ms] base'] H; try discriminate; [reflexivity|].
+  intros [|[[p a v]|ma] base'] H; try discriminate; [reflexivity|].
   cbn [oresolve_go]. destruct (oresolve_go base'); reflexivity.
 Qed.
 
-Lemma isnoc_nonnil : forall n out, isnoc n out <> [].
-Proof.
-  intros [p a v] out. unfold isnoc.
-  destruct out as [|[q [|kv b] w] l]; try discriminate.
-  destruct w; try discriminate.
-  destruct a; try discriminate. destruct v; discriminate.
-Qed.
-
-Lemma oattach_list_nonnil :
-  forall a src out, oattach_list a src out <> [].
-Proof.
-  intros a src [|[p a' v] out]; unfold oattach_list; [apply isnoc_nonnil|].
-  destruct v;
-    try (destruct a' as [|kv a'']; [discriminate|discriminate]);
-    try apply isnoc_nonnil.
-  destruct a' as [|kv a'']; [|discriminate].
-  destruct (last_ws_split s) as [pre w].
-  destruct (nonempty_str w); [|discriminate].
-  destruct a as [|ka a2]; [discriminate|apply isnoc_nonnil].
-Qed.
 
 (* A waiting spec reads only the head of what is below it, and `base_ok`
    makes that head a `SoftBreak` -- which it declines exactly as it
    declines an empty scope.  So the splice is invisible to it. *)
 Lemma oattach_list_app :
-  forall a src out base,
+  forall a out base,
     base_ok base = true ->
-    oattach_list a src (out ++ oresolve base)%list
-    = (oattach_list a src out ++ oresolve base)%list.
+    oattach_list a (out ++ oresolve base)%list
+    = (oattach_list a out ++ oresolve base)%list.
 Proof.
-  intros a src out base Hb.
+  intros a out base Hb.
   pose proof (oresolve_base_head base Hb) as Hbi.
   pose proof (ibase_ok_starts_str _ Hbi) as Hh.
   destruct out as [|[p a' v] out]; cbn [app]; unfold oattach_list.
   - destruct (oresolve base) as [|[q b w] bl] eqn:Eb; [reflexivity|].
     cbn [ibase_ok] in Hbi. destruct w; try discriminate Hbi.
-    destruct b; rewrite isnoc_nonstr by reflexivity; reflexivity.
+    destruct b; reflexivity.
   - destruct a' as [|kv a'']; destruct v;
       try reflexivity; try (apply isnoc_app, Hh).
     (* the one case left: a plain `Str` head, which the spec splits *)
@@ -4442,11 +4413,11 @@ Proof.
   - unfold oresolve. rewrite <- (oresolve_go_base base Hb).
     destruct (oresolve_go base); reflexivity.
   - rewrite IH. destruct (oresolve_go l) as [out m]; cbn [fst snd].
-    destruct i as [n|a src].
+    destruct i as [n|a].
     + destruct m; [rewrite isnoc_app by exact Hh|]; reflexivity.
-    + rewrite (oattach_list_app a src out base Hb). f_equal.
-      destruct (oattach_list a src out) as [|x xs] eqn:E;
-        [exfalso; exact (oattach_list_nonnil a src out E)|reflexivity].
+    + rewrite (oattach_list_app a out base Hb). f_equal.
+      destruct (oattach_list a out) as [|x xs] eqn:E;
+        [exact Hh|reflexivity].
 Qed.
 
 Lemma oresolve_app :
@@ -6464,275 +6435,6 @@ Proof.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
 Qed.
 
-(*
-The scan is productive
-----------------------
-
-`Wf.v` needs that a nonempty line yields at least one inline, which the
-old one-`Str`-per-line parser had by construction and a scanner does not.
-The initial state is deliberately *un*productive, since empty input must
-give no inlines; one character suffices. *)
-
-(* Productive means: whatever follows, at least one inline comes out.
-   `IText` with nothing pending and nothing emitted is the one state
-   that fails it -- which is the start state, as it must be, since empty
-   input yields no inlines.  An open scope counts as productive: it is
-   abandoned at the end, and its opener becomes text. *)
-Definition iscan_productive (st : iscan) : bool :=
-  match st with
-  | IText false txt _ o => (nonempty_str txt || ostate_nonempty o)%bool
-  (* a hyphen run owes what it has counted, and every way of building one
-     counts at least one -- but the type does not say so, so the
-     disjunct does *)
-  | IDash n txt _ o =>
-      (Nat.ltb 0 n || nonempty_str txt || ostate_nonempty o)%bool
-  | _ => true
-  end.
-
-(* Both reconstructions end in a bracket, so the buffer they hand back is
-   never empty: a literal bracket always owes at least its own source. *)
-Lemma bclosed_lit_nonempty :
-  forall kids image o,
-    nonempty_str (fst (bclosed_lit kids image o)) = true.
-Proof.
-  intros kids image o. unfold bclosed_lit.
-  destruct (opop_str o) as [pre o1].
-  destruct (bflat kids (pre ++ bracket_open image)%string o1) as [txt o2].
-  cbn [fst]. apply nonempty_str_app_l. reflexivity.
-Qed.
-
-Lemma nonempty_rev : forall (l : inlines), nonempty (List.rev l) = nonempty l.
-Proof.
-  intros [|n l]; [reflexivity|].
-  cbn [List.rev nonempty]. destruct (List.rev l ++ [n])%list eqn:E; [|reflexivity].
-  destruct (List.rev l); discriminate.
-Qed.
-
-Lemma ostate_nonempty_emit :
-  forall n o, ostate_nonempty (oemit n o) = true.
-Proof.
-  intros n [out [|f stk]]; [reflexivity|].
-  unfold ostate_nonempty, oemit; cbn [os_out os_stk null negb].
-  apply orb_true_r.
-Qed.
-
-Lemma ostate_nonempty_mark :
-  forall a src o, ostate_nonempty (omark a src o) = true.
-Proof.
-  intros a src [out [|f stk]]; [reflexivity|].
-  unfold ostate_nonempty, omark; cbn [os_out os_stk null negb].
-  apply orb_true_r.
-Qed.
-
-Lemma ostate_nonempty_flush :
-  forall txt o,
-    ostate_nonempty o = true -> ostate_nonempty (flush_text txt o) = true.
-Proof.
-  intros txt o H. unfold flush_text.
-  destruct (nonempty_str txt); [apply ostate_nonempty_emit | exact H].
-Qed.
-
-Lemma ostate_nonempty_flush_str :
-  forall txt o,
-    nonempty_str txt = true -> ostate_nonempty (flush_text txt o) = true.
-Proof.
-  intros txt o H. unfold flush_text. rewrite H. apply ostate_nonempty_emit.
-Qed.
-
-Lemma ostate_nonempty_push :
-  forall k m o, ostate_nonempty (opush k m o) = true.
-Proof.
-  intros k m o. unfold ostate_nonempty, opush; cbn [os_stk].
-  rewrite orb_true_r. reflexivity.
-Qed.
-
-Lemma ostate_nonempty_bpush :
-  forall image o, ostate_nonempty (bpush image o) = true.
-Proof.
-  intros image o. unfold ostate_nonempty, bpush; cbn [os_stk].
-  rewrite orb_true_r. reflexivity.
-Qed.
-
-(* Splitting at a break either leaves the text in the buffer or emits a
-   `SoftBreak`, so a nonempty destination stays owed either way. *)
-Lemma bsplit_nl_productive :
-  forall s txt o,
-    (nonempty_str txt || ostate_nonempty o)%bool = true ->
-    (nonempty_str (fst (bsplit_nl s txt o))
-     || ostate_nonempty (snd (bsplit_nl s txt o)))%bool = true.
-Proof.
-  induction s as [|c s IH]; intros txt o H; cbn [bsplit_nl]; [exact H|].
-  destruct (Ascii.eqb c nl_char).
-  - apply IH. rewrite ostate_nonempty_emit. apply orb_true_r.
-  - apply IH. rewrite nonempty_str_app_l by reflexivity. reflexivity.
-Qed.
-
-Lemma bdest_lit_productive :
-  forall kids image esc dst o,
-    (nonempty_str (fst (bdest_lit kids image esc dst o))
-     || ostate_nonempty (snd (bdest_lit kids image esc dst o)))%bool = true.
-Proof.
-  intros kids image esc dst o. unfold bdest_lit.
-  destruct (bclosed_lit kids image o) as [txt o'].
-  apply bsplit_nl_productive.
-  rewrite nonempty_str_app_l by reflexivity. reflexivity.
-Qed.
-
-Lemma bref_lit_productive :
-  forall kids image label o,
-    (nonempty_str (fst (bref_lit kids image label o))
-     || ostate_nonempty (snd (bref_lit kids image label o)))%bool = true.
-Proof.
-  intros kids image label o. unfold bref_lit.
-  destruct (bclosed_lit kids image o) as [txt o']. cbn [fst snd].
-  apply orb_true_iff. left. destruct txt; reflexivity.
-Qed.
-
-(* A label that never closed still owes its bracket. *)
-Lemma bnote_lit_productive :
-  forall esc image label o,
-    (nonempty_str (fst (bnote_lit esc image label o))
-     || ostate_nonempty (snd (bnote_lit esc image label o)))%bool = true.
-Proof.
-  intros esc image label o. unfold bnote_lit.
-  destruct (opop_str o) as [pre o1]. cbn [fst snd].
-  apply orb_true_iff. left. apply nonempty_str_app_l.
-  destruct image; reflexivity.
-Qed.
-
-Lemma dollars_nonempty : forall two, nonempty_str (dollars two) = true.
-Proof. intros []; reflexivity. Qed.
-
-Lemma periods_nonempty : forall two, nonempty_str (periods two) = true.
-Proof. intros []; reflexivity. Qed.
-
-Lemma typography_ellipsis_nonempty :
-  nonempty_str typography_ellipsis = true.
-Proof. unfold typography_ellipsis. destruct smart_typography; reflexivity. Qed.
-
-Lemma srep_nonempty :
-  forall s n, nonempty_str s = true -> nonempty_str (srep s (S n)) = true.
-Proof. intros s n H. cbn [srep]. apply nonempty_str_app_r, H. Qed.
-
-(* Every run of at least one hyphen leaves something: the arithmetic
-   never returns all three counts zero.  Two of the five branches need
-   the division to be positive, and the rest compute. *)
-Lemma div_pos : forall a b, b <> 0 -> Nat.modulo a b = 0 -> a <> 0 ->
-  exists m, Nat.div a b = S m.
-Proof.
-  intros a b Hb Hm Ha. destruct (Nat.div a b) as [|m] eqn:Ed; [|eauto].
-  exfalso. pose proof (Nat.div_mod a b Hb) as Hdm. rewrite Ed, Hm in Hdm. lia.
-Qed.
-
-Lemma dashes_nonempty : forall n, nonempty_str (dashes (S n)) = true.
-Proof.
-  intros n. unfold dashes, dash_counts.
-  destruct (Nat.eqb (Nat.modulo (S n) 3) 0) eqn:E3.
-  { apply Nat.eqb_eq in E3.
-    destruct (div_pos (S n) 3 ltac:(lia) E3 ltac:(lia)) as [m Hm].
-    rewrite Hm. apply nonempty_str_app_r, srep_nonempty. reflexivity. }
-  destruct (Nat.eqb (Nat.modulo (S n) 2) 0) eqn:E2.
-  { apply Nat.eqb_eq in E2.
-    destruct (div_pos (S n) 2 ltac:(lia) E2 ltac:(lia)) as [m Hm].
-    rewrite Hm. apply nonempty_str_app_l, nonempty_str_app_r.
-    apply srep_nonempty. reflexivity. }
-  destruct (Nat.eqb (S n) 1) eqn:E1.
-  { apply Nat.eqb_eq in E1. assert (Hn : n = 0) by lia. subst n. reflexivity. }
-  destruct (Nat.eqb (Nat.modulo (S n) 6) 5);
-    (apply nonempty_str_app_l, nonempty_str_app_r;
-     apply srep_nonempty; reflexivity).
-Qed.
-
-Lemma typography_dashes_0 : typography_dashes 0 = EmptyString.
-Proof. unfold typography_dashes. destruct smart_typography; reflexivity. Qed.
-
-Lemma typography_dashes_nonempty :
-  forall n, nonempty_str (typography_dashes (S n)) = true.
-Proof.
-  intros n. unfold typography_dashes. destruct smart_typography.
-  - apply dashes_nonempty.
-  - reflexivity.
-Qed.
-
-Lemma iscan_productive_lead :
-  forall c txt prev o,
-    (nonempty_str txt || ostate_nonempty o)%bool = true ->
-    iscan_productive (ilead c txt prev o) = true.
-Proof.
-  intros c txt prev o H. unfold ilead.
-  destruct (is_bslash c); [reflexivity|].
-  destruct (is_tick c); [reflexivity|].
-  destruct (Ascii.eqb c dollar); [reflexivity|].
-  destruct (Ascii.eqb c period); [reflexivity|].
-  destruct (Ascii.eqb c hyphen); [reflexivity|].
-  destruct (Ascii.eqb c lbrace); [reflexivity|].
-  destruct (Ascii.eqb c bang); [reflexivity|].
-  destruct (Ascii.eqb c lt); [reflexivity|].
-  destruct (Ascii.eqb c lbrack);
-    [cbn [iscan_productive]; rewrite ostate_nonempty_bpush; apply orb_true_r|].
-  destruct (Ascii.eqb c rbrack);
-    [destruct (bclose (flush_text txt o)) as [[[kids image] o']|];
-     [reflexivity|];
-     cbn [iscan_productive];
-     rewrite nonempty_str_app_l by reflexivity; reflexivity|].
-  destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
-    [destruct (bunpush o) as [[image o']|]; [reflexivity|]|];
-    (destruct (dstyle_of c); [reflexivity|]);
-    cbn [iscan_productive]; apply orb_true_iff; left;
-    apply nonempty_str_app_l; reflexivity.
-Qed.
-
-Lemma idelim_marked_productive :
-  forall k extra txt o, iscan_productive (idelim_marked k extra txt o) = true.
-Proof.
-  intros k extra txt o. unfold idelim_marked.
-  destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
-  cbn [iscan_productive]. rewrite ostate_nonempty_push. apply orb_true_r.
-Qed.
-
-Lemma idelim_done_productive :
-  forall k txt bef marker next o,
-    iscan_productive (idelim_done k txt bef marker next o) = true
-    /\ forall txt' prev' o',
-         idelim_done k txt bef marker next o = IText false txt' prev' o' ->
-         (nonempty_str txt' || ostate_nonempty o')%bool = true.
-Proof.
-  intros k txt bef marker next o. unfold idelim_done.
-  destruct (dbare k bef && negb marker && nonspace_at next)%bool.
-  - split.
-    + cbn [iscan_productive]. rewrite ostate_nonempty_push. apply orb_true_r.
-    + intros txt' prev' o' E. injection E as E1 E2. subst txt' o'.
-      rewrite ostate_nonempty_push. apply orb_true_r.
-  - assert (Hlit : nonempty_str (idelim_lit k txt marker) = true)
-      by (unfold idelim_lit; apply nonempty_str_app_l, ddecay_str_nonempty).
-    split.
-    + cbn [iscan_productive]. rewrite Hlit. reflexivity.
-    + intros txt' prev' o' E. injection E as E1 E2 E3. subst txt' o'.
-      rewrite Hlit. reflexivity.
-Qed.
-
-Lemma idelim_resolve_productive :
-  forall k txt bef marker next o,
-    iscan_productive (idelim_resolve k txt bef marker next o) = true
-    /\ forall txt' prev' o',
-         idelim_resolve k txt bef marker next o = IText false txt' prev' o' ->
-         (nonempty_str txt' || ostate_nonempty o')%bool = true.
-Proof.
-  intros k txt bef marker next o. unfold idelim_resolve.
-  destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_productive].
-  destruct (oclose k marker (flush_text txt o)) as [o'|] eqn:Ec;
-    [|apply idelim_done_productive].
-  assert (Hne : ostate_nonempty o' = true).
-  { unfold oclose in Ec.
-    destruct (oclose_go k marker [] (os_stk (flush_text txt o)))
-      as [[content rest]|]; [|discriminate].
-    injection Ec as <-. apply ostate_nonempty_emit. }
-  split.
-  - cbn [iscan_productive]. rewrite Hne. apply orb_true_r.
-  - intros txt' prev' o'' E. injection E as E1 E2. subst txt' o''.
-    rewrite Hne. apply orb_true_r.
-Qed.
-
 (* Every way a pending delimiter can resolve lands back in text mode:
    closing, opening and decaying to literal text all do.  So after
    `iresolve` there is no `IBrace` and no `IDelim` left, which is what
@@ -6772,396 +6474,6 @@ Proof.
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
     rewrite E. exact I.
   - destruct (bclosed_lit kids img ob) as [txt o']. exact I.
-Qed.
-
-Lemma iscan_productive_resolve :
-  forall st, iscan_productive st = true -> iscan_productive (iresolve st) = true.
-Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
-    cbn [iresolve]; try exact H.
-  (* `IBrace`, `IAttr`, `IBang` and `IDollar` all push their own bytes
-     into the buffer, so the text they resolve to is nonempty *)
-  all: try (cbn [iscan_productive]; apply orb_true_iff; left;
-            apply nonempty_str_app_l;
-            first [reflexivity | apply dollars_nonempty
-                  | apply periods_nonempty]).
-  - destruct (Nat.ltb (S seen) (dwidth k)).
-    { cbn [iscan_productive]. apply orb_true_iff. left.
-      apply nonempty_str_app_l, idelim_run_nonempty. }
-    apply idelim_resolve_productive.
-  (* a hyphen run: what it counted, cut into dashes *)
-  - cbn [iscan_productive] in H |- *. destruct dn as [|dn].
-    { cbn [Nat.ltb Nat.leb orb] in H.
-      rewrite typography_dashes_0.
-      rewrite (append_empty_r dtx). exact H. }
-    apply orb_true_iff. left.
-    apply nonempty_str_app_l, typography_dashes_nonempty.
-  - pose proof (bclosed_lit_nonempty kids img ob) as Hne.
-    destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
-    cbn [iscan_productive]. rewrite Hne. reflexivity.
-Qed.
-
-Lemma bspan_lit_productive :
-  forall kids image src o,
-    (nonempty_str (fst (bspan_lit kids image src o))
-     || ostate_nonempty (snd (bspan_lit kids image src o)))%bool = true.
-Proof.
-  intros kids image src o. unfold bspan_lit.
-  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
-  apply bsplit_nl_productive.
-  rewrite nonempty_str_app_l by reflexivity. reflexivity.
-Qed.
-
-Lemma battr_lit_productive :
-  forall src txt o,
-    (nonempty_str (fst (battr_lit src txt o))
-     || ostate_nonempty (snd (battr_lit src txt o)))%bool = true.
-Proof.
-  intros src txt o. unfold battr_lit. apply bsplit_nl_productive.
-  rewrite nonempty_str_app_l by reflexivity. reflexivity.
-Qed.
-
-(* A waiting spec is something: it is an item in the scope, and what it
-   resolves to is never nothing. *)
-Lemma iattr_mark_productive :
-  forall a src txt o, iscan_productive (iattr_mark a src txt o) = true.
-Proof.
-  intros a src txt o. unfold iattr_mark. cbn [iscan_productive].
-  rewrite ostate_nonempty_mark. apply orb_true_r.
-Qed.
-
-Lemma iattr_feed_productive :
-  forall c p src txt prev o,
-    iscan_productive (iattr_feed c p src txt prev o) = true.
-Proof.
-  intros c p src txt prev o. unfold iattr_feed.
-  destruct (ap_failed (astep p c)).
-  - pose proof (battr_lit_productive src txt o) as Hp.
-    destruct (battr_lit src txt o) as [t o']; cbn [fst snd] in Hp.
-    apply iscan_productive_lead, Hp.
-  - destruct (ap_done (astep p c)); [apply iattr_mark_productive|reflexivity].
-Qed.
-
-Lemma ispan_feed_productive :
-  forall c kids image p src o,
-    iscan_productive (ispan_feed c kids image p src o) = true.
-Proof.
-  intros c kids image p src o. unfold ispan_feed.
-  destruct (ap_failed (astep p c)).
-  - pose proof (bspan_lit_productive kids image src o) as Hp.
-    destruct (bspan_lit kids image src o) as [txt o']; cbn [fst snd] in Hp.
-    apply iscan_productive_lead, Hp.
-  - destruct (ap_done (astep p c)); [|reflexivity].
-    cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
-Qed.
-
-Lemma iescws_resolve_productive :
-  forall ws txt prev o,
-    let '(t, _, o') := iescws_resolve ws txt prev o in
-    (nonempty_str t || ostate_nonempty o')%bool = true.
-Proof.
-  intros [|c ws] txt prev o; cbn [iescws_resolve].
-  - apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
-  - destruct (Ascii.eqb c " "%char).
-    + rewrite ostate_nonempty_emit. apply orb_true_r.
-    + apply orb_true_iff. left. apply nonempty_str_app_l. reflexivity.
-Qed.
-
-Lemma iscan_productive_step :
-  forall c st, iscan_productive st = true -> iscan_productive (istep c st) = true.
-Proof.
-  intros c [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] H;
-    cbn [istep].
-  - destruct (is_ws c); [reflexivity|].
-    cbn [iscan_productive]. apply orb_true_iff. left.
-    apply nonempty_str_app_l. destruct (is_punct c); reflexivity.
-  - apply iscan_productive_lead, H.
-  - destruct (is_ws c); [reflexivity|].
-    pose proof (iescws_resolve_productive ews etxt eprev eob) as Hr.
-    destruct (iescws_resolve ews etxt eprev eob) as [[t p] o'].
-    apply iscan_productive_lead, Hr.
-  - unfold ibrace_step. destruct (dstyle_of c);
-      [apply idelim_marked_productive|].
-    destruct inline_attrs_enabled; [apply iattr_feed_productive|].
-    pose proof (battr_lit_productive EmptyString txt o) as Hp.
-    destruct (battr_lit EmptyString txt o) as [t o']; cbn [fst snd] in Hp.
-    apply iscan_productive_lead, Hp.
-  - (* whichever way the pending delimiter resolves, something is owed:
-       either a scope is open, or its spelling is in the text buffer *)
-    destruct (Nat.ltb (S seen) (dwidth k)).
-    { destruct (Ascii.eqb c (dchar k));
-        [destruct mrk; [apply idelim_marked_productive|reflexivity]|].
-      apply iscan_productive_lead, orb_true_iff. left.
-      apply nonempty_str_app_l, idelim_run_nonempty. }
-    destruct (Ascii.eqb c rbrace);
-      [apply (idelim_resolve_productive k txt cc true (Some c) o)|].
-    destruct (idelim_resolve_productive k txt cc false (Some c) o) as [_ Ht].
-    destruct (idelim_resolve_text k txt cc false (Some c) o)
-      as [txt' [prev' [o' E]]].
-    rewrite E. apply iscan_productive_lead, (Ht txt' prev' o' E).
-  - destruct (is_tick c); reflexivity.
-  - destruct (is_tick c); [reflexivity|].
-    destruct (Nat.eqb run n); [|reflexivity].
-    destruct (Ascii.eqb c lbrace && vkind_verb vk)%bool; [reflexivity|].
-    apply iscan_productive_lead.
-    rewrite ostate_nonempty_emit. apply orb_true_r.
-  - (* a pending `$` owes its own dollars, or the span it opens *)
-    unfold idollar_step. destruct (Ascii.eqb c dollar);
-      [destruct dtwo; reflexivity|].
-    destruct (is_tick c && math_enabled)%bool; [reflexivity|].
-    apply iscan_productive_lead, orb_true_iff. left.
-    apply nonempty_str_app_l, dollars_nonempty.
-  - (* and a pending `.` owes its own periods, or the ellipsis they make *)
-    unfold iperiod_step. destruct (Ascii.eqb c period).
-    { destruct ptwo; [|reflexivity].
-      cbn [iscan_productive]. apply orb_true_iff. left.
-      apply nonempty_str_app_l, typography_ellipsis_nonempty. }
-    apply iscan_productive_lead, orb_true_iff. left.
-    apply nonempty_str_app_l, periods_nonempty.
-  - (* a hyphen run owes what it has counted *)
-    unfold idash_step. destruct (Ascii.eqb c hyphen); [reflexivity|].
-    destruct (Ascii.eqb c rbrace).
-    { destruct (dstyle_of hyphen) as [k|];
-        [destruct (Nat.leb (dwidth k) dn);
-           [apply idelim_resolve_productive|]|];
-        (cbn [iscan_productive]; apply orb_true_iff; left;
-         apply nonempty_str_app_l, nonempty_str_app_l; reflexivity). }
-    apply iscan_productive_lead. cbn [iscan_productive] in H.
-    destruct dn as [|dn].
-    { cbn [Nat.ltb orb] in H. rewrite typography_dashes_0.
-      rewrite (append_empty_r dtx). exact H. }
-    apply orb_true_iff. left.
-    apply nonempty_str_app_l, typography_dashes_nonempty.
-  - unfold ibang_step. destruct (Ascii.eqb c lbrack).
-    + cbn [iscan_productive]. rewrite ostate_nonempty_bpush. apply orb_true_r.
-    + apply iscan_productive_lead. apply orb_true_iff. left.
-      apply nonempty_str_app_l. reflexivity.
-  - (* a literal bracket owes its own source; a destination owes more *)
-    destruct (Ascii.eqb c lparen); [reflexivity|].
-    destruct (Ascii.eqb c lbrack); [reflexivity|].
-    destruct (Ascii.eqb c lbrace && inline_attrs_enabled)%bool; [reflexivity|].
-    pose proof (bclosed_lit_nonempty kids img ob) as Hne.
-    destruct (bclosed_lit kids img ob) as [txt o']; cbn [fst] in Hne.
-    apply iscan_productive_lead. rewrite Hne. reflexivity.
-  - apply ispan_feed_productive.
-  - apply iattr_feed_productive.
-  - destruct (Ascii.eqb c rbrack); [|reflexivity].
-    cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
-  - unfold inote_step. destruct nesc; [reflexivity|].
-    destruct (is_bslash c); [reflexivity|].
-    destruct (Ascii.eqb c rbrack); [|reflexivity].
-    cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
-  - destruct esc; [reflexivity|].
-    destruct (is_bslash c); [reflexivity|].
-    destruct (Ascii.eqb c lparen); [reflexivity|].
-    destruct (Ascii.eqb c rparen); [|reflexivity].
-    destruct depth; [|reflexivity].
-    cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
-  (* a candidate owes its own `<` whichever way it ends *)
-  - unfold iauto_step.
-    destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool.
-    { cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r. }
-    destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool; [|reflexivity].
-    apply iscan_productive_lead, orb_true_iff. left.
-    apply nonempty_str_app_l. reflexivity.
-  (* and a raw spec owes the verbatim it is deciding the node of *)
-  - unfold iraw_step.
-    destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
-    { destruct raw_inline_enabled.
-      - cbn [iscan_productive]. rewrite ostate_nonempty_emit. apply orb_true_r.
-      - apply iscan_productive_lead, orb_true_iff. right.
-        apply ostate_nonempty_emit. }
-    destruct rspec as [|x rspec'].
-    + destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
-      unfold ibrace_step. destruct (dstyle_of c);
-        [apply idelim_marked_productive|].
-      destruct inline_attrs_enabled; [apply iattr_feed_productive|].
-      pose proof (battr_lit_productive EmptyString ""
-                    (oemit (mk (Verbatim rtxt)) rob)) as Hp.
-      destruct (battr_lit EmptyString "" (oemit (mk (Verbatim rtxt)) rob))
-        as [t o']; cbn [fst snd] in Hp.
-      apply iscan_productive_lead, Hp.
-    + destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
-      apply iscan_productive_lead, orb_true_iff. right.
-      apply ostate_nonempty_emit.
-Qed.
-
-Lemma iscan_productive_str :
-  forall s st, iscan_productive st = true ->
-  iscan_productive (iscan_str s st) = true.
-Proof.
-  induction s as [|c rest IH]; intros st H; [exact H|].
-  cbn [iscan_str]. apply IH, iscan_productive_step, H.
-Qed.
-
-(* Unconditional: a boundary either pushes a `SoftBreak` or leaves a
-   state that is productive by construction, so every paragraph of two
-   or more lines is productive whatever its first line held. *)
-Lemma iscan_productive_break :
-  forall st, iscan_productive (ibreak st) = true.
-Proof.
-  intros st. unfold ibreak.
-  pose proof (iresolve_resolved st) as Hno.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
-    try contradiction;
-    cbn [iscan_productive]; try reflexivity;
-    try apply ispan_feed_productive; try apply iattr_feed_productive.
-  1,2,3: try unfold iesc_hard;
-         rewrite ostate_nonempty_emit; apply orb_true_r.
-  destruct (Nat.eqb run n); cbn [iscan_productive]; [|reflexivity].
-  { rewrite ostate_nonempty_emit. apply orb_true_r. }
-  (* the candidate's own `<` is in the buffer the break flushes, and the
-     raw spec's verbatim likewise *)
-  all: rewrite ostate_nonempty_emit; apply orb_true_r.
-Qed.
-
-Lemma iscan_productive_lines :
-  forall l st, iscan_productive st = true ->
-  iscan_productive (iscan_lines l st) = true.
-Proof.
-  induction l as [|x [|y rest] IH]; intros st H; cbn [iscan_lines].
-  - exact H.
-  - apply iscan_productive_str, H.
-  - apply IH, iscan_productive_break.
-Qed.
-
-Lemma nonempty_oapp :
-  forall cur out, nonempty out = true -> nonempty (oapp cur out) = true.
-Proof.
-  induction cur as [|n cur IH]; intros out H; [exact H|].
-  destruct cur as [|m cur']; [|rewrite oapp_cons2; reflexivity].
-  rewrite oapp_one. destruct out as [|[[a [|p ps] i]|ma ms] out'];
-    [discriminate| | |].
-  - unfold osnoc. destruct i; try reflexivity.
-    destruct n as [[c [|q qs] j]|na ns]; try reflexivity.
-    destruct j; reflexivity.
-  - unfold osnoc. destruct n as [[c d j]|na ns]; reflexivity.
-  - unfold osnoc. destruct n as [[c d j]|na ns]; reflexivity.
-Qed.
-
-Lemma nonempty_oapp_l :
-  forall cur out, nonempty cur = true -> nonempty (oapp cur out) = true.
-Proof.
-  intros [|x [|y cur']] out H; [discriminate| |rewrite oapp_cons2; reflexivity].
-  rewrite oapp_one. destruct out as [|[[a [|p ps] i]|ma ms] out'];
-    try reflexivity.
-  unfold osnoc. destruct i; try reflexivity.
-  destruct x as [[c [|q qs] j]|na ns]; try reflexivity.
-  destruct j; reflexivity.
-Qed.
-
-Lemma nonempty_oapp_snoc :
-  forall cur n, nonempty (oapp cur [n]) = true.
-Proof.
-  intros cur n. destruct cur as [|x cur']; [reflexivity|].
-  apply nonempty_oapp_l. reflexivity.
-Qed.
-
-(* Something comes out if anything is owed: content below, an open scope
-   whose opener will decay to text, or a pending splice. *)
-Lemma nonempty_oflatten :
-  forall stk pend bottom,
-    (nonempty bottom || negb (null stk) || nonempty pend)%bool = true ->
-    nonempty (oflatten pend stk bottom) = true.
-Proof.
-  induction stk as [|f stk IH]; intros pend bottom H; cbn [oflatten].
-  - cbn [null negb] in H. rewrite orb_false_r in H.
-    apply orb_true_iff in H as [H|H];
-      [apply nonempty_oapp, H | apply nonempty_oapp_l, H].
-  - apply IH. rewrite nonempty_oapp_snoc, orb_true_r. reflexivity.
-Qed.
-
-(* Resolution never empties a scope: a node stays one, and a spec that
-   takes nothing keeps its own source. *)
-Lemma nonempty_oresolve :
-  forall l, nonempty l = true -> nonempty (oresolve l) = true.
-Proof.
-  intros [|i l] H; [discriminate|]. unfold oresolve; cbn [oresolve_go].
-  destruct (oresolve_go l) as [out m]; cbn [fst].
-  destruct i as [n|a src].
-  - destruct m; [|reflexivity].
-    destruct (isnoc n out) eqn:E; [exfalso; exact (isnoc_nonnil n out E)|].
-    reflexivity.
-  - destruct (oattach_list a src out) eqn:E;
-      [exfalso; exact (oattach_list_nonnil a src out E)|reflexivity].
-Qed.
-
-Lemma nonempty_ofinish :
-  forall o, ostate_nonempty o = true -> nonempty (ofinish o) = true.
-Proof.
-  intros o H. unfold ofinish. apply nonempty_oresolve, nonempty_oflatten.
-  unfold ostate_nonempty in H. rewrite H. reflexivity.
-Qed.
-
-Lemma iscan_productive_finish :
-  forall st, iscan_productive st = true -> nonempty (ifinish st) = true.
-Proof.
-  intros st H. unfold ifinish. rewrite nonempty_rev.
-  unfold ifinish_rev, ifinish_ostate.
-  pose proof (iscan_productive_resolve st H) as Hres.
-  pose proof (iresolve_resolved st) as Hno.
-  destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|kids img ob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
-    try contradiction; apply nonempty_ofinish.
-  - apply ostate_nonempty_emit.
-  - cbn [iscan_productive] in Hres.
-    apply orb_true_iff in Hres as [Hres|Hres];
-      [apply ostate_nonempty_flush_str, Hres
-      |apply ostate_nonempty_flush, Hres].
-  - apply ostate_nonempty_emit.
-  - apply ostate_nonempty_emit.
-  - apply ostate_nonempty_emit.
-  - pose proof (bspan_lit_productive kids img ssrc sob) as Hs.
-    destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [fst snd] in Hs.
-    apply orb_true_iff in Hs as [Hs|Hs];
-      [apply ostate_nonempty_flush_str, Hs | apply ostate_nonempty_flush, Hs].
-  - pose proof (battr_lit_productive asrc atxt aob) as Ha.
-    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd] in Ha.
-    apply orb_true_iff in Ha as [Ha|Ha];
-      [apply ostate_nonempty_flush_str, Ha | apply ostate_nonempty_flush, Ha].
-  - pose proof (bref_lit_productive kids img label ob) as Hr.
-    destruct (bref_lit kids img label ob) as [txt o']; cbn [fst snd] in Hr.
-    apply orb_true_iff in Hr as [Hr|Hr];
-      [apply ostate_nonempty_flush_str, Hr | apply ostate_nonempty_flush, Hr].
-  - pose proof (bnote_lit_productive nesc nimg nlab nob) as Hn.
-    destruct (bnote_lit nesc nimg nlab nob) as [txt o']; cbn [fst snd] in Hn.
-    apply orb_true_iff in Hn as [Hn|Hn];
-      [apply ostate_nonempty_flush_str, Hn | apply ostate_nonempty_flush, Hn].
-  - pose proof (bdest_lit_productive kids img esc dst ob) as Hd.
-    destruct (bdest_lit kids img esc dst ob) as [txt o']; cbn [fst snd] in Hd.
-    apply orb_true_iff in Hd as [Hd|Hd];
-      [apply ostate_nonempty_flush_str, Hd | apply ostate_nonempty_flush, Hd].
-  - apply ostate_nonempty_flush_str, nonempty_str_app_l. reflexivity.
-  - apply ostate_nonempty_flush, ostate_nonempty_emit.
-Qed.
-
-Lemma iscan_productive_first :
-  forall c, iscan_productive (istep c istart) = true.
-Proof.
-  intros c. unfold istart. cbn [istep]. unfold ilead.
-  destruct (is_bslash c); [reflexivity|].
-  destruct (is_tick c); [reflexivity|].
-  destruct (Ascii.eqb c dollar); [reflexivity|].
-  destruct (Ascii.eqb c period); [reflexivity|].
-  destruct (Ascii.eqb c hyphen); [reflexivity|].
-  destruct (Ascii.eqb c lbrace); [reflexivity|].
-  destruct (Ascii.eqb c bang); [reflexivity|].
-  destruct (Ascii.eqb c lt); [reflexivity|].
-  destruct (Ascii.eqb c lbrack); [reflexivity|].
-  (* nothing is open at the start, so a `]` is text *)
-  destruct (Ascii.eqb c rbrack); [reflexivity|].
-  (* and nothing is pushed, so a `^` is the superscript row *)
-  destruct (Ascii.eqb c hat && note_pos EmptyString None
-            && notes_enabled)%bool;
-    destruct (dstyle_of c); reflexivity.
-Qed.
-
-Lemma parse_inline_line_nonempty :
-  forall s, nonempty_str s = true -> nonempty (parse_inline_line s) = true.
-Proof.
-  intros [|c rest] H; [discriminate|].
-  unfold parse_inline_line. cbn [iscan_str].
-  apply iscan_productive_finish, iscan_productive_str, iscan_productive_first.
 Qed.
 
 Lemma parse_inline_line_escape :
@@ -8810,12 +8122,23 @@ Example attr_empty_spec_on_node :
   = [mk (Link [mk (Str "l")] (Direct "u"))].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Nothing at all before it is the case we do not follow djot.js on: it
-   drops the spec, and a heading whose whole content is one would then
-   have no children, which `wf_block` excludes.  The source stays. *)
-Example attr_with_nothing_before_is_text :
+(* Nothing at all before it and the spec is gone, source included.  A
+   line that is nothing else resolves to no inlines at all, which is why
+   `para_block` may answer with no block. *)
+Example attr_with_nothing_before_vanishes :
   parse_inline_line "{#i} x"
-  = [mk (Str "{#i} x")].
+  = [mk (Str " x")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example attr_alone_leaves_nothing :
+  parse_inline_line "{#i}" = [].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A scope holding nothing else closes onto nothing, which is djot.js's
+   `<strong></strong>`: the empty-scope test runs on the items, before
+   attachment. *)
+Example attr_alone_in_scope_closes_empty :
+  parse_inline_line "*{#i}*" = [mk (Strong [])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* An opener that never closed is text by the time the spec attaches, so
@@ -8867,27 +8190,16 @@ Example attr_empty_spec_rejoins :
   parse_inline_line "foo{}bar" = [mk (Str "foobar")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Two divergences survive, and both are the case with *nothing* before
-   the spec in its own scope.
-
-   A spec first inside a scope that closes: djot.js reads the tip of the
-   container, finds it empty and drops the spec, giving `<strong>b</strong>`.
-   We keep the source, for the reason `attr_with_nothing_before_is_text`
-   gives.  That reason is the whole of it here -- the scope still has `b`
-   in it, so dropping would not leave anything empty. *)
+(* A spec first inside a scope that closes: the scope's tip is empty, the
+   spec goes, and the scope keeps the rest. *)
 Example attr_first_in_a_closing_scope :
   parse_inline_line "a *{.c}b*"
-  = [mk (Str "a "); mk (Strong [mk (Str "{.c}b")])].
+  = [mk (Str "a "); mk (Strong [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The scope whose *only* content is the spec is where the second reason
-   bites, and it is a different input from the one above: djot.js really
-   does emit `<strong></strong>` for this, and an empty `Strong` is one
-   `wf_inline` excludes and `oclose` refuses to build.  So here matching
-   is not merely declined, it is unavailable. *)
 Example attr_alone_in_a_closing_scope :
   parse_inline_line "a *{.c}*"
-  = [mk (Str "a "); mk (Strong [mk (Str "{.c}")])].
+  = [mk (Str "a "); mk (Strong [])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A spec inside a bracket that decays.  `bclose` has to hand `IClosed`
@@ -9114,16 +8426,16 @@ Example key_second_colon_splits :
   key_split "see http://x: it works" = Some ("see http://x", "it works").
 Proof. vm_compute. reflexivity. Qed.
 
-(* A spec with nothing before it keeps its source here, where djot.js
-   drops it (`.project/oracle-disagreements.md`, 2026-08-15), so the
-   label is the literal braces and not what they would have named.  Both
-   of these are keys, and 3.2's advice stands for a different reason
-   than the one that file gives: an attribute meant for the keyed node
-   goes on its own line above. *)
-Example key_leading_brace_is_literal :
-  key_split "{#i}: bar" = Some ("{#i}", "bar").
+(* A spec with nothing before it leaves no inline at all, so a label that
+   is nothing else is not one inline and the line is not a key.  This is
+   `key_label_ok` doing the work: 3.2's advice -- an attribute meant for
+   the keyed node goes on its own line above -- now has a mechanism
+   behind it rather than an accident of spelling. *)
+Example key_leading_brace_is_no_key :
+  key_split "{#i}: bar" = None.
 Proof. vm_compute. reflexivity. Qed.
 
-Example key_leading_brace_keeps_its_source :
+(* With something after it the spec attaches and the label is that. *)
+Example key_leading_brace_attaches :
   key_split "{#i}foo: bar" = Some ("{#i}foo", "bar").
 Proof. vm_compute. reflexivity. Qed.

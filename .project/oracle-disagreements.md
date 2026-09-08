@@ -1226,3 +1226,95 @@ All four exact-HTML differences are now open and none requires weakening
 the no-backtracking goal. See [[no-backtracking]] for the interpretation
 that distinguishes an oracle implementation's replay from behaviour
 that inherently requires replay.
+
+## Closed 2026-09-08 — `attributes:89` and `attributes:95`, and what they cost
+
+Both cases were one arm of `oattach_list`. A spec with nothing before it
+and a spec sitting on a `SoftBreak` were the same disposition -- put the
+source back as text -- and they had to stay the same disposition,
+because the head below a waiting spec is a `SoftBreak` exactly when an
+`oout_app` splice put a previous line there. Distinguishing them would
+have made attachment see the splice, which every `_app` lemma denies.
+Dropping the spec in both arms keeps them one case and follows djot.js,
+so the two were one edit, not the two of unequal cost the reclassified
+entry above described.
+
+**What the earlier entry got wrong.** It priced `attributes:95` as a side
+condition on `oresolve_app` and `para_inlines_cons2_closed`, reasoning
+that letting a spec disappear against a `SoftBreak` makes resolution
+sensitive to whether the paragraph is scanned whole or split at that
+line. It does not: djot.js attaches to the break node, where the spec
+renders as nothing, and *dropping* is the same observable. Both
+decompositions then answer with nothing, and the lemma stands unchanged.
+
+**What it did cost.** `oattach_list` can now return `[]`, so a nonblank
+line can yield no inlines. That falsified `parse_inline_line_nonempty`
+and the whole `iscan_productive` family behind it -- 700 lines, deleted.
+Its consumers were three `wf_block` clauses asking a construct to be
+nonempty: `Para`, `Keyed`'s label, and a `Table`'s caption.
+
+The first two were relaxed rather than guarded, and that is the part
+worth recording. `wf_block` is not the roundtrip domain -- `roundtrip_
+blocks` quantifies over `cblocks_ok`, and `wf_complete_false` says
+outright that `wf_block` does not characterize parser output. So the
+question the lessons file poses (*would matching falsify `parse (render
+d) = d` for a `d` the parser can reach?*) answers no here, and the oracle
+wins: djot.js emits `<p></p>` for `{.a}{.b}` and `<strong></strong>` for
+`*{.a}*`, and now so do we. The caption keeps its clause -- `Some []`
+is a second spelling of `None`, which is a canonicity condition and not
+a rendering one -- so `caption_of` tests the inlines rather than the
+lines.
+
+Relaxing rather than guarding also settled a case no guard would have:
+
+```
+{#i}
+{.a}{.b}
+
+x
+```
+
+djot.js gives the pending `{#i}` to the empty paragraph
+(`<p id="i"></p>`, then `<p>x</p>`). A parser that omitted the empty
+paragraph would have carried the pending set past the blank to `x`, and
+`step_empty_carriable` -- the lemma that says a state emitting nothing
+can still carry pending attributes -- would have become false with no
+cheap repair.
+
+**Fallout, and it is a regression.** `attributes.test:253` was matching
+by accident and no longer does. The corpus number is 283 -> 284, not
+285.
+
+```
+{%
+SPDX-FileCopyrightText: 2025
+%}
+
+Hello.
+```
+
+djot.js renders the three lines as a literal paragraph; we now render
+`<p></p>`, because the block attribute machine fails on them, retracts
+to a paragraph of the lines it ate, and the *inline* machine then reads
+`{%`..`%}` as a comment spec that closes, attaches to nothing and is
+dropped. Both engines drop such a spec inline (`x{% c` / `%}y` is `xy`
+in djot.js), so the difference is that djot.js never inline-parses those
+lines at all: the source a block-attribute candidate consumed comes back
+as literal text. Two adjacent probes pin the shape -- `{#i` / `*a*` and
+`{a=x` / `*b*}` both still match, because there the re-parse happens to
+reproduce the source.
+
+**Verdict: ours, open.** This is the block-level member of the
+recovery-of-consumed-source family that `attributes:370` and
+`links_and_images:220` are the inline members of, and it wants the same
+answer: a candidate advanced beside an ordinary shadow, with the shadow
+chosen when the candidate dies. It is not a reason to keep the source in
+`oattach_list`, which was fixing the wrong layer.
+
+**Also removed.** `OMark` carried the spec's source for the dropped
+disposition alone, so the field went with it, and with it
+`ilist_ok`'s `nonempty_str src` clause and `iattr_mark`'s brace
+reconstruction. `state_wf`'s `forallb nonblank` clauses had no consumer
+left once `Para` lost its nonemptiness obligation, so `PPara`,
+`PHeading`'s accumulator, `PAttr`'s slices, `PTable`'s caption lines and
+`PKey`'s two strings carry nothing now. Net -845 lines.

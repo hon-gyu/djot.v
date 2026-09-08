@@ -416,12 +416,16 @@ Definition cap_lines (c : tcap) : list string :=
 (* An empty caption is no caption: `^ ` with nothing after it opens one
    with no content, and djot.js renders that as no caption at all, so
    `Some []` would be a second spelling of `None` -- which is what
-   `wf_block` rules out. *)
+   `wf_block` rules out.  The test is on the inlines rather than on the
+   lines because a line can have content and still leave none: an
+   attribute spec with nothing to attach to is gone by the time the
+   caption is built. *)
 Definition caption_of (c : tcap) : option inlines :=
   match c with
   | TOpen | TAfterBlank => None
-  | TCaption [] => None
-  | TCaption ls => Some (para_inlines (rev ls))
+  | TCaption ls =>
+      let ils := para_inlines (rev ls) in
+      if nonempty ils then Some ils else None
   end.
 
 (* A table of separators alone has no rows at all, which is a table djot

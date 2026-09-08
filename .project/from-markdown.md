@@ -305,14 +305,16 @@ non-negotiable, so djot's instance has to keep everything on. "Opt-in"
 therefore means a named profile in which these are off, not a change of
 default. Profiles, not flags.
 
-## The four known conformance gaps
+## The three known conformance gaps
 
 Against djot.js on its own 287-case corpus: block structure agrees
-287/287, exact HTML agrees 283/287. All four differences are open
-conformance gaps: two concern unattached inline attributes, one an
-unclosed attribute spec, and one an unterminated link destination.
-djot.js implements failed-attribute recovery by replaying source, but a
-a product state can produce the same result without backtracking.
-All four are outside canonical renderer output, so they do not affect
-roundtrip; that boundary does not make them conforming. See
-[[exact-html-gaps]] and [[no-backtracking]] for the current analysis.
+287/287, exact HTML agrees 284/287. All three differences are open
+conformance gaps and all three are the same shape: djot.js keeps a
+candidate's source and we do not, so a failed block attribute spec, a
+failed inline attribute spec and an unterminated link destination each
+recover differently. djot.js implements the recovery by replaying
+source, but a product state can produce the same result without
+backtracking. Two of the three are outside canonical renderer output, so
+they do not affect roundtrip; that boundary does not make them
+conforming. See [[exact-html-gaps]] and [[no-backtracking]] for the
+current analysis.

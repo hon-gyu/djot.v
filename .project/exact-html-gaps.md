@@ -16,76 +16,58 @@ disagrees on. Ours are the ones with a `gallina:` line.
 ## What the two corpus numbers are measuring
 
 `make shape` compares block structure with inline content dropped, and
-is **287/287**. `make test` compares exact HTML and is **283/287**. The
-four cases in the difference are all inline and all in the same two
-families. All four are open conformance gaps.
+is **287/287**. `make test` compares exact HTML and is **284/287**. The
+three cases in the difference are one family: djot.js keeps a candidate
+running beside the ordinary scan and we do not, so the source a failed
+candidate consumed comes back differently. All three are open
+conformance gaps.
 
-They are also all unreachable from a canonical document, which is why
-the generated corpus and roundtrip are clean: none of these shapes can
-occur in output the renderer produces. That bounds their effect and
+Two of them are unreachable from a canonical document, which is why the
+generated corpus and roundtrip are clean. That bounds their effect and
 keeps them out of the roundtrip theorem. It does not make a difference
 from the designated djot.js oracle correct or finished.
 
-## The four
+## The three
 
-### A spec with nothing it may attach to
+### A block-attribute candidate's lines, re-parsed
 
-`attributes.test:89`
-
-```
-{#id} at beginning
-```
-| | |
-| --- | --- |
-| djot.js | `<p> at beginning</p>` |
-| ours | `<p>{#id} at beginning</p>` |
-
-`attributes.test:95`
+`attributes.test:253`
 
 ```
-After {#id} space
-{.class}
+{%
+SPDX-FileCopyrightText: 2025
+%}
+
+Hello.
 ```
 | | |
 | --- | --- |
-| djot.js | `<p>After  space\n</p>` |
-| ours | `<p>After  space\n{.class}</p>` |
+| djot.js | `<p>{%\nSPDX-FileCopyrightText: 2025\n%}</p>` then `<p>Hello.</p>` |
+| ours | `<p></p>` then `<p>Hello.</p>` |
 
-Both engines consume the first `{#id}` and drop it, since the text
-before it ends in whitespace. They differ on `{.class}`, which sits
-behind a soft break, and attachment declines a soft break.
+The block attribute machine fails on the three lines and both engines
+retract to a paragraph of them. djot.js emits the consumed source as
+literal text; we re-parse it, and the inline attribute machine reads
+`{%`..`%}` as a comment spec that closes, attaches to nothing and is
+dropped. Dropping is right -- `x{% c` / `%}y` is `xy` in djot.js too --
+so the difference is only that djot.js never runs the inline scan over
+those lines.
 
-djot.js's `-attributes` handler asks for the tip of the current
-container and returns without doing anything when there is none
-(`parse.ts:452`). The spec's source is already gone by then, consumed by
-the attribute machine, so it vanishes.
+**Open conformance gap.** It is the block-level member of the family the
+two below belong to, and takes the same repair: keep the candidate's
+source beside an ordinary scan and choose the source when the candidate
+dies. Two adjacent inputs stay in agreement and mark the boundary --
+`{#i` / `*a*` and `{a=x` / `*b*}` both match, because there the re-parse
+reproduces the source.
 
-**Open conformance gap.** The current implementation preserves a useful
-unconditional productivity theorem: `parse_inline_line_nonempty` says a
-nonblank line yields at least one inline. Following djot.js would falsify
-that statement for `{#i}`. But the statement is a helper theorem, not a
-djot semantic commitment. It can be narrowed to exclude input erased by
-unattached attributes, while the block parser omits an empty paragraph
-instead of constructing `Para []`. An empty heading already fits
-`wf_block`.
+This one *is* reachable from a canonical document in principle, since it
+is the parser's own paragraph that differs; it does not threaten
+roundtrip, because both sides of the difference parse and render
+consistently.
 
-The second case exposes a different proof boundary. Letting a spec at
-the start of a line disappear against the preceding `SoftBreak` makes
-resolution sensitive to whether the paragraph is scanned whole or
-decomposed at that line. The current `oresolve_app` and
-`para_inlines_cons2_closed` statements rule that out unconditionally.
-They can instead acquire a side condition saying that no unresolved
-attribute at the split may inspect the appended prefix. Canonical text
-already discharges such a condition.
-
-Neither repair requires source replay. The present behaviour kept the
-theorems and their users simpler, but theorem convenience is not a
-semantic reason to override the reference implementation. These two
-cases remain work to do if exact djot.js recovery is the target.
-
-Argument in `oracle-disagreements.md` under *2026-08-15 -- ours: a spec
-with nothing before it*, amended 2026-08-22 when attachment moved after
-the scan.
+Logged 2026-09-08 under *Closed -- `attributes:89` and `attributes:95`*,
+which is what exposed it: the case matched by accident while an
+unattached spec kept its source.
 
 ### An unclosed spec whose source an inline scan would have claimed
 
@@ -193,7 +175,7 @@ There can be two statuses after diagnosis:
    guarantee.
 2. **Open conformance gap.** Matching is compatible with the chosen
    properties, but needs implementation work or narrower helper lemmas.
-   All four cases in this note are currently in this class. For
+   All three cases in this note are currently in this class. For
    `attributes:370`, the oracle's implementation replays source, but a
    product state can compute the same output without replay.
 
@@ -203,8 +185,8 @@ parser already follows djot.js on that input.
 
 ## The caveat
 
-`ours` is a verdict the project passes on itself, so 283/287 must be
-reported as four open compatibility gaps. They need not give up
+`ours` is a verdict the project passes on itself, so 284/287 must be
+reported as three open compatibility gaps. They need not give up
 `wf_block`, canonical roundtrip, or no-backtracking: their helper
 theorems can be stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
