@@ -458,6 +458,42 @@ nothing, and "identity on those inputs" is usually reachable by
 restricting when the pass does anything -- cheaper than carrying a
 hypothesis to every user.
 
+## Check what quantifies over a predicate before defending it
+
+**What happened.** Dropping an unattached attribute spec made a nonblank
+line able to yield no inlines, which falsified `wf_block`'s `Para`
+nonemptiness clause. The plan was to defend the clause: a `para_block`
+smart constructor at six sites, a caption collapse, a `key_close` guard.
+That version then broke `oclose` (an emptied delimiter scope), and then
+`step_empty_carriable`, where a pending attribute set would have been
+carried past a blank line -- an obstruction with no cheap repair, since
+the lemma quantifies over all states.
+
+The clause did not need defending. `roundtrip_blocks` quantifies over
+`cblocks_ok`, not over `wf_block`, and `wf_complete_false` says in the
+file itself that `wf_block` does not characterize parser output. Nothing
+imports `Wf.v`. So the clause was a claim, not a constraint: deleting it
+cost two lines, matched djot.js on `<p></p>` and `<strong></strong>`,
+and made the `step_empty_carriable` problem disappear rather than need
+solving -- the pending set now attaches to the empty paragraph, which is
+what djot.js does.
+
+**General form.** [[#When the oracle's answer is unrepresentable]] says
+to ask whether matching would falsify `parse (render d) = d` for a
+reachable `d`. Answering it requires knowing which predicate the theorem
+actually quantifies over, and a predicate that *sounds* like the
+canonical one is easy to substitute for it. `wf_block` and `cb_ok` both
+read as "the ASTs we admit"; only one is a hypothesis of the roundtrip.
+
+**What to do instead.** When a change falsifies a clause of a
+well-formedness predicate, grep for the predicate in every file *except*
+its own before designing a guard. If the only occurrences are inside its
+own file and in comments, it is a claim about the parser and the change
+is to the claim. Reserve guards for predicates some other theorem takes
+as a hypothesis. The tell that the guard was wrong here was that each
+one bred another: a defended invariant that keeps finding new places to
+be defended is usually not the one the development rests on.
+
 ## A parameter's laws need the parameter's own domain
 
 **What happened.** The link codec was first written with
