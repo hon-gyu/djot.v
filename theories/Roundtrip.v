@@ -1626,8 +1626,7 @@ Proof.
                  (a :: more ++ "" :: cb_lines next ++ tail)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).
-      cbn [ap_attrs attr_merge fold_left].
-      change (attr_put ("id", id) []) with [("id", id)].
+      cbn [ap_attrs]. rewrite attr_merge_one.
       cbn [app] in IHtail. rewrite (IHtail next tail Hpair Hnext Hinner).
       apply decorate_head_cb_ast, Hnid.
     + intros H.
@@ -1640,8 +1639,7 @@ Proof.
                  (a :: more)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).
-      cbn [ap_attrs attr_merge fold_left].
-      change (attr_put ("id", id) []) with [("id", id)].
+      cbn [ap_attrs]. rewrite attr_merge_one.
       rewrite (IHend Hinner).
       apply decorate_head_cb_ast, Hnid.
   - (* key: the child prefix passes the wrapper until its first output. *)
@@ -1843,9 +1841,7 @@ Proof.
     apply andb_true_iff in Hid as [_ Hnid]. apply negb_true_iff in Hnid.
     destruct (cb_ast_mk inner Hnid) as [x Ex].
     specialize (IH Hinner). rewrite Ex, render_node_lines_mk in IH.
-    cbn [cb_ast cb_lines]. rewrite Ex.
-    cbn [add_attr mk attr_union fold_right integrate lookup_attr
-         String.eqb Ascii.eqb].
+    cbn [cb_ast cb_lines]. rewrite Ex, add_attr_mk.
     unfold render_node_lines, id_spec_lines.
     cbn [node_attrs node_contents lookup_attr String.eqb Ascii.eqb app].
     rewrite IH. reflexivity.
@@ -1977,10 +1973,8 @@ Example escaped_punct_is_literal :
   parse_blocks "a\*b" = [mk (Para [mk (Str "a*b")])].
 Proof. reflexivity. Qed.
 
-(* The boundary the delimiter table moved.  This read `["*a*"]` while `*`
-   had no inline meaning; now that the table claims it, a `Str`
-   containing one renders escaped, which is what keeps the text a `Str`
-   on the way back. *)
+(* The delimiter table claims `*`, so a `Str` containing one renders
+   escaped, which is what keeps the text a `Str` on the way back. *)
 Example star_escaped_in_str : cb_lines (cpara ["*a*"]) = ["\*a\*"].
 Proof. reflexivity. Qed.
 
@@ -2097,20 +2091,7 @@ Example roman_from_one_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* What `cb_ok` still excludes, and why each is excluded.  An alpha list
-   from `i` at length 1 renders `i. a`, which is also what roman from 1
-   renders -- two canonical ASTs, one source, so at most one can
-   round-trip and it is the roman one.  At length 2 the letters `c` and
-   `d` are *both* roman digits, so `c. / d.` is still unresolved after
-   its second marker and reads as roman from 100.  The last is the wrap:
-   `z` leaves no 27th letter.  Measured in `check/Probe.v`. *)
-(* These were the boundary until the two-peel form landed: `cb_ok`
-   rejected them while their renderings round-tripped, and the example
-   here asserted both halves.  It is now an ordinary roundtrip, proved
-   through `roundtrip_blocks` rather than by computation, which is the
-   confirmation the old example existed to give.
-
-   `c` and `d` are both roman digits, so `c.` / `d.` leaves the candidate
+(* `c` and `d` are both roman digits, so `c.` / `d.` leaves the candidate
    set where it was and only `e.` settles it; same for `l`, `m`, `n`.
    With these, every ordered start that can round-trip does. *)
 Example alpha_two_roman_digits_roundtrip :
@@ -2128,8 +2109,14 @@ Proof.
   repeat split; try reflexivity; apply roundtrip_blocks; reflexivity.
 Qed.
 
-(* Excluded and impossible.  Each of these three cannot round-trip at
-   all, so no theorem will ever admit them. *)
+(* Excluded and impossible: each of these three cannot round-trip at
+   all, so no theorem will ever admit them, and why each is excluded.  An
+   alpha list from `i` at length 1 renders `i. a`, which is also what
+   roman from 1 renders -- two canonical ASTs, one source, so at most one
+   can round-trip and it is the roman one.  At length 2 the letters `c`
+   and `d` are *both* roman digits, so `c. / d.` is still unresolved
+   after its second marker and reads as roman from 100.  The last is the
+   wrap: `z` leaves no 27th letter.  Measured in `dev/check/Probe.v`. *)
 Example excluded_ordered_starts :
   (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[cpara ["a"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 3) Tight

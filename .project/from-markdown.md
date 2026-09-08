@@ -47,8 +47,8 @@ The first two, raw inline, math and inline attributes compose in
 applies field-local capability updates. The nine block settings in the table
 and the separate keyed-block setting live in one record with one field each;
 `markdown_bconfig` composes the nine profile-facing knobs and leaves keys off.
-`check/Markdown.v` pins the combined profile, and `check/Sublist.v` and
-`check/Setext.v` pin the individual settings.
+`dev/check/Markdown.v` pins the combined profile, and `dev/check/Sublist.v` and
+`dev/check/Setext.v` pin the individual settings.
 
 The profile is not yet a CommonMark implementation: djot-only block and
 non-delimiter inline constructs remain enabled. See
@@ -308,8 +308,11 @@ default. Profiles, not flags.
 ## The four known conformance gaps
 
 Against djot.js on its own 287-case corpus: block structure agrees
-287/287, exact HTML agrees 283/287. All four differences are deliberate
-and argued in `.project/oracle-disagreements.md`. Three involve an
-attribute block that never closes or has nothing before it in its scope,
-one an unterminated link destination. None is reachable from a document
-this renderer can produce.
+287/287, exact HTML agrees 283/287. All four differences are open
+conformance gaps: two concern unattached inline attributes, one an
+unclosed attribute spec, and one an unterminated link destination.
+djot.js implements failed-attribute recovery by replaying source, but a
+a product state can produce the same result without backtracking.
+All four are outside canonical renderer output, so they do not affect
+roundtrip; that boundary does not make them conforming. See
+[[exact-html-gaps]] and [[no-backtracking]] for the current analysis.

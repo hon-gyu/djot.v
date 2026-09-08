@@ -930,7 +930,7 @@ Qed.
    announced closer arrives.  Thus a safe blank leaves no key able to
    claim the next line.  This is what lets `parse_list_close` and the
    item chain rule the override out from the hypothesis they already
-   carry.  Probed over the keyed pool in `check/Probe.v` before being
+   carry.  Probed over the keyed pool in `dev/check/Probe.v` before being
    proved. *)
 (* What a key's block looks like after a blank, when the block produced
    nothing and so the key is still open.  A state that emitted nothing
@@ -1224,8 +1224,8 @@ Definition item_ok (m : marker) (L : list string) : bool :=
        && run_safe more (snd (step l0 (PPara [])))
        && match more with [] => true | _ => nonblank (last more EmptyString) end
        (* and the item leaves no gap armed for the next marker to spend.
-          A nonblank last line used to settle this; a div's closer is a
-          nonblank line that arms, so the flag has to be asked for
+          A nonblank last line does not settle this, since a div's closer
+          is a nonblank line that arms, so the flag is asked for
           directly. *)
        && negb (item_gap L))%bool
   end.

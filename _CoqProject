@@ -1,2 +1,4 @@
 -R theories DjotV
 -R _build/default/theories DjotV
+-R dev DjotVDev
+-R _build/default/dev DjotVDev

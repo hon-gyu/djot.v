@@ -198,7 +198,7 @@ Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
     (@bdeflists K) (@battrs K) (@bfootnotes K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where wanted
-   (for example, in `check/Sublist.v`) so inference here always means Djot's.
+   (for example, in `dev/check/Sublist.v`) so inference here always means Djot's.
 
    A marker interrupts when it cannot be the tail of ordinary prose: a
    bullet, whose core is empty, or the numeral `1`.  Excluding every
@@ -454,7 +454,7 @@ The line fold
    Tight/loose is a stateful rule, and djot.js decides it on the *event*
    stream rather than on the finished tree: a blank line arms
    `ls_blanks`, and the next event that is neither a blank nor a list
-   boundary turns the list loose (parse.ts ~line 1237).  That is why
+   boundary turns the list loose (parse.ts:1242-1256).  That is why
    `- a`, blank, `  - b` stays tight even though a blank line separates
    the item's two children — the next event opens a list.  The textbook
    "blank line between block children" rule gets that case wrong.
@@ -3199,15 +3199,13 @@ Fixpoint pad_safe (st : pstate) : bool :=
   | _ => true
   end.
 
-(* The other half of what `pad_safe` used to be, and the reason the two
-   were worth separating: "a blank line closes whatever this state has
-   open".  A spec fails it because a blank inside one is a continuation
-   line, and a fence because a blank inside one is content.  Where
-   `pad_safe` is asked of *every* line of a run, this is asked only of the
-   state a run ends in -- so an item may contain a code block and still
-   satisfy it, which is exactly the case the fence exclusion used to
-   cost.  It is strictly stronger than `pad_safe`, but nothing needs to
-   say so: `run_safe` carries both, each where it is wanted. *)
+(* "A blank line closes whatever this state has open".  A spec fails it
+   because a blank inside one is a continuation line, and a fence because
+   a blank inside one is content.  Where `pad_safe` is asked of *every*
+   line of a run, this is asked only of the state a run ends in, which is
+   why an item may contain a code block and still satisfy it.  It is
+   strictly stronger than `pad_safe`, but nothing needs to say so:
+   `run_safe` carries both, each where it is wanted. *)
 Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ => false

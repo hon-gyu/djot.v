@@ -4,18 +4,17 @@
    consecutive numbering from a start, so each item carries its own
    marker rather than the list carrying one.
 
-   `nsc_uniformity` states the list-level argument once for any numbering
-   scheme; decimal, roman and alpha are three instantiations, and their
-   codecs live in `Marker.v`.  `list_kind` packages the flavours the
-   renderer emits, `ck_ok` the side condition roman and alpha carry, and
-   `ck_uniformity` is the one theorem the block layer consumes.
+   Parse-side, despite the name: what it proves is that the markers the
+   canonical renderer emits parse back to the list they came from.  It
+   sits above `Marker.v`, which holds the numeral codecs, and above the
+   uniformity chain it instantiates; `Parser.v` is its only consumer and
+   re-exports it, so the renderer sees it only through that.
 
-   Not covered: an ordered list whose *first* marker names two styles --
-   roman from 1, 5, 10 ... and alpha from a letter that is also a roman
-   digit.  The parser reads those correctly and so does djot.js; what
-   fails is `items_ok`, and closing it needs the list state's style set
-   to become a running narrowing.  See
-   .project/260810.ordered-lists.md. *)
+   `nsc_uniformity` states the list-level argument once for any numbering
+   scheme; decimal, roman and alpha are three instantiations.
+   `list_kind` packages the flavours the renderer emits, `ck_ok` the side
+   condition roman and alpha carry, and `ck_uniformity` is the one
+   theorem the block layer consumes. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From DjotV Require Import Strings Line Ast Attributes Inline Marker Step Uniformity ListUniformity.
@@ -359,15 +358,18 @@ Later markers are unconstrained either way, because `admits` asks only
 that a sibling still offer what the list opened with, and every roman
 numeral offers roman just as every letter offers alpha.
 
-`check/Probe.v` measures the two exception sets rather than trusting this
+`dev/check/Probe.v` measures the two exception sets rather than trusting this
 argument: `items_ok` fails at roman starts 1, 5, 10 (and 50, 100, 500,
 1000 above the probed range) and at alpha starts 3, 4, 9, 12, 13, 22, 24,
 which are exactly `c`, `d`, `i`, `l`, `m`, `v`, `x`.  The same probe
 records that the *parser* round-trips every one of those starts: what the
 exception sets bound is the reach of the hypothesis, not of the parser.
-Closing that gap needs the list state's style set to be a running
-narrowing rather than a constant, which is the open item in
-.project/260810.ordered-lists.md.
+
+The `_any` theorems below lift it.  A style *set* that narrows as the run
+proceeds costs the ambiguous opener nothing: one item closes on the
+unnarrowed head, and a second narrows to the singleton and holds it.  So
+`ck_ok` asks roman for a range and nothing else, and asks alpha only for
+an opener that names alpha alone *or* a second item to settle it.
 *)
 
 Definition roman_sty (up : bool) : ordered_list_style :=
@@ -670,7 +672,7 @@ holds it.
 
 Alpha gets no such theorem: `c` and `d` are adjacent and both roman
 digits, as are `l` and `m`, so an alpha list from 3 or 12 is still
-unresolved after its second marker.  Measured in `check/Probe.v`.
+unresolved after its second marker.  Measured in `dev/check/Probe.v`.
 *)
 
 Lemma styles_of_core_roman_single :
@@ -1316,6 +1318,7 @@ alpha wrap past `z` is excluded.  Bullet and decimal answer `true`
 unconditionally, so adding the argument costs their callers nothing but
 the word `eq_refl`.
 *)
+
 Inductive list_kind : Type :=
   | LKBullet
   (* A definition list is a bullet list whose marker is `:`; the four

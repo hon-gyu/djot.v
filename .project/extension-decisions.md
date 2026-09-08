@@ -227,7 +227,7 @@ The pieces, in the order they bite:
    245 times, and an explicit parameter would have been 245 edits there
    before counting the rest.
 
-   `check/Markdown.v` is the payoff. It used to need a recipe -- point
+   `dev/check/Markdown.v` is the payoff. It used to need a recipe -- point
    `config` at the second table, truncate the djot examples, rebuild --
    and now it names `markdown_table` in four notations and compiles
    against the ordinary build, beside djot's own examples.
@@ -252,7 +252,7 @@ The pieces, in the order they bite:
    prefix_determinism, no_future_line_dependence, quote_uniformity : likewise
    ```
 
-   `check/Markdown.v` closes the loop by *applying* them:
+   `dev/check/Markdown.v` closes the loop by *applying* them:
    `md_roundtrip_blocks` is `@roundtrip_blocks markdown_table`, the same
    proof term at the other instance. Not a rebuild -- the rebuild audit
    could only ever say "the script still works"; this says the theorem
@@ -320,10 +320,10 @@ buys is saying so in the statements rather than by rebuilding.
 - *A reduced profile composes those switches.* `disable_rows` lifts the
   single-row preservation theorem over an explicit list.
   `markdown_like_config` disables superscript, subscript, highlight, insert,
-  delete and both quote rows; `check/Markdown.v` pins their literal reading,
+  delete and both quote rows; `dev/check/Markdown.v` pins their literal reading,
   rejection from the canonical fragment, and document roundtrip.
 
-**The open sub-questions, now measured.** `check/Markdown.v` pins
+**The open sub-questions, now measured.** `dev/check/Markdown.v` pins
 `markdown_config`'s behaviour -- thirty examples, with the two-step
 recipe in its header (point `config` at it, truncate `Inline.v`'s
 djot-specific examples, compile). No oracle can adjudicate any of this:
@@ -443,7 +443,7 @@ classifies as text at every setting. Filtering the generated pool by
 marker-shaped leaf in `Generate.leaves` exists to say.
 
 **Status: settled, pinned, and proved as a configuration property**, in
-`check/Sublist.v` per discipline 2 --
+`dev/check/Sublist.v` per discipline 2 --
 `djot_swallows_the_marker`, `sublist_nests_without_a_blank`,
 `sublist_interrupts_at_top_level`, `any_marker_invents_a_list`,
 `sublist_leaves_the_year_alone`, and `sublist_roundtrip_blocks`, which is
@@ -547,7 +547,7 @@ markers; they are now about `bcuts`, the single question "does a setting
 take this line out of an open paragraph". A third setting that ends a
 paragraph extends `bcuts` and touches nothing else.
 
-**Status: settled and pinned** in `check/Setext.v`, closing with
+**Status: settled and pinned** in `dev/check/Setext.v`, closing with
 `setext_roundtrip_blocks` -- `roundtrip_blocks` applied to the setting
 rather than reproved.
 
@@ -593,7 +593,7 @@ assembly, caption, or renderer data type changes.
 field of `bconfig`; `with_tables` preserves block incrementality and the
 lone-dash compatibility invariant. Djot and the individual sublist/setext
 profiles keep it enabled, while `markdown_bconfig` disables it.
-`check/Markdown.v` pins a two-row table spelling as one paragraph and checks
+`dev/check/Markdown.v` pins a two-row table spelling as one paragraph and checks
 that `CTable` is outside that profile's canonical fragment. Typography stays
 independent of tables: `dc_smart_typography` now makes `---` literal in the
 Markdown-like profile while djot continues to read it as an em dash.
@@ -611,7 +611,7 @@ as the idle state would, without a second source read or another fuel step.
 enabled; at the Markdown setting it requires exactly one. The roundtrip proof
 therefore splits locally between the old accumulation lemma and an empty
 rendered suffix, while block incrementality and prefix compatibility remain
-parametric. `check/Markdown.v` pins adjacent headings, lazy text, and both
+parametric. `dev/check/Markdown.v` pins adjacent headings, lazy text, and both
 sides of the canonical-view boundary.
 
 ## Settled: profiles are open compositions, and divs are optional

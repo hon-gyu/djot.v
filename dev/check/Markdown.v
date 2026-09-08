@@ -19,10 +19,10 @@ these examples name the other instance and the ordinary build checks
 them.
 
 ```
-dune build && rocq c -R _build/default/theories DjotV check/Markdown.v
+dune build && rocq c -R _build/default/theories DjotV dev/check/Markdown.v
 ```
 
-It is out of the dune build for the same reason `check/Deep.v` is --
+It is out of the dune build for the same reason `dev/check/Deep.v` is --
 `vm_compute` over whole documents is not something a parser edit should
 pay for -- and not because it needs special treatment any more.
 *)
@@ -601,6 +601,7 @@ profile-level one.  Both profiles keep footnotes on -- CommonMark lacks
 them but GFM has them -- so this is pinned at a profile of its own rather
 than in `markdown_like_profile`.
 *)
+
 Definition no_footnotes_profile : profile := with_footnotes false djot_profile.
 
 Example djot_profile_keeps_footnotes :
@@ -666,9 +667,8 @@ The theorems, at this table
 ---------------------------
 
 Not a rebuild and not a re-proof: the same proof term, applied to the
-other instance.  This is what threading the table bought that the
-rebuild audit could not -- the roundtrip is one theorem about the
-family, and `markdown_table` is one of its inhabitants.
+other instance.  The roundtrip is one theorem about the family, and
+`markdown_table` is one of its inhabitants.
 *)
 
 Theorem md_roundtrip_blocks :
@@ -682,6 +682,7 @@ Proof. exact (@roundtrip_blocks markdown_table markdown_bconfig). Qed.
 Theorem md_roundtrip_doc :
   forall cbs,
     @cblocks_ok markdown_table markdown_bconfig cbs = true ->
+    pristine (blocks_of_cblocks cbs) = true ->
     undo_pass
       (doc_blocks
          (@parse_doc markdown_table markdown_bconfig
@@ -692,6 +693,7 @@ Proof. exact (@roundtrip_doc markdown_table markdown_bconfig). Qed.
 Theorem markdown_like_roundtrip_doc :
   forall cbs,
     @cblocks_ok markdown_like_table markdown_bconfig cbs = true ->
+    pristine (blocks_of_cblocks cbs) = true ->
     undo_pass
       (doc_blocks
          (@parse_doc markdown_like_table markdown_bconfig

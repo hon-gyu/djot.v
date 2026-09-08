@@ -3,26 +3,22 @@
 (* Exhaustive generation of canonical blocks, and the roundtrip checked
    on every generated inhabitant by computation.
 
-   `parse_blocks (render_djot ...)` and `cb_ast` are both closed terms on
-   a closed `cblock`, so agreement between them is decided by
-   `vm_compute; reflexivity` — no decidable equality on `block` is
-   needed, and no extraction or oracle process.
+   Part of the build, not a side tool.  `parse_blocks (render_djot ...)`
+   and `cb_ast` are both closed terms on a closed `cblock`, so agreement
+   between them is decided by `vm_compute; reflexivity`: no decidable
+   equality on `block`, no extraction, no oracle process.  The `Example`s
+   below are therefore kernel-checked on every `dune build`, and
+   `harness/Extract.v` extracts the pools here to drive the differential
+   run against djot.js.
 
-   What it is for.  `roundtrip_blocks` already implies the accepted-side
-   examples below, so they prove nothing new *today*.  Their value is
-   under change: relaxing `cb_ok` re-scopes `accepted` automatically, so
-   a proposed relaxation can be tested for soundness in seconds, before
-   any proof work.  That is how `nested_loose_promotes_outer` (below) was
-   found.
+   `roundtrip_blocks` implies the accepted-side examples, so they prove
+   nothing new at a fixed `cb_ok`.  Their value is under change: relaxing
+   `cb_ok` re-scopes `accepted` automatically, so a proposed relaxation
+   is tested for soundness before any proof work.
 
    Coverage of *shapes*, not volume: the alphabet is deliberately tiny
    and sequences take their tail from a fixed set, so the pool grows
-   linearly (5, 110, 2315, 48620) instead of quadratically.
-
-   Depth 3 is not here.  It is in `check/Deep.v`, which dune does not
-   build, because those two checks were ~260s of a ~270s clean build and
-   this file sits downstream of `Parser.v`.  `make deep` runs them; that
-   file says what they cost and why. *)
+   linearly (5, 110, 2315, 48620) instead of quadratically. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Line Ast Parser Render.
@@ -62,9 +58,9 @@ Definition leaves : list cblock :=
      The header is right-aligned so that the separator carries something
      the AST has to give back. *)
   ; CTable [CTBody [[CIStr "a"]]]
-  (* The destination renderer escapes the backtick.  This leaf keeps the
-     row scanner and inline scanner aligned on that escape; without it the
-     2026-09-05 row-classification bug was outside the generated corpus. *)
+  (* The destination renderer escapes the backtick.  This leaf is the
+     only one where the row scanner and the inline scanner have to agree
+     on that escape. *)
   ; CTable [CTBody [[CILink false [CIStr "a"] "a`b"]]]
   ; CTable [CTHead [AlignRight; AlignDefault] [[CIStr "h"]; [CIStr "i"]];
             CTBody [[CIStr "b"]; [CIStr "c"]]] ].
@@ -147,7 +143,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example gen_roundtrip_2 : map rt_lhs (accepted 2) = map rt_rhs (accepted 2).
 Proof. vm_compute. reflexivity. Qed.
 
-(* Depth 3 lives in `check/Deep.v`, outside the dune build: it costs
+(* Depth 3 lives in `dev/check/Deep.v`, outside the dune build: it costs
    ~176s, and this file is downstream of Parser.v, so every parser edit
    was paying it.  `make deep` runs it. *)
 
@@ -163,6 +159,7 @@ are chosen to cross a width boundary: at start 9 the second item's
 marker is `10.` and its continuation pad is one wider than the first's,
 which is the case a single marker per list could not express.
 *)
+
 Definition ordered_kinds : list list_kind :=
   [ LKDecimal RightPeriod 1
   ; LKDecimal RightPeriod 9
@@ -233,6 +230,7 @@ has a term, one that starts with a heading or a fence has none -- and
 `item_tails` puts a second block after each, which is the case where the
 term and the definition are different blocks rather than the same one.
 *)
+
 Definition def_pool : list cblock :=
   flat_map (fun its => [CList LKDef Tight its; CList LKDef Loose its])
     (itemlists (seqs leaves)).
@@ -345,11 +343,9 @@ checks below record how much that is worth and that the hypothesis is
 satisfiable on renderings `cb_ok` does not itself constrain.
 *)
 
-(* A code block used to be excluded here, because fence content was
-   stored verbatim and a pad in front of it was not a shift.  The fence
-   records its own column now, so `run_safe` accepts one: an item may
-   contain a code block, and need only not *end* inside an open one,
-   which no canonical rendering does. *)
+(* A fence records its own column, so `run_safe` accepts one inside an
+   item: an item may contain a code block, and need only not *end*
+   inside an open one, which no canonical rendering does. *)
 Definition ok_content (c : cblock) : bool := item_ok bullet (cb_lines c).
 
 (* Every generated block's rendering, plus every two-block sequence built
@@ -364,16 +360,14 @@ Definition item_pool : list (list string) :=
 Example uniformity_applies : forallb (item_ok bullet) item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* What the restated `cb_ok` bought: the fragment now contains lists
-   whose items are themselves lists. *)
+(* The fragment contains lists whose items are themselves lists. *)
 Example nested_list_accepted :
   cb_ok (CList LKBullet Tight [[CList LKBullet Tight [[cpara ["a"]]]]]) = true.
 Proof. reflexivity. Qed.
 
-(* ...and what the fence's column bought: an item may contain a code
-   block, at any depth.  The pad the marker puts in front of the item's
-   lines now reaches the fence as a shift of its recorded column rather
-   than as content. *)
+(* An item may contain a code block, at any depth: the pad the marker
+   puts in front of the item's lines reaches the fence as a shift of its
+   recorded column rather than as content. *)
 Example item_code_accepted :
   cb_ok (CList LKBullet Tight [[CCode "" ["x"]]]) = true.
 Proof. reflexivity. Qed.
@@ -387,9 +381,9 @@ Example nested_item_code_accepted :
            [[CList LKBullet Tight [[CCode "" ["x"]]]]]) = true.
 Proof. reflexivity. Qed.
 
-(* The counts are pinned in `check/Deep.v` rather than here -- the
-   depth-3 length alone is expensive, which is a lot for a documentation
-   number.  They move whenever `leaves` gains a canonical construct. *)
+(* The pool counts are pinned in `dev/check/Deep.v` rather than here:
+   computing the depth-3 length is expensive, and they move whenever
+   `leaves` gains a canonical construct. *)
 
 (* The spacing rule the theorem carries, on the cases that pin its shape:
    a gap before a list marker does not loosen, a gap before anything else
@@ -403,9 +397,9 @@ Proof. reflexivity. Qed.
 Example spacing_nested_gap : item_loose [""; "  t"] = true.
 Proof. reflexivity. Qed.
 
-(* ...and the clause the fix added: a gap that a list already open in
-   these very lines will claim does not loosen, while the same gap after
-   that list has closed does. *)
+(* And a gap that a list already open in these very lines will claim
+   does not loosen, while the same gap after that list has closed
+   does. *)
 Example spacing_gap_inside_open_list : item_loose ["- b"; ""; "- c"] = false.
 Proof. reflexivity. Qed.
 Example spacing_gap_after_list_closed : item_loose ["- b"; ""; "t"] = false.
@@ -420,14 +414,13 @@ A blank at the end of a nested list
 `["- - b"; ""; "- d"]`: the blank ends the inner list and separates two
 items of the outer one.  The spec exempts a list's trailing blank from
 tightness, and both oracles read it that way, so the outer list is
-Tight; we used to spend the blank at the outer sibling and return Loose.
-See `.project/oracle-disagreements.md` (2026-08-09, "a blank at the end
-of a nested list").
+Tight.
 
 The three below pin the boundary: the `Tight` tree is what the source
 denotes, the `Loose` tree is unreachable and `cb_ok` rejects it, and the
 `Tight` rendering carries no separator blank at all.
 *)
+
 Definition end_blank_shape (sp : list_spacing) : cblock :=
   CList LKBullet sp [ [CList LKBullet Tight [ [cpara ["b"]] ]] ; [cpara ["d"]] ].
 

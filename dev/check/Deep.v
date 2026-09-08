@@ -39,23 +39,11 @@ Local Open Scope string_scope.
 Example gen_roundtrip_3 : map rt_lhs (accepted 3) = map rt_rhs (accepted 3).
 Proof. vm_compute. reflexivity. Qed.
 
-(* The delimiter leaf took these to (82, 1009, 12054), the link leaf to
-   (99, 1222, 14597) and the image leaf to (116, 1435, 17140).  The
-   reference definition and the reference link landed together and took
-   them to (150, 1861, 22226); `blank_absorbed` then admitted more
-   spacings, and admitting a code block inside a list item -- which the
-   fence's recorded column bought -- took them to (160, 2020, 24220).
-   The autolink and raw leaves took them to (228, 2708, 31272), and a
-   paragraph whose interior line is an escaped bullet marker -- the leaf
-   that reaches the escaper's line-initial rule -- took them to
-   (245, 2910, 33605). Splitting raw blocks from code blocks in the
-   canonical generator took them to (262, 3112, 35938), and the explicit
-   id -- a wrapper, so one named copy of every block in the pool -- moved
-   them to (278, 3470, 41186).  The escaped-backtick table/link leaf gives
-   the numbers below. A tightness rule or a lifted
-   exclusion can enlarge the fragment without adding a construct. Either way
-   the count is a coverage witness: a change here must enlarge the generated
-   fragment rather than only change its proofs. *)
+(* The size of the accepted fragment at each depth.  A new leaf in
+   `Generate.leaves` moves these, and so can a tightness rule or a lifted
+   exclusion, which enlarge the fragment without adding a construct.
+   Either way the count is a coverage witness: a change here must enlarge
+   the generated fragment rather than only change its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
                            List.length (accepted 3)) = (296, 3695, 43857).

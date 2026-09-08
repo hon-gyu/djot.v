@@ -15,10 +15,10 @@
 
    - Auto-identifiers and implicit heading references, assigned in
      document order because uniqueness suffixes depend on what came
-     before (djot.js `getUniqueIdentifier`, parse.ts ~line 193).
+     before (djot.js `getUniqueIdentifier`, parse.ts:193).
    - Section nesting: a level-driven container stack over the top-level
      block list, moving each heading's id onto the section that wraps it
-     (djot.js parse.ts ~line 769).
+     (djot.js parse.ts:769-792, the id move at :788).
 
    - Footnote collection: recursively remove definition containers from
      visible block sequences and assign their cleaned bodies into the

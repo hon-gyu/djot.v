@@ -1,3 +1,5 @@
+(* ai-disclosure: ai-generated *)
+
 (* Spike A: termination of `many`-style repetition for combinator parsers.
 
    Decision this spike is meant to settle (see .project/260802-plan.md,

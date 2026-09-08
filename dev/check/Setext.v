@@ -12,11 +12,11 @@ length for level 1, `-` at two or more for level 2.
 Every line here was measured.
 
 ```
-dune build && rocq c -R _build/default/theories DjotV check/Setext.v
+dune build && rocq c -R _build/default/theories DjotV dev/check/Setext.v
 ```
 
-Out of the dune build for the reason `check/Markdown.v` and
-`check/Sublist.v` are.  The argument is in `.project/extension-decisions.md`
+Out of the dune build for the reason `dev/check/Markdown.v` and
+`dev/check/Sublist.v` are.  The argument is in `.project/extension-decisions.md`
 under `E3`.
 *)
 
@@ -130,11 +130,11 @@ never contains a line that could be one.
 *)
 
 Example para_ok_rejects_a_bare_underline :
-  @para_ok setext_bconfig ["a"; "==="] = false.
+  @para_ok _ setext_bconfig ["a"; "==="] = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Example para_ok_takes_the_escaped_one :
-  @para_ok setext_bconfig ["a"; "\=\=\="] = true.
+  @para_ok _ setext_bconfig ["a"; "\=\=\="] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 Example the_renderer_writes_the_escaped_one :

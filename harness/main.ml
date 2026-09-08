@@ -318,7 +318,7 @@ Roundtrip
 `parse (render d) = d` over every canonical document the enumerator
 accepts, which is the statement `Generate.gen_roundtrip_1` and
 `gen_roundtrip_2` prove in the kernel at depths 1 and 2.  Depth 3 used to
-be `check/Deep.v` and cost ~20 minutes, because the kernel evaluates the
+be `dev/check/Deep.v` and cost ~20 minutes, because the kernel evaluates the
 whole sweep and then evaluates it again to check the proof term.  Here it
 is ~5 seconds, on the same extracted parser every other mode runs.
 

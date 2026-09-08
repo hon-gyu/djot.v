@@ -797,6 +797,9 @@ The scope invariant is about *items*, and `wf_inlines` is about nodes.
 node side -- the same three as above, over `isnoc` rather than `osnoc`.
 *)
 
+(* Merging attributes onto a node cannot turn it into a plain `Str`:
+   either it already carried some, and `attr_merge_cons` says it still
+   does, or it carried none and its payload was not a `Str`. *)
 Lemma plain_str_reattr :
   forall p a' v a,
     plain_str (Node p a' v) = false ->
@@ -1642,13 +1645,9 @@ Proof.
   apply iscan_wf_flush; assumption.
 Qed.
 
-(* Merging attributes onto a node cannot turn it into a plain `Str`:
-   either it already carried some, and `attr_merge_cons` says it still
-   does, or it carried none and its payload was not a `Str`. *)
-
-(* Attachment no longer happens here, so nothing has to be said about
-   what it does to a scope: `iattr_mark` only pushes an item, and
-   `oresolve` settles it once the scope is complete. *)
+(* Nothing has to be said about what attachment does to a scope:
+   `iattr_mark` only pushes an item, and `oresolve` settles it once the
+   scope is complete. *)
 Lemma iattr_mark_wf :
   forall a src txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->

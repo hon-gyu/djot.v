@@ -212,6 +212,7 @@ autoReferences[lab]` (html.ts:420).  It is a section variable rather than
 a threaded argument because every recursion here would otherwise carry it
 unchanged.
 *)
+
 Section WithRefs.
 Context (refs : reference_map).
 
@@ -678,8 +679,7 @@ Fixpoint render_block_foot (st : foot_state) (tight : bool)
       (st', [HElem "ul" 2 a s])
   (* As `render_block`, with the counter threaded: a footnote reference
      inside a definition would otherwise fall through to the stateless
-     path and be dropped, which is the bug the table step found on this
-     same line. *)
+     path and be dropped. *)
   | DefinitionList _ items =>
       let '(st', s) := render_def_items st items in
       (st', [HElem "dl" 2 a s])

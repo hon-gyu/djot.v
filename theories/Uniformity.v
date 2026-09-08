@@ -824,7 +824,7 @@ Uniformity of fenced divs
 Same payoff as the quote's, and a shorter argument, because a div strips
 no prefix and shifts no column: its contents are handed the line
 unchanged.  What replaces the prefix machinery is the side condition, and
-that turned out to be the interesting part.
+that is the interesting part.
 
 The obvious statement of it -- "no content line is a closing fence" --
 is *false*, because `div_close` strips leading whitespace before it

@@ -16,7 +16,7 @@ section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
 parser produces one, through `Step.bkeyed`, `Step.open_text` and the
 `PKey` state. Sections 3, 4, 5, 6 and every worked example of section 7 are
-pinned as whole documents in `check/Keyed.v` (`make keyed`); 7.5 is
+pinned as whole documents in `dev/check/Keyed.v` (`make keyed`); 7.5 is
 stated against `keyed_sublist_bconfig`, since it needs the sublist
 setting as well as keys. `out_of_column_needs_the_setting` in that
 file is what the parser does with keys off, and
@@ -953,7 +953,7 @@ inline spelling escapes it on every line, with either block setting.
 This keeps the renderer independent of the block configuration and
 protects future canonical labels as well as paragraphs. The extra
 escapes on continuation lines and with keys off decode to the same
-text. `check/Keyed.v` pins acceptance and roundtrip for literal-colon
+text. `dev/check/Keyed.v` pins acceptance and roundtrip for literal-colon
 paragraphs at top level, inside quotes and lists, and under an explicit
 id; it also pins an escaped label followed by the real connective.
 `CKey` carries one `cinline` and one child block. Its label check asks
