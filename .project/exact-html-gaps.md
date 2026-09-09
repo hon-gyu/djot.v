@@ -16,31 +16,39 @@ disagrees on. Ours are the ones with a `gallina:` line.
 ## What the corpus numbers are measuring
 
 `make shape` compares block structure with inline content dropped, and
-is **287/287**. `make test` compares exact HTML and is **286/287**. The
-remaining case is the block-level recovery described below: djot.js
-re-reads the source a failed block attribute candidate consumed with
-attribute recognition switched off, while we re-read it with attributes
-on. It is an open conformance gap.
+is **287/287**. `make test` compares exact HTML and is **287/287** as
+well, as of 2026-09-09: the corpus has no mismatch left. The generated
+corpus is exact and roundtrip is clean.
 
-It is not reached by the generated corpus, and roundtrip remains clean.
-That bounds its effect and keeps it out of the roundtrip theorem. It does
-not make a difference
-from the designated djot.js oracle correct or finished.
+That is a smaller claim than it sounds, and the rest of this file is why.
+The corpus is djot.js's regression suite, not a map of the grammar, and
+five divergences are open that no corpus case contains. Quote the number
+with the list, or do not quote it.
 
-The third case, an unterminated link destination
-(`links_and_images.test:220`), was closed on 2026-09-09; what is left of
-it is below, under *The residue*.
+Five cases were closed on 2026-09-09, in this order: an unterminated link
+destination (`links_and_images.test:220`), a marked opener with a `}`
+after it taking the wrong side of its row's decay (`{"}`), a byte a decay
+had rewritten hiding the source byte from the next delimiter's open rule
+(`a''b'`, `a--'b'`), an unclosed inline attribute spec
+(`attributes.test:370`), and the block-level recovery below
+(`attributes.test:253`). Only the first and the last two moved the corpus
+number; the others were found by sweeping, which is the point of the
+clause in [[project-engineering-lessons]] about the corpus not being the
+grammar.
 
-Two families that no corpus case contains were closed the same day, and
-neither number moved: a marked opener with a `}` after it took the wrong
-side of its row's decay (`{"}`), and a byte a decay had rewritten hid the
-source byte from the next delimiter's open rule (`a''b'`, `a--'b'`).
-Both were found by sweeping, which is the point of the clause in
-[[project-engineering-lessons]] about the corpus not being the grammar.
+## What is open
 
-## The remaining gap
+Five, none of them in the corpus:
 
-### A block-attribute candidate's lines, re-parsed
+| | where |
+| --- | --- |
+| a spec attaching to a decayed quote (`'{.a}`) | below |
+| `{a=}=`, a `key=` slice hiding a marked opener | [[oracle-disagreements]] |
+| a blank line not closing a block attribute spec | below |
+| a `]` inside a link destination re-entering the bracket | below |
+| a container prefix inside a recovered paragraph | [[oracle-disagreements]] |
+
+## Closed 2026-09-09 — a block-attribute candidate's lines, re-parsed
 
 `attributes.test:253`
 
@@ -54,7 +62,7 @@ Hello.
 | | |
 | --- | --- |
 | djot.js | `<p>{%\nSPDX-FileCopyrightText: 2025\n%}</p>` then `<p>Hello.</p>` |
-| ours | `<p></p>` then `<p>Hello.</p>` |
+| ours, before | `<p></p>` then `<p>Hello.</p>` |
 
 **The mechanism, pinned** (`block.ts:533-596`). The container opens on a
 `{` at the start of a line and keeps a live `AttributeParser`. Its
@@ -78,31 +86,67 @@ there the re-scan happens to reproduce the source. `:253` differs only
 because its slices re-scan into a *comment* spec that closes, attaches
 to nothing and is now dropped.
 
-**Open conformance gap, and not a cheap one.** The obvious shortcut is
-refuted: escaping the slices' braces so an ordinary scan reads them
-literally is not the same as scanning with attributes off, because
-`ibrace_step` checks `dstyle_of` *before* `inline_attrs_enabled` -- so
-attributes-off still opens `{-`, `{+` and the other marked delimiters,
-and `\{` would not. `with_inline_attrs false` and the `DTable`
-construction in `Profile.v` make "the same table with attributes off"
-expressible in one definition, but the scan is not uniform: only the
-*slices* are attributes-off, and the rest of the paragraph is not. The
-faithful shape is a shadow scan advanced beside the candidate as lines
-arrive, adopted on failure -- the same design as the two below, with the
-difference that here it costs a `pstate` change (a paragraph state that
-can continue a scan someone else started) rather than a self-recursive
-`iscan`. `PPara` has 556 mentions, so a field on it is the wrong end;
-a separate constructor pays the standing-quantifier list instead.
+**Closed.** `PParaOff k cur` is a paragraph whose first `k` lines are
+read with attribute recognition off, and `para_inlines_off` is that
+reading. `para_recover` builds it at the two sites that were losing the
+bit: the failure arm of `step`, and `finish` on a spec the input ended
+inside. The count is not always `length slices` -- an indented line that
+fails the spec is frozen too, and reaches the paragraph by being
+reprocessed rather than by being recorded -- which is `para_recover`'s
+`extra` argument.
 
-This one *is* reachable from a canonical document in principle, since it
-is the parser's own paragraph that differs; it does not threaten
-roundtrip, because both sides of the difference parse and render
-consistently.
+This was priced here, before it was done, as a `pstate` change paying the
+standing-quantifier list, and that was right. What the estimate missed
+is that it is the *cheap* half of the inline gap closed the same day:
+`block.ts:552` records one slice per line, so the region is whole lines
+and `islice_end` has no counterpart. Six definitions needed a real arm,
+five more were already right under a catch-all, and no proof needed an
+argument about `k > 0`.
+
+The obvious shortcut stays refuted, and is worth keeping written down:
+escaping the slices' braces so an ordinary scan reads them literally is
+not the same as scanning with attributes off, because `ibrace_step`
+checks `dstyle_of` *before* `inline_attrs_enabled` -- so attributes-off
+still opens `{-`, `{+` and the other marked delimiters, and `\{` would
+not.
+
+The corpus moved **286/287 -> 287/287**, an 808-document block sweep
+went 92 mismatches to 46, and the generated corpus, roundtrip and the
+37,448-document attribute alphabet did not move. The whole piece of work,
+with its measurement and its hypotheses, is in
+[[260909.block-attr-reparse]].
 
 Logged 2026-09-08 under *Closed -- `attributes:89` and `attributes:95`*,
 which is what exposed it: the case matched by accident while an
-unattached spec kept its source. The mechanism above was pinned the same
-day.
+unattached spec kept its source.
+
+### Still open — a blank line does not close a spec
+
+The same sweep has 36 documents left, and they are one rule, not this
+one:
+
+```
+{%
+
+c
+```
+| | |
+| --- | --- |
+| djot.js | `<p>{%\nc</p>` |
+| ours | `<p>{%</p>` then `<p>c</p>` |
+
+A single blank line leaves the spec open upstream and two close it. Our
+continuation test is `Nat.ltb ind (off + indent_of l)`, which a blank
+line fails, so the spec falls to the recovery and the recovered paragraph
+flushes on the same blank.
+
+Not diagnosed, and **not the blank-line case this file already decided
+against matching**. That one is a spec that *spans* a blank which djot.js
+records as a slice, so the recovered paragraph contains a blank line,
+which `wf_block` excludes because it does not round-trip. Here the
+oracle's paragraph holds no blank at all. The shapes look alike and the
+verdict does not carry across; see [[oracle-disagreements]] under the
+same date.
 
 ### Closed 2026-09-09 — an unclosed inline spec
 
@@ -263,21 +307,18 @@ parser already follows djot.js on that input.
 
 ## The caveat
 
-`ours` is a verdict the project passes on itself, so 286/287 must be
-reported as one open compatibility gap. It need not give up `wf_block`,
-canonical roundtrip, or no-backtracking: its helper theorems can be
-stated on the domain their consumers actually need.
-Quote 287/287 on shape separately; it has no such qualification.
+`ours` is a verdict the project passes on itself, and 287/287 on exact
+HTML is now what the corpus shows. That is not what is left. Five
+divergences are open and none of them is in the corpus, so the honest
+report is the number *and* the list at the top of this file.
 
-And one is what the *corpus* shows, which is not what is left.
 `[u]b](c)` -- a `]` whose next byte makes no construct, which djot.js
 leaves as text with the `[` opener still alive -- was a divergence on
-plain input that no corpus case and no generated document contains. It
-was found by probing the destination gap and closed on 2026-09-09
-without either number moving. So were the two quote families named at
-the top of this note. The decayed-quote attachment above and the `{a=}=`
-marked opener are still open on the same terms: none of the five is in
-the corpus, and the corpus number is silent about all of them.
+plain input that no corpus case and no generated document contains, and
+it was closed on 2026-09-09 without either number moving. So were the two
+quote families named at the top. The five that remain are open on the
+same terms: found by sweeping, invisible to both corpora, and each one
+measured against an alphabet rather than a test file.
 
 **And the number the sweeps report is only as good as the oracle.**
 Until 2026-09-09 `djotjs.mjs --batch` disagreed with the same documents

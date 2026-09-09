@@ -1676,3 +1676,105 @@ is named yet.
 
 **Verdict: ours, undiagnosed.** One document in 37,448. Logged so the
 re-measured count in [[exact-html-gaps]] has something to point at.
+
+## Closed 2026-09-09 — a failed block attribute spec's lines
+
+`attributes.test:253`. A `{` at the start of a line opens a block
+attribute container; when the spec fails, djot.js converts it to a
+paragraph and replays the lines it consumed through the inline parser
+with `allowAttributes` false (`block.ts:592`, `inline.ts:651`). We kept
+the same lines and read them with attributes on, so `{%` / `c` / `%}`
+became a comment spec that closed across the paragraph, attached to
+nothing and was dropped: `<p></p>` against upstream's three literal
+lines.
+
+The block path is the easy half of the inline one closed earlier the
+same day. `block.ts:552` records one slice per line, so the region is a
+whole number of leading lines and `islice_end`, the disposition that cuts
+the inline shadow at every `reSpecial` byte, has no counterpart here.
+
+**Closed.** `PParaOff k cur` is a paragraph whose first `k` lines are
+read with the bit false, and `para_inlines_off` is that reading.
+`para_recover` builds it at the two sites that were losing the bit: the
+failure arm of `step`, and `finish` on a spec the input ended inside.
+
+**Measured.** Exact HTML **286/287 -> 287/287**; the corpus has no
+mismatch left. An 808-document sweep over two- and three-line
+combinations of `{%`, `%}`, `c`, `  c`, `  %}`, `{#i`, `  .c}`, `{a=x`
+and a blank goes from 92 mismatches to 46. The generated corpus stays
+exact, roundtrip at depth 3 is clean, and the 37,448-document attribute
+alphabet stays at 9 with no document changing.
+
+**Verdict: closed.** What the sweep has left is below, and none of it is
+this rule.
+
+## 2026-09-09 -- ours: a blank line does not close a block attribute spec
+
+```
+{%
+
+c
+```
+
+djot.js gives `<p>{%\nc</p>`, one paragraph joining the two lines with a
+single soft break. We give two paragraphs, because `step`'s continuation
+test is `Nat.ltb ind (off + indent_of l)` and a blank line fails it, so
+the spec falls straight to the recovery and the recovered paragraph then
+flushes on the same blank.
+
+Two blanks do close it upstream (`{%` / blank / blank / `c` agrees), so
+the rule is not "blanks are transparent".
+
+36 of the 808 documents in the block sweep above, and all of what that
+sweep has left that is ours. **Not diagnosed**: the mechanism has not
+been pinned against `block.ts`, and in particular what makes the second
+blank different is unknown.
+
+Worth reading against the 2026-08 entry on a spec that *spans* a blank
+and then fails, which was decided against matching because djot.js
+records the blank as a slice and the paragraph would then contain a blank
+line, which `wf_block` excludes and `roundtrip_blocks` would notice.
+That reasoning does not reach this shape: here the oracle's paragraph
+holds no blank. The two look alike and are not, so check which one is in
+front of you before reusing either verdict.
+
+## 2026-09-09 -- djotjs-bug: a spec still open at the end loses its paragraph
+
+```
+{#i
+  c
+```
+
+djot.js emits **nothing at all**. djoths and we emit `<p>{#i\nc</p>`,
+and appending a blank line makes djot.js agree with us, so the paragraph
+is lost on the `close()` path (`block.ts:600-616`) rather than withheld
+on purpose: that path runs the same `reparseAttributes` the `continue`
+path does and then calls `para.close()`, and the result does not reach
+the output.
+
+10 of the 808 documents in the block sweep. Logged, not matched.
+
+## 2026-09-09 -- a container prefix inside the recovered paragraph
+
+```
+> {%
+> c
+> %}
+```
+
+| | |
+| --- | --- |
+| djot.js | `<p>{%\n&gt; c\n%}</p>` |
+| djoths | `<p>{%</p>` then `<p>c\n%}</p>` |
+| ours | `<p>{%\nc\n%}</p>` |
+
+Note the `&gt; ` in djot.js's paragraph: the blockquote marker of the
+second line is inside the text. Upstream replays absolute source
+positions, and `this.pos = lastpos + 1` re-reads bytes the container
+prefix had already eaten.
+
+Three implementations, three answers, and the prose says nothing about
+recovery from a failed block attribute spec at all. Reproducing djot.js
+would mean keeping source offsets the parser does not have, to reproduce
+a position slip rather than a rule. **Verdict: `SPEC-GAP`, ours stands**;
+the top-level family is the one worth matching and is closed above.
