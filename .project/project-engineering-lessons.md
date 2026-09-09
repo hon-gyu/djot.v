@@ -123,6 +123,36 @@ oracles agreeing against us means we are wrong. The interesting cases are
 the two below, where knowing what djot does still does not settle what we
 do.
 
+### First check the oracle is a function
+
+**What happened.** A sweep over the attribute alphabet reported 4610
+mismatches. 4069 of them were an artefact: djot.js's `betweenMatched`
+assigns to `defaultmatch`, and that binding is the enclosing call's
+parameter rather than the per-scan one, so the eight delimiter rows are
+built once at module load and a single `{"` or `"}` flips the smart-quote
+default for every document after it in the process. `--batch` exists to
+avoid node startup, so the harness ran a whole sweep in one process and
+the answer depended on enumeration order. Twenty minutes went into
+diagnosing a divergence that did not exist, and the real families were
+underneath it: 541 after a per-document reset, 341 after the leak was
+patched out of a scratch copy of the oracle.
+
+**General form.** [[#Ask the oracle; do not reason about what djot
+"should" do]] assumes the oracle answers the same question the same way
+twice. A differential count is a claim about a function, and an oracle
+with process-global state is not one. The failure is silent and looks
+exactly like a real family -- consistent, reproducible, and clustered on
+a plausible construct.
+
+**What to do instead.** Before diagnosing anything a sweep reports, run
+the first few mismatches through the oracle one document per process and
+check the answers agree with the batch. It costs seconds. When they
+differ, the harness is what to fix: batch mode promises nothing except
+that it equals N processes, so make it equal them, and log the
+underlying behaviour separately rather than deciding on the spot whether
+to match it. The check is cheap enough to be reflexive and the reward is
+not paying for a diagnosis of nothing.
+
 ### When the oracle's answer is unrepresentable
 
 **What happened.** A block-attribute spec that spans a blank line and
@@ -328,6 +358,26 @@ lines that mention it*, asking of each whether it uses the structure or
 merely carries it. That count is the estimate, and it is also the plan:
 the lines that use it are exactly the hypotheses the generalized
 statement has to add.
+
+**And check what the proof uses the structure *for*.** A marked
+delimiter's scope was pushed the moment its token completed, and a `}`
+after it turns out to change what the scope decays to, so the push had
+to wait a byte. The visible cost was the canonical inversion chain:
+`iscan_marked_open` had landed in a text state with the scope pushed and
+now lands one byte earlier, and the obvious repair was a side condition
+-- the next byte is not a `}` -- with a lemma that canonical text never
+starts with one, threaded through four users. None of it was needed. The
+chain uses *that* the scope is open, never which side its decay would
+take, so the new bit could be existential: one `exists cm` in the opener
+lemma, `cm` generalized in the three close lemmas, and four users that
+destructure a bit they ignore.
+
+**General form.** The clause above asks which proofs inspect a structure
+being removed. This asks the same question of a field being *added*: a
+proof that never reads it does not need to know its value, and a lemma
+can report it existentially instead of taking a hypothesis that fixes
+it. The tell that the hypothesis is unnecessary is that the fact it
+would establish is never used downstream -- only its existence is.
 
 **And check the users exist at all.** The div-closer rule was priced, in
 `oracle-disagreements.md`, as "three `ListUniformity` statements have to
