@@ -1643,3 +1643,36 @@ No document that matched djot.js at `5ccb0a7` stops matching. Of the 507,
 runs, which are cut in djot.js and not here -- a two-tick run inside a
 region is two one-tick runs upstream and one unclosed run for us -- and
 the rest are the `"`/`'` decay families this file already records.
+
+## 2026-09-09 -- ours: a `key=` slice hides a marked opener
+
+`{a=}=` is `<p>{a</p>` with a `<mark>}</mark>` upstream and literal text
+here. The `=` the attribute machine took as the value separator becomes
+a mark *opener* in djot.js's re-scan, pairing with the trailing `=` over
+the `}` that failed the spec. Ours reads that same `=` as the closer of
+a `=}` that decays, so nothing pairs.
+
+Found by re-running the length-5 sweep over `{}#."='a` at `f159676`,
+where it is the one mismatch that is not the decayed-quote attachment of
+[[exact-html-gaps]].
+
+**The shape, not the mechanism.** Probes bound it to the state rather
+than the byte:
+
+| input | agrees | |
+| --- | --- | --- |
+| `{a=}=` | no | the spec is live in `key=` when the `}` fails it |
+| `x{a=}=`, `{a=}b=`, `{a=}=x` | no | leading and trailing text are irrelevant |
+| `{#a=}=`, `{%=}=`, `{a=b}=` | yes | a different machine state at the `}` |
+| `{a=}~}~`, `{a=}^}^`, `{a=}*}*` | yes | `~`, `^` and `*` do not reproduce it |
+| `{a=}=}`, `{a==}`, `{a=x=`, `=x=` | yes | needs both the failure and a later `=` |
+
+So it takes an attribute machine waiting for a value, a `}` that fails
+it, and a marked-only row whose one-byte lookahead falls where the slice
+was cut. `islice_end` settling the opener's pending side is the
+candidate, since that is the disposition [[exact-html-gaps]] records for
+the shadow, but it has not been pinned against `inline.ts` and no lemma
+is named yet.
+
+**Verdict: ours, undiagnosed.** One document in 37,448. Logged so the
+re-measured count in [[exact-html-gaps]] has something to point at.

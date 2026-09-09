@@ -152,19 +152,25 @@ project-wide interpretation.
 
 **Boundary.** The two agree on every spec that *closes*, whatever it
 contains, and on every spec that *fails*, because there the re-scan
-happens to reproduce the source. They differ only on a spec that never
-closes and whose source holds a byte an inline scan would have claimed,
-so the question is which states of the attribute machine will swallow
-such a byte rather than reject it. There are three, not the two this
-note first claimed: a quoted value, a `{% %}` comment, and an **id**,
-which takes any byte but whitespace and the closing brace. `{#a"}x` is a
-span with that quote in its identifier on both sides, and `{#a"` differs.
+happens to reproduce the source. What was left after the shadow landed
+was a spec that never closes and whose source holds a byte an inline
+scan would have claimed, so the question was which states of the
+attribute machine swallow such a byte rather than reject it. There are
+three, not the two this note first claimed: a quoted value, a `{% %}`
+comment, and an **id**, which takes any byte but whitespace and the
+closing brace. `{#a"}x` was a span with that quote in its identifier on
+both sides while `{#a"` differed.
 
-Measured 2026-09-09, exhaustive at length 5 over `{}#."='a` (37,448
-documents, against a djot.js with the closure leak of
-[[oracle-disagreements]] patched out), this family is 435 of the 439
-remaining mismatches. `{.class` and `{key=bare` are agreed even unclosed,
-as the note said, and for the reason it gave.
+`{.class` and `{key=bare` are agreed even unclosed, as the note said,
+and for the reason it gave.
+
+The family was 435 of the 439 mismatches this sweep reported before the
+shadow landed, and is **0** here: `{#a"`, `{a="x` and `{% "x` all agree
+now. Re-measured 2026-09-09 at `f159676`, exhaustive at length 5 over
+`{}#."='a` (37,448 documents), the sweep leaves **9**, and none of them
+is this family. Eight are the decayed-quote attachment below and one is
+the marked-delimiter case in [[oracle-disagreements]] under *2026-09-09
+-- ours: a `key=` slice hides a marked opener*.
 
 The implementation trace is under *2026-08-22 -- ours: an unclosed
 inline attribute spec*. Because that log is append-only, its old verdict
@@ -204,9 +210,9 @@ bars unconditionally.
 ## A spec that attaches to a decayed quote
 
 `'{.a}` renders `<span class="a">rsquo</span>` here and a bare right
-single quote upstream: djot.js drops the attributes. Four documents in
-the sweep above, and it is the whole of the residue that is not the
-reparse gap.
+single quote upstream: djot.js drops the attributes. Eight documents in
+the sweep above -- both quotes, and `#id` as well as `.class` -- which is
+all of its residue but one.
 
 Not diagnosed. `oattach` takes the run below the spec, and upstream
 attaches to the preceding *match*, where an unmatched quote's default
@@ -263,15 +269,15 @@ canonical roundtrip, or no-backtracking: its helper theorems can be
 stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
 
-And three is what the *corpus* shows, which is not what is left.
+And one is what the *corpus* shows, which is not what is left.
 `[u]b](c)` -- a `]` whose next byte makes no construct, which djot.js
 leaves as text with the `[` opener still alive -- was a divergence on
 plain input that no corpus case and no generated document contains. It
 was found by probing the destination gap and closed on 2026-09-09
 without either number moving. So were the two quote families named at
-the top of this note, and the decayed-quote attachment above is still
-open on the same terms: none of the four is in the corpus, and the
-corpus number is silent about all of them.
+the top of this note. The decayed-quote attachment above and the `{a=}=`
+marked opener are still open on the same terms: none of the five is in
+the corpus, and the corpus number is silent about all of them.
 
 **And the number the sweeps report is only as good as the oracle.**
 Until 2026-09-09 `djotjs.mjs --batch` disagreed with the same documents
@@ -281,3 +287,13 @@ enumeration order. That is fixed and checked; the point to carry is that
 a differential number needs the oracle to be a function before it means
 anything. See [[oracle-disagreements]], *the smart-quote default is
 process-global*.
+
+The fix resets the defaults *between* documents, which is all batch mode
+ever promised. Within one document the leak is upstream's and is left
+alone, so a sweep whose alphabet contains `{`, `}` and a quote still has
+to subtract it: the 37,448-document sweep above reports 613 against the
+shipped oracle and 9 against a copy with the assignment made local, and
+the 604 in between are that quirk rather than ours. Patching it is three
+lines in `djot.js/lib/inline.js` -- give the scanner `let defaultmatch =
+defaultmatch0;` of its own -- and any sweep that mixes braces with quotes
+should be read against the patched copy.
