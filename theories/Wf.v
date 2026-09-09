@@ -2177,6 +2177,25 @@ Proof.
   - apply IH, iscan_wf_break, iscan_wf_str, H.
 Qed.
 
+Lemma iscan_wf_str_off :
+  forall s st, iscan_wf st = true -> iscan_wf (iscan_str_off s st) = true.
+Proof.
+  induction s as [|c rest IH]; intros st H; [exact H|].
+  cbn [iscan_str_off]. apply IH, iscan_wf_step_at, H.
+Qed.
+
+(* The bit the frozen lines are read with is invisible to the invariant:
+   `iscan_wf_step_at` and `iscan_wf_break_at` hold for either value. *)
+Lemma iscan_wf_lines_off :
+  forall k l st, iscan_wf st = true -> iscan_wf (iscan_lines_off k l st) = true.
+Proof.
+  induction k as [|k IH]; intros l st H; [apply iscan_wf_lines, H|].
+  destruct l as [|x [|y rest]]; cbn [iscan_lines_off].
+  - exact H.
+  - apply iscan_wf_str_off, H.
+  - apply IH, iscan_wf_break_at, iscan_wf_str_off, H.
+Qed.
+
 (** The parser's inline pass only ever emits a well-formed sequence. *)
 Lemma parse_inline_line_wf :
   forall s, wf_inlines (parse_inline_line s) = true.
@@ -2199,6 +2218,13 @@ Proof.
   apply iscan_wf_finish, iscan_wf_lines. reflexivity.
 Qed.
 
+Lemma para_inlines_off_wf :
+  forall k ls, wf_inlines (para_inlines_off k ls) = true.
+Proof.
+  intros k ls. unfold para_inlines_off.
+  apply iscan_wf_finish, iscan_wf_lines_off. reflexivity.
+Qed.
+
 Lemma flush_para_wf :
   forall cur k,
     wf_blocks k = true ->
@@ -2213,6 +2239,16 @@ Qed.
    paragraph the key line retracts to, which is `flush_para_wf` at a
    one-line accumulator; with one it is the key, whose only condition
    beyond its block's is that the label is a well-formed inline list. *)
+Lemma flush_para_off_wf :
+  forall n cur k,
+    wf_blocks k = true ->
+    wf_blocks (mk (Para (para_inlines_off n cur)) :: k) = true.
+Proof.
+  intros n cur k Hk.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite para_inlines_off_wf, Hk. reflexivity.
+Qed.
+
 Lemma key_close_wf :
   forall lbl src bs,
     wf_blocks bs = true -> wf_blocks (key_close lbl src bs) = true.
@@ -2252,6 +2288,9 @@ Fixpoint state_wf (st : pstate) : bool :=
      the inlines are well formed, and `para_inlines_wf` says they are
      whatever the lines look like. *)
   | PPara _ => true
+  (* The recovery's paragraph carries nothing either: its count only
+     changes how the lines are read, not what the reading may be. *)
+  | PParaOff _ _ => true
   (* A heading carries its level, which `Heading` requires to be at
      least 1, and nothing else. *)
   | PHeading lvl _ => Nat.leb 1 lvl
@@ -2370,11 +2409,21 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma heading_block_off_wf :
+  forall k lvl cur,
+    Nat.leb 1 lvl = true -> wf_blocks [heading_block_off k lvl cur] = true.
+Proof.
+  intros k lvl cur Hl. unfold heading_block_off.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite Hl, para_inlines_off_wf.
+  reflexivity.
+Qed.
+
 Lemma finish_wf :
   forall st, state_wf st = true -> wf_blocks (finish st) = true.
 Proof.
   induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
-    |ls done inner IH|apend aind aap aslices|rind rlbl rval
+    |ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros H.
   - destruct cur as [|c cur']; [reflexivity|].
@@ -2401,8 +2450,12 @@ Proof.
        unfinished one the paragraph of the lines it ate *)
     cbn [finish].
     destruct (ap_done aap); [reflexivity|].
+    cbn [finish_para_recover].
     destruct aslices as [|c cur']; [reflexivity|].
-    apply flush_para_wf. reflexivity.
+    apply flush_para_off_wf. reflexivity.
+  - (* the recovery's paragraph: its lines are well formed however they
+       are read *)
+    cbn [finish]. apply flush_para_off_wf. reflexivity.
   - (* a reference definition: the state's invariant is the block's *)
     cbn [state_wf] in H. cbn [finish].
     rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block].
@@ -2427,7 +2480,7 @@ Lemma feed_lazy_wf :
   forall l st, state_wf st = true -> state_wf (feed_lazy l st) = true.
 Proof.
   induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
-    |ls done inner IH|apend aind aap aslices|rind rlbl rval
+    |ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros H.
   - reflexivity.
@@ -2441,6 +2494,7 @@ Proof.
     apply andb_true_iff in H1 as [Hitems Hd].
     rewrite Hitems, Hd, (IH Hi). reflexivity.
   - exact H.                            (* excluded by lazy_ok *)
+  - reflexivity.                        (* the recovery's paragraph *)
   - exact H.                            (* excluded by lazy_ok *)
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hfixed Hi].
     rewrite Hfixed, (IH Hi). reflexivity.
@@ -2542,7 +2596,7 @@ Lemma step_fuel_wf :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
   - (* idle, or an open paragraph *)
     destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
@@ -2922,6 +2976,28 @@ Proof.
     + apply IH. reflexivity.
     + cbn [fst snd]. split; reflexivity.
     + apply IH. reflexivity.
+  - (* the recovery's paragraph: the branches an open paragraph has, with
+       its own flush *)
+    destruct (bunderline_of l) as [ulvl|] eqn:Eu; cbn [fst snd].
+    { split; [|reflexivity]. apply heading_block_off_wf. reflexivity. }
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; cbn [fst snd].
+    7: { destruct (binterrupt (KList m mc chk mr)) eqn:Ei; cbn [fst snd].
+      - destruct (IH (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara []) eq_refl) as [Hb Hs].
+        destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                    (configured_list_rest chk mr) (PPara [])) as [bs inner].
+        destruct (open_list_wf (off + indent_of l)
+                    (with_starts (configured_list_styles m chk) mc)
+                    (configured_list_check chk) bs inner Hb Hs) as [Hob Hos].
+        destruct (open_list (off + indent_of l)
+                    (with_starts (configured_list_styles m chk) mc)
+                    (configured_list_check chk) (bs, inner)) as [obs ost].
+        cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
+        split; [|exact Hos].
+        apply flush_para_off_wf, Hob.
+      - split; reflexivity. }
+    1: (split; [|reflexivity]; apply flush_para_off_wf; reflexivity).
+    all: cbn [binterrupt fst snd]; split; reflexivity.
   - (* an open reference definition: a continuation line appends another
        whitespace-free run, and closing emits the block the invariant
        already describes *)
@@ -3315,7 +3391,7 @@ Qed.
    obligation. *)
 Fixpoint state_supported (st : pstate) : bool :=
   match st with
-  | PPara _ | PHeading _ _ | PFence _ _ _ => true
+  | PPara _ | PParaOff _ _ | PHeading _ _ | PFence _ _ _ => true
   | PQuote done inner => supported_blocks done && state_supported inner
   | PDiv _ _ done inner => supported_blocks done && state_supported inner
   | PList ls done inner =>
@@ -3338,7 +3414,7 @@ Lemma finish_supported :
   forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
   induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
-    |ls done inner IH|apend aind aap aslices|rind rlbl rval
+    |ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros H.
   - destruct cur as [|c cur']; reflexivity.
@@ -3361,7 +3437,8 @@ Proof.
     rewrite supported_blocks_app, supported_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
   - cbn [finish]. destruct (ap_done aap); [reflexivity|].
-    destruct aslices; reflexivity.
+    cbn [finish_para_recover]. destruct aslices; reflexivity.
+  - reflexivity.                        (* the recovery's paragraph *)
   - reflexivity.
   - cbn [state_supported] in H. apply andb_true_iff in H as [Hd Hi].
     cbn [finish]. rewrite supported_blocks_cons. cbn [foot_block node_contents mk].
@@ -3383,11 +3460,11 @@ Lemma feed_lazy_supported :
     state_supported st = true -> state_supported (feed_lazy l st) = true.
 Proof.
   induction st as [cur|lvl hcur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
-    |ls done inner IH|apend aind aap aslices|rind rlbl rval
+    |ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval
     |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros H;
     [reflexivity | reflexivity | reflexivity | | | | reflexivity | reflexivity
-    | | reflexivity | | ].
+    | reflexivity | | reflexivity | | ].
   5: { cbn [feed_lazy state_supported] in *. exact (IH H). }
   5: { cbn [feed_lazy state_supported] in *. exact (IH H). }
   - cbn [feed_lazy state_supported] in *.
@@ -3423,7 +3500,7 @@ Lemma step_fuel_supported :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
+  destruct st as [cur|hlvl hcur|f fnd acc|done inner|dlen dcls ddone dinner|ls done inner|apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner].
   - destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try (cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity).
@@ -3745,6 +3822,27 @@ Proof.
     destruct (Nat.ltb aind (off + indent_of l));
       [destruct (ap_failed (attr_feed l aap))|];
       [apply IH; reflexivity | split; reflexivity | apply IH; reflexivity].
+  - (* the recovery's paragraph: Para and Heading are both supported, so
+       only the list branch carries anything *)
+    destruct (bunderline_of l) as [ulvl|] eqn:Eu;
+      [cbn [fst snd]; split; reflexivity|].
+    destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
+    7: { destruct (binterrupt (KList m mc chk mr)) eqn:Ei;
+           [|cbn [fst snd]; split; reflexivity].
+      destruct (IH (off + consumed l (configured_list_rest chk mr))
+                  (configured_list_rest chk mr) (PPara []) eq_refl) as [Hb Hs].
+      destruct (step_fuel n (off + consumed l (configured_list_rest chk mr))
+                  (configured_list_rest chk mr) (PPara [])) as [bs inner].
+      destruct (open_list_supported (off + indent_of l)
+                  (with_starts (configured_list_styles m chk) mc)
+                  (configured_list_check chk) bs inner Hb Hs) as [Hob Hos].
+      destruct (open_list (off + indent_of l)
+                  (with_starts (configured_list_styles m chk) mc)
+                  (configured_list_check chk) (bs, inner)) as [obs ost].
+      cbn [close_reopen finish app fst snd] in Hob, Hos |- *.
+      rewrite supported_blocks_cons. cbn [node_contents].
+      rewrite Hob. split; [reflexivity | exact Hos]. }
+    all: cbn [binterrupt fst snd]; split; reflexivity.
   - (* a reference definition: it emits a RefDef, which is supported *)
     destruct (if Nat.ltb rind (off + indent_of l) then ref_cont l else None);
       [split; reflexivity|].

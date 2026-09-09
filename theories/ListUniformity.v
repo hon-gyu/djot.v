@@ -434,14 +434,14 @@ record where the blanks sit relative to the markers.
 Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
-  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+  intros k st. induction st as [| | |done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
 Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
-  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+  intros k st. induction st as [| |f ind acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     cbn [pad_state blank_safe]; try reflexivity; try exact IH.
   - rewrite IH, pad_state_is_idle. reflexivity.
   - rewrite IH, pad_state_announces_end. reflexivity.
@@ -836,7 +836,7 @@ Lemma step_blank_finish :
 Proof.
   intros l st Hl.
   induction st as [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH
-                  |ls done inner IH|apend aind aap aslices|rind rlbl rval
+                  |ls done inner IH|apend aind aap aslices|okoff ocur|rind rlbl rval
                   |find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros Hsafe.
   - destruct cur as [|c cur'].
@@ -864,6 +864,8 @@ Proof.
        otherwise only touches `ls_blanks`, which `finish` does not read *)
     destruct (blank_absorbed inner); [reflexivity | destruct ls; reflexivity].
   - discriminate Hsafe.
+  - (* the recovery's paragraph flushes on a blank exactly as one does *)
+    rewrite (step_para_off_flush l okoff ocur Hl). reflexivity.
   - (* a reference definition: a blank line has no run to contribute, so
        it closes and the definition is emitted *)
     rewrite (step_ref_blank l rind rlbl rval Hl). reflexivity.
@@ -906,7 +908,7 @@ Proof.
     cbn [blank_safe] in Hsafe.
     apply andb_true_iff in Hsafe as [Hsafe _].
     destruct (is_idle kinner) eqn:Hidle.
-    { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
+    { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [|discriminate Hidle].
       rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hl)).
       reflexivity. }
@@ -944,11 +946,13 @@ Lemma step_blank_inner_settled :
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    |apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros Hsafe Hannounce Hidle Hempty;
     try discriminate Hsafe; try discriminate Hannounce.
   all: try (destruct cur as [|c cur']; [discriminate Hidle|];
             rewrite (step_para_flush l c cur' Hblank) in Hempty; discriminate Hempty).
+  all: try (rewrite (step_para_off_flush l okoff ocur Hblank) in Hempty;
+            discriminate Hempty).
   all: try (rewrite (step_quote_close l KBlank done inner [] (PPara [])
               Hblank eq_refl eq_refl eq_refl) in Hempty; discriminate Hempty).
   all: try (destruct (step l dinner) as [bs i] eqn:Hs;
@@ -981,7 +985,7 @@ Proof.
     |destruct b; cbn [pend_result fst snd decorate_head] in Hempty; discriminate Hempty]. }
   cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe _].
   destruct (is_idle kinner) eqn:Hki.
-  { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hki.
+  { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hki.
     destruct cur; [|discriminate Hki].
     rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hblank)) in Hempty |- *.
     cbn [fst] in Hempty. discriminate Hempty. }
@@ -998,7 +1002,7 @@ Lemma step_blank_key_claims :
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    |apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
     intros Hsafe next; try discriminate Hsafe.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
@@ -1016,6 +1020,7 @@ Proof.
     destruct (step l inner) as [bs i] eqn:Hs.
     rewrite (step_list_blank l ls done inner bs i Hblank Hs).
     cbn [snd key_claims]. exact IH.
+  - rewrite (step_para_off_flush l okoff ocur Hblank). reflexivity.
   - cbn; destruct (if match indent_of l with 0 => false | S m' => (rind <=? m')%nat end
                    then ref_cont l else None); [reflexivity|];
       rewrite step_fuel_enough by (cbn [pstate_depth]; lia);
@@ -1043,7 +1048,7 @@ Proof.
     apply andb_true_iff in Hsafe as [Hsafe Hnot].
     apply negb_true_iff in Hnot.
     destruct (is_idle kinner) eqn:Hki.
-    { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hki.
+    { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hki.
       destruct cur; [|discriminate Hki].
       rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hblank)).
       reflexivity. }
@@ -1061,7 +1066,7 @@ Lemma step_blank_lazy_false :
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH].
+    |apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH].
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -1083,16 +1088,18 @@ Proof.
     destruct (ap_done aap).
     { rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
       unfold step. cbn [step_fuel open_line]. rewrite Hblank. reflexivity. }
-    assert (Hfall : lazy_ok (snd (step_fuel
+    assert (Hfall : forall e, lazy_ok (snd (step_fuel
               (String.length l + pstate_depth (PAttr apend aind aap aslices))
-              0 l (PPara aslices))) = false).
-    { rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-      destruct aslices as [|c cur'].
-      { rewrite (step_idle l KBlank Hblank eq_refl). reflexivity. }
-      rewrite (step_para_flush l c cur' Hblank). reflexivity. }
+              0 l (para_recover e aslices))) = false).
+    { intros e.
+      rewrite step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
+      unfold para_recover.
+      rewrite (step_para_off_flush l _ aslices Hblank). reflexivity. }
     destruct (Nat.ltb aind (0 + indent_of l));
-      [destruct (ap_failed (attr_feed l aap)); [exact Hfall|reflexivity]
-      |exact Hfall].
+      [destruct (ap_failed (attr_feed l aap)); [exact (Hfall 1)|reflexivity]
+      |exact (Hfall 0)].
+  - (* the recovery's paragraph flushes, leaving the idle state *)
+    rewrite (step_para_off_flush l okoff ocur Hblank). reflexivity.
   - (* a reference definition: the blank closes it, leaving the idle state *)
     rewrite (step_ref_blank l rind rlbl rval Hblank). reflexivity.
   - unfold step. cbn [step_fuel open_line]. rewrite (classify_kblank_blank l Hblank).
@@ -1113,7 +1120,7 @@ Proof.
   - (* an open key: the retraction leaves the idle state, and otherwise
        the key is still there over a state the induction covers *)
     destruct (is_idle kinner) eqn:Hidle.
-    { destruct kinner as [cur| | | | | | | | | | |]; try discriminate Hidle.
+    { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [|discriminate Hidle].
       rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hblank)).
       reflexivity. }

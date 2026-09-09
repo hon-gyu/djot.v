@@ -979,7 +979,7 @@ Definition pend_ready (st : pstate) (l : string) : bool :=
 Lemma pend_carriable_ready :
   forall st l, pend_carriable st = true -> pend_ready st l = true.
 Proof.
-  intros [cur| | | | | | | | | | |] l H; try exact H;
+  intros [cur| | | | | | | | | | | |] l H; try exact H;
     destruct cur; [discriminate|reflexivity].
 Qed.
 
@@ -991,7 +991,7 @@ Lemma step_pend_pass :
 Proof.
   intros l pend st H. unfold step at 1. cbn [step_fuel pstate_depth].
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-  destruct st as [cur| | | | | | | | | | |]; cbn [pend_ready] in H;
+  destruct st as [cur| | | | | | | | | | | |]; cbn [pend_ready] in H;
     try discriminate H;
     try (destruct (classify l); reflexivity).
   destruct cur as [|c cur'];
@@ -1029,7 +1029,7 @@ Lemma step_empty_carriable :
 Proof.
   intros l st Hready Hempty. unfold step in *.
   destruct st as [cur|lvl cur|f fnd acc|done inner|dlen dcls ddone dinner
-                 |ls ldone linner|apend aind aap aslices|rind rlbl rval
+                 |ls ldone linner|apend aind aap aslices|okoff ocur|rind rlbl rval
                  |find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner];
     cbn [pend_ready] in Hready; try discriminate Hready;
     cbn [step_fuel] in Hempty |- *;
@@ -1112,7 +1112,7 @@ Lemma pend_ready_key_pass :
   forall st l, pend_ready st l = true ->
     (is_blank l && is_idle st)%bool = false.
 Proof.
-  intros [cur| | | | | | | | | | |] l H;
+  intros [cur| | | | | | | | | | | |] l H;
     cbn [is_idle]; try apply andb_false_r.
   destruct cur; [|apply andb_false_r]. rewrite andb_true_r.
   destruct (is_blank l) eqn:E; [|reflexivity].
@@ -1143,7 +1143,7 @@ Proof.
   assert (Hp : forall st, pend_carriable st = true -> key_carriable st = true).
   { intros st0 H0. destruct st0; try exact H0. discriminate H0. }
   destruct st as [cur|lvl cur|f fnd acc|done inner|dlen dcls ddone dinner
-                 |ls ldone linner|apend aind aap aslices|rind rlbl rval
+                 |ls ldone linner|apend aind aap aslices|okoff ocur|rind rlbl rval
                  |find flbl fdone finner|trows tcap|ppend pinner|klbl ksrc kinner];
     try (apply Hp, (step_empty_carriable l _ (pend_carriable_ready _ l H)), Hempty).
   cbn [key_carriable] in H.
