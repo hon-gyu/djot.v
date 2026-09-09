@@ -1169,13 +1169,17 @@ Proof.
   apply IH; [apply oscope_ok_emit_merge; assumption|exact Hns].
 Qed.
 
-Lemma oscope_ok_push :
-  forall k m o, oscope_ok o = true -> oscope_ok (opush k m o) = true.
+Lemma oscope_ok_push_at :
+  forall k m cm o, oscope_ok o = true -> oscope_ok (opush_at k m cm o) = true.
 Proof.
-  intros k m [out stk] H. unfold oscope_ok, opush in *;
+  intros k m cm [out stk] H. unfold oscope_ok, opush_at in *;
     cbn [os_out os_stk frames_ok forallb fr_out] in *.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
+
+Lemma oscope_ok_push :
+  forall k m o, oscope_ok o = true -> oscope_ok (opush k m o) = true.
+Proof. intros k m o H. apply oscope_ok_push_at, H. Qed.
 
 Lemma oscope_ok_bpush :
   forall image o, oscope_ok o = true -> oscope_ok (bpush image o) = true.
@@ -1545,19 +1549,37 @@ Proof.
   intros src txt o Ho Hs. unfold battr_lit. apply bsplit_nl_ok; assumption.
 Qed.
 
-(* A marked open either waits for the rest of its token, holding the
-   state it was in, or pushes -- and a push is exactly what
-   `oscope_ok_push` covers. *)
+(* A marked open holds the state it was in: the push waits for the byte
+   after the token, and it is that byte's arm that owes the scope
+   condition. *)
 Lemma idelim_marked_wf :
   forall k extra txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_marked k extra txt o) = true.
 Proof.
   intros k extra txt o Ho Hs. unfold idelim_marked.
-  destruct (Nat.ltb (S extra) (dwidth k));
-    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
-  apply iscan_wf_text;
-    [apply oscope_ok_push, iscan_wf_flush; assumption | reflexivity].
+  cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs. reflexivity.
+Qed.
+
+(* And the push, which is exactly what `oscope_ok_push_at` covers. *)
+Lemma oopen_marked_wf :
+  forall k cm txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (oopen_marked k cm txt o) = true
+    /\ starts_str (ocur (oopen_marked k cm txt o)) = false.
+Proof.
+  intros k cm txt o Ho Hs. unfold oopen_marked.
+  split; [apply oscope_ok_push_at, iscan_wf_flush; assumption | reflexivity].
+Qed.
+
+Lemma idelim_open_marked_wf :
+  forall k cm txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    iscan_wf (idelim_open_marked k cm txt o) = true.
+Proof.
+  intros k cm txt o Ho Hs. unfold idelim_open_marked.
+  destruct (oopen_marked_wf k cm txt o Ho Hs) as [H1 H2].
+  apply iscan_wf_text; assumption.
 Qed.
 
 (* The non-breaking space is a node, not text, so the branch that emits
@@ -1751,6 +1773,9 @@ Proof.
       destruct mrk;
         [apply idelim_marked_wf; assumption
         |cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity]. }
+    destruct mrk.
+    { destruct (oopen_marked_wf k (Ascii.eqb c rbrace) txt o Ho Hs) as [H1 H2].
+      apply ilead_wf; assumption. }
     destruct (Ascii.eqb c rbrace); [apply idelim_resolve_wf; assumption|].
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
@@ -1949,7 +1974,9 @@ Proof.
      close a scope. *)
   - apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
     destruct (Nat.ltb (S seen) (dwidth k));
-      [apply iscan_wf_text; assumption|apply idelim_resolve_wf; assumption].
+      [apply iscan_wf_text; assumption|].
+    destruct mrk;
+      [apply idelim_open_marked_wf | apply idelim_resolve_wf]; assumption.
 Qed.
 
 Lemma iscan_wf_ostate_flat :

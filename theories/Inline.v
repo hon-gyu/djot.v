@@ -930,21 +930,33 @@ Definition dopens_after (c : option ascii) : bool :=
        || Ascii.eqb ch hyphen || Ascii.eqb ch lparen || Ascii.eqb ch lbrack)%bool
   end.
 
-(* What an unmatched token leaves behind.  An ordinary row leaves its own
-   source, braces and all; a smart quote leaves a curly character, and
-   the markers choose the side -- an open marker takes the left form and
-   a close marker the right, which is djot.js flipping its
-   `defaultmatch` (`inline.ts:118-136`). *)
+(* What an unmatched token leaves behind.  The two markers are djot.js's
+   `has_open_marker` and `has_close_marker` (`inline.ts:118-136`), and
+   they decide two separate things.
+
+   *How far the token reaches.*  An ordinary row leaves its own source,
+   and a marker's brace is part of it -- but only the one djot.js
+   actually consumed: `endcloser` moves past the `}` only when there is
+   no open marker, so `*}` is two characters of text and `{*}` is `{*`
+   with the `}` still to come.
+
+   *Which side a smart quote takes.*  The flip is directional.  An open
+   marker can only turn a right default into a left one and a close
+   marker only the reverse, so on the one token that carries both the
+   row's own default decides which of them applies.  The double quote
+   defaults left, so a braced open double quote with a `}` after it takes
+   the right form; the single quote defaults right, and `{'` with a `}`
+   after it takes the left. *)
 Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
   match dc_decay cfg k with
   | DDSelf =>
       ((if openmark then one lbrace else EmptyString)
        ++ dtoken k
-       ++ (if closemark then one rbrace else EmptyString))%string
+       ++ (if (closemark && negb openmark)%bool
+           then one rbrace else EmptyString))%string
   | DDPair dfl l r =>
-      if openmark then l
-      else if closemark then r
-      else if dfl then l else r
+      if dfl then (if closemark then r else l)
+      else (if openmark then l else r)
   end.
 
 (* Whether an unbraced delimiter may open a span here.  Closing never
@@ -1040,8 +1052,8 @@ Proof.
     destruct om; [reflexivity|].
     destruct (dtoken k); [discriminate|reflexivity].
   - cbn [ddecay_ok] in H. apply andb_true_iff in H as [Hl Hr].
-    destruct om; [exact Hl|]. destruct cm; [exact Hr|].
-    destruct dfl; [exact Hl|exact Hr].
+    destruct dfl; [destruct cm; [exact Hr|exact Hl]|].
+    destruct om; [exact Hl|exact Hr].
 Qed.
 
 Lemma dreserved_false :
@@ -2173,7 +2185,14 @@ Inductive oitem : Type :=
 Definition oitems : Type := list oitem.
 
 Inductive frame_kind : Type :=
-  | FKDelim (style : dstyle)
+  (* `closemark` is a `}` immediately after a marked opener.  It does not
+     stop the token opening -- upstream's `has_open_marker` branch forces
+     `can_open`, and the `}` stays as text -- and it does not change which
+     closers reach the scope, so the bit reaches `fr_src` and nothing
+     else.  A marked double quote with a `}` after it opens a scope whose
+     abandoned spelling is the *right* curly quote, which is upstream
+     flipping `defaultmatch` a second time (`inline.ts:126-136`). *)
+  | FKDelim (style : dstyle) (closemark : bool)
   (* `image` records the `!` before the `[`, which djot.js instead reads
      back off the subject at the close (`inline.ts:475`).  We cannot: the
      text before the bracket has been flushed by then, and an escaped
@@ -2204,7 +2223,7 @@ Record frame : Type := Frame {
 (* The opener's source text, which is what it decays to when abandoned. *)
 Definition fr_src (f : frame) : string :=
   match fr_kind f with
-  | FKDelim k => ddecay_str k (fr_marked f) false
+  | FKDelim k cm => ddecay_str k (fr_marked f) cm
   | FKBracket image | FKDest image => bracket_open image
   end.
 
@@ -2213,7 +2232,7 @@ Definition fr_src (f : frame) : string :=
 Definition fr_barrier (f : frame) : bool :=
   match fr_kind f with
   | FKDest _ => true
-  | FKDelim _ | FKBracket _ => false
+  | FKDelim _ _ | FKBracket _ => false
   end.
 
 Record ostate : Type := OState {
@@ -2248,7 +2267,7 @@ Definition dstyle_eqb (a b : dstyle) : bool :=
    and neither does `_a_}`. *)
 Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
   match fr_kind f with
-  | FKDelim k' => (dstyle_eqb k k' && Bool.eqb m (fr_marked f))%bool
+  | FKDelim k' _ => (dstyle_eqb k k' && Bool.eqb m (fr_marked f))%bool
   | FKBracket _ | FKDest _ => false
   end.
 
@@ -2395,8 +2414,13 @@ Fixpoint oemit_all (ns : inlines) (o : ostate) : ostate :=
 Definition flush_text (txt : string) (o : ostate) : ostate :=
   if nonempty_str txt then oemit (mk (Str txt)) o else o.
 
+Definition opush_at (k : dstyle) (m cm : bool) (o : ostate) : ostate :=
+  OState (os_out o) (Frame (FKDelim k cm) m [] :: os_stk o).
+
+(* The common case: no `}` follows the opener, which is every unmarked
+   one and every marked one whose next byte is anything else. *)
 Definition opush (k : dstyle) (m : bool) (o : ostate) : ostate :=
-  OState (os_out o) (Frame (FKDelim k) m [] :: os_stk o).
+  opush_at k m false o.
 
 Definition bpush (image : bool) (o : ostate) : ostate :=
   OState (os_out o) (Frame (FKBracket image) false [] :: os_stk o).
@@ -2606,12 +2630,12 @@ Definition oclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
   end.
 
 Lemma oclose_oemit_all_marked :
-  forall k ns base,
+  forall k cm ns base,
     nonempty ns = true ->
-    oclose k true (oemit_all ns (opush k true base))
+    oclose k true (oemit_all ns (opush_at k true cm base))
     = Some (oemit (mk (dnode k ns)) base).
 Proof.
-  intros k ns [out stk] Hne. unfold opush. rewrite oemit_all_frame.
+  intros k cm ns [out stk] Hne. unfold opush_at. rewrite oemit_all_frame.
   unfold oclose. cbn [os_stk os_out oclose_go oapp dmatch fr_kind
     fr_marked fr_out]. rewrite !app_nil_r.
   assert (Hrev : nonempty (List.rev (List.map OIn ns)) = true).
@@ -2641,7 +2665,7 @@ Fixpoint bclose_go (pend : oitems) (stk : list frame)
       (* the destination's own opener is not offered back yet; see the
          constructor's comment *)
       | FKDest _ => None
-      | FKDelim _ =>
+      | FKDelim _ _ =>
           bclose_go (oapp content [OIn (mk (Str (fr_src f)))]) rest
       end
   end.
@@ -2855,11 +2879,13 @@ Inductive iscan : Type :=
      its role.  Counting from the second character rather than the first
      is what keeps the state from holding an empty token.
 
-     `marked` says the token is the one after a `{`, which needs no byte
-     after it: it opens on sight, so `idelim_marked` pushes the scope the
-     moment the width is reached and a marked state is therefore never a
-     *complete* token.  What it still owes is the rest of its own token,
-     and what it decays to keeps the `{`. *)
+     `marked` says the token is the one after a `{`.  Its *role* needs no
+     byte after it -- upstream forces `can_open` and blocks `can_close`
+     -- but the side its decay would take does need one, because a `}`
+     right after it flips the row's default.  So a complete marked token
+     waits here too, and the byte that arrives pushes the scope and is
+     then dispatched into it; only `fr_src` ever learns which side it
+     chose.  What such a state decays to keeps the `{`. *)
   | IDelim (k : dstyle) (extra : nat) (txt : string) (before : option ascii)
            (marked : bool) (o : ostate)
   (* counting an opening backtick run.  `vk` is what the run will close
@@ -3071,17 +3097,25 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
   then iattr_mark (ap_attrs p') txt o
   else IAttr p' (src ++ one c)%string txt prev o.
 
-(* A marked open with `S extra` characters of its token in hand.  It
-   needs no byte after it -- djot.js forces `can_open` and blocks
-   `can_close` for a marked delimiter -- so reaching the row's width
-   pushes the scope there and then, and only a token still short of it
-   waits.  `before` is `None` throughout: the branch that would read it
-   is the one this never reaches. *)
+(* A marked open with `S extra` characters of its token in hand.  Its
+   role is not in doubt -- djot.js forces `can_open` and blocks
+   `can_close` for a marked delimiter -- but its *spelling when abandoned*
+   is, because a `}` right after it flips the row's decay side.  So the
+   push waits for one byte whatever the width, and `istep` and `iresolve`
+   are where it happens.  `before` is `None` throughout: the branch that
+   would read it is the one this never reaches. *)
 Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
+  (o : ostate) : iscan := IDelim k extra txt None true o.
+
+(* The push itself, once the byte after a completed marked opener is
+   known (or known not to exist). *)
+Definition oopen_marked (k : dstyle) (cm : bool) (txt : string)
+  (o : ostate) : ostate :=
+  opush_at k true cm (flush_text txt o).
+
+Definition idelim_open_marked (k : dstyle) (cm : bool) (txt : string)
   (o : ostate) : iscan :=
-  if Nat.ltb (S extra) (dwidth k)
-  then IDelim k extra txt None true o
-  else IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o)).
+  IText false EmptyString (Some (dchar k)) (oopen_marked k cm txt o).
 
 (* What a token that never finished decays to: the row's characters
    received so far, with the `{` of a marked open back in front of
@@ -3408,6 +3442,7 @@ Definition iresolve (st : iscan) : iscan :=
       if Nat.ltb (S extra) (dwidth k)
       then IText false (txt ++ idelim_run k extra marked)%string
              (Some (dchar k)) o
+      else if marked then idelim_open_marked k false txt o
       else idelim_resolve k txt before false None o
   (* The newline is an ordinary byte to djot.js, and none of the three
      that make a construct, so `[a]` at the end of a line leaves the `]`
@@ -3467,6 +3502,12 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
                else IDelim k (S extra) txt before false o)
          else ilead c (txt ++ idelim_run k extra marked)%string
                 (Some (dchar k)) o)
+      else if marked
+      then (* a completed marked opener: it opens whatever comes next, and
+              this byte only chooses the side its decay takes, so it is
+              still dispatched *)
+        ilead c EmptyString (Some (dchar k))
+          (oopen_marked k (Ascii.eqb c rbrace) txt o)
       else
       let marker := Ascii.eqb c rbrace in
       let st' := idelim_resolve k txt before marker (Some c) o in
@@ -3724,7 +3765,8 @@ Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
       if Nat.ltb (S extra) (dwidth k)
       then IText false (txt ++ idelim_run k extra marked)%string
              (Some (dchar k)) o
-      else idelim_resolve k txt before marked (Some c) o
+      else if marked then idelim_open_marked k (Ascii.eqb c rbrace) txt o
+      else idelim_resolve k txt before false (Some c) o
   | _ => iresolve st
   end.
 
@@ -4038,6 +4080,11 @@ Proof.
   destruct (nonempty_str txt); [apply oemit_app | reflexivity].
 Qed.
 
+Lemma opush_at_app :
+  forall k m cm o base,
+    opush_at k m cm (oout_app base o) = oout_app base (opush_at k m cm o).
+Proof. intros k m cm o base. reflexivity. Qed.
+
 Lemma opush_app :
   forall k m o base,
     opush k m (oout_app base o) = oout_app base (opush k m o).
@@ -4312,6 +4359,16 @@ Proof.
   apply Hdone.
 Qed.
 
+Lemma idelim_open_marked_out_app :
+  forall k cm txt base o,
+    idelim_open_marked k cm txt (oout_app base o)
+    = iout_app base (idelim_open_marked k cm txt o).
+Proof.
+  intros k cm txt base o.
+  unfold idelim_open_marked, oopen_marked. cbn [iout_app].
+  rewrite flush_text_app, opush_at_app. reflexivity.
+Qed.
+
 Lemma iresolve_app :
   forall base st,
     base_ok base = true ->
@@ -4320,18 +4377,15 @@ Proof.
   intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
-      [reflexivity | apply idelim_resolve_app].
+      [reflexivity|].
+    destruct mrk; [apply idelim_open_marked_out_app | apply idelim_resolve_app].
 Qed.
 
 Lemma idelim_marked_out_app :
   forall k extra txt base o,
     idelim_marked k extra txt (oout_app base o)
     = iout_app base (idelim_marked k extra txt o).
-Proof.
-  intros k extra txt base o. unfold idelim_marked.
-  destruct (Nat.ltb (S extra) (dwidth k)); cbn [iout_app]; [reflexivity|].
-  rewrite flush_text_app, opush_app. reflexivity.
-Qed.
+Proof. intros. reflexivity. Qed.
 
 Lemma istep_out_app :
   forall c base st,
@@ -4355,6 +4409,9 @@ Proof.
   - destruct (Nat.ltb (S seen) (dwidth k)).
     { destruct (Ascii.eqb c (dchar k)); [|apply ilead_app].
       destruct mrk; [apply idelim_marked_out_app|reflexivity]. }
+    destruct mrk.
+    { unfold oopen_marked. cbn [iout_app].
+      rewrite flush_text_app, opush_at_app. apply ilead_app. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
       as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; cbn [iout_app];
@@ -5016,9 +5073,9 @@ Qed.
    the delimiter's own frame on top, which is not a bracket, and nothing
    the close does before the token can turn it into one. *)
 Lemma bunpush_oemit_all_opush :
-  forall ns k m o, bunpush (oemit_all ns (opush k m o)) = None.
+  forall ns k m cm o, bunpush (oemit_all ns (opush_at k m cm o)) = None.
 Proof.
-  intros ns k m [out stk]. unfold opush; cbn [os_out os_stk].
+  intros ns k m cm [out stk]. unfold opush_at; cbn [os_out os_stk].
   rewrite oemit_all_frame. reflexivity.
 Qed.
 
@@ -5030,30 +5087,30 @@ Proof.
 Qed.
 
 Lemma iscan_marked_flush :
-  forall k tail txt prev before base,
+  forall k cm tail txt prev before base,
     denabled_of k = true ->
     (nonempty before || nonempty_str txt)%bool = true ->
     exists p,
       iscan_str (marked_close k tail)
-        (IText false txt prev (oemit_all before (opush k true base)))
+        (IText false txt prev (oemit_all before (opush_at k true cm base)))
       = iscan_str (marked_close k tail)
           (IText false EmptyString p
-            (flush_text txt (oemit_all before (opush k true base)))).
+            (flush_text txt (oemit_all before (opush_at k true cm base)))).
 Proof.
-  intros k tail txt prev before base Hen Hne.
+  intros k cm tail txt prev before base Hen Hne.
   assert (Hclose : exists o',
     oclose k true
-      (flush_text txt (oemit_all before (opush k true base))) = Some o').
+      (flush_text txt (oemit_all before (opush_at k true cm base))) = Some o').
   { destruct (nonempty_str txt) eqn:Htxt.
     - exists (oemit (mk (dnode k (before ++ [mk (Str txt)])%list)) base).
       unfold flush_text. rewrite Htxt.
       change (oclose k true
                 (oemit_all [mk (Str txt)]
-                  (oemit_all before (opush k true base)))
+                  (oemit_all before (opush_at k true cm base)))
               = Some
                   (oemit (mk (dnode k (before ++ [mk (Str txt)])%list))
                     base)).
-      rewrite <- (oemit_all_app before [mk (Str txt)] (opush k true base)).
+      rewrite <- (oemit_all_app before [mk (Str txt)] (opush_at k true cm base)).
       cbn [oemit_all]. apply oclose_oemit_all_marked. destruct before; reflexivity.
     - apply orb_true_iff in Hne as [Hbefore|Htxt']; [|discriminate].
       exists (oemit (mk (dnode k before)) base).
@@ -5062,45 +5119,42 @@ Proof.
   destruct Hclose as [o' Hclose]. exists prev.
   unfold marked_close. rewrite <- append_assoc.
   rewrite !(iscan_str_app (dtoken k ++ one rbrace) tail).
-  pose proof (bunpush_oemit_all_opush before k true base) as Hup.
+  pose proof (bunpush_oemit_all_opush before k true cm base) as Hup.
   rewrite (iscan_marked_close_step k txt prev
-             (oemit_all before (opush k true base)) o' Hen Hup Hclose).
+             (oemit_all before (opush_at k true cm base)) o' Hen Hup Hclose).
   rewrite (iscan_marked_close_step k EmptyString prev
-             (flush_text txt (oemit_all before (opush k true base))) o' Hen
+             (flush_text txt (oemit_all before (opush_at k true cm base))) o' Hen
              (bunpush_flush txt _ Hup)
              ltac:(cbn [flush_text]; exact Hclose)).
   reflexivity.
 Qed.
 
-(* The rest of a marked open's token, and the push that ends it.  The
-   counterpart of `iscan_chars_delim` for a token that decides its role
-   on arrival rather than on the byte after. *)
+(* The rest of a marked open's token.  The counterpart of
+   `iscan_chars_delim`, and it stops one byte earlier than the push does:
+   a marked opener's role is settled but the side its decay takes is
+   not. *)
 Lemma iscan_chars_marked :
   forall n k extra txt o,
     S extra + n = dwidth k ->
     iscan_str (chars (dchar k) n) (idelim_marked k extra txt o)
-    = IText false EmptyString (Some (dchar k)) (opush k true (flush_text txt o)).
+    = idelim_marked k (extra + n) txt o.
 Proof.
   induction n as [|n IH]; intros k extra txt o Hn.
-  - cbn [chars iscan_str]. unfold idelim_marked.
-    replace (Nat.ltb (S extra) (dwidth k)) with false
-      by (symmetry; apply Nat.ltb_ge; lia).
-    reflexivity.
+  - cbn [chars iscan_str]. rewrite Nat.add_0_r. reflexivity.
   - unfold idelim_marked at 1.
-    replace (Nat.ltb (S extra) (dwidth k)) with true
-      by (symmetry; apply Nat.ltb_lt; lia).
     cbn [chars iscan_str istep].
     replace (Nat.ltb (S extra) (dwidth k)) with true
       by (symmetry; apply Nat.ltb_lt; lia).
-    rewrite Ascii.eqb_refl. apply IH. lia.
+    rewrite Ascii.eqb_refl.
+    rewrite (IH k (S extra) txt o) by lia.
+    f_equal. lia.
 Qed.
 
 Lemma iscan_marked_open :
   forall d txt prev o,
     denabled_of d = true ->
     iscan_str (marked_open d) (IText false txt prev o)
-    = IText false EmptyString (Some (dchar d))
-        (opush d true (flush_text txt o)).
+    = idelim_marked d (pred (dwidth d)) txt o.
 Proof.
   intros d txt prev o Hen. unfold marked_open, dtoken.
   destruct (dwidth d) as [|w] eqn:Ew;
@@ -5108,26 +5162,49 @@ Proof.
   unfold one. cbn [chars append iscan_str istep].
   change (ilead lbrace txt prev o) with (IBrace txt prev o).
   cbn [istep]. unfold ibrace_step. rewrite (dstyle_of_dchar d Hen).
-  apply (iscan_chars_marked w d 0 txt o). lia.
+  rewrite (iscan_chars_marked w d 0 txt o) by lia.
+  cbn [pred]. reflexivity.
+Qed.
+
+(* And the byte that follows it, which is where the push happens: it
+   chooses the side the scope's decay would take, and then is dispatched
+   into the scope as any byte would be.  A caller whose scope closes never
+   learns which side it was, so the bit is existential here -- the only
+   thing the chain below needs is that the scope is open. *)
+Lemma iscan_marked_open_app :
+  forall d s txt prev o,
+    denabled_of d = true -> nonempty_str s = true ->
+    exists cm,
+      iscan_str (marked_open d ++ s) (IText false txt prev o)
+      = iscan_str s
+          (IText false EmptyString (Some (dchar d))
+            (opush_at d true cm (flush_text txt o))).
+Proof.
+  intros d [|c s] txt prev o Hen Hne; [discriminate|].
+  exists (Ascii.eqb c rbrace).
+  rewrite iscan_str_app, (iscan_marked_open d txt prev o Hen).
+  destruct (dwidth d) as [|w] eqn:Ew; [destruct (dwidth_nonzero d Ew)|].
+  unfold idelim_marked. cbn [pred iscan_str istep].
+  rewrite Ew, Nat.ltb_irrefl. unfold oopen_marked. reflexivity.
 Qed.
 
 Lemma iscan_marked_close_emit :
-  forall d tail ns base p,
+  forall d cm tail ns base p,
     denabled_of d = true ->
     nonempty ns = true ->
     iscan_str (marked_close d tail)
-      (IText false EmptyString p (oemit_all ns (opush d true base)))
+      (IText false EmptyString p (oemit_all ns (opush_at d true cm base)))
     = iscan_str tail
         (IText false EmptyString (Some rbrace)
           (oemit (mk (dnode d ns)) base)).
 Proof.
-  intros d tail ns base p Hen Hne. unfold marked_close.
+  intros d cm tail ns base p Hen Hne. unfold marked_close.
   rewrite <- append_assoc, iscan_str_app.
   rewrite (iscan_marked_close_step d EmptyString p
-             (oemit_all ns (opush d true base))
+             (oemit_all ns (opush_at d true cm base))
              (oemit (mk (dnode d ns)) base)
              Hen
-             (bunpush_oemit_all_opush ns d true base)
+             (bunpush_oemit_all_opush ns d true cm base)
              ltac:(cbn [flush_text]; apply oclose_oemit_all_marked, Hne)).
   reflexivity.
 Qed.
@@ -5949,13 +6026,18 @@ Proof.
       assert (Hkidslt :
         ltof (list cinline) cis_size kids (CIDelim d kids :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_delim. lia. }
+      destruct (iscan_marked_open_app d
+                  (ci_text kids ++ marked_close d (ci_text rest ++ cl))
+                  txt prev (oemit_all before O) Hden
+                  (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
+        as [cm Eopen].
       pose proof (IH kids Hkidslt (marked_close d (ci_text rest ++ cl))
-        (opush d true (flush_text txt (oemit_all before O))) false
+        (opush_at d true cm (flush_text txt (oemit_all before O))) false
         EmptyString (Some (dchar d)) []
         (marked_close_nonempty _ _) (marked_close_starts_nontick _ _)
         (marked_close_after_verb _ _)
         (fun txt' prev' before' e =>
-           iscan_marked_flush d (ci_text rest ++ cl) txt' prev' before'
+           iscan_marked_flush d cm (ci_text rest ++ cl) txt' prev' before'
              (flush_text txt (oemit_all before O)) Hden (orb_false_r_true _ e)))
         as IHkids.
       assert (Hkn :
@@ -5991,9 +6073,10 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
-        rewrite append_assoc, Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
+        rewrite append_assoc, Hsrc, Eopen.
         cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
-        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
+        rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
+                   Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all] in Erest.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
@@ -6002,9 +6085,10 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
-        rewrite append_assoc, Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
+        rewrite append_assoc, Hsrc, Eopen.
         cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
-        rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
+        rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
+                   Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
         cbn [flush_text nonempty_str oemit_all] in Erest.
         rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
@@ -6247,25 +6331,25 @@ Qed.
 
 (* The delimiter instance, which is what the two callers below use. *)
 Lemma iscan_cis_marked :
-  forall cis k tail txt prev before base,
+  forall cis k cm tail txt prev before base,
     denabled_of k = true ->
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     (nonempty before || nonempty_str txt || nonempty cis)%bool = true ->
     exists p,
       iscan_str (ci_text cis ++ marked_close k tail)
-        (IText false txt prev (oemit_all before (opush k true base)))
+        (IText false txt prev (oemit_all before (opush_at k true cm base)))
       = iscan_str (marked_close k tail)
           (IText false EmptyString p
             (oemit_all (ci_inlines cis)
-              (flush_text txt (oemit_all before (opush k true base))))).
+              (flush_text txt (oemit_all before (opush_at k true cm base))))).
 Proof.
-  intros cis k tail txt prev before base Hden Hok Hsep Hne.
-  apply (iscan_cis_scope cis (marked_close k tail) (opush k true base) false
+  intros cis k cm tail txt prev before base Hden Hok Hsep Hne.
+  apply (iscan_cis_scope cis (marked_close k tail) (opush_at k true cm base) false
            txt prev before
            (marked_close_nonempty _ _) (marked_close_starts_nontick _ _)
            (marked_close_after_verb _ _)
            (fun txt' prev' before' e =>
-              iscan_marked_flush k tail txt' prev' before' base Hden
+              iscan_marked_flush k cm tail txt' prev' before' base Hden
                 (orb_false_r_true _ e))
            Hok Hsep).
   rewrite orb_false_r. exact Hne.
@@ -6390,7 +6474,12 @@ Proof.
     + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
       rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
       apply andb_true_iff in Hdk as [Hden Hkidsne].
-      pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
+      destruct (iscan_marked_open_app d
+                  (ci_text kids ++ marked_close d (ci_text rest))
+                  txt prev' (OState (List.map OIn out) []) Hden
+                  (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
+        as [cm Eopen].
+      pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
         (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) []))
         Hden Hkidsok eq_refl) as IHkids.
       assert (Hkn :
@@ -6405,11 +6494,12 @@ Proof.
         = (marked_open d ++
             (ci_text kids ++ marked_close d (ci_text rest)))%string).
       { rewrite !append_assoc, marked_close_app. reflexivity. }
-      rewrite Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
+      rewrite Hsrc, Eopen.
       cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
       assert (Hkins : nonempty (ci_inlines kids) = true).
       { destruct kids; [discriminate|reflexivity]. }
-      rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
+      rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
+                 Hkins).
       rewrite <- ci_ast_delim.
       destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
@@ -6581,7 +6671,12 @@ Proof.
   - pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
     rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
     apply andb_true_iff in Hdk as [Hden Hkidsne].
-    pose proof (iscan_cis_marked kids d (ci_text rest) EmptyString
+    destruct (iscan_marked_open_app d
+                (ci_text kids ++ marked_close d (ci_text rest))
+                txt prev' (OState (List.map OIn out) []) Hden
+                (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
+      as [cm Eopen].
+    pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
       (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) []))
       Hden Hkidsok eq_refl) as IHkids.
     assert (Hkn :
@@ -6596,11 +6691,11 @@ Proof.
       = (marked_open d ++
           (ci_text kids ++ marked_close d (ci_text rest)))%string).
     { rewrite !append_assoc, marked_close_app. reflexivity. }
-    rewrite Hsrc, iscan_str_app, (iscan_marked_open _ _ _ _ Hden).
+    rewrite Hsrc, Eopen.
     cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
     assert (Hkins : nonempty (ci_inlines kids) = true).
     { destruct kids; [discriminate|reflexivity]. }
-    rewrite (iscan_marked_close_emit d _ (ci_inlines kids) _ pk Hden Hkins).
+    rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden Hkins).
     destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
     injection Eflat as Eout Estk. subst out' stk'.
@@ -6723,6 +6818,7 @@ Proof.
   intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
+    destruct mrk; [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
     rewrite E. exact I.
 Qed.
@@ -7654,6 +7750,34 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example marked_squote_abandoned_is_left :
   parse_inline_line "{'a" = [mk (Str (lsquo ++ "a"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Both markers at once, which is the one token whose two flips compete.
+   The row's own default decides: the single quote defaults right, so the
+   open marker is the flip that applies and the `}` changes nothing,
+   while the double quote defaults left and the close marker wins.  The
+   `}` is not consumed either way -- upstream moves `endcloser` past it
+   only when there is no open marker -- so the token still opens a scope
+   and the brace is text after it. *)
+Example marked_squote_with_close_marker_is_left :
+  parse_inline_line "{'}a" = [mk (Str (lsquo ++ "}a"))].
+Proof. vm_compute. reflexivity. Qed.
+
+Example marked_dquote_with_close_marker_is_right :
+  parse_inline_line "{""}a" = [mk (Str (rdquo ++ "}a"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And it is still an opener, so a closer later in the line reaches it
+   and the decay is never asked for. *)
+Example marked_dquote_with_close_marker_still_opens :
+  parse_inline_line "{""}a""}"
+  = [mk (Quoted DoubleQuotes [mk (Str "}a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An ordinary row's decay is its source, and there the `}` is the one
+   the token did not take: `{*}` is three characters of text, not four. *)
+Example marked_strong_with_close_marker_keeps_one_brace :
+  parse_inline_line "{*}" = [mk (Str "{*}")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And an escape still wins, which is what keeps a canonical `Str`
