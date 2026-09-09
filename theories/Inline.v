@@ -3961,6 +3961,37 @@ Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
   | x :: rest => iscan_lines rest (ibreak (iscan_str x st))
   end.
 
+(* The same scan with attribute recognition switched off.  A block
+   attribute spec that fails hands its lines back to the paragraph, and
+   djot.js re-reads exactly those lines with `allowAttributes` false
+   (`block.ts:592`, `inline.ts:651`). *)
+Fixpoint iscan_str_off (s : string) (st : iscan) : iscan :=
+  match s with
+  | EmptyString => st
+  | String c rest => iscan_str_off rest (istep_at false c st)
+  end.
+
+(* `k` leading lines of a paragraph read with attributes off, the rest as
+   usual.  The region is whole lines because `block.ts:552` records one
+   slice per line, so the inline shadow's `islice_end` disposition has no
+   counterpart here: what is cut inside a line there is not cut at all
+   here.  The break that ends each off line is off too, since a slice
+   runs to and includes its newline.
+
+   `k = 0` is `iscan_lines`, definitionally, which is what leaves every
+   existing statement about a paragraph's scan unconditioned. *)
+Fixpoint iscan_lines_off (k : nat) (l : list string) (st : iscan) : iscan :=
+  match k with
+  | O => iscan_lines l st
+  | S k' =>
+      match l with
+      | [] => st
+      | [x] => iscan_str_off (strip_trailing_ws x) st
+      | x :: rest =>
+          iscan_lines_off k' rest (ibreak_at false (iscan_str_off x st))
+      end
+  end.
+
 Lemma iscan_str_app :
   forall a b st, iscan_str (a ++ b) st = iscan_str b (iscan_str a st).
 Proof.
@@ -6947,6 +6978,17 @@ Qed.
 Definition para_inlines (l : list string) : inlines :=
   ifinish (iscan_lines l istart).
 
+(* A paragraph whose first `k` lines came from a block attribute spec
+   that failed.  Those lines are re-read with attributes off and the rest
+   of the paragraph is read as usual, which is what `reparseAttributes`
+   followed by `this.pos = lastpos + 1` does (`block.ts:592-595`). *)
+Definition para_inlines_off (k : nat) (l : list string) : inlines :=
+  ifinish (iscan_lines_off k l istart).
+
+Lemma para_inlines_off_0 :
+  forall l, para_inlines_off 0 l = para_inlines l.
+Proof. reflexivity. Qed.
+
 (* Classification sees the source and nothing else.  The environment is
    named here before brackets arrive so their parser can produce
    unresolved `Reference` and `FootnoteReference` nodes without consulting
@@ -7578,6 +7620,33 @@ Proof. vm_compute. reflexivity. Qed.
 (* And the ordinary case still splits at the break. *)
 Example text_breaks_at_line_end :
   para_inlines ["a"; "b"] = [mk (Str "a"); mk SoftBreak; mk (Str "b")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The block-attribute recovery, which is what `para_inlines_off` is for.
+   With attributes on, a `{%` on the first line opens a comment that the
+   `%}` closes, and the spec attaches to nothing and is dropped, so the
+   whole paragraph vanishes.  With the first line off, nothing opens. *)
+Example para_off_comment_spans_paragraph :
+  para_inlines ["{%"; "c"; "%}"] = [].
+Proof. vm_compute. reflexivity. Qed.
+
+Example para_off_one_frozen_line :
+  para_inlines_off 1 ["{%"; "c"; "%}"]
+  = [mk (Str "{%"); mk SoftBreak; mk (Str "c");
+     mk SoftBreak; mk (Str "%}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Two of them, which is what an indented continuation line gives. *)
+Example para_off_two_frozen_lines :
+  para_inlines_off 2 ["{%"; "c"; "%}"]
+  = [mk (Str "{%"); mk SoftBreak; mk (Str "c");
+     mk SoftBreak; mk (Str "%}")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An id spec is the same story with a different machine state. *)
+Example para_off_id_spec :
+  para_inlines_off 1 ["{#i"; "%}"]
+  = [mk (Str "{#i"); mk SoftBreak; mk (Str "%}")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A delimiter span crosses one too. *)
