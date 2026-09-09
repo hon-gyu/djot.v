@@ -2939,10 +2939,12 @@ Inductive iscan : Type :=
   | ISpan (kids : inlines) (image : bool) (p : aparser) (src : string)
           (o : ostate)
   (* An attribute spec, which attaches to whatever precedes it.  `txt` is
-     the text pending when the `{` arrived: it is both the literal
-     fallback and, on success, the thing the spec attaches to. *)
+     the text pending when the `{` arrived and, on success, the thing the
+     spec attaches to.  `sh` is the ordinary interpretation of the same
+     source, advanced with attribute recognition off and selected if the
+     candidate never closes. *)
   | IAttr (p : aparser) (src : string) (txt : string) (prev : option ascii)
-          (o : ostate)
+          (sh : iscan) (o : ostate)
   | IReference (kids : inlines) (image : bool) (label : string) (o : ostate)
   (* inside a `[^`.  The label is raw source, not inline content: djot.js
      decides note-ness at the `]` and then destroys every match made
@@ -3076,236 +3078,6 @@ Definition idest_open (kids : inlines) (image : bool) (o : ostate) : iscan :=
 Definition null {A} (l : list A) : bool :=
   match l with [] => true | _ => false end.
 
-(* Where a finished spec goes: into the scope, as a marker, with the
-   pending text flushed in front of it so that the run it will attach to
-   is the item immediately below.  `oresolve` settles it -- see
-   `oattach_list` for the rule and for the one case we do not follow
-   djot.js on. *)
-Definition iattr_mark (a : attr) (txt : string) (o : ostate) : iscan :=
-  IText false EmptyString (Some rbrace) (omark a (flush_text txt o)).
-
-(* One byte of an inline attribute spec, read with the machine block
-   attributes use.  Failure hands the byte back to `ilead` with the text
-   restored, as a span's does -- through `battr_lit`, since a spec may
-   have spanned a break by then. *)
-Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
-  (prev : option ascii) (o : ostate) : iscan :=
-  let p' := astep p c in
-  if ap_failed p'
-  then let '(t, o') := battr_lit src txt o in ilead c t (blit_prev t) o'
-  else if ap_done p'
-  then iattr_mark (ap_attrs p') txt o
-  else IAttr p' (src ++ one c)%string txt prev o.
-
-(* A marked open with `S extra` characters of its token in hand.  Its
-   role is not in doubt -- djot.js forces `can_open` and blocks
-   `can_close` for a marked delimiter -- but its *spelling when abandoned*
-   is, because a `}` right after it flips the row's decay side.  So the
-   push waits for one byte whatever the width, and `istep` and `iresolve`
-   are where it happens.  `before` is `None` throughout: the branch that
-   would read it is the one this never reaches. *)
-Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
-  (o : ostate) : iscan := IDelim k extra txt None true o.
-
-(* The push itself, once the byte after a completed marked opener is
-   known (or known not to exist). *)
-Definition oopen_marked (k : dstyle) (cm : bool) (txt : string)
-  (o : ostate) : ostate :=
-  opush_at k true cm (flush_text txt o).
-
-Definition idelim_open_marked (k : dstyle) (cm : bool) (txt : string)
-  (o : ostate) : iscan :=
-  IText false EmptyString (Some (dchar k)) (oopen_marked k cm txt o).
-
-(* What a token that never finished decays to: the row's characters
-   received so far, with the `{` of a marked open back in front of
-   them. *)
-Definition idelim_run (k : dstyle) (extra : nat) (marked : bool) : string :=
-  ((if marked then one lbrace else EmptyString)
-     ++ chars (dchar k) (S extra))%string.
-
-Lemma idelim_run_nonempty :
-  forall k extra marked, nonempty_str (idelim_run k extra marked) = true.
-Proof. intros k extra []; reflexivity. Qed.
-
-(* Resolving a `{`: an open marker if a delimiter follows, text
-   otherwise.
-
-   An attribute also begins with `{`, and is not implemented; until it is,
-   every other `{` is text, which is what the scanner did before. *)
-Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
-  (o : ostate) : iscan :=
-  match dstyle_of c with
-  | Some k => idelim_marked k 0 txt o
-  | None =>
-      if inline_attrs_enabled
-      then iattr_feed c ap_init EmptyString txt prev o
-      (* The spec's own immediate-failure path, taken before the first
-         byte is read: `{` goes back into the text and this byte is
-         dispatched afresh. *)
-      else let '(t, o') := battr_lit EmptyString txt o in
-           ilead c t (blit_prev t) o'
-  end.
-
-(* A span ignores the image marker: `![x]{.a}` is a literal `!` followed
-   by a span.  The `!` was never flushed -- the bracket frame records it
-   and `fr_src` puts it back on the literal path -- so the span path
-   has to emit it here, and it merges with any `Str` already at the tip
-   the same way, since `flush_text` alone would leave two adjacent. *)
-Definition ospan_bang (image : bool) (o : ostate) : ostate :=
-  if image
-  then let '(pre, o1) := opop_str o in flush_text (pre ++ one bang)%string o1
-  else o.
-
-(* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
-   node is built here with no byte left over.  On `AFail` the region up to
-   but not including the failing byte becomes text and that byte is
-   dispatched afresh: djot.js resumes its scan there, so `[s]{bad*x*y` is
-   `[s]{bad`, a strong `x`, and `y`. *)
-Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
-  (p : aparser) (src : string) (o : ostate) : iscan :=
-  let p' := astep p c in
-  if ap_failed p'
-  then let '(txt, o') := bspan_lit kids image src o in
-       ilead c txt (blit_prev txt) o'
-  else if ap_done p'
-  then IText false EmptyString (Some rbrace)
-         (oemit (Node NoPos (ap_attrs p') (Span kids)) (ospan_bang image o))
-  else ISpan kids image p' (src ++ one c)%string o.
-
-(* Resolving a `!`: an image opener if a `[` follows, text otherwise.
-   The `!` is *not* flushed with the text before it -- it is the opener's
-   own source, and `fr_src` puts it back if the bracket decays. *)
-(* One byte of a footnote label.  The `]` is the only byte with a role,
-   and a backslash defers it once -- without being decoded, since the
-   label is source and djot.js labels `[^a\]b]` with the backslash still
-   in it. *)
-Definition inote_step (c : ascii) (esc image : bool) (label : string)
-  (o : ostate) : iscan :=
-  if esc then INote false image (label ++ one bslash ++ one c)%string o
-  else if is_bslash c then INote true image label o
-  else if Ascii.eqb c rbrack
-  then IText false EmptyString (Some rbrack)
-         (oemit (mk (FootnoteReference (normalize_label label)))
-            (ospan_bang image o))
-  else INote false image (label ++ one c)%string o.
-
-(* A candidate that failed is its own source: the `<`, what it ate, and
-   whatever pended before it.  One string rather than a state, because
-   the byte that killed it still has to be dispatched. *)
-Definition auto_lit (src txt : string) : string :=
-  (txt ++ String lt src)%string.
-
-(* One byte of an autolink candidate.  Three bytes end it: the `>` that
-   may resolve it, and the whitespace or second `<` that the region may
-   not contain.  Everything else is region, raw -- no escape is decoded
-   and no construct is dispatched, which is what makes the region of a
-   *successful* autolink literal.
-
-   The `>` of a failed candidate is dispatched rather than appended, so
-   that this arm has one exit for every byte that is not region.
-
-   `auto_body_ok` asks more than the `>` has to: the three exclusions
-   are invariants of the mode, since a byte that breaks one leaves it.
-   It is spelled in full so that the test *is* `ci_ok`'s, which is what
-   makes the scan inversion a rewrite rather than an argument. *)
-Definition iauto_step (c : ascii) (src txt : string) (o : ostate) : iscan :=
-  if (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool
-  then IText false EmptyString (Some gt)
-         (oemit (mk (auto_node src)) (flush_text txt o))
-  else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
-  then ilead c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
-  else IAuto (src ++ one c)%string txt o.
-
-(* One byte of a raw-format spec.  The `}` decides it; the pattern's
-   excluded bytes end it; anything else is spec.
-
-   A failed spec is put back with the verbatim it followed, and there the
-   two cases differ.  With nothing read yet the `{` had no `=` after it,
-   so the ordinary attribute path is what should have run and does --
-   this is exactly the state the closer built before raw existed.  With
-   an `=` read the region cannot parse as attributes at all, so it is
-   text. *)
-Definition iraw_lit (spec : string) : string :=
-  (String lbrace spec)%string.
-
-Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
-  if (Ascii.eqb c rbrace && raw_spec_ok spec)%bool
-  then if raw_inline_enabled
-       then IText false EmptyString (Some rbrace)
-              (oemit (mk (RawInline (raw_format spec) txt)) o)
-       else ilead c (iraw_lit spec) (blit_prev (iraw_lit spec))
-              (oemit (mk (Verbatim txt)) o)
-  else if (match spec with
-           (* the `=` is the pattern's second character, so anything else
-              here is not a candidate at all -- and must behave exactly
-              as the `{` did before raw existed, since every canonical
-              delimiter is spelled `{`-first *)
-           | EmptyString => negb (Ascii.eqb c eqchar)
-           | _ => (Ascii.eqb c rbrace || raw_stop c)%bool
-           end)
-  then let closed := oemit (mk (Verbatim txt)) o in
-       match spec with
-       | EmptyString => ibrace_step c EmptyString (Some tick) closed
-       | _ => ilead c (iraw_lit spec) (blit_prev (iraw_lit spec)) closed
-       end
-  else IRaw (spec ++ one c)%string txt o.
-
-(* A label that never closed is its own source: the bracket it took back,
-   the marker, and what it had eaten.  `opop_str` reabsorbs the `Str`
-   that the bracket's own `flush_text` emitted, so the reconstruction is
-   one run and `no_adjacent_str` survives -- the move `bclosed_lit`
-   makes, for the same reason. *)
-Definition bnote_lit (esc image : bool) (label : string) (o : ostate)
-  : string * ostate :=
-  let '(pre, o1) := opop_str o in
-  ((pre ++ bracket_open image ++ one hat ++ label
-       ++ (if esc then one bslash else EmptyString))%string, o1).
-
-Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
-  (o : ostate) : iscan :=
-  if Ascii.eqb c lbrack
-  then IText false EmptyString (Some lbrack) (bpush true (flush_text txt o))
-  else ilead c (txt ++ one bang)%string (Some bang) o.
-
-(* Resolving an unbraced delimiter, once the byte after it has arrived
-   (or not, at the end of a line: `inone`).  Closing wins over opening,
-   as in djot.js, and a `}` immediately after forces the close. *)
-Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
-  (txt ++ ddecay_str k false marker)%string.
-
-(* And the source byte it ends on, which `ddecay_str` does not spell for a
-   smart quote: `'` is written and `’` is what lands in the buffer. *)
-Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
-  Some (if marker then rbrace else dchar k).
-
-Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
-  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
-  if (dbare k before && negb marker && nonspace_at next)%bool
-  then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
-  else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
-
-Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
-  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
-  if (nonspace_at before || marker)%bool
-  then match oclose k marker (flush_text txt o) with
-       | Some o' =>
-           IText false EmptyString
-             (Some (if marker then rbrace else dchar k)) o'
-       (* a barred opener is the one failure that does not offer the
-          token as an opener in its turn *)
-       | None =>
-           if oclose_barred k marker o
-           then IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o
-           else idelim_done k txt before marker next o
-       end
-  else idelim_done k txt before marker next o.
-
-(* No byte follows: the end of a line or of the paragraph.  `IBrace` and
-   `IDelim` are the only states this changes, and after it neither
-   remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
-(* The dollars a pending prefix is holding, when they turn out to be
-   text. *)
 (* The ellipsis and the two dashes, as UTF-8.  Three bytes each, like the
    curly quotes, and nothing downstream looks inside. *)
 Definition ellipsis : string :=
@@ -3362,8 +3134,272 @@ Example dashes_13 :
   dashes 13 = (emdash ++ emdash ++ emdash ++ endash ++ endash)%string.
 Proof. reflexivity. Qed.
 
+(* The dollars a pending prefix is holding, when they turn out to be
+   text. *)
 Definition dollars (two : bool) : string :=
   if two then (one dollar ++ one dollar)%string else one dollar.
+
+(* A candidate that failed is its own source: the `<`, what it ate, and
+   whatever pended before it.  One string rather than a state, because
+   the byte that killed it still has to be dispatched. *)
+Definition auto_lit (src txt : string) : string :=
+  (txt ++ String lt src)%string.
+
+(* A slice boundary in the ordinary reading of a candidate's region.
+   djot.js re-feeds that region on failure, cut into slices ending at
+   every byte of `reSpecial` (`inline.ts:67`), so a matcher whose loop is
+   bounded by the slice end cannot see past the byte it starts on: a run
+   of `-` or `.` never reaches the length that would make it a dash or an
+   ellipsis, a `{` never marks the delimiter after it, a `]` never finds
+   its destination, an autolink's region never reaches the `>` that would
+   resolve it, and a `\\` escapes nothing.  (`IEscWs`
+   is not here because it cannot arise: the escape it continues has been
+   settled at the boundary before it.)  What crosses the boundary is what
+   lives in the parser rather than in the slice -- an open delimiter, a
+   verbatim, a math prefix that peeks at the byte after it -- which is why
+   `IDelim`, `IOpen`, `IVerb` and `IDollar` are not here.
+   `IBang` is not either: `!` is not one of the special bytes, so it is
+   never the byte a slice ends on. *)
+Definition islice_end (st : iscan) : iscan :=
+  match st with
+  | IText true txt _ o => IText false (txt ++ one bslash)%string (Some bslash) o
+  | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
+  | IPeriod two txt _ o =>
+      IText false (txt ++ periods two)%string (Some period) o
+  | IDash n txt _ o =>
+      IText false (txt ++ typography_dashes n)%string (Some hyphen) o
+  | IClosed txt o => IText false (txt ++ one rbrack)%string (Some rbrack) o
+  | IAuto src txt o =>
+      IText false (auto_lit src txt) (blit_prev (auto_lit src txt)) o
+  | _ => st
+  end.
+
+(* Where a finished spec goes: into the scope, as a marker, with the
+   pending text flushed in front of it so that the run it will attach to
+   is the item immediately below.  `oresolve` settles it -- see
+   `oattach_list` for the rule and for the one case we do not follow
+   djot.js on. *)
+Definition iattr_mark (a : attr) (txt : string) (o : ostate) : iscan :=
+  IText false EmptyString (Some rbrace) (omark a (flush_text txt o)).
+
+(* One byte of an inline attribute spec, read with the machine block
+   attributes use.  `sh` has already consumed the same byte as ordinary
+   inline input.  Failure selects it; success discards it; otherwise both
+   readings remain live -- and the one kept is stored at a slice
+   boundary, since the byte it has just read is where its slice ends. *)
+Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
+  (prev : option ascii) (sh : iscan) (o : ostate) : iscan :=
+  let p' := astep p c in
+  if ap_failed p'
+  then sh
+  else if ap_done p'
+  then iattr_mark (ap_attrs p') txt o
+  else IAttr p' (src ++ one c)%string txt prev (islice_end sh) o.
+
+(* A marked open with `S extra` characters of its token in hand.  Its
+   role is not in doubt -- djot.js forces `can_open` and blocks
+   `can_close` for a marked delimiter -- but its *spelling when abandoned*
+   is, because a `}` right after it flips the row's decay side.  So the
+   push waits for one byte whatever the width, and `istep` and `iresolve`
+   are where it happens.  `before` is `None` throughout: the branch that
+   would read it is the one this never reaches. *)
+Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
+  (o : ostate) : iscan := IDelim k extra txt None true o.
+
+(* The push itself, once the byte after a completed marked opener is
+   known (or known not to exist). *)
+Definition oopen_marked (k : dstyle) (cm : bool) (txt : string)
+  (o : ostate) : ostate :=
+  opush_at k true cm (flush_text txt o).
+
+Definition idelim_open_marked (k : dstyle) (cm : bool) (txt : string)
+  (o : ostate) : iscan :=
+  IText false EmptyString (Some (dchar k)) (oopen_marked k cm txt o).
+
+(* What a token that never finished decays to: the row's characters
+   received so far, with the `{` of a marked open back in front of
+   them. *)
+Definition idelim_run (k : dstyle) (extra : nat) (marked : bool) : string :=
+  ((if marked then one lbrace else EmptyString)
+     ++ chars (dchar k) (S extra))%string.
+
+Lemma idelim_run_nonempty :
+  forall k extra marked, nonempty_str (idelim_run k extra marked) = true.
+Proof. intros k extra []; reflexivity. Qed.
+
+(* Resolving a `{`: an open marker if a delimiter follows, an attribute
+   candidate if that capability is enabled, and ordinary text otherwise. *)
+Definition ibrace_step_at (attrs_enabled : bool) (c : ascii) (txt : string)
+  (prev : option ascii) (o : ostate) : iscan :=
+  match dstyle_of c with
+  | Some k => idelim_marked k 0 txt o
+  | None =>
+      if attrs_enabled
+      then iattr_feed c ap_init EmptyString txt prev
+             (ilead c (txt ++ one lbrace)%string (Some lbrace) o) o
+      (* The spec's own immediate-failure path, taken before the first
+         byte is read: `{` goes back into the text and this byte is
+         dispatched afresh. *)
+      else let '(t, o') := battr_lit EmptyString txt o in
+           ilead c t (blit_prev t) o'
+  end.
+
+Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
+  (o : ostate) : iscan :=
+  ibrace_step_at inline_attrs_enabled c txt prev o.
+
+(* A span ignores the image marker: `![x]{.a}` is a literal `!` followed
+   by a span.  The `!` was never flushed -- the bracket frame records it
+   and `fr_src` puts it back on the literal path -- so the span path
+   has to emit it here, and it merges with any `Str` already at the tip
+   the same way, since `flush_text` alone would leave two adjacent. *)
+Definition ospan_bang (image : bool) (o : ostate) : ostate :=
+  if image
+  then let '(pre, o1) := opop_str o in flush_text (pre ++ one bang)%string o1
+  else o.
+
+(* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
+   node is built here with no byte left over.  On `AFail` the region up to
+   but not including the failing byte becomes text and that byte is
+   dispatched afresh: djot.js resumes its scan there, so `[s]{bad*x*y` is
+   `[s]{bad`, a strong `x`, and `y`. *)
+Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
+  (p : aparser) (src : string) (o : ostate) : iscan :=
+  let p' := astep p c in
+  if ap_failed p'
+  then let '(txt, o') := bspan_lit kids image src o in
+       ilead c txt (blit_prev txt) o'
+  else if ap_done p'
+  then IText false EmptyString (Some rbrace)
+         (oemit (Node NoPos (ap_attrs p') (Span kids)) (ospan_bang image o))
+  else ISpan kids image p' (src ++ one c)%string o.
+
+(* Resolving a `!`: an image opener if a `[` follows, text otherwise.
+   The `!` is *not* flushed with the text before it -- it is the opener's
+   own source, and `fr_src` puts it back if the bracket decays. *)
+(* One byte of a footnote label.  The `]` is the only byte with a role,
+   and a backslash defers it once -- without being decoded, since the
+   label is source and djot.js labels `[^a\]b]` with the backslash still
+   in it. *)
+Definition inote_step (c : ascii) (esc image : bool) (label : string)
+  (o : ostate) : iscan :=
+  if esc then INote false image (label ++ one bslash ++ one c)%string o
+  else if is_bslash c then INote true image label o
+  else if Ascii.eqb c rbrack
+  then IText false EmptyString (Some rbrack)
+         (oemit (mk (FootnoteReference (normalize_label label)))
+            (ospan_bang image o))
+  else INote false image (label ++ one c)%string o.
+
+(* One byte of an autolink candidate.  Three bytes end it: the `>` that
+   may resolve it, and the whitespace or second `<` that the region may
+   not contain.  Everything else is region, raw -- no escape is decoded
+   and no construct is dispatched, which is what makes the region of a
+   *successful* autolink literal.
+
+   The `>` of a failed candidate is dispatched rather than appended, so
+   that this arm has one exit for every byte that is not region.
+
+   `auto_body_ok` asks more than the `>` has to: the three exclusions
+   are invariants of the mode, since a byte that breaks one leaves it.
+   It is spelled in full so that the test *is* `ci_ok`'s, which is what
+   makes the scan inversion a rewrite rather than an argument. *)
+Definition iauto_step (c : ascii) (src txt : string) (o : ostate) : iscan :=
+  if (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool
+  then IText false EmptyString (Some gt)
+         (oemit (mk (auto_node src)) (flush_text txt o))
+  else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
+  then ilead c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
+  else IAuto (src ++ one c)%string txt o.
+
+(* One byte of a raw-format spec.  The `}` decides it; the pattern's
+   excluded bytes end it; anything else is spec.
+
+   A failed spec is put back with the verbatim it followed, and there the
+   two cases differ.  With nothing read yet the `{` had no `=` after it,
+   so the ordinary attribute path is what should have run and does --
+   this is exactly the state the closer built before raw existed.  With
+   an `=` read the region cannot parse as attributes at all, so it is
+   text. *)
+Definition iraw_lit (spec : string) : string :=
+  (String lbrace spec)%string.
+
+Definition iraw_step_at (attrs_enabled : bool) (c : ascii) (spec txt : string)
+  (o : ostate) : iscan :=
+  if (Ascii.eqb c rbrace && raw_spec_ok spec)%bool
+  then if raw_inline_enabled
+       then IText false EmptyString (Some rbrace)
+              (oemit (mk (RawInline (raw_format spec) txt)) o)
+       else ilead c (iraw_lit spec) (blit_prev (iraw_lit spec))
+              (oemit (mk (Verbatim txt)) o)
+  else if (match spec with
+           (* the `=` is the pattern's second character, so anything else
+              here is not a candidate at all -- and must behave exactly
+              as the `{` did before raw existed, since every canonical
+              delimiter is spelled `{`-first *)
+           | EmptyString => negb (Ascii.eqb c eqchar)
+           | _ => (Ascii.eqb c rbrace || raw_stop c)%bool
+           end)
+  then let closed := oemit (mk (Verbatim txt)) o in
+       match spec with
+       | EmptyString =>
+           ibrace_step_at attrs_enabled c EmptyString (Some tick) closed
+       | _ => ilead c (iraw_lit spec) (blit_prev (iraw_lit spec)) closed
+       end
+  else IRaw (spec ++ one c)%string txt o.
+
+Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
+  iraw_step_at inline_attrs_enabled c spec txt o.
+
+(* A label that never closed is its own source: the bracket it took back,
+   the marker, and what it had eaten.  `opop_str` reabsorbs the `Str`
+   that the bracket's own `flush_text` emitted, so the reconstruction is
+   one run and `no_adjacent_str` survives -- the move `bclosed_lit`
+   makes, for the same reason. *)
+Definition bnote_lit (esc image : bool) (label : string) (o : ostate)
+  : string * ostate :=
+  let '(pre, o1) := opop_str o in
+  ((pre ++ bracket_open image ++ one hat ++ label
+       ++ (if esc then one bslash else EmptyString))%string, o1).
+
+Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
+  (o : ostate) : iscan :=
+  if Ascii.eqb c lbrack
+  then IText false EmptyString (Some lbrack) (bpush true (flush_text txt o))
+  else ilead c (txt ++ one bang)%string (Some bang) o.
+
+(* Resolving an unbraced delimiter, once the byte after it has arrived
+   (or not, at the end of a line: `inone`).  Closing wins over opening,
+   as in djot.js, and a `}` immediately after forces the close. *)
+Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
+  (txt ++ ddecay_str k false marker)%string.
+
+(* And the source byte it ends on, which `ddecay_str` does not spell for a
+   smart quote: `'` is written and `’` is what lands in the buffer. *)
+Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
+  Some (if marker then rbrace else dchar k).
+
+Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
+  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
+  if (dbare k before && negb marker && nonspace_at next)%bool
+  then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
+  else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
+
+Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
+  (marker : bool) (next : option ascii) (o : ostate) : iscan :=
+  if (nonspace_at before || marker)%bool
+  then match oclose k marker (flush_text txt o) with
+       | Some o' =>
+           IText false EmptyString
+             (Some (if marker then rbrace else dchar k)) o'
+       (* a barred opener is the one failure that does not offer the
+          token as an opener in its turn *)
+       | None =>
+           if oclose_barred k marker o
+           then IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o
+           else idelim_done k txt before marker next o
+       end
+  else idelim_done k txt before marker next o.
 
 (* Resolving a `$`: another `$` widens the prefix to display math, a
    backtick run opens the span it prefixes, and anything else makes the
@@ -3426,6 +3462,9 @@ Definition idash_step (c : ascii) (n : nat) (txt : string)
        end
   else ilead c (txt ++ typography_dashes n)%string (Some hyphen) o.
 
+(* No byte follows: the end of a line or of the paragraph.  `IBrace` and
+   `IDelim` are the only states this changes, and after it neither
+   remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
 Definition iresolve (st : iscan) : iscan :=
   match st with
   | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
@@ -3478,7 +3517,7 @@ Definition iesc_hard (txt : string) (o : ostate) : ostate :=
 
 (* Recursive in exactly one place: a destination advances the ordinary
    reading of its own region, which is this same scanner one scope in. *)
-Fixpoint istep (c : ascii) (st : iscan) : iscan :=
+Fixpoint istep_at (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt prev o =>
       if is_ws c then IEscWs (one c) txt prev o
@@ -3489,7 +3528,7 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
       else let '(txt', prev', o') := iescws_resolve ws txt prev o in
            ilead c txt' prev' o'
   | IText false txt prev o => ilead c txt prev o
-  | IBrace txt prev o => ibrace_step c txt prev o
+  | IBrace txt prev o => ibrace_step_at attrs_enabled c txt prev o
   | IBang txt prev o => ibang_step c txt prev o
   | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
@@ -3540,7 +3579,7 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
      same fall-through: no bracket was open, so the `]` was text. *)
   | IClosed txt o =>
       match (if (Ascii.eqb c lparen || Ascii.eqb c lbrack
-                 || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool
+                 || (Ascii.eqb c lbrace && attrs_enabled))%bool
              then bclose (flush_text txt o) else None) with
       | Some (kids, image, o') =>
           if Ascii.eqb c lparen
@@ -3551,10 +3590,17 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
       | None => ilead c (txt ++ one rbrack)%string (Some rbrack) o
       end
   | ISpan kids image p src o => ispan_feed c kids image p src o
-  | IAttr p src txt prev o => iattr_feed c p src txt prev o
+  | IAttr p src txt prev sh o =>
+      (* The failing byte is not part of the candidate's source, so it
+         arrives in the ordinary reading after that source's last slice
+         boundary -- which `iattr_feed` has already applied.  This is what
+         keeps `{...` three literal periods rather than one ellipsis. *)
+      if ap_failed (astep p c)
+      then istep_at false c sh
+      else iattr_feed c p src txt prev (istep_at false c sh) o
   | INote esc image label o => inote_step c esc image label o
   | IAuto src txt o => iauto_step c src txt o
-  | IRaw spec txt o => iraw_step c spec txt o
+  | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
   | IReference kids image label o =>
       if Ascii.eqb c rbrack
       then let key := match label with
@@ -3567,12 +3613,13 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
   | IDest kids image true depth dst sh o =>
       IDest kids image false depth
         (dst ++ (if is_punct c then one c
-                 else String bslash (one c)))%string (istep c sh) o
+                 else String bslash (one c)))%string (istep_at attrs_enabled c sh) o
   | IDest kids image false depth dst sh o =>
-      if is_bslash c then IDest kids image true depth dst (istep c sh) o
+      if is_bslash c then IDest kids image true depth dst
+                             (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c lparen
       then IDest kids image false (S depth) (dst ++ one lparen)%string
-             (istep c sh) o
+             (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c rparen
       then match depth with
            | O =>
@@ -3581,10 +3628,14 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
                IText false EmptyString (Some rparen)
                  (oemit (mk (bnode image kids (Direct (drop_nl dst)))) o)
            | S d => IDest kids image false d (dst ++ one rparen)%string
-                      (istep c sh) o
+                      (istep_at attrs_enabled c sh) o
            end
-      else IDest kids image false depth (dst ++ one c)%string (istep c sh) o
+      else IDest kids image false depth (dst ++ one c)%string
+             (istep_at attrs_enabled c sh) o
   end.
+
+Definition istep (c : ascii) (st : iscan) : iscan :=
+  istep_at inline_attrs_enabled c st.
 
 (* End of line.  An unclosed verbatim closes here, as djot.js does in
    `getMatches`.  A pending backslash is a hard break, djot.js's reading;
@@ -3621,7 +3672,7 @@ Definition ifinish_ostate_flat (st : iscan) : ostate :=
       let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
   (* a spec the paragraph ended inside never closed, and its source is
      text: the brace, then what the machine has read since *)
-  | IAttr _ src txt _ o =>
+  | IAttr _ src txt _ _ o =>
       let '(t, o') := battr_lit src txt o in flush_text t o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`,
      `IDollar`, `IDelim` or `IClosed` *)
@@ -3636,6 +3687,7 @@ Definition ifinish_ostate_flat (st : iscan) : ostate :=
    `FKDest` frame when `oflatten` abandons it. *)
 Fixpoint ifinish_ostate (st : iscan) : ostate :=
   match st with
+  | IAttr _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
@@ -3705,7 +3757,9 @@ Definition ibreak_flat (st : iscan) : iscan :=
      attaches to `hi`.  No `SoftBreak` is emitted -- the break is inside
      the spec's source, and djot.js's `attributeSlices` swallow it the
      same way. *)
-  | IAttr p src txt prev o => iattr_feed nl_char p src txt prev o
+  | IAttr p src txt prev sh o =>
+      (* unreachable: `ibreak_at` advances the ordinary reading too *)
+      iattr_feed nl_char p src txt prev sh o
   (* unreachable, as in `ifinish_ostate` *)
   | (IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
@@ -3717,14 +3771,21 @@ Definition ibreak_flat (st : iscan) : iscan :=
    accumulated and dropped later rather than dropped here.  The ordinary
    reading takes the break as the soft one it is, which is why it is
    `ibreak` and not `istep nl` that the shadow gets. *)
-Fixpoint ibreak (st : iscan) : iscan :=
+Fixpoint ibreak_at (attrs_enabled : bool) (st : iscan) : iscan :=
   match st with
+  | IAttr p src txt prev sh o =>
+      iattr_feed nl_char p src txt prev
+        (ibreak_at false sh) o
   | IDest kids image esc depth dst sh o =>
       IDest kids image false depth
         (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string
-        (ibreak sh) o
+        (ibreak_at attrs_enabled sh) o
   | _ => ibreak_flat (iresolve st)
   end.
+
+
+Definition ibreak (st : iscan) : iscan :=
+  ibreak_at inline_attrs_enabled st.
 
 (* A state that owes nothing to the next line: every construct it has
    seen is resolved, so the boundary just ends the line and `ibreak`
@@ -3742,7 +3803,7 @@ Definition iclosed_at (st : iscan) : bool :=
   (* an open destination or an unclosed spec owes the next line;
      `IClosed` cannot appear, since `iresolve` has just turned it into
      text *)
-  | IBrace _ _ _ | IAttr _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | IBrace _ _ _ | IAttr _ _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _
   | INote _ _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ _ => false
@@ -3778,23 +3839,32 @@ Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
 Definition iscan_settled (c : ascii) (st : iscan) : bool :=
   iclosed_at (iresolve_next c st).
 
-(* The two recursive definitions above take their own branch on a
-   destination and go through `iresolve` on everything else.  Every lemma
+(* The two recursive definitions above take their own branch on a state
+   carrying an alternative scan and go through `iresolve` on everything
+   else.  Every lemma
    below that reasons by cases on the resolved state wants the second
-   half, and a state open on a destination is one none of them is about
-   -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
-Definition is_dest (st : iscan) : bool :=
-  match st with IDest _ _ _ _ _ _ _ => true | _ => false end.
+   half, and a state with an unresolved alternative is one none of them is
+   about -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
+Definition is_compound (st : iscan) : bool :=
+  match st with
+  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ => true
+  | _ => false
+  end.
 
-Lemma ibreak_nondest :
-  forall st, is_dest st = false -> ibreak st = ibreak_flat (iresolve st).
-Proof. intros st H. destruct st; try reflexivity. discriminate H. Qed.
+Lemma ibreak_flat_state :
+  forall st, is_compound st = false -> ibreak st = ibreak_flat (iresolve st).
+Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
 
-Lemma ifinish_ostate_nondest :
+Lemma ibreak_at_flat_state :
+  forall attrs_enabled st,
+    is_compound st = false -> ibreak_at attrs_enabled st = ibreak st.
+Proof. intros attrs_enabled st H. destruct st; try reflexivity; discriminate H. Qed.
+
+Lemma ifinish_ostate_flat_state :
   forall st,
-    is_dest st = false ->
+    is_compound st = false ->
     ifinish_ostate st = ifinish_ostate_flat (iresolve st).
-Proof. intros st H. destruct st; try reflexivity. discriminate H. Qed.
+Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
 
 Lemma ibreak_closed :
   forall st,
@@ -3803,13 +3873,13 @@ Lemma ibreak_closed :
                   (OState (OIn (mk SoftBreak) :: ifinish_items st) []).
 Proof.
   intros st H.
-  assert (Hd : is_dest st = false)
+  assert (Hd : is_compound st = false)
     by (destruct st; try reflexivity; cbn in H; discriminate H).
-  rewrite (ibreak_nondest st Hd).
+  rewrite (ibreak_flat_state st Hd).
   unfold ifinish_items, oitems_of.
-  rewrite (ifinish_ostate_nondest st Hd).
+  rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk]]; [|discriminate].
     unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
@@ -3904,7 +3974,7 @@ Lemma iscan_open_ticks_more :
 Proof.
   induction k as [|k IH]; intros n vk out.
   - cbn [ticks iscan_str]. f_equal. lia.
-  - cbn [ticks iscan_str istep]. change
+  - cbn [ticks iscan_str istep istep_at]. change
       (iscan_str (ticks k) (IOpen (S n) vk out) = IOpen (n + S k) vk out).
     rewrite IH. f_equal. lia.
 Qed.
@@ -3914,7 +3984,7 @@ Lemma iscan_open_ticks :
     iscan_str (ticks (S k)) (IText false txt prev o)
     = IOpen (S k) VVerb (flush_text txt o).
 Proof.
-  intros k txt prev o. cbn [ticks iscan_str istep ilead]. change
+  intros k txt prev o. cbn [ticks iscan_str istep istep_at ilead]. change
     (iscan_str (ticks k) (IOpen 1 VVerb (flush_text txt o))
      = IOpen (S k) VVerb (flush_text txt o)).
   rewrite iscan_open_ticks_more. f_equal.
@@ -3926,7 +3996,7 @@ Lemma iscan_verb_ticks_more :
 Proof.
   induction k as [|k IH]; intros n run txt vk out.
   - cbn [ticks iscan_str]. f_equal. lia.
-  - cbn [ticks iscan_str istep]. change
+  - cbn [ticks iscan_str istep istep_at]. change
       (iscan_str (ticks k) (IVerb n (S run) txt vk out)
        = IVerb n (run + S k) txt vk out).
     rewrite IH. f_equal. lia.
@@ -3938,7 +4008,7 @@ Lemma iscan_open_body :
     iscan_str s (IOpen n vk out) = iscan_str s (IVerb n 0 EmptyString vk out).
 Proof.
   intros [|c s] n vk out Hne Hstart Hn; [discriminate|].
-  cbn [starts_tick] in Hstart. cbn [iscan_str istep]. rewrite Hstart.
+  cbn [starts_tick] in Hstart. cbn [iscan_str istep istep_at]. rewrite Hstart.
   replace (Nat.eqb 0 n) with false.
   - reflexivity.
   - destruct n; [contradiction|reflexivity].
@@ -3955,7 +4025,7 @@ Proof.
     [discriminate|].
   cbn [iscan_str verb_safe_from] in Hsafe |- *.
   destruct (is_tick c) eqn:Hc.
-  - cbn [istep]. rewrite Hc. destruct rest as [|d rest'].
+  - cbn [istep istep_at]. rewrite Hc. destruct rest as [|d rest'].
     + unfold ends_tick, starts_tick, rev_string in Hend.
       cbn [rev_string_aux] in Hend. rewrite Hc in Hend. discriminate.
     + rewrite ends_tick_cons_nonempty in Hend.
@@ -3963,7 +4033,7 @@ Proof.
       apply Ascii.eqb_eq in Hc. subst c. f_equal.
       rewrite ticks_succ_r, !append_assoc. reflexivity.
   - apply andb_true_iff in Hsafe as [Hrun Hsafe].
-    apply negb_true_iff in Hrun. cbn [istep]. rewrite Hc, Hrun.
+    apply negb_true_iff in Hrun. cbn [istep istep_at]. rewrite Hc, Hrun.
     destruct rest as [|d rest'].
     + cbn [iscan_str]. f_equal.
     + rewrite ends_tick_cons_nonempty in Hend.
@@ -4055,7 +4125,8 @@ Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   | IDash n txt prev o => IDash n txt prev (oout_app base o)
   | IClosed txt o => IClosed txt (oout_app base o)
   | ISpan kids image p src o => ISpan kids image p src (oout_app base o)
-  | IAttr p src txt prev o => IAttr p src txt prev (oout_app base o)
+  | IAttr p src txt prev sh o =>
+      IAttr p src txt prev (iout_app base sh) (oout_app base o)
   | INote esc image label o => INote esc image label (oout_app base o)
   | IReference kids image label o =>
       IReference kids image label (oout_app base o)
@@ -4312,16 +4383,23 @@ Proof.
   cbn [iout_app]. rewrite flush_text_app, omark_app. reflexivity.
 Qed.
 
-Lemma iattr_feed_app :
-  forall c p src txt prev o base,
-    base_ok base = true ->
-    iattr_feed c p src txt prev (oout_app base o)
-    = iout_app base (iattr_feed c p src txt prev o).
+Lemma islice_end_app :
+  forall base st,
+    islice_end (iout_app base st) = iout_app base (islice_end st).
 Proof.
-  intros c p src txt prev o base Hb. unfold iattr_feed.
-  destruct (ap_failed (astep p c)).
-  { rewrite battr_lit_app. destruct (battr_lit src txt o) as [t o'].
-    apply ilead_app. }
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+    reflexivity.
+Qed.
+
+Lemma iattr_feed_app :
+  forall c p src txt prev sh o base,
+    base_ok base = true ->
+    iattr_feed c p src txt prev (iout_app base sh) (oout_app base o)
+    = iout_app base (iattr_feed c p src txt prev sh o).
+Proof.
+  intros c p src txt prev sh o base Hb. unfold iattr_feed.
+  rewrite islice_end_app.
+  destruct (ap_failed (astep p c)); [reflexivity|].
   destruct (ap_done (astep p c)); [apply iattr_mark_app|reflexivity].
 Qed.
 
@@ -4374,7 +4452,7 @@ Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
@@ -4387,23 +4465,24 @@ Lemma idelim_marked_out_app :
     = iout_app base (idelim_marked k extra txt o).
 Proof. intros. reflexivity. Qed.
 
-Lemma istep_out_app :
-  forall c base st,
+Lemma istep_at_out_app :
+  forall attrs_enabled c base st,
     base_ok base = true ->
-    istep c (iout_app base st) = iout_app base (istep c st).
+    istep_at attrs_enabled c (iout_app base st)
+    = iout_app base (istep_at attrs_enabled c st).
 Proof.
-  intros c base st Hb.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
-    cbn [iout_app istep].
+  intros attrs_enabled c base st. revert attrs_enabled c base.
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+    intros attrs_enabled c base Hb; cbn [iout_app istep_at].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
   - destruct (is_ws c); [reflexivity|].
     rewrite iescws_resolve_app by exact Hb.
     destruct (iescws_resolve ews etxt eprev eob) as [[t p] o']; cbn [fst snd].
     apply ilead_app.
-  - unfold ibrace_step. destruct (dstyle_of c);
+  - unfold ibrace_step, ibrace_step_at. destruct (dstyle_of c);
       [apply idelim_marked_out_app|].
-    destruct inline_attrs_enabled; [apply iattr_feed_app, Hb|].
+    destruct attrs_enabled; [rewrite ilead_app; apply iattr_feed_app, Hb|].
     rewrite battr_lit_app. destruct (battr_lit EmptyString txt o) as [t o'].
     apply ilead_app.
   - destruct (Nat.ltb (S seen) (dwidth k)).
@@ -4443,7 +4522,7 @@ Proof.
       [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity
       |apply ilead_app].
   - destruct ((Ascii.eqb c lparen || Ascii.eqb c lbrack
-               || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool);
+               || (Ascii.eqb c lbrace && attrs_enabled))%bool);
       [|apply ilead_app].
     rewrite flush_text_app, bclose_app.
     destruct (bclose (flush_text cltxt clob)) as [[[kids image] o']|];
@@ -4453,7 +4532,9 @@ Proof.
       [rewrite idest_open_app; reflexivity|].
     destruct (Ascii.eqb c lbrack); reflexivity.
   - apply ispan_feed_app, Hb.
-  - apply iattr_feed_app, Hb.
+  - destruct (ap_failed (astep ap c)).
+    + apply IHash, Hb.
+    + rewrite (IHash false c base Hb). apply iattr_feed_app, Hb.
   - destruct (Ascii.eqb c rbrack); [cbn [iout_app]; rewrite oemit_app|];
       reflexivity.
   - unfold inote_step. destruct nesc; [reflexivity|].
@@ -4462,20 +4543,20 @@ Proof.
     cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
     rewrite oemit_app. reflexivity.
   - (* both readings advance, and only the balanced close names one *)
-    destruct esc; [cbn [iout_app]; rewrite IHsh; reflexivity|].
-    destruct (is_bslash c); [cbn [iout_app]; rewrite IHsh; reflexivity|].
-    destruct (Ascii.eqb c lparen); [cbn [iout_app]; rewrite IHsh; reflexivity|].
+    destruct esc; [cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity|].
+    destruct (is_bslash c); [cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity|].
+    destruct (Ascii.eqb c lparen); [cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity|].
     destruct (Ascii.eqb c rparen);
-      [|cbn [iout_app]; rewrite IHsh; reflexivity].
+      [|cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity].
     destruct depth;
       [cbn [iout_app]; rewrite oemit_app; reflexivity
-      |cbn [iout_app]; rewrite IHsh; reflexivity].
+      |cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity].
   - unfold iauto_step.
     destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool;
       [cbn [iout_app]; rewrite flush_text_app, oemit_app; reflexivity|].
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_app | reflexivity].
-  - unfold iraw_step.
+  - unfold iraw_step_at.
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
     + destruct raw_inline_enabled.
       * cbn [iout_app]. rewrite oemit_app. reflexivity.
@@ -4483,13 +4564,22 @@ Proof.
     + destruct rspec as [|x rspec'].
       * destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
-        unfold ibrace_step; destruct (dstyle_of c);
+        unfold ibrace_step_at; destruct (dstyle_of c);
           [apply idelim_marked_out_app|].
-        destruct inline_attrs_enabled; [apply iattr_feed_app, Hb|].
+        destruct attrs_enabled;
+          [rewrite ilead_app; apply iattr_feed_app, Hb|].
         rewrite battr_lit_app. destruct (battr_lit EmptyString "") as [t o'].
         apply ilead_app.
       * destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
+Qed.
+
+Lemma istep_out_app :
+  forall c base st,
+    base_ok base = true ->
+    istep c (iout_app base st) = iout_app base (istep c st).
+Proof.
+  intros c base st Hb. unfold istep. apply istep_at_out_app, Hb.
 Qed.
 
 Lemma iscan_str_out_app :
@@ -4506,7 +4596,7 @@ Lemma ibreak_flat_app :
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -4517,16 +4607,33 @@ Proof.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
 Qed.
 
-Lemma ibreak_nondest_app :
+Lemma ibreak_flat_state_app :
   forall base st,
-    base_ok base = true -> is_dest st = false ->
+    base_ok base = true -> is_compound st = false ->
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
   intros base st Hb Hd.
-  assert (Hd' : is_dest (iout_app base st) = false)
+  assert (Hd' : is_compound (iout_app base st) = false)
     by (destruct st; try reflexivity; discriminate Hd).
-  rewrite (ibreak_nondest _ Hd'), (ibreak_nondest _ Hd).
+  rewrite (ibreak_flat_state _ Hd'), (ibreak_flat_state _ Hd).
   rewrite iresolve_app by exact Hb. apply ibreak_flat_app, Hb.
+Qed.
+
+Lemma ibreak_at_out_app :
+  forall attrs_enabled base st,
+    base_ok base = true ->
+    ibreak_at attrs_enabled (iout_app base st)
+    = iout_app base (ibreak_at attrs_enabled st).
+Proof.
+  intros attrs_enabled base st. revert attrs_enabled base.
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+    intros attrs_enabled base Hb;
+    try (rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
+         rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
+         apply ibreak_flat_state_app; [exact Hb|reflexivity]).
+  - cbn [ibreak_at iout_app]. rewrite IHash by exact Hb.
+    apply iattr_feed_app, Hb.
+  - cbn [ibreak_at iout_app]. rewrite IHsh by exact Hb. reflexivity.
 Qed.
 
 Lemma ibreak_out_app :
@@ -4534,10 +4641,7 @@ Lemma ibreak_out_app :
     base_ok base = true ->
     ibreak (iout_app base st) = iout_app base (ibreak st).
 Proof.
-  intros base st Hb.
-  induction st; try (apply ibreak_nondest_app; [exact Hb|reflexivity]).
-  (* the destination, where the shadow takes the break too *)
-  cbn [ibreak iout_app]. rewrite IHst. reflexivity.
+  intros base st Hb. unfold ibreak. apply ibreak_at_out_app, Hb.
 Qed.
 
 Lemma iscan_lines_cons2 :
@@ -4702,7 +4806,7 @@ Lemma ifinish_ostate_flat_app :
     ifinish_ostate_flat (iout_app base st)
     = oout_app base (ifinish_ostate_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ifinish_ostate_flat].
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
@@ -4725,15 +4829,16 @@ Proof.
   - rewrite oemit_app, flush_text_app. reflexivity.
 Qed.
 
-Lemma ifinish_ostate_nondest_app :
+Lemma ifinish_ostate_flat_state_app :
   forall base st,
-    base_ok base = true -> is_dest st = false ->
+    base_ok base = true -> is_compound st = false ->
     ifinish_ostate (iout_app base st) = oout_app base (ifinish_ostate st).
 Proof.
   intros base st Hb Hd.
-  assert (Hd' : is_dest (iout_app base st) = false)
+  assert (Hd' : is_compound (iout_app base st) = false)
     by (destruct st; try reflexivity; discriminate Hd).
-  rewrite (ifinish_ostate_nondest _ Hd'), (ifinish_ostate_nondest _ Hd).
+  rewrite (ifinish_ostate_flat_state _ Hd'),
+          (ifinish_ostate_flat_state _ Hd).
   rewrite iresolve_app by exact Hb. apply ifinish_ostate_flat_app, Hb.
 Qed.
 
@@ -4744,9 +4849,8 @@ Lemma ifinish_ostate_out_app :
 Proof.
   intros base st Hb.
   induction st;
-    try (apply ifinish_ostate_nondest_app; [exact Hb|reflexivity]).
-  (* the destination hands the question to its shadow *)
-  cbn [ifinish_ostate iout_app]. exact IHst.
+    try (apply ifinish_ostate_flat_state_app; [exact Hb|reflexivity]).
+  all: cbn [ifinish_ostate iout_app]; exact IHst.
 Qed.
 
 Lemma ifinish_rev_out_app :
@@ -4830,12 +4934,12 @@ Proof.
   induction s as [|c rest IH]; intros txt prev o.
   - cbn [escape_str iscan_str]. rewrite append_empty_r. reflexivity.
   - cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
-    + cbn [iscan_str istep]. unfold ilead.
-      change (is_bslash "\"%char) with true. cbn [iscan_str istep].
+    + cbn [iscan_str istep istep_at]. unfold ilead.
+      change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
       rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
               (needs_escape_punct c Hc).
       rewrite IH, append_assoc. reflexivity.
-    + cbn [iscan_str istep]. rewrite (ilead_plain c txt prev o Hc).
+    + cbn [iscan_str istep istep_at]. rewrite (ilead_plain c txt prev o Hc).
       rewrite IH, append_assoc. reflexivity.
 Qed.
 
@@ -4848,15 +4952,15 @@ Lemma iscan_escape_after_verb :
 Proof.
   intros [|c rest] n body vk o Hne; [discriminate|].
   cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
-  - cbn [iscan_str istep].
+  - cbn [iscan_str istep istep_at].
     change (is_tick "\"%char) with false. rewrite nat_eqb_refl.
     change (Ascii.eqb "\"%char lbrace) with false. cbn [andb].
     unfold ilead at 1. change (is_bslash "\"%char) with true.
-    cbn [iscan_str istep].
+  cbn [iscan_str istep istep_at].
     rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
             (needs_escape_punct c Hc), iscan_escape.
     cbn [append one]. reflexivity.
-  - cbn [iscan_str istep].
+  - cbn [iscan_str istep istep_at].
     replace (is_tick c) with false
       by (destruct (is_tick c) eqn:Ht;
           [rewrite (needs_escape_tick c Ht) in Hc; discriminate|reflexivity]).
@@ -4970,7 +5074,7 @@ Lemma iscan_chars_delim :
 Proof.
   induction n as [|n IH]; intros k extra txt bef o Hn.
   - cbn [chars iscan_str]. replace (extra + 0) with extra by lia. reflexivity.
-  - cbn [chars iscan_str istep].
+  - cbn [chars iscan_str istep istep_at].
     replace (Nat.ltb (S extra) (dwidth k)) with true
       by (symmetry; apply Nat.ltb_lt; lia).
     rewrite Ascii.eqb_refl.
@@ -4992,7 +5096,7 @@ Lemma iscan_dtoken :
 Proof.
   intros k txt prev o Hen Hhy Hup. unfold dtoken.
   destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
-  cbn [chars iscan_str istep]. rewrite (ilead_dchar k _ _ _ Hen Hhy Hup).
+  cbn [chars iscan_str istep istep_at]. rewrite (ilead_dchar k _ _ _ Hen Hhy Hup).
   rewrite (iscan_chars_delim w k 0 txt _ o) by lia.
   cbn [pred]. reflexivity.
 Qed.
@@ -5006,7 +5110,7 @@ Lemma iscan_dash_run :
 Proof.
   induction n as [|n IH]; intros m txt prev o.
   - cbn [chars iscan_str]. rewrite Nat.add_0_r. reflexivity.
-  - cbn [chars iscan_str istep]. unfold idash_step.
+  - cbn [chars iscan_str istep istep_at]. unfold idash_step.
     rewrite Ascii.eqb_refl, (IH (S m) txt prev o). f_equal. lia.
 Qed.
 
@@ -5026,7 +5130,7 @@ Lemma iscan_chars_dash :
     iscan_str (chars hyphen (S n)) (IText false txt prev o)
     = IDash (S n) txt prev o.
 Proof.
-  intros n txt prev o. cbn [chars iscan_str istep].
+  intros n txt prev o. cbn [chars iscan_str istep istep_at].
   rewrite ilead_hyphen, (iscan_dash_run n 1 txt prev o).
   reflexivity.
 Qed.
@@ -5053,7 +5157,7 @@ Proof.
     destruct (dwidth k) as [|w] eqn:Ew; [lia|].
     unfold dtoken. rewrite Ew, Hhy.
     rewrite iscan_str_app, (iscan_chars_dash w txt prev o).
-    unfold one. cbn [iscan_str istep]. unfold idash_step.
+    unfold one. cbn [iscan_str istep istep_at]. unfold idash_step.
     change (Ascii.eqb rbrace hyphen) with false.
     rewrite Ascii.eqb_refl, <- Hhy, (dstyle_of_dchar k Hen), Ew.
     rewrite Nat.leb_refl, Nat.sub_diag.
@@ -5062,7 +5166,7 @@ Proof.
     rewrite Ezero, (append_empty_r txt).
     unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
-  unfold one. cbn [iscan_str istep].
+  unfold one. cbn [iscan_str istep istep_at].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
   rewrite Ascii.eqb_refl. unfold idelim_resolve.
@@ -5142,7 +5246,7 @@ Proof.
   induction n as [|n IH]; intros k extra txt o Hn.
   - cbn [chars iscan_str]. rewrite Nat.add_0_r. reflexivity.
   - unfold idelim_marked at 1.
-    cbn [chars iscan_str istep].
+    cbn [chars iscan_str istep istep_at].
     replace (Nat.ltb (S extra) (dwidth k)) with true
       by (symmetry; apply Nat.ltb_lt; lia).
     rewrite Ascii.eqb_refl.
@@ -5159,9 +5263,10 @@ Proof.
   intros d txt prev o Hen. unfold marked_open, dtoken.
   destruct (dwidth d) as [|w] eqn:Ew;
     [destruct (dwidth_nonzero d Ew)|].
-  unfold one. cbn [chars append iscan_str istep].
+  unfold one. cbn [chars append iscan_str istep istep_at].
   change (ilead lbrace txt prev o) with (IBrace txt prev o).
-  cbn [istep]. unfold ibrace_step. rewrite (dstyle_of_dchar d Hen).
+  cbn [istep istep_at]. unfold ibrace_step, ibrace_step_at.
+  rewrite (dstyle_of_dchar d Hen).
   rewrite (iscan_chars_marked w d 0 txt o) by lia.
   cbn [pred]. reflexivity.
 Qed.
@@ -5184,7 +5289,7 @@ Proof.
   exists (Ascii.eqb c rbrace).
   rewrite iscan_str_app, (iscan_marked_open d txt prev o Hen).
   destruct (dwidth d) as [|w] eqn:Ew; [destruct (dwidth_nonzero d Ew)|].
-  unfold idelim_marked. cbn [pred iscan_str istep].
+  unfold idelim_marked. cbn [pred iscan_str istep istep_at].
   rewrite Ew, Nat.ltb_irrefl. unfold oopen_marked. reflexivity.
 Qed.
 
@@ -5219,7 +5324,7 @@ Lemma iscan_after_verb_nontick :
           (oemit (mk (vnode vk (trim_verb body))) o)).
 Proof.
   intros [|c s] n body vk o Hne Htick Hnext; [discriminate|].
-  cbn [starts_tick] in Htick. cbn [iscan_str istep]. rewrite Htick.
+  cbn [starts_tick] in Htick. cbn [iscan_str istep istep_at]. rewrite Htick.
   rewrite nat_eqb_refl.
   cbn [after_verb_next] in Hnext.
   destruct (Ascii.eqb c lbrace) eqn:Hb; [|reflexivity].
@@ -5228,10 +5333,10 @@ Proof.
      byte's ordinary dispatch *)
   destruct vk; [|reflexivity].
   destruct s as [|d s]; [discriminate|].
-  cbn [iscan_str istep].
+  cbn [iscan_str istep istep_at].
   apply Ascii.eqb_eq in Hb; subst c.
   cbn [vkind_verb andb].
-  unfold istep at 1; unfold iraw_step.
+  unfold istep at 1; cbn [istep_at]; unfold iraw_step_at.
   rewrite Hnext, andb_false_r. unfold ilead; cbn. reflexivity.
 Qed.
 
@@ -5384,8 +5489,8 @@ Proof.
   { intro t. rewrite (append_assoc dst (one c) t). reflexivity. }
   destruct (needs_escape_dest c) eqn:Hc.
   - pose proof (needs_escape_dest_punct c Hc) as Hp.
-    cbn [iscan_str istep]. change (is_bslash "\"%char) with true.
-    cbn [istep]. rewrite Hp, IH, Hsplit. reflexivity.
+    cbn [iscan_str istep istep_at]. change (is_bslash "\"%char) with true.
+    cbn [istep istep_at]. rewrite Hp, IH, Hsplit. reflexivity.
   - assert (Hbs : is_bslash c = false).
     { destruct (is_bslash c) eqn:E; [|reflexivity].
       unfold needs_escape_dest, needs_escape in Hc.
@@ -5398,13 +5503,13 @@ Proof.
     { destruct (Ascii.eqb c rparen) eqn:E; [|reflexivity].
       unfold needs_escape_dest in Hc. rewrite E in Hc.
       rewrite orb_true_r in Hc. discriminate. }
-    cbn [iscan_str istep]. rewrite Hbs, Hlp, Hrp, IH, Hsplit. reflexivity.
+    cbn [iscan_str istep istep_at]. rewrite Hbs, Hlp, Hrp, IH, Hsplit. reflexivity.
 Qed.
 
 Lemma istep_rbrack_close :
   forall txt prev o, istep rbrack (IText false txt prev o) = IClosed txt o.
 Proof.
-  intros txt prev o. cbn [istep]. unfold ilead.
+  intros txt prev o. cbn [istep istep_at]. unfold ilead.
   change (is_bslash rbrack) with false.
   change (is_tick rbrack) with false.
   change (Ascii.eqb rbrack lbrace) with false.
@@ -5420,7 +5525,7 @@ Lemma istep_lbrack_ref :
     bclose (flush_text txt o) = Some (kids, image, o') ->
     istep lbrack (IClosed txt o) = IReference kids image EmptyString o'.
 Proof.
-  intros txt o kids image o' H. cbn [istep].
+  intros txt o kids image o' H. cbn [istep istep_at].
   change (Ascii.eqb lbrack lparen) with false.
   change (Ascii.eqb lbrack lbrack) with true. cbn [orb].
   rewrite H. reflexivity.
@@ -5432,7 +5537,7 @@ Lemma istep_lparen_dest :
     istep lparen (IClosed txt o)
     = IDest kids image false 0 EmptyString (idest_open kids image o') o'.
 Proof.
-  intros txt o kids image o' H. cbn [istep].
+  intros txt o kids image o' H. cbn [istep istep_at].
   change (Ascii.eqb lparen lparen) with true. cbn [orb].
   rewrite H. reflexivity.
 Qed.
@@ -5452,7 +5557,7 @@ Proof.
              (bclose_flush_bpush EmptyString image ns base)).
   rewrite iscan_str_app, iscan_dest_escape.
   change ((EmptyString ++ dst)%string) with dst.
-  cbn [iscan_str istep].
+  cbn [iscan_str istep istep_at].
   change (is_bslash rparen) with false.
   change (Ascii.eqb rparen lparen) with false.
   change (Ascii.eqb rparen rparen) with true.
@@ -5512,7 +5617,7 @@ Proof.
     [rewrite append_empty_r; reflexivity|].
   cbn [no_char] in H. apply andb_true_iff in H as [Hc H].
   apply negb_true_iff in Hc.
-  cbn [iscan_str istep]. rewrite Hc, (IH _ _ _ _ H).
+  cbn [iscan_str istep istep_at]. rewrite Hc, (IH _ _ _ _ H).
   rewrite append_assoc. reflexivity.
 Qed.
 
@@ -5532,7 +5637,7 @@ Proof.
              (bclose_flush_bpush EmptyString image ns base)).
   rewrite iscan_str_app, (iscan_ref_label label ns image EmptyString _ Hbr).
   change ((EmptyString ++ label)%string) with label.
-  cbn [iscan_str istep]. change (Ascii.eqb rbrack rbrack) with true.
+  cbn [iscan_str istep istep_at]. change (Ascii.eqb rbrack rbrack) with true.
   destruct label as [|c label']; [discriminate Hne|reflexivity].
 Qed.
 
@@ -5577,12 +5682,12 @@ Lemma iscan_note_label :
 Proof.
   induction label as [|c label IH]; intros tail esc image acc o Hsafe.
   - cbn [note_label_safe_from] in Hsafe. destruct esc; [discriminate|].
-    cbn [append iscan_str istep inote_step].
+    cbn [append iscan_str istep istep_at inote_step].
     change (is_bslash rbrack) with false.
     change (Ascii.eqb rbrack rbrack) with true.
     rewrite !append_empty_r. reflexivity.
   - cbn [note_label_safe_from] in Hsafe.
-    cbn [append iscan_str istep inote_step].
+    cbn [append iscan_str istep istep_at inote_step].
     destruct esc.
     + cbn [inote_step].
       rewrite (IH tail false image (acc ++ one bslash ++ one c)%string o
@@ -5617,7 +5722,7 @@ Proof.
     by (unfold note_text, bracket_open; cbn [append];
         rewrite append_assoc; reflexivity).
   rewrite iscan_str_app, iscan_bracket_open.
-  rewrite iscan_str_app. cbn [one iscan_str istep].
+  rewrite iscan_str_app. cbn [one iscan_str istep istep_at].
   unfold ilead.
   change (is_bslash hat) with false.
   change (is_tick hat) with false.
@@ -5655,7 +5760,7 @@ Proof.
     apply andb_true_iff in Hlt as [Hltc Hlt].
     apply andb_true_iff in Hgt as [Hgtc Hgt].
     apply negb_true_iff in Hwsc, Hltc, Hgtc.
-    cbn [iscan_str istep]. unfold iauto_step.
+    cbn [iscan_str istep istep_at]. unfold iauto_step.
     rewrite Hgtc. cbn [andb orb].
     unfold is_ws_nl in Hwsc. apply orb_false_iff in Hwsc as [Hwsc _].
     rewrite Hwsc, Hltc. cbn [orb].
@@ -5685,7 +5790,7 @@ Proof.
     apply andb_true_iff in Htk as [Htkc Htk].
     apply negb_true_iff in Hwsc. apply negb_true_iff in Hlbc.
     apply negb_true_iff in Hrbc. apply negb_true_iff in Htkc.
-    cbn [iscan_str istep]. unfold iraw_step.
+    cbn [iscan_str istep istep_at]. unfold iraw_step_at.
     rewrite Hrbc. cbn [andb].
     destruct acc as [|x acc']; [discriminate|].
     unfold raw_stop. rewrite Hlbc.
@@ -5711,7 +5816,7 @@ Proof.
   intros s tail txt prev o Hbody Hkind.
   pose proof Hbody as Hregion. unfold auto_body_ok in Hregion.
   apply andb_true_iff in Hregion as [_ Hregion].
-  unfold auto_text. cbn [append iscan_str istep].
+  unfold auto_text. cbn [append iscan_str istep istep_at].
   unfold ilead.
   change (is_bslash lt) with false.
   change (is_tick lt) with false.
@@ -5724,7 +5829,7 @@ Proof.
   rewrite append_assoc, iscan_str_app.
   rewrite (iscan_auto_region s EmptyString txt o Hregion).
   replace ((EmptyString ++ s)%string) with s by reflexivity.
-  cbn [one append iscan_str istep]. unfold iauto_step.
+  cbn [one append iscan_str istep istep_at]. unfold iauto_step.
   change (Ascii.eqb gt gt) with true.
   rewrite Hbody, Hkind. reflexivity.
 Qed.
@@ -5752,13 +5857,13 @@ Proof.
   unfold raw_text. rewrite append_assoc, iscan_str_app.
   rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
   (* the `{` after the closing run enters the mode... *)
-  cbn [append iscan_str istep].
+  cbn [append iscan_str istep istep_at].
   rewrite nat_eqb_refl. cbn [vkind_verb andb].
   change (Ascii.eqb lbrace lbrace) with true. cbn [andb].
   change (is_tick lbrace) with false. cbn [andb].
   rewrite trim_verb_pad by exact Hvok.
   (* ...the `=` makes it a candidate, the format accumulates... *)
-  unfold istep at 1. unfold iraw_step.
+  unfold istep_at at 1. unfold iraw_step_at.
   change (Ascii.eqb "="%char rbrace) with false. cbn [andb].
   change (negb (Ascii.eqb "="%char eqchar)) with false.
   rewrite append_assoc, iscan_str_app.
@@ -5766,7 +5871,7 @@ Proof.
   rewrite (iscan_raw_format fmt (one eqchar) v (flush_text txt o))
     by (first [rewrite Hws, Hlb, Hrb, Htk; reflexivity | reflexivity]).
   (* ...and the `}` decides the node. *)
-  cbn [one iscan_str istep append]. unfold iraw_step.
+  cbn [one iscan_str istep istep_at append]. unfold iraw_step_at.
   change (Ascii.eqb rbrace rbrace) with true.
   unfold raw_spec_ok. cbn [append].
   rewrite Ascii.eqb_refl, Hfne. cbn [andb].
@@ -6815,7 +6920,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst ob|asrc atxt aob|rspec rtxt rob];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct mrk; [exact I|].
@@ -8668,20 +8773,22 @@ Example attr_unclosed_spec_keeps_its_breaks :
   = [mk (Str "{a=x"); mk SoftBreak; mk (Str "hello")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Where the agreement stops.  djot.js buffers the slices it fed the
-   attribute machine and, when the spec dies, replays them through the
-   *inline* scanner with attributes switched off, so a quote inside a
-   failed spec turns smart and a delimiter inside one can close a scope
-   opened outside it.  We keep the source as text.  The two therefore
-   agree on every spec that closes, and differ only on one that does not
-   and whose source holds a byte a scan would have claimed -- which only
-   a quoted value or a comment can carry.  This is an open conformance
-   gap: an ordinary-inline shadow can produce djot.js's result
-   without replay, as explained in `.project/no-backtracking.md`.
-   djot.js reads this one as `x{a=“<strong>b</strong>”`. *)
-Example attr_unclosed_spec_is_not_rescanned :
+(* A failed attribute candidate keeps an ordinary-inline interpretation
+   current beside the spec, with attribute recognition disabled there.
+   Choosing that interpretation at the end makes the quote smart and lets
+   the delimiter pair interact normally, without replaying any source. *)
+Example attr_unclosed_spec_keeps_ordinary_scan :
   parse_inline_line "x{a=""*b*"""
-  = [mk (Str "x{a=""*b*""")].
+  = [mk (Str "x{a=");
+     mk (Quoted DoubleQuotes [mk (Strong [mk (Str "b")])])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And it is cut at the slice boundaries djot.js re-feeds that source on,
+   so a run inside the candidate never grows into one token: `-` and `-`
+   are two hyphens rather than an en dash, where the same two bytes
+   outside a candidate are one. *)
+Example attr_failed_spec_cuts_a_run :
+  parse_inline_line "x{a--" = [mk (Str "x{a--")].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

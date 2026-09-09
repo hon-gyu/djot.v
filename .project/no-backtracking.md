@@ -132,10 +132,11 @@ continues. The fact that djot.js uses lookahead followed by an ordinary
 scan diagnoses its algorithm, not an impossibility result for the
 behaviour.
 
-Accordingly, all three exact-HTML corpus differences are open conformance
-work. None requires weakening no-backtracking. Canonical rendering cannot
-produce two of their malformed shapes, so those remain outside roundtrip;
-that is an impact boundary, not a compatibility verdict.
+Accordingly, neither recovery required weakening no-backtracking: the
+inline-attribute and destination cases now use live alternative readings.
+The one remaining exact-HTML corpus difference is the block-attribute
+version, which is still open conformance work. Its roundtrip impact is a
+separate question from its compatibility verdict.
 
 ## Proof-design rule
 

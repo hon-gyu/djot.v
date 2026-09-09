@@ -1582,3 +1582,64 @@ on and says nothing about the ones after it.
 
 `.project/exact-html-gaps.md` counts two `ours` gaps and does not count
 this one, since it is upstream's slip and not our divergence.
+
+## Closed 2026-09-09 — an unclosed inline attribute keeps its ordinary reading
+
+`attributes.test:370`. An attribute candidate used to retain only the
+source consumed by `apparser`, so end of input could restore it only as
+literal text. djot.js replays that region with attribute recognition off;
+the observable result is the smart quote in `{a=" inline text`, and does
+not inherently require replay.
+
+This entry supersedes the preceding entry's statement that
+`.project/exact-html-gaps.md` counts two `ours` gaps.
+
+`IAttr` now carries an ordinary-inline `sh` beside the attribute machine.
+The two readings consume each byte together. A completed spec selects the
+attribute reading; immediate failure or paragraph end selects `sh`.
+`istep_at` and `ibreak_at` carry a local attribute-recognition bit, false
+only for that shadow. This is equivalent to scanning under
+`with_inline_attrs false`, but keeps every other table capability implicit
+and unchanged. `ifinish_ostate`, `iout_app`, and `iscan_wf` recurse through
+the new field as they already did for `IDest`.
+
+**Measured.** Exact HTML moves **285/287 -> 286/287**; the only corpus
+remainder is `attributes.test:253`. The 6,167-document generated corpus
+remains exact against djot.js. The full Rocq/Dune build succeeds.
+
+**Verdict: closed.** No source byte is replayed, and the well-formedness
+proof carries both live readings explicitly. The block-level recovery is
+separate because it must return a scan in progress to the paragraph state.
+
+### The reading is cut at slice boundaries
+
+Keeping the ordinary reading current is not the same as scanning the
+region as one string, which is what a first pass did. `reparseAttributes`
+re-feeds the region in the slices the attribute parser was fed, and those
+are cut at every byte of `reSpecial` (`inline.ts:67`), so each special
+byte is the last byte of its own feed. A matcher whose loop is bounded by
+that end cannot see past it: `{a--` is two hyphens and not an en dash,
+`{...` three periods and not an ellipsis, `x{% <a> y` a literal
+`<a>`, and `x{% \ y` a literal backslash. What crosses a boundary is
+what lives in the parser rather than in the slice -- an open delimiter,
+verbatim mode, a math prefix that peeks at the next byte -- so `{a="x"*b*`
+still pairs its delimiters.
+
+`islice_end` is that disposition, applied by `iattr_feed` to the reading
+it stores. It settles `IText true`, `IBrace`, `IPeriod`, `IDash`,
+`IClosed` and `IAuto`, and leaves everything else alone.
+
+**Measured**, over two sweeps against djot.js, one document per process
+verified on the first mismatches of each:
+
+| sweep | at `5ccb0a7` | now |
+| --- | --- | --- |
+| `{`, `x{` + words over `.-$!{]*"a=% }'`, length <= 3 (5,908 docs) | 164 wrong | 60 |
+| `x{% B y`, `x{a="B" y` for B over `<>[]()!\`*-.$a" {}\\_`, length <= 3 (14,478 docs) | 9,038 wrong | 507 |
+
+No document that matched djot.js at `5ccb0a7` stops matching. Of the 507,
+389 are the pre-existing `}`-inside-a-quoted-value family (wrong at
+`5ccb0a7` too, and about `apparser`, not about slices), 112 are backtick
+runs, which are cut in djot.js and not here -- a two-tick run inside a
+region is two one-tick runs upstream and one unclosed run for us -- and
+the rest are the `"`/`'` decay families this file already records.

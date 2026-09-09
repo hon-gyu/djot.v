@@ -13,17 +13,18 @@ dune exec harness/main.exe -- --verbose --report exact.txt
 which prints input, expected and ours for every case either oracle
 disagrees on. Ours are the ones with a `gallina:` line.
 
-## What the two corpus numbers are measuring
+## What the corpus numbers are measuring
 
 `make shape` compares block structure with inline content dropped, and
-is **287/287**. `make test` compares exact HTML and is **285/287**. Both
-remaining cases are the same shape: djot.js re-reads the source a failed
-attribute candidate consumed, with attribute recognition switched off,
-and we re-read it with attributes on. Both are open conformance gaps.
+is **287/287**. `make test` compares exact HTML and is **286/287**. The
+remaining case is the block-level recovery described below: djot.js
+re-reads the source a failed block attribute candidate consumed with
+attribute recognition switched off, while we re-read it with attributes
+on. It is an open conformance gap.
 
-Neither is reachable from a canonical document, which is why the
-generated corpus and roundtrip are clean. That bounds their effect and
-keeps them out of the roundtrip theorem. It does not make a difference
+It is not reached by the generated corpus, and roundtrip remains clean.
+That bounds its effect and keeps it out of the roundtrip theorem. It does
+not make a difference
 from the designated djot.js oracle correct or finished.
 
 The third case, an unterminated link destination
@@ -37,7 +38,7 @@ source byte from the next delimiter's open rule (`a''b'`, `a--'b'`).
 Both were found by sweeping, which is the point of the clause in
 [[project-engineering-lessons]] about the corpus not being the grammar.
 
-## The two
+## The remaining gap
 
 ### A block-attribute candidate's lines, re-parsed
 
@@ -103,7 +104,7 @@ which is what exposed it: the case matched by accident while an
 unattached spec kept its source. The mechanism above was pinned the same
 day.
 
-### An unclosed spec whose source an inline scan would have claimed
+### Closed 2026-09-09 — an unclosed inline spec
 
 `attributes.test:370`
 
@@ -113,25 +114,41 @@ day.
 | | |
 | --- | --- |
 | djot.js | `<p>{a=“ inline text</p>` |
-| ours | `<p>{a=" inline text</p>` |
+| ours, before | `<p>{a=" inline text</p>` |
 
 Note the curly quote. When a spec fails, djot.js replays the slices it
 already fed the attribute machine through the *inline* scanner with
 attributes switched off (`reparseAttributes`, `inline.ts:637`), so the
 `"` turns smart on the second pass.
 
-**Open conformance gap.** djot.js's implementation backtracks here, but
-its output does not require backtracking. A one-pass parser can advance
+djot.js's implementation backtracks here, but its output does not require
+backtracking. A one-pass parser can advance
 the attribute candidate and an ordinary-inline shadow together as each
 new byte arrives. A closing `}` selects the attribute branch; end of input
 selects the shadow, which has already interpreted the quote and any
 delimiters in their original context. No consumed byte is replayed.
 
-That product state is more involved than the current `IAttr` state, but
-implementation and proof work are not semantic reasons to reject the
-oracle result. `iscan_str_no_reread` describes the current outer scanner;
-it does not prove this recovery behaviour impossible. See
-[[no-backtracking]] for the project-wide interpretation.
+**Closed.** `IAttr` now carries that ordinary scan as `sh`. `istep_at`
+threads one local `attrs_enabled` bit: the candidate advances with the
+ambient setting while its shadow advances with the bit false, and
+`ifinish_ostate` selects the shadow if the candidate remains open. The
+same bit is threaded through `ibreak_at`, so a multi-line candidate keeps
+both readings current. No source byte is submitted to either reading
+twice.
+
+The shadow is not a scan of the region as one string: `reparseAttributes`
+re-feeds the region in the slices the attribute machine was fed, cut at
+every byte of `reSpecial`, so a matcher bounded by a slice end cannot see
+past it. `islice_end`, applied where `iattr_feed` stores the shadow, is
+that disposition -- which is why `{a--` is two hyphens and `x{% <a> y` a
+literal `<a>`, while an open delimiter or verbatim mode, being parser
+state rather than slice state, still crosses. The mechanism, the sweeps
+that measured it and the families left over are in
+[[oracle-disagreements]] under the same date.
+
+The corpus moved **285/287 -> 286/287** and the 6,167-document generated
+corpus stayed exact against djot.js. See [[no-backtracking]] for the
+project-wide interpretation.
 
 **Boundary.** The two agree on every spec that *closes*, whatever it
 contains, and on every spec that *fails*, because there the re-scan
@@ -229,10 +246,10 @@ There can be two statuses after diagnosis:
    guarantee.
 2. **Open conformance gap.** Matching is compatible with the chosen
    properties, but needs implementation work or narrower helper lemmas.
-   Both cases in this note are currently in this class. For
-   `attributes:370`, the oracle's implementation replays source, but a
-   product state can compute the same output without replay -- which is
-   what the destination gap turned out to want, and got.
+   The remaining block-level case in this note is currently in this
+   class. `attributes:370` demonstrated the other outcome: the oracle's
+   implementation replays source, but a product state computes the same
+   output without replay.
 
 Canonical unreachability is still important: it proves that an open gap
 cannot invalidate canonical roundtrip. It is not evidence that the
@@ -240,10 +257,10 @@ parser already follows djot.js on that input.
 
 ## The caveat
 
-`ours` is a verdict the project passes on itself, so 285/287 must be
-reported as two open compatibility gaps. They need not give up
-`wf_block`, canonical roundtrip, or no-backtracking: their helper
-theorems can be stated on the domain their consumers actually need.
+`ours` is a verdict the project passes on itself, so 286/287 must be
+reported as one open compatibility gap. It need not give up `wf_block`,
+canonical roundtrip, or no-backtracking: its helper theorems can be
+stated on the domain their consumers actually need.
 Quote 287/287 on shape separately; it has no such qualification.
 
 And three is what the *corpus* shows, which is not what is left.
