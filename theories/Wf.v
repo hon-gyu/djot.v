@@ -1732,7 +1732,7 @@ Proof.
          rewrite hd_str_is_starts_str in Hs).
   - destruct (is_ws c);
       [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity
-      |apply (iscan_wf_text false _ prev o Ho Hs)].
+      |apply iscan_wf_text; [exact Ho | exact Hs]].
   - apply ilead_wf; [exact Ho | exact Hs].
   - destruct (is_ws c);
       [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].

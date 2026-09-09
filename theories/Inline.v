@@ -2759,6 +2759,13 @@ Definition bspan_lit (kids : inlines) (image : bool) (src : string)
 Definition battr_lit (src txt : string) (o : ostate) : string * ostate :=
   bsplit_nl src (txt ++ one lbrace) o.
 
+(* The byte to the left of the one being dispatched, when a construct
+   hands back what it ate as text.  Every fallback puts back a fragment
+   headed by the construct's own opening byte, so an empty residue means
+   `bsplit_nl` cut the fragment at a newline and that newline is the byte
+   in question. *)
+Definition blit_prev (t : string) : option ascii := str_last t (Some nl_char).
+
 Definition bref_lit (kids : inlines) (image : bool) (label : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
@@ -2807,10 +2814,23 @@ Definition vnode (vk : vkind) (s : string) : inline :=
 Definition vkind_verb (vk : vkind) : bool :=
   match vk with VVerb => true | VMath _ => false end.
 
+(* Every state below that carries pending text carries `prev` with it, and
+   `prev` is *the last byte of the source read so far*: `None` at the start
+   of a paragraph or of a line, and otherwise the byte the writer typed.
+
+   It is not the last byte of `txt`, which is where a scan would naturally
+   look for it.  The buffer holds what will be rendered, and three
+   constructs put bytes in it that were never in the source -- an
+   unmatched smart quote, an ellipsis and a dash -- so after one of those
+   the two differ.  `can_open` and `can_close` read the source
+   (`inline.ts:110-112`), so `'` after `a''` opens where a curly quote
+   would not, which is what `decay_does_not_hide_the_source_byte` pins.
+   Each construct that rewrites the buffer therefore names the byte it
+   consumed; the states that hold an undecided prefix (`IBrace`,
+   `IDollar`, `IPeriod`, `IDash`, `IBang`) carry the byte from before the
+   prefix and name the prefix's own last byte when it resolves. *)
 Inductive iscan : Type :=
-  (* accumulating literal text; `esc` is a pending backslash, and `prev`
-     is the byte before `txt` (`None` at the start of a paragraph or of a
-     line), which is what `can_close` consults when `txt` is empty *)
+  (* accumulating literal text; `esc` is a pending backslash *)
   | IText (esc : bool) (txt : string) (prev : option ascii) (o : ostate)
   (* a backslash followed by a run of spaces and tabs, whose role the
      next byte decides: the end of the line makes the whole run a hard
@@ -2957,10 +2977,19 @@ Definition note_pos (txt : string) (prev : option ascii) : bool :=
    && match prev with Some p => Ascii.eqb p lbrack | None => false end)%bool.
 
 (* One byte in text mode.  The delimiter arm is a lookup, not six
-   branches, for the reason the table's own comment gives. *)
+   branches, for the reason the table's own comment gives.
+
+   `prev` is the byte to the left of `c` *as the source spells it*, which
+   is what `can_open` and `can_close` read (`inline.ts:110-112`).  It is
+   not the last byte of `txt`: a decayed quote, an ellipsis and a dash
+   put characters into the buffer that were never in the source, and
+   after one of those `dopens_after` has to see the `'` or the `-` that
+   was written rather than the `’` or the `–` that will be rendered.
+   Every state carrying pending text keeps this field to the same rule --
+   see `iscan`. *)
 Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   : iscan :=
-  if is_bslash c then IText true txt prev o
+  if is_bslash c then IText true txt (Some c) o
   else if is_tick c then IOpen 1 VVerb (flush_text txt o)
   else if Ascii.eqb c dollar then IDollar false txt prev o
   else if Ascii.eqb c period then IPeriod false txt prev o
@@ -2999,8 +3028,8 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
        | Some (image, o') => INote false image EmptyString o'
        | None =>
            match dstyle_of c with
-           | Some k => IDelim k 0 txt (str_last txt prev) false o
-           | None => IText false (txt ++ one c)%string prev o
+           | Some k => IDelim k 0 txt prev false o
+           | None => IText false (txt ++ one c)%string (Some c) o
            end
        end.
 
@@ -3037,7 +3066,7 @@ Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
-  then let '(t, o') := battr_lit src txt o in ilead c t None o'
+  then let '(t, o') := battr_lit src txt o in ilead c t (blit_prev t) o'
   else if ap_done p'
   then iattr_mark (ap_attrs p') txt o
   else IAttr p' (src ++ one c)%string txt prev o.
@@ -3080,7 +3109,8 @@ Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
       (* The spec's own immediate-failure path, taken before the first
          byte is read: `{` goes back into the text and this byte is
          dispatched afresh. *)
-      else let '(t, o') := battr_lit EmptyString txt o in ilead c t None o'
+      else let '(t, o') := battr_lit EmptyString txt o in
+           ilead c t (blit_prev t) o'
   end.
 
 (* A span ignores the image marker: `![x]{.a}` is a literal `!` followed
@@ -3102,7 +3132,8 @@ Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
   (p : aparser) (src : string) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
-  then let '(txt, o') := bspan_lit kids image src o in ilead c txt None o'
+  then let '(txt, o') := bspan_lit kids image src o in
+       ilead c txt (blit_prev txt) o'
   else if ap_done p'
   then IText false EmptyString (Some rbrace)
          (oemit (Node NoPos (ap_attrs p') (Span kids)) (ospan_bang image o))
@@ -3149,7 +3180,7 @@ Definition iauto_step (c : ascii) (src txt : string) (o : ostate) : iscan :=
   then IText false EmptyString (Some gt)
          (oemit (mk (auto_node src)) (flush_text txt o))
   else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
-  then ilead c (auto_lit src txt) None o
+  then ilead c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
   else IAuto (src ++ one c)%string txt o.
 
 (* One byte of a raw-format spec.  The `}` decides it; the pattern's
@@ -3169,7 +3200,8 @@ Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
   then if raw_inline_enabled
        then IText false EmptyString (Some rbrace)
               (oemit (mk (RawInline (raw_format spec) txt)) o)
-       else ilead c (iraw_lit spec) None (oemit (mk (Verbatim txt)) o)
+       else ilead c (iraw_lit spec) (blit_prev (iraw_lit spec))
+              (oemit (mk (Verbatim txt)) o)
   else if (match spec with
            (* the `=` is the pattern's second character, so anything else
               here is not a candidate at all -- and must behave exactly
@@ -3181,7 +3213,7 @@ Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
   then let closed := oemit (mk (Verbatim txt)) o in
        match spec with
        | EmptyString => ibrace_step c EmptyString (Some tick) closed
-       | _ => ilead c (iraw_lit spec) None closed
+       | _ => ilead c (iraw_lit spec) (blit_prev (iraw_lit spec)) closed
        end
   else IRaw (spec ++ one c)%string txt o.
 
@@ -3200,7 +3232,7 @@ Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   if Ascii.eqb c lbrack
   then IText false EmptyString (Some lbrack) (bpush true (flush_text txt o))
-  else ilead c (txt ++ one bang)%string prev o.
+  else ilead c (txt ++ one bang)%string (Some bang) o.
 
 (* Resolving an unbraced delimiter, once the byte after it has arrived
    (or not, at the end of a line: `inone`).  Closing wins over opening,
@@ -3208,11 +3240,16 @@ Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
 Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
   (txt ++ ddecay_str k false marker)%string.
 
+(* And the source byte it ends on, which `ddecay_str` does not spell for a
+   smart quote: `'` is written and `’` is what lands in the buffer. *)
+Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
+  Some (if marker then rbrace else dchar k).
+
 Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
   if (dbare k before && negb marker && nonspace_at next)%bool
   then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
-  else IText false (idelim_lit k txt marker) None o.
+  else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
 
 Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
@@ -3225,7 +3262,7 @@ Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
           token as an opener in its turn *)
        | None =>
            if oclose_barred k marker o
-           then IText false (idelim_lit k txt marker) None o
+           then IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o
            else idelim_done k txt before marker next o
        end
   else idelim_done k txt before marker next o.
@@ -3312,7 +3349,7 @@ Definition idollar_step (c : ascii) (two : bool) (txt : string)
   else if (is_tick c && math_enabled)%bool
   then IOpen 1 (VMath (if two then DisplayMath else InlineMath))
          (flush_text txt o)
-  else ilead c (txt ++ dollars two)%string prev o.
+  else ilead c (txt ++ dollars two)%string (Some dollar) o.
 
 (* Three periods are one ellipsis and any other run is literal, so the
    state counts to two and the third byte decides (`inline.ts:343`).  A
@@ -3326,7 +3363,7 @@ Definition iperiod_step (c : ascii) (two : bool) (txt : string)
             (txt ++ typography_ellipsis)%string
             (Some c) o
         else IPeriod true txt prev o)
-  else ilead c (txt ++ periods two)%string prev o.
+  else ilead c (txt ++ periods two)%string (Some period) o.
 
 (* A run of hyphens ends at the first byte that is not one.  A `}` is the
    exception, and the only place the dash rule and the delete row meet:
@@ -3348,23 +3385,29 @@ Definition idash_step (c : ascii) (n : nat) (txt : string)
            then idelim_resolve k
                   (txt ++ typography_dashes (n - dwidth k))%string
                   None true (Some c) o
-           else IText false (txt ++ typography_dashes n ++ one rbrace)%string None o
-       | None => IText false (txt ++ typography_dashes n ++ one rbrace)%string None o
+           else IText false (txt ++ typography_dashes n ++ one rbrace)%string
+                  (Some rbrace) o
+       | None => IText false (txt ++ typography_dashes n ++ one rbrace)%string
+                   (Some rbrace) o
        end
-  else ilead c (txt ++ typography_dashes n)%string prev o.
+  else ilead c (txt ++ typography_dashes n)%string (Some hyphen) o.
 
 Definition iresolve (st : iscan) : iscan :=
   match st with
-  | IBrace txt prev o => IText false (txt ++ one lbrace)%string prev o
-  | IDollar two txt prev o => IText false (txt ++ dollars two)%string prev o
-  | IPeriod two txt prev o => IText false (txt ++ periods two)%string prev o
-  | IDash n txt prev o => IText false (txt ++ typography_dashes n)%string prev o
-  | IBang txt prev o => IText false (txt ++ one bang)%string prev o
+  | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
+  | IDollar two txt _ o =>
+      IText false (txt ++ dollars two)%string (Some dollar) o
+  | IPeriod two txt _ o =>
+      IText false (txt ++ periods two)%string (Some period) o
+  | IDash n txt _ o =>
+      IText false (txt ++ typography_dashes n)%string (Some hyphen) o
+  | IBang txt _ o => IText false (txt ++ one bang)%string (Some bang) o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
   | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
-      then IText false (txt ++ idelim_run k extra marked)%string None o
+      then IText false (txt ++ idelim_run k extra marked)%string
+             (Some (dchar k)) o
       else idelim_resolve k txt before false None o
   (* The newline is an ordinary byte to djot.js, and none of the three
      that make a construct, so `[a]` at the end of a line leaves the `]`
@@ -3383,12 +3426,13 @@ Definition iescws_resolve (ws txt : string) (prev : option ascii)
   match ws with
   | String c rest =>
       if Ascii.eqb c " "%char
-      then (rest, Some c, oemit (mk NonBreakingSpace) (flush_text txt o))
-      else ((txt ++ one bslash ++ ws)%string, prev, o)
+      then (rest, str_last rest (Some c),
+            oemit (mk NonBreakingSpace) (flush_text txt o))
+      else ((txt ++ one bslash ++ ws)%string, str_last ws prev, o)
   (* unreachable: `IEscWs` is only ever built with a byte in hand.  Spelt
      as the bare backslash anyway, so the state's own source survives on
      every path out of it. *)
-  | EmptyString => ((txt ++ one bslash)%string, prev, o)
+  | EmptyString => ((txt ++ one bslash)%string, Some bslash, o)
   end.
 
 (* The line ended after the backslash.  djot.js trims the whitespace that
@@ -3404,7 +3448,7 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
   | IText true txt prev o =>
       if is_ws c then IEscWs (one c) txt prev o
       else IText false (txt ++ (if is_punct c then one c
-                                else String "\"%char (one c)))%string prev o
+                                else String "\"%char (one c)))%string (Some c) o
   | IEscWs ws txt prev o =>
       if is_ws c then IEscWs (ws ++ one c)%string txt prev o
       else let '(txt', prev', o') := iescws_resolve ws txt prev o in
@@ -3421,7 +3465,8 @@ Fixpoint istep (c : ascii) (st : iscan) : iscan :=
         (if Ascii.eqb c (dchar k)
          then (if marked then idelim_marked k (S extra) txt o
                else IDelim k (S extra) txt before false o)
-         else ilead c (txt ++ idelim_run k extra marked)%string None o)
+         else ilead c (txt ++ idelim_run k extra marked)%string
+                (Some (dchar k)) o)
       else
       let marker := Ascii.eqb c rbrace in
       let st' := idelim_resolve k txt before marker (Some c) o in
@@ -3677,7 +3722,8 @@ Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
   match st with
   | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
-      then IText false (txt ++ idelim_run k extra marked)%string None o
+      then IText false (txt ++ idelim_run k extra marked)%string
+             (Some (dchar k)) o
       else idelim_resolve k txt before marked (Some c) o
   | _ => iresolve st
   end.
@@ -4697,7 +4743,7 @@ Qed.
 Lemma ilead_plain :
   forall c txt prev o,
     needs_escape c = false ->
-    ilead c txt prev o = IText false (txt ++ one c)%string prev o.
+    ilead c txt prev o = IText false (txt ++ one c)%string (Some c) o.
 Proof.
   intros c txt prev o Hc. unfold needs_escape in Hc.
   apply orb_false_iff in Hc as [Hc Hcolon].
@@ -4722,7 +4768,7 @@ Qed.
 Lemma iscan_escape :
   forall s txt prev o,
     iscan_str (escape_str s) (IText false txt prev o)
-    = IText false (txt ++ s)%string prev o.
+    = IText false (txt ++ s)%string (str_last s prev) o.
 Proof.
   induction s as [|c rest IH]; intros txt prev o.
   - cbn [escape_str iscan_str]. rewrite append_empty_r. reflexivity.
@@ -4740,7 +4786,8 @@ Lemma iscan_escape_after_verb :
   forall s n body vk o,
     nonempty_str s = true ->
     iscan_str (escape_str s) (IVerb n n body vk o)
-    = IText false s (Some tick) (oemit (mk (vnode vk (trim_verb body))) o).
+    = IText false s (str_last s (Some tick))
+        (oemit (mk (vnode vk (trim_verb body))) o).
 Proof.
   intros [|c rest] n body vk o Hne; [discriminate|].
   cbn [escape_str]. destruct (needs_escape c) eqn:Hc.
@@ -4830,7 +4877,7 @@ Lemma ilead_dchar :
     Ascii.eqb (dchar k) hyphen = false ->
     bunpush o = None ->
     ilead (dchar k) txt prev o
-    = IDelim k 0 txt (str_last txt prev) false o.
+    = IDelim k 0 txt prev false o.
 Proof.
   intros k txt prev o Hen Hhy Hup.
   destruct (dreserved_false (dchar k) (dchar_free k))
@@ -4849,7 +4896,7 @@ Lemma ilead_dchar_bare :
     denabled_of k = true ->
     dsyntax_bare (dsyntax_of k) = true ->
     bunpush o = None ->
-    ilead (dchar k) txt prev o = IDelim k 0 txt (str_last txt prev) false o.
+    ilead (dchar k) txt prev o = IDelim k 0 txt prev false o.
 Proof.
   intros k txt prev o Hen Hb Hup.
   exact (ilead_dchar k txt prev o Hen (dchar_bare_free k Hb) Hup).
@@ -4884,7 +4931,7 @@ Lemma iscan_dtoken :
     Ascii.eqb (dchar k) hyphen = false ->
     bunpush o = None ->
     iscan_str (dtoken k) (IText false txt prev o)
-    = IDelim k (pred (dwidth k)) txt (str_last txt prev) false o.
+    = IDelim k (pred (dwidth k)) txt prev false o.
 Proof.
   intros k txt prev o Hen Hhy Hup. unfold dtoken.
   destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
@@ -5842,7 +5889,8 @@ Proof.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
       assert (Hlt : ltof (list cinline) cis_size rest (CIStr s :: rest)).
       { unfold ltof. cbn [cis_size ci_size]. lia. }
-      pose proof (IH rest Hlt cl O empty_ok s prev before Hcl Hct Hnx Hflush
+      pose proof (IH rest Hlt cl O empty_ok s (str_last s prev) before
+        Hcl Hct Hnx Hflush
         (cis_ok_tail _ _ Hok) (ci_str_tail_sep s rest Hok Hs)) as IHr.
       assert (Hnr : nonempty before || nonempty_str s || nonempty rest
                     || empty_ok = true).
@@ -6309,7 +6357,7 @@ Proof.
       cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
       cbn [ci_inlines map append].
       rewrite <- ?List.map_cons;
-      rewrite (IH rest Hrestlt prev' s out).
+      rewrite (IH rest Hrestlt (str_last s prev') s out).
       * unfold flush_out at 1. rewrite Hs.
         cbn [List.rev nonempty_str ci_ast map].
         rewrite <- List.app_assoc. reflexivity.
@@ -7579,6 +7627,22 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example unmatched_dquote_is_left :
   parse_inline_line "a""" = [mk (Str ("a" ++ ldquo))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And the byte a decay leaves in the buffer is not the byte the next
+   quote's open rule reads.  A quote that decays writes `rsquo`; the
+   source said `'`, and `dopens_after` accepts a quote and not a curly
+   one, so the second `'` here opens and the third closes it.  `ilead`
+   takes the source byte from `prev` for exactly this. *)
+Example decay_does_not_hide_the_source_byte :
+  parse_inline_line "a''b'"
+  = [mk (Str ("a" ++ rsquo)); mk (Quoted SingleQuotes [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The dashes rewrite the buffer the same way, and cost the same. *)
+Example dash_does_not_hide_the_source_byte :
+  parse_inline_line "a--'b'"
+  = [mk (Str ("a" ++ endash)); mk (Quoted SingleQuotes [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A marker overrides both the open rule and the side: a braced opener
