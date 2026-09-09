@@ -30,6 +30,13 @@ The third case, an unterminated link destination
 (`links_and_images.test:220`), was closed on 2026-09-09; what is left of
 it is below, under *The residue*.
 
+Two families that no corpus case contains were closed the same day, and
+neither number moved: a marked opener with a `}` after it took the wrong
+side of its row's decay (`{"}`), and a byte a decay had rewritten hid the
+source byte from the next delimiter's open rule (`a''b'`, `a--'b'`).
+Both were found by sweeping, which is the point of the clause in
+[[project-engineering-lessons]] about the corpus not being the grammar.
+
 ## The two
 
 ### A block-attribute candidate's lines, re-parsed
@@ -127,11 +134,20 @@ it does not prove this recovery behaviour impossible. See
 [[no-backtracking]] for the project-wide interpretation.
 
 **Boundary.** The two agree on every spec that *closes*, whatever it
-contains. They differ only on a spec that never closes and whose source
-holds a byte an inline scan would have claimed, and the attribute
-machine admits an arbitrary byte in exactly two states -- a quoted value
-and a `{% %}` comment. So `{#id`, `{.class` and `{key=bare` are agreed
-even unclosed.
+contains, and on every spec that *fails*, because there the re-scan
+happens to reproduce the source. They differ only on a spec that never
+closes and whose source holds a byte an inline scan would have claimed,
+so the question is which states of the attribute machine will swallow
+such a byte rather than reject it. There are three, not the two this
+note first claimed: a quoted value, a `{% %}` comment, and an **id**,
+which takes any byte but whitespace and the closing brace. `{#a"}x` is a
+span with that quote in its identifier on both sides, and `{#a"` differs.
+
+Measured 2026-09-09, exhaustive at length 5 over `{}#."='a` (37,448
+documents, against a djot.js with the closure leak of
+[[oracle-disagreements]] patched out), this family is 435 of the 439
+remaining mismatches. `{.class` and `{key=bare` are agreed even unclosed,
+as the note said, and for the reason it gave.
 
 The implementation trace is under *2026-08-22 -- ours: an unclosed
 inline attribute spec*. Because that log is append-only, its old verdict
@@ -167,6 +183,19 @@ the re-entered one both stay live and a later `)` has two answers.
 explicit link, so a plain `[` opened inside the destination switches the
 barrier off: `_[]([!a*[*_` closes the outer `_` upstream. `fr_barrier`
 bars unconditionally.
+
+## A spec that attaches to a decayed quote
+
+`'{.a}` renders `<span class="a">rsquo</span>` here and a bare right
+single quote upstream: djot.js drops the attributes. Four documents in
+the sweep above, and it is the whole of the residue that is not the
+reparse gap.
+
+Not diagnosed. `oattach` takes the run below the spec, and upstream
+attaches to the preceding *match*, where an unmatched quote's default
+match is apparently not a thing attributes may land on. Found
+2026-09-09; the mechanism has not been pinned against `inline.ts`, so it
+is listed here as an open question rather than a boundary.
 
 ## Diagnosis is not closure
 
@@ -222,4 +251,16 @@ And three is what the *corpus* shows, which is not what is left.
 leaves as text with the `[` opener still alive -- was a divergence on
 plain input that no corpus case and no generated document contains. It
 was found by probing the destination gap and closed on 2026-09-09
-without either number moving.
+without either number moving. So were the two quote families named at
+the top of this note, and the decayed-quote attachment above is still
+open on the same terms: none of the four is in the corpus, and the
+corpus number is silent about all of them.
+
+**And the number the sweeps report is only as good as the oracle.**
+Until 2026-09-09 `djotjs.mjs --batch` disagreed with the same documents
+run one per process, because djot.js's smart-quote defaults live in a
+closure the scanner assigns to. A sweep's answer then depended on
+enumeration order. That is fixed and checked; the point to carry is that
+a differential number needs the oracle to be a function before it means
+anything. See [[oracle-disagreements]], *the smart-quote default is
+process-global*.
