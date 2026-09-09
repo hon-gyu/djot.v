@@ -17,7 +17,30 @@ import fs from "node:fs";
 import { parse, renderHTML } from "../../djot.js/lib/index.js";
 
 const warn = () => {};
-const convert = (s) => renderHTML(parse(s, { warn }), { warn });
+
+// djot.js keeps the smart-quote defaults in a closure variable that
+// `betweenMatched` assigns to (`inline.ts:118-136`), and the variable is the
+// enclosing call's parameter rather than the per-scan one, so it is shared by
+// every parse in the process.  A `{"` or a `"}` therefore flips the default
+// for the documents after it, and a batch stops agreeing with the same
+// documents run one per process.
+//
+// The two spellings below restore each row's default: `{"` is an open marker,
+// which turns the double quote back to `left_double_quote`, and `'}` is a
+// close marker, which turns the single quote back to `right_single_quote`.
+// Neither changes a default that is already the row's own, so the pair is
+// idempotent, and running it before each document is what makes a batch mean
+// what it says.  Upstream's own behaviour within one document is left alone;
+// see `.project/oracle-disagreements.md`.
+const resetQuoteDefaults = () => {
+  parse('{"', { warn });
+  parse("'}", { warn });
+};
+
+const convert = (s) => {
+  resetQuoteDefaults();
+  return renderHTML(parse(s, { warn }), { warn });
+};
 
 if (!process.argv.includes("--batch")) {
   process.stdout.write(convert(fs.readFileSync(0, "utf8")));

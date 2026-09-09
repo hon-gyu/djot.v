@@ -1531,3 +1531,54 @@ opener is the explicit link, so a plain `[` opened inside the
 destination switches it off. Both are stated in
 `.project/exact-html-gaps.md` under *The residue of the destination
 gap*.
+
+## 2026-09-09 -- djotjs-bug: the smart-quote default is process-global
+
+Found while sweeping the attribute alphabet, where it accounted for 4069
+of 4610 reported mismatches and none of them were real.
+
+`betweenMatched(c, annotation, defaultmatch, opentest)` returns the
+scanner for one delimiter row, and the scanner assigns to
+`defaultmatch` (`inline.ts:118-136`):
+
+```js
+if (has_open_marker && defaultmatch.match(/^right/)) {
+  defaultmatch = defaultmatch.replace(/^right/, "left");
+} else if (has_close_marker && defaultmatch.match(/^left/)) {
+  defaultmatch = defaultmatch.replace(/^left/, "right");
+}
+```
+
+`defaultmatch` is the *outer* call's parameter. The eight rows are built
+once at module load, so the assignment outlives the scan, the paragraph
+and the document. Only the two quote rows are affected: the other six
+are built with `"str"`, which neither regex matches. `cli.ts` aside,
+these are the only mutable module-level bindings in the parser.
+
+Within one document: `a "b {"} c "d` renders `a “b ”} c ”d`, the third
+quote taking the default the second one left behind. djoths gives `“d`
+and so do we. Across documents in one process, every document after a
+`{"` or a `"}` inherits the flip.
+
+**The harness now defines it away rather than adjudicating it.** Batch
+mode existed to avoid node startup and promised nothing else; the leak
+made it disagree with the same documents run one per process, so a
+sweep's number depended on enumeration order. `djotjs.mjs` restores both
+defaults before each document by parsing `{"` and `'}`, which are the
+two spellings that flip a default back and change nothing when it is
+already the row's own. Checked over 4680 documents in the alphabet
+`{}#."='a`: batch output is now byte-identical to one process per
+document, and `make test` and `make generated` do not move. Neither did
+they before, so nothing published was wrong; the instrument was.
+
+**The intra-document behaviour is left alone and is not settled here.**
+Matching it means carrying a per-paragraph mutable default that no other
+part of the scanner has, to reproduce an upstream aliasing slip that
+djoths does not share. It is filed as `djotjs-bug` on the same footing
+as the others: the syntax reference says the heuristics "can be
+overridden by using curly braces to mark a quote as an opener `{"` or a
+closer `"}`" (§Smart punctuation), which marks the quote the braces are
+on and says nothing about the ones after it.
+
+`.project/exact-html-gaps.md` counts two `ours` gaps and does not count
+this one, since it is upstream's slip and not our divergence.
