@@ -22,7 +22,7 @@ corpus is exact and roundtrip is clean.
 
 That is a smaller claim than it sounds, and the rest of this file is why.
 The corpus is djot.js's regression suite, not a map of the grammar, and
-five divergences are open that no corpus case contains. Quote the number
+four divergences are open that no corpus case contains. Quote the number
 with the list, or do not quote it.
 
 Five cases were closed on 2026-09-09, in this order: an unterminated link
@@ -36,15 +36,19 @@ number; the others were found by sweeping, which is the point of the
 clause in [[project-engineering-lessons]] about the corpus not being the
 grammar.
 
+Two more closed on 2026-09-10, both in the block-attribute recovery and
+neither in the corpus: a blank line failing to close an open spec, and
+the recovery dropping the attribute set an earlier spec left pending.
+See [[260909.block-attr-reparse]].
+
 ## What is open
 
-Five, none of them in the corpus:
+Four, none of them in the corpus:
 
 | | where |
 | --- | --- |
 | a spec attaching to a decayed quote (`'{.a}`) | below |
 | `{a=}=`, a `key=` slice hiding a marked opener | [[oracle-disagreements]] |
-| a blank line not closing a block attribute spec | below |
 | a `]` inside a link destination re-entering the bracket | below |
 | a container prefix inside a recovered paragraph | [[oracle-disagreements]] |
 

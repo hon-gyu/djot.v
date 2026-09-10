@@ -428,6 +428,29 @@ about an intermediate state, tabulate the transition over the
 constructors and check whether the same predicate can be read off the
 state you already have.
 
+### Partition a sweep by mechanism, not by verdict
+
+**What happened.** The block-attribute sweep's residue was recorded as
+"36, and it is one family", under a partition with two buckets: the
+upstream bug, and ours. Picking the work up, the same sweep read 44, and
+the extra twelve were not drift -- they were a second rule inside
+"ours", where the recovery dropped the attribute set an earlier spec had
+left pending. It was a two-line fix with three one-line lemmas, and it
+had been sitting behind a bucket label for a session. The rule that
+looked like the whole residue was in fact 24 of it.
+
+**General form.** The clause above says to price each rule separately
+once a diagnosis has named them. This is the step before: a partition by
+*who is wrong* has one bucket for us and therefore cannot show that we
+are wrong twice. The count is stable, the label is stable, and nothing
+about either says a second mechanism is underneath.
+
+**What to do instead.** Bucket a sweep's mismatches by the mechanism
+that produces them -- which branch, which lost field -- and treat any
+bucket you cannot name that way as unpartitioned. Re-run the sweep
+before trusting a residue recorded in a previous session, and if the
+number moved, the partition is what to look at first, not the parser.
+
 ## Price a parameterization by whether the parameter can stay implicit
 
 **What happened.** Making the delimiter table a parameter was scoped from

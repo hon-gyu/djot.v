@@ -1708,7 +1708,7 @@ alphabet stays at 9 with no document changing.
 **Verdict: closed.** What the sweep has left is below, and none of it is
 this rule.
 
-## 2026-09-09 -- ours: a blank line does not close a block attribute spec
+## Closed 2026-09-10 -- a blank line does not close a block attribute spec
 
 ```
 {%
@@ -1725,18 +1725,36 @@ flushes on the same blank.
 Two blanks do close it upstream (`{%` / blank / blank / `c` agrees), so
 the rule is not "blanks are transparent".
 
-36 of the 808 documents in the block sweep above, and all of what that
-sweep has left that is ours. **Not diagnosed**: the mechanism has not
-been pinned against `block.ts`, and in particular what makes the second
-blank different is unknown.
+**The mechanism** (`block.ts:566-598`). The continuation test is
+`this.indent > container.extra.indent`, and a blank line is measured the
+same way any line is, so an *unindented* blank fails it and drops into
+the recovery arm on that very line. The arm emits `+para`, pops the
+attribute container, replays the slices, and then sets
+`this.pos = para.inlineParser.lastpos + 1` -- a position back inside the
+lines it replayed. Everything after it in the line loop reads that
+`pos`, so `isBlank = (self.pos === self.starteol)` is false: the blank is
+never recognized as one, no new container is checked, and the paragraph
+is handed an empty inline range. The next line continues it. A *second*
+blank meets an ordinary open paragraph, whose `continue` refuses
+whitespace, so it closes -- which is why the rule is not "blanks are
+transparent".
 
-Worth reading against the 2026-08 entry on a spec that *spans* a blank
-and then fails, which was decided against matching because djot.js
-records the blank as a slice and the paragraph would then contain a blank
-line, which `wf_block` excludes and `roundtrip_blocks` would notice.
-That reasoning does not reach this shape: here the oracle's paragraph
-holds no blank. The two look alike and are not, so check which one is in
-front of you before reusing either verdict.
+The indent test is the whole of it, and a single space flips the answer:
+`{%` / `""` / `c` is one paragraph, `{%` / `" "` / `c` is one paragraph
+*containing a blank line*, because indent 1 > 0 makes the blank a
+continuation whose slice is recorded. That second shape is the 2026-08
+entry on a spec that *spans* a blank and then fails, and it stays
+unmatched for the reason given there: `wf_block` excludes a paragraph
+with a blank line in it and `roundtrip_blocks` would notice. The two
+look alike, are separated by one space, and only one of them is closed.
+
+24 of the 808 documents in the block sweep above. Closed 2026-09-10:
+the `else` branch of `PAttr`'s continuation test now consumes a blank
+without reprocessing it, leaving `PPend pend (para_recover 0 slices)`.
+The one cost was `step_blank_lazy_false`, which quantified over all
+states and is now false for an open spec; it took `blank_safe st = true`,
+a hypothesis its single caller already had, and the added hypothesis
+deleted two of its cases rather than adding any.
 
 ## 2026-09-09 -- djotjs-bug: a spec still open at the end loses its paragraph
 
