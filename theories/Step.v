@@ -774,10 +774,12 @@ Fixpoint finish (st : pstate) : blocks :=
       [list_block ls (rev done ++ finish inner)%list]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
-     nothing, which is `{#id}` alone in a document. *)
-  | PAttr _ _ ap slices =>
+     nothing, which is `{#id}` alone in a document.  An earlier spec's
+     attributes were waiting on the block this one turned out to be, so
+     the recovered paragraph is what they attach to. *)
+  | PAttr pend _ ap slices =>
       if ap_done ap then []
-      else finish_para_recover slices
+      else decorate_head pend (finish_para_recover slices)
   | PRef _ lbl val => [ref_block lbl val]
   | PFoot _ lbl done inner =>
       [foot_block lbl (rev done ++ finish inner)%list]
@@ -1021,6 +1023,13 @@ Definition pend_result (pend : attr) (r : blocks * pstate) : blocks * pstate :=
   | [] => ([], PPend pend st')
   | _ => (decorate_head pend bs, st')
   end.
+
+(* Pending attributes change what a line emits, never what it leaves
+   open: they either attach to an emitted block or move into a `PPend`,
+   which `lazy_ok` reads through. *)
+Lemma lazy_ok_pend_result :
+  forall pend r, lazy_ok (snd (pend_result pend r)) = lazy_ok (snd r).
+Proof. intros pend [bs st]. destruct bs; reflexivity. Qed.
 
 (* The result of a line handed down through an open key.  `PPend`'s
    shape and for `PPend`'s reason: nothing emitted means the block the
@@ -1536,6 +1545,11 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              `PPara slices`, which appends the one and closes on the
              other.  One equation covers both.
 
+             An earlier spec's attributes are waiting on the block this
+             one turns out to be, so they travel with the recovery rather
+             than being dropped with the spec: `pend_result` attaches
+             them to the paragraph when it closes.
+
              A *blank* continuation line is fed to the machine but not
              recorded.  djot.js records it, so a spec that spans a blank
              line and then fails reproduces that blank inside its
@@ -1550,9 +1564,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           then
             let ap' := attr_feed l ap in
             if ap_failed ap'
-            then step_fuel n' off l (para_recover 1 slices)
+            then pend_result pend (step_fuel n' off l (para_recover 1 slices))
             else ([], PAttr pend ind ap' (push_text l slices))
-          else step_fuel n' off l (para_recover 0 slices)
+          else pend_result pend (step_fuel n' off l (para_recover 0 slices))
       | PRef ind lbl val =>
           (* A line indented past the bracket and carrying one
              whitespace-free run extends the destination; anything else
@@ -2507,9 +2521,13 @@ Proof.
       destruct (Nat.ltb aind (off + indent_of l)).
       { destruct (ap_failed (attr_feed l aap)); [|reflexivity].
         pose proof (IH k off l (para_recover 1 aslices)) as H;
-          rewrite pad_state_para_recover in H; rewrite H; reflexivity. }
+          rewrite pad_state_para_recover in H; rewrite H;
+          destruct (step_fuel n off l (para_recover 1 aslices)) as [bs st'] eqn:Ed;
+          cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. }
       { pose proof (IH k off l (para_recover 0 aslices)) as H;
-          rewrite pad_state_para_recover in H; rewrite H; reflexivity. } } }
+          rewrite pad_state_para_recover in H; rewrite H;
+          destruct (step_fuel n off l (para_recover 0 aslices)) as [bs st'] eqn:Ed;
+          cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. } } }
   (* the recovery's paragraph: it records no column either, and takes the
      line exactly as an open paragraph does *)
   { cbn [pad_state step_fuel open_line].

@@ -1096,8 +1096,9 @@ Proof.
       unfold para_recover.
       rewrite (step_para_off_flush l _ aslices Hblank). reflexivity. }
     destruct (Nat.ltb aind (0 + indent_of l));
-      [destruct (ap_failed (attr_feed l aap)); [exact (Hfall 1)|reflexivity]
-      |exact (Hfall 0)].
+      [destruct (ap_failed (attr_feed l aap));
+        [rewrite lazy_ok_pend_result; exact (Hfall 1)|reflexivity]
+      |rewrite lazy_ok_pend_result; exact (Hfall 0)].
   - (* the recovery's paragraph flushes, leaving the idle state *)
     rewrite (step_para_off_flush l okoff ocur Hblank). reflexivity.
   - (* a reference definition: the blank closes it, leaving the idle state *)

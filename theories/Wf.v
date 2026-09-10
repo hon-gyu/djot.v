@@ -2588,6 +2588,21 @@ Proof.
   rewrite Hnonempty, wf_blocks_rev, Hbs, Hinner. reflexivity.
 Qed.
 
+(* Pending attributes are invisible to the invariant: decoration touches
+   only a head that was already well-formed, and a `PPend` carries the
+   state under it unchanged. *)
+Lemma pend_result_wf :
+  forall pend r,
+    wf_blocks (fst r) = true ->
+    state_wf (snd r) = true ->
+    wf_blocks (fst (pend_result pend r)) = true
+    /\ state_wf (snd (pend_result pend r)) = true.
+Proof.
+  intros pend [bs st] Hb Hs. cbn [fst snd] in Hb, Hs.
+  destruct bs; cbn [pend_result fst snd state_wf];
+    (split; [rewrite ?wf_blocks_decorate_head; exact Hb | exact Hs]).
+Qed.
+
 Lemma step_fuel_wf :
   forall n off l st,
     state_wf st = true ->
@@ -2973,9 +2988,11 @@ Proof.
     destruct (ap_done aap); [apply IH; reflexivity|].
     destruct (Nat.ltb aind (off + indent_of l));
       [destruct (ap_failed (attr_feed l aap))|].
-    + apply IH. reflexivity.
+    + destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs].
+      exact (pend_result_wf _ _ Hb Hs).
     + cbn [fst snd]. split; reflexivity.
-    + apply IH. reflexivity.
+    + destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs].
+      exact (pend_result_wf _ _ Hb Hs).
   - (* the recovery's paragraph: the branches an open paragraph has, with
        its own flush *)
     destruct (bunderline_of l) as [ulvl|] eqn:Eu; cbn [fst snd].
@@ -3492,6 +3509,19 @@ Qed.
 (* Same case analysis as step_fuel_wf: the emitted constructors are
    supported unconditionally, so only the container accumulators are
    threaded. *)
+(* `pend_result_wf` for the support invariant, and for the same reason. *)
+Lemma pend_result_supported :
+  forall pend r,
+    supported_blocks (fst r) = true ->
+    state_supported (snd r) = true ->
+    supported_blocks (fst (pend_result pend r)) = true
+    /\ state_supported (snd (pend_result pend r)) = true.
+Proof.
+  intros pend [bs st] Hb Hs. cbn [fst snd] in Hb, Hs.
+  destruct bs; cbn [pend_result fst snd state_supported];
+    (split; [rewrite ?supported_blocks_decorate_head; exact Hb | exact Hs]).
+Qed.
+
 Lemma step_fuel_supported :
   forall n off l st,
     state_supported st = true ->
@@ -3821,7 +3851,11 @@ Proof.
     destruct (ap_done aap); [apply IH; reflexivity|].
     destruct (Nat.ltb aind (off + indent_of l));
       [destruct (ap_failed (attr_feed l aap))|];
-      [apply IH; reflexivity | split; reflexivity | apply IH; reflexivity].
+      [ destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs];
+        exact (pend_result_supported _ _ Hb Hs)
+      | split; reflexivity
+      | destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs];
+        exact (pend_result_supported _ _ Hb Hs) ].
   - (* the recovery's paragraph: Para and Heading are both supported, so
        only the list branch carries anything *)
     destruct (bunderline_of l) as [ulvl|] eqn:Eu;
