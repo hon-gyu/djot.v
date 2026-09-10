@@ -2991,7 +2991,8 @@ Proof.
     + destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs].
       exact (pend_result_wf _ _ Hb Hs).
     + cbn [fst snd]. split; reflexivity.
-    + destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs].
+    + destruct (is_blank l); [cbn [fst snd state_wf]; split; reflexivity|].
+      destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs].
       exact (pend_result_wf _ _ Hb Hs).
   - (* the recovery's paragraph: the branches an open paragraph has, with
        its own flush *)
@@ -3854,8 +3855,10 @@ Proof.
       [ destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs];
         exact (pend_result_supported _ _ Hb Hs)
       | split; reflexivity
-      | destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs];
-        exact (pend_result_supported _ _ Hb Hs) ].
+      | destruct (is_blank l);
+        [ cbn [fst snd state_supported]; split; reflexivity
+        | destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs];
+          exact (pend_result_supported _ _ Hb Hs) ] ].
   - (* the recovery's paragraph: Para and Heading are both supported, so
        only the list branch carries anything *)
     destruct (bunderline_of l) as [ulvl|] eqn:Eu;

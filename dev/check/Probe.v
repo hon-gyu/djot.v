@@ -124,6 +124,7 @@ Definition s_tcap (c : tcap) : string :=
 Fixpoint show_pstate (st : pstate) : string :=
   match st with
   | PPara cur => "Para" ++ s_list s_str cur
+  | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str cur
   | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str cur
   | PFence f ind acc => "Fence" ++ s_fence f ++ s_nat ind ++ s_list s_str acc
   | PQuote done inner => "Quote" ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
@@ -202,6 +203,7 @@ Definition seed_prefixes : list (list string) :=
   ; ["- a"]; ["- a"; ""]; ["1. a"]; ["i. a"]   (* PList *)
   ; ["- - a"]; ["  - a"]                       (* PList, nested / indented *)
   ; ["{#i"]                                    (* PAttr *)
+  ; ["{%"; "c"]; ["{%"; ""]                    (* PParaOff, the recovery *)
   ; ["[r]: u"]; ["  [r]:"]                     (* PRef, at column 0 / indented *)
   ; ["[^n]: a"]; ["  [^n]:"]                   (* PFoot, at column 0 / indented *)
   ; ["| a |"]; ["| a |"; "|--:|"]              (* PTable, rows / separator *)
@@ -218,8 +220,11 @@ Definition seed_prefixes : list (list string) :=
 Definition state_pool : list pstate :=
   map (fun ls => snd (run_lines ls (PPara []))) seed_prefixes.
 
-(* The product every `forall st l` probe runs over: 21 x 31 = 651. *)
+(* The product every `forall st l` probe runs over.  The size is computed
+   rather than written down: both pools grow with the parser, and a
+   number in a comment here went stale twice. *)
 Definition sl_pool : list (pstate * string) := pairs state_pool line_pool.
+Compute (List.length state_pool, List.length line_pool, List.length sl_pool).
 
 Definition show_sl (p : pstate * string) : string :=
   show_pstate (fst p) ++ " |= " ++ s_str (snd p).

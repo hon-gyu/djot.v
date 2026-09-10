@@ -1061,44 +1061,31 @@ Proof.
       [destruct (Hset eq_refl) as [Hi Ha]; rewrite Hi; exact Ha|exact IH].
 Qed.
 
+(* `blank_safe` is what rules out an open attribute spec, whose blank now
+   opens the recovered paragraph rather than closing anything.  The one
+   caller has the hypothesis already, for the neighbouring lemmas. *)
 Lemma step_blank_lazy_false :
-  forall l st, classify l = KBlank -> lazy_ok (snd (step l st)) = false.
+  forall l st, classify l = KBlank -> blank_safe st = true ->
+    lazy_ok (snd (step l st)) = false.
 Proof.
   intros l st Hblank. induction st as
     [cur|lvl cur|f fnd acc|done inner IH|dlen dcls ddone dinner IH|ls done inner IH
-    |apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH].
+    |apend aind aap aslices|okoff ocur|rind rlbl rval|find flbl fdone finner IH|trows tcap|ppend pinner IH|klbl ksrc kinner IH];
+    intros Hsafe; try discriminate Hsafe.
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
   - unfold step. cbn [step_fuel open_line]. destruct bheading_continues;
       rewrite Hblank; reflexivity.
-  - destruct (fence_close f l) eqn:Hclose.
-    + rewrite (step_fence_close l f fnd acc Hclose). reflexivity.
-    + rewrite (step_fence_content l f fnd acc Hclose). reflexivity.
   - rewrite (step_quote_close l KBlank done inner [] (PPara [])
       Hblank eq_refl eq_refl eq_refl). reflexivity.
   - destruct (step l dinner) as [bs inner'] eqn:Hstep.
     rewrite (step_div_cont l dlen dcls ddone dinner bs inner'
                (div_stays_open_blank l dinner dlen (classify_kblank_blank l Hblank)) Hstep).
-    cbn [snd lazy_ok]. exact IH.
+    cbn [snd lazy_ok]. exact (IH Hsafe).
   - destruct (step l inner) as [bs inner'] eqn:Hstep.
     rewrite (step_list_blank l ls done inner bs inner' Hblank Hstep).
-    cbn [snd lazy_ok]. exact IH.
-  - unfold step. cbn [step_fuel open_line].
-    destruct (ap_done aap).
-    { rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-      unfold step. cbn [step_fuel open_line]. rewrite Hblank. reflexivity. }
-    assert (Hfall : forall e, lazy_ok (snd (step_fuel
-              (String.length l + pstate_depth (PAttr apend aind aap aslices))
-              0 l (para_recover e aslices))) = false).
-    { intros e.
-      rewrite step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
-      unfold para_recover.
-      rewrite (step_para_off_flush l _ aslices Hblank). reflexivity. }
-    destruct (Nat.ltb aind (0 + indent_of l));
-      [destruct (ap_failed (attr_feed l aap));
-        [rewrite lazy_ok_pend_result; exact (Hfall 1)|reflexivity]
-      |rewrite lazy_ok_pend_result; exact (Hfall 0)].
+    cbn [snd lazy_ok]. exact (IH Hsafe).
   - (* the recovery's paragraph flushes, leaving the idle state *)
     rewrite (step_para_off_flush l okoff ocur Hblank). reflexivity.
   - (* a reference definition: the blank closes it, leaving the idle state *)
@@ -1106,18 +1093,19 @@ Proof.
   - unfold step. cbn [step_fuel open_line]. rewrite (classify_kblank_blank l Hblank).
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l finner) as [bs inner'] eqn:Hs.
-    cbn [snd lazy_ok] in IH |- *. exact IH.
+    specialize (IH Hsafe). cbn [snd lazy_ok] in IH |- *. exact IH.
   - (* a table: a blank leaves either a waiting table or the idle state,
        and neither is a paragraph *)
     pose proof (classify_kblank_blank l Hblank) as Hb.
     unfold step. cbn [step_fuel open_line].
     rewrite (caption_open_blank l Hb), Hb.
     destruct tcap; reflexivity.
-  - unfold step. cbn [step_fuel open_line]. rewrite Hblank.
+  - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe _].
+    unfold step. cbn [step_fuel open_line]. rewrite Hblank.
     destruct (is_idle pinner); [reflexivity|].
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     destruct (step l pinner) as [bs st'] eqn:Hs.
-    destruct bs; cbn [pend_result snd lazy_ok]; exact IH.
+    destruct bs; cbn [pend_result snd lazy_ok]; exact (IH Hsafe).
   - (* an open key: the retraction leaves the idle state, and otherwise
        the key is still there over a state the induction covers *)
     destruct (is_idle kinner) eqn:Hidle.
@@ -1125,10 +1113,11 @@ Proof.
       destruct cur; [|discriminate Hidle].
       rewrite (step_key_retract l klbl ksrc (classify_kblank_blank l Hblank)).
       reflexivity. }
+    cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe _].
     rewrite (step_key_pass l klbl ksrc kinner
                ltac:(rewrite Hidle, andb_false_r; reflexivity)).
     destruct (step l kinner) as [bs st'] eqn:Hs.
-    destruct bs; cbn [key_result snd lazy_ok]; exact IH.
+    destruct bs; cbn [key_result snd lazy_ok]; exact (IH Hsafe).
 Qed.
 
 Lemma run_safe_final :
@@ -1742,7 +1731,7 @@ Proof.
   assert (Hlazy : lazy_ok inner' = false).
   { pose proof (step_blank_lazy_false EmptyString inner
                   (classify_blank EmptyString eq_refl)) as H.
-    rewrite Hb in H. cbn [snd] in H. exact H. }
+    rewrite Hb in H. cbn [snd] in H. exact (H Hpad). }
   (* The override has to be ruled out as well as the column.  The blank
      is what rules it out: it retracts a key that was still waiting and
      closes one whose block produced something.  A key still holding a

@@ -1550,14 +1550,27 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              than being dropped with the spec: `pend_result` attaches
              them to the paragraph when it closes.
 
-             A *blank* continuation line is fed to the machine but not
-             recorded.  djot.js records it, so a spec that spans a blank
-             line and then fails reproduces that blank inside its
-             paragraph — and a paragraph containing a blank line is
-             exactly what `Wf.wf_block` rules out, because it does not
-             round-trip: parsing that rendering back splits the paragraph
-             in two.  The divergence is confined to specs that both span
-             a blank line and fail. *)
+             A blank line splits on the same indentation test as any
+             other, and the two halves are unrelated.
+
+             Indented past the opener, it is a continuation: djot.js
+             feeds it to the machine and records its slice, so a spec
+             that spans such a blank and then fails reproduces the blank
+             inside its paragraph, and a paragraph containing a blank
+             line is exactly what `Wf.wf_block` rules out, because it
+             does not round-trip.  We feed it and do not record it; the
+             divergence is confined to specs that both span a blank line
+             and fail.
+
+             Not indented past it, the blank is what fails the spec, and
+             the recovery runs *on that line*.  djot.js then rewinds
+             `this.pos` into the slices it has just replayed
+             (block.ts:597), so the blank is never tested for blankness:
+             the paragraph the recovery opened stays open and takes the
+             line without recording anything.  `{%` / blank / `c` is
+             therefore one paragraph of two lines upstream, and only a
+             second blank closes it, met by the recovered paragraph as
+             any paragraph meets one. *)
           if ap_done ap
           then step_fuel n' off l (PPend (attr_merge (ap_attrs ap) pend) (PPara []))
           else if Nat.ltb ind (off + indent_of l)
@@ -1566,6 +1579,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
             if ap_failed ap'
             then pend_result pend (step_fuel n' off l (para_recover 1 slices))
             else ([], PAttr pend ind ap' (push_text l slices))
+          else if is_blank l
+          then ([], PPend pend (para_recover 0 slices))
           else pend_result pend (step_fuel n' off l (para_recover 0 slices))
       | PRef ind lbl val =>
           (* A line indented past the bracket and carrying one
@@ -2524,7 +2539,9 @@ Proof.
           rewrite pad_state_para_recover in H; rewrite H;
           destruct (step_fuel n off l (para_recover 1 aslices)) as [bs st'] eqn:Ed;
           cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. }
-      { pose proof (IH k off l (para_recover 0 aslices)) as H;
+      { destruct (is_blank l);
+          [cbn [fst snd pad_state]; rewrite pad_state_para_recover; reflexivity|].
+        pose proof (IH k off l (para_recover 0 aslices)) as H;
           rewrite pad_state_para_recover in H; rewrite H;
           destruct (step_fuel n off l (para_recover 0 aslices)) as [bs st'] eqn:Ed;
           cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. } } }
