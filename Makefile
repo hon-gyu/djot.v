@@ -1,4 +1,4 @@
-.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe keyed oracles clean
+.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe keyed oracles dist check-dist copy-extracted clean
 
 build:
 	dune build
@@ -86,6 +86,34 @@ probe: build
 	  -R _build/default/dev DjotVDev dev/check/Probe.v
 	@rm -f dev/check/Probe.vo dev/check/Probe.vok dev/check/Probe.vos dev/check/Probe.glob \
 	       dev/check/.Probe.aux
+
+EXTRACTED = _build/default/extraction
+
+# `dist/` is the extracted parser as a standalone dune project, committed
+# so that a consumer builds it without Rocq.  The main build ignores the
+# directory (`data_only_dirs`); build it with `cd dist && dune build`.
+dist: build
+	@$(MAKE) -s copy-extracted DEST=dist/src
+	@echo "dist/src regenerated from $(EXTRACTED)"
+
+# Fails when dist/src is behind the theories.  There is no CI, and a
+# stale dist publishes a parser that lags its own proofs.
+check-dist: build
+	@tmp=`mktemp -d`; $(MAKE) -s copy-extracted DEST=$$tmp; \
+	if diff -r --exclude=dune dist/src $$tmp >/dev/null; then \
+	  rm -rf $$tmp; echo "dist/src is current"; \
+	else \
+	  diff -r --exclude=dune dist/src $$tmp | head -20; rm -rf $$tmp; \
+	  echo "dist/src is stale: run make dist"; exit 1; \
+	fi
+
+# The parser, without the fixtures the harness links alongside it.
+copy-extracted:
+	@mkdir -p $(DEST)
+	@rm -f $(DEST)/*.ml $(DEST)/*.mli
+	@for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
+	  case `basename $$f` in Fixtures.*|Generate.*) ;; *) cp $$f $(DEST)/ ;; esac; \
+	done
 
 oracles:
 	cd djot.js && npm install --no-audit --no-fund && npm run build

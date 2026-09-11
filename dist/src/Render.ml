@@ -1,0 +1,672 @@
+open Ast
+open Attributes
+open Datatypes
+open Inline
+open Line
+open List0
+open ListDef
+open ListUniformity
+open OrderedList
+open PeanoNat
+open Step
+open Strings
+open Uniformity
+
+(** val thematic_line : string **)
+
+let thematic_line =
+  "* * * *"
+
+(** val ref_line : string -> string -> string **)
+
+let ref_line label dest =
+  (^) "[" ((^) label ((^) "]: " dest))
+
+(** val code_close : string **)
+
+let code_close =
+  "```"
+
+(** val code_open : string -> string **)
+
+let code_open info =
+  (^) "```" info
+
+(** val align_dashes : align -> string **)
+
+let align_dashes = function
+| AlignLeft -> ":--"
+| AlignRight -> "--:"
+| AlignCenter -> ":-:"
+| AlignDefault -> "---"
+
+(** val sep_body : align list -> string **)
+
+let rec sep_body = function
+| [] -> ""
+| a :: rest -> (^) (align_dashes a) ((^) "|" (sep_body rest))
+
+(** val sep_line : align list -> string **)
+
+let sep_line als =
+  (^) "|" (sep_body als)
+
+(** val cells_body : string list -> string **)
+
+let rec cells_body = function
+| [] -> ""
+| c :: rest -> (^) " " ((^) c ((^) " |" (cells_body rest)))
+
+(** val cells_line : string list -> string **)
+
+let cells_line cs =
+  (^) "|" (cells_body cs)
+
+(** val sep_lines : string list list -> string list **)
+
+let rec sep_lines = function
+| [] -> []
+| ls :: rest ->
+  (match rest with
+   | [] -> ls
+   | _ :: _ -> app ls ("" :: (sep_lines rest)))
+
+type ctrow =
+| CTBody of cinline list list
+| CTHead of align list * cinline list list
+
+(** val ctrow_cells : ctrow -> cinline list list **)
+
+let ctrow_cells = function
+| CTBody cs -> cs
+| CTHead (_, cs) -> cs
+
+(** val ctrow_lines : dtable -> ctrow -> string list **)
+
+let ctrow_lines t = function
+| CTBody cs -> (cells_line (map (ci_line t) cs)) :: []
+| CTHead (als, cs) ->
+  (cells_line (map (ci_line t) cs)) :: ((sep_line als) :: [])
+
+(** val ccells_of :
+    cell_type -> align list -> cinline list list -> cell list **)
+
+let rec ccells_of ct als = function
+| [] -> []
+| c :: cs' ->
+  (match als with
+   | [] -> (Cell (ct, AlignDefault, (ci_inlines c))) :: (ccells_of ct [] cs')
+   | a :: als' -> (Cell (ct, a, (ci_inlines c))) :: (ccells_of ct als' cs'))
+
+(** val ctable_cells : align list -> ctrow list -> cell list list **)
+
+let rec ctable_cells als = function
+| [] -> []
+| c :: rest ->
+  (match c with
+   | CTBody cs -> (ccells_of BodyCell als cs) :: (ctable_cells als rest)
+   | CTHead (als', cs) ->
+     (ccells_of HeadCell als' cs) :: (ctable_cells als' rest))
+
+type cblock =
+| CPara of cinline list list
+| CThematic
+| CCode of string * string list
+| CRaw of string * string list
+| CHeading of nat * cinline list list
+| CQuote of cblock list
+| CDiv of cblock list
+| CList of list_kind * list_spacing * cblock list list
+| CRef of string * string
+| CTable of ctrow list
+| CId of string * cblock
+| CKey of cinline * cblock
+
+(** val cb_lines : dtable -> cblock -> string list **)
+
+let rec cb_lines t cb =
+  let itemss =
+    let rec goitems = function
+    | [] -> []
+    | it :: rest -> (sep_lines (map (cb_lines t) it)) :: (goitems rest)
+    in goitems
+  in
+  (match cb with
+   | CPara lss -> map (ci_line t) lss
+   | CThematic -> thematic_line :: []
+   | CCode (info, content) ->
+     (code_open info) :: (app content (code_close :: []))
+   | CRaw (format, content) ->
+     (code_open
+       ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+       ('=', format))) :: (app content (code_close :: []))
+   | CHeading (lvl, lss) -> map (heading_line lvl) (map (ci_line t) lss)
+   | CQuote inner -> map quote_line (sep_lines (map (cb_lines t) inner))
+   | CDiv inner ->
+     div_fence :: (app (sep_lines (map (cb_lines t) inner)) (div_fence :: []))
+   | CList (k, sp, items) ->
+     list_lines sp (map litem_lines (ck_items k (itemss items)))
+   | CRef (label, dest) -> (ref_line label dest) :: []
+   | CTable rows -> flat_map (ctrow_lines t) rows
+   | CId (id, inner) -> ((^) "{#" ((^) id "}")) :: (cb_lines t inner)
+   | CKey (label, inner) ->
+     ((^) (ci_line t (label :: [])) ":") :: (cb_lines t inner))
+
+(** val cb_ast : cblock -> block node **)
+
+let rec cb_ast cb =
+  let itemsof =
+    let rec goitems = function
+    | [] -> []
+    | it :: rest -> (map cb_ast it) :: (goitems rest)
+    in goitems
+  in
+  (match cb with
+   | CPara lss -> mk (Para (ci_para lss))
+   | CThematic -> mk ThematicBreak
+   | CCode (info, content) -> mk (CodeBlock (info, (join_nl content)))
+   | CRaw (format, content) -> mk (RawBlock (format, (join_nl content)))
+   | CHeading (lvl, lss) -> mk (Heading (lvl, (ci_para lss)))
+   | CQuote inner -> mk (BlockQuote (map cb_ast inner))
+   | CDiv inner -> mk (Div (map cb_ast inner))
+   | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
+   | CRef (label, dest) -> mk (RefDef (label, dest))
+   | CTable rows -> mk (Table (None, (ctable_cells [] rows)))
+   | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
+   | CKey (label, inner) ->
+     mk (Keyed (((ci_ast label) :: []), (cb_ast inner))))
+
+(** val item_lines : dtable -> cblock list -> string list **)
+
+let item_lines t it =
+  sep_lines (map (cb_lines t) it)
+
+(** val blocks_of_cblocks : cblock list -> blocks **)
+
+let blocks_of_cblocks cbs =
+  map cb_ast cbs
+
+(** val cline : string -> cinline list **)
+
+let cline s =
+  (CIStr s) :: []
+
+(** val cpara : string list -> cblock **)
+
+let cpara ls =
+  CPara (map cline ls)
+
+(** val cheading : nat -> string list -> cblock **)
+
+let cheading lvl ls =
+  CHeading (lvl, (map cline ls))
+
+(** val para_ok : dtable -> bconfig -> string list -> bool **)
+
+let para_ok t k ls = match ls with
+| [] -> false
+| a :: _ ->
+  (&&)
+    ((&&) ((&&) ((&&) (is_text a) (keyless t k a)) (forallb line_ok ls))
+      (forallb (fun l -> negb (bcuts k l)) ls))
+    ((=) (strip_trailing_ws (last ls "")) (last ls ""))
+
+(** val code_ok : string -> string list -> bool **)
+
+let code_ok info content =
+  (&&) (all_info_chars info)
+    (forallb (fun l ->
+      (&&) (no_nl l)
+        (negb
+          (fence_close { f_ch = '`'; f_len = (S (S (S O))); f_info = info } l)))
+      content)
+
+(** val raw_ok : string -> string list -> bool **)
+
+let raw_ok format content =
+  code_ok
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    ('=', format)) content
+
+(** val heading_ok : bconfig -> nat -> string list -> bool **)
+
+let heading_ok k lvl ls =
+  (&&)
+    ((&&)
+      ((&&) ((&&) (Nat.leb (S O) lvl) (nonempty ls)) (forallb line_ok ls))
+      ((||) k.bheading_continues (Nat.eqb (length ls) (S O))))
+    ((=) (strip_trailing_ws (last ls "")) (last ls ""))
+
+(** val item_forces_loose : dtable -> bconfig -> cblock list -> bool **)
+
+let item_forces_loose t k item =
+  item_loose t k (item_lines t item)
+
+(** val items_force_loose : dtable -> bconfig -> cblock list list -> bool **)
+
+let items_force_loose t k items =
+  existsb (item_forces_loose t k) items
+
+(** val items_seps_loosen : dtable -> bconfig -> cblock list list -> bool **)
+
+let items_seps_loosen t k items =
+  seps_loosen t k (map (item_lines t) items)
+
+(** val is_clist : cblock -> bool **)
+
+let is_clist = function
+| CList (_, _, _) -> true
+| _ -> false
+
+(** val is_cid : cblock -> bool **)
+
+let is_cid = function
+| CId (_, _) -> true
+| _ -> false
+
+(** val ends_clist : cblock -> bool **)
+
+let rec ends_clist = function
+| CList (_, _, _) -> true
+| CId (_, inner) -> ends_clist inner
+| CKey (_, inner) -> ends_clist inner
+| _ -> false
+
+(** val ends_ctable : cblock -> bool **)
+
+let rec ends_ctable = function
+| CTable _ -> true
+| CId (_, inner) -> ends_ctable inner
+| CKey (_, inner) -> ends_ctable inner
+| _ -> false
+
+(** val is_cref : cblock -> bool **)
+
+let rec is_cref = function
+| CRef (_, _) -> true
+| CId (_, inner) -> is_cref inner
+| CKey (_, inner) -> is_cref inner
+| _ -> false
+
+(** val id_chars_ok : string -> bool **)
+
+let rec id_chars_ok id =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun c rest -> (&&) (is_id_char c) (id_chars_ok rest))
+    id
+
+(** val explicit_id_ok : string -> bool **)
+
+let explicit_id_ok id =
+  (&&) (nonempty_str id) (id_chars_ok id)
+
+(** val closes_table : dtable -> cblock -> bool **)
+
+let closes_table t cb =
+  match cb_lines t cb with
+  | [] -> false
+  | a :: _ ->
+    (&&) (negb (is_blank a))
+      (match caption_open a with
+       | Some _ -> false
+       | None -> true)
+
+(** val cb_pair_ok : dtable -> cblock -> cblock -> bool **)
+
+let cb_pair_ok t c1 c2 =
+  (&&) (negb ((&&) (ends_clist c1) (is_clist c2)))
+    ((||) (negb (ends_ctable c1)) (closes_table t c2))
+
+(** val cb_pairs_ok : dtable -> cblock list -> bool **)
+
+let rec cb_pairs_ok t = function
+| [] -> true
+| c1 :: rest ->
+  (match rest with
+   | [] -> true
+   | c2 :: _ -> (&&) (cb_pair_ok t c1 c2) (cb_pairs_ok t rest))
+
+(** val ref_ok : string -> string -> bool **)
+
+let ref_ok label dest =
+  (&&)
+    ((&&) ((&&) (no_char ']' label) (negb (is_footnote_label label)))
+      (no_nl label))
+    (no_ws dest)
+
+(** val row_reparses : trow -> string -> bool **)
+
+let row_reparses r l =
+  match classify l with
+  | KRow r' -> trow_eqb r' r
+  | _ -> false
+
+(** val cdef_head_ok : cblock list -> bool **)
+
+let cdef_head_ok = function
+| [] -> true
+| c :: _ -> negb ((||) (is_cid c) (is_cref c))
+
+(** val ck_content_ok : list_kind -> cblock list list -> bool **)
+
+let ck_content_ok k items =
+  match k with
+  | LKDef -> forallb cdef_head_ok items
+  | _ -> true
+
+(** val ctrow_ok : dtable -> ctrow -> bool **)
+
+let ctrow_ok t r =
+  let cs = ctrow_cells r in
+  (&&)
+    ((&&)
+      ((&&) ((&&) (nonempty cs) (forallb (cis_ok t) cs))
+        (line_ok (cells_line (map (ci_line t) cs))))
+      (row_reparses (TCells (map (ci_line t) cs))
+        (cells_line (map (ci_line t) cs))))
+    (match r with
+     | CTBody _ -> true
+     | CTHead (als, _) ->
+       (&&) (Nat.eqb (length als) (length cs))
+         (row_reparses (TSep als) (sep_line als)))
+
+(** val ckey_label_ok : dtable -> cinline -> bool **)
+
+let ckey_label_ok t label =
+  let src = ci_line t (label :: []) in
+  let l = (^) src ":" in
+  (&&)
+    ((&&) ((&&) ((&&) (cis_ok t (label :: [])) (line_ok l)) (is_text l))
+      ((=) (strip_trailing_ws src) src))
+    (match key_split t l with
+     | Some p -> let (lbl, value) = p in (&&) ((=) lbl src) ((=) value "")
+     | None -> false)
+
+(** val cb_ok : dtable -> bconfig -> cblock -> bool **)
+
+let rec cb_ok t k cb =
+  let inner_ok =
+    let rec go = function
+    | [] -> false
+    | c :: rest ->
+      (match rest with
+       | [] -> cb_ok t k c
+       | _ :: _ -> (&&) (cb_ok t k c) (go rest))
+    in go
+  in
+  let divs_ok =
+    let rec godiv = function
+    | [] -> true
+    | c :: rest -> (&&) (cb_ok t k c) (godiv rest)
+    in godiv
+  in
+  let items_ok =
+    let rec goitems = function
+    | [] -> true
+    | it :: rest -> (&&) (inner_ok it) (goitems rest)
+    in goitems
+  in
+  (match cb with
+   | CPara lss ->
+     (&&) (para_ok t k (map (ci_line t) lss)) (forallb (cis_ok t) lss)
+   | CThematic -> true
+   | CCode (info, content) ->
+     (&&) (code_ok info content)
+       ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+          (fun _ -> true)
+          (fun a _ ->
+          (* If this appears, you're using Ascii internals. Please don't *)
+ (fun f c ->
+  let n = Char.code c in
+  let h i = (n land (1 lsl i)) <> 0 in
+  f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
+            (fun b b0 b1 b2 b3 b4 b5 b6 ->
+            if b
+            then if b0
+                 then true
+                 else if b1
+                      then if b2
+                           then if b3
+                                then if b4
+                                     then if b5
+                                          then true
+                                          else if b6
+                                               then true
+                                               else negb k.braw_blocks
+                                     else true
+                                else true
+                           else true
+                      else true
+            else true)
+            a)
+          info)
+   | CRaw (format, content) -> (&&) k.braw_blocks (raw_ok format content)
+   | CHeading (lvl, lss) ->
+     (&&) (heading_ok k lvl (map (ci_line t) lss)) (forallb (cis_ok t) lss)
+   | CQuote inner -> (&&) (inner_ok inner) (cb_pairs_ok t inner)
+   | CDiv inner ->
+     (&&) ((&&) ((&&) k.bdivs (divs_ok inner)) (cb_pairs_ok t inner))
+       (div_content_ok t k (sep_lines (map (cb_lines t) inner)))
+   | CList (k0, sp, items) ->
+     (&&)
+       ((&&)
+         ((&&)
+           ((&&)
+             ((&&) ((&&) (nonempty items) (items_ok items))
+               (ck_ok k k0 (length items)))
+             (forallb (fun it -> item_ok t k (ck_first k0) (item_lines t it))
+               items))
+           (forallb (cb_pairs_ok t) items))
+         (match sp with
+          | Tight -> negb (items_force_loose t k items)
+          | Loose ->
+            (||) (items_seps_loosen t k items) (items_force_loose t k items)))
+       (ck_content_ok k0 items)
+   | CRef (label, dest) -> ref_ok label dest
+   | CTable rows ->
+     (&&) ((&&) k.btables (nonempty rows)) (forallb (ctrow_ok t) rows)
+   | CId (id, inner) ->
+     (&&) ((&&) ((&&) k.battrs (explicit_id_ok id)) (negb (is_cid inner)))
+       (cb_ok t k inner)
+   | CKey (label, inner) ->
+     (&&) ((&&) ((&&) k.bkeyed (ckey_label_ok t label)) (cb_ok t k inner))
+       (key_content_ok t k (cb_lines t inner) (PPara [])))
+
+(** val lk_of_ol : ordered_list_attributes -> list_kind **)
+
+let lk_of_ol oa =
+  match oa.ol_style with
+  | Decimal -> LKDecimal (oa.ol_delim, oa.ol_start)
+  | LetterUpper -> LKAlpha (true, oa.ol_delim, oa.ol_start)
+  | LetterLower -> LKAlpha (false, oa.ol_delim, oa.ol_start)
+  | RomanUpper -> LKRoman (true, oa.ol_delim, oa.ol_start)
+  | RomanLower -> LKRoman (false, oa.ol_delim, oa.ol_start)
+
+(** val cell_text : dtable -> cell -> string **)
+
+let cell_text t = function
+| Cell (_, _, ils) -> hd "" (inline_lines t ils "")
+
+(** val cell_align : cell -> align **)
+
+let cell_align = function
+| Cell (_, al, _) -> al
+
+(** val render_row : dtable -> cell list -> string list **)
+
+let render_row t r =
+  (cells_line (map (cell_text t) r)) :: (match r with
+                                         | [] -> []
+                                         | c :: _ ->
+                                           let Cell (ct, _, _) = c in
+                                           (match ct with
+                                            | HeadCell ->
+                                              (sep_line (map cell_align r)) :: []
+                                            | BodyCell -> []))
+
+(** val initial_sep : cell list list -> string list **)
+
+let initial_sep = function
+| [] -> []
+| r :: _ ->
+  (match r with
+   | [] -> []
+   | c :: _ ->
+     let Cell (ct, a, _) = c in
+     (match ct with
+      | HeadCell -> []
+      | BodyCell ->
+        if align_eqb a AlignDefault
+        then []
+        else (sep_line (map cell_align r)) :: []))
+
+(** val table_lines : dtable -> cell list list -> string list **)
+
+let table_lines t rows =
+  app (initial_sep rows) (flat_map (render_row t) rows)
+
+(** val caption_line : dtable -> inlines -> string **)
+
+let caption_line t ils =
+  (^) "^ " (hd "" (inline_lines t ils ""))
+
+(** val task_open : task_status -> string **)
+
+let task_open = function
+| Complete -> "- [x] "
+| Incomplete -> "- [ ] "
+
+(** val task_empty : task_status -> string **)
+
+let task_empty = function
+| Complete -> "- [x]"
+| Incomplete -> "- [ ]"
+
+(** val task_litem_lines : (task_status * string list) -> string list **)
+
+let task_litem_lines = function
+| (chk, l) ->
+  (match l with
+   | [] -> (task_empty chk) :: []
+   | l0 :: more ->
+     ((^) (task_open chk) l0) :: (map (fun l1 ->
+                                   (^) (blanks (S (S (S (S (S (S O))))))) l1)
+                                   more))
+
+(** val id_spec_lines : block node -> string list **)
+
+let id_spec_lines n =
+  match lookup_attr "id" (node_attrs n) with
+  | Some v -> ((^) "{#" ((^) v "}")) :: []
+  | None -> []
+
+(** val render_block_lines : dtable -> block -> string list **)
+
+let rec render_block_lines t b =
+  let itemss =
+    let rec goitems = function
+    | [] -> []
+    | it :: rest ->
+      (sep_lines
+        (map (fun n ->
+          app (id_spec_lines n) (render_block_lines t (node_contents n))) it)) :: 
+        (goitems rest)
+    in goitems
+  in
+  let taskitemss =
+    let rec gotasks = function
+    | [] -> []
+    | p :: rest ->
+      let (chk, it) = p in
+      (chk,
+      (sep_lines
+        (map (fun n ->
+          app (id_spec_lines n) (render_block_lines t (node_contents n))) it))) :: 
+      (gotasks rest)
+    in gotasks
+  in
+  let defitemss =
+    let rec godefs = function
+    | [] -> []
+    | p :: rest ->
+      let (term, it) = p in
+      (sep_lines
+        (app
+          (match term with
+           | [] -> []
+           | _ :: _ -> (inline_lines t term "") :: [])
+          (map (fun n ->
+            app (id_spec_lines n) (render_block_lines t (node_contents n)))
+            it))) :: (godefs rest)
+    in godefs
+  in
+  (match b with
+   | Para ils -> inline_lines t ils ""
+   | Heading (lvl, ils) -> map (heading_line lvl) (inline_lines t ils "")
+   | BlockQuote bs ->
+     map quote_line
+       (sep_lines
+         (map (fun n ->
+           app (id_spec_lines n) (render_block_lines t (node_contents n))) bs))
+   | CodeBlock (lang, text) ->
+     (code_open lang) :: (app (split_lines text) (code_close :: []))
+   | Div bs ->
+     div_fence :: (app
+                    (sep_lines
+                      (map (fun n ->
+                        app (id_spec_lines n)
+                          (render_block_lines t (node_contents n)))
+                        bs))
+                    (div_fence :: []))
+   | OrderedList (oa, sp, items) ->
+     list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+   | BulletList (sp, items) ->
+     list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+   | TaskList (sp, items) ->
+     list_lines sp (map task_litem_lines (taskitemss items))
+   | DefinitionList (sp, its) ->
+     list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
+   | ThematicBreak -> thematic_line :: []
+   | Table (cap, rows) ->
+     app (table_lines t rows)
+       (match cap with
+        | Some ils -> (caption_line t ils) :: []
+        | None -> [])
+   | RawBlock (fmt, text) ->
+     (code_open ((^) "=" fmt)) :: (app (split_lines text) (code_close :: []))
+   | RefDef (label, dest) -> (ref_line label dest) :: []
+   | Keyed (label, inner) ->
+     ((^)
+       (String.concat ""
+         (map (fun n -> inline_text t (node_contents n)) label))
+       ":") :: (app (id_spec_lines inner)
+                 (render_block_lines t (node_contents inner)))
+   | _ -> [])
+
+(** val render_node_lines : dtable -> block node -> string list **)
+
+let render_node_lines t n =
+  app (id_spec_lines n) (render_block_lines t (node_contents n))
+
+(** val render_blocks_lines : dtable -> blocks -> string list list **)
+
+let render_blocks_lines t bs =
+  map (render_node_lines t) bs
+
+(** val render_djot : dtable -> blocks -> string **)
+
+let render_djot t bs =
+  String.concat nl (sep_lines (render_blocks_lines t bs))
