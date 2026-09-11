@@ -1,0 +1,46 @@
+(coq.extraction
+ (prelude Extract)
+ (extracted_modules
+  Ascii
+  Ast
+  Attributes
+  BinNat
+  BinNums
+  BinPos
+  Bool0
+  Datatypes
+  Decimal
+  DecimalString
+  Document
+  Fixtures
+  Generate
+  Html
+  Inline
+  Line
+  List0
+  ListDef
+  ListUniformity
+  Marker
+  Nat0
+  OrderedList
+  PeanoNat
+  PosDef
+  Render
+  Step
+  String0
+  Strings
+  Uniformity)
+ (theories DjotV DjotVDev Stdlib))
+
+(library
+ (name djot)
+ (modules :standard \ Fixtures Generate)
+ (flags
+  (:standard -w -a)))
+
+(library
+ (name djot_fixtures)
+ (modules Fixtures Generate)
+ (libraries djot)
+ (flags
+  (:standard -w -a -open Djot)))

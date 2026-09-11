@@ -102,7 +102,7 @@ type engine = {
 
 let gallina =
   { ename = "gallina";
-    run = (fun s -> Ok (Core.convert s));
+    run = (fun s -> Ok (Djot.Html.convert s));
     run_batch = None }
 
 let djotjs =
@@ -339,7 +339,7 @@ let expected_counts = [ (1, 296); (2, 3695); (3, 43857) ]
    evidence a key generator still reaches keys is the count. *)
 let keyed_expected_counts = [ (1, 6628); (2, 81536) ]
 
-let rec nat_of_int n = if n <= 0 then Core.O else Core.S (nat_of_int (n - 1))
+let rec nat_of_int n = if n <= 0 then Djot.Datatypes.O else Djot.Datatypes.S (nat_of_int (n - 1))
 
 let run_roundtrip ~keyed depth rbuf verbose =
   let out fmt =
@@ -347,8 +347,8 @@ let run_roundtrip ~keyed depth rbuf verbose =
   in
   let t0 = Unix.gettimeofday () in
   let accepted, lhs, counts =
-    if keyed then Core.keyed_accepted, Core.keyed_rt_lhs, keyed_expected_counts
-    else Core.accepted, Core.rt_lhs, expected_counts
+    if keyed then Djot_fixtures.Generate.keyed_accepted, Djot_fixtures.Generate.keyed_rt_lhs, keyed_expected_counts
+    else Djot_fixtures.Generate.accepted, Djot_fixtures.Generate.rt_lhs, expected_counts
   in
   let docs = accepted (nat_of_int depth) in
   let t1 = Unix.gettimeofday () in
@@ -356,10 +356,10 @@ let run_roundtrip ~keyed depth rbuf verbose =
   List.iter
     (fun c ->
       incr total;
-      if lhs c <> Core.rt_rhs c then begin
+      if lhs c <> Djot_fixtures.Generate.rt_rhs c then begin
         incr bad;
         if !verbose || !bad <= 5 then
-          out "\n--- roundtrip mismatch %d\n%s\n" !bad (Core.render_cb c)
+          out "\n--- roundtrip mismatch %d\n%s\n" !bad (Djot_fixtures.Fixtures.render_cb c)
       end)
     docs;
   let t2 = Unix.gettimeofday () in
@@ -428,7 +428,7 @@ let () =
   parse_args (List.tl (Array.to_list Sys.argv));
   if !convert_stdin then begin
     let input = In_channel.input_all stdin in
-    if not !convert_batch then print_string (Core.convert input)
+    if not !convert_batch then print_string (Djot.Html.convert input)
     else begin
       (* the framing djotjs.mjs --batch uses: "<byte-length>\n" then that
          many bytes, both ways.  A djot document may contain any bytes,
@@ -441,7 +441,7 @@ let () =
            let len = int_of_string (String.sub input !at (nl - !at)) in
            let doc = String.sub input (nl + 1) len in
            at := nl + 1 + len;
-           let html = Core.convert doc in
+           let html = Djot.Html.convert doc in
            Buffer.add_string buf
              (Printf.sprintf "%d\n%s" (String.length html) html)
          done
@@ -472,7 +472,7 @@ let () =
      exit (if ok then 0 else 1)
    | None -> ());
   if !generated then begin
-    let any_err = run_generated !engines Core.generated rbuf verbose in
+    let any_err = run_generated !engines Djot_fixtures.Fixtures.generated rbuf verbose in
     finish_report ();
     exit (if any_err then 1 else 0)
   end;

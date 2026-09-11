@@ -14,14 +14,17 @@ type definitions live, the headline theorems and what supports them.
   `Document.v` is the whole-document pass, `Html.v` the HTML converter,
   and `Generate.v` is the typed enumerator used by the executable checks.
 - `dev/` — the private `DjotVDev` theory: concrete parser regressions,
-  falsification support, focused checks under `dev/check/`, and the
-  historical fuel-vs-measure spike. These files support the development
-  but are not results of it. `dev/check/` builds with everything else,
-  less two files it excludes by name: `Deep.v`, which a parser edit
-  should not pay for, and `Probe.v`, whose `Compute`s print. `make deep`
-  and `make probe` run those.
-- `harness/` — extraction (`Extract.v` → `core.ml`) and the OCaml
-  differential test runner.
+  falsification support, focused checks under `dev/check/`, the harness's
+  corpus fixtures in `Fixtures.v`, and the historical fuel-vs-measure
+  spike. These files support the development but are not results of it.
+  `dev/check/` builds with everything else, less two files it excludes by
+  name: `Deep.v`, which a parser edit should not pay for, and `Probe.v`,
+  whose `Compute`s print. `make deep` and `make probe` run those.
+- `extraction/` — `Extract.v`, whose `Separate Extraction` emits one
+  OCaml module per Coq module, built as two libraries: `djot`, the
+  parser, and `djot_fixtures`, the generated corpus a consumer of the
+  parser has no use for.
+- `harness/` — the OCaml differential test runner, linking both.
 - `djot.js/`, `djoths/` — submodules: the two oracle implementations.
 - `reference/` — spec and rationale documents.
 - `.project/` — plan, oracle-disagreement log, reports.

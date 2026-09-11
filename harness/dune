@@ -1,9 +1,6 @@
-(coq.extraction
- (prelude Extract)
- (extracted_modules core)
- (theories DjotV Stdlib))
-
+; The parser itself lives in ../extraction; this is only the OCaml
+; driver.
 (executable
  (name main)
- (modules main corpus core)
- (libraries unix))
+ (modules main corpus)
+ (libraries djot djot_fixtures unix))

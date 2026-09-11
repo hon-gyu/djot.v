@@ -8,7 +8,7 @@
    between them is decided by `vm_compute; reflexivity`: no decidable
    equality on `block`, no extraction, no oracle process.  The `Example`s
    below are therefore kernel-checked on every `dune build`, and
-   `harness/Extract.v` extracts the pools here to drive the differential
+   `extraction/Extract.v` extracts the pools here to drive the differential
    run against djot.js.
 
    `roundtrip_blocks` implies the accepted-side examples, so they prove
@@ -113,6 +113,9 @@ The roundtrip, decided
 ======================
 *)
 
+(* Extracted and run directly, so a sweep at a depth the kernel cannot
+   reach checks the same statement `gen_roundtrip_1` and
+   `gen_roundtrip_2` prove below, not a restatement of it. *)
 Definition rt_lhs (c : cblock) : blocks :=
   parse_blocks (render_djot (blocks_of_cblocks [c])).
 
