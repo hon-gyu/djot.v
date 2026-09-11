@@ -1,0 +1,7 @@
+; Generated: `make dist` copies the extraction output here.  Edit the
+; theories and regenerate; changes made in this directory are lost.
+; Warnings are off throughout, the code not being written by hand.
+(library
+ (name djot)
+ (public_name djot)
+ (flags (:standard -w -a)))
