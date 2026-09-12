@@ -96,8 +96,7 @@ dist: build
 	@$(MAKE) -s copy-extracted DEST=dist/src
 	@echo "dist/src regenerated from $(EXTRACTED)"
 
-# Fails when dist/src is behind the theories.  There is no CI, and a
-# stale dist publishes a parser that lags its own proofs.
+# Fails when dist/src is behind the theories.  
 check-dist: build
 	@tmp=`mktemp -d`; $(MAKE) -s copy-extracted DEST=$$tmp; \
 	if diff -r --exclude=dune dist/src $$tmp >/dev/null; then \
@@ -112,7 +111,7 @@ copy-extracted:
 	@mkdir -p $(DEST)
 	@rm -f $(DEST)/*.ml $(DEST)/*.mli
 	@for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
-	  case `basename $$f` in Fixtures.*|Generate.*) ;; *) cp $$f $(DEST)/ ;; esac; \
+	  case `basename $$f` in Fixtures.*|Generate.*) ;; *) install -m 644 $$f $(DEST)/ ;; esac; \
 	done
 
 oracles:
