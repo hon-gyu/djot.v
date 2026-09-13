@@ -14,8 +14,6 @@ val nonempty_str : string -> bool
 
 val nat_str : nat -> string
 
-val rev_string_aux : string -> string -> string
-
 val rev_string : string -> string
 
 val drop_leading_ws : string -> string
@@ -27,8 +25,6 @@ val strip_trailing_ws : string -> string
 val drop_ws_upto : nat -> string -> string
 
 val nl : string
-
-val split_lines_aux : string -> string -> string list
 
 val split_lines : string -> string list
 

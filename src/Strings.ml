@@ -47,27 +47,10 @@ let nonempty_str s =
 let nat_str n =
   NilZero.string_of_uint (to_uint n)
 
-(** val rev_string_aux : string -> string -> string **)
-
-let rec rev_string_aux s acc =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> acc)
-    (fun c s' ->
-    rev_string_aux s'
-      ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-      (c, acc)))
-    s
-
 (** val rev_string : string -> string **)
 
-let rev_string s =
-  rev_string_aux s ""
+let rev_string = (fun s -> let n = String.length s in
+     String.init n (fun i -> String.get s (n - 1 - i)))
 
 (** val drop_leading_ws : string -> string **)
 
@@ -118,37 +101,11 @@ let rec drop_ws_upto n s =
 let nl =
   "\n"
 
-(** val split_lines_aux : string -> string -> string list **)
-
-let rec split_lines_aux s cur =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> [])
-      (fun _ _ -> (rev_string cur) :: [])
-      cur)
-    (fun c s' ->
-    if (=) c '\n'
-    then (rev_string cur) :: (split_lines_aux s' "")
-    else split_lines_aux s'
-           ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, cur)))
-    s
-
 (** val split_lines : string -> string list **)
 
-let split_lines s =
-  split_lines_aux s ""
+let split_lines = (fun s -> match List.rev (String.split_on_char '\n' s) with
+     | "" :: rest -> List.rev rest
+     | parts -> List.rev parts)
 
 (** val no_nl : string -> bool **)
 
