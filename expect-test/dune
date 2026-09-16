@@ -1,0 +1,30 @@
+(rule
+ (targets MarkdownLike.output MarkdownLike.vos)
+ (deps MarkdownLike.v ../theories/Html.vo ../theories/Profile.vo)
+ (action
+  (with-stdout-to
+   MarkdownLike.output
+   (run
+    rocq
+    compile
+    -q ; don't read rcfile
+    -noglob ; no globalization/cross-reference data
+    -vos ; skip checking opaque proof bodies
+    -R
+    ../theories
+    DjotV
+    -o
+    MarkdownLike.vos ; output vos
+    MarkdownLike.v ; input v
+    ))))
+
+(rule
+ (alias runtest)
+ (action
+  (diff MarkdownLike.expected MarkdownLike.output)))
+
+(cram
+ (deps
+  %{bin:awk}
+  %{bin:rocq}
+  (glob_files ../theories/*.vo)))

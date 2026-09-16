@@ -1,0 +1,16 @@
+     = "<p><strong>strong</strong> and <em>emphasis</em></p>
+"
+     : string
+     = "<section id=""heading"">
+<h1>heading</h1>
+<p>continuation</p>
+</section>
+"
+     : string
+     = "<p>a---b and ...</p>
+"
+     : string
+     = "<pre><code class=""language-=html"">&lt;b&gt;x&lt;/b&gt;
+</code></pre>
+"
+     : string
