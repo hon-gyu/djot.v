@@ -7,9 +7,11 @@ Evergreen, per [[README]]: the mechanism and the ranked list describe the
 tree now. Measurements are dated and carry the commit they were read at;
 re-measure before quoting them.
 
-Status: document-size quadratic fixed (`split_lines`, `rev_string`).
-Paragraph-length and line-length quadratics open, and a constant factor
-of roughly 13x against cmarkit remains on ordinary prose.
+Status: document-size and paragraph-length quadratics fixed (`split_lines`,
+`rev_string`, `List.rev`).  Recursive `String.length` no longer copies each
+suffix, but structural matches still make long lines quadratic.  The last
+ordinary-prose comparison against cmarkit measured a roughly 13x constant
+factor before the smaller fixes below; re-measure before quoting it.
 
 ## The mechanism
 
@@ -47,10 +49,12 @@ grow with n.
 (`Step.parse_blocks`), so every parse started with O(document^2) copying:
 about 325 GB of `memmove` for an 806 KB input.
 
-`extraction/Extract.v` replaces `Strings.split_lines` and
-`Strings.rev_string` with native OCaml by `Extract Constant`. These are
-**trusted, not proved**: the theorems are about the Gallina definitions,
-and the OCaml is asserted equal to them.
+`extraction/Extract.v` replaces `Strings.split_lines`, `Strings.rev_string`,
+`List.rev`, and `String.length` with native OCaml by `Extract Constant`.
+These are **trusted, not proved**: the theorems are about the Gallina
+definitions, and the OCaml is asserted equal to them.  The native
+`String.length` still builds a unary `nat`, but does so tail-recursively
+without copying the string.
 
 How the equality was checked (2026-09-13):
 
@@ -61,6 +65,18 @@ How the equality was checked (2026-09-13):
 - `make test`: corpus 287/287 and generated 6167/6167 exact HTML, as
   before.
 - `make roundtrip`: 43857 documents, no mismatch.
+
+How the additions were checked (2026-09-16):
+
+- extracted `String.length` against the previous extraction on every string
+  over `{a, b, space, \n, \t, \r}` up to length 6, every one-byte string,
+  and 20000 deterministic random byte strings at each length 7 to 12;
+  176243 strings, no difference;
+- extracted `List.rev` against the previous extraction on every list over
+  `{0, 1, 2}` up to length 10; 88573 lists, no difference;
+- `make test`: corpus 287/287 and generated 6167/6167 exact HTML;
+- `make roundtrip`: 43857 documents, no mismatch;
+- `make check-dist`: the committed extracted package is current.
 
 Any further `Extract Constant` joins this list and gets the same check.
 
@@ -89,42 +105,31 @@ Synthetic shapes, after the fix, parse time:
 | one paragraph of 40-byte lines | 3.3 ms | 22.9 ms | 290 ms | ~13x |
 | one line of `a` | 40 ms | 665 ms | 12494 ms | ~19x |
 
-The first row still grows faster than linear; the second and third are
-the open quadratics below.
+This table predates the 2026-09-16 substitutions below.  Its long-paragraph
+quadratic was `List.rev`, now fixed.  The long-line shape combined recursive
+`String.length`, now fixed, with the structural scans that remain open below.
+The blank-separated shape should be remeasured before drawing a scaling claim
+from its old numbers.
+
+End-to-end `convert` medians on 2026-09-16, immediately before and after the
+native `List.rev` and `String.length` substitutions (three runs, same machine
+and release build; these include HTML and shell startup and are comparable
+only within this table):
+
+| shape | before | after |
+| --- | --- | --- |
+| one paragraph, 4000 40-byte lines | 0.76 s | 0.47 s |
+| one 60 KB line of `a` | 2.53 s | 2.06 s |
+| `readme.dj` x64 | 0.32 s | 0.31 s |
+
+The paragraph improvement is the removed `List.rev` quadratic.  The long-line
+improvement removes recursive `String.length`, but the remaining structural
+string scans below keep that shape quadratic.  Ordinary prose barely moves;
+its largest measured constant cost remains character classification.
 
 ## Open, ranked by what they cost a real document
 
-### 1. `List.rev` is quadratic, and `Step` reverses every accumulator
-
-Stdlib `rev` extracts to `app (rev l') [x]`. `Step` has 31 uses (a
-paragraph's lines are consed and reversed once at `finish`), `Document`
-4, `Inline` 3, `Html` 2.
-
-Profile of one 4000-line paragraph: 2005 samples in `Datatypes.app`,
-entered only from `List0.rev`. It dominates that shape.
-
-Fix: `Extract Constant List.rev => "List.rev"` (trusted, as above), or
-`rev_append` in the theories, where `rev_append_rev` from Stdlib carries
-the proofs across.
-
-### 2. `String.length` on every line
-
-`Step.step` computes its fuel as `S (length l + pstate_depth st)`, and
-`Step.consumed` is `length l - length rest`, per container prefix. Both
-are Stdlib's recursive `String.length`: O(line^2) copying, a unary
-result, and one stack frame per character.
-
-Profile of one 60 KB line: stacks nest `String0.length` and a `Line`
-closure 500+ frames deep, and the top of stack is the GC scanning that
-stack (`do_some_marking` 1559, `caml_find_frame_descr` 853,
-`caml_scan_stack` 297 samples) with `memmove` at 397.
-
-Fix: `Extract Constant String.length` to a native length converted to
-`nat`. That leaves an O(n) unary allocation but removes the copies and
-the depth. `consumed` would be better computed during the scan than by
-subtracting two lengths.
-
-### 3. Character classification through unary `nat`
+### 1. Character classification through unary `nat`
 
 `Line.in_range lo hi c` is `Nat.leb lo (nat_of_ascii c) && ...`, and
 `is_digit`, `is_lower`, `is_upper`, `is_alnum` are built on it.
@@ -139,14 +144,14 @@ Fix, cheapest first: define the classes by `Ascii` comparison
 (`Ascii.compare` already extracts to `Char.compare`); or keep the
 definitions and add `Extract Inlined Constant` for the classifiers.
 
-### 4. Tail copies inside a line
+### 2. Tail copies inside a line
 
 Per-character recursion with a tail copy: `Line` 60 occurrences,
 `Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
 lines split natively this is O(line^2) per line, which is small on
-prose and the reason a pathological long line stays slow after 2 is
-fixed. `Inline` also has 92 string concatenations, a candidate for the
-remaining paragraph growth once 1 is fixed.
+prose and the reason a pathological long line stays slow even with native
+`String.length`. `Inline` also has 92 string concatenations, a candidate
+for paragraph cost remaining after native `List.rev`.
 
 Fix: scan by offset, `(s, i)` with `String.get`, in the theories. Every
 lemma by induction on `String c s'` has to be restated for offsets, so
@@ -154,7 +159,7 @@ this is the expensive item. It is the same change that source positions
 need (`Ast.pos` exists but nothing produces `SomePos`), so do it together
 with positions, not separately.
 
-### 5. Delimiter lookup per character
+### 3. Delimiter lookup per character
 
 `Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
 row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
@@ -163,6 +168,6 @@ constant factor; a precomputed character-to-style table would remove it.
 
 ## Order
 
-1 and 2 are one `Extract Constant` each, and together close both
-remaining quadratics. 3 is local to `Line.v`. 4 waits for positions. 5
-is last.
+Character classification is local to `Line.v` and is the next small
+constant-factor target.  Offset scanning waits for positions.  Delimiter
+lookup is last.

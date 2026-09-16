@@ -19,10 +19,17 @@ Set Extraction Output Directory ".".
 
 (* Under the native string mapping, a match on [String c s'] copies the
    tail and [String c acc] copies the accumulator, so a recursion over a
-   string is quadratic in its length.  [split_lines] runs over the whole
-   document, which made parsing quadratic in document size.  These two are
-   replaced by native OCaml equal to the Gallina definitions; they are
-   trusted, not proved. *)
+   string is quadratic in its length.  Gallina's [List.rev] also extracts
+   through append, and [String.length] recursively takes every copied tail.
+   These are replaced by native OCaml equal to the Gallina definitions; they
+   are trusted, not proved.  The unary result of [String.length] remains, but
+   the conversion is tail recursive and no longer copies the string. *)
+Extract Constant List.rev => "List.rev".
+Extract Constant String.length =>
+  "(fun s ->
+     let rec go n acc =
+       if n = 0 then acc else go (n - 1) (Datatypes.S acc)
+     in go (String.length s) Datatypes.O)".
 Extract Constant DjotV.Strings.rev_string =>
   "(fun s -> let n = String.length s in
      String.init n (fun i -> String.get s (n - 1 - i)))".

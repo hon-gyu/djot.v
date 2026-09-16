@@ -17,9 +17,7 @@ let rec last l d =
 
 (** val rev : 'a1 list -> 'a1 list **)
 
-let rec rev = function
-| [] -> []
-| x :: l' -> app (rev l') (x :: [])
+let rec rev = List.rev
 
 (** val flat_map : ('a1 -> 'a2 list) -> 'a1 list -> 'a2 list **)
 
