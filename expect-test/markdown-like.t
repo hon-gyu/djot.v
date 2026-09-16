@@ -1,4 +1,4 @@
-  $ snapshot () {
+  $ ss () {
   >   {
   >     printf '%s\n' \
   >       '(* ai-disclosure: ai-generated *)' \
@@ -11,14 +11,14 @@
   >   awk '/^     = / { sub(/^     = /, "") } /^     : string$/ { next } { print }' output.raw
   > }
 
-  $ snapshot <<'EOF'
+  $ ss <<'EOF'
   > Compute render_html (parse_profile_doc markdown_like_profile
   >   "**strong** and _emphasis_").
   > EOF
   "<p><strong>strong</strong> and <em>emphasis</em></p>
   "
 
-  $ snapshot <<'EOF'
+  $ ss <<'EOF'
   > Compute render_html (parse_profile_doc markdown_like_profile
   >   "# heading
   > continuation").
@@ -29,14 +29,14 @@
   </section>
   "
 
-  $ snapshot <<'EOF'
+  $ ss <<'EOF'
   > Compute render_html (parse_profile_doc markdown_like_profile
   >   "a---b and ...").
   > EOF
   "<p>a---b and ...</p>
   "
 
-  $ snapshot <<'EOF'
+  $ ss <<'EOF'
   > Compute render_html (parse_profile_doc markdown_like_profile
   >   "```=html
   > <b>x</b>

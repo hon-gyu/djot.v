@@ -1,4 +1,4 @@
 (rocq.theory
  (name DjotV)
- (synopsis "A verified djot parser")
+ (synopsis "A verified and generalized djot implementation")
  (theories Stdlib))
