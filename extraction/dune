@@ -1,4 +1,4 @@
-(coq.extraction
+(rocq.extraction
  (prelude Extract)
  (extracted_modules
   Ascii

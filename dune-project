@@ -1,3 +1,3 @@
-(lang dune 3.20)
-(using coq 0.10)
+(lang dune 3.22)
+(using rocq 0.12)
 (name djot_v)
