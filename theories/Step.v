@@ -322,6 +322,10 @@ Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
 Context {LI : LineIx}.
+(* Whether the nodes this parse builds carry where they came from.
+   Every statement below is uniform in it: no branch reads a position,
+   so the located and the semantic parse take the same descent. *)
+Context {P : PosPolicy}.
 
 (* Paragraph assembly is `Inline.para_inlines`. *)
 
@@ -370,6 +374,31 @@ Definition touch_extent (e : extent) : extent :=
 
 Definition extent_span (e : extent) : span :=
   SrcSpan (extent_start e) (extent_stop e).
+
+(* A stored line is a suffix of its source line with nothing trimmed at
+   the end (plan F2), so its content starts `String.length` bytes before
+   the end of that line. *)
+Definition stored_start (sl : stored_line) : spot :=
+  Spot (fst sl) (String.length (snd sl)).
+
+Definition stored_stop (sl : stored_line) : spot := Spot (fst sl) 0.
+
+(* The range of an accumulator, which every state holds reversed: from
+   the first line's content to the end of the last.  The empty list is
+   not a range -- a block with no lines is never emitted -- and stands
+   for itself rather than for a point in the source. *)
+Definition stored_span (cur : list stored_line) : span :=
+  match cur with
+  | [] => SrcSpan (Spot 0 0) (Spot 0 0)
+  | newest :: _ =>
+      SrcSpan (stored_start (List.last cur newest)) (stored_stop newest)
+  end.
+
+(* A construct whose accumulated lines are followed by a closing line
+   this line is: a setext underline, and nothing else so far. *)
+Definition span_through_line (r : span) : span :=
+  SrcSpan (span_start r) line_stop.
+
 
 Lemma line_texts_remember_lines :
   forall lines, line_texts (remember_lines lines) = lines.
@@ -739,8 +768,9 @@ Definition para_recover (extra : nat) (slices : list stored_line) : pstate :=
 Definition finish_para_recover (slices : list stored_line) : blocks :=
   match slices with
   | [] => []
-  | _ => [mk (Para (para_inlines_off (List.length slices)
-                         (line_texts (rev slices))))]
+  | _ => [set_pos (prov_at (stored_span slices))
+            (mk (Para (para_inlines_off (List.length slices)
+                         (line_texts (rev slices)))))]
   end.
 
 (* A div's class becomes a `class` attribute on the node, as in djot.js
@@ -884,15 +914,28 @@ Qed.
 Fixpoint finish (st : pstate) : blocks :=
   match st with
   | PPara [] => []
-  | PPara cur => [mk (Para (para_inlines (line_texts (rev cur))))]
-  | PParaOff k cur => [mk (Para (para_inlines_off k (line_texts (rev cur))))]
-  | PHeading lvl _ cur => [heading_block lvl cur]
-  | PFence f _ _ _ acc => [fence_block f (line_texts (rev acc))]
-  | PTable _ rows cap => [table_block (rev rows) cap]
-  | PQuote _ done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
-  | PDiv _ cls _ _ done inner => [div_block cls (rev done ++ finish inner)%list]
+  | PPara cur =>
+      [set_pos (prov_at (stored_span cur))
+         (mk (Para (para_inlines (line_texts (rev cur)))))]
+  | PParaOff k cur =>
+      [set_pos (prov_at (stored_span cur))
+         (mk (Para (para_inlines_off k (line_texts (rev cur)))))]
+  | PHeading lvl range cur =>
+      [set_pos (prov_at (extent_span range)) (heading_block lvl cur)]
+  | PFence f _ range _ acc =>
+      [set_pos (prov_at (extent_span range))
+         (fence_block f (line_texts (rev acc)))]
+  | PTable range rows cap =>
+      [set_pos (prov_at (extent_span range)) (table_block (rev rows) cap)]
+  | PQuote range done inner =>
+      [set_pos (prov_at (extent_span range))
+         (mk (BlockQuote (rev done ++ finish inner)%list))]
+  | PDiv _ cls range _ done inner =>
+      [set_pos (prov_at (extent_span range))
+         (div_block cls (rev done ++ finish inner)%list)]
   | PList ls done inner =>
-      [list_block ls (rev done ++ finish inner)%list]
+      [set_pos (prov_at (extent_span (ls_extent ls)))
+         (list_block ls (rev done ++ finish inner)%list)]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
      nothing, which is `{#id}` alone in a document.  An earlier spec's
@@ -901,11 +944,15 @@ Fixpoint finish (st : pstate) : blocks :=
   | PAttr pend _ _ _ ap slices =>
       if ap_done ap then []
       else decorate_head pend (finish_para_recover slices)
-  | PRef _ _ lbl val => [ref_block lbl val]
-  | PFoot _ _ lbl done inner =>
-      [foot_block lbl (rev done ++ finish inner)%list]
+  | PRef range _ lbl val =>
+      [set_pos (prov_at (extent_span range)) (ref_block lbl val)]
+  | PFoot range _ lbl done inner =>
+      [set_pos (prov_at (extent_span range))
+         (foot_block lbl (rev done ++ finish inner)%list)]
   | PPend pend _ inner => decorate_head pend (finish inner)
-  | PKey _ lbl src inner => key_close lbl src (finish inner)
+  | PKey range lbl src inner =>
+      pos_head (prov_at (extent_span range))
+        (key_close lbl src (finish inner))
   end.
 
 (* `list_block`'s match, resolved for a bullet.  The uniformity chain
@@ -941,9 +988,10 @@ Lemma finish_list_styles :
   forall S ls done inner,
     ls_styles ls = S ->
     finish (PList ls done inner)
-    = [styles_list_checked S (if ls_loose ls then Loose else Tight)
-         (rev (ls_check ls :: ls_checks ls))
-         (rev ((rev done ++ finish inner)%list :: ls_items ls))].
+    = [set_pos (prov_at (extent_span (ls_extent ls)))
+         (styles_list_checked S (if ls_loose ls then Loose else Tight)
+            (rev (ls_check ls :: ls_checks ls))
+            (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
 Proof.
   intros S ls done inner H. cbn [finish].
   rewrite (list_block_styles S ls _ H). reflexivity.
@@ -953,9 +1001,10 @@ Lemma finish_list_marker :
   forall m ls done inner,
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
-    = [marker_list_checked m (if ls_loose ls then Loose else Tight)
-         (rev (ls_check ls :: ls_checks ls))
-         (rev ((rev done ++ finish inner)%list :: ls_items ls))].
+    = [set_pos (prov_at (extent_span (ls_extent ls)))
+         (marker_list_checked m (if ls_loose ls then Loose else Tight)
+            (rev (ls_check ls :: ls_checks ls))
+            (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
 Proof.
   intros m ls done inner H. unfold marker_list_checked.
   apply (finish_list_styles _ _ _ _ H).
@@ -1103,7 +1152,9 @@ Qed.
 Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KBlank => ([], PPara [])
-  | KThematic => ([mk ThematicBreak], PPara [])
+  | KThematic =>
+      ([posnode (prov_at (line_span_from l (indent_of l))) ThematicBreak],
+       PPara [])
   | KFence _ => ([], PPara [])        (* unreachable: see open_fence *)
   | KHeading lvl rest =>
       ([], PHeading lvl (open_extent l (indent_of l)) (push_text rest []))
@@ -1177,7 +1228,7 @@ Definition key_result (range : extent) (lbl src : string) (r : blocks * pstate)
   let (bs, st') := r in
   match bs with
   | [] => ([], PKey range lbl src st')
-  | _ => (key_close lbl src bs, st')
+  | _ => (pos_head (prov_at (extent_span range)) (key_close lbl src bs), st')
   end.
 
 (* A quote prefix opens a fresh quote around whatever its enclosed line
@@ -1536,7 +1587,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              fence's own column, that is: the line keeps whatever it is
              indented *past* the opener and nothing before it. *)
           if fence_close f l
-          then ([fence_block f (line_texts (rev acc))], PPara [])
+          then ([set_pos (prov_at (extent_span (touch_extent range)))
+                   (fence_block f (line_texts (rev acc)))], PPara [])
           else ([], PFence f ind (touch_extent range) opener
                       (remember_line (drop_ws_upto (ind - off) l) :: acc))
       | PPara [] =>
@@ -1550,7 +1602,10 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              an *open* paragraph, so a line that opens one is classified
              as it always was. *)
           match bunderline_of l with
-          | Some lvl => ([heading_block (S lvl) (c :: cur')], PPara [])
+          | Some lvl =>
+              ([set_pos
+                  (prov_at (span_through_line (stored_span (c :: cur'))))
+                  (heading_block (S lvl) (c :: cur'))], PPara [])
           | None =>
           match classify l with
           | KBlank => close_reopen (PPara (c :: cur')) (open_kind l KBlank)
@@ -1567,7 +1622,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              front and lines arrive at the back.  There is no idle case:
              `PParaOff` is never built with an empty `cur`. *)
           match bunderline_of l with
-          | Some lvl => ([heading_block_off koff (S lvl) cur], PPara [])
+          | Some lvl =>
+              ([set_pos (prov_at (span_through_line (stored_span cur)))
+                  (heading_block_off koff (S lvl) cur)], PPara [])
           | None =>
           match classify l with
           | KBlank => close_reopen (PParaOff koff cur) (open_kind l KBlank)
@@ -1631,7 +1688,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              `in_fence` is checked first: inside an open code block a
              `:::` line is content, not a closer. *)
           if (negb (in_fence inner) && div_close len l)%bool
-          then ([div_block cls (rev done ++ finish inner)%list], PPara [])
+          then ([set_pos (prov_at (extent_span (touch_extent range)))
+                   (div_block cls (rev done ++ finish inner)%list)], PPara [])
           else
             let (bs, inner') := step_fuel n' off l inner in
             ([], PDiv len cls (touch_extent range) opener
@@ -1763,7 +1821,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | Some t => ([], PRef (touch_extent range) ind lbl (val ++ t))
           | None =>
               let (bs, st') := step_fuel n' off l (PPara []) in
-              ((ref_block lbl val :: bs)%list, st')
+              ((set_pos (prov_at (extent_span range)) (ref_block lbl val)
+                  :: bs)%list, st')
           end
       | PTable range rows cap =>
           (* Four rules, and which apply depends on what the table has
@@ -1777,7 +1836,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               (* The caption owns every nonblank line, row lines
                  included, and a blank ends it. *)
               if is_blank l
-              then ((table_block (rev rows) cap :: nil)%list, PPara [])
+              then ((set_pos (prov_at (extent_span range))
+                       (table_block (rev rows) cap) :: nil)%list, PPara [])
               else ([], PTable (touch_extent range) rows
                           (TCaption (remember_line (drop_leading_ws l) :: ls)))
           | _ =>
@@ -1800,7 +1860,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                         ([], PTable (touch_extent range) (r :: rows) TOpen)
                     | _, _ =>
                         let (bs, st') := step_fuel n' off l (PPara []) in
-                        ((table_block (rev rows) cap :: bs)%list, st')
+                        ((set_pos (prov_at (extent_span range))
+                            (table_block (rev rows) cap) :: bs)%list, st')
                     end
               end
           end
@@ -1815,7 +1876,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                         (rev bs ++ done)%list inner')
           else
             let (bs, st') := step_fuel n' off l (PPara []) in
-            ((foot_block lbl (rev done ++ finish inner)%list :: bs)%list, st')
+            ((set_pos (prov_at (extent_span range))
+                (foot_block lbl (rev done ++ finish inner)%list)
+                :: bs)%list, st')
       | PPend pend specs inner =>
           (* Two lines are the pending attributes' own business, and only
              while nothing has claimed them yet: a blank line drops them
@@ -1843,7 +1906,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              Every other line goes down and is answered by
              `key_result`. *)
           if (is_blank l && is_idle inner)%bool
-          then ([mk (Para (para_inlines [src]))], PPara [])
+          then ([posnode (prov_at (extent_span range))
+                   (Para (para_inlines [src]))], PPara [])
           else key_result (touch_extent range) lbl src
                  (step_fuel n' off l inner)
       end
@@ -2830,7 +2894,8 @@ The transition, branch by branch
 Lemma step_fence_close :
   forall l f ind range opener acc, fence_close f l = true ->
   step l (PFence f ind range opener acc)
-  = ([fence_block f (line_texts (rev acc))], PPara []).
+  = ([set_pos (prov_at (extent_span (touch_extent range)))
+        (fence_block f (line_texts (rev acc)))], PPara []).
 Proof. intros l f ind range opener acc H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 (* The content line keeps what it is indented past the fence's own
@@ -2860,7 +2925,8 @@ Qed.
 Lemma step_para_flush :
   forall l c cur', classify l = KBlank ->
   step l (PPara (c :: cur')) =
-  ([mk (Para (para_inlines (line_texts (rev (c :: cur')))))], PPara []).
+  ([set_pos (prov_at (stored_span (c :: cur')))
+      (mk (Para (para_inlines (line_texts (rev (c :: cur'))))))], PPara []).
 Proof.
   intros l c cur' H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -2871,7 +2937,8 @@ Qed.
 Lemma step_para_off_flush :
   forall l k cur, classify l = KBlank ->
   step l (PParaOff k cur) =
-  ([mk (Para (para_inlines_off k (line_texts (rev cur))))], PPara []).
+  ([set_pos (prov_at (stored_span cur))
+      (mk (Para (para_inlines_off k (line_texts (rev cur)))))], PPara []).
 Proof.
   intros l k cur H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -2953,7 +3020,8 @@ Lemma step_quote_close :
     classify l = k -> direct_open k = true -> is_lazy k inner = false ->
     open_kind l k = (bs, st') ->
     step l (PQuote range done inner) =
-    (mk (BlockQuote (rev done ++ finish inner)%list) :: bs, st').
+    (set_pos (prov_at (extent_span range))
+       (mk (BlockQuote (rev done ++ finish inner)%list)) :: bs, st').
 Proof.
   intros l k range done inner bs st' H Hk Hlz Ho. unfold step. cbn [step_fuel open_line].
   rewrite H.
@@ -2973,7 +3041,8 @@ Lemma step_div_close :
   forall l len cls range opener done inner,
     in_fence inner = false -> div_close len l = true ->
     step l (PDiv len cls range opener done inner)
-    = ([div_block cls (rev done ++ finish inner)%list], PPara []).
+    = ([set_pos (prov_at (extent_span (touch_extent range)))
+          (div_block cls (rev done ++ finish inner)%list)], PPara []).
 Proof.
   intros l len cls range opener done inner Hf H. unfold step. cbn [step_fuel open_line].
   rewrite Hf, H. reflexivity.
@@ -3254,7 +3323,8 @@ Proof. intros l f H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexiv
    idle state: `ref_cont` refuses a blank line at any column. *)
 Lemma step_ref_blank :
   forall l range ind lbl v, classify l = KBlank ->
-  step l (PRef range ind lbl v) = ([ref_block lbl v], PPara []).
+  step l (PRef range ind lbl v)
+  = ([set_pos (prov_at (extent_span range)) (ref_block lbl v)], PPara []).
 Proof.
   intros l range ind lbl v H. unfold step. cbn [step_fuel open_line].
   rewrite (ref_cont_blank l (classify_kblank_blank l H)),
@@ -3268,7 +3338,8 @@ Qed.
    an induction hypothesis. *)
 Lemma finish_key :
   forall range lbl src inner,
-    finish (PKey range lbl src inner) = key_close lbl src (finish inner).
+    finish (PKey range lbl src inner)
+    = pos_head (prov_at (extent_span range)) (key_close lbl src (finish inner)).
 Proof. reflexivity. Qed.
 
 (*
@@ -3285,7 +3356,8 @@ the offset.
 Lemma step_key_retract :
   forall l range lbl src, is_blank l = true ->
   step l (PKey range lbl src (PPara []))
-  = ([mk (Para (para_inlines [src]))], PPara []).
+  = ([posnode (prov_at (extent_span range)) (Para (para_inlines [src]))],
+     PPara []).
 Proof.
   intros l range lbl src H. unfold step. cbn [step_fuel open_line is_idle].
   rewrite H. reflexivity.
@@ -3356,7 +3428,8 @@ Lemma step_table_close :
     caption_open l = None -> is_blank l = false ->
     step l (PPara []) = (bs, st') ->
     step l (PTable range rows TAfterBlank)
-    = (table_block (rev rows) TAfterBlank :: bs, st')%list.
+    = (set_pos (prov_at (extent_span range)) (table_block (rev rows) TAfterBlank)
+       :: bs, st')%list.
 Proof.
   intros l range rows bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite Hc, Hb.
@@ -3683,9 +3756,12 @@ Proof.
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
+        rewrite ?(line_span_from_ws_prefix p l Hp);
         try reflexivity; try (key_open_cases; reflexivity).
+      { (* thematic break: the whole line *)
+        cbn [open_kind]. rewrite (line_span_from_ws_prefix p l Hp). reflexivity. }
       { (* fence: opens at the column its border sits at *)
-        unfold open_fence. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+        unfold open_fence. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
         destruct (@bdivs K); reflexivity. }
@@ -3695,17 +3771,17 @@ Proof.
         cbn [open_kind]. rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
       { rewrite (Hc (configured_list_rest chk mr)
                    ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
-                ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
+                ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
         reflexivity. }
-      { unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+      { unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
           (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
       { unfold open_foot.
         rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-                ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+                ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
                 !Nat.add_assoc, (Nat.add_comm off (String.length p)).
         reflexivity. }
-      { unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+      { unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
       { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. }
@@ -3721,15 +3797,19 @@ Proof.
         [|rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp); reflexivity].
       rewrite (Hc (configured_list_rest chk mr)
                  ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
-              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
+              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), !Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       reflexivity. } }
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
+      rewrite ?(line_span_from_ws_prefix p l Hp);
       try reflexivity; try (key_open_cases; reflexivity).
+    { (* thematic break: the whole line *)
+      cbn [close_reopen open_kind].
+      rewrite (line_span_from_ws_prefix p l Hp). reflexivity. }
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
-      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen open_kind].
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
@@ -3741,16 +3821,16 @@ Proof.
       rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
     { rewrite (Hc (configured_list_rest chk mr)
                  ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
-              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { cbn [close_reopen]; unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [close_reopen]; unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen]; unfold open_foot.
       rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
               !Nat.add_assoc, (Nat.add_comm off (String.length p)).
       reflexivity. }
-    { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+    { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. }
@@ -3767,10 +3847,14 @@ Proof.
     rewrite (drop_ws_upto_ws_prefix p _ l Hp). reflexivity. }
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
+      rewrite ?(line_span_from_ws_prefix p l Hp);
       try reflexivity; try (key_open_cases; reflexivity).
+    { (* thematic break: the whole line *)
+      cbn [close_reopen open_kind].
+      rewrite (line_span_from_ws_prefix p l Hp). reflexivity. }
     { (* fence: opens at the column its border sits at *)
       cbn [close_reopen]; unfold open_fence.
-      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen open_kind].
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
@@ -3782,16 +3866,16 @@ Proof.
       rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
     { rewrite (Hc (configured_list_rest chk mr)
                  ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
-              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { cbn [close_reopen]; unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { cbn [close_reopen]; unfold open_attr. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
         (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [close_reopen]; unfold open_foot.
       rewrite (Hc frest ltac:(pose proof (classify_foot_length _ _ _ E); lia)),
-              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
+              ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), ?(drop_leading_ws_ws_prefix p l Hp),
               !Nat.add_assoc, (Nat.add_comm off (String.length p)).
       reflexivity. }
-    { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+    { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [is_lazy close_reopen open_kind].
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
@@ -3810,7 +3894,7 @@ Proof.
     { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
     all: ws_openers p l Hp.
     all: unfold list_takes; rewrite (key_claims_ws_prefix p l inner Hp).
-    all: rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+    all: rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
     all: destruct (key_claims l inner
                    || Nat.ltb (ls_indent ls)
@@ -3818,7 +3902,9 @@ Proof.
            eqn:Elt;
          try (rewrite (div_closer_ws_prefix p l inner Hp),
                       (IH p off l inner Hp Hsafe Hcol); reflexivity).
-    { reflexivity. }
+    { (* thematic break: the whole line *)
+      cbn [is_lazy open_kind close_reopen].
+      rewrite (line_span_from_ws_prefix p l Hp). reflexivity. }
     { reflexivity. }
     { cbn [is_lazy open_kind close_reopen].
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
@@ -3861,13 +3947,13 @@ Proof.
       [|rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp); reflexivity].
     rewrite (Hc (configured_list_rest chk mr)
                ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
-            ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc,
+            ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), !Nat.add_assoc,
             (Nat.add_comm off (String.length p)).
     reflexivity. }
   (* reference definition: the pad moves the opener's column, and the
      continuation test reads the line through drop_leading_ws *)
   { cbn [step_fuel open_line]. unfold ref_cont.
-    rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp),
+    rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp),
       Nat.add_assoc, (Nat.add_comm off (String.length p)).
     destruct (Nat.ltb rind (String.length p + off + indent_of l));
       [destruct (nonempty_str (drop_leading_ws l) && no_ws (drop_leading_ws l))%bool;
@@ -3879,7 +3965,7 @@ Proof.
     rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l).
     { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
-    { rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), Nat.add_assoc,
+    { rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       destruct (Nat.ltb find (String.length p + off + indent_of l)).
       { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
@@ -3905,7 +3991,7 @@ Proof.
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
       try (destruct (is_idle pinner);
-           [unfold open_attr; rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp),
+           [unfold open_attr; rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
               (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)); reflexivity|]);
       rewrite (IH p off l pinner Hp Hsafe Hcol); reflexivity. }
@@ -3937,17 +4023,25 @@ End WithTable.
    actual line index installed at each step.  This runner deliberately does
    not expose a located AST yet; it is the provenance-bearing state fold used
    by the located block assembly layer. *)
-Fixpoint run_lines_tagged {T : dtable} {K : bconfig}
+Fixpoint run_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
   (lines : list (nat * string)) (st : pstate) : blocks * pstate :=
   match lines with
   | [] => ([], st)
   | (i, l) :: rest =>
-      let (bs, st') := @step T K (LineIxAt i) l st in
+      let (bs, st') := @step T K (LineIxAt i) P l st in
       let (more, final) := run_lines_tagged rest st' in
       ((bs ++ more)%list, final)
   end.
 
-Definition finish_lines_tagged {T : dtable} {K : bconfig}
+Definition finish_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
   (lines : list (nat * string)) (st : pstate) : blocks :=
   let (bs, final) := run_lines_tagged lines st in
-  (bs ++ @finish T K final)%list.
+  (bs ++ @finish T K P final)%list.
+
+(* The located parse: the same fold, each line stepped at its own index
+   and under the policy that keeps what the states record.  Erasing it
+   is the semantic parse; that is the theorem C2 owes, and until it is
+   proved nothing downstream reads this. *)
+Definition parse_blocks_located {T : dtable} {K : bconfig} (s : string)
+  : blocks :=
+  @finish_lines_tagged T K located_pos (split_lines_indexed s) (PPara []).

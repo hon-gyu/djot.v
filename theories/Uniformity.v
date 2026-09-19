@@ -361,7 +361,7 @@ Proof.
   destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
   - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
     cbn in E. discriminate.
-  - unfold remember_lines. cbn [finish]. cbn [map]. rewrite line_texts_rev.
+  - unfold remember_lines. cbn [finish]; nopos. cbn [map]. rewrite line_texts_rev.
     cbn [line_texts remember_line]. fold (remember_lines cur).
     unfold line_texts at 1. cbn [map snd remember_line].
     fold (line_texts (remember_lines cur)). rewrite line_texts_remember_lines.

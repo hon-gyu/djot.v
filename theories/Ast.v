@@ -274,9 +274,80 @@ Definition located_pos : PosPolicy := PosOf SomePos.
 Definition posnode `{PosPolicy} {A : Type} (p : provenance) (x : A) : node A :=
   Node (mkpos p) [] x.
 
+(* Erasure of one node: what the located parse has to agree with the
+   semantic one on.  Attributes are not provenance and stay. *)
+Definition erase_node {A : Type} (n : node A) : node A :=
+  match n with Node _ a x => Node NoPos a x end.
+
 (* A node whose provenance is just its range: no authored syntax beside
    it, no non-node parts under it. *)
 Definition prov_at (r : span) : provenance := Provenance r [] PNone.
+
+(* The same, applied to a node already built.  Every block the parser
+   assembles is built by a helper that knows the block's shape and not
+   its source, so provenance is attached where the source is known: at
+   the state that closes.  Attributes the helper set are kept. *)
+(* Written as a test on the policy's answer rather than on the node, so
+   that a policy which records nothing leaves the node it was handed --
+   by conversion, for an arbitrary node.  Every statement about the
+   semantic parse is then the statement it was before locations
+   existed, with no rewriting anywhere. *)
+Definition set_pos `{PosPolicy} {A : Type} (p : provenance) (n : node A)
+  : node A :=
+  match mkpos p with
+  | NoPos => n
+  | q => match n with Node _ a x => Node q a x end
+  end.
+
+Lemma set_pos_mk :
+  forall `{PosPolicy} A (p : provenance) (x : A),
+    set_pos p (mk x) = posnode p x.
+Proof.
+  intros. unfold set_pos, posnode, mk. destruct (mkpos p); reflexivity.
+Qed.
+
+(* Provenance on the head of a list a container emitted.  The head is
+   the block the container is: `key_close` and `decorate_head` both
+   build one there. *)
+Definition pos_head `{PosPolicy} {A : Type} (p : provenance)
+  (ns : list (node A)) : list (node A) :=
+  match mkpos p with
+  | NoPos => ns
+  | _ => match ns with
+         | [] => []
+         | n :: rest => (set_pos p n :: rest)%list
+         end
+  end.
+
+(* At the semantic instance the wrappers are the identity. *)
+Lemma pos_head_semantic :
+  forall A (p : provenance) (ns : list (node A)),
+    @pos_head semantic_pos A p ns = ns.
+Proof. reflexivity. Qed.
+
+Lemma set_pos_semantic :
+  forall A (p : provenance) (n : node A), @set_pos semantic_pos A p n = n.
+Proof. reflexivity. Qed.
+
+(* A proof that has just reduced a closing arm meets the wrappers and
+   nothing else.  They are the identity at the semantic instance, but
+   `rewrite` is syntactic, so it needs saying. *)
+Ltac nopos := rewrite ?set_pos_semantic, ?pos_head_semantic.
+
+Lemma set_pos_located :
+  forall A (p : provenance) (q : pos) (a : attr) (x : A),
+    @set_pos located_pos A p (Node q a x) = Node (SomePos p) a x.
+Proof. reflexivity. Qed.
+
+(* What erasing a located node gives: the node the semantic parse built
+   at the same site.  The wrapper is the only thing between them. *)
+Lemma erase_set_pos :
+  forall `{PosPolicy} A (p : provenance) (n : node A),
+    erase_node (set_pos p n) = erase_node n.
+Proof.
+  intros. unfold set_pos. destruct (mkpos p); [reflexivity|].
+  destruct n; reflexivity.
+Qed.
 
 Lemma posnode_semantic :
   forall A (p : provenance) (x : A), @posnode semantic_pos A p x = mk x.
@@ -286,11 +357,6 @@ Lemma posnode_located :
   forall A (p : provenance) (x : A),
     @posnode located_pos A p x = Node (SomePos p) [] x.
 Proof. reflexivity. Qed.
-
-(* Erasure of one node: what the located parse has to agree with the
-   semantic one on.  Attributes are not provenance and stay. *)
-Definition erase_node {A : Type} (n : node A) : node A :=
-  match n with Node _ a x => Node NoPos a x end.
 
 Lemma erase_posnode :
   forall `{PosPolicy} A (p : provenance) (x : A),

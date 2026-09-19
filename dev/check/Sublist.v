@@ -37,9 +37,9 @@ Open Scope string_scope.
 Definition any_bconfig : bconfig :=
   with_marker_interrupts (fun _ _ _ _ => true) djot_bconfig.
 
-Local Notation Djot := (@parse_blocks _ djot_bconfig _).
-Local Notation Sub := (@parse_blocks _ sublist_bconfig _).
-Local Notation Any := (@parse_blocks _ any_bconfig _).
+Local Notation Djot := (@parse_blocks _ djot_bconfig _ _).
+Local Notation Sub := (@parse_blocks _ sublist_bconfig _ _).
+Local Notation Any := (@parse_blocks _ any_bconfig _ _).
 
 (*
 The sublist
@@ -186,6 +186,6 @@ other knob.
 Theorem sublist_roundtrip_blocks :
   forall cbs,
     @cblocks_ok _ sublist_bconfig cbs = true ->
-    @parse_blocks _ sublist_bconfig _ (render_djot (blocks_of_cblocks cbs))
+    @parse_blocks _ sublist_bconfig _ _ (render_djot (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks _ sublist_bconfig). Qed.

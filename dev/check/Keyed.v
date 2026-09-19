@@ -26,8 +26,8 @@ From DjotV Require Import Strings Ast Line Inline Parser Render Roundtrip.
 Import ListNotations.
 Open Scope string_scope.
 
-Local Notation Djot := (@parse_blocks _ djot_bconfig _).
-Local Notation Key := (@parse_blocks _ keyed_bconfig _).
+Local Notation Djot := (@parse_blocks _ djot_bconfig _ _).
+Local Notation Key := (@parse_blocks _ keyed_bconfig _ _).
 
 (* 7.5 is the one worked example that needs a second setting as well as
    keys: a sublist must be able to interrupt its item's paragraph, which
@@ -35,7 +35,7 @@ Local Notation Key := (@parse_blocks _ keyed_bconfig _).
    that nor stand in for it, so it is the one document below stated
    against a composed configuration. *)
 Definition keyed_sublist_bconfig : bconfig := with_keyed true sublist_bconfig.
-Local Notation KeySub := (@parse_blocks _ keyed_sublist_bconfig _).
+Local Notation KeySub := (@parse_blocks _ keyed_sublist_bconfig _ _).
 
 Definition para (s : string) : node block :=
   mk (Para [mk (Str s)]).
