@@ -482,6 +482,39 @@ pricing its removal]] one level up: there the question was which proofs
 *use* the structure, here whether the uses have to *name* it. Both fail
 the same way, by counting the diff instead of the work.
 
+### A conversion identity is free; a rewrite through it is not
+
+**What happened.**  Attaching positions to blocks needed the thirteen
+block constructors (`fence_block`, `styles_list`, `key_close`, ...) to
+learn where their block came from.  Threading a `provenance` argument
+was priced at ~180 mentions across five files, most of them statements
+in the semantic equational theory that do not care.  A wrapper applied
+at the emit site costs none of that -- but the first version matched on
+the node, so at the semantic instance it reduced only when the node was
+a constructor application, and `parse_lines [] (PFence ...) =
+[fence_block f ...]` stopped being provable.  Writing the wrapper to
+match on `mkpos p` *first* made it the identity for an arbitrary node by
+conversion, and every one of those statements came back without an
+edit.
+
+**General form.**  Two spellings of the same function can be equal on
+every input and still differ in what they cost, because one reduces
+against an arbitrary argument and the other needs the argument's shape.
+The first kind is free in statements, since conversion does the work
+silently.  It is not free in *proofs*: `rewrite` matches syntactically,
+so a wrapper the statement never mentions still has to be removed by
+hand wherever a tactic reduces past it -- here ~25 `nopos` insertions,
+all in proofs whose statements were untouched.
+
+**What to do instead.**  When a new layer wraps something the
+development already names, write it so that its trivial instance
+discards its argument before looking at the wrapped value, and check the
+identity with `reflexivity` on a variable rather than on a constructor.
+Then price the change in tactic lines, not in mentions --
+[[#Price a parameterization by whether the parameter can stay implicit]]
+prices the statements, and this is the part that survives after they
+stop changing.
+
 ### When the parameter cannot reach, move the definition
 
 **What happened.** Gating definition lists needed `styles_list` to read
