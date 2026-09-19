@@ -861,7 +861,7 @@ Lemma step_blank_finish :
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
 Proof.
   intros l st Hl.
-  induction st as [cur|lvl cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
                   |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe.
@@ -869,7 +869,7 @@ Proof.
     + rewrite (step_idle l KBlank Hl eq_refl). cbn [open_kind fst snd finish app].
       reflexivity.
     + rewrite (step_para_flush l c cur' Hl). reflexivity.
-  - rewrite (step_heading_close l lvl cur Hl). reflexivity.
+  - rewrite (step_heading_close l lvl hrng cur Hl). reflexivity.
   - discriminate Hsafe.
   - rewrite (step_quote_close l KBlank qrng done inner _ _ Hl eq_refl eq_refl
                (surjective_pairing _)).

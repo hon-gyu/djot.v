@@ -2293,7 +2293,7 @@ Fixpoint state_wf (st : pstate) : bool :=
   | PParaOff _ _ => true
   (* A heading carries its level, which `Heading` requires to be at
      least 1, and nothing else. *)
-  | PHeading lvl _ => Nat.leb 1 lvl
+  | PHeading lvl _ _ => Nat.leb 1 lvl
   | PFence _ _ _ _ _ => true
   | PQuote _ done inner => wf_blocks done && state_wf inner
   (* A div carries no invariant its fence length or class could break:
@@ -2423,7 +2423,7 @@ Qed.
 Lemma finish_wf :
   forall st, state_wf st = true -> wf_blocks (finish st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H.
@@ -2480,7 +2480,7 @@ Qed.
 Lemma feed_lazy_wf :
   forall l st, state_wf st = true -> state_wf (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H.
@@ -2613,7 +2613,7 @@ Lemma step_fuel_wf :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   - (* idle, or an open paragraph *)
     destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
@@ -3411,7 +3411,7 @@ Qed.
    obligation. *)
 Fixpoint state_supported (st : pstate) : bool :=
   match st with
-  | PPara _ | PParaOff _ _ | PHeading _ _ | PFence _ _ _ _ _ => true
+  | PPara _ | PParaOff _ _ | PHeading _ _ _ | PFence _ _ _ _ _ => true
   | PQuote _ done inner => supported_blocks done && state_supported inner
   | PDiv _ _ _ _ done inner => supported_blocks done && state_supported inner
   | PList ls done inner =>
@@ -3433,7 +3433,7 @@ Proof. intros a bs. destruct bs as [|[q a' x] rest]; reflexivity. Qed.
 Lemma finish_supported :
   forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H.
@@ -3479,7 +3479,7 @@ Lemma feed_lazy_supported :
   forall l st,
     state_supported st = true -> state_supported (feed_lazy l st) = true.
 Proof.
-  induction st as [cur|lvl hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H;
@@ -3533,7 +3533,7 @@ Lemma step_fuel_supported :
 Proof.
   induction n as [|n IH]; intros off l st H; [split; [reflexivity | exact H]|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   - destruct cur as [|c cur'].
     + destruct (classify l) as [| |g|dl dc|rest|kl kr|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy];
         try (cbn [close_reopen open_quote finish app open_kind open_fence open_attr open_ref fst snd]; split; reflexivity).

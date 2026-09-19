@@ -427,22 +427,23 @@ Heading equations
 *)
 
 Lemma step_heading_cont :
-  forall l lvl txt cur,
+  forall l lvl rng txt cur,
     bheading_continues = true ->
     classify l = KHeading lvl txt ->
-    step l (PHeading lvl cur) = ([], PHeading lvl (push_text txt cur)).
+    step l (PHeading lvl rng cur)
+    = ([], PHeading lvl (touch_extent rng) (push_text txt cur)).
 Proof.
-  intros l lvl txt cur Hcontinues H. unfold step. cbn [step_fuel open_line].
+  intros l lvl rng txt cur Hcontinues H. unfold step. cbn [step_fuel open_line].
   rewrite Hcontinues, H.
   rewrite Nat.eqb_refl. reflexivity.
 Qed.
 
 Lemma step_heading_close :
-  forall l lvl cur,
+  forall l lvl rng cur,
     classify l = KBlank ->
-    step l (PHeading lvl cur) = ([heading_block lvl cur], PPara []).
+    step l (PHeading lvl rng cur) = ([heading_block lvl cur], PPara []).
 Proof.
-  intros l lvl cur H. unfold step. cbn [step_fuel open_line].
+  intros l lvl rng cur H. unfold step. cbn [step_fuel open_line].
   destruct bheading_continues; rewrite H; reflexivity.
 Qed.
 
@@ -450,33 +451,34 @@ Lemma parse_lines_heading_open :
   forall l rest lvl txt,
     classify l = KHeading lvl txt ->
     parse_lines (l :: rest) (PPara []) =
-    parse_lines rest (PHeading lvl (push_text txt [])).
+    parse_lines rest
+      (PHeading lvl (open_extent l (indent_of l)) (push_text txt [])).
 Proof.
   intros l rest lvl txt H.
   rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
 Qed.
 
 Lemma parse_lines_heading_cont :
-  forall l rest lvl txt cur,
+  forall l rest lvl rng txt cur,
     bheading_continues = true ->
     classify l = KHeading lvl txt ->
-    parse_lines (l :: rest) (PHeading lvl cur) =
-    parse_lines rest (PHeading lvl (push_text txt cur)).
+    parse_lines (l :: rest) (PHeading lvl rng cur) =
+    parse_lines rest (PHeading lvl (touch_extent rng) (push_text txt cur)).
 Proof.
-  intros l rest lvl txt cur Hcontinues H.
+  intros l rest lvl rng txt cur Hcontinues H.
   rewrite (parse_lines_step _ _ _ _ _
-             (step_heading_cont _ _ _ _ Hcontinues H)).
+             (step_heading_cont _ _ _ _ _ Hcontinues H)).
   reflexivity.
 Qed.
 
 Lemma parse_lines_heading_close :
-  forall l rest lvl cur,
+  forall l rest lvl rng cur,
     classify l = KBlank ->
-    parse_lines (l :: rest) (PHeading lvl cur) =
+    parse_lines (l :: rest) (PHeading lvl rng cur) =
     heading_block lvl cur :: parse_lines rest (PPara []).
 Proof.
-  intros l rest lvl cur H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_heading_close _ _ _ H)).
+  intros l rest lvl rng cur H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_heading_close _ _ _ _ H)).
   reflexivity.
 Qed.
 
@@ -484,23 +486,25 @@ Qed.
    leading whitespace stripped) onto the open heading, exactly as
    paragraph lines do. *)
 Lemma parse_lines_heading_seed :
-  forall lvl ls tail cur,
+  forall lvl ls tail rng cur,
     bheading_continues = true ->
+    touch_extent rng = rng ->
     1 <= lvl ->
     forallb nonblank ls = true ->
-    parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
+    parse_lines (map (heading_line lvl) ls ++ tail)%list
+                (PHeading lvl rng cur) =
     parse_lines tail
-      (PHeading lvl
+      (PHeading lvl rng
         (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros lvl ls. induction ls as [|a ls IH];
-    intros tail cur Hcontinues Hlvl H.
+    intros tail rng cur Hcontinues Hrng Hlvl H.
   - reflexivity.
   - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
     unfold nonblank in Ha. apply negb_true_iff in Ha.
     cbn [map app].
-    rewrite (parse_lines_heading_cont _ _ _ a _ Hcontinues
-               (classify_canonical_heading lvl a Hlvl)).
+    rewrite (parse_lines_heading_cont _ _ _ _ a _ Hcontinues
+               (classify_canonical_heading lvl a Hlvl)), Hrng.
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
     cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
@@ -511,16 +515,18 @@ Qed.
    the same equation is available when continuation is disabled and the
    remaining rendered suffix is empty. *)
 Lemma parse_lines_heading_seed_ok :
-  forall lvl ls tail cur,
+  forall lvl ls tail rng cur,
     (bheading_continues || Nat.eqb (List.length ls) 0)%bool = true ->
+    touch_extent rng = rng ->
     1 <= lvl ->
     forallb nonblank ls = true ->
-    parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
+    parse_lines (map (heading_line lvl) ls ++ tail)%list
+                (PHeading lvl rng cur) =
     parse_lines tail
-      (PHeading lvl
+      (PHeading lvl rng
         (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
-  intros lvl ls tail cur Hmode Hlvl Hlines.
+  intros lvl ls tail rng cur Hmode Hrng Hlvl Hlines.
   destruct bheading_continues eqn:Hcontinues.
   - apply parse_lines_heading_seed; assumption.
   - cbn in Hmode. apply Nat.eqb_eq in Hmode. destruct ls; [reflexivity|discriminate].
@@ -533,24 +539,25 @@ Qed.
    classify_canonical_heading. *)
 Lemma parse_lines_heading_seed_pad :
   forall pad, is_blank pad = true ->
-  forall lvl ls tail cur,
+  forall lvl ls tail rng cur,
     bheading_continues = true ->
+    touch_extent rng = rng ->
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
-                (PHeading lvl cur) =
+                (PHeading lvl rng cur) =
     parse_lines tail
-      (PHeading lvl
+      (PHeading lvl rng
         (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros pad Hpad lvl ls. induction ls as [|a ls IH];
-    intros tail cur Hcontinues Hlvl H.
+    intros tail rng cur Hcontinues Hrng Hlvl H.
   - reflexivity.
   - cbn [forallb] in H. apply andb_true_iff in H as [Ha Hls].
     unfold nonblank in Ha. apply negb_true_iff in Ha.
     cbn [map app].
-    rewrite (parse_lines_heading_cont _ _ _ a _ Hcontinues
-               (classify_canonical_heading_pad pad lvl a Hpad Hlvl)).
+    rewrite (parse_lines_heading_cont _ _ _ _ a _ Hcontinues
+               (classify_canonical_heading_pad pad lvl a Hpad Hlvl)), Hrng.
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
     cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
@@ -559,17 +566,18 @@ Qed.
 
 Lemma parse_lines_heading_seed_pad_ok :
   forall pad, is_blank pad = true ->
-  forall lvl ls tail cur,
+  forall lvl ls tail rng cur,
     (bheading_continues || Nat.eqb (List.length ls) 0)%bool = true ->
+    touch_extent rng = rng ->
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
-                (PHeading lvl cur) =
+                (PHeading lvl rng cur) =
     parse_lines tail
-      (PHeading lvl
+      (PHeading lvl rng
         (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
-  intros pad Hpad lvl ls tail cur Hmode Hlvl Hlines.
+  intros pad Hpad lvl ls tail rng cur Hmode Hrng Hlvl Hlines.
   destruct bheading_continues eqn:Hcontinues.
   - apply parse_lines_heading_seed_pad; assumption.
   - cbn in Hmode. apply Nat.eqb_eq in Hmode. destruct ls; [reflexivity|discriminate].

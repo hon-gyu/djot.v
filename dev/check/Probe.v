@@ -136,7 +136,7 @@ Fixpoint show_pstate (st : pstate) : string :=
   match st with
   | PPara cur => "Para" ++ s_list s_str (map snd cur)
   | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str (map snd cur)
-  | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str (map snd cur)
+  | PHeading lvl _ cur => "Head" ++ s_nat lvl ++ s_list s_str (map snd cur)
   | PFence f ind range opener acc =>
       "Fence" ++ s_fence f ++ s_nat ind ++ s_extent range ++ s_span opener
       ++ s_list s_str (map snd acc)
@@ -453,7 +453,7 @@ Definition is_suffix (t l : string) : bool :=
    heading and caption lines, fence content, recovery slices. *)
 Fixpoint state_line_texts (st : pstate) : list string :=
   match st with
-  | PPara cur | PParaOff _ cur | PHeading _ cur => map snd cur
+  | PPara cur | PParaOff _ cur | PHeading _ _ cur => map snd cur
   | PFence _ _ _ _ acc => map snd acc
   | PAttr _ _ _ _ _ slices => map snd slices
   | PTable _ _ (TCaption ls) => map snd ls

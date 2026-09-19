@@ -589,7 +589,11 @@ Definition list_touch (ls : list_state) : list_state :=
    items in *reverse* order, hence the `rev` at each use site. *)
 Inductive pstate : Type :=
   | PPara (cur : list stored_line)              (* [] = no open block *)
-  | PHeading (level : nat) (cur : list stored_line)
+  (* An open heading.  `range` starts at the `#`, which is part of the
+     construct and is not in `cur`: a stored line is the text after the
+     marker, so the accumulator alone cannot say where the heading
+     began. *)
+  | PHeading (level : nat) (range : extent) (cur : list stored_line)
   (* An open code fence: the closer it wants, the *absolute* column its
      opening backticks sit at, and the content lines it has taken.  The
      column is what makes the content independent of how deep the fence
@@ -681,7 +685,7 @@ Inductive pstate : Type :=
    to the inner container unchanged and shortens *this* instead. *)
 Fixpoint pstate_depth (st : pstate) : nat :=
   match st with
-  | PPara _ | PParaOff _ _ | PHeading _ _ | PFence _ _ _ _ _ => 0
+  | PPara _ | PParaOff _ _ | PHeading _ _ _ | PFence _ _ _ _ _ => 0
   | PQuote _ _ inner => S (pstate_depth inner)
   | PDiv _ _ _ _ _ inner => S (pstate_depth inner)
   | PList _ _ inner => S (pstate_depth inner)
@@ -882,7 +886,7 @@ Fixpoint finish (st : pstate) : blocks :=
   | PPara [] => []
   | PPara cur => [mk (Para (para_inlines (line_texts (rev cur))))]
   | PParaOff k cur => [mk (Para (para_inlines_off k (line_texts (rev cur))))]
-  | PHeading lvl cur => [heading_block lvl cur]
+  | PHeading lvl _ cur => [heading_block lvl cur]
   | PFence f _ _ _ acc => [fence_block f (line_texts (rev acc))]
   | PTable _ rows cap => [table_block (rev rows) cap]
   | PQuote _ done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
@@ -968,7 +972,7 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PPara [] => false
   | PPara (_ :: _) => true
   | PParaOff _ _ => true       (* a recovered paragraph is still one *)
-  | PHeading _ _ => true
+  | PHeading _ _ _ => true
   | PFence _ _ _ _ _ => false
   | PQuote _ _ inner => lazy_ok inner
   | PDiv _ _ _ _ _ inner => lazy_ok inner
@@ -995,7 +999,7 @@ Fixpoint in_fence (st : pstate) : bool :=
      inside a key would close an enclosing div. *)
   | PQuote _ _ inner | PDiv _ _ _ _ _ inner | PList _ _ inner
   | PFoot _ _ _ _ inner | PPend _ _ inner | PKey _ _ _ inner => in_fence inner
-  | PPara _ | PParaOff _ _ | PHeading _ _ | PAttr _ _ _ _ _ _
+  | PPara _ | PParaOff _ _ | PHeading _ _ _ | PAttr _ _ _ _ _ _
   | PRef _ _ _ _ | PTable _ _ _ => false
   end.
 
@@ -1014,7 +1018,8 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   match st with
   | PPara cur => PPara (remember_line (drop_leading_ws l) :: cur)
   | PParaOff k cur => PParaOff k (remember_line (drop_leading_ws l) :: cur)
-  | PHeading lvl cur => PHeading lvl (remember_line (drop_leading_ws l) :: cur)
+  | PHeading lvl range cur =>
+      PHeading lvl (touch_extent range) (remember_line (drop_leading_ws l) :: cur)
   | PFence f ind range opener acc =>
       PFence f ind range opener acc   (* excluded by lazy_ok *)
   | PQuote range done inner =>
@@ -1100,7 +1105,8 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
   | KBlank => ([], PPara [])
   | KThematic => ([mk ThematicBreak], PPara [])
   | KFence _ => ([], PPara [])        (* unreachable: see open_fence *)
-  | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
+  | KHeading lvl rest =>
+      ([], PHeading lvl (open_extent l (indent_of l)) (push_text rest []))
   | KDiv len cls =>
       if bdivs
       then ([], PDiv len cls (open_extent l (indent_of l))
@@ -1573,25 +1579,26 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                           (remember_line (drop_leading_ws l) :: cur))
           end
           end
-      | PHeading lvl cur =>
+      | PHeading lvl range cur =>
           (* Unlike a paragraph, a heading *is* interruptible: only a
              matching-level marker or a lazy text line continues it. *)
           match classify l with
           | KHeading lvl' rest =>
               if bheading_continues
               then if Nat.eqb lvl' lvl
-                   then ([], PHeading lvl (push_text rest cur))
-                   else close_reopen (PHeading lvl cur)
+                   then ([], PHeading lvl (touch_extent range)
+                               (push_text rest cur))
+                   else close_reopen (PHeading lvl range cur)
                           (open_kind l (KHeading lvl' rest))
-              else close_reopen (PHeading lvl cur)
+              else close_reopen (PHeading lvl range cur)
                      (open_kind l (KHeading lvl' rest))
           | KText =>
               if bheading_continues
-              then ([], PHeading lvl
+              then ([], PHeading lvl (touch_extent range)
                           (remember_line (drop_leading_ws l) :: cur))
-              else close_reopen (PHeading lvl cur) (open_kind l KText)
+              else close_reopen (PHeading lvl range cur) (open_kind l KText)
           | k =>
-              close_reopen (PHeading lvl cur)
+              close_reopen (PHeading lvl range cur)
                 (open_line descend (off + indent_of l) l k)
           end
       | PQuote range done inner =>
@@ -1895,7 +1902,7 @@ Proof.
   induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   - (* idle, or an open paragraph *)
     cbn [pstate_depth] in Hn |- *.
     destruct cur as [|c cur'].
@@ -2402,7 +2409,7 @@ Lemma step_fuel_shift :
     = (fst (step_fuel n off l st), pad_state k (snd (step_fuel n off l st))).
 Proof.
   induction n as [|n IH]; intros k off l st; [reflexivity|].
-  destruct st as [cur|hlvl hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   (* idle, or an open paragraph *)
   { cbn [pad_state step_fuel open_line].
     destruct cur as [|c cur'].
@@ -3672,7 +3679,7 @@ Proof.
   assert (Hc : forall rest, String.length rest <= String.length l ->
                  consumed (p ++ l) rest = String.length p + consumed l rest).
   { intros rest Hle. unfold consumed. rewrite length_append. lia. }
-  destruct st as [cur|hlvl hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
@@ -3684,6 +3691,8 @@ Proof.
         destruct (@bdivs K); reflexivity. }
       { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
                 Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+      { (* heading: opens at its marker *)
+        cbn [open_kind]. rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
       { rewrite (Hc (configured_list_rest chk mr)
                    ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
                 ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)).
@@ -3727,6 +3736,9 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { (* heading: opens at its marker *)
+      cbn [close_reopen open_kind].
+      rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
     { rewrite (Hc (configured_list_rest chk mr)
                  ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
               ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
@@ -3765,6 +3777,9 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+    { (* heading: opens at its marker *)
+      cbn [close_reopen open_kind].
+      rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
     { rewrite (Hc (configured_list_rest chk mr)
                  ltac:(pose proof (configured_list_rest_length _ _ _ _ _ E); lia)),
               ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (indent_of_ws_prefix p l Hp), !Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
@@ -3810,7 +3825,9 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { reflexivity. }
+    { (* heading: opens at its marker *)
+      cbn [is_lazy open_kind close_reopen].
+      rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
     { destruct (narrow (ls_styles ls) (configured_list_styles m chk));
         ws_openers p l Hp;
         rewrite (Hc (configured_list_rest chk mr)

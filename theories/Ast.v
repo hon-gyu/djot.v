@@ -253,6 +253,50 @@ Lemma add_attr_mk :
   forall A (a : attr) (x : A), add_attr a (mk x) = Node NoPos a x.
 Proof. reflexivity. Qed.
 
+(* How a parse tags the nodes it builds.  One grammar, two observations:
+   the parser is written once against this class, and an instance decides
+   whether the provenance it computes reaches the AST.
+
+   `semantic_pos` discards it, so `posnode p x` is `mk x` by conversion
+   (`posnode_semantic`) and a statement written at that instance is the
+   statement it was before locations existed.  A file that opens no
+   policy context resolves `mkpos` to it, which is why nothing outside
+   the located driver changes; `Check @thm` on a statement that is meant
+   to hold for every policy is what shows the binder is really there. *)
+Class PosPolicy : Type := PosOf { mkpos : provenance -> pos }.
+
+#[export] Instance semantic_pos : PosPolicy := PosOf (fun _ => NoPos).
+
+Definition located_pos : PosPolicy := PosOf SomePos.
+
+(* The one constructor the parser builds nodes with.  Attributes are
+   attached afterwards, as they are today (`add_attr`). *)
+Definition posnode `{PosPolicy} {A : Type} (p : provenance) (x : A) : node A :=
+  Node (mkpos p) [] x.
+
+(* A node whose provenance is just its range: no authored syntax beside
+   it, no non-node parts under it. *)
+Definition prov_at (r : span) : provenance := Provenance r [] PNone.
+
+Lemma posnode_semantic :
+  forall A (p : provenance) (x : A), @posnode semantic_pos A p x = mk x.
+Proof. reflexivity. Qed.
+
+Lemma posnode_located :
+  forall A (p : provenance) (x : A),
+    @posnode located_pos A p x = Node (SomePos p) [] x.
+Proof. reflexivity. Qed.
+
+(* Erasure of one node: what the located parse has to agree with the
+   semantic one on.  Attributes are not provenance and stay. *)
+Definition erase_node {A : Type} (n : node A) : node A :=
+  match n with Node _ a x => Node NoPos a x end.
+
+Lemma erase_posnode :
+  forall `{PosPolicy} A (p : provenance) (x : A),
+    erase_node (posnode p x) = @posnode semantic_pos A p x.
+Proof. intros. unfold posnode. destruct (mkpos p); reflexivity. Qed.
+
 (*
 Inline elements
 ===============
