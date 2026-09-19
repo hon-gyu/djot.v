@@ -1395,12 +1395,15 @@ Proof.
       destruct (rev_cons_shape a ls') as [c [cur' Erev]].
     + rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
-      rewrite Erev, parse_lines_blank_cons by reflexivity.
+      rewrite Erev, remember_lines_cons, parse_lines_blank_cons by reflexivity.
+      rewrite <- remember_lines_cons, line_texts_rev_remember_lines.
       rewrite <- Erev, rev_involutive, Hast. reflexivity.
     + rewrite <- (app_nil_r (a :: ls')) at 1.
       rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
-      rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive, Hast.
+      rewrite Erev, remember_lines_cons, parse_lines_nil_cons.
+      rewrite <- remember_lines_cons, line_texts_rev_remember_lines.
+      rewrite <- Erev, rev_involutive, Hast.
       reflexivity.
   - (* thematic break *)
     split; [intros next tail _ _ H | intros H]; cbn [cb_lines app].
@@ -1420,7 +1423,7 @@ Proof.
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast.
       rewrite parse_lines_blank_nil by reflexivity. reflexivity.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence info Hinfo)).
@@ -1428,7 +1431,7 @@ Proof.
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast. reflexivity.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast. reflexivity.
   - (* raw block *)
     intros format content. split; [intros next tail _ _ H | intros H];
       pose proof (fence_block_canonical_raw format content H) as Hast;
@@ -1442,7 +1445,7 @@ Proof.
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast.
       rewrite parse_lines_blank_nil by reflexivity. reflexivity.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence _ Hinfo)).
@@ -1450,7 +1453,7 @@ Proof.
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast. reflexivity.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast. reflexivity.
   - (* heading: open on the first line, accumulate the rest, close on the
        blank line or at end of input.  No first-line classification
        condition — the hashes make every rendered line a heading line. *)
@@ -1474,21 +1477,21 @@ Proof.
       cbn [map app];
       rewrite (parse_lines_heading_open _ _ _ a
                  (classify_canonical_heading lvl a Hlvl));
-      replace (push_text a []) with [a]
+      replace (push_text a []) with [remember_line a]
         by (unfold push_text; rewrite Hna;
             rewrite (line_ok_no_leading_ws _ Hlok_a); reflexivity).
     + rewrite <- Hast.
       rewrite parse_lines_heading_seed_ok by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
-      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      unfold heading_block. rewrite line_texts_rev_remember_snoc.
       reflexivity.
     + rewrite <- Hast.
       rewrite <- (app_nil_r (map (heading_line lvl) ls')).
       rewrite parse_lines_heading_seed_ok by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_nil. cbn [finish].
-      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      unfold heading_block. rewrite line_texts_rev_remember_snoc.
       reflexivity.
   - (* quote: the contents parse at top level, then get wrapped *)
     intros inner IH.

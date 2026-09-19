@@ -25,8 +25,8 @@ From DjotV Require Import Ast Line Inline Parser Document Render Roundtrip.
 Import ListNotations.
 Open Scope string_scope.
 
-Local Notation Djot := (@parse_blocks _ djot_bconfig).
-Local Notation Setext := (@parse_blocks _ setext_bconfig).
+Local Notation Djot := (@parse_blocks _ djot_bconfig _).
+Local Notation Setext := (@parse_blocks _ setext_bconfig _).
 
 (*
 The baseline
@@ -144,6 +144,6 @@ Proof. vm_compute. reflexivity. Qed.
 Theorem setext_roundtrip_blocks :
   forall cbs,
     @cblocks_ok _ setext_bconfig cbs = true ->
-    @parse_blocks _ setext_bconfig (render_djot (blocks_of_cblocks cbs))
+    @parse_blocks _ setext_bconfig _ (render_djot (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks _ setext_bconfig). Qed.

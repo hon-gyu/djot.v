@@ -40,7 +40,7 @@ Local Notation ProfileInline := (@parse_inline_line markdown_like_table).
 Local Notation parse_inline_line := (@parse_inline_line markdown_table).
 Local Notation escape_str := (@escape_str markdown_table).
 Local Notation ci_line := (@ci_line markdown_table).
-Local Notation MdBlocks := (@parse_blocks markdown_table markdown_bconfig).
+Local Notation MdBlocks := (@parse_blocks markdown_table markdown_bconfig _).
 
 (* A typography-only variant keeps djot's delimiter rows enabled.  It pins
    the interaction between literal hyphen runs and a delete closer. *)
@@ -647,7 +647,7 @@ Proof. reflexivity. Qed.
 (* Core CommonMark has no table construct. The classifier still recognizes
    row-shaped source, but this profile opens it as ordinary paragraph text. *)
 Example markdown_like_table_source_is_prose :
-  @parse_blocks markdown_like_table markdown_bconfig "| a |
+  @parse_blocks markdown_like_table markdown_bconfig _ "| a |
 |---|"
   = [mk (Para [mk (Str "| a |"); mk SoftBreak;
                mk (Str "|---|")])].
@@ -674,7 +674,7 @@ other instance.  The roundtrip is one theorem about the family, and
 Theorem md_roundtrip_blocks :
   forall cbs,
     @cblocks_ok markdown_table markdown_bconfig cbs = true ->
-    @parse_blocks markdown_table markdown_bconfig
+    @parse_blocks markdown_table markdown_bconfig _
       (@render_djot markdown_table (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks markdown_table markdown_bconfig). Qed.

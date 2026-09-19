@@ -180,12 +180,45 @@ Qed.
 Local Definition attr_apply (pending a : attr) : attr :=
   fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
 
-(* Source positions: start line/col, end line/col.  Carried for fidelity
-   with the oracles; the harness skips sourcepos cases, so nothing renders
-   these yet. *)
+(* A point in the source.  [spot_rem] counts bytes from the point to the
+   end of its line (the line terminator is not part of the line).  The
+   right-hand coordinate is deliberate: container parsing repeatedly
+   removes prefixes, and prefixing a line must not move a point in the
+   suffix that remains. *)
+Record spot : Type := Spot
+  { spot_line : nat
+  ; spot_rem : nat }.
+
+(* Source ranges are half-open. *)
+Record span : Type := SrcSpan
+  { span_start : spot
+  ; span_stop : spot }.
+
+(* Authored syntax which belongs to a node without widening the semantic
+   node's own range.  The fence roles are also how a consumer distinguishes
+   an unterminated fence from one with a closing line. *)
+Inductive syntax_role : Type :=
+  | RAttrSpec
+  | ROpenFence
+  | RCloseFence.
+
+(* Some source-bearing parts of the semantic AST are not [node]s.  Keep
+   their ranges parallel to their parent's children rather than changing
+   the semantic tree merely to carry provenance. *)
+Inductive parts : Type :=
+  | PNone
+  | PItems (items : list span)
+  | PDefItems (items : list (span * span * span))
+  | PTable (caption : option span) (rows : list (span * list span)).
+
+Record provenance : Type := Provenance
+  { node_span : span
+  ; syntax_spans : list (syntax_role * span)
+  ; part_spans : parts }.
+
 Inductive pos : Type :=
   | NoPos
-  | SomePos (sl sc el ec : nat).
+  | SomePos (p : provenance).
 
 (* Every AST element is wrapped in a node carrying its position and
    attributes; `inline` and `block` below are the payloads. *)
@@ -193,6 +226,12 @@ Inductive node (A : Type) : Type :=
   | Node (p : pos) (a : attr) (x : A).
 
 Arguments Node {A} p a x.
+
+Definition node_provenance {A : Type} (n : node A) : option provenance :=
+  match n with
+  | Node NoPos _ _ => None
+  | Node (SomePos p) _ _ => Some p
+  end.
 
 (* The bare node: no position, no attributes.  Everything the parser
    currently builds is `mk`-wrapped, so proofs can compute through it. *)

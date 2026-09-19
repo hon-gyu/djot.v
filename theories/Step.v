@@ -93,6 +93,13 @@ Class bconfig : Type := BConfig {
   bkeyed : bool
 }.
 
+(* The source line currently being folded.  It is an observation only:
+   no parsing decision may inspect it.  The ordinary parser uses line 0;
+   the located driver installs a fresh local instance for every line. *)
+Class LineIx : Type := LineIxAt { lix : nat }.
+
+#[export] Instance semantic_line_ix : LineIx := LineIxAt 0.
+
 (*
 The settings themselves
 -----------------------
@@ -314,8 +321,60 @@ Definition bcuts `{bconfig} (l : string) : bool :=
 Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
+Context {LI : LineIx}.
 
 (* Paragraph assembly is `Inline.para_inlines`. *)
+
+(* Every line retained beyond the transition that read it carries its source
+   line index.  The text remains a suffix of the input line; its right-hand
+   coordinate is therefore just [String.length (snd l)]. *)
+Definition stored_line : Type := nat * string.
+
+Definition remember_line (s : string) : stored_line := (lix, s).
+
+Definition remember_lines (lines : list string) : list stored_line :=
+  map remember_line lines.
+
+Definition line_texts (lines : list stored_line) : list string := map snd lines.
+
+Lemma line_texts_remember_lines :
+  forall lines, line_texts (remember_lines lines) = lines.
+Proof.
+  induction lines as [|l rest IH].
+  - reflexivity.
+  - unfold line_texts, remember_lines in *. cbn [map remember_line snd].
+    rewrite IH. reflexivity.
+Qed.
+
+Lemma line_texts_rev :
+  forall lines, line_texts (rev lines) = rev (line_texts lines).
+Proof.
+  intros lines. unfold line_texts. apply map_rev.
+Qed.
+
+Lemma remember_lines_cons :
+  forall l lines,
+    remember_lines (l :: lines) = remember_line l :: remember_lines lines.
+Proof. reflexivity. Qed.
+
+Lemma line_texts_rev_remember_lines :
+  forall lines,
+    line_texts (rev (remember_lines lines)) = rev lines.
+Proof.
+  intros lines. rewrite line_texts_rev, line_texts_remember_lines. reflexivity.
+Qed.
+
+Lemma line_texts_rev_remember_snoc :
+  forall a lines,
+    line_texts (rev (remember_lines (rev lines) ++ [remember_line a])%list)
+    = (a :: lines)%list.
+Proof.
+  intros a lines. rewrite line_texts_rev. unfold line_texts.
+  rewrite map_app. cbn [map snd remember_line].
+  fold (line_texts (remember_lines (rev lines))).
+  rewrite line_texts_remember_lines, rev_app_distr, rev_involutive.
+  reflexivity.
+Qed.
 
 (*
 Fenced block assembly
@@ -406,11 +465,11 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
 Inductive tcap : Type :=
   | TOpen
   | TAfterBlank
-  | TCaption (lines : list string).
+  | TCaption (lines : list stored_line).
 
 (* The caption's lines, for the state invariant: they are a paragraph
    accumulator and carry its condition. *)
-Definition cap_lines (c : tcap) : list string :=
+Definition cap_lines (c : tcap) : list stored_line :=
   match c with TCaption ls => ls | _ => [] end.
 
 (* An empty caption is no caption: `^ ` with nothing after it opens one
@@ -424,7 +483,7 @@ Definition caption_of (c : tcap) : option inlines :=
   match c with
   | TOpen | TAfterBlank => None
   | TCaption ls =>
-      let ils := para_inlines (rev ls) in
+      let ils := para_inlines (line_texts (rev ls)) in
       if nonempty ils then Some ils else None
   end.
 
@@ -485,8 +544,8 @@ Record list_state : Type := LSt
 (* The fold's state: a container stack.  Every accumulator holds its
    items in *reverse* order, hence the `rev` at each use site. *)
 Inductive pstate : Type :=
-  | PPara (cur : list string)              (* [] = no open block *)
-  | PHeading (level : nat) (cur : list string)
+  | PPara (cur : list stored_line)              (* [] = no open block *)
+  | PHeading (level : nat) (cur : list stored_line)
   (* An open code fence: the closer it wants, the *absolute* column its
      opening backticks sit at, and the content lines it has taken.  The
      column is what makes the content independent of how deep the fence
@@ -495,7 +554,7 @@ Inductive pstate : Type :=
      opened at column 2 inside a list item stores `code`, not `  code`.
      Like every other column in this state it is absolute, `off +
      indent_of l` -- see `open_attr`. *)
-  | PFence (f : fence) (ind : nat) (acc : list string)
+  | PFence (f : fence) (ind : nat) (acc : list stored_line)
   | PQuote (done : blocks) (inner : pstate)
   (* An open fenced div: the fence length it must be closed by, its
      class, and the contents so far.  Unlike a quote it removes no
@@ -512,7 +571,7 @@ Inductive pstate : Type :=
      are kept because a spec that turns out not to parse becomes an
      ordinary paragraph of exactly those lines (djot.js block.ts:585-596),
      which is the only reason this state is not just an `attr`. *)
-  | PAttr (pend : attr) (ind : nat) (ap : aparser) (slices : list string)
+  | PAttr (pend : attr) (ind : nat) (ap : aparser) (slices : list stored_line)
   (* A paragraph the block attribute recovery built.  `cur` is its lines,
      reversed, exactly as `PPara` holds them; `k` counts the lines from
      the front that the failed spec had eaten, which are read with
@@ -520,7 +579,7 @@ Inductive pstate : Type :=
      records no column, so `pad_state` leaves it alone, and it is never
      built with `k = 0` or with an empty `cur`: the recovery always hands
      over at least the line the spec opened on. *)
-  | PParaOff (k : nat) (cur : list string)
+  | PParaOff (k : nat) (cur : list stored_line)
   (* An open reference definition: the column its bracket sits at, its
      label, and the destination so far.  Like `PAttr`'s the column is
      absolute (`off + indent_of l`), because a continuation line is one
@@ -589,15 +648,15 @@ Definition is_idle (st : pstate) : bool :=
    open, outermost result first. *)
 (* A heading's text lines become its inlines exactly as a paragraph's do
    — same assembly, different wrapper. *)
-Definition heading_block (lvl : nat) (cur : list string) : node block :=
-  mk (Heading lvl (para_inlines (rev cur))).
+Definition heading_block (lvl : nat) (cur : list stored_line) : node block :=
+  mk (Heading lvl (para_inlines (line_texts (rev cur)))).
 
 (* The same, for a paragraph whose first `k` lines came from a failed
    block attribute spec.  Only an underline reaches it, so only a
    configuration with both `bunderline_of` and `battrs` on can, and the
    lines keep the reading they had as a paragraph. *)
-Definition heading_block_off (k lvl : nat) (cur : list string) : node block :=
-  mk (Heading lvl (para_inlines_off k (rev cur))).
+Definition heading_block_off (k lvl : nat) (cur : list stored_line) : node block :=
+  mk (Heading lvl (para_inlines_off k (line_texts (rev cur)))).
 
 (* The lines a failed block attribute spec ate, handed to the paragraph
    that inherits them.  All of them are frozen, so the count is their
@@ -611,15 +670,16 @@ Definition heading_block_off (k lvl : nat) (cur : list string) : node block :=
    leaves `k` above the length, and `iscan_lines_off` then reads every
    line it has with attributes off, which is what the shorter paragraph
    wanted anyway. *)
-Definition para_recover (extra : nat) (slices : list string) : pstate :=
+Definition para_recover (extra : nat) (slices : list stored_line) : pstate :=
   PParaOff (extra + List.length slices) slices.
 
 (* The same lines when there is no next line: the document, or the
    container, ended with the spec still open. *)
-Definition finish_para_recover (slices : list string) : blocks :=
+Definition finish_para_recover (slices : list stored_line) : blocks :=
   match slices with
   | [] => []
-  | _ => [mk (Para (para_inlines_off (List.length slices) (rev slices)))]
+  | _ => [mk (Para (para_inlines_off (List.length slices)
+                         (line_texts (rev slices))))]
   end.
 
 (* A div's class becomes a `class` attribute on the node, as in djot.js
@@ -763,10 +823,10 @@ Qed.
 Fixpoint finish (st : pstate) : blocks :=
   match st with
   | PPara [] => []
-  | PPara cur => [mk (Para (para_inlines (rev cur)))]
-  | PParaOff k cur => [mk (Para (para_inlines_off k (rev cur)))]
+  | PPara cur => [mk (Para (para_inlines (line_texts (rev cur))))]
+  | PParaOff k cur => [mk (Para (para_inlines_off k (line_texts (rev cur))))]
   | PHeading lvl cur => [heading_block lvl cur]
-  | PFence f _ acc => [fence_block f (rev acc)]
+  | PFence f _ acc => [fence_block f (line_texts (rev acc))]
   | PTable rows cap => [table_block (rev rows) cap]
   | PQuote done inner => [mk (BlockQuote (rev done ++ finish inner)%list)]
   | PDiv _ cls done inner => [div_block cls (rev done ++ finish inner)%list]
@@ -895,9 +955,9 @@ Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
    what makes the state's content independent of ambient indentation. *)
 Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   match st with
-  | PPara cur => PPara (drop_leading_ws l :: cur)
-  | PParaOff k cur => PParaOff k (drop_leading_ws l :: cur)
-  | PHeading lvl cur => PHeading lvl (drop_leading_ws l :: cur)
+  | PPara cur => PPara (remember_line (drop_leading_ws l) :: cur)
+  | PParaOff k cur => PParaOff k (remember_line (drop_leading_ws l) :: cur)
+  | PHeading lvl cur => PHeading lvl (remember_line (drop_leading_ws l) :: cur)
   | PFence f ind acc => PFence f ind acc   (* excluded by lazy_ok *)
   | PQuote done inner => PQuote done (feed_lazy l inner)
   | PDiv len cls done inner => PDiv len cls done (feed_lazy l inner)
@@ -911,8 +971,9 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
 (* A heading's text, pushed onto its accumulator.  `# ` with nothing
    after it opens a heading with no text rather than a blank line of it,
    which is what keeps the accumulator's nonblank invariant. *)
-Definition push_text (rest : string) (cur : list string) : list string :=
-  if is_blank rest then cur else drop_leading_ws rest :: cur.
+Definition push_text (rest : string) (cur : list stored_line)
+  : list stored_line :=
+  if is_blank rest then cur else remember_line (drop_leading_ws rest) :: cur.
 
 (* A text line's opening, taken on the line already normalized.  Passing
    the normalized line rather than the raw one is what makes the whole
@@ -929,7 +990,7 @@ Definition push_text (rest : string) (cur : list string) : list string :=
 Definition open_text `{bconfig} (t : string) : blocks * pstate :=
   match (if bkeyed then key_split t else None) with
   | Some (lbl, v) => ([], PKey lbl t (PPara (push_text v [])))
-  | None => ([], PPara [t])
+  | None => ([], PPara [remember_line t])
   end.
 
 (* Does this line open a paragraph rather than a key?  With the setting
@@ -948,7 +1009,8 @@ Definition keyless `{bconfig} (l : string) : bool :=
 Lemma open_text_keyless :
   forall l,
     keyless l = true ->
-    open_text (drop_leading_ws l) = ([], PPara [drop_leading_ws l]).
+    open_text (drop_leading_ws l)
+    = ([], PPara [remember_line (drop_leading_ws l)]).
 Proof.
   intros l H. unfold keyless in H. unfold open_text.
   rewrite key_split_drop_leading_ws.
@@ -978,7 +1040,7 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
   | KHeading lvl rest => ([], PHeading lvl (push_text rest []))
   | KDiv len cls =>
       if bdivs then ([], PDiv len cls [] (PPara []))
-      else ([], PPara [drop_leading_ws l])
+      else ([], PPara [remember_line (drop_leading_ws l)])
   (* The one place a key can open.  3.5: a line is tested for a split
      exactly when it would otherwise open a paragraph, which is this arm
      and no other -- an open paragraph's continuation lines never reach
@@ -995,7 +1057,7 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
      that disables tables keeps the complete row spelling as paragraph text. *)
   | KRow r =>
       if btables then ([], PTable [r] TOpen)
-      else ([], PPara [drop_leading_ws l])
+      else ([], PPara [remember_line (drop_leading_ws l)])
   end.
 
 (* The other half of the per-line rule: this line does not continue the
@@ -1063,8 +1125,8 @@ Definition open_quote (descended : blocks * pstate) : blocks * pstate :=
    closed. *)
 Definition open_attr (pend : attr) (ind : nat) (ap : aparser) (l : string)
   : blocks * pstate :=
-  if battrs then ([], PAttr pend ind ap [drop_leading_ws l])
-  else ([], PPara [drop_leading_ws l]).
+  if battrs then ([], PAttr pend ind ap [remember_line (drop_leading_ws l)])
+  else ([], PPara [remember_line (drop_leading_ws l)]).
 
 (* Neither setting closes anything, which is what the two step equations
    below need in order to be stated without a case split. *)
@@ -1104,7 +1166,7 @@ Definition open_foot (l : string) (ind : nat) (lbl : string)
   (descended : blocks * pstate) : blocks * pstate :=
   if bfootnotes
   then let (bs, inner) := descended in ([], PFoot ind lbl (rev bs) inner)
-  else ([], PPara [drop_leading_ws l]).
+  else ([], PPara [remember_line (drop_leading_ws l)]).
 
 Lemma open_foot_fst :
   forall l ind lbl d, fst (open_foot l ind lbl d) = [].
@@ -1378,8 +1440,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              fence's own column, that is: the line keeps whatever it is
              indented *past* the opener and nothing before it. *)
           if fence_close f l
-          then ([fence_block f (rev acc)], PPara [])
-          else ([], PFence f ind (drop_ws_upto (ind - off) l :: acc))
+          then ([fence_block f (line_texts (rev acc))], PPara [])
+          else ([], PFence f ind
+                      (remember_line (drop_ws_upto (ind - off) l) :: acc))
       | PPara [] =>
           (* Idle: nothing to close, so the line just opens its block. *)
           open_line descend (off + indent_of l) l (classify l)
@@ -1399,7 +1462,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               if binterrupt k
               then close_reopen (PPara (c :: cur'))
                      (open_line descend (off + indent_of l) l k)
-              else ([], PPara (drop_leading_ws l :: c :: cur'))
+              else ([], PPara (remember_line (drop_leading_ws l) :: c :: cur'))
           end
           end
       | PParaOff koff cur =>
@@ -1416,7 +1479,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               if binterrupt k
               then close_reopen (PParaOff koff cur)
                      (open_line descend (off + indent_of l) l k)
-              else ([], PParaOff koff (drop_leading_ws l :: cur))
+              else ([], PParaOff koff
+                          (remember_line (drop_leading_ws l) :: cur))
           end
           end
       | PHeading lvl cur =>
@@ -1433,7 +1497,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                      (open_kind l (KHeading lvl' rest))
           | KText =>
               if bheading_continues
-              then ([], PHeading lvl (drop_leading_ws l :: cur))
+              then ([], PHeading lvl
+                          (remember_line (drop_leading_ws l) :: cur))
               else close_reopen (PHeading lvl cur) (open_kind l KText)
           | k =>
               close_reopen (PHeading lvl cur)
@@ -1608,7 +1673,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                  included, and a blank ends it. *)
               if is_blank l
               then ((table_block (rev rows) cap :: nil)%list, PPara [])
-              else ([], PTable rows (TCaption (drop_leading_ws l :: ls)))
+              else ([], PTable rows
+                          (TCaption (remember_line (drop_leading_ws l) :: ls)))
           | _ =>
               match caption_open l with
               | Some rest => ([], PTable rows (TCaption (push_text rest [])))
@@ -2660,7 +2726,8 @@ The transition, branch by branch
 
 Lemma step_fence_close :
   forall l f ind acc, fence_close f l = true ->
-  step l (PFence f ind acc) = ([fence_block f (rev acc)], PPara []).
+  step l (PFence f ind acc)
+  = ([fence_block f (line_texts (rev acc))], PPara []).
 Proof. intros l f ind acc H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
 (* The content line keeps what it is indented past the fence's own
@@ -2669,7 +2736,8 @@ Proof. intros l f ind acc H. unfold step. cbn [step_fuel open_line]. rewrite H. 
    prefixes ate and takes the difference. *)
 Lemma step_fence_content :
   forall l f ind acc, fence_close f l = false ->
-  step l (PFence f ind acc) = ([], PFence f ind (drop_ws_upto ind l :: acc)).
+  step l (PFence f ind acc)
+  = ([], PFence f ind (remember_line (drop_ws_upto ind l) :: acc)).
 Proof.
   intros l f ind acc H. unfold step. cbn [step_fuel open_line]. rewrite H, Nat.sub_0_r.
   reflexivity.
@@ -2688,7 +2756,7 @@ Qed.
 Lemma step_para_flush :
   forall l c cur', classify l = KBlank ->
   step l (PPara (c :: cur')) =
-  ([mk (Para (para_inlines (rev (c :: cur'))))], PPara []).
+  ([mk (Para (para_inlines (line_texts (rev (c :: cur')))))], PPara []).
 Proof.
   intros l c cur' H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -2699,7 +2767,7 @@ Qed.
 Lemma step_para_off_flush :
   forall l k cur, classify l = KBlank ->
   step l (PParaOff k cur) =
-  ([mk (Para (para_inlines_off k (rev cur)))], PPara []).
+  ([mk (Para (para_inlines_off k (line_texts (rev cur))))], PPara []).
 Proof.
   intros l k cur H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -2709,7 +2777,8 @@ Qed.
    paragraph, which is the whole of what `bcuts` answers. *)
 Lemma step_para_cont :
   forall l c cur', classify l <> KBlank -> bcuts l = false ->
-  step l (PPara (c :: cur')) = ([], PPara (drop_leading_ws l :: c :: cur')).
+  step l (PPara (c :: cur'))
+  = ([], PPara (remember_line (drop_leading_ws l) :: c :: cur')).
 Proof.
   intros l c cur' H Hc. unfold step. cbn [step_fuel open_line].
   unfold bcuts in Hc. destruct (bunderline_of l); [discriminate|].
@@ -3143,7 +3212,8 @@ Qed.
 
 Lemma step_row_disabled :
   forall l r, btables = false -> classify l = KRow r ->
-    step l (PPara []) = ([], PPara [drop_leading_ws l]).
+    step l (PPara [])
+    = ([], PPara [remember_line (drop_leading_ws l)]).
 Proof.
   intros l r Htables H.
   rewrite (step_idle l (KRow r) H eq_refl).
@@ -3653,3 +3723,22 @@ Proof.
 Qed.
 
 End WithTable.
+
+(* C1 of the source-location pipeline: drive the same transition with the
+   actual line index installed at each step.  This runner deliberately does
+   not expose a located AST yet; it is the provenance-bearing state fold used
+   by the located block assembly layer. *)
+Fixpoint run_lines_tagged {T : dtable} {K : bconfig}
+  (lines : list (nat * string)) (st : pstate) : blocks * pstate :=
+  match lines with
+  | [] => ([], st)
+  | (i, l) :: rest =>
+      let (bs, st') := @step T K (LineIxAt i) l st in
+      let (more, final) := run_lines_tagged rest st' in
+      ((bs ++ more)%list, final)
+  end.
+
+Definition finish_lines_tagged {T : dtable} {K : bconfig}
+  (lines : list (nat * string)) (st : pstate) : blocks :=
+  let (bs, final) := run_lines_tagged lines st in
+  (bs ++ @finish T K final)%list.

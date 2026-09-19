@@ -46,7 +46,7 @@ Definition markdown_like_profile : profile :=
   Profile markdown_like_table markdown_bconfig.
 
 Definition parse_profile_blocks (P : profile) (s : string) : blocks :=
-  @parse_blocks (profile_inline P) (profile_block P) s.
+  @parse_blocks (profile_inline P) (profile_block P) _ s.
 
 Definition parse_profile_doc (P : profile) (s : string) : doc :=
   @parse_doc (profile_inline P) (profile_block P) s.

@@ -59,20 +59,20 @@ Proof. intros k T _. apply inline_structural_holds. Qed.
 Record incremental_invariants (T : dtable) (K : bconfig) : Prop := {
   incremental_prefix_determinism :
     forall xs ys st,
-      @parse_lines T K (xs ++ ys)%list st =
+      @parse_lines T K _ (xs ++ ys)%list st =
       (@committed T K xs st ++
-       @parse_lines T K ys (snd (@run_lines T K xs st)))%list;
+       @parse_lines T K _ ys (snd (@run_lines T K xs st)))%list;
   incremental_no_future_line_dependence :
     forall xs ys ys' st,
       firstn (List.length (@committed T K xs st))
-        (@parse_lines T K (xs ++ ys)%list st) =
+        (@parse_lines T K _ (xs ++ ys)%list st) =
       firstn (List.length (@committed T K xs st))
-        (@parse_lines T K (xs ++ ys')%list st);
+        (@parse_lines T K _ (xs ++ ys')%list st);
   incremental_prefix_state_suffices :
     forall xs xs' ys st,
       @run_lines T K xs st = @run_lines T K xs' st ->
-      @parse_lines T K (xs ++ ys)%list st =
-      @parse_lines T K (xs' ++ ys)%list st
+      @parse_lines T K _ (xs ++ ys)%list st =
+      @parse_lines T K _ (xs' ++ ys)%list st
 }.
 
 Definition block_incremental (T : dtable) : invariant bconfig :=
@@ -349,7 +349,7 @@ Theorem hard_wrap_one_para :
   forall a ls,
     classify a = KText ->
     forallb nonblank ls = true ->
-    @parse_lines T K (a :: ls) (PPara []) =
+    @parse_lines T K _ (a :: ls) (PPara []) =
     [mk (Para (@para_inlines T (map drop_leading_ws (a :: ls))))].
 Proof.
   intros T K Hn a ls Ha Hls.
@@ -368,9 +368,9 @@ Theorem hard_wrap_para_then_rest :
     classify a = KText ->
     forallb nonblank ls = true ->
     is_blank b = true ->
-    @parse_lines T K ((a :: ls) ++ b :: rest)%list (PPara []) =
+    @parse_lines T K _ ((a :: ls) ++ b :: rest)%list (PPara []) =
     mk (Para (@para_inlines T (map drop_leading_ws (a :: ls))))
-    :: @parse_lines T K rest (PPara []).
+    :: @parse_lines T K _ rest (PPara []).
 Proof.
   intros T K Hn a ls b rest Ha Hls Hb.
   apply parse_lines_para_run_blank; try assumption;
@@ -440,7 +440,7 @@ Proof. split; [reflexivity | split; reflexivity]. Qed.
 
 (* The five shapes the rationale names, all as continuation lines. *)
 Example djot_wrap_keeps_one_block :
-  List.length (@parse_blocks djot_table djot_bconfig
+  List.length (@parse_blocks djot_table djot_bconfig _
     "text
 - item
 # not a heading
@@ -453,7 +453,7 @@ Proof. vm_compute. reflexivity. Qed.
 (* The Markdown-facing profile is deliberately not wrap-neutral: it sets
    both fields, and a bullet on a continuation line ends the paragraph. *)
 Example markdown_wrap_splits :
-  List.length (@parse_blocks djot_table markdown_bconfig "text
+  List.length (@parse_blocks djot_table markdown_bconfig _ "text
 - item
 ") = 2.
 Proof. vm_compute. reflexivity. Qed.
@@ -508,8 +508,8 @@ to carry it.  See .project/260901.knob-isolation.md. *)
 Theorem with_tables_opens_only_rows :
   forall T enabled K descend ind l k,
     (forall r, k <> KRow r) ->
-    @open_line T (with_tables enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_tables enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
@@ -518,8 +518,8 @@ Qed.
 Theorem with_divs_opens_only_divs :
   forall T enabled K descend ind l k,
     (forall len cls, k <> KDiv len cls) ->
-    @open_line T (with_divs enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_divs enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
@@ -528,8 +528,8 @@ Qed.
 Theorem with_block_attrs_opens_only_attrs :
   forall T enabled K descend ind l k,
     (forall ap, k <> KAttr ap) ->
-    @open_line T (with_block_attrs enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_block_attrs enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
@@ -538,8 +538,8 @@ Qed.
 Theorem with_block_footnotes_opens_only_footnotes :
   forall T enabled K descend ind l k,
     (forall lbl rest, k <> KFoot lbl rest) ->
-    @open_line T (with_block_footnotes enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_block_footnotes enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
@@ -548,8 +548,8 @@ Qed.
 Theorem with_tasks_opens_only_lists :
   forall T enabled K descend ind l k,
     (forall sty core chk rest, k <> KList sty core chk rest) ->
-    @open_line T (with_tasks enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_tasks enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. eapply H. reflexivity.
@@ -558,20 +558,20 @@ Qed.
 (* The other three cannot change what any line opens, at any kind. *)
 Theorem with_deflists_opens_nothing :
   forall T enabled K descend ind l k,
-    @open_line T (with_deflists enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_deflists enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
 Theorem with_raw_blocks_opens_nothing :
   forall T enabled K descend ind l k,
-    @open_line T (with_raw_blocks enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_raw_blocks enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
 Theorem with_heading_continuation_opens_nothing :
   forall T enabled K descend ind l k,
-    @open_line T (with_heading_continuation enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_heading_continuation enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
 (* Keys are read at a text line and nowhere else, which is the block-level
@@ -580,8 +580,8 @@ Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 Theorem with_keyed_opens_only_text :
   forall T enabled K descend ind l k,
     k <> KText ->
-    @open_line T (with_keyed enabled K) descend ind l k
-    = @open_line T K descend ind l k.
+    @open_line T (with_keyed enabled K) _ descend ind l k
+    = @open_line T K _ descend ind l k.
 Proof.
   intros T enabled K descend ind l k H.
   destruct k; try reflexivity. exfalso. apply H. reflexivity.
@@ -671,65 +671,65 @@ Definition djot_off (k : bool -> bconfig -> bconfig) : bconfig :=
   k false djot_bconfig.
 
 Example tables_have_an_effect :
-  @parse_blocks djot_table djot_bconfig "| a |
-" <> @parse_blocks djot_table (djot_off with_tables) "| a |
+  @parse_blocks djot_table djot_bconfig _ "| a |
+" <> @parse_blocks djot_table (djot_off with_tables) _ "| a |
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example divs_have_an_effect :
-  @parse_blocks djot_table djot_bconfig ":::
+  @parse_blocks djot_table djot_bconfig _ ":::
 x
 :::
-" <> @parse_blocks djot_table (djot_off with_divs) ":::
+" <> @parse_blocks djot_table (djot_off with_divs) _ ":::
 x
 :::
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example block_attrs_have_an_effect :
-  @parse_blocks djot_table djot_bconfig "{#i}
+  @parse_blocks djot_table djot_bconfig _ "{#i}
 para
-" <> @parse_blocks djot_table (djot_off with_block_attrs) "{#i}
+" <> @parse_blocks djot_table (djot_off with_block_attrs) _ "{#i}
 para
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example block_footnotes_have_an_effect :
-  @parse_blocks djot_table djot_bconfig "[^1]: note
-" <> @parse_blocks djot_table (djot_off with_block_footnotes) "[^1]: note
+  @parse_blocks djot_table djot_bconfig _ "[^1]: note
+" <> @parse_blocks djot_table (djot_off with_block_footnotes) _ "[^1]: note
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example tasks_have_an_effect :
-  @parse_blocks djot_table djot_bconfig "- [ ] x
-" <> @parse_blocks djot_table (djot_off with_tasks) "- [ ] x
+  @parse_blocks djot_table djot_bconfig _ "- [ ] x
+" <> @parse_blocks djot_table (djot_off with_tasks) _ "- [ ] x
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example deflists_have_an_effect :
-  @parse_blocks djot_table djot_bconfig ": term
+  @parse_blocks djot_table djot_bconfig _ ": term
 
   def
-" <> @parse_blocks djot_table (djot_off with_deflists) ": term
+" <> @parse_blocks djot_table (djot_off with_deflists) _ ": term
 
   def
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example raw_blocks_have_an_effect :
-  @parse_blocks djot_table djot_bconfig "```=html
+  @parse_blocks djot_table djot_bconfig _ "```=html
 <b>
 ```
-" <> @parse_blocks djot_table (djot_off with_raw_blocks) "```=html
+" <> @parse_blocks djot_table (djot_off with_raw_blocks) _ "```=html
 <b>
 ```
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
 
 Example heading_continuation_has_an_effect :
-  @parse_blocks djot_table djot_bconfig "# a
+  @parse_blocks djot_table djot_bconfig _ "# a
 # b
-" <> @parse_blocks djot_table (djot_off with_heading_continuation) "# a
+" <> @parse_blocks djot_table (djot_off with_heading_continuation) _ "# a
 # b
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.

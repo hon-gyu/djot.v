@@ -104,7 +104,7 @@ Proof. intros l rest st bs st' H. cbn [parse_lines]. rewrite H. reflexivity. Qed
 Lemma parse_lines_nil_cons :
   forall c cur',
     parse_lines [] (PPara (c :: cur')) =
-    [mk (Para (para_inlines (rev (c :: cur'))))].
+    [mk (Para (para_inlines (line_texts (rev (c :: cur')))))].
 Proof. reflexivity. Qed.
 
 Lemma parse_lines_blank_nil :
@@ -118,7 +118,8 @@ Qed.
 Lemma parse_lines_blank_cons :
   forall l rest c cur', classify l = KBlank ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
-  mk (Para (para_inlines (rev (c :: cur')))) :: parse_lines rest (PPara []).
+  mk (Para (para_inlines (line_texts (rev (c :: cur')))))
+  :: parse_lines rest (PPara []).
 Proof.
   intros l rest c cur' H.
   rewrite (parse_lines_step _ _ _ _ _ (step_para_flush _ _ _ H)). reflexivity.
@@ -154,7 +155,7 @@ Lemma parse_lines_text :
   forall l rest cur, classify l = KText -> bcuts l = false ->
   keyless l = true ->
   parse_lines (l :: rest) (PPara cur) =
-  parse_lines rest (PPara (drop_leading_ws l :: cur)).
+  parse_lines rest (PPara (remember_line (drop_leading_ws l) :: cur)).
 Proof.
   intros l rest cur H Hc Hk. destruct cur as [|c cur'].
   - rewrite (parse_lines_step _ _ _ _ _
@@ -171,7 +172,8 @@ Lemma parse_lines_cont :
   forall l rest c cur',
     classify l <> KBlank -> bcuts l = false ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
-  parse_lines rest (PPara (drop_leading_ws l :: c :: cur')).
+  parse_lines rest
+    (PPara (remember_line (drop_leading_ws l) :: c :: cur')).
 Proof.
   intros l rest c cur' H Hi.
   rewrite (parse_lines_step _ _ _ _ _ (step_para_cont _ _ _ H Hi)). reflexivity.
@@ -257,13 +259,14 @@ Fence equations
 *)
 
 Lemma parse_lines_fence_eof :
-  forall f ind acc, parse_lines [] (PFence f ind acc) = [fence_block f (rev acc)].
+  forall f ind acc,
+    parse_lines [] (PFence f ind acc) = [fence_block f (line_texts (rev acc))].
 Proof. reflexivity. Qed.
 
 Lemma parse_lines_fence_close :
   forall l rest f ind acc, fence_close f l = true ->
   parse_lines (l :: rest) (PFence f ind acc) =
-  fence_block f (rev acc) :: parse_lines rest (PPara []).
+  fence_block f (line_texts (rev acc)) :: parse_lines rest (PPara []).
 Proof.
   intros l rest f ind acc H.
   rewrite (parse_lines_step _ _ _ _ _ (step_fence_close _ _ _ _ H)). reflexivity.
@@ -272,7 +275,8 @@ Qed.
 Lemma parse_lines_fence_content :
   forall l rest f ind acc, fence_close f l = false ->
   parse_lines (l :: rest) (PFence f ind acc) =
-  parse_lines rest (PFence f ind (drop_ws_upto ind l :: acc)).
+  parse_lines rest
+    (PFence f ind (remember_line (drop_ws_upto ind l) :: acc)).
 Proof.
   intros l rest f ind acc H.
   rewrite (parse_lines_step _ _ _ _ _ (step_fence_content _ _ _ _ H)). reflexivity.
@@ -290,7 +294,9 @@ Lemma parse_lines_cont_seed :
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines (ls ++ tail)%list (PPara (c :: cur')) =
-    parse_lines tail (PPara (rev (map drop_leading_ws ls) ++ (c :: cur'))%list).
+    parse_lines tail
+      (PPara (remember_lines (rev (map drop_leading_ws ls))
+                ++ (c :: cur'))%list).
 Proof.
   induction ls as [|l ls IH]; intros tail c cur' H Hi.
   - reflexivity.
@@ -303,7 +309,8 @@ Proof.
       by (first [ intros E; rewrite (classify_kblank_blank _ E) in Hl; discriminate
                 | exact Hi1 ]).
     rewrite IH by (exact Hls || exact His).
-    simpl rev. rewrite <- app_assoc. reflexivity.
+    simpl rev. unfold remember_lines. rewrite map_app. cbn [map].
+    rewrite <- app_assoc. reflexivity.
 Qed.
 
 (* Opening a paragraph with a text line, then feeding its remaining lines. *)
@@ -315,13 +322,14 @@ Lemma parse_lines_para_seed :
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
     parse_lines ((a :: ls) ++ tail)%list (PPara []) =
-    parse_lines tail (PPara (rev (map drop_leading_ws (a :: ls)))).
+    parse_lines tail
+      (PPara (remember_lines (rev (map drop_leading_ws (a :: ls))))).
 Proof.
   intros a ls tail Ha Hcut Hkey Hls His.
   change ((a :: ls) ++ tail)%list with (a :: (ls ++ tail))%list.
   rewrite parse_lines_text by (exact Ha || exact Hcut || exact Hkey).
   rewrite parse_lines_cont_seed by (exact Hls || exact His).
-  reflexivity.
+  f_equal. unfold remember_lines. cbn [map rev]. rewrite map_app. reflexivity.
 Qed.
 
 (* The paragraph run, closed.  A text line and any run of nonblank lines
@@ -346,7 +354,11 @@ Proof.
   destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
   - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
     cbn in E. discriminate.
-  - cbn [finish]. rewrite <- E, rev_involutive. reflexivity.
+  - unfold remember_lines. cbn [finish]. cbn [map]. rewrite line_texts_rev.
+    cbn [line_texts remember_line]. fold (remember_lines cur).
+    unfold line_texts at 1. cbn [map snd remember_line].
+    fold (line_texts (remember_lines cur)). rewrite line_texts_remember_lines.
+    rewrite <- E, rev_involutive. reflexivity.
 Qed.
 
 (* The same run with a document after it.  The blank line is what ends
@@ -369,8 +381,13 @@ Proof.
   destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
   - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
     cbn in E. discriminate.
-  - rewrite (parse_lines_step _ _ _ _ _
+  - unfold remember_lines. cbn [map].
+    rewrite (parse_lines_step _ _ _ _ _
                (step_para_flush _ _ _ (classify_blank _ Hb))).
+    rewrite line_texts_rev. cbn [line_texts remember_line].
+    fold (remember_lines cur). unfold line_texts at 1.
+    cbn [map snd remember_line]. fold (line_texts (remember_lines cur)).
+    rewrite line_texts_remember_lines.
     rewrite <- E, rev_involutive. reflexivity.
 Qed.
 
@@ -379,7 +396,9 @@ Lemma parse_lines_fence_seed :
   forall ls tail f ind acc,
     forallb (fun l => negb (fence_close f l)) ls = true ->
     parse_lines (ls ++ tail)%list (PFence f ind acc) =
-    parse_lines tail (PFence f ind (rev (map (drop_ws_upto ind) ls) ++ acc)%list).
+    parse_lines tail
+      (PFence f ind
+        (remember_lines (rev (map (drop_ws_upto ind) ls)) ++ acc)%list).
 Proof.
   induction ls as [|l ls IH]; intros tail f ind acc H.
   - reflexivity.
@@ -388,7 +407,8 @@ Proof.
     change ((l :: ls) ++ tail)%list with (l :: (ls ++ tail))%list.
     rewrite parse_lines_fence_content by exact Hl.
     rewrite IH by exact Hls.
-    simpl rev. rewrite <- app_assoc. reflexivity.
+    simpl rev. unfold remember_lines. rewrite map_app. cbn [map].
+    rewrite <- app_assoc. reflexivity.
 Qed.
 
 (*
@@ -459,7 +479,9 @@ Lemma parse_lines_heading_seed :
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
-    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+    parse_lines tail
+      (PHeading lvl
+        (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros lvl ls. induction ls as [|a ls IH];
     intros tail cur Hcontinues Hlvl H.
@@ -471,7 +493,8 @@ Proof.
                (classify_canonical_heading lvl a Hlvl)).
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
-    cbn [rev map]. rewrite <- app_assoc. reflexivity.
+    cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
+    rewrite <- app_assoc. reflexivity.
 Qed.
 
 (* A canonical single-line heading has no continuation lines to consume, so
@@ -483,7 +506,9 @@ Lemma parse_lines_heading_seed_ok :
     1 <= lvl ->
     forallb nonblank ls = true ->
     parse_lines (map (heading_line lvl) ls ++ tail)%list (PHeading lvl cur) =
-    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+    parse_lines tail
+      (PHeading lvl
+        (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros lvl ls tail cur Hmode Hlvl Hlines.
   destruct bheading_continues eqn:Hcontinues.
@@ -504,7 +529,9 @@ Lemma parse_lines_heading_seed_pad :
     forallb nonblank ls = true ->
     parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
                 (PHeading lvl cur) =
-    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+    parse_lines tail
+      (PHeading lvl
+        (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros pad Hpad lvl ls. induction ls as [|a ls IH];
     intros tail cur Hcontinues Hlvl H.
@@ -516,7 +543,8 @@ Proof.
                (classify_canonical_heading_pad pad lvl a Hpad Hlvl)).
     unfold push_text. rewrite Ha.
     rewrite IH by assumption.
-    cbn [rev map]. rewrite <- app_assoc. reflexivity.
+    cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
+    rewrite <- app_assoc. reflexivity.
 Qed.
 
 Lemma parse_lines_heading_seed_pad_ok :
@@ -527,7 +555,9 @@ Lemma parse_lines_heading_seed_pad_ok :
     forallb nonblank ls = true ->
     parse_lines (map (fun l => (pad ++ heading_line lvl l)%string) ls ++ tail)%list
                 (PHeading lvl cur) =
-    parse_lines tail (PHeading lvl (rev (map drop_leading_ws ls) ++ cur)%list).
+    parse_lines tail
+      (PHeading lvl
+        (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
 Proof.
   intros pad Hpad lvl ls tail cur Hmode Hlvl Hlines.
   destruct bheading_continues eqn:Hcontinues.

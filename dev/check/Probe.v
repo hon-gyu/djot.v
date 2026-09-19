@@ -118,15 +118,16 @@ Definition s_tcap (c : tcap) : string :=
   match c with
   | TOpen => "-"
   | TAfterBlank => "b"
-  | TCaption ls => "cap" ++ s_list s_str ls
+  | TCaption ls => "cap" ++ s_list s_str (map snd ls)
   end.
 
 Fixpoint show_pstate (st : pstate) : string :=
   match st with
-  | PPara cur => "Para" ++ s_list s_str cur
-  | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str cur
-  | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str cur
-  | PFence f ind acc => "Fence" ++ s_fence f ++ s_nat ind ++ s_list s_str acc
+  | PPara cur => "Para" ++ s_list s_str (map snd cur)
+  | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str (map snd cur)
+  | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str (map snd cur)
+  | PFence f ind acc =>
+      "Fence" ++ s_fence f ++ s_nat ind ++ s_list s_str (map snd acc)
   | PQuote done inner => "Quote" ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
   | PDiv len cls done inner =>
       "Div" ++ s_nat len ++ s_str cls ++ s_blocks done
@@ -134,7 +135,8 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PList ls done inner =>
       "List" ++ s_lstate ls ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
   | PAttr pend ind ap slices =>
-      "Attr" ++ s_attr pend ++ s_nat ind ++ s_aparser ap ++ s_list s_str slices
+      "Attr" ++ s_attr pend ++ s_nat ind ++ s_aparser ap
+      ++ s_list s_str (map snd slices)
   | PRef ind lbl val => "Ref" ++ s_nat ind ++ s_str lbl ++ s_str val
   | PFoot ind lbl done inner =>
       "Foot" ++ s_nat ind ++ s_str lbl ++ s_blocks done
@@ -430,14 +432,14 @@ Definition is_suffix (t l : string) : bool :=
 
 (* The strings a state keeps for a later line-level reading: paragraph,
    heading and caption lines, fence content, recovery slices. *)
-Fixpoint line_texts (st : pstate) : list string :=
+Fixpoint state_line_texts (st : pstate) : list string :=
   match st with
-  | PPara cur | PParaOff _ cur | PHeading _ cur => cur
-  | PFence _ _ acc => acc
-  | PAttr _ _ _ slices => slices
-  | PTable _ (TCaption ls) => ls
+  | PPara cur | PParaOff _ cur | PHeading _ cur => map snd cur
+  | PFence _ _ acc => map snd acc
+  | PAttr _ _ _ slices => map snd slices
+  | PTable _ (TCaption ls) => map snd ls
   | PQuote _ i | PDiv _ _ _ i | PList _ _ i | PFoot _ _ _ i | PPend _ i
-  | PKey _ _ i => line_texts i
+  | PKey _ _ i => state_line_texts i
   | _ => []
   end.
 
@@ -462,7 +464,7 @@ Definition texts_suffix (f : pstate -> list string) (p : pstate * string)
 (* Every stored line is a suffix of the line it came from, untrimmed at
    the end, so its column is `length l - length t` and needs no field.
    Expect all-pass. *)
-Compute report show_sl (fun p => holds (texts_suffix line_texts p)) sl_pool.
+Compute report show_sl (fun p => holds (texts_suffix state_line_texts p)) sl_pool.
 
 (* Table cells are the exception: trimmed infixes.  Expect failures, all
    on `| a |`; a cell's position has to be recorded by the row scanner. *)
@@ -479,7 +481,7 @@ Fixpoint run_tagged (i : nat) (ls : list string) (st : pstate)
   | l :: rest =>
       let st' := snd (step l st) in
       map (fun t => (i, String.length t, String.length l - String.length t))
-          (new_texts line_texts st st')
+          (new_texts state_line_texts st st')
       ++ run_tagged (S i) rest st'
   end.
 

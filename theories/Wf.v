@@ -2381,7 +2381,8 @@ Lemma caption_of_wf :
     end = true.
 Proof.
   intros [| |ls]; try reflexivity.
-  cbn [caption_of]. destruct (nonempty (para_inlines (rev ls))) eqn:E;
+  cbn [caption_of].
+  destruct (nonempty (para_inlines (line_texts (rev ls)))) eqn:E;
     [|reflexivity].
   rewrite E, para_inlines_wf. reflexivity.
 Qed.
