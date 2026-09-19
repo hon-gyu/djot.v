@@ -851,6 +851,13 @@ Proof.
   cbn [map fst snd]. rewrite H. reflexivity.
 Qed.
 
+(* The spans of a list's items, in source order, parallel to the items
+   themselves: the one still open is the last.  A definition list's
+   items each split further into a term and a definition, which is a
+   `PDefItems` and is not built yet. *)
+Definition list_item_spans (ls : list_state) : parts :=
+  PItems (map extent_span (rev (ls_item_extent ls :: ls_item_extents ls))).
+
 (* The list a `PList` closes to.  djot.js takes the first surviving
    candidate -- "take first if ambiguous", parse.ts:817 -- which is why
    `styles_of_core` lists the roman reading before the alpha one.  The
@@ -934,7 +941,8 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (div_block cls (rev done ++ finish inner)%list)]
   | PList ls done inner =>
-      [set_pos (prov_at (extent_span (ls_extent ls)))
+      [set_pos (Provenance (extent_span (ls_extent ls)) []
+                  (list_item_spans ls))
          (list_block ls (rev done ++ finish inner)%list)]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
@@ -990,7 +998,8 @@ Lemma finish_list_styles :
   forall S ls done inner,
     ls_styles ls = S ->
     finish (PList ls done inner)
-    = [set_pos (prov_at (extent_span (ls_extent ls)))
+    = [set_pos (Provenance (extent_span (ls_extent ls)) []
+                  (list_item_spans ls))
          (styles_list_checked S (if ls_loose ls then Loose else Tight)
             (rev (ls_check ls :: ls_checks ls))
             (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
@@ -1003,7 +1012,8 @@ Lemma finish_list_marker :
   forall m ls done inner,
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
-    = [set_pos (prov_at (extent_span (ls_extent ls)))
+    = [set_pos (Provenance (extent_span (ls_extent ls)) []
+                  (list_item_spans ls))
          (marker_list_checked m (if ls_loose ls then Loose else Tight)
             (rev (ls_check ls :: ls_checks ls))
             (rev ((rev done ++ finish inner)%list :: ls_items ls)))].

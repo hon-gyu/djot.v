@@ -197,6 +197,56 @@ para
 Proof. vm_compute. reflexivity. Qed.
 
 (*
+Items, the first of the parts
+-----------------------------
+
+A list item is not a node, so its range lives in the parent's
+provenance, parallel to the children (plan F9).  A definition list's
+item splits further into a term and a definition; that is `PDefItems`
+and is not built yet, so a `:` list reports the item as a whole.
+*)
+
+Definition item_ranges (s : string) : list (list (nat * nat)) :=
+  let lines := line_table s in
+  map (fun n =>
+         match node_provenance n with
+         | Some p =>
+             match part_spans p with
+             | PItems rs => map (range_of lines) rs
+             | _ => []
+             end
+         | None => []
+         end)
+      (Located s).
+
+(* list_item [0,8), list_item [9,12) *)
+Example p_bullet_items : item_ranges "- a
+
+  b
+- c
+" = [[(0, 8); (9, 12)]].
+Proof. vm_compute. reflexivity. Qed.
+
+(* list_item [0,6), [7,13) *)
+Example p_ordered_items : item_ranges "1. one
+2. two
+" = [[(0, 6); (7, 13)]].
+Proof. vm_compute. reflexivity. Qed.
+
+(* task_list_item [0,7), [8,15) *)
+Example p_task_items : item_ranges "- [ ] t
+- [x] d
+" = [[(0, 7); (8, 15)]].
+Proof. vm_compute. reflexivity. Qed.
+
+(* definition_list_item [0,13) *)
+Example p_def_item : item_ranges ": term
+
+  def
+" = [[(0, 13)]].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
 Sections, from the document pass
 --------------------------------
 
