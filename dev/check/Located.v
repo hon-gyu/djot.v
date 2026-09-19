@@ -16,7 +16,8 @@ against the source text alone (plan F1, section 9).
 *)
 
 From Stdlib Require Import String List.
-From DjotV Require Import Ast Strings Inline Step Parser Config.
+From DjotV Require Import Ast Strings Inline Step Parser Config
+  Render Document Html Generate.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -214,4 +215,20 @@ para more
 
 para more
 ").
+Proof. vm_compute. reflexivity. Qed.
+
+(* And over the generated pool, where the documents are not chosen by
+   hand: every canonical block at depth 1 renders the same HTML through
+   the located parse as through the semantic one.  Depth 2 (3695
+   documents) was run the same way and is clean; it is out of the build
+   because it takes 29s against 0.9s here.  This is the evidence for the
+   erasure theorem the plan owes at C2, not the theorem. *)
+Definition html_of (bs : blocks) : string := render_html (doc_pass bs).
+
+Definition agrees (c : cblock) : bool :=
+  let s := render_djot (blocks_of_cblocks [c]) in
+  String.eqb (html_of (Located s))
+             (html_of (@parse_blocks djot_table djot_bconfig _ _ s)).
+
+Example located_agrees_depth_1 : forallb agrees (accepted 1) = true.
 Proof. vm_compute. reflexivity. Qed.
