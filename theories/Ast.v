@@ -376,7 +376,34 @@ Lemma add_roles_head_off :
     pos_records = false -> add_roles_head rs ns = ns.
 Proof. intros. unfold add_roles_head. rewrite H0. reflexivity. Qed.
 
+(* The hull of what a list of nodes covers: the first one's start to the
+   last one's stop.  A `Section` is built by the document pass out of a
+   heading and the blocks under it, so its range is theirs; it is a
+   region of the source, not an invented span. *)
+Definition hull_pos `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
+  if pos_records then
+    match ns with
+    | [] => NoPos
+    | first :: _ =>
+        match node_provenance first, node_provenance (List.last ns first) with
+        | Some p, Some q =>
+            SomePos (prov_at (SrcSpan (span_start (node_span p))
+                                      (span_stop (node_span q))))
+        | _, _ => NoPos
+        end
+    end
+  else NoPos.
+
+Lemma hull_pos_off :
+  forall `{PosPolicy} A (ns : list (node A)),
+    pos_records = false -> hull_pos ns = NoPos.
+Proof. intros. unfold hull_pos. rewrite H0. reflexivity. Qed.
+
 (* At the semantic instance the wrappers are the identity. *)
+Lemma hull_pos_semantic :
+  forall A (ns : list (node A)), @hull_pos semantic_pos A ns = NoPos.
+Proof. reflexivity. Qed.
+
 Lemma add_roles_semantic :
   forall A rs (n : node A), @add_roles semantic_pos A rs n = n.
 Proof. reflexivity. Qed.
@@ -399,7 +426,7 @@ Proof. reflexivity. Qed.
    `rewrite` is syntactic, so it needs saying. *)
 Ltac nopos :=
   rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
-    ?add_roles_head_semantic.
+    ?add_roles_head_semantic, ?hull_pos_semantic.
 
 Lemma set_pos_located :
   forall A (p : provenance) (q : pos) (a : attr) (x : A),

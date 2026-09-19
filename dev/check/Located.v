@@ -197,6 +197,57 @@ para
 Proof. vm_compute. reflexivity. Qed.
 
 (*
+Sections, from the document pass
+--------------------------------
+
+A section is not built from a line, so its range is the hull of the
+heading and the blocks under it.  `walk` follows `Section` here as it
+follows a quote.
+*)
+
+Fixpoint doc_walk (d : nat) (lines : list source_line) (bs : blocks)
+  : list (nat * nat) :=
+  match d with
+  | 0 => []
+  | S d' =>
+      match bs with
+      | [] => []
+      | n :: rest =>
+          let here :=
+            match node_provenance n with
+            | Some p => range_of lines (node_span p)
+            | None => (999, 999)
+            end in
+          let kids :=
+            match node_contents n with
+            | Section bs' | BlockQuote bs' | Div bs' => doc_walk d' lines bs'
+            | _ => []
+            end in
+          (here :: kids ++ doc_walk d' lines rest)%list
+      end
+  end.
+
+Definition doc_ranges (s : string) : list (nat * nat) :=
+  doc_walk 20 (line_table s)
+    (doc_blocks (@parse_doc_located djot_table djot_bconfig s)).
+
+(* section [0,16), heading [0,10), para [12,16) *)
+Example r_section : doc_ranges "# Head *x*
+
+para
+" = [(0, 16); (0, 10); (12, 16)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* section [0,17), heading [0,5), section [6,17), heading [6,17) -- the
+   inner heading runs on to its continuation line, as it does in
+   djot.js, and the section it opens is the same range. *)
+Example r_nested_sections : doc_ranges "# one
+## two
+text
+" = [(0, 17); (0, 5); (6, 17); (6, 17)].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
 The semantic parse is untouched
 -------------------------------
 

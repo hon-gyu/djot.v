@@ -4208,7 +4208,7 @@ Proof.
     apply andb_true_iff in Hhd as [Hne Hacc].
     cbn [close_ge]. destruct (Nat.leb lvl l).
     + apply IH; [|exact Houter].
-      rewrite wf_blocks_cons. cbn [node_contents].
+      rewrite wf_blocks_cons, section_node_nopos. cbn [node_contents].
       rewrite wf_block_section, wf_blocks_rev, wf_blocks_app, Hp, Hacc.
       cbn [andb]. rewrite andb_true_r.
       (* the closed section is nonempty: its accumulator already was *)
@@ -4236,7 +4236,7 @@ Proof.
     apply andb_true_iff in Hhd as [Hne Hacc].
     rewrite close_all_cons by discriminate.
     apply IH; [|exact Houter].
-    rewrite wf_blocks_cons. cbn [node_contents].
+    rewrite wf_blocks_cons, section_node_nopos. cbn [node_contents].
     rewrite wf_block_section, wf_blocks_rev, wf_blocks_app, Hp, Hacc.
     cbn [andb]. rewrite andb_true_r.
     rewrite nonempty_rev, andb_true_r. apply nonempty_app_r. exact Hne.

@@ -559,6 +559,14 @@ Section nesting
    the attributes moved off that heading, and the blocks collected so far
    in reverse.  The bottom entry is the document, at level 0: no heading
    level is <= 0, so it is never closed and the stack is never empty. *)
+(* The section builder and the pass are the only parts of this file that
+   build a node of their own, so they are the only ones the position
+   policy reaches.  Closing the section before the lemmas below leaves
+   every one of them meaning the semantic instance, which is what they
+   were about. *)
+Section WithPolicy.
+Context {P : PosPolicy}.
+
 Definition sect_state : Type := list (nat * attr * blocks).
 
 Definition sect_init : sect_state := [(0, [], [])].
@@ -568,6 +576,11 @@ Definition sect_init : sect_state := [(0, [], [])].
    section that encloses it.  Recursion is on the stack, so this is
    structural — nesting the current section into its parent *before*
    testing the parent is what the `pending` argument buys. *)
+(* A section covers its heading and everything under it, which is
+   exactly the children it is built from. *)
+Definition section_node (a : attr) (bs : blocks) : node block :=
+  Node (hull_pos bs) a (Section bs).
+
 Fixpoint close_ge (lvl : nat) (pending : blocks) (stk : sect_state)
   : sect_state :=
   match stk with
@@ -575,7 +588,7 @@ Fixpoint close_ge (lvl : nat) (pending : blocks) (stk : sect_state)
   | [(l, a, acc)] => [(l, a, (pending ++ acc)%list)]
   | (l, a, acc) :: outer =>
       if Nat.leb lvl l
-      then close_ge lvl [Node NoPos a (Section (rev (pending ++ acc)))] outer
+      then close_ge lvl [section_node a (rev (pending ++ acc))] outer
       else ((l, a, (pending ++ acc)%list) :: outer)
   end.
 
@@ -592,7 +605,7 @@ Lemma close_ge_cons :
     outer <> [] ->
     close_ge lvl pending ((l, a, acc) :: outer)
     = if Nat.leb lvl l
-      then close_ge lvl [Node NoPos a (Section (rev (pending ++ acc)))] outer
+      then close_ge lvl [section_node a (rev (pending ++ acc))] outer
       else ((l, a, (pending ++ acc)%list) :: outer).
 Proof. intros lvl pending l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
 
@@ -605,14 +618,14 @@ Fixpoint close_all (pending : blocks) (stk : sect_state) : sect_state :=
   | [] => []
   | [(l, a, acc)] => [(l, a, (pending ++ acc)%list)]
   | (l, a, acc) :: outer =>
-      close_all [Node NoPos a (Section (rev (pending ++ acc)))] outer
+      close_all [section_node a (rev (pending ++ acc))] outer
   end.
 
 Lemma close_all_cons :
   forall pending l a acc outer,
     outer <> [] ->
     close_all pending ((l, a, acc) :: outer)
-    = close_all [Node NoPos a (Section (rev (pending ++ acc)))] outer.
+    = close_all [section_node a (rev (pending ++ acc))] outer.
 Proof. intros pending l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
 
 Definition sect_push (b : node block) (stk : sect_state) : sect_state :=
@@ -1069,6 +1082,20 @@ Definition doc_pass (bs : blocks) : doc :=
 (** Parse a Djot document: first run the line fold, then perform
     whole-document resolution. *)
 Definition parse_doc (s : string) : doc := doc_pass (parse_blocks s).
+
+End WithPolicy.
+
+(* Outside the policy section every mention means the semantic instance,
+   where a section is the node it always was. *)
+Lemma section_node_nopos :
+  forall a bs, @section_node semantic_pos a bs = Node NoPos a (Section bs).
+Proof. reflexivity. Qed.
+
+Local Ltac nosect := rewrite ?section_node_nopos.
+
+(* The located document: the same pass over the located block parse. *)
+Definition parse_doc_located (s : string) : doc :=
+  @doc_pass located_pos (parse_blocks_located s).
 
 (*
 Erasure
@@ -2244,7 +2271,7 @@ Proof.
     rewrite stack_erase_cons by discriminate.
     rewrite close_ge_cons by discriminate. destruct (Nat.leb lvl l).
     + rewrite (IH _ _ Houter).
-      cbn [undo_pass rev app]. rewrite app_nil_r.
+      nosect. cbn [undo_pass rev app]. rewrite app_nil_r.
       rewrite undo_pass_section, rev_app_distr, undo_pass_app.
       rewrite set_first_app by exact Hne.
       rewrite app_assoc. reflexivity.
@@ -2281,7 +2308,7 @@ Proof.
     rewrite stack_erase_cons by discriminate.
     rewrite close_all_cons by discriminate.
     rewrite (IH _ Houter).
-    cbn [undo_pass rev app]. rewrite app_nil_r.
+    nosect. cbn [undo_pass rev app]. rewrite app_nil_r.
     rewrite undo_pass_section, rev_app_distr, undo_pass_app.
     rewrite set_first_app by exact Hne.
     rewrite app_assoc. reflexivity.

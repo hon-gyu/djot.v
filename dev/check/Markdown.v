@@ -685,7 +685,7 @@ Theorem md_roundtrip_doc :
     pristine (blocks_of_cblocks cbs) = true ->
     undo_pass
       (doc_blocks
-         (@parse_doc markdown_table markdown_bconfig
+         (@parse_doc markdown_table markdown_bconfig _
             (@render_djot markdown_table (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_doc markdown_table markdown_bconfig). Qed.
@@ -696,7 +696,7 @@ Theorem markdown_like_roundtrip_doc :
     pristine (blocks_of_cblocks cbs) = true ->
     undo_pass
       (doc_blocks
-         (@parse_doc markdown_like_table markdown_bconfig
+         (@parse_doc markdown_like_table markdown_bconfig _
             (@render_djot markdown_like_table (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_doc markdown_like_table markdown_bconfig). Qed.
