@@ -414,3 +414,99 @@ Compute report show_sl
   (fun p => guarded (blank_safe (fst p))
               (negb (key_claims (snd p) (snd (kstep "" (fst p))))))
   keyed_sl.
+
+(*
+Source locations
+================
+
+Two facts `.project/260916.plan.source-locations.md` rests on.  Both run
+over the pools above.
+*)
+
+Definition is_suffix (t l : string) : bool :=
+  Nat.leb (String.length t) (String.length l) &&
+  String.eqb t (substring (String.length l - String.length t)
+                          (String.length t) l).
+
+(* The strings a state keeps for a later line-level reading: paragraph,
+   heading and caption lines, fence content, recovery slices. *)
+Fixpoint line_texts (st : pstate) : list string :=
+  match st with
+  | PPara cur | PParaOff _ cur | PHeading _ cur => cur
+  | PFence _ _ acc => acc
+  | PAttr _ _ _ slices => slices
+  | PTable _ (TCaption ls) => ls
+  | PQuote _ i | PDiv _ _ _ i | PList _ _ i | PFoot _ _ _ i | PPend _ i
+  | PKey _ _ i => line_texts i
+  | _ => []
+  end.
+
+Fixpoint cell_texts (st : pstate) : list string :=
+  match st with
+  | PTable rows _ =>
+      flat_map (fun r => match r with TCells cs => cs | TSep _ => [] end) rows
+  | PQuote _ i | PDiv _ _ _ i | PList _ _ i | PFoot _ _ _ i | PPend _ i
+  | PKey _ _ i => cell_texts i
+  | _ => []
+  end.
+
+Definition new_texts (f : pstate -> list string) (st st' : pstate)
+  : list string :=
+  filter (fun t => negb (existsb (String.eqb t) (f st))) (f st').
+
+Definition texts_suffix (f : pstate -> list string) (p : pstate * string)
+  : bool :=
+  forallb (fun t => is_suffix t (snd p))
+    (new_texts f (fst p) (snd (step (snd p) (fst p)))).
+
+(* Every stored line is a suffix of the line it came from, untrimmed at
+   the end, so its column is `length l - length t` and needs no field.
+   Expect all-pass. *)
+Compute report show_sl (fun p => holds (texts_suffix line_texts p)) sl_pool.
+
+(* Table cells are the exception: trimmed infixes.  Expect failures, all
+   on `| a |`; a cell's position has to be recorded by the row scanner. *)
+Compute report show_sl (fun p => holds (texts_suffix cell_texts p)) sl_pool.
+
+(* Which encoding of a stored line's position survives
+   `quote_uniformity`'s shape, prefixing every line with `> `.  Each new
+   string is recorded at its line index as bytes-to-end-of-line and as
+   column. *)
+Fixpoint run_tagged (i : nat) (ls : list string) (st : pstate)
+  : list (nat * nat * nat) :=
+  match ls with
+  | [] => []
+  | l :: rest =>
+      let st' := snd (step l st) in
+      map (fun t => (i, String.length t, String.length l - String.length t))
+          (new_texts line_texts st st')
+      ++ run_tagged (S i) rest st'
+  end.
+
+Definition quoted (ls : list string) : list string :=
+  map (fun x => "> " ++ x) ls.
+
+Fixpoint nats_eqb (xs ys : list nat) : bool :=
+  match xs, ys with
+  | [], [] => true
+  | x :: xs', y :: ys' => Nat.eqb x y && nats_eqb xs' ys'
+  | _, _ => false
+  end.
+
+Definition loc_docs : list (list string) :=
+  filter (fun ls => negb (Nat.eqb (List.length ls) 0)) seed_prefixes
+  ++ [ ["a"; "b"; "c"]; ["# h"; "a"]; ["``` x"; "  code"; "```"];
+       ["{%"; "c"; "d"]; ["- a"; "  b"]; ["> a"; "b"] ].
+
+Definition same_under_quote (f : nat * nat * nat -> nat) (ls : list string)
+  : bool :=
+  let proj xs := flat_map (fun '((i, _, _) as x) => [i; f x]) xs in
+  nats_eqb (proj (run_tagged 0 (quoted ls) (PPara [])))
+           (proj (run_tagged 0 ls (PPara []))).
+
+(* Bytes to end of line: invariant.  Expect all-pass. *)
+Compute report (String.concat "/")
+  (fun ls => holds (same_under_quote (fun '(_, e, _) => e) ls)) loc_docs.
+(* Column: not.  Expect most to fail. *)
+Compute report (String.concat "/")
+  (fun ls => holds (same_under_quote (fun '(_, _, c) => c) ls)) loc_docs.

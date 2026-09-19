@@ -1796,3 +1796,24 @@ recovery from a failed block attribute spec at all. Reproducing djot.js
 would mean keeping source offsets the parser does not have, to reproduce
 a position slip rather than a rule. **Verdict: `SPEC-GAP`, ours stands**;
 the top-level family is the one worth matching and is closed above.
+
+## 2026-09-19 -- open: a spec after a word that djot.js splits into nodes
+
+| Input | djot.js | ours |
+| --- | --- | --- |
+| `a b\*c{.x} d` | `a b<span class="x">*c</span> d` | `a <span class="x">b*c</span> d` |
+| `a b--c{.x}` | `a b–<span class="x">c</span>` | `a <span class="x">b–c</span>` |
+| `a b'c{.x}` | `a b’<span class="x">c</span>` | `a <span class="x">b’c</span>` |
+
+djot.js attaches an inline spec to the last word of the last node before
+it, and an escape or a smart-punctuation token starts a new `str` node, so
+its "last word" stops at that boundary (`--sourcepos` shows `str "a b"`,
+`str "*c"`). Our text merges across escapes and smart punctuation before
+`oattach_list` runs `last_ws_split`, so the word runs back to the
+whitespace. The apostrophe row makes this ordinary prose (`don't{.x}`).
+
+Found while probing source locations, not measured over a sweep. Matching
+would mean remembering where the last escape or smart-punctuation token
+ended in the pending text, which is the same kind of spot the located
+scanner has to keep for a word split anyway
+(`260916.plan.source-locations.md` F8). Open conformance work, no verdict.
