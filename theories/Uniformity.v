@@ -1111,7 +1111,7 @@ Lemma parse_lines_pend :
 Proof.
   induction ls as [|l rest IH]; intros pend specs st H; [reflexivity|].
   cbn [parse_lines]. rewrite (step_pend_pass l pend specs st H).
-  destruct (step l st) as [bs st'] eqn:Es. cbn [pend_result].
+  destruct (step l st) as [bs st'] eqn:Es. cbn [pend_result]; nopos.
   destruct bs as [|b bs'].
   - cbn [app]. apply IH.
     destruct rest as [|l2 rest']; [exact I|].
@@ -1209,7 +1209,7 @@ Proof.
   pose proof (pend_carriable_ready pinner l H) as Hr.
   rewrite (step_pend_pass l ppend pspecs pinner Hr) in Hempty |- *.
   destruct (step l pinner) as [bs st'] eqn:E. destruct bs as [|b bs].
-  - cbn [pend_result snd key_carriable].
+  - cbn [pend_result snd key_carriable]; nopos.
     pose proof (step_empty_carriable l pinner Hr) as Hc.
     rewrite E in Hc. exact (Hc eq_refl).
   - destruct b as [p a x]. destruct x; discriminate Hempty.

@@ -922,16 +922,16 @@ Fixpoint finish (st : pstate) : blocks :=
          (mk (Para (para_inlines_off k (line_texts (rev cur)))))]
   | PHeading lvl range cur =>
       [set_pos (prov_at (extent_span range)) (heading_block lvl cur)]
-  | PFence f _ range _ acc =>
-      [set_pos (prov_at (extent_span range))
+  | PFence f _ range opener acc =>
+      [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (fence_block f (line_texts (rev acc)))]
   | PTable range rows cap =>
       [set_pos (prov_at (extent_span range)) (table_block (rev rows) cap)]
   | PQuote range done inner =>
       [set_pos (prov_at (extent_span range))
          (mk (BlockQuote (rev done ++ finish inner)%list))]
-  | PDiv _ cls range _ done inner =>
-      [set_pos (prov_at (extent_span range))
+  | PDiv _ cls range opener done inner =>
+      [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (div_block cls (rev done ++ finish inner)%list)]
   | PList ls done inner =>
       [set_pos (prov_at (extent_span (ls_extent ls)))
@@ -941,15 +941,17 @@ Fixpoint finish (st : pstate) : blocks :=
      nothing, which is `{#id}` alone in a document.  An earlier spec's
      attributes were waiting on the block this one turned out to be, so
      the recovered paragraph is what they attach to. *)
-  | PAttr pend _ _ _ ap slices =>
+  | PAttr pend specs _ _ ap slices =>
       if ap_done ap then []
-      else decorate_head pend (finish_para_recover slices)
+      else add_roles_head (attr_roles specs)
+             (decorate_head pend (finish_para_recover slices))
   | PRef range _ lbl val =>
       [set_pos (prov_at (extent_span range)) (ref_block lbl val)]
   | PFoot range _ lbl done inner =>
       [set_pos (prov_at (extent_span range))
          (foot_block lbl (rev done ++ finish inner)%list)]
-  | PPend pend _ inner => decorate_head pend (finish inner)
+  | PPend pend specs inner =>
+      add_roles_head (attr_roles specs) (decorate_head pend (finish inner))
   | PKey range lbl src inner =>
       pos_head (prov_at (extent_span range))
         (key_close lbl src (finish inner))
@@ -1207,7 +1209,7 @@ Definition pend_result (pend : attr) (specs : list span)
   let (bs, st') := r in
   match bs with
   | [] => ([], PPend pend specs st')
-  | _ => (decorate_head pend bs, st')
+  | _ => (add_roles_head (attr_roles specs) (decorate_head pend bs), st')
   end.
 
 (* Pending attributes change what a line emits, never what it leaves
@@ -1587,7 +1589,10 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              fence's own column, that is: the line keeps whatever it is
              indented *past* the opener and nothing before it. *)
           if fence_close f l
-          then ([set_pos (prov_at (extent_span (touch_extent range)))
+          then ([set_pos
+                   (prov_with (extent_span (touch_extent range))
+                      [(ROpenFence, opener);
+                       (RCloseFence, line_span_from l (indent_of l))])
                    (fence_block f (line_texts (rev acc)))], PPara [])
           else ([], PFence f ind (touch_extent range) opener
                       (remember_line (drop_ws_upto (ind - off) l) :: acc))
@@ -1688,7 +1693,10 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              `in_fence` is checked first: inside an open code block a
              `:::` line is content, not a closer. *)
           if (negb (in_fence inner) && div_close len l)%bool
-          then ([set_pos (prov_at (extent_span (touch_extent range)))
+          then ([set_pos
+                   (prov_with (extent_span (touch_extent range))
+                      [(ROpenFence, opener);
+                       (RCloseFence, line_span_from l (indent_of l))])
                    (div_block cls (rev done ++ finish inner)%list)], PPara [])
           else
             let (bs, inner') := step_fuel n' off l inner in
@@ -2894,7 +2902,10 @@ The transition, branch by branch
 Lemma step_fence_close :
   forall l f ind range opener acc, fence_close f l = true ->
   step l (PFence f ind range opener acc)
-  = ([set_pos (prov_at (extent_span (touch_extent range)))
+  = ([set_pos
+        (prov_with (extent_span (touch_extent range))
+           [(ROpenFence, opener);
+            (RCloseFence, line_span_from l (indent_of l))])
         (fence_block f (line_texts (rev acc)))], PPara []).
 Proof. intros l f ind range opener acc H. unfold step. cbn [step_fuel open_line]. rewrite H. reflexivity. Qed.
 
@@ -3041,7 +3052,10 @@ Lemma step_div_close :
   forall l len cls range opener done inner,
     in_fence inner = false -> div_close len l = true ->
     step l (PDiv len cls range opener done inner)
-    = ([set_pos (prov_at (extent_span (touch_extent range)))
+    = ([set_pos
+          (prov_with (extent_span (touch_extent range))
+             [(ROpenFence, opener);
+              (RCloseFence, line_span_from l (indent_of l))])
           (div_block cls (rev done ++ finish inner)%list)], PPara []).
 Proof.
   intros l len cls range opener done inner Hf H. unfold step. cbn [step_fuel open_line].
@@ -3840,7 +3854,8 @@ Proof.
      content line strips the pad along with the columns the fence's own
      column asks for -- which is what `fence_cols_ok` leaves room for *)
   { cbn [step_fuel open_line]. rewrite (fence_close_ws_prefix f p l Hp).
-    destruct (fence_close f l); [reflexivity|].
+    destruct (fence_close f l);
+      [rewrite (line_span_from_ws_prefix p l Hp); reflexivity|].
     cbn [fence_cols_ok] in Hcol. apply Nat.leb_le in Hcol.
     replace (fnd - off)
       with (String.length p + (fnd - (String.length p + off))) by lia.
@@ -3886,7 +3901,8 @@ Proof.
   (* div: the pad is invisible to the close test and passes through *)
   { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (div_close_ws_prefix p dlen l Hp).
-    destruct (negb (in_fence dinner) && div_close dlen l)%bool; [reflexivity|].
+    destruct (negb (in_fence dinner) && div_close dlen l)%bool;
+      [rewrite (line_span_from_ws_prefix p l Hp); reflexivity|].
     rewrite (IH p off l dinner Hp Hsafe Hcol). reflexivity. }
   { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (classify_ws_prefix p l Hp).

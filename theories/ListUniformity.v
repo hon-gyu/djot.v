@@ -924,7 +924,7 @@ Proof.
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
     specialize (IH Hsafe).
     destruct (step l pinner) as [bs st'] eqn:Hs.
-    cbn [fst snd] in IH. cbn [pend_result].
+    cbn [fst snd] in IH. cbn [pend_result]; nopos.
     destruct bs as [|b bs'].
     + cbn [fst snd finish app]. rewrite <- IH. reflexivity.
     + cbn [fst snd finish]. rewrite decorate_head_cons_app, <- IH. reflexivity.

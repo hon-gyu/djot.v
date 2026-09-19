@@ -262,12 +262,24 @@ Proof. reflexivity. Qed.
    statement it was before locations existed.  A file that opens no
    policy context resolves `mkpos` to it, which is why nothing outside
    the located driver changes; `Check @thm` on a statement that is meant
-   to hold for every policy is what shows the binder is really there. *)
-Class PosPolicy : Type := PosOf { mkpos : provenance -> pos }.
+   to hold for every policy is what shows the binder is really there.
 
-#[export] Instance semantic_pos : PosPolicy := PosOf (fun _ => NoPos).
+   `pos_records` is the same question asked without a provenance to
+   hand.  A pass that extends provenance a node already carries has to
+   look inside the node, and looking inside it is what stops it reducing
+   against an arbitrary one; asking the policy first is what keeps it an
+   identity.  `pos_off` is the field that makes the answer mean
+   something. *)
+Class PosPolicy : Type := PosOf
+  { mkpos : provenance -> pos
+  ; pos_records : bool
+  ; pos_off : pos_records = false -> forall p, mkpos p = NoPos }.
 
-Definition located_pos : PosPolicy := PosOf SomePos.
+#[export] Instance semantic_pos : PosPolicy :=
+  PosOf (fun _ => NoPos) false (fun _ _ => eq_refl).
+
+Definition located_pos : PosPolicy :=
+  PosOf SomePos true (fun H => ltac:(discriminate H)).
 
 (* The one constructor the parser builds nodes with.  Attributes are
    attached afterwards, as they are today (`add_attr`). *)
@@ -282,6 +294,15 @@ Definition erase_node {A : Type} (n : node A) : node A :=
 (* A node whose provenance is just its range: no authored syntax beside
    it, no non-node parts under it. *)
 Definition prov_at (r : span) : provenance := Provenance r [] PNone.
+
+(* The same with the authored syntax that belongs to the node without
+   widening it: a fence's own lines, an attribute spec. *)
+Definition prov_with (r : span) (rs : list (syntax_role * span))
+  : provenance := Provenance r rs PNone.
+
+(* Attribute specs, in source order, as the roles they become. *)
+Definition attr_roles (specs : list span) : list (syntax_role * span) :=
+  map (fun r => (RAttrSpec, r)) specs.
 
 (* The same, applied to a node already built.  Every block the parser
    assembles is built by a helper that knows the block's shape and not
@@ -319,7 +340,51 @@ Definition pos_head `{PosPolicy} {A : Type} (p : provenance)
          end
   end.
 
+(* Authored syntax that belongs to a node built earlier: an attribute
+   spec settles before the block it decorates is emitted, and a fence's
+   lines are known one at a time.  Unlike `set_pos` this has to read the
+   provenance the node already carries, so it asks the policy first and
+   is the identity by conversion when the answer is that nothing is
+   recorded. *)
+Definition add_roles `{PosPolicy} {A : Type}
+  (rs : list (syntax_role * span)) (n : node A) : node A :=
+  if pos_records then
+    match n with
+    | Node (SomePos p) a x =>
+        Node (SomePos (Provenance (node_span p)
+                         (syntax_spans p ++ rs)%list (part_spans p))) a x
+    | _ => n
+    end
+  else n.
+
+Definition add_roles_head `{PosPolicy} {A : Type}
+  (rs : list (syntax_role * span)) (ns : list (node A)) : list (node A) :=
+  if pos_records then
+    match ns with
+    | [] => []
+    | n :: rest => (add_roles rs n :: rest)%list
+    end
+  else ns.
+
+Lemma add_roles_off :
+  forall `{PosPolicy} A rs (n : node A),
+    pos_records = false -> add_roles rs n = n.
+Proof. intros. unfold add_roles. rewrite H0. reflexivity. Qed.
+
+Lemma add_roles_head_off :
+  forall `{PosPolicy} A rs (ns : list (node A)),
+    pos_records = false -> add_roles_head rs ns = ns.
+Proof. intros. unfold add_roles_head. rewrite H0. reflexivity. Qed.
+
 (* At the semantic instance the wrappers are the identity. *)
+Lemma add_roles_semantic :
+  forall A rs (n : node A), @add_roles semantic_pos A rs n = n.
+Proof. reflexivity. Qed.
+
+Lemma add_roles_head_semantic :
+  forall A rs (ns : list (node A)), @add_roles_head semantic_pos A rs ns = ns.
+Proof. reflexivity. Qed.
+
 Lemma pos_head_semantic :
   forall A (p : provenance) (ns : list (node A)),
     @pos_head semantic_pos A p ns = ns.
@@ -332,7 +397,9 @@ Proof. reflexivity. Qed.
 (* A proof that has just reduced a closing arm meets the wrappers and
    nothing else.  They are the identity at the semantic instance, but
    `rewrite` is syntactic, so it needs saying. *)
-Ltac nopos := rewrite ?set_pos_semantic, ?pos_head_semantic.
+Ltac nopos :=
+  rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
+    ?add_roles_head_semantic.
 
 Lemma set_pos_located :
   forall A (p : provenance) (q : pos) (a : attr) (x : A),

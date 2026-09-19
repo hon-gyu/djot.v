@@ -2601,7 +2601,7 @@ Lemma pend_result_wf :
     /\ state_wf (snd (pend_result pend specs r)) = true.
 Proof.
   intros pend specs [bs st] Hb Hs. cbn [fst snd] in Hb, Hs.
-  destruct bs; cbn [pend_result fst snd state_wf];
+  destruct bs; cbn [pend_result fst snd state_wf]; nopos;
     (split; [rewrite ?wf_blocks_decorate_head; exact Hb | exact Hs]).
 Qed.
 
@@ -3096,7 +3096,7 @@ Proof.
       destruct (IH off l pinner H) as [Hb Hs];
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [fst snd] in Hb, Hs;
-      destruct bs; cbn [pend_result fst snd state_wf];
+      destruct bs; cbn [pend_result fst snd state_wf]; nopos;
       (split; [rewrite ?wf_blocks_decorate_head; exact Hb | exact Hs]).
   - (* an open key: the retraction is a paragraph of the line it kept,
        and otherwise `key_close` wraps whatever comes back *)
@@ -3521,7 +3521,7 @@ Lemma pend_result_supported :
     /\ state_supported (snd (pend_result pend specs r)) = true.
 Proof.
   intros pend specs [bs st] Hb Hs. cbn [fst snd] in Hb, Hs.
-  destruct bs; cbn [pend_result fst snd state_supported];
+  destruct bs; cbn [pend_result fst snd state_supported]; nopos;
     (split; [rewrite ?supported_blocks_decorate_head; exact Hb | exact Hs]).
 Qed.
 
@@ -3932,7 +3932,7 @@ Proof.
       destruct (IH off l pinner H) as [Hb Hs];
       destruct (step_fuel n off l pinner) as [bs st'] eqn:Ed;
       cbn [fst snd] in Hb, Hs;
-      destruct bs; cbn [pend_result fst snd state_supported];
+      destruct bs; cbn [pend_result fst snd state_supported]; nopos;
       (split; [rewrite ?supported_blocks_decorate_head; exact Hb | exact Hs]).
   - (* an open key: a paragraph, or a `Keyed` over a block that already
        carried the invariant *)
