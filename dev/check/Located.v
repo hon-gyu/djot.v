@@ -247,6 +247,33 @@ text
 " = [(0, 17); (0, 5); (6, 17); (6, 17)].
 Proof. vm_compute. reflexivity. Qed.
 
+(* The id moves from the heading to the section it opens, as it does in
+   djot.js, so the spec that authored the id moves with it: the section
+   spans the heading, [10,16), and carries `{#anchor}` at [0,9).  That
+   pair is what a duplicate-id diagnostic points at. *)
+Definition doc_anchor (s : string) : list (attr * list (syntax_role * (nat * nat))) :=
+  let lines := line_table s in
+  map (fun n =>
+         (node_attrs n,
+          match node_provenance n with
+          | Some p => map (fun e => (fst e, range_of lines (snd e)))
+                        (syntax_spans p)
+          | None => []
+          end))
+      (doc_blocks (@parse_doc_located djot_table djot_bconfig s)).
+
+Example r_heading_anchor :
+  doc_anchor "{#anchor}
+# Head
+" = [([("id", "anchor")], [(RAttrSpec, (0, 9))])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example r_heading_anchor_span :
+  doc_ranges "{#anchor}
+# Head
+" = [(10, 16); (10, 16)].
+Proof. vm_compute. reflexivity. Qed.
+
 (*
 The semantic parse is untouched
 -------------------------------

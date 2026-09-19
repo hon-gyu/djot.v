@@ -579,7 +579,7 @@ Definition sect_init : sect_state := [(0, [], [])].
 (* A section covers its heading and everything under it, which is
    exactly the children it is built from. *)
 Definition section_node (a : attr) (bs : blocks) : node block :=
-  Node (hull_pos bs) a (Section bs).
+  Node (hull_pos_with bs) a (Section bs).
 
 Fixpoint close_ge (lvl : nat) (pending : blocks) (stk : sect_state)
   : sect_state :=

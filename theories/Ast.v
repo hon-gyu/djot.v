@@ -394,6 +394,29 @@ Definition hull_pos `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
     end
   else NoPos.
 
+(* The same, keeping the authored syntax of the node the hull opens
+   with.  The document pass moves a heading's id onto the section it
+   opens, and the spec that authored the id has to be reachable from
+   whatever carries it. *)
+Definition hull_pos_with `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
+  match hull_pos ns with
+  | NoPos => NoPos
+  | SomePos p =>
+      match ns with
+      | [] => SomePos p
+      | first :: _ =>
+          match node_provenance first with
+          | Some q => SomePos (Provenance (node_span p) (syntax_spans q)
+                                 (part_spans p))
+          | None => SomePos p
+          end
+      end
+  end.
+
+Lemma hull_pos_with_semantic :
+  forall A (ns : list (node A)), @hull_pos_with semantic_pos A ns = NoPos.
+Proof. reflexivity. Qed.
+
 Lemma hull_pos_off :
   forall `{PosPolicy} A (ns : list (node A)),
     pos_records = false -> hull_pos ns = NoPos.
@@ -426,7 +449,7 @@ Proof. reflexivity. Qed.
    `rewrite` is syntactic, so it needs saying. *)
 Ltac nopos :=
   rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
-    ?add_roles_head_semantic, ?hull_pos_semantic.
+    ?add_roles_head_semantic, ?hull_pos_semantic, ?hull_pos_with_semantic.
 
 Lemma set_pos_located :
   forall A (p : provenance) (q : pos) (a : attr) (x : A),
