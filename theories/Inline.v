@@ -2180,7 +2180,7 @@ and are not reachable from this table. *)
    back, since a spec with nothing to attach to is dropped. *)
 Inductive oitem : Type :=
   | OIn (n : node inline)
-  | OMark (a : attr).
+  | OMark (a : attr) (spec : span) (word_start : option spot).
 
 Definition oitems : Type := list oitem.
 
@@ -2217,6 +2217,7 @@ Inductive frame_kind : Type :=
 Record frame : Type := Frame {
   fr_kind : frame_kind;
   fr_marked : bool;          (* delimiter opened as `{d`; false for `[` *)
+  fr_open : span;            (* the opener token, for the node it closes *)
   fr_out : oitems            (* this scope's items, reversed *)
 }.
 
@@ -2237,10 +2238,68 @@ Definition fr_barrier (f : frame) : bool :=
 
 Record ostate : Type := OState {
   os_out : oitems;           (* the outermost scope, reversed *)
-  os_stk : list frame        (* open scopes, innermost first *)
+  os_stk : list frame;       (* open scopes, innermost first *)
+  os_word_start : option spot
 }.
 
-Definition ostart : ostate := OState [] [].
+Definition ostart : ostate := OState [] [] None.
+
+Definition node_stop (fallback : spot) (n : node inline) : spot :=
+  match node_provenance n with
+  | Some p => span_stop (node_span p)
+  | None => fallback
+  end.
+
+Fixpoint items_stop (fallback : spot) (l : oitems) : spot :=
+  match l with
+  | [] => fallback
+  | OIn n :: _ => node_stop fallback n
+  | OMark _ spec _ :: _ => span_stop spec
+  end.
+
+Definition text_start `{InlineCursor} (o : ostate) : spot :=
+  match os_stk o with
+  | [] => items_stop cursor_origin (os_out o)
+  | f :: _ => items_stop (span_stop (fr_open f)) (fr_out f)
+  end.
+
+Definition remember_word_start `{PosPolicy} `{InlineCursor}
+  (c : ascii) (o : ostate) : ostate :=
+  if pos_records && is_ws c then
+    OState (os_out o) (os_stk o) (Some cursor_stop)
+  else o.
+
+(* A line break ends the pending word: the spot after this line's last
+   whitespace byte names no start on the next one, and the text node the
+   break separates begins there. *)
+Definition oword_reset (o : ostate) : ostate :=
+  OState (os_out o) (os_stk o) None.
+
+Definition inline_prov (start stop : spot) : provenance :=
+  prov_at (SrcSpan start stop).
+
+Definition imk `{PosPolicy} (start stop : spot) (x : inline) : node inline :=
+  if pos_records
+  then posnode (inline_prov start stop) x
+  else mk x.
+
+Lemma imk_semantic : forall start stop x,
+  @imk semantic_pos start stop x = mk x.
+Proof. reflexivity. Qed.
+
+Lemma remember_word_start_semantic : forall c o,
+  @remember_word_start semantic_pos semantic_inline_cursor c o = o.
+Proof. reflexivity. Qed.
+
+Definition imk_here `{PosPolicy} `{InlineCursor} (x : inline) : node inline :=
+  imk cursor_start cursor_stop x.
+
+Definition add_inline_role `{PosPolicy} (role : syntax_role) (r : span)
+  (n : node inline) : node inline := add_roles [(role, r)] n.
+
+Lemma add_inline_role_semantic : forall role r n,
+  @add_inline_role semantic_pos role r n = n.
+Proof. reflexivity. Qed.
 
 (* The scope emissions land in: the innermost open one, or the bottom. *)
 Definition ocur (o : ostate) : oitems :=
@@ -2250,8 +2309,11 @@ Definition ocur (o : ostate) : oitems :=
    other writer pushes rather than replaces. *)
 Definition oset_cur (l : oitems) (o : ostate) : ostate :=
   match os_stk o with
-  | [] => OState l []
-  | f :: rest => OState (os_out o) (Frame (fr_kind f) (fr_marked f) l :: rest)
+  | [] => OState l [] (os_word_start o)
+  | f :: rest =>
+      OState (os_out o)
+        (Frame (fr_kind f) (fr_marked f) (fr_open f) l :: rest)
+        (os_word_start o)
   end.
 
 Definition dstyle_eqb (a b : dstyle) : bool :=
@@ -2291,10 +2353,19 @@ Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
 (* The same merge over resolved nodes, which is where it now does the
    real work: `oresolve` rebuilds a scope's list and this is what keeps
    two plain `Str`s from ending up adjacent in it. *)
+Definition merge_text_pos (left right : pos) : pos :=
+  match left, right with
+  | SomePos p, SomePos q =>
+      SomePos (Provenance
+        (SrcSpan (span_start (node_span p)) (span_stop (node_span q)))
+        (syntax_spans p ++ syntax_spans q)%list PNone)
+  | _, _ => left
+  end.
+
 Definition isnoc (n : node inline) (out : inlines) : inlines :=
   match out, n with
-  | Node p [] (Str t) :: rest, Node _ [] (Str s) =>
-      (Node p [] (Str (t ++ s)) :: rest)%list
+  | Node p [] (Str t) :: rest, Node q [] (Str s) =>
+      (Node (merge_text_pos p q) [] (Str (t ++ s)) :: rest)%list
   | _, _ => (n :: out)%list
   end.
 
@@ -2351,8 +2422,8 @@ Qed.
 
 Definition osnoc (n : oitem) (out : oitems) : oitems :=
   match out, n with
-  | OIn (Node p [] (Str t)) :: rest, OIn (Node _ [] (Str s)) =>
-      (OIn (Node p [] (Str (t ++ s))) :: rest)%list
+  | OIn (Node p [] (Str t)) :: rest, OIn (Node q [] (Str s)) =>
+      (OIn (Node (merge_text_pos p q) [] (Str (t ++ s))) :: rest)%list
   | _, _ => (n :: out)%list
   end.
 
@@ -2370,20 +2441,25 @@ Fixpoint oapp (cur out : oitems) : oitems :=
   end.
 
 Definition oemit (n : node inline) (o : ostate) : ostate :=
+  let word := os_word_start o in
   match os_stk o with
-  | [] => OState (OIn n :: os_out o) []
+  | [] => OState (OIn n :: os_out o) [] word
   | f :: rest =>
       OState (os_out o)
-        (Frame (fr_kind f) (fr_marked f) (OIn n :: fr_out f) :: rest)
+        (Frame (fr_kind f) (fr_marked f) (fr_open f)
+           (OIn n :: fr_out f) :: rest)
+        word
   end.
 
 (* A spec waiting for its target, emitted the same way. *)
-Definition omark (a : attr) (o : ostate) : ostate :=
+Definition omark (a : attr) (spec : span) (o : ostate) : ostate :=
   match os_stk o with
-  | [] => OState (OMark a :: os_out o) []
+  | [] => OState (OMark a spec (os_word_start o) :: os_out o) [] None
   | f :: rest =>
       OState (os_out o)
-        (Frame (fr_kind f) (fr_marked f) (OMark a :: fr_out f) :: rest)
+        (Frame (fr_kind f) (fr_marked f) (fr_open f)
+           (OMark a spec (os_word_start o) :: fr_out f) :: rest)
+        None
   end.
 
 (* Emit in source order while merging a plain-`Str` seam.  Ordinary
@@ -2393,10 +2469,12 @@ Definition omark (a : attr) (o : ostate) : ostate :=
    construction. *)
 Definition oemit_merge (n : node inline) (o : ostate) : ostate :=
   match os_stk o with
-  | [] => OState (osnoc (OIn n) (os_out o)) []
+  | [] => OState (osnoc (OIn n) (os_out o)) [] (os_word_start o)
   | f :: rest =>
       OState (os_out o)
-        (Frame (fr_kind f) (fr_marked f) (osnoc (OIn n) (fr_out f)) :: rest)
+        (Frame (fr_kind f) (fr_marked f) (fr_open f)
+           (osnoc (OIn n) (fr_out f)) :: rest)
+        (os_word_start o)
   end.
 
 Fixpoint oemit_all_merge (ns : inlines) (o : ostate) : ostate :=
@@ -2411,24 +2489,71 @@ Fixpoint oemit_all (ns : inlines) (o : ostate) : ostate :=
   | n :: rest => oemit_all rest (oemit n o)
   end.
 
-Definition flush_text (txt : string) (o : ostate) : ostate :=
-  if nonempty_str txt then oemit (mk (Str txt)) o else o.
+Definition flush_text_at `{PosPolicy} `{InlineCursor}
+  (txt : string) (o : ostate) : ostate :=
+  if nonempty_str txt
+  then oemit (imk (text_start o) cursor_start (Str txt)) o
+  else o.
 
-Definition opush_at (k : dstyle) (m cm : bool) (o : ostate) : ostate :=
-  OState (os_out o) (Frame (FKDelim k cm) m [] :: os_stk o).
+Definition flush_text_to_at `{PosPolicy} `{InlineCursor}
+  (stop : spot) (txt : string) (o : ostate) : ostate :=
+  if nonempty_str txt
+  then oemit (imk (text_start o) stop (Str txt)) o
+  else o.
+
+(* The equational theory below is the semantic scanner's.  Keep its
+   familiar names definitionally position-free; the located driver and
+   the shared transition use the [_at] forms explicitly. *)
+Definition flush_text (txt : string) (o : ostate) : ostate :=
+  @flush_text_at semantic_pos semantic_inline_cursor txt o.
+
+Definition flush_text_to (stop : spot) (txt : string) (o : ostate) : ostate :=
+  @flush_text_to_at semantic_pos semantic_inline_cursor stop txt o.
+
+Lemma flush_text_at_semantic : forall txt o,
+  @flush_text_at semantic_pos semantic_inline_cursor txt o = flush_text txt o.
+Proof. reflexivity. Qed.
+
+Lemma flush_text_to_at_semantic : forall stop txt o,
+  @flush_text_to_at semantic_pos semantic_inline_cursor stop txt o =
+  flush_text_to stop txt o.
+Proof. reflexivity. Qed.
+
+(* Unfolding a generic definition at the semantic instances leaves the
+   [_at] spellings, which [rewrite] and [destruct] do not match against
+   the names the equational theory is stated in. *)
+Ltac sem_flush :=
+  try change (@flush_text_at semantic_pos semantic_inline_cursor)
+    with flush_text;
+  try change (@flush_text_to_at semantic_pos semantic_inline_cursor)
+    with flush_text_to.
+
+Definition opush_at `{InlineCursor}
+  (k : dstyle) (m cm : bool) (o : ostate) : ostate :=
+  OState (os_out o)
+    (Frame (FKDelim k cm) m (SrcSpan cursor_start cursor_stop) [] :: os_stk o)
+    (os_word_start o).
 
 (* The common case: no `}` follows the opener, which is every unmarked
    one and every marked one whose next byte is anything else. *)
-Definition opush (k : dstyle) (m : bool) (o : ostate) : ostate :=
+Definition opush `{InlineCursor} (k : dstyle) (m : bool) (o : ostate) : ostate :=
   opush_at k m false o.
 
-Definition bpush (image : bool) (o : ostate) : ostate :=
-  OState (os_out o) (Frame (FKBracket image) false [] :: os_stk o).
+Definition previous_spot (p : spot) : spot :=
+  Spot (spot_line p) (S (spot_rem p)).
+
+Definition bpush `{InlineCursor} (image : bool) (o : ostate) : ostate :=
+  let start := if image then previous_spot cursor_start else cursor_start in
+  OState (os_out o)
+    (Frame (FKBracket image) false (SrcSpan start cursor_stop) [] :: os_stk o)
+    (os_word_start o).
 
 (* The same push for a `](`: the bracket's opener stays open, and what
    goes into it is the label put back as text. *)
-Definition dpush (image : bool) (o : ostate) : ostate :=
-  OState (os_out o) (Frame (FKDest image) false [] :: os_stk o).
+Definition dpush (image : bool) (open : span) (o : ostate) : ostate :=
+  OState (os_out o)
+    (Frame (FKDest image) false open [] :: os_stk o)
+    (os_word_start o).
 
 Lemma oemit_all_app :
   forall a b o, oemit_all (a ++ b)%list o = oemit_all b (oemit_all a o).
@@ -2438,18 +2563,20 @@ Proof.
 Qed.
 
 Lemma oemit_all_frame :
-  forall ns out kind m acc stk,
-    oemit_all ns (OState out (Frame kind m acc :: stk))
+  forall ns out kind m open acc stk word,
+    oemit_all ns (OState out (Frame kind m open acc :: stk) word)
     = OState out
-        (Frame kind m (List.rev (List.map OIn ns) ++ acc)%list :: stk).
+        (Frame kind m open (List.rev (List.map OIn ns) ++ acc)%list :: stk)
+        word.
 Proof.
-  induction ns as [|n ns IH]; intros out kind m acc stk;
+  induction ns as [|n ns IH]; intros out kind m open acc stk word;
     cbn [oemit_all List.map List.rev app]; [reflexivity|].
-  change (oemit_all ns (OState out (Frame kind m (OIn n :: acc) :: stk))
+  change (oemit_all ns
+            (OState out (Frame kind m open (OIn n :: acc) :: stk) word)
           = OState out
-              (Frame kind m
+              (Frame kind m open
                  ((List.rev (List.map OIn ns) ++ [OIn n]) ++ acc)%list
-               :: stk)).
+               :: stk) word).
   rewrite IH, <- List.app_assoc. reflexivity.
 Qed.
 
@@ -2500,7 +2627,18 @@ Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
      there, so an arm that distinguished the empty scope from the
      spliced one would make attachment see the splice, and every `_app`
      lemma rests on it not seeing it. *)
-Definition oattach_list (a : attr) (out : inlines) : inlines :=
+Definition split_text_pos (p : pos) (word_start : option spot)
+  : pos * pos :=
+  match p, word_start with
+  | SomePos pr, Some w =>
+      (SomePos (prov_at (SrcSpan (span_start (node_span pr)) w)),
+       SomePos (prov_at (SrcSpan w (span_stop (node_span pr)))))
+  | _, _ => (p, p)
+  end.
+
+Definition oattach_list `{PosPolicy}
+  (a : attr) (spec : span) (word_start : option spot) (out : inlines)
+  : inlines :=
   match out with
   | Node p [] (Str s) :: rest =>
       let '(pre, w) := last_ws_split s in
@@ -2508,13 +2646,17 @@ Definition oattach_list (a : attr) (out : inlines) : inlines :=
       then match a with
            | [] => out
            | _ =>
+               let '(pp, wp) := split_text_pos p word_start in
                let out1 := if nonempty_str pre
-                           then isnoc (mk (Str pre)) rest else rest in
-               isnoc (Node NoPos a (Str w)) out1
+                           then isnoc (Node pp [] (Str pre)) rest else rest in
+               isnoc (add_inline_role RAttrSpec spec (Node wp a (Str w))) out1
            end
       else out
   | Node _ _ SoftBreak :: _ | [] => out
-  | Node p a' v :: rest => Node p (attr_merge a a') v :: rest
+  | n :: rest => add_inline_role RAttrSpec spec
+                   (match n with
+                    | Node p a' v => Node p (attr_merge a a') v
+                    end) :: rest
   end.
 
 (* A scope's items, settled.  Walking the tail first is what puts the
@@ -2534,9 +2676,9 @@ Fixpoint oresolve_go (l : oitems) : inlines * bool :=
   | OIn n :: rest =>
       let '(out, m) := oresolve_go rest in
       ((if m then isnoc n out else (n :: out)%list), false)
-  | OMark a :: rest =>
+  | OMark a spec word_start :: rest =>
       let '(out, _) := oresolve_go rest in
-      let out' := oattach_list a out in
+      let out' := oattach_list a spec word_start out in
       (out', istarts_str out')
   end.
 
@@ -2626,7 +2768,7 @@ Definition oclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
   | None => None
   | Some (content, rest) =>
       Some (oemit (mk (dnode k (List.rev (oresolve content))))
-              (OState (os_out o) rest))
+              (OState (os_out o) rest (os_word_start o)))
   end.
 
 Lemma oclose_oemit_all_marked :
@@ -2655,13 +2797,13 @@ Qed.
    the following byte still decides link, reference, span, or literal
    brackets. *)
 Fixpoint bclose_go (pend : oitems) (stk : list frame)
-  : option (oitems * bool * list frame) :=
+  : option (oitems * bool * span * list frame) :=
   match stk with
   | [] => None
   | f :: rest =>
       let content := oapp pend (fr_out f) in
       match fr_kind f with
-      | FKBracket image => Some (content, image, rest)
+      | FKBracket image => Some (content, image, fr_open f, rest)
       (* the destination's own opener is not offered back yet; see the
          constructor's comment *)
       | FKDest _ => None
@@ -2670,11 +2812,12 @@ Fixpoint bclose_go (pend : oitems) (stk : list frame)
       end
   end.
 
-Definition bclose (o : ostate) : option (inlines * bool * ostate) :=
+Definition bclose (o : ostate) : option (inlines * bool * span * ostate) :=
   match bclose_go [] (os_stk o) with
   | None => None
-  | Some (content, image, rest) =>
-      Some (List.rev (oresolve content), image, OState (os_out o) rest)
+  | Some (content, image, open, rest) =>
+      Some (List.rev (oresolve content), image, open,
+              OState (os_out o) rest (os_word_start o))
   end.
 
 (* Take back a bracket the previous byte pushed.  Only a frame that is a
@@ -2684,28 +2827,34 @@ Definition bclose (o : ostate) : option (inlines * bool * ostate) :=
    footnote marker free of any invariant relating `prev` to the frames,
    and `bunpush o = None` is what every lemma about a row's token gets
    for free -- a marked close has a *delimiter* frame on top. *)
-Definition bunpush (o : ostate) : option (bool * ostate) :=
+Definition bunpush (o : ostate) : option (bool * span * ostate) :=
   match os_stk o with
-  | Frame (FKBracket image) _ [] :: rest => Some (image, OState (os_out o) rest)
+  | Frame (FKBracket image) _ open [] :: rest =>
+      Some (image, open, OState (os_out o) rest (os_word_start o))
   | _ => None
   end.
 
 Lemma bunpush_opush :
   forall k m o, bunpush (opush k m o) = None.
-Proof. intros k m [out stk]. reflexivity. Qed.
+Proof. intros k m [out stk word]. reflexivity. Qed.
 
 Lemma bunpush_bpush :
-  forall image o, bunpush (bpush image o) = Some (image, o).
-Proof. intros image [out stk]. reflexivity. Qed.
+  forall image o,
+    bunpush (bpush image o) =
+      Some (image,
+        SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0), o).
+Proof. intros image [out stk word]. destruct image; reflexivity. Qed.
 
 Lemma bclose_oemit_all :
   forall ns image base,
-    bclose (oemit_all ns (bpush image base)) = Some (ns, image, base).
+    bclose (oemit_all ns (bpush image base)) =
+      Some (ns, image,
+        SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0), base).
 Proof.
-  intros ns image [out stk]. unfold bpush. rewrite oemit_all_frame.
+  intros ns image [out stk word]. unfold bpush. rewrite oemit_all_frame.
   unfold bclose. cbn [os_stk os_out bclose_go fr_out fr_kind oapp].
   rewrite app_nil_r, oresolve_map_rev, List.rev_involutive.
-  reflexivity.
+  destruct image; reflexivity.
 Qed.
 
 (*
@@ -2729,13 +2878,16 @@ Definition opop_str (o : ostate) : string * ostate :=
   match os_stk o with
   | [] =>
       match os_out o with
-      | OIn (Node _ [] (Str s)) :: rest => (s, OState rest [])
+      | OIn (Node _ [] (Str s)) :: rest =>
+          (s, OState rest [] (os_word_start o))
       | _ => (EmptyString, o)
       end
   | f :: fs =>
       match fr_out f with
       | OIn (Node _ [] (Str s)) :: rest =>
-          (s, OState (os_out o) (Frame (fr_kind f) (fr_marked f) rest :: fs))
+          (s, OState (os_out o)
+                (Frame (fr_kind f) (fr_marked f) (fr_open f) rest :: fs)
+                (os_word_start o))
       | _ => (EmptyString, o)
       end
   end.
@@ -2744,27 +2896,32 @@ Definition opop_str (o : ostate) : string * ostate :=
    it; anything else is emitted, flushing the buffer first.  So emissions
    alternate `Str` and non-`Str` and the seam obligation holds by
    construction -- this is why the fallback needs no merging emission. *)
-Fixpoint bflat (kids : inlines) (txt : string) (o : ostate) : string * ostate :=
+Fixpoint bflat `{PosPolicy} `{InlineCursor}
+  (kids : inlines) (txt : string) (o : ostate) : string * ostate :=
   match kids with
   | [] => (txt, o)
   | Node _ [] (Str s) :: rest => bflat rest (txt ++ s)%string o
-  | n :: rest => bflat rest EmptyString (oemit n (flush_text txt o))
+  | n :: rest => bflat rest EmptyString (oemit n (flush_text_at txt o))
   end.
 
 (* Text that spans a line break.  A `SoftBreak` is a node, so such text
    cannot go back into the buffer whole.  The three buffers that survive
    `ibreak` need it: a destination, and either kind of attribute spec. *)
-Fixpoint bsplit_nl (s txt : string) (o : ostate) : string * ostate :=
+Fixpoint bsplit_nl `{PosPolicy} `{InlineCursor}
+  (s txt : string) (o : ostate) : string * ostate :=
   match s with
   | EmptyString => (txt, o)
   | String c rest =>
       if Ascii.eqb c nl_char
-      then bsplit_nl rest EmptyString (oemit (mk SoftBreak) (flush_text txt o))
+      then bsplit_nl rest EmptyString
+             (oemit (imk cursor_start cursor_start SoftBreak)
+               (flush_text_at txt o))
       else bsplit_nl rest (txt ++ one c)%string o
   end.
 
 (* A closed bracket that turns out to be literal: `[`, the label, `]`. *)
-Definition bclosed_lit (kids : inlines) (image : bool) (o : ostate)
+Definition bclosed_lit `{PosPolicy} `{InlineCursor}
+  (kids : inlines) (image : bool) (o : ostate)
   : string * ostate :=
   let '(pre, o1) := opop_str o in
   let '(txt, o2) := bflat kids (pre ++ bracket_open image)%string o1 in
@@ -2773,14 +2930,16 @@ Definition bclosed_lit (kids : inlines) (image : bool) (o : ostate)
 (* A span whose spec failed, or that ran out of paragraph: the bracket's
    own literal text, then the `{` and everything the machine read,
    breaks included. *)
-Definition bspan_lit (kids : inlines) (image : bool) (src : string)
+Definition bspan_lit `{PosPolicy} `{InlineCursor}
+  (kids : inlines) (image : bool) (src : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
   bsplit_nl src (txt ++ one lbrace) o'.
 
 (* The same for a spec with no bracket before it, where the pending text
    the spec would have attached to is the buffer it goes back into. *)
-Definition battr_lit (src txt : string) (o : ostate) : string * ostate :=
+Definition battr_lit `{PosPolicy} `{InlineCursor}
+  (src txt : string) (o : ostate) : string * ostate :=
   bsplit_nl src (txt ++ one lbrace) o.
 
 (* The byte to the left of the one being dispatched, when a construct
@@ -2790,7 +2949,8 @@ Definition battr_lit (src txt : string) (o : ostate) : string * ostate :=
    in question. *)
 Definition blit_prev (t : string) : option ascii := str_last t (Some nl_char).
 
-Definition bref_lit (kids : inlines) (image : bool) (label : string)
+Definition bref_lit `{PosPolicy} `{InlineCursor}
+  (kids : inlines) (image : bool) (label : string)
   (o : ostate) : string * ostate :=
   let '(txt, o') := bclosed_lit kids image o in
   ((txt ++ one lbrack ++ label)%string, o').
@@ -2936,7 +3096,8 @@ Inductive iscan : Type :=
      be put back as text when the machine fails.  `image` is carried only
      for that reconstruction -- a span ignores it, so `![x]{.a}` is a `!`
      followed by a span. *)
-  | ISpan (kids : inlines) (image : bool) (p : aparser) (src : string)
+  | ISpan (kids : inlines) (image : bool) (open : span)
+          (p : aparser) (src : string)
           (o : ostate)
   (* An attribute spec, which attaches to whatever precedes it.  `txt` is
      the text pending when the `{` arrived and, on success, the thing the
@@ -2945,7 +3106,8 @@ Inductive iscan : Type :=
      candidate never closes. *)
   | IAttr (p : aparser) (src : string) (txt : string) (prev : option ascii)
           (sh : iscan) (o : ostate)
-  | IReference (kids : inlines) (image : bool) (label : string) (o : ostate)
+  | IReference (kids : inlines) (image : bool) (open : span)
+          (label : string) (o : ostate)
   (* inside a `[^`.  The label is raw source, not inline content: djot.js
      decides note-ness at the `]` and then destroys every match made
      inside the brackets (`inline.ts:363-372`), which is the *discard*
@@ -2957,7 +3119,7 @@ Inductive iscan : Type :=
      decoded: `[^a\]b]` labels `a\]b`.  `image` is what the bracket this
      took back was opened with, kept only to spell the literal
      fallback. *)
-  | INote (esc image : bool) (label : string) (o : ostate)
+  | INote (esc image : bool) (label : string) (open : span) (o : ostate)
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
      pending backslash, as in text mode.  A destination survives a line
@@ -2972,7 +3134,8 @@ Inductive iscan : Type :=
      only *at* the close (`inline.ts:470`).  Neither is a replay of the
      other: both advance on each byte, and the byte that ends the state
      picks one. *)
-  | IDest (kids : inlines) (image esc : bool) (depth : nat) (dst : string)
+  | IDest (kids : inlines) (image : bool) (open : span)
+          (esc : bool) (depth : nat) (dst : string)
           (sh : iscan) (o : ostate)
   (* inside a `<`, holding the region read so far.  The region is raw
      source, so a backtick or a
@@ -3015,10 +3178,11 @@ Definition note_pos (txt : string) (prev : option ascii) : bool :=
    was written rather than the `’` or the `–` that will be rendered.
    Every state carrying pending text keeps this field to the same rule --
    see `iscan`. *)
-Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
+Definition ilead `{PosPolicy} `{InlineCursor}
+  (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   : iscan :=
   if is_bslash c then IText true txt (Some c) o
-  else if is_tick c then IOpen 1 VVerb (flush_text txt o)
+  else if is_tick c then IOpen 1 VVerb (flush_text_at txt o)
   else if Ascii.eqb c dollar then IDollar false txt prev o
   else if Ascii.eqb c period then IPeriod false txt prev o
   (* The hyphen, like the footnote marker, is claimed by position rather
@@ -3040,7 +3204,8 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
      back with the `<` on the end. *)
   else if Ascii.eqb c lt then IAuto EmptyString txt o
   else if Ascii.eqb c lbrack
-  then IText false EmptyString (Some lbrack) (bpush false (flush_text txt o))
+  then IText false EmptyString (Some lbrack)
+         (bpush false (flush_text_at txt o))
   else if Ascii.eqb c rbrack then IClosed txt o
   (* A `^` right inside a bracket that has just opened marks a footnote.
      djot.js reads the byte after the opener when the `]` arrives
@@ -3053,11 +3218,13 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
      is the superscript row as it always was. *)
   else match (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
               then bunpush o else None) with
-       | Some (image, o') => INote false image EmptyString o'
+       | Some (image, open, o') => INote false image EmptyString open o'
        | None =>
            match dstyle_of c with
            | Some k => IDelim k 0 txt prev false o
-           | None => IText false (txt ++ one c)%string (Some c) o
+           | None =>
+               IText false (txt ++ one c)%string (Some c)
+                 (remember_word_start c o)
            end
        end.
 
@@ -3071,8 +3238,10 @@ Definition ilead (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
 
    `fr_src` supplies the `[` at the flatten, not this, which is why the
    frame is pushed rather than the byte written. *)
-Definition idest_open (kids : inlines) (image : bool) (o : ostate) : iscan :=
-  let '(txt, o') := bflat kids EmptyString (dpush image o) in
+Definition idest_open `{PosPolicy} `{InlineCursor}
+  (kids : inlines) (image : bool) (open : span)
+  (o : ostate) : iscan :=
+  let '(txt, o') := bflat kids EmptyString (dpush image open o) in
   IText false (txt ++ one rbrack ++ one lparen)%string (Some lparen) o'.
 
 Definition null {A} (l : list A) : bool :=
@@ -3179,21 +3348,41 @@ Definition islice_end (st : iscan) : iscan :=
    is the item immediately below.  `oresolve` settles it -- see
    `oattach_list` for the rule and for the one case we do not follow
    djot.js on. *)
-Definition iattr_mark (a : attr) (txt : string) (o : ostate) : iscan :=
-  IText false EmptyString (Some rbrace) (omark a (flush_text txt o)).
+Fixpoint source_shape (s : string) : nat * nat * nat :=
+  match s with
+  | EmptyString => (0, 0, 0)
+  | String c rest =>
+      let '(lines, first, total) := source_shape rest in
+      if Ascii.eqb c nl_char
+      then (S lines, 0, S total)
+      else (lines, S first, S total)
+  end.
+
+Definition spot_before (p : spot) (s : string) : spot :=
+  let '(lines, first, total) := source_shape s in
+  if Nat.eqb lines 0
+  then Spot (spot_line p) (spot_rem p + total)
+  else Spot (spot_line p - lines) first.
+
+Definition iattr_mark `{PosPolicy} `{InlineCursor}
+  (src : string) (a : attr) (txt : string) (o : ostate) : iscan :=
+  let spec := SrcSpan (spot_before cursor_start (String lbrace src)) cursor_stop in
+  IText false EmptyString (Some rbrace)
+    (omark a spec (flush_text_at txt o)).
 
 (* One byte of an inline attribute spec, read with the machine block
    attributes use.  `sh` has already consumed the same byte as ordinary
    inline input.  Failure selects it; success discards it; otherwise both
    readings remain live -- and the one kept is stored at a slice
    boundary, since the byte it has just read is where its slice ends. *)
-Definition iattr_feed (c : ascii) (p : aparser) (src txt : string)
+Definition iattr_feed `{PosPolicy} `{InlineCursor}
+  (c : ascii) (p : aparser) (src txt : string)
   (prev : option ascii) (sh : iscan) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
   then sh
   else if ap_done p'
-  then iattr_mark (ap_attrs p') txt o
+  then iattr_mark src (ap_attrs p') txt o
   else IAttr p' (src ++ one c)%string txt prev (islice_end sh) o.
 
 (* A marked open with `S extra` characters of its token in hand.  Its
@@ -3208,11 +3397,13 @@ Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
 
 (* The push itself, once the byte after a completed marked opener is
    known (or known not to exist). *)
-Definition oopen_marked (k : dstyle) (cm : bool) (txt : string)
+Definition oopen_marked `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (cm : bool) (txt : string)
   (o : ostate) : ostate :=
-  opush_at k true cm (flush_text txt o).
+  opush_at k true cm (flush_text_at txt o).
 
-Definition idelim_open_marked (k : dstyle) (cm : bool) (txt : string)
+Definition idelim_open_marked `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (cm : bool) (txt : string)
   (o : ostate) : iscan :=
   IText false EmptyString (Some (dchar k)) (oopen_marked k cm txt o).
 
@@ -3229,7 +3420,8 @@ Proof. intros k extra []; reflexivity. Qed.
 
 (* Resolving a `{`: an open marker if a delimiter follows, an attribute
    candidate if that capability is enabled, and ordinary text otherwise. *)
-Definition ibrace_step_at (attrs_enabled : bool) (c : ascii) (txt : string)
+Definition ibrace_step_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (c : ascii) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   match dstyle_of c with
   | Some k => idelim_marked k 0 txt o
@@ -3244,7 +3436,8 @@ Definition ibrace_step_at (attrs_enabled : bool) (c : ascii) (txt : string)
            ilead c t (blit_prev t) o'
   end.
 
-Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
+Definition ibrace_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   ibrace_step_at inline_attrs_enabled c txt prev o.
 
@@ -3253,9 +3446,11 @@ Definition ibrace_step (c : ascii) (txt : string) (prev : option ascii)
    and `fr_src` puts it back on the literal path -- so the span path
    has to emit it here, and it merges with any `Str` already at the tip
    the same way, since `flush_text` alone would leave two adjacent. *)
-Definition ospan_bang (image : bool) (o : ostate) : ostate :=
+Definition ospan_bang `{PosPolicy} `{InlineCursor}
+  (image : bool) (o : ostate) : ostate :=
   if image
-  then let '(pre, o1) := opop_str o in flush_text (pre ++ one bang)%string o1
+  then let '(pre, o1) := opop_str o in
+       flush_text_at (pre ++ one bang)%string o1
   else o.
 
 (* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
@@ -3263,16 +3458,23 @@ Definition ospan_bang (image : bool) (o : ostate) : ostate :=
    but not including the failing byte becomes text and that byte is
    dispatched afresh: djot.js resumes its scan there, so `[s]{bad*x*y` is
    `[s]{bad`, a strong `x`, and `y`. *)
-Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
+Definition ispan_feed `{PosPolicy} `{InlineCursor}
+  (c : ascii) (kids : inlines) (image : bool) (open : span)
   (p : aparser) (src : string) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
   then let '(txt, o') := bspan_lit kids image src o in
        ilead c txt (blit_prev txt) o'
   else if ap_done p'
-  then IText false EmptyString (Some rbrace)
-         (oemit (Node NoPos (ap_attrs p') (Span kids)) (ospan_bang image o))
-  else ISpan kids image p' (src ++ one c)%string o.
+  then let spec_start := spot_before cursor_start (String lbrace src) in
+       let spec := SrcSpan spec_start cursor_stop in
+       IText false EmptyString (Some rbrace)
+         (oemit
+           (add_inline_role RAttrSpec spec
+             (Node (mkpos (inline_prov (span_start open) spec_start))
+               (ap_attrs p') (Span kids)))
+           (ospan_bang image o))
+  else ISpan kids image open p' (src ++ one c)%string o.
 
 (* Resolving a `!`: an image opener if a `[` follows, text otherwise.
    The `!` is *not* flushed with the text before it -- it is the opener's
@@ -3281,15 +3483,17 @@ Definition ispan_feed (c : ascii) (kids : inlines) (image : bool)
    and a backslash defers it once -- without being decoded, since the
    label is source and djot.js labels `[^a\]b]` with the backslash still
    in it. *)
-Definition inote_step (c : ascii) (esc image : bool) (label : string)
+Definition inote_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (esc image : bool) (label : string) (open : span)
   (o : ostate) : iscan :=
-  if esc then INote false image (label ++ one bslash ++ one c)%string o
-  else if is_bslash c then INote true image label o
+  if esc then INote false image (label ++ one bslash ++ one c)%string open o
+  else if is_bslash c then INote true image label open o
   else if Ascii.eqb c rbrack
   then IText false EmptyString (Some rbrack)
-         (oemit (mk (FootnoteReference (normalize_label label)))
+         (oemit (imk (span_start open) cursor_stop
+                    (FootnoteReference (normalize_label label)))
             (ospan_bang image o))
-  else INote false image (label ++ one c)%string o.
+  else INote false image (label ++ one c)%string open o.
 
 (* One byte of an autolink candidate.  Three bytes end it: the `>` that
    may resolve it, and the whitespace or second `<` that the region may
@@ -3304,10 +3508,13 @@ Definition inote_step (c : ascii) (esc image : bool) (label : string)
    are invariants of the mode, since a byte that breaks one leaves it.
    It is spelled in full so that the test *is* `ci_ok`'s, which is what
    makes the scan inversion a rewrite rather than an argument. *)
-Definition iauto_step (c : ascii) (src txt : string) (o : ostate) : iscan :=
+Definition iauto_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (src txt : string) (o : ostate) : iscan :=
   if (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool
-  then IText false EmptyString (Some gt)
-         (oemit (mk (auto_node src)) (flush_text txt o))
+  then let start := spot_before cursor_start (String lt src) in
+       IText false EmptyString (Some gt)
+         (oemit (imk start cursor_stop (auto_node src))
+           (flush_text_to_at start txt o))
   else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
   then ilead c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
   else IAuto (src ++ one c)%string txt o.
@@ -3324,7 +3531,8 @@ Definition iauto_step (c : ascii) (src txt : string) (o : ostate) : iscan :=
 Definition iraw_lit (spec : string) : string :=
   (String lbrace spec)%string.
 
-Definition iraw_step_at (attrs_enabled : bool) (c : ascii) (spec txt : string)
+Definition iraw_step_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (c : ascii) (spec txt : string)
   (o : ostate) : iscan :=
   if (Ascii.eqb c rbrace && raw_spec_ok spec)%bool
   then if raw_inline_enabled
@@ -3348,7 +3556,8 @@ Definition iraw_step_at (attrs_enabled : bool) (c : ascii) (spec txt : string)
        end
   else IRaw (spec ++ one c)%string txt o.
 
-Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
+Definition iraw_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (spec txt : string) (o : ostate) : iscan :=
   iraw_step_at inline_attrs_enabled c spec txt o.
 
 (* A label that never closed is its own source: the bracket it took back,
@@ -3356,16 +3565,19 @@ Definition iraw_step (c : ascii) (spec txt : string) (o : ostate) : iscan :=
    that the bracket's own `flush_text` emitted, so the reconstruction is
    one run and `no_adjacent_str` survives -- the move `bclosed_lit`
    makes, for the same reason. *)
-Definition bnote_lit (esc image : bool) (label : string) (o : ostate)
+Definition bnote_lit `{PosPolicy} `{InlineCursor}
+  (esc image : bool) (label : string) (o : ostate)
   : string * ostate :=
   let '(pre, o1) := opop_str o in
   ((pre ++ bracket_open image ++ one hat ++ label
        ++ (if esc then one bslash else EmptyString))%string, o1).
 
-Definition ibang_step (c : ascii) (txt : string) (prev : option ascii)
+Definition ibang_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
   if Ascii.eqb c lbrack
-  then IText false EmptyString (Some lbrack) (bpush true (flush_text txt o))
+  then IText false EmptyString (Some lbrack)
+         (bpush true (flush_text_at txt o))
   else ilead c (txt ++ one bang)%string (Some bang) o.
 
 (* Resolving an unbraced delimiter, once the byte after it has arrived
@@ -3379,16 +3591,19 @@ Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
 Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
   Some (if marker then rbrace else dchar k).
 
-Definition idelim_done (k : dstyle) (txt : string) (before : option ascii)
+Definition idelim_done `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (txt : string) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
   if (dbare k before && negb marker && nonspace_at next)%bool
-  then IText false EmptyString (Some (dchar k)) (opush k false (flush_text txt o))
+  then IText false EmptyString (Some (dchar k))
+         (opush k false (flush_text_at txt o))
   else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
 
-Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
+Definition idelim_resolve `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (txt : string) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
   if (nonspace_at before || marker)%bool
-  then match oclose k marker (flush_text txt o) with
+  then match oclose k marker (flush_text_at txt o) with
        | Some o' =>
            IText false EmptyString
              (Some (if marker then rbrace else dchar k)) o'
@@ -3411,21 +3626,23 @@ Definition idelim_resolve (k : dstyle) (txt : string) (before : option ascii)
    about to prefix.  So a disabled prefix is not dropped and not
    announced -- it is the code span it sits on, with its dollars as
    literal text before it. *)
-Definition idollar_step (c : ascii) (two : bool) (txt : string)
+Definition idollar_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c dollar
   then (if two then IDollar true (txt ++ one dollar)%string prev o
         else IDollar true txt prev o)
   else if (is_tick c && math_enabled)%bool
   then IOpen 1 (VMath (if two then DisplayMath else InlineMath))
-         (flush_text txt o)
+         (flush_text_at txt o)
   else ilead c (txt ++ dollars two)%string (Some dollar) o.
 
 (* Three periods are one ellipsis and any other run is literal, so the
    state counts to two and the third byte decides (`inline.ts:343`).  A
    run of four is an ellipsis and a period, which falls out of resolving
    at the third and starting again. *)
-Definition iperiod_step (c : ascii) (two : bool) (txt : string)
+Definition iperiod_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c period
   then (if two then
@@ -3441,7 +3658,8 @@ Definition iperiod_step (c : ascii) (two : bool) (txt : string)
    left is cut into dashes.  When no row is spelled with a hyphen there
    is nothing to close and the two bytes are text, which is djot.js's
    `hyphens === 0` branch. *)
-Definition idash_step (c : ascii) (n : nat) (txt : string)
+Definition idash_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (n : nat) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c hyphen then IDash (S n) txt prev o
   else if Ascii.eqb c rbrace
@@ -3465,7 +3683,7 @@ Definition idash_step (c : ascii) (n : nat) (txt : string)
 (* No byte follows: the end of a line or of the paragraph.  `IBrace` and
    `IDelim` are the only states this changes, and after it neither
    remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
-Definition iresolve (st : iscan) : iscan :=
+Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
   | IDollar two txt _ o =>
@@ -3495,13 +3713,14 @@ Definition iresolve (st : iscan) : iscan :=
    space and for nothing else (`inline.ts:250`), so a tab leaves the
    backslash literal; either way the decision consumes only the first
    byte of the run and the rest is ordinary text. *)
-Definition iescws_resolve (ws txt : string) (prev : option ascii)
+Definition iescws_resolve `{PosPolicy} `{InlineCursor}
+  (ws txt : string) (prev : option ascii)
   (o : ostate) : string * option ascii * ostate :=
   match ws with
   | String c rest =>
       if Ascii.eqb c " "%char
       then (rest, str_last rest (Some c),
-            oemit (mk NonBreakingSpace) (flush_text txt o))
+            oemit (imk_here NonBreakingSpace) (flush_text_at txt o))
       else ((txt ++ one bslash ++ ws)%string, str_last ws prev, o)
   (* unreachable: `IEscWs` is only ever built with a byte in hand.  Spelt
      as the bare backslash anyway, so the state's own source survives on
@@ -3512,12 +3731,14 @@ Definition iescws_resolve (ws txt : string) (prev : option ascii)
 (* The line ended after the backslash.  djot.js trims the whitespace that
    preceded it off the last `str` match (`inline.ts:222-237`); the run
    pending here is that match, so the trim is local. *)
-Definition iesc_hard (txt : string) (o : ostate) : ostate :=
-  oemit (mk HardBreak) (flush_text (strip_trailing_ws txt) o).
+Definition iesc_hard `{PosPolicy} `{InlineCursor}
+  (txt : string) (o : ostate) : ostate :=
+  oemit (imk_here HardBreak) (flush_text_at (strip_trailing_ws txt) o).
 
 (* Recursive in exactly one place: a destination advances the ordinary
    reading of its own region, which is this same scanner one scope in. *)
-Fixpoint istep_at (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
+Fixpoint istep_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt prev o =>
       if is_ws c then IEscWs (one c) txt prev o
@@ -3580,16 +3801,18 @@ Fixpoint istep_at (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
   | IClosed txt o =>
       match (if (Ascii.eqb c lparen || Ascii.eqb c lbrack
                  || (Ascii.eqb c lbrace && attrs_enabled))%bool
-             then bclose (flush_text txt o) else None) with
-      | Some (kids, image, o') =>
+             then bclose (flush_text_at txt o) else None) with
+      | Some (kids, image, open, o') =>
           if Ascii.eqb c lparen
-          then IDest kids image false 0 EmptyString
-                 (idest_open kids image o') o'
-          else if Ascii.eqb c lbrack then IReference kids image EmptyString o'
-          else ISpan kids image ap_init EmptyString o'
+          then IDest kids image open false 0 EmptyString
+                 (idest_open kids image open o') o'
+          else if Ascii.eqb c lbrack
+               then IReference kids image open EmptyString o'
+               else ISpan kids image open ap_init EmptyString o'
       | None => ilead c (txt ++ one rbrack)%string (Some rbrack) o
       end
-  | ISpan kids image p src o => ispan_feed c kids image p src o
+  | ISpan kids image open p src o =>
+      ispan_feed c kids image open p src o
   | IAttr p src txt prev sh o =>
       (* The failing byte is not part of the candidate's source, so it
          arrives in the ordinary reading after that source's last slice
@@ -3598,27 +3821,28 @@ Fixpoint istep_at (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
       if ap_failed (astep p c)
       then istep_at false c sh
       else iattr_feed c p src txt prev (istep_at false c sh) o
-  | INote esc image label o => inote_step c esc image label o
+  | INote esc image label open o => inote_step c esc image label open o
   | IAuto src txt o => iauto_step c src txt o
   | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
-  | IReference kids image label o =>
+  | IReference kids image open label o =>
       if Ascii.eqb c rbrack
       then let key := match label with
                       | EmptyString => reference_inlines_text kids
                       | _ => label
                       end in
            IText false EmptyString (Some rbrack)
-             (oemit (mk (bnode image kids (Reference (normalize_label key)))) o)
-      else IReference kids image (label ++ one c)%string o
-  | IDest kids image true depth dst sh o =>
-      IDest kids image false depth
+             (oemit (imk (span_start open) cursor_stop
+                       (bnode image kids (Reference (normalize_label key)))) o)
+      else IReference kids image open (label ++ one c)%string o
+  | IDest kids image open true depth dst sh o =>
+      IDest kids image open false depth
         (dst ++ (if is_punct c then one c
                  else String bslash (one c)))%string (istep_at attrs_enabled c sh) o
-  | IDest kids image false depth dst sh o =>
-      if is_bslash c then IDest kids image true depth dst
+  | IDest kids image open false depth dst sh o =>
+      if is_bslash c then IDest kids image open true depth dst
                              (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c lparen
-      then IDest kids image false (S depth) (dst ++ one lparen)%string
+      then IDest kids image open false (S depth) (dst ++ one lparen)%string
              (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c rparen
       then match depth with
@@ -3626,15 +3850,17 @@ Fixpoint istep_at (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
                (* the balanced close: the one byte that builds the node,
                   and the one that discards the ordinary reading *)
                IText false EmptyString (Some rparen)
-                 (oemit (mk (bnode image kids (Direct (drop_nl dst)))) o)
-           | S d => IDest kids image false d (dst ++ one rparen)%string
+                 (oemit (imk (span_start open) cursor_stop
+                           (bnode image kids (Direct (drop_nl dst)))) o)
+           | S d => IDest kids image open false d (dst ++ one rparen)%string
                       (istep_at attrs_enabled c sh) o
            end
-      else IDest kids image false depth (dst ++ one c)%string
+      else IDest kids image open false depth (dst ++ one c)%string
              (istep_at attrs_enabled c sh) o
   end.
 
-Definition istep (c : ascii) (st : iscan) : iscan :=
+Definition istep `{PosPolicy} `{InlineCursor}
+  (c : ascii) (st : iscan) : iscan :=
   istep_at inline_attrs_enabled c st.
 
 (* End of line.  An unclosed verbatim closes here, as djot.js does in
@@ -3643,37 +3869,44 @@ Definition istep (c : ascii) (st : iscan) : iscan :=
    (`escapes.test:30`).  It cannot arise from a canonical rendering,
    since `escape_str` never emits a backslash that is not followed by
    punctuation. *)
-Definition ifinish_ostate_flat (st : iscan) : ostate :=
+Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
+  (st : iscan) : ostate :=
   match st with
   | IText true txt _ o => iesc_hard txt o
   | IEscWs _ txt _ o => iesc_hard txt o
-  | IText false txt _ o => flush_text txt o
-  | IOpen _ vk o => oemit (mk (vnode vk EmptyString)) o
+  | IText false txt _ o => flush_text_at txt o
+  | IOpen n vk o =>
+      let start := spot_before cursor_start (ticks n) in
+      oemit (imk start cursor_start (vnode vk EmptyString)) o
   | IVerb n run txt vk o =>
-      oemit (mk (vnode vk (trim_verb
-                   (if Nat.eqb run n then txt else txt ++ ticks run)%string))) o
+      let src := (ticks n ++ txt ++ ticks run)%string in
+      oemit (imk (spot_before cursor_start src) cursor_start
+               (vnode vk (trim_verb
+                  (if Nat.eqb run n then txt else txt ++ ticks run)%string))) o
   (* unreachable: `ifinish_ostate` takes a destination's shadow before it
      gets here, and `iresolve` builds no `IDest` *)
-  | IDest _ _ _ _ _ _ o => o
-  | INote esc image label o =>
-      let '(txt, o') := bnote_lit esc image label o in flush_text txt o'
+  | IDest _ _ _ _ _ _ _ o => o
+  | INote esc image label _ o =>
+      let '(txt, o') := bnote_lit esc image label o in flush_text_at txt o'
   (* a candidate the line ended inside is literal: the region may not
      contain a break, so the `>` it wanted can never arrive *)
-  | IAuto src txt o => flush_text (auto_lit src txt) o
+  | IAuto src txt o => flush_text_at (auto_lit src txt) o
   (* a spec the line ended inside never closed: the verbatim stands and
      the spec source is text after it *)
   | IRaw spec txt o =>
-      flush_text (iraw_lit spec) (oemit (mk (Verbatim txt)) o)
-  | IReference kids image label o =>
-      let '(txt, o') := bref_lit kids image label o in flush_text txt o'
+      let spec_start := spot_before cursor_start (String lbrace spec) in
+      flush_text_at (iraw_lit spec)
+        (oemit (imk (text_start o) spec_start (Verbatim txt)) o)
+  | IReference kids image _ label o =>
+      let '(txt, o') := bref_lit kids image label o in flush_text_at txt o'
   (* an unclosed span is literal too: there is no next line for its spec
      to close on, and the breaks it did cross are in the source *)
-  | ISpan kids image _ src o =>
-      let '(txt, o') := bspan_lit kids image src o in flush_text txt o'
+  | ISpan kids image _ _ src o =>
+      let '(txt, o') := bspan_lit kids image src o in flush_text_at txt o'
   (* a spec the paragraph ended inside never closed, and its source is
      text: the brace, then what the machine has read since *)
   | IAttr _ src txt _ _ o =>
-      let '(t, o') := battr_lit src txt o in flush_text t o'
+      let '(t, o') := battr_lit src txt o in flush_text_at t o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`,
      `IDollar`, `IDelim` or `IClosed` *)
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
@@ -3685,23 +3918,25 @@ Definition ifinish_ostate_flat (st : iscan) : ostate :=
    source at the *close*, so a region that never closes keeps the reading
    the ordinary scan gave it, and the `[` and `](` come back out of the
    `FKDest` frame when `oflatten` abandons it. *)
-Fixpoint ifinish_ostate (st : iscan) : ostate :=
+Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   match st with
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
-  | IDest _ _ _ _ _ sh _ => ifinish_ostate sh
+  | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
-Definition ifinish_items (st : iscan) : oitems :=
+Definition ifinish_items `{PosPolicy} `{InlineCursor} (st : iscan) : oitems :=
   oitems_of (ifinish_ostate st).
 
-Definition ifinish_rev (st : iscan) : inlines := ofinish (ifinish_ostate st).
+Definition ifinish_rev `{PosPolicy} `{InlineCursor} (st : iscan) : inlines :=
+  ofinish (ifinish_ostate st).
 
 Lemma ifinish_rev_items :
   forall st, ifinish_rev st = oresolve (ifinish_items st).
 Proof. reflexivity. Qed.
 
-Definition ifinish (st : iscan) : inlines := List.rev (ifinish_rev st).
+Definition ifinish `{PosPolicy} `{InlineCursor} (st : iscan) : inlines :=
+  List.rev (ifinish_rev st).
 
 (* A line boundary inside a paragraph.
    djot.js scans the newline as an ordinary character of the subject, and
@@ -3715,44 +3950,59 @@ Definition ifinish (st : iscan) : inlines := List.rev (ifinish_rev st).
    which is why it arrives here as `one nl` rather than closing anything;
    a resolved closing run (`run = n`) is the one case where the span ends
    *at* the break and the newline is the soft break after it. *)
-Definition ibreak_flat (st : iscan) : iscan :=
+Definition ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   (* A hard break replaces the soft one: it is the break, rendered. *)
-  | IText true txt _ o => IText false EmptyString None (iesc_hard txt o)
-  | IEscWs _ txt _ o => IText false EmptyString None (iesc_hard txt o)
+  | IText true txt _ o =>
+      IText false EmptyString None (oword_reset (iesc_hard txt o))
+  | IEscWs _ txt _ o =>
+      IText false EmptyString None (oword_reset (iesc_hard txt o))
   | IText false txt _ o =>
-      IText false EmptyString None (oemit (mk SoftBreak) (flush_text txt o))
+      IText false EmptyString None
+        (oword_reset
+          (oemit (imk cursor_start cursor_start SoftBreak)
+            (flush_text_at txt o)))
   | IOpen n vk o => IVerb n 0 nl vk o
   | IVerb n run txt vk o =>
       if Nat.eqb run n
       then IText false EmptyString None
-             (oemit (mk SoftBreak) (oemit (mk (vnode vk (trim_verb txt))) o))
+             (let src := (ticks n ++ txt ++ ticks run)%string in
+              oword_reset
+                (oemit (imk cursor_start cursor_start SoftBreak)
+                  (oemit (imk (spot_before cursor_start src) cursor_start
+                            (vnode vk (trim_verb txt))) o)))
       else IVerb n 0 (txt ++ ticks run ++ nl)%string vk o
   (* unreachable, as in `ifinish_ostate_flat` *)
-  | IDest _ _ _ _ _ _ _ as st' => st'
+  | IDest _ _ _ _ _ _ _ _ as st' => st'
   (* A label crosses a break and the newline is whitespace to
      `normalize_label`, so `[^a` / `b]` is one reference to `a b`. *)
-  | INote esc image label o =>
+  | INote esc image label open o =>
       INote false image
-        (label ++ (if esc then one bslash else EmptyString) ++ nl)%string o
-  | IReference kids image label o =>
-      IReference kids image (label ++ nl)%string o
+        (label ++ (if esc then one bslash else EmptyString) ++ nl)%string open o
+  | IReference kids image open label o =>
+      IReference kids image open (label ++ nl)%string o
   (* and the break itself is the soft one, exactly as it is for the text
      the candidate decays to *)
   | IAuto src txt o =>
       IText false EmptyString None
-        (oemit (mk SoftBreak) (flush_text (auto_lit src txt) o))
+        (oword_reset
+          (oemit (imk cursor_start cursor_start SoftBreak)
+            (flush_text_at (auto_lit src txt) o)))
   (* nor does a raw spec: the pattern excludes whitespace, so a break
      ends the candidate exactly as `ifinish` does *)
   | IRaw spec txt o =>
+      let spec_start := spot_before cursor_start (String lbrace spec) in
       IText false EmptyString None
-        (oemit (mk SoftBreak)
-           (flush_text (iraw_lit spec) (oemit (mk (Verbatim txt)) o)))
+        (oword_reset
+          (oemit (imk cursor_start cursor_start SoftBreak)
+             (flush_text_at (iraw_lit spec)
+               (oemit (imk (text_start o) spec_start (Verbatim txt)) o))))
   (* A span's spec crosses the break too, and the newline is whitespace to
      the machine: `[s]{.a` / `.b}` is one span whose classes merge.  It is
      fed rather than accumulated because the machine is what decides
      whether the break separates two tokens. *)
-  | ISpan kids image p src o => ispan_feed nl_char kids image p src o
+  | ISpan kids image open p src o =>
+      ispan_feed nl_char kids image open p src o
   (* and so does a bare spec, on the same reading: `hi{#i .c` / `k="v"}`
      attaches to `hi`.  No `SoftBreak` is emitted -- the break is inside
      the spec's source, and djot.js's `attributeSlices` swallow it the
@@ -3771,20 +4021,21 @@ Definition ibreak_flat (st : iscan) : iscan :=
    accumulated and dropped later rather than dropped here.  The ordinary
    reading takes the break as the soft one it is, which is why it is
    `ibreak` and not `istep nl` that the shadow gets. *)
-Fixpoint ibreak_at (attrs_enabled : bool) (st : iscan) : iscan :=
+Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (st : iscan) : iscan :=
   match st with
   | IAttr p src txt prev sh o =>
       iattr_feed nl_char p src txt prev
         (ibreak_at false sh) o
-  | IDest kids image esc depth dst sh o =>
-      IDest kids image false depth
+  | IDest kids image open esc depth dst sh o =>
+      IDest kids image open false depth
         (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string
         (ibreak_at attrs_enabled sh) o
   | _ => ibreak_flat (iresolve st)
   end.
 
 
-Definition ibreak (st : iscan) : iscan :=
+Definition ibreak `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   ibreak_at inline_attrs_enabled st.
 
 (* A state that owes nothing to the next line: every construct it has
@@ -3805,22 +4056,25 @@ Definition iclosed_at (st : iscan) : bool :=
      text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
-  | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _
-  | INote _ _ _ _ | IReference _ _ _ _ | IDest _ _ _ _ _ _ _ => false
+  | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _
+  | INote _ _ _ _ _ | IReference _ _ _ _ _
+  | IDest _ _ _ _ _ _ _ _ => false
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
      is text on this line *)
   | IAuto _ _ o | IRaw _ _ o => null (os_stk o)
   end.
 
-Definition iscan_closed (st : iscan) : bool := iclosed_at (iresolve st).
+Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
+  iclosed_at (iresolve st).
 
 (* `iresolve` is the end-of-line disposition.  When a byte is known to
    follow, only `IDelim` answers differently, and only about opening:
    `idelim_done` consults that byte and `iresolve` passes `None`, so a
    run that cannot close settles as text at the end of a line and opens
    in the middle of one. *)
-Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
+Definition iresolve_next `{PosPolicy} `{InlineCursor}
+  (c : ascii) (st : iscan) : iscan :=
   match st with
   | IDelim k extra txt before marked o =>
       if Nat.ltb (S extra) (dwidth k)
@@ -3836,7 +4090,8 @@ Definition iresolve_next (c : ascii) (st : iscan) : iscan :=
    a delimiter run that would open: `a*` is closed at a line's end and
    an opener before a colon, which is why the split test asks this one.
    See `.project/keyed-blocks.md` 9.1. *)
-Definition iscan_settled (c : ascii) (st : iscan) : bool :=
+Definition iscan_settled `{PosPolicy} `{InlineCursor}
+  (c : ascii) (st : iscan) : bool :=
   iclosed_at (iresolve_next c st).
 
 (* The two recursive definitions above take their own branch on a state
@@ -3847,61 +4102,65 @@ Definition iscan_settled (c : ascii) (st : iscan) : bool :=
    about -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
 Definition is_compound (st : iscan) : bool :=
   match st with
-  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ => true
+  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ => true
   | _ => false
   end.
 
 Lemma ibreak_flat_state :
-  forall st, is_compound st = false -> ibreak st = ibreak_flat (iresolve st).
-Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
+  forall `{PosPolicy} `{InlineCursor} st,
+    is_compound st = false -> ibreak st = ibreak_flat (iresolve st).
+Proof. intros P C st H. destruct st; try reflexivity; discriminate H. Qed.
 
 Lemma ibreak_at_flat_state :
-  forall attrs_enabled st,
+  forall `{PosPolicy} `{InlineCursor} attrs_enabled st,
     is_compound st = false -> ibreak_at attrs_enabled st = ibreak st.
-Proof. intros attrs_enabled st H. destruct st; try reflexivity; discriminate H. Qed.
+Proof. intros P C attrs_enabled st H. destruct st; try reflexivity; discriminate H. Qed.
 
 Lemma ifinish_ostate_flat_state :
-  forall st,
+  forall `{PosPolicy} `{InlineCursor} st,
     is_compound st = false ->
     ifinish_ostate st = ifinish_ostate_flat (iresolve st).
-Proof. intros st H. destruct st; try reflexivity; discriminate H. Qed.
+Proof. intros P C st H. destruct st; try reflexivity; discriminate H. Qed.
 
 Lemma ibreak_closed :
-  forall st,
+  forall `{PosPolicy} `{InlineCursor} st,
     iscan_closed st = true ->
     ibreak st = IText false EmptyString None
-                  (OState (OIn (mk SoftBreak) :: ifinish_items st) []).
+                  (OState
+                    (OIn (imk cursor_start cursor_start SoftBreak)
+                       :: ifinish_items st) [] None).
 Proof.
-  intros st H.
+  intros P C st H.
   assert (Hd : is_compound st = false)
     by (destruct st; try reflexivity; cbn in H; discriminate H).
   rewrite (ibreak_flat_state st Hd).
   unfold ifinish_items, oitems_of.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     try discriminate.
-  - destruct o as [out [|f stk]]; [|discriminate].
-    unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
+  - destruct o as [out [|f stk] word]; [|discriminate].
+    unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
     destruct (nonempty_str txt); reflexivity.
   - apply andb_true_iff in H as [Hr Hs]. rewrite Hr.
-    destruct o as [out [|f stk]]; [|discriminate].
+    destruct o as [out [|f stk] word]; [|discriminate].
     unfold oemit; cbn [os_stk os_out oflatten oapp]. reflexivity.
   (* the candidate decays to text and the boundary is the soft break
      after it, which is the text case with `auto_lit` in the buffer *)
-  - destruct aob as [out [|f stk]]; [|discriminate].
-    unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
+  - destruct aob as [out [|f stk] word]; [|discriminate].
+    unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
     destruct (nonempty_str (auto_lit asrc atxt)); reflexivity.
   (* the same, with the verbatim the spec did not claim underneath *)
-  - destruct rob as [out [|f stk]]; [|discriminate].
-    unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
+  - destruct rob as [out [|f stk] word]; [|discriminate].
+    unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
     destruct (nonempty_str (iraw_lit rspec)); reflexivity.
 Qed.
 
 Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
-  | String c rest => iscan_str rest (istep c st)
+  | String c rest =>
+      iscan_str rest (@istep semantic_pos semantic_inline_cursor c st)
   end.
 
 (* An executable certificate for this outer scan's source dispatch.  One
@@ -3926,7 +4185,9 @@ Fixpoint iscan_str_fuel (fuel : nat) (s : string) (st : iscan)
   | String c rest =>
       match fuel with
       | O => None
-      | S fuel' => iscan_str_fuel fuel' rest (istep c st)
+      | S fuel' =>
+          iscan_str_fuel fuel' rest
+            (@istep semantic_pos semantic_inline_cursor c st)
       end
   end.
 
@@ -3958,7 +4219,9 @@ Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
   match l with
   | [] => st
   | [x] => iscan_str (strip_trailing_ws x) st
-  | x :: rest => iscan_lines rest (ibreak (iscan_str x st))
+  | x :: rest =>
+      iscan_lines rest
+        (@ibreak semantic_pos semantic_inline_cursor (iscan_str x st))
   end.
 
 (* The same scan with attribute recognition switched off.  A block
@@ -3968,7 +4231,9 @@ Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
 Fixpoint iscan_str_off (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
-  | String c rest => iscan_str_off rest (istep_at false c st)
+  | String c rest =>
+      iscan_str_off rest
+        (@istep_at semantic_pos semantic_inline_cursor false c st)
   end.
 
 (* `k` leading lines of a paragraph read with attributes off, the rest as
@@ -3988,7 +4253,9 @@ Fixpoint iscan_lines_off (k : nat) (l : list string) (st : iscan) : iscan :=
       | [] => st
       | [x] => iscan_str_off (strip_trailing_ws x) st
       | x :: rest =>
-          iscan_lines_off k' rest (ibreak_at false (iscan_str_off x st))
+          iscan_lines_off k' rest
+            (@ibreak_at semantic_pos semantic_inline_cursor false
+              (iscan_str_off x st))
       end
   end.
 
@@ -4114,7 +4381,7 @@ Definition istart : iscan := IText false EmptyString None ostart.
    makes this commute with every transition: pushing and popping scopes
    only ever touch `os_stk`, so the suffix is out of their reach. *)
 Definition oout_app (base : oitems) (o : ostate) : ostate :=
-  OState (os_out o ++ base)%list (os_stk o).
+  OState (os_out o ++ base)%list (os_stk o) (os_word_start o).
 
 (* What a suffix always is: empty, or a previous line, whose most recent
    node is the `SoftBreak` that ended it.  Every `_app` lemma below asks
@@ -4155,14 +4422,17 @@ Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   | IPeriod two txt prev o => IPeriod two txt prev (oout_app base o)
   | IDash n txt prev o => IDash n txt prev (oout_app base o)
   | IClosed txt o => IClosed txt (oout_app base o)
-  | ISpan kids image p src o => ISpan kids image p src (oout_app base o)
+  | ISpan kids image open p src o =>
+      ISpan kids image open p src (oout_app base o)
   | IAttr p src txt prev sh o =>
       IAttr p src txt prev (iout_app base sh) (oout_app base o)
-  | INote esc image label o => INote esc image label (oout_app base o)
-  | IReference kids image label o =>
-      IReference kids image label (oout_app base o)
-  | IDest kids image esc depth dst sh o =>
-      IDest kids image esc depth dst (iout_app base sh) (oout_app base o)
+  | INote esc image label open o =>
+      INote esc image label open (oout_app base o)
+  | IReference kids image open label o =>
+      IReference kids image open label (oout_app base o)
+  | IDest kids image open esc depth dst sh o =>
+      IDest kids image open esc depth dst
+        (iout_app base sh) (oout_app base o)
   | IAuto src txt o => IAuto src txt (oout_app base o)
   | IRaw spec txt o => IRaw spec txt (oout_app base o)
   end.
@@ -4171,14 +4441,23 @@ Lemma oemit_app :
   forall n o base,
     oemit n (oout_app base o) = oout_app base (oemit n o).
 Proof.
-  intros n [out [|f stk]] base; reflexivity.
+  intros n [out [|f stk] word] base; reflexivity.
 Qed.
 
 Lemma flush_text_app :
   forall txt o base,
     flush_text txt (oout_app base o) = oout_app base (flush_text txt o).
 Proof.
-  intros txt o base. unfold flush_text.
+  intros txt o base. unfold flush_text, flush_text_at.
+  destruct (nonempty_str txt); [apply oemit_app | reflexivity].
+Qed.
+
+Lemma flush_text_to_app :
+  forall stop txt o base,
+    flush_text_to stop txt (oout_app base o) =
+    oout_app base (flush_text_to stop txt o).
+Proof.
+  intros stop txt o base. unfold flush_text_to, flush_text_to_at.
   destruct (nonempty_str txt); [apply oemit_app | reflexivity].
 Qed.
 
@@ -4201,7 +4480,7 @@ Proof.
   destruct (oclose_go k m [] (os_stk o)) as [[content rest]|]; [|reflexivity].
   cbn [option_map].
   rewrite <- (oemit_app (mk (dnode k (List.rev (oresolve content))))
-                (OState (os_out o) rest) base).
+                (OState (os_out o) rest (os_word_start o)) base).
   reflexivity.
 Qed.
 
@@ -4215,20 +4494,26 @@ Proof. intros image o base. reflexivity. Qed.
 Lemma bunpush_app :
   forall o base,
     bunpush (oout_app base o)
-    = option_map (fun p => (fst p, oout_app base (snd p))) (bunpush o).
+    = option_map
+        (fun p => let '(image, open, o') := p in
+                  (image, open, oout_app base o'))
+        (bunpush o).
 Proof.
-  intros [out [|f stk]] base; [reflexivity|].
-  destruct f as [[k|im|im] m [|n l]]; reflexivity.
+  intros [out [|f stk] word] base; [reflexivity|].
+  destruct f as [[k|im|im] m open [|n l]]; reflexivity.
 Qed.
 
 Lemma bclose_app :
   forall o base,
     bclose (oout_app base o)
-    = option_map (fun p => (fst (fst p), snd (fst p),
-                            oout_app base (snd p))) (bclose o).
+    = option_map
+        (fun p => let '(kids, image, open, o') := p in
+                  (kids, image, open, oout_app base o'))
+        (bclose o).
 Proof.
   intros o base. unfold bclose. cbn [oout_app os_stk os_out].
-  destruct (bclose_go [] (os_stk o)) as [[[content image] rest]|]; reflexivity.
+  destruct (bclose_go [] (os_stk o))
+    as [[[[content image] open] rest]|]; reflexivity.
 Qed.
 
 (* The bracket reconstruction is the second place the suffix is not
@@ -4279,18 +4564,19 @@ Proof.
 Qed.
 
 Lemma dpush_app :
-  forall image o base,
-    dpush image (oout_app base o) = oout_app base (dpush image o).
-Proof. intros image o base. reflexivity. Qed.
+  forall image open o base,
+    dpush image open (oout_app base o) =
+    oout_app base (dpush image open o).
+Proof. intros image open o base. reflexivity. Qed.
 
 Lemma idest_open_app :
-  forall kids image o base,
-    idest_open kids image (oout_app base o)
-    = iout_app base (idest_open kids image o).
+  forall kids image open o base,
+    idest_open kids image open (oout_app base o)
+    = iout_app base (idest_open kids image open o).
 Proof.
-  intros kids image o base. unfold idest_open.
+  intros kids image open o base. unfold idest_open.
   rewrite dpush_app, bflat_app.
-  destruct (bflat kids EmptyString (dpush image o)) as [txt o1].
+  destruct (bflat kids EmptyString (dpush image open o)) as [txt o1].
   reflexivity.
 Qed.
 
@@ -4384,7 +4670,8 @@ Proof.
     [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity|].
   destruct (Ascii.eqb c rbrack); [reflexivity|].
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
-    [rewrite bunpush_app; destruct (bunpush o) as [[image o']|]; [reflexivity|]|];
+    [rewrite bunpush_app;
+     destruct (bunpush o) as [[[image open] o']|]; [reflexivity|]|];
     destruct (dstyle_of c); reflexivity.
 Qed.
 
@@ -4400,17 +4687,18 @@ Proof.
 Qed.
 
 Lemma omark_app :
-  forall a o base,
-    omark a (oout_app base o) = oout_app base (omark a o).
+  forall a spec o base,
+    omark a spec (oout_app base o) = oout_app base (omark a spec o).
 Proof.
-  intros a [out [|f stk]] base; reflexivity.
+  intros a spec [out [|f stk] word] base; reflexivity.
 Qed.
 
 Lemma iattr_mark_app :
-  forall a txt o base,
-    iattr_mark a txt (oout_app base o) = iout_app base (iattr_mark a txt o).
+  forall src a txt o base,
+    iattr_mark src a txt (oout_app base o) =
+    iout_app base (iattr_mark src a txt o).
 Proof.
-  intros a txt o base. unfold iattr_mark.
+  intros src a txt o base. unfold iattr_mark.
   cbn [iout_app]. rewrite flush_text_app, omark_app. reflexivity.
 Qed.
 
@@ -4418,7 +4706,7 @@ Lemma islice_end_app :
   forall base st,
     islice_end (iout_app base st) = iout_app base (islice_end st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     reflexivity.
 Qed.
 
@@ -4435,12 +4723,12 @@ Proof.
 Qed.
 
 Lemma ispan_feed_app :
-  forall c kids image p src o base,
+  forall c kids image open p src o base,
     base_ok base = true ->
-    ispan_feed c kids image p src (oout_app base o)
-    = iout_app base (ispan_feed c kids image p src o).
+    ispan_feed c kids image open p src (oout_app base o)
+    = iout_app base (ispan_feed c kids image open p src o).
 Proof.
-  intros c kids image p src o base Hb. unfold ispan_feed.
+  intros c kids image open p src o base Hb. unfold ispan_feed.
   destruct (ap_failed (astep p c)).
   - rewrite (bspan_lit_app kids image src o base Hb).
     destruct (bspan_lit kids image src o) as [txt o']. apply ilead_app.
@@ -4451,17 +4739,24 @@ Qed.
 
 Lemma idelim_resolve_app :
   forall k txt bef marker next o base,
-    idelim_resolve k txt bef marker next (oout_app base o)
-    = iout_app base (idelim_resolve k txt bef marker next o).
+    @idelim_resolve semantic_pos semantic_inline_cursor
+      k txt bef marker next (oout_app base o)
+    = iout_app base
+        (@idelim_resolve semantic_pos semantic_inline_cursor
+          k txt bef marker next o).
 Proof.
   intros k txt bef marker next o base.
-  assert (Hdone : forall o', idelim_done k txt bef marker next (oout_app base o')
-                             = iout_app base (idelim_done k txt bef marker next o')).
+  assert (Hdone : forall o',
+    @idelim_done semantic_pos semantic_inline_cursor
+      k txt bef marker next (oout_app base o')
+    = iout_app base
+        (@idelim_done semantic_pos semantic_inline_cursor
+          k txt bef marker next o')).
   { intros o'. unfold idelim_done.
     destruct (dbare k bef && negb marker && nonspace_at next)%bool;
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
   unfold idelim_resolve. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
-  rewrite flush_text_app, oclose_app.
+  sem_flush. rewrite flush_text_app, oclose_app.
   destruct (oclose k marker (flush_text txt o)); [reflexivity|].
   unfold oclose_barred, oout_app; cbn [os_stk].
   destruct (oclose_barred_go k marker false (os_stk o)); [reflexivity|].
@@ -4483,7 +4778,7 @@ Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
@@ -4503,7 +4798,7 @@ Lemma istep_at_out_app :
     = iout_app base (istep_at attrs_enabled c st).
 Proof.
   intros attrs_enabled c base st. revert attrs_enabled c base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
     intros attrs_enabled c base Hb; cbn [iout_app istep_at].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -4555,8 +4850,9 @@ Proof.
   - destruct ((Ascii.eqb c lparen || Ascii.eqb c lbrack
                || (Ascii.eqb c lbrace && attrs_enabled))%bool);
       [|apply ilead_app].
-    rewrite flush_text_app, bclose_app.
-    destruct (bclose (flush_text cltxt clob)) as [[[kids image] o']|];
+    sem_flush. rewrite flush_text_app, bclose_app.
+    destruct (bclose (flush_text cltxt clob))
+      as [[[[kids image] open] o']|];
       [|apply ilead_app].
     cbn [option_map].
     destruct (Ascii.eqb c lparen);
@@ -4584,7 +4880,7 @@ Proof.
       |cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity].
   - unfold iauto_step.
     destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool;
-      [cbn [iout_app]; rewrite flush_text_app, oemit_app; reflexivity|].
+      [cbn [iout_app]; rewrite flush_text_to_app, oemit_app; reflexivity|].
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_app | reflexivity].
   - unfold iraw_step_at.
@@ -4627,7 +4923,7 @@ Lemma ibreak_flat_app :
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -4657,7 +4953,7 @@ Lemma ibreak_at_out_app :
     = iout_app base (ibreak_at attrs_enabled st).
 Proof.
   intros attrs_enabled base st. revert attrs_enabled base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
     intros attrs_enabled base Hb;
     try (rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
          rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
@@ -4769,12 +5065,12 @@ Qed.
    makes that head a `SoftBreak` -- which it declines exactly as it
    declines an empty scope.  So the splice is invisible to it. *)
 Lemma oattach_list_app :
-  forall a out base,
+  forall a spec word out base,
     base_ok base = true ->
-    oattach_list a (out ++ oresolve base)%list
-    = (oattach_list a out ++ oresolve base)%list.
+    oattach_list a spec word (out ++ oresolve base)%list
+    = (oattach_list a spec word out ++ oresolve base)%list.
 Proof.
-  intros a out base Hb.
+  intros a spec word out base Hb.
   pose proof (oresolve_base_head base Hb) as Hbi.
   pose proof (ibase_ok_starts_str _ Hbi) as Hh.
   destruct out as [|[p a' v] out]; cbn [app]; unfold oattach_list.
@@ -4787,8 +5083,10 @@ Proof.
     destruct (last_ws_split s) as [pre w].
     destruct (nonempty_str w); [|reflexivity].
     destruct a as [|ka a2]; [reflexivity|].
+    destruct (split_text_pos p word) as [pp wp].
     destruct (nonempty_str pre);
-      [rewrite (isnoc_app (mk (Str pre)) out (oresolve base)) by exact Hh|];
+      [rewrite (isnoc_app (Node pp [] (Str pre)) out (oresolve base))
+         by exact Hh|];
       apply isnoc_app, Hh.
 Qed.
 
@@ -4805,10 +5103,10 @@ Proof.
   - unfold oresolve. rewrite <- (oresolve_go_base base Hb).
     destruct (oresolve_go base); reflexivity.
   - rewrite IH. destruct (oresolve_go l) as [out m]; cbn [fst snd].
-    destruct i as [n|a].
+    destruct i as [n|a spec word].
     + destruct m; [rewrite isnoc_app by exact Hh|]; reflexivity.
-    + rewrite (oattach_list_app a out base Hb). f_equal.
-      destruct (oattach_list a out) as [|x xs] eqn:E;
+    + rewrite (oattach_list_app a spec word out base Hb). f_equal.
+      destruct (oattach_list a spec word out) as [|x xs] eqn:E;
         [exact Hh|reflexivity].
 Qed.
 
@@ -4837,7 +5135,7 @@ Lemma ifinish_ostate_flat_app :
     ifinish_ostate_flat (iout_app base st)
     = oout_app base (ifinish_ostate_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ifinish_ostate_flat].
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
@@ -4918,13 +5216,13 @@ Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
 
 Lemma ifinish_text :
   forall txt prev out,
-    ifinish (IText false txt prev (OState out []))
-    = List.rev (oresolve (os_out (flush_text txt (OState out [])))).
+    ifinish (IText false txt prev (OState out [] None))
+    = List.rev (oresolve (os_out (flush_text txt (OState out [] None)))).
 Proof.
   intros txt prev out.
   unfold ifinish, ifinish_rev, ofinish, oitems_of.
   cbn [ifinish_ostate ifinish_ostate_flat iresolve].
-  unfold flush_text, oemit; cbn [os_stk os_out oflatten oapp].
+  unfold flush_text, flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
@@ -5195,12 +5493,13 @@ Proof.
     assert (Ezero : typography_dashes 0 = EmptyString).
     { unfold typography_dashes. destruct smart_typography; reflexivity. }
     rewrite Ezero, (append_empty_r txt).
-    unfold idelim_resolve. rewrite Bool.orb_true_r, H. reflexivity. }
+    unfold idelim_resolve. sem_flush.
+    rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
   unfold one. cbn [iscan_str istep istep_at].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
-  rewrite Ascii.eqb_refl. unfold idelim_resolve.
+  rewrite Ascii.eqb_refl. unfold idelim_resolve. sem_flush.
   rewrite Bool.orb_true_r, H. reflexivity.
 Qed.
 
@@ -5210,14 +5509,15 @@ Qed.
 Lemma bunpush_oemit_all_opush :
   forall ns k m cm o, bunpush (oemit_all ns (opush_at k m cm o)) = None.
 Proof.
-  intros ns k m cm [out stk]. unfold opush_at; cbn [os_out os_stk].
+  intros ns k m cm [out stk word]. unfold opush_at; cbn [os_out os_stk].
   rewrite oemit_all_frame. reflexivity.
 Qed.
 
 Lemma bunpush_flush :
   forall txt o, bunpush o = None -> bunpush (flush_text txt o) = None.
 Proof.
-  intros txt [out [|[[k|im|im] m [|n l]] stk]] H; unfold flush_text;
+  intros txt [out [|[[k|im|im] m open [|n l]] stk] word] H;
+    unfold flush_text, flush_text_at;
     destruct (nonempty_str txt); solve [exact H | reflexivity | discriminate H].
 Qed.
 
@@ -5238,7 +5538,7 @@ Proof.
       (flush_text txt (oemit_all before (opush_at k true cm base))) = Some o').
   { destruct (nonempty_str txt) eqn:Htxt.
     - exists (oemit (mk (dnode k (before ++ [mk (Str txt)])%list)) base).
-      unfold flush_text. rewrite Htxt.
+      unfold flush_text, flush_text_at. rewrite Htxt.
       change (oclose k true
                 (oemit_all [mk (Str txt)]
                   (oemit_all before (opush_at k true cm base)))
@@ -5249,7 +5549,7 @@ Proof.
       cbn [oemit_all]. apply oclose_oemit_all_marked. destruct before; reflexivity.
     - apply orb_true_iff in Hne as [Hbefore|Htxt']; [|discriminate].
       exists (oemit (mk (dnode k before)) base).
-      unfold flush_text. rewrite Htxt.
+      unfold flush_text, flush_text_at. rewrite Htxt.
       apply oclose_oemit_all_marked, Hbefore. }
   destruct Hclose as [o' Hclose]. exists prev.
   unfold marked_close. rewrite <- append_assoc.
@@ -5260,7 +5560,7 @@ Proof.
   rewrite (iscan_marked_close_step k EmptyString prev
              (flush_text txt (oemit_all before (opush_at k true cm base))) o' Hen
              (bunpush_flush txt _ Hup)
-             ltac:(cbn [flush_text]; exact Hclose)).
+             ltac:(cbn [flush_text flush_text_at]; exact Hclose)).
   reflexivity.
 Qed.
 
@@ -5341,7 +5641,8 @@ Proof.
              (oemit (mk (dnode d ns)) base)
              Hen
              (bunpush_oemit_all_opush ns d true cm base)
-             ltac:(cbn [flush_text]; apply oclose_oemit_all_marked, Hne)).
+             ltac:(cbn [flush_text flush_text_at];
+                   apply oclose_oemit_all_marked, Hne)).
   reflexivity.
 Qed.
 
@@ -5484,9 +5785,10 @@ Lemma bclose_flush_bpush :
   forall txt image before base,
     bclose (flush_text txt (oemit_all before (bpush image base)))
     = Some (if nonempty_str txt
-            then (before ++ [mk (Str txt)])%list else before, image, base).
+            then (before ++ [mk (Str txt)])%list else before, image,
+            SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0), base).
 Proof.
-  intros txt image before base. unfold flush_text.
+  intros txt image before base. unfold flush_text, flush_text_at.
   destruct (nonempty_str txt).
   - replace (oemit (mk (Str txt)) (oemit_all before (bpush image base)))
       with (oemit_all [mk (Str txt)] (oemit_all before (bpush image base)))
@@ -5508,12 +5810,12 @@ Qed.
    does: `needs_escape_dest` claims every byte the mode dispatches on,
    and its escapes decode because each such byte is punctuation. *)
 Lemma iscan_dest_escape :
-  forall s kids image depth dst sh o,
-    iscan_str (escape_dest s) (IDest kids image false depth dst sh o)
-    = IDest kids image false depth (dst ++ s)%string
+  forall s kids image open depth dst sh o,
+    iscan_str (escape_dest s) (IDest kids image open false depth dst sh o)
+    = IDest kids image open false depth (dst ++ s)%string
         (iscan_str (escape_dest s) sh) o.
 Proof.
-  induction s as [|c s IH]; intros kids image depth dst sh o;
+  induction s as [|c s IH]; intros kids image open depth dst sh o;
     cbn [escape_dest]; [rewrite append_empty_r; reflexivity|].
   assert (Hsplit : forall t, (dst ++ String c t)%string
                              = ((dst ++ one c) ++ t)%string).
@@ -5552,25 +5854,27 @@ Qed.
 
 (* ...and the byte after it is what closes the bracket. *)
 Lemma istep_lbrack_ref :
-  forall txt o kids image o',
-    bclose (flush_text txt o) = Some (kids, image, o') ->
-    istep lbrack (IClosed txt o) = IReference kids image EmptyString o'.
+  forall txt o kids image open o',
+    bclose (flush_text txt o) = Some (kids, image, open, o') ->
+    istep lbrack (IClosed txt o) =
+      IReference kids image open EmptyString o'.
 Proof.
-  intros txt o kids image o' H. cbn [istep istep_at].
+  intros txt o kids image open o' H. cbn [istep istep_at].
   change (Ascii.eqb lbrack lparen) with false.
   change (Ascii.eqb lbrack lbrack) with true. cbn [orb].
-  rewrite H. reflexivity.
+  sem_flush. rewrite H. reflexivity.
 Qed.
 
 Lemma istep_lparen_dest :
-  forall txt o kids image o',
-    bclose (flush_text txt o) = Some (kids, image, o') ->
+  forall txt o kids image open o',
+    bclose (flush_text txt o) = Some (kids, image, open, o') ->
     istep lparen (IClosed txt o)
-    = IDest kids image false 0 EmptyString (idest_open kids image o') o'.
+    = IDest kids image open false 0 EmptyString
+        (idest_open kids image open o') o'.
 Proof.
-  intros txt o kids image o' H. cbn [istep istep_at].
+  intros txt o kids image open o' H. cbn [istep istep_at].
   change (Ascii.eqb lparen lparen) with true. cbn [orb].
-  rewrite H. reflexivity.
+  sem_flush. rewrite H. reflexivity.
 Qed.
 
 Lemma iscan_link_close :
@@ -5584,7 +5888,8 @@ Lemma iscan_link_close :
 Proof.
   intros dst tail ns image base p Hnl. unfold link_close.
   cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _).
-  rewrite (istep_lparen_dest EmptyString _ ns image base
+  rewrite (istep_lparen_dest EmptyString _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base
              (bclose_flush_bpush EmptyString image ns base)).
   rewrite iscan_str_app, iscan_dest_escape.
   change ((EmptyString ++ dst)%string) with dst.
@@ -5613,11 +5918,13 @@ Proof.
   unfold link_close. cbn [iscan_str].
   rewrite (istep_rbrack_close txt prev _), (istep_rbrack_close EmptyString _ _).
   cbn [iscan_str].
-  rewrite (istep_lparen_dest txt _ ns image base
+  rewrite (istep_lparen_dest txt _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base
              (bclose_flush_bpush txt image before base)).
-  rewrite (istep_lparen_dest EmptyString _ ns image base);
+  rewrite (istep_lparen_dest EmptyString _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base);
     [reflexivity|].
-  cbn [flush_text nonempty_str].
+  cbn [flush_text flush_text_at nonempty_str]. rewrite ?imk_semantic.
   apply (bclose_flush_bpush txt image before base).
 Qed.
 
@@ -5639,16 +5946,16 @@ of it goes in one induction.
 *)
 
 Lemma iscan_ref_label :
-  forall label kids image acc o,
+  forall label kids image open acc o,
     no_char rbrack label = true ->
-    iscan_str label (IReference kids image acc o)
-    = IReference kids image (acc ++ label)%string o.
+    iscan_str label (IReference kids image open acc o)
+    = IReference kids image open (acc ++ label)%string o.
 Proof.
-  induction label as [|c label IH]; intros kids image acc o H;
+  induction label as [|c label IH]; intros kids image open acc o H;
     [rewrite append_empty_r; reflexivity|].
   cbn [no_char] in H. apply andb_true_iff in H as [Hc H].
   apply negb_true_iff in Hc.
-  cbn [iscan_str istep istep_at]. rewrite Hc, (IH _ _ _ _ H).
+  cbn [iscan_str istep istep_at]. rewrite Hc, (IH _ _ _ _ _ H).
   rewrite append_assoc. reflexivity.
 Qed.
 
@@ -5664,9 +5971,13 @@ Lemma iscan_ref_close :
 Proof.
   intros label tail ns image base p Hne Hbr. unfold ref_close.
   cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _).
-  rewrite (istep_lbrack_ref EmptyString _ ns image base
+  rewrite (istep_lbrack_ref EmptyString _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base
              (bclose_flush_bpush EmptyString image ns base)).
-  rewrite iscan_str_app, (iscan_ref_label label ns image EmptyString _ Hbr).
+  rewrite iscan_str_app,
+    (iscan_ref_label label ns image
+      (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0))
+      EmptyString _ Hbr).
   change ((EmptyString ++ label)%string) with label.
   cbn [iscan_str istep istep_at]. change (Ascii.eqb rbrack rbrack) with true.
   destruct label as [|c label']; [discriminate Hne|reflexivity].
@@ -5688,11 +5999,13 @@ Proof.
   unfold ref_close. cbn [iscan_str].
   rewrite (istep_rbrack_close txt prev _), (istep_rbrack_close EmptyString _ _).
   cbn [iscan_str].
-  rewrite (istep_lbrack_ref txt _ ns image base
+  rewrite (istep_lbrack_ref txt _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base
              (bclose_flush_bpush txt image before base)).
-  rewrite (istep_lbrack_ref EmptyString _ ns image base);
+  rewrite (istep_lbrack_ref EmptyString _ ns image
+             (SrcSpan (if image then Spot 0 1 else Spot 0 0) (Spot 0 0)) base);
     [reflexivity|].
-  cbn [flush_text nonempty_str].
+  cbn [flush_text flush_text_at nonempty_str]. rewrite ?imk_semantic.
   apply (bclose_flush_bpush txt image before base).
 Qed.
 
@@ -5700,10 +6013,10 @@ Qed.
    escape pending.  Backslashes are consumed in pairs with the following
    byte, and both bytes remain in the label. *)
 Lemma iscan_note_label :
-  forall label tail esc image acc o,
+  forall label tail esc image acc open o,
     note_label_safe_from esc label = true ->
     iscan_str (label ++ one rbrack ++ tail)
-      (INote esc image acc o)
+      (INote esc image acc open o)
     = iscan_str tail
         (IText false EmptyString (Some rbrack)
           (oemit (mk (FootnoteReference
@@ -5711,7 +6024,7 @@ Lemma iscan_note_label :
               (acc ++ (if esc then one bslash else EmptyString) ++ label))))
             (ospan_bang image o))).
 Proof.
-  induction label as [|c label IH]; intros tail esc image acc o Hsafe.
+  induction label as [|c label IH]; intros tail esc image acc open o Hsafe.
   - cbn [note_label_safe_from] in Hsafe. destruct esc; [discriminate|].
     cbn [append iscan_str istep istep_at inote_step].
     change (is_bslash rbrack) with false.
@@ -5721,7 +6034,7 @@ Proof.
     cbn [append iscan_str istep istep_at inote_step].
     destruct esc.
     + cbn [inote_step].
-      rewrite (IH tail false image (acc ++ one bslash ++ one c)%string o
+      rewrite (IH tail false image (acc ++ one bslash ++ one c)%string open o
                  Hsafe).
       rewrite !append_assoc. reflexivity.
     + destruct (Ascii.eqb c rbrack) eqn:Hclose; [discriminate|].
@@ -5729,10 +6042,10 @@ Proof.
       * unfold is_bslash in Hslash. apply Ascii.eqb_eq in Hslash. subst c.
         cbn [inote_step].
         rewrite is_bslash_bslash.
-        rewrite (IH tail true image acc o Hsafe).
+        rewrite (IH tail true image acc open o Hsafe).
         cbn [append]. reflexivity.
       * cbn [inote_step]. rewrite Hslash, Hclose.
-        rewrite (IH tail false image (acc ++ one c)%string o Hsafe).
+        rewrite (IH tail false image (acc ++ one c)%string open o Hsafe).
         rewrite !append_assoc. reflexivity.
 Qed.
 
@@ -5770,7 +6083,7 @@ Proof.
   rewrite Hnotes. cbn [andb].
   rewrite bunpush_bpush.
   rewrite (iscan_note_label label tail false false EmptyString
-             (flush_text txt o) Hsafe).
+             (SrcSpan (Spot 0 0) (Spot 0 0)) (flush_text txt o) Hsafe).
   reflexivity.
 Qed.
 
@@ -6112,7 +6425,8 @@ Proof.
       cbn [ci_text ci_src ci_inlines map append].
       rewrite append_assoc, iscan_str_app, iscan_escape.
       change (EmptyString ++ s)%string with s. rewrite Ep.
-      unfold flush_text at 1 2. cbn [nonempty_str ci_ast mk oemit_all].
+      unfold flush_text at 1 2. unfold flush_text_at.
+      cbn [nonempty_str ci_ast mk oemit_all].
       rewrite Hs. reflexivity.
     + pose proof (ci_verb_nonempty v rest Hok) as Hvne.
       pose proof (ci_verb_content_ok v rest Hok) as Hvok.
@@ -6139,22 +6453,22 @@ Proof.
         exists p.
         cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
         rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
-        cbn [flush_text nonempty_str].
+        cbn [flush_text flush_text_at nonempty_str]. rewrite ?imk_semantic.
         rewrite (iscan_after_verb_nontick _ _ _ _ _ Hsrcne Hsrctick Hsrcnx),
           trim_verb_pad by exact Hvok. cbn [vnode].
         rewrite oemit_all_app in Ep.
-        cbn [oemit_all flush_text nonempty_str] in Ep.
+        cbn [oemit_all flush_text flush_text_at nonempty_str] in Ep.
         rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
       * destruct (Hstep (before ++ [mk (Str (String x txt')); mk (Verbatim v)])%list
                     ltac:(destruct before; reflexivity)) as [p Ep].
         exists p.
         cbn [ci_text ci_src ci_inlines map]. rewrite append_assoc, iscan_str_app.
         rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
-        cbn [flush_text nonempty_str].
+        cbn [flush_text flush_text_at nonempty_str]. rewrite ?imk_semantic.
         rewrite (iscan_after_verb_nontick _ _ _ _ _ Hsrcne Hsrctick Hsrcnx),
           trim_verb_pad by exact Hvok. cbn [vnode].
         rewrite oemit_all_app in Ep.
-        cbn [oemit_all flush_text nonempty_str] in Ep.
+        cbn [oemit_all flush_text flush_text_at nonempty_str] in Ep.
         rewrite Ep. cbn [oemit_all ci_ast]. reflexivity.
     + pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
       rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
@@ -6210,24 +6524,28 @@ Proof.
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
         rewrite append_assoc, Hsrc, Eopen.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
                    Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CIDelim d kids)])%list
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
         rewrite append_assoc, Hsrc, Eopen.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
                    Hkins).
         rewrite <- ci_ast_delim. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
     + pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
       rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
       assert (Hkidslt :
@@ -6269,22 +6587,26 @@ Proof.
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_link.
         rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
         rewrite <- ci_ast_link. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CILink img kids dst)])%list
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_link.
         rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
         rewrite <- ci_ast_link. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
     + (* a reference link: the direct link's case with the other closer *)
       pose proof (cis_ok_head (CIRef rimg rkids rlabel) rest Hok) as Hdk.
       rewrite ci_ok_ref in Hdk.
@@ -6331,24 +6653,28 @@ Proof.
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
         rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
                 Hnorm.
         rewrite <- ci_ast_ref. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CIRef rimg rkids rlabel)])%list
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
         rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
-        cbn [flush_text nonempty_str oemit_all] in Ekids |- *. rewrite Ekids.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
+        rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
                 Hnorm.
         rewrite <- ci_ast_ref. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all] in Erest.
-        rewrite Erest. cbn [flush_text nonempty_str oemit_all]. reflexivity.
+        cbn [flush_text flush_text_at nonempty_str oemit_all] in Erest.
+        rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
+        rewrite ?imk_semantic. reflexivity.
     + pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
       rewrite ci_ok_note in Hnote.
       apply andb_true_iff in Hnote as [Hnote Hnorm].
@@ -6375,7 +6701,8 @@ Proof.
         change (ci_src (CINote label)) with (note_text label).
         rewrite append_assoc, iscan_note_text by assumption.
         rewrite Hnorm. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CINote label)])%list
@@ -6384,7 +6711,8 @@ Proof.
         change (ci_src (CINote label)) with (note_text label).
         rewrite append_assoc, iscan_note_text by assumption.
         rewrite Hnorm. rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
     + (* an autolink: the footnote reference's case with the other leaf,
          and no normalization to rewrite through *)
@@ -6412,7 +6740,8 @@ Proof.
         change (ci_src (CIAuto a)) with (auto_text a).
         rewrite append_assoc, iscan_auto_text by assumption.
         rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CIAuto a)])%list
@@ -6421,7 +6750,8 @@ Proof.
         change (ci_src (CIAuto a)) with (auto_text a).
         rewrite append_assoc, iscan_auto_text by assumption.
         rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
     + (* raw content: the same leaf shape again, with the verbatim's own
          conditions in front of the spec's *)
@@ -6452,7 +6782,8 @@ Proof.
         change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
         rewrite append_assoc, iscan_raw_text by assumption.
         rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
       * destruct (Hstep
                     (before ++ [mk (Str (String x txt')); ci_ast (CIRaw rf rv)])%list
@@ -6461,7 +6792,8 @@ Proof.
         change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
         rewrite append_assoc, iscan_raw_text by assumption.
         rewrite oemit_all_app in Erest.
-        cbn [flush_text nonempty_str oemit_all ci_ast] in Erest |- *.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
         rewrite Erest. reflexivity.
 Qed.
 
@@ -6547,10 +6879,10 @@ Definition flush_out (txt : string) (out : inlines) : inlines :=
    written that way. *)
 Lemma flush_text_flat :
   forall txt out,
-    flush_text txt (OState (List.map OIn out) [])
-    = OState (List.map OIn (flush_out txt out)) [].
+    flush_text txt (OState (List.map OIn out) [] None)
+    = OState (List.map OIn (flush_out txt out)) [] None.
 Proof.
-  intros txt out. unfold flush_text, flush_out, oemit; cbn [os_stk].
+  intros txt out. unfold flush_text, flush_text_at, flush_out, oemit; cbn [os_stk].
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
@@ -6558,7 +6890,7 @@ Lemma iscan_cis :
   forall cis prev' txt out,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     ifinish (iscan_str (ci_text cis)
-               (IText false txt prev' (OState (List.map OIn out) [])))
+               (IText false txt prev' (OState (List.map OIn out) [] None)))
     = (List.rev (flush_out txt out) ++ ci_inlines cis)%list.
 Proof.
   intro cis. pattern cis.
@@ -6599,7 +6931,7 @@ Proof.
       * destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
         rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).
         rewrite trim_verb_pad by exact Hvok. cbn [vnode].
-        cbn [oemit os_stk os_out].
+        cbn [oemit os_stk os_out os_word_start].
         rewrite <- ?List.map_cons.
         rewrite (IH (r :: rest') Hrestlt (Some tick) EmptyString
           (mk (Verbatim v) :: flush_out txt out)).
@@ -6612,11 +6944,11 @@ Proof.
       apply andb_true_iff in Hdk as [Hden Hkidsne].
       destruct (iscan_marked_open_app d
                   (ci_text kids ++ marked_close d (ci_text rest))
-                  txt prev' (OState (List.map OIn out) []) Hden
+                  txt prev' (OState (List.map OIn out) [] None) Hden
                   (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
         as [cm Eopen].
       pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
-        (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) []))
+        (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) [] None))
         Hden Hkidsok eq_refl) as IHkids.
       assert (Hkn :
         nonempty (@nil (node inline)) || nonempty_str EmptyString ||
@@ -6631,16 +6963,17 @@ Proof.
             (ci_text kids ++ marked_close d (ci_text rest)))%string).
       { rewrite !append_assoc, marked_close_app. reflexivity. }
       rewrite Hsrc, Eopen.
-      cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+      cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
       assert (Hkins : nonempty (ci_inlines kids) = true).
       { destruct kids; [discriminate|reflexivity]. }
       rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden
                  Hkins).
       rewrite <- ci_ast_delim.
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rbrace) EmptyString
         (ci_ast (CIDelim d kids) :: flush_out txt out)).
@@ -6651,7 +6984,7 @@ Proof.
     + pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
       rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
       destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
-        (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) []))
+        (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
         Hkidsok eq_refl) as [pk Ekids].
       cbn [ci_text ci_inlines map]. rewrite ci_src_link.
       assert (Hsrc :
@@ -6661,13 +6994,14 @@ Proof.
             (ci_text kids ++ link_close dst (ci_text rest)))%string).
       { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_bracket_open.
-      cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+      cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
       rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
       rewrite <- ci_ast_link.
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rparen) EmptyString
         (ci_ast (CILink img kids dst) :: flush_out txt out)).
@@ -6682,7 +7016,7 @@ Proof.
       apply andb_true_iff in Hlab as [Hne' Hbr].
       apply String.eqb_eq in Hnorm.
       destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
-        (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) []))
+        (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
         Hkidsok eq_refl) as [pk Ekids].
       cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
       assert (Hsrc :
@@ -6692,14 +7026,15 @@ Proof.
             (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
       { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_bracket_open.
-      cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+      cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
       rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
               Hnorm.
       rewrite <- ci_ast_ref.
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rbrack) EmptyString
         (ci_ast (CIRef rimg rkids rlabel) :: flush_out txt out)).
@@ -6715,11 +7050,12 @@ Proof.
       cbn [ci_text ci_inlines map].
       change (ci_src (CINote label)) with (note_text label).
       rewrite (iscan_note_text label (ci_text rest) txt prev'
-                 (OState (List.map OIn out) []) Hnotes Hsafe), Hnorm.
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+                 (OState (List.map OIn out) [] None) Hnotes Hsafe), Hnorm.
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       change (mk (FootnoteReference label)) with (ci_ast (CINote label)).
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rbrack) EmptyString
@@ -6734,11 +7070,12 @@ Proof.
       cbn [ci_text ci_inlines map].
       change (ci_src (CIAuto a)) with (auto_text a).
       rewrite (iscan_auto_text a (ci_text rest) txt prev'
-                 (OState (List.map OIn out) []) Hbody Hkind).
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+                 (OState (List.map OIn out) [] None) Hbody Hkind).
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       change (mk (auto_node a)) with (ci_ast (CIAuto a)).
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some gt) EmptyString
@@ -6755,11 +7092,12 @@ Proof.
       cbn [ci_text ci_inlines map].
       change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
       rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
-                 (OState (List.map OIn out) []) Hcap Hrne Hrok Hfmt).
-      destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+                 (OState (List.map OIn out) [] None) Hcap Hrne Hrok Hfmt).
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-      injection Eflat as Eout Estk. subst out' stk'.
-      cbn [oemit os_out os_stk].
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
       change (mk (RawInline rf rv)) with (ci_ast (CIRaw rf rv)).
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rbrace) EmptyString
@@ -6779,7 +7117,7 @@ Lemma iscan_cis_closed :
   forall cis prev' txt out,
     cis_ok cis = true ->
     iscan_closed (iscan_str (ci_text cis)
-                    (IText false txt prev' (OState (List.map OIn out) [])))
+                    (IText false txt prev' (OState (List.map OIn out) [] None)))
     = true.
 Proof.
   intro cis. pattern cis.
@@ -6801,7 +7139,8 @@ Proof.
       rewrite nat_eqb_refl. reflexivity.
     + destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
       rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).
-      rewrite trim_verb_pad by exact Hvok. cbn [vnode]. cbn [oemit os_out os_stk].
+      rewrite trim_verb_pad by exact Hvok. cbn [vnode].
+      cbn [oemit os_out os_stk os_word_start].
       rewrite <- ?List.map_cons.
       apply (IH (r :: rest') Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIDelim d kids) rest Hok) as Hdk.
@@ -6809,11 +7148,11 @@ Proof.
     apply andb_true_iff in Hdk as [Hden Hkidsne].
     destruct (iscan_marked_open_app d
                 (ci_text kids ++ marked_close d (ci_text rest))
-                txt prev' (OState (List.map OIn out) []) Hden
+                txt prev' (OState (List.map OIn out) [] None) Hden
                 (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
       as [cm Eopen].
     pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
-      (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) []))
+      (Some (dchar d)) [] (flush_text txt (OState (List.map OIn out) [] None))
       Hden Hkidsok eq_refl) as IHkids.
     assert (Hkn :
       nonempty (@nil (node inline)) || nonempty_str EmptyString ||
@@ -6828,19 +7167,20 @@ Proof.
           (ci_text kids ++ marked_close d (ci_text rest)))%string).
     { rewrite !append_assoc, marked_close_app. reflexivity. }
     rewrite Hsrc, Eopen.
-    cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+    cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
     assert (Hkins : nonempty (ci_inlines kids) = true).
     { destruct kids; [discriminate|reflexivity]. }
     rewrite (iscan_marked_close_emit d cm _ (ci_inlines kids) _ pk Hden Hkins).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
     rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
     destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
-      (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) []))
+      (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
       Hkidsok eq_refl) as [pk Ekids].
     cbn [ci_text]. rewrite ci_src_link.
     assert (Hsrc :
@@ -6850,12 +7190,13 @@ Proof.
           (ci_text kids ++ link_close dst (ci_text rest)))%string).
     { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_bracket_open.
-    cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+    cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
     rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIRef rimg rkids rlabel) rest Hok) as Hdk.
     rewrite ci_ok_ref in Hdk.
@@ -6863,7 +7204,7 @@ Proof.
     apply andb_true_iff in Hlab as [Hlab Hnorm].
     apply andb_true_iff in Hlab as [Hne' Hbr].
     destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
-      (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) []))
+      (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
       Hkidsok eq_refl) as [pk Ekids].
     cbn [ci_text]. rewrite ci_src_ref.
     assert (Hsrc :
@@ -6873,12 +7214,13 @@ Proof.
           (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
     { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_bracket_open.
-    cbn [flush_text nonempty_str oemit_all] in Ekids. rewrite Ekids.
+    cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
     rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CINote label) rest Hok) as Hnote.
     rewrite ci_ok_note in Hnote.
@@ -6886,22 +7228,24 @@ Proof.
     apply andb_true_iff in Hnote as [Hnotes Hsafe].
     cbn [ci_text]. change (ci_src (CINote label)) with (note_text label).
     rewrite (iscan_note_text label (ci_text rest) txt prev'
-               (OState (List.map OIn out) []) Hnotes Hsafe).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+               (OState (List.map OIn out) [] None) Hnotes Hsafe).
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIAuto a) rest Hok) as Hauto.
     rewrite ci_ok_auto in Hauto.
     apply andb_true_iff in Hauto as [Hbody Hkind].
     cbn [ci_text]. change (ci_src (CIAuto a)) with (auto_text a).
     rewrite (iscan_auto_text a (ci_text rest) txt prev'
-               (OState (List.map OIn out) []) Hbody Hkind).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+               (OState (List.map OIn out) [] None) Hbody Hkind).
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIRaw rf rv) rest Hok) as Hraw.
     rewrite ci_ok_raw in Hraw.
@@ -6910,11 +7254,12 @@ Proof.
     apply andb_true_iff in Hraw as [Hcap Hrne].
     cbn [ci_text]. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
     rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
-               (OState (List.map OIn out) []) Hcap Hrne Hrok Hfmt).
-    destruct (flush_text txt (OState (List.map OIn out) [])) as [out' stk'] eqn:Eflush.
+               (OState (List.map OIn out) [] None) Hcap Hrne Hrok Hfmt).
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
-    injection Eflat as Eout Estk. subst out' stk'.
-    cbn [oemit os_out os_stk]. rewrite <- ?List.map_cons.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
 Qed.
 
@@ -6938,7 +7283,7 @@ Lemma idelim_resolve_text :
 Proof.
   intros k txt bef marker next o. unfold idelim_resolve.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_text].
-  destruct (oclose k marker (flush_text txt o)); [eauto|].
+  sem_flush. destruct (oclose k marker (flush_text txt o)); [eauto|].
   destruct (oclose_barred k marker o); [eauto | apply idelim_done_text].
 Qed.
 
@@ -6966,7 +7311,7 @@ Proof.
   intros s H. unfold parse_inline_line, istart. rewrite iscan_escape.
   change (EmptyString ++ s)%string with s.
   unfold ifinish, ifinish_rev.
-  cbn [ifinish_ostate ifinish_ostate_flat iresolve]. unfold flush_text.
+  cbn [ifinish_ostate ifinish_ostate_flat iresolve]. unfold flush_text, flush_text_at.
   rewrite H. reflexivity.
 Qed.
 
@@ -7021,10 +7366,10 @@ Lemma para_inlines_cons2_closed :
     (parse_inline_line x ++ mk SoftBreak :: para_inlines (y :: rest))%list.
 Proof.
   intros x y rest Hcl. unfold para_inlines, parse_inline_line.
-  rewrite iscan_lines_cons2, (ibreak_closed _ Hcl).
+  rewrite iscan_lines_cons2, (ibreak_closed _ Hcl), ?imk_semantic.
   change (IText false EmptyString None
             (OState (OIn (mk SoftBreak) :: ifinish_items (iscan_str x istart))
-               []))
+               [] None))
     with (iout_app (OIn (mk SoftBreak) :: ifinish_items (iscan_str x istart))
             istart).
   rewrite iscan_lines_out_app, ifinish_out_app by reflexivity.

@@ -194,6 +194,18 @@ Record span : Type := SrcSpan
   { span_start : spot
   ; span_stop : spot }.
 
+(* The byte the inline scanner is dispatching.  Like [LineIx], this is
+   an observation only: the semantic driver installs the inert instance
+   below, while the located driver supplies the two ends of each byte.
+   Keeping it implicit lets the grammar stay one definition. *)
+Class InlineCursor : Type := CursorAt
+  { cursor_start : spot
+  ; cursor_stop : spot
+  ; cursor_origin : spot }.
+
+#[export] Instance semantic_inline_cursor : InlineCursor :=
+  CursorAt (Spot 0 0) (Spot 0 0) (Spot 0 0).
+
 (* Authored syntax which belongs to a node without widening the semantic
    node's own range.  The fence roles are also how a consumer distinguishes
    an unterminated fence from one with a closing line. *)
