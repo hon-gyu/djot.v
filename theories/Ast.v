@@ -613,6 +613,113 @@ Inductive block : Type :=
 
 Definition blocks : Type := list (node block).
 
+(* Forget source provenance throughout a tree while preserving attributes
+   and semantic payloads.  [erase_node] above is deliberately shallow.
+   [erase_inline] is ready for the inline layer; the block traversal leaves
+   inline trees alone until that layer starts producing positions, so C2 is
+   about exactly the observations the block parser currently adds. *)
+Fixpoint erase_inline (i : inline) : inline :=
+  let go :=
+    fix go (ils : inlines) : inlines :=
+      match ils with
+      | [] => []
+      | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
+      end in
+  match i with
+  | Emph ils => Emph (go ils)
+  | Strong ils => Strong (go ils)
+  | Highlight ils => Highlight (go ils)
+  | Insert ils => Insert (go ils)
+  | Delete ils => Delete (go ils)
+  | Superscript ils => Superscript (go ils)
+  | Subscript ils => Subscript (go ils)
+  | Link ils tgt => Link (go ils) tgt
+  | Image ils tgt => Image (go ils) tgt
+  | Span ils => Span (go ils)
+  | Quoted qt ils => Quoted qt (go ils)
+  | x => x
+  end.
+
+Fixpoint erase_block (b : block) : block :=
+  let go :=
+    fix go (bs : blocks) : blocks :=
+      match bs with
+      | [] => []
+      | Node _ a x :: rest => Node NoPos a (erase_block x) :: go rest
+      end in
+  let goitems :=
+    fix goitems (items : list blocks) : list blocks :=
+      match items with
+      | [] => []
+      | item :: rest => go item :: goitems rest
+      end in
+  match b with
+  | Para ils => Para ils
+  | Section bs => Section (go bs)
+  | Heading lvl ils => Heading lvl ils
+  | BlockQuote bs => BlockQuote (go bs)
+  | Div bs => Div (go bs)
+  | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
+  | BulletList sp items => BulletList sp (goitems items)
+  | TaskList sp items =>
+      TaskList sp
+        ((fix gotasks (items : list (task_status * blocks)) :=
+            match items with
+            | [] => []
+            | (status, item) :: rest =>
+                (status, go item) :: gotasks rest
+            end) items)
+  | DefinitionList sp items =>
+      DefinitionList sp
+        ((fix godefs (items : list (inlines * blocks)) :=
+            match items with
+            | [] => []
+            | (term, item) :: rest =>
+                (term, go item) :: godefs rest
+            end) items)
+  | Table caption rows => Table caption rows
+  | FootnoteDef label bs => FootnoteDef label (go bs)
+  | Keyed label (Node _ a x) =>
+      Keyed label (Node NoPos a (erase_block x))
+  | x => x
+  end.
+
+Fixpoint erase_blocks (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node _ a b :: rest =>
+      Node NoPos a (erase_block b) :: erase_blocks rest
+  end.
+
+Lemma erase_blocks_app : forall (xs ys : blocks),
+  erase_blocks (xs ++ ys)%list =
+  (erase_blocks xs ++ erase_blocks ys)%list.
+Proof.
+  induction xs as [|[p a b] xs IH]; intros ys; cbn; rewrite ?IH; reflexivity.
+Qed.
+
+Lemma erase_blocks_rev : forall (xs : blocks),
+  erase_blocks (rev xs) = rev (erase_blocks xs).
+Proof.
+  induction xs as [|[p a b] xs IH].
+  - reflexivity.
+  - cbn [rev]. rewrite erase_blocks_app. cbn [erase_blocks].
+    rewrite IH. reflexivity.
+Qed.
+
+(* `set_pos` and `pos_head` write a node's position and nothing else, so
+   erasure sees straight through them.  Both are stated over a whole list
+   because that is the shape every caller has: a block just built, in
+   front of what the state below it emitted. *)
+Lemma erase_blocks_set_pos : forall (p : provenance) (n : node block) rest,
+  erase_blocks (@set_pos located_pos block p n :: rest)%list =
+  erase_blocks (n :: rest)%list.
+Proof. intros p [q a b] rest; reflexivity. Qed.
+
+Lemma erase_blocks_pos_head : forall (p : provenance) (bs : blocks),
+  erase_blocks (@pos_head located_pos block p bs) = erase_blocks bs.
+Proof. intros p [|[q a b] rest]; reflexivity. Qed.
+
 (* Attach pending block attributes to the first of the blocks a container
    produced.  djot.js attaches them when the container *opens*
    (parse.ts:183); here a container is only reified when it closes, so
@@ -701,6 +808,59 @@ Fixpoint task_items (chks : list task_status) (its : list blocks)
       | c :: cs => (c, it) :: task_items cs rest
       end
   end.
+
+Lemma def_split_erase : forall bs,
+  def_split (erase_blocks bs) =
+  option_map (fun r => (fst r, erase_blocks (snd r))) (def_split bs).
+Proof.
+  induction bs as [|[p a b] rest IH]; [reflexivity|].
+  destruct b; cbn [erase_blocks erase_block def_split invisible_block] in *;
+    try reflexivity;
+    try (rewrite IH; destruct (def_split rest); reflexivity).
+  - rewrite IH. destruct (def_split rest) as [[ils more]|]; cbn.
+    + fold erase_blocks. reflexivity.
+    + reflexivity.
+  - rewrite IH. destruct (def_split rest) as [[ils more]|]; reflexivity.
+  - destruct b. reflexivity.
+Qed.
+
+Lemma def_item_erase : forall bs,
+  (fst (def_item (erase_blocks bs)), snd (def_item (erase_blocks bs))) =
+  (fst (def_item bs), erase_blocks (snd (def_item bs))).
+Proof.
+  intros bs. unfold def_item. rewrite def_split_erase.
+  destruct (def_split bs) as [[term rest]|]; reflexivity.
+Qed.
+
+Lemma def_items_erase : forall items,
+  (fix go (items : list (inlines * blocks)) :=
+     match items with
+     | [] => []
+     | (term, item) :: rest => (term, erase_blocks item) :: go rest
+     end) (def_items items) = def_items (map erase_blocks items).
+Proof.
+  induction items as [|item rest IH]; [reflexivity|].
+  cbn [def_items map]. fold def_items. unfold def_items in IH.
+  rewrite <- IH. pose proof (def_item_erase item) as H.
+  destruct (def_item item) as [term item'];
+    destruct (def_item (erase_blocks item)) as [term' item''];
+    cbn in H |- *.
+  injection H as -> ->. reflexivity.
+Qed.
+
+Lemma task_items_erase : forall checks items,
+  (fix go (items : list (task_status * blocks)) :=
+     match items with
+     | [] => []
+     | (status, item) :: rest => (status, erase_blocks item) :: go rest
+     end) (task_items checks items) =
+  task_items checks (map erase_blocks items).
+Proof.
+  intros checks items. revert checks.
+  induction items as [|item rest IH]; intros checks; [reflexivity|].
+  destruct checks as [|check checks]; cbn [task_items map];
+    unfold task_items in IH; rewrite IH; reflexivity.
+Qed.
 
 
 
