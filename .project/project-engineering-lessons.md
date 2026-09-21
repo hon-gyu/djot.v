@@ -540,6 +540,43 @@ move is the cheaper change and it costs one `git mv`-shaped diff. Check the
 other direction too: every file that imports the donor already imports
 `Step.v` here, which is what made the move invisible to them.
 
+### Erasure is a left inverse of both sides, or it is of neither
+
+**What happened.** The inline scanner's refinement. A located scan and a
+semantic one are the same function at two instances, and the theorem
+that relates them is `erase (step_P st) = step_sem (erase st)` -- one
+rewrite per helper, and there are about forty helpers. That shape was
+not available. `iscan` stores spans in its own state (a frame's opener,
+a pending spec's source) and stored them unconditionally, so the
+*semantic* run computed coordinates too: `spot_before (Spot 0 0) "ab"`
+is `Spot 0 2`, not `Spot 0 0`. No function zeroing spans is then a left
+inverse of the semantic side, and the theorem has to be `erase . f_P =
+erase . f_sem . erase`, with the extra `erase` threaded through every
+one of the forty. The repair was three lines: a `pspan` that asks the
+policy before storing a span, so a semantic state carries none and is
+its own erasure. Eleven existing statements got *shorter*, because they
+had been spelling a semantic frame's opener as `SrcSpan (if image then
+Spot 0 1 else Spot 0 0) (Spot 0 0)`.
+
+**General form.** A refinement between two instances of a parameter is
+cheap exactly when the erased side is a fixed point of erasure. That is
+a property of what the *observation-free* instance stores, not of the
+refinement, and it is decided when the state is designed -- long before
+any theorem is written. An instance that computes an observation and
+then discards it at the output still stores the observation.
+
+**What to do instead.** Before proving a refinement, instantiate the
+statement at the inert instance and read what it says: at `P := sem` it
+must be `erase (f_sem x) = f_sem (erase x)`, and if that is false the
+shape is wrong, not the proof. The tell is cheaper still and is already
+in the file: grep the existing semantic statements for a constant the
+inert instance should never have produced -- a `Spot 0 1`, a nonzero
+length, an index. Each one is the parameter's trace, stored where it
+was meant to be absent. [[#A conversion identity is free; a rewrite
+through it is not]] is the same question one level down: there the
+wrapper had to reduce against an arbitrary argument, here the instance
+has to store nothing.
+
 ### The check that a parameterization took
 
 The failure mode is silent. A statement written after a section's `End`
