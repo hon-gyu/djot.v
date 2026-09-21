@@ -8747,6 +8747,20 @@ Proof.
   reflexivity.
 Qed.
 
+(* The same statement at the ambient instance, which is what a block
+   built by it needs: a paragraph the semantic scan produced is already
+   position-free. *)
+Lemma erase_inlines_para_inlines_off : forall off l,
+  erase_inlines (para_inlines_off off l) = para_inlines_off off l.
+Proof.
+  intros off l. unfold para_inlines_off.
+  rewrite erase_ifinish, erase_iscan_lines_off, erase_istart. reflexivity.
+Qed.
+
+Lemma erase_inlines_para_inlines : forall l,
+  erase_inlines (para_inlines l) = para_inlines l.
+Proof. intros l. apply (erase_inlines_para_inlines_off 0). Qed.
+
 (* The inline half of C2.  Uniform in the policy on purpose: at
    `located_pos` it says the spans the scan records are all that
    distinguishes it from the semantic reading; at `semantic_pos` the same
@@ -8758,9 +8772,8 @@ Theorem para_inlines_at_erase : forall `{P : PosPolicy} off l,
   para_inlines_off off (map snd l).
 Proof.
   intros P off l. unfold para_inlines_at.
-  destruct (@pos_records P); [apply erase_para_inlines_located|].
-  unfold para_inlines_off.
-  rewrite erase_ifinish, erase_iscan_lines_off, erase_istart. reflexivity.
+  destruct (@pos_records P);
+    [apply erase_para_inlines_located|apply erase_inlines_para_inlines_off].
 Qed.
 
 (* Classification sees the source and nothing else.  The environment is

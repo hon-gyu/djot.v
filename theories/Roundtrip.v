@@ -1496,14 +1496,14 @@ Proof.
       rewrite parse_lines_heading_seed_ok by first [assumption|reflexivity].
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
-      unfold heading_block. rewrite line_texts_rev_remember_snoc.
+      unfold heading_block. sem_para. rewrite line_texts_rev_remember_snoc.
       reflexivity.
     + rewrite <- Hast.
       rewrite <- (app_nil_r (map (heading_line lvl) ls')).
       rewrite parse_lines_heading_seed_ok by first [assumption|reflexivity].
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_nil. cbn [finish]; nopos.
-      unfold heading_block. rewrite line_texts_rev_remember_snoc.
+      unfold heading_block. sem_para. rewrite line_texts_rev_remember_snoc.
       reflexivity.
   - (* quote: the contents parse at top level, then get wrapped *)
     intros inner IH.

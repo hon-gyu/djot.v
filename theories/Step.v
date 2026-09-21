@@ -758,6 +758,18 @@ Definition erase_cap (c : tcap) : tcap :=
   | c => c
   end.
 
+(* A paragraph's inlines, erased, are the ones the ambient instance
+   builds from the same texts: `Inline.para_inlines_at_erase` with the
+   line indices the located state recorded thrown away. *)
+Lemma erase_para_inlines_at : forall off ls,
+  erase_inlines (@para_inlines_at T located_pos off ls) =
+  @para_inlines_at T semantic_pos off (erase_lines ls).
+Proof.
+  intros off ls. rewrite (@para_inlines_at_erase T located_pos),
+    (@para_inlines_at_semantic T).
+  unfold line_texts in *. rewrite erase_line_texts. reflexivity.
+Qed.
+
 Lemma erase_caption_of : forall c, caption_of (erase_cap c) = caption_of c.
 Proof.
   intros [| |lines]; cbn [erase_cap caption_of]; try reflexivity.
@@ -838,14 +850,14 @@ Definition is_idle (st : pstate) : bool :=
 (* A heading's text lines become its inlines exactly as a paragraph's do
    — same assembly, different wrapper. *)
 Definition heading_block (lvl : nat) (cur : list stored_line) : node block :=
-  mk (Heading lvl (para_inlines (line_texts (rev cur)))).
+  mk (Heading lvl (para_inlines_at 0 (rev cur))).
 
 (* The same, for a paragraph whose first `k` lines came from a failed
    block attribute spec.  Only an underline reaches it, so only a
    configuration with both `bunderline_of` and `battrs` on can, and the
    lines keep the reading they had as a paragraph. *)
 Definition heading_block_off (k lvl : nat) (cur : list stored_line) : node block :=
-  mk (Heading lvl (para_inlines_off k (line_texts (rev cur)))).
+  mk (Heading lvl (para_inlines_at k (rev cur))).
 
 (* The lines a failed block attribute spec ate, handed to the paragraph
    that inherits them.  All of them are frozen, so the count is their
@@ -868,8 +880,8 @@ Definition finish_para_recover (slices : list stored_line) : blocks :=
   match slices with
   | [] => []
   | _ => [set_pos (prov_at (stored_span slices))
-            (mk (Para (para_inlines_off (List.length slices)
-                         (line_texts (rev slices)))))]
+            (mk (Para (para_inlines_at (List.length slices)
+                         (rev slices))))]
   end.
 
 (* A div's class becomes a `class` attribute on the node, as in djot.js
@@ -1050,10 +1062,10 @@ Fixpoint finish (st : pstate) : blocks :=
   | PPara [] => []
   | PPara cur =>
       [set_pos (prov_at (stored_span cur))
-         (mk (Para (para_inlines (line_texts (rev cur)))))]
+         (mk (Para (para_inlines_at 0 (rev cur))))]
   | PParaOff k cur =>
       [set_pos (prov_at (stored_span cur))
-         (mk (Para (para_inlines_off k (line_texts (rev cur)))))]
+         (mk (Para (para_inlines_at k (rev cur))))]
   | PHeading lvl range cur =>
       [set_pos (prov_at (extent_span range)) (heading_block lvl cur)]
   | PFence f _ range opener acc =>
@@ -3074,7 +3086,7 @@ Lemma step_para_flush :
   forall l c cur', classify l = KBlank ->
   step l (PPara (c :: cur')) =
   ([set_pos (prov_at (stored_span (c :: cur')))
-      (mk (Para (para_inlines (line_texts (rev (c :: cur'))))))], PPara []).
+      (mk (Para (para_inlines_at 0 (rev (c :: cur')))))], PPara []).
 Proof.
   intros l c cur' H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -3086,7 +3098,7 @@ Lemma step_para_off_flush :
   forall l k cur, classify l = KBlank ->
   step l (PParaOff k cur) =
   ([set_pos (prov_at (stored_span cur))
-      (mk (Para (para_inlines_off k (line_texts (rev cur)))))], PPara []).
+      (mk (Para (para_inlines_at k (rev cur))))], PPara []).
 Proof.
   intros l k cur H. unfold step. cbn [step_fuel open_line].
   rewrite (bunderline_of_blank l (classify_kblank_blank l H)), H. reflexivity.
@@ -4172,6 +4184,22 @@ Qed.
 
 End WithTable.
 
+(* `para_inlines_at` asks the policy before it reads the lines, so at the
+   semantic instance it *is* `para_inlines` of their texts -- by
+   conversion, which `rewrite` does not see.  A proof that has reduced a
+   closing arm meets the located spelling and this puts the goal back in
+   the names the equational theory is stated in, as `nopos` does for the
+   node wrappers. *)
+Ltac sem_para :=
+  repeat match goal with
+  | |- context [@para_inlines_at ?TT semantic_pos 0 ?l] =>
+      change (@para_inlines_at TT semantic_pos 0 l)
+        with (para_inlines (line_texts l))
+  | |- context [@para_inlines_at ?TT semantic_pos ?k ?l] =>
+      change (@para_inlines_at TT semantic_pos k l)
+        with (para_inlines_off k (line_texts l))
+  end.
+
 (* Every coordinate constructor is the ambient one, erased. *)
 Lemma erase_spot_at : forall `{LI : LineIx} l c,
   erase_spot (@spot_at LI l c) = @spot_at semantic_line_ix l c.
@@ -4258,9 +4286,16 @@ Proof.
       pos_head posnode];
     rewrite ?erase_line_texts_rev, ?erase_lines_length, ?erase_table_block,
       ?erase_blocks_app, ?erase_blocks_rev, ?IHst;
-    try reflexivity.
-  - destruct cur; reflexivity.
-  - unfold heading_block. rewrite erase_line_texts_rev. reflexivity.
+    try reflexivity;
+    (* the arms whose block holds inlines: a paragraph, a heading, and the
+       recovery's paragraph, each closing once the located scan's inlines
+       are erased (`erase_para_inlines_at`) *)
+    try (cbn [mk erase_blocks erase_block heading_block];
+         rewrite erase_para_inlines_at, erase_lines_rev, ?erase_lines_length;
+         reflexivity).
+  - destruct cur as [|first cur]; [reflexivity|].
+    cbn [mk erase_blocks erase_block].
+    rewrite erase_para_inlines_at, erase_lines_rev. reflexivity.
   - destruct (@fence_block K f (line_texts (rev acc))) as [q a b] eqn:Ef.
     pose proof (@fence_block_erase K f (line_texts (rev acc)) []) as Hf.
     rewrite Ef in Hf. cbn [erase_blocks] in Hf. exact Hf.
@@ -4286,7 +4321,8 @@ Proof.
       [reflexivity|].
     cbn [decorate_head erase_blocks add_roles_head add_roles set_pos mkpos
       located_pos semantic_pos mk erase_block].
-    rewrite erase_line_texts_rev, erase_lines_length. reflexivity.
+    rewrite erase_para_inlines_at, erase_lines_rev, erase_lines_length.
+    reflexivity.
   - cbn [foot_block mk erase_block]. fold erase_blocks.
     rewrite erase_blocks_app, erase_blocks_rev, IHst. reflexivity.
   - destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
@@ -4300,7 +4336,7 @@ Proof.
     + cbn in IHst. symmetry in IHst.
       cbn [key_close erase_blocks pos_head posnode mkpos located_pos
         semantic_pos mk erase_block].
-      rewrite IHst. reflexivity.
+      rewrite IHst, erase_inlines_para_inlines. reflexivity.
     + cbn [erase_blocks] in IHst.
       destruct (@finish T K semantic_pos (erase_state st))
         as [|[q a' b'] rest'] eqn:E'; [discriminate|].
@@ -4533,7 +4569,7 @@ Proof.
         cbn [erase_blocks erase_block mk erase_lines];
         change (erase_line c :: map erase_line cur')
           with (erase_lines (c :: cur'));
-        rewrite erase_line_texts_rev; reflexivity |];
+        rewrite erase_para_inlines_at, erase_lines_rev; reflexivity |];
       destruct (classify l);
       try apply close_reopen_kind_erase;
       try (destruct (binterrupt _);
@@ -4636,7 +4672,7 @@ Proof.
       [ unfold erase_result; cbn [fst snd erase_state];
         rewrite erase_blocks_set_pos; unfold heading_block_off;
         cbn [erase_blocks erase_block mk];
-        rewrite erase_line_texts_rev; reflexivity |];
+        rewrite erase_para_inlines_at, erase_lines_rev; reflexivity |];
       destruct (classify l);
       try apply close_reopen_kind_erase;
       try (destruct (binterrupt _);
@@ -4714,7 +4750,11 @@ Proof.
       rewrite pend_result_erase, IH. reflexivity.
   - (* PKey *)
     cbn [step_fuel erase_state]. rewrite is_idle_erase.
-    destruct (is_blank l && is_idle st)%bool; [reflexivity|].
+    destruct (is_blank l && is_idle st)%bool;
+      [unfold erase_result;
+       cbn [fst snd erase_blocks erase_block posnode mkpos located_pos
+         semantic_pos];
+       rewrite erase_inlines_para_inlines; reflexivity|].
     rewrite key_result_erase, IH. reflexivity.
 Qed.
 

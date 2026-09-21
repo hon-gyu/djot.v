@@ -2473,7 +2473,7 @@ Lemma heading_block_wf :
     Nat.leb 1 lvl = true -> wf_blocks [heading_block lvl cur] = true.
 Proof.
   intros lvl cur Hl. unfold heading_block.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block]. sem_para.
   rewrite Hl, para_inlines_wf.
   reflexivity.
 Qed.
@@ -2483,7 +2483,7 @@ Lemma heading_block_off_wf :
     Nat.leb 1 lvl = true -> wf_blocks [heading_block_off k lvl cur] = true.
 Proof.
   intros k lvl cur Hl. unfold heading_block_off.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block]. sem_para.
   rewrite Hl, para_inlines_off_wf.
   reflexivity.
 Qed.

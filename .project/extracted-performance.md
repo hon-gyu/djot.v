@@ -122,6 +122,14 @@ only within this table):
 | one 60 KB line of `a` | 2.53 s | 2.06 s |
 | `readme.dj` x64 | 0.32 s | 0.31 s |
 
+`readme.dj` x64 again on 2026-09-21, before and after routing every
+paragraph, heading and definition term through `para_inlines_at`: 0.47 s
+against 0.47 s (three runs each, dev profile, so not comparable with the
+release numbers above, only with each other).  Nothing was expected to
+move and nothing did: at `semantic_pos` the new entry point takes its
+`else` branch and is `para_inlines_off` of the same texts, which is the
+point of asking the policy before reading the lines.
+
 The paragraph improvement is the removed `List.rev` quadratic.  The long-line
 improvement removes recursive `String.length`, but the remaining structural
 string scans below keep that shape quadratic.  Ordinary prose barely moves;

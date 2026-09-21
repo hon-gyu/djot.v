@@ -790,9 +790,9 @@ Fixpoint erase_block (b : block) : block :=
       | item :: rest => go item :: goitems rest
       end in
   match b with
-  | Para ils => Para ils
+  | Para ils => Para (erase_inlines ils)
   | Section bs => Section (go bs)
-  | Heading lvl ils => Heading lvl ils
+  | Heading lvl ils => Heading lvl (erase_inlines ils)
   | BlockQuote bs => BlockQuote (go bs)
   | Div bs => Div (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
@@ -811,7 +811,7 @@ Fixpoint erase_block (b : block) : block :=
             match items with
             | [] => []
             | (term, item) :: rest =>
-                (term, go item) :: godefs rest
+                (erase_inlines term, go item) :: godefs rest
             end) items)
   | Table caption rows => Table caption rows
   | FootnoteDef label bs => FootnoteDef label (go bs)
@@ -945,9 +945,12 @@ Fixpoint task_items (chks : list task_status) (its : list blocks)
       end
   end.
 
+(* The term is a paragraph's inlines, so erasure reaches it through the
+   paragraph: the split commutes with erasure on both halves. *)
 Lemma def_split_erase : forall bs,
   def_split (erase_blocks bs) =
-  option_map (fun r => (fst r, erase_blocks (snd r))) (def_split bs).
+  option_map (fun r => (erase_inlines (fst r), erase_blocks (snd r)))
+    (def_split bs).
 Proof.
   induction bs as [|[p a b] rest IH]; [reflexivity|].
   destruct b; cbn [erase_blocks erase_block def_split invisible_block] in *;
@@ -962,7 +965,7 @@ Qed.
 
 Lemma def_item_erase : forall bs,
   (fst (def_item (erase_blocks bs)), snd (def_item (erase_blocks bs))) =
-  (fst (def_item bs), erase_blocks (snd (def_item bs))).
+  (erase_inlines (fst (def_item bs)), erase_blocks (snd (def_item bs))).
 Proof.
   intros bs. unfold def_item. rewrite def_split_erase.
   destruct (def_split bs) as [[term rest]|]; reflexivity.
@@ -972,7 +975,8 @@ Lemma def_items_erase : forall items,
   (fix go (items : list (inlines * blocks)) :=
      match items with
      | [] => []
-     | (term, item) :: rest => (term, erase_blocks item) :: go rest
+     | (term, item) :: rest =>
+         (erase_inlines term, erase_blocks item) :: go rest
      end) (def_items items) = def_items (map erase_blocks items).
 Proof.
   induction items as [|item rest IH]; [reflexivity|].

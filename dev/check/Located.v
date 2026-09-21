@@ -395,9 +395,28 @@ Fixpoint inline_walk (d : nat) (lines : list source_line) (ils : inlines)
       end
   end.
 
+(* The paragraph the located parse built, wherever the document put it:
+   the fixtures below go through `parse_blocks_located`, so they pin the
+   ranges the block layer hands a consumer and not only the scan's. *)
+Fixpoint first_para (d : nat) (bs : blocks) : inlines :=
+  match d with
+  | 0 => []
+  | S d' =>
+      match bs with
+      | [] => []
+      | n :: rest =>
+          match node_contents n with
+          | Para ils | Heading _ ils => ils
+          | BlockQuote bs' | Div bs' | FootnoteDef _ bs' => first_para d' bs'
+          | BulletList _ (item :: _) => first_para d' item
+          | OrderedList _ _ (item :: _) => first_para d' item
+          | _ => first_para d' rest
+          end
+      end
+  end.
+
 Definition para_ranges (s : string) : list (nat * nat) :=
-  inline_walk 40 (line_table s)
-    (@para_inlines_located djot_table located_pos 0 (split_lines_indexed s)).
+  inline_walk 40 (line_table s) (first_para 20 (Located s)).
 
 (*
 One construct at a time
@@ -532,4 +551,63 @@ Example i_bracket_decays : para_ranges "x [nope y" = [(0, 9)].
 Proof. vm_compute. reflexivity. Qed.
 
 Example i_destination_decays : para_ranges "n [u](a m" = [(0, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Through the containers
+----------------------
+
+The same scan reached from `parse_blocks_located`, where the stored line
+is a suffix of its source line: the C4 witness, whose paragraph sits two
+containers deep, and whose ranges are still djot.js's.
+*)
+
+(* block_quote [0,22), bullet_list [2,22), list_item [2,22),
+   para [4,22), str [4,6), link [6,18), str [7,11) *)
+Example i_witness_under_containers :
+  para_ranges "> - a [link](dest){.c}
+" = [(4, 6); (6, 18); (7, 11)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_witness_blocks :
+  ranges "> - a [link](dest){.c}
+" = [(0, 22); (2, 22); (4, 22)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A heading's inlines are a paragraph's, and start after the marker. *)
+Example i_heading_inlines :
+  para_ranges "## a *b*
+" = [(3, 5); (5, 8); (6, 7)].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+The attribute spec an inline carries
+------------------------------------
+
+A span records the spec that attached to it, as `RAttrSpec`; a text run
+does not, because resolution runs at the ambient policy -- `oresolve_go`
+opens no policy context, so `oattach_list` cannot record one.  Section 1
+of the plan wants both (the anchor a rename of an id points at), so this
+is a gap and not a decision; it is pinned here so that closing it is
+visible.
+*)
+
+Definition inline_roles (s : string)
+  : list (attr * list (syntax_role * (nat * nat))) :=
+  let lines := line_table s in
+  map (fun n =>
+         (node_attrs n,
+          match node_provenance n with
+          | Some p => map (fun e => (fst e, range_of lines (snd e)))
+                        (syntax_spans p)
+          | None => []
+          end))
+      (first_para 20 (Located s)).
+
+Example i_span_spec : inline_roles "[s]{.c}" = [([("class", "c")], [(RAttrSpec, (3, 7))])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The gap: the spec attached, and its range was dropped. *)
+Example i_text_spec_has_no_role :
+  inline_roles "a{.c}" = [([("class", "c")], [])].
 Proof. vm_compute. reflexivity. Qed.
