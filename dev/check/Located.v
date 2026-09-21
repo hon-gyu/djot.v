@@ -52,6 +52,10 @@ Fixpoint walk (d : nat) (lines : list source_line) (bs : blocks)
             | BlockQuote bs' | Div bs' | FootnoteDef _ bs' => walk d' lines bs'
             | BulletList _ items => flat_map (walk d' lines) items
             | OrderedList _ _ items => flat_map (walk d' lines) items
+            | TaskList _ items =>
+                flat_map (fun e => walk d' lines (snd e)) items
+            | DefinitionList _ items =>
+                flat_map (fun e => walk d' lines (snd e)) items
             | _ => []
             end in
           (here :: kids ++ walk d' lines rest)%list
@@ -295,11 +299,46 @@ Definition table_sample : string :=
   ("| x | y |" ++ String "010"%char
   (String "010"%char ("^ cap" ++ String "010"%char EmptyString)))).
 
+(* The tables in a block tree, so the extractors below serve a document
+   that has other blocks beside its table as well as `table_sample`,
+   which is one table. *)
+Fixpoint tables (d : nat) (bs : blocks) : list (node block) :=
+  match d with
+  | 0 => []
+  | S d' =>
+      match bs with
+      | [] => []
+      | n :: rest =>
+          let here :=
+            match node_contents n with
+            | Table _ _ => [n]
+            | _ => []
+            end in
+          let kids :=
+            match node_contents n with
+            | BlockQuote bs' | Div bs' | FootnoteDef _ bs' | Section bs' =>
+                tables d' bs'
+            | BulletList _ items | OrderedList _ _ items =>
+                flat_map (tables d') items
+            | TaskList _ items | DefinitionList _ items =>
+                flat_map (fun e => tables d' (snd e)) items
+            | _ => []
+            end in
+          (here ++ kids ++ tables d' rest)%list
+      end
+  end.
+
+Definition first_table (s : string) : option (node block) :=
+  match tables 20 (Located s) with
+  | t :: _ => Some t
+  | [] => None
+  end.
+
 Definition table_ranges (s : string)
   : option ((nat * nat) * option (nat * nat) *
             list ((nat * nat) * list (nat * nat))) :=
-  match Located s with
-  | [n] =>
+  match first_table s with
+  | Some n =>
       match node_provenance n with
       | Some p =>
           match part_spans p with
@@ -314,7 +353,7 @@ Definition table_ranges (s : string)
           end
       | None => None
       end
-  | _ => None
+  | None => None
   end.
 
 (* djot.js has row [0,9), [20,29) and the same four cell ranges.
@@ -665,8 +704,8 @@ Proof. vm_compute. reflexivity. Qed.
    the caption. *)
 Definition cell_ranges (s : string) : list (list (nat * nat)) :=
   let lines := line_table s in
-  match Located s with
-  | [n] =>
+  match first_table s with
+  | Some n =>
       match node_contents n with
       | Table _ rows =>
           map (fun r =>
@@ -677,18 +716,18 @@ Definition cell_ranges (s : string) : list (list (nat * nat)) :=
               rows
       | _ => []
       end
-  | _ => []
+  | None => []
   end.
 
 Definition caption_ranges (s : string) : list (nat * nat) :=
   let lines := line_table s in
-  match Located s with
-  | [n] =>
+  match first_table s with
+  | Some n =>
       match node_contents n with
       | Table (Some ils) _ => inline_walk 40 lines ils
       | _ => []
       end
-  | _ => []
+  | None => []
   end.
 
 Example i_table_cells :
@@ -696,6 +735,84 @@ Example i_table_cells :
 Proof. vm_compute. reflexivity. Qed.
 
 Example i_table_caption : caption_ranges table_sample = [(33, 36)].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+The combined document
+=====================
+
+One document with every part this layer records: a loose list holding a
+nested list, a task list, a definition list, and a table with a
+separator and a caption.  Block ranges, items, definition parts and
+table parts all come out of one parse.  The oracle is
+`djotjs-sourcepos.mjs --trim`:
+
+  bullet_list [0,14), items [0,10) and [11,14), paras [2,3) and [13,14),
+  the nested bullet_list [7,10) with para [9,10);
+  task_list [16,31), items [16,23) and [24,31), paras [22,23), [30,31);
+  definition_list [33,46), item [33,46), term [35,39), definition [43,46);
+  rows [48,57) and [68,77), cells [48,53), [52,57), [68,73), [72,77);
+  cell texts [50,51), [54,55), [70,71), [74,75), caption text [81,84).
+
+Two table ranges are ours rather than djot.js's, and `p_table_parts`
+pins both on `table_sample` as well.  The caption's part span includes
+the authored `^`, [79,84) against the oracle's [81,84); its inline range
+is the oracle's exactly.  And the table node runs on through the caption
+line to [48,84), where djot.js stops at the last row, [48,77): a node
+covers its whole construct (section 4.4).
+*)
+
+Definition combined_sample : string :=
+"- a
+
+  - n
+- b
+
+- [ ] t
+- [x] d
+
+: term
+
+  def
+
+| h | i |
+|---|---|
+| x | y |
+
+^ cap
+".
+
+Example c5_ranges : ranges combined_sample =
+  [(0, 14); (2, 3); (7, 10); (9, 10); (13, 14); (16, 31); (22, 23);
+   (30, 31); (33, 46); (43, 46); (48, 84)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The items of the three list kinds in one parse: the loose list, the
+   nested one, the task list, and the definition list after them. *)
+Example c5_items : item_ranges combined_sample =
+  [[(0, 10); (11, 14)]; [(16, 23); (24, 31)]; [(33, 46)]; []].
+Proof. vm_compute. reflexivity. Qed.
+
+Example c5_def_parts : def_ranges combined_sample =
+  [[]; []; [((33, 46), (35, 39), (43, 46))]; []].
+Proof. vm_compute. reflexivity. Qed.
+
+Example c5_table_parts : table_ranges combined_sample =
+  Some ((48, 84), Some (79, 84),
+        [((48, 57), [(48, 53); (52, 57)]);
+         ((68, 77), [(68, 73); (72, 77)])]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example c5_cell_ranges :
+  cell_ranges combined_sample = [[(50, 51); (54, 55)]; [(70, 71); (74, 75)]].
+Proof. vm_compute. reflexivity. Qed.
+
+Example c5_caption_ranges : caption_ranges combined_sample = [(81, 84)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The first paragraph is the loose list's, and it is still the paragraph
+   the block layer built. *)
+Example c5_first_para : para_ranges combined_sample = [(2, 3)].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
