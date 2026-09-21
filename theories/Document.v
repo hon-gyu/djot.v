@@ -3220,6 +3220,102 @@ Proof.
   cbn [erase_blocks collect_refs_list].
   rewrite (collect_refs_erase b p a m), IH. reflexivity.
 Qed.
+(* The sectionizer is the one part of the pass that reads a position:
+   `section_node` takes the hull of the children it wraps.  Erasure of
+   the stack is erasure of each entry's accumulator. *)
+Fixpoint erase_sect (stk : sect_state) : sect_state :=
+  match stk with
+  | [] => []
+  | (l, a, acc) :: rest => (l, a, erase_blocks acc) :: erase_sect rest
+  end.
+
+Lemma section_node_pos : forall a bs,
+  erase_blocks [@section_node located_pos a bs]
+  = [@section_node semantic_pos a (erase_blocks bs)].
+Proof.
+  intros a bs. cbn [erase_blocks erase_block section_node]. fold erase_blocks.
+  rewrite section_node_nopos. reflexivity.
+Qed.
+
+Lemma close_ge_pos : forall lvl pending stk,
+  erase_sect (@close_ge located_pos lvl pending stk) =
+  @close_ge semantic_pos lvl (erase_blocks pending) (erase_sect stk).
+Proof.
+  intros lvl pending stk. revert lvl pending.
+  induction stk as [|[[l a] acc] outer IH]; intros lvl pending.
+  - reflexivity.
+  - destruct outer as [|e outer'].
+    + rewrite (@close_ge_singleton located_pos). cbn [erase_sect].
+      rewrite (@close_ge_singleton semantic_pos), erase_blocks_app.
+      reflexivity.
+    + destruct e as [[l1 a1] acc1].
+      rewrite (@close_ge_cons located_pos) by discriminate.
+      cbn [erase_sect].
+      rewrite (@close_ge_cons semantic_pos) by discriminate.
+      destruct (Nat.leb lvl l).
+      * rewrite IH, section_node_pos, erase_blocks_rev, erase_blocks_app.
+        cbn [erase_sect]. reflexivity.
+      * cbn [erase_sect]. rewrite erase_blocks_app. reflexivity.
+Qed.
+
+Lemma close_all_pos : forall pending stk,
+  erase_sect (@close_all located_pos pending stk) =
+  @close_all semantic_pos (erase_blocks pending) (erase_sect stk).
+Proof.
+  intros pending stk. revert pending.
+  induction stk as [|[[l a] acc] outer IH]; intros pending.
+  - reflexivity.
+  - destruct outer as [|[[l1 a1] acc1] outer'].
+    + cbn [close_all erase_sect]. rewrite erase_blocks_app. reflexivity.
+    + rewrite (@close_all_cons located_pos) by discriminate.
+      cbn [erase_sect].
+      rewrite (@close_all_cons semantic_pos) by discriminate.
+      rewrite IH, section_node_pos.
+      rewrite erase_blocks_rev, erase_blocks_app. reflexivity.
+Qed.
+
+Lemma sect_push_pos : forall p a b stk,
+  erase_sect (sect_push (Node p a b) stk) =
+  sect_push (Node NoPos a (erase_block b)) (erase_sect stk).
+Proof. intros p a b [|[[l a'] acc] outer]; reflexivity. Qed.
+
+Lemma sect_step_pos : forall stk p a b,
+  erase_sect (@sect_step located_pos stk (Node p a b)) =
+  @sect_step semantic_pos (erase_sect stk) (Node NoPos a (erase_block b)).
+Proof.
+  intros stk p a b. destruct b;
+    try (cbn [sect_step]; apply sect_push_pos).
+  (* a key's node has to be destructured before `erase_block` reduces *)
+  2: (destruct b; cbn [sect_step erase_block]; apply sect_push_pos).
+  cbn [sect_step erase_sect erase_blocks erase_block].
+  rewrite close_ge_pos. reflexivity.
+Qed.
+
+Lemma fold_sect_step_pos : forall bs stk,
+  erase_sect (fold_left (@sect_step located_pos) bs stk) =
+  fold_left (@sect_step semantic_pos) (erase_blocks bs) (erase_sect stk).
+Proof.
+  induction bs as [|[p a b] rest IH]; intros stk; [reflexivity|].
+  cbn [fold_left erase_blocks]. rewrite IH, sect_step_pos. reflexivity.
+Qed.
+
+Lemma sect_bottom_pos : forall stk,
+  erase_blocks (sect_bottom stk) = sect_bottom (erase_sect stk).
+Proof.
+  induction stk as [|[[l a] acc] outer IH]; [reflexivity|].
+  destruct outer as [|[[l1 a1] acc1] outer'].
+  - cbn [sect_bottom erase_sect]. apply erase_blocks_rev.
+  - cbn [erase_sect]. cbn [sect_bottom]. cbn [erase_sect] in IH. exact IH.
+Qed.
+
+Lemma sectionize_erase : forall bs,
+  erase_blocks (@sectionize located_pos bs) =
+  @sectionize semantic_pos (erase_blocks bs).
+Proof.
+  intros bs. unfold sectionize.
+  rewrite sect_bottom_pos, close_all_pos, fold_sect_step_pos.
+  reflexivity.
+Qed.
 
 (*
 Examples
