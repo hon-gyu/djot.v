@@ -379,6 +379,38 @@ can report it existentially instead of taking a hypothesis that fixes
 it. The tell that the hypothesis is unnecessary is that the fact it
 would establish is never used downstream -- only its existence is.
 
+### A commutation's cost is the fixpoints, not the traversals
+
+**What happened.** The pos-blind half of the document-pass erasure was
+priced at nine lemmas, one per named traversal, after reading every
+`Node p a x` in `assign_ids`, `collect_notes` and `collect_refs` and
+confirming that not one of them reads a position. That reading was
+right and the estimate was off by a factor of two and a half: 24 lemmas
+and 788 lines. None of the extra fifteen needed a hypothesis. They were
+plumbing the statements could not be typed or proved without. The item
+lists of each traversal are *inlined* fixpoints, so relating them to
+anything takes a lemma apiece (`collect_refs_go`, `goit`, `god`,
+`got`); `block_ind2`'s motive is internal, so each traversal's
+list-level lemma has to be stated separately, which is why
+`undo_assign_ids_list` already existed; and `erase_block`'s own local
+fixpoints needed bridging to their `map` forms.
+
+**General form.** [[#Check whether a proof uses the structure before
+pricing its removal]] counts the proofs that inspect a structure, and
+that count was correct here: zero. It says nothing about how many
+lemmas it takes to *say* the theorem. A commutation over a mutually
+recursive tree is priced by the recursive knots in the definitions, and
+a knot spelled as an inlined `fix` inside a match arm is invisible to a
+census of names because it has none.
+
+**What to do instead.** Before pricing a commutation over `block`,
+count the inlined fixpoints, not the traversals: `grep -c 'fix \|let
+fix' theories/Document.v` reads 89. Each one a statement has to mention
+is a bridging lemma. Then check whether the induction principle's
+motive is internal, as `block_ind2`'s is: if it is, every list-level
+statement is its own lemma and an existing `_list` lemma next door is
+the tell.
+
 **And check the users exist at all.** The div-closer rule was priced, in
 `oracle-disagreements.md`, as "three `ListUniformity` statements have to
 carry the incoming flag". Two of the three had no users anywhere and were
