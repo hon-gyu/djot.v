@@ -85,13 +85,19 @@ val table_fold :
   dtable -> trow list -> align list -> cell list list -> cell list list
 
 type tcap =
-| TOpen
-| TAfterBlank
-| TCaption of stored_line list
+| TOpen of (span * span list) list
+| TAfterBlank of (span * span list) list
+| TCaption of (span * span list) list * spot * stored_line list
 
 val caption_of : dtable -> tcap -> inlines option
 
+val cap_row_parts : tcap -> (span * span list) list
+
+val table_parts : dtable -> tcap -> parts
+
 val table_block : dtable -> trow list -> tcap -> block node
+
+val table_row_part : coq_LineIx -> string -> trow -> (span * span list) option
 
 type list_state = { ls_indent : nat; ls_extent : extent;
                     ls_item_extent : extent; ls_item_extents : extent list;
