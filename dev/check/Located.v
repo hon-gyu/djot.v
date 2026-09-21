@@ -867,6 +867,21 @@ Example i_text_spec_splits_the_run :
   para_ranges "a b{.c}" = [(0, 2); (2, 3)].
 Proof. vm_compute. reflexivity. Qed.
 
+(* A spec that spans a line break is wrong, and this pins how.  The text
+   before it is never flushed across the break, since the spec swallows
+   it, so at resolution `text_start` falls back to the *resolving*
+   line's origin: `hi` runs from the start of line 2 back to byte 2.
+   djot.js gives str [0,2).  `--located-bounds` reports this document as
+   its only failure over 44150, and the shape is unreachable for the
+   generator because the renderer never writes a spec across a break.
+   Delete this when the pending run's start is stored rather than
+   recomputed. *)
+Example i_spec_across_break_is_wrong :
+  para_ranges "hi{#id
+.c}
+" = [(7, 2)].
+Proof. vm_compute. reflexivity. Qed.
+
 Example i_text_spec_splits_the_run_roles :
   inline_roles "a b{.c}" = [([], []); ([("class", "c")], [(RAttrSpec, (3, 7))])].
 Proof. vm_compute. reflexivity. Qed.

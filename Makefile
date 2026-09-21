@@ -1,4 +1,4 @@
-.PHONY: build doc build-doc test shape baseline generated roundtrip deep probe keyed oracles dist check-dist copy-extracted clean
+.PHONY: build doc build-doc test shape baseline generated roundtrip located-bounds deep probe keyed oracles dist check-dist copy-extracted clean
 
 build:
 	dune build
@@ -36,6 +36,13 @@ baseline: build
 generated: build
 	dune exec harness/main.exe -- --generated --verbose \
 	  --report generated-report.txt
+
+# every span the located parse records lies inside its document and
+# inside its parent, over the generated corpus and the file corpus.
+# Exits nonzero on a failure; one is known and pinned as
+# `i_spec_across_break_is_wrong`.
+located-bounds: build
+	dune exec harness/main.exe -- --located-bounds 3
 
 # `parse (render d) = d` over every canonical document the enumerator
 # accepts, in the extracted parser.  Depth 3 in ~5 seconds; this is the
