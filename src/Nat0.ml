@@ -1,6 +1,12 @@
 open Datatypes
 open Decimal
 
+(** val pred : nat -> nat **)
+
+let pred n = match n with
+| O -> n
+| S u -> u
+
 (** val add : nat -> nat -> nat **)
 
 let rec add n m =

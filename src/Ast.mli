@@ -24,12 +24,38 @@ val attr_merge : attr -> attr -> attr
 
 val attr_apply : attr -> attr -> attr
 
+type spot = { spot_line : nat; spot_rem : nat }
+
+type span = { span_start : spot; span_stop : spot }
+
+type coq_InlineCursor = { cursor_start : spot; cursor_stop : spot;
+                          cursor_origin : spot }
+
+val semantic_inline_cursor : coq_InlineCursor
+
+type syntax_role =
+| RAttrSpec
+| ROpenFence
+| RCloseFence
+
+type parts =
+| PNone
+| PItems of span list
+| PDefItems of ((span * span) * span) list
+| PTable of span option * (span * span list) list
+
+type provenance = { node_span : span;
+                    syntax_spans : (syntax_role * span) list;
+                    part_spans : parts }
+
 type pos =
 | NoPos
-| SomePos of nat * nat * nat * nat
+| SomePos of provenance
 
 type 'a node =
 | Node of pos * attr * 'a
+
+val node_provenance : 'a1 node -> provenance option
 
 val mk : 'a1 -> 'a1 node
 
@@ -38,6 +64,38 @@ val node_contents : 'a1 node -> 'a1
 val node_attrs : 'a1 node -> attr
 
 val add_attr : attr -> 'a1 node -> 'a1 node
+
+type coq_PosPolicy = { mkpos : (provenance -> pos); pos_records : bool }
+
+val semantic_pos : coq_PosPolicy
+
+val located_pos : coq_PosPolicy
+
+val posnode : coq_PosPolicy -> provenance -> 'a1 -> 'a1 node
+
+val null_span : span
+
+val pspan : coq_PosPolicy -> span -> span
+
+val prov_at : span -> provenance
+
+val prov_with : span -> (syntax_role * span) list -> provenance
+
+val attr_roles : span list -> (syntax_role * span) list
+
+val set_pos : coq_PosPolicy -> provenance -> 'a1 node -> 'a1 node
+
+val pos_head : coq_PosPolicy -> provenance -> 'a1 node list -> 'a1 node list
+
+val add_roles :
+  coq_PosPolicy -> (syntax_role * span) list -> 'a1 node -> 'a1 node
+
+val add_roles_head :
+  coq_PosPolicy -> (syntax_role * span) list -> 'a1 node list -> 'a1 node list
+
+val hull_pos : coq_PosPolicy -> 'a1 node list -> pos
+
+val hull_pos_with : coq_PosPolicy -> 'a1 node list -> pos
 
 type math_style =
 | DisplayMath

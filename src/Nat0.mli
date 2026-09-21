@@ -1,6 +1,8 @@
 open Datatypes
 open Decimal
 
+val pred : nat -> nat
+
 val add : nat -> nat -> nat
 
 val mul : nat -> nat -> nat
