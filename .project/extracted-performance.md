@@ -15,9 +15,10 @@ factor before the smaller fixes below; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
 beside the existing semantic parser.  `line_table` and `resolve_span`
-convert recorded spots to byte coordinates.  The location-on parse has
-not yet been benchmarked against the semantic parse or the incumbent;
-the plan in `260916.plan.source-locations.md` tracks that measurement.
+convert recorded spots to byte coordinates.  The location-on block parse
+is benchmarked beside the semantic one and the incumbent in
+"Locations on, against the incumbent" below, at about 10% over the
+semantic parse on ordinary prose.
 
 ## The mechanism
 
@@ -140,6 +141,30 @@ The paragraph improvement is the removed `List.rev` quadratic.  The long-line
 improvement removes recursive `String.length`, but the remaining structural
 string scans below keep that shape quadratic.  Ordinary prose barely moves;
 its largest measured constant cost remains character classification.
+
+### Locations on, against the incumbent
+
+2026-09-21, `64b0724`, dev profile, same machine as the tables above.
+Inputs are `djot.js/bench/readme.dj` and the same file joined 64 times
+with newlines, as in the first table.  Both sides are best of 20, in
+process: ours through `dune exec harness/main.exe -- --time 20`, the
+incumbent through a node driver over the same `djot.js/lib/index.js`
+the oracle scripts import.  Node startup is about 0.4 s, so a shell
+timing would measure that and not the parse; `--parse-only` on the two
+oracle scripts is the same call with the render or the tree walk
+removed, and is what the driver's loop stands in for at 20 repeats.
+
+| input | bytes | ours `parse_blocks` | ours `parse_blocks_located` | djot.js `parse` | djot.js `parse` + sourcePositions |
+| --- | --- | --- | --- | --- | --- |
+| `readme.dj` | 12601 | 3.61 ms | 3.99 ms | 0.35 ms | 0.39 ms |
+| `readme.dj` x64 | 806527 | 262.8 ms | 290.0 ms | 16.5 ms | 21.8 ms |
+
+Recording locations costs about 10% on both inputs (3.99 against 3.61,
+290.0 against 262.8), and it is the same walk under two policies, not a
+second pass.  djot.js's `sourcePositions` cost 13% at x1 and 22% to 32%
+at x64 across two runs.  Ours is 10x to 16x djot.js's parse, which is
+the constant factor the first table already records against cmarkit
+rather than a scaling difference: both grow linearly here.
 
 ## Open, ranked by what they cost a real document
 
