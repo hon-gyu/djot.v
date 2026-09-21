@@ -4,6 +4,7 @@ open Attributes
 open Datatypes
 open List0
 open ListDef
+open Nat0
 open PeanoNat
 open String0
 open Strings
@@ -1122,9 +1123,18 @@ let vb_step vb run = match run with
           | O -> run
           | S _ -> if Nat.eqb vb run then O else vb)
 
+(** val row_cell_entry :
+    string -> nat -> nat -> ((string * nat) * nat) * nat **)
+
+let row_cell_entry cur start stop =
+  let raw = rev_string cur in
+  let content = drop_leading_ws raw in
+  ((((cell_trim raw), start), stop),
+  (sub (add (S start) (length raw)) (length content)))
+
 (** val row_cells_trace :
-    string -> nat -> nat -> bool -> string -> ((string * nat) * nat) list ->
-    nat -> nat -> ((string * nat) * nat) list option **)
+    string -> nat -> nat -> bool -> string -> (((string * nat) * nat) * nat)
+    list -> nat -> nat -> (((string * nat) * nat) * nat) list option **)
 
 let rec row_cells_trace s vb run bs cur acc pos start =
   (* If this appears, you're using String internals. Please don't *)
@@ -1136,9 +1146,7 @@ let rec row_cells_trace s vb run bs cur acc pos start =
     if bs
     then None
     else (match vb_step vb run with
-          | O ->
-            Some
-              (rev ((((cell_trim (rev_string cur)), start), (S pos)) :: acc))
+          | O -> Some (rev ((row_cell_entry cur start (S pos)) :: acc))
           | S _ -> None))
     (fun c s' ->
     if (=) c '`'
@@ -1168,8 +1176,7 @@ let rec row_cells_trace s vb run bs cur acc pos start =
                  s')
          else if (&&) ((&&) ((=) c '|') (Nat.eqb vb' O)) (negb bs)
               then row_cells_trace s' O O false ""
-                     ((((cell_trim (rev_string cur)), start), (S
-                     pos)) :: acc) (S pos) pos
+                     ((row_cell_entry cur start (S pos)) :: acc) (S pos) pos
               else row_cells_trace s' vb' O ((=) c '\\')
                      ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
@@ -1182,8 +1189,10 @@ let rec row_cells_trace s vb run bs cur acc pos start =
     option **)
 
 let row_cells s vb run bs cur acc =
-  option_map (map (fun x -> let (y, _) = x in let (c, _) = y in c))
-    (row_cells_trace s vb run bs cur (map (fun c -> ((c, O), O)) acc) (S O) O)
+  option_map
+    (map (fun x -> let (y, _) = x in let (y1, _) = y in let (c, _) = y1 in c))
+    (row_cells_trace s vb run bs cur (map (fun c -> (((c, O), O), O)) acc) (S
+      O) O)
 
 (** val row_body : string -> string option **)
 

@@ -84,20 +84,32 @@ val head_of : align list -> cell list -> cell list
 val table_fold :
   dtable -> trow list -> align list -> cell list list -> cell list list
 
+type cell_part = { cell_range : span; cell_text_start : spot }
+
+type row_part = span * cell_part list
+
 type tcap =
-| TOpen of (span * span list) list
-| TAfterBlank of (span * span list) list
-| TCaption of (span * span list) list * spot * stored_line list
+| TOpen of row_part list
+| TAfterBlank of row_part list
+| TCaption of row_part list * spot * stored_line list
 
-val caption_of : dtable -> tcap -> inlines option
+val caption_of : dtable -> coq_PosPolicy -> tcap -> inlines option
 
-val cap_row_parts : tcap -> (span * span list) list
+val cap_row_parts : tcap -> row_part list
 
-val table_parts : dtable -> tcap -> parts
+val table_parts : dtable -> coq_PosPolicy -> tcap -> parts
 
-val table_block : dtable -> trow list -> tcap -> block node
+val cells_of_located :
+  dtable -> coq_PosPolicy -> cell_type -> align list -> string list ->
+  cell_part list -> cell list
 
-val table_row_part : coq_LineIx -> string -> trow -> (span * span list) option
+val table_fold_located :
+  dtable -> coq_PosPolicy -> trow list -> row_part list -> align list -> cell
+  list list -> cell list list
+
+val table_block : dtable -> coq_PosPolicy -> trow list -> tcap -> block node
+
+val table_row_part : coq_LineIx -> string -> trow -> row_part option
 
 type list_state = { ls_indent : nat; ls_extent : extent;
                     ls_item_extent : extent; ls_item_extents : extent list;
