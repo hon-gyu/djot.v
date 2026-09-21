@@ -2775,6 +2775,15 @@ let para_inlines_at t h off l =
   then para_inlines_located t h off l
   else para_inlines_off t off (map snd l)
 
+(** val parse_inline_line_located :
+    dtable -> coq_PosPolicy -> nat -> nat -> string -> inlines **)
+
+let parse_inline_line_located t h k rem s =
+  let stop = { spot_line = k; spot_rem = (sub rem (length s)) } in
+  ifinish t h { cursor_start = stop; cursor_stop = stop; cursor_origin =
+    { spot_line = k; spot_rem = rem } }
+    (iscan_str_located t h (inline_attrs_enabled t) k rem rem s istart)
+
 (** val key_before : char option -> bool **)
 
 let key_before = function

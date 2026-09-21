@@ -653,6 +653,9 @@ val para_inlines_located :
 val para_inlines_at :
   dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines
 
+val parse_inline_line_located :
+  dtable -> coq_PosPolicy -> nat -> nat -> string -> inlines
+
 val key_before : char option -> bool
 
 val key_after : string -> bool

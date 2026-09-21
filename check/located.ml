@@ -35,7 +35,7 @@ let () =
   let table_lines = Djot.Strings.line_table table_src in
   (match Djot.Step.parse_blocks_located Djot.Inline.djot_table
            Djot.Step.djot_bconfig table_src with
-   | [Djot.Ast.Node (Djot.Ast.SomePos p, _, _)] ->
+   | [Djot.Ast.Node (Djot.Ast.SomePos p, _, Djot.Ast.Table (_, rows))] ->
        assert (range table_lines p.node_span = (0, 36));
        (match p.part_spans with
         | Djot.Ast.PTable (Some caption, [row1; row2]) ->
@@ -46,5 +46,25 @@ let () =
             assert (range table_lines (fst row2) = (20, 29));
             assert (List.map (range table_lines) (snd row2)
                     = [(20, 25); (24, 29)])
-        | _ -> failwith "missing table parts")
+        | _ -> failwith "missing table parts");
+       (* Cell inlines, as `i_table_cells` pins them in the Rocq fixture. *)
+       let cell_inlines =
+         List.map
+           (fun row ->
+              List.concat
+                (List.map
+                   (fun cell ->
+                      match cell with
+                      | Djot.Ast.Cell (_, _, ils) ->
+                          List.map
+                            (fun n ->
+                               match n with
+                               | Djot.Ast.Node (Djot.Ast.SomePos q, _, _) ->
+                                   range table_lines q.node_span
+                               | _ -> failwith "missing cell inline span")
+                            ils)
+                   row))
+           rows
+       in
+       assert (cell_inlines = [[(2, 3); (6, 7)]; [(22, 23); (26, 27)]])
    | _ -> failwith "unexpected table parse")
