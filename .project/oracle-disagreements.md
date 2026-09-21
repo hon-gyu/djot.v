@@ -1837,3 +1837,27 @@ a consumer walking the tree for the innermost node at a byte relies on.
 Ours keeps it.  The caption's inline range is not affected: it is
 djot.js's `[33,36)` exactly.  Pinned by `p_table_parts` and `c5_table_parts` in
 `dev/check/Located.v`.
+
+## 2026-09-21 -- ours, and a defect: a spec across a line break
+
+| Input | djot.js | ours |
+| --- | --- | --- |
+| `hi{#id` / `.c}` | str `[0,2)` | `[7,2)`, a backwards range |
+
+Not a decision. The spec swallows the break, so the text before it is
+never flushed, and at resolution `text_start` falls back to the
+*resolving* line's origin rather than to where the run began. The node
+that comes out has its start on the later line and its stop on the
+earlier one.
+
+Found by `make located-bounds`, which is the only thing that could have:
+it is one failure in 44150 documents, and it is a corpus case rather
+than a generated one, because the renderer never writes a spec across a
+break so the enumerator cannot reach the shape.
+
+The repair is to store the pending run's start when the run begins
+instead of recomputing it at flush. That is a field on `ostate`, so the
+standing quantifiers over it are what price it: `iscan_wf`,
+`iscan_productive`, and the erasure lemmas, which want the field empty
+at the semantic instance. Pinned meanwhile by
+`i_spec_across_break_is_wrong` in `dev/check/Located.v`.
