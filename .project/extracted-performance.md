@@ -13,6 +13,12 @@ suffix, but structural matches still make long lines quadratic.  The last
 ordinary-prose comparison against cmarkit measured a roughly 13x constant
 factor before the smaller fixes below; re-measure before quoting it.
 
+The extracted package now exposes location-on block and document parses
+beside the existing semantic parser.  `line_table` and `resolve_span`
+convert recorded spots to byte coordinates.  The location-on parse has
+not yet been benchmarked against the semantic parse or the incumbent;
+the plan in `260916.plan.source-locations.md` tracks that measurement.
+
 ## The mechanism
 
 `ExtrOcamlNativeString` maps a Gallina `string` to a flat OCaml `string`,

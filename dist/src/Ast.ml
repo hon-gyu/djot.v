@@ -74,12 +74,48 @@ let attr_merge new0 acc =
 let attr_apply pending a =
   fold_left (fun a' kv -> attr_set (fst kv) (snd kv) a') pending a
 
+type spot = { spot_line : nat; spot_rem : nat }
+
+type span = { span_start : spot; span_stop : spot }
+
+type coq_InlineCursor = { cursor_start : spot; cursor_stop : spot;
+                          cursor_origin : spot }
+
+(** val semantic_inline_cursor : coq_InlineCursor **)
+
+let semantic_inline_cursor =
+  { cursor_start = { spot_line = O; spot_rem = O }; cursor_stop =
+    { spot_line = O; spot_rem = O }; cursor_origin = { spot_line = O;
+    spot_rem = O } }
+
+type syntax_role =
+| RAttrSpec
+| ROpenFence
+| RCloseFence
+
+type parts =
+| PNone
+| PItems of span list
+| PDefItems of ((span * span) * span) list
+| PTable of span option * (span * span list) list
+
+type provenance = { node_span : span;
+                    syntax_spans : (syntax_role * span) list;
+                    part_spans : parts }
+
 type pos =
 | NoPos
-| SomePos of nat * nat * nat * nat
+| SomePos of provenance
 
 type 'a node =
 | Node of pos * attr * 'a
+
+(** val node_provenance : 'a1 node -> provenance option **)
+
+let node_provenance = function
+| Node (p0, _, _) -> (match p0 with
+                      | NoPos -> None
+                      | SomePos p -> Some p)
 
 (** val mk : 'a1 -> 'a1 node **)
 
@@ -100,6 +136,124 @@ let node_attrs = function
 
 let add_attr a = function
 | Node (p, a', x) -> Node (p, (attr_union a' a), x)
+
+type coq_PosPolicy = { mkpos : (provenance -> pos); pos_records : bool }
+
+(** val semantic_pos : coq_PosPolicy **)
+
+let semantic_pos =
+  { mkpos = (fun _ -> NoPos); pos_records = false }
+
+(** val located_pos : coq_PosPolicy **)
+
+let located_pos =
+  { mkpos = (fun x -> SomePos x); pos_records = true }
+
+(** val posnode : coq_PosPolicy -> provenance -> 'a1 -> 'a1 node **)
+
+let posnode h p x =
+  Node ((h.mkpos p), [], x)
+
+(** val null_span : span **)
+
+let null_span =
+  { span_start = { spot_line = O; spot_rem = O }; span_stop = { spot_line =
+    O; spot_rem = O } }
+
+(** val pspan : coq_PosPolicy -> span -> span **)
+
+let pspan h r =
+  if h.pos_records then r else null_span
+
+(** val prov_at : span -> provenance **)
+
+let prov_at r =
+  { node_span = r; syntax_spans = []; part_spans = PNone }
+
+(** val prov_with : span -> (syntax_role * span) list -> provenance **)
+
+let prov_with r rs =
+  { node_span = r; syntax_spans = rs; part_spans = PNone }
+
+(** val attr_roles : span list -> (syntax_role * span) list **)
+
+let attr_roles specs =
+  map (fun r -> (RAttrSpec, r)) specs
+
+(** val set_pos : coq_PosPolicy -> provenance -> 'a1 node -> 'a1 node **)
+
+let set_pos h p n =
+  match h.mkpos p with
+  | NoPos -> n
+  | SomePos p0 -> let Node (_, a, x) = n in Node ((SomePos p0), a, x)
+
+(** val pos_head :
+    coq_PosPolicy -> provenance -> 'a1 node list -> 'a1 node list **)
+
+let pos_head h p ns =
+  match h.mkpos p with
+  | NoPos -> ns
+  | SomePos _ ->
+    (match ns with
+     | [] -> []
+     | n :: rest -> (set_pos h p n) :: rest)
+
+(** val add_roles :
+    coq_PosPolicy -> (syntax_role * span) list -> 'a1 node -> 'a1 node **)
+
+let add_roles h rs n =
+  if h.pos_records
+  then let Node (p0, a, x) = n in
+       (match p0 with
+        | NoPos -> n
+        | SomePos p ->
+          Node ((SomePos { node_span = p.node_span; syntax_spans =
+            (app p.syntax_spans rs); part_spans = p.part_spans }), a, x))
+  else n
+
+(** val add_roles_head :
+    coq_PosPolicy -> (syntax_role * span) list -> 'a1 node list -> 'a1 node
+    list **)
+
+let add_roles_head h rs ns =
+  if h.pos_records
+  then (match ns with
+        | [] -> []
+        | n :: rest -> (add_roles h rs n) :: rest)
+  else ns
+
+(** val hull_pos : coq_PosPolicy -> 'a1 node list -> pos **)
+
+let hull_pos h ns =
+  if h.pos_records
+  then (match ns with
+        | [] -> NoPos
+        | first :: _ ->
+          (match node_provenance first with
+           | Some p ->
+             (match node_provenance (last ns first) with
+              | Some q ->
+                SomePos
+                  (prov_at { span_start = p.node_span.span_start; span_stop =
+                    q.node_span.span_stop })
+              | None -> NoPos)
+           | None -> NoPos))
+  else NoPos
+
+(** val hull_pos_with : coq_PosPolicy -> 'a1 node list -> pos **)
+
+let hull_pos_with h ns =
+  match hull_pos h ns with
+  | NoPos -> NoPos
+  | SomePos p ->
+    (match ns with
+     | [] -> SomePos p
+     | first :: _ ->
+       (match node_provenance first with
+        | Some q ->
+          SomePos { node_span = p.node_span; syntax_spans = q.syntax_spans;
+            part_spans = p.part_spans }
+        | None -> SomePos p))
 
 type math_style =
 | DisplayMath

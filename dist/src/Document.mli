@@ -44,17 +44,19 @@ type sect_state = ((nat * attr) * blocks) list
 
 val sect_init : sect_state
 
-val close_ge : nat -> blocks -> sect_state -> sect_state
+val section_node : coq_PosPolicy -> attr -> blocks -> block node
 
-val close_all : blocks -> sect_state -> sect_state
+val close_ge : coq_PosPolicy -> nat -> blocks -> sect_state -> sect_state
+
+val close_all : coq_PosPolicy -> blocks -> sect_state -> sect_state
 
 val sect_push : block node -> sect_state -> sect_state
 
-val sect_step : sect_state -> block node -> sect_state
+val sect_step : coq_PosPolicy -> sect_state -> block node -> sect_state
 
 val sect_bottom : sect_state -> blocks
 
-val sectionize : blocks -> blocks
+val sectionize : coq_PosPolicy -> blocks -> blocks
 
 val add_ref : pos -> attr -> block -> reference_map -> reference_map
 
@@ -67,6 +69,8 @@ val collect_notes :
 
 val collect_notes_list : blocks -> note_map -> note_map * blocks
 
-val doc_pass : blocks -> doc
+val doc_pass : coq_PosPolicy -> blocks -> doc
 
-val parse_doc : dtable -> bconfig -> string -> doc
+val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc
+
+val parse_doc_located : dtable -> bconfig -> string -> doc

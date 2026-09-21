@@ -281,33 +281,38 @@ type sect_state = ((nat * attr) * blocks) list
 let sect_init =
   ((O, []), []) :: []
 
-(** val close_ge : nat -> blocks -> sect_state -> sect_state **)
+(** val section_node : coq_PosPolicy -> attr -> blocks -> block node **)
 
-let rec close_ge lvl pending = function
+let section_node p a bs =
+  Node ((hull_pos_with p bs), a, (Section bs))
+
+(** val close_ge :
+    coq_PosPolicy -> nat -> blocks -> sect_state -> sect_state **)
+
+let rec close_ge p lvl pending = function
 | [] -> []
-| p :: outer ->
-  let (p0, acc) = p in
-  let (l, a) = p0 in
+| p0 :: outer ->
+  let (p1, acc) = p0 in
+  let (l, a) = p1 in
   (match outer with
    | [] -> ((l, a), (app pending acc)) :: []
    | _ :: _ ->
      if leb lvl l
-     then close_ge lvl ((Node (NoPos, a, (Section
-            (rev (app pending acc))))) :: []) outer
+     then close_ge p lvl ((section_node p a (rev (app pending acc))) :: [])
+            outer
      else ((l, a), (app pending acc)) :: outer)
 
-(** val close_all : blocks -> sect_state -> sect_state **)
+(** val close_all : coq_PosPolicy -> blocks -> sect_state -> sect_state **)
 
-let rec close_all pending = function
+let rec close_all p pending = function
 | [] -> []
-| p :: outer ->
-  let (p0, acc) = p in
-  let (l, a) = p0 in
+| p0 :: outer ->
+  let (p1, acc) = p0 in
+  let (l, a) = p1 in
   (match outer with
    | [] -> ((l, a), (app pending acc)) :: []
    | _ :: _ ->
-     close_all ((Node (NoPos, a, (Section (rev (app pending acc))))) :: [])
-       outer)
+     close_all p ((section_node p a (rev (app pending acc))) :: []) outer)
 
 (** val sect_push : block node -> sect_state -> sect_state **)
 
@@ -315,14 +320,15 @@ let sect_push b = function
 | [] -> []
 | p :: rest -> let (p0, acc) = p in (p0, (b :: acc)) :: rest
 
-(** val sect_step : sect_state -> block node -> sect_state **)
+(** val sect_step :
+    coq_PosPolicy -> sect_state -> block node -> sect_state **)
 
-let sect_step stk n = match n with
-| Node (p, a, x) ->
+let sect_step p stk n = match n with
+| Node (p0, a, x) ->
   (match x with
    | Heading (lvl, ils) ->
-     ((lvl, a), ((Node (p, [], (Heading (lvl,
-       ils)))) :: [])) :: (close_ge lvl [] stk)
+     ((lvl, a), ((Node (p0, [], (Heading (lvl,
+       ils)))) :: [])) :: (close_ge p lvl [] stk)
    | _ -> sect_push n stk)
 
 (** val sect_bottom : sect_state -> blocks **)
@@ -335,10 +341,10 @@ let rec sect_bottom = function
    | [] -> rev acc
    | _ :: _ -> sect_bottom outer)
 
-(** val sectionize : blocks -> blocks **)
+(** val sectionize : coq_PosPolicy -> blocks -> blocks **)
 
-let sectionize bs =
-  sect_bottom (close_all [] (fold_left sect_step bs sect_init))
+let sectionize p bs =
+  sect_bottom (close_all p [] (fold_left (sect_step p) bs sect_init))
 
 (** val add_ref : pos -> attr -> block -> reference_map -> reference_map **)
 
@@ -511,16 +517,21 @@ let rec collect_notes_list ns m =
      | Some n0 -> (m2, (n0 :: rest1))
      | None -> (m2, rest1))
 
-(** val doc_pass : blocks -> doc **)
+(** val doc_pass : coq_PosPolicy -> blocks -> doc **)
 
-let doc_pass bs =
+let doc_pass p bs =
   let (st, bs') = assign_ids_list bs id_state_init in
   let (notes, visible) = collect_notes_list bs' [] in
-  { doc_blocks = (sectionize visible); doc_footnotes = notes;
+  { doc_blocks = (sectionize p visible); doc_footnotes = notes;
   doc_references = (collect_refs_list bs' []); doc_auto_references =
   (rev st.id_refs); doc_auto_identifiers = (rev st.id_used) }
 
-(** val parse_doc : dtable -> bconfig -> string -> doc **)
+(** val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc **)
 
-let parse_doc t k s =
-  doc_pass (parse_blocks t k s)
+let parse_doc t k p s =
+  doc_pass p (parse_blocks t k semantic_line_ix p s)
+
+(** val parse_doc_located : dtable -> bconfig -> string -> doc **)
+
+let parse_doc_located t k s =
+  doc_pass located_pos (parse_blocks_located t k s)

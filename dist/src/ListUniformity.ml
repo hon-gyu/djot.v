@@ -33,7 +33,9 @@ let rec list_lines sp = function
 let rec run_safe t k lines st =
   match lines with
   | [] -> blank_safe st
-  | l :: rest -> (&&) (pad_safe st) (run_safe t k rest (snd (step t k l st)))
+  | l :: rest ->
+    (&&) (pad_safe st)
+      (run_safe t k rest (snd (step t k semantic_line_ix semantic_pos l st)))
 
 (** val lines_loose :
     dtable -> bconfig -> bool -> bool -> pstate -> string list -> bool **)
@@ -41,7 +43,7 @@ let rec run_safe t k lines st =
 let rec lines_loose t k loose gap st = function
 | [] -> loose
 | l :: rest ->
-  let st' = snd (step t k l st) in
+  let st' = snd (step t k semantic_line_ix semantic_pos l st) in
   (match classify l with
    | KBlank ->
      lines_loose t k loose (if blank_absorbed st then gap else true) st' rest
@@ -57,7 +59,7 @@ let rec lines_loose t k loose gap st = function
 let rec lines_gap t k gap st = function
 | [] -> gap
 | l :: rest ->
-  let st' = snd (step t k l st) in
+  let st' = snd (step t k semantic_line_ix semantic_pos l st) in
   (match classify l with
    | KBlank ->
      lines_gap t k (if blank_absorbed st then gap else true) st' rest
@@ -92,7 +94,8 @@ let item_ok t k m l = match l with
           ((&&) (negb (is_thematic ((^) (mk_open m) l0)))
             (negb (task_start l0)))
           (nonblank l0))
-        (run_safe t k more (snd (step t k l0 (PPara [])))))
+        (run_safe t k more
+          (snd (step t k semantic_line_ix semantic_pos l0 (PPara [])))))
       (match more with
        | [] -> true
        | _ :: _ -> nonblank (last more "")))
