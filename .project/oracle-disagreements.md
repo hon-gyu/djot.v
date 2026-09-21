@@ -1830,6 +1830,10 @@ of the caption's text, and the caption's *part* span starts at the
 authored `^` where its node span starts after it.  Both follow from
 applying the plan's rule for what a node covers
 (`260916.plan.source-locations.md` section 4.4) to the table's whole
-construct.  The caption's inline range is not affected: it is djot.js's
-`[33,36)` exactly.  Pinned by `p_table_parts` and `c5_table_parts` in
+construct.  What settles it is that the caption is a *child* of the
+table in both ASTs, so djot.js's answer puts a child outside its
+parent: the containment property step 3 of the plan states, and the one
+a consumer walking the tree for the innermost node at a byte relies on.
+Ours keeps it.  The caption's inline range is not affected: it is
+djot.js's `[33,36)` exactly.  Pinned by `p_table_parts` and `c5_table_parts` in
 `dev/check/Located.v`.
