@@ -421,6 +421,15 @@ moved into `item_ok` instead. A statement with no consumers is not a cost
 and not a constraint -- it is a claim about the development that nothing
 is holding it to. Count users before counting hypotheses.
 
+The same test retires *plan items*, not only statements. Occurrence
+lists were step 7 of the source-location plan until the plan's own
+section 1, a read of the downstream editor's code dated after the step
+list was drafted, turned out to ask for no index on any row: a node
+span and a tree walk answer find-references, and a link's destination
+is found by rescanning the node's slice. A step list written before the
+consumer was read is a guess about users, and the floor section is the
+place it gets checked.
+
 ## Split a fix by proof cost before landing it, and look for the cheap spelling
 
 **What happened.** The list-tightness gap turned out to be two
