@@ -39,8 +39,9 @@ generated: build
 
 # every span the located parse records lies inside its document and
 # inside its parent, over the generated corpus and the file corpus.
-# Exits nonzero on a failure; one is known and pinned as
-# `i_spec_across_break_is_wrong`.
+# Exits nonzero on a failure.  It found one when it landed: a spec
+# spanning a line break left the run before it starting on the wrong
+# line.
 located-bounds: build
 	dune exec harness/main.exe -- --located-bounds 3
 

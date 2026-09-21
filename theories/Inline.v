@@ -4381,11 +4381,15 @@ line because a stored line is a suffix of its line with nothing trimmed
 from the end (`.project/260916.plan.source-locations.md`, F2).
 *)
 
-Definition cursor_in (k rem origin : nat) : InlineCursor :=
-  CursorAt (Spot k rem) (Spot k (pred rem)) (Spot k origin).
+(* The origin is a spot rather than a column because a text run can
+   begin on an earlier line than the byte being scanned: a spec that
+   spans a break is not flushed at the break, so the run it precedes is
+   still open when the next line starts (`text_start`'s fallback). *)
+Definition cursor_in (k rem : nat) (origin : spot) : InlineCursor :=
+  CursorAt (Spot k rem) (Spot k (pred rem)) origin.
 
-Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k origin rem : nat)
-  (s : string) (st : iscan) : iscan :=
+Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k : nat)
+  (origin : spot) (rem : nat) (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
   | String c rest =>
@@ -4417,19 +4421,19 @@ Definition allow_attrs (off : nat) : bool :=
    so the text after it starts where that line's content does: the stop
    of the `SoftBreak` is what `text_start` reads.  Container prefixes are
    why this is not the byte after the terminator. *)
-Fixpoint iscan_lines_located `{PosPolicy} (off : nat)
+Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
   (l : list (nat * string)) (st : iscan) : iscan :=
   match l with
   | [] => st
   | [(k, x)] =>
-      iscan_str_located (allow_attrs off) k (String.length x)
+      iscan_str_located (allow_attrs off) k origin
         (String.length x) (strip_trailing_ws x) st
   | (k, x) :: rest =>
-      iscan_lines_located (pred off) rest
+      iscan_lines_located (pred off) origin rest
         (@ibreak_at _
            (CursorAt (Spot k 0) (lines_start rest) (Spot k (String.length x)))
            (allow_attrs off)
-           (iscan_str_located (allow_attrs off) k (String.length x)
+           (iscan_str_located (allow_attrs off) k origin
               (String.length x) x st))
   end.
 
@@ -5520,28 +5524,29 @@ Qed.
 (* The driver's two step equations, so that a proof over a paragraph's
    lines rewrites rather than reduces: `cbn` unfolds the recursive call
    as well and loses the name. *)
-Lemma iscan_lines_located_one : forall `{P : PosPolicy} off k x st,
-  @iscan_lines_located P off [(k, x)] st =
-  @iscan_str_located P (allow_attrs off) k (String.length x)
+Lemma iscan_lines_located_one : forall `{P : PosPolicy} off org k x st,
+  @iscan_lines_located P off org [(k, x)] st =
+  @iscan_str_located P (allow_attrs off) k org
     (String.length x) (strip_trailing_ws x) st.
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_located_cons : forall `{P : PosPolicy} off k x y rest st,
-  @iscan_lines_located P off ((k, x) :: y :: rest)%list st =
-  @iscan_lines_located P (pred off) (y :: rest)%list
+Lemma iscan_lines_located_cons :
+  forall `{P : PosPolicy} off org k x y rest st,
+  @iscan_lines_located P off org ((k, x) :: y :: rest)%list st =
+  @iscan_lines_located P (pred off) org (y :: rest)%list
     (@ibreak_at P
        (CursorAt (Spot k 0) (lines_start (y :: rest)%list)
           (Spot k (String.length x)))
        (allow_attrs off)
-       (@iscan_str_located P (allow_attrs off) k (String.length x)
+       (@iscan_str_located P (allow_attrs off) k org
           (String.length x) x st)).
 Proof. reflexivity. Qed.
 
-Lemma erase_iscan_lines_located : forall `{P : PosPolicy} off l st,
-  erase_iscan (@iscan_lines_located P off l st) =
+Lemma erase_iscan_lines_located : forall `{P : PosPolicy} off org l st,
+  erase_iscan (@iscan_lines_located P off org l st) =
   iscan_lines_off off (map snd l) (erase_iscan st).
 Proof.
-  intros P off l. revert off.
+  intros P off org l. revert off.
   induction l as [|[k x] l IH]; intros off st.
   - destruct off; reflexivity.
   - destruct l as [|kx l'].
@@ -8715,7 +8720,7 @@ Proof. reflexivity. Qed.
    how many leading lines are read with attributes off. *)
 Definition para_inlines_located `{PosPolicy} (off : nat)
   (l : list (nat * string)) : inlines :=
-  ifinish_located l (iscan_lines_located off l istart).
+  ifinish_located l (iscan_lines_located off (lines_start l) l istart).
 
 (* The one entry the block layer calls.  It asks the policy before it
    looks at the lines, so at `semantic_pos` it *is* `para_inlines_off` of
@@ -8738,7 +8743,7 @@ Definition parse_inline_line_located `{PosPolicy}
   (k rem : nat) (s : string) : inlines :=
   let stop := Spot k (rem - String.length s) in
   @ifinish _ (CursorAt stop stop (Spot k rem))
-    (iscan_str_located inline_attrs_enabled k rem rem s istart).
+    (iscan_str_located inline_attrs_enabled k (Spot k rem) rem s istart).
 
 Lemma erase_parse_inline_line_located : forall `{P : PosPolicy} k rem s,
   erase_inlines (@parse_inline_line_located P k rem s) = parse_inline_line s.
