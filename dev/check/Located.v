@@ -334,15 +334,14 @@ carry.
 *)
 
 Example semantic_unchanged :
-  map (@node_contents block) (Located "# h
+  erase_blocks (Located "# h
 
 para more
 ")
-  = map (@node_contents block)
-      (@parse_blocks djot_table djot_bconfig _ _ "# h
+  = @parse_blocks djot_table djot_bconfig _ _ "# h
 
 para more
-").
+".
 Proof. vm_compute. reflexivity. Qed.
 
 (* And over the generated pool, where the documents are not chosen by
@@ -359,4 +358,178 @@ Definition agrees (c : cblock) : bool :=
              (html_of (@parse_blocks djot_table djot_bconfig _ _ s)).
 
 Example located_agrees_depth_1 : forallb agrees (accepted 1) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Inline ranges, pinned against djot.js
+=====================================
+
+The inline scan on its own.  The block layer does not hand its stored
+lines to the located scan yet, so these go through
+`para_inlines_located` directly: a document that is one paragraph, its
+lines with their indices, positions on.  Children follow their parent,
+which is the order `djotjs-sourcepos.mjs` prints.
+*)
+
+Fixpoint inline_walk (d : nat) (lines : list source_line) (ils : inlines)
+  : list (nat * nat) :=
+  match d with
+  | 0 => []
+  | S d' =>
+      match ils with
+      | [] => []
+      | n :: rest =>
+          let here :=
+            match node_provenance n with
+            | Some p => range_of lines (node_span p)
+            | None => (999, 999)
+            end in
+          let kids :=
+            match node_contents n with
+            | Emph k | Strong k | Highlight k | Insert k | Delete k
+            | Superscript k | Subscript k | Span k | Quoted _ k
+            | Link k _ | Image k _ => inline_walk d' lines k
+            | _ => []
+            end in
+          (here :: kids ++ inline_walk d' lines rest)%list
+      end
+  end.
+
+Definition para_ranges (s : string) : list (nat * nat) :=
+  inline_walk 40 (line_table s)
+    (@para_inlines_located djot_table located_pos 0 (split_lines_indexed s)).
+
+(*
+One construct at a time
+-----------------------
+
+Each range below was read off `djotjs-sourcepos.mjs --trim`.  Two
+differences are ours and are noted where they occur; everything else is
+byte-for-byte djot.js.
+*)
+
+(* str [0,9) *)
+Example i_text : para_ranges "para more" = [(0, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* str [0,2), strong [2,5), str [3,4), str [5,7) *)
+Example i_strong : para_ranges "x *y* z" = [(0, 2); (2, 5); (3, 4); (5, 7)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A doubled run is two nested scopes, and each covers its own token. *)
+Example i_strong_nested :
+  para_ranges "a **b** c" = [(0, 2); (2, 7); (3, 6); (4, 5); (7, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_delim_mixed :
+  para_ranges "g *a **b** c* h"
+  = [(0, 2); (2, 13); (3, 5); (5, 10); (6, 9); (7, 8); (10, 12); (13, 15)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A marked token covers its braces. *)
+Example i_marked : para_ranges "{*a*}" = [(0, 5); (2, 3)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* ...and an attribute spec after it widens neither the node nor the text
+   that follows, which starts after the spec. *)
+Example i_marked_attr :
+  para_ranges "f {*a*}{.c} g" = [(0, 2); (2, 7); (4, 5); (11, 13)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The intraword row: `_` opens inside a word. *)
+Example i_emph_intraword :
+  para_ranges "e a_b_c f" = [(0, 3); (3, 6); (4, 5); (6, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A span crossing a line break: the break covers the terminator, and the
+   text after it starts on the next line. *)
+Example i_break_in_scope :
+  para_ranges "a *b
+c* d" = [(0, 2); (2, 7); (3, 4); (4, 5); (5, 6); (7, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* link [2,14), its label [3,7); the attribute spec is not part of it *)
+Example i_link :
+  para_ranges "a [link](dest){.c} b" = [(0, 2); (2, 14); (3, 7); (18, 20)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A `]` that makes no construct stays text, and the label runs past it. *)
+Example i_link_inner_bracket :
+  para_ranges "x [un]b](c) y" = [(0, 2); (2, 11); (3, 7); (11, 13)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_reference :
+  para_ranges "k [r][lbl] l" = [(0, 2); (2, 10); (3, 4); (10, 12)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_footnote_ref :
+  para_ranges "p [^fn] q" = [(0, 2); (2, 7); (7, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Ours: the image starts at its `!`.  djot.js reports [3,15), starting at
+   the `[`, which reads as an artifact of recovering the `!` at the close
+   (plan F1). *)
+Example i_image :
+  para_ranges "i ![alt](i.png) j" = [(0, 2); (2, 15); (4, 7); (15, 17)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_span_attr :
+  para_ranges "s [txt]{.c} t" = [(0, 2); (2, 7); (3, 6); (11, 13)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_verbatim : para_ranges "w `v` u" = [(0, 2); (2, 5); (5, 7)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A verbatim spanning a break: its start is the stop of whatever the
+   scope emitted last, so the line it began on is recovered. *)
+Example i_verbatim_break :
+  para_ranges "v `a
+b` w" = [(0, 2); (2, 7); (7, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The line ended inside it: djot.js closes it too. *)
+Example i_verbatim_unclosed :
+  para_ranges "v `unclosed" = [(0, 2); (2, 11)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_math : para_ranges "m $`e` n" = [(0, 2); (2, 6); (6, 8)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* Ours: the node covers the `{=fmt}` that selects the format, which is
+   part of the construct.  djot.js reports the verbatim alone, [2,5)
+   (plan F1, section 4.4). *)
+Example i_raw_inline :
+  para_ranges "r `x`{=html} s" = [(0, 2); (2, 12); (12, 14)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_url : para_ranges "u <http://a.b> v" = [(0, 2); (2, 14); (14, 16)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A backslash and a space: the node covers the space, as djot.js does,
+   and the text before it stops at the backslash. *)
+Example i_nbsp : para_ranges "a b\ c" = [(0, 3); (4, 5); (5, 6)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A hard break covers its terminator, and the whitespace the trim
+   dropped is in neither node. *)
+Example i_hard_break :
+  para_ranges "a  \
+c" = [(0, 1); (4, 5); (5, 6)].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Openers that decay
+------------------
+
+An abandoned opener is text, spanning the source it was written in, and
+it merges with the text around it into one node whose range is the hull.
+*)
+
+Example i_delim_decays : para_ranges "a *b c" = [(0, 6)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_bracket_decays : para_ranges "x [nope y" = [(0, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_destination_decays : para_ranges "n [u](a m" = [(0, 9)].
 Proof. vm_compute. reflexivity. Qed.

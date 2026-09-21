@@ -22,6 +22,26 @@ Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
 
+(* `Inline.sem_flush` is local to its own section, and the invariant
+   proofs below meet the same two spellings: a generic definition
+   unfolded at the semantic instances leaves the located forms, which
+   `rewrite` and `destruct` do not match against the names the theory is
+   stated in. *)
+Ltac sem_flush :=
+  try change (@flush_text_at semantic_pos semantic_inline_cursor)
+    with flush_text;
+  repeat match goal with
+  | |- context [@flush_text_to_at semantic_pos semantic_inline_cursor
+                  ?stop ?txt ?o] =>
+      change (@flush_text_to_at semantic_pos semantic_inline_cursor
+                stop txt o)
+        with (flush_text txt o)
+  end;
+  repeat match goal with
+  | |- context [@oclose ?TT semantic_pos ?k ?m ?stop ?o] =>
+      change (@oclose TT semantic_pos k m stop o) with (@sclose TT k m o)
+  end.
+
 (*
 Canonicality of inline sequences
 ================================
@@ -1184,9 +1204,10 @@ Proof.
 Qed.
 
 Lemma oscope_ok_push_at :
-  forall k m cm o, oscope_ok o = true -> oscope_ok (opush_at k m cm o) = true.
+  forall k m cm open o,
+    oscope_ok o = true -> oscope_ok (opush_at k m cm open o) = true.
 Proof.
-  intros k m cm [out stk] H. unfold oscope_ok, opush_at in *;
+  intros k m cm open [out stk] H. unfold oscope_ok, opush_at in *;
     cbn [os_out os_stk frames_ok forallb fr_out] in *.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
@@ -1247,51 +1268,54 @@ Proof.
 Qed.
 
 Lemma oclose_go_ok :
-  forall stk k m pend content rest,
+  forall stk k m pend content open rest,
     frames_ok stk = true -> ilist_ok pend = true ->
-    oclose_go k m pend stk = Some (content, rest) ->
+    oclose_go k m pend stk = Some (content, open, rest) ->
     (ilist_ok content && frames_ok rest)%bool = true.
 Proof.
-  induction stk as [|f stk IH]; intros k m pend content rest Hs Hp E;
+  induction stk as [|f stk IH]; intros k m pend content open rest Hs Hp E;
     [discriminate|].
   cbn [oclose_go] in E.
   destruct (dmatch k m f) eqn:Em.
   { destruct (nonempty (oapp pend (fr_out f))); [|discriminate].
-    injection E as <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
+    injection E as <- <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
     apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]. }
   destruct (fr_barrier f); [discriminate|].
   apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
-           content rest (frames_ok_tail f stk Hs)); [|exact E].
+           content open rest (frames_ok_tail f stk Hs)); [|exact E].
   apply ilist_ok_oapp;
     [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
     |apply ilist_ok_src].
 Qed.
 
 Lemma oclose_go_nonempty :
-  forall stk k m pend content rest,
-    oclose_go k m pend stk = Some (content, rest) -> nonempty content = true.
+  forall stk k m pend content open rest,
+    oclose_go k m pend stk = Some (content, open, rest) ->
+    nonempty content = true.
 Proof.
-  induction stk as [|f stk IH]; intros k m pend content rest E; [discriminate|].
+  induction stk as [|f stk IH]; intros k m pend content open rest E;
+    [discriminate|].
   cbn [oclose_go] in E.
   destruct (dmatch k m f) eqn:Em.
   { destruct (nonempty (oapp pend (fr_out f))) eqn:En; [|discriminate].
-    injection E as <- <-. exact En. }
+    injection E as <- <- <-. exact En. }
   destruct (fr_barrier f); [discriminate|].
   exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
-           content rest E).
+           content open rest E).
 Qed.
 
 Lemma oclose_ok :
   forall k m o o',
-    oscope_ok o = true -> oclose k m o = Some o' ->
+    oscope_ok o = true -> sclose k m o = Some o' ->
     (oscope_ok o' && negb (starts_str (ocur o')))%bool = true.
 Proof.
-  intros k m o o' Ho E. unfold oclose in E.
-  destruct (oclose_go k m [] (os_stk o)) as [[content rest]|] eqn:Eg;
+  intros k m o o' Ho E. unfold sclose, oclose in E.
+  destruct (oclose_go k m [] (os_stk o)) as [[[content open] rest]|] eqn:Eg;
     [|discriminate].
-  injection E as <-.
+  injection E as <-. rewrite ?imk_semantic.
   apply andb_true_iff in Ho as [Hb Hs].
-  pose proof (oclose_go_ok (os_stk o) k m [] content rest Hs eq_refl Eg) as Hcr.
+  pose proof (oclose_go_ok (os_stk o) k m [] content open rest Hs eq_refl Eg)
+    as Hcr.
   apply andb_true_iff in Hcr as [Hc Hr].
   assert (Hnode :
     wf_inline (node_contents (mk (dnode k (List.rev (oresolve content)))))
@@ -1703,10 +1727,10 @@ Lemma idelim_resolve_wf :
     iscan_wf (idelim_resolve k txt bef marker next o) = true.
 Proof.
   intros k txt bef marker next o Ho Hs. unfold idelim_resolve.
-  change (@flush_text_at semantic_pos semantic_inline_cursor) with flush_text.
+  sem_flush.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_wf; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
-  destruct (oclose k marker (flush_text txt o)) as [o'|] eqn:Ec;
+  destruct (sclose k marker (flush_text txt o)) as [o'|] eqn:Ec;
     [|destruct (oclose_barred k marker o);
         [apply iscan_wf_text; assumption
         |apply idelim_done_wf; assumption]].
@@ -1841,7 +1865,7 @@ Proof.
     destruct (Nat.eqb run n); [|exact H].
     destruct (Ascii.eqb c lbrace && vkind_verb vk)%bool;
       [cbn [iscan_wf]; exact H|].
-    apply ilead_wf.
+    rewrite ?imk_semantic. apply ilead_wf.
     + apply oscope_ok_emit;
         [exact H | apply wf_inline_vnode
         | rewrite plain_str_vnode; apply andb_false_l].
@@ -1851,7 +1875,7 @@ Proof.
       [destruct dtwo;
          (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity)|].
     destruct (is_tick c && math_enabled)%bool;
-      [cbn [iscan_wf]; apply iscan_wf_flush; assumption
+      [cbn [iscan_wf]; sem_flush; apply iscan_wf_flush; assumption
       |apply ilead_wf; assumption].
   - (* and the periods either grow, complete an ellipsis, or become text;
        the ellipsis goes into the buffer, so the head condition is the
@@ -1878,7 +1902,7 @@ Proof.
     destruct ((Ascii.eqb c lparen || Ascii.eqb c lbrack
                || (Ascii.eqb c lbrace && attrs_enabled))%bool);
       [|apply ilead_wf; assumption].
-    change (@flush_text_at semantic_pos semantic_inline_cursor) with flush_text.
+    sem_flush.
     destruct (bclose (flush_text cltxt clob))
       as [[[[kids image] open] o']|] eqn:Eb;
       [|apply ilead_wf; assumption].
