@@ -15,7 +15,7 @@ gives an attribute spec no position at all, so `RAttrSpec` is pinned
 against the source text alone (plan F1, section 9).
 *)
 
-From Stdlib Require Import String List.
+From Stdlib Require Import String List Ascii.
 From DjotV Require Import Ast Strings Inline Step Parser Config
   Render Document Html Generate.
 Import ListNotations.
@@ -202,8 +202,7 @@ Items, the first of the parts
 
 A list item is not a node, so its range lives in the parent's
 provenance, parallel to the children (plan F9).  A definition list's
-item splits further into a term and a definition; that is `PDefItems`
-and is not built yet, so a `:` list reports the item as a whole.
+item records its term and definition beside the whole item.
 *)
 
 Definition item_ranges (s : string) : list (list (nat * nat)) :=
@@ -213,6 +212,8 @@ Definition item_ranges (s : string) : list (list (nat * nat)) :=
          | Some p =>
              match part_spans p with
              | PItems rs => map (range_of lines) rs
+             | PDefItems rs =>
+                 map (fun r => let '(item, _, _) := r in range_of lines item) rs
              | _ => []
              end
          | None => []
@@ -244,6 +245,29 @@ Example p_def_item : item_ranges ": term
 
   def
 " = [[(0, 13)]].
+Proof. vm_compute. reflexivity. Qed.
+
+Definition def_ranges (s : string)
+  : list (list ((nat * nat) * (nat * nat) * (nat * nat))) :=
+  let lines := line_table s in
+  map (fun n =>
+         match node_provenance n with
+         | Some p =>
+             match part_spans p with
+             | PDefItems rs =>
+                 map (fun r => let '(item, term, definition) := r in
+                               (range_of lines item, range_of lines term,
+                                range_of lines definition)) rs
+             | _ => []
+             end
+         | None => []
+         end) (Located s).
+
+Example p_def_parts :
+  def_ranges (": term" ++ String "010"%char
+                (String "010"%char
+                   ("  def" ++ String "010"%char EmptyString))) =
+  [[((0, 13), (2, 6), (10, 13))]].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

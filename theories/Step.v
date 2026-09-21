@@ -963,11 +963,59 @@ Proof.
 Qed.
 
 (* The spans of a list's items, in source order, parallel to the items
-   themselves: the one still open is the last.  A definition list's
-   items each split further into a term and a definition, which is a
-   `PDefItems` and is not built yet. *)
+   themselves: the one still open is the last. *)
 Definition list_item_spans (ls : list_state) : parts :=
   PItems (map extent_span (rev (ls_item_extent ls :: ls_item_extents ls))).
+
+(* [def_split] takes the first paragraph as the term.  The blocks it
+   leaves are the definition.  Read the same split for provenance, so
+   invisible blocks before the term and an absent term follow exactly
+   the semantic definition-list assembly. *)
+Fixpoint def_term_span (bs : blocks) : option span :=
+  match bs with
+  | [] => None
+  | n :: rest =>
+      match node_contents n with
+      | Para _ => option_map node_span (node_provenance n)
+      | x => if invisible_block x then def_term_span rest else None
+      end
+  end.
+
+Definition blocks_span (bs : blocks) (fallback : spot) : span :=
+  match bs with
+  | [] => SrcSpan fallback fallback
+  | first :: _ =>
+      match node_provenance first,
+            node_provenance (List.last bs first) with
+      | Some p, Some q =>
+          SrcSpan (span_start (node_span p)) (span_stop (node_span q))
+      | _, _ => SrcSpan fallback fallback
+      end
+  end.
+
+Fixpoint def_item_spans (ranges : list span) (items : list blocks)
+  : list (span * span * span) :=
+  match ranges, items with
+  | item :: ranges', bs :: items' =>
+      let term := match def_term_span bs with
+                  | Some r => r
+                  | None => SrcSpan (span_start item) (span_start item)
+                  end in
+      let definition := blocks_span (snd (def_item bs)) (span_stop term) in
+      (item, term, definition) :: def_item_spans ranges' items'
+  | _, _ => []
+  end.
+
+Definition list_parts (ls : list_state) (last : blocks) : parts :=
+  let ranges := map extent_span
+                    (rev (ls_item_extent ls :: ls_item_extents ls)) in
+  match ls_styles ls with
+  | (SBullet c, _) :: _ =>
+      if (Ascii.eqb c ":" && bdeflists)%bool
+      then PDefItems (def_item_spans ranges (rev (last :: ls_items ls)))
+      else PItems ranges
+  | _ => PItems ranges
+  end.
 
 (* The list a `PList` closes to.  djot.js takes the first surviving
    candidate -- "take first if ambiguous", parse.ts:817 -- which is why
@@ -1081,7 +1129,7 @@ Fixpoint finish (st : pstate) : blocks :=
          (div_block cls (rev done ++ finish inner)%list)]
   | PList ls done inner =>
       [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_item_spans ls))
+                  (list_parts ls (rev done ++ finish inner)%list))
          (list_block ls (rev done ++ finish inner)%list)]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
@@ -1138,7 +1186,7 @@ Lemma finish_list_styles :
     ls_styles ls = S ->
     finish (PList ls done inner)
     = [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_item_spans ls))
+                  (list_parts ls (rev done ++ finish inner)%list))
          (styles_list_checked S (if ls_loose ls then Loose else Tight)
             (rev (ls_check ls :: ls_checks ls))
             (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
@@ -1152,7 +1200,7 @@ Lemma finish_list_marker :
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
     = [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_item_spans ls))
+                  (list_parts ls (rev done ++ finish inner)%list))
          (marker_list_checked m (if ls_loose ls then Loose else Tight)
             (rev (ls_check ls :: ls_checks ls))
             (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
