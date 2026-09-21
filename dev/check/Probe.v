@@ -127,9 +127,9 @@ Definition s_trow (r : trow) : string :=
 
 Definition s_tcap (c : tcap) : string :=
   match c with
-  | TOpen => "-"
-  | TAfterBlank => "b"
-  | TCaption ls => "cap" ++ s_list s_str (map snd ls)
+  | TOpen _ => "-"
+  | TAfterBlank _ => "b"
+  | TCaption _ _ ls => "cap" ++ s_list s_str (map snd ls)
   end.
 
 Fixpoint show_pstate (st : pstate) : string :=
@@ -456,7 +456,7 @@ Fixpoint state_line_texts (st : pstate) : list string :=
   | PPara cur | PParaOff _ cur | PHeading _ _ cur => map snd cur
   | PFence _ _ _ _ acc => map snd acc
   | PAttr _ _ _ _ _ slices => map snd slices
-  | PTable _ _ (TCaption ls) => map snd ls
+  | PTable _ _ (TCaption _ _ ls) => map snd ls
   | PQuote _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
   | PPend _ _ i | PKey _ _ _ i => state_line_texts i
   | _ => []

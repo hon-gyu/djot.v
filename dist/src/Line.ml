@@ -3,6 +3,7 @@ open Ast
 open Attributes
 open Datatypes
 open List0
+open ListDef
 open PeanoNat
 open String0
 open Strings
@@ -1121,11 +1122,11 @@ let vb_step vb run = match run with
           | O -> run
           | S _ -> if Nat.eqb vb run then O else vb)
 
-(** val row_cells :
-    string -> nat -> nat -> bool -> string -> string list -> string list
-    option **)
+(** val row_cells_trace :
+    string -> nat -> nat -> bool -> string -> ((string * nat) * nat) list ->
+    nat -> nat -> ((string * nat) * nat) list option **)
 
-let rec row_cells s vb run bs cur acc =
+let rec row_cells_trace s vb run bs cur acc pos start =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -1135,15 +1136,17 @@ let rec row_cells s vb run bs cur acc =
     if bs
     then None
     else (match vb_step vb run with
-          | O -> Some (rev ((cell_trim (rev_string cur)) :: acc))
+          | O ->
+            Some
+              (rev ((((cell_trim (rev_string cur)), start), (S pos)) :: acc))
           | S _ -> None))
     (fun c s' ->
     if (=) c '`'
-    then row_cells s' vb (S run) false
+    then row_cells_trace s' vb (S run) false
            ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, cur)) acc
+           (c, cur)) acc (S pos) start
     else let vb' = vb_step vb run in
          if (&&) (Nat.eqb vb' O) ((=) c '\\')
          then ((* If this appears, you're using String internals. Please don't *)
@@ -1153,7 +1156,7 @@ let rec row_cells s vb run bs cur acc =
 
                  (fun _ -> None)
                  (fun c' s'' ->
-                 row_cells s'' O O ((=) c' '\\')
+                 row_cells_trace s'' O O ((=) c' '\\')
                    ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -1161,17 +1164,26 @@ let rec row_cells s vb run bs cur acc =
                    ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-                   (c, cur)))) acc)
+                   (c, cur)))) acc (S (S pos)) start)
                  s')
          else if (&&) ((&&) ((=) c '|') (Nat.eqb vb' O)) (negb bs)
-              then row_cells s' O O false ""
-                     ((cell_trim (rev_string cur)) :: acc)
-              else row_cells s' vb' O ((=) c '\\')
+              then row_cells_trace s' O O false ""
+                     ((((cell_trim (rev_string cur)), start), (S
+                     pos)) :: acc) (S pos) pos
+              else row_cells_trace s' vb' O ((=) c '\\')
                      ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-                     (c, cur)) acc)
+                     (c, cur)) acc (S pos) start)
     s
+
+(** val row_cells :
+    string -> nat -> nat -> bool -> string -> string list -> string list
+    option **)
+
+let row_cells s vb run bs cur acc =
+  option_map (map (fun x -> let (y, _) = x in let (c, _) = y in c))
+    (row_cells_trace s vb run bs cur (map (fun c -> ((c, O), O)) acc) (S O) O)
 
 (** val row_body : string -> string option **)
 

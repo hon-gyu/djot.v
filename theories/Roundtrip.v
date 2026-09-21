@@ -566,19 +566,19 @@ Qed.
    later rows do not move it. *)
 Lemma parse_ctrow_cont :
   forall r range acc rest, ctrow_ok r = true -> touch_extent range = range ->
-  parse_lines (ctrow_lines r ++ rest) (PTable range acc TOpen)
-  = parse_lines rest (PTable range (rev (ctrow_trows r) ++ acc) TOpen).
+  parse_lines (ctrow_lines r ++ rest) (PTable range acc (TOpen []))
+  = parse_lines rest (PTable range (rev (ctrow_trows r) ++ acc) (TOpen [])).
 Proof.
   intros r range acc rest H Ht.
   pose proof (ctrow_ok_parts _ H) as (_ & _ & _ & Hcl).
   destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
     cbn [ctrow_lines ctrow_trows rev app].
-  - rewrite (parse_lines_table_row _ _ _ _ _ (caption_open_cells_line _)
+  - rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_cells_line _)
                (is_blank_cells_line _) Hcl), Ht. reflexivity.
   - apply ctrow_ok_head in H as [_ Hsep].
-    rewrite (parse_lines_table_row _ _ _ _ _ (caption_open_cells_line _)
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_cells_line _)
                (is_blank_cells_line _) Hcl), Ht.
-    rewrite (parse_lines_table_row _ _ _ _ _ (caption_open_sep_line _)
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_sep_line _)
                (is_blank_sep_line _) Hsep), Ht.
     reflexivity.
 Qed.
@@ -587,7 +587,7 @@ Lemma parse_ctrow_open :
   forall r rest, btables = true -> ctrow_ok r = true ->
   exists range, touch_extent range = range /\
   parse_lines (ctrow_lines r ++ rest) (PPara [])
-  = parse_lines rest (PTable range (rev (ctrow_trows r)) TOpen).
+  = parse_lines rest (PTable range (rev (ctrow_trows r)) (TOpen [])).
 Proof.
   intros r rest Htables H.
   pose proof (ctrow_ok_parts _ H) as (_ & _ & _ & Hcl).
@@ -597,7 +597,7 @@ Proof.
     eexists; split; [|reflexivity]; reflexivity.
   - apply ctrow_ok_head in H as [_ Hsep].
     rewrite (parse_lines_row_open _ _ _ Htables Hcl).
-    rewrite (parse_lines_table_row _ _ _ _ _ (caption_open_sep_line _)
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_sep_line _)
                (is_blank_sep_line _) Hsep).
     eexists; split; [|reflexivity]; reflexivity.
 Qed.
@@ -605,9 +605,9 @@ Qed.
 Lemma parse_ctrows :
   forall rows range acc rest, forallb ctrow_ok rows = true ->
   touch_extent range = range ->
-  parse_lines (flat_map ctrow_lines rows ++ rest) (PTable range acc TOpen)
+  parse_lines (flat_map ctrow_lines rows ++ rest) (PTable range acc (TOpen []))
   = parse_lines rest
-      (PTable range (rev (flat_map ctrow_trows rows) ++ acc) TOpen).
+      (PTable range (rev (flat_map ctrow_trows rows) ++ acc) (TOpen [])).
 Proof.
   induction rows as [|r rows IH]; intros range acc rest H Ht; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hr Hrows].
@@ -623,7 +623,7 @@ Lemma parse_ctable :
   nonempty rows = true -> forallb ctrow_ok rows = true ->
   exists range,
   parse_lines (flat_map ctrow_lines rows ++ rest) (PPara [])
-  = parse_lines rest (PTable range (rev (flat_map ctrow_trows rows)) TOpen).
+  = parse_lines rest (PTable range (rev (flat_map ctrow_trows rows)) (TOpen [])).
 Proof.
   intros [|r rows] rest Htables Hne Hok; [discriminate Hne|].
   cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hr Hrows].
@@ -1612,16 +1612,16 @@ Proof.
           destruct (parse_ctable rows rest Htables Hne Hrows) as [range Hpc]
       end.
       rewrite Hpc.
-      rewrite (parse_lines_table_blank EmptyString _ _ _ (eq_refl true)).
+      rewrite (parse_lines_table_blank EmptyString _ _ _ _ (eq_refl true)).
       cbn [app].
-      rewrite (parse_lines_table_close _ _ _ _ Hcap Hblank).
-      rewrite (table_block_ctable rows TAfterBlank Hrows (eq_refl None)).
+      rewrite (parse_lines_table_close _ _ _ _ _ Hcap Hblank).
+      rewrite (table_block_ctable rows (TAfterBlank []) Hrows (eq_refl None)).
       reflexivity.
     + intros H. destruct (Hparts H) as [Htables [Hne Hrows]].
       rewrite cb_lines_table, <- (app_nil_r (flat_map ctrow_lines rows)).
       destruct (parse_ctable rows [] Htables Hne Hrows) as [range Hpc].
       rewrite Hpc, parse_lines_table_eof.
-      rewrite (table_block_ctable rows TOpen Hrows (eq_refl None)). reflexivity.
+      rewrite (table_block_ctable rows (TOpen []) Hrows (eq_refl None)). reflexivity.
   - (* explicit id: the spec is complete on its own line, so it resolves
        against the wrapped block's first line and rides on whatever that
        block emits (`Parser.attr_uniformity`).  Nothing else about the

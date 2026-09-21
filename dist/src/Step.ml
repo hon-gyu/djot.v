@@ -337,22 +337,68 @@ let rec table_fold t rows aligns acc =
        table_fold t rest aligns ((cells_of t BodyCell aligns cs) :: acc))
 
 type tcap =
-| TOpen
-| TAfterBlank
-| TCaption of stored_line list
+| TOpen of (span * span list) list
+| TAfterBlank of (span * span list) list
+| TCaption of (span * span list) list * spot * stored_line list
 
 (** val caption_of : dtable -> tcap -> inlines option **)
 
 let caption_of t = function
-| TCaption ls ->
+| TCaption (_, _, ls) ->
   let ils = para_inlines t (line_texts (rev ls)) in
   if nonempty ils then Some ils else None
 | _ -> None
+
+(** val cap_row_parts : tcap -> (span * span list) list **)
+
+let cap_row_parts = function
+| TOpen rs -> rs
+| TAfterBlank rs -> rs
+| TCaption (rs, _, _) -> rs
+
+(** val table_parts : dtable -> tcap -> parts **)
+
+let table_parts t c =
+  let caption =
+    match c with
+    | TOpen _ -> None
+    | TAfterBlank _ -> None
+    | TCaption (row_parts, start, ls) ->
+      (match caption_of t (TCaption (row_parts, start, ls)) with
+       | Some _ ->
+         Some { span_start = start; span_stop =
+           (stored_stop (hd (O, "") ls)) }
+       | None -> None)
+  in
+  PTable (caption, (rev (cap_row_parts c)))
 
 (** val table_block : dtable -> trow list -> tcap -> block node **)
 
 let table_block t rows c =
   mk (Table ((caption_of t c), (table_fold t rows [] [])))
+
+(** val table_row_part :
+    coq_LineIx -> string -> trow -> (span * span list) option **)
+
+let table_row_part lI l = function
+| TSep _ -> None
+| TCells _ ->
+  (match row_body l with
+   | Some body ->
+     (match row_cells_trace (row_inner body) O O false "" [] (S O) O with
+      | Some cells ->
+        let width = length (drop_leading_ws l) in
+        let cell_span = fun x ->
+          let (y, b) = x in
+          let (_, a) = y in
+          { span_start = { spot_line = lI; spot_rem = (sub width a) };
+          span_stop = { spot_line = lI; spot_rem = (sub width b) } }
+        in
+        Some ({ span_start = { spot_line = lI; spot_rem = width };
+        span_stop = { spot_line = lI; spot_rem =
+        (sub width (S (length body))) } }, (map cell_span cells))
+      | None -> None)
+   | None -> None)
 
 type list_state = { ls_indent : nat; ls_extent : extent;
                     ls_item_extent : extent; ls_item_extents : extent list;
@@ -596,7 +642,8 @@ let rec finish t k p = function
   (set_pos p (prov_at (extent_span range))
     (foot_block lbl (app (rev done0) (finish t k p inner)))) :: []
 | PTable (range, rows, cap) ->
-  (set_pos p (prov_at (extent_span range)) (table_block t (rev rows) cap)) :: []
+  (set_pos p { node_span = (extent_span range); syntax_spans = [];
+    part_spans = (table_parts t cap) } (table_block t (rev rows) cap)) :: []
 | PPend (pend, specs, inner) ->
   add_roles_head p (attr_roles specs)
     (decorate_head pend (finish t k p inner))
@@ -706,7 +753,12 @@ let open_kind t lI p h l = function
     (push_text lI rest []))))
 | KRow r ->
   if h.btables
-  then ([], (PTable ((open_extent lI l (indent_of l)), (r :: []), TOpen)))
+  then ([], (PTable ((open_extent lI l (indent_of l)), (r :: []), (TOpen
+         (if p.pos_records
+          then (match table_row_part lI l r with
+                | Some p0 -> p0 :: []
+                | None -> [])
+          else [])))))
   else ([], (PPara ((remember_line lI (drop_leading_ws l)) :: [])))
 | KText -> open_text t lI h (drop_leading_ws l)
 | _ -> ([], (PPara []))
@@ -1118,37 +1170,49 @@ let rec step_fuel t k lI p n off l st =
                  st')
      | PTable (range, rows, cap) ->
        (match cap with
-        | TCaption ls ->
+        | TCaption (parts0, start, ls) ->
           if is_blank l
-          then (((set_pos p (prov_at (extent_span range))
+          then (((set_pos p { node_span = (extent_span range); syntax_spans =
+                   []; part_spans = (table_parts t cap) }
                    (table_block t (rev rows) cap)) :: []),
                  (PPara []))
           else ([], (PTable ((touch_extent lI range), rows, (TCaption
-                 ((remember_line lI (drop_leading_ws l)) :: ls)))))
+                 (parts0, start,
+                 ((remember_line lI (drop_leading_ws l)) :: ls))))))
         | _ ->
           (match caption_open l with
            | Some rest ->
              ([], (PTable ((touch_extent lI range), rows, (TCaption
-               (push_text lI rest [])))))
+               ((cap_row_parts cap), (spot_at lI l (indent_of l)),
+               (push_text lI rest []))))))
            | None ->
              if is_blank l
-             then ([], (PTable (range, rows, TAfterBlank)))
+             then ([], (PTable (range, rows, (TAfterBlank
+                    (cap_row_parts cap)))))
              else (match classify l with
                    | KRow r ->
                      (match cap with
-                      | TOpen ->
+                      | TOpen parts0 ->
                         ([], (PTable ((touch_extent lI range), (r :: rows),
-                          TOpen)))
+                          (TOpen
+                          (if p.pos_records
+                           then (match table_row_part lI l r with
+                                 | Some p0 -> p0 :: parts0
+                                 | None -> parts0)
+                           else parts0)))))
                       | _ ->
                         let (bs, st') = step_fuel t k lI p n' off l (PPara [])
                         in
-                        (((set_pos p (prov_at (extent_span range))
+                        (((set_pos p { node_span = (extent_span range);
+                            syntax_spans = []; part_spans =
+                            (table_parts t cap) }
                             (table_block t (rev rows) cap)) :: bs),
                         st'))
                    | _ ->
                      let (bs, st') = step_fuel t k lI p n' off l (PPara []) in
-                     (((set_pos p (prov_at (extent_span range))
-                         (table_block t (rev rows) cap)) :: bs),
+                     (((set_pos p { node_span = (extent_span range);
+                         syntax_spans = []; part_spans =
+                         (table_parts t cap) } (table_block t (rev rows) cap)) :: bs),
                      st'))))
      | PPend (pend, specs, inner) ->
        (match classify l with

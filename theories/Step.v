@@ -563,14 +563,15 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
    blank arms the enclosing list exactly as it does today, which is what
    djot.js's own `blankline` event does. *)
 Inductive tcap : Type :=
-  | TOpen
-  | TAfterBlank
-  | TCaption (lines : list stored_line).
+  | TOpen (row_parts : list (span * list span))
+  | TAfterBlank (row_parts : list (span * list span))
+  | TCaption (row_parts : list (span * list span))
+      (caption_start : spot) (lines : list stored_line).
 
 (* The caption's lines, for the state invariant: they are a paragraph
    accumulator and carry its condition. *)
 Definition cap_lines (c : tcap) : list stored_line :=
-  match c with TCaption ls => ls | _ => [] end.
+  match c with TCaption _ _ ls => ls | _ => [] end.
 
 (* An empty caption is no caption: `^ ` with nothing after it opens one
    with no content, and djot.js renders that as no caption at all, so
@@ -581,16 +582,59 @@ Definition cap_lines (c : tcap) : list stored_line :=
    caption is built. *)
 Definition caption_of (c : tcap) : option inlines :=
   match c with
-  | TOpen | TAfterBlank => None
-  | TCaption ls =>
+  | TOpen _ | TAfterBlank _ => None
+  | TCaption _ _ ls =>
       let ils := para_inlines (line_texts (rev ls)) in
       if nonempty ils then Some ils else None
   end.
+
+Definition cap_row_parts (c : tcap) : list (span * list span) :=
+  match c with
+  | TOpen rs | TAfterBlank rs | TCaption rs _ _ => rs
+  end.
+
+Definition table_parts (c : tcap) : parts :=
+  let caption :=
+    match c, caption_of c with
+    | TCaption _ start ls, Some _ =>
+        Some (SrcSpan start (stored_stop (hd (0, EmptyString) ls)))
+    | _, _ => None
+    end in
+  Ast.PTable caption (rev (cap_row_parts c)).
 
 (* A table of separators alone has no rows at all, which is a table djot
    renders as `<table>\n</table>` (`tables.test:97`). *)
 Definition table_block (rows : list trow) (c : tcap) : node block :=
   mk (Table (caption_of c) (table_fold rows [] [])).
+
+(* One row's authored parts.  The row classifier and this projection
+   share [row_cells_trace]; the trace's coordinates are relative to its
+   opening bar, which is end-anchored here after container prefixes have
+   been removed.  Separator lines make alignment, not AST rows. *)
+Definition table_row_part (l : string) (r : trow)
+  : option (span * list span) :=
+  match r, row_body l with
+  | TCells _, Some body =>
+      match row_cells_trace (row_inner body) O O false EmptyString [] 1 0 with
+      | Some cells =>
+          let width := String.length (drop_leading_ws l) in
+          let cell_span := fun x =>
+            let '(_, a, b) := x in
+            SrcSpan (Spot lix (width - a)) (Spot lix (width - b)) in
+          Some (SrcSpan (Spot lix width)
+                        (Spot lix (width - S (String.length body))),
+                map cell_span cells)
+      | None => None
+      end
+  | _, _ => None
+  end.
+
+Lemma table_row_part_ws_prefix : forall p l r,
+  is_blank p = true -> table_row_part (p ++ l) r = table_row_part l r.
+Proof.
+  intros p l r Hp. unfold table_row_part, row_body.
+  rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
+Qed.
 
 (*
 The line fold
@@ -754,8 +798,9 @@ Inductive pstate : Type :=
    reaches on the same input. *)
 Definition erase_cap (c : tcap) : tcap :=
   match c with
-  | TCaption lines => TCaption (erase_lines lines)
-  | c => c
+  | TOpen _ => TOpen []
+  | TAfterBlank _ => TAfterBlank []
+  | TCaption _ start lines => TCaption [] (erase_spot start) (erase_lines lines)
   end.
 
 (* A paragraph's inlines, erased, are the ones the ambient instance
@@ -772,7 +817,7 @@ Qed.
 
 Lemma erase_caption_of : forall c, caption_of (erase_cap c) = caption_of c.
 Proof.
-  intros [| |lines]; cbn [erase_cap caption_of]; try reflexivity.
+  intros [rs|rs|rs start lines]; cbn [erase_cap caption_of]; try reflexivity.
   rewrite erase_line_texts_rev. reflexivity.
 Qed.
 
@@ -1120,7 +1165,8 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (fence_block f (line_texts (rev acc)))]
   | PTable range rows cap =>
-      [set_pos (prov_at (extent_span range)) (table_block (rev rows) cap)]
+      [set_pos (Provenance (extent_span range) [] (table_parts cap))
+         (table_block (rev rows) cap)]
   | PQuote range done inner =>
       [set_pos (prov_at (extent_span range))
          (mk (BlockQuote (rev done ++ finish inner)%list))]
@@ -1378,7 +1424,12 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
      that disables tables keeps the complete row spelling as paragraph text. *)
   | KRow r =>
       if btables
-      then ([], PTable (open_extent l (indent_of l)) [r] TOpen)
+      then ([], PTable (open_extent l (indent_of l)) [r]
+                  (TOpen (if pos_records then
+                            match table_row_part l r with
+                            | Some p => [p]
+                            | None => []
+                            end else [])))
       else ([], PPara [remember_line (drop_leading_ws l)])
   end.
 
@@ -2037,35 +2088,42 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              fails to scan (an unclosed verbatim) is a `KText` line by
              then, so it arrives already carrying djot.js's answer. *)
           match cap with
-          | TCaption ls =>
+          | TCaption parts start ls =>
               (* The caption owns every nonblank line, row lines
                  included, and a blank ends it. *)
               if is_blank l
-              then ((set_pos (prov_at (extent_span range))
+              then ((set_pos (Provenance (extent_span range) [] (table_parts cap))
                        (table_block (rev rows) cap) :: nil)%list, PPara [])
               else ([], PTable (touch_extent range) rows
-                          (TCaption (remember_line (drop_leading_ws l) :: ls)))
+                          (TCaption parts start
+                            (remember_line (drop_leading_ws l) :: ls)))
           | _ =>
               match caption_open l with
               | Some rest =>
                   ([], PTable (touch_extent range) rows
-                          (TCaption (push_text rest [])))
+                          (TCaption (cap_row_parts cap)
+                            (spot_at l (indent_of l)) (push_text rest [])))
               | None =>
                   if is_blank l
                   then
                     (* The rows are over, but the table is not: a caption
                        may still follow, across any number of blanks. *)
-                    ([], PTable range rows TAfterBlank)
+                    ([], PTable range rows (TAfterBlank (cap_row_parts cap)))
                   else
                     match classify l, cap with
                     (* A blank between two rows starts a second table,
                        which is why `TAfterBlank` is a state and not a
                        flag on the blank itself. *)
-                    | KRow r, TOpen =>
-                        ([], PTable (touch_extent range) (r :: rows) TOpen)
+                    | KRow r, TOpen parts =>
+                        ([], PTable (touch_extent range) (r :: rows)
+                          (TOpen (if pos_records then
+                                   match table_row_part l r with
+                                   | Some p => p :: parts
+                                   | None => parts
+                                   end else parts)))
                     | _, _ =>
                         let (bs, st') := step_fuel n' off l (PPara []) in
-                        ((set_pos (prov_at (extent_span range))
+                        ((set_pos (Provenance (extent_span range) [] (table_parts cap))
                             (table_block (rev rows) cap) :: bs)%list, st')
                     end
               end
@@ -3599,7 +3657,11 @@ for the reprocessed line is exactly `step`'s own.
 
 Lemma step_row_open :
   forall l r, btables = true -> classify l = KRow r ->
-    step l (PPara []) = ([], PTable (open_extent l (indent_of l)) [r] TOpen).
+    step l (PPara []) =
+      ([], PTable (open_extent l (indent_of l)) [r]
+             (TOpen (if pos_records then
+                       match table_row_part l r with
+                       | Some p => [p] | None => [] end else []))).
 Proof.
   intros l r Htables H.
   rewrite (step_idle l (KRow r) H eq_refl).
@@ -3617,32 +3679,39 @@ Proof.
 Qed.
 
 Lemma step_table_row :
-  forall l range rows r,
+  forall l range rows parts r,
     caption_open l = None -> is_blank l = false -> classify l = KRow r ->
-    step l (PTable range rows TOpen)
-    = ([], PTable (touch_extent range) (r :: rows) TOpen).
+    step l (PTable range rows (TOpen parts))
+    = ([], PTable (touch_extent range) (r :: rows)
+            (TOpen (if pos_records then
+                     match table_row_part l r with
+                     | Some p => p :: parts | None => parts end
+                   else parts))).
 Proof.
-  intros l range rows r Hc Hb H. unfold step. cbn [step_fuel open_line].
+  intros l range rows parts r Hc Hb H. unfold step. cbn [step_fuel open_line].
   rewrite Hc, Hb, H. reflexivity.
 Qed.
 
 Lemma step_table_blank :
-  forall l range rows, is_blank l = true ->
-  step l (PTable range rows TOpen) = ([], PTable range rows TAfterBlank).
+  forall l range rows parts, is_blank l = true ->
+  step l (PTable range rows (TOpen parts)) =
+    ([], PTable range rows (TAfterBlank parts)).
 Proof.
-  intros l range rows H. unfold step. cbn [step_fuel open_line].
+  intros l range rows parts H. unfold step. cbn [step_fuel open_line].
   rewrite (caption_open_blank l H), H. reflexivity.
 Qed.
 
 Lemma step_table_close :
-  forall l range rows bs st',
+  forall l range rows parts bs st',
     caption_open l = None -> is_blank l = false ->
     step l (PPara []) = (bs, st') ->
-    step l (PTable range rows TAfterBlank)
-    = (set_pos (prov_at (extent_span range)) (table_block (rev rows) TAfterBlank)
+    step l (PTable range rows (TAfterBlank parts))
+    = (set_pos (Provenance (extent_span range) []
+                  (table_parts (TAfterBlank parts)))
+         (table_block (rev rows) (TAfterBlank parts))
        :: bs, st')%list.
 Proof.
-  intros l range rows bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel open_line pstate_depth].
+  intros l range rows parts bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite Hc, Hb.
   replace (String.length l + 1) with (S (String.length l + 0)) by lia.
   change (step_fuel (S (String.length l + 0)) 0 l (PPara []))
@@ -3896,6 +3965,17 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma spot_at_ws_prefix :
+  forall p l, is_blank p = true ->
+    spot_at (p ++ l) (indent_of (p ++ l)) = spot_at l (indent_of l).
+Proof.
+  intros p l Hp. unfold spot_at.
+  rewrite (indent_of_ws_prefix p l Hp), length_append.
+  replace (String.length p + String.length l - (String.length p + indent_of l))
+    with (String.length l - indent_of l) by lia.
+  reflexivity.
+Qed.
+
 Lemma open_quote_ws_prefix :
   forall p l d, is_blank p = true -> open_quote (p ++ l) d = open_quote l d.
 Proof.
@@ -3948,7 +4028,8 @@ Qed.
 Ltac ws_openers p l Hp :=
   rewrite ?(open_quote_ws_prefix p l _ Hp), ?(open_list_ws_prefix p l _ _ _ _ Hp),
     ?(open_fence_ws_prefix p l _ _ Hp), ?(open_ref_ws_prefix p l _ _ _ Hp),
-    ?(list_next_ws_prefix p l _ _ _ _ Hp), ?(open_foot_ws_prefix p l _ _ _ Hp).
+    ?(list_next_ws_prefix p l _ _ _ _ Hp), ?(open_foot_ws_prefix p l _ _ _ Hp),
+    ?(table_row_part_ws_prefix p l _ Hp).
 
 Lemma step_fuel_pad :
   forall n p off l st,
@@ -3994,7 +4075,7 @@ Proof.
         reflexivity. }
       { unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
           (Nat.add_comm off (String.length p)). reflexivity. }
-      { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
+      { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp), (table_row_part_ws_prefix p l krow Hp).
         reflexivity. }
       { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
         reflexivity. } }
@@ -4043,7 +4124,7 @@ Proof.
       reflexivity. }
     { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
-    { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
+    { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp), (table_row_part_ws_prefix p l krow Hp).
         reflexivity. }
     { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
       reflexivity. } }
@@ -4090,7 +4171,7 @@ Proof.
     { cbn [close_reopen]; unfold open_ref. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
         Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { cbn [is_lazy close_reopen open_kind].
-      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
+      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp), (table_row_part_ws_prefix p l krow Hp). reflexivity. }
     { cbn [is_lazy]. destruct (lazy_ok inner);
         [rewrite (feed_lazy_ws_prefix p l _ Hp)|
          cbn [close_reopen open_kind];
@@ -4141,7 +4222,7 @@ Proof.
               Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
     { reflexivity. }
     { cbn [is_lazy close_reopen open_kind].
-      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp). reflexivity. }
+      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp), (table_row_part_ws_prefix p l krow Hp). reflexivity. }
     { cbn [is_lazy]. destruct (lazy_ok inner);
         [rewrite (feed_lazy_ws_prefix p l _ Hp)|
          cbn [close_reopen open_kind];
@@ -4189,12 +4270,12 @@ Proof.
   { cbn [step_fuel open_line]. rewrite (caption_open_ws_prefix p l Hp),
       (is_blank_ws_prefix p l Hp), (classify_ws_prefix p l Hp),
       (drop_leading_ws_ws_prefix p l Hp).
-    destruct tcap as [| |ls].
-    { destruct (caption_open l); [reflexivity|].
+    destruct tcap as [parts|parts|parts start ls].
+    { destruct (caption_open l); [rewrite (spot_at_ws_prefix p l Hp); reflexivity|].
       destruct (is_blank l); [reflexivity|].
       destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp; try reflexivity;
         rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
-    { destruct (caption_open l); [reflexivity|].
+    { destruct (caption_open l); [rewrite (spot_at_ws_prefix p l Hp); reflexivity|].
       destruct (is_blank l); [reflexivity|].
       destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
         rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }

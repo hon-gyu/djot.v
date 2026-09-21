@@ -214,7 +214,7 @@ Table equations
 Lemma parse_lines_row_open :
   forall l rest r, btables = true -> classify l = KRow r ->
   parse_lines (l :: rest) (PPara [])
-  = parse_lines rest (PTable (open_extent l (indent_of l)) [r] TOpen).
+  = parse_lines rest (PTable (open_extent l (indent_of l)) [r] (TOpen [])).
 Proof.
   intros l rest r Htables H.
   rewrite (parse_lines_step _ _ _ _ _ (step_row_open _ _ Htables H)).
@@ -222,34 +222,37 @@ Proof.
 Qed.
 
 Lemma parse_lines_table_row :
-  forall l rest range rows r,
+  forall l rest range rows parts r,
     caption_open l = None -> is_blank l = false -> classify l = KRow r ->
-    parse_lines (l :: rest) (PTable range rows TOpen)
-    = parse_lines rest (PTable (touch_extent range) (r :: rows) TOpen).
+    parse_lines (l :: rest) (PTable range rows (TOpen parts))
+    = parse_lines rest (PTable (touch_extent range) (r :: rows) (TOpen parts)).
 Proof.
-  intros l rest range rows r Hc Hb H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_table_row _ _ _ _ Hc Hb H)). reflexivity.
+  intros l rest range rows parts r Hc Hb H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_row _ _ _ _ _ Hc Hb H)).
+  reflexivity.
 Qed.
 
 Lemma parse_lines_table_blank :
-  forall l rest range rows, is_blank l = true ->
-  parse_lines (l :: rest) (PTable range rows TOpen)
-  = parse_lines rest (PTable range rows TAfterBlank).
+  forall l rest range rows parts, is_blank l = true ->
+  parse_lines (l :: rest) (PTable range rows (TOpen parts))
+  = parse_lines rest (PTable range rows (TAfterBlank parts)).
 Proof.
-  intros l rest range rows H.
-  rewrite (parse_lines_step _ _ _ _ _ (step_table_blank _ _ _ H)). reflexivity.
+  intros l rest range rows parts H.
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_blank _ _ _ _ H)).
+  reflexivity.
 Qed.
 
 (* The line is reprocessed at the enclosing level, so the whole rule is
    "emit the table and read this line again from idle". *)
 Lemma parse_lines_table_close :
-  forall l rest range rows, caption_open l = None -> is_blank l = false ->
-  parse_lines (l :: rest) (PTable range rows TAfterBlank)
-  = table_block (rev rows) TAfterBlank :: parse_lines (l :: rest) (PPara []).
+  forall l rest range rows parts, caption_open l = None -> is_blank l = false ->
+  parse_lines (l :: rest) (PTable range rows (TAfterBlank parts))
+  = table_block (rev rows) (TAfterBlank parts)
+      :: parse_lines (l :: rest) (PPara []).
 Proof.
-  intros l rest range rows Hc Hb.
+  intros l rest range rows parts Hc Hb.
   destruct (step l (PPara [])) as [bs st'] eqn:Hs.
-  rewrite (parse_lines_step _ _ _ _ _ (step_table_close _ _ _ _ _ Hc Hb Hs)).
+  rewrite (parse_lines_step _ _ _ _ _ (step_table_close _ _ _ _ _ _ Hc Hb Hs)).
   rewrite (parse_lines_step _ _ _ _ _ Hs). reflexivity.
 Qed.
 

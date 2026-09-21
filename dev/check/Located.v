@@ -16,7 +16,7 @@ against the source text alone (plan F1, section 9).
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Strings Inline Step Parser Config
+From DjotV Require Import Ast Strings Line Inline Step Parser Config
   Render Document Html Generate.
 Import ListNotations.
 Open Scope string_scope.
@@ -268,6 +268,56 @@ Example p_def_parts :
                 (String "010"%char
                    ("  def" ++ String "010"%char EmptyString))) =
   [[((0, 13), (2, 6), (10, 13))]].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The source row and its cells.  djot.js --trim gives row [0,9),
+   first cell [0,5), second cell [4,9); the shared bar belongs to both. *)
+Definition row_part_ranges (s : string) : option ((nat * nat) * list (nat * nat)) :=
+  match @table_row_part (LineIxAt 0) s (TCells ["a"; "b"]) with
+  | Some (row, cells) =>
+      let lines := line_table s in
+      Some (range_of lines row, map (range_of lines) cells)
+  | None => None
+  end.
+
+Example p_table_row_cells : row_part_ranges "| a | b |" =
+  Some ((0, 9), [(0, 5); (4, 9)]).
+Proof. vm_compute. reflexivity. Qed.
+
+Definition table_sample : string :=
+  "| a | b |" ++ String "010"%char
+  ("|---|---|" ++ String "010"%char
+  ("| x | y |" ++ String "010"%char
+  (String "010"%char ("^ cap" ++ String "010"%char EmptyString)))).
+
+Definition table_ranges (s : string)
+  : option ((nat * nat) * option (nat * nat) *
+            list ((nat * nat) * list (nat * nat))) :=
+  match Located s with
+  | [n] =>
+      match node_provenance n with
+      | Some p =>
+          match part_spans p with
+          | Ast.PTable caption rows =>
+              let lines := line_table s in
+              Some (range_of lines (node_span p),
+                    option_map (range_of lines) caption,
+                    map (fun row =>
+                           (range_of lines (fst row),
+                            map (range_of lines) (snd row))) rows)
+          | _ => None
+          end
+      | None => None
+      end
+  | _ => None
+  end.
+
+(* djot.js has row [0,9), [20,29) and the same four cell ranges.
+   Its caption excludes the opener; ours includes the authored ^. *)
+Example p_table_parts : table_ranges table_sample =
+  Some ((0, 36), Some (31, 36),
+        [((0, 9), [(0, 5); (4, 9)]);
+         ((20, 29), [(20, 25); (24, 29)])]).
 Proof. vm_compute. reflexivity. Qed.
 
 (*
