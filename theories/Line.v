@@ -1197,10 +1197,17 @@ Definition vb_step (vb run : nat) : nat :=
    bar.  The semantic row and its source parts project the same scan;
    there is only one set of escape and verbatim decisions.  The final
    bar was removed by [row_inner], so the last stop is one past [pos]. *)
+Definition row_cell_entry (cur : string) (start stop : nat)
+  : string * nat * nat * nat :=
+  let raw := rev_string cur in
+  let content := drop_leading_ws raw in
+  (cell_trim raw, start, stop,
+   S start + String.length raw - String.length content).
+
 Fixpoint row_cells_trace
   (s : string) (vb run : nat) (bs : bool) (cur : string)
-  (acc : list (string * nat * nat)) (pos start : nat)
-  : option (list (string * nat * nat)) :=
+  (acc : list (string * nat * nat * nat)) (pos start : nat)
+  : option (list (string * nat * nat * nat)) :=
   match s with
   | EmptyString =>
       (* The interior ends where the line's last bar is, so the cell open
@@ -1208,7 +1215,7 @@ Fixpoint row_cells_trace
          verbatim span swallowed it. *)
       if bs then None
       else match vb_step vb run with
-           | O => Some (rev ((cell_trim (rev_string cur), start, S pos) :: acc))
+           | O => Some (rev (row_cell_entry cur start (S pos) :: acc))
            | _ => None
            end
   | String c s' =>
@@ -1228,7 +1235,7 @@ Fixpoint row_cells_trace
              end
         else if (Ascii.eqb c "|" && Nat.eqb vb' O && negb bs)%bool
         then row_cells_trace s' O O false EmptyString
-               ((cell_trim (rev_string cur), start, S pos) :: acc)
+               (row_cell_entry cur start (S pos) :: acc)
                (S pos) pos
         else row_cells_trace s' vb' O (Ascii.eqb c "\") (String c cur)
                acc (S pos) start
@@ -1236,9 +1243,9 @@ Fixpoint row_cells_trace
 
 Definition row_cells (s : string) (vb run : nat) (bs : bool)
   (cur : string) (acc : list string) : option (list string) :=
-  option_map (map (fun x => let '(c, _, _) := x in c))
+  option_map (map (fun x => let '(c, _, _, _) := x in c))
     (row_cells_trace s vb run bs cur
-       (map (fun c => (c, 0, 0)) acc) 1 0).
+       (map (fun c => (c, 0, 0, 0)) acc) 1 0).
 
 (* The line after its opening bar, trailing whitespace removed, provided
    it still ends in a bar: `None` unless the line is `|`, a body, `|`,

@@ -2449,7 +2449,7 @@ Lemma caption_of_wf :
     end = true.
 Proof.
   intros [rs|rs|rs start ls]; try reflexivity.
-  cbn [caption_of].
+  cbn [caption_of]. sem_para.
   destruct (nonempty (para_inlines (line_texts (rev ls)))) eqn:E;
     [|reflexivity].
   rewrite E, para_inlines_wf. reflexivity.
@@ -2459,6 +2459,7 @@ Lemma table_block_wf :
   forall rows c, wf_blocks [table_block rows c] = true.
 Proof.
   intros rows c. unfold table_block.
+  cbn [pos_records semantic_pos].
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
   rewrite table_fold_wf by reflexivity.
   rewrite andb_true_r, andb_true_r.

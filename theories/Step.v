@@ -562,10 +562,16 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
    list tightness: `blank_absorbed` stays `false` for a table, so the
    blank arms the enclosing list exactly as it does today, which is what
    djot.js's own `blankline` event does. *)
+Record cell_part : Type := CellPart
+  { cell_range : span
+  ; cell_text_start : spot }.
+
+Definition row_part : Type := span * list cell_part.
+
 Inductive tcap : Type :=
-  | TOpen (row_parts : list (span * list span))
-  | TAfterBlank (row_parts : list (span * list span))
-  | TCaption (row_parts : list (span * list span))
+  | TOpen (row_parts : list row_part)
+  | TAfterBlank (row_parts : list row_part)
+  | TCaption (row_parts : list row_part)
       (caption_start : spot) (lines : list stored_line).
 
 (* The caption's lines, for the state invariant: they are a paragraph
@@ -584,11 +590,11 @@ Definition caption_of (c : tcap) : option inlines :=
   match c with
   | TOpen _ | TAfterBlank _ => None
   | TCaption _ _ ls =>
-      let ils := para_inlines (line_texts (rev ls)) in
+      let ils := para_inlines_at 0 (rev ls) in
       if nonempty ils then Some ils else None
   end.
 
-Definition cap_row_parts (c : tcap) : list (span * list span) :=
+Definition cap_row_parts (c : tcap) : list row_part :=
   match c with
   | TOpen rs | TAfterBlank rs | TCaption rs _ _ => rs
   end.
@@ -600,30 +606,72 @@ Definition table_parts (c : tcap) : parts :=
         Some (SrcSpan start (stored_stop (hd (0, EmptyString) ls)))
     | _, _ => None
     end in
-  Ast.PTable caption (rev (cap_row_parts c)).
+  Ast.PTable caption
+    (map (fun r => (fst r, map cell_range (snd r)))
+       (rev (cap_row_parts c))).
+
+Fixpoint cells_of_located (ct : cell_type) (aligns : list align)
+  (cs : list string) (parts : list cell_part) : list cell :=
+  match cs with
+  | [] => []
+  | c :: cs' =>
+      let al := match aligns with [] => AlignDefault | a :: _ => a end in
+      let als := match aligns with [] => [] | _ :: als => als end in
+      let ils := match parts with
+                 | [] => parse_inline_line c
+                 | part :: _ =>
+                     parse_inline_line_located
+                       (spot_line (cell_text_start part))
+                       (spot_rem (cell_text_start part)) c
+                 end in
+      let rest := match parts with [] => [] | _ :: ps => ps end in
+      Cell ct al ils :: cells_of_located ct als cs' rest
+  end.
+
+(* Separator lines change alignment but do not consume a row part.
+   [table_fold] still makes every structural decision; this fold only
+   chooses the located scan for the same cell strings. *)
+Fixpoint table_fold_located (rows : list trow) (parts : list row_part)
+  (aligns : list align) (acc : list (list cell)) : list (list cell) :=
+  match rows with
+  | [] => rev acc
+  | TSep als :: rest =>
+      table_fold_located rest parts als
+        (match acc with [] => [] | r :: acc' => head_of als r :: acc' end)
+  | TCells cs :: rest =>
+      let cell_parts := match parts with [] => [] | (_, ps) :: _ => ps end in
+      let rest_parts := match parts with [] => [] | _ :: ps => ps end in
+      table_fold_located rest rest_parts aligns
+        (cells_of_located BodyCell aligns cs cell_parts :: acc)
+  end.
 
 (* A table of separators alone has no rows at all, which is a table djot
    renders as `<table>\n</table>` (`tables.test:97`). *)
 Definition table_block (rows : list trow) (c : tcap) : node block :=
-  mk (Table (caption_of c) (table_fold rows [] [])).
+  mk (Table (caption_of c)
+        (if pos_records
+         then table_fold_located rows (rev (cap_row_parts c)) [] []
+         else table_fold rows [] [])).
 
 (* One row's authored parts.  The row classifier and this projection
    share [row_cells_trace]; the trace's coordinates are relative to its
    opening bar, which is end-anchored here after container prefixes have
    been removed.  Separator lines make alignment, not AST rows. *)
 Definition table_row_part (l : string) (r : trow)
-  : option (span * list span) :=
+  : option row_part :=
   match r, row_body l with
   | TCells _, Some body =>
       match row_cells_trace (row_inner body) O O false EmptyString [] 1 0 with
       | Some cells =>
           let width := String.length (drop_leading_ws l) in
-          let cell_span := fun x =>
-            let '(_, a, b) := x in
-            SrcSpan (Spot lix (width - a)) (Spot lix (width - b)) in
+          let cell_part_of := fun x =>
+            let '(_, a, b, text_start) := x in
+            CellPart (SrcSpan (Spot lix (width - a))
+                              (Spot lix (width - b)))
+                     (Spot lix (width - text_start)) in
           Some (SrcSpan (Spot lix width)
                         (Spot lix (width - S (String.length body))),
-                map cell_span cells)
+                map cell_part_of cells)
       | None => None
       end
   | _, _ => None
@@ -815,15 +863,45 @@ Proof.
   unfold line_texts in *. rewrite erase_line_texts. reflexivity.
 Qed.
 
-Lemma erase_caption_of : forall c, caption_of (erase_cap c) = caption_of c.
+Lemma erase_inlines_nonempty : forall (xs : inlines),
+  nonempty (erase_inlines xs) = nonempty xs.
+Proof. intros [|x xs]; reflexivity. Qed.
+
+Lemma erase_cells_of_located : forall ct aligns cs parts,
+  erase_row (cells_of_located ct aligns cs parts) = cells_of ct aligns cs.
 Proof.
-  intros [rs|rs|rs start lines]; cbn [erase_cap caption_of]; try reflexivity.
-  rewrite erase_line_texts_rev. reflexivity.
+  intros ct aligns cs. revert aligns.
+  induction cs as [|c cs IH]; intros aligns parts; [reflexivity|].
+  destruct aligns as [|al als], parts as [|part parts];
+    cbn [cells_of_located cells_of erase_row map erase_cell];
+    rewrite ?erase_parse_inline_line_located,
+            ?erase_parse_inline_line, IH; reflexivity.
 Qed.
 
-Lemma erase_table_block : forall rows c,
-  table_block rows (erase_cap c) = table_block rows c.
-Proof. intros rows c. unfold table_block. rewrite erase_caption_of. reflexivity. Qed.
+Lemma erase_head_of : forall als r,
+  erase_row (head_of als r) = head_of als (erase_row r).
+Proof.
+  intros als r. revert als.
+  induction r as [|[ct al ils] r IH]; intros als; [reflexivity|].
+  destruct als; cbn [head_of erase_row map erase_cell];
+    rewrite IH; reflexivity.
+Qed.
+
+Lemma erase_table_fold_located : forall rows parts aligns acc,
+  map erase_row (table_fold_located rows parts aligns acc) =
+  table_fold rows aligns (map erase_row acc).
+Proof.
+  induction rows as [|r rows IH]; intros parts aligns acc.
+  - cbn [table_fold_located table_fold]. apply map_rev.
+  - destruct r as [als|cs].
+    + cbn [table_fold_located table_fold].
+      destruct acc as [|row acc]; cbn [map].
+      * apply IH.
+      * rewrite <- erase_head_of. apply IH.
+    + destruct parts as [|[range cellparts] parts];
+        cbn [table_fold_located table_fold]; rewrite IH;
+        cbn [map]; rewrite erase_cells_of_located; reflexivity.
+Qed.
 
 Definition erase_list_state (ls : list_state) : list_state :=
   LSt (ls_indent ls) (erase_extent (ls_extent ls))
@@ -4402,6 +4480,33 @@ Proof.
     try destruct braw_blocks; reflexivity.
 Qed.
 
+(* The caption is a paragraph, so it is scanned like one and its
+   erasure is that paragraph's.  Outside the section because the two
+   sides sit at different policies. *)
+Lemma erase_caption_of : forall `{T : dtable} c,
+  option_map erase_inlines (@caption_of T located_pos c) =
+  @caption_of T semantic_pos (erase_cap c).
+Proof.
+  intros T [rs|rs|rs start lines]; cbn [erase_cap caption_of];
+    try reflexivity.
+  rewrite <- erase_lines_rev, <- (@erase_para_inlines_at T),
+    erase_inlines_nonempty.
+  destruct (nonempty (@para_inlines_at T located_pos 0 (rev lines)));
+    reflexivity.
+Qed.
+
+(* Stated over a whole list because both callers have one: the table a
+   caption closes, in front of what the state below it emitted. *)
+Lemma erase_table_block : forall `{T : dtable} rows c rest,
+  erase_blocks (@table_block T located_pos rows c :: rest)%list =
+  (@table_block T semantic_pos rows (erase_cap c) :: erase_blocks rest)%list.
+Proof.
+  intros T rows c rest. unfold table_block.
+  cbn [erase_blocks erase_block located_pos semantic_pos pos_records mk].
+  rewrite (@erase_table_fold_located T located_pos),
+    (@erase_caption_of T c). reflexivity.
+Qed.
+
 (* Closing a located state adds only provenance.  The recursive cases are
    the reason erasure is structural: blocks retained below quotes, lists,
    divs, footnotes and keys must be stripped along with the outer node. *)
@@ -4454,6 +4559,9 @@ Proof.
     reflexivity.
   - cbn [foot_block mk erase_block]. fold erase_blocks.
     rewrite erase_blocks_app, erase_blocks_rev, IHst. reflexivity.
+  - destruct (@table_block T located_pos (rev rows) cap) as [q a b] eqn:Et.
+    pose proof (@erase_table_block T (rev rows) cap []) as Ht.
+    rewrite Et in Ht. cbn [erase_blocks] in Ht |- *. exact Ht.
   - destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
     + cbn in IHst. symmetry in IHst. rewrite IHst. reflexivity.
     + cbn [decorate_head add_roles_head add_roles erase_blocks] in IHst |- *.
@@ -4848,9 +4956,8 @@ Proof.
       [ | |
         destruct (is_blank l);
         [ unfold erase_result; cbn [fst snd erase_state];
-          rewrite erase_blocks_set_pos; unfold table_block;
-          cbn [erase_blocks erase_block mk caption_of];
-          rewrite erase_line_texts_rev; reflexivity
+          rewrite erase_blocks_set_pos, erase_table_block;
+          cbn [erase_cap erase_blocks]; reflexivity
         | unfold erase_result;
           cbn [fst snd erase_state erase_cap erase_lines map];
           reflexivity ] ].
@@ -4865,7 +4972,8 @@ Proof.
          destruct (@step_fuel T K LI located_pos n off l (PPara []))
            as [bs st'];
          unfold erase_result; cbn [fst snd];
-         rewrite erase_blocks_set_pos; reflexivity.
+         rewrite erase_blocks_set_pos; rewrite ?erase_table_block;
+         cbn [erase_cap]; reflexivity.
   - (* PPend *)
     cbn [step_fuel erase_state]. rewrite is_idle_erase.
     destruct (classify l);

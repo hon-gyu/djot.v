@@ -271,17 +271,22 @@ Example p_def_parts :
 Proof. vm_compute. reflexivity. Qed.
 
 (* The source row and its cells.  djot.js --trim gives row [0,9),
-   first cell [0,5), second cell [4,9); the shared bar belongs to both. *)
-Definition row_part_ranges (s : string) : option ((nat * nat) * list (nat * nat)) :=
+   first cell [0,5), second cell [4,9); the shared bar belongs to both.
+   The trailing number is where the cell's content starts, which is the
+   anchor the located cell scan runs from. *)
+Definition row_part_ranges (s : string)
+  : option ((nat * nat) * list ((nat * nat) * nat)) :=
   match @table_row_part (LineIxAt 0) s (TCells ["a"; "b"]) with
   | Some (row, cells) =>
       let lines := line_table s in
-      Some (range_of lines row, map (range_of lines) cells)
+      Some (range_of lines row,
+            map (fun c => (range_of lines (cell_range c),
+                           byte_of lines (cell_text_start c))) cells)
   | None => None
   end.
 
 Example p_table_row_cells : row_part_ranges "| a | b |" =
-  Some ((0, 9), [(0, 5); (4, 9)]).
+  Some ((0, 9), [((0, 5), 2); ((4, 9), 6)]).
 Proof. vm_compute. reflexivity. Qed.
 
 Definition table_sample : string :=
@@ -652,6 +657,45 @@ Proof. vm_compute. reflexivity. Qed.
 Example i_heading_inlines :
   para_ranges "## a *b*
 " = [(3, 5); (5, 8); (6, 7)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A cell's inlines are scanned from where the cell's content starts, so
+   they carry their own ranges rather than the row's.  `table_sample`
+   puts `a`/`b` on the header row, `x`/`y` on the body row and `cap` in
+   the caption. *)
+Definition cell_ranges (s : string) : list (list (nat * nat)) :=
+  let lines := line_table s in
+  match Located s with
+  | [n] =>
+      match node_contents n with
+      | Table _ rows =>
+          map (fun r =>
+                 concat (map (fun c =>
+                   match c with
+                   | Cell _ _ ils => inline_walk 40 lines ils
+                   end) r))
+              rows
+      | _ => []
+      end
+  | _ => []
+  end.
+
+Definition caption_ranges (s : string) : list (nat * nat) :=
+  let lines := line_table s in
+  match Located s with
+  | [n] =>
+      match node_contents n with
+      | Table (Some ils) _ => inline_walk 40 lines ils
+      | _ => []
+      end
+  | _ => []
+  end.
+
+Example i_table_cells :
+  cell_ranges table_sample = [[(2, 3); (6, 7)]; [(22, 23); (26, 27)]].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_table_caption : caption_ranges table_sample = [(33, 36)].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

@@ -8730,6 +8730,32 @@ Definition para_inlines_at `{PosPolicy} (off : nat)
   then para_inlines_located off l
   else para_inlines_off off (map snd l).
 
+(* A table cell is a trimmed infix, rather than a suffix of its source
+   line.  Its starting distance from the line end comes from the row
+   scanner, so the same located byte scan can read it without treating
+   its trimmed text as a whole source line. *)
+Definition parse_inline_line_located `{PosPolicy}
+  (k rem : nat) (s : string) : inlines :=
+  let stop := Spot k (rem - String.length s) in
+  @ifinish _ (CursorAt stop stop (Spot k rem))
+    (iscan_str_located inline_attrs_enabled k rem rem s istart).
+
+Lemma erase_parse_inline_line_located : forall `{P : PosPolicy} k rem s,
+  erase_inlines (@parse_inline_line_located P k rem s) = parse_inline_line s.
+Proof.
+  intros P k rem s. unfold parse_inline_line_located, parse_inline_line.
+  rewrite erase_ifinish, erase_iscan_str_located,
+    iscan_str_at_on. reflexivity.
+Qed.
+
+Lemma erase_parse_inline_line : forall s,
+  erase_inlines (parse_inline_line s) = parse_inline_line s.
+Proof.
+  intros s. unfold parse_inline_line.
+  rewrite erase_ifinish, <- iscan_str_at_on, erase_iscan_str_at.
+  reflexivity.
+Qed.
+
 Lemma para_inlines_at_semantic : forall off l,
   @para_inlines_at semantic_pos off l = para_inlines_off off (map snd l).
 Proof. reflexivity. Qed.

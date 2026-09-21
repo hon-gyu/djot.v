@@ -707,11 +707,9 @@ Definition blocks : Type := list (node block).
 
    Deep exactly where the located parse records positions: a paragraph's
    and a heading's inlines, and a definition term, which is a paragraph's.
-   A table's cells and caption and a keyed block's label are built by the
-   ambient instance and carry none, so erasing them would oblige the
-   development to prove the semantic scan position-free -- an invariant
-   over the whole inline state, for no gain.  When those become located,
-   their arm here deepens with them. *)
+   A keyed block's label is still built by the ambient instance.  Table
+   cells and captions are scanned under the recording policy, so their
+   inline children are erased too. *)
 Fixpoint erase_inline (i : inline) : inline :=
   let go :=
     fix go (ils : inlines) : inlines :=
@@ -772,9 +770,15 @@ Lemma erase_inlines_app : forall (xs ys : inlines),
   (erase_inlines xs ++ erase_inlines ys)%list.
 Proof. intros xs ys. rewrite !erase_inlines_map. apply map_app. Qed.
 
+Definition erase_cell (c : cell) : cell :=
+  match c with Cell ct al ils => Cell ct al (erase_inlines ils) end.
+
+Definition erase_row (r : list cell) : list cell := map erase_cell r.
+
 Lemma erase_inlines_rev : forall (xs : inlines),
   erase_inlines (rev xs) = rev (erase_inlines xs).
 Proof. intros xs. rewrite !erase_inlines_map. apply map_rev. Qed.
+
 
 Fixpoint erase_block (b : block) : block :=
   let go :=
@@ -813,7 +817,8 @@ Fixpoint erase_block (b : block) : block :=
             | (term, item) :: rest =>
                 (erase_inlines term, go item) :: godefs rest
             end) items)
-  | Table caption rows => Table caption rows
+  | Table caption rows =>
+      Table (option_map erase_inlines caption) (map erase_row rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Keyed label (Node _ a x) =>
       Keyed label (Node NoPos a (erase_block x))
