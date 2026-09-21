@@ -192,6 +192,15 @@ x = 1
 " = [[(ROpenFence, (0, 5)); (RCloseFence, (12, 15))]].
 Proof. vm_compute. reflexivity. Qed.
 
+(* The block the fence encloses, which is what a command block reads.
+   Its own range covers both fence lines; the roles above are how the
+   two are told apart. *)
+Example y_code_block : ranges "```py
+x = 1
+```
+" = [(0, 15)].
+Proof. vm_compute. reflexivity. Qed.
+
 (* Each authored spec, in source order.  No oracle: djot.js records
    none of these. *)
 Example y_attr_specs : roles "{#id}
