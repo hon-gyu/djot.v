@@ -303,6 +303,19 @@ Definition posnode `{PosPolicy} {A : Type} (p : provenance) (x : A) : node A :=
 Definition erase_node {A : Type} (n : node A) : node A :=
   match n with Node _ a x => Node NoPos a x end.
 
+(* A span a scan *stores* in its own state, as opposed to one a node
+   carries.  Asked of the policy, so that a state built by a policy which
+   records nothing holds no coordinates at all -- which is what makes
+   erasure of such a state the identity, and the inline refinement one
+   equation instead of an equation and an invariant over the state. *)
+Definition null_span : span := SrcSpan (Spot 0 0) (Spot 0 0).
+
+Definition pspan `{PosPolicy} (r : span) : span :=
+  if pos_records then r else null_span.
+
+Lemma pspan_semantic : forall r, @pspan semantic_pos r = null_span.
+Proof. reflexivity. Qed.
+
 (* A node whose provenance is just its range: no authored syntax beside
    it, no non-node parts under it. *)
 Definition prov_at (r : span) : provenance := Provenance r [] PNone.
@@ -537,6 +550,69 @@ Inductive inline : Type :=
 
 Definition inlines : Type := list (node inline).
 
+(* The two-predicate induction `block_ind2` is, for the inline tree: an
+   `inlines` is two type constructors away from `inline`, so the
+   generated principle stops at a container's children.  Every proof
+   about a traversal of an inline tree needs this. *)
+Definition inline_ind2
+  (P : inline -> Prop) (Q : inlines -> Prop)
+  (hstr : forall s, P (Str s))
+  (hemph : forall ils, Q ils -> P (Emph ils))
+  (hstrong : forall ils, Q ils -> P (Strong ils))
+  (hhigh : forall ils, Q ils -> P (Highlight ils))
+  (hins : forall ils, Q ils -> P (Insert ils))
+  (hdel : forall ils, Q ils -> P (Delete ils))
+  (hsup : forall ils, Q ils -> P (Superscript ils))
+  (hsub : forall ils, Q ils -> P (Subscript ils))
+  (hverb : forall s, P (Verbatim s))
+  (hsym : forall s, P (Symbol s))
+  (hmath : forall st s, P (Math st s))
+  (hlink : forall ils tgt, Q ils -> P (Link ils tgt))
+  (himage : forall ils tgt, Q ils -> P (Image ils tgt))
+  (hspan : forall ils, Q ils -> P (Span ils))
+  (hfoot : forall label, P (FootnoteReference label))
+  (hurl : forall url, P (UrlLink url))
+  (hmail : forall email, P (EmailLink email))
+  (hraw : forall format s, P (RawInline format s))
+  (hnbsp : P NonBreakingSpace)
+  (hquoted : forall qt ils, Q ils -> P (Quoted qt ils))
+  (hsoft : P SoftBreak)
+  (hhard : P HardBreak)
+  (hnil : Q [])
+  (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
+  : forall i, P i :=
+  fix go (i : inline) : P i :=
+    let golist :=
+      fix golist (ns : inlines) : Q ns :=
+        match ns with
+        | [] => hnil
+        | Node p a x :: rest => hcons p a x rest (go x) (golist rest)
+        end in
+    match i with
+    | Str s => hstr s
+    | Emph ils => hemph ils (golist ils)
+    | Strong ils => hstrong ils (golist ils)
+    | Highlight ils => hhigh ils (golist ils)
+    | Insert ils => hins ils (golist ils)
+    | Delete ils => hdel ils (golist ils)
+    | Superscript ils => hsup ils (golist ils)
+    | Subscript ils => hsub ils (golist ils)
+    | Verbatim s => hverb s
+    | Symbol s => hsym s
+    | Math st s => hmath st s
+    | Link ils tgt => hlink ils tgt (golist ils)
+    | Image ils tgt => himage ils tgt (golist ils)
+    | Span ils => hspan ils (golist ils)
+    | FootnoteReference label => hfoot label
+    | UrlLink url => hurl url
+    | EmailLink email => hmail email
+    | RawInline format s => hraw format s
+    | NonBreakingSpace => hnbsp
+    | Quoted qt ils => hquoted qt ils (golist ils)
+    | SoftBreak => hsoft
+    | HardBreak => hhard
+    end.
+
 (*
 Block elements
 ==============
@@ -626,10 +702,16 @@ Inductive block : Type :=
 Definition blocks : Type := list (node block).
 
 (* Forget source provenance throughout a tree while preserving attributes
-   and semantic payloads.  [erase_node] above is deliberately shallow.
-   [erase_inline] is ready for the inline layer; the block traversal leaves
-   inline trees alone until that layer starts producing positions, so C2 is
-   about exactly the observations the block parser currently adds. *)
+   and semantic payloads.  [erase_node] above is deliberately shallow;
+   these are the deep traversals the refinement is stated with.
+
+   Deep exactly where the located parse records positions: a paragraph's
+   and a heading's inlines, and a definition term, which is a paragraph's.
+   A table's cells and caption and a keyed block's label are built by the
+   ambient instance and carry none, so erasing them would oblige the
+   development to prove the semantic scan position-free -- an invariant
+   over the whole inline state, for no gain.  When those become located,
+   their arm here deepens with them. *)
 Fixpoint erase_inline (i : inline) : inline :=
   let go :=
     fix go (ils : inlines) : inlines :=
@@ -651,6 +733,48 @@ Fixpoint erase_inline (i : inline) : inline :=
   | Quoted qt ils => Quoted qt (go ils)
   | x => x
   end.
+
+Definition erase_inode (n : node inline) : node inline :=
+  match n with Node _ a x => Node NoPos a (erase_inline x) end.
+
+Fixpoint erase_inlines (ils : inlines) : inlines :=
+  match ils with
+  | [] => []
+  | n :: rest => erase_inode n :: erase_inlines rest
+  end.
+
+Lemma erase_inlines_cons : forall (n : node inline) (l : inlines),
+  erase_inlines (n :: l)%list = (erase_inode n :: erase_inlines l)%list.
+Proof. reflexivity. Qed.
+
+(* The traversal inside [erase_inline] is [erase_inlines]; the guard
+   condition is why it cannot be spelled as one mutual fixpoint. *)
+Lemma erase_inline_children : forall ils : inlines,
+  (fix go (ils : inlines) : inlines :=
+     match ils with
+     | [] => []
+     | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
+     end) ils = erase_inlines ils.
+Proof.
+  induction ils as [|[p a x] ils IH]; [reflexivity|].
+  cbn [erase_inlines erase_inode]. rewrite IH. reflexivity.
+Qed.
+
+Lemma erase_inlines_map : forall (xs : inlines),
+  erase_inlines xs = map erase_inode xs.
+Proof.
+  induction xs as [|n xs IH]; [reflexivity|].
+  rewrite erase_inlines_cons, IH. reflexivity.
+Qed.
+
+Lemma erase_inlines_app : forall (xs ys : inlines),
+  erase_inlines (xs ++ ys)%list =
+  (erase_inlines xs ++ erase_inlines ys)%list.
+Proof. intros xs ys. rewrite !erase_inlines_map. apply map_app. Qed.
+
+Lemma erase_inlines_rev : forall (xs : inlines),
+  erase_inlines (rev xs) = rev (erase_inlines xs).
+Proof. intros xs. rewrite !erase_inlines_map. apply map_rev. Qed.
 
 Fixpoint erase_block (b : block) : block :=
   let go :=
