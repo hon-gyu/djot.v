@@ -2732,7 +2732,7 @@ Definition oattach_list `{PosPolicy}
    a `no_adjacent_str` side condition, since resolution would no longer
    be the identity on a settled list.  Carrying one bit keeps it the
    identity definitionally. *)
-Fixpoint oresolve_go (l : oitems) : inlines * bool :=
+Fixpoint oresolve_go `{PosPolicy} (l : oitems) : inlines * bool :=
   match l with
   | [] => ([], false)
   | OIn n :: rest =>
@@ -2744,35 +2744,35 @@ Fixpoint oresolve_go (l : oitems) : inlines * bool :=
       (out', istarts_str out')
   end.
 
-Definition oresolve (l : oitems) : inlines := fst (oresolve_go l).
+Definition oresolve `{PosPolicy} (l : oitems) : inlines :=
+  fst (oresolve_go l).
 
 (* Nothing waiting: resolution gives the list back, with no side
    condition. *)
-Lemma oresolve_go_map :
-  forall ns, oresolve_go (List.map OIn ns) = (ns, false).
+Lemma oresolve_go_map : forall `{PosPolicy} ns,
+  oresolve_go (List.map OIn ns) = (ns, false).
 Proof.
-  induction ns as [|n ns IH]; [reflexivity|].
+  intros P ns. induction ns as [|n ns IH]; [reflexivity|].
   cbn [List.map oresolve_go]. rewrite IH. reflexivity.
 Qed.
 
 (* A node that cannot merge is simply put in front. *)
-Lemma oresolve_cons_nonplain :
-  forall n l,
-    plain_str n = false -> oresolve (OIn n :: l)%list = (n :: oresolve l)%list.
+Lemma oresolve_cons_nonplain : forall `{PosPolicy} n l,
+  plain_str n = false -> oresolve (OIn n :: l)%list = (n :: oresolve l)%list.
 Proof.
-  intros n l H. unfold oresolve; cbn [oresolve_go].
+  intros P n l H. unfold oresolve; cbn [oresolve_go].
   destruct (oresolve_go l) as [out m]; cbn [fst].
   destruct m; [apply isnoc_nonplain, H|reflexivity].
 Qed.
 
-Lemma oresolve_map :
-  forall ns, oresolve (List.map OIn ns) = ns.
-Proof. intros ns. unfold oresolve. rewrite oresolve_go_map. reflexivity. Qed.
+Lemma oresolve_map : forall `{PosPolicy} ns,
+  oresolve (List.map OIn ns) = ns.
+Proof. intros P ns. unfold oresolve. rewrite oresolve_go_map. reflexivity. Qed.
 
-Lemma oresolve_map_rev :
-  forall ns, oresolve (List.rev (List.map OIn ns)) = List.rev ns.
+Lemma oresolve_map_rev : forall `{PosPolicy} ns,
+  oresolve (List.rev (List.map OIn ns)) = List.rev ns.
 Proof.
-  intros ns. rewrite <- List.map_rev. apply oresolve_map.
+  intros P ns. rewrite <- List.map_rev. apply oresolve_map.
 Qed.
 
 (* Walk out through the open scopes looking for one this closer matches,
@@ -4696,26 +4696,25 @@ Proof.
   destruct (nonempty_str pre); [rewrite erase_isnoc|]; reflexivity.
 Qed.
 
-(* Resolution is the ambient policy's: `oresolve_go` opens no policy
-   context, so the spec a scope settles attaches without a role.  Erasure
-   commutes with it for the same reason it commutes with `oattach_list`,
-   which is that the pass moves attributes and not coordinates. *)
-Lemma erase_oresolve_go : forall l,
-  oresolve_go (erase_oitems l) =
-  (erase_inlines (fst (oresolve_go l)), snd (oresolve_go l)).
+(* Erasure commutes with resolution for the same reason it commutes with
+   `oattach_list`: the pass moves attributes and a spec's range, and the
+   range is what erasure drops. *)
+Lemma erase_oresolve_go : forall `{P : PosPolicy} l,
+  @oresolve_go semantic_pos (erase_oitems l) =
+  (erase_inlines (fst (@oresolve_go P l)), snd (@oresolve_go P l)).
 Proof.
-  induction l as [|[n|a spec w] l IH]; [reflexivity| |];
+  intros P. induction l as [|[n|a spec w] l IH]; [reflexivity| |];
     cbn [erase_oitems erase_oitem oresolve_go];
-    rewrite IH; destruct (oresolve_go l) as [out m]; cbn [fst snd].
+    rewrite IH; destruct (@oresolve_go P l) as [out m]; cbn [fst snd].
   - destruct m; [rewrite erase_isnoc|]; reflexivity.
-  - rewrite <- (erase_istarts_str (oattach_list a spec w out)).
+  - rewrite <- (erase_istarts_str (@oattach_list P a spec w out)).
     rewrite erase_oattach_list. reflexivity.
 Qed.
 
-Lemma erase_oresolve : forall l,
-  erase_inlines (oresolve l) = oresolve (erase_oitems l).
+Lemma erase_oresolve : forall `{P : PosPolicy} l,
+  erase_inlines (@oresolve P l) = @oresolve semantic_pos (erase_oitems l).
 Proof.
-  intros l. unfold oresolve. rewrite erase_oresolve_go. reflexivity.
+  intros P l. unfold oresolve. rewrite erase_oresolve_go. reflexivity.
 Qed.
 
 Lemma erase_oclose_go : forall `{P : PosPolicy} k m pend stk,

@@ -584,12 +584,14 @@ Proof. vm_compute. reflexivity. Qed.
 The attribute spec an inline carries
 ------------------------------------
 
-A span records the spec that attached to it, as `RAttrSpec`; a text run
-does not, because resolution runs at the ambient policy -- `oresolve_go`
-opens no policy context, so `oattach_list` cannot record one.  Section 1
-of the plan wants both (the anchor a rename of an id points at), so this
-is a gap and not a decision; it is pinned here so that closing it is
-visible.
+`RAttrSpec` beside the node the spec attached to.  The node's own range
+excludes it -- a spec is authored syntax that belongs to a node without
+widening it (section 4.4) -- so the anchor section 1 wants, over the
+inline *and* its spec, is the hull of the two, which is what
+`roles_stop` computes.
+
+djot.js gives a spec no position at all, so these are pinned against the
+source text.
 *)
 
 Definition inline_roles (s : string)
@@ -607,7 +609,20 @@ Definition inline_roles (s : string)
 Example i_span_spec : inline_roles "[s]{.c}" = [([("class", "c")], [(RAttrSpec, (3, 7))])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The gap: the spec attached, and its range was dropped. *)
-Example i_text_spec_has_no_role :
-  inline_roles "a{.c}" = [([("class", "c")], [])].
+(* A text run too.  It took a policy binder on `oresolve_go` to get
+   here: resolution is where a pending spec meets the node it attaches
+   to, and it used to run at the ambient instance, where recording a
+   role is the identity. *)
+Example i_text_spec :
+  inline_roles "a{.c}" = [([("class", "c")], [(RAttrSpec, (1, 5))])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* The spec takes the last word, so the run splits and only the second
+   half carries it: `a ` at [0,2), `b` at [2,3) with the spec at [3,7). *)
+Example i_text_spec_splits_the_run :
+  para_ranges "a b{.c}" = [(0, 2); (2, 3)].
+Proof. vm_compute. reflexivity. Qed.
+
+Example i_text_spec_splits_the_run_roles :
+  inline_roles "a b{.c}" = [([], []); ([("class", "c")], [(RAttrSpec, (3, 7))])].
 Proof. vm_compute. reflexivity. Qed.
