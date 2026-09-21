@@ -3317,6 +3317,37 @@ Proof.
   reflexivity.
 Qed.
 
+(* The pass as a whole.  Three of its four components never read a
+   position, so erasing the blocks they are given commutes with each;
+   the fourth is the sectionizer above. *)
+Lemma doc_pass_erase : forall bs,
+  erase_doc (@doc_pass located_pos bs) =
+  @doc_pass semantic_pos (erase_blocks bs).
+Proof.
+  intros bs. unfold doc_pass.
+  destruct (assign_ids_list bs id_state_init) as [st tagged] eqn:E.
+  destruct (assign_ids_list (erase_blocks bs) id_state_init)
+    as [st' tagged'] eqn:E'.
+  destruct (assign_ids_list_erase bs id_state_init) as [Hst Htagged].
+  rewrite E, E' in Hst, Htagged. cbn [fst snd] in Hst, Htagged.
+  subst st' tagged'.
+  destruct (collect_notes_list tagged []) as [notes visible] eqn:En.
+  pose proof (collect_notes_list_erase tagged []) as Hn.
+  cbn [erase_note_map map] in Hn. rewrite En in Hn. cbn [fst snd] in Hn.
+  rewrite Hn. unfold erase_doc.
+  cbn [doc_blocks doc_footnotes doc_references doc_auto_references
+    doc_auto_identifiers].
+  rewrite sectionize_erase, collect_refs_list_erase. reflexivity.
+Qed.
+
+(* The located document is the semantic one with positions on it. *)
+Theorem parse_doc_located_erase : forall s,
+  erase_doc (parse_doc_located s) = @parse_doc semantic_pos s.
+Proof.
+  intros s. unfold parse_doc_located, parse_doc.
+  rewrite doc_pass_erase, parse_blocks_located_erase. reflexivity.
+Qed.
+
 (*
 Examples
 ========
