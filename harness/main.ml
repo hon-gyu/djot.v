@@ -7,6 +7,7 @@
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
           [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]] [--report FILE] [--verbose]
+          [--time [N]]
           [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
@@ -16,7 +17,9 @@
    engine against engine; see "Generated mode" below.
    --shape compares block structure only; see "Block shape" below.
    --roundtrip checks `parse (render d) = d` over the enumerated
-   documents and consults no oracle at all; see "Roundtrip" below. *)
+   documents and consults no oracle at all; see "Roundtrip" below.
+   --time [N] reads one document from stdin and prints the best of N
+   (default 5) wall times for the semantic and the located block parse. *)
 
 let root =
   (* harness runs from _build/default/harness; walk up to the repo root *)
@@ -398,6 +401,8 @@ let () =
      the same bytes, and without this ours is the one that cannot be. *)
   let convert_stdin = ref false in
   let convert_batch = ref false in
+  (* 0 is off; --time without a count means 5 *)
+  let time_parse = ref 0 in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -423,9 +428,35 @@ let () =
     | "--roundtrip" :: rest -> roundtrip := Some 3; parse_args rest
     | "--convert" :: rest -> convert_stdin := true; parse_args rest
     | "--batch" :: rest -> convert_batch := true; parse_args rest
+    | "--time" :: d :: rest when int_of_string_opt d <> None ->
+      time_parse := int_of_string d; parse_args rest
+    | "--time" :: rest -> time_parse := 5; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
   parse_args (List.tl (Array.to_list Sys.argv));
+  if !time_parse <> 0 then begin
+    let n = !time_parse in
+    let input = In_channel.input_all stdin in
+    Printf.printf "== time: best of %d over %d bytes ==\n" n
+      (String.length input);
+    let time name f =
+      let best = ref infinity in
+      for _ = 1 to n do
+        let t0 = Unix.gettimeofday () in
+        ignore (Sys.opaque_identity (f input));
+        let t1 = Unix.gettimeofday () in
+        if t1 -. t0 < !best then best := t1 -. t0
+      done;
+      Printf.printf "%-22s %9.3f ms\n" name (!best *. 1000.)
+    in
+    time "parse_blocks" (fun s ->
+      Djot.Step.parse_blocks Djot.Inline.djot_table Djot.Step.djot_bconfig
+        Djot.Step.semantic_line_ix Djot.Ast.semantic_pos s);
+    time "parse_blocks_located" (fun s ->
+      Djot.Step.parse_blocks_located Djot.Inline.djot_table
+        Djot.Step.djot_bconfig s);
+    exit 0
+  end;
   if !convert_stdin then begin
     let input = In_channel.input_all stdin in
     if not !convert_batch then print_string (Djot.Html.convert input)
