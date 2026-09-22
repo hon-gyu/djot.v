@@ -522,8 +522,9 @@ Inductive quote_type : Type := SingleQuotes | DoubleQuotes.
 
 (* Inline content.  `Inline.para_inlines` is the pass that produces it,
    one call per paragraph, with the source lines joined by SoftBreak.
-   Every constructor below is reachable from it except `Symbol`, which
-   has no scanner: `:name:` stays literal text. *)
+   The scanner also preserves symbols as nodes: their default HTML is
+   literal `:name:`, so HTML comparison alone cannot distinguish them
+   from text. *)
 Inductive inline : Type :=
   | Str (s : string)
   | Emph (ils : list (node inline))

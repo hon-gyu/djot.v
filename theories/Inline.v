@@ -147,16 +147,15 @@ Definition nl_char : ascii := "010"%char.
 (* The characters the scanner claims for itself, before it consults the
    table at all: the escape, the verbatim fence, the two braces that
    force a delimiter, the three the bracket family dispatches on, the
-   math prefix, the period and the autolink's `<`.  A row may not be
-   written with one of
-   these -- `ilead` would never reach the lookup -- which is one of the
-   conditions `dconfig_ok` checks. *)
+   math prefix, the period, symbol colon, and the autolink's `<`.
+   A row may not use one of these: `ilead` would never reach the lookup.
+   `dconfig_ok` checks this condition. *)
 Definition dreserved (c : ascii) : bool :=
   (is_bslash c || is_tick c
    || Ascii.eqb c lbrace || Ascii.eqb c rbrace
    || Ascii.eqb c lbrack || Ascii.eqb c rbrack
    || Ascii.eqb c bang || Ascii.eqb c dollar
-   || Ascii.eqb c lt
+   || Ascii.eqb c lt || Ascii.eqb c ":"%char
    (* the period is not a delimiter and opens nothing, but the scanner
       dispatches on it for the ellipsis, which is enough to reserve it:
       no row may be spelled with it, and a canonical `Str` holding one
@@ -1497,6 +1496,12 @@ Definition auto_email (s : string) : bool := auto_email_from None s.
 Definition is_alpha (c : ascii) : bool :=
   ((Ascii.leb "a"%char c && Ascii.leb c "z"%char)
    || (Ascii.leb "A"%char c && Ascii.leb c "Z"%char))%bool.
+
+(* The bytes accepted by djot.js's /[\w_+-]/ symbol alias pattern. *)
+Definition symbol_char (c : ascii) : bool :=
+  (is_alpha c || (Ascii.leb "0"%char c && Ascii.leb c "9"%char)
+   || Ascii.eqb c "_"%char || Ascii.eqb c "+"%char
+   || Ascii.eqb c "-"%char)%bool.
 
 Fixpoint auto_scheme (s : string) : bool :=
   match s with
@@ -3328,6 +3333,10 @@ Inductive iscan : Type :=
      state does not reproduce that recovery, but an ordinary-inline
      shadow could do so without replay; see `.project/no-backtracking.md`. *)
   | IAuto (src txt : string) (o : ostate)
+  (* A colon and the symbol alias read so far.  The ordinary-inline
+     shadow advances over the same bytes; a failed or unfinished
+     candidate selects it without replaying source. *)
+  | ISymbol (alias txt : string) (sh : iscan) (o : ostate)
   (* a verbatim span that closed onto a `{`, holding its content and the
      spec source read since.  The `Verbatim` node is deliberately *not*
      emitted yet: which node this is -- `Verbatim` or `RawInline` -- is
@@ -3382,6 +3391,10 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      pending text stays pending, since a candidate that fails hands it
      back with the `<` on the end. *)
   else if Ascii.eqb c lt then IAuto EmptyString txt o
+  else if Ascii.eqb c ":"%char
+       then ISymbol EmptyString txt
+              (IText false (txt ++ one c)%string (Some c)
+                (remember_word_start c o)) o
   (* A `[` right inside a bracket that has just opened is the second
      bracket of a wikilink.  The same guard as the footnote marker's
      below, with `[` in place of `^`. *)
@@ -3516,7 +3529,7 @@ Definition auto_lit (src txt : string) : string :=
    `IDelim`, `IOpen`, `IVerb` and `IDollar` are not here.
    `IBang` is not either: `!` is not one of the special bytes, so it is
    never the byte a slice ends on. *)
-Definition islice_end (st : iscan) : iscan :=
+Fixpoint islice_end (st : iscan) : iscan :=
   match st with
   | IText true txt _ o => IText false (txt ++ one bslash)%string (Some bslash) o
   | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
@@ -3527,6 +3540,7 @@ Definition islice_end (st : iscan) : iscan :=
   | IClosed txt o => IText false (txt ++ one rbrack)%string (Some rbrack) o
   | IAuto src txt o =>
       IText false (auto_lit src txt) (blit_prev (auto_lit src txt)) o
+  | ISymbol _ _ sh _ => islice_end sh
   | _ => st
   end.
 
@@ -3691,6 +3705,17 @@ Definition iauto_step `{PosPolicy} `{InlineCursor}
   else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
   then ilead c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
   else IAuto (src ++ one c)%string txt o.
+
+Definition isymbol_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (alias txt : string)
+  (o : ostate) (sh' : iscan) : iscan :=
+  if symbol_char c then ISymbol (alias ++ one c)%string txt sh' o
+  else if (Ascii.eqb c ":"%char && nonempty_str alias)%bool
+  then let start := spot_before cursor_start (one ":"%char ++ alias)%string in
+       IText false EmptyString (Some c)
+         (oemit (imk start cursor_stop (Symbol alias))
+           (flush_text_to_at start txt o))
+  else sh'.
 
 (* One byte of a raw-format spec.  The `}` decides it; the pattern's
    excluded bytes end it; anything else is spec.
@@ -4073,6 +4098,9 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
   | INote esc image label open o => inote_step c esc image label open o
   | IWiki esc rb image region open o => iwiki_step c esc rb image region open o
   | IAuto src txt o => iauto_step c src txt o
+  | ISymbol alias txt sh o =>
+      isymbol_step c alias txt o
+        (istep_at attrs_enabled c sh)
   | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
   | IReference kids image open label o =>
       if Ascii.eqb c rbrack
@@ -4143,6 +4171,7 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (* a candidate the line ended inside is literal: the region may not
      contain a break, so the `>` it wanted can never arrive *)
   | IAuto src txt o => flush_text_at (auto_lit src txt) o
+  | ISymbol _ _ _ o => o
   (* a spec the line ended inside never closed: the verbatim stands and
      the spec source is text after it *)
   | IRaw spec txt o =>
@@ -4174,6 +4203,7 @@ Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   match st with
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
+  | ISymbol _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
@@ -4202,7 +4232,7 @@ Definition ifinish `{PosPolicy} `{InlineCursor} (st : iscan) : inlines :=
    which is why it arrives here as `one nl` rather than closing anything;
    a resolved closing run (`run = n`) is the one case where the span ends
    *at* the break and the newline is the soft break after it. *)
-Definition ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
+Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   (* A hard break replaces the soft one: it is the break, rendered. *)
   | IText true txt _ o =>
@@ -4245,6 +4275,7 @@ Definition ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
         (oword_reset
           (oemit (imk_here SoftBreak)
             (flush_text_at (auto_lit src txt) o)))
+  | ISymbol _ _ sh _ => ibreak_flat sh
   (* nor does a raw spec: the pattern excludes whitespace, so a break
      ends the candidate exactly as `ifinish` does *)
   | IRaw spec txt o =>
@@ -4288,6 +4319,7 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
       IDest kids image open false depth
         (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string
         (ibreak_at attrs_enabled sh) o
+  | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
   | _ => ibreak_flat (iresolve st)
   end.
 
@@ -4319,7 +4351,9 @@ Definition iclosed_at (st : iscan) : bool :=
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
      is text on this line *)
-  | IAuto _ _ o | IRaw _ _ o | IWiki _ _ _ _ _ o => null (os_stk o)
+  | IAuto _ _ o | IRaw _ _ o
+  | IWiki _ _ _ _ _ o => null (os_stk o)
+  | ISymbol _ _ _ _ => false
   end.
 
 Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
@@ -4359,7 +4393,8 @@ Definition iscan_settled `{PosPolicy} `{InlineCursor}
    about -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
 Definition is_compound (st : iscan) : bool :=
   match st with
-  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ => true
+  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
+  | ISymbol _ _ _ _ => true
   | _ => false
   end.
 
@@ -4394,7 +4429,7 @@ Proof.
   unfold ifinish_items, oitems_of.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
@@ -4666,6 +4701,8 @@ Fixpoint erase_iscan (st : iscan) : iscan :=
       IDest (erase_inlines kids) image null_span esc depth dst
         (erase_iscan sh) (erase_ostate o)
   | IAuto src txt o => IAuto src txt (erase_ostate o)
+  | ISymbol alias txt sh o =>
+      ISymbol alias txt (erase_iscan sh) (erase_ostate o)
   | IRaw spec txt o => IRaw spec txt (erase_ostate o)
   end.
 
@@ -5155,6 +5192,8 @@ Proof.
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lt); [reflexivity|].
+  destruct (Ascii.eqb c ":"%char);
+    [cbn [erase_iscan]; rewrite erase_remember_word_start; reflexivity|].
   destruct (Ascii.eqb c lbrack).
   { destruct (note_pos txt prev && wikilinks_enabled)%bool;
       [rewrite erase_bunpush; destruct (bunpush o) as [[[image open] o']|];
@@ -5202,8 +5241,11 @@ Qed.
 
 Lemma erase_islice_end : forall st,
   erase_iscan (islice_end st) = islice_end (erase_iscan st).
-Proof. intros [| | |k extra txt before marked o| | | | | | | | | | | | | | |];
-  try reflexivity; destruct esc; reflexivity. Qed.
+Proof.
+  induction st; cbn [erase_iscan islice_end];
+    try reflexivity; try (destruct esc; reflexivity).
+  exact IHst.
+Qed.
 
 Lemma erase_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
   src a txt o,
@@ -5323,7 +5365,7 @@ Lemma erase_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_iscan (@iresolve P C st) =
   @iresolve semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | |];
     try reflexivity.
   cbn [erase_iscan iresolve].
   destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
@@ -5450,6 +5492,20 @@ Proof.
       rewrite erase_oemit, erase_imk; reflexivity.
 Qed.
 
+Lemma erase_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
+  c alias txt o sh,
+  erase_iscan (@isymbol_step P C c alias txt o sh) =
+  @isymbol_step semantic_pos semantic_inline_cursor c alias txt
+    (erase_ostate o) (erase_iscan sh).
+Proof.
+  intros P C c alias txt o sh. unfold isymbol_step.
+  destruct (symbol_char c); [reflexivity|].
+  destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool;
+    [|reflexivity].
+  cbn [erase_iscan]. rewrite erase_oemit, erase_imk,
+    erase_flush_text_to_at. reflexivity.
+Qed.
+
 Lemma erase_iscan_attr : forall ap src txt prev sh o,
   erase_iscan (IAttr ap src txt prev sh o) =
   IAttr ap src txt prev (erase_iscan sh) (erase_ostate o).
@@ -5486,7 +5542,8 @@ Proof.
     | txt o | kids image open ap src o | ap src txt prev sh IHsh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
-    | kids image open esc depth dst sh IHsh o | src txt o | spec txt o ];
+    | kids image open esc depth dst sh IHsh o | src txt o
+    | alias txt sh IHsh o | spec txt o ];
     intros allow c.
   - (* IText *)
     destruct esc; cbn [erase_iscan istep_at].
@@ -5510,7 +5567,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
     destruct (@idelim_resolve P C k txt before false (Some c) o)
-      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | |];
+      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply erase_ilead].
   - (* IOpen *)
@@ -5563,6 +5620,8 @@ Proof.
       cbn [erase_iscan]. rewrite erase_oemit, erase_imk, erase_bnode.
       reflexivity.
   - (* IAuto *) apply erase_iauto_step.
+  - (* ISymbol *)
+    cbn [istep_at]. rewrite erase_isymbol_step, IHsh. reflexivity.
   - (* IRaw *) apply erase_iraw_step_at.
 Qed.
 
@@ -5577,7 +5636,8 @@ Proof.
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
-    | kids image open esc depth dst sh o | src txt o | spec txt o ];
+    | kids image open esc depth dst sh o | src txt o
+    | alias txt sh o | spec txt o ];
     cbn [erase_iscan ifinish_ostate_flat];
     try reflexivity.
   - destruct esc; [apply erase_iesc_hard|apply erase_flush_text_at].
@@ -5612,6 +5672,7 @@ Proof.
          rewrite erase_ifinish_ostate_flat, erase_iresolve; reflexivity).
   - rewrite erase_iscan_attr. cbn [ifinish_ostate]. assumption.
   - rewrite erase_iscan_dest. cbn [ifinish_ostate]. assumption.
+  - cbn [erase_iscan ifinish_ostate]. assumption.
 Qed.
 
 Lemma erase_oflatten : forall `{P : PosPolicy} pend stk bottom,
@@ -5659,14 +5720,15 @@ Lemma erase_ibreak_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_iscan (@ibreak_flat P C st) =
   @ibreak_flat semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
-  intros P C
+  intros P C. induction st as
     [esc txt prev o | ws txt prev o | txt prev o
     | k extra txt before marked o | n vk o | n run txt vk o
     | two txt prev o | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
-    | kids image open esc depth dst sh o | src txt o | spec txt o ];
+    | kids image open esc depth dst sh IHdest o | src txt o
+    | alias txt sh IHsh o | spec txt o ];
     cbn [erase_iscan ibreak_flat];
     try reflexivity.
   - destruct esc; cbn [erase_iscan];
@@ -5685,6 +5747,7 @@ Proof.
       erase_flush_text_at. reflexivity.
   - cbn [erase_iscan]. rewrite erase_oword_reset, erase_oemit, erase_imk_here,
       erase_flush_text_at. reflexivity.
+  - exact IHsh.
   - cbn [erase_iscan]. rewrite erase_oword_reset, erase_oemit, erase_imk_here,
       erase_flush_text_at, erase_oemit, erase_imk. reflexivity.
 Qed.
@@ -5700,6 +5763,7 @@ Proof.
     rewrite erase_iattr_feed, IHst. reflexivity.
   - rewrite erase_iscan_dest. cbn [ibreak_at].
     rewrite erase_iscan_dest, IHst. reflexivity.
+  - cbn [ibreak_at]. apply IHst.
 Qed.
 
 (* The semantic driver the located one erases to.  `iscan_str` and
@@ -6012,6 +6076,8 @@ Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
       IDest kids image open esc depth dst
         (iout_app base sh) (oout_app base o)
   | IAuto src txt o => IAuto src txt (oout_app base o)
+  | ISymbol alias txt sh o =>
+      ISymbol alias txt (iout_app base sh) (oout_app base o)
   | IRaw spec txt o => IRaw spec txt (oout_app base o)
   end.
 
@@ -6257,6 +6323,7 @@ Proof.
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lt); [reflexivity|].
+  destruct (Ascii.eqb c ":"%char); [reflexivity|].
   destruct (Ascii.eqb c lbrack).
   { destruct (note_pos txt prev && wikilinks_enabled)%bool;
       [rewrite bunpush_app; destruct (bunpush o) as [[[image open] o']|];
@@ -6300,8 +6367,9 @@ Lemma islice_end_app :
   forall base st,
     islice_end (iout_app base st) = iout_app base (islice_end st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
-    reflexivity.
+  intros base st. induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob];
+    try reflexivity.
+  exact IHsob.
 Qed.
 
 Lemma iattr_feed_app :
@@ -6372,7 +6440,7 @@ Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
@@ -6392,7 +6460,7 @@ Lemma istep_at_out_app :
     = iout_app base (istep_at attrs_enabled c st).
 Proof.
   intros attrs_enabled c base st. revert attrs_enabled c base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob];
     intros attrs_enabled c base Hb; cbn [iout_app istep_at].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -6413,7 +6481,7 @@ Proof.
       rewrite flush_text_app, opush_at_app. apply ilead_app. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?|? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
@@ -6486,6 +6554,12 @@ Proof.
       [cbn [iout_app]; rewrite flush_text_app, oemit_app; reflexivity|].
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_app | reflexivity].
+  - unfold isymbol_step.
+    rewrite IHsob by exact Hb.
+    destruct (symbol_char c); [reflexivity|].
+    destruct (Ascii.eqb c ":"%char && nonempty_str salias)%bool.
+    + cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
+    + reflexivity.
   - unfold iraw_step_at. rewrite ?imk_semantic.
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
     + destruct raw_inline_enabled.
@@ -6526,7 +6600,7 @@ Lemma ibreak_flat_app :
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base st. induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob]; intro Hb;
     cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -6537,6 +6611,7 @@ Proof.
   - rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
     destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o'].
     cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
+  - apply IHsob, Hb.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
 Qed.
 
@@ -6559,7 +6634,7 @@ Lemma ibreak_at_out_app :
     = iout_app base (ibreak_at attrs_enabled st).
 Proof.
   intros attrs_enabled base st. revert attrs_enabled base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob];
     intros attrs_enabled base Hb;
     try (rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
          rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
@@ -6567,6 +6642,7 @@ Proof.
   - cbn [ibreak_at iout_app]. rewrite IHash by exact Hb.
     apply iattr_feed_app, Hb.
   - cbn [ibreak_at iout_app]. rewrite IHsh by exact Hb. reflexivity.
+  - cbn [ibreak_at iout_app]. rewrite IHsob by exact Hb. reflexivity.
 Qed.
 
 Lemma ibreak_out_app :
@@ -6741,7 +6817,7 @@ Lemma ifinish_ostate_flat_app :
     ifinish_ostate_flat (iout_app base st)
     = oout_app base (ifinish_ostate_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob] Hb;
     cbn [iout_app ifinish_ostate_flat].
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
@@ -6852,7 +6928,7 @@ Proof.
   destruct (dreserved_false c Hres)
     as [Hbs [Htk [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol [Hpd Hlt]]]]]]]]].
   unfold ilead.
-  rewrite Hbs, Htk, Hdol, Hpd, Hhyp, Hlb, Hbg, Hlt, Hlk, Hrk, Hhat.
+  rewrite Hbs, Htk, Hdol, Hpd, Hhyp, Hlb, Hbg, Hlt, Hcolon, Hlk, Hrk, Hhat.
   cbn [andb].
   destruct (dstyle_of c) eqn:Hd; [|reflexivity].
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
@@ -6983,6 +7059,12 @@ Proof.
     as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol [Hpd Hlt]]]]]]]]].
   unfold ilead.
   rewrite Hb, Ht, Hdol, Hpd, Hhy, Hlb, Hlt, Hlk, Hrk, Hbg, Hup.
+  assert (Hcolon : Ascii.eqb (dchar k) ":"%char = false).
+  { destruct (Ascii.eqb (dchar k) ":"%char) eqn:E; [|reflexivity].
+    apply Ascii.eqb_eq in E. subst.
+    pose proof (dchar_free k) as Hfree.
+    rewrite E in Hfree. discriminate. }
+  rewrite Hcolon.
   rewrite (dstyle_of_dchar k Hen). destruct (_ && _)%bool; reflexivity.
 Qed.
 
@@ -7765,6 +7847,7 @@ Proof.
   change (Ascii.eqb hat lbrace) with false.
   change (Ascii.eqb hat bang) with false.
   change (Ascii.eqb hat lt) with false.
+  change (Ascii.eqb hat ":"%char) with false.
   change (Ascii.eqb hat lbrack) with false.
   change (Ascii.eqb hat rbrack) with false.
   change (Ascii.eqb hat hat && note_pos EmptyString (Some lbrack))%bool
@@ -7842,6 +7925,7 @@ Proof.
   change (Ascii.eqb lbrack lbrace) with false.
   change (Ascii.eqb lbrack bang) with false.
   change (Ascii.eqb lbrack lt) with false.
+  change (Ascii.eqb lbrack ":"%char) with false.
   change (Ascii.eqb lbrack lbrack) with true.
   change (note_pos EmptyString (Some lbrack)) with true.
   rewrite Hen, bunpush_bpush. cbn [andb]. cbn iota beta.
@@ -9200,7 +9284,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|wesc wrb wimg wreg wob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|wesc wrb wimg wreg wob|kids img esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct mrk; [exact I|].
@@ -9678,6 +9762,7 @@ Fixpoint inline_text (il : inline) : string :=
   match il with
   | Str s => escape_str s
   | Verbatim s => verb_text s
+  | Symbol s => (one ":"%char ++ s ++ one ":"%char)%string
   | Emph ns => marked DEmph ns
   | Strong ns => marked DStrong ns
   | Superscript ns => marked DSuper ns

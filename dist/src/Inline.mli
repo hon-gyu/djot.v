@@ -218,6 +218,8 @@ val auto_email : string -> bool
 
 val is_alpha : char -> bool
 
+val symbol_char : char -> bool
+
 val auto_scheme : string -> bool
 
 val auto_node : string -> inline
@@ -475,6 +477,7 @@ type iscan =
 | IWiki of bool * bool * bool * string * span * ostate
 | IDest of inlines * bool * span * bool * nat * string * iscan * ostate
 | IAuto of string * string * ostate
+| ISymbol of string * string * iscan * ostate
 | IRaw of string * string * ostate
 
 val note_pos : string -> char option -> bool
@@ -550,6 +553,10 @@ val inote_step :
 val iauto_step :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> string ->
   ostate -> iscan
+
+val isymbol_step :
+  coq_PosPolicy -> coq_InlineCursor -> char -> string -> string -> ostate ->
+  iscan -> iscan
 
 val iraw_lit : string -> string
 

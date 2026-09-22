@@ -1,5 +1,5 @@
 ---
-ai-disclosure: ai-generated
+ai-disclosure: autonomous
 ---
 
 # Pandoc and PyMarkdown extensions against the configuration family
@@ -80,7 +80,7 @@ variants) are left out of the count.
 | `superscript`, `subscript` | have | pandoc forbids unescaped spaces inside; djot allows them. The restriction is a content rule, not expressible now |
 | `strikeout` | have | `~~`, width 2 (probe, in the generalization plan). Not jointly with `~` subscript |
 | `mark` | have | `==`, width 2, bare (probe, in the generalization plan) |
-| `emoji` | have in djot, gap here | `:smile:` is djot's symbol syntax. `Ast.Symbol` exists and nothing produces it. djot.js renders symbols as their source, so the HTML corpus does not see the gap |
+| `emoji` | have in djot | `:smile:` is core Djot symbol syntax, now parsed as `Ast.Symbol`. djot.js renders it as source; emoji substitution requires a filter |
 | `auto_identifiers` | have | the document pass |
 | `ascii_identifiers`, `gfm_auto_identifiers` | widen | the id function becomes a parameter of the document pass |
 | `intraword_underscores` | widen | a neighbour test on the bare spelling; free for roundtrip (braced canonical form) |

@@ -249,7 +249,7 @@ let rec plain_text il =
    | Superscript ns -> go ns
    | Subscript ns -> go ns
    | Verbatim s -> s
-   | Symbol s -> s
+   | Symbol _ -> ""
    | Math (_, s) -> s
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns

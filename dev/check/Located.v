@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (*
 Block ranges, pinned against djot.js
@@ -556,6 +556,11 @@ byte-for-byte djot.js.
 
 (* str [0,9) *)
 Example i_text : para_ranges "para more" = [(0, 9)].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A symbol covers both colons; the surrounding text retains its ranges. *)
+Example i_symbol :
+  para_ranges "a :smile: b" = [(0, 2); (2, 9); (9, 11)].
 Proof. vm_compute. reflexivity. Qed.
 
 (* str [0,2), strong [2,5), str [3,4), str [5,7) *)
