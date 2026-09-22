@@ -32,6 +32,7 @@ let rec inline_text il =
    | Span ils -> go ils
    | UrlLink s -> s
    | EmailLink s -> s
+   | Wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | Quoted (_, ils) -> go ils
    | SoftBreak -> nl

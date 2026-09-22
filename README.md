@@ -24,5 +24,10 @@ resolved endpoints contain zero-based byte offsets, line indices, and
 byte columns.  `check/located.ml` exercises these entry points as a
 separate package consumer.
 
+Wikilinks (`[[target|alias]]`, `![[target]]`) are off in djot's table.
+Pass `Djot.Inline.with_wikilinks true Djot.Inline.djot_config` as the
+table to switch them on; they parse to `Djot.Ast.Wikilink (embed,
+target, alias)` with both strings as written.
+
 `src/` is generated.  Change `theories/` upstream and run `make dist`;
 edits made here are overwritten.
