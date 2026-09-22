@@ -561,52 +561,58 @@ Qed.
 
 (* The parse, one row at a time.  A table records no column and the rows
    are the only lines, so each is `parse_lines_table_row` and the state's
-   accumulator grows by the row's `trow`s, reversed. *)
+   accumulator grows by the row's `trow`s, reversed.  The range is one a
+   row has already reached, which is what opening the table leaves, so
+   later rows do not move it. *)
 Lemma parse_ctrow_cont :
-  forall r acc rest, ctrow_ok r = true ->
-  parse_lines (ctrow_lines r ++ rest) (PTable acc TOpen)
-  = parse_lines rest (PTable (rev (ctrow_trows r) ++ acc) TOpen).
+  forall r range acc rest, ctrow_ok r = true -> touch_extent range = range ->
+  parse_lines (ctrow_lines r ++ rest) (PTable range acc (TOpen []))
+  = parse_lines rest (PTable range (rev (ctrow_trows r) ++ acc) (TOpen [])).
 Proof.
-  intros r acc rest H.
+  intros r range acc rest H Ht.
   pose proof (ctrow_ok_parts _ H) as (_ & _ & _ & Hcl).
   destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
     cbn [ctrow_lines ctrow_trows rev app].
-  - rewrite (parse_lines_table_row _ _ _ _ (caption_open_cells_line _)
-               (is_blank_cells_line _) Hcl). reflexivity.
+  - rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_cells_line _)
+               (is_blank_cells_line _) Hcl), Ht. reflexivity.
   - apply ctrow_ok_head in H as [_ Hsep].
-    rewrite (parse_lines_table_row _ _ _ _ (caption_open_cells_line _)
-               (is_blank_cells_line _) Hcl).
-    rewrite (parse_lines_table_row _ _ _ _ (caption_open_sep_line _)
-               (is_blank_sep_line _) Hsep).
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_cells_line _)
+               (is_blank_cells_line _) Hcl), Ht.
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_sep_line _)
+               (is_blank_sep_line _) Hsep), Ht.
     reflexivity.
 Qed.
 
 Lemma parse_ctrow_open :
   forall r rest, btables = true -> ctrow_ok r = true ->
+  exists range, touch_extent range = range /\
   parse_lines (ctrow_lines r ++ rest) (PPara [])
-  = parse_lines rest (PTable (rev (ctrow_trows r)) TOpen).
+  = parse_lines rest (PTable range (rev (ctrow_trows r)) (TOpen [])).
 Proof.
   intros r rest Htables H.
   pose proof (ctrow_ok_parts _ H) as (_ & _ & _ & Hcl).
   destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
     cbn [ctrow_lines ctrow_trows rev app].
-  - rewrite (parse_lines_row_open _ _ _ Htables Hcl). reflexivity.
+  - rewrite (parse_lines_row_open _ _ _ Htables Hcl).
+    eexists; split; [|reflexivity]; reflexivity.
   - apply ctrow_ok_head in H as [_ Hsep].
     rewrite (parse_lines_row_open _ _ _ Htables Hcl).
-    rewrite (parse_lines_table_row _ _ _ _ (caption_open_sep_line _)
+    rewrite (parse_lines_table_row _ _ _ _ _ _ (caption_open_sep_line _)
                (is_blank_sep_line _) Hsep).
-    reflexivity.
+    eexists; split; [|reflexivity]; reflexivity.
 Qed.
 
 Lemma parse_ctrows :
-  forall rows acc rest, forallb ctrow_ok rows = true ->
-  parse_lines (flat_map ctrow_lines rows ++ rest) (PTable acc TOpen)
-  = parse_lines rest (PTable (rev (flat_map ctrow_trows rows) ++ acc) TOpen).
+  forall rows range acc rest, forallb ctrow_ok rows = true ->
+  touch_extent range = range ->
+  parse_lines (flat_map ctrow_lines rows ++ rest) (PTable range acc (TOpen []))
+  = parse_lines rest
+      (PTable range (rev (flat_map ctrow_trows rows) ++ acc) (TOpen [])).
 Proof.
-  induction rows as [|r rows IH]; intros acc rest H; [reflexivity|].
+  induction rows as [|r rows IH]; intros range acc rest H Ht; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hr Hrows].
   cbn [flat_map]. rewrite <- app_assoc.
-  rewrite (parse_ctrow_cont _ _ _ Hr), (IH _ _ Hrows).
+  rewrite (parse_ctrow_cont _ _ _ _ Hr Ht), (IH _ _ _ Hrows Ht).
   rewrite rev_app_distr, <- app_assoc. reflexivity.
 Qed.
 
@@ -615,13 +621,17 @@ Qed.
 Lemma parse_ctable :
   forall rows rest, btables = true ->
   nonempty rows = true -> forallb ctrow_ok rows = true ->
+  exists range,
   parse_lines (flat_map ctrow_lines rows ++ rest) (PPara [])
-  = parse_lines rest (PTable (rev (flat_map ctrow_trows rows)) TOpen).
+  = parse_lines rest (PTable range (rev (flat_map ctrow_trows rows)) (TOpen [])).
 Proof.
   intros [|r rows] rest Htables Hne Hok; [discriminate Hne|].
   cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hr Hrows].
   cbn [flat_map]. rewrite <- app_assoc.
-  rewrite (parse_ctrow_open _ _ Htables Hr), (parse_ctrows _ _ _ Hrows).
+  destruct (parse_ctrow_open r (flat_map ctrow_lines rows ++ rest) Htables Hr)
+    as [range [Ht Hopen]].
+  exists range.
+  rewrite Hopen, (parse_ctrows _ _ _ _ Hrows Ht).
   rewrite rev_app_distr. reflexivity.
 Qed.
 
@@ -1324,7 +1334,9 @@ Blocks and block sequences
 Lemma parse_ckey_open :
   forall label ls, bkeyed = true -> ckey_label_ok label = true ->
     parse_lines ((ci_line [label] ++ ":") :: ls) (PPara [])
-    = parse_lines ls (PKey (ci_line [label]) (ci_line [label] ++ ":") (PPara [])).
+    = parse_lines ls
+        (PKey (open_extent (ci_line [label] ++ ":") 0)
+           (ci_line [label]) (ci_line [label] ++ ":") (PPara [])).
 Proof.
   intros label ls Hkeys Hlabel.
   destruct (ckey_label_ok_parts label Hlabel) as (_ & Hline & Htext & _ & Hsplit).
@@ -1395,12 +1407,15 @@ Proof.
       destruct (rev_cons_shape a ls') as [c [cur' Erev]].
     + rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
-      rewrite Erev, parse_lines_blank_cons by reflexivity.
+      rewrite Erev, remember_lines_cons, parse_lines_blank_cons by reflexivity.
+      rewrite <- remember_lines_cons, line_texts_rev_remember_lines.
       rewrite <- Erev, rev_involutive, Hast. reflexivity.
     + rewrite <- (app_nil_r (a :: ls')) at 1.
       rewrite parse_lines_para_seed by assumption.
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok).
-      rewrite Erev, parse_lines_nil_cons, <- Erev, rev_involutive, Hast.
+      rewrite Erev, remember_lines_cons, parse_lines_nil_cons.
+      rewrite <- remember_lines_cons, line_texts_rev_remember_lines.
+      rewrite <- Erev, rev_involutive, Hast.
       reflexivity.
   - (* thematic break *)
     split; [intros next tail _ _ H | intros H]; cbn [cb_lines app].
@@ -1416,19 +1431,19 @@ Proof.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence info Hinfo)).
       rewrite <- app_assoc.
-      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite parse_lines_fence_seed by first [exact Hnc | reflexivity].
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast.
       rewrite parse_lines_blank_nil by reflexivity. reflexivity.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence info Hinfo)).
-      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite parse_lines_fence_seed by first [exact Hnc | reflexivity].
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast. reflexivity.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast. reflexivity.
   - (* raw block *)
     intros format content. split; [intros next tail _ _ H | intros H];
       pose proof (fence_block_canonical_raw format content H) as Hast;
@@ -1438,19 +1453,19 @@ Proof.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence _ Hinfo)).
       rewrite <- app_assoc.
-      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite parse_lines_fence_seed by first [exact Hnc | reflexivity].
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r. cbn [app].
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast.
       rewrite parse_lines_blank_nil by reflexivity. reflexivity.
     + rewrite (parse_lines_fence_open _ _ _
                  (classify_backtick_fence _ Hinfo)).
-      rewrite parse_lines_fence_seed by exact Hnc.
+      rewrite parse_lines_fence_seed by first [exact Hnc | reflexivity].
       rewrite indent_of_code_open, map_drop_ws_upto_0.
       rewrite app_nil_r.
       rewrite parse_lines_fence_close by apply fence_close_canonical.
-      rewrite rev_involutive, Hast. reflexivity.
+      rewrite line_texts_rev_remember_lines, rev_involutive, Hast. reflexivity.
   - (* heading: open on the first line, accumulate the rest, close on the
        blank line or at end of input.  No first-line classification
        condition — the hashes make every rendered line a heading line. *)
@@ -1474,21 +1489,21 @@ Proof.
       cbn [map app];
       rewrite (parse_lines_heading_open _ _ _ a
                  (classify_canonical_heading lvl a Hlvl));
-      replace (push_text a []) with [a]
+      replace (push_text a []) with [remember_line a]
         by (unfold push_text; rewrite Hna;
             rewrite (line_ok_no_leading_ws _ Hlok_a); reflexivity).
     + rewrite <- Hast.
-      rewrite parse_lines_heading_seed_ok by assumption.
+      rewrite parse_lines_heading_seed_ok by first [assumption|reflexivity].
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
       rewrite parse_lines_heading_close by reflexivity.
-      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      unfold heading_block. sem_para. rewrite line_texts_rev_remember_snoc.
       reflexivity.
     + rewrite <- Hast.
       rewrite <- (app_nil_r (map (heading_line lvl) ls')).
-      rewrite parse_lines_heading_seed_ok by assumption.
+      rewrite parse_lines_heading_seed_ok by first [assumption|reflexivity].
       rewrite (forallb_line_ok_map_drop_leading_ws _ Hlok_ls').
-      rewrite parse_lines_nil. cbn [finish].
-      unfold heading_block. rewrite rev_app_distr, rev_involutive.
+      rewrite parse_lines_nil. cbn [finish]; nopos.
+      unfold heading_block. sem_para. rewrite line_texts_rev_remember_snoc.
       reflexivity.
   - (* quote: the contents parse at top level, then get wrapped *)
     intros inner IH.
@@ -1567,7 +1582,7 @@ Proof.
     intros label dest. split; [intros next tail _ _ H | intros H];
       cbn [cb_lines app];
       rewrite (parse_lines_ref_open _ _ _ _ (ref_ok_classify _ _ H)).
-    + rewrite (parse_lines_ref_blank EmptyString _ _ _ _
+    + rewrite (parse_lines_ref_blank EmptyString _ _ _ _ _
                  (classify_blank EmptyString eq_refl)).
       reflexivity.
     + reflexivity.
@@ -1591,16 +1606,22 @@ Proof.
         rewrite Enext in Hl. discriminate Hl. }
       destruct (cb_pair_ok_closes (CTable rows) next a ls eq_refl Hpair Enext)
         as [Hblank Hcap].
-      rewrite cb_lines_table, (parse_ctable _ _ Htables Hne Hrows).
-      rewrite (parse_lines_table_blank EmptyString _ _ (eq_refl true)).
+      rewrite cb_lines_table.
+      match goal with
+      | |- context [parse_lines (flat_map ctrow_lines rows ++ ?rest) (PPara [])] =>
+          destruct (parse_ctable rows rest Htables Hne Hrows) as [range Hpc]
+      end.
+      rewrite Hpc.
+      rewrite (parse_lines_table_blank EmptyString _ _ _ _ (eq_refl true)).
       cbn [app].
-      rewrite (parse_lines_table_close _ _ _ Hcap Hblank).
-      rewrite (table_block_ctable rows TAfterBlank Hrows (eq_refl None)).
+      rewrite (parse_lines_table_close _ _ _ _ _ Hcap Hblank).
+      rewrite (table_block_ctable rows (TAfterBlank []) Hrows (eq_refl None)).
       reflexivity.
     + intros H. destruct (Hparts H) as [Htables [Hne Hrows]].
       rewrite cb_lines_table, <- (app_nil_r (flat_map ctrow_lines rows)).
-      rewrite (parse_ctable _ _ Htables Hne Hrows), parse_lines_table_eof.
-      rewrite (table_block_ctable rows TOpen Hrows (eq_refl None)). reflexivity.
+      destruct (parse_ctable rows [] Htables Hne Hrows) as [range Hpc].
+      rewrite Hpc, parse_lines_table_eof.
+      rewrite (table_block_ctable rows (TOpen []) Hrows (eq_refl None)). reflexivity.
   - (* explicit id: the spec is complete on its own line, so it resolves
        against the wrapped block's first line and rides on whatever that
        block emits (`Parser.attr_uniformity`).  Nothing else about the
@@ -1647,14 +1668,14 @@ Proof.
     + intros next tail Hpair Hnext H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
       cbn [cb_lines app]. rewrite (parse_ckey_open _ _ Hkeys Hl).
-      rewrite (parse_lines_key_content _ _ _ _ _ Hcontent).
+      rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent).
       rewrite (IHtail next tail Hpair Hnext Hi).
       apply key_close_canonical, Hl.
     + intros H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
       cbn [cb_lines]. rewrite (parse_ckey_open _ _ Hkeys Hl).
       rewrite <- (app_nil_r (cb_lines inner)).
-      rewrite (parse_lines_key_content _ _ _ _ _ Hcontent), app_nil_r, (IHend Hi).
+      rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent), app_nil_r, (IHend Hi).
       apply key_close_canonical, Hl.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.

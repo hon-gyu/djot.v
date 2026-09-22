@@ -9,6 +9,12 @@ type nat =
 | O
 | S of nat
 
+(** val option_map : ('a1 -> 'a2) -> 'a1 option -> 'a2 option **)
+
+let option_map f = function
+| Some a -> Some (f a)
+| None -> None
+
 (** val fst : ('a1 * 'a2) -> 'a1 **)
 
 let fst = function

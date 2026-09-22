@@ -24,6 +24,12 @@ Sanity checks
 =============
 *)
 
+Example tagged_lines_keep_their_source_index :
+  run_lines_tagged (split_lines_indexed "a
+b") (PPara [])
+  = ([], PPara [(1, "b"); (0, "a")]).
+Proof. reflexivity. Qed.
+
 Example parse_two_paras :
   parse_blocks "hi
 there

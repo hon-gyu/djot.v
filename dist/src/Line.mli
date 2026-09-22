@@ -3,6 +3,8 @@ open Ast
 open Attributes
 open Datatypes
 open List0
+open ListDef
+open Nat0
 open PeanoNat
 open String0
 open Strings
@@ -137,6 +139,12 @@ val cell_trim_r : string -> string
 val cell_trim : string -> string
 
 val vb_step : nat -> nat -> nat
+
+val row_cell_entry : string -> nat -> nat -> ((string * nat) * nat) * nat
+
+val row_cells_trace :
+  string -> nat -> nat -> bool -> string -> (((string * nat) * nat) * nat)
+  list -> nat -> nat -> (((string * nat) * nat) * nat) list option
 
 val row_cells :
   string -> nat -> nat -> bool -> string -> string list -> string list option

@@ -1,5 +1,7 @@
+open Ast
 open Datatypes
 open DecimalString
+open List0
 open Nat0
 
 (** val is_ws : char -> bool **)
@@ -106,6 +108,80 @@ let nl =
 let split_lines = (fun s -> match List.rev (String.split_on_char '\n' s) with
      | "" :: rest -> List.rev rest
      | parts -> List.rev parts)
+
+(** val index_lines_from : nat -> string list -> (nat * string) list **)
+
+let rec index_lines_from i = function
+| [] -> []
+| l :: rest -> (i, l) :: (index_lines_from (S i) rest)
+
+(** val split_lines_indexed : string -> (nat * string) list **)
+
+let split_lines_indexed s =
+  index_lines_from O (split_lines s)
+
+type source_line = { source_line_start : nat; source_line_length : nat;
+                     source_line_ending : nat }
+
+(** val line_table_aux : string -> nat -> nat -> source_line list **)
+
+let rec line_table_aux s start len =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ ->
+    match len with
+    | O -> []
+    | S _ ->
+      { source_line_start = start; source_line_length = len;
+        source_line_ending = O } :: [])
+    (fun c rest ->
+    if (=) c '\n'
+    then { source_line_start = start; source_line_length = len;
+           source_line_ending = (S
+           O) } :: (line_table_aux rest (S (add start len)) O)
+    else line_table_aux rest start (S len))
+    s
+
+(** val line_table : string -> source_line list **)
+
+let line_table s =
+  line_table_aux s O O
+
+(** val source_line_at : source_line list -> nat -> source_line option **)
+
+let source_line_at =
+  nth_error
+
+type source_point = { source_byte : nat; source_line_index : nat;
+                      source_column : nat }
+
+type source_span = { source_span_start : source_point;
+                     source_span_stop : source_point }
+
+(** val resolve_spot : source_line list -> spot -> source_point option **)
+
+let resolve_spot lines p =
+  match source_line_at lines p.spot_line with
+  | Some l ->
+    if leb p.spot_rem l.source_line_length
+    then let col = sub l.source_line_length p.spot_rem in
+         Some { source_byte = (add l.source_line_start col);
+         source_line_index = p.spot_line; source_column = col }
+    else None
+  | None -> None
+
+(** val resolve_span : source_line list -> span -> source_span option **)
+
+let resolve_span lines r =
+  match resolve_spot lines r.span_start with
+  | Some a ->
+    (match resolve_spot lines r.span_stop with
+     | Some b -> Some { source_span_start = a; source_span_stop = b }
+     | None -> None)
+  | None -> None
 
 (** val no_nl : string -> bool **)
 

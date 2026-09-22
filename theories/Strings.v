@@ -5,6 +5,7 @@
 
 From Stdlib Require Import String Ascii List Bool Lia.
 From Stdlib Require DecimalString.
+From DjotV Require Import Ast.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -353,6 +354,100 @@ Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
   end.
 
 Definition split_lines (s : string) : list string := split_lines_aux s EmptyString.
+
+(* The located block driver consumes exactly [split_lines], paired with a
+   monotonically increasing source-line index.  Keeping this operation
+   separate makes the correspondence to the semantic driver explicit. *)
+Fixpoint index_lines_from (i : nat) (lines : list string)
+  : list (nat * string) :=
+  match lines with
+  | [] => []
+  | l :: rest => (i, l) :: index_lines_from (S i) rest
+  end.
+
+Definition split_lines_indexed (s : string) : list (nat * string) :=
+  index_lines_from 0 (split_lines s).
+
+Lemma map_snd_index_lines_from :
+  forall i lines, map snd (index_lines_from i lines) = lines.
+Proof.
+  intros i lines. revert i.
+  induction lines as [|l rest IH]; intros i; cbn; [reflexivity|].
+  rewrite IH. reflexivity.
+Qed.
+
+Lemma split_lines_indexed_values :
+  forall s, map snd (split_lines_indexed s) = split_lines s.
+Proof. intros s. apply map_snd_index_lines_from. Qed.
+
+(* One entry per line produced by [split_lines].  Starts and lengths are
+   byte counts.  [source_line_ending] is 1 precisely when LF terminated
+   the line; CR remains part of [source_line_length], matching the parser's
+   line model. *)
+Record source_line : Type := SourceLine
+  { source_line_start : nat
+  ; source_line_length : nat
+  ; source_line_ending : nat }.
+
+Fixpoint line_table_aux (s : string) (start len : nat)
+  : list source_line :=
+  match s with
+  | EmptyString =>
+      match len with
+      | 0 => []
+      | _ => [SourceLine start len 0]
+      end
+  | String c rest =>
+      if Ascii.eqb c "010"
+      then SourceLine start len 1
+           :: line_table_aux rest (S (start + len)) 0
+      else line_table_aux rest start (S len)
+  end.
+
+Definition line_table (s : string) : list source_line :=
+  line_table_aux s 0 0.
+
+Definition source_line_at (lines : list source_line) (i : nat)
+  : option source_line := nth_error lines i.
+
+(* Resolve the end-anchored internal coordinate once, at the API boundary.
+   Malformed spots are rejected rather than silently clamped. *)
+Definition spot_byte (lines : list source_line) (p : spot) : option nat :=
+  match source_line_at lines (spot_line p) with
+  | Some l =>
+      if Nat.leb (spot_rem p) (source_line_length l)
+      then Some (source_line_start l + source_line_length l - spot_rem p)
+      else None
+  | None => None
+  end.
+
+Record source_point : Type := SourcePoint
+  { source_byte : nat
+  ; source_line_index : nat
+  ; source_column : nat }.
+
+Record source_span : Type := SourceSpan
+  { source_span_start : source_point
+  ; source_span_stop : source_point }.
+
+Definition resolve_spot (lines : list source_line) (p : spot)
+  : option source_point :=
+  match source_line_at lines (spot_line p) with
+  | Some l =>
+      if Nat.leb (spot_rem p) (source_line_length l)
+      then
+        let col := source_line_length l - spot_rem p in
+        Some (SourcePoint (source_line_start l + col) (spot_line p) col)
+      else None
+  | None => None
+  end.
+
+Definition resolve_span (lines : list source_line) (r : span)
+  : option source_span :=
+  match resolve_spot lines (span_start r), resolve_spot lines (span_stop r) with
+  | Some a, Some b => Some (SourceSpan a b)
+  | _, _ => None
+  end.
 
 (* No embedded newline: the precondition for a string to survive a
    split/join round trip as a single line. *)

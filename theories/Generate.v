@@ -138,7 +138,7 @@ Definition keyed_accepted (d : nat) : list cblock :=
   filter (@cb_ok _ keyed_bconfig) (keyed_pool d).
 
 Definition keyed_rt_lhs (c : cblock) : blocks :=
-  @parse_blocks _ keyed_bconfig (render_djot (blocks_of_cblocks [c])).
+  @parse_blocks _ keyed_bconfig _ _ (render_djot (blocks_of_cblocks [c])).
 
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.

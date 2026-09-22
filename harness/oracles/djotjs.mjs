@@ -8,6 +8,10 @@
 //                out:  for each document, "<byte-length>\n" then that many bytes
 //              End of input ends the batch; outputs come back in order.
 //
+// `--parse-only` parses and discards, printing nothing: it exists so a
+// timing run can compare parse against parse without `renderHTML` in the
+// number.
+//
 // Batch exists because node startup (~70ms) dominates: the generated
 // corpus is hundreds of documents, and one process per document turns a
 // two-second run into a minute.  Framing is by byte length rather than a
@@ -37,9 +41,12 @@ const resetQuoteDefaults = () => {
   parse("'}", { warn });
 };
 
+const parseOnly = process.argv.includes("--parse-only");
+
 const convert = (s) => {
   resetQuoteDefaults();
-  return renderHTML(parse(s, { warn }), { warn });
+  const doc = parse(s, { warn });
+  return parseOnly ? "" : renderHTML(doc, { warn });
 };
 
 if (!process.argv.includes("--batch")) {

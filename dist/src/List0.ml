@@ -6,6 +6,16 @@ let hd default = function
 | [] -> default
 | x :: _ -> x
 
+(** val nth_error : 'a1 list -> nat -> 'a1 option **)
+
+let rec nth_error l = function
+| O -> (match l with
+        | [] -> None
+        | x :: _ -> Some x)
+| S n0 -> (match l with
+           | [] -> None
+           | _ :: l' -> nth_error l' n0)
+
 (** val last : 'a1 list -> 'a1 -> 'a1 **)
 
 let rec last l d =

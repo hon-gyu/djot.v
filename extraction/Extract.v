@@ -10,7 +10,7 @@
    so no conversion glue is needed on the OCaml side. *)
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
-From DjotV Require Import Strings Generate Html.
+From DjotV Require Import Strings Generate Html Step Document.
 From DjotVDev Require Import Fixtures.
 
 Extraction Language OCaml.
@@ -39,4 +39,5 @@ Extract Constant DjotV.Strings.split_lines =>
      | parts -> List.rev parts)".
 
 Separate Extraction convert generated accepted rt_lhs rt_rhs render_cb
-  keyed_accepted keyed_rt_lhs.
+  keyed_accepted keyed_rt_lhs parse_blocks_located parse_doc_located
+  line_table resolve_span.

@@ -795,4 +795,4 @@ let render_html d =
 (** val convert : string -> string **)
 
 let convert s =
-  render_html (parse_doc djot_table djot_bconfig s)
+  render_html (parse_doc djot_table djot_bconfig semantic_pos s)

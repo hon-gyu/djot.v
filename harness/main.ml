@@ -7,6 +7,7 @@
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
           [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]] [--report FILE] [--verbose]
+          [--time [N]]
           [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
@@ -15,8 +16,14 @@
    --generated runs the enumerated corpus instead of the file corpus,
    engine against engine; see "Generated mode" below.
    --shape compares block structure only; see "Block shape" below.
+   --located-bounds [N] checks every recorded span lies inside its
+     document and inside its parent, over the generated corpus at depth N
+     (default 2) and the file corpus.
+
    --roundtrip checks `parse (render d) = d` over the enumerated
-   documents and consults no oracle at all; see "Roundtrip" below. *)
+   documents and consults no oracle at all; see "Roundtrip" below.
+   --time [N] reads one document from stdin and prints the best of N
+   (default 5) wall times for the semantic and the located block parse. *)
 
 let root =
   (* harness runs from _build/default/harness; walk up to the repo root *)
@@ -341,6 +348,167 @@ let keyed_expected_counts = [ (1, 6628); (2, 81536) ]
 
 let rec nat_of_int n = if n <= 0 then Djot.Datatypes.O else Djot.Datatypes.S (nat_of_int (n - 1))
 
+(*
+Span bounds and containment
+===========================
+
+Two properties of a located parse, checked over whole corpora rather
+than over the fixtures' hand-written inputs.  *Bounds*: every span the
+tree carries resolves to a byte range inside the document, running
+forwards.  *Containment*: the tree nests, so a child's span lies inside
+its parent's and a part's inside the node that owns it.
+
+Syntax roles are bounds-checked and not contained, and that is by
+design rather than by omission: an `RAttrSpec` sits outside the node it
+decorates, because a spec belongs to a node without widening it
+(`.project/260916.plan.source-locations.md` section 4.4).  The fence
+roles do sit inside their block, but one rule per role buys nothing
+here -- containment's teeth are on children and parts, which is where
+the table caption's divergence showed up. *)
+
+let rec int_of_nat = function
+  | Djot.Datatypes.O -> 0
+  | Djot.Datatypes.S n -> 1 + int_of_nat n
+
+type failure = { kind : string; src : string; detail : string }
+
+let located_failures src =
+  let lines = Djot.Strings.line_table src in
+  let len = String.length src in
+  let bad = ref [] in
+  let note kind detail = bad := { kind; src; detail } :: !bad in
+  let bytes what span =
+    match Djot.Strings.resolve_span lines span with
+    | None -> note "unresolvable" what; None
+    | Some r ->
+      let a = int_of_nat r.Djot.Strings.source_span_start.Djot.Strings.source_byte
+      and b = int_of_nat r.Djot.Strings.source_span_stop.Djot.Strings.source_byte in
+      if a > b then (note "reversed" (Printf.sprintf "%s [%d,%d)" what a b); None)
+      else if b > len then
+        (note "out of bounds" (Printf.sprintf "%s [%d,%d) of %d" what a b len); None)
+      else Some (a, b)
+  in
+  let inside what child parent =
+    match child, parent with
+    | Some (a, b), Some (pa, pb) when a < pa || b > pb ->
+      note "not contained"
+        (Printf.sprintf "%s [%d,%d) outside [%d,%d)" what a b pa pb)
+    | _ -> ()
+  in
+  let prov what = function
+    | Djot.Ast.Node (Djot.Ast.NoPos, _, _) -> note "no position" what; None
+    | Djot.Ast.Node (Djot.Ast.SomePos p, _, _) ->
+      let own = bytes what p.Djot.Ast.node_span in
+      List.iter (fun (_, s) -> ignore (bytes (what ^ " role") s))
+        p.Djot.Ast.syntax_spans;
+      (match p.Djot.Ast.part_spans with
+       | Djot.Ast.PNone -> ()
+       | Djot.Ast.PItems items ->
+         List.iter (fun s -> inside (what ^ " item") (bytes (what ^ " item") s) own)
+           items
+       | Djot.Ast.PDefItems items ->
+         List.iter
+           (fun ((i, t), d) ->
+              List.iter
+                (fun (n, s) -> inside (what ^ n) (bytes (what ^ n) s) own)
+                [ (" def item", i); (" def term", t); (" def body", d) ])
+           items
+       | Djot.Ast.PTable (caption, rows) ->
+         (match caption with
+          | None -> ()
+          | Some s -> inside (what ^ " caption") (bytes (what ^ " caption") s) own);
+         List.iter
+           (fun (row, cells) ->
+              let r = bytes (what ^ " row") row in
+              inside (what ^ " row") r own;
+              List.iter
+                (fun c -> inside (what ^ " cell") (bytes (what ^ " cell") c) r)
+                cells)
+           rows);
+      own
+  in
+  let rec inlines parent ils =
+    List.iter
+      (fun n ->
+         let own = prov "inline" n in
+         inside "inline" own parent;
+         match n with
+         | Djot.Ast.Node (_, _, contents) ->
+           (match contents with
+            | Djot.Ast.Emph k | Djot.Ast.Strong k | Djot.Ast.Highlight k
+            | Djot.Ast.Insert k | Djot.Ast.Delete k
+            | Djot.Ast.Superscript k | Djot.Ast.Subscript k
+            | Djot.Ast.Span k | Djot.Ast.Quoted (_, k)
+            | Djot.Ast.Link (k, _) | Djot.Ast.Image (k, _) -> inlines own k
+            | _ -> ()))
+      ils
+  and blocks parent bs =
+    List.iter
+      (fun n ->
+         let own = prov "block" n in
+         inside "block" own parent;
+         match n with
+         | Djot.Ast.Node (_, _, contents) ->
+           (match contents with
+            | Djot.Ast.Para ils | Djot.Ast.Heading (_, ils) -> inlines own ils
+            | Djot.Ast.Section bs' | Djot.Ast.BlockQuote bs'
+            | Djot.Ast.Div bs' | Djot.Ast.FootnoteDef (_, bs') -> blocks own bs'
+            | Djot.Ast.Keyed (_, kid) -> blocks own [kid]
+            | Djot.Ast.OrderedList (_, _, items)
+            | Djot.Ast.BulletList (_, items) -> List.iter (blocks own) items
+            | Djot.Ast.TaskList (_, items) ->
+              List.iter (fun (_, item) -> blocks own item) items
+            | Djot.Ast.DefinitionList (_, items) ->
+              List.iter (fun (term, item) -> inlines own term; blocks own item) items
+            | Djot.Ast.Table (caption, rows) ->
+              (match caption with None -> () | Some ils -> inlines own ils);
+              List.iter
+                (List.iter (function Djot.Ast.Cell (_, _, ils) -> inlines own ils))
+                rows
+            | _ -> ()))
+      bs
+  in
+  blocks None
+    (Djot.Step.parse_blocks_located Djot.Inline.djot_table
+       Djot.Step.djot_bconfig src);
+  List.rev !bad
+
+let run_located_bounds depth files rbuf verbose =
+  let out fmt =
+    Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
+  in
+  (* Both corpora: the generator emits canonical source, so anything the
+     renderer escapes is outside its image by construction, and the file
+     corpus is where those bytes live. *)
+  let sources =
+    List.map Djot_fixtures.Fixtures.render_cb
+      (Djot_fixtures.Generate.accepted (nat_of_int depth))
+    @ List.map (fun (c : Corpus.case) -> c.input)
+        (List.concat_map Corpus.parse_file files)
+  in
+  let total = ref 0 and bad = ref 0 in
+  let seen = Hashtbl.create 16 in
+  List.iter
+    (fun src ->
+       incr total;
+       match located_failures src with
+       | [] -> ()
+       | fs ->
+         incr bad;
+         List.iter
+           (fun f ->
+              let n = try Hashtbl.find seen f.kind with Not_found -> 0 in
+              Hashtbl.replace seen f.kind (n + 1);
+              if !verbose || n < 3 then
+                out "\n--- %s: %s\nin %S\n" f.kind f.detail f.src)
+           fs)
+    sources;
+  out "\n== located bounds: %d documents (generated depth %d, plus the file corpus) ==\n"
+    !total depth;
+  out "spans bounded and contained   ok %6d   bad %4d\n" (!total - !bad) !bad;
+  Hashtbl.iter (fun k n -> out "  %-16s %4d\n" k n) seen;
+  !bad = 0
+
 let run_roundtrip ~keyed depth rbuf verbose =
   let out fmt =
     Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
@@ -398,6 +566,11 @@ let () =
      the same bytes, and without this ours is the one that cannot be. *)
   let convert_stdin = ref false in
   let convert_batch = ref false in
+  (* 0 is off; --time without a count means 5 *)
+  let time_parse = ref 0 in
+  (* span bounds and containment over both corpora; the number is the
+     generated depth *)
+  let located_bounds = ref None in
   let rec parse_args = function
     | [] -> ()
     | "--engines" :: v :: rest ->
@@ -423,9 +596,38 @@ let () =
     | "--roundtrip" :: rest -> roundtrip := Some 3; parse_args rest
     | "--convert" :: rest -> convert_stdin := true; parse_args rest
     | "--batch" :: rest -> convert_batch := true; parse_args rest
+    | "--time" :: d :: rest when int_of_string_opt d <> None ->
+      time_parse := int_of_string d; parse_args rest
+    | "--time" :: rest -> time_parse := 5; parse_args rest
+    | "--located-bounds" :: d :: rest when int_of_string_opt d <> None ->
+      located_bounds := Some (int_of_string d); parse_args rest
+    | "--located-bounds" :: rest -> located_bounds := Some 2; parse_args rest
     | f :: rest -> files := f :: !files; parse_args rest
   in
   parse_args (List.tl (Array.to_list Sys.argv));
+  if !time_parse <> 0 then begin
+    let n = !time_parse in
+    let input = In_channel.input_all stdin in
+    Printf.printf "== time: best of %d over %d bytes ==\n" n
+      (String.length input);
+    let time name f =
+      let best = ref infinity in
+      for _ = 1 to n do
+        let t0 = Unix.gettimeofday () in
+        ignore (Sys.opaque_identity (f input));
+        let t1 = Unix.gettimeofday () in
+        if t1 -. t0 < !best then best := t1 -. t0
+      done;
+      Printf.printf "%-22s %9.3f ms\n" name (!best *. 1000.)
+    in
+    time "parse_blocks" (fun s ->
+      Djot.Step.parse_blocks Djot.Inline.djot_table Djot.Step.djot_bconfig
+        Djot.Step.semantic_line_ix Djot.Ast.semantic_pos s);
+    time "parse_blocks_located" (fun s ->
+      Djot.Step.parse_blocks_located Djot.Inline.djot_table
+        Djot.Step.djot_bconfig s);
+    exit 0
+  end;
   if !convert_stdin then begin
     let input = In_channel.input_all stdin in
     if not !convert_batch then print_string (Djot.Html.convert input)
@@ -452,6 +654,14 @@ let () =
   end;
   if List.exists (fun e -> e.ename = "djoths") !engines then find_djoths ();
   let files = if !files = [] then default_files () else List.rev !files in
+  (match !located_bounds with
+   | None -> ()
+   | Some depth ->
+     let rbuf = Buffer.create 1024 in
+     let ok = run_located_bounds depth files rbuf verbose in
+     if !report <> "" then Out_channel.with_open_text !report
+       (fun oc -> Out_channel.output_string oc (Buffer.contents rbuf));
+     exit (if ok then 0 else 1));
   let rbuf = Buffer.create 4096 in
   let out fmt = Printf.ksprintf (fun s ->
     print_string s; Buffer.add_string rbuf s) fmt

@@ -97,8 +97,19 @@ Definition s_lstyle (y : lstyle) : string :=
 Definition s_cand (p : lstyle * nat) : string :=
   s_lstyle (fst p) ++ s_nat (snd p).
 
+Definition s_spot (p : spot) : string :=
+  "@" ++ s_nat (spot_line p) ++ ":" ++ s_nat (spot_rem p).
+
+Definition s_extent (e : extent) : string :=
+  "[" ++ s_spot (extent_start e) ++ s_spot (extent_stop e) ++ "]".
+
+Definition s_span (e : span) : string :=
+  "[" ++ s_spot (span_start e) ++ s_spot (span_stop e) ++ "]".
+
 Definition s_lstate (ls : list_state) : string :=
-  s_nat (ls_indent ls) ++ s_list s_cand (ls_styles ls)
+  s_nat (ls_indent ls) ++ s_extent (ls_extent ls)
+  ++ s_extent (ls_item_extent ls) ++ s_list s_extent (ls_item_extents ls)
+  ++ s_list s_cand (ls_styles ls)
   ++ s_bool (ls_loose ls) ++ s_bool (ls_blanks ls)
   ++ s_list s_blocks (ls_items ls).
 
@@ -116,34 +127,43 @@ Definition s_trow (r : trow) : string :=
 
 Definition s_tcap (c : tcap) : string :=
   match c with
-  | TOpen => "-"
-  | TAfterBlank => "b"
-  | TCaption ls => "cap" ++ s_list s_str ls
+  | TOpen _ => "-"
+  | TAfterBlank _ => "b"
+  | TCaption _ _ ls => "cap" ++ s_list s_str (map snd ls)
   end.
 
 Fixpoint show_pstate (st : pstate) : string :=
   match st with
-  | PPara cur => "Para" ++ s_list s_str cur
-  | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str cur
-  | PHeading lvl cur => "Head" ++ s_nat lvl ++ s_list s_str cur
-  | PFence f ind acc => "Fence" ++ s_fence f ++ s_nat ind ++ s_list s_str acc
-  | PQuote done inner => "Quote" ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
-  | PDiv len cls done inner =>
-      "Div" ++ s_nat len ++ s_str cls ++ s_blocks done
+  | PPara cur => "Para" ++ s_list s_str (map snd cur)
+  | PParaOff k cur => "ParaOff" ++ s_nat k ++ s_list s_str (map snd cur)
+  | PHeading lvl _ cur => "Head" ++ s_nat lvl ++ s_list s_str (map snd cur)
+  | PFence f ind range opener acc =>
+      "Fence" ++ s_fence f ++ s_nat ind ++ s_extent range ++ s_span opener
+      ++ s_list s_str (map snd acc)
+  | PQuote range done inner =>
+      "Quote" ++ s_extent range ++ s_blocks done
       ++ "(" ++ show_pstate inner ++ ")"
+  | PDiv len cls range opener done inner =>
+      "Div" ++ s_nat len ++ s_str cls ++ s_extent range ++ s_span opener
+      ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
   | PList ls done inner =>
       "List" ++ s_lstate ls ++ s_blocks done ++ "(" ++ show_pstate inner ++ ")"
-  | PAttr pend ind ap slices =>
-      "Attr" ++ s_attr pend ++ s_nat ind ++ s_aparser ap ++ s_list s_str slices
-  | PRef ind lbl val => "Ref" ++ s_nat ind ++ s_str lbl ++ s_str val
-  | PFoot ind lbl done inner =>
-      "Foot" ++ s_nat ind ++ s_str lbl ++ s_blocks done
+  | PAttr pend specs range ind ap slices =>
+      "Attr" ++ s_attr pend ++ s_list s_span specs ++ s_extent range
+      ++ s_nat ind ++ s_aparser ap ++ s_list s_str (map snd slices)
+  | PRef range ind lbl val =>
+      "Ref" ++ s_extent range ++ s_nat ind ++ s_str lbl ++ s_str val
+  | PFoot range ind lbl done inner =>
+      "Foot" ++ s_extent range ++ s_nat ind ++ s_str lbl ++ s_blocks done
       ++ "(" ++ show_pstate inner ++ ")"
-  | PTable rows cap => "Table" ++ s_list s_trow rows ++ s_tcap cap
-  | PPend pend inner =>
-      "Pend" ++ s_attr pend ++ "(" ++ show_pstate inner ++ ")"
-  | PKey lbl src inner =>
-      "Key" ++ s_str lbl ++ s_str src ++ "(" ++ show_pstate inner ++ ")"
+  | PTable range rows cap =>
+      "Table" ++ s_extent range ++ s_list s_trow rows ++ s_tcap cap
+  | PPend pend specs inner =>
+      "Pend" ++ s_attr pend ++ s_list s_span specs
+      ++ "(" ++ show_pstate inner ++ ")"
+  | PKey range lbl src inner =>
+      "Key" ++ s_extent range ++ s_str lbl ++ s_str src
+      ++ "(" ++ show_pstate inner ++ ")"
   end.
 
 Definition st_eqb (a b : pstate) : bool :=
@@ -384,8 +404,9 @@ Definition keyed_sl : list (pstate * string) := pairs keyed_pool line_pool.
    `PKey` in it refutes nothing about a key. *)
 Fixpoint holds_key (st : pstate) : bool :=
   match st with
-  | PKey _ _ _ => true
-  | PList _ _ i | PDiv _ _ _ i | PFoot _ _ _ i | PPend _ i | PQuote _ i =>
+  | PKey _ _ _ _ => true
+  | PList _ _ i | PDiv _ _ _ _ _ i | PFoot _ _ _ _ i | PPend _ _ i
+  | PQuote _ _ i =>
       holds_key i
   | _ => false
   end.
@@ -430,23 +451,23 @@ Definition is_suffix (t l : string) : bool :=
 
 (* The strings a state keeps for a later line-level reading: paragraph,
    heading and caption lines, fence content, recovery slices. *)
-Fixpoint line_texts (st : pstate) : list string :=
+Fixpoint state_line_texts (st : pstate) : list string :=
   match st with
-  | PPara cur | PParaOff _ cur | PHeading _ cur => cur
-  | PFence _ _ acc => acc
-  | PAttr _ _ _ slices => slices
-  | PTable _ (TCaption ls) => ls
-  | PQuote _ i | PDiv _ _ _ i | PList _ _ i | PFoot _ _ _ i | PPend _ i
-  | PKey _ _ i => line_texts i
+  | PPara cur | PParaOff _ cur | PHeading _ _ cur => map snd cur
+  | PFence _ _ _ _ acc => map snd acc
+  | PAttr _ _ _ _ _ slices => map snd slices
+  | PTable _ _ (TCaption _ _ ls) => map snd ls
+  | PQuote _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
+  | PPend _ _ i | PKey _ _ _ i => state_line_texts i
   | _ => []
   end.
 
 Fixpoint cell_texts (st : pstate) : list string :=
   match st with
-  | PTable rows _ =>
+  | PTable _ rows _ =>
       flat_map (fun r => match r with TCells cs => cs | TSep _ => [] end) rows
-  | PQuote _ i | PDiv _ _ _ i | PList _ _ i | PFoot _ _ _ i | PPend _ i
-  | PKey _ _ i => cell_texts i
+  | PQuote _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
+  | PPend _ _ i | PKey _ _ _ i => cell_texts i
   | _ => []
   end.
 
@@ -462,7 +483,7 @@ Definition texts_suffix (f : pstate -> list string) (p : pstate * string)
 (* Every stored line is a suffix of the line it came from, untrimmed at
    the end, so its column is `length l - length t` and needs no field.
    Expect all-pass. *)
-Compute report show_sl (fun p => holds (texts_suffix line_texts p)) sl_pool.
+Compute report show_sl (fun p => holds (texts_suffix state_line_texts p)) sl_pool.
 
 (* Table cells are the exception: trimmed infixes.  Expect failures, all
    on `| a |`; a cell's position has to be recorded by the row scanner. *)
@@ -479,7 +500,7 @@ Fixpoint run_tagged (i : nat) (ls : list string) (st : pstate)
   | l :: rest =>
       let st' := snd (step l st) in
       map (fun t => (i, String.length t, String.length l - String.length t))
-          (new_texts line_texts st st')
+          (new_texts state_line_texts st st')
       ++ run_tagged (S i) rest st'
   end.
 

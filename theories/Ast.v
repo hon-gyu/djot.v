@@ -180,12 +180,57 @@ Qed.
 Local Definition attr_apply (pending a : attr) : attr :=
   fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
 
-(* Source positions: start line/col, end line/col.  Carried for fidelity
-   with the oracles; the harness skips sourcepos cases, so nothing renders
-   these yet. *)
+(* A point in the source.  [spot_rem] counts bytes from the point to the
+   end of its line (the line terminator is not part of the line).  The
+   right-hand coordinate is deliberate: container parsing repeatedly
+   removes prefixes, and prefixing a line must not move a point in the
+   suffix that remains. *)
+Record spot : Type := Spot
+  { spot_line : nat
+  ; spot_rem : nat }.
+
+(* Source ranges are half-open. *)
+Record span : Type := SrcSpan
+  { span_start : spot
+  ; span_stop : spot }.
+
+(* The byte the inline scanner is dispatching.  Like [LineIx], this is
+   an observation only: the semantic driver installs the inert instance
+   below, while the located driver supplies the two ends of each byte.
+   Keeping it implicit lets the grammar stay one definition. *)
+Class InlineCursor : Type := CursorAt
+  { cursor_start : spot
+  ; cursor_stop : spot
+  ; cursor_origin : spot }.
+
+#[export] Instance semantic_inline_cursor : InlineCursor :=
+  CursorAt (Spot 0 0) (Spot 0 0) (Spot 0 0).
+
+(* Authored syntax which belongs to a node without widening the semantic
+   node's own range.  The fence roles are also how a consumer distinguishes
+   an unterminated fence from one with a closing line. *)
+Inductive syntax_role : Type :=
+  | RAttrSpec
+  | ROpenFence
+  | RCloseFence.
+
+(* Some source-bearing parts of the semantic AST are not [node]s.  Keep
+   their ranges parallel to their parent's children rather than changing
+   the semantic tree merely to carry provenance. *)
+Inductive parts : Type :=
+  | PNone
+  | PItems (items : list span)
+  | PDefItems (items : list (span * span * span))
+  | PTable (caption : option span) (rows : list (span * list span)).
+
+Record provenance : Type := Provenance
+  { node_span : span
+  ; syntax_spans : list (syntax_role * span)
+  ; part_spans : parts }.
+
 Inductive pos : Type :=
   | NoPos
-  | SomePos (sl sc el ec : nat).
+  | SomePos (p : provenance).
 
 (* Every AST element is wrapped in a node carrying its position and
    attributes; `inline` and `block` below are the payloads. *)
@@ -193,6 +238,12 @@ Inductive node (A : Type) : Type :=
   | Node (p : pos) (a : attr) (x : A).
 
 Arguments Node {A} p a x.
+
+Definition node_provenance {A : Type} (n : node A) : option provenance :=
+  match n with
+  | Node NoPos _ _ => None
+  | Node (SomePos p) _ _ => Some p
+  end.
 
 (* The bare node: no position, no attributes.  Everything the parser
    currently builds is `mk`-wrapped, so proofs can compute through it. *)
@@ -213,6 +264,246 @@ Definition add_attr {A : Type} (a : attr) (n : node A) : node A :=
 Lemma add_attr_mk :
   forall A (a : attr) (x : A), add_attr a (mk x) = Node NoPos a x.
 Proof. reflexivity. Qed.
+
+(* How a parse tags the nodes it builds.  One grammar, two observations:
+   the parser is written once against this class, and an instance decides
+   whether the provenance it computes reaches the AST.
+
+   `semantic_pos` discards it, so `posnode p x` is `mk x` by conversion
+   (`posnode_semantic`) and a statement written at that instance is the
+   statement it was before locations existed.  A file that opens no
+   policy context resolves `mkpos` to it, which is why nothing outside
+   the located driver changes; `Check @thm` on a statement that is meant
+   to hold for every policy is what shows the binder is really there.
+
+   `pos_records` is the same question asked without a provenance to
+   hand.  A pass that extends provenance a node already carries has to
+   look inside the node, and looking inside it is what stops it reducing
+   against an arbitrary one; asking the policy first is what keeps it an
+   identity.  `pos_off` is the field that makes the answer mean
+   something. *)
+Class PosPolicy : Type := PosOf
+  { mkpos : provenance -> pos
+  ; pos_records : bool
+  ; pos_off : pos_records = false -> forall p, mkpos p = NoPos }.
+
+#[export] Instance semantic_pos : PosPolicy :=
+  PosOf (fun _ => NoPos) false (fun _ _ => eq_refl).
+
+Definition located_pos : PosPolicy :=
+  PosOf SomePos true (fun H => ltac:(discriminate H)).
+
+(* The one constructor the parser builds nodes with.  Attributes are
+   attached afterwards, as they are today (`add_attr`). *)
+Definition posnode `{PosPolicy} {A : Type} (p : provenance) (x : A) : node A :=
+  Node (mkpos p) [] x.
+
+(* Erasure of one node: what the located parse has to agree with the
+   semantic one on.  Attributes are not provenance and stay. *)
+Definition erase_node {A : Type} (n : node A) : node A :=
+  match n with Node _ a x => Node NoPos a x end.
+
+(* A span a scan *stores* in its own state, as opposed to one a node
+   carries.  Asked of the policy, so that a state built by a policy which
+   records nothing holds no coordinates at all -- which is what makes
+   erasure of such a state the identity, and the inline refinement one
+   equation instead of an equation and an invariant over the state. *)
+Definition null_span : span := SrcSpan (Spot 0 0) (Spot 0 0).
+
+Definition pspan `{PosPolicy} (r : span) : span :=
+  if pos_records then r else null_span.
+
+Lemma pspan_semantic : forall r, @pspan semantic_pos r = null_span.
+Proof. reflexivity. Qed.
+
+(* A node whose provenance is just its range: no authored syntax beside
+   it, no non-node parts under it. *)
+Definition prov_at (r : span) : provenance := Provenance r [] PNone.
+
+(* The same with the authored syntax that belongs to the node without
+   widening it: a fence's own lines, an attribute spec. *)
+Definition prov_with (r : span) (rs : list (syntax_role * span))
+  : provenance := Provenance r rs PNone.
+
+(* Attribute specs, in source order, as the roles they become. *)
+Definition attr_roles (specs : list span) : list (syntax_role * span) :=
+  map (fun r => (RAttrSpec, r)) specs.
+
+(* The same, applied to a node already built.  Every block the parser
+   assembles is built by a helper that knows the block's shape and not
+   its source, so provenance is attached where the source is known: at
+   the state that closes.  Attributes the helper set are kept. *)
+(* Written as a test on the policy's answer rather than on the node, so
+   that a policy which records nothing leaves the node it was handed --
+   by conversion, for an arbitrary node.  Every statement about the
+   semantic parse is then the statement it was before locations
+   existed, with no rewriting anywhere. *)
+Definition set_pos `{PosPolicy} {A : Type} (p : provenance) (n : node A)
+  : node A :=
+  match mkpos p with
+  | NoPos => n
+  | q => match n with Node _ a x => Node q a x end
+  end.
+
+Lemma set_pos_mk :
+  forall `{PosPolicy} A (p : provenance) (x : A),
+    set_pos p (mk x) = posnode p x.
+Proof.
+  intros. unfold set_pos, posnode, mk. destruct (mkpos p); reflexivity.
+Qed.
+
+(* Provenance on the head of a list a container emitted.  The head is
+   the block the container is: `key_close` and `decorate_head` both
+   build one there. *)
+Definition pos_head `{PosPolicy} {A : Type} (p : provenance)
+  (ns : list (node A)) : list (node A) :=
+  match mkpos p with
+  | NoPos => ns
+  | _ => match ns with
+         | [] => []
+         | n :: rest => (set_pos p n :: rest)%list
+         end
+  end.
+
+(* Authored syntax that belongs to a node built earlier: an attribute
+   spec settles before the block it decorates is emitted, and a fence's
+   lines are known one at a time.  Unlike `set_pos` this has to read the
+   provenance the node already carries, so it asks the policy first and
+   is the identity by conversion when the answer is that nothing is
+   recorded. *)
+Definition add_roles `{PosPolicy} {A : Type}
+  (rs : list (syntax_role * span)) (n : node A) : node A :=
+  if pos_records then
+    match n with
+    | Node (SomePos p) a x =>
+        Node (SomePos (Provenance (node_span p)
+                         (syntax_spans p ++ rs)%list (part_spans p))) a x
+    | _ => n
+    end
+  else n.
+
+Definition add_roles_head `{PosPolicy} {A : Type}
+  (rs : list (syntax_role * span)) (ns : list (node A)) : list (node A) :=
+  if pos_records then
+    match ns with
+    | [] => []
+    | n :: rest => (add_roles rs n :: rest)%list
+    end
+  else ns.
+
+Lemma add_roles_off :
+  forall `{PosPolicy} A rs (n : node A),
+    pos_records = false -> add_roles rs n = n.
+Proof. intros. unfold add_roles. rewrite H0. reflexivity. Qed.
+
+Lemma add_roles_head_off :
+  forall `{PosPolicy} A rs (ns : list (node A)),
+    pos_records = false -> add_roles_head rs ns = ns.
+Proof. intros. unfold add_roles_head. rewrite H0. reflexivity. Qed.
+
+(* The hull of what a list of nodes covers: the first one's start to the
+   last one's stop.  A `Section` is built by the document pass out of a
+   heading and the blocks under it, so its range is theirs; it is a
+   region of the source, not an invented span. *)
+Definition hull_pos `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
+  if pos_records then
+    match ns with
+    | [] => NoPos
+    | first :: _ =>
+        match node_provenance first, node_provenance (List.last ns first) with
+        | Some p, Some q =>
+            SomePos (prov_at (SrcSpan (span_start (node_span p))
+                                      (span_stop (node_span q))))
+        | _, _ => NoPos
+        end
+    end
+  else NoPos.
+
+(* The same, keeping the authored syntax of the node the hull opens
+   with.  The document pass moves a heading's id onto the section it
+   opens, and the spec that authored the id has to be reachable from
+   whatever carries it. *)
+Definition hull_pos_with `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
+  match hull_pos ns with
+  | NoPos => NoPos
+  | SomePos p =>
+      match ns with
+      | [] => SomePos p
+      | first :: _ =>
+          match node_provenance first with
+          | Some q => SomePos (Provenance (node_span p) (syntax_spans q)
+                                 (part_spans p))
+          | None => SomePos p
+          end
+      end
+  end.
+
+Lemma hull_pos_with_semantic :
+  forall A (ns : list (node A)), @hull_pos_with semantic_pos A ns = NoPos.
+Proof. reflexivity. Qed.
+
+Lemma hull_pos_off :
+  forall `{PosPolicy} A (ns : list (node A)),
+    pos_records = false -> hull_pos ns = NoPos.
+Proof. intros. unfold hull_pos. rewrite H0. reflexivity. Qed.
+
+(* At the semantic instance the wrappers are the identity. *)
+Lemma hull_pos_semantic :
+  forall A (ns : list (node A)), @hull_pos semantic_pos A ns = NoPos.
+Proof. reflexivity. Qed.
+
+Lemma add_roles_semantic :
+  forall A rs (n : node A), @add_roles semantic_pos A rs n = n.
+Proof. reflexivity. Qed.
+
+Lemma add_roles_head_semantic :
+  forall A rs (ns : list (node A)), @add_roles_head semantic_pos A rs ns = ns.
+Proof. reflexivity. Qed.
+
+Lemma pos_head_semantic :
+  forall A (p : provenance) (ns : list (node A)),
+    @pos_head semantic_pos A p ns = ns.
+Proof. reflexivity. Qed.
+
+Lemma set_pos_semantic :
+  forall A (p : provenance) (n : node A), @set_pos semantic_pos A p n = n.
+Proof. reflexivity. Qed.
+
+(* A proof that has just reduced a closing arm meets the wrappers and
+   nothing else.  They are the identity at the semantic instance, but
+   `rewrite` is syntactic, so it needs saying. *)
+Ltac nopos :=
+  rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
+    ?add_roles_head_semantic, ?hull_pos_semantic, ?hull_pos_with_semantic.
+
+Lemma set_pos_located :
+  forall A (p : provenance) (q : pos) (a : attr) (x : A),
+    @set_pos located_pos A p (Node q a x) = Node (SomePos p) a x.
+Proof. reflexivity. Qed.
+
+(* What erasing a located node gives: the node the semantic parse built
+   at the same site.  The wrapper is the only thing between them. *)
+Lemma erase_set_pos :
+  forall `{PosPolicy} A (p : provenance) (n : node A),
+    erase_node (set_pos p n) = erase_node n.
+Proof.
+  intros. unfold set_pos. destruct (mkpos p); [reflexivity|].
+  destruct n; reflexivity.
+Qed.
+
+Lemma posnode_semantic :
+  forall A (p : provenance) (x : A), @posnode semantic_pos A p x = mk x.
+Proof. reflexivity. Qed.
+
+Lemma posnode_located :
+  forall A (p : provenance) (x : A),
+    @posnode located_pos A p x = Node (SomePos p) [] x.
+Proof. reflexivity. Qed.
+
+Lemma erase_posnode :
+  forall `{PosPolicy} A (p : provenance) (x : A),
+    erase_node (posnode p x) = @posnode semantic_pos A p x.
+Proof. intros. unfold posnode. destruct (mkpos p); reflexivity. Qed.
 
 (*
 Inline elements
@@ -258,6 +549,69 @@ Inductive inline : Type :=
   | HardBreak.
 
 Definition inlines : Type := list (node inline).
+
+(* The two-predicate induction `block_ind2` is, for the inline tree: an
+   `inlines` is two type constructors away from `inline`, so the
+   generated principle stops at a container's children.  Every proof
+   about a traversal of an inline tree needs this. *)
+Definition inline_ind2
+  (P : inline -> Prop) (Q : inlines -> Prop)
+  (hstr : forall s, P (Str s))
+  (hemph : forall ils, Q ils -> P (Emph ils))
+  (hstrong : forall ils, Q ils -> P (Strong ils))
+  (hhigh : forall ils, Q ils -> P (Highlight ils))
+  (hins : forall ils, Q ils -> P (Insert ils))
+  (hdel : forall ils, Q ils -> P (Delete ils))
+  (hsup : forall ils, Q ils -> P (Superscript ils))
+  (hsub : forall ils, Q ils -> P (Subscript ils))
+  (hverb : forall s, P (Verbatim s))
+  (hsym : forall s, P (Symbol s))
+  (hmath : forall st s, P (Math st s))
+  (hlink : forall ils tgt, Q ils -> P (Link ils tgt))
+  (himage : forall ils tgt, Q ils -> P (Image ils tgt))
+  (hspan : forall ils, Q ils -> P (Span ils))
+  (hfoot : forall label, P (FootnoteReference label))
+  (hurl : forall url, P (UrlLink url))
+  (hmail : forall email, P (EmailLink email))
+  (hraw : forall format s, P (RawInline format s))
+  (hnbsp : P NonBreakingSpace)
+  (hquoted : forall qt ils, Q ils -> P (Quoted qt ils))
+  (hsoft : P SoftBreak)
+  (hhard : P HardBreak)
+  (hnil : Q [])
+  (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
+  : forall i, P i :=
+  fix go (i : inline) : P i :=
+    let golist :=
+      fix golist (ns : inlines) : Q ns :=
+        match ns with
+        | [] => hnil
+        | Node p a x :: rest => hcons p a x rest (go x) (golist rest)
+        end in
+    match i with
+    | Str s => hstr s
+    | Emph ils => hemph ils (golist ils)
+    | Strong ils => hstrong ils (golist ils)
+    | Highlight ils => hhigh ils (golist ils)
+    | Insert ils => hins ils (golist ils)
+    | Delete ils => hdel ils (golist ils)
+    | Superscript ils => hsup ils (golist ils)
+    | Subscript ils => hsub ils (golist ils)
+    | Verbatim s => hverb s
+    | Symbol s => hsym s
+    | Math st s => hmath st s
+    | Link ils tgt => hlink ils tgt (golist ils)
+    | Image ils tgt => himage ils tgt (golist ils)
+    | Span ils => hspan ils (golist ils)
+    | FootnoteReference label => hfoot label
+    | UrlLink url => hurl url
+    | EmailLink email => hmail email
+    | RawInline format s => hraw format s
+    | NonBreakingSpace => hnbsp
+    | Quoted qt ils => hquoted qt ils (golist ils)
+    | SoftBreak => hsoft
+    | HardBreak => hhard
+    end.
 
 (*
 Block elements
@@ -347,6 +701,166 @@ Inductive block : Type :=
 
 Definition blocks : Type := list (node block).
 
+(* Forget source provenance throughout a tree while preserving attributes
+   and semantic payloads.  [erase_node] above is deliberately shallow;
+   these are the deep traversals the refinement is stated with.
+
+   Deep exactly where the located parse records positions: a paragraph's
+   and a heading's inlines, and a definition term, which is a paragraph's.
+   A keyed block's label is still built by the ambient instance.  Table
+   cells and captions are scanned under the recording policy, so their
+   inline children are erased too. *)
+Fixpoint erase_inline (i : inline) : inline :=
+  let go :=
+    fix go (ils : inlines) : inlines :=
+      match ils with
+      | [] => []
+      | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
+      end in
+  match i with
+  | Emph ils => Emph (go ils)
+  | Strong ils => Strong (go ils)
+  | Highlight ils => Highlight (go ils)
+  | Insert ils => Insert (go ils)
+  | Delete ils => Delete (go ils)
+  | Superscript ils => Superscript (go ils)
+  | Subscript ils => Subscript (go ils)
+  | Link ils tgt => Link (go ils) tgt
+  | Image ils tgt => Image (go ils) tgt
+  | Span ils => Span (go ils)
+  | Quoted qt ils => Quoted qt (go ils)
+  | x => x
+  end.
+
+Definition erase_inode (n : node inline) : node inline :=
+  match n with Node _ a x => Node NoPos a (erase_inline x) end.
+
+Fixpoint erase_inlines (ils : inlines) : inlines :=
+  match ils with
+  | [] => []
+  | n :: rest => erase_inode n :: erase_inlines rest
+  end.
+
+Lemma erase_inlines_cons : forall (n : node inline) (l : inlines),
+  erase_inlines (n :: l)%list = (erase_inode n :: erase_inlines l)%list.
+Proof. reflexivity. Qed.
+
+(* The traversal inside [erase_inline] is [erase_inlines]; the guard
+   condition is why it cannot be spelled as one mutual fixpoint. *)
+Lemma erase_inline_children : forall ils : inlines,
+  (fix go (ils : inlines) : inlines :=
+     match ils with
+     | [] => []
+     | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
+     end) ils = erase_inlines ils.
+Proof.
+  induction ils as [|[p a x] ils IH]; [reflexivity|].
+  cbn [erase_inlines erase_inode]. rewrite IH. reflexivity.
+Qed.
+
+Lemma erase_inlines_map : forall (xs : inlines),
+  erase_inlines xs = map erase_inode xs.
+Proof.
+  induction xs as [|n xs IH]; [reflexivity|].
+  rewrite erase_inlines_cons, IH. reflexivity.
+Qed.
+
+Lemma erase_inlines_app : forall (xs ys : inlines),
+  erase_inlines (xs ++ ys)%list =
+  (erase_inlines xs ++ erase_inlines ys)%list.
+Proof. intros xs ys. rewrite !erase_inlines_map. apply map_app. Qed.
+
+Definition erase_cell (c : cell) : cell :=
+  match c with Cell ct al ils => Cell ct al (erase_inlines ils) end.
+
+Definition erase_row (r : list cell) : list cell := map erase_cell r.
+
+Lemma erase_inlines_rev : forall (xs : inlines),
+  erase_inlines (rev xs) = rev (erase_inlines xs).
+Proof. intros xs. rewrite !erase_inlines_map. apply map_rev. Qed.
+
+
+Fixpoint erase_block (b : block) : block :=
+  let go :=
+    fix go (bs : blocks) : blocks :=
+      match bs with
+      | [] => []
+      | Node _ a x :: rest => Node NoPos a (erase_block x) :: go rest
+      end in
+  let goitems :=
+    fix goitems (items : list blocks) : list blocks :=
+      match items with
+      | [] => []
+      | item :: rest => go item :: goitems rest
+      end in
+  match b with
+  | Para ils => Para (erase_inlines ils)
+  | Section bs => Section (go bs)
+  | Heading lvl ils => Heading lvl (erase_inlines ils)
+  | BlockQuote bs => BlockQuote (go bs)
+  | Div bs => Div (go bs)
+  | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
+  | BulletList sp items => BulletList sp (goitems items)
+  | TaskList sp items =>
+      TaskList sp
+        ((fix gotasks (items : list (task_status * blocks)) :=
+            match items with
+            | [] => []
+            | (status, item) :: rest =>
+                (status, go item) :: gotasks rest
+            end) items)
+  | DefinitionList sp items =>
+      DefinitionList sp
+        ((fix godefs (items : list (inlines * blocks)) :=
+            match items with
+            | [] => []
+            | (term, item) :: rest =>
+                (erase_inlines term, go item) :: godefs rest
+            end) items)
+  | Table caption rows =>
+      Table (option_map erase_inlines caption) (map erase_row rows)
+  | FootnoteDef label bs => FootnoteDef label (go bs)
+  | Keyed label (Node _ a x) =>
+      Keyed label (Node NoPos a (erase_block x))
+  | x => x
+  end.
+
+Fixpoint erase_blocks (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node _ a b :: rest =>
+      Node NoPos a (erase_block b) :: erase_blocks rest
+  end.
+
+Lemma erase_blocks_app : forall (xs ys : blocks),
+  erase_blocks (xs ++ ys)%list =
+  (erase_blocks xs ++ erase_blocks ys)%list.
+Proof.
+  induction xs as [|[p a b] xs IH]; intros ys; cbn; rewrite ?IH; reflexivity.
+Qed.
+
+Lemma erase_blocks_rev : forall (xs : blocks),
+  erase_blocks (rev xs) = rev (erase_blocks xs).
+Proof.
+  induction xs as [|[p a b] xs IH].
+  - reflexivity.
+  - cbn [rev]. rewrite erase_blocks_app. cbn [erase_blocks].
+    rewrite IH. reflexivity.
+Qed.
+
+(* `set_pos` and `pos_head` write a node's position and nothing else, so
+   erasure sees straight through them.  Both are stated over a whole list
+   because that is the shape every caller has: a block just built, in
+   front of what the state below it emitted. *)
+Lemma erase_blocks_set_pos : forall (p : provenance) (n : node block) rest,
+  erase_blocks (@set_pos located_pos block p n :: rest)%list =
+  erase_blocks (n :: rest)%list.
+Proof. intros p [q a b] rest; reflexivity. Qed.
+
+Lemma erase_blocks_pos_head : forall (p : provenance) (bs : blocks),
+  erase_blocks (@pos_head located_pos block p bs) = erase_blocks bs.
+Proof. intros p [|[q a b] rest]; reflexivity. Qed.
+
 (* Attach pending block attributes to the first of the blocks a container
    produced.  djot.js attaches them when the container *opens*
    (parse.ts:183); here a container is only reified when it closes, so
@@ -435,6 +949,63 @@ Fixpoint task_items (chks : list task_status) (its : list blocks)
       | c :: cs => (c, it) :: task_items cs rest
       end
   end.
+
+(* The term is a paragraph's inlines, so erasure reaches it through the
+   paragraph: the split commutes with erasure on both halves. *)
+Lemma def_split_erase : forall bs,
+  def_split (erase_blocks bs) =
+  option_map (fun r => (erase_inlines (fst r), erase_blocks (snd r)))
+    (def_split bs).
+Proof.
+  induction bs as [|[p a b] rest IH]; [reflexivity|].
+  destruct b; cbn [erase_blocks erase_block def_split invisible_block] in *;
+    try reflexivity;
+    try (rewrite IH; destruct (def_split rest); reflexivity).
+  - rewrite IH. destruct (def_split rest) as [[ils more]|]; cbn.
+    + fold erase_blocks. reflexivity.
+    + reflexivity.
+  - rewrite IH. destruct (def_split rest) as [[ils more]|]; reflexivity.
+  - destruct b. reflexivity.
+Qed.
+
+Lemma def_item_erase : forall bs,
+  (fst (def_item (erase_blocks bs)), snd (def_item (erase_blocks bs))) =
+  (erase_inlines (fst (def_item bs)), erase_blocks (snd (def_item bs))).
+Proof.
+  intros bs. unfold def_item. rewrite def_split_erase.
+  destruct (def_split bs) as [[term rest]|]; reflexivity.
+Qed.
+
+Lemma def_items_erase : forall items,
+  (fix go (items : list (inlines * blocks)) :=
+     match items with
+     | [] => []
+     | (term, item) :: rest =>
+         (erase_inlines term, erase_blocks item) :: go rest
+     end) (def_items items) = def_items (map erase_blocks items).
+Proof.
+  induction items as [|item rest IH]; [reflexivity|].
+  cbn [def_items map]. fold def_items. unfold def_items in IH.
+  rewrite <- IH. pose proof (def_item_erase item) as H.
+  destruct (def_item item) as [term item'];
+    destruct (def_item (erase_blocks item)) as [term' item''];
+    cbn in H |- *.
+  injection H as -> ->. reflexivity.
+Qed.
+
+Lemma task_items_erase : forall checks items,
+  (fix go (items : list (task_status * blocks)) :=
+     match items with
+     | [] => []
+     | (status, item) :: rest => (status, erase_blocks item) :: go rest
+     end) (task_items checks items) =
+  task_items checks (map erase_blocks items).
+Proof.
+  intros checks items. revert checks.
+  induction items as [|item rest IH]; intros checks; [reflexivity|].
+  destruct checks as [|check checks]; cbn [task_items map];
+    unfold task_items in IH; rewrite IH; reflexivity.
+Qed.
 
 
 

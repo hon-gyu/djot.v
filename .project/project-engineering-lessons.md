@@ -379,6 +379,38 @@ can report it existentially instead of taking a hypothesis that fixes
 it. The tell that the hypothesis is unnecessary is that the fact it
 would establish is never used downstream -- only its existence is.
 
+### A commutation's cost is the fixpoints, not the traversals
+
+**What happened.** The pos-blind half of the document-pass erasure was
+priced at nine lemmas, one per named traversal, after reading every
+`Node p a x` in `assign_ids`, `collect_notes` and `collect_refs` and
+confirming that not one of them reads a position. That reading was
+right and the estimate was off by a factor of two and a half: 24 lemmas
+and 788 lines. None of the extra fifteen needed a hypothesis. They were
+plumbing the statements could not be typed or proved without. The item
+lists of each traversal are *inlined* fixpoints, so relating them to
+anything takes a lemma apiece (`collect_refs_go`, `goit`, `god`,
+`got`); `block_ind2`'s motive is internal, so each traversal's
+list-level lemma has to be stated separately, which is why
+`undo_assign_ids_list` already existed; and `erase_block`'s own local
+fixpoints needed bridging to their `map` forms.
+
+**General form.** [[#Check whether a proof uses the structure before
+pricing its removal]] counts the proofs that inspect a structure, and
+that count was correct here: zero. It says nothing about how many
+lemmas it takes to *say* the theorem. A commutation over a mutually
+recursive tree is priced by the recursive knots in the definitions, and
+a knot spelled as an inlined `fix` inside a match arm is invisible to a
+census of names because it has none.
+
+**What to do instead.** Before pricing a commutation over `block`,
+count the inlined fixpoints, not the traversals: `grep -c 'fix \|let
+fix' theories/Document.v` reads 89. Each one a statement has to mention
+is a bridging lemma. Then check whether the induction principle's
+motive is internal, as `block_ind2`'s is: if it is, every list-level
+statement is its own lemma and an existing `_list` lemma next door is
+the tell.
+
 **And check the users exist at all.** The div-closer rule was priced, in
 `oracle-disagreements.md`, as "three `ListUniformity` statements have to
 carry the incoming flag". Two of the three had no users anywhere and were
@@ -388,6 +420,15 @@ called viral never moved, because the condition that discharges them
 moved into `item_ok` instead. A statement with no consumers is not a cost
 and not a constraint -- it is a claim about the development that nothing
 is holding it to. Count users before counting hypotheses.
+
+The same test retires *plan items*, not only statements. Occurrence
+lists were step 7 of the source-location plan until the plan's own
+section 1, a read of the downstream editor's code dated after the step
+list was drafted, turned out to ask for no index on any row: a node
+span and a tree walk answer find-references, and a link's destination
+is found by rescanning the node's slice. A step list written before the
+consumer was read is a guess about users, and the floor section is the
+place it gets checked.
 
 ## Split a fix by proof cost before landing it, and look for the cheap spelling
 
@@ -482,6 +523,39 @@ pricing its removal]] one level up: there the question was which proofs
 *use* the structure, here whether the uses have to *name* it. Both fail
 the same way, by counting the diff instead of the work.
 
+### A conversion identity is free; a rewrite through it is not
+
+**What happened.**  Attaching positions to blocks needed the thirteen
+block constructors (`fence_block`, `styles_list`, `key_close`, ...) to
+learn where their block came from.  Threading a `provenance` argument
+was priced at ~180 mentions across five files, most of them statements
+in the semantic equational theory that do not care.  A wrapper applied
+at the emit site costs none of that -- but the first version matched on
+the node, so at the semantic instance it reduced only when the node was
+a constructor application, and `parse_lines [] (PFence ...) =
+[fence_block f ...]` stopped being provable.  Writing the wrapper to
+match on `mkpos p` *first* made it the identity for an arbitrary node by
+conversion, and every one of those statements came back without an
+edit.
+
+**General form.**  Two spellings of the same function can be equal on
+every input and still differ in what they cost, because one reduces
+against an arbitrary argument and the other needs the argument's shape.
+The first kind is free in statements, since conversion does the work
+silently.  It is not free in *proofs*: `rewrite` matches syntactically,
+so a wrapper the statement never mentions still has to be removed by
+hand wherever a tactic reduces past it -- here ~25 `nopos` insertions,
+all in proofs whose statements were untouched.
+
+**What to do instead.**  When a new layer wraps something the
+development already names, write it so that its trivial instance
+discards its argument before looking at the wrapped value, and check the
+identity with `reflexivity` on a variable rather than on a constructor.
+Then price the change in tactic lines, not in mentions --
+[[#Price a parameterization by whether the parameter can stay implicit]]
+prices the statements, and this is the part that survives after they
+stop changing.
+
 ### When the parameter cannot reach, move the definition
 
 **What happened.** Gating definition lists needed `styles_list` to read
@@ -506,6 +580,43 @@ because anything there used it.
 move is the cheaper change and it costs one `git mv`-shaped diff. Check the
 other direction too: every file that imports the donor already imports
 `Step.v` here, which is what made the move invisible to them.
+
+### Erasure is a left inverse of both sides, or it is of neither
+
+**What happened.** The inline scanner's refinement. A located scan and a
+semantic one are the same function at two instances, and the theorem
+that relates them is `erase (step_P st) = step_sem (erase st)` -- one
+rewrite per helper, and there are about forty helpers. That shape was
+not available. `iscan` stores spans in its own state (a frame's opener,
+a pending spec's source) and stored them unconditionally, so the
+*semantic* run computed coordinates too: `spot_before (Spot 0 0) "ab"`
+is `Spot 0 2`, not `Spot 0 0`. No function zeroing spans is then a left
+inverse of the semantic side, and the theorem has to be `erase . f_P =
+erase . f_sem . erase`, with the extra `erase` threaded through every
+one of the forty. The repair was three lines: a `pspan` that asks the
+policy before storing a span, so a semantic state carries none and is
+its own erasure. Eleven existing statements got *shorter*, because they
+had been spelling a semantic frame's opener as `SrcSpan (if image then
+Spot 0 1 else Spot 0 0) (Spot 0 0)`.
+
+**General form.** A refinement between two instances of a parameter is
+cheap exactly when the erased side is a fixed point of erasure. That is
+a property of what the *observation-free* instance stores, not of the
+refinement, and it is decided when the state is designed -- long before
+any theorem is written. An instance that computes an observation and
+then discards it at the output still stores the observation.
+
+**What to do instead.** Before proving a refinement, instantiate the
+statement at the inert instance and read what it says: at `P := sem` it
+must be `erase (f_sem x) = f_sem (erase x)`, and if that is false the
+shape is wrong, not the proof. The tell is cheaper still and is already
+in the file: grep the existing semantic statements for a constant the
+inert instance should never have produced -- a `Spot 0 1`, a nonzero
+length, an index. Each one is the parameter's trace, stored where it
+was meant to be absent. [[#A conversion identity is free; a rewrite
+through it is not]] is the same question one level down: there the
+wrapper had to reduce against an arbitrary argument, here the instance
+has to store nothing.
 
 ### The check that a parameterization took
 

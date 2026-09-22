@@ -16,10 +16,13 @@
 //
 // Nodes without `pos` (djot.js gives none to `doc`) are printed without a
 // range.  The `references` and `footnotes` maps are printed after the tree.
+// `--parse-only` parses and prints nothing, so a timing run compares parse
+// against parse without the tree walk in the number.
 import fs from "node:fs";
 import { parse } from "../../djot.js/lib/index.js";
 
 const trim = process.argv.includes("--trim");
+const parseOnly = process.argv.includes("--parse-only");
 const src = fs.readFileSync(0, "utf8");
 const bytes = Buffer.from(src, "utf8");
 
@@ -66,11 +69,13 @@ const show = (node, depth) => {
 };
 
 const doc = parse(src, { sourcePositions: true, warn: () => {} });
-show(doc, 0);
-for (const k of ["references", "footnotes"]) {
-  for (const [label, n] of Object.entries(doc[k] || {})) {
-    out.push(`${k}[${JSON.stringify(label)}]`);
-    show(n, 1);
+if (!parseOnly) {
+  show(doc, 0);
+  for (const k of ["references", "footnotes"]) {
+    for (const [label, n] of Object.entries(doc[k] || {})) {
+      out.push(`${k}[${JSON.stringify(label)}]`);
+      show(n, 1);
+    }
   }
+  process.stdout.write(out.join("\n") + "\n");
 }
-process.stdout.write(out.join("\n") + "\n");
