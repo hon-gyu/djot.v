@@ -188,13 +188,15 @@ let dreserved c =
         ((||)
           ((||)
             ((||)
-              ((||) ((||) ((||) (is_bslash c) (is_tick c)) ((=) c lbrace))
-                ((=) c rbrace))
-              ((=) c lbrack))
-            ((=) c rbrack))
-          ((=) c bang))
-        ((=) c dollar))
-      ((=) c lt))
+              ((||)
+                ((||) ((||) ((||) (is_bslash c) (is_tick c)) ((=) c lbrace))
+                  ((=) c rbrace))
+                ((=) c lbrack))
+              ((=) c rbrack))
+            ((=) c bang))
+          ((=) c dollar))
+        ((=) c lt))
+      ((=) c ':'))
     ((=) c period)
 
 type dstyle =
@@ -805,6 +807,16 @@ let auto_email s =
 let is_alpha c =
   (||) ((&&) (Ascii.leb 'a' c) (Ascii.leb c 'z'))
     ((&&) (Ascii.leb 'A' c) (Ascii.leb c 'Z'))
+
+(** val symbol_char : char -> bool **)
+
+let symbol_char c =
+  (||)
+    ((||)
+      ((||) ((||) (is_alpha c) ((&&) (Ascii.leb '0' c) (Ascii.leb c '9')))
+        ((=) c '_'))
+      ((=) c '+'))
+    ((=) c '-')
 
 (** val auto_scheme : string -> bool **)
 
@@ -1844,6 +1856,7 @@ type iscan =
 | IWiki of bool * bool * bool * string * span * ostate
 | IDest of inlines * bool * span * bool * nat * string * iscan * ostate
 | IAuto of string * string * ostate
+| ISymbol of string * string * iscan * ostate
 | IRaw of string * string * ostate
 
 (** val note_pos : string -> char option -> bool **)
@@ -1875,32 +1888,18 @@ let ilead t h h0 c txt prev o =
                                 then IBang (txt, prev, o)
                                 else if (=) c lt
                                      then IAuto ("", txt, o)
-                                     else if (=) c lbrack
-                                          then (match if (&&)
-                                                           (note_pos txt prev)
-                                                           (wikilinks_enabled
-                                                             t)
-                                                      then bunpush o
-                                                      else None with
-                                                | Some p ->
-                                                  let (p0, o') = p in
-                                                  let (image, open0) = p0 in
-                                                  IWiki (false, false, image,
-                                                  "", open0, o')
-                                                | None ->
-                                                  IText (false, "", (Some
-                                                    lbrack),
-                                                    (bpush h h0 false
-                                                      (flush_text_at h h0 txt
-                                                        o))))
-                                          else if (=) c rbrack
-                                               then IClosed (txt, o)
-                                               else (match if (&&)
-                                                                ((&&)
-                                                                  ((=) c hat)
-                                                                  (note_pos
-                                                                    txt prev))
-                                                                (notes_enabled
+                                     else if (=) c ':'
+                                          then ISymbol ("", txt, (IText
+                                                 (false, ((^) txt (one c)),
+                                                 (Some c),
+                                                 (remember_word_start h h0 c
+                                                   o))),
+                                                 o)
+                                          else if (=) c lbrack
+                                               then (match if (&&)
+                                                                (note_pos txt
+                                                                  prev)
+                                                                (wikilinks_enabled
                                                                   t)
                                                            then bunpush o
                                                            else None with
@@ -1908,19 +1907,49 @@ let ilead t h h0 c txt prev o =
                                                        let (p0, o') = p in
                                                        let (image, open0) = p0
                                                        in
-                                                       INote (false, image,
-                                                       "", open0, o')
+                                                       IWiki (false, false,
+                                                       image, "", open0, o')
                                                      | None ->
-                                                       (match dstyle_of t c with
-                                                        | Some k ->
-                                                          IDelim (k, O, txt,
-                                                            prev, false, o)
-                                                        | None ->
-                                                          IText (false,
-                                                            ((^) txt (one c)),
-                                                            (Some c),
-                                                            (remember_word_start
-                                                              h h0 c o))))
+                                                       IText (false, "",
+                                                         (Some lbrack),
+                                                         (bpush h h0 false
+                                                           (flush_text_at h
+                                                             h0 txt o))))
+                                               else if (=) c rbrack
+                                                    then IClosed (txt, o)
+                                                    else (match if (&&)
+                                                                    ((&&)
+                                                                    ((=) c
+                                                                    hat)
+                                                                    (note_pos
+                                                                    txt prev))
+                                                                    (notes_enabled
+                                                                    t)
+                                                                then bunpush o
+                                                                else None with
+                                                          | Some p ->
+                                                            let (p0, o') = p
+                                                            in
+                                                            let (image, open0) =
+                                                              p0
+                                                            in
+                                                            INote (false,
+                                                            image, "", open0,
+                                                            o')
+                                                          | None ->
+                                                            (match dstyle_of
+                                                                    t c with
+                                                             | Some k ->
+                                                               IDelim (k, O,
+                                                                 txt, prev,
+                                                                 false, o)
+                                                             | None ->
+                                                               IText (false,
+                                                                 ((^) txt
+                                                                   (one c)),
+                                                                 (Some c),
+                                                                 (remember_word_start
+                                                                   h h0 c o))))
 
 (** val idest_open :
     coq_PosPolicy -> coq_InlineCursor -> inlines -> bool -> span -> ostate ->
@@ -2016,7 +2045,7 @@ let auto_lit src txt =
 
 (** val islice_end : dtable -> iscan -> iscan **)
 
-let islice_end t st = match st with
+let rec islice_end t st = match st with
 | IText (esc, txt, _, o) ->
   if esc then IText (false, ((^) txt (one bslash)), (Some bslash), o) else st
 | IBrace (txt, _, o) ->
@@ -2028,6 +2057,7 @@ let islice_end t st = match st with
 | IClosed (txt, o) -> IText (false, ((^) txt (one rbrack)), (Some rbrack), o)
 | IAuto (src, txt, o) ->
   IText (false, (auto_lit src txt), (blit_prev (auto_lit src txt)), o)
+| ISymbol (_, _, sh, _) -> islice_end t sh
 | _ -> st
 
 (** val iattr_mark :
@@ -2170,6 +2200,20 @@ let iauto_step t h h0 c src txt o =
   else if (||) ((||) ((=) c gt) (is_ws c)) ((=) c lt)
        then ilead t h h0 c (auto_lit src txt) (blit_prev (auto_lit src txt)) o
        else IAuto (((^) src (one c)), txt, o)
+
+(** val isymbol_step :
+    coq_PosPolicy -> coq_InlineCursor -> char -> string -> string -> ostate
+    -> iscan -> iscan **)
+
+let isymbol_step h h0 c alias txt o sh' =
+  if symbol_char c
+  then ISymbol (((^) alias (one c)), txt, sh', o)
+  else if (&&) ((=) c ':') (nonempty_str alias)
+       then let start = spot_before h0.cursor_start ((^) (one ':') alias) in
+            IText (false, "", (Some c),
+            (oemit (imk h start h0.cursor_stop (Symbol alias))
+              (flush_text_to_at h h0 start txt o)))
+       else sh'
 
 (** val iraw_lit : string -> string **)
 
@@ -2620,6 +2664,8 @@ let rec istep_at t h h0 attrs_enabled c = function
                         ((^) dst (one c)),
                         (istep_at t h h0 attrs_enabled c sh), o)
 | IAuto (src, txt, o) -> iauto_step t h h0 c src txt o
+| ISymbol (alias, txt, sh, o) ->
+  isymbol_step h h0 c alias txt o (istep_at t h h0 attrs_enabled c sh)
 | IRaw (spec, txt, o) -> iraw_step_at t h h0 attrs_enabled c spec txt o
 
 (** val istep :
@@ -2664,6 +2710,7 @@ let ifinish_ostate_flat h h0 = function
   let (txt, o') = bwiki_lit esc rb image region o in flush_text_at h h0 txt o'
 | IDest (_, _, _, _, _, _, _, o) -> o
 | IAuto (src, txt, o) -> flush_text_at h h0 (auto_lit src txt) o
+| ISymbol (_, _, _, o) -> o
 | IRaw (spec, txt, o) ->
   let spec_start =
     spot_before h0.cursor_start
@@ -2681,6 +2728,7 @@ let ifinish_ostate_flat h h0 = function
 let rec ifinish_ostate t h h0 st = match st with
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t h h0 sh
+| ISymbol (_, _, sh, _) -> ifinish_ostate t h h0 sh
 | _ -> ifinish_ostate_flat h h0 (iresolve t h h0 st)
 
 (** val ifinish_rev :
@@ -2698,7 +2746,7 @@ let ifinish t h h0 st =
 (** val ibreak_flat :
     dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> iscan **)
 
-let ibreak_flat t h h0 st = match st with
+let rec ibreak_flat t h h0 st = match st with
 | IText (esc, txt, _, o) ->
   if esc
   then IText (false, "", None, (oword_reset (iesc_hard h h0 "" txt o)))
@@ -2736,6 +2784,7 @@ let ibreak_flat t h h0 st = match st with
     (oword_reset
       (oemit (imk_here h h0 SoftBreak)
         (flush_text_at h h0 (auto_lit src txt) o))))
+| ISymbol (_, _, sh, _) -> ibreak_flat t h h0 sh
 | IRaw (spec, txt, o) ->
   let spec_start =
     spot_before h0.cursor_start
@@ -2761,6 +2810,7 @@ let rec ibreak_at t h h0 attrs_enabled st = match st with
   IDest (kids, image, open0, false, depth,
     ((^) dst ((^) (if esc then one bslash else "") nl)),
     (ibreak_at t h h0 attrs_enabled sh), o)
+| ISymbol (_, _, sh, _) -> ibreak_at t h h0 attrs_enabled sh
 | _ -> ibreak_flat t h h0 (iresolve t h h0 st)
 
 (** val ibreak :
@@ -3065,6 +3115,7 @@ let rec inline_text t il =
    | Superscript ns -> marked DSuper ns
    | Subscript ns -> marked DSub ns
    | Verbatim s -> verb_text s
+   | Symbol s -> (^) (one ':') ((^) s (one ':'))
    | Link (ns, tgt) ->
      (match tgt with
       | Direct dst ->
