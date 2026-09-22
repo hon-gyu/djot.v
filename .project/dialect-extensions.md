@@ -21,9 +21,9 @@ was the one meant.
 
 ## Short answer
 
-Of 71 pandoc syntax extensions, 25 are already expressible (most are
+Of 71 pandoc syntax extensions, 26 are already expressible (most are
 djot features pandoc also has, and a few are a new value of an existing
-setting), 15 need an existing setting's type widened, 23 are new
+setting), 16 need an existing setting's type widened, 21 are new
 constructs, and 8 are excluded by decisions already made (raw HTML,
 indentation as code). PyMarkdown's 7 are 4, 1, 2, and 0 of the same.
 
@@ -97,7 +97,8 @@ variants) are left out of the count.
 | `autolink_bare_uris` | new | recognizing a URL without `<>`; GFM's trailing-punctuation rule needs the whole word first |
 | `short_subsuperscripts` | new | `x^2`, a prefix operator over an alphanumeric run |
 | `mmd_link_attributes` | new | key/value tail on a reference definition |
-| `wikilinks_title_after_pipe` / `_before_pipe` | new | specified in `wikilinks.md`, not built |
+| `wikilinks_title_after_pipe` | have | `dc_wikilinks`, specified in `wikilinks.md` |
+| `wikilinks_title_before_pipe` | widen | the same construct with the split read the other way round |
 
 ### Out
 
@@ -135,9 +136,9 @@ verdicts above assume the extension's characters are otherwise free.
 If "pymarkdown" meant Python-Markdown: `attr_list`, `fenced_code`,
 `footnotes`, `smarty`, `sane_lists`, `tables` (partially) and `toc`
 (ids) map as above; `nl2br` is the newline policy; `def_list` is
-pandoc's definition list; `abbr`, `meta` (front matter), `wikilinks` and
-`admonition` (`!!! note` with an indented body, a prefixed-container
-instance) are new; `md_in_html`, `legacy_attrs` and `legacy_em` are out;
+pandoc's definition list; `wikilinks` is `dc_wikilinks`; `abbr`, `meta`
+(front matter) and `admonition` (`!!! note` with an indented body, a
+prefixed-container instance) are new; `md_in_html`, `legacy_attrs` and `legacy_em` are out;
 `codehilite` is renderer-side.
 
 ## Generalization plan (2026-09-10, `c2ac8f4`)

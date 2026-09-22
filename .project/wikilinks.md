@@ -3,9 +3,12 @@ ai-disclosure: ai-generated
 ---
 # Wikilinks
 
-Status: **spec drafted, second pass under way**. Nothing in this file
-exists in the tree yet. Sections 0, 3, 4, 5, 6 and 9.2 were revised on
-2026-09-22 so that the construct carries syntax only, and 9.4 was added.
+Status: **implemented** (2026-09-22). Sections 0, 3, 4, 5, 6 and 9.2
+were revised that day so that the construct carries syntax only, 9.4 was
+added, and section 8 was restated against the tree before any code was
+written and checked against it afterwards (8.1). `dev/check/Wikilink.v`
+pins every row of sections 3 and 7 and the source ranges; `make wiki`
+runs the extracted roundtrip over the wikilink pool.
 Section 8 is the estimate, and section 9 is what is still undecided;
 both are written to be checked against reality once the construct is
 built, in the way [[keyed-blocks]] section 9 was.
@@ -119,9 +122,12 @@ Two consequences worth stating, both inherited:
 
 At the first unescaped `]]`.
 
-A single `]` is content: `[[a]b]]` has target `a]b`. A backslash protects the
-next character, so `[[a\]]]` has target `a]`, the escaped bracket being
-content and the pair after it the closer. Section 6 keeps `]` out of
+A single `]` is content: `[[a]b]]` has target `a]b`. A backslash protects
+the next character from its role and is **not decoded**: `[[a\]]]` has
+target `a\]`, the backslash and the bracket both content and the pair
+after them the closer. This is a footnote label's disposition, and djot's
+for its labels. The node records what was written, and a consumer that
+wants escapes decoded decodes them. Section 6 keeps `]` and `\` out of
 canonical targets altogether, so this spelling has to be defined but
 never has to be pleasant.
 
@@ -174,6 +180,8 @@ it would be consistent too, so this is a choice and not a consequence.
 | 6   | `` `[[a]]` `` | verbatim            | fences and verbatim are not scanned |
 | 7   | `![[a]]`      | an embed wikilink   | the `!` is recorded, see 9.2        |
 | 8   | `\| [[a\|b]] \|` | cells `[[a` and `b]]`, literal text | the row is split into cells first, see 9.4 |
+| 9   | `[[1]](u)`    | a wikilink, then the text `(u)` | the second `[` opens at the start of the first |
+| 10  | `[[a](b)`     | literal text        | the wikilink never closes, and the link inside it was source |
 
 Row 7 is the one that is a decision rather than a consequence. The `!`
 marks an embed the way it marks an image: `![a](b)` is an image where
@@ -185,6 +193,15 @@ embeds a meaning to rescan the source to learn whether it was there.
 This needs no new rule. The first `[` of `![[` opens an image scope, so
 3.1 applies unchanged and the bit is the kind of the scope the second `[`
 arrives in.
+
+Rows 9 and 10 are what the setting costs ordinary links. `[[1]](u)`, a
+Markdown spelling of a link whose text is `[1]`, becomes a wikilink with
+target `1` followed by text. And a `[` at the start of any link's text
+is the second `[` of 3.1, so whatever it begins is read as a wikilink
+region: `[[a](b)` is a wikilink candidate that never closes, and it
+decays to text with the link it contained. Both are consequences of
+deciding at the opener with no lookahead, and both are confined to
+documents containing `[[`, which is section 2's claim.
 
 ## 4. What it produces
 
@@ -240,13 +257,22 @@ The conditions on a canonical wikilink, which are conditions on the
 strings rather than on the tree:
 
 - the target is nonempty;
-- neither half contains `]`, `|`, a newline, or a backslash;
-- the target has no leading or trailing whitespace.
+- neither half contains `]`, `|`, a newline, or a backslash.
 
-The first two are what make the source reparse to the node it came
-from. The third is 3.3's deferred tidiness: an untrimmed target parses
-fine and renders fine, and it is excluded from the tested fragment
-because nothing should be generating one.
+Both are what make the source reparse to the node it came from, and they
+are all of it. An untrimmed target is not excluded: `[[ a ]]` parses back
+to itself, so tidiness is a check for a consumer that generates targets
+(a rename, say) to run, not a condition of the canonical view.
+
+One condition is on the tree rather than on the strings, and it applies
+to the ordinary constructs, not to this one. With the setting on, **the
+text of a link or reference may not begin with a child whose source
+begins with `[`**: a wikilink, a footnote reference, or a link or
+reference that is not an image. Rows 9 and 10 of 3.4 are why: the
+renderer would write `[[[a]]](u)` or `[[^a]](u)`, and the scan reads the
+second `[` as a wikilink opener. There is no other spelling of those
+children, so the canonical fragment excludes them, as it excludes a table
+cell whose row would not split back (9.4).
 
 ## 7. Worked examples
 
@@ -330,15 +356,56 @@ Nothing in the block layer, since this is an inline construct that
 occupies no line position. No parser state, no container, and therefore
 none of the state-quantified block theorems.
 
+**The located scan.** Source locations landed after the first draft of
+this section, and every scanner state now owes two more cases: one in
+the erasure refinement (`erase_iscan`, `erase_istep_at`) and one in the
+line-composition family (`iout_app`, `istep_at_out_app`). The located
+node spans from the `[[`, or the `!` of an embed, to the closing `]]`,
+the extent `INote` already records for `[^`.
+
 **Predicted obligations, stated so their failure names something.** No
-existing theorem statement gains a hypothesis. No existing predicate
-splits in two. The single-line inline knob preservation lemma is the only
-theorem the setting itself owes.
+existing theorem statement gains a hypothesis. One existing predicate
+gains a clause: `ci_ok` of a link or reference, for section 6's
+bracket-start condition, which moves the `ci_ok` equation for links and
+the scan-lemma cases that unfold it. The single-line inline knob
+preservation lemma is the only theorem the setting itself owes.
 
 **The oracle stops covering this**, as it does for keys: no djot
 implementation has the construct, so every wikilink document is a
 divergence by construction. What remains is the extracted roundtrip sweep
 and the generated corpus against our own parser.
+
+### 8.1 Afterwards
+
+Checked against the tree on 2026-09-22, prediction by prediction.
+
+- **Constructor, setting, HTML arm, `Site.v`.** As predicted. `Site.v`
+  took one arm each in `ci_dests` and `ci_map_dest`, one in the
+  induction principle, and one proof case in `ci_map_dest_id`; no
+  statement moved. `render_wikilink` in `Html.v` states section 5.
+- **Scanner.** One state and one guard, as predicted, with the guard in
+  the `[` branch of `ilead` rather than at its bottom, since the `[`
+  branch runs first. The located scan cost its predicted erasure and
+  composition cases, and `Wf.v` one arm in `iscan_wf` and four proof
+  cases the section did not list: the invariant is quantified over all
+  scanner states, which is the `pstate` checklist's lesson one layer
+  down.
+- **"No existing theorem statement gains a hypothesis."** False, and
+  for the reason section 6's condition exists. `iscan_bracket_open`
+  said a `[` in text mode always pushes a bracket, which the setting
+  makes false; it now takes `wiki_opens ... = false` unless it is an
+  image's. That hypothesis travels to `iscan_note_text` and to the
+  central scan lemma `iscan_cis_scope`, whose bracket instances
+  (`iscan_cis_bracket`, `iscan_cis_ref`) discharge it from
+  `bracket_kids_ok`. No headline theorem moved: `roundtrip_blocks` and
+  the erasure refinements are stated as before.
+- **"One existing predicate gains a clause."** Held: `bracket_kids_ok`
+  in `ci_ok` of a link and a reference.
+- **"Two scan lemmas."** Three: the region scan, the split of a
+  canonical region, and the whole wikilink, the last about 50 lines.
+- **Not predicted at all.** A generator pool and a harness mode, the way
+  keys have one, since the plain pool is read at djot's table and so
+  never meets the construct.
 
 ## 9. Open questions
 
@@ -400,9 +467,10 @@ below the inline settings. The two scanners would then have to agree
 on the decision, and that coupling is not worth one case.
 
 Obsidian's convention is to write `[[a\|b]]` in a table and read the
-`\|` as the separator. Here 3.2 already gives `\|` its meaning, an
-escaped bar, so that spelling has target `a|b` and no alias. Adopting
-Obsidian's reading would make a backslash mean different things in and
-out of a cell, and the inline scanner does not know which it is in; it
-would need a cell flag threaded into the scan. Open if a consumer asks
-for it, at that cost.
+`\|` as the separator. Here the row splitter leaves a bar after a
+backslash in its cell, and 3.2 keeps the backslash, so that spelling
+reaches the node as target `a\|b` with no alias. A consumer following
+Obsidian can split it there. Making the parser do the split would give
+a backslash different meanings in and out of a cell, and the inline
+scanner does not know which it is in; it would need a cell flag threaded
+into the scan. Open if a consumer asks for it, at that cost.
