@@ -3,8 +3,9 @@ ai-disclosure: ai-generated
 ---
 # Wikilinks
 
-Status: **spec drafted, waiting for polish**. Nothing in this file
-exists in the tree yet, and the prose has not had a second pass.
+Status: **spec drafted, second pass under way**. Nothing in this file
+exists in the tree yet. Sections 0, 3, 4, 5, 6 and 9.2 were revised on
+2026-09-22 so that the construct carries syntax only, and 9.4 was added.
 Section 8 is the estimate, and section 9 is what is still undecided;
 both are written to be checked against reality once the construct is
 built, in the way [[keyed-blocks]] section 9 was.
@@ -20,47 +21,48 @@ djot implementation has this construct, so the discipline in
 
 ## 0. The idea
 
-A note names another note by its name, not by its path.
+A wikilink is a target string in double brackets, with an optional alias
+after a `|`, and optionally preceded by a `!`.
 
 ```
 see [[Backlinks]] for the reverse direction
-```
-
-That is one link, to the note called `Backlinks`, displayed as
-`Backlinks`. With an alias it displays something else:
-
-```
 see [[Backlinks|the other direction]]
+![[Backlinks]]
 ```
 
-The construct exists because the ordinary spelling makes a writer say
-the name twice, once as text and once as a destination, and the two
-drift apart under renaming. A wikilink says it once, which is what makes
-a rename mechanical: there is one occurrence to rewrite and nothing to
-keep in agreement with it.
+The first is a wikilink with target `Backlinks` and no alias, the second
+has the alias `the other direction`, and the third is the first with its
+embed bit set.
 
-**The target is a name, not a URL.** What that name resolves to is not
-this file's business -- [[260903.rename-canonicity]] and `Site.v` own
-that, through a link convention that already exists and already models a
-flat vault. A wikilink is the syntax half of something whose semantics
-are in the tree.
+**This file defines syntax only.** The parser records what was written:
+the target, the alias, and whether a `!` preceded the brackets. What a
+target denotes (a note, a heading inside one, a URL), how it resolves,
+and what an embed does are for the consumer to define. `Site.v`'s link
+convention ([[260903.rename-canonicity]]) is one consumer and the HTML
+renderer (section 5) is another. No rule below is justified by what a
+target means.
+
+The reason to have the construct is syntactic too: one string is both
+the destination and the display text, so a tool that rewrites the
+destination has one occurrence to change and no displayed copy to keep
+in agreement with it.
 
 ## 1. Baseline: what djot does with these documents today
 
 Not decisions. Pinned from djot.js v0.3.2 and from our own parser on
 2026-09-05; the two agree on every row.
 
-| input           | djot today                                |
-| --------------- | ----------------------------------------- |
-| `[[a]]`         | literal text `[[a]]`                      |
-| `[[a\|b]]`      | literal text                              |
-| `[[]]`          | literal text                              |
-| `[[a`           | literal text                              |
-| `![[a]]`        | literal text                              |
-| `x [[a]] y`     | literal text throughout                   |
-| `[[a [[b]] c]]` | literal text                              |
-| `[[*a*]]`       | `[[`, a strong span over `a`, then `]]`   |
-| ``[[a`b`]]``    | `[[a`, a verbatim, then `]]`              |
+| input           | djot today                              |
+| --------------- | --------------------------------------- |
+| `[[a]]`         | literal text `[[a]]`                    |
+| `[[a\|b]]`      | literal text                            |
+| `[[]]`          | literal text                            |
+| `[[a`           | literal text                            |
+| `![[a]]`        | literal text                            |
+| `x [[a]] y`     | literal text throughout                 |
+| `[[a [[b]] c]]` | literal text                            |
+| `[[*a*]]`       | `[[`, a strong span over `a`, then `]]` |
+| ``[[a`b`]]``    | `[[a`, a verbatim, then `]]`            |
 
 Every row but the last two is a single `Str`, which is the strongest
 form of "the slot is free": a document containing `[[` almost always
@@ -69,7 +71,7 @@ means nothing to djot beyond its own characters.
 The last two are the exception and they are the reason the setting is a
 mode rather than a default. With wikilinks off, the region between the
 brackets is ordinary inline content and its markup is live. With them
-on, the region is source, and `[[*a*]]` names a note whose name contains
+on, the region is source, and `[[*a*]]` has a target that contains
 asterisks.
 
 ## 2. Enabling
@@ -85,9 +87,11 @@ the meaning of any paragraph containing a colon, which is most prose.
 
 **The canonical renderer needs no change to make this safe.** A canonical
 `Str` already escapes `[`, so a text run holding the characters `[[a]]`
-renders as `\[\[a\]\]` and comes back as text with either setting. The
-obligation that cost keys a whole subsection is already discharged, and
-it was discharged before this construct was thought of.
+renders as `\[\[a\]\]` and comes back as text with either setting. It
+escapes `!` as well, so a text run ending in `!` before a wikilink cannot
+reparse as an embed. The obligation that cost keys a whole subsection is
+already discharged, and it was discharged before this construct was
+thought of.
 
 ## 3. The syntax
 
@@ -115,19 +119,19 @@ Two consequences worth stating, both inherited:
 
 At the first unescaped `]]`.
 
-A single `]` is content: `[[a]b]]` names `a]b`. A backslash protects the
-next character, so `[[a\]]]` names `a]`, the escaped bracket being
+A single `]` is content: `[[a]b]]` has target `a]b`. A backslash protects the
+next character, so `[[a\]]]` has target `a]`, the escaped bracket being
 content and the pair after it the closer. Section 6 keeps `]` out of
 canonical targets altogether, so this spelling has to be defined but
 never has to be pleasant.
 
 **It does not cross a line break.** A candidate still open at the end of
-a line decays to literal text, exactly as an unclosed autolink does. The
-reason is not symmetry with autolinks but the convention layer: a target
-is a path, and no link convention can name a path containing a newline,
-so a wikilink spanning a break could never resolve to anything. A
-footnote label, which does cross, is normalized whitespace rather than a
-name.
+a line decays to literal text, as an unclosed autolink does. The reason
+is to bound what a stray opener can capture. The closer is the first
+`]]` and nothing is revised, so a candidate that crossed breaks would
+turn every line between a stray `[[` and an unrelated `]]` into one
+target string. On one line, the most a stray `[[` can capture is the
+rest of its line. Obsidian draws the same line.
 
 **A candidate that never closes is literal text**, put back with both
 brackets, and the scan resumes after them.
@@ -144,7 +148,7 @@ it is what keeps the node a leaf, which is most of why section 8's
 estimate is small. 9.1 is the question of whether it should stay that
 way.
 
-**Nothing is trimmed.** `[[ a ]]` names the note ` a `, spaces included.
+**Nothing is trimmed.** `[[ a ]]` has target ` a `, spaces included.
 Trimming would be friendlier and it is what Obsidian does, but it is a
 normalization, and a normalization the renderer cannot undo: the source
 `[[ a ]]` and the source `[[a]]` would produce the same node and only
@@ -153,38 +157,46 @@ and section 6 excludes the untidy spellings from the canonical fragment
 instead, which is where a condition of that kind belongs.
 
 **An empty target is not a wikilink.** `[[]]` and `[[|b]]` decay to
-literal text. There is nothing to name, and admitting them would put a
-node in the tree that no convention can resolve.
+literal text. `[[]]` is ordinary text in prose about code (an empty
+nested list), so leaving it alone shrinks section 2's divergent set by a
+shape that real documents contain. It also matches Obsidian. Admitting
+it would be consistent too, so this is a choice and not a consequence.
 
 ### 3.4 Where a `[[` is not a wikilink
 
-| #   | input       | reading             | why                                |
-| --- | ----------- | ------------------- | ---------------------------------- |
-| 1   | `\[[a]]`    | literal text        | the first bracket is escaped       |
-| 2   | `[a[b]]`    | as today            | the second `[` is not at the start |
-| 3   | `[[]]`      | literal text        | the target is empty                |
-| 4   | `[[a`       | literal text        | never closed                       |
-| 5   | `[[a` / `b]]` | literal text      | a candidate does not cross a break |
-| 6   | `` `[[a]]` `` | verbatim          | fences and verbatim are not scanned |
-| 7   | `![[a]]`    | `!` then a wikilink | see 9.2                            |
+| #   | input         | reading             | why                                 |
+| --- | ------------- | ------------------- | ----------------------------------- |
+| 1   | `\[[a]]`      | literal text        | the first bracket is escaped        |
+| 2   | `[a[b]]`      | as today            | the second `[` is not at the start  |
+| 3   | `[[]]`        | literal text        | the target is empty                 |
+| 4   | `[[a`         | literal text        | never closed                        |
+| 5   | `[[a` / `b]]` | literal text        | a candidate does not cross a break  |
+| 6   | `` `[[a]]` `` | verbatim            | fences and verbatim are not scanned |
+| 7   | `![[a]]`      | an embed wikilink   | the `!` is recorded, see 9.2        |
+| 8   | `\| [[a\|b]] \|` | cells `[[a` and `b]]`, literal text | the row is split into cells first, see 9.4 |
 
-Row 7 is the one that is a decision rather than a consequence. In
-Obsidian `![[a]]` embeds the note's contents; here the `!` is an image
-marker that finds no image and decays to text, and the wikilink is
-recognised normally. Embedding is a transclusion, which is a document
-operation and not an inline one.
+Row 7 is the one that is a decision rather than a consequence. The `!`
+marks an embed the way it marks an image: `![a](b)` is an image where
+`[a](b)` is a link, and `![[a]]` is a wikilink with its embed bit set.
+What an embed does is up to the consumer (section 0). An earlier draft
+decayed the `!` to text, which would force any consumer that does give
+embeds a meaning to rescan the source to learn whether it was there.
+
+This needs no new rule. The first `[` of `![[` opens an image scope, so
+3.1 applies unchanged and the bit is the kind of the scope the second `[`
+arrives in.
 
 ## 4. What it produces
 
-A node of its own, holding the target and an optional alias, both as
-strings.
+A node of its own, holding the target and an optional alias as strings,
+and the embed bit.
 
-It is not sugar for an ordinary link. Sugar would mean the two spellings
-were indistinguishable once parsed, so the canonical renderer would spell
-every wikilink as `[a](a)` and the construct would be input-only. That is
-a real option -- underlined headings are input-only for exactly this
-reason -- and it is rejected here because the point of a wikilink is to
-survive a rename, and surviving a rename means being written back.
+The AST keeps it distinct from an ordinary link because the canonical
+renderer writes back the spelling the source used: `[[a]]` and `[a](a)`
+are different documents, and if the parse mapped both to one node only
+one of them could be spelled back. The construct would then be
+input-only, as underlined headings are. How it renders to HTML is a
+separate question, and there it is sugar (section 5).
 
 The alias is a field rather than a wrapper: `[[a]]` and `[[a|a]]` are
 different documents, they render the same, and the renderer has to
@@ -192,24 +204,37 @@ choose between them, so the distinction has to be in the node.
 
 ## 5. How it renders
 
-An anchor whose destination is the target and whose content is the alias
-if there is one and the target otherwise, carrying a class.
+As the ordinary link it desugars to. A wikilink with target `t` renders
+exactly as `Link [Str d] (Direct t)`, where `d` is the alias if there is
+one and `t` otherwise. An embed renders as the `Image` of the same. The
+node's attributes pass through as they do for a link.
 
 ```html
-<a class="wikilink" href="a">a</a>
-<a class="wikilink" href="a">the other direction</a>
+<a href="a">a</a>
+<a href="a">the other direction</a>
+<img alt="a" src="a">
 ```
 
-The `href` is the raw target rather than a resolved URL. Resolution is
-the convention's job and it happens before rendering, by rewriting
-destinations, which is the same path an ordinary link's destination
-takes. The class is what keeps a wikilink and an ordinary link from
-rendering identically, for [[keyed-blocks]] 9.3's reason.
+The `href` is the raw target. Resolution belongs to the consumer and
+happens before rendering, by rewriting the target, which is the path an
+ordinary link's destination already takes.
+
+There is no `wikilink` class. An earlier draft added one so that the two
+constructs would not render identically, borrowing [[keyed-blocks]]
+9.3's reason, but no theorem asks HTML output to tell them apart:
+`Html.v` states nothing about injectivity. A class is a presentation
+choice, and node attributes already let a consumer make it without a
+renderer setting. A consumer that wants the class adds it to every
+wikilink node before rendering, and a writer can spell `[[a]]{.wikilink}`
+where inline attributes are on. Rendering by desugaring also keeps the
+HTML arm to one line that calls the link or image arm, so it adds no
+output shape the renderer does not already produce.
 
 ## 6. Canonical spelling
 
-`[[target]]`, or `[[target|alias]]` when there is an alias. There is
-only one spelling, so the choice is forced.
+`[[target]]`, or `[[target|alias]]` when there is an alias, with a `!`
+in front for an embed. There is only one spelling, so the choice is
+forced.
 
 The conditions on a canonical wikilink, which are conditions on the
 strings rather than on the tree:
@@ -218,8 +243,8 @@ strings rather than on the tree:
 - neither half contains `]`, `|`, a newline, or a backslash;
 - the target has no leading or trailing whitespace.
 
-The first three are what make the source reparse to the node it came
-from. The fourth is 3.3's deferred tidiness: an untrimmed target parses
+The first two are what make the source reparse to the node it came
+from. The third is 3.3's deferred tidiness: an untrimmed target parses
 fine and renders fine, and it is excluded from the tested fragment
 because nothing should be generating one.
 
@@ -259,7 +284,7 @@ deciding at the opener with no lookahead.
 The one section that names things in the code. Written before the work,
 so every number here is a prediction to be checked afterwards.
 
-**An inline constructor** carrying two strings. `UrlLink` is the nearest
+**An inline constructor** carrying two strings and a bit. `UrlLink` is the nearest
 existing leaf and is mentioned 12 times across `Ast.v`, `Document.v`,
 `Html.v` and `Inline.v`. `Wf.v` does not mention it, which is the
 interesting half: a leaf carrying strings has nothing for
@@ -267,7 +292,8 @@ well-formedness to say about it.
 
 **A scanner state and one dispatch arm.** The state is `INote`'s with a
 second string and a pending-`]` bit; the arm is the guard at the bottom
-of `ilead` that recognises `[^`, with `[` in place of `^`. It also needs
+of `ilead` that recognises `[^`, with `[` in place of `^`, reading the
+embed bit off the image flag the enclosing scope already carries. It also needs
 an arm in the end-of-line disposition and one in the break disposition,
 both of which are the decay to literal text that an unclosed autolink
 already performs.
@@ -293,7 +319,13 @@ rewrite in `Site.v` take one arm each, and every rename theorem stated
 over them applies unchanged. `l_ok`, `l_spell` and `l_parse` do not move:
 a wikilink target is exactly the string those already speak about.
 
+**One HTML arm**, the desugaring of section 5, which calls the existing
+link and image arms.
+
 **Also free.** The canonical renderer's escaping, for section 2's reason.
+The exclusion of an aliased wikilink from a table cell (9.4): `ctrow_ok`
+already asks `row_reparses` of every canonical row, and a row whose cell
+renders as `[[a|b]]` does not scan back to the same cells.
 Nothing in the block layer, since this is an inline construct that
 occupies no line position. No parser state, no container, and therefore
 none of the state-quantified block theorems.
@@ -333,21 +365,44 @@ one or the other. As of writing, none does.
 
 ### 9.2 Embeds
 
-`![[a]]` is a `!` followed by a wikilink here, and in Obsidian it embeds
-the target's contents. Embedding is transclusion: it makes a document's
-meaning depend on another document, which is a site-level operation and
-would need the site to be an argument to rendering. That is a larger
-change than this construct and it is deliberately not started here.
+**Answered: the parser records the `!`, and the meaning is the
+consumer's.** `![[a]]` is a wikilink with its embed bit set (3.4 row 7),
+and HTML renders it as an image (section 5). A consumer that
+transcludes, as Obsidian does, replaces embed nodes with another
+document's blocks before rendering. That makes one document's output
+depend on another's, which is a site-level operation and stays outside
+this construct.
 
 ### 9.3 Target substructure
 
 Obsidian's `[[note#heading]]` and `[[note#^block]]` name a place inside a
 note rather than the note. Nothing here forbids them: the target is a
-string, and `#h` is part of it. Whether that string is *split* is the
-convention's business, and the convention already has the field for
-saying which targets it can name.
+string, and `#h` is part of it. Whether that string is *split* is up to
+the consumer, and `Site.v`'s convention already has the field for saying
+which targets it can name.
 
 This is the right seam and it is worth checking it stays that way: if the
 splitting ever has to happen in the parser, the target stops being one
 string and section 8's "free" claim about the convention layer stops
 being true.
+
+### 9.4 Aliases in table cells
+
+**Decided: no alias inside a table cell.** A row is split into cells
+before any inline scanning, and the splitter knows only verbatim and
+backslash escapes, so `| [[a|b]] |` is two cells, `[[a` and `b]]`, each
+of which decays to literal text (3.4 row 8). A wikilink without an alias
+works in a cell as anywhere else.
+
+Keeping `[[a|b]]` whole would mean the row splitter repeating 3.1's
+decision, which depends on the bracket scope it opens in, from a layer
+below the inline settings. The two scanners would then have to agree
+on the decision, and that coupling is not worth one case.
+
+Obsidian's convention is to write `[[a\|b]]` in a table and read the
+`\|` as the separator. Here 3.2 already gives `\|` its meaning, an
+escaped bar, so that spelling has target `a|b` and no alias. Adopting
+Obsidian's reading would make a backslash mean different things in and
+out of a cell, and the inline scanner does not know which it is in; it
+would need a cell flag threaded into the scan. Open if a consumer asks
+for it, at that cost.
