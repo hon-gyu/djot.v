@@ -542,6 +542,9 @@ Inductive inline : Type :=
   | FootnoteReference (label : string)
   | UrlLink (url : string)
   | EmailLink (email : string)
+  (* `[[target|alias]]`, and `![[...]]` with `embed` set.  Both halves are
+     source as written; what a target denotes is the consumer's. *)
+  | Wikilink (embed : bool) (target : string) (alias : option string)
   | RawInline (format : string) (s : string)
   | NonBreakingSpace
   | Quoted (qt : quote_type) (ils : list (node inline))
@@ -573,6 +576,7 @@ Definition inline_ind2
   (hfoot : forall label, P (FootnoteReference label))
   (hurl : forall url, P (UrlLink url))
   (hmail : forall email, P (EmailLink email))
+  (hwiki : forall embed target alias, P (Wikilink embed target alias))
   (hraw : forall format s, P (RawInline format s))
   (hnbsp : P NonBreakingSpace)
   (hquoted : forall qt ils, Q ils -> P (Quoted qt ils))
@@ -606,12 +610,23 @@ Definition inline_ind2
     | FootnoteReference label => hfoot label
     | UrlLink url => hurl url
     | EmailLink email => hmail email
+    | Wikilink embed target alias => hwiki embed target alias
     | RawInline format s => hraw format s
     | NonBreakingSpace => hnbsp
     | Quoted qt ils => hquoted qt ils (golist ils)
     | SoftBreak => hsoft
     | HardBreak => hhard
     end.
+
+(* A wikilink's display text: the alias if there is one, else the target. *)
+Definition wiki_display (target : string) (alias : option string) : string :=
+  match alias with Some d => d | None => target end.
+
+(* The ordinary link a wikilink renders as. *)
+Definition wiki_desugar (embed : bool) (target : string) (alias : option string)
+  : inline :=
+  let ils := [mk (Str (wiki_display target alias))] in
+  if embed then Image ils (Direct target) else Link ils (Direct target).
 
 (*
 Block elements

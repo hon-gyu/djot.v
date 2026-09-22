@@ -144,6 +144,11 @@ let lbrack =
 let rbrack =
   ']'
 
+(** val vbar : char **)
+
+let vbar =
+  '|'
+
 (** val hat : char **)
 
 let hat =
@@ -217,7 +222,7 @@ type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> nat);
                  dc_syntax : (dstyle -> dsyntax);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography : 
                  bool; dc_raw_inline : bool; dc_math : bool; dc_attrs : 
-                 bool; dc_footnotes : bool }
+                 bool; dc_footnotes : bool; dc_wikilinks : bool }
 
 (** val djot_dchar : dstyle -> char **)
 
@@ -278,7 +283,8 @@ let djot_dwidth _ =
 let djot_config =
   { dc_char = djot_dchar; dc_width = djot_dwidth; dc_syntax = djot_dsyntax;
     dc_decay = djot_ddecay; dc_smart_typography = true; dc_raw_inline = true;
-    dc_math = true; dc_attrs = true; dc_footnotes = true }
+    dc_math = true; dc_attrs = true; dc_footnotes = true; dc_wikilinks =
+    false }
 
 (** val chars : char -> nat -> string **)
 
@@ -306,6 +312,14 @@ let denabled c k =
 
 let dstyle_at c c0 =
   find (fun k -> (&&) (denabled c k) ((=) (c.dc_char k) c0)) dstyles
+
+(** val with_wikilinks : bool -> dconfig -> dconfig **)
+
+let with_wikilinks enabled c =
+  { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
+    dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_attrs =
+    c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks = enabled }
 
 (** val bnode : bool -> inlines -> target -> inline **)
 
@@ -335,6 +349,7 @@ let rec reference_text il =
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns
    | Span ns -> go ns
+   | Wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | Quoted (_, ns) -> go ns
    | SoftBreak -> nl
@@ -402,6 +417,11 @@ let inline_attrs_enabled t =
 
 let notes_enabled t =
   t.dc_footnotes
+
+(** val wikilinks_enabled : dtable -> bool **)
+
+let wikilinks_enabled t =
+  t.dc_wikilinks
 
 (** val denabled_of : dtable -> dstyle -> bool **)
 
@@ -707,6 +727,22 @@ let ref_close label tail =
 
       (rbrack, tail))))))
 
+(** val wiki_text : bool -> string -> string option -> string **)
+
+let wiki_text embed t al =
+  (^) (bracket_open embed)
+    ((^) (one lbrack)
+      ((^) t
+        ((^)
+          (match al with
+           | Some a ->
+             (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+               (vbar, a)
+           | None -> "")
+          ((^) (one rbrack) (one rbrack)))))
+
 (** val note_text : string -> string **)
 
 let note_text label =
@@ -883,6 +919,7 @@ type cinline =
 | CINote of string
 | CIAuto of string
 | CIRaw of string * string
+| CIWiki of bool * string * string option
 
 (** val str_last : string -> char option -> char option **)
 
@@ -916,7 +953,8 @@ let rec ci_src t ci =
      (^) (bracket_open img) ((^) (go kids) (ref_close label ""))
    | CINote label -> note_text label
    | CIAuto s -> auto_text s
-   | CIRaw (fmt, s) -> raw_text fmt s)
+   | CIRaw (fmt, s) -> raw_text fmt s
+   | CIWiki (embed, t0, al) -> wiki_text embed t0 al)
 
 (** val ci_text : dtable -> cinline list -> string **)
 
@@ -946,7 +984,8 @@ let rec ci_ast ci =
    | CIRef (img, kids, label) -> mk (bnode img (go kids) (Reference label))
    | CINote label -> mk (FootnoteReference label)
    | CIAuto s -> mk (auto_node s)
-   | CIRaw (fmt, s) -> mk (RawInline (fmt, s)))
+   | CIRaw (fmt, s) -> mk (RawInline (fmt, s))
+   | CIWiki (embed, t, al) -> mk (Wikilink (embed, t, al)))
 
 (** val ci_inlines : cinline list -> inlines **)
 
@@ -967,6 +1006,32 @@ let ci_pair_ok t a b =
      | CIRaw (_, _) -> false
      | _ -> true)
   | _ -> true
+
+(** val ci_lbrack_head : cinline -> bool **)
+
+let ci_lbrack_head = function
+| CILink (img, _, _) -> if img then false else true
+| CIRef (img, _, _) -> if img then false else true
+| CINote _ -> true
+| CIWiki (embed, _, _) -> if embed then false else true
+| _ -> false
+
+(** val cis_lbrack_head : cinline list -> bool **)
+
+let cis_lbrack_head = function
+| [] -> false
+| c :: _ -> ci_lbrack_head c
+
+(** val bracket_kids_ok : dtable -> cinline list -> bool **)
+
+let bracket_kids_ok t kids =
+  negb ((&&) (wikilinks_enabled t) (cis_lbrack_head kids))
+
+(** val wiki_part_ok : string -> bool **)
+
+let wiki_part_ok s =
+  (&&) ((&&) ((&&) (no_char rbrack s) (no_char vbar s)) (no_char bslash s))
+    (no_nl s)
 
 (** val ci_ok : dtable -> cinline -> bool **)
 
@@ -991,14 +1056,18 @@ let rec ci_ok t ci =
    | CIVerb s -> (&&) (nonempty_str s) (verb_content_ok s)
    | CIDelim (k, kids) ->
      (&&) ((&&) ((&&) (denabled_of t k) (nonempty kids)) (go kids)) (sep kids)
-   | CILink (_, kids, dst) -> (&&) ((&&) (no_nl dst) (go kids)) (sep kids)
+   | CILink (_, kids, dst) ->
+     (&&) ((&&) ((&&) (no_nl dst) (go kids)) (sep kids))
+       (bracket_kids_ok t kids)
    | CIRef (_, kids, label) ->
      (&&)
        ((&&)
-         ((&&) ((&&) (nonempty_str label) (no_char rbrack label))
-           ((=) (normalize_label label) label))
-         (go kids))
-       (sep kids)
+         ((&&)
+           ((&&) ((&&) (nonempty_str label) (no_char rbrack label))
+             ((=) (normalize_label label) label))
+           (go kids))
+         (sep kids))
+       (bracket_kids_ok t kids)
    | CINote label ->
      (&&) ((&&) (notes_enabled t) (note_label_safe label))
        ((=) (normalize_label label) label)
@@ -1007,7 +1076,13 @@ let rec ci_ok t ci =
      (&&)
        ((&&) ((&&) (raw_inline_enabled t) (nonempty_str s))
          (verb_content_ok s))
-       (raw_fmt_ok fmt))
+       (raw_fmt_ok fmt)
+   | CIWiki (_, t0, al) ->
+     (&&)
+       ((&&) ((&&) (wikilinks_enabled t) (nonempty_str t0)) (wiki_part_ok t0))
+       (match al with
+        | Some a -> wiki_part_ok a
+        | None -> true))
 
 (** val ci_sep_ok : dtable -> cinline list -> bool **)
 
@@ -1766,6 +1841,7 @@ type iscan =
 | IAttr of aparser * string * string * char option * iscan * ostate
 | IReference of inlines * bool * span * string * ostate
 | INote of bool * bool * string * span * ostate
+| IWiki of bool * bool * bool * string * span * ostate
 | IDest of inlines * bool * span * bool * nat * string * iscan * ostate
 | IAuto of string * string * ostate
 | IRaw of string * string * ostate
@@ -1800,10 +1876,23 @@ let ilead t h h0 c txt prev o =
                                 else if (=) c lt
                                      then IAuto ("", txt, o)
                                      else if (=) c lbrack
-                                          then IText (false, "", (Some
-                                                 lbrack),
-                                                 (bpush h h0 false
-                                                   (flush_text_at h h0 txt o)))
+                                          then (match if (&&)
+                                                           (note_pos txt prev)
+                                                           (wikilinks_enabled
+                                                             t)
+                                                      then bunpush o
+                                                      else None with
+                                                | Some p ->
+                                                  let (p0, o') = p in
+                                                  let (image, open0) = p0 in
+                                                  IWiki (false, false, image,
+                                                  "", open0, o')
+                                                | None ->
+                                                  IText (false, "", (Some
+                                                    lbrack),
+                                                    (bpush h h0 false
+                                                      (flush_text_at h h0 txt
+                                                        o))))
                                           else if (=) c rbrack
                                                then IClosed (txt, o)
                                                else (match if (&&)
@@ -2146,6 +2235,94 @@ let bnote_lit _ _ esc image label o =
        ((^) (one hat) ((^) label (if esc then one bslash else ""))))),
   o1)
 
+(** val wiki_split : string -> string * string option **)
+
+let rec wiki_split s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> ("", None))
+    (fun c rest ->
+    if is_bslash c
+    then ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+            (fun _ -> ((one c), None))
+            (fun c' rest' ->
+            let (t, al) = wiki_split rest' in
+            (((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+            (c,
+            ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+            (c', t)))), al))
+            rest)
+    else if (=) c vbar
+         then ("", (Some rest))
+         else let (t, al) = wiki_split rest in
+              (((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+              (c, t)), al))
+    s
+
+(** val wiki_lit : bool -> bool -> bool -> string -> string **)
+
+let wiki_lit esc rb image region =
+  (^) (bracket_open image)
+    ((^) (one lbrack)
+      ((^) region
+        ((^) (if rb then one rbrack else "") (if esc then one bslash else ""))))
+
+(** val bwiki_lit :
+    bool -> bool -> bool -> string -> ostate -> string * ostate **)
+
+let bwiki_lit esc rb image region o =
+  let (pre, o1) = opop_str o in (((^) pre (wiki_lit esc rb image region)), o1)
+
+(** val iwiki_close :
+    coq_PosPolicy -> coq_InlineCursor -> bool -> string -> span -> ostate ->
+    iscan **)
+
+let iwiki_close h h0 image region open0 o =
+  let (t, al) = wiki_split region in
+  ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+     (fun _ ->
+     let (txt, o') = bwiki_lit false true image region o in
+     IText (false, ((^) txt (one rbrack)), (Some rbrack), o'))
+     (fun _ _ -> IText (false, "", (Some rbrack),
+     (oemit (imk h open0.span_start h0.cursor_stop (Wikilink (image, t, al)))
+       o)))
+     t)
+
+(** val iwiki_step :
+    coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool -> bool ->
+    string -> span -> ostate -> iscan **)
+
+let iwiki_step h h0 c esc rb image region open0 o =
+  if esc
+  then IWiki (false, false, image, ((^) region ((^) (one bslash) (one c))),
+         open0, o)
+  else if (&&) rb ((=) c rbrack)
+       then iwiki_close h h0 image region open0 o
+       else let region' = if rb then (^) region (one rbrack) else region in
+            if is_bslash c
+            then IWiki (true, false, image, region', open0, o)
+            else if (=) c rbrack
+                 then IWiki (false, true, image, region', open0, o)
+                 else IWiki (false, false, image, ((^) region' (one c)),
+                        open0, o)
+
 (** val ibang_step :
     dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> char
     option -> ostate -> iscan **)
@@ -2407,6 +2584,8 @@ let rec istep_at t h h0 attrs_enabled c = function
   else IReference (kids, image, open0, ((^) label (one c)), o)
 | INote (esc, image, label, open0, o) ->
   inote_step h h0 c esc image label open0 o
+| IWiki (esc, rb, image, region, open0, o) ->
+  iwiki_step h h0 c esc rb image region open0 o
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
   if esc
   then IDest (kids, image, open0, false, depth,
@@ -2481,6 +2660,8 @@ let ifinish_ostate_flat h h0 = function
 | INote (esc, image, label, _, o) ->
   let (txt, o') = bnote_lit h h0 esc image label o in
   flush_text_at h h0 txt o'
+| IWiki (esc, rb, image, region, _, o) ->
+  let (txt, o') = bwiki_lit esc rb image region o in flush_text_at h h0 txt o'
 | IDest (_, _, _, _, _, _, _, o) -> o
 | IAuto (src, txt, o) -> flush_text_at h h0 (auto_lit src txt) o
 | IRaw (spec, txt, o) ->
@@ -2546,6 +2727,10 @@ let ibreak_flat t h h0 st = match st with
 | INote (esc, image, label, open0, o) ->
   INote (false, image, ((^) label ((^) (if esc then one bslash else "") nl)),
     open0, o)
+| IWiki (esc, rb, image, region, _, o) ->
+  let (txt, o') = bwiki_lit esc rb image region o in
+  IText (false, "", None,
+  (oword_reset (oemit (imk_here h h0 SoftBreak) (flush_text_at h h0 txt o'))))
 | IAuto (src, txt, o) ->
   IText (false, "", None,
     (oword_reset
@@ -2589,6 +2774,7 @@ let ibreak t h h0 st =
 let iclosed_at = function
 | IText (esc, _, _, o) -> (&&) (negb esc) (null o.os_stk)
 | IVerb (n, run, _, _, o) -> (&&) (Nat.eqb run n) (null o.os_stk)
+| IWiki (_, _, _, _, _, o) -> null o.os_stk
 | IAuto (_, _, o) -> null o.os_stk
 | IRaw (_, _, o) -> null o.os_stk
 | _ -> false
@@ -2667,15 +2853,14 @@ let rec iscan_lines_off t k l st =
             (ibreak_at t semantic_pos semantic_inline_cursor false
               (iscan_str_off t x st))))
 
-(** val cursor_in : nat -> nat -> nat -> coq_InlineCursor **)
+(** val cursor_in : nat -> nat -> spot -> coq_InlineCursor **)
 
 let cursor_in k rem origin =
   { cursor_start = { spot_line = k; spot_rem = rem }; cursor_stop =
-    { spot_line = k; spot_rem = (pred rem) }; cursor_origin = { spot_line =
-    k; spot_rem = origin } }
+    { spot_line = k; spot_rem = (pred rem) }; cursor_origin = origin }
 
 (** val iscan_str_located :
-    dtable -> coq_PosPolicy -> bool -> nat -> nat -> nat -> string -> iscan
+    dtable -> coq_PosPolicy -> bool -> nat -> spot -> nat -> string -> iscan
     -> iscan **)
 
 let rec iscan_str_located t h allow k origin rem s st =
@@ -2715,24 +2900,25 @@ let allow_attrs t = function
 | S _ -> false
 
 (** val iscan_lines_located :
-    dtable -> coq_PosPolicy -> nat -> (nat * string) list -> iscan -> iscan **)
+    dtable -> coq_PosPolicy -> nat -> spot -> (nat * string) list -> iscan ->
+    iscan **)
 
-let rec iscan_lines_located t h off l st =
+let rec iscan_lines_located t h off origin l st =
   match l with
   | [] -> st
   | p :: rest ->
     let (k, x) = p in
     (match rest with
      | [] ->
-       iscan_str_located t h (allow_attrs t off) k (length x) (length x)
+       iscan_str_located t h (allow_attrs t off) k origin (length x)
          (strip_trailing_ws x) st
      | _ :: _ ->
-       iscan_lines_located t h (pred off) rest
+       iscan_lines_located t h (pred off) origin rest
          (ibreak_at t h { cursor_start = { spot_line = k; spot_rem = O };
            cursor_stop = (lines_start rest); cursor_origin = { spot_line = k;
            spot_rem = (length x) } } (allow_attrs t off)
-           (iscan_str_located t h (allow_attrs t off) k (length x) (length x)
-             x st)))
+           (iscan_str_located t h (allow_attrs t off) k origin (length x) x
+             st)))
 
 (** val ifinish_located :
     dtable -> coq_PosPolicy -> (nat * string) list -> iscan -> inlines **)
@@ -2765,7 +2951,7 @@ let para_inlines_off t k l =
     dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines **)
 
 let para_inlines_located t h off l =
-  ifinish_located t h l (iscan_lines_located t h off l istart)
+  ifinish_located t h l (iscan_lines_located t h off (lines_start l) l istart)
 
 (** val para_inlines_at :
     dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines **)
@@ -2782,7 +2968,8 @@ let parse_inline_line_located t h k rem s =
   let stop = { spot_line = k; spot_rem = (sub rem (length s)) } in
   ifinish t h { cursor_start = stop; cursor_stop = stop; cursor_origin =
     { spot_line = k; spot_rem = rem } }
-    (iscan_str_located t h (inline_attrs_enabled t) k rem rem s istart)
+    (iscan_str_located t h (inline_attrs_enabled t) k { spot_line = k;
+      spot_rem = rem } rem s istart)
 
 (** val key_before : char option -> bool **)
 
@@ -2893,6 +3080,7 @@ let rec inline_text t il =
    | FootnoteReference label -> note_text label
    | UrlLink s -> auto_text s
    | EmailLink s -> auto_text s
+   | Wikilink (embed, t0, al) -> wiki_text embed t0 al
    | RawInline (fmt, s) -> raw_text fmt s
    | Quoted (qt, ns) ->
      (match qt with

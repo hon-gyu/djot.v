@@ -120,6 +120,9 @@ Definition period : ascii := "."%char.
 Definition lbrack : ascii := "["%char.
 Definition rbrack : ascii := "]"%char.
 
+(* A wikilink's alias separator.  Not dispatched in text mode. *)
+Definition vbar : ascii := "|"%char.
+
 (* The footnote marker.  Not reserved and not looked up in the table: it
    is the superscript row's character, and which of the two it means is
    decided by position -- only a `^` immediately inside a `[` marks a
@@ -236,7 +239,9 @@ Record dconfig : Type := DConfig {
   dc_attrs : bool;
   (* Does `[^label]` make a footnote reference?  The other half of the
      capability is `Step.bfootnotes`; `Profile.with_footnotes` moves both. *)
-  dc_footnotes : bool
+  dc_footnotes : bool;
+  (* Does `[[target|alias]]` make a wikilink?  Off in djot's own table. *)
+  dc_wikilinks : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -285,7 +290,7 @@ Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
   DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true true
-    true.
+    true false.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -409,13 +414,14 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
-    (dc_footnotes C).
+    (dc_footnotes C) (dc_wikilinks C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
-    (dc_raw_inline C) (dc_math C) (dc_attrs C) (dc_footnotes C).
+    (dc_raw_inline C) (dc_math C) (dc_attrs C) (dc_footnotes C)
+    (dc_wikilinks C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -424,7 +430,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) enabled (dc_math C) (dc_attrs C)
-    (dc_footnotes C).
+    (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
@@ -435,7 +441,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) enabled (dc_attrs C)
-    (dc_footnotes C).
+    (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
@@ -446,7 +452,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
-    (dc_footnotes C).
+    (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_inline_attrs_preserves_admissible :
   forall enabled, preserves (with_inline_attrs enabled) delimiter_admissible.
@@ -457,11 +463,21 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_footnotes (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
-    enabled.
+    enabled (dc_wikilinks C).
 
 Theorem with_inline_footnotes_preserves_admissible :
   forall enabled,
     preserves (with_inline_footnotes enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Wikilinks are an inline capability only: no block construct takes part. *)
+Definition with_wikilinks (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    (dc_footnotes C) enabled.
+
+Theorem with_wikilinks_preserves_admissible :
+  forall enabled, preserves (with_wikilinks enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Definition drow_trigger_compatible
@@ -813,6 +829,7 @@ Fixpoint reference_text (il : inline) : string :=
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Span ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
+  | Wikilink _ t al => wiki_display t al
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _
   | NonBreakingSpace => EmptyString
   end.
@@ -844,7 +861,7 @@ Example clashing_config_not_ok :
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
                       djot_dwidth djot_dsyntax djot_ddecay true true true
-                      true true)
+                      true true false)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -858,7 +875,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true true true) = true.
+                      djot_ddecay true true true true true false) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
@@ -896,6 +913,8 @@ Definition math_enabled : bool := dc_math cfg.
 Definition inline_attrs_enabled : bool := dc_attrs cfg.
 
 Definition notes_enabled : bool := dc_footnotes cfg.
+
+Definition wikilinks_enabled : bool := dc_wikilinks cfg.
 
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
@@ -1422,6 +1441,14 @@ Definition ref_close (label tail : string) : string :=
 
 (* A footnote reference is a leaf: its label is source rather than inline
    content, so there is no child canonical view to reconstruct. *)
+(* A wikilink's source: `[[target]]` or `[[target|alias]]`, with the `!`
+   of an embed in front. *)
+Definition wiki_text (embed : bool) (t : string) (al : option string)
+  : string :=
+  (bracket_open embed ++ one lbrack ++ t
+   ++ match al with Some a => String vbar a | None => EmptyString end
+   ++ one rbrack ++ one rbrack)%string.
+
 Definition note_text (label : string) : string :=
   String lbrack (String hat (label ++ one rbrack)).
 
@@ -1602,7 +1629,10 @@ Inductive cinline : Type :=
      The format is a field because it is source the scanner reads, not
      something computed from the content -- the one way this differs from
      `CIAuto`. *)
-  | CIRaw (fmt s : string).
+  | CIRaw (fmt s : string)
+  (* a wikilink: two raw strings and the embed bit, a leaf for the
+     footnote label's reason. *)
+  | CIWiki (embed : bool) (target : string) (alias : option string).
 
 Fixpoint ci_size (ci : cinline) : nat :=
   let go :=
@@ -1612,7 +1642,7 @@ Fixpoint ci_size (ci : cinline) : nat :=
       | c :: rest => ci_size c + go rest
       end in
   match ci with
-  | CIStr _ | CIVerb _ | CINote _ | CIAuto _ | CIRaw _ _ => 1
+  | CIStr _ | CIVerb _ | CINote _ | CIAuto _ | CIRaw _ _ | CIWiki _ _ _ => 1
   | CIDelim _ kids | CILink _ kids _ | CIRef _ kids _ => S (go kids)
   end.
 
@@ -1648,7 +1678,8 @@ Qed.
 
 Lemma ci_size_pos : forall ci, 0 < ci_size ci.
 Proof.
-  intros [s|s|k kids|img kids dst|img kids label|label|s|f s]; cbn [ci_size]; lia.
+  intros [s|s|k kids|img kids dst|img kids label|label|s|f s|e t al];
+    cbn [ci_size]; lia.
 Qed.
 
 (* The last byte of `s`, or `prev` when `s` is empty. *)
@@ -1687,6 +1718,7 @@ Fixpoint ci_src (ci : cinline) : string :=
   | CINote label => note_text label
   | CIAuto s => auto_text s
   | CIRaw fmt s => raw_text fmt s
+  | CIWiki embed t al => wiki_text embed t al
   end.
 
 Fixpoint ci_text (cis : list cinline) : string :=
@@ -1765,6 +1797,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
   | CINote label => mk (FootnoteReference label)
   | CIAuto s => mk (auto_node s)
   | CIRaw fmt s => mk (RawInline fmt s)
+  | CIWiki embed t al => mk (Wikilink embed t al)
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
@@ -1861,6 +1894,27 @@ Definition ci_pair_ok (a b : cinline) : bool :=
   | _, _ => true
   end.
 
+(* Whether a run's source begins with a `[` that is not an image's.  At
+   the start of a link's text such a `[` is the second bracket of a
+   wikilink, so with wikilinks on a canonical link or reference may not
+   begin with one (wikilink spec, section 6). *)
+Definition ci_lbrack_head (c : cinline) : bool :=
+  match c with
+  | CILink false _ _ | CIRef false _ _ | CINote _ | CIWiki false _ _ => true
+  | _ => false
+  end.
+
+Definition cis_lbrack_head (cis : list cinline) : bool :=
+  match cis with c :: _ => ci_lbrack_head c | [] => false end.
+
+Definition bracket_kids_ok (kids : list cinline) : bool :=
+  negb (wikilinks_enabled && cis_lbrack_head kids).
+
+(* One half of a canonical wikilink: nothing the region scan gives a
+   role, and no line break. *)
+Definition wiki_part_ok (s : string) : bool :=
+  (no_char rbrack s && no_char vbar s && no_char bslash s && no_nl s)%bool.
+
 Fixpoint ci_ok (ci : cinline) : bool :=
   let go :=
     fix go (cis : list cinline) : bool :=
@@ -1888,14 +1942,15 @@ Fixpoint ci_ok (ci : cinline) : bool :=
      drops the break rather than recording it, so the rendering would
      come back shorter.  Everything else the scanner dispatches on is
      escaped by `escape_dest`. *)
-  | CILink _ kids dst => (no_nl dst && go kids && sep kids)%bool
+  | CILink _ kids dst =>
+      (no_nl dst && go kids && sep kids && bracket_kids_ok kids)%bool
   (* A label reaches the AST normalized, so only an already-normalized one
      round-trips; `]` would end it early, and an empty one is the
      collapsed spelling, whose label comes from the text instead. *)
   | CIRef _ kids label =>
       (nonempty_str label && no_char rbrack label
        && String.eqb (normalize_label label) label
-       && go kids && sep kids)%bool
+       && go kids && sep kids && bracket_kids_ok kids)%bool
   | CINote label =>
       (notes_enabled && note_label_safe label
        && String.eqb (normalize_label label) label)%bool
@@ -1910,6 +1965,11 @@ Fixpoint ci_ok (ci : cinline) : bool :=
   | CIRaw fmt s =>
       (raw_inline_enabled && nonempty_str s
        && verb_content_ok s && raw_fmt_ok fmt)%bool
+  (* An empty target is text (wikilink spec, 3.3), and anything the
+     region scan dispatches on would end or split it. *)
+  | CIWiki _ t al =>
+      (wikilinks_enabled && nonempty_str t && wiki_part_ok t
+       && match al with Some a => wiki_part_ok a | None => true end)%bool
   end.
 
 Lemma ci_ok_raw :
@@ -1921,6 +1981,13 @@ Proof. reflexivity. Qed.
 
 Lemma ci_ok_auto :
   forall s, ci_ok (CIAuto s) = (auto_body_ok s && auto_kind_ok s)%bool.
+Proof. reflexivity. Qed.
+
+Lemma ci_ok_wiki :
+  forall embed t al,
+    ci_ok (CIWiki embed t al)
+    = (wikilinks_enabled && nonempty_str t && wiki_part_ok t
+       && match al with Some a => wiki_part_ok a | None => true end)%bool.
 Proof. reflexivity. Qed.
 
 Lemma ci_ok_note :
@@ -1969,7 +2036,8 @@ Qed.
 
 Lemma ci_ok_link :
   forall img kids dst,
-    ci_ok (CILink img kids dst) = (no_nl dst && cis_ok kids)%bool.
+    ci_ok (CILink img kids dst)
+    = (no_nl dst && cis_ok kids && bracket_kids_ok kids)%bool.
 Proof.
   intros img kids dst.
   assert (Hg : forall xs,
@@ -1996,7 +2064,8 @@ Lemma ci_ok_ref :
   forall img kids label,
     ci_ok (CIRef img kids label)
     = (nonempty_str label && no_char rbrack label
-       && String.eqb (normalize_label label) label && cis_ok kids)%bool.
+       && String.eqb (normalize_label label) label && cis_ok kids
+       && bracket_kids_ok kids)%bool.
 Proof.
   intros img kids label.
   assert (Hg : forall xs,
@@ -3223,6 +3292,13 @@ Inductive iscan : Type :=
      took back was opened with, kept only to spell the literal
      fallback. *)
   | INote (esc image : bool) (label : string) (open : span) (o : ostate)
+  (* inside a `[[`, recognised at the second `[` the way `[^` is at the
+     `^`.  The region is source kept with its escapes: `esc` is a pending
+     backslash and `rb` a pending `]`, the first half of a possible
+     closer, neither yet in `region`.  `image` is what the bracket this
+     took back was opened with: the embed bit on success, the `!` of the
+     literal fallback otherwise. *)
+  | IWiki (esc rb image : bool) (region : string) (open : span) (o : ostate)
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
      pending backslash, as in text mode.  A destination survives a line
@@ -3306,9 +3382,17 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      pending text stays pending, since a candidate that fails hands it
      back with the `<` on the end. *)
   else if Ascii.eqb c lt then IAuto EmptyString txt o
+  (* A `[` right inside a bracket that has just opened is the second
+     bracket of a wikilink.  The same guard as the footnote marker's
+     below, with `[` in place of `^`. *)
   else if Ascii.eqb c lbrack
-  then IText false EmptyString (Some lbrack)
-         (bpush false (flush_text_at txt o))
+  then match (if (note_pos txt prev && wikilinks_enabled)%bool
+              then bunpush o else None) with
+       | Some (image, open, o') => IWiki false false image EmptyString open o'
+       | None =>
+           IText false EmptyString (Some lbrack)
+             (bpush false (flush_text_at txt o))
+       end
   else if Ascii.eqb c rbrack then IClosed txt o
   (* A `^` right inside a bracket that has just opened marks a footnote.
      djot.js reads the byte after the opener when the `]` arrives
@@ -3663,6 +3747,63 @@ Definition bnote_lit `{PosPolicy} `{InlineCursor}
   ((pre ++ bracket_open image ++ one hat ++ label
        ++ (if esc then one bslash else EmptyString))%string, o1).
 
+(* A wikilink region split at its first unescaped `|`: the target, and
+   the alias if there is a bar.  A backslash and the byte after it stay
+   together and are never split. *)
+Fixpoint wiki_split (s : string) : string * option string :=
+  match s with
+  | EmptyString => (EmptyString, None)
+  | String c rest =>
+      if is_bslash c then
+        match rest with
+        | EmptyString => (one c, None)
+        | String c' rest' =>
+            let '(t, al) := wiki_split rest' in (String c (String c' t), al)
+        end
+      else if Ascii.eqb c vbar then (EmptyString, Some rest)
+      else let '(t, al) := wiki_split rest in (String c t, al)
+  end.
+
+(* A wikilink candidate's own source: both brackets, the region, and the
+   pending `]` and backslash.  The literal fallback, with whatever text
+   pended before the first bracket, as `bnote_lit` rebuilds a label. *)
+Definition wiki_lit (esc rb image : bool) (region : string) : string :=
+  (bracket_open image ++ one lbrack ++ region
+     ++ (if rb then one rbrack else EmptyString)
+     ++ (if esc then one bslash else EmptyString))%string.
+
+Definition bwiki_lit (esc rb image : bool) (region : string) (o : ostate)
+  : string * ostate :=
+  let '(pre, o1) := opop_str o in ((pre ++ wiki_lit esc rb image region)%string, o1).
+
+(* The `]]` has arrived.  An empty target is not a wikilink: the whole
+   candidate is text, closer included, and pends as text so that no later
+   `]` can close a scope with it. *)
+Definition iwiki_close `{PosPolicy} `{InlineCursor}
+  (image : bool) (region : string) (open : span) (o : ostate) : iscan :=
+  match wiki_split region with
+  | (EmptyString, _) =>
+      let '(txt, o') := bwiki_lit false true image region o in
+      IText false (txt ++ one rbrack)%string (Some rbrack) o'
+  | (t, al) =>
+      IText false EmptyString (Some rbrack)
+        (oemit (imk (span_start open) cursor_stop (Wikilink image t al)) o)
+  end.
+
+(* One byte of a wikilink region.  A pending `]` becomes content unless
+   this byte completes the closer; a backslash protects the next byte
+   without being decoded. *)
+Definition iwiki_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (esc rb image : bool) (region : string) (open : span)
+  (o : ostate) : iscan :=
+  if esc then IWiki false false image (region ++ one bslash ++ one c)%string open o
+  else if (rb && Ascii.eqb c rbrack)%bool then iwiki_close image region open o
+  else
+    let region' := if rb then (region ++ one rbrack)%string else region in
+    if is_bslash c then IWiki true false image region' open o
+    else if Ascii.eqb c rbrack then IWiki false true image region' open o
+    else IWiki false false image (region' ++ one c)%string open o.
+
 Definition ibang_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
@@ -3930,6 +4071,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       then istep_at false c sh
       else iattr_feed c p src txt prev (istep_at false c sh) o
   | INote esc image label open o => inote_step c esc image label open o
+  | IWiki esc rb image region open o => iwiki_step c esc rb image region open o
   | IAuto src txt o => iauto_step c src txt o
   | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
   | IReference kids image open label o =>
@@ -3994,6 +4136,10 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   | IDest _ _ _ _ _ _ _ o => o
   | INote esc image label _ o =>
       let '(txt, o') := bnote_lit esc image label o in flush_text_at txt o'
+  (* a wikilink candidate the line ended inside is literal, brackets and
+     all *)
+  | IWiki esc rb image region _ o =>
+      let '(txt, o') := bwiki_lit esc rb image region o in flush_text_at txt o'
   (* a candidate the line ended inside is literal: the region may not
      contain a break, so the `>` it wanted can never arrive *)
   | IAuto src txt o => flush_text_at (auto_lit src txt) o
@@ -4086,6 +4232,12 @@ Definition ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
         (label ++ (if esc then one bslash else EmptyString) ++ nl)%string open o
   | IReference kids image open label o =>
       IReference kids image open (label ++ nl)%string o
+  (* A wikilink candidate does not cross a break: it decays here, as an
+     autolink candidate does just below. *)
+  | IWiki esc rb image region _ o =>
+      let '(txt, o') := bwiki_lit esc rb image region o in
+      IText false EmptyString None
+        (oword_reset (oemit (imk_here SoftBreak) (flush_text_at txt o')))
   (* and the break itself is the soft one, exactly as it is for the text
      the candidate decays to *)
   | IAuto src txt o =>
@@ -4167,7 +4319,7 @@ Definition iclosed_at (st : iscan) : bool :=
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
      is text on this line *)
-  | IAuto _ _ o | IRaw _ _ o => null (os_stk o)
+  | IAuto _ _ o | IRaw _ _ o | IWiki _ _ _ _ _ o => null (os_stk o)
   end.
 
 Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
@@ -4242,7 +4394,7 @@ Proof.
   unfold ifinish_items, oitems_of.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
@@ -4250,6 +4402,15 @@ Proof.
   - apply andb_true_iff in H as [Hr Hs]. rewrite Hr.
     destruct o as [out [|f stk] word]; [|discriminate].
     unfold oemit; cbn [os_stk os_out oflatten oapp]. reflexivity.
+  (* a wikilink candidate decays the same way, with its own literal; taking
+     back the text before it leaves the stack as empty as it was *)
+  - destruct wob as [out [|f stk] word]; [|discriminate].
+    unfold bwiki_lit, opop_str; cbn [os_stk os_out].
+    destruct out as [|[[p a v]|b sp w] out];
+      try (destruct a as [|kv a]; [destruct v|]);
+      unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp];
+      match goal with |- context [nonempty_str ?t] => destruct (nonempty_str t) end;
+      reflexivity.
   (* the candidate decays to text and the boundary is the soft break
      after it, which is the text case with `auto_lit` in the buffer *)
   - destruct aob as [out [|f stk] word]; [|discriminate].
@@ -4499,6 +4660,8 @@ Fixpoint erase_iscan (st : iscan) : iscan :=
       IReference (erase_inlines kids) image null_span label (erase_ostate o)
   | INote esc image label _ o =>
       INote esc image label null_span (erase_ostate o)
+  | IWiki esc rb image region _ o =>
+      IWiki esc rb image region null_span (erase_ostate o)
   | IDest kids image _ esc depth dst sh o =>
       IDest (erase_inlines kids) image null_span esc depth dst
         (erase_iscan sh) (erase_ostate o)
@@ -4774,7 +4937,7 @@ Proof.
     (fun i => reference_text (erase_inline i) = reference_text i)
     (fun ils => reference_text (Emph (erase_inlines ils)) =
                 reference_text (Emph ils))
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     intros;
     cbn [erase_inline erase_inlines erase_inode reference_text
       node_contents] in *;
@@ -4992,8 +5155,11 @@ Proof.
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lt); [reflexivity|].
-  destruct (Ascii.eqb c lbrack);
-    [cbn [erase_iscan]; rewrite erase_bpush, erase_flush_text_at; reflexivity|].
+  destruct (Ascii.eqb c lbrack).
+  { destruct (note_pos txt prev && wikilinks_enabled)%bool;
+      [rewrite erase_bunpush; destruct (bunpush o) as [[[image open] o']|];
+        [reflexivity|]|];
+      cbn [erase_iscan]; rewrite erase_bpush, erase_flush_text_at; reflexivity. }
   destruct (Ascii.eqb c rbrack); [reflexivity|].
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite erase_bunpush; destruct (bunpush o) as [[[image open] o']|];
@@ -5036,7 +5202,7 @@ Qed.
 
 Lemma erase_islice_end : forall st,
   erase_iscan (islice_end st) = islice_end (erase_iscan st).
-Proof. intros [| | |k extra txt before marked o| | | | | | | | | | | | | |];
+Proof. intros [| | |k extra txt before marked o| | | | | | | | | | | | | | |];
   try reflexivity; destruct esc; reflexivity. Qed.
 
 Lemma erase_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -5157,7 +5323,7 @@ Lemma erase_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_iscan (@iresolve P C st) =
   @iresolve semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | |];
     try reflexivity.
   cbn [erase_iscan iresolve].
   destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
@@ -5213,6 +5379,41 @@ Proof.
   destruct (Ascii.eqb c rbrack); [|reflexivity].
   cbn [erase_iscan]. rewrite erase_oemit, erase_imk, erase_ospan_bang.
   reflexivity.
+Qed.
+
+Lemma erase_bwiki_lit : forall esc rb image region o,
+  bwiki_lit esc rb image region (erase_ostate o) =
+  (fst (bwiki_lit esc rb image region o),
+   erase_ostate (snd (bwiki_lit esc rb image region o))).
+Proof.
+  intros esc rb image region o. unfold bwiki_lit.
+  rewrite erase_opop_str. destruct (opop_str o) as [pre o1]; reflexivity.
+Qed.
+
+Lemma erase_iwiki_close : forall `{P : PosPolicy} `{C : InlineCursor}
+  image region open o,
+  erase_iscan (@iwiki_close P C image region open o) =
+  @iwiki_close semantic_pos semantic_inline_cursor image region null_span
+    (erase_ostate o).
+Proof.
+  intros P C image region open o. unfold iwiki_close.
+  destruct (wiki_split region) as [[|x t] al].
+  - rewrite erase_bwiki_lit.
+    destruct (bwiki_lit false true image region o) as [txt o']; reflexivity.
+  - cbn [erase_iscan]. rewrite erase_oemit, erase_imk. reflexivity.
+Qed.
+
+Lemma erase_iwiki_step : forall `{P : PosPolicy} `{C : InlineCursor}
+  c esc rb image region open o,
+  erase_iscan (@iwiki_step P C c esc rb image region open o) =
+  @iwiki_step semantic_pos semantic_inline_cursor c esc rb image region
+    null_span (erase_ostate o).
+Proof.
+  intros P C c esc rb image region open o. unfold iwiki_step.
+  destruct esc; [reflexivity|].
+  destruct (rb && Ascii.eqb c rbrack)%bool; [apply erase_iwiki_close|].
+  destruct (is_bslash c); [reflexivity|].
+  destruct (Ascii.eqb c rbrack); reflexivity.
 Qed.
 
 Lemma erase_iauto_step : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -5284,6 +5485,7 @@ Proof.
     | two txt prev o | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh IHsh o
     | kids image open label o | esc image label open o
+    | esc rb image region open o
     | kids image open esc depth dst sh IHsh o | src txt o | spec txt o ];
     intros allow c.
   - (* IText *)
@@ -5308,7 +5510,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
     destruct (@idelim_resolve P C k txt before false (Some c) o)
-      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | |];
+      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply erase_ilead].
   - (* IOpen *)
@@ -5346,6 +5548,7 @@ Proof.
     cbn [erase_iscan]. rewrite erase_oemit, erase_imk, erase_bnode.
     destruct label; [rewrite erase_reference_inlines_text|]; reflexivity.
   - (* INote *) apply erase_inote_step.
+  - (* IWiki *) apply erase_iwiki_step.
   - (* IDest *)
     rewrite erase_iscan_dest. destruct esc; cbn [istep_at].
     + rewrite erase_iscan_dest, IHsh. reflexivity.
@@ -5373,6 +5576,7 @@ Proof.
     | two txt prev o | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
+    | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o | spec txt o ];
     cbn [erase_iscan ifinish_ostate_flat];
     try reflexivity.
@@ -5391,6 +5595,9 @@ Proof.
     apply erase_flush_text_at.
   - rewrite erase_bnote_lit.
     destruct (@bnote_lit P C esc image label o) as [t o']; cbn [fst snd].
+    apply erase_flush_text_at.
+  - rewrite erase_bwiki_lit.
+    destruct (bwiki_lit esc rb image region o) as [t o']; cbn [fst snd].
     apply erase_flush_text_at.
   - apply erase_flush_text_at.
   - rewrite erase_flush_text_at, erase_oemit, erase_imk. reflexivity.
@@ -5458,6 +5665,7 @@ Proof.
     | two txt prev o | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
+    | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o | spec txt o ];
     cbn [erase_iscan ibreak_flat];
     try reflexivity.
@@ -5471,6 +5679,10 @@ Proof.
       erase_oemit, erase_imk, erase_vnode. reflexivity.
   - apply erase_ispan_feed.
   - rewrite erase_iattr_feed. reflexivity.
+  - rewrite erase_bwiki_lit.
+    destruct (bwiki_lit esc rb image region o) as [t o']; cbn [fst snd erase_iscan].
+    rewrite erase_oword_reset, erase_oemit, erase_imk_here,
+      erase_flush_text_at. reflexivity.
   - cbn [erase_iscan]. rewrite erase_oword_reset, erase_oemit, erase_imk_here,
       erase_flush_text_at. reflexivity.
   - cbn [erase_iscan]. rewrite erase_oword_reset, erase_oemit, erase_imk_here,
@@ -5792,6 +6004,8 @@ Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
       IAttr p src txt prev (iout_app base sh) (oout_app base o)
   | INote esc image label open o =>
       INote esc image label open (oout_app base o)
+  | IWiki esc rb image region open o =>
+      IWiki esc rb image region open (oout_app base o)
   | IReference kids image open label o =>
       IReference kids image open label (oout_app base o)
   | IDest kids image open esc depth dst sh o =>
@@ -5984,6 +6198,18 @@ Proof.
   destruct (opop_str o) as [pre o1]; cbn [fst snd]. reflexivity.
 Qed.
 
+Lemma bwiki_lit_app :
+  forall esc rb image region o base,
+    base_ok base = true ->
+    bwiki_lit esc rb image region (oout_app base o) =
+    let '(txt, o') := bwiki_lit esc rb image region o in
+    (txt, oout_app base o').
+Proof.
+  intros esc rb image region o base Hb. unfold bwiki_lit.
+  rewrite (opop_str_app o base Hb).
+  destruct (opop_str o) as [pre o1]; cbn [fst snd]. reflexivity.
+Qed.
+
 Lemma bspan_lit_app :
   forall kids image src o base,
     base_ok base = true ->
@@ -6031,8 +6257,11 @@ Proof.
   destruct (Ascii.eqb c lbrace); [reflexivity|].
   destruct (Ascii.eqb c bang); [reflexivity|].
   destruct (Ascii.eqb c lt); [reflexivity|].
-  destruct (Ascii.eqb c lbrack);
-    [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity|].
+  destruct (Ascii.eqb c lbrack).
+  { destruct (note_pos txt prev && wikilinks_enabled)%bool;
+      [rewrite bunpush_app; destruct (bunpush o) as [[[image open] o']|];
+        [reflexivity|]|];
+      cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity. }
   destruct (Ascii.eqb c rbrack); [reflexivity|].
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite bunpush_app;
@@ -6071,7 +6300,7 @@ Lemma islice_end_app :
   forall base st,
     islice_end (iout_app base st) = iout_app base (islice_end st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     reflexivity.
 Qed.
 
@@ -6143,7 +6372,7 @@ Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
@@ -6163,7 +6392,7 @@ Lemma istep_at_out_app :
     = iout_app base (istep_at attrs_enabled c st).
 Proof.
   intros attrs_enabled c base st. revert attrs_enabled c base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
     intros attrs_enabled c base Hb; cbn [iout_app istep_at].
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -6184,7 +6413,7 @@ Proof.
       rewrite flush_text_app, opush_at_app. apply ilead_app. }
     rewrite idelim_resolve_app. destruct (Ascii.eqb c rbrace); [reflexivity|].
     destruct (idelim_resolve k txt cc false (Some c) o)
-      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; cbn [iout_app];
+      as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?]; cbn [iout_app];
       try reflexivity.
     apply ilead_app.
   - destruct (is_tick c); reflexivity.
@@ -6235,6 +6464,14 @@ Proof.
     destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
     rewrite oemit_app. reflexivity.
+  - unfold iwiki_step. destruct wesc; [reflexivity|].
+    destruct (wrb && Ascii.eqb c rbrack)%bool.
+    + unfold iwiki_close. destruct (wiki_split wreg) as [[|x t] al].
+      * rewrite (bwiki_lit_app false true wimg wreg wob base Hb).
+        destruct (bwiki_lit false true wimg wreg wob) as [t' o']. reflexivity.
+      * cbn [iout_app]. rewrite oemit_app. reflexivity.
+    + destruct (is_bslash c); [reflexivity|].
+      destruct (Ascii.eqb c rbrack); reflexivity.
   - (* both readings advance, and only the balanced close names one *)
     destruct esc; [cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity|].
     destruct (is_bslash c); [cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity|].
@@ -6289,7 +6526,7 @@ Lemma ibreak_flat_app :
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -6297,6 +6534,9 @@ Proof.
     rewrite !oemit_app. reflexivity.
   - apply ispan_feed_app, Hb.
   - apply iattr_feed_app, Hb.
+  - rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
+    destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o'].
+    cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
 Qed.
 
@@ -6319,7 +6559,7 @@ Lemma ibreak_at_out_app :
     = iout_app base (ibreak_at attrs_enabled st).
 Proof.
   intros attrs_enabled base st. revert attrs_enabled base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|rspec rtxt rob];
     intros attrs_enabled base Hb;
     try (rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
          rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
@@ -6501,7 +6741,7 @@ Lemma ifinish_ostate_flat_app :
     ifinish_ostate_flat (iout_app base st)
     = oout_app base (ifinish_ostate_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|rspec rtxt rob] Hb;
     cbn [iout_app ifinish_ostate_flat].
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
@@ -6519,6 +6759,9 @@ Proof.
     rewrite flush_text_app. reflexivity.
   - rewrite (bnote_lit_app nesc nimg nlab nob base Hb).
     destruct (bnote_lit nesc nimg nlab nob) as [t o']; cbn [fst snd].
+    rewrite flush_text_app. reflexivity.
+  - rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
+    destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
   - rewrite flush_text_app. reflexivity.
   - rewrite oemit_app, flush_text_app. reflexivity.
@@ -6692,7 +6935,7 @@ Lemma ci_str_tail_sep :
     text_sep_ok s rest = true.
 Proof.
   intros s [|r rest] H Hs; [unfold text_sep_ok; destruct s; reflexivity|].
-  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
+  destruct r as [t|v|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
     [|unfold text_sep_ok; destruct s; reflexivity ..].
   unfold cis_ok in H. cbn [ci_sep_ok ci_pair_ok] in H.
   repeat rewrite andb_false_r in H. discriminate.
@@ -7151,11 +7394,80 @@ because it spans three dispatches -- the `]`, the `(` and the balanced
 
 (* One lemma for both openers: the `!` is a separate dispatch, but it
    only decides which frame is pushed. *)
+(* Whether a `[` read in text mode from this state is the second bracket
+   of a wikilink: `ilead`'s guard, as a predicate on the state. *)
+Definition wiki_opens (txt : string) (prev : option ascii) (o : ostate) : bool :=
+  (note_pos txt prev && wikilinks_enabled
+   && match bunpush o with Some _ => true | None => false end)%bool.
+
 Lemma iscan_bracket_open :
   forall image txt prev o,
+    (image || negb (wiki_opens txt prev o))%bool = true ->
     iscan_str (bracket_open image) (IText false txt prev o)
     = IText false EmptyString (Some lbrack) (bpush image (flush_text txt o)).
-Proof. intros [] txt prev o; reflexivity. Qed.
+Proof.
+  intros [] txt prev o H; [reflexivity|].
+  cbn [orb] in H. apply negb_true_iff in H. unfold wiki_opens in H.
+  cbn [bracket_open one iscan_str istep istep_at]. unfold ilead.
+  change (is_bslash lbrack) with false.
+  change (is_tick lbrack) with false.
+  change (Ascii.eqb lbrack dollar) with false.
+  change (Ascii.eqb lbrack period) with false.
+  change (Ascii.eqb lbrack hyphen) with false.
+  change (Ascii.eqb lbrack lbrace) with false.
+  change (Ascii.eqb lbrack bang) with false.
+  change (Ascii.eqb lbrack lt) with false.
+  change (Ascii.eqb lbrack lbrack) with true.
+  cbn iota beta.
+  destruct (note_pos txt prev && wikilinks_enabled)%bool; [|reflexivity].
+  destruct (bunpush o); [discriminate H|reflexivity].
+Qed.
+
+(* Once anything has been emitted into the scope, no bracket can be
+   taken back, so no `[` there opens a wikilink. *)
+Lemma wiki_opens_oemit_all :
+  forall txt prev before O,
+    nonempty before = true ->
+    wiki_opens txt prev (oemit_all before O) = false.
+Proof.
+  intros txt prev [|n ns] O H; [discriminate H|].
+  assert (Hem : forall m o, bunpush (oemit m o) = None).
+  { intros m [out [|[[k|im|im] mk op fo] stk] word]; reflexivity. }
+  assert (Hall : forall ms o,
+    bunpush o = None -> bunpush (oemit_all ms o) = None).
+  { induction ms as [|m ms IH]; intros o Ho; [exact Ho|].
+    cbn [oemit_all]. apply IH, Hem. }
+  unfold wiki_opens. cbn [oemit_all]. rewrite (Hall ns _ (Hem n O)).
+  apply andb_false_r.
+Qed.
+
+Lemma wiki_opens_text :
+  forall txt prev o, nonempty_str txt = true -> wiki_opens txt prev o = false.
+Proof. intros txt prev o H. unfold wiki_opens, note_pos. rewrite H. reflexivity. Qed.
+
+Lemma wiki_opens_top :
+  forall txt prev out w, wiki_opens txt prev (OState out [] w) = false.
+Proof. intros txt prev out w. unfold wiki_opens. cbn [bunpush os_stk]. apply andb_false_r. Qed.
+
+Lemma wiki_opens_opush :
+  forall txt prev ns k m cm open o,
+    wiki_opens txt prev (oemit_all ns (opush_at k m cm open o)) = false.
+Proof.
+  intros txt prev ns k m cm open o. unfold wiki_opens.
+  rewrite bunpush_oemit_all_opush. apply andb_false_r.
+Qed.
+
+(* What a link's `bracket_kids_ok` is for: its text never begins where a
+   `[` would open a wikilink. *)
+Lemma wiki_opens_bracket_kids :
+  forall kids txt prev o,
+    bracket_kids_ok kids = true -> cis_lbrack_head kids = true ->
+    wiki_opens txt prev o = false.
+Proof.
+  intros kids txt prev o Hk Hh. unfold bracket_kids_ok in Hk.
+  rewrite Hh, andb_true_r in Hk. apply negb_true_iff in Hk.
+  unfold wiki_opens. rewrite Hk, andb_false_r. reflexivity.
+Qed.
 
 Lemma bclose_flush_bpush :
   forall txt image before base,
@@ -7429,6 +7741,7 @@ Lemma iscan_note_text :
   forall label tail txt prev o,
     notes_enabled = true ->
     note_label_safe label = true ->
+    wiki_opens txt prev o = false ->
     iscan_str (note_text label ++ tail)
       (IText false txt prev o)
     = iscan_str tail
@@ -7436,12 +7749,12 @@ Lemma iscan_note_text :
           (oemit (mk (FootnoteReference (normalize_label label)))
             (flush_text txt o))).
 Proof.
-  intros label tail txt prev o Hnotes Hsafe.
+  intros label tail txt prev o Hnotes Hsafe Hw.
   replace (note_text label ++ tail)%string with
     (bracket_open false ++ (one hat ++ (label ++ one rbrack ++ tail)))%string
     by (unfold note_text, bracket_open; cbn [append];
         rewrite append_assoc; reflexivity).
-  rewrite iscan_str_app, iscan_bracket_open.
+  rewrite iscan_str_app, iscan_bracket_open by (rewrite Hw; reflexivity).
   rewrite iscan_str_app. cbn [one iscan_str istep istep_at].
   unfold ilead.
   change (is_bslash hat) with false.
@@ -7461,6 +7774,100 @@ Proof.
   rewrite (iscan_note_label label tail false false EmptyString
              null_span (flush_text txt o) Hsafe).
   reflexivity.
+Qed.
+
+(* A canonical target splits off exactly: it has no bar and no
+   backslash, and what follows the first bar is the alias whatever it
+   holds. *)
+Lemma wiki_split_canonical :
+  forall t al,
+    no_char vbar t = true -> no_char bslash t = true ->
+    wiki_split (t ++ match al with Some a => String vbar a | None => EmptyString end)
+    = (t, al).
+Proof.
+  induction t as [|c t IH]; intros al Hv Hb.
+  - destruct al as [a|]; reflexivity.
+  - cbn [no_char] in Hv, Hb.
+    apply andb_true_iff in Hv as [Hvc Hv]. apply andb_true_iff in Hb as [Hbc Hb].
+    apply negb_true_iff in Hvc. apply negb_true_iff in Hbc.
+    cbn [append wiki_split]. unfold is_bslash. rewrite Hbc, Hvc, (IH al Hv Hb).
+    reflexivity.
+Qed.
+
+(* A canonical region has nothing the region scan gives a role. *)
+Lemma iscan_wiki_region :
+  forall r image acc open o,
+    no_char rbrack r = true -> no_char bslash r = true ->
+    iscan_str r (IWiki false false image acc open o)
+    = IWiki false false image (acc ++ r) open o.
+Proof.
+  induction r as [|c r IH]; intros image acc open o Hr Hb.
+  - rewrite append_empty_r. reflexivity.
+  - cbn [no_char] in Hr, Hb.
+    apply andb_true_iff in Hr as [Hrc Hr]. apply andb_true_iff in Hb as [Hbc Hb].
+    apply negb_true_iff in Hrc. apply negb_true_iff in Hbc.
+    cbn [iscan_str istep istep_at iwiki_step andb]. unfold is_bslash.
+    rewrite Hbc, Hrc, (IH image _ open o Hr Hb), append_assoc. reflexivity.
+Qed.
+
+Lemma iscan_wiki_text :
+  forall embed t al tail txt prev o,
+    ci_ok (CIWiki embed t al) = true ->
+    (embed || negb (wiki_opens txt prev o))%bool = true ->
+    iscan_str (wiki_text embed t al ++ tail) (IText false txt prev o)
+    = iscan_str tail
+        (IText false EmptyString (Some rbrack)
+          (oemit (mk (Wikilink embed t al)) (flush_text txt o))).
+Proof.
+  intros embed t al tail txt prev o Hok Hw.
+  rewrite ci_ok_wiki in Hok.
+  apply andb_true_iff in Hok as [Hok Hal]. apply andb_true_iff in Hok as [Hok Ht].
+  apply andb_true_iff in Hok as [Hen Hne].
+  unfold wiki_part_ok in Ht.
+  apply andb_true_iff in Ht as [Ht _]. apply andb_true_iff in Ht as [Ht Htb].
+  apply andb_true_iff in Ht as [Htr Htv].
+  set (apart := match al with Some a => String vbar a | None => EmptyString end).
+  replace (wiki_text embed t al ++ tail)%string with
+    (bracket_open embed
+       ++ (one lbrack ++ (t ++ (apart ++ (one rbrack ++ (one rbrack ++ tail))))))%string
+    by (unfold wiki_text, apart; rewrite !append_assoc; reflexivity).
+  (* the second `[` takes back the bracket the first one pushed *)
+  rewrite iscan_str_app, (iscan_bracket_open embed txt prev o Hw).
+  rewrite iscan_str_app. cbn [one iscan_str istep istep_at]. unfold ilead.
+  change (is_bslash lbrack) with false.
+  change (is_tick lbrack) with false.
+  change (Ascii.eqb lbrack dollar) with false.
+  change (Ascii.eqb lbrack period) with false.
+  change (Ascii.eqb lbrack hyphen) with false.
+  change (Ascii.eqb lbrack lbrace) with false.
+  change (Ascii.eqb lbrack bang) with false.
+  change (Ascii.eqb lbrack lt) with false.
+  change (Ascii.eqb lbrack lbrack) with true.
+  change (note_pos EmptyString (Some lbrack)) with true.
+  rewrite Hen, bunpush_bpush. cbn [andb]. cbn iota beta.
+  (* the region: the target, then the bar and the alias *)
+  rewrite iscan_str_app, (iscan_wiki_region t embed EmptyString _ _ Htr Htb).
+  change (EmptyString ++ t)%string with t.
+  assert (Hreg :
+    iscan_str apart (IWiki false false embed t null_span (flush_text txt o))
+    = IWiki false false embed (t ++ apart) null_span (flush_text txt o)).
+  { unfold apart. destruct al as [a|]; [|rewrite append_empty_r; reflexivity].
+    unfold wiki_part_ok in Hal.
+    apply andb_true_iff in Hal as [Ha _]. apply andb_true_iff in Ha as [Ha Hab].
+    apply andb_true_iff in Ha as [Har _].
+    cbn [iscan_str istep istep_at iwiki_step andb].
+    change (is_bslash vbar) with false. change (Ascii.eqb vbar rbrack) with false.
+    cbn iota beta.
+    rewrite (iscan_wiki_region a embed _ _ _ Har Hab), append_assoc. reflexivity. }
+  rewrite iscan_str_app, Hreg.
+  (* and the closer, whose split is the target and the alias *)
+  cbn [one append iscan_str istep istep_at iwiki_step andb].
+  change (is_bslash rbrack) with false. change (Ascii.eqb rbrack rbrack) with true.
+  cbn iota beta.
+  cbn [istep_at iwiki_step andb]. change (Ascii.eqb rbrack rbrack) with true.
+  cbn iota beta.
+  unfold iwiki_close, apart. rewrite (wiki_split_canonical t al Htv Htb).
+  destruct t as [|c t']; [discriminate Hne|]. rewrite imk_semantic. reflexivity.
 Qed.
 
 (* The region is accumulated and nothing in it is dispatched, which is
@@ -7632,7 +8039,7 @@ Lemma after_verb_source_nontick :
 Proof.
   intros v [|c rest] cl Hok Hcl Hct Hnx.
   - cbn [ci_text append]. split; [assumption|split; assumption].
-  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
+  - destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
     + pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
       cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
       cbn [ci_text ci_src]. split; [|split].
@@ -7682,6 +8089,9 @@ Proof.
          keeps it away from a verbatim *)
       unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
       repeat rewrite andb_false_r in Hok. discriminate.
+    + cbn [ci_text ci_src wiki_text]. unfold bracket_open.
+      destruct we; cbn [append starts_tick after_verb_next];
+        split; [reflexivity|split; reflexivity|reflexivity|split; reflexivity].
 Qed.
 
 Lemma after_verb_rest_nontick :
@@ -7698,7 +8108,7 @@ Proof.
   destruct (after_verb_source_nontick v (c :: rest) (one rbrace) Hok
               eq_refl eq_refl eq_refl)
     as [Hne [Htick Hnx]].
-  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
+  destruct c as [s|w|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
   - pose proof (cis_ok_head (CIStr s) rest (cis_ok_tail _ _ Hok)) as Hs.
     cbn [ci_ok] in Hs. apply andb_true_iff in Hs as [Hs _].
     cbn [ci_text ci_src]. split; [|split].
@@ -7739,6 +8149,10 @@ Proof.
     split; [reflexivity|split; reflexivity].
   - unfold cis_ok in Hok. cbn [ci_sep_ok ci_pair_ok] in Hok.
     repeat rewrite andb_false_r in Hok. discriminate.
+  - cbn [ci_text ci_src wiki_text]. unfold bracket_open.
+    destruct we;
+      cbn [append starts_tick nonempty_str after_verb_next];
+      split; [reflexivity|split; reflexivity|reflexivity|split; reflexivity].
 Qed.
 
 Lemma orb_false_r_true : forall b, (b || false)%bool = true -> b = true.
@@ -7767,6 +8181,8 @@ Lemma iscan_cis_scope :
              (IText false EmptyString p
                (flush_text txt' (oemit_all before' O)))) ->
     cis_ok cis = true -> text_sep_ok txt cis = true ->
+    (cis_lbrack_head cis = true ->
+       wiki_opens txt prev (oemit_all before O) = false) ->
     (nonempty before || nonempty_str txt || nonempty cis || empty_ok)%bool
       = true ->
     exists p,
@@ -7780,12 +8196,12 @@ Proof.
   intro cis. pattern cis.
   apply (well_founded_induction (well_founded_ltof _ cis_size)).
   clear cis.
-  intros cis IH cl O empty_ok txt prev before Hcl Hct Hnx Hflush Hok Hsep Hne.
+  intros cis IH cl O empty_ok txt prev before Hcl Hct Hnx Hflush Hok Hsep Hw Hne.
   destruct cis as [|c rest].
   - cbn [ci_text ci_inlines map append nonempty] in Hne |- *.
     apply Hflush. rewrite <- Hne. destruct (nonempty before), (nonempty_str txt);
       reflexivity.
-  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
+  - destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -7793,7 +8209,8 @@ Proof.
       { unfold ltof. cbn [cis_size ci_size]. lia. }
       pose proof (IH rest Hlt cl O empty_ok s (str_last s prev) before
         Hcl Hct Hnx Hflush
-        (cis_ok_tail _ _ Hok) (ci_str_tail_sep s rest Hok Hs)) as IHr.
+        (cis_ok_tail _ _ Hok) (ci_str_tail_sep s rest Hok Hs)
+        (fun _ => wiki_opens_text _ _ _ Hs)) as IHr.
       assert (Hnr : nonempty before || nonempty_str s || nonempty rest
                     || empty_ok = true).
       { rewrite Hs, orb_true_r. reflexivity. }
@@ -7821,7 +8238,8 @@ Proof.
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre.
         apply (IH rest Hlt cl O empty_ok EmptyString (Some tick) pre
-                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       destruct txt as [|x txt'].
       * destruct (Hstep (before ++ [mk (Verbatim v)])%list
@@ -7870,7 +8288,8 @@ Proof.
         nonempty (@nil (node inline)) || nonempty_str EmptyString ||
         nonempty kids || false = true).
       { cbn. rewrite orb_false_r. exact Hkidsne. }
-      destruct (IHkids Hkidsok eq_refl Hkn) as [pk Ekids].
+      destruct (IHkids Hkidsok eq_refl (fun _ => wiki_opens_opush _ _ _ _ _ _ _ _) Hkn)
+        as [pk Ekids].
       assert (Hrestlt :
         ltof (list cinline) cis_size rest (CIDelim d kids :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_delim. lia. }
@@ -7885,7 +8304,8 @@ Proof.
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre.
         apply (IH rest Hrestlt cl O empty_ok EmptyString (Some rbrace) pre
-                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       assert (Hsrc : forall t,
         ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
@@ -7923,7 +8343,8 @@ Proof.
         rewrite Erest. cbn [flush_text flush_text_at nonempty_str oemit_all].
         rewrite ?imk_semantic. reflexivity.
     + pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
-      rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
+      rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
+      apply andb_true_iff in Hdk as [Hnl Hkidsok].
       assert (Hkidslt :
         ltof (list cinline) cis_size kids (CILink img kids dst :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_link. lia. }
@@ -7934,7 +8355,9 @@ Proof.
         (fun txt' prev' before' _ =>
            iscan_bracket_flush dst (ci_text rest ++ cl) txt' prev' img before'
              (flush_text txt (oemit_all before O)))) as IHkids.
-      destruct (IHkids Hkidsok eq_refl (orb_true_r _)) as [pk Ekids].
+      destruct (IHkids Hkidsok eq_refl
+                 (wiki_opens_bracket_kids _ _ _ _ Hbk) (orb_true_r _))
+        as [pk Ekids].
       assert (Hrestlt :
         ltof (list cinline) cis_size rest (CILink img kids dst :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_link. lia. }
@@ -7949,7 +8372,8 @@ Proof.
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre.
         apply (IH rest Hrestlt cl O empty_ok EmptyString (Some rparen) pre
-                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       assert (Hsrc : forall t,
         (((bracket_open img ++ (ci_text kids ++ link_close dst EmptyString))
@@ -7962,7 +8386,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_link.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open
+          by (first [destruct img | destruct rimg];
+              [reflexivity|rewrite (Hw eq_refl); reflexivity]).
         cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
         rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
@@ -7975,7 +8401,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_link.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open
+          by (first [destruct img | destruct rimg];
+              [reflexivity|rewrite (Hw eq_refl); reflexivity]).
         cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
         rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
@@ -7985,7 +8413,7 @@ Proof.
         rewrite ?imk_semantic. reflexivity.
     + (* a reference link: the direct link's case with the other closer *)
       pose proof (cis_ok_head (CIRef rimg rkids rlabel) rest Hok) as Hdk.
-      rewrite ci_ok_ref in Hdk.
+      rewrite ci_ok_ref in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
       apply andb_true_iff in Hdk as [Hlab Hkidsok].
       apply andb_true_iff in Hlab as [Hlab Hnorm].
       apply andb_true_iff in Hlab as [Hne' Hbr].
@@ -8000,7 +8428,9 @@ Proof.
         (fun txt' prev' before' _ =>
            iscan_ref_flush rlabel (ci_text rest ++ cl) txt' prev' rimg before'
              (flush_text txt (oemit_all before O)))) as IHkids.
-      destruct (IHkids Hkidsok eq_refl (orb_true_r _)) as [pk Ekids].
+      destruct (IHkids Hkidsok eq_refl
+                 (wiki_opens_bracket_kids _ _ _ _ Hbk) (orb_true_r _))
+        as [pk Ekids].
       assert (Hrestlt :
         ltof (list cinline) cis_size rest (CIRef rimg rkids rlabel :: rest)).
       { unfold ltof. cbn [cis_size]. rewrite ci_size_ref. lia. }
@@ -8015,7 +8445,8 @@ Proof.
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre.
         apply (IH rest Hrestlt cl O empty_ok EmptyString (Some rbrack) pre
-                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+                 Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       assert (Hsrc : forall t,
         (((bracket_open rimg ++ (ci_text rkids ++ ref_close rlabel EmptyString))
@@ -8028,7 +8459,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open
+          by (first [destruct img | destruct rimg];
+              [reflexivity|rewrite (Hw eq_refl); reflexivity]).
         cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
         rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
@@ -8042,7 +8475,9 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p.
         cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
-        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open.
+        rewrite append_assoc, Hsrc, iscan_str_app, iscan_bracket_open
+          by (first [destruct img | destruct rimg];
+              [reflexivity|rewrite (Hw eq_refl); reflexivity]).
         cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids |- *.
         rewrite ?imk_semantic in Ekids; rewrite ?imk_semantic. rewrite Ekids.
         rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
@@ -8068,14 +8503,16 @@ Proof.
                 (oemit_all (ci_inlines rest)
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
-          (Some rbrack) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+          (Some rbrack) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       destruct txt as [|x txt'].
       * destruct (Hstep (before ++ [ci_ast (CINote label)])%list
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p. cbn [ci_text ci_inlines map].
         change (ci_src (CINote label)) with (note_text label).
-        rewrite append_assoc, iscan_note_text by assumption.
+        rewrite append_assoc, iscan_note_text
+          by first [assumption | exact (Hw eq_refl)].
         rewrite Hnorm. rewrite oemit_all_app in Erest.
         cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
         rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
@@ -8085,7 +8522,8 @@ Proof.
                     ltac:(destruct before; reflexivity)) as [p Erest].
         exists p. cbn [ci_text ci_inlines map].
         change (ci_src (CINote label)) with (note_text label).
-        rewrite append_assoc, iscan_note_text by assumption.
+        rewrite append_assoc, iscan_note_text
+          by first [assumption | exact (Hw eq_refl)].
         rewrite Hnorm. rewrite oemit_all_app in Erest.
         cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
         rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
@@ -8107,7 +8545,8 @@ Proof.
                 (oemit_all (ci_inlines rest)
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
-          (Some gt) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+          (Some gt) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       destruct txt as [|x txt'].
       * destruct (Hstep (before ++ [ci_ast (CIAuto a)])%list
@@ -8149,7 +8588,8 @@ Proof.
                 (oemit_all (ci_inlines rest)
                   (flush_text EmptyString (oemit_all pre O))))).
       { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
-          (Some rbrace) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl).
+          (Some rbrace) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
         rewrite Hpre. reflexivity. }
       destruct txt as [|x txt'].
       * destruct (Hstep (before ++ [ci_ast (CIRaw rf rv)])%list
@@ -8167,6 +8607,49 @@ Proof.
         exists p. cbn [ci_text ci_inlines map].
         change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
         rewrite append_assoc, iscan_raw_text by assumption.
+        rewrite oemit_all_app in Erest.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
+        rewrite Erest. reflexivity.
+    + (* a wikilink: the footnote reference's leaf shape, whose first `[`
+         `Hw` keeps from being read as the second bracket of another *)
+      pose proof (cis_ok_head (CIWiki we wt wal) rest Hok) as Hwk.
+      assert (Hrestlt :
+        ltof (list cinline) cis_size rest (CIWiki we wt wal :: rest)).
+      { unfold ltof. cbn [cis_size ci_size]. lia. }
+      assert (Hstep : forall pre,
+        nonempty pre = true ->
+        exists p,
+          iscan_str (ci_text rest ++ cl)
+            (IText false EmptyString (Some rbrack) (oemit_all pre O))
+          = iscan_str cl
+              (IText false EmptyString p
+                (oemit_all (ci_inlines rest)
+                  (flush_text EmptyString (oemit_all pre O))))).
+      { intros pre Hpre. apply (IH rest Hrestlt cl O empty_ok EmptyString
+          (Some rbrack) pre Hcl Hct Hnx Hflush (cis_ok_tail _ _ Hok) eq_refl
+                 (fun _ => wiki_opens_oemit_all _ _ _ _ Hpre)).
+        rewrite Hpre. reflexivity. }
+      assert (Hopen :
+        (we || negb (wiki_opens txt prev (oemit_all before O)))%bool = true)
+        by (destruct we; [reflexivity|rewrite (Hw eq_refl); reflexivity]).
+      destruct txt as [|x txt'].
+      * destruct (Hstep
+                    (before ++ [ci_ast (CIWiki we wt wal)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
+        rewrite append_assoc, (iscan_wiki_text we wt wal _ _ _ _ Hwk Hopen).
+        rewrite oemit_all_app in Erest.
+        cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
+        rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
+        rewrite Erest. reflexivity.
+      * destruct (Hstep
+                    (before ++ [mk (Str (String x txt')); ci_ast (CIWiki we wt wal)])%list
+                    ltac:(destruct before; reflexivity)) as [p Erest].
+        exists p. cbn [ci_text ci_inlines map].
+        change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
+        rewrite append_assoc, (iscan_wiki_text we wt wal _ _ _ _ Hwk Hopen).
         rewrite oemit_all_app in Erest.
         cbn [flush_text flush_text_at nonempty_str oemit_all ci_ast] in Erest |- *.
         rewrite ?imk_semantic in Erest; rewrite ?imk_semantic.
@@ -8198,7 +8681,7 @@ Proof.
            (fun txt' prev' before' e =>
               iscan_marked_flush k cm tail txt' prev' before' open base Hden
                 (orb_false_r_true _ e))
-           Hok Hsep).
+           Hok Hsep (fun _ => wiki_opens_opush _ _ _ _ _ _ _ _)).
   rewrite orb_false_r. exact Hne.
 Qed.
 
@@ -8206,6 +8689,7 @@ Qed.
 Lemma iscan_cis_bracket :
   forall cis dst tail txt prev image before base,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
+    bracket_kids_ok cis = true ->
     exists p,
       iscan_str (ci_text cis ++ link_close dst tail)
         (IText false txt prev (oemit_all before (bpush image base)))
@@ -8214,14 +8698,14 @@ Lemma iscan_cis_bracket :
             (oemit_all (ci_inlines cis)
               (flush_text txt (oemit_all before (bpush image base))))).
 Proof.
-  intros cis dst tail txt prev image before base Hok Hsep.
+  intros cis dst tail txt prev image before base Hok Hsep Hbk.
   apply (iscan_cis_scope cis (link_close dst tail) (bpush image base) true
            txt prev before
            (link_close_nonempty _ _) (link_close_starts_nontick _ _)
            eq_refl
            (fun txt' prev' before' _ =>
               iscan_bracket_flush dst tail txt' prev' image before' base)
-           Hok Hsep).
+           Hok Hsep (wiki_opens_bracket_kids _ _ _ _ Hbk)).
   apply orb_true_r.
 Qed.
 
@@ -8229,6 +8713,7 @@ Qed.
 Lemma iscan_cis_ref :
   forall cis label tail txt prev image before base,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
+    bracket_kids_ok cis = true ->
     exists p,
       iscan_str (ci_text cis ++ ref_close label tail)
         (IText false txt prev (oemit_all before (bpush image base)))
@@ -8237,14 +8722,14 @@ Lemma iscan_cis_ref :
             (oemit_all (ci_inlines cis)
               (flush_text txt (oemit_all before (bpush image base))))).
 Proof.
-  intros cis label tail txt prev image before base Hok Hsep.
+  intros cis label tail txt prev image before base Hok Hsep Hbk.
   apply (iscan_cis_scope cis (ref_close label tail) (bpush image base) true
            txt prev before
            (ref_close_nonempty _ _) (ref_close_starts_nontick _ _)
            eq_refl
            (fun txt' prev' before' _ =>
               iscan_ref_flush label tail txt' prev' image before' base)
-           Hok Hsep).
+           Hok Hsep (wiki_opens_bracket_kids _ _ _ _ Hbk)).
   apply orb_true_r.
 Qed.
 
@@ -8281,7 +8766,7 @@ Proof.
     rewrite oresolve_map. reflexivity.
   - assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
     { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
+    destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
@@ -8362,10 +8847,11 @@ Proof.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
     + pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
-      rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
+      rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
+    apply andb_true_iff in Hdk as [Hnl Hkidsok].
       destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
         (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
-        Hkidsok eq_refl) as [pk Ekids].
+        Hkidsok eq_refl Hbk) as [pk Ekids].
       cbn [ci_text ci_inlines map]. rewrite ci_src_link.
       assert (Hsrc :
         ((bracket_open img ++ (ci_text kids ++ link_close dst EmptyString)) ++
@@ -8373,7 +8859,8 @@ Proof.
         = (bracket_open img ++
             (ci_text kids ++ link_close dst (ci_text rest)))%string).
       { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
-      rewrite Hsrc, iscan_str_app, iscan_bracket_open.
+      rewrite Hsrc, iscan_str_app, iscan_bracket_open
+        by (rewrite wiki_opens_top; apply orb_true_r).
       cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
       rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
       rewrite <- ci_ast_link.
@@ -8390,14 +8877,14 @@ Proof.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
     + pose proof (cis_ok_head (CIRef rimg rkids rlabel) rest Hok) as Hdk.
-      rewrite ci_ok_ref in Hdk.
+      rewrite ci_ok_ref in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
       apply andb_true_iff in Hdk as [Hlab Hkidsok].
       apply andb_true_iff in Hlab as [Hlab Hnorm].
       apply andb_true_iff in Hlab as [Hne' Hbr].
       apply String.eqb_eq in Hnorm.
       destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
         (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
-        Hkidsok eq_refl) as [pk Ekids].
+        Hkidsok eq_refl Hbk) as [pk Ekids].
       cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
       assert (Hsrc :
         ((bracket_open rimg ++ (ci_text rkids ++ ref_close rlabel EmptyString)) ++
@@ -8405,7 +8892,8 @@ Proof.
         = (bracket_open rimg ++
             (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
       { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
-      rewrite Hsrc, iscan_str_app, iscan_bracket_open.
+      rewrite Hsrc, iscan_str_app, iscan_bracket_open
+        by (rewrite wiki_opens_top; apply orb_true_r).
       cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
       rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr),
               Hnorm.
@@ -8430,7 +8918,8 @@ Proof.
       cbn [ci_text ci_inlines map].
       change (ci_src (CINote label)) with (note_text label).
       rewrite (iscan_note_text label (ci_text rest) txt prev'
-                 (OState (List.map OIn out) [] None) Hnotes Hsafe), Hnorm.
+                 (OState (List.map OIn out) [] None) Hnotes Hsafe
+                 (wiki_opens_top _ _ _ _)), Hnorm.
       destruct (flush_text txt (OState (List.map OIn out) [] None))
         as [out' stk' word'] eqn:Eflush.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
@@ -8486,6 +8975,25 @@ Proof.
         rewrite <- List.app_assoc. reflexivity.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
+    + pose proof (cis_ok_head (CIWiki we wt wal) rest Hok) as Hwk.
+      cbn [ci_text ci_inlines map].
+      change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
+      rewrite (iscan_wiki_text we wt wal (ci_text rest) txt prev'
+                 (OState (List.map OIn out) [] None) Hwk)
+        by (rewrite wiki_opens_top; apply orb_true_r).
+      destruct (flush_text txt (OState (List.map OIn out) [] None))
+        as [out' stk' word'] eqn:Eflush.
+      pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+      injection Eflat as Eout Estk Eword. subst out' stk' word'.
+      cbn [oemit os_out os_stk os_word_start].
+      change (mk (Wikilink we wt wal)) with (ci_ast (CIWiki we wt wal)).
+      rewrite <- ?List.map_cons;
+      rewrite (IH rest Hrestlt (Some rbrack) EmptyString
+        (ci_ast (CIWiki we wt wal) :: flush_out txt out)).
+      * cbn [flush_out nonempty_str ci_ast List.rev].
+        rewrite <- List.app_assoc. reflexivity.
+      * exact (cis_ok_tail _ _ Hok).
+      * reflexivity.
 Qed.
 
 (* The other half of what a canonical line owes the paragraph: it leaves
@@ -8506,7 +9014,7 @@ Proof.
   destruct cis as [|c rest]; [reflexivity|].
   assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
   { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
-  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv].
+  destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
   - cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
@@ -8559,10 +9067,11 @@ Proof.
     cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
-    rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hnl Hkidsok].
+    rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
+    apply andb_true_iff in Hdk as [Hnl Hkidsok].
     destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
       (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
-      Hkidsok eq_refl) as [pk Ekids].
+      Hkidsok eq_refl Hbk) as [pk Ekids].
     cbn [ci_text]. rewrite ci_src_link.
     assert (Hsrc :
       ((bracket_open img ++ (ci_text kids ++ link_close dst EmptyString)) ++
@@ -8570,7 +9079,8 @@ Proof.
       = (bracket_open img ++
           (ci_text kids ++ link_close dst (ci_text rest)))%string).
     { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
-    rewrite Hsrc, iscan_str_app, iscan_bracket_open.
+    rewrite Hsrc, iscan_str_app, iscan_bracket_open
+        by (rewrite wiki_opens_top; apply orb_true_r).
     cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
     rewrite (iscan_link_close dst _ (ci_inlines kids) img _ pk Hnl).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -8580,13 +9090,13 @@ Proof.
     cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIRef rimg rkids rlabel) rest Hok) as Hdk.
-    rewrite ci_ok_ref in Hdk.
+    rewrite ci_ok_ref in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
     apply andb_true_iff in Hdk as [Hlab Hkidsok].
     apply andb_true_iff in Hlab as [Hlab Hnorm].
     apply andb_true_iff in Hlab as [Hne' Hbr].
     destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
       (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
-      Hkidsok eq_refl) as [pk Ekids].
+      Hkidsok eq_refl Hbk) as [pk Ekids].
     cbn [ci_text]. rewrite ci_src_ref.
     assert (Hsrc :
       ((bracket_open rimg ++ (ci_text rkids ++ ref_close rlabel EmptyString)) ++
@@ -8594,7 +9104,8 @@ Proof.
       = (bracket_open rimg ++
           (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
     { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
-    rewrite Hsrc, iscan_str_app, iscan_bracket_open.
+    rewrite Hsrc, iscan_str_app, iscan_bracket_open
+        by (rewrite wiki_opens_top; apply orb_true_r).
     cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
     rewrite (iscan_ref_close rlabel _ (ci_inlines rkids) rimg _ pk Hne' Hbr).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -8609,7 +9120,8 @@ Proof.
     apply andb_true_iff in Hnote as [Hnotes Hsafe].
     cbn [ci_text]. change (ci_src (CINote label)) with (note_text label).
     rewrite (iscan_note_text label (ci_text rest) txt prev'
-               (OState (List.map OIn out) [] None) Hnotes Hsafe).
+               (OState (List.map OIn out) [] None) Hnotes Hsafe
+                 (wiki_opens_top _ _ _ _)).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
       as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
@@ -8636,6 +9148,17 @@ Proof.
     cbn [ci_text]. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
     rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
                (OState (List.map OIn out) [] None) Hcap Hrne Hrok Hfmt).
+    destruct (flush_text txt (OState (List.map OIn out) [] None))
+      as [out' stk' word'] eqn:Eflush.
+    pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
+    injection Eflat as Eout Estk Eword. subst out' stk' word'.
+    cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
+    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
+  - pose proof (cis_ok_head (CIWiki we wt wal) rest Hok) as Hwk.
+    cbn [ci_text]. change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
+    rewrite (iscan_wiki_text we wt wal (ci_text rest) txt prev'
+               (OState (List.map OIn out) [] None) Hwk)
+      by (rewrite wiki_opens_top; apply orb_true_r).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
       as [out' stk' word'] eqn:Eflush.
     pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
@@ -8677,7 +9200,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sp ssrc sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|wesc wrb wimg wreg wob|kids img esc depth dst sh ob|asrc atxt aob|rspec rtxt rob];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct mrk; [exact I|].
@@ -9178,17 +9701,19 @@ Fixpoint inline_text (il : inline) : string :=
   | UrlLink s | EmailLink s => auto_text s
   (* raw content is its verbatim plus the spec that named its format *)
   | RawInline fmt s => raw_text fmt s
+  | Wikilink embed t al => wiki_text embed t al
   | _ => EmptyString
   end.
 
 Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
 Proof.
   fix IH 1. intro ci.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
     [reflexivity|reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
      destruct (auto_email a); reflexivity
-    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity].
+    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity
+    |reflexivity].
   - destruct k; cbn [ci_ast ci_src dnode node_contents inline_text].
     all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
       induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
@@ -9231,11 +9756,12 @@ Lemma inline_lines_ci_ast :
     = inline_lines rest (cur ++ ci_src ci).
 Proof.
   intros ci rest cur.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
     [reflexivity|reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
      destruct (auto_email a); reflexivity
-    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity].
+    |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity
+    |reflexivity].
   - rewrite ci_ast_delim, <- inline_text_ci_ast.
     destruct k; reflexivity.
   - rewrite ci_ast_link, <- inline_text_ci_ast, ci_ast_link.

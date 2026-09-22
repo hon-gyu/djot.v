@@ -21,7 +21,7 @@
    linearly (5, 110, 2315, 48620) instead of quadratically. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Parser Render.
+From DjotV Require Import Strings Line Ast Inline Parser Render.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -139,6 +139,38 @@ Definition keyed_accepted (d : nat) : list cblock :=
 
 Definition keyed_rt_lhs (c : cblock) : blocks :=
   @parse_blocks _ keyed_bconfig _ _ (render_djot (blocks_of_cblocks [c])).
+
+(* Wikilinks have no oracle either.  Their pool is the ordinary one read
+   at a table with the setting on, since switching it on must not move
+   the rest of the fragment, plus each wikilink leaf in the containers a
+   key is put in.  Three leaves are ones the canonical view excludes, so
+   the pinned count shows each exclusion is reached. *)
+Definition wiki_table : dtable :=
+  DTable (with_wikilinks true djot_config) eq_refl.
+
+Definition wiki_pool (d : nat) : list cblock :=
+  (enum_cblock d
+   ++ flat_map (fun w =>
+        [w; CQuote [w]; CDiv [w]; CList LKBullet Tight [[w]]; CId "wiki" w])
+      [ CPara [[CIWiki false "Backlinks" None]]
+      ; CPara [[CIStr "see "; CIWiki false "a" (Some "the other"); CIStr " b"]]
+      ; CPara [[CIWiki true "a" None]]
+      ; CPara [[CIDelim DEmph [CIWiki false "a" None]]]
+      ; CPara [[CILink false [CIStr "t "; CIWiki false "a" None] "u"]]
+      ; CTable [CTBody [[CIWiki false "a" None]]]
+      (* a link's text may not begin with a second `[` (spec, section 6) *)
+      ; CPara [[CILink false [CIWiki false "a" None] "u"]]
+      (* the region scan would end the target at the `]` *)
+      ; CPara [[CIWiki false "a]b" None]]
+      (* the row splits at the bar (spec, 9.4) *)
+      ; CTable [CTBody [[CIWiki false "a" (Some "b")]]] ])%list.
+
+Definition wiki_accepted (d : nat) : list cblock :=
+  filter (@cb_ok wiki_table _) (wiki_pool d).
+
+Definition wiki_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks wiki_table _ _ _
+    (@render_djot wiki_table (blocks_of_cblocks [c])).
 
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.

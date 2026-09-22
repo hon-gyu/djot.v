@@ -42,6 +42,8 @@ val lbrack : char
 
 val rbrack : char
 
+val vbar : char
+
 val hat : char
 
 val lparen : char
@@ -81,7 +83,7 @@ type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> nat);
                  dc_syntax : (dstyle -> dsyntax);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography : 
                  bool; dc_raw_inline : bool; dc_math : bool; dc_attrs : 
-                 bool; dc_footnotes : bool }
+                 bool; dc_footnotes : bool; dc_wikilinks : bool }
 
 val djot_dchar : dstyle -> char
 
@@ -109,6 +111,8 @@ val denabled : dconfig -> dstyle -> bool
 
 val dstyle_at : dconfig -> char -> dstyle option
 
+val with_wikilinks : bool -> dconfig -> dconfig
+
 val bnode : bool -> inlines -> target -> inline
 
 val reference_text : inline -> string
@@ -135,6 +139,8 @@ val math_enabled : dtable -> bool
 val inline_attrs_enabled : dtable -> bool
 
 val notes_enabled : dtable -> bool
+
+val wikilinks_enabled : dtable -> bool
 
 val denabled_of : dtable -> dstyle -> bool
 
@@ -198,6 +204,8 @@ val link_close : dtable -> string -> string -> string
 
 val ref_close : string -> string -> string
 
+val wiki_text : bool -> string -> string option -> string
+
 val note_text : string -> string
 
 val note_label_safe_from : bool -> string -> bool
@@ -243,6 +251,7 @@ type cinline =
 | CINote of string
 | CIAuto of string
 | CIRaw of string * string
+| CIWiki of bool * string * string option
 
 val str_last : string -> char option -> char option
 
@@ -257,6 +266,14 @@ val ci_ast : cinline -> inline node
 val ci_inlines : cinline list -> inlines
 
 val ci_pair_ok : dtable -> cinline -> cinline -> bool
+
+val ci_lbrack_head : cinline -> bool
+
+val cis_lbrack_head : cinline list -> bool
+
+val bracket_kids_ok : dtable -> cinline list -> bool
+
+val wiki_part_ok : string -> bool
 
 val ci_ok : dtable -> cinline -> bool
 
@@ -455,6 +472,7 @@ type iscan =
 | IAttr of aparser * string * string * char option * iscan * ostate
 | IReference of inlines * bool * span * string * ostate
 | INote of bool * bool * string * span * ostate
+| IWiki of bool * bool * bool * string * span * ostate
 | IDest of inlines * bool * span * bool * nat * string * iscan * ostate
 | IAuto of string * string * ostate
 | IRaw of string * string * ostate
@@ -543,6 +561,20 @@ val bnote_lit :
   coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
   string * ostate
 
+val wiki_split : string -> string * string option
+
+val wiki_lit : bool -> bool -> bool -> string -> string
+
+val bwiki_lit : bool -> bool -> bool -> string -> ostate -> string * ostate
+
+val iwiki_close :
+  coq_PosPolicy -> coq_InlineCursor -> bool -> string -> span -> ostate ->
+  iscan
+
+val iwiki_step :
+  coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool -> bool -> string
+  -> span -> ostate -> iscan
+
 val ibang_step :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> char
   option -> ostate -> iscan
@@ -621,10 +653,10 @@ val iscan_str_off : dtable -> string -> iscan -> iscan
 
 val iscan_lines_off : dtable -> nat -> string list -> iscan -> iscan
 
-val cursor_in : nat -> nat -> nat -> coq_InlineCursor
+val cursor_in : nat -> nat -> spot -> coq_InlineCursor
 
 val iscan_str_located :
-  dtable -> coq_PosPolicy -> bool -> nat -> nat -> nat -> string -> iscan ->
+  dtable -> coq_PosPolicy -> bool -> nat -> spot -> nat -> string -> iscan ->
   iscan
 
 val lines_start : (nat * string) list -> spot
@@ -634,7 +666,8 @@ val lines_stop : (nat * string) list -> spot
 val allow_attrs : dtable -> nat -> bool
 
 val iscan_lines_located :
-  dtable -> coq_PosPolicy -> nat -> (nat * string) list -> iscan -> iscan
+  dtable -> coq_PosPolicy -> nat -> spot -> (nat * string) list -> iscan ->
+  iscan
 
 val ifinish_located :
   dtable -> coq_PosPolicy -> (nat * string) list -> iscan -> inlines

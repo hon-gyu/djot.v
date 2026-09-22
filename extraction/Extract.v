@@ -39,5 +39,6 @@ Extract Constant DjotV.Strings.split_lines =>
      | parts -> List.rev parts)".
 
 Separate Extraction convert generated accepted rt_lhs rt_rhs render_cb
-  keyed_accepted keyed_rt_lhs parse_blocks_located parse_doc_located
+  keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
+  parse_blocks_located parse_doc_located
   line_table resolve_span.

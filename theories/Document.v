@@ -82,6 +82,8 @@ Fixpoint inline_text (il : inline) : string :=
      pushes like any other (parse.ts:44) -- so it reaches a heading id
      and an image `alt` *)
   | UrlLink s | EmailLink s => s
+  (* the text a wikilink displays, as its desugared link would push it *)
+  | Wikilink _ t al => wiki_display t al
   | Symbol _ | NonBreakingSpace => ""
   end.
 

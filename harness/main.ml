@@ -6,7 +6,8 @@
 
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
-          [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]] [--report FILE] [--verbose]
+          [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]]
+          [--wiki-roundtrip [DEPTH]] [--report FILE] [--verbose]
           [--time [N]]
           [TEST_FILES...]
 
@@ -346,6 +347,9 @@ let expected_counts = [ (1, 296); (2, 3695); (3, 43857) ]
    evidence a key generator still reaches keys is the count. *)
 let keyed_expected_counts = [ (1, 6628); (2, 81536) ]
 
+(* And for the wikilink pool, the ordinary one read with wikilinks on. *)
+let wiki_expected_counts = [ (1, 326); (2, 3725); (3, 43887) ]
+
 let rec nat_of_int n = if n <= 0 then Djot.Datatypes.O else Djot.Datatypes.S (nat_of_int (n - 1))
 
 (*
@@ -509,14 +513,17 @@ let run_located_bounds depth files rbuf verbose =
   Hashtbl.iter (fun k n -> out "  %-16s %4d\n" k n) seen;
   !bad = 0
 
-let run_roundtrip ~keyed depth rbuf verbose =
+let run_roundtrip ~pool depth rbuf verbose =
   let out fmt =
     Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
   in
   let t0 = Unix.gettimeofday () in
-  let accepted, lhs, counts =
-    if keyed then Djot_fixtures.Generate.keyed_accepted, Djot_fixtures.Generate.keyed_rt_lhs, keyed_expected_counts
-    else Djot_fixtures.Generate.accepted, Djot_fixtures.Generate.rt_lhs, expected_counts
+  let module G = Djot_fixtures.Generate in
+  let name, accepted, lhs, counts =
+    match pool with
+    | `Plain -> "", G.accepted, G.rt_lhs, expected_counts
+    | `Keyed -> "keyed ", G.keyed_accepted, G.keyed_rt_lhs, keyed_expected_counts
+    | `Wiki -> "wiki ", G.wiki_accepted, G.wiki_rt_lhs, wiki_expected_counts
   in
   let docs = accepted (nat_of_int depth) in
   let t1 = Unix.gettimeofday () in
@@ -532,7 +539,7 @@ let run_roundtrip ~keyed depth rbuf verbose =
     docs;
   let t2 = Unix.gettimeofday () in
   out "\n== %sroundtrip: depth %d, %d documents, %.2fs enumerate, %.2fs check ==\n"
-    (if keyed then "keyed " else "") depth !total (t1 -. t0) (t2 -. t1);
+    name depth !total (t1 -. t0) (t2 -. t1);
   out "parse (render d) = d   ok %6d   mismatch %4d\n" (!total - !bad) !bad;
   let count_ok =
     match List.assoc_opt depth counts with
@@ -560,7 +567,7 @@ let () =
   let baseline = ref false in
   let generated = ref false in
   let roundtrip = ref None in
-  let keyed_roundtrip = ref false in
+  let rt_pool = ref `Plain in
   (* the same interface the oracle scripts have: one document on stdin,
      its HTML on stdout.  Probing a divergence means running all three on
      the same bytes, and without this ours is the one that cannot be. *)
@@ -587,9 +594,13 @@ let () =
     | "--verbose" :: rest -> verbose := true; parse_args rest
     | "--generated" :: rest -> generated := true; parse_args rest
     | "--keyed-roundtrip" :: d :: rest when int_of_string_opt d <> None ->
-      keyed_roundtrip := true; roundtrip := Some (int_of_string d); parse_args rest
+      rt_pool := `Keyed; roundtrip := Some (int_of_string d); parse_args rest
     | "--keyed-roundtrip" :: rest ->
-      keyed_roundtrip := true; roundtrip := Some 1; parse_args rest
+      rt_pool := `Keyed; roundtrip := Some 1; parse_args rest
+    | "--wiki-roundtrip" :: d :: rest when int_of_string_opt d <> None ->
+      rt_pool := `Wiki; roundtrip := Some (int_of_string d); parse_args rest
+    | "--wiki-roundtrip" :: rest ->
+      rt_pool := `Wiki; roundtrip := Some 2; parse_args rest
     | "--roundtrip" :: d :: rest when int_of_string_opt d <> None ->
       roundtrip := Some (int_of_string d);
       parse_args rest
@@ -677,7 +688,7 @@ let () =
      answers before either is touched *)
   (match !roundtrip with
    | Some depth ->
-     let ok = run_roundtrip ~keyed:!keyed_roundtrip depth rbuf verbose in
+     let ok = run_roundtrip ~pool:!rt_pool depth rbuf verbose in
      finish_report ();
      exit (if ok then 0 else 1)
    | None -> ());

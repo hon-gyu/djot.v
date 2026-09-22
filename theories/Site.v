@@ -348,7 +348,9 @@ means* is below this line, in the codec; nothing here knows.
 `CIAuto` is deliberately not a destination: an autolink's region is its
 source and its target both, so rewriting it would rewrite the visible
 text, and `ci_ok` asks `auto_kind_ok` of it -- an email or a scheme --
-which no note path spells.
+which no note path spells.  A wikilink's target is a destination even
+though, without an alias, it is also the visible text: saying the name
+once is what the construct is for.
 *)
 
 Fixpoint ci_dests (c : cinline) : list string :=
@@ -356,6 +358,7 @@ Fixpoint ci_dests (c : cinline) : list string :=
   | CIDelim _ kids => flat_map ci_dests kids
   | CIRef _ kids _ => flat_map ci_dests kids
   | CILink _ kids dst => (dst :: flat_map ci_dests kids)%list
+  | CIWiki _ t _ => [t]
   | _ => []
   end.
 
@@ -364,6 +367,7 @@ Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
   | CIDelim k kids => CIDelim k (map (ci_map_dest f) kids)
   | CILink img kids dst => CILink img (map (ci_map_dest f) kids) (f dst)
   | CIRef img kids label => CIRef img (map (ci_map_dest f) kids) label
+  | CIWiki embed t al => CIWiki embed (f t) al
   | _ => c
   end.
 
@@ -380,6 +384,7 @@ Definition cinline_ind2
   (hnote : forall label, P (CINote label))
   (hauto : forall s, P (CIAuto s))
   (hraw : forall fmt s, P (CIRaw fmt s))
+  (hwiki : forall embed t al, P (CIWiki embed t al))
   (hnil : Q [])
   (hcons : forall c cs, P c -> Q cs -> Q (c :: cs))
   : forall c, P c :=
@@ -399,6 +404,7 @@ Definition cinline_ind2
     | CINote label => hnote label
     | CIAuto s => hauto s
     | CIRaw fmt s => hraw fmt s
+    | CIWiki embed t al => hwiki embed t al
     end.
 
 Lemma ci_dests_map :
@@ -409,7 +415,7 @@ Proof.
             (fun c => ci_dests (ci_map_dest f c) = map f (ci_dests c))
             (fun cs => flat_map ci_dests (map (ci_map_dest f) cs)
                        = map f (flat_map ci_dests cs))
-            _ _ _ _ _ _ _ _ _ _); try reflexivity.
+            _ _ _ _ _ _ _ _ _ _ _); try reflexivity.
   - intros k kids IH. cbn [ci_map_dest ci_dests]. exact IH.
   - intros img kids dst IH. cbn [ci_map_dest ci_dests map]. rewrite IH. reflexivity.
   - intros img kids label IH. cbn [ci_map_dest ci_dests]. exact IH.
@@ -777,12 +783,14 @@ Proof.
     (fun c => (forall s, In s (ci_dests c) -> f s = s) -> ci_map_dest f c = c)
     (fun cs => (forall s, In s (flat_map ci_dests cs) -> f s = s)
                -> map (ci_map_dest f) cs = cs)
-    _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+    _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
   - intros k kids IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros img kids dst IH H. cbn [ci_map_dest].
     rewrite IH; [rewrite H; [reflexivity | cbn [ci_dests]; left; reflexivity]|].
     intros s Hs. apply H. cbn [ci_dests]. right. exact Hs.
   - intros img kids label IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros embed t al H. cbn [ci_map_dest].
+    rewrite H; [reflexivity | cbn [ci_dests]; left; reflexivity].
   - intros c cs IHc IHcs H. cbn [map].
     rewrite IHc, IHcs; [reflexivity| |].
     + intros s Hs. apply H. cbn [flat_map]. apply in_or_app. right. exact Hs.

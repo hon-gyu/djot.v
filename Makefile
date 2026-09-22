@@ -1,4 +1,4 @@
-.PHONY: build doc build-doc test shape baseline generated roundtrip located-bounds deep probe keyed oracles dist check-dist copy-extracted clean
+.PHONY: build doc build-doc test shape baseline generated roundtrip located-bounds deep probe keyed wiki oracles dist check-dist copy-extracted clean
 
 build:
 	dune build
@@ -83,6 +83,12 @@ keyed: build
 	@rm -f dev/check/Keyed.vo dev/check/Keyed.vok dev/check/Keyed.vos dev/check/Keyed.glob \
 	       dev/check/.Keyed.aux
 	dune exec harness/main.exe -- --keyed-roundtrip 1
+
+# The wikilink pool: the ordinary one read with wikilinks on, plus each
+# wikilink leaf in the containers.  No oracle has the construct, so the
+# pinned count is what shows the pool still reaches it.
+wiki: build
+	dune exec harness/main.exe -- --wiki-roundtrip 2
 
 # falsify a candidate lemma before proving it: add a `Compute` to
 # dev/check/Probe.v and run this.  ~0.5s.  Out of the dune build because

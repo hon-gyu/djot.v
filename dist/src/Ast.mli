@@ -127,6 +127,7 @@ type inline =
 | FootnoteReference of string
 | UrlLink of string
 | EmailLink of string
+| Wikilink of bool * string * string option
 | RawInline of string * string
 | NonBreakingSpace
 | Quoted of quote_type * inline node list
@@ -134,6 +135,8 @@ type inline =
 | HardBreak
 
 type inlines = inline node list
+
+val wiki_display : string -> string option -> string
 
 type list_spacing =
 | Tight

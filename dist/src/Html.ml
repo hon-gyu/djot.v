@@ -257,6 +257,7 @@ let rec plain_text il =
    | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
+   | Wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
@@ -330,6 +331,12 @@ let rec render_inline refs il a =
    | EmailLink addr ->
      (HElem ("a", O, (("href", ((^) "mailto:" addr)) :: a), ((HText
        addr) :: []))) :: []
+   | Wikilink (embed, t, al) ->
+     if embed
+     then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
+            t) :: a)))) :: []
+     else (HElem ("a", O, (("href", t) :: a), ((HText
+            (wiki_display t al)) :: []))) :: []
    | RawInline (fmt, s) -> if (=) fmt "html" then (HRaw s) :: [] else []
    | NonBreakingSpace -> (HRaw "&nbsp;") :: []
    | Quoted (qt, ils) ->

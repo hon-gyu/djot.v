@@ -190,6 +190,7 @@ Fixpoint plain_text (il : inline) : string :=
   match il with
   | Str s | Verbatim s | Symbol s | Math _ s | RawInline _ s => s
   | UrlLink s | EmailLink s => s
+  | Wikilink _ t al => wiki_display t al
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Span ns | Quoted _ ns
   | Link ns _ | Image ns _ => go ns
@@ -288,6 +289,13 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | UrlLink url => [HElem "a" 0 (("href", url) :: a) [HText url]]
   | EmailLink addr =>
       [HElem "a" 0 (("href", "mailto:" ++ addr) :: a) [HText addr]]
+  (* A wikilink renders as the link it desugars to; `render_wikilink`
+     states it.  Spelled out rather than a call, which would not be
+     structural. *)
+  | Wikilink false t al =>
+      [HElem "a" 0 (("href", t) :: a) [HText (wiki_display t al)]]
+  | Wikilink true t al =>
+      [HVoid "img" false (("alt", wiki_display t al) :: ("src", t) :: a)]
   (* Raw content in a format the renderer does not speak contributes
      nothing at all, attributes included -- `html.ts:396-402` emits the
      text only for `html` and never a wrapper element. *)
@@ -307,6 +315,12 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
 
 Definition render_inlines (ils : inlines) : list helt :=
   flat_map (fun n => match n with Node _ a x => render_inline x a end) ils.
+
+(* Section 5 of the wikilink spec: a wikilink renders as the ordinary
+   link it desugars to, attributes included. *)
+Lemma render_wikilink : forall embed t al a,
+  render_inline (Wikilink embed t al) a = render_inline (wiki_desugar embed t al) a.
+Proof. intros [|] t al a; reflexivity. Qed.
 
 (*
 Table rows
