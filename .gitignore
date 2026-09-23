@@ -6,3 +6,6 @@ generated-report.txt
 theories/.*.aux
 .lia.cache
 rocq_mcp_cache*
+
+*.aux
+*.glob
