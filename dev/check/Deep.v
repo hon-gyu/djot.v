@@ -1,6 +1,6 @@
 (* ai-disclosure: ai-generated *)
 
-(* The depth-3 half of `theories/Generate.v`, in the Rocq kernel.
+(* The depth-3 half of `dev/Generate.v`, in the Rocq kernel.
 
    **`make roundtrip` is the routine check now.**  It runs this exact
    sweep -- `Generate.rt_lhs` and `rt_rhs`, the same functions -- in the
@@ -25,13 +25,14 @@
    Those were measured at 17140 accepted documents; the pool is 24220 now
    and the file takes ~20 minutes.
 
-   This directory has no dune stanza, so dune ignores it.  The depth-1
+   `dev/check/dune` leaves this file out of the build.  The depth-1
    and depth-2 roundtrips stay in `Generate.v` and do run on every build,
    in ~17s, so the kernel still certifies the small instance on every
    edit and only the deep sweep moved. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Ast Parser Render Generate.
+From DjotV Require Import Ast Parser Render.
+From DjotVDev Require Import Generate.
 Import ListNotations.
 
 Local Open Scope string_scope.

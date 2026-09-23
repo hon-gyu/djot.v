@@ -16,8 +16,8 @@ against the source text alone (plan F1, section 9).
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Strings Line Inline Step Parser Config
-  Render Document Html Generate.
+From DjotV Require Import Ast Strings Line Inline Step Parser Config Render Document Html.
+From DjotVDev Require Import Generate.
 Import ListNotations.
 Open Scope string_scope.
 

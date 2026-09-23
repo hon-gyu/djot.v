@@ -1,4 +1,4 @@
 (rocq.theory
  (name DjotVDev)
- (synopsis "Development checks and historical experiments for DjotV")
+ (synopsis "Development checks for DjotV")
  (theories DjotV Stdlib))

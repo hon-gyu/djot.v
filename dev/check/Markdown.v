@@ -17,14 +17,6 @@ Every line here was measured, not predicted.
 It needs no recipe and no second build: the table is a parameter, so
 these examples name the other instance and the ordinary build checks
 them.
-
-```
-dune build && rocq c -R _build/default/theories DjotV dev/check/Markdown.v
-```
-
-It is out of the dune build for the same reason `dev/check/Deep.v` is --
-`vm_compute` over whole documents is not something a parser edit should
-pay for -- and not because it needs special treatment any more.
 *)
 
 From Stdlib Require Import String List Ascii.

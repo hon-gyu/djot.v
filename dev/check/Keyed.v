@@ -12,13 +12,6 @@ example of section 7.
 The split rule itself is pinned line by line beside `Inline.key_split`;
 here the unit is a document, and what is being checked is where the
 block boundaries land.
-
-Out of the dune build for `dev/check/Markdown.v`'s reason: `vm_compute` over
-whole documents is not something a parser edit should pay for.
-
-```
-dune build && rocq c -R _build/default/theories DjotV dev/check/Keyed.v
-```
 *)
 
 From Stdlib Require Import String List Ascii.

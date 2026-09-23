@@ -1,4 +1,4 @@
-.PHONY: build doc build-doc test shape baseline generated roundtrip located-bounds deep probe keyed wiki oracles dist check-dist copy-extracted clean
+.PHONY: build doc test shape baseline generated roundtrip located-bounds deep probe keyed wiki oracles dist check-dist copy-extracted clean
 
 build:
 	dune build
@@ -12,7 +12,7 @@ doc: build
 	  -R _build/default/theories DjotV \
 	  -d _build/doc \
 	  _build/default/theories/*.v
-	cp _build/doc/DjotV.Overview.html _build/doc/index.html
+	cp _build/doc/toc.html _build/doc/index.html
 
 # full differential run: gallina vs djot.js vs djoths over the corpus,
 # then over the enumerated corpus (fast: djot.js is batched, one process)
@@ -21,7 +21,7 @@ test: build
 	dune exec harness/main.exe -- --generated --engines gallina,djotjs
 
 # block structure only: inline content dropped, so a container bug is
-# visible while inline parsing is still Phase 3
+# not buried under inline differences
 shape: build
 	dune exec harness/main.exe -- --shape
 
@@ -69,19 +69,17 @@ roundtrip: build
 # rather than an answer: ~20 minutes, and `make roundtrip` is the routine
 # check.  It also pins `accepted_counts`, which `--roundtrip` pins too.
 deep: build
-	rocq c -R _build/default/theories DjotV dev/check/Deep.v
+	rocq c -R _build/default/theories DjotV \
+	  -R _build/default/dev DjotVDev dev/check/Deep.v
 	@rm -f dev/check/Deep.vo dev/check/Deep.vok dev/check/Deep.vos dev/check/Deep.glob \
 	       dev/check/.Deep.aux
 
-# the keyed-block construct, pinned as whole documents against
-# `keyed_bconfig`.  Out of the dune build for dev/check/Markdown.v's reason:
-# `vm_compute` over documents is not something a parser edit should pay
-# for.  Run it when key recognition, transitions, or canonical rendering
-# change.  The extracted sweep covers keyed children and containers.
+# The keyed-block pool against `keyed_bconfig`, in the extracted parser:
+# keyed children and containers over them.  No oracle has the construct.
+# The whole-document examples are in dev/check/Keyed.v, which `dune build`
+# checks.  Run it when key recognition, transitions, or canonical
+# rendering change.
 keyed: build
-	rocq c -R _build/default/theories DjotV dev/check/Keyed.v
-	@rm -f dev/check/Keyed.vo dev/check/Keyed.vok dev/check/Keyed.vos dev/check/Keyed.glob \
-	       dev/check/.Keyed.aux
 	dune exec harness/main.exe -- --keyed-roundtrip 1
 
 # The wikilink pool: the ordinary one read with wikilinks on, plus each

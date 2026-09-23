@@ -5,7 +5,8 @@
    library, so nothing a consumer links against carries a test corpus. *)
 
 From Stdlib Require Import String List.
-From DjotV Require Import Ast Inline Render Generate.
+From DjotV Require Import Ast Inline Render.
+From DjotVDev Require Import Generate.
 Import ListNotations.
 
 Definition render_cb (c : cblock) : string :=
