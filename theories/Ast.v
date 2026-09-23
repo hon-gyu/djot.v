@@ -1,4 +1,6 @@
 (* ai-disclosure: autonomous *)
+(* CR file: there's a lot of comments referencing djot.js. is it necessary? We should give credit to it whenever we reference it, but better 
+at a centralized place (maybe on top of the file?). I don't think we should mention it in multiple places. *)
 
 (** * Abstract syntax tree
 
@@ -180,6 +182,9 @@ Qed.
 Local Definition attr_apply (pending a : attr) : attr :=
   fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
 
+
+(* CR: ^ we have a lot of attr_* definitions. is there a way to group them in Rocq? *)
+
 (* A point in the source.  [spot_rem] counts bytes from the point to the
    end of its line (the line terminator is not part of the line).  The
    right-hand coordinate is deliberate: container parsing repeatedly
@@ -203,6 +208,7 @@ Class InlineCursor : Type := CursorAt
   ; cursor_stop : spot
   ; cursor_origin : spot }.
 
+(* CR Q: what does [export] mean? *)
 #[export] Instance semantic_inline_cursor : InlineCursor :=
   CursorAt (Spot 0 0) (Spot 0 0) (Spot 0 0).
 
@@ -447,6 +453,8 @@ Lemma hull_pos_off :
     pos_records = false -> hull_pos ns = NoPos.
 Proof. intros. unfold hull_pos. rewrite H0. reflexivity. Qed.
 
+(* CR: what does "semantic" mean? *)
+
 (* At the semantic instance the wrappers are the identity. *)
 Lemma hull_pos_semantic :
   forall A (ns : list (node A)), @hull_pos semantic_pos A ns = NoPos.
@@ -619,6 +627,8 @@ Definition inline_ind2
     | HardBreak => hhard
     end.
 
+(* CR: I think we should probably separate extension syntax from the core ones *)
+
 (* A wikilink's display text: the alias if there is one, else the target. *)
 Definition wiki_display (target : string) (alias : option string) : string :=
   match alias with Some d => d | None => target end.
@@ -716,6 +726,8 @@ Inductive block : Type :=
   | Keyed (label : inlines) (b : node block).
 
 Definition blocks : Type := list (node block).
+
+(* CR: v we have a lot of erase_* here. should we group them? *)
 
 (* Forget source provenance throughout a tree while preserving attributes
    and semantic payloads.  [erase_node] above is deliberately shallow;
@@ -905,6 +917,8 @@ Proof. intros pending b bs cs. destruct b. reflexivity. Qed.
 Definition invisible_block (b : block) : bool :=
   match b with RefDef _ _ | FootnoteDef _ _ => true | _ => false end.
 
+(* CR: ^ and v: why are we mentioning djot.js here? *)
+
 (* The term/definition split, at the point a list item closes.  djot.js
    runs it at `-list_item` (parse.ts:883-900): if the item's first child
    is a paragraph, its *inlines* become the term and the paragraph is
@@ -1024,6 +1038,9 @@ Proof.
 Qed.
 
 
+(* CR: why is the following comment so long? Why mentioning "Rocq" itself?
+What are all the eassy-like prose about?
+ *)
 
 (* Rocq's generated `block_ind` does not descend into a container's
    contents: `blocks` is `list (node block)`, two type constructors away
