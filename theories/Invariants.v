@@ -21,10 +21,9 @@ Local Open Scope string_scope.
 
 (** ** Inline scanning
 
-   The inline guarantees are one structural
-   invariant of an admissible delimiter table.  They intentionally say no
-   more than the original theorems: one unit of fuel per source byte, and no
-   dependence on resolution environments while classifying source. *)
+   The inline guarantees are one structural invariant of an admissible
+   delimiter table: one unit of fuel per source byte, and no dependence
+   on resolution environments while classifying source. *)
 Record inline_invariants (T : dtable) : Prop := {
   inline_single_pass :
     forall s st,
@@ -79,7 +78,7 @@ Definition block_incremental (T : dtable) : invariant bconfig :=
   incremental_invariants T.
 
 (* These guarantees are parametric in the block configuration: they follow
-   from the fold's shape, not from either decision currently stored in it. *)
+   from the fold's shape, not from any setting stored in it. *)
 Theorem block_incremental_holds :
   forall T K, block_incremental T K.
 Proof.

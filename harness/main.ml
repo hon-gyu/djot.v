@@ -7,19 +7,21 @@
    Usage:
      main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
           [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]]
-          [--wiki-roundtrip [DEPTH]] [--report FILE] [--verbose]
-          [--time [N]]
+          [--wiki-roundtrip [DEPTH]] [--located-bounds [N]]
+          [--convert [--batch]] [--time [N]] [--report FILE] [--verbose]
           [TEST_FILES...]
 
    With no files, runs the whole djot.js corpus.  --baseline compares the
    two oracles against each other (and against expected output), ignoring
-   the Gallina parser — used to seed .project/oracle-disagreements.md.
+   the Gallina parser; it seeds .project/oracle-disagreements.md.
    --generated runs the enumerated corpus instead of the file corpus,
    engine against engine; see "Generated mode" below.
    --shape compares block structure only; see "Block shape" below.
    --located-bounds [N] checks every recorded span lies inside its
      document and inside its parent, over the generated corpus at depth N
      (default 2) and the file corpus.
+   --convert reads djot on stdin and prints its HTML, one document or,
+     with --batch, a framed batch.
 
    --roundtrip checks `parse (render d) = d` over the enumerated
    documents and consults no oracle at all; see "Roundtrip" below.
@@ -172,19 +174,11 @@ Block shape
 
 Structure only: keep the block-level tags, drop everything inline.
 
-Why it exists: inline parsing is Phase 3, so most corpus cases mismatch on
-inline content alone.  An exact-HTML diff therefore cannot tell a genuine
-container bug from that expected noise — which is how the nested-list bug
-in .project/oracle-disagreements.md (2026-08-08) survived: its shape is
-absent from the corpus, and would have been invisible in the aggregate
-even if present.  Comparing shapes makes the block layer legible while
-the inline layer is still empty, and is the Phase 2 exit criterion
-("inline content compared as raw text at this stage") brought forward.
-
-Derived from each engine's HTML rather than its AST, so all three engines
-are compared on the same footing with no changes to any of them.  The
-cost is that a construct our renderer stubs out (OrderedList, tables)
-reads as a shape difference — which is honest: we do not render it. *)
+An exact-HTML diff mixes block and inline differences, so a container
+bug can be lost among inline mismatches; comparing shapes isolates the
+block layer.  Derived from each engine's HTML rather than its AST, so all
+three engines are compared on the same footing with no changes to any of
+them. *)
 
 let block_tags =
   [ "p"; "h1"; "h2"; "h3"; "h4"; "h5"; "h6"; "hr"; "blockquote"; "ul"; "ol";
@@ -243,19 +237,14 @@ Generated mode
 The corpus compares each engine against a recorded expected output.  A
 generated document has none: it comes from `Generate.enum_cblock` via the
 renderer, so the only available judgement is engine against engine.  The
-reference is djot.js — the corpus is its test suite, so it is the
+reference is djot.js: the corpus is its test suite, so it is the
 implementation we are conforming to.
 
-Why this exists at all: `roundtrip_blocks` is a meta-property, and cannot
-catch a rule we got wrong in both the parser and the renderer.  Every
-shape the fragment admits is checked here against something we did not
-write.
+`roundtrip_blocks` is a meta-property, and cannot catch a rule we got
+wrong in both the parser and the renderer.  Every shape the fragment
+admits is checked here against something we did not write.
 
-Exact HTML by default, not `--shape`.  Measured on 2026-08-09: gallina
-and djot.js agree byte-for-byte on these documents, because the
-enumerator's inline content is single words, so the empty inline layer
-that forces `--shape` on the real corpus does not bite here.  `--shape`
-still applies if given, but reaching for it would drop the field under
+Exact HTML by default, not `--shape`, which would drop the field under
 test. *)
 
 let run_generated engines docs rbuf verbose =
@@ -324,22 +313,15 @@ Roundtrip
 ---------
 
 `parse (render d) = d` over every canonical document the enumerator
-accepts, which is the statement `Generate.gen_roundtrip_1` and
-`gen_roundtrip_2` prove in the kernel at depths 1 and 2.  Depth 3 used to
-be `dev/check/Deep.v` and cost ~20 minutes, because the kernel evaluates the
-whole sweep and then evaluates it again to check the proof term.  Here it
-is ~5 seconds, on the same extracted parser every other mode runs.
+accepts: the statement `Generate.gen_roundtrip_1` and `gen_roundtrip_2`
+prove in the kernel at depths 1 and 2, checked here at depth 3 in
+seconds on the extracted parser.  `dev/check/Deep.v` is the kernel
+version of depth 3, at about twenty minutes.
 
-What that trades away is the kernel's certification of the computation.
-It buys back the only thing certification was for: nothing depends on
-`gen_roundtrip_3` -- it is an `Example`, not a lemma -- and every other
-piece of evidence this harness produces already rides on the extraction.
-The depths the kernel does certify, 1 and 2, stay where they are.
-
-`expected_counts` is the coverage witness `Deep.v`'s `accepted_counts`
-was: the fragment must grow when a construct lands, and a *shrinking*
-count is a regression that zero mismatches would not show.  Update the
-line when the fragment legitimately grows, exactly as before. *)
+`expected_counts` is the coverage witness: the fragment must grow when a
+construct lands, and a shrinking count is a regression that zero
+mismatches would not show.  Update the line when the fragment
+legitimately grows. *)
 
 let expected_counts = [ (1, 296); (2, 3695); (3, 43857) ]
 
@@ -772,8 +754,8 @@ let () =
   if !baseline then
     out "(baseline mode: mismatches are oracle-vs-expected disagreements)\n";
   finish_report ();
-  (* exit code: nonzero only when a selected engine errored, not on
-     mismatches — mismatch is data at this stage, not failure *)
+    (* exit code: nonzero only when a selected engine errored, not on
+     mismatches: a mismatch is data, not failure *)
   let any_err =
     Hashtbl.fold (fun _ (_, _, e) acc -> acc || e > 0) stats false
   in

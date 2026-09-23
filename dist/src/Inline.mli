@@ -16,8 +16,6 @@ val tick : char
 
 val is_tick : char -> bool
 
-val bslash : char
-
 val is_bslash : char -> bool
 
 val lbrace : char
@@ -34,21 +32,21 @@ val dqchar : char
 
 val hyphen : char
 
-val bang : char
-
 val period : char
+
+val bang : char
 
 val lbrack : char
 
 val rbrack : char
 
-val vbar : char
-
-val hat : char
-
 val lparen : char
 
 val rparen : char
+
+val vbar : char
+
+val hat : char
 
 val lt : char
 
@@ -107,6 +105,8 @@ val chars : char -> nat -> string
 
 val dstyles : dstyle list
 
+val dstyle_eq : dstyle -> dstyle -> bool
+
 val denabled : dconfig -> dstyle -> bool
 
 val dstyle_at : dconfig -> char -> dstyle option
@@ -115,11 +115,13 @@ val with_wikilinks : bool -> dconfig -> dconfig
 
 val bnode : bool -> inlines -> target -> inline
 
+val dnode : dstyle -> inlines -> inline
+
+val wiki_display : string -> string option -> string
+
 val reference_text : inline -> string
 
 val reference_inlines_text : inlines -> string
-
-val dnode : dstyle -> inlines -> inline
 
 type dtable = dconfig
   (* singleton inductive, whose constructor was DTable *)
@@ -335,8 +337,6 @@ val fr_lit : dtable -> coq_PosPolicy -> frame -> inline node
 
 val add_inline_role :
   coq_PosPolicy -> syntax_role -> span -> inline node -> inline node
-
-val dstyle_eqb : dstyle -> dstyle -> bool
 
 val dmatch : dstyle -> bool -> frame -> bool
 

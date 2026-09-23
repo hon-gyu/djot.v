@@ -46,16 +46,9 @@ located-bounds: build
 	dune exec harness/main.exe -- --located-bounds 3
 
 # `parse (render d) = d` over every canonical document the enumerator
-# accepts, in the extracted parser.  Depth 3 in ~5 seconds; this is the
-# one to run.
-#
-# It replaces `make deep`, which checked the same statement in the Rocq
-# kernel and took ~20 minutes to do it.  What that cost bought was the
-# kernel certifying the computation -- and nothing depends on the result:
-# `gen_roundtrip_3` is an `Example`, not a lemma, and every other number
-# this project acts on already comes out of the same extraction.  Depths
-# 1 and 2 are still certified, by `Generate.gen_roundtrip_1` and
-# `gen_roundtrip_2`, which run on every build.
+# accepts, in the extracted parser: depth 3 in ~5 seconds.  Depths 1 and
+# 2 are certified in the kernel by `Generate.gen_roundtrip_1` and
+# `gen_roundtrip_2` on every build; `make deep` certifies depth 3.
 #
 # Run it when `cb_ok`, the enumeration, `Render.v` or the block parser
 # changes.  An inline change reaches it only through `escape_str`, and
@@ -65,9 +58,9 @@ located-bounds: build
 roundtrip: build
 	dune exec harness/main.exe -- --roundtrip 3
 
-# The same sweep in the kernel, kept for when certification is wanted
-# rather than an answer: ~20 minutes, and `make roundtrip` is the routine
-# check.  It also pins `accepted_counts`, which `--roundtrip` pins too.
+# The same sweep in the kernel, for when certification is wanted rather
+# than an answer: ~20 minutes.  It also pins `accepted_counts`, as
+# `--roundtrip` does.
 deep: build
 	rocq c -R _build/default/theories DjotV \
 	  -R _build/default/dev DjotVDev dev/check/Deep.v
@@ -108,7 +101,7 @@ dist: build
 	@$(MAKE) -s copy-extracted DEST=dist/src
 	@echo "dist/src regenerated from $(EXTRACTED)"
 
-# Fails when dist/src is behind the theories.  
+# Fails when dist/src is behind the theories.
 check-dist: build
 	@tmp=`mktemp -d`; $(MAKE) -s copy-extracted DEST=$$tmp; \
 	if diff -r --exclude=dune dist/src $$tmp >/dev/null; then \

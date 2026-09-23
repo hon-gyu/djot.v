@@ -40,8 +40,8 @@ Definition with_footnotes (enabled : bool) (P : profile) : profile :=
 Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
-(** This remains deliberately "Markdown-like": Djot-only constructs are being
-   removed capability by capability, and GFM tables do not yet exist. *)
+(** Markdown-like, not CommonMark or GFM: Djot-only constructs are removed
+   capability by capability, and there are no GFM tables. *)
 Definition markdown_like_profile : profile :=
   Profile markdown_like_table markdown_bconfig.
 

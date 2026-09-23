@@ -47,10 +47,9 @@ with scanning them.
     list consumes continuation lines.  The item's own state rides along,
     because the blank's effect on the list depends on it:
     `blank_absorbed` decides whether something the item still has open
-    takes the blank first.  The
-    lines are the item's, unindented, so `classify` reads them directly
-    (`classify_marker_cont`) while the state steps on the rendered
-    line. *)
+    takes the blank first.  The lines are the item's, unindented, so
+    `classify` reads them directly (`classify_marker_cont`) while the
+    state steps on the rendered line. *)
 Section ItemMarker.
 
 (* One *item*'s marker.  A section variable rather than an explicit
@@ -290,11 +289,6 @@ The scan's state algebra
 ------------------------
 *)
 
-(* `scan_list_content_nonblank` -- "nonblank lines change nothing" --
-   stood here and had no users.  It is false since a div's closer arms
-   the flag while being nonblank, and what replaced it is `lines_gap`
-   below: the flag's value rather than a claim that it is clear. *)
-
 Lemma scan_list_content_loose :
   forall lines inner ind e ie ies marker blanks items,
     ls_loose (scan_list_content
@@ -379,12 +373,6 @@ Proof.
 Qed.
 
 
-(* `scan_list_content_after_blank` -- "an armed blank plus a nonblank
-   non-list line is loose" -- stood here and had no users either.  A div's
-   closer is such a line and re-arms rather than spending, so the
-   statement would now need that exclusion; `lines_gap` says the same
-   thing without a case analysis. *)
-
 (*
 Item and list layout
 --------------------
@@ -394,11 +382,10 @@ renderer policy, and the uniformity theorems below are stated in terms of
 them, so they live here and `Render.v` reuses them.
 *)
 
-(* A list item's lines: the marker (`(mk_open mrk)`, from Line.v) on the
-   first line, two spaces of plain indent (`(mk_cont mrk)`) on every line
-   after — not repeated per line like quote_line, since (mk_cont mrk) is
-   whitespace and Line.classify_ws_prefix carries every recognizer
-   through it for free. *)
+(* A list item's lines: the marker (`mk_open mrk`) on the first line and
+   plain indent (`mk_cont mrk`) on every line after.  Not repeated per
+   line like `quote_line`: `mk_cont mrk` is whitespace, and
+   `Line.classify_ws_prefix` carries every recognizer through it. *)
 Definition indent_lines (first_prefix rest_prefix : string) (ls : list string)
   : list string :=
   match ls with
@@ -406,9 +393,9 @@ Definition indent_lines (first_prefix rest_prefix : string) (ls : list string)
   | l :: rest => (first_prefix ++ l) :: map (fun x => rest_prefix ++ x) rest
   end.
 
-(* Items separated by a blank line when the list is loose, concatenated
-   directly when tight — the rendering choice `cb_ok`'s spacing condition
-   has to match back up with. *)
+(* Items separated by a blank line when the list is loose and
+   concatenated directly when tight; `cb_ok`'s spacing condition has to
+   match this. *)
 Fixpoint list_lines (sp : list_spacing) (lss : list (list string))
   : list string :=
   match lss with
@@ -481,9 +468,8 @@ Qed.
 
 (* The side condition along a whole run, and it is two conditions rather
    than one.  Every line is padded, so every state the run passes through
-   must be `pad_safe` -- which after the fence learned its column means
-   only "no attribute spec is open".  The state the run *ends* in meets a
-   blank line, the item separator, so it must additionally be
+   must be `pad_safe`, i.e. no attribute spec is open.  The state the run
+   ends in meets a blank line, the item separator, so it must also be
    `blank_safe`: a run may contain a code block, but must not end inside
    one. *)
 Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
@@ -546,7 +532,8 @@ Proof.
   intros l. unfold consumed, mk_pad. rewrite length_append. lia.
 Qed.
 
-(* The marker line, with the item's residue parsed at column 2. *)
+(* The marker line, with the item's residue parsed at the marker's
+   width. *)
 Lemma step_item_open :
   forall l0,
     is_thematic ((mk_open mrk) ++ l0) = false ->
@@ -567,12 +554,12 @@ Proof.
 Qed.
 
 (** The tight/loose verdict, read off the lines.  A blank arms the flag;
-    a line that opens a list spends it without loosening (djot.js's
-    `+list` exemption); anything else spends it and loosens.
+    a line that opens a list spends it without loosening; anything else
+    spends it and loosens.
 
     The scan also carries the lines' own parse state, because a blank
-    arms the flag only when the item has nothing open to absorb it -- the
-    mirror of `step`'s `KBlank` branch, and the reason `["- b"; "";
+    arms the flag only when the item has nothing open to absorb it (the
+    mirror of `step`'s `KBlank` branch), which is why `["- b"; "";
     "t"]` leaves its enclosing list tight while `["a"; ""; "t"]` does
     not.  The state is threaded, not consulted from outside, so this is
     still a fold over the lines. *)
@@ -584,9 +571,9 @@ Fixpoint lines_loose (loose gap : bool) (st : pstate) (ls : list string) : bool 
       match classify l with
       | KBlank => lines_loose loose (if blank_absorbed st then gap else true) st' rest
       | k =>
-          (* a div's closer arms the flag instead of spending it: after the
-             container closers have eaten the line there is nothing at the
-             tip, and djot.js fires `blankline` *)
+          (* a div's closer arms the flag instead of spending it: once
+             the closers have eaten the line nothing is left at the tip,
+             as for a blank *)
           if div_closer l st then lines_loose loose true st' rest
           else match k with
                | KList _ _ _ _ => lines_loose loose false st' rest
@@ -595,13 +582,10 @@ Fixpoint lines_loose (loose gap : bool) (st : pstate) (ls : list string) : bool 
       end
   end.
 
-(** The gap flag the same fold leaves behind -- `lines_loose`'s other
-    output, and the one an item hands across the marker to the next.
-
-    It exists because a div's closer arms the flag on a line that is not
-    blank, so "the item ends on a nonblank line" no longer decides it and
-    the scan's algebra has to name the value instead of asserting it is
-    clear. *)
+ (** The gap flag the same fold leaves behind: `lines_loose`'s other
+    output, and the one an item hands across the marker to the next.  It
+    exists because a div's closer arms the flag on a line that is not
+    blank, so the last line's blankness does not decide it. *)
 Fixpoint lines_gap (gap : bool) (st : pstate) (ls : list string) : bool :=
   match ls with
   | [] => gap
@@ -727,7 +711,7 @@ Definition item_scan (l0 : string) (rest : list string) : list_state :=
     (pad_state (mk_pad mrk) (snd (step l0 (PPara [])))) rest.
 
 (* One item's lines, run from idle: the marker opens the list and the
-   continuation lines land in it, shifted two columns. *)
+   continuation lines land in it, shifted by the marker's width. *)
 Lemma run_item_open :
   forall l0 rest,
     is_thematic ((mk_open mrk) ++ l0) = false ->
@@ -770,7 +754,7 @@ Lemma run_item_sibling_narrow :
   forall l0 rest ls done inner,
     ls_indent ls = 0 ->
     (* the item in progress does not claim the marker line out of
-       column (5) *)
+       column (keyed-blocks 5) *)
     key_claims ((mk_open mrk) ++ l0) inner = false ->
     narrow (ls_styles ls) (mk_sty mrk) <> [] ->
     is_thematic ((mk_open mrk) ++ l0) = false ->
@@ -955,11 +939,9 @@ Qed.
 (* Section 5's discharge.  A blank retracts a key that is still waiting
    and closes one whose block has produced something.  When a key holds
    a fence or div instead, its own `blank_safe` clause is false until the
-   announced closer arrives.  Thus a safe blank leaves no key able to
-   claim the next line.  This is what lets `parse_list_close` and the
-   item chain rule the override out from the hypothesis they already
-   carry.  Probed over the keyed pool in `dev/check/Probe.v` before being
-   proved. *)
+   announced closer arrives.  So a safe blank leaves no key able to claim
+   the next line, which lets `parse_list_close` and the item chain rule
+   the override out from the hypothesis they already carry. *)
 (* What a key's block looks like after a blank, when the block produced
    nothing and so the key is still open.  A state that emitted nothing
    kept its container, so it is not idle; when it did not already hold
@@ -1087,7 +1069,7 @@ Proof.
       [destruct (Hset eq_refl) as [Hi Ha]; rewrite Hi; exact Ha|exact IH].
 Qed.
 
-(* `blank_safe` is what rules out an open attribute spec, whose blank now
+(* `blank_safe` is what rules out an open attribute spec, whose blank
    opens the recovered paragraph rather than closing anything.  The one
    caller has the hypothesis already, for the neighbouring lemmas. *)
 Lemma step_blank_lazy_false :
@@ -1238,10 +1220,9 @@ Definition item_ok (m : marker) (L : list string) : bool :=
   | [] => false
   | l0 :: more =>
       (negb (is_thematic ((mk_open m) ++ l0))
-       (* ...and does not turn the marker into a task marker, which is
-          the other way a first line can change what the opener is: a
-          bullet followed by `[x] ` is `pattTaskListMarker`, not
-          `pattListMarker`. *)
+          (* ...and does not turn the marker into a task marker, the
+             other way a first line can change what the opener is: a
+             bullet followed by `[x] ` is a task marker. *)
        && negb (task_start l0)
        && nonblank l0
        && run_safe more (snd (step l0 (PPara [])))
@@ -1299,11 +1280,11 @@ Definition items_ok (m0 : marker) (items : list litem) : bool :=
 Definition ends_open_container (L : list string) : bool :=
   blank_absorbed (snd (run_lines L (PPara []))).
 
-(* Does an item's contents open with a list marker?  djot.js excludes a
-   `+list` event from spending a blank into looseness, which
-   `list_content` already encodes for the lines *inside* an item.  A
-   separator blank is spent by the *next* item's first line, so the same
-   exclusion applies there — and that is what `list_next` implements. *)
+(* Does an item's contents open with a list marker?  A line that opens a
+   list does not spend a blank into looseness, which `list_content`
+   encodes for the lines inside an item.  A separator blank is spent by
+   the next item's first line, so the same exclusion applies there, as
+   `list_next` implements. *)
 Definition starts_list (L : list string) : bool :=
   match L with
   | [] => false
@@ -1311,15 +1292,14 @@ Definition starts_list (L : list string) : bool :=
   end.
 
 (** Whether any separator blank in the rendering reaches the list.  A
-    separator is between two items and both of them have a say: the one
-    before it must not end with a container still open (or the blank
-    belongs to that container), and the one after it
-    must not open with a list marker (or the blank is spent by a `+list`
-    event, which does not loosen).  Hence a pairwise scan rather than a
-    test on each item alone.
+    separator is between two items and both have a say: the one before
+    it must not end with a container still open (or the blank belongs to
+    that container), and the one after it must not open with a list
+    marker (or the blank is spent by a line that opens a list, which does
+    not loosen).  Hence a pairwise scan rather than a test on each item.
 
     The last item is never the left of a pair, so a one-item list has no
-    separator at all — which is why a `Loose` single item renders and
+    separator at all, which is why a `Loose` single item renders and
     parses back as `Tight`. *)
 Fixpoint seps_loosen (itemss : list (list string)) : bool :=
   match itemss with
@@ -1597,8 +1577,8 @@ Proof.
       rewrite seps_loosen_cons. unfold ends_open_container.
       rewrite Hblanks. cbn [map].
       destruct rest as [|r rs].
-      (* the separator's verdict now has two conjuncts, so the case split
-         is over the item before it and the item after it *)
+      (* the separator's verdict has two conjuncts, so the case split is
+         over the item before it and the item after it *)
       all: unfold list_loose_of; cbn [existsb map fst snd];
            destruct (blank_absorbed inner), (ls_loose ls),
                     (starts_list (l0 :: more)), (item_loose (l0 :: more));
@@ -1684,8 +1664,8 @@ Proof.
       rewrite seps_loosen_cons. unfold ends_open_container.
       rewrite Hblanks. cbn [map].
       destruct rest as [|r rs].
-      (* the separator's verdict now has two conjuncts, so the case split
-         is over the item before it and the item after it *)
+      (* the separator's verdict has two conjuncts, so the case split is
+         over the item before it and the item after it *)
       all: unfold list_loose_of; cbn [existsb map fst snd];
            destruct (blank_absorbed inner), (ls_loose ls),
                     (starts_list (l0 :: more)), (item_loose (l0 :: more));

@@ -351,8 +351,7 @@ A delimiter against the colon is not settled
 if the line ended, and a delimiter run settles there as literal text;
 with a byte following it opens instead.  The split asks
 `iscan_settled`, which resolves with the colon known to follow, so
-these decline.  Before that they split, and the label read as one text
-run alone and as an opener in place.
+these decline.
 *)
 
 Example delimiter_against_colon_declines :
@@ -361,8 +360,8 @@ Example delimiter_against_colon_declines :
   = (None, None, None, None, None).
 Proof. vm_compute. reflexivity. Qed.
 
-(* the readings that made it wrong: one text run alone, an opener in
-   place.  Both still hold; only the split changed. *)
+(* the two readings that would make a split wrong: one text run alone,
+   an opener in place *)
 Example delimiter_label_reads_two_ways :
   (para_inlines ["a*"], para_inlines ["a*: b*"])
   = ([mk (Str "a*")], [mk (Str "a"); mk (Strong [mk (Str ": b")])]).

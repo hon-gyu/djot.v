@@ -1,14 +1,11 @@
 (* ai-disclosure: autonomous *)
 
-(* Marker numerals and the candidate styles a marker admits.
+(* Marker numerals and the candidate styles a marker admits: arithmetic
+   on numerals and a filter on style sets, not parsing.
 
-   Split out of `Parser.v`: this is arithmetic on numerals and a filter
-   on style sets, not parsing.  Nothing here mentions `pstate`, and the
-   roman and alpha codecs land here.
-
-   `Line.styles_of_core` says which styles a marker's core *could* be;
-   this file decodes the start number under each of them, and `narrow`
-   is the intersection siblings take. *)
+   `Line.styles_of_core` says which styles a marker's core could be; this
+   file decodes the start number under each of them, and `narrow` is the
+   intersection siblings take. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From DjotV Require Import Strings Line Ast.
@@ -33,12 +30,10 @@ Fixpoint dec_acc (s : string) (acc : nat) : nat :=
 
 Definition dec_value (s : string) : nat := dec_acc s 0.
 
-(* ...and its inverse, which the roundtrip needs: an ordered list's start
-   number is rendered into its first marker and has to come back.
-   `Strings.nat_str` goes through the stdlib's decimal machinery, whose
-   round-trip is stated against `NilZero.uint_of_string` rather than
-   against `dec_value`; rendering here instead keeps the pair
-   self-contained and the proof two lemmas. *)
+(* ...and its inverse: an ordered list's start number is rendered into
+   its first marker and has to come back.  Rendered here rather than with
+   `Strings.nat_str`, whose round-trip is stated against the stdlib's
+   decoder rather than `dec_value`. *)
 Definition digit_char (d : nat) : ascii := ascii_of_nat (48 + d).
 
 Fixpoint dec_str_fuel (fuel n : nat) : string :=
@@ -130,8 +125,8 @@ Definition roman_digit (c : ascii) : nat :=
   else if (Ascii.eqb c "m" || Ascii.eqb c "M")%char%bool then 1000
   else 0.
 
-(* djot.js's `romanToNumber` (parse.ts:80-100): scan right to left, and
-   subtract a digit smaller than the one to its right, so `ix` is 9. *)
+(* Scan right to left, subtracting a digit smaller than the one to its
+   right, so `ix` is 9. *)
 Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
   match s with
   | EmptyString => total
@@ -142,36 +137,27 @@ Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
 
 Definition roman_value (s : string) : nat := roman_acc (rev_string s) 0 0.
 
-(* `getListStart`'s alpha arm, named because both `style_start` and the
-   codec's correctness condition below need it.  Reading the first
-   character only is exact rather than a simplification: `[a-zA-Z][.)]` is
-   the only alpha marker pattern, so an alpha core is one character. *)
+(* An alpha numeral's value, from its first character: an alpha core is
+   one character. *)
 Definition alpha_value (up : bool) (core : string) : nat :=
   match core with
   | String c _ => nat_of_ascii c - (if up then 64 else 96)
   | EmptyString => 1
   end.
 
-(* ...and its inverse, the greedy table.  `roman_value` is a right-to-left
-   subtractive scan and this is a left-to-right greedy emission, so the
-   two are inverse for a reason no induction on either one exposes.
+(* The largest roman start the codec covers.
 
-   Every property this codec needs is therefore proved by *computation
-   over a bounded range* rather than by induction: `roman_ok` bundles
-   them, `roman_ok_range` decides the bundle for every start at once, and
+   The encoder below is a left-to-right greedy emission and `roman_value`
+   a right-to-left subtractive scan, inverse for a reason no induction on
+   either exposes.  So every property the codec needs is proved by
+   computation over a bounded range: `roman_ok` bundles them,
+   `roman_ok_range` decides the bundle for every start at once, and
    `roman_ok_lt` is the only form the rest of the development sees.  The
-   bound is not a weakness introduced here -- the alpha codec forces one
-   anyway (there is no 27th letter), so the ordered-list side carries a
-   range condition regardless.
+   alpha codec needs a bound anyway (there is no 27th letter).
 
-   Why 1000 and not 3999, where the standard spelling stops.  The check
-   is quadratic in the bound -- measured, at 100/400/1000/2000/3999 it
-   costs 0.04/0.10/0.25/0.59/2.00s -- and `Marker.v` is upstream of
-   everything, so its cost is paid by every rebuild during parser work.
-   2.0s on an 18s build was not worth the last 3000 starts: the alpha
-   codec stops at 26 regardless, so this is not what limits the
-   ordered-list chain's reach.  Raising it is this one line plus the
-   measured seconds. *)
+   1000 rather than 3999, where the standard spelling stops, because the
+   check is quadratic in the bound (0.25s at 1000, 2.0s at 3999) and this
+   file is upstream of everything. *)
 Definition roman_upper : nat := 1000.
 
 Definition roman_table (up : bool) : list (nat * string) :=
@@ -187,15 +173,11 @@ Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string
   | (v, s) :: rest => if Nat.leb v n then Some (v, s) else roman_pick rest n
   end.
 
-(* A table and a lookup, rather than thirteen nested `if`s inlined here.
-   Not a matter of taste: with the branches inlined the recursive call
-   appears in all thirteen of them, so *symbolically* normalizing
-   `roman_str up n` at an unknown `n` unfolds to 13^16 branches and any
-   conversion check that reaches it does not terminate.  The cost is
-   invisible until the kernel tries to convert, so it shows up as `Qed`
-   hanging on a lemma whose tactics all ran instantly.  Factoring the
-   choice into `roman_pick` leaves one recursive call per level, so the
-   same expansion is linear in the fuel. *)
+(* A table and a lookup rather than thirteen nested `if`s.  With the
+   branches inlined the recursive call appears in all thirteen, so
+   symbolically normalizing `roman_str up n` at an unknown `n` unfolds to
+   13^16 branches, and a `Qed` that converts it does not terminate.
+   `roman_pick` leaves one recursive call per level. *)
 Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
   match fuel with
   | O => EmptyString
@@ -206,15 +188,11 @@ Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
       end
   end.
 
-(* 16, not `n`.  Every branch emits at least one character and the longest
-   numeral is 3888 = `mmmdccclxxxviii` at 15, so 16 suffices; nothing here
-   asserts that, `roman_ok_range` checks it, since fuel exhausted early
-   truncates the numeral and the decode stops matching.
-
-   It is not a speedup -- measured, the range check costs the same either
-   way.  The cost is `Nat.leb 1000 n` on a unary `nat`, which is linear in
-   the *magnitude* and so indifferent to fuel.  16 is here because it is
-   the honest bound and keeps the terms small. *)
+(* Fuel 16, not `n`: every step emits at least one character, and the
+   longest numeral (3888, `mmmdccclxxxviii`) has 15.  `roman_ok_range`
+   checks that it suffices, since exhausted fuel truncates the numeral.
+   Not a speedup: the range check's cost is `Nat.leb 1000 n` on a unary
+   `nat`, which does not depend on the fuel. *)
 Definition roman_str (up : bool) (n : nat) : string := roman_fuel up 16 n.
 
 Definition alpha_str (up : bool) (n : nat) : string :=
@@ -222,8 +200,8 @@ Definition alpha_str (up : bool) (n : nat) : string :=
 
 (* What a codec has to deliver for the marker layer: a nonempty core, in
    the alphabet its style is recognized by, decoding back to the number
-   it was made from.  One boolean so that one computation settles all
-   three, and so that a future codec is a matter of pointing this at it. *)
+   it was made from.  One boolean, so that one computation settles all
+   three. *)
 Definition roman_ok (up : bool) (n : nat) : bool :=
   let s := roman_str up n in
   (nonempty_str s
@@ -267,9 +245,8 @@ Proof. vm_compute. reflexivity. Qed.
 Example alpha_ok_up : forallb (alpha_ok true) (seq 1 alpha_upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* Turning a checked range into the pointwise fact.  The whole of what
-   "bounded route" costs, and it is generic: a further codec supplies its
-   own `forallb` and reuses this. *)
+(* Turning a checked range into the pointwise fact.  Generic: another
+   codec supplies its own `forallb` and reuses this. *)
 Lemma range_ok :
   forall (f : nat -> bool) (hi n : nat),
     forallb f (seq 1 hi) = true -> 1 <= n -> n <= hi -> f n = true.
@@ -440,7 +417,7 @@ Proof.
   - rewrite (is_lower_not_digit c (is_roman_lo_lower c Hc)). reflexivity.
 Qed.
 
-(* `getListStart` (parse.ts:102-113). *)
+(* A marker's start number under one of its candidate styles. *)
 Definition style_start (s : lstyle) (core : string) : nat :=
   match s with
   | SBullet _ | STask _ => 1
@@ -454,9 +431,9 @@ Definition with_starts (sty : list lstyle) (core : string)
   : list (lstyle * nat) :=
   map (fun s => (s, style_start s core)) sty.
 
-(* Narrowing, djot.js block.ts:389-399: keep the candidates this list
-   already had that the new marker also admits.  Filtering `old` rather
-   than `new` is what preserves the first marker's start numbers. *)
+(* Narrowing: keep the candidates this list already had that the new
+   marker also admits.  Filtering `old` rather than `new` preserves the
+   first marker's start numbers. *)
 Definition narrow (old : list (lstyle * nat)) (new : list lstyle)
   : list (lstyle * nat) :=
   filter (fun p => existsb (lstyle_eqb (fst p)) new) old.

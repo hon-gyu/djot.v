@@ -9,18 +9,8 @@ closes an open paragraph instead of extending it.  djot's answer is
 never, which is the rule "a sublist must be preceded by a blank line";
 `sublist_bconfig` answers yes for a bullet or the numeral `1`.
 
-Every line here was measured.  It needs no recipe and no second build:
-the knob is a parameter, so these examples name the other instance and
-the ordinary build checks them.
-
-```
-dune build && rocq c -R _build/default/theories DjotV dev/check/Sublist.v
-```
-
-It is out of the dune build for the reason `dev/check/Markdown.v` is --
-`vm_compute` over whole documents is not something a parser edit should
-pay for.
-
+Every line here was measured.  The knob is a parameter, so these
+examples name the other instance and the ordinary build checks them.
 The argument for the shape of this knob, and the measurements behind the
 restriction, are in `.project/260823.phase4-block-knob.md`.
 *)

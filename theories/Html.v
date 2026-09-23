@@ -1,9 +1,9 @@
 (* ai-disclosure: autonomous *)
 
 (* HTML rendering, targeting byte-identical agreement with djot.js's
-   renderer (the authority; see .project/oracle-disagreements.md — djoths's
-   serialization diverges on attribute order, section wrapping, and task
-   items, and we follow djot.js on all three).
+   renderer, the authority.  djoths's serialization diverges on attribute
+   order, section wrapping and task items, and we follow djot.js on all
+   three (`.project/oracle-disagreements.md`).
 
    The renderer builds an output tree (`helt`) and `serialize` writes it
    out.  So a tag is opened and closed by one constructor rather than by
@@ -73,9 +73,9 @@ Inductive helt : Type :=
   (* An element with no closing tag.  `self` spells it `<tag/>`, which
      djot.js does for the task-list checkbox and nowhere else. *)
   | HVoid (tag : string) (self : bool) (attrs : attr)
-  (* `nls` is djot.js's `newlines` (`inTags`, html.ts:122-127): 2 puts a
-     newline after the opening tag and after the closing one, 1 after the
-     closing one only, 0 neither.
+  (* `nls` is djot.js's `newlines`: 2 puts a newline after the opening
+     tag and after the closing one, 1 after the closing one only, 0
+     neither.
 
      Attributes are one list, in output order.  What djot.js calls
      `extraAttrs` -- what a construct contributes itself, ahead of the
@@ -133,32 +133,28 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-(* A task item's checkbox (html.ts:219-229). *)
+(* A task item's checkbox. *)
 Definition checkbox_elt (chk : task_status) : helt :=
   HVoid "input" true
     ([("disabled", ""); ("type", "checkbox")]
      ++ match chk with Complete => [("checked", "")] | Incomplete => [] end)%list.
 
 (* What a resolved reference definition contributes.  Its attributes are
-   extra in the same sense as `href`, so they precede the node's own --
-   but a key the node carries itself wins, since djot.js copies an entry
-   into `extraAttr` only when the node has none (html.ts:430-436).
-   Without the filter `[ref][]{title=bar}` against a `{title=foo}`
-   definition renders two `title`s.
-
-   The `class` join beside it (html.ts:112-118) is unreachable from here:
-   it needs an extra `class`, which this filter admits only when the node
-   has none to join with. *)
+   extra in the same sense as `href`, so they precede the node's own, but
+   a key the node carries itself wins: an entry is copied only when the
+   node has none.  Without the filter `[ref][]{title=bar}` against a
+   `{title=foo}` definition renders two `title`s.  A `class` join is
+   unreachable from here, since it needs an extra `class`, which this
+   filter admits only when the node has none to join with. *)
 Definition ref_extra (a0 a : attr) : attr :=
-  filter (fun kv => match lookup_attr (fst kv) a with
+  filter (fun kv => match alist_lookup (fst kv) a with
                     | Some _ => false
                     | None => true
                     end) a0.
 
-(* An ordered list's `start` and `type`, djot.js html.ts:251-259.  Both
-   are omitted at their HTML defaults — start 1, decimal numbering — and
-   both precede the node's own attributes, because `renderAttributes`
-   emits `extraAttrs` first (html.ts:76-88). *)
+(* An ordered list's `start` and `type`.  Both are omitted at their HTML
+   defaults (start 1, decimal numbering), and both precede the node's own
+   attributes, as extra attributes always do. *)
 Definition ol_attrs (oa : ordered_list_attributes) : attr :=
   ((if Nat.eqb (ol_start oa) 1
     then [] else [("start", nat_str (ol_start oa))])
@@ -176,10 +172,9 @@ Inlines
 *)
 
 (* An image's `alt` is the plain text of its children, not their HTML:
-   djot.js's `getStringContent` (parse.ts:33) pushes each node's `text`
-   field, turns a break into a newline, and otherwise recurses.  Only the
-   constructs the parser builds are covered; the rest contribute nothing
-   here in any case. *)
+   each node's text, a break as a newline, containers recursing.  Only
+   the constructs the parser builds are covered; the rest contribute
+   nothing here in any case. *)
 Fixpoint plain_text (il : inline) : string :=
   let go :=
     fix go (ns : list (node inline)) : string :=
@@ -208,21 +203,19 @@ Rendering, against the document's reference map
 
 `refs` is the map a `Reference` target resolves against: the document's
 explicit definitions followed by the implicit heading ones, appended so
-that `alist_lookup`'s first-match rule is djot.js's `references[lab] ||
-autoReferences[lab]` (html.ts:420).  It is a section variable rather than
-a threaded argument because every recursion here would otherwise carry it
-unchanged.
+that `alist_lookup`'s first-match rule prefers the explicit one.  It is a
+section variable rather than a threaded argument because every recursion
+here would otherwise carry it unchanged.
 *)
 
 Section WithRefs.
 Context (refs : reference_map).
 
 (* A node's own attributes render on its own tag, after any the
-   construct contributes itself ("extra attributes" in html.ts, which
-   emits them first).  A `Str` has no tag of its own, so djot.js wraps an
-   attributed one in a `<span>` and leaves a bare one alone
-   (html.ts:246) -- which is why `foo{.a}` is a `str` carrying attributes
-   in the AST and a span only in the output. *)
+   construct contributes itself.  A `Str` has no tag of its own, so an
+   attributed one is wrapped in a `<span>` and a bare one left alone:
+   `foo{.a}` is a `Str` carrying attributes in the AST and a span only in
+   the output. *)
 Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   let render_ils :=
     fix go (ns : list (node inline)) : list helt :=
@@ -245,8 +238,8 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | Subscript ils => [HElem "sub" 0 a (render_ils ils)]
   | Verbatim s => [HElem "code" 0 a [HText s]]
   | Symbol s => [HText (":" ++ s ++ ":")]
-  (* djot.js emits a span carrying the class and wraps the content in
-     TeX delimiters, escaping it as text (`html.ts:330-338`). *)
+  (* a span carrying the class, with the content in TeX delimiters and
+     escaped as text *)
   | Math InlineMath s =>
       [HElem "span" 0 [("class", "math inline")] [HText ("\(" ++ s ++ "\)")]]
   | Math DisplayMath s =>
@@ -266,8 +259,7 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
              (("href", url) :: ref_extra a0 a ++ a)%list (render_ils ils)]
       | None => [HElem "a" 0 a (render_ils ils)]
       end
-  (* `alt` precedes `src`, both extra attributes, in that order
-     (html.ts:452). *)
+  (* `alt` precedes `src`, both extra attributes, in that order *)
   | Image ils (Direct url) =>
       [HVoid "img" false
          (("alt", plain_texts ils) :: ("src", url) :: a)]
@@ -282,10 +274,9 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | Span ils => [HElem "span" 0 a (render_ils ils)]
   | FootnoteReference _ => [] (* numbered on the `_foot` path *)
   (* An autolink renders as its own text under an `href`, which is an
-     extra attribute and so precedes the node's own -- `renderTag("a",
-     node, extraAttr)` (html.ts:470-481).  The two kinds differ only in
-     the `mailto:` an email prefixes to the destination; the text shown
-     is the region either way. *)
+     extra attribute and so precedes the node's own.  The two kinds
+     differ only in the `mailto:` an email prefixes to the destination;
+     the text shown is the region either way. *)
   | UrlLink url => [HElem "a" 0 (("href", url) :: a) [HText url]]
   | EmailLink addr =>
       [HElem "a" 0 (("href", "mailto:" ++ addr) :: a) [HText addr]]
@@ -297,14 +288,13 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | Wikilink true t al =>
       [HVoid "img" false (("alt", wiki_display t al) :: ("src", t) :: a)]
   (* Raw content in a format the renderer does not speak contributes
-     nothing at all, attributes included -- `html.ts:396-402` emits the
-     text only for `html` and never a wrapper element. *)
+     nothing at all, attributes included: the text is emitted only for
+     `html`, and never in a wrapper element. *)
   | RawInline fmt s => if String.eqb fmt "html" then [HRaw s] else []
   (* The one constant this file writes unescaped. *)
   | NonBreakingSpace => [HRaw "&nbsp;"]
   (* The curly quotes are the whole of what a quoted span renders as:
-     djot.js wraps the children in the two characters and emits no
-     element (`html.ts:353-358`). *)
+     the children between the two characters, and no element. *)
   | Quoted SingleQuotes ils =>
       ([HText lsquo] ++ render_ils ils ++ [HText rsquo])%list
   | Quoted DoubleQuotes ils =>
@@ -328,8 +318,7 @@ Table rows
 
 Cells hold inlines only, so the whole of a table renders without
 touching `render_block`'s recursion.  Alignment is a style attribute on
-the cell, and `AlignDefault` carries none (html.ts, and confirmed
-against the oracle on every combination in `tables.test`). *)
+the cell, and `AlignDefault` carries none. *)
 
 Definition align_attr (al : align) : attr :=
   match al with
@@ -361,19 +350,15 @@ Blocks
 *)
 
 (* `tight` is rendering state, not a property of the block being
-   rendered: djot.js sets it in `renderChildren` on any node carrying a
-   `tight` field — only a list does — and restores it on the way out
-   (html.ts:140-150).  So it survives a block quote or a div, and every
-   paragraph below a tight item is emitted bare until another list resets
-   it.  A per-item match on direct children is *not* the same rule:
-   `- > a` renders `<blockquote>a</blockquote>` in djot.js and used to
-   render `<blockquote><p>a</p></blockquote>` here.
+   rendered: a list sets it for its children and restores it on the way
+   out, and nothing else changes it.  So it survives a block quote or a
+   div, and every paragraph below a tight item is emitted bare until
+   another list resets it: `- > a` renders `<blockquote>a</blockquote>`.
 
-   The node's attributes ride alongside its payload: they belong on the
-   opening tag (today only the auto-identifiers the whole-document pass
-   puts on sections and quoted headings), but recursion still has to be
-   on `block` — `list (node block)` is two type constructors deep, which
-   the guard checker will not follow from a `node block` argument. *)
+   The node's attributes ride alongside its payload, since they belong
+   on the opening tag, but recursion has to be on `block`: `list (node
+   block)` is two type constructors deep, which the guard checker will
+   not follow from a `node block` argument. *)
 Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   : list helt :=
   (* Takes the flag as an argument so that one list recursion serves both
@@ -395,13 +380,11 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
              (render_bs_at (match sp with Tight => true | Loose => false end) it)
            :: goi sp rest)%list
       end in
-  (* A `dd` is rendered at the *incoming* tightness, not at the list's:
-     djot.js's `definition_list` node carries no `tight` field where
-     every other list does (parse.ts:824-857), and `renderChildren` only
-     overrides the flag for a node that has one (html.ts:140-148).  So a
-     definition inside a tight bullet item renders bare, and `sp` is
-     read by nothing here.  It is not dead: the roundtrip reads it, since
-     it is what records the blank lines the source had. *)
+  (* A `dd` is rendered at the incoming tightness, not at the list's:
+     djot.js's definition list carries no tightness flag, so a definition
+     inside a tight bullet item renders bare, and `sp` is read by nothing
+     here.  The roundtrip reads it, since it records the blank lines the
+     source had. *)
   let render_def_items :=
     fix god (its : list (inlines * list (node block))) {struct its}
       : list helt :=
@@ -413,9 +396,9 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
            :: god rest)%list
       end in
   (* A task item's checkbox, ahead of its content and outside whatever
-     the tightness does to that content (html.ts:219-229).  The `<ul>`
-     carries `class="task-list"` before the node's own attributes, the
-     order `ol_attrs` already establishes. *)
+     the tightness does to that content.  The `<ul>` carries
+     `class="task-list"` before the node's own attributes, the order
+     `ol_attrs` already establishes. *)
   let render_task_items :=
     fix got (sp : list_spacing)
       (its : list (task_status * list (node block))) {struct its}
@@ -430,9 +413,8 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
            :: got sp rest)%list
       end in
   match b with
-  (* A tight paragraph loses its tag, keeping the newline the tag carried.
-     Its attributes go with the tag; djot.js drops them the same way, and
-     nothing produces them here yet. *)
+  (* A tight paragraph loses its tag, keeping the newline the tag
+     carried.  Its attributes go with the tag, as in djot.js. *)
   | Para ils =>
       if tight then (render_inlines ils ++ [HText nl])%list
       else [HElem "p" 1 a (render_inlines ils)]
@@ -440,10 +422,7 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   | Heading lvl ils =>
       [HElem ("h" ++ nat_str lvl) 1 a (render_inlines ils)]
   | BlockQuote bs => [HElem "blockquote" 2 a (render_bs bs)]
-  (* The language is escaped as an attribute value, which djot.js does
-     too (`escapeAttribute`, html.ts code_block).  Spelling it by hand
-     here did not, so a fence tagged with a quote broke out of the
-     class attribute. *)
+  (* The language is escaped as an attribute value. *)
   | CodeBlock lang code =>
       [HElem "pre" 1 a
          [HElem "code" 0
@@ -805,7 +784,7 @@ Definition html_tree (d : doc) : list helt :=
 
 Definition render_html (d : doc) : string := serialize (html_tree d).
 
-(* The single entry point the harness extracts: djot in, HTML out. *)
+(* The document renderer: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
 
 Example convert_two_paras :
@@ -898,7 +877,7 @@ Proof. reflexivity. Qed.
 Task lists
 ==========
 
-Read off djot.js on 2026-08-22; see `.project/260822.task-lists` §1.
+Read off djot.js (`.project/260822.task-lists.md`).
 *)
 
 Example convert_tasklist :
@@ -978,8 +957,7 @@ Proof. reflexivity. Qed.
 Definition lists
 ================
 
-Each was read off djot.js on 2026-08-22; §1 of `.project/
-260822.definition-lists` records the probes these came from.
+Read off djot.js (`.project/260822.definition-lists.md`).
 *)
 
 (* The term is the item's first paragraph, and the blank line is what
@@ -1009,8 +987,8 @@ red fruit</dt>
 Proof. reflexivity. Qed.
 
 (* An item whose first block is not a paragraph has an empty term and
-   keeps everything (djot.js parse.ts:903-912).  The heading's
-   auto-identifier is `Document.assign_ids` reaching into a definition. *)
+   keeps everything.  The heading's auto-identifier is
+   `Document.assign_ids` reaching into a definition. *)
 Example convert_deflist_no_term :
   convert ": # h" = "<dl>
 <dt></dt>
@@ -1031,9 +1009,8 @@ Example convert_deflist_bare :
 ".
 Proof. reflexivity. Qed.
 
-(* Two colons are not a marker and three are a div: `getListStyles`
-   answers with no style for "::", and `classify` tests `div_open`
-   before `list_marker`. *)
+(* Two colons are not a marker and three are a div: `classify` tests
+   `div_open` before `list_marker`. *)
 Example convert_deflist_two_colons :
   convert ":: a" = "<p>:: a</p>
 ".
@@ -1074,8 +1051,6 @@ Proof. reflexivity. Qed.
 (*
 Reference resolution
 ====================
-
-Each of these was read off djot.js first.
 *)
 
 Example convert_reference_resolved :
@@ -1293,10 +1268,8 @@ Example convert_table_footnote_cell :
 ".
 Proof. vm_compute. reflexivity. Qed.
 
-(* A fence's language is an attribute value and is escaped as one.
-   Spelling the class by hand did not escape it, so a language carrying a
-   quote broke out of the attribute; carrying it as an attribute pair is
-   what closes it, and djot.js agrees byte for byte. *)
+(* A fence's language is an attribute value and is escaped as one, so a
+   language carrying a quote cannot break out of the attribute. *)
 Example convert_code_lang_escaped :
   convert "``` a""onx=""y
 z
@@ -1346,7 +1319,7 @@ them as coincidences of the call sites.  `HRaw` is excluded, since it is
 the deliberate hole (a raw block, a raw inline, or the one entity this
 file writes).  And a tag name and an attribute *key* must carry no `<`
 themselves: `render_attrs` escapes a value but emits a key as it stands,
-which is safe today only because `Attributes.is_key_char` admits no `<`.
+which is safe only because `Attributes.is_key_char` admits no `<`.
 Saying so here is what turns that into a stated condition.
 *)
 

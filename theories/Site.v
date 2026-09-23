@@ -542,7 +542,7 @@ Qed.
 The link codec
 ==============
 
-What a destination *means* is a convention, not a fact about djot, so it
+What a destination means is a convention, not a fact about djot, so it
 is a parameter: which paths a convention can name, how one is spelled
 from a given note, and which strings spell one.  A site-absolute codec
 ignores `self`; a relative one resolves against it; a flat vault names
@@ -550,24 +550,23 @@ only top-level notes, which is what `l_ok` is for.
 
 Three conditions, and each has a user below.  The round-trip is what
 gives a rewritten link back.  `l_parse_stable` says whether a string
-denotes a note does not depend on which note is asking -- only *which*
-note it denotes does -- so moving a note cannot turn its prose into a
-link.  `l_spell_canonical` says a destination that parses is already
-spelled the way this codec spells it, which is what makes re-targeting
-the identity where nothing moved; it also hands back `l_ok`, so a
-parsed target is one the codec can re-spell.
+denotes a note does not depend on which note is asking (only which note
+it denotes does), so moving a note cannot turn its prose into a link.
+`l_spell_canonical` says a destination that parses is already spelled
+the way this codec spells it, which makes re-targeting the identity
+where nothing moved; it also hands back `l_ok`, so a parsed target is
+one the codec can re-spell.
 
-No condition here mentions what a destination may *contain*, and that
-is deliberate: the canonical view's conditions on a destination are not
-conditions on the codec, they are conditions on the rendered line, and
-they are not the two an earlier note predicted.  `no_nl` (`Inline.ci_ok`)
-and `no_ws` (`Render.ref_ok`) are necessary and are not sufficient --
-`dest_bar_breaks_row` below is a `no_ws` destination that leaves a table
-uncanonical.  `dest_backtick_row_ok` is the contrasting repaired case:
-the destination escaper and row scanner now agree.  The general statement
-is still not available, and `rename_canonical_local` is what stands in its
-place: the check is decidable, an implementation runs it, and the theorem
-says it need only run on the notes a rename can reach. *)
+No condition here mentions what a destination may contain: the
+canonical view's conditions on a destination are conditions on the
+rendered line, not on the codec.  `no_nl` (`Inline.ci_ok`) and `no_ws`
+(`Render.ref_ok`) are necessary and not sufficient: `dest_bar_breaks_row`
+below is a `no_ws` destination that leaves a table uncanonical, while in
+`dest_backtick_row_ok` the destination escaper and the row scanner
+agree.  The general statement is not available, and
+`rename_canonical_local` stands in its place: the check is decidable, an
+implementation runs it, and the theorem says it need only run on the
+notes a rename can reach. *)
 
 Record lcodec : Type := LCodec {
   l_ok : path -> bool;
@@ -662,11 +661,11 @@ Proof.
 Qed.
 
 (** Rename as a commuting square: renaming a note and rewriting one URL
-    in the built site are the same operation.  Three hypotheses, and each
-    is a check an implementation runs -- the codec's laws, route
-    injectivity (so that substituting a path and substituting its URL
-    agree), that the note being renamed exists, and that every link
-    points at a note the site has. *)
+    in the built site are the same operation.  Each hypothesis is a check
+    an implementation runs: the codec's laws, route injectivity (so that
+    substituting a path and substituting its URL agree), that the note
+    being renamed exists, and that every link points at a note the site
+    has. *)
 Theorem rename_correct :
   forall L p q s,
     lcodec_ok L ->
@@ -1075,21 +1074,20 @@ Qed.
 What a destination can do to a rendered line
 ============================================
 
-Why the paragraph above says the general theorem is not available, in
+Why the section above says the general theorem is not available, in
 three destinations that a codec obeying `no_nl` would happily spell.
 
-The first is the condition the note already predicted, and it is real:
-a reference definition puts its destination on a line the parser splits
-at whitespace.
+The first is a reference definition, which puts its destination on a
+line the parser splits at whitespace.
 *)
 
 Example dest_ws_breaks_ref : cb_ok (CRef "r" "a b") = false.
 Proof. reflexivity. Qed.
 
-(* The bar is not predicted by anything about links, and it makes the
-   obligation more than a codec condition: it is `no_ws`, is fine in a
-   paragraph, and leaves a *table* uncanonical because a cell is delimited
-   on the rendered line rather than in the AST. *)
+(* The bar makes the obligation more than a codec condition: it is
+   `no_ws` and fine in a paragraph, and it leaves a table uncanonical
+   because a cell is delimited on the rendered line rather than in the
+   AST. *)
 Example dest_bar_breaks_row :
   (cb_ok (CTable [CTBody [[CILink false [CIStr "a"] "a|b"]]]),
    cb_ok (CPara [[CILink false [CIStr "a"] "a|b"]]))

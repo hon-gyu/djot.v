@@ -26,7 +26,7 @@ Local Notation Located := (@parse_blocks_located djot_table djot_bconfig).
 (* A missing byte would mean a spot outside its line, which is a bug
    rather than a range; it is spelled as a number no input can produce. *)
 Definition byte_of (lines : list source_line) (p : spot) : nat :=
-  match spot_byte lines p with Some b => b | None => 999 end.
+  match resolve_spot lines p with Some pt => source_byte pt | None => 999 end.
 
 Definition range_of (lines : list source_line) (r : span) : nat * nat :=
   (byte_of lines (span_start r), byte_of lines (span_stop r)).
@@ -127,7 +127,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* bullet_list [0,12), then the paragraphs of its two items: [2,3),
    [7,8), [11,12).  djot.js also spans the items themselves, [0,8) and
-   [9,12); those are `parts` and are not built yet (plan F9). *)
+   [9,12); those are `parts`, pinned below. *)
 Example r_loose_list : ranges "- a
 
   b
@@ -141,7 +141,7 @@ Example r_footnote : ranges "[^1]: note
 " = [(0, 17); (6, 17)].
 Proof. vm_compute. reflexivity. Qed.
 
-(* table [0,29).  Rows and cells are `parts`, not yet built. *)
+(* table [0,29).  Rows and cells are `parts`, pinned below. *)
 Example r_table : ranges "| a | b |
 |---|---|
 | c | d |
@@ -475,8 +475,8 @@ Proof. vm_compute. reflexivity. Qed.
    hand: every canonical block at depth 1 renders the same HTML through
    the located parse as through the semantic one.  Depth 2 (3695
    documents) was run the same way and is clean; it is out of the build
-   because it takes 29s against 0.9s here.  This is the evidence for the
-   erasure theorem the plan owes at C2, not the theorem. *)
+   because it takes 29s against 0.9s here.  The theorem is
+   `Step.parse_blocks_located_erase`. *)
 Definition html_of (bs : blocks) : string := render_html (doc_pass bs).
 
 Definition agrees (c : cblock) : bool :=
@@ -491,11 +491,10 @@ Proof. vm_compute. reflexivity. Qed.
 Inline ranges, pinned against djot.js
 =====================================
 
-The inline scan on its own.  The block layer does not hand its stored
-lines to the located scan yet, so these go through
-`para_inlines_located` directly: a document that is one paragraph, its
-lines with their indices, positions on.  Children follow their parent,
-which is the order `djotjs-sourcepos.mjs` prints.
+The inline scan on its own, through `para_inlines_located`: a document
+that is one paragraph, its lines with their indices, positions on.
+Children follow their parent, which is the order `djotjs-sourcepos.mjs`
+prints.
 *)
 
 Fixpoint inline_walk (d : nat) (lines : list source_line) (ils : inlines)
@@ -690,8 +689,8 @@ Through the containers
 ----------------------
 
 The same scan reached from `parse_blocks_located`, where the stored line
-is a suffix of its source line: the C4 witness, whose paragraph sits two
-containers deep, and whose ranges are still djot.js's.
+is a suffix of its source line: a paragraph two containers deep, whose
+ranges are still djot.js's.
 *)
 
 (* block_quote [0,22), bullet_list [2,22), list_item [2,22),
@@ -858,10 +857,8 @@ Definition inline_roles (s : string)
 Example i_span_spec : inline_roles "[s]{.c}" = [([("class", "c")], [(RAttrSpec, (3, 7))])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A text run too.  It took a policy binder on `oresolve_go` to get
-   here: resolution is where a pending spec meets the node it attaches
-   to, and it used to run at the ambient instance, where recording a
-   role is the identity. *)
+(* A text run too: resolution, where a pending spec meets the node it
+   attaches to, runs at the scan's policy, so the role is recorded. *)
 Example i_text_spec :
   inline_roles "a{.c}" = [([("class", "c")], [(RAttrSpec, (1, 5))])].
 Proof. vm_compute. reflexivity. Qed.

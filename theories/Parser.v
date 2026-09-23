@@ -2,10 +2,7 @@
 
 (** * Parser interface
 
-   The block parser, as one name. Everything is defined in the five
-   files below; this is the interface the rest of the development and the
-   harness require, so splitting the implementation moved no `Require`
-   anywhere else.
+   The block parser under one name: the six files below, re-exported.
 
    | file               | what                                        |
    | ------------------ | ------------------------------------------- |

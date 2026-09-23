@@ -241,8 +241,7 @@ Definition state_pool : list pstate :=
   map (fun ls => snd (run_lines ls (PPara []))) seed_prefixes.
 
 (* The product every `forall st l` probe runs over.  The size is computed
-   rather than written down: both pools grow with the parser, and a
-   number in a comment here went stale twice. *)
+   rather than written down, since both pools grow with the parser. *)
 Definition sl_pool : list (pstate * string) := pairs state_pool line_pool.
 Compute (List.length state_pool, List.length line_pool, List.length sl_pool).
 
@@ -426,11 +425,10 @@ Compute
   let st := snd (krun ["- foo:"; "  ```"] (PPara [])) in
   (key_claims "bar" st, key_claims "```" st, key_claims "- b" st).
 
-(* `step_blank_key_claims`, now proved: after a blank no key is left
-   able to claim.  It is what discharges the override at
-   `parse_list_close` and through the item chain, where `blank_safe` is
-   the hypothesis already carried.  The guard is `blank_safe`, so read
-   `t_pass` before believing a `None`. *)
+(* `step_blank_key_claims`: after a blank no key is left able to claim.
+   It discharges the override at `parse_list_close` and through the item
+   chain, where `blank_safe` is the hypothesis already carried.  The
+   guard is `blank_safe`, so read `t_pass` before believing a `None`. *)
 Compute report show_sl
   (fun p => guarded (blank_safe (fst p))
               (negb (key_claims (snd p) (snd (kstep "" (fst p))))))

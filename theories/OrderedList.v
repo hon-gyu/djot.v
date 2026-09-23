@@ -4,11 +4,10 @@
    consecutive numbering from a start, so each item carries its own
    marker rather than the list carrying one.
 
-   Parse-side, despite the name: what it proves is that the markers the
-   canonical renderer emits parse back to the list they came from.  It
-   sits above `Marker.v`, which holds the numeral codecs, and above the
-   uniformity chain it instantiates; `Parser.v` is its only consumer and
-   re-exports it, so the renderer sees it only through that.
+   Parse-side, despite the name: it proves that the markers the canonical
+   renderer emits parse back to the list they came from.  It sits above
+   `Marker.v`, which holds the numeral codecs, and above the uniformity
+   chain it instantiates; `Parser.v` re-exports it.
 
    `nsc_uniformity` states the list-level argument once for any numbering
    scheme; decimal, roman and alpha are three instantiations.
@@ -147,11 +146,9 @@ Qed.
 Decimal ordered lists
 ---------------------
 
-The canonical rendering djot.js produces: one style, one delimiter, and
-consecutive numbering from a start.  `canon.mjs` (see
-.project/260810.ordered-lists.md) checked that decimal lists survive
-their own rendering at every start and length it tried, so unlike the
-alpha styles this needs no side condition beyond the ones every list has.
+One style, one delimiter, and consecutive numbering from a start.
+Unlike roman and alpha, decimal lists need no side condition beyond the
+ones every list has.
 *)
 
 Definition dec_marker (d : ordered_list_delim) (n : nat) : marker :=
@@ -291,10 +288,8 @@ Proof.
 Qed.
 
 (* Uniformity for a decimal ordered list: consecutive markers from
-   `start`, each with its own width.  No side condition beyond the ones
-   every list has -- `canon.mjs` checked that decimal lists survive their
-   own canonical rendering at every start and length it tried, which is
-   what distinguishes them from the alpha styles. *)
+   `start`, each with its own width, and no side condition beyond the
+   ones every list has. *)
 Theorem ordered_decimal_uniformity :
   forall d start sp lss,
     lss <> [] ->
@@ -346,30 +341,28 @@ Roman and alpha ordered lists
 -----------------------------
 
 Two more instantiations of `nsc_uniformity`, and the side condition they
-carry that decimal does not.  It is one condition in two spellings: *the
-first marker must name exactly one style*.
+carry that decimal does not.  It is one condition in two spellings: the
+first marker must name exactly one style.
 
-A bare roman letter -- `i`, `v`, `x`, `l`, `c`, `d`, `m` -- is also a
-single letter, so it offers roman and alpha both; any longer numeral
-offers only roman.  A single letter that is not a roman digit offers only
-alpha.  So a roman list is covered when its first numeral is at least two
-characters, and an alpha list when its first letter is not a roman digit.
-Later markers are unconstrained either way, because `admits` asks only
-that a sibling still offer what the list opened with, and every roman
-numeral offers roman just as every letter offers alpha.
+A bare roman letter (`i`, `v`, `x`, `l`, `c`, `d`, `m`) is also a single
+letter, so it offers roman and alpha both; any longer numeral offers only
+roman.  A single letter that is not a roman digit offers only alpha.  So
+a roman list is covered when its first numeral is at least two
+characters, and an alpha list when its first letter is not a roman
+digit.  Later markers are unconstrained either way, because `admits`
+asks only that a sibling still offer what the list opened with, and
+every roman numeral offers roman just as every letter offers alpha.
 
-`dev/check/Probe.v` measures the two exception sets rather than trusting this
-argument: `items_ok` fails at roman starts 1, 5, 10 (and 50, 100, 500,
-1000 above the probed range) and at alpha starts 3, 4, 9, 12, 13, 22, 24,
-which are exactly `c`, `d`, `i`, `l`, `m`, `v`, `x`.  The same probe
-records that the *parser* round-trips every one of those starts: what the
-exception sets bound is the reach of the hypothesis, not of the parser.
+The exception sets are roman starts 1, 5, 10, 50, 100, 500, 1000 and
+alpha starts 3, 4, 9, 12, 13, 22, 24 (`c d i l m v x`).  The parser
+round-trips all of them: the sets bound the reach of the hypothesis, not
+of the parser.
 
-The `_any` theorems below lift it.  A style *set* that narrows as the run
+The `_any` theorems below lift it.  A style set that narrows as the run
 proceeds costs the ambiguous opener nothing: one item closes on the
 unnarrowed head, and a second narrows to the singleton and holds it.  So
 `ck_ok` asks roman for a range and nothing else, and asks alpha only for
-an opener that names alpha alone *or* a second item to settle it.
+an opener that names alpha alone or a second item to settle it.
 *)
 
 Definition roman_sty (up : bool) : ordered_list_style :=
@@ -570,8 +563,7 @@ Proof.
 Qed.
 
 (* The whole of `item_ok`'s dependence on its marker.  The task-marker
-   conjunct is deliberately not one: it tests the line alone, so this
-   lemma stays exactly as strong as it was.  See `item_ok`. *)
+   conjunct is not part of it: it tests the line alone (`Line.task_start`). *)
 Lemma item_ok_thematic_indep :
   forall m m' L,
     (forall l, is_thematic (mk_open m ++ l) = false) ->
@@ -664,7 +656,7 @@ Roman at every start
 
 The ambiguity condition drops out for roman entirely.  Two facts do it.
 A roman numeral's candidate set always has `(RomanLower, n)` at its
-*head*, ambiguous or not, so a one-item list closes correctly with no
+head, ambiguous or not, so a one-item list closes correctly with no
 narrowing at all.  And no two consecutive roman numerals are both a
 single character (`roman_consec_lt`), so a list with a second item has
 its set narrowed to the singleton by that item, and everything after
@@ -672,7 +664,7 @@ holds it.
 
 Alpha gets no such theorem: `c` and `d` are adjacent and both roman
 digits, as are `l` and `m`, so an alpha list from 3 or 12 is still
-unresolved after its second marker.  Measured in `dev/check/Probe.v`.
+unresolved after its second marker.
 *)
 
 Lemma styles_of_core_roman_single :
@@ -1305,18 +1297,16 @@ The list flavours the canonical rendering produces
 
 A canonical list is a bullet list or an ordered list under one of the
 three numbering schemes.  They differ only in the markers their items
-carry, so naming that difference once is what lets the roundtrip keep a
-single list case.  `ck_items` says which markers the items get,
-`ck_first` names the marker `item_ok` is asked for, `ck_block` the block
-the list closes to, and `ck_uniformity` is the one theorem the block
-layer consumes.
+carry, so naming that difference once lets the roundtrip keep a single
+list case.  `ck_items` says which markers the items get, `ck_first`
+names the marker `item_ok` is asked for, `ck_block` the block the list
+closes to, and `ck_uniformity` is the one theorem the block layer
+consumes.
 
-`ck_ok` is the fourth piece, and it exists because roman and alpha carry
-a condition bullet and decimal do not.  It takes the item *count* as well
-as the kind: the range has to cover the whole run, which is where the
-alpha wrap past `z` is excluded.  Bullet and decimal answer `true`
-unconditionally, so adding the argument costs their callers nothing but
-the word `eq_refl`.
+`ck_ok` is the fourth piece, because roman and alpha carry a condition
+bullet and decimal do not.  It takes the item count as well as the kind:
+the range has to cover the whole run, which is where the alpha wrap past
+`z` is excluded.  Bullet and decimal answer `true` unconditionally.
 *)
 
 Inductive list_kind : Type :=
@@ -1705,32 +1695,6 @@ Proof.
       split; [exact Hd1 | apply negb_true_iff, Hd2].
 Qed.
 
-(*
-What the narrowing condition reaches, and what it does not
----------------------------------------------------------
-
-`items_ok` asks that each sibling *admit* the styles the list opened
-with, not that it offer exactly them.  The two are the same for bullets
-and for decimal, where every marker names one style; they part company
-at the ambiguous ordered markers, and the examples below are the
-boundary.
-
-A roman numeral that is a bare roman letter -- `i`, `v`, `x`, `l`, `c`,
-`d`, `m` -- is also a single letter, so it offers roman *and* alpha; any
-longer numeral offers only roman.  So a run is covered exactly when its
-*first* numeral is unambiguous: later ones may be ambiguous, since a
-superset narrows to the identity.  The same reading covers an alpha list
-whose first letter is not a roman digit.
-
-What is left out is the run whose first marker is ambiguous, `i.` / `ii.`
-being the shortest.  The parser accepts it (it narrows to roman and says
-so), but the list state's style set *moves*, and every statement in the
-chain carries `ls_styles ls = mk_styles m0`.  Admitting it means making
-that invariant the running narrowing rather than a constant, which is a
-change to twelve statements rather than to one hypothesis.
-*)
-
-(* Covered: roman from 2, running through the ambiguous `v`. *)
 (* The first item's marker is the one `item_ok` is asked for: every
    flavour builds its items left to right and `ck_first` names what it
    starts with. *)
@@ -1793,6 +1757,30 @@ Qed.
 
 End WithTable.
 
+(*
+What the narrowing condition reaches, and what it does not
+---------------------------------------------------------
+
+`items_ok` asks that each sibling admit the styles the list opened with,
+not that it offer exactly them.  The two are the same for bullets and
+for decimal, where every marker names one style; they part company at
+the ambiguous ordered markers, and the examples below are the boundary.
+
+A roman numeral that is a bare roman letter (`i`, `v`, `x`, `l`, `c`,
+`d`, `m`) is also a single letter, so it offers roman and alpha; any
+longer numeral offers only roman.  So `items_ok` covers a run exactly
+when its first numeral is unambiguous: later ones may be ambiguous,
+since a superset narrows to the identity.  The same reading covers an
+alpha list whose first letter is not a roman digit.
+
+What `items_ok` leaves out is a run whose first marker is ambiguous,
+`i.` / `ii.` being the shortest.  The parser narrows it to roman, but
+the list state's style set moves, and `items_ok` asks every sibling to
+admit both of `i.`'s styles.  `list_uniformity_narrow`, stated on the
+set, covers it.
+*)
+
+(* Covered: roman from 2, running through the ambiguous `v`. *)
 Example roman_from_two_items_ok :
   items_ok (MOrd "ii" RightPeriod)
     [(MOrd "ii" RightPeriod, ["a"]); (MOrd "iii" RightPeriod, ["b"]);
@@ -1834,11 +1822,11 @@ Example alpha_from_e_items_ok :
     [(MOrd "e" RightPeriod, ["a"]); (MOrd "l" RightPeriod, ["b"])] = true.
 Proof. reflexivity. Qed.
 
-(* Now covered, by `list_uniformity_narrow`: `i.` opens offering roman
-   and alpha, `ii.` narrows to roman alone, and the list closes to the
-   narrowed set.  `items_ok` still says false here -- it asks every
-   sibling to admit *both* of `i.`'s styles -- which is why the theorem
-   that reaches this case is the one stated on the set. *)
+(* Covered by `list_uniformity_narrow`: `i.` opens offering roman and
+   alpha, `ii.` narrows to roman alone, and the list closes to the
+   narrowed set.  `items_ok` says false here, since it asks every sibling
+   to admit both of `i.`'s styles, which is why the theorem that reaches
+   this case is the one stated on the set. *)
 Corollary roman_from_one_uniformity :
   forall sp,
     parse_lines (list_lines sp
@@ -1891,11 +1879,10 @@ Example roman_from_one_parses_anyway :
            [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
-(* The generalization, exercised.  `*` and `+` are separate list styles in
-   djot, and each gets the uniformity theorem by instantiation — no new
-   proof, which is the whole point of the section above.  If a future
-   marker needs its own argument, that is the signal that `marker` is the
-   wrong abstraction, not that these should be copied. *)
+(* The generalization, exercised.  `*` and `+` are separate list styles
+   in djot, and each gets the uniformity theorem by instantiation, with no
+   new proof.  A marker that needed its own argument would mean `marker`
+   is the wrong abstraction. *)
 Corollary star_uniformity :
   forall sp lss,
     lss <> [] -> forallb (item_ok star) lss = true ->
@@ -1916,18 +1903,10 @@ Corollary plus_uniformity :
              (map (fun L => parse_lines L (PPara [])) lss)].
 Proof. intros sp lss. exact (list_uniformity_same plus sp lss plus_ok eq_refl). Qed.
 
-(* The section reaches ordered markers too, and that is the point of
-   generalizing `marker` past a style character: `1.` is an instance in
-   exactly the way `*` is.
-
-   What this does *not* yet cover is the canonical rendering, which
-   renumbers its items — `9.`, `10.`, `11.` — and so needs a marker per
-   item rather than one for the list.  That is the remaining step, and
-   the hypothesis it will have to discharge is visible in
-   `run_item_sibling`: every item's marker must leave the narrowing
-   nonempty.  `list_uniformity` above is the version that lets the marker
-   vary; this is it with one marker serving every item, which is what
-   `list_uniformity_same` packages. *)
+(* Ordered markers are instances too: `1.` is one in the same way `*` is.
+   This is `list_uniformity` with one marker serving every item
+   (`list_uniformity_same`); a renumbering rendering, which needs a
+   marker per item, uses `list_uniformity` directly. *)
 Corollary ordered_uniformity :
   forall m sp itemss,
     marker_ok m = true -> itemss <> [] ->
@@ -1987,7 +1966,7 @@ Example paren_list_parses :
            [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
-(* And it is not vacuous at the new markers. *)
+(* And it is not vacuous at ordered markers. *)
 Example star_list_parses :
   parse_lines ["* a"; "* b"] (PPara [])
   = [mk (BulletList Tight [[mk (Para [mk (Str "a")])];

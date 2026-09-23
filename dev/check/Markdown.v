@@ -182,9 +182,9 @@ djot's rules, unchanged
 -----------------------
 
 Nothing here is new; it is what djot's one-byte tests already give,
-restated at width two.  Intraword *does* open -- djot has no word rule
-(`opentest` is `alwaysTrue` for these rows, `inline.ts:284-315`) -- and
-the braced form is how one says it explicitly, exactly as in djot.
+restated at width two.  Intraword does open, since djot has no word rule
+for these rows, and the braced form is how one says it explicitly,
+exactly as in djot.
 *)
 
 Example md_intraword_emph :

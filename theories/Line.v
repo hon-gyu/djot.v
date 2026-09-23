@@ -1,14 +1,12 @@
 (* ai-disclosure: autonomous *)
 
-(* Line classification: the prefix-determinism seam.
+(* Line classification.
 
-   Block structure in djot is a function of what each line looks like
-   (spec: "blocks can be parsed line by line ... the contribution a line
-   makes to block-level structure never depends on a future line").  This
-   module gives each line its kind; the parser consumes kinds, and the
-   classifier is the single place a new block construct's start syntax is
-   added.  Renderability (Render.v) is phrased as "each rendered line
-   classifies as intended", which is what makes roundtrip proofs local. *)
+   Block structure in djot is a function of what each line looks like:
+   the contribution a line makes to block structure never depends on a
+   later line.  This module gives each line its kind, and the parser
+   consumes kinds.  Render.v states renderability as "each rendered line
+   classifies as intended", which keeps the roundtrip proofs local. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 Import ListNotations.
@@ -22,16 +20,13 @@ Local Open Scope char_scope.
 Record fence : Type := Fence
   { f_ch : ascii; f_len : nat; f_info : string }.
 
-(* A list style: `getListStyles`' return element, typed.  The ordered
-   half reuses `Ast`'s pair, since that is what the `OrderedList` node
-   carries and nothing is gained by translating between two spellings.
-
-   A marker yields a *set* of these — see "List markers" below. *)
+(* A list style.  The ordered half reuses `Ast`'s pair, which is what the
+   `OrderedList` node carries.  A marker yields a set of these (see "List
+   markers" below). *)
 Inductive lstyle : Type :=
   | SBullet (c : ascii)
-  (* A task marker's style.  djot.js spells it `marker[0] + "X"`
-     (block.ts:12), which is what keeps `- [ ] a` and `- b` two lists;
-     the checkbox itself is *not* in it, so `- [ ]` and `- [x]` are
+  (* A task marker's style, which keeps `- [ ] a` and `- b` two lists.
+     The checkbox is not part of it, so `- [ ]` and `- [x]` are
      siblings. *)
   | STask (c : ascii)
   | SOrd (n : ordered_list_style) (d : ordered_list_delim).
@@ -90,10 +85,8 @@ Inductive trow : Type :=
   | TSep (aligns : list align)
   | TCells (cells : list string).
 
-(* Decided equality on rows.  What wants it is the canonical view, which
-   states a table's renderability as "this line scans back as the row it
-   was rendered from" -- a comparison the block layer cannot make with
-   `classify` alone. *)
+(* Decided equality on rows, for the canonical view's check that a line
+   scans back as the row it was rendered from. *)
 Fixpoint aligns_eqb (xs ys : list align) : bool :=
   match xs, ys with
   | [], [] => true
@@ -173,8 +166,8 @@ Recognizers
 Definition is_marker (c : ascii) : bool :=
   Ascii.eqb c "-" || Ascii.eqb c "*".
 
-(* djot.js pattThematicBreak: markers and whitespace only, >= 3 markers.
-   (Indentation is allowed; leading ws goes through the ws branch.) *)
+(* A thematic break: at least three markers, and nothing else but
+   whitespace.  Indentation goes through the whitespace branch. *)
 
 Fixpoint thematic_count (s : string) (count : nat) : bool :=
   match s with
@@ -212,19 +205,13 @@ Lemma is_thematic_ws_prefix :
   forall p l, is_blank p = true -> is_thematic (p ++ l) = is_thematic l.
 Proof. intros p l H. unfold is_thematic. apply thematic_count_ws_prefix, H. Qed.
 
-(* An underline: one character repeated to the end of the line, with
-   nothing else on it but whitespace at either end.  `-` and `=` are
-   what a setext heading is written with, but the shape is stated
-   without naming them -- which of them underlines, and at what length,
-   is a block setting (`Step.bunderline`), so this recognizer answers
-   for any character and decides nothing.
+(* An underline: one character repeated, with only whitespace around it.
+   Which characters underline, and at what length, is a block setting
+   (`Step.bunderline`), so this answers for any character.
 
-   It is a query beside `classify` rather than a `line_kind`, because
-   the kinds an underline can wear are already taken: `---` is
-   `KThematic`, `-` is a bullet marker, and `===` is `KText`.  Widening
-   `line_kind` to hold it would move that decision into the classifier,
-   where djot's answer would then have to be spelled as a kind it never
-   produces. *)
+   A query beside `classify` rather than a `line_kind`, because an
+   underline's shapes already have kinds: `---` is `KThematic`, `-` a
+   bullet marker, and `===` `KText`. *)
 Fixpoint all_char (c : ascii) (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -237,9 +224,8 @@ Definition underline_of (l : string) : option (ascii * nat) :=
   | String c s => if all_char c s then Some (c, S (String.length s)) else None
   end.
 
-(* Leading whitespace is dropped before anything is read, so an
-   underline survives the padding a container prefix adds -- which is
-   what `Step.step_fuel_pad` needs of every line query it calls. *)
+(* Leading whitespace is dropped first, so an underline survives the
+   padding a container prefix adds. *)
 Lemma underline_of_ws_prefix :
   forall p l, is_blank p = true -> underline_of (p ++ l) = underline_of l.
 Proof.
@@ -247,11 +233,29 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l H). reflexivity.
 Qed.
 
-(* Code fences, per djot.js pattCodeFence:
-   3+ of a uniform fence char (` or ~), optional ws, one info token
-   containing neither whitespace nor backticks, optional trailing ws.
-   The fence may be indented.  A close line is the same char, at least
-   the open length, and nothing else but whitespace. *)
+(* Code fences: at least three of one fence character (` or ~), optional
+   whitespace, one info token with neither whitespace nor backticks, and
+   optional trailing whitespace.  The fence may be indented.  A closing
+   line is the same character, at least the opening length, and nothing
+   else but whitespace. *)
+
+(* The longest prefix of `s` satisfying `p`, and what is left. *)
+Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
+  match s with
+  | String c s' =>
+      if p c
+      then let (a, b) := take_while p s' in (String c a, b)
+      else (EmptyString, s)
+  | EmptyString => (EmptyString, s)
+  end.
+
+Lemma take_while_length :
+  forall p s, String.length (snd (take_while p s)) <= String.length s.
+Proof.
+  intros p s. induction s as [|c s' IH]; [reflexivity|].
+  cbn [take_while]. destruct (p c); [|reflexivity].
+  destruct (take_while p s') as [a b]. cbn [snd String.length] in *. lia.
+Qed.
 
 (* Length of the leading run of c, and the rest of the string. *)
 Fixpoint count_run (c : ascii) (s : string) : nat * string :=
@@ -267,16 +271,6 @@ Fixpoint count_run (c : ascii) (s : string) : nat * string :=
 Definition is_info_char (c : ascii) : bool :=
   negb (is_ws c || Ascii.eqb c "`" || Ascii.eqb c "010").
 
-(* Split off the leading info token from the rest of the line. *)
-Fixpoint take_info (s : string) : string * string :=
-  match s with
-  | String c s' =>
-      if is_info_char c
-      then let (info, r) := take_info s' in (String c info, r)
-      else (EmptyString, s)
-  | EmptyString => (EmptyString, s)
-  end.
-
 (* Does this line open a fence, and if so which one? *)
 Definition fence_open (l : string) : option fence :=
   match drop_leading_ws l with
@@ -286,15 +280,15 @@ Definition fence_open (l : string) : option fence :=
         let (n, r) := count_run c l' in
         if Nat.leb 3 n
         then
-          let (info, r') := take_info (drop_leading_ws r) in
+          let (info, r') := take_while is_info_char (drop_leading_ws r) in
           if is_blank r' then Some (Fence c n info) else None
         else None
       else None
   | EmptyString => None
   end.
 
-(* Does this line close the given open fence?  Note this is the *only*
-   test applied to a line inside a fence — content is never classified. *)
+(* Whether this line closes the given fence.  The only test applied to a
+   line inside a fence: its content is never classified. *)
 Definition fence_close (f : fence) (l : string) : bool :=
   let (n, r) := count_run (f_ch f) (drop_leading_ws l) in
   Nat.leb (f_len f) n && is_blank r.
@@ -308,36 +302,23 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
 Qed.
 
-(* Fenced divs.  Two recognizers, not one, because the opener and the
-   closer are different patterns in djot.js: `pattDivFenceStart` plus
-   `pattDivFenceEnd` (block.ts:55-56) lets the opener carry a class,
-   while `pattDivFence` (block.ts:54) does not, so `::: foo` opens a div
-   but never closes one.
+(* Fenced divs.  The opener may carry a class and the closer may not, so
+   `::: foo` opens a div but never closes one.
 
-   The close is applied by the *open div* to every line, the way
-   `fence_close` is, and never by `classify` — which is why there is no
-   `KDivClose`.  A bare `:::` is both a legal opener and a legal closer;
-   djot.js resolves that by running the container's `continue` before any
-   opener is tried, and `step`'s PDiv branch does the same. *)
+   The close test is applied by the open div to every line, as
+   `fence_close` is, and never by `classify`; hence no `KDivClose`.  A
+   bare `:::` is both an opener and a closer, and the open div's test runs
+   first (`step`'s PDiv branch). *)
 
-(* djot.js's class token is `[\w_-]*` — narrower than a code fence's info
-   string, and the difference is observable: `:::a!` opens no div at all,
-   because the pattern must match through end of line. *)
+(* The class token is `[\w_-]*`, narrower than a fence's info string.
+   `:::a!` opens no div at all, because the pattern must match to end of
+   line. *)
 Definition is_class_char (c : ascii) : bool :=
   let n := nat_of_ascii c in
   (Nat.leb 48 n && Nat.leb n 57)      (* 0-9 *)
   || (Nat.leb 65 n && Nat.leb n 90)   (* A-Z *)
   || (Nat.leb 97 n && Nat.leb n 122)  (* a-z *)
   || Ascii.eqb c "_" || Ascii.eqb c "-".
-
-Fixpoint take_class (s : string) : string * string :=
-  match s with
-  | String c s' =>
-      if is_class_char c
-      then let (cls, r) := take_class s' in (String c cls, r)
-      else (EmptyString, s)
-  | EmptyString => (EmptyString, s)
-  end.
 
 Definition div_open (l : string) : option (nat * string) :=
   match drop_leading_ws l with
@@ -346,7 +327,7 @@ Definition div_open (l : string) : option (nat * string) :=
       then
         let (n, r) := count_run ":" l' in
         if Nat.leb 3 n
-        then let (cls, r') := take_class (drop_leading_ws r) in
+        then let (cls, r') := take_while is_class_char (drop_leading_ws r) in
              if is_blank r' then Some (n, cls) else None
         else None
       else None
@@ -354,29 +335,18 @@ Definition div_open (l : string) : option (nat * string) :=
   end.
 
 (* Closes a div opened with `len` colons: at least that many, then only
-   whitespace.  Shaped exactly like `fence_close`, and applied the same
-   way — but note the leading `drop_leading_ws`, which is what makes a
-   div's closer visible through any amount of indentation and therefore
-   through any nesting.  That asymmetry with `quote_prefix` (whose '>' is
-   non-whitespace and so blocks the scan) is the whole content of
-   `div_uniformity`'s side condition. *)
+   whitespace.  The leading `drop_leading_ws` makes a closer visible
+   through any indentation, hence through any nesting, where a quote's
+   `>` blocks the scan.  `div_uniformity`'s side condition is this
+   asymmetry. *)
 Definition div_close (len : nat) (l : string) : bool :=
   let (n, r) := count_run ":" (drop_leading_ws l) in
   Nat.leb len n && Nat.leb 3 n && is_blank r.
 
-(* The enclosed content of a div is the line itself, unshortened, so
-   unlike quote_prefix there is no length lemma to prove: a div's descent
-   drops a container from the state rather than shortening the line, the
-   same measure a list item's contents use. *)
-
-(* Block quotes, per djot.js pattBlockquotePrefix (`[>][ \t\r\n]`): a
-   '>' that is followed by whitespace or ends the line.  The prefix is
-   the '>' plus at most one whitespace character; what remains is the
-   enclosed line, which the parser classifies again (so nesting and
-   uniformity both come from re-entering `classify`).
-
-   `>x` is *not* a quote — the whitespace is required.  Indentation
-   before the '>' is allowed. *)
+(* Block quotes: a `>` followed by whitespace or end of line, possibly
+   indented.  The prefix is the `>` plus at most one whitespace
+   character; the parser classifies the rest again, so nesting comes from
+   re-entering `classify`.  `>x` is not a quote. *)
 Definition quote_prefix (l : string) : option string :=
   match drop_leading_ws l with
   | String c rest =>
@@ -406,11 +376,10 @@ Proof.
     injection H as <-. simpl in *. lia.
 Qed.
 
-(* Headings, per djot.js's `pattBangs` plus a whitespace test: one or
-   more '#' followed by whitespace or end of line.  Shaped exactly like
-   quote_prefix — marker, then at most one whitespace character — but the
-   text that follows is *not* reclassified: a heading's content is
-   inline, so `# > q` is a heading containing "> q", not a quote. *)
+(* Headings: one or more `#` followed by whitespace or end of line.
+   Shaped like quote_prefix, but the text after it is not reclassified: a
+   heading's content is inline, so `# > q` is a heading containing
+   "> q". *)
 Definition heading_open (l : string) : option (nat * string) :=
   let (n, r) := count_run "#" (drop_leading_ws l) in
   if Nat.leb 1 n
@@ -424,38 +393,28 @@ Definition heading_open (l : string) : option (nat * string) :=
 List markers
 ------------
 
-djot.js's `pattListMarker` (block.ts:59) followed by `getListStyles`
-(block.ts:9-31).  Two facts about that pair shape everything here.
+A marker's numeral is normalized out of its style: `3.` and `4.` both
+have the style `1.`.  The container stack compares styles, never
+numbers.  The numeral survives only as the marker's `core`, from which
+each candidate style's start is decoded (`Marker.with_starts`).
 
-First, `getListStyles` normalizes the numeral *out* of the marker: `3.`
-and `4.` both yield the style `1.`.  The container stack therefore
-compares styles and never numbers — a list carries no counter.  The
-numeral survives only as the marker's `core`, which the list's `start`
-is decoded from once, at close, by `list_start` in Parser.v.
+A marker may be ambiguous: `i.` is roman or alpha, so a marker yields a
+candidate set, which siblings intersect (`Marker.narrow`).  An empty
+intersection ends the list. *)
 
-Second, a marker may be *ambiguous*: `i.` is both roman and alpha, so a
-marker yields a candidate *set*, which siblings intersect (`narrow` in
-Parser.v).  An empty intersection ends the list.
+(* `-x` is not a marker, and `* * *` is a thematic break: `classify` tests
+   thematic breaks first.
 
-Task-list checkboxes are still out; they are the last member of
-djot.js's single list spec. *)
-
-(* `-x` is not a marker, and `* * *` is a thematic break — `classify`
-   tests thematic first, matching djot.js's spec order.
-
-   The colon is a bullet character here for the reason djot.js makes it
-   one (`getListStyles`, block.ts:9): a definition list is an ordinary
-   list whose style is `:`, and the term/definition split happens where
-   the list closes, not where its lines are read.  `::` is still not a
-   marker, since the character after it is not whitespace, and `:::` is
-   a div — `classify` tests `div_open` first. *)
+   The colon is a bullet character: a definition list is an ordinary list
+   whose style is `:`, and the term split happens when the list closes.
+   `::` is not a marker, since the character after the first colon is not
+   whitespace, and `:::` is a div, which `classify` tests first. *)
 Definition is_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+"
    || Ascii.eqb c ":")%char%bool.
 
-(* The bullets a checkbox may follow: `pattTaskListMarker` is spelled
-   `[*+-]`, so the colon is excluded and `: [ ] a` is a definition item
-   whose term is `[ ] a`.  Both oracles agree. *)
+(* The bullets a checkbox may follow.  Not the colon: `: [ ] a` is a
+   definition item whose term is `[ ] a`. *)
 Definition is_task_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+")%char%bool.
 
@@ -473,7 +432,7 @@ Definition is_upper (c : ascii) : bool := in_range 65 90 c.
 Definition is_alnum (c : ascii) : bool :=
   (is_digit c || is_lower c || is_upper c)%bool.
 
-(* The roman digits, djot.js's `romanDigits` domain (parse.ts:63-78). *)
+(* The roman digits. *)
 Definition is_roman_lo (c : ascii) : bool :=
   (Ascii.eqb c "i" || Ascii.eqb c "v" || Ascii.eqb c "x" || Ascii.eqb c "l"
    || Ascii.eqb c "c" || Ascii.eqb c "d" || Ascii.eqb c "m")%char%bool.
@@ -487,24 +446,6 @@ Fixpoint str_forallb (p : ascii -> bool) (s : string) : bool :=
   | EmptyString => true
   | String c s' => (p c && str_forallb p s')%bool
   end.
-
-(* The longest prefix of `s` satisfying `p`, and what is left. *)
-Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
-  match s with
-  | String c s' =>
-      if p c
-      then let (a, b) := take_while p s' in (String c a, b)
-      else (EmptyString, s)
-  | EmptyString => (EmptyString, s)
-  end.
-
-Lemma take_while_length :
-  forall p s, String.length (snd (take_while p s)) <= String.length s.
-Proof.
-  intros p s. induction s as [|c s' IH]; [reflexivity|].
-  cbn [take_while]. destruct (p c); [|reflexivity].
-  destruct (take_while p s') as [a b]. cbn [snd String.length] in *. lia.
-Qed.
 
 (*
 Marker shape and candidate styles
@@ -562,12 +503,11 @@ Proof.
       injection H as _ _ <-. cbn [String.length] in *. lia.
 Qed.
 
-(* `getListStyles`, on a core that `marker_shape` has already split off.
-   The single-character roman cases come before the multi-character ones
-   because they are the ambiguous ones: `i.` is roman *or* alpha, while
-   `ix.` can only be roman.  An empty core is not a marker — `().` — so
-   it is excluded before the `str_forallb`s, which would otherwise
-   accept it vacuously. *)
+(* The candidate styles of a core that `marker_shape` split off.  A single
+   roman character is ambiguous (`i.` is roman or alpha); a longer
+   all-roman core is roman only.  An empty core, as in `().`, is not a
+   marker, and is excluded before `str_forallb` would accept it
+   vacuously. *)
 Definition styles_of_core (core : string) (d : ordered_list_delim)
   : list lstyle :=
   match core with
@@ -589,12 +529,10 @@ Definition styles_of_core (core : string) (d : ordered_list_delim)
   end.
 
 (* The checkbox of a task marker, and what is left of the line after it.
-   djot.js matches `[*+-] \[[Xx ]\][ \t\r\n]` (`pattTaskListMarker`,
-   block.ts:60) at the marker and lets it *replace* the bullet marker
-   when it fires, so this is read at the point the bullet's one space
-   has already been consumed: `chk` sees `[x] a`, never `- [x] a`.
-   Exactly one space before the bracket and whitespace or end of line
-   after it, which is why `-  [ ] a` and `- [ ]a` are plain bullets. *)
+   It is read after the bullet's one space: `task_check` sees `[x] a`,
+   never `- [x] a`.  Exactly one space before the bracket and whitespace
+   or end of line after it, so `-  [ ] a` and `- [ ]a` are plain
+   bullets. *)
 Definition box_status (c : ascii) : option task_status :=
   if Ascii.eqb c " " then Some Incomplete
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then Some Complete
@@ -653,10 +591,8 @@ Definition list_marker (l : string)
         end
   end.
 
-(* The colon marker, against djot.js.  `:` is a bullet character here
-   (`getListStyles`, block.ts:9), so these are the list-marker facts a
-   definition list rests on; what the list *closes* to is decided in
-   `Step.list_block`, and the term split in `Ast.def_item`. *)
+(* The colon marker.  What a definition list closes to is decided in
+   `Step.styles_list`, and the term split in `Ast.def_item`. *)
 Example marker_colon :
   list_marker ": a" = Some ([SBullet ":"%char], EmptyString, None, "a"%string).
 Proof. reflexivity. Qed.
@@ -677,15 +613,13 @@ Proof. reflexivity. Qed.
 Example marker_colon_tight : list_marker ":a" = None.
 Proof. reflexivity. Qed.
 
-(* Two colons are no style at all in djot.js, and here the second colon
-   is simply not the whitespace a marker needs.  Three are a div, which
-   `classify` decides before it reaches this. *)
+(* The second colon is not the whitespace a marker needs.  Three colons
+   are a div, which `classify` decides before it reaches this. *)
 Example marker_two_colons : list_marker ":: a" = None.
 Proof. reflexivity. Qed.
 
-(* The task marker, against djot.js.  It replaces the bullet marker
-   rather than extending it (`pattTaskListMarker`, block.ts:60), so the
-   style is `STask` and the residue starts after the bracket. *)
+(* The task marker replaces the bullet marker rather than extending it:
+   the style is `STask` and the residue starts after the bracket. *)
 Example marker_task_unchecked :
   list_marker "- [ ] a"
   = Some ([STask "-"%char], EmptyString,
@@ -735,7 +669,7 @@ Example marker_task_bad_box :
   = Some ([SBullet "-"%char], EmptyString, None, "[y] a"%string).
 Proof. reflexivity. Qed.
 
-(* Only a bullet takes one: `pattTaskListMarker` is `[*+-]`. *)
+(* Only a bullet takes a checkbox. *)
 Example marker_task_ordered :
   list_marker "1. [ ] a"
   = Some ([SOrd Decimal RightPeriod], "1"%string, None, "[ ] a"%string).
@@ -847,16 +781,14 @@ Qed.
 Reference definitions
 =====================
 
-`[label]: destination`, djot.js's `pattReferenceDefinition`
-(block.ts:57) — a block-level construct producing no block of its own,
-only an entry in the document's reference map.  Its destination may be
-continued on the following indented lines, which is why it opens a
-container state (Step.PRef) rather than emitting on sight.
+`[label]: destination`.  It yields a `RefDef` block, which renders to no
+HTML; the document's reference map is derived from it.  The destination
+may continue on following indented lines, so it opens a container state
+(`Step.PRef`) rather than emitting on sight.
 *)
 
 (* The label: everything up to the first `]`, and the line after it.
-   djot.js's `[^\]\r\n]*` excludes only the bracket, so `[a[b]: u` is a
-   definition of `a[b`. *)
+   Only the bracket is excluded, so `[a[b]: u` defines `a[b`. *)
 Fixpoint ref_label (s : string) : option (string * string) :=
   match s with
   | EmptyString => None
@@ -870,10 +802,8 @@ Fixpoint ref_label (s : string) : option (string * string) :=
   end.
 
 (* What may follow the `:`: nothing, or whitespace and then one
-   whitespace-free run to end of line.  Both halves of that are load
-   bearing — `[a]:u` and `[a]: u ` are neither of them definitions
-   (checked against djot.js), because the pattern demands the space
-   before the destination and the end of line right after it. *)
+   whitespace-free run to end of line.  So `[a]:u` and `[a]: u ` are not
+   definitions. *)
 Definition ref_value (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
@@ -884,18 +814,17 @@ Definition ref_value (s : string) : option string :=
       else None
   end.
 
-(* A label claimed by the footnote container, which djot.js tries first
-   (block.ts:264 before :301): `^` and at least one more character.
-   `[^]: u` is not one, and is a reference definition of the label `^`. *)
+(* A label the footnote container claims first: `^` and at least one more
+   character.  `[^]: u` is a reference definition of the label `^`. *)
 Definition is_footnote_label (lbl : string) : bool :=
   match lbl with
   | String "^"%char (String _ _) => true
   | _ => false
   end.
 
-(* `[^label]: body`, djot.js's `pattFootnoteStart`.  Unlike a reference
-   definition, the body is ordinary block content and may contain spaces;
-   only the single whitespace byte claimed by the opener is removed. *)
+(* `[^label]: body`.  Unlike a reference definition, the body is ordinary
+   block content and may contain spaces; only the one whitespace byte
+   after the colon is removed. *)
 Definition foot_open (l : string) : option (string * string) :=
   match drop_leading_ws l with
   | String c (String h rest) =>
@@ -922,19 +851,24 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
 Qed.
 
+(* A label can be written back between brackets. *)
+Lemma ref_label_no_bracket :
+  forall s lbl tail,
+    ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true.
+Proof.
+  induction s as [|c s IH]; intros lbl tail H; [discriminate|].
+  cbn [ref_label] in H. destruct (Ascii.eqb c "]") eqn:E.
+  - injection H as <- _. reflexivity.
+  - destruct (ref_label s) as [[lbl' tail']|] eqn:Er; [|discriminate].
+    injection H as <- _. cbn [no_char]. rewrite E.
+    apply (IH lbl' tail' eq_refl).
+Qed.
+
 Lemma foot_open_label_ok :
   forall l lbl rest,
     foot_open l = Some (lbl, rest) ->
     (nonempty_str lbl && no_char "]"%char lbl)%bool = true.
 Proof.
-  assert (Hlabel : forall s lbl tail,
-    ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true).
-  { induction s as [|c s IH]; intros lbl tail H; [discriminate|].
-    cbn [ref_label] in H. destruct (Ascii.eqb c "]") eqn:E.
-    - injection H as <- _. reflexivity.
-    - destruct (ref_label s) as [[lbl' tail']|] eqn:Er; [|discriminate].
-      injection H as <- _. cbn [no_char]. rewrite E.
-      apply (IH lbl' tail' eq_refl). }
   intros l lbl body H. unfold foot_open in H.
   destruct (drop_leading_ws l) as [|c [|h s]]; try discriminate.
   destruct (Ascii.eqb c "["); cbn [negb] in H; [|discriminate].
@@ -944,10 +878,10 @@ Proof.
   destruct (nonempty_str lbl') eqn:Hne; cbn [negb] in H; [|discriminate].
   destruct after as [|w tail].
   - injection H as <- <-. rewrite Hne, andb_true_l.
-    apply (Hlabel s lbl' _ Er).
+    apply (ref_label_no_bracket s lbl' _ Er).
   - destruct (is_ws w); [|discriminate].
     injection H as <- <-. rewrite Hne, andb_true_l.
-    apply (Hlabel s lbl' _ Er).
+    apply (ref_label_no_bracket s lbl' _ Er).
 Qed.
 
 Lemma ref_label_tail_length :
@@ -1002,20 +936,6 @@ Definition ref_open (l : string) : option (string * string) :=
         end
   end.
 
-(* The two facts the parser's output needs about a label: it can be
-   written back between brackets, and it is not a footnote's. *)
-Lemma ref_label_no_bracket :
-  forall s lbl tail,
-    ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true.
-Proof.
-  induction s as [|c s IH]; intros lbl tail H; [discriminate|].
-  cbn [ref_label] in H. destruct (Ascii.eqb c "]") eqn:E.
-  - injection H as <- _. reflexivity.
-  - destruct (ref_label s) as [[lbl' tail']|] eqn:Er; [|discriminate].
-    injection H as <- _. cbn [no_char]. rewrite E.
-    apply (IH lbl' tail' eq_refl).
-Qed.
-
 Lemma ref_open_label_ok :
   forall l lbl v,
     ref_open l = Some (lbl, v) ->
@@ -1063,14 +983,10 @@ Qed.
 Table rows
 ==========
 
-A row is `pattTableRow` (block.ts:58): a line whose first non-space
-character is `|`, whose last non-space character is `|`, and which has
-at least two of them.  Only whitespace may follow the final bar, so
-`| a | x` is a paragraph.
-
-Two shapes hide behind that, and djot.js tries them in this order
-(`parseTableRow`, block.ts:873): a *separator*, whose cells set the
-alignment of the columns, and an ordinary row of cells.
+A row is a line whose first and last non-space characters are `|`, with
+at least two bars.  Only whitespace may follow the final bar, so
+`| a | x` is a paragraph.  A row is either a separator, whose cells set
+the columns' alignment, or a row of cells; the separator is tried first.
 *)
 
 (* A separator cell: an optional `:`, one or more `-`, an optional `:`,
@@ -1136,13 +1052,10 @@ Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
 Definition sep_cells (s : string) : option (list align) :=
   sep_cells_fuel (S (String.length s)) s.
 
-(* Cell text is trimmed on both sides, with one exception on the right:
-   djot.js strips a trailing space run only when the cell's last inline
-   event is a `str` (block.ts:929-936), and the one way a trailing space
-   belongs to something else is an escape, `| a\ |` rendering `a&nbsp;`.
-   So an escaped whitespace character stops the trim, and everything
-   after it is kept.  Consuming escapes in pairs is what makes that a
-   parity test: `a\\  ` trims, `a\   ` keeps one space. *)
+(* Cell text is trimmed on both sides, except that an escaped whitespace
+   character stops the right trim and everything after it is kept:
+   `| a\ |` renders `a&nbsp;`.  Escapes are consumed in pairs, so this is
+   a parity test: `a\\  ` trims, `a\   ` keeps one space. *)
 Fixpoint cell_trim_r (s : string) : string :=
   match s with
   | EmptyString => EmptyString
@@ -1166,18 +1079,15 @@ Definition cell_trim (s : string) : string :=
 (* Splitting a row's interior into cells.  A bar ends a cell unless it is
    inside a verbatim span or the byte before it is a backslash.
 
-   The two exceptions are not the same test twice.  The backslash one is
-   djot.js's literally (`charAt(nextbar - 1) === "\\"`, block.ts:855), so
-   it counts one byte and not parity: `| a\\|b |` is a single cell whose
-   text is `a\\|b`, even though the inline layer reads that `\\` as an
-   escaped backslash.  Divergence from the inline layer's parity is the
-   oracle's, and `cell_trim_r` above is where the inline layer's rule is
-   the one that applies.
+   The backslash test is one byte, not parity: `| a\\|b |` is a single
+   cell `a\\|b`, although the inline layer reads `\\` as an escaped
+   backslash.  `cell_trim_r` above is where the inline layer's parity
+   applies.
 
    `vb` is the verbatim state: 0 outside, otherwise the length of the
    backtick run that opened it, which only a run of exactly that length
-   closes.  `run` accumulates the backtick run being read, and is
-   resolved against `vb` at the first byte that is not a backtick. *)
+   closes.  `run` is the backtick run being read, resolved against `vb`
+   at the first byte that is not a backtick. *)
 Definition vb_step (vb run : nat) : nat :=
   match run with
   | O => vb
@@ -1187,16 +1097,8 @@ Definition vb_step (vb run : nat) : nat :=
          end
   end.
 
-(* `cur` and `acc` are reversed; `bs` records whether the previous source
-   byte was a backslash.  Outside verbatim, a backslash and the byte after
-   it are consumed together.  That gives inline escapes their parity --
-   after two backslashes a following backtick still opens verbatim -- while
-   `bs` retains djot.js's separate, byte-local rule
-   that a bar immediately after any backslash does not close a cell. *)
-(* The row scanner records each cell's interval relative to the opening
-   bar.  The semantic row and its source parts project the same scan;
-   there is only one set of escape and verbatim decisions.  The final
-   bar was removed by [row_inner], so the last stop is one past [pos]. *)
+(* One cell's entry: its trimmed text, its start and stop relative to the
+   opening bar, and where its content starts after leading whitespace. *)
 Definition row_cell_entry (cur : string) (start stop : nat)
   : string * nat * nat * nat :=
   let raw := rev_string cur in
@@ -1204,6 +1106,16 @@ Definition row_cell_entry (cur : string) (start stop : nat)
   (cell_trim raw, start, stop,
    S start + String.length raw - String.length content).
 
+(* The cell scan.  `cur` and `acc` are reversed; `bs` records whether the
+   previous byte was a backslash.  Outside verbatim, a backslash and the
+   byte after it are consumed together, which gives inline escapes their
+   parity: after two backslashes a backtick still opens verbatim.  `bs`
+   keeps the separate one-byte rule that a bar right after a backslash
+   does not close a cell.
+
+   Each entry records the cell's interval relative to the opening bar, so
+   the semantic row and its source parts project one scan.  The final bar
+   was removed by `row_inner`, so the last stop is one past `pos`. *)
 Fixpoint row_cells_trace
   (s : string) (vb run : nat) (bs : bool) (cur : string)
   (acc : list (string * nat * nat * nat)) (pos start : nat)
@@ -1286,10 +1198,9 @@ Definition table_row (l : string) : option trow :=
       end
   end.
 
-(* The measured boundary, one Example per line probed against djot.js.
-   The separator cases are the delicate half: a leading space is allowed
-   on every cell but the first, trailing whitespace after the final bar
-   is not part of any cell, and one dash is enough. *)
+(* Examples pinning the boundary.  In a separator, a leading space is
+   allowed on every cell but the first, trailing whitespace after the
+   final bar belongs to no cell, and one dash is enough. *)
 (* String scope for the cell lists: `list string` does not propagate a
    scope to its elements, and char scope is the innermost one open. *)
 Local Open Scope string_scope.
@@ -1304,7 +1215,7 @@ Proof. reflexivity. Qed.
 Example row_cells_empty : table_row "||" = Some (TCells [""]).
 Proof. reflexivity. Qed.
 
-(* One bar is not a row: `pattTableRow` needs the closing one. *)
+(* One bar is not a row. *)
 Example row_one_bar : table_row "|" = None.
 Proof. reflexivity. Qed.
 
@@ -1324,9 +1235,8 @@ Example row_sep_trailing_ws : table_row "|---|   " = Some (TSep [AlignDefault]).
 Proof. reflexivity. Qed.
 
 (* The leading space belongs to the previous cell's match, and the first
-   cell has no previous match: `| :- |` is a row of text, `|:-| -: |` is
-   a separator.  This is the trimming SPEC-GAP; djoths reads both as
-   separators (oracle-disagreements.md, tables.test:111). *)
+   cell has none: `| :- |` is a row of text, `|:-| -: |` a separator.
+   djoths reads both as separators (`.project/oracle-disagreements.md`). *)
 Example row_sep_leading_space : table_row "| --- |" = Some (TCells ["---"]).
 Proof. reflexivity. Qed.
 
@@ -1338,8 +1248,7 @@ Proof. reflexivity. Qed.
 Example row_sep_mixed : table_row "|---|x|" = Some (TCells ["---"; "x"]).
 Proof. reflexivity. Qed.
 
-(* A bar preceded by a backslash does not split, whatever the parity:
-   this is `charAt(nextbar - 1)`, not the inline layer's escape rule. *)
+(* A bar preceded by a backslash does not split, whatever the parity. *)
 Example row_escaped_bar : table_row "| a\|b | c |" = Some (TCells ["a\|b"; "c"]).
 Proof. reflexivity. Qed.
 
@@ -1391,18 +1300,12 @@ Proof. reflexivity. Qed.
 Local Open Scope char_scope.
 
 (* A table caption: `^` and at least one space or tab, then the first
-   line of the caption's inline content (`pattCaptionStart`,
-   block.ts:51).
+   line of the caption's inline content.
 
-   Not a `line_kind`, and that is the divergence of §1.3 made
-   structural.  djot.js opens a caption anywhere a block may start, so a
-   caption with no table before it swallows the following lines and then
-   drops them, rendering nothing at all; we have no caption container at
-   top level, so the same line is a paragraph -- which is djoths'
-   answer, and the only one `wf_block` can represent.  Consulting the
-   recognizer from the table's continuation rule alone is what makes
-   that true by construction, and it keeps `classify` and `is_text`
-   exactly as they were. *)
+   Not a `line_kind`: only a table's continuation consults it, so a
+   caption with no table before it is a paragraph, as djoths reads it.
+   djot.js opens a caption wherever a block may start and renders an
+   orphan one as nothing (`.project/oracle-disagreements.md`). *)
 Definition caption_open (l : string) : option string :=
   match drop_leading_ws l with
   | String c rest =>
@@ -1441,9 +1344,7 @@ Proof.
   cbn [is_blank drop_leading_ws]. destruct (is_ws c) eqn:E; [exact IH|discriminate].
 Qed.
 
-(* A blank line underlines nothing, whatever the setting: there is no
-   run to read.  This is what keeps `step_para_flush` -- a blank ends an
-   open paragraph -- free of a side condition. *)
+(* A blank line underlines nothing, whatever the setting. *)
 Lemma underline_of_blank :
   forall l, is_blank l = true -> underline_of l = None.
 Proof.
@@ -1473,10 +1374,9 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
 Qed.
 
-(* The classifier: one line in, one kind out, no lookahead.  Blank first,
-   then block quotes, headings, fences, thematic breaks, list markers;
-   anything unrecognized falls through to paragraph text, so KText is the
-   catch-all.  Adding a block construct starts by adding a case here. *)
+(* The classifier: one line in, one kind out, no lookahead.  The
+   recognizers are tried in the order below; anything unrecognized is
+   paragraph text. *)
 Definition classify (l : string) : line_kind :=
   if is_blank l then KBlank
   else match quote_prefix l with
@@ -1517,9 +1417,7 @@ Definition classify (l : string) : line_kind :=
            end
        end.
 
-(* Two colons are no style at all in djot.js and no marker here, since
-   the second colon is not the whitespace a marker needs.  Three are a
-   div, which `classify` decides first. *)
+(* Two colons are not a marker; three are a div. *)
 Example classify_two_colons : classify ":: a" = KText.
 Proof. reflexivity. Qed.
 
@@ -1530,8 +1428,7 @@ Example classify_colon_marker :
   classify ": a" = KList [SBullet ":"%char] EmptyString None "a"%string.
 Proof. reflexivity. Qed.
 
-(* Headings always have a level, which is what wf_block requires of the
-   `Heading` it builds. *)
+(* A heading's level is at least 1. *)
 Lemma classify_heading_level :
   forall l lvl rest, classify l = KHeading lvl rest -> Nat.leb 1 lvl = true.
 Proof.
@@ -1587,8 +1484,8 @@ Proof.
     destruct (table_row l); discriminate.
 Qed.
 
-(* The measure fact, restated at the classifier: the parser only ever
-   sees KQuote, never quote_prefix directly. *)
+(* `quote_prefix_length` at the classifier, which is what the parser
+   sees. *)
 Lemma classify_quote_length :
   forall l rest,
     classify l = KQuote rest -> String.length rest < String.length l.
@@ -1678,12 +1575,10 @@ Lemma classify_canonical_thematic : classify "* * * *" = KThematic.
 Proof. reflexivity. Qed.
 
 (* An all-whitespace prefix is invisible to the classifier: every
-   recognizer either routes through drop_leading_ws (quote/heading/fence/
-   list markers) or, for is_thematic, treats whitespace as skippable
-   throughout, not just leading (Strings.drop_leading_ws_ws_prefix,
-   is_thematic_ws_prefix).  This is what lets a list item's "  "
-   continuation indent be pushed straight through: the enclosed line
-   reclassifies exactly as it would unindented. *)
+   recognizer reads through drop_leading_ws, and is_thematic skips
+   whitespace anywhere.  So a list item's continuation indent can be
+   pushed through: the enclosed line classifies as it would
+   unindented. *)
 Lemma classify_ws_prefix :
   forall p l, is_blank p = true -> classify (p ++ l) = classify l.
 Proof.
@@ -1724,8 +1619,7 @@ Proof.
   exact (classify_kfoot l lbl rest H).
 Qed.
 
-(* A KRef classification is `ref_open`'s answer, which is what carries
-   the label and destination conditions to Wf.v. *)
+(* A KRef classification is `ref_open`'s answer. *)
 Lemma classify_kref :
   forall l lbl v, classify l = KRef lbl v -> ref_open l = Some (lbl, v).
 Proof.
@@ -1857,19 +1751,18 @@ Qed.
 
 Lemma take_info_all :
   forall info, all_info_chars info = true ->
-  take_info info = (info, EmptyString).
+  take_while is_info_char info = (info, EmptyString).
 Proof.
   induction info as [|c info IH]; intros H; [reflexivity|].
   simpl in H. apply andb_true_iff in H as [Hc Hinfo].
-  cbn [take_info]. rewrite Hc, (IH Hinfo). reflexivity.
+  cbn [take_while]. rewrite Hc, (IH Hinfo). reflexivity.
 Qed.
 
 Lemma drop_head_nonws :
   forall c s, is_ws c = false -> drop_leading_ws (String c s) = String c s.
 Proof. intros c s H. cbn [drop_leading_ws]. rewrite H. reflexivity. Qed.
 
-(* The two facts the roundtrip proof actually consumes: the renderer's
-   "```INFO" opener and "```" closer behave as intended. *)
+(* The renderer's "```INFO" opener classifies as intended. *)
 Lemma fence_open_backtick :
   forall info, all_info_chars info = true ->
   fence_open ("```" ++ info) = Some (Fence "`" 3 info).
@@ -1899,19 +1792,16 @@ Proof.
   rewrite (fence_open_backtick info H). reflexivity.
 Qed.
 
-(* Canonical block-quote prefixing, the renderer's spelling: "> " in
-   front of every line, including blank ones.
-
-   `quote_open` lives here rather than in Render because Parser needs to
-   name its width.  Both containers descend by two columns, so a bare `2`
-   in a parser proof does not say which one it means; `String.length
-   quote_open` and `String.length bullet_cont` do. *)
+(* Canonical block-quote prefixing: "> " in front of every line, blank
+   ones included.  Defined here rather than in Render so that the parser
+   can name its width: both containers descend by two columns, and
+   `String.length quote_open` says which one a proof means where a bare
+   `2` would not. *)
 Definition quote_open : string := "> ".
 Definition quote_line (l : string) : string := quote_open ++ l.
 
 (* The column a quote's contents start at.  Definitionally 2, and named
-   so that a parser proof mentioning it cannot be confused with
-   `item_pad`, which is also 2 and means something else. *)
+   so that it cannot be confused with `item_pad`. *)
 Definition quote_pad : nat := String.length quote_open.
 
 Lemma quote_prefix_canonical :
@@ -1926,14 +1816,9 @@ Proof.
   rewrite quote_prefix_canonical. reflexivity.
 Qed.
 
-(* Same, seen through an all-whitespace pad: a quote's own prefix is
-   detected identically regardless of what ambient indentation precedes
-   it, and the extracted content is exactly `l` with no pad residue —
-   this is what lets a quote nested inside a list item ignore the
-   item's indent entirely.  A nested list does not get the same free
-   ride: `ls_indent` is read off the raw line, so the item's pad shifts
-   it.  That is a shift, not a difference in outcome, and
-   `Parser.run_lines_pad_shift` is where it is discharged. *)
+(* The same through an all-whitespace pad.  The extracted content is
+   exactly `l`, so a quote nested in a list item ignores the item's
+   indent. *)
 Lemma classify_canonical_quote_pad :
   forall pad l, is_blank pad = true -> classify (pad ++ "> " ++ l) = KQuote l.
 Proof.
@@ -1947,7 +1832,7 @@ Canonical headings
 
 The renderer prefixes every line of a heading with its hashes and one
 space, so a multi-line heading reparses line by line as continuations of
-itself — the same trick as block quotes, without the reclassification. *)
+itself, as a block quote does, without the reclassification. *)
 
 Fixpoint hashes (n : nat) : string :=
   match n with O => EmptyString | S n' => "#" ++ hashes n' end.
@@ -2022,10 +1907,9 @@ Proof. reflexivity. Qed.
 Canonical fenced divs
 =====================
 
-The renderer emits the shortest legal fence, classless, for both ends —
-the same choice `code_open`/`code_close` make, and it carries the same
-cost: a div whose contents contain a `:::` line cannot be rendered, so
-`cb_ok` excludes it rather than growing the fence. *)
+The renderer emits the shortest fence, classless, at both ends, as it
+does for code.  A div whose contents contain a `:::` line cannot be
+rendered, and `cb_ok` excludes it. *)
 
 Definition div_fence : string := ":::".
 
@@ -2035,14 +1919,8 @@ Proof. reflexivity. Qed.
 Lemma div_close_canonical : div_close 3 div_fence = true.
 Proof. reflexivity. Qed.
 
-(* Whitespace in front of a div's closer is invisible to it, which is
-   what `classify_ws_prefix` does *not* give us: `div_close` is applied
-   by the open div directly, never through `classify`, so it needs its
-   own statement.  This is the lemma the indented-close counterexample
-   turns on. *)
-(* A blank line never closes a div, whatever fence length is open: the
-   `3 <=` conjunct fails on the empty colon run.  This is what lets a
-   blank inside a div behave exactly as it does at top level. *)
+(* A blank line never closes a div: the `3 <=` conjunct fails on an empty
+   colon run. *)
 Lemma div_close_blank :
   forall len l, is_blank l = true -> div_close len l = false.
 Proof.
@@ -2051,6 +1929,9 @@ Proof.
   cbn [count_run]. rewrite Bool.andb_false_r. reflexivity.
 Qed.
 
+(* Whitespace before a div's closer is invisible to it.  Not a case of
+   `classify_ws_prefix`: `div_close` is applied by the open div, never
+   through `classify`. *)
 Lemma div_close_ws_prefix :
   forall p len l, is_blank p = true -> div_close len (p ++ l) = div_close len l.
 Proof.
@@ -2058,8 +1939,7 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
 Qed.
 
-(* classify_canonical_heading, seen through an all-whitespace pad — same
-   free ride as classify_canonical_quote_pad. *)
+(* classify_canonical_heading through an all-whitespace pad. *)
 Lemma classify_canonical_heading_pad :
   forall pad lvl l, is_blank pad = true -> 1 <= lvl ->
   classify (pad ++ heading_line lvl l) = KHeading lvl l.
@@ -2072,15 +1952,10 @@ Qed.
 Canonical bullet lists
 =======================
 
-The renderer marks an item's first line with "- " and every later line
-(whether a continuation of that first block or the start of a later one)
-with two spaces of plain indent — the same shape djot.js's own
-`this.indent > container.extra.indent` test expects, since `bullet_open`
-puts the marker at column 0 and everything after it at column 2.  Unlike
-quote_line, the marker is not repeated on every line: `bullet_cont` is
-whitespace, so `classify_ws_prefix` carries every recognizer through it
-for free — a nested construct starting on a continuation line reclassifies
-exactly as it would unindented. *)
+The renderer marks an item's first line with its marker and every later
+line with plain indent of the marker's width.  The indent is whitespace,
+so `classify_ws_prefix` carries every recognizer through it: a construct
+starting on a continuation line classifies as it would unindented. *)
 
 (* A run of spaces, the continuation indent's shape.  Ordered markers
    differ from bullets only in how long this is. *)
@@ -2093,17 +1968,14 @@ Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks is_blank]. exact IH. 
 Lemma blanks_length : forall n, String.length (blanks n) = n.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks String.length]. rewrite IH. reflexivity. Qed.
 
-(* A list marker, as the renderer and the classifier jointly see it.
-   Shaped after `list_marker`'s own two branches rather than after the
-   string it produces, so that every fact below is a case analysis the
-   classifier already performs: a bullet is one character, an ordered
-   marker is an alphanumeric core inside a delimiter.
+(* A list marker as the renderer writes it.  Shaped after `list_marker`'s
+   two branches, so every fact below is a case analysis the classifier
+   already performs: a bullet is one character, an ordered marker an
+   alphanumeric core inside a delimiter.
 
-   Everything the uniformity chain needs about a marker is here, which is
-   what lets `list_uniformity` quantify over it.  Note what is *not*
-   here: a width.  `mk_pad` is derived, and no continuation rule reads
-   it — djot.js tests `indent > marker column`, so a wider marker moves
-   nothing. *)
+   There is no width field.  `mk_pad` is derived, and no continuation rule
+   reads it: a continuation line only has to be indented past the
+   marker's column, so a wider marker changes nothing. *)
 Inductive marker : Type :=
   | MBullet (c : ascii)
   | MTask (c : ascii) (chk : task_status)
@@ -2176,10 +2048,10 @@ Notation item_pad := (mk_pad bullet).
 Lemma bullet_ok : marker_ok bullet = true.
 Proof. reflexivity. Qed.
 
-(* The other two bullet styles djot recognizes.  They exist here so the
-   generalization above is exercised rather than merely available: djot
-   starts a new list when the style changes, so these are genuinely
-   different lists, and nothing in the chain below is proved twice. *)
+(* The other two bullet characters.  djot starts a new list when the
+   style changes, so these are different lists, and
+   `OrderedList.star_uniformity` and `plus_uniformity` reach them by
+   instantiation. *)
 Definition star : marker := MBullet "*".
 Definition plus : marker := MBullet "+".
 
@@ -2189,9 +2061,9 @@ Proof. reflexivity. Qed.
 Lemma plus_ok : marker_ok plus = true.
 Proof. reflexivity. Qed.
 
-(* The definition-list marker.  It is a bullet like the other three and
-   differs only in what `Step.list_block` closes it to, so every list
-   theorem below reaches it by the same instantiation. *)
+(* The definition-list marker.  A bullet like the others, differing only
+   in what the list closes to (`Step.styles_list`), so every list theorem
+   reaches it by instantiation. *)
 Definition colon : marker := MBullet ":".
 
 Lemma colon_ok : marker_ok colon = true.
@@ -2251,11 +2123,6 @@ Proof.
   cbn in H. discriminate.
 Qed.
 
-(* The marker line's classification needs one extra hypothesis quotes and
-   headings don't: the marker plus the item's own first line must not
-   itself look like a thematic break ("- - -"), since `classify` tests
-   thematic breaks before list markers.  A canonical item's cb_ok carries
-   this. *)
 (* An alphanumeric run followed by something that is not: exactly what
    `marker_shape` scans, so an ordered marker's core comes off whole and
    the rest of the line survives untouched. *)
@@ -2363,12 +2230,10 @@ Lemma marker_open_shape :
     indent_of (mk_open m ++ l) = 0.
 Proof.
   intros m l Hm.
-  (* Every case begins with a character that is alphanumeric, "(", or a
-     bullet — none of them whitespace, ">", "#", "`" or "~".  The colon
-     is the exception and carries its own conjunct: it *is* a bullet, so
-     the div opener has to be ruled out by what follows it rather than
-     by the first character.  A marker's opener is one character and a
-     space, and `:::` needs three. *)
+  (* Every case begins with an alphanumeric character, "(", or a bullet:
+     not whitespace, ">", "#", "`" or "~".  The colon is a bullet too, so
+     the div opener is ruled out by what follows it: an opener is one
+     character and a space, and `:::` needs three. *)
   assert (Hhd : exists c r, (mk_open m ++ l)%string = String c r
                             /\ is_ws c = false
                             /\ Ascii.eqb c ">" = false /\ Ascii.eqb c "#" = false
@@ -2404,29 +2269,19 @@ Proof.
   - cbn [indent_of]. rewrite Hws. reflexivity.
 Qed.
 
-(* An opener really does classify as its own marker, with the item's line
-   as the residue.  One extra hypothesis quotes and headings do not need:
-   the marker plus the item's own first line must not itself look like a
-   thematic break ("- - -"), since `classify` tests thematic breaks
-   before list markers.  A canonical item's `cb_ok` carries this. *)
-(* A bullet opener followed by a checkbox is not a bullet opener: the
-   task marker replaces it, exactly as `pattTaskListMarker` replaces
-   `pattListMarker` in djot.js.  So an item's first line has to be one
-   the marker survives, which is the condition `item_ok` already states
-   for a thematic break and states here for the same reason. *)
+(* A bullet opener followed by a checkbox is a task marker instead, so an
+   item's first line has to be one the marker survives. *)
 Definition task_shadow (m : marker) (l : string) : bool :=
   match m with
   | MBullet _ => match task_check l with Some _ => true | None => false end
   | _ => false
   end.
 
-(* The same test with the marker left out.  `item_ok` asks *this*, not
-   `task_shadow`: the weaker, marker-dependent condition would make
-   `item_ok`'s dependence on its marker wider than the thematic test,
-   and `OrderedList.item_ok_thematic_indep` -- with nine users -- says
-   that test is the whole of it.  The stronger one costs an ordered or
-   definition item nothing it can canonically spell, since a canonical
-   `Str` escapes its brackets. *)
+(* The same test without the marker.  `item_ok` asks this rather than
+   `task_shadow`, so that its dependence on the marker stays the
+   thematic-break test alone (`OrderedList.item_ok_thematic_indep`).  The
+   stronger condition costs nothing canonical: a canonical `Str` escapes
+   its brackets. *)
 Definition task_start (l : string) : bool :=
   match task_check l with Some _ => true | None => false end.
 
@@ -2519,6 +2374,10 @@ Proof.
       cbn [is_ws]. reflexivity.
 Qed.
 
+(* An opener classifies as its own marker, with the item's line as the
+   residue.  The marker and the line together must not look like a
+   thematic break ("- - -"), which `classify` tests first, and must not
+   start a checkbox. *)
 Lemma classify_marker_open :
   forall m l, marker_ok m = true -> is_thematic (mk_open m ++ l) = false ->
   task_shadow m l = false ->
@@ -2548,12 +2407,8 @@ Proof.
   exact Hi.
 Qed.
 
-(* A recognized marker is at least two characters wide, which is what
-   makes an item's continuation indent strictly deeper than its marker
-   column.  With one bullet marker this was the literal 2; an ordered
-   marker makes it a fact. *)
-(* A recognized marker names at least one style, which is what lets a
-   sibling's narrowing land on a nonempty set. *)
+(* A recognized marker names at least one style, so a sibling's
+   narrowing can land on a nonempty set. *)
 Lemma mk_sty_cons :
   forall m, marker_ok m = true -> exists s ss, mk_sty m = s :: ss.
 Proof.
@@ -2578,6 +2433,8 @@ Qed.
 Lemma mk_cont_length : forall m, String.length (mk_cont m) = mk_pad m.
 Proof. intros m. unfold mk_cont. apply blanks_length. Qed.
 
+(* A recognized marker has positive width, so an item's continuation
+   indent is deeper than its marker column. *)
 Lemma mk_pad_pos : forall m, marker_ok m = true -> 0 < mk_pad m.
 Proof.
   intros m Hm. unfold mk_pad. destruct m as [c|c chk|core d].
@@ -2590,9 +2447,7 @@ Proof.
 Qed.
 
 (* The opener and the pad are one line's worth of text: newline-free and
-   nonempty.  What the roundtrip's `lines_ok` asks of every prefix it
-   puts on an item, and the only place a marker's *characters* (rather
-   than its width or its styles) are constrained. *)
+   nonempty. *)
 Lemma mk_open_nonempty : forall m, marker_ok m = true -> mk_open m <> EmptyString.
 Proof.
   intros m Hm. pose proof (mk_pad_pos m Hm) as Hpos. unfold mk_pad in Hpos.

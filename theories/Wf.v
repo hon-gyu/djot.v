@@ -1,13 +1,16 @@
 (* ai-disclosure: autonomous *)
 
-(* Well-formedness of the djot AST, as a decidable boolean predicate,
-   plus the theorem that the parser only produces well-formed output.
+(* Well-formedness of the djot AST as a decidable boolean predicate, and
+   the theorems that the parser only produces well-formed output
+   (`wf_parse`, `wf_parse_doc`).
 
-   Two kinds of condition:
-   - Structural: no empty containers, no empty containers, no empty lists
-     - record what the parser can emit
-   - Canonicality: _
-*)
+   The conditions record what the parser can emit: canonical inline
+   sequences (no two adjacent plain `Str`s), a heading's level of at
+   least 1, nonempty lists, sections and present captions, and the
+   classifier's guarantees on reference definitions.  This is a claim
+   about the parser, not the roundtrip's hypothesis (`roundtrip_blocks`
+   quantifies over `cb_ok`), and `wf_complete_false` shows it does not
+   characterize parser output. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Attributes Parser Document.
@@ -48,11 +51,6 @@ Canonicality of inline sequences
 
 Two adjacent attribute-less Str nodes should have been merged into one
 (djoths's Inlines Semigroup does this on append). *)
-
-(* `plain_str` (an attribute-less `Str`, the kind that would have been
-   merged with a neighbour) and `no_adjacent_str` (no two of them side by
-   side) are defined in `Inline.v`: `oresolve` is the identity exactly on
-   lists satisfying the second, so the scanner has to name it too. *)
 
 (*
 Inline well-formedness
@@ -139,9 +137,8 @@ Fixpoint wf_block (b : block) : bool :=
   | Section bs => nonempty bs && wf_bs bs
   (* A block quote may be empty: a bare ">" line is a valid, contentless
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
-     empty for the same reason and on the same evidence — `:::` then
-     `:::` renders as `<div>\n</div>` in *both* oracles — so these are the
-     two containers without a nonempty obligation. *)
+     empty for the same reason and on the same evidence: `:::` then `:::`
+     renders as `<div>\n</div>` in both oracles. *)
   | BlockQuote bs | Div bs => wf_bs bs
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
@@ -318,11 +315,8 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-(* The definition flavour asks *less*: `wf_def_items` has no nonemptiness
-   obligation on a term, so an item that was a lone empty paragraph —
-   ill-formed as a bullet item — is well-formed once the term is split
-   off.  That is why `wf_list_block` below is an implication where the
-   other two are equations. *)
+(* The definition flavour, over (term, definition) pairs: a term is
+   inlines and asks only `wf_inlines`. *)
 Lemma wf_block_deflist :
   forall sp items,
     wf_block (DefinitionList sp items)
@@ -406,8 +400,6 @@ Lemma nonempty_def_items :
   forall its, nonempty (def_items its) = nonempty its.
 Proof. intros [|it rest]; reflexivity. Qed.
 
-(* An implication, not an equation, for the reason `wf_block_deflist`
-   gives.  Its one user needs only this direction. *)
 (* As `wf_block_bullet`, for the flavour whose items carry a status. *)
 Lemma wf_block_tasklist :
   forall sp items,
@@ -450,6 +442,9 @@ Proof.
     rewrite Hit; apply IH, Hrest.
 Qed.
 
+(* A closed list is well-formed when its items are, whichever flavour
+   `list_block` picks.  An implication: `wf_def_items` gives the
+   definition flavour in this direction only. *)
 Lemma wf_list_block :
   forall ls last,
     (nonempty (rev (last :: ls_items ls))
@@ -518,11 +513,9 @@ Qed.
 (*
 The inline scan emits a well-formed sequence
 ============================================
-
 `no_adjacent_str` recurses from the front while `Inline.iscan` accumulates
 at the front of a *reversed* list, so the invariant needs one snoc lemma
-and then reads off the four scanner states.
-
+and then reads off the scanner states.
 Why it holds: `flush_text` is the only thing that pushes a `Str`, and it
 runs exactly on the transition into `IOpen`, whose own next push is a
 `Verbatim`.  So a `Str` is never pushed onto a `Str`.  That is what
@@ -673,13 +666,12 @@ Qed.
 (*
 The scope stack
 ---------------
-
-Every scope's list carries the same invariant as the flat one did, and
-the two operations that move inlines between scopes -- closing, which
-turns a scope into a node, and abandoning, which splices it into the
-level below as text -- are where it has to be re-established.  Abandoning
-is the interesting one: it is the only place two `Str` nodes can meet,
-which is why `oapp` merges its seam rather than concatenating. *)
+Every scope's list carries the invariant a flat list does, and the two
+operations that move inlines between scopes -- closing, which turns a
+scope into a node, and abandoning, which splices it into the level below
+as text -- are where it has to be re-established.  Abandoning is the
+interesting one: it is the only place two `Str` nodes can meet, which is
+why `oapp` merges its seam rather than concatenating. *)
 
 Lemma no_adjacent_str_last_subst :
   forall l a b,
@@ -2409,11 +2401,10 @@ Proof.
     destruct braw_blocks; reflexivity.
 Qed.
 
-(* The fold's invariant: an open paragraph only ever holds nonblank
-   lines (a blank line flushes it), which is what makes the emitted Para
-   well-formed; a quote's already-closed blocks are well-formed, and so
-   is its contents' state, recursively.  A fence accumulator needs no
-   invariant — its content is verbatim and CodeBlock/RawBlock are
+(* The fold's invariant: what a state has already closed is well-formed,
+   recursively through its containers, and a heading carries its level.
+   Paragraph and fence accumulators carry nothing: `para_inlines` is
+   well-formed whatever the lines, and `CodeBlock`/`RawBlock` are
    unconditionally well-formed. *)
 Fixpoint state_wf (st : pstate) : bool :=
   match st with
@@ -4100,7 +4091,7 @@ Proof.
 Qed.
 
 (* Counterexample: a `Section`, well-formed and unreachable from the line
-   fold — sections only ever come from Document.sectionize, which runs
+   fold: sections only ever come from `Document.sectionize`, which runs
    after it.  The gap is coverage, not a missing wf condition, so
    completeness has to be restated over the parser's fragment in
    canonical form, i.e. Render.v's cb_ok cblocks. *)
@@ -4126,7 +4117,7 @@ Two obligations, one per half of the pass:
 - assigning identifiers rewrites attributes and nothing else, and wf_block
   never inspects a block's attributes;
 - sectionize introduces `Section` nodes, which do carry a nonempty
-  obligation — discharged because every section starts with the heading
+  obligation, discharged because every section starts with the heading
   that opened it.
 *)
 
@@ -4172,7 +4163,7 @@ Proof.
      of assign_ids above. *)
   - (* Heading *)
     unfold assign_ids, assign_heading_id.
-    destruct (lookup_attr "id" a) as [v|]; exact H.
+    destruct (alist_lookup "id" a) as [v|]; exact H.
   - (* BlockQuote *)
     rewrite assign_ids_quote.
     destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
@@ -4317,9 +4308,9 @@ Sections
 *)
 
 (* The invariant the section stack maintains: every accumulator is
-   well-formed, and every entry above the document's has a nonempty one —
-   which is what discharges Section's nonempty obligation on close.  The
-   bottom entry may be empty: an empty document is well-formed. *)
+   well-formed, and every entry above the document's has a nonempty one,
+   which discharges Section's nonempty obligation on close.  The bottom
+   entry may be empty: an empty document is well-formed. *)
 Fixpoint sect_state_wf (stk : sect_state) : bool :=
   match stk with
   | [] => false                      (* the document entry is never popped *)

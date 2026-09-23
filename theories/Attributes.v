@@ -19,7 +19,7 @@
      nothing to restart, so they are merged into `AQuot` and `AEsc`.
 
    The machine survives between lines, which is what lets a spec continue
-   over an indented line break; `Parser.v` carries it in `PAttr`. *)
+   over an indented line break; `Step.v` carries it in `PAttr`. *)
 
 From Stdlib Require Import String Ascii Bool List.
 From DjotV Require Import Strings Ast.
@@ -44,15 +44,15 @@ Definition is_key_char (c : ascii) : bool :=
   || (Nat.leb 48 n && Nat.leb n 57)        (* 0-9 *)
   || Ascii.eqb c "_" || Ascii.eqb c ":" || Ascii.eqb c "-".
 
-(* Whitespace as the attribute machine sees it: JavaScript's `\s`, which
-   unlike `Strings.is_ws` includes the line feed — the machine is fed
-   one at the end of every line. *)
+(* Whitespace as the attribute machine sees it: JavaScript's `\s`.  Unlike
+   `Strings.is_ws` it includes the line feed, which the machine is fed at
+   the end of every line. *)
 Definition attr_ws (c : ascii) : bool :=
   is_ws c || Ascii.eqb c "010" || Ascii.eqb c "012" || Ascii.eqb c "011".
 
-(* Identifiers take anything that is neither whitespace nor punctuation
-   with a meaning elsewhere — djot.js's negated class, which is wider
-   than the rule its prose gives.  `{#a<b}` failing is this list. *)
+(* Identifiers take anything that is neither whitespace nor one of the
+   punctuation characters below.  This is djot.js's class, wider than the
+   rule the prose spec gives; `{#a<b}` fails because of `<`. *)
 Definition is_id_char (c : ascii) : bool :=
   negb (attr_ws c) &&
   negb (List.existsb (Ascii.eqb c)
@@ -67,10 +67,10 @@ Definition is_attr_class_char (c : ascii) : bool := is_key_char c.
 Value normalization
 ===================
 
-Two rewrites djot.js applies to a value's text before storing it
-(parse.ts:569): interior whitespace runs collapse to one space, then
-backslash escapes of punctuation resolve.  Collapsing first is what
-makes a value spanning several indented lines come out as one line. *)
+Two rewrites of a value's text before it is stored: whitespace runs
+collapse to one space, then backslash escapes of punctuation resolve.
+Collapsing first makes a value spanning several indented lines come out
+as one line. *)
 
 Definition collapse_char (c : ascii) : bool :=
   Ascii.eqb c " " || Ascii.eqb c "013" || Ascii.eqb c "010".
@@ -153,8 +153,8 @@ Definition ap_begin (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p) (ap_attrs p).
 
 (* Commit the accumulated token as an identifier and go to s.  An empty
-   token commits nothing: djot.js guards each event on `lastpos > begin`,
-   so `{# }` is attribute-free rather than an error.  Same for classes. *)
+   token commits nothing, so `{# }` is attribute-free rather than an
+   error.  Same for classes. *)
 Definition ap_commit_id (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
   AP s EmptyString (ap_key p)
@@ -165,8 +165,7 @@ Definition ap_commit_class (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p)
      (if String.eqb t EmptyString then ap_attrs p else attr_add_class t (ap_attrs p)).
 
-(* A value always commits, empty included: djot.js writes `attributes[key]
-   = ""` when the *key* is recognized, so `{a=""}` carries an `a`. *)
+(* A value always commits, empty included, so `{a=""}` carries an `a`. *)
 Definition ap_commit_value (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p)
      (attr_set (ap_key p) (norm_value (ap_token p)) (ap_attrs p)).
@@ -239,12 +238,10 @@ Definition ap_failed (p : aparser) : bool :=
 The line interface
 ==================
 
-Both entry points feed the line's content with its indentation already
-dropped, followed by the newline that ended it — `block.ts` feeds through
-`starteol` / `endeol` and `feed` runs `pos <= endpos`, so the newline is
-part of both slices.  Feeding it matters: it is what closes an identifier
-or a bare value at end of line, and what separates the pieces of a value
-spanning lines. *)
+Both entry points feed the line's content with its indentation dropped,
+followed by the newline that ended it.  The newline closes an identifier
+or a bare value at end of line, and separates the pieces of a value that
+spans lines. *)
 
 Definition attr_nl : string := String "010" EmptyString.
 
@@ -255,10 +252,9 @@ Fixpoint blank_to_eol (s : string) : bool :=
   | String c s' => attr_ws c && blank_to_eol s'
   end.
 
-(* Does this line open a block attribute spec, and in what state?  `None`
-   is djot.js's `open` returning false — the machine failed, or the spec
-   closed with content still on the line — and either way the line is
-   ordinary paragraph text. *)
+(* Whether this line opens a block attribute spec, and in what state.
+   `None` when the machine fails or the spec closes with content still on
+   the line; either way the line is paragraph text. *)
 Definition attr_open (l : string) : option aparser :=
   match drop_leading_ws l with
   | String "{" body =>
@@ -274,8 +270,7 @@ Definition attr_feed (l : string) (p : aparser) : aparser :=
   fst (afeed (drop_leading_ws l ++ attr_nl) p).
 
 (* Leading whitespace is invisible here, as it is to every other
-   recognizer: `attr_open` starts at the first nonblank character.  This
-   is what keeps `Line.classify_ws_prefix` true of the new case. *)
+   recognizer: `attr_open` starts at the first nonblank character. *)
 Lemma attr_open_ws_prefix :
   forall p l, is_blank p = true -> attr_open (p ++ l) = attr_open l.
 Proof.

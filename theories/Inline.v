@@ -2,28 +2,16 @@
 
 (** * Single-pass inline parsing
 
-   The inline layer is the parser's pass over a paragraph's text, and the
-   canonical (renderable) view it inverts.
-
-   The same two-sided shape as the block layer, one level down.  There,
-   `Line.v` classifies a line and `Step.v` folds lines into blocks, while
-   `Render.v`'s `cblock` describes the parser's image by the source data
-   that determines it.  Here `para_inlines` is the pass, `cinline` is the
-   image, and the two meet in `para_inlines_ci_para`.
-
-   The pass recognizes escapes, verbatim spans, and the delimiter table
-   in `.project/260811.inline-parser.md`.  Brackets remain the next
-   extension point for the state and canonical view.
+   The inline layer: the parser's pass over a paragraph's text, and the
+   canonical (renderable) view it inverts.  As in the block layer,
+   `para_inlines` is the pass, `cinline` is the image, and the two meet
+   in `para_inlines_ci_para`.
 
    The scan threads through line breaks rather than restarting at each
    one, because a span may cross a break.  The canonical view stays
    line-local, `cblock` describing a paragraph as a list of lines, and
-   `iscan_cis_closed` is what reconciles the two: a canonical line always
-   leaves the scan owing nothing to the next.
-
-   Parser and renderer share the file because at this size a split would
-   be three files of twenty lines.  It splits the way the block parser
-   did once a side outgrows the other. *)
+   `iscan_cis_closed` reconciles the two: a canonical line leaves the scan
+   owing nothing to the next. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Wf_nat Arith.
 From DjotV Require Import Config Strings Ast Attributes.
@@ -41,9 +29,8 @@ apart and `cinline` gains no constructor.  What an escape is, is the
 *spelling* a `CIStr` needs so that its text comes back unchanged, which
 makes this a pair of string functions and one theorem relating them. *)
 
-(* djot.js `pattPunctuation` (inline.ts:84): the ASCII punctuation
-   blocks.  This is the set a backslash may escape, and it is deliberately
-   wider than the set that ever *needs* escaping. *)
+(* The ASCII punctuation blocks: the set a backslash may escape, wider
+   than the set that ever needs escaping. *)
 Definition is_punct (c : ascii) : bool :=
   let n := nat_of_ascii c in
   ((Nat.leb 33 n && Nat.leb n 47) || (Nat.leb 58 n && Nat.leb n 64)
@@ -63,24 +50,14 @@ Proof.
   reflexivity.
 Qed.
 
-(* The characters a `CIStr` must escape to survive reparsing.  Today only
-   the backslash: nothing else has inline meaning yet.  Every construct
-   that claims a delimiter character adds it here, and the two
-   obligations below are what it has to keep true.
-
-   The alternative, escaping every punctuation character unconditionally,
-   would keep this constant and needs no obligation, at the cost of
-   rendering `a, b` as `a\, b`.  djot.js escapes selectively (it renders
-   `\,` back as a bare `,`), and matching that costs only the two lemmas. *)
 Definition tick : ascii := "`"%char.
 Definition is_tick (c : ascii) : bool := Ascii.eqb c tick.
 
-(* The escape character itself, as opposed to the set of characters that
-   need escaping.  The scanner must test *this* to detect a pending
+(* The escape character (`Attributes.bslash`), as opposed to the set of
+   characters that need escaping.  The scanner must test *this* to detect a pending
    escape: `needs_escape` contains the backtick, and testing it here
    would make a bare backtick set the escape flag instead of opening a
    verbatim span. *)
-Definition bslash : ascii := "\"%char.
 Definition is_bslash (c : ascii) : bool := Ascii.eqb c bslash.
 
 Lemma is_tick_bslash : is_tick bslash = false.
@@ -89,59 +66,53 @@ Proof. reflexivity. Qed.
 Lemma is_bslash_bslash : is_bslash bslash = true.
 Proof. reflexivity. Qed.
 
-(* The braces that force a delimiter open or closed.  `{` also begins an
-   attribute, which is not implemented; until it is, a `{` that is not an
-   open marker is literal text, matching what the scanner did before. *)
+(* The braces.  `{` forces a delimiter open or begins an attribute spec;
+   `}` forces one closed or ends a spec. *)
 Definition lbrace : ascii := "{"%char.
 Definition rbrace : ascii := "}"%char.
 
-(* The bracket family's characters.  The three the scanner dispatches on
-   in text mode -- `!`, `[`, `]` -- are in `needs_escape`; the parens are
-   dispatched only inside a destination, so they are claimed by
-   `needs_escape_dest` instead. *)
-(* The quote characters and the hyphen, named because `dopens_after`
-   tests them and a bare literal would need escaping in a comment. *)
 Definition one (c : ascii) : string := String c EmptyString.
 
 (* The math prefix.  Reserved rather than a table row: it is not a
-   delimiter, it retroactively changes what the run after it means. *)
+   delimiter, it changes what the verbatim after it means. *)
 Definition dollar : ascii := "$"%char.
 
+(* The quote characters and the hyphen, which `dopens_after` tests. *)
 Definition sqchar : ascii := "'"%char.
 Definition dqchar : ascii := """"%char.
 Definition hyphen : ascii := "-"%char.
 
-Definition bang : ascii := "!"%char.
-
-(* The ellipsis.  Like the dollar it is not a delimiter: three of them
-   are one character of output and any other run is text. *)
+(* The ellipsis character.  Not a delimiter either: three periods are one
+   character of output, and any other run is text. *)
 Definition period : ascii := "."%char.
 
+(* The bracket family.  `!`, `[` and `]` are dispatched in text mode and
+   claimed by `needs_escape`; the parens are dispatched only inside a
+   destination and claimed by `needs_escape_dest`. *)
+Definition bang : ascii := "!"%char.
 Definition lbrack : ascii := "["%char.
 Definition rbrack : ascii := "]"%char.
+Definition lparen : ascii := "("%char.
+Definition rparen : ascii := ")"%char.
 
 (* A wikilink's alias separator.  Not dispatched in text mode. *)
 Definition vbar : ascii := "|"%char.
 
-(* The footnote marker.  Not reserved and not looked up in the table: it
-   is the superscript row's character, and which of the two it means is
-   decided by position -- only a `^` immediately inside a `[` marks a
-   note.  So the table may keep claiming it, and `[^` is spelled with
-   this rather than with `dchar DSuper`, since a table that moved the
-   superscript row elsewhere must not move the footnote marker. *)
+(* The footnote marker.  It is the superscript row's character, and only
+   a `^` immediately inside a `[` marks a note, so the table may keep
+   claiming it.  `[^` is spelled with this rather than `dchar DSuper`, so
+   that a table moving the superscript row does not move the footnote
+   marker. *)
 Definition hat : ascii := "^"%char.
-Definition lparen : ascii := "("%char.
-Definition rparen : ascii := ")"%char.
 
-(* An autolink's brackets.  Only the `<` is reserved: the scanner
-   dispatches on it in text mode, while a `>` is text unless a candidate
-   is open, so a row may be spelled with `>` and none may with `<`. *)
+(* An autolink's brackets.  Only `<` is reserved: the scanner dispatches
+   on it in text mode, while `>` is text unless a candidate is open. *)
 Definition lt : ascii := "<"%char.
 Definition gt : ascii := ">"%char.
 
-(* `ibreak` writes the break into a destination as `nl` and the
-   reconstruction reads it back byte by byte, so the two spellings have
-   to be the same character. *)
+(* `ibreak` writes a break into a destination as `nl`, and the
+   reconstruction reads it back byte by byte, so the two are the same
+   character. *)
 Definition nl_char : ascii := "010"%char.
 
 (* The characters the scanner claims for itself, before it consults the
@@ -166,61 +137,48 @@ Definition dreserved (c : ascii) : bool :=
 The delimiter table
 -------------------
 
-djot.js instantiates one function, `betweenMatched(c, annotation,
-defaultmatch, opentest)` (`inline.ts:103`), at nine characters, so the
-table is a transcription rather than a generalization of ours.  It is a
-table and not nine branches for the reason
-`.project/project-engineering-lessons.md` gives under "A hanging `Qed`":
-the scanner must keep one recursive call and decide what to do by lookup,
-or a general lemma about it becomes unprovable while every `Compute`
-stays fast.
+One row per delimiter character; djot has nine.  A table rather than
+nine branches, so that the scanner keeps one recursive call and decides
+what to do by lookup: with a recursive call per branch, a general lemma
+about the scanner becomes unprovable while every `Compute` stays fast
+(`.project/project-engineering-lessons.md`).
 
-Nine rows here, which is every `betweenMatched` row upstream.  Three of
-the characters carry a second construct as well -- the two quotes carry
-smart quotes, and the hyphen carries smart dashes -- and in each case the
-row and the construct are separate work, since a row is a table entry and
-a construct is not. *)
+The two quote rows also carry smart quotes, and the hyphen smart dashes;
+those constructs are separate from the rows. *)
 
 Inductive dstyle : Type :=
   | DEmph | DStrong | DSuper | DSub | DMark | DInsert | DDelete
-  (* The smart quotes.  They are `betweenMatched` rows like the rest,
-     with one difference the table has to carry: an unmatched one is not
-     literal text but a curly quote, and which curly quote depends on the
-     markers around it. *)
+  (* The smart quotes.  Rows like the rest, except that an unmatched one
+     is a curly quote rather than literal text, and which curly quote
+     depends on the markers around it. *)
   | DSQuote | DDQuote.
 
-(* How a row may be written.  `DBraced` is djot.js's `opentest = hasBrace`
-   -- the row exists only as `{x ... x}`, because the bare character is
-   too common in prose to claim -- and `DBare` is `alwaysTrue`, where the
-   braces are an optional override.  `DOff` is the third value the table
-   needs but djot never uses: it removes the row, which is what makes
-   "which containers exist" a setting rather than a fixed list. *)
+(* How a row may be written.  `DBraced`: only as `{x ... x}`, because the
+   bare character is too common in prose to claim.  `DBare`: bare, with
+   the braces an optional override.  `DOff` removes the row, so which
+   containers exist is a setting rather than a fixed list. *)
 Inductive dsyntax : Type :=
   | DOff | DBraced | DBare
-  (* djot's single quote: bare, but a bare *opener* only where an
-     apostrophe cannot be meant -- at the start of the line, or after a
-     space, tab, carriage return, newline, either quote character, a
-     hyphen, an open paren or an open bracket (`inline.ts:296-312`).
-     This is the reason `can't` is an apostrophe and not an open quote,
-     and it is `opentest` again: a third value of the slot `DBraced`
-     already uses. *)
+  (* Bare, but a bare opener only where an apostrophe cannot be meant: at
+     the start of the line, or after whitespace, a quote character, a
+     hyphen, an open paren or an open bracket.  So `can't` is an
+     apostrophe and not an open quote. *)
   | DBareAfterBreak.
+
+(* What a token that opens nothing and closes nothing leaves behind.
+   Every row but the quotes leaves its own source text.  A quote leaves a
+   curly character, and which one depends on the markers around it: an
+   open marker chooses the left form, a close marker the right one, and
+   with neither the row's default applies. *)
+Inductive ddecay : Type :=
+  | DDSelf
+  | DDPair (left_by_default : bool) (left right : string).
 
 (* The delimiter table, as a parameter.  Every row carries the character
    it is written with and how it may be written; a configuration is a
    choice of both for each row, and djot is one such choice.  Reading the
    character out of the table rather than fixing it per constructor is
    what lets emphasis and strong swap characters. *)
-(* What a token that opens nothing and closes nothing leaves behind.
-   Every row but the quotes leaves its own source text; a quote leaves a
-   curly character, and *which* one is decided by the markers around it:
-   djot.js records a `defaultmatch` per row and flips it, an open marker
-   choosing the left form and a close marker the right one
-   (`inline.ts:118-136`). *)
-Inductive ddecay : Type :=
-  | DDSelf
-  | DDPair (left_by_default : bool) (left right : string).
-
 Record dconfig : Type := DConfig {
   dc_char : dstyle -> ascii;
   dc_width : dstyle -> nat;
@@ -270,10 +228,8 @@ Definition ldquo : string :=
 Definition rdquo : string :=
   String "226"%char (String "128"%char (String "157"%char EmptyString)).
 
-(* An unmatched single quote is an apostrophe -- the right form -- while
-   an unmatched double quote opens rather than closes.  Both were read
-   off djot.js (`right_single_quote`, `left_double_quote`) and checked
-   against it. *)
+(* An unmatched single quote is an apostrophe (the right form), while an
+   unmatched double quote opens. *)
 Definition djot_ddecay (k : dstyle) : ddecay :=
   match k with
   | DSQuote => DDPair false lsquo rsquo
@@ -322,38 +278,7 @@ Proof. intros []; cbn; tauto. Qed.
 Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
   find (fun k => denabled C k && Ascii.eqb (dc_char C k) c)%bool dstyles.
 
-(* An admissible table.  Four conditions, and between them they are
-   everything the scanner and the renderer assume about it -- which is
-   what makes the table a parameter rather than six constructors.  It is
-   decidable and closed, so a configuration is checked rather than
-   trusted.
-
-   1. *Unambiguous*: no two rows that are switched on claim the same
-      character.  The general form of "emphasis and strong emphasis must
-      use different characters", stated over the table rather than over
-      one pair.
-   2. *Written*: a row has a nonzero width, so its delimiter is a
-      nonempty string.  A width of zero would spell a delimiter as `""`,
-      which nothing could scan and nothing could close.
-   3. *Escapable*: a row's character is punctuation, so a backslash can
-      escape it.  This is what `needs_escape_punct` needs -- the decoder
-      only accepts an escape of punctuation.
-   4. *Free*: a row's character is not one the scanner claims for itself.
-      `ilead` dispatches the reserved characters before it consults the
-      table, so a row spelled with one would never be reached.
-   5. *Leaves something*: what an unmatched token decays to is nonempty,
-      so no token can vanish.
-
-   Conditions 2 to 4 are asked of *every* row, not only the switched-on
-   ones.  A switched-off row's character is never looked up, so the tax
-   is that a table must spell even a row it does not use with something
-   admissible -- and what it buys is that "has a token" and "is not a
-   backtick" hold unconditionally, instead of every lemma about scanning
-   a delimiter carrying "this row exists".  Only `dstyle_of` itself needs
-   that, since a switched-off row is genuinely not found. *)
-(* A row's decay leaves something behind: an empty one would let a token
-   vanish, so a document could hold a delimiter run that reaches neither
-   a node nor the text. *)
+(* A row's decay leaves something behind, so no token vanishes. *)
 Definition ddecay_ok (d : ddecay) : bool :=
   match d with
   | DDSelf => true
@@ -367,6 +292,24 @@ Definition ddecay_ok (d : ddecay) : bool :=
 Definition dsyntax_bare (s : dsyntax) : bool :=
   match s with DBare | DBareAfterBreak => true | _ => false end.
 
+(* An admissible table: what the scanner and the renderer assume of it.
+   Decidable, so a configuration is checked rather than trusted.
+
+   1. Unambiguous (`dconfig_distinct`): no two enabled rows claim the
+      same character.
+   2. Written: a row has nonzero width, so its delimiter is nonempty.
+   3. Escapable: a row's character is punctuation, so a backslash can
+      escape it (`needs_escape_punct`).
+   4. Free: a row's character is not `dreserved`.  `ilead` dispatches the
+      reserved characters before it consults the table, so such a row
+      would never be reached.
+   5. Leaves something: an unmatched token's decay is nonempty.
+   6. A bare row is not spelled with the hyphen.
+
+   Conditions 2 to 6 are asked of every row, enabled or not.  A disabled
+   row must still be spelled admissibly; in exchange, "has a token" and
+   "is not a backtick" hold unconditionally rather than under "this row
+   exists", which only `dstyle_of` needs. *)
 Definition drow_ok (C : dconfig) (k : dstyle) : bool :=
   (negb (Nat.eqb (dc_width C k) 0)
    && is_punct (dc_char C k)
@@ -392,9 +335,7 @@ Definition dconfig_ok (C : dconfig) : bool :=
 Definition delimiter_admissible : invariant dconfig :=
   fun C => dconfig_ok C = true.
 
-(* A row update is the local edit Phase 4's table knobs make.  Keeping the
-   payload together matters: compatibility is checked of the replacement row
-   as a unit rather than as four unrelated function updates. *)
+(* A replacement row, checked for compatibility as a unit. *)
 Record dentry : Type := DEntry {
   de_char : ascii;
   de_width : nat;
@@ -490,10 +431,9 @@ Definition drow_trigger_compatible
          (negb (Ascii.eqb (dc_char C' k) (dc_char C' target))))
     dstyles.
 
-(* The replacement has to be a valid row, and its enabled trigger must differ
-   from every unchanged enabled row.  Those are precisely the two facts not
-   inherited from an admissible input table; no whole-table recheck is part of
-   this compatibility predicate. *)
+(* The replacement must be a valid row, and its enabled character must
+   differ from every other enabled row's.  Everything else is inherited
+   from an admissible input table. *)
 Definition drow_update_compatible
   (C : dconfig) (target : dstyle) (e : dentry) : bool :=
   (drow_ok (update_drow target e C) target
@@ -635,10 +575,10 @@ Proof.
       exact (Hrows k Hk).
 Qed.
 
-(* The second table this development ships is now one checked row update:
-   Markdown's `**` spelling for strong, with djot's semantics everywhere
-   else.  A single `*` is literal because the row has one fixed width; there
-   is no run-length disambiguation or flanking rule. *)
+(* Markdown's `**` spelling for strong, as one checked row update, with
+   djot's semantics everywhere else.  A single `*` is literal because the
+   row has one fixed width: there is no run-length disambiguation or
+   flanking rule. *)
 Definition markdown_strong_entry : dentry :=
   DEntry "*"%char 2 DBare DDSelf.
 
@@ -665,26 +605,24 @@ Example empty_strong_incompatible :
     (DEntry "*"%char 0 DBare DDSelf) = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(* The hyphen is condition 4's remaining case, and it is the one the
-   character alone does not settle.  `ilead` claims a hyphen before it
-   consults the table, so a row declaring itself bare and spelled `-`
-   would be read in its braced spelling and in no other: `{-x-}` marks
-   the span and `-x-` is a smart dash.  A row that does not do what its
-   syntax says is not admissible. *)
+(* The hyphen condition.  `ilead` claims a hyphen before it consults the
+   table, so a bare row spelled `-` would be read only in its braced
+   spelling: `{-x-}` marks the span and `-x-` is a smart dash.  A row that
+   does not do what its syntax says is not admissible. *)
 Example bare_hyphen_incompatible :
   drow_update_compatible djot_config DEmph
     (DEntry hyphen 1 DBare DDSelf) = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(* The braced spelling is reached from the brace, so the condition does
-   not touch it -- which is what keeps djot's own delete row legal. *)
+(* A braced row is reached from the brace, so the condition does not
+   touch it.  djot's own delete row is braced. *)
 Example braced_hyphen_row_ok :
   drow_ok (update_drow DEmph (DEntry hyphen 1 DBraced DDSelf) djot_config)
     DEmph = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* Disabling is the first specialization.  It changes only the syntax field;
-   the row remains intrinsically valid even while switched off. *)
+(* Disabling a row changes only its syntax field; the row stays valid
+   while switched off. *)
 Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
   DEntry (dc_char C target) (dc_width C target) DOff (dc_decay C target).
 
@@ -735,9 +673,8 @@ Proof.
   - exact H.
 Qed.
 
-(* Profiles switch off several independent containers by composing the same
-   proved row operation.  The order is immaterial to behaviour, but keeping it
-   as an explicit list makes the profile's surface syntax reviewable. *)
+(* Switch off several rows by composing the same proved row operation.
+   The order does not affect behaviour. *)
 Fixpoint disable_rows (targets : list dstyle) (C : dconfig) : dconfig :=
   match targets with
   | [] => C
@@ -782,8 +719,7 @@ Proof.
 Qed.
 
 (* What the side condition buys: a row's own character finds that row
-   again.  Every later fact about the scanner needs this and nothing else
-   about the table, which is why the condition is worth isolating. *)
+   again. *)
 Lemma dstyle_at_dchar :
   forall C k,
     dconfig_ok C = true -> denabled C k = true ->
@@ -805,16 +741,33 @@ Proof.
     rewrite Hen, Ascii.eqb_refl in E. discriminate.
 Qed.
 
-(* The node a closed bracket builds, and the one place image-ness is
-   consulted.  Kept beside `dnode` for the same reason: it is a lookup,
-   not a branch in the scanner. *)
+(* The node a closed bracket builds: a lookup on image-ness, not a branch
+   in the scanner. *)
 Definition bnode (image : bool) (ns : inlines) (tgt : target) : inline :=
   if image then Image ns tgt else Link ns tgt.
 
-(* The label supplied by an empty reference (`[text][]`) is the string
-   content of the first bracket.  This is djot.js's `getStringContent`,
-   kept local to the inline layer so classification still does not consult
-   either reference map. *)
+Definition dnode (k : dstyle) (ns : inlines) : inline :=
+  match k with
+  | DEmph => Emph ns | DStrong => Strong ns
+  | DSuper => Superscript ns | DSub => Subscript ns
+  | DMark => Highlight ns | DInsert => Insert ns
+  | DDelete => Delete ns
+  | DSQuote => Quoted SingleQuotes ns | DDQuote => Quoted DoubleQuotes ns
+  end.
+
+(* A wikilink's display text: the alias if there is one, else the target. *)
+Definition wiki_display (target : string) (alias : option string) : string :=
+  match alias with Some d => d | None => target end.
+
+(* The ordinary link a wikilink renders as. *)
+Definition wiki_desugar (embed : bool) (target : string) (alias : option string)
+  : inline :=
+  let ils := [mk (Str (wiki_display target alias))] in
+  if embed then Image ils (Direct target) else Link ils (Direct target).
+
+(* The label an empty reference (`[text][]`) supplies: the string content
+   of the first bracket.  Computed in the inline layer, so classification
+   does not consult either reference map. *)
 Fixpoint reference_text (il : inline) : string :=
   let go :=
     fix go (ns : inlines) : string :=
@@ -836,17 +789,7 @@ Fixpoint reference_text (il : inline) : string :=
 Definition reference_inlines_text (ns : inlines) : string :=
   String.concat EmptyString (map (fun n => reference_text (node_contents n)) ns).
 
-Definition dnode (k : dstyle) (ns : inlines) : inline :=
-  match k with
-  | DEmph => Emph ns | DStrong => Strong ns
-  | DSuper => Superscript ns | DSub => Subscript ns
-  | DMark => Highlight ns | DInsert => Insert ns
-  | DDelete => Delete ns
-  | DSQuote => Quoted SingleQuotes ns | DDQuote => Quoted DoubleQuotes ns
-  end.
-
-(* Djot's table satisfies the side condition: its six characters are
-   distinct.  Checked rather than assumed. *)
+(* Djot's table is admissible, checked rather than assumed. *)
 Example djot_config_ok : dconfig_ok djot_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -878,17 +821,12 @@ Example clashing_config_ok_when_off :
 Proof. vm_compute. reflexivity. Qed.
 
 
-(* The table in force, as a parameter.
+(* The table in force: an admissible configuration together with its
+   proof.  Everything below is stated for an arbitrary one, so the
+   roundtrip theorems are about the family rather than about djot.
 
-   A `dtable` is an admissible configuration: a table together with the
-   proof that it satisfies `dconfig_ok`.  Everything below is stated for
-   an arbitrary one, so `roundtrip_blocks` and its neighbours are
-   theorems about the family rather than about djot -- and a second
-   configuration is a second instance rather than a second build.
-
-   It is a class so that the argument stays implicit: the instance in
-   scope is the one meant, and naming another (`@parse_inline_line
-   markdown_table`) is how the other table is spoken of. *)
+   A class, so that the argument stays implicit.  Another table is named
+   explicitly (`@parse_inline_line markdown_table`). *)
 Class dtable : Type := DTable {
   cfg : dconfig;
   cfg_ok : dconfig_ok cfg = true
@@ -920,15 +858,14 @@ Definition denabled_of (k : dstyle) : bool := denabled cfg k.
 
 Definition dstyle_of (c : ascii) : option dstyle := dstyle_at cfg c.
 
-(* A row's delimiter as it is written: `dwidth` copies of its character.
-   The scanner cuts a run of that character into these and leaves any
-   remainder as text, which is why a width is enough and a general string
-   is not needed -- the character belongs to one row, so there is nothing
-   to disambiguate. *)
+(* A row's delimiter as written: `dwidth` copies of its character.  The
+   scanner cuts a run of the character into these and leaves any
+   remainder as text.  The character belongs to one row, so a width is
+   enough. *)
 Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 
-(* djot.js `pattNonspace` (inline.ts:80).  `can_open` and `can_close` are
-   each one test of one neighbouring byte against this. *)
+(* Whitespace as the delimiter rules see it.  `can_open` and `can_close`
+   each test one neighbouring byte against this. *)
 Definition is_space (c : ascii) : bool :=
   (Ascii.eqb c " "%char || Ascii.eqb c "009"%char
    || Ascii.eqb c "013"%char || Ascii.eqb c "010"%char)%bool.
@@ -936,10 +873,9 @@ Definition is_space (c : ascii) : bool :=
 Definition nonspace_at (p : option ascii) : bool :=
   match p with None => false | Some c => negb (is_space c) end.
 
-(* The bytes after which djot's single quote may open: the start of the
+(* The bytes after which the single quote may open: the start of the
    line, whitespace, either quote, a hyphen, or an opening paren or
-   bracket (`inline.ts:296-312`).  Everything else is a word or a mark
-   that an apostrophe could follow. *)
+   bracket.  After anything else an apostrophe could be meant. *)
 Definition dopens_after (c : option ascii) : bool :=
   match c with
   | None => true
@@ -948,23 +884,20 @@ Definition dopens_after (c : option ascii) : bool :=
        || Ascii.eqb ch hyphen || Ascii.eqb ch lparen || Ascii.eqb ch lbrack)%bool
   end.
 
-(* What an unmatched token leaves behind.  The two markers are djot.js's
-   `has_open_marker` and `has_close_marker` (`inline.ts:118-136`), and
-   they decide two separate things.
+(* What an unmatched token leaves behind.  The two markers are the braces
+   that forced it open or closed, and they decide two things.
 
-   *How far the token reaches.*  An ordinary row leaves its own source,
-   and a marker's brace is part of it -- but only the one djot.js
-   actually consumed: `endcloser` moves past the `}` only when there is
-   no open marker, so `*}` is two characters of text and `{*}` is `{*`
-   with the `}` still to come.
+   How far the token reaches.  An ordinary row leaves its own source,
+   with the brace it consumed.  A token with an open marker does not
+   consume the `}` after it, so `*}` is two characters of text and `{*}`
+   is `{*` with the `}` still to come.
 
-   *Which side a smart quote takes.*  The flip is directional.  An open
-   marker can only turn a right default into a left one and a close
-   marker only the reverse, so on the one token that carries both the
-   row's own default decides which of them applies.  The double quote
-   defaults left, so a braced open double quote with a `}` after it takes
-   the right form; the single quote defaults right, and `{'` with a `}`
-   after it takes the left. *)
+   Which side a smart quote takes.  An open marker can only turn a right
+   default into a left one and a close marker only the reverse, so on a
+   token with both, the row's default decides.  The double quote defaults
+   left, so a braced open double quote with a `}` after it takes the
+   right form; the single quote defaults right, so `{'` with a `}` after
+   it takes the left. *)
 Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
   match dc_decay cfg k with
   | DDSelf =>
@@ -978,8 +911,7 @@ Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
   end.
 
 (* Whether an unbraced delimiter may open a span here.  Closing never
-   asks this -- djot's `opentest` gates opening alone -- so a quote may
-   close from anywhere its neighbour is nonspace. *)
+   asks this, so a quote may close wherever its neighbour is nonspace. *)
 Definition dbare (k : dstyle) (before : option ascii) : bool :=
   match dsyntax_of k with
   | DBare => true
@@ -990,10 +922,6 @@ Definition dbare (k : dstyle) (before : option ascii) : bool :=
 Definition is_delim (c : ascii) : bool :=
   match dstyle_of c with Some _ => true | None => false end.
 
-(* The table's coherence obligation, alongside the `needs_escape` ones
-   below: a row's character must look the row up again.  A new row that
-   reuses a character silently shadows an old one without it. *)
-(* Whether the row exists at all in the table in force. *)
 
 (* Everything the scanner and the renderer assume about the table is
    derived from the instance's own side condition, so an instance is
@@ -1058,7 +986,7 @@ Proof.
     [unfold dsyntax_of in H; rewrite H in Hr; discriminate|exact Hr].
 Qed.
 
-(* What condition 5 buys, in the form the scanner uses it. *)
+(* What the decay condition buys, in the form the scanner uses. *)
 Lemma ddecay_str_nonempty :
   forall k om cm, nonempty_str (ddecay_str k om cm) = true.
 Proof.
@@ -1136,21 +1064,16 @@ Proof.
   rewrite !append_assoc. reflexivity.
 Qed.
 
-(* The claimed characters: the ones the scanner reserves, the ones the
-   table hands out, and the punctuation claimed independently below.
+(* The characters a `CIStr` must escape to survive reparsing: the
+   reserved ones, the table's, and three claimed independently.
 
-   `^` is listed on its own because it is the one character that is both.
-   It marks a footnote after a `[`, so canonical text must escape it; but
-   it is also the superscript row's character, so it cannot join
-   `dreserved`, which is precisely the set no row may claim.  A table
-   that hands `^` to no row escapes it anyway, which costs an escape of a
-   punctuation character and decodes back to itself. *)
-(* The hyphen is here for the same reason as `hat` and not for `hat`'s
-   reason.  It cannot be `dreserved`, because djot's delete row is
-   spelled with it and a row's character may not be reserved; but the
-   scanner dispatches on it for smart dashes whatever the table says, so
-   a canonical `Str` must escape it under *every* table -- otherwise
-   `iscan_escape` is false for a table whose rows avoid the hyphen. *)
+   `^` marks a footnote after `[`, but it is also the superscript row's
+   character, so it cannot be reserved: no row may claim a reserved
+   character.  The hyphen is djot's delete row character, so it cannot be
+   reserved either, but the scanner dispatches on it for smart dashes
+   under every table.  `:` can become a key connective.  Escaping one of
+   these under a table that gives it no role costs an escape of
+   punctuation, which decodes back to itself. *)
 Definition needs_escape (c : ascii) : bool :=
   (dreserved c || is_delim c || Ascii.eqb c hat || Ascii.eqb c hyphen
    || Ascii.eqb c ":"%char)%bool.
@@ -1185,8 +1108,7 @@ Lemma needs_escape_backslash : needs_escape "\"%char = true.
 Proof. reflexivity. Qed.
 
 (* Obligation 3: a backtick in a `Str` must not reach the scanner bare,
-   or it would open a verbatim span instead of standing for itself.  This
-   is the obligation every delimiter character will add. *)
+   or it would open a verbatim span. *)
 Lemma needs_escape_tick : forall c, is_tick c = true -> needs_escape c = true.
 Proof.
   intros c H. unfold needs_escape, dreserved. rewrite H.
@@ -1227,17 +1149,14 @@ Proof. reflexivity. Qed.
 Lemma needs_escape_rbrack : needs_escape rbrack = true.
 Proof. reflexivity. Qed.
 
-(* The `!` an image opens on.  Escaping it unconditionally is what lets a
-   `Str` ending in `!` sit before a link without turning it into an
-   image, which is exactly the reading djot.js gives `\![a](u)`. *)
+(* The `!` an image opens on.  Escaping it unconditionally lets a `Str`
+   ending in `!` sit before a link without making it an image. *)
 Lemma needs_escape_bang : needs_escape bang = true.
 Proof. reflexivity. Qed.
 
 (* A literal colon must not become a key connective when its line opens
-   a paragraph.  Escaping it in the shared inline spelling also protects
-   labels, and works with keys off: the inline decoder reads [\:] as [:]
-   in either mode.  Like the other escapes, it is emitted on every line,
-   so rendering does not need a block setting or a first-line variant. *)
+   a paragraph.  The decoder reads `\:` as `:` with keys on or off, so the
+   escape is emitted everywhere and rendering needs no block setting. *)
 Lemma needs_escape_colon : needs_escape ":"%char = true.
 Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
@@ -1278,7 +1197,7 @@ Fixpoint escape_dest (s : string) : string :=
   end.
 
 (* Verbatim delimiters use the least positive backtick-run length that
-   does not occur in the content, matching djot.js `verbatimDelim`. *)
+   does not occur in the content. *)
 Fixpoint tick_runs_from (run : nat) (s : string) : list nat :=
   match s with
   | EmptyString => if Nat.eqb run 0 then [] else [run]
@@ -1438,8 +1357,6 @@ Definition link_close (dst tail : string) : string :=
 Definition ref_close (label tail : string) : string :=
   String rbrack (String lbrack (label ++ String rbrack tail)).
 
-(* A footnote reference is a leaf: its label is source rather than inline
-   content, so there is no child canonical view to reconstruct. *)
 (* A wikilink's source: `[[target]]` or `[[target|alias]]`, with the `!`
    of an embed in front. *)
 Definition wiki_text (embed : bool) (t : string) (al : option string)
@@ -1448,6 +1365,8 @@ Definition wiki_text (embed : bool) (t : string) (al : option string)
    ++ match al with Some a => String vbar a | None => EmptyString end
    ++ one rbrack ++ one rbrack)%string.
 
+(* A footnote reference's source.  A leaf: its label is source rather
+   than inline content. *)
 Definition note_text (label : string) : string :=
   String lbrack (String hat (label ++ one rbrack)).
 
@@ -1468,11 +1387,10 @@ Definition note_label_safe : string -> bool := note_label_safe_from false.
 Autolinks
 ---------
 
-`<...>` is a link to its own text, and which kind it is the region
-decides: djot.js runs two regexes over the captured bytes
-(`inline.ts:270-276`), the email test first.  Both are "somewhere in the
-region", not anchored, so they are searches rather than shapes -- which
-is why an autolink is decided by two predicates and not by a parser. *)
+`<...>` is a link to its own text, and the region decides which kind: an
+email test, then a URL test.  Both search the whole region rather than
+matching a shape, so an autolink is decided by two predicates, not by a
+parser. *)
 
 (* `/[^:]@/`: an `@` with a character before it that is not a colon.  The
    leading position cannot match, so `<@x>` is not an email. *)
@@ -1497,7 +1415,7 @@ Definition is_alpha (c : ascii) : bool :=
   ((Ascii.leb "a"%char c && Ascii.leb c "z"%char)
    || (Ascii.leb "A"%char c && Ascii.leb c "Z"%char))%bool.
 
-(* The bytes accepted by djot.js's /[\w_+-]/ symbol alias pattern. *)
+(* The bytes a symbol name may contain: `[\w_+-]`. *)
 Definition symbol_char (c : ascii) : bool :=
   (is_alpha c || (Ascii.leb "0"%char c && Ascii.leb c "9"%char)
    || Ascii.eqb c "_"%char || Ascii.eqb c "+"%char
@@ -1511,8 +1429,8 @@ Fixpoint auto_scheme (s : string) : bool :=
   | _ => false
   end.
 
-(* The two tests, in djot.js's order.  A region failing both is not an
-   autolink at all and the brackets are literal. *)
+(* The email test first.  A region failing both is not an autolink, and
+   the brackets are literal. *)
 Definition auto_node (s : string) : inline :=
   if auto_email s then EmailLink s else UrlLink s.
 
@@ -1544,18 +1462,14 @@ Raw inline
 ----------
 
 A verbatim span whose closing run is followed immediately by `{=format}`
-is raw content in that format rather than code.  djot.js decides it at
-the closer with a second lookahead, `pattRawAttribute`
-(`inline.ts:94`, used at :849), and only for a span that is verbatim
-rather than math -- `` $`x`{=html} `` stays math.
+is raw content in that format rather than code.  A math span is not:
+`` $`x`{=html} `` stays math.
 
-The pattern is `\{=[^\s{}`]+\}`, so the format is nonempty and free of
-whitespace, either brace and the backtick.  It is *not* attribute
-syntax: the raw check runs first and a spec that fails it can never
-parse as attributes either, since no attribute spec begins with `=`.
-That is what lets one mode decide the question, and it is also what
-makes `` `x`{=html=} `` raw with format `html=` rather than the
-highlight row the same bytes would be anywhere else. *)
+The format is nonempty and free of whitespace, braces and backticks.  It
+is not attribute syntax: the raw check runs first, and no attribute spec
+begins with `=`.  So one mode decides it, and `` `x`{=html=} `` is raw
+with format `html=` rather than the highlight row the same bytes would
+be anywhere else. *)
 
 (* The source after the `{`, which the mode accumulates.  A format is
    what follows an `=`, so a spec that does not begin with one has
@@ -1694,16 +1608,14 @@ Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
   | String c rest => str_last rest (Some c)
   end.
 
-(* Source text, threading the byte to the left of what is being emitted
-   (`None` at the start of a line).
+(* Source text.
 
-   Not `concat (map ...)`: a delimiter's spelling depends on its
-   neighbours, so `Emph [CIStr "b"]` renders `_b_` at a line start but
-   `{_b_}` inside `a_b_c`, and a context-free per-element function
-   cannot say which.  One byte on each side is the whole of the context
-   any djot rule consults, since `can_open` and `can_close` each test a
-   single neighbouring character (djot.js `inline.ts:110-112`); the byte
-   to the right is available from the unconsumed tail. *)
+   Not `concat (map ...)` of a per-element function: a delimiter's
+   spelling depends on its neighbours, so `Emph [CIStr "b"]` renders
+   `_b_` at a line start but `{_b_}` inside `a_b_c`.  One byte on each
+   side is the whole of the context a delimiter rule consults, since
+   `can_open` and `can_close` each test a single neighbouring character,
+   and the byte to the right is available from the unconsumed tail. *)
 Fixpoint ci_src (ci : cinline) : string :=
   let go :=
     fix go (cis : list cinline) : string :=
@@ -1734,21 +1646,25 @@ Fixpoint ci_text (cis : list cinline) : string :=
 
 Definition ci_line (cis : list cinline) : string := ci_text cis.
 
+(* The traversal inside [ci_src] is [ci_text]. *)
+Lemma ci_src_children : forall xs,
+  (fix go (cis : list cinline) : string :=
+     match cis with
+     | [] => EmptyString
+     | c :: rest => (ci_src c ++ go rest)%string
+     end) xs = ci_text xs.
+Proof.
+  induction xs as [|c rest IH]; cbn [ci_text]; [reflexivity|].
+  rewrite IH. reflexivity.
+Qed.
+
 Lemma ci_src_delim :
   forall k kids,
     ci_src (CIDelim k kids)
     = (marked_open k ++ (ci_text kids ++ marked_close k EmptyString))%string.
 Proof.
   intros k kids.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : string :=
-       match cis with
-       | [] => EmptyString
-       | c :: rest => (ci_src c ++ go rest)%string
-       end) xs = ci_text xs).
-  { induction xs as [|c rest IH]; cbn [ci_text]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_src]. rewrite H. reflexivity.
+  cbn [ci_src]. rewrite ci_src_children. reflexivity.
 Qed.
 
 Lemma ci_src_link :
@@ -1757,15 +1673,7 @@ Lemma ci_src_link :
     = (bracket_open img ++ (ci_text kids ++ link_close dst EmptyString))%string.
 Proof.
   intros img kids dst.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : string :=
-       match cis with
-       | [] => EmptyString
-       | c :: rest => (ci_src c ++ go rest)%string
-       end) xs = ci_text xs).
-  { induction xs as [|c rest IH]; cbn [ci_text]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_src]. rewrite H. reflexivity.
+  cbn [ci_src]. rewrite ci_src_children. reflexivity.
 Qed.
 
 Lemma ci_src_ref :
@@ -1774,18 +1682,10 @@ Lemma ci_src_ref :
     = (bracket_open img ++ (ci_text kids ++ ref_close label EmptyString))%string.
 Proof.
   intros img kids label.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : string :=
-       match cis with
-       | [] => EmptyString
-       | c :: rest => (ci_src c ++ go rest)%string
-       end) xs = ci_text xs).
-  { induction xs as [|c rest IH]; cbn [ci_text]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_src]. rewrite H. reflexivity.
+  cbn [ci_src]. rewrite ci_src_children. reflexivity.
 Qed.
 
-(* ...and the AST the parser builds from that text. *)
+(* The AST the parser builds from that text. *)
 Fixpoint ci_ast (ci : cinline) : node inline :=
   let go :=
     fix go (cis : list cinline) : inlines :=
@@ -1807,19 +1707,23 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
 
+(* The traversal inside [ci_ast] is [ci_inlines]. *)
+Lemma ci_ast_children : forall xs,
+  (fix go (cis : list cinline) : inlines :=
+     match cis with
+     | [] => []
+     | c :: rest => ci_ast c :: go rest
+     end) xs = ci_inlines xs.
+Proof.
+  induction xs as [|c rest IH]; cbn [ci_inlines map]; [reflexivity|].
+  rewrite IH. reflexivity.
+Qed.
+
 Lemma ci_ast_delim :
   forall k kids, ci_ast (CIDelim k kids) = mk (dnode k (ci_inlines kids)).
 Proof.
   intros k kids.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : inlines :=
-       match cis with
-       | [] => []
-       | c :: rest => ci_ast c :: go rest
-       end) xs = ci_inlines xs).
-  { induction xs as [|c rest IH]; cbn [ci_inlines map]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ast]. rewrite H. reflexivity.
+  cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
 Qed.
 
 Lemma ci_ast_link :
@@ -1828,15 +1732,7 @@ Lemma ci_ast_link :
     = mk (bnode img (ci_inlines kids) (Direct dst)).
 Proof.
   intros img kids dst.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : inlines :=
-       match cis with
-       | [] => []
-       | c :: rest => ci_ast c :: go rest
-       end) xs = ci_inlines xs).
-  { induction xs as [|c rest IH]; cbn [ci_inlines map]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ast]. rewrite H. reflexivity.
+  cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
 Qed.
 
 Lemma ci_ast_ref :
@@ -1845,15 +1741,7 @@ Lemma ci_ast_ref :
     = mk (bnode img (ci_inlines kids) (Reference label)).
 Proof.
   intros img kids label.
-  assert (H : forall xs,
-    (fix go (cis : list cinline) : inlines :=
-       match cis with
-       | [] => []
-       | c :: rest => ci_ast c :: go rest
-       end) xs = ci_inlines xs).
-  { induction xs as [|c rest IH]; cbn [ci_inlines map]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ast]. rewrite H. reflexivity.
+  cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
 Qed.
 
 Lemma ci_line_nil : ci_line [] = EmptyString.
@@ -1867,27 +1755,12 @@ Renderability
 -------------
 *)
 
-(* A `Str` carrying no text would not have been emitted, and one carrying
-   a newline is not within-line content.
-
-   An *empty* verbatim is excluded outright, which narrows the view by a
-   document the parser can reach.  Its canonical source is two adjacent
-   delimiter runs and nothing between, so it is closed only by what
-   follows it: at the end of a paragraph the scan closes it, and anywhere
-   else the runs merge and swallow the next byte -- across a line break
-   included, since spans cross breaks.  Representing it would take a
-   condition on the *paragraph*, which is one level above anything
-   `cinline` knows about.  `Verbatim ""` in a one-line paragraph does
-   round-trip; it is simply outside the view. *)
-(* A `!` before a link's `[` would make it an image, and there is no
-   pair rule for that: `needs_escape` claims the `!`, so a `Str` ending
-   in one renders as `\!` and djot.js reads that as a link too. *)
-(* A verbatim before a delimiter spelled with `=` is the third
-   adjacency, and the raw spec is why: `` `x`{=a=} `` is the source of a
-   verbatim beside a highlight, and both parsers read it as raw content
-   in format `a=`.  The exclusion is on the row's *character*, not on the
-   row, since the table is a parameter -- and it is the whole cost the
-   raw construct puts on the canonical view. *)
+(* Which adjacent pairs have separable source.  Two `Str`s would merge,
+   as would two verbatims' delimiter runs, or a verbatim and raw content,
+   which opens with a backtick run too.  A verbatim before a delimiter
+   spelled with `=` would read as a raw spec: `` `x`{=a=} `` is raw
+   content in format `a=`.  That exclusion is on the row's character,
+   since the table is a parameter. *)
 Definition ci_pair_ok (a b : cinline) : bool :=
   match a, b with
   | CIStr _, CIStr _ => false
@@ -1920,6 +1793,12 @@ Definition bracket_kids_ok (kids : list cinline) : bool :=
 Definition wiki_part_ok (s : string) : bool :=
   (no_char rbrack s && no_char vbar s && no_char bslash s && no_nl s)%bool.
 
+(* The canonical view's conditions on one inline.  A `Str` is nonempty and
+   newline-free.  An empty verbatim is excluded although the parser can
+   build one: its source is two adjacent delimiter runs, closed only by
+   what follows, so representing it would take a condition on the whole
+   paragraph.  `Verbatim ""` in a one-line paragraph does round-trip; it
+   is outside the view. *)
 Fixpoint ci_ok (ci : cinline) : bool :=
   let go :=
     fix go (cis : list cinline) : bool :=
@@ -1964,9 +1843,9 @@ Fixpoint ci_ok (ci : cinline) : bool :=
      literal text of its own brackets, which is a `CIStr` instead. *)
   | CIAuto s => (auto_body_ok s && auto_kind_ok s)%bool
   (* The content is a verbatim's, spelled by the same machinery and so
-     under the same conditions.  The format is what `pattRawAttribute`
-     accepts: nonempty and free of whitespace, either brace and the
-     backtick -- and unescapable, since the mode reads it raw. *)
+     under the same conditions.  The format is nonempty and free of
+     whitespace, braces and backticks, and is read raw, so it cannot be
+     escaped. *)
   | CIRaw fmt s =>
       (raw_inline_enabled && nonempty_str s
        && verb_content_ok s && raw_fmt_ok fmt)%bool
@@ -2013,29 +1892,37 @@ Fixpoint ci_sep_ok (cis : list cinline) : bool :=
 Definition cis_ok (cis : list cinline) : bool :=
   forallb ci_ok cis && ci_sep_ok cis.
 
+(* The two traversals inside [ci_ok] are [forallb ci_ok] and
+   [ci_sep_ok]. *)
+Lemma ci_ok_children : forall xs,
+  (fix go (cis : list cinline) : bool :=
+     match cis with
+     | [] => true
+     | c :: rest => (ci_ok c && go rest)%bool
+     end) xs = forallb ci_ok xs.
+Proof.
+  induction xs as [|c rest IH]; cbn [forallb]; [reflexivity|].
+  rewrite IH. reflexivity.
+Qed.
+
+Lemma ci_sep_children : forall xs,
+  (fix sep (cis : list cinline) : bool :=
+     match cis with
+     | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
+     | _ => true
+     end) xs = ci_sep_ok xs.
+Proof.
+  induction xs as [|a [|b rest] IH]; cbn [ci_sep_ok]; [reflexivity..|].
+  rewrite IH. reflexivity.
+Qed.
+
 Lemma ci_ok_delim :
   forall k kids,
     ci_ok (CIDelim k kids)
     = (denabled_of k && nonempty kids && cis_ok kids)%bool.
 Proof.
   intros k kids.
-  assert (Hg : forall xs,
-    (fix go (cis : list cinline) : bool :=
-       match cis with
-       | [] => true
-       | c :: rest => (ci_ok c && go rest)%bool
-       end) xs = forallb ci_ok xs).
-  { induction xs as [|c rest IH]; cbn [forallb]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  assert (Hs : forall xs,
-    (fix sep (cis : list cinline) : bool :=
-       match cis with
-       | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
-       | _ => true
-       end) xs = ci_sep_ok xs).
-  { induction xs as [|a [|b rest] IH]; cbn [ci_sep_ok]; [reflexivity..|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ok]. rewrite Hg, Hs. unfold cis_ok.
+  cbn [ci_ok]. rewrite ci_ok_children, ci_sep_children. unfold cis_ok.
   repeat rewrite andb_assoc. reflexivity.
 Qed.
 
@@ -2045,23 +1932,7 @@ Lemma ci_ok_link :
     = (no_nl dst && cis_ok kids && bracket_kids_ok kids)%bool.
 Proof.
   intros img kids dst.
-  assert (Hg : forall xs,
-    (fix go (cis : list cinline) : bool :=
-       match cis with
-       | [] => true
-       | c :: rest => (ci_ok c && go rest)%bool
-       end) xs = forallb ci_ok xs).
-  { induction xs as [|c rest IH]; cbn [forallb]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  assert (Hs : forall xs,
-    (fix sep (cis : list cinline) : bool :=
-       match cis with
-       | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
-       | _ => true
-       end) xs = ci_sep_ok xs).
-  { induction xs as [|a [|b rest] IH]; cbn [ci_sep_ok]; [reflexivity..|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ok]. rewrite Hg, Hs. unfold cis_ok.
+  cbn [ci_ok]. rewrite ci_ok_children, ci_sep_children. unfold cis_ok.
   repeat rewrite andb_assoc. reflexivity.
 Qed.
 
@@ -2073,23 +1944,7 @@ Lemma ci_ok_ref :
        && bracket_kids_ok kids)%bool.
 Proof.
   intros img kids label.
-  assert (Hg : forall xs,
-    (fix go (cis : list cinline) : bool :=
-       match cis with
-       | [] => true
-       | c :: rest => (ci_ok c && go rest)%bool
-       end) xs = forallb ci_ok xs).
-  { induction xs as [|c rest IH]; cbn [forallb]; [reflexivity|].
-    rewrite IH. reflexivity. }
-  assert (Hs : forall xs,
-    (fix sep (cis : list cinline) : bool :=
-       match cis with
-       | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
-       | _ => true
-       end) xs = ci_sep_ok xs).
-  { induction xs as [|a [|b rest] IH]; cbn [ci_sep_ok]; [reflexivity..|].
-    rewrite IH. reflexivity. }
-  cbn [ci_ok]. rewrite Hg, Hs. unfold cis_ok.
+  cbn [ci_ok]. rewrite ci_ok_children, ci_sep_children. unfold cis_ok.
   repeat rewrite andb_assoc. reflexivity.
 Qed.
 
@@ -2122,10 +1977,10 @@ The inline pass
 *)
 
 (* Verbatim content is trimmed of one padding space at each end, but only
-   where it sits against a backtick (djot.js `trimVerbatim`, parse.ts:57).
-   A space not adjacent to a backtick is content: `` ` a ` `` really is
-   " a ".  Reversed, "ends with a backtick then a space" is "starts with a
-   space then a backtick", so one function does both ends. *)
+   where it sits against a backtick.  A space not adjacent to a backtick
+   is content: `` ` a ` `` really is " a ".  Reversed, "ends with a
+   backtick then a space" is "starts with a space then a backtick", so
+   one function does both ends. *)
 
 Definition strip_pad (s : string) : string :=
   match s with
@@ -2202,21 +2057,16 @@ Qed.
 The scanner
 -----------
 
-One character at a time, structurally recursive on the remaining input.
-That makes the current outer scan's source consumption structural: it
-never re-feeds a source position through tokenization.  The project's
-no-backtracking interpretation (see `.project/no-backtracking.md`) also
-permits retroactive scope-stack changes and compound states whose
-alternatives advance together.  This structure is not a linear-time
-claim: resolving one byte may still walk the opener stack.  It also
-matches djot.js's ordinary `feed`, which is a position-at-a-time loop over
-a mode flag.
+One character at a time, structurally recursive on the remaining input,
+so the scan never feeds a source position back through tokenization
+(`.project/no-backtracking.md`).  This is not a linear-time claim:
+resolving one byte may still walk the opener stack.
 
-A verbatim closer is a run of *exactly* the opening width, so a run
-cannot be resolved until the character after it arrives; that is why
-`IVerb` carries a pending run count rather than closing eagerly.  A run
-of the wrong width is content, which is how `` ` `` ` `` holds two
-backticks inside a one-backtick fence. *)
+A verbatim closer is a run of exactly the opening width, so a run cannot
+be resolved until the character after it arrives: `IVerb` carries a
+pending run count rather than closing eagerly.  A run of the wrong width
+is content, which is how `` ` `` ` `` holds two backticks inside a
+one-backtick fence. *)
 
 Lemma nat_eqb_refl : forall n, Nat.eqb n n = true.
 Proof. induction n; [reflexivity|exact IHn]. Qed.
@@ -2225,33 +2075,23 @@ Proof. induction n; [reflexivity|exact IHn]. Qed.
 The scope stack
 ---------------
 
-djot.js keeps a flat event list and rewrites it: an opener leaves a
-placeholder `str` match, closing splices the real annotation over it, and
-`clearOpeners` discards the openers a completed match spanned.  We keep a
-stack of open scopes instead, each carrying its own accumulated inlines.
-The two are equivalent -- probed against djot.js over the corpus and
-~580k generated strings before any of this was written, see
-`.project/260811.inline-parser.md` §2.2 -- and the stack is what the
-proofs can induct on.
+A stack of open scopes, each carrying its own accumulated inlines.
+djot.js instead rewrites a flat event list; the two agree
+(`.project/260811.inline-parser.md`), and the stack is what the proofs
+can induct on.
 
-Three dispositions, of the four the probe found.  *Close* pops the
-scope and emits its node.  *Abandon* replaces a scope by literal text:
-its opener's spelling, then its content, spliced into the level below,
-which is what `clearOpeners` plus the placeholder amount to.  The
-remaining two, *discard* and closing below the top, belong to brackets
-and are not reachable from this table. *)
+Closing pops a scope and emits its node.  Abandoning replaces a scope by
+literal text: its opener's spelling, then its content, spliced into the
+level below. *)
 
-(* What a scope accumulates.  A finished node, or an attribute spec
-   whose target is not settled yet.
+(* What a scope accumulates: a finished node, or an attribute spec whose
+   target is not settled yet.
 
-   djot.js attaches a spec in a pass over the *resolved* match stream, so
-   by the time it asks "what is before this?" an opener that never closed
-   is already text.  Asking during the scan gives a different answer --
-   `a *b{.c}o` attaches to `b` rather than `*b` -- and no answer
-   available at the `}` is the right one, since whether the `*` closes is
-   not yet known.  So the spec waits here and `oresolve` settles it when
-   the scope does.  The spec's source is not kept: nothing takes it
-   back, since a spec with nothing to attach to is dropped. *)
+   A spec attaches to what precedes it once openers are resolved, when an
+   opener that never closed is already text.  At the `}` the answer is not
+   yet available (`a *b{.c}o` attaches to `b`, not `*b`, and whether the
+   `*` closes is not known), so the spec waits here and `oresolve`
+   settles it when the scope does. *)
 Inductive oitem : Type :=
   | OIn (n : node inline)
   | OMark (a : attr) (spec : span) (word_start : option spot).
@@ -2260,32 +2100,26 @@ Definition oitems : Type := list oitem.
 
 Inductive frame_kind : Type :=
   (* `closemark` is a `}` immediately after a marked opener.  It does not
-     stop the token opening -- upstream's `has_open_marker` branch forces
-     `can_open`, and the `}` stays as text -- and it does not change which
-     closers reach the scope, so the bit reaches `fr_src` and nothing
-     else.  A marked double quote with a `}` after it opens a scope whose
-     abandoned spelling is the *right* curly quote, which is upstream
-     flipping `defaultmatch` a second time (`inline.ts:126-136`). *)
+     stop the token opening, and the `}` stays as text; it changes only
+     the abandoned spelling (`fr_src`).  A marked double quote with a `}`
+     after it opens a scope whose abandoned spelling is the right curly
+     quote. *)
   | FKDelim (style : dstyle) (closemark : bool)
-  (* `image` records the `!` before the `[`, which djot.js instead reads
-     back off the subject at the close (`inline.ts:475`).  We cannot: the
-     text before the bracket has been flushed by then, and an escaped
-     `\!` is indistinguishable from a bare one once it is in the buffer. *)
+  (* `image` records the `!` before the `[`.  It cannot be read back at
+     the close: the text before the bracket has been flushed by then, and
+     an escaped `\!` looks like a bare one. *)
   | FKBracket (image : bool)
   (* The scope an unterminated destination decays into.  `](` does not
-     end the bracket construct upstream: the `[` opener stays on the
-     stack until the balanced `)` resolves it, so the destination's
-     source is scanned as ordinary content that only becomes literal at
-     the close (`inline.ts:470`).  This frame is that opener, still open,
-     with the label and the `](` already inside it as text -- which is
-     why its decay is the bracket's own byte and not the whole region.
+     end the bracket construct: the `[` stays open until the balanced `)`,
+     so the destination is scanned as ordinary content that only becomes
+     literal at the close.  This frame is that opener, with the label and
+     the `](` already inside it as text, so its decay is the bracket's own
+     byte and not the whole region.
 
-     It differs from `FKBracket` in one way, and it is the one
-     `inline.ts:150` states: a delimiter closer inside a destination may
-     not reach an opener from outside the link construct, so this frame
-     stops the walk that `FKBracket` lets through.  `[u](a ]{.c}`, where
-     upstream re-enters the bracket, is not matched: `bclose_go` still
-     stops here.  See `.project/exact-html-gaps.md`. *)
+     Unlike `FKBracket`, a delimiter closer inside a destination may not
+     reach an opener from outside the link, so this frame stops the walk.
+     `[u](a ]{.c}`, where djot.js re-enters the bracket, is not matched
+     (`.project/exact-html-gaps.md`). *)
   | FKDest (image : bool).
 
 Record frame : Type := Frame {
@@ -2325,9 +2159,9 @@ Definition spot_later (a b : spot) : spot :=
   else if Nat.ltb (spot_rem a) (spot_rem b) then a else b.
 
 (* Where a node's source ends, for the text that follows it: its own stop,
-   or the end of the authored syntax it carries but does not cover -- an
+   or the end of the authored syntax it carries but does not cover.  An
    attribute spec sits after the node it attaches to and is not part of
-   its range (`RAttrSpec`, section 4.4 of the plan). *)
+   its range (`RAttrSpec`). *)
 Definition roles_stop (p : provenance) : spot :=
   fold_left (fun acc e => spot_later acc (span_stop (snd e)))
     (syntax_spans p) (span_stop (node_span p)).
@@ -2384,7 +2218,7 @@ Definition imk_here `{PosPolicy} `{InlineCursor} (x : inline) : node inline :=
 
 (* An abandoned opener, put back as text.  It covers the source the
    opener was written in, which is not the length of what the decay
-   spells: a smart quote is written `'` and decays to `â`. *)
+   spells: a smart quote is written `'` and decays to a curly quote. *)
 Definition fr_lit `{PosPolicy} (f : frame) : node inline :=
   imk (span_start (fr_open f)) (span_stop (fr_open f)) (Str (fr_src f)).
 
@@ -2418,33 +2252,21 @@ Definition oset_cur (l : oitems) (o : ostate) : ostate :=
         (os_word_start o)
   end.
 
-Definition dstyle_eqb (a b : dstyle) : bool :=
-  match a, b with
-  | DEmph, DEmph | DStrong, DStrong | DSuper, DSuper
-  | DSub, DSub | DMark, DMark | DInsert, DInsert
-  | DDelete, DDelete | DSQuote, DSQuote | DDQuote, DDQuote => true
-  | _, _ => false
-  end.
-
-(* A closer matches an opener when the character *and* the marking agree:
-   djot.js keys its opener map by `{d` or `d`, so `{_a_` does not close
-   and neither does `_a_}`. *)
+(* A closer matches an opener when the character and the marking agree,
+   so `{_a_` does not close and neither does `_a_}`. *)
 Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
   match fr_kind f with
-  | FKDelim k' _ => (dstyle_eqb k k' && Bool.eqb m (fr_marked f))%bool
+  | FKDelim k' _ => (dstyle_eq k k' && Bool.eqb m (fr_marked f))%bool
   | FKBracket _ | FKDest _ => false
   end.
 
-(* Reversed-list splices that merge a `Str` seam, so `no_adjacent_str`
-   survives an abandoned opener becoming text next to its neighbours. *)
 (* An attribute-less `Str` -- the kind a neighbour merges with. *)
 Definition plain_str (n : node inline) : bool :=
   match n with Node _ [] (Str _) => true | _ => false end.
 
-(* No two of them adjacent.  `Wf.no_adjacent_str` is this predicate; it
-   lives here because `oresolve` is the identity exactly on lists that
-   satisfy it, and the equational lemmas about closing a scope need to
-   say so. *)
+(* No two of them adjacent.  Defined here because `oresolve` is the
+   identity exactly on lists that satisfy it, and the equations about
+   closing a scope need to say so. *)
 Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
   match ns with
   | n1 :: ((n2 :: _) as rest) =>
@@ -2452,9 +2274,8 @@ Fixpoint no_adjacent_str (ns : list (node inline)) : bool :=
   | _ => true
   end.
 
-(* The same merge over resolved nodes, which is where it now does the
-   real work: `oresolve` rebuilds a scope's list and this is what keeps
-   two plain `Str`s from ending up adjacent in it. *)
+(* The range of two merged text nodes: the first's start to the second's
+   stop. *)
 Definition merge_text_pos (left right : pos) : pos :=
   match left, right with
   | SomePos p, SomePos q =>
@@ -2464,6 +2285,8 @@ Definition merge_text_pos (left right : pos) : pos :=
   | _, _ => left
   end.
 
+(* Push onto a reversed list of resolved nodes, merging two plain `Str`s
+   at the seam. *)
 Definition isnoc (n : node inline) (out : inlines) : inlines :=
   match out, n with
   | Node p [] (Str t) :: rest, Node q [] (Str s) =>
@@ -2522,6 +2345,7 @@ Proof.
   destruct w; reflexivity.
 Qed.
 
+(* The same push on a scope's items. *)
 Definition osnoc (n : oitem) (out : oitems) : oitems :=
   match out, n with
   | OIn (Node p [] (Str t)) :: rest, OIn (Node q [] (Str s)) =>
@@ -2529,8 +2353,7 @@ Definition osnoc (n : oitem) (out : oitems) : oitems :=
   | _, _ => (n :: out)%list
   end.
 
-(* Whether the seam could merge: exactly `Wf.plain_str` of the head, and
-   the same notion `no_adjacent_str` is stated over.  A `Str` carrying
+(* Whether the seam could merge: the head is a plain `Str`.  A `Str` with
    attributes is a node in its own right and never merges. *)
 Definition starts_str (out : oitems) : bool :=
   match out with OIn (Node _ [] (Str _)) :: _ => true | _ => false end.
@@ -2564,11 +2387,9 @@ Definition omark (a : attr) (spec : span) (o : ostate) : ostate :=
         None
   end.
 
-(* Emit in source order while merging a plain-`Str` seam.  Ordinary
-   scanner emission keeps the seam obligation explicit in `iscan_wf`;
-   reconstruction paths (abandoned frames and bracket literal fallback)
-   already know they are splicing source fragments and need the merge by
-   construction. *)
+(* Emit, merging a plain-`Str` seam.  Used where a state is rebuilt from
+   source fragments (abandoned frames, the bracket's literal fallback);
+   ordinary emission leaves the seam obligation to `iscan_wf`. *)
 Definition oemit_merge (n : node inline) (o : ostate) : ostate :=
   match os_stk o with
   | [] => OState (osnoc (OIn n) (os_out o)) [] (os_word_start o)
@@ -2716,13 +2537,11 @@ Proof.
   rewrite IH, <- List.app_assoc. reflexivity.
 Qed.
 
-(* The run an attribute spec attaches to when the thing before it is
-   pending text: everything after the last whitespace.  djot.js attaches
-   to the last *word*, so `foo bar{.a}` attributes only `bar` while
-   `a-b{.a}` attributes all of `a-b` -- the split is on whitespace, not
-   on word characters.  The result satisfies `s = pre ++ w` with `w`
-   whitespace-free, which is why an attributed `Str` can never contain a
-   space. *)
+(* The run an attribute spec attaches to when text precedes it:
+   everything after the last whitespace.  The split is on whitespace, not
+   on word characters: `foo bar{.a}` attributes `bar`, and `a-b{.a}` all
+   of `a-b`.  The result satisfies `s = pre ++ w` with `w`
+   whitespace-free, so an attributed `Str` never contains a space. *)
 Fixpoint last_ws_split (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
@@ -2739,30 +2558,7 @@ Lemma last_ws_split_nonempty :
   forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.
 Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
 
-(* Where a waiting spec lands, asked of the list the scope has resolved
-   so far -- whose head is whatever sits immediately before the spec.
-   This is djot.js's `-attributes` handler (`parse.ts:446-506`), and it
-   runs where djot.js runs it: after the openers that never closed have
-   become text.
-
-   - a plain `Str` before it takes the spec on its last word.  The split
-     is on whitespace, not on word characters, so `a-b{.a}` attributes
-     all of `a-b`; an empty spec keeps the run whole instead, since
-     cutting it would only produce two plain `Str`s.
-   - a run ending in whitespace has no last word, and djot.js drops the
-     spec there rather than attaching it across the gap
-     (`endsWithSpace`).
-   - any other node takes it, which is what `*e*{.a}`, `[l](u){}` and
-     `x{.a}{.b}` need.
-   - nothing before it drops the spec, and so does a `SoftBreak`, which
-     is nothing as far as attachment is concerned.  djot.js reaches the
-     second by attaching to the break node, where the spec renders as
-     nothing; dropping is the same observation and keeps the two arms
-     one case.  They have to move together: the head below a spec is a
-     `SoftBreak` exactly when an `oout_app` splice put a previous line
-     there, so an arm that distinguished the empty scope from the
-     spliced one would make attachment see the splice, and every `_app`
-     lemma rests on it not seeing it. *)
+(* A text node's range, split at the start of its last word. *)
 Definition split_text_pos (p : pos) (word_start : option spot)
   : pos * pos :=
   match p, word_start with
@@ -2772,6 +2568,19 @@ Definition split_text_pos (p : pos) (word_start : option spot)
   | _, _ => (p, p)
   end.
 
+(* Where a waiting spec lands, given the list the scope has resolved so
+   far, whose head is what sits immediately before the spec.  Openers
+   that never closed are text by then.
+
+   - A plain `Str` takes the spec on its last word.  An empty spec keeps
+     the run whole, since cutting it would only produce two plain `Str`s.
+   - A run ending in whitespace has no last word, and the spec is
+     dropped rather than attached across the gap.
+   - Any other node takes it (`*e*{.a}`, `[l](u){}`, `x{.a}{.b}`).
+   - Nothing before it drops the spec, and so does a `SoftBreak`.  These
+     two move together: the head below a spec is a `SoftBreak` exactly
+     when `oout_app` spliced a previous line there, and every `_app`
+     lemma rests on attachment not seeing the splice. *)
 Definition oattach_list `{PosPolicy}
   (a : attr) (spec : span) (word_start : option spot) (out : inlines)
   : inlines :=
@@ -2850,26 +2659,17 @@ Proof.
 Qed.
 
 (* Walk out through the open scopes looking for one this closer matches,
-   abandoning each scope it passes.  `pend` carries what those abandoned
+   abandoning each scope it passes.  `pend` carries what the abandoned
    scopes contributed, ready to splice into the next level down.
 
-   The empty-span exclusion (`opener.endpos !== pos - 1`, inline.ts:148)
-   stops the walk rather than continuing it.  djot.js keeps one opener
-   stack per delimiter character and looks at its *top* only
-   (`openers[openers.length - 1]`, inline.ts:145); when that opener is
-   empty it falls through to "didn't match an opener", which leaves the
-   opener where it is and lets the closer become an opener instead.  So a
-   matching-but-empty scope is a failure to close, not a scope to abandon
-   -- abandoning it would dissolve the opener into text and keep
-   searching, which is what made `___a___` come out `<em>_</em>a<em>_</em>`
-   instead of three nested spans, and `____` come out `<em>_</em>_`
-   instead of literal.
+   A matching scope with no content stops the walk: the closer fails to
+   close and may become an opener instead.  Abandoning the empty scope
+   would dissolve its opener into text and keep searching, which would
+   make `___a___` `<em>_</em>a<em>_</em>` rather than three nested spans.
 
-   The test is on the items, not on what they resolve to, which is
-   djot.js's order too: a scope holding nothing but an attribute spec
-   with nothing to attach to closes, and closes onto nothing.  That is
-   the one place an empty delimiter node comes from, and `wf_inline`
-   admits it for that reason. *)
+   The test is on the items, not on what they resolve to: a scope holding
+   only an attribute spec with nothing to attach to closes, onto
+   nothing.  That is the one source of an empty delimiter node. *)
 Fixpoint oclose_go `{PosPolicy} (k : dstyle) (m : bool) (pend : oitems)
   (stk : list frame)
   : option (oitems * span * list frame) :=
@@ -2884,10 +2684,8 @@ Fixpoint oclose_go `{PosPolicy} (k : dstyle) (m : bool) (pend : oitems)
   end.
 
 (* Whether the search above stopped at a barrier with a scope this closer
-   would otherwise have matched below it.  Upstream distinguishes the two
-   failures: an opener barred by a destination makes the token *text*
-   and returns (`inline.ts:155-158`), where no opener at all lets it
-   become one. *)
+   would have matched below it.  An opener barred by a destination makes
+   the token text, where no opener at all lets it become one. *)
 Fixpoint oclose_barred_go (k : dstyle) (m : bool) (past : bool)
   (stk : list frame) : bool :=
   match stk with
@@ -2960,17 +2758,15 @@ Proof.
     cbn [List.map List.rev]. destruct (List.rev (List.map OIn rest));
       reflexivity. }
   rewrite Hrev. destruct k;
-    cbn [dmatch dstyle_eqb fr_kind fr_marked andb_true_l].
+    cbn [dmatch dstyle_eq fr_kind fr_marked andb_true_l].
   all: cbn -[oresolve List.rev List.map];
        rewrite oresolve_map_rev, List.rev_involutive; reflexivity.
 Qed.
 
-(* Brackets share the ordered scope stack with delimiters.  Finding a
-   bracket abandons any delimiter frames above it, just as djot.js closes
-   the bracketed construct before `clearOpeners` removes openers inside
-   it.  Unlike a delimiter close this only extracts the label content:
-   the following byte still decides link, reference, span, or literal
-   brackets. *)
+(* Brackets share the scope stack with delimiters: finding a bracket
+   abandons the delimiter frames above it.  Unlike a delimiter close this
+   only extracts the label content, since the next byte still decides
+   link, reference, span, or literal brackets. *)
 Fixpoint bclose_go `{PosPolicy} (pend : oitems) (stk : list frame)
   : option (oitems * bool * span * list frame) :=
   match stk with
@@ -2979,7 +2775,7 @@ Fixpoint bclose_go `{PosPolicy} (pend : oitems) (stk : list frame)
       let content := oapp pend (fr_out f) in
       match fr_kind f with
       | FKBracket image => Some (content, image, fr_open f, rest)
-      (* the destination's own opener is not offered back yet; see the
+      (* the destination's own opener is not offered back; see the
          constructor's comment *)
       | FKDest _ => None
       | FKDelim _ _ =>
@@ -2996,13 +2792,10 @@ Definition bclose `{PosPolicy} (o : ostate)
               OState (os_out o) rest (os_word_start o))
   end.
 
-(* Take back a bracket the previous byte pushed.  Only a frame that is a
-   bracket *and* still empty can be taken back, which is exactly the
-   shape a `[` leaves behind and nothing else does, so a caller may ask
-   without knowing what is on the stack.  That totality is what keeps the
-   footnote marker free of any invariant relating `prev` to the frames,
-   and `bunpush o = None` is what every lemma about a row's token gets
-   for free -- a marked close has a *delimiter* frame on top. *)
+(* Take back a bracket the previous byte pushed.  Only an empty bracket
+   frame can be taken back, which is exactly what a `[` leaves and
+   nothing else does, so a caller may ask without knowing the stack.  A
+   marked close has a delimiter frame on top, so there it is `None`. *)
 Definition bunpush (o : ostate) : option (bool * span * ostate) :=
   match os_stk o with
   | Frame (FKBracket image) _ open [] :: rest =>
@@ -3131,8 +2924,8 @@ Definition bref_lit `{PosPolicy} `{InlineCursor}
   let '(txt, o') := bclosed_lit kids image o in
   ((txt ++ one lbrack ++ label)%string, o').
 
-(* The destination itself drops the breaks (`parse.ts:612`), which is why
-   they are kept as characters until it is known to close. *)
+(* A destination drops its line breaks, which are kept as characters
+   until it is known to close. *)
 Fixpoint drop_nl (s : string) : string :=
   match s with
   | EmptyString => EmptyString
@@ -3160,36 +2953,30 @@ Definition oitems_of `{PosPolicy} (o : ostate) : oitems :=
 Definition ofinish `{PosPolicy} (o : ostate) : inlines :=
   oresolve (oitems_of o).
 
-(* What a backtick run closes into.  djot.js keeps this in
-   `verbatimType` and decides it retroactively when the closing run
-   arrives; we decide it at the opening run, which is the same thing
-   because the prefix is already read by then. *)
+(* What a backtick run closes into, decided at the opening run: the `$`
+   prefix has already been read by then. *)
 Inductive vkind : Type := VVerb | VMath (style : math_style).
 
 Definition vnode (vk : vkind) (s : string) : inline :=
   match vk with VVerb => Verbatim s | VMath st => Math st s end.
 
-(* Only a verbatim may take a raw format: djot.js guards the lookahead
-   with `verbatimType === "verbatim"` (`inline.ts:850`), so
-   `` $`x`{=html} `` is math followed by literal text. *)
+(* Only a verbatim may take a raw format: `` $`x`{=html} `` is math
+   followed by literal text. *)
 Definition vkind_verb (vk : vkind) : bool :=
   match vk with VVerb => true | VMath _ => false end.
 
-(* Every state below that carries pending text carries `prev` with it, and
-   `prev` is *the last byte of the source read so far*: `None` at the start
-   of a paragraph or of a line, and otherwise the byte the writer typed.
+(* Every state below that carries pending text carries `prev`: the last
+   byte of source read so far, `None` at the start of a paragraph or of a
+   line.
 
-   It is not the last byte of `txt`, which is where a scan would naturally
-   look for it.  The buffer holds what will be rendered, and three
-   constructs put bytes in it that were never in the source -- an
-   unmatched smart quote, an ellipsis and a dash -- so after one of those
-   the two differ.  `can_open` and `can_close` read the source
-   (`inline.ts:110-112`), so `'` after `a''` opens where a curly quote
-   would not, which is what `decay_does_not_hide_the_source_byte` pins.
-   Each construct that rewrites the buffer therefore names the byte it
-   consumed; the states that hold an undecided prefix (`IBrace`,
-   `IDollar`, `IPeriod`, `IDash`, `IBang`) carry the byte from before the
-   prefix and name the prefix's own last byte when it resolves. *)
+   It is not the last byte of `txt`.  An unmatched smart quote, an
+   ellipsis and a dash put bytes in the buffer that were never in the
+   source, and the delimiter rules read the source: `'` after `a''` opens
+   where it would not after a curly quote
+   (`decay_does_not_hide_the_source_byte`).  Each construct that rewrites
+   the buffer names the byte it consumed; the states that hold an
+   undecided prefix (`IBrace`, `IDollar`, `IPeriod`, `IDash`, `IBang`)
+   carry the byte from before the prefix. *)
 Inductive iscan : Type :=
   (* accumulating literal text; `esc` is a pending backslash *)
   | IText (esc : bool) (txt : string) (prev : option ascii) (o : ostate)
@@ -3205,31 +2992,27 @@ Inductive iscan : Type :=
   (* a `{` whose role the next byte decides: open marker, or text *)
   | IBrace (txt : string) (prev : option ascii) (o : ostate)
   (* a delimiter being spelled; `before` is the byte to its left, which
-     is what decides whether it may close, and -- for a row whose bare
-     opener needs a word boundary -- whether it may open.  Kept as the
-     byte rather than as a predicate of it, because two rows can ask two
-     different questions of it.  `extra` counts the row's characters that
-     have arrived
-     *after* the first, so the token so far is `S extra` of them: while
-     that is short of `dwidth` the token is still being spelled, and once
-     it reaches `dwidth` the token is complete and the next byte decides
-     its role.  Counting from the second character rather than the first
-     is what keeps the state from holding an empty token.
+     decides whether it may close and, for a row whose bare opener needs
+     a word boundary, whether it may open.  Kept as the byte rather than a
+     predicate of it, because two rows can ask two different questions of
+     it.  `extra` counts the row's characters that have arrived after the
+     first, so the token so far is `S extra` of them: short of `dwidth` it
+     is still being spelled, and at `dwidth` it is complete and the next
+     byte decides its role.  Counting from the second character keeps the
+     state from holding an empty token.
 
-     `marked` says the token is the one after a `{`.  Its *role* needs no
-     byte after it -- upstream forces `can_open` and blocks `can_close`
-     -- but the side its decay would take does need one, because a `}`
-     right after it flips the row's default.  So a complete marked token
-     waits here too, and the byte that arrives pushes the scope and is
-     then dispatched into it; only `fr_src` ever learns which side it
-     chose.  What such a state decays to keeps the `{`. *)
+     `marked` says the token is the one after a `{`.  Its role needs no
+     byte after it (a marked token can open and cannot close), but the
+     side its decay would take does, because a `}` right after it flips
+     the row's default.  So a complete marked token waits here too, and
+     the byte that arrives pushes the scope and is then dispatched into
+     it; only `fr_src` learns which side it chose.  What such a state
+     decays to keeps the `{`. *)
   | IDelim (k : dstyle) (extra : nat) (txt : string) (before : option ascii)
            (marked : bool) (o : ostate)
   (* counting an opening backtick run.  `vk` is what the run will close
-     into: a `$` or `$$` immediately before it makes the span math
-     instead of verbatim, which is djot.js's `verbatimType`
-     (`inline.ts:196-210`) and the reason math is a mode rather than a
-     construct of its own. *)
+     into: a `$` or `$$` immediately before it makes the span math, so
+     math is a mode of verbatim rather than a construct of its own. *)
   | IOpen (n : nat) (vk : vkind) (o : ostate)
   (* inside a width-`n` verbatim, with `run` unresolved trailing ticks *)
   | IVerb (n run : nat) (txt : string) (vk : vkind) (o : ostate)
@@ -3248,9 +3031,9 @@ Inductive iscan : Type :=
   (* a run of `n` hyphens whose cut into dashes the next byte decides.
      Unlike `IPeriod` the run is unbounded, and unlike every other run in
      this scanner it is not a delimiter token: `dashes` cuts it by
-     arithmetic and the result is text.  The one byte that is not just
-     the run's end is `}`, which takes the last hyphen back for a delete
-     closer -- djot.js's `hyphens--` (`inline.ts:520`). *)
+     arithmetic and the result is text.  The one byte that is not just the
+     run's end is `}`, which takes the last hyphen back for a delete
+     closer. *)
   | IDash (n : nat) (txt : string) (prev : option ascii) (o : ostate)
   (* a `!` whose role the next byte decides: `[` opens an image, and
      anything else makes it text.  An *escaped* `!` never reaches here,
@@ -3258,44 +3041,36 @@ Inductive iscan : Type :=
   | IBang (txt : string) (prev : option ascii) (o : ostate)
   (* a `]` whose role the next byte decides: `(` enters a destination,
      `[` a reference, `{` a span, and anything else leaves the `]` as
-     text with the bracket scope still open, so a later `]` can close it
-     -- `[u]b](c)` is a link labelled `u]b` (`inline.ts:401-440`, where
-     every other byte returns null).  Nothing is closed here, then:
-     `txt` is the text pending when the `]` arrived, still unflushed, and
-     `o` is the scope stack untouched. *)
+     text with the bracket scope still open, so a later `]` can close it:
+     `[u]b](c)` is a link labelled `u]b`.  Nothing is closed here: `txt`
+     is the text pending when the `]` arrived, still unflushed, and `o` is
+     the scope stack untouched. *)
   | IClosed (txt : string) (o : ostate)
-  (* inside the second bracket of `[text][label]`.  The label is source
-     text, not inline content: upstream's `strMatches` retroactively
-     flattens everything in this region before building the reference. *)
-  (* A closed bracket followed by `{`: a span, if the spec parses.  The
-     spec is read with the same machine block attributes use, fed a byte
-     at a time; `src` is what it has eaten, kept so the whole region can
-     be put back as text when the machine fails.  `image` is carried only
-     for that reconstruction -- a span ignores it, so `![x]{.a}` is a `!`
+  (* a closed bracket followed by `{`: a span, if the spec parses.  The
+     spec is read with the machine block attributes use, a byte at a
+     time; `src` is what it has eaten, kept so the whole region can be put
+     back as text when the machine fails.  `image` is carried only for
+     that reconstruction: a span ignores it, so `![x]{.a}` is a `!`
      followed by a span. *)
   | ISpan (kids : inlines) (image : bool) (open : span)
           (p : aparser) (src : string)
           (o : ostate)
-  (* An attribute spec, which attaches to whatever precedes it.  `txt` is
-     the text pending when the `{` arrived and, on success, the thing the
-     spec attaches to.  `sh` is the ordinary interpretation of the same
-     source, advanced with attribute recognition off and selected if the
+  (* an attribute spec, which attaches to whatever precedes it.  `txt` is
+     the text pending when the `{` arrived and, on success, what the spec
+     attaches to.  `sh` is the ordinary reading of the same source,
+     advanced with attribute recognition off and selected if the
      candidate never closes. *)
   | IAttr (p : aparser) (src : string) (txt : string) (prev : option ascii)
           (sh : iscan) (o : ostate)
+  (* inside the second bracket of `[text][label]`.  The label is source
+     text, not inline content. *)
   | IReference (kids : inlines) (image : bool) (open : span)
           (label : string) (o : ostate)
-  (* inside a `[^`.  The label is raw source, not inline content: djot.js
-     decides note-ness at the `]` and then destroys every match made
-     inside the brackets (`inline.ts:363-372`), which is the *discard*
-     disposition [[260811.inline-parser]] §2.2 named.  Reading the label
-     as source from the start is the same thing arrived at one byte
-     earlier, and it is the only way we can spell it -- we do not keep
-     source text beside classified nodes.
-     `esc` is a pending backslash, which protects a `]` without being
-     decoded: `[^a\]b]` labels `a\]b`.  `image` is what the bracket this
-     took back was opened with, kept only to spell the literal
-     fallback. *)
+  (* inside a `[^`.  The label is raw source, not inline content: nothing
+     inside the brackets is classified.  `esc` is a pending backslash,
+     which protects a `]` without being decoded: `[^a\]b]` labels `a\]b`.
+     `image` is what the bracket this took back was opened with, kept
+     only to spell the literal fallback. *)
   | INote (esc image : bool) (label : string) (open : span) (o : ostate)
   (* inside a `[[`, recognised at the second `[` the way `[^` is at the
      `^`.  The region is source kept with its escapes: `esc` is a pending
@@ -3307,45 +3082,36 @@ Inductive iscan : Type :=
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
      pending backslash, as in text mode.  A destination survives a line
-     break, so this is the second state `ibreak` carries across one.
+     break.
 
-     Two readings of the same bytes run here, because upstream keeps only
-     one and decides between them at the end.  `kids`, `dst` and `o` are
+     Two readings of the same bytes run here.  `kids`, `dst` and `o` are
      the destination reading, used by the balanced `)` and nothing else.
-     `sh` is the ordinary one -- the same scanner, fed the same bytes,
-     inside the `FKDest` scope this state opened -- and it is what the
-     end of the paragraph keeps, since upstream turns the region literal
-     only *at* the close (`inline.ts:470`).  Neither is a replay of the
-     other: both advance on each byte, and the byte that ends the state
-     picks one. *)
+     `sh` is the ordinary reading (the same scanner, fed the same bytes,
+     inside the `FKDest` scope this state opened), which the end of the
+     paragraph keeps, since the region turns literal only at the close.
+     Neither replays the other: both advance on each byte, and the byte
+     that ends the state picks one. *)
   | IDest (kids : inlines) (image : bool) (open : span)
           (esc : bool) (depth : nat) (dst : string)
           (sh : iscan) (o : ostate)
   (* inside a `<`, holding the region read so far.  The region is raw
-     source, so a backtick or a
-     delimiter inside a *successful* autolink is content
-     (`<a:b`c>` links to ``a:b`c``), which is only true because nothing
-     in here is dispatched.
+     source, so a backtick or a delimiter inside a successful autolink is
+     content (`<a:b`c>` links to ``a:b`c``).
 
-     `txt` is the text pending when the `<` arrived, kept because a
-     candidate that fails is put back as literal text.  djot.js instead
-     scans a failed candidate as ordinary inline content.  The current
-     state does not reproduce that recovery, but an ordinary-inline
-     shadow could do so without replay; see `.project/no-backtracking.md`. *)
+     `txt` is the text pending when the `<` arrived, kept because a failed
+     candidate is put back as literal text.  djot.js instead scans a failed
+     candidate as ordinary inline content; an ordinary-reading shadow, as
+     `IDest` carries, would do that without replay
+     (`.project/no-backtracking.md`). *)
   | IAuto (src txt : string) (o : ostate)
   (* A colon and the symbol alias read so far.  The ordinary-inline
      shadow advances over the same bytes; a failed or unfinished
      candidate selects it without replaying source. *)
   | ISymbol (alias txt : string) (sh : iscan) (o : ostate)
   (* a verbatim span that closed onto a `{`, holding its content and the
-     spec source read since.  The `Verbatim` node is deliberately *not*
-     emitted yet: which node this is -- `Verbatim` or `RawInline` -- is
-     what the spec decides, and carrying the text is cheaper than
-     emitting one and rewriting it.
-
-     Only a verbatim reaches here, never math: djot.js tests
-     `verbatimType` at the closer (`inline.ts:850`) and so does the arm
-     that builds this. *)
+     spec source read since.  The node is not emitted yet: whether it is
+     `Verbatim` or `RawInline` is what the spec decides.  Only a verbatim
+     reaches here, never math. *)
   | IRaw (spec txt : string) (o : ostate).
 
 (* The one position in which the table does not get the byte: right
@@ -3355,17 +3121,9 @@ Definition note_pos (txt : string) (prev : option ascii) : bool :=
   (negb (nonempty_str txt)
    && match prev with Some p => Ascii.eqb p lbrack | None => false end)%bool.
 
-(* One byte in text mode.  The delimiter arm is a lookup, not six
-   branches, for the reason the table's own comment gives.
-
-   `prev` is the byte to the left of `c` *as the source spells it*, which
-   is what `can_open` and `can_close` read (`inline.ts:110-112`).  It is
-   not the last byte of `txt`: a decayed quote, an ellipsis and a dash
-   put characters into the buffer that were never in the source, and
-   after one of those `dopens_after` has to see the `'` or the `-` that
-   was written rather than the `’` or the `–` that will be rendered.
-   Every state carrying pending text keeps this field to the same rule --
-   see `iscan`. *)
+(* One byte in text mode.  The delimiter arm is a table lookup.  `prev`
+   is the source byte to the left of `c`, not the last byte of `txt` (see
+   `iscan`). *)
 Definition ilead `{PosPolicy} `{InlineCursor}
   (c : ascii) (txt : string) (prev : option ascii) (o : ostate)
   : iscan :=
@@ -3380,11 +3138,11 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      `needs_escape` claims it unconditionally for exactly this reason. *)
   else if Ascii.eqb c hyphen then IDash 1 txt prev o
   else if Ascii.eqb c lbrace then IBrace txt prev o
-  (* A `[` opens a scope on the same stack the delimiters use, so their
-     relative order is kept and the label needs no second parser.  A `]`
-     decides nothing on its own -- it hands the pending text to
-     `IClosed`, which closes the innermost bracket scope only if the byte
-     after it makes a construct. *)
+  (* A `!` waits for the next byte.  A `[` opens a scope on the stack the
+     delimiters use, so their relative order is kept and the label needs
+     no second parser.  A `]` decides nothing on its own: it hands the
+     pending text to `IClosed`, which closes the innermost bracket scope
+     only if the byte after it makes a construct. *)
   else if Ascii.eqb c bang then IBang txt prev o
   (* A `<` opens an autolink candidate, which is neither a scope nor a
      lookahead: it accumulates the region and decides at the `>`.  The
@@ -3407,15 +3165,10 @@ Definition ilead `{PosPolicy} `{InlineCursor}
              (bpush false (flush_text_at txt o))
        end
   else if Ascii.eqb c rbrack then IClosed txt o
-  (* A `^` right inside a bracket that has just opened marks a footnote.
-     djot.js reads the byte after the opener when the `]` arrives
-     (`inline.ts:361`) and then discards every match made in between, so
-     taking the bracket back here and reading the label as source is the
-     same verdict one byte earlier -- and it is the only way we can spell
-     the label, since we keep no source beside classified nodes.
-     Written as a guard on `bunpush` rather than as a claim about the
-     stack, so a `^` anywhere else falls through to the table, where it
-     is the superscript row as it always was. *)
+  (* A `^` right inside a bracket that has just opened marks a footnote:
+     the bracket is taken back and the label read as source.  Written as a
+     guard on `bunpush`, so a `^` anywhere else falls through to the
+     table, where it is the superscript row. *)
   else match (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
               then bunpush o else None) with
        | Some (image, open, o') => INote false image EmptyString open o'
@@ -3429,15 +3182,12 @@ Definition ilead `{PosPolicy} `{InlineCursor}
        end.
 
 (* The ordinary reading of a `](`, as a state.  The bracket's opener is
-   pushed back -- as `FKDest`, so a delimiter closer cannot reach past it
-   -- and the label goes into it as text, through `bflat`, which keeps a
-   classified child classified and merges the `Str` seam by
-   construction.  The two bytes that opened the destination are the head
-   of the buffer, so a spec that attaches here attaches to `[u](a` whole,
-   as upstream's does.
-
-   `fr_src` supplies the `[` at the flatten, not this, which is why the
-   frame is pushed rather than the byte written. *)
+   pushed back as `FKDest`, so a delimiter closer cannot reach past it,
+   and the label goes into it as text through `bflat`, which keeps a
+   classified child classified and merges the `Str` seam by construction.
+   The two bytes that opened the destination are the head of the buffer,
+   so a spec that attaches here attaches to `[u](a` whole.  `fr_src`
+   supplies the `[` at the flatten. *)
 Definition idest_open `{PosPolicy} `{InlineCursor}
   (kids : inlines) (image : bool) (open : span)
   (o : ostate) : iscan :=
@@ -3465,17 +3215,15 @@ Definition typography_ellipsis : string :=
 Fixpoint srep (s : string) (n : nat) : string :=
   match n with O => EmptyString | S m => (s ++ srep s m)%string end.
 
-(* How djot.js cuts a run of `n` hyphens (`inline.ts:526-550`): a run
-   divisible by three is all em dashes and an even one is all en dashes,
-   and otherwise it takes em dashes greedily and finishes with one or two
-   en dashes.  A lone hyphen is literal.
+(* How a run of `n` hyphens is cut: a run divisible by three is all em
+   dashes and an even one all en dashes; otherwise em dashes greedily,
+   finishing with one or two en dashes.  A lone hyphen is literal.
 
-   djot.js spells this as a loop with the recursive step duplicated
-   across four branches.  Here it is the arithmetic that loop computes,
-   for the reason [[project-engineering-lessons#A hang or a sudden
-   slowdown is the definition's shape, not the proof]] gives: a
-   four-branch recursion has no normal form at an unknown `n`, so every
-   `Compute` would pass while every general lemma stayed unprovable. *)
+   Spelled as the arithmetic rather than as djot.js's loop, whose
+   recursive call is duplicated across four branches: such a recursion
+   has no normal form at an unknown `n`, so every `Compute` would pass
+   while every general lemma stayed unprovable
+   (`.project/project-engineering-lessons.md`). *)
 Definition dash_counts (n : nat) : nat * nat * nat :=
   if Nat.eqb (Nat.modulo n 3) 0 then (Nat.div n 3, 0, 0)
   else if Nat.eqb (Nat.modulo n 2) 0 then (0, Nat.div n 2, 0)
@@ -3515,20 +3263,18 @@ Definition auto_lit (src txt : string) : string :=
   (txt ++ String lt src)%string.
 
 (* A slice boundary in the ordinary reading of a candidate's region.
-   djot.js re-feeds that region on failure, cut into slices ending at
-   every byte of `reSpecial` (`inline.ts:67`), so a matcher whose loop is
-   bounded by the slice end cannot see past the byte it starts on: a run
-   of `-` or `.` never reaches the length that would make it a dash or an
-   ellipsis, a `{` never marks the delimiter after it, a `]` never finds
-   its destination, an autolink's region never reaches the `>` that would
-   resolve it, and a `\\` escapes nothing.  (`IEscWs`
-   is not here because it cannot arise: the escape it continues has been
-   settled at the boundary before it.)  What crosses the boundary is what
-   lives in the parser rather than in the slice -- an open delimiter, a
-   verbatim, a math prefix that peeks at the byte after it -- which is why
-   `IDelim`, `IOpen`, `IVerb` and `IDollar` are not here.
-   `IBang` is not either: `!` is not one of the special bytes, so it is
-   never the byte a slice ends on. *)
+   djot.js re-feeds a failed region cut into slices at every special
+   byte, so a matcher bounded by the slice cannot see past the byte it
+   starts on: a run of `-` or `.` never reaches the length that would
+   make it a dash or an ellipsis, a `{` never marks the delimiter after
+   it, a `]` never finds its destination, an autolink's region never
+   reaches its `>`, and a `\` escapes nothing.  (`IEscWs` cannot arise
+   here: the escape it continues is settled at the boundary before it.)
+   What crosses a boundary lives in the parser rather than in the slice:
+   an open delimiter, a verbatim, a math prefix that peeks at the byte
+   after it.  Hence no `IDelim`, `IOpen`, `IVerb` or `IDollar` arm.
+   `IBang` is not here either: `!` is not a special byte, so no slice
+   ends on it. *)
 Fixpoint islice_end (st : iscan) : iscan :=
   match st with
   | IText true txt _ o => IText false (txt ++ one bslash)%string (Some bslash) o
@@ -3546,9 +3292,8 @@ Fixpoint islice_end (st : iscan) : iscan :=
 
 (* Where a finished spec goes: into the scope, as a marker, with the
    pending text flushed in front of it so that the run it will attach to
-   is the item immediately below.  `oresolve` settles it -- see
-   `oattach_list` for the rule and for the one case we do not follow
-   djot.js on. *)
+   is the item immediately below.  `oresolve` settles it (see
+   `oattach_list`). *)
 Definition iattr_mark `{PosPolicy} `{InlineCursor}
   (src : string) (a : attr) (txt : string) (o : ostate) : iscan :=
   let spec_start := spot_before cursor_start (String lbrace src) in
@@ -3572,12 +3317,11 @@ Definition iattr_feed `{PosPolicy} `{InlineCursor}
   else IAttr p' (src ++ one c)%string txt prev (islice_end sh) o.
 
 (* A marked open with `S extra` characters of its token in hand.  Its
-   role is not in doubt -- djot.js forces `can_open` and blocks
-   `can_close` for a marked delimiter -- but its *spelling when abandoned*
-   is, because a `}` right after it flips the row's decay side.  So the
-   push waits for one byte whatever the width, and `istep` and `iresolve`
-   are where it happens.  `before` is `None` throughout: the branch that
-   would read it is the one this never reaches. *)
+   role is not in doubt (a marked delimiter can open and cannot close),
+   but its spelling when abandoned is, because a `}` right after it flips
+   the row's decay side.  So the push waits for one byte whatever the
+   width, in `istep` or `iresolve`.  `before` is `None` throughout: the
+   branch that would read it is never reached. *)
 Definition idelim_marked (k : dstyle) (extra : nat) (txt : string)
   (o : ostate) : iscan := IDelim k extra txt None true o.
 
@@ -3643,8 +3387,8 @@ Definition ospan_bang `{PosPolicy} `{InlineCursor}
 (* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
    node is built here with no byte left over.  On `AFail` the region up to
    but not including the failing byte becomes text and that byte is
-   dispatched afresh: djot.js resumes its scan there, so `[s]{bad*x*y` is
-   `[s]{bad`, a strong `x`, and `y`. *)
+   dispatched afresh, so `[s]{bad*x*y` is `[s]{bad`, a strong `x`, and
+   `y`. *)
 Definition ispan_feed `{PosPolicy} `{InlineCursor}
   (c : ascii) (kids : inlines) (image : bool) (open : span)
   (p : aparser) (src : string) (o : ostate) : iscan :=
@@ -3663,13 +3407,9 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
            (ospan_bang image o))
   else ISpan kids image open p' (src ++ one c)%string o.
 
-(* Resolving a `!`: an image opener if a `[` follows, text otherwise.
-   The `!` is *not* flushed with the text before it -- it is the opener's
-   own source, and `fr_src` puts it back if the bracket decays. *)
 (* One byte of a footnote label.  The `]` is the only byte with a role,
-   and a backslash defers it once -- without being decoded, since the
-   label is source and djot.js labels `[^a\]b]` with the backslash still
-   in it. *)
+   and a backslash defers it once without being decoded, since the label
+   is source: `[^a\]b]` keeps the backslash. *)
 Definition inote_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (esc image : bool) (label : string) (open : span)
   (o : ostate) : iscan :=
@@ -3722,10 +3462,8 @@ Definition isymbol_step `{PosPolicy} `{InlineCursor}
 
    A failed spec is put back with the verbatim it followed, and there the
    two cases differ.  With nothing read yet the `{` had no `=` after it,
-   so the ordinary attribute path is what should have run and does --
-   this is exactly the state the closer built before raw existed.  With
-   an `=` read the region cannot parse as attributes at all, so it is
-   text. *)
+   so it takes the ordinary attribute path.  With an `=` read the region
+   cannot parse as attributes, so it is text. *)
 Definition iraw_lit (spec : string) : string :=
   (String lbrace spec)%string.
 
@@ -3742,9 +3480,8 @@ Definition iraw_step_at `{PosPolicy} `{InlineCursor}
               (oemit (imk (text_start o) vstop (Verbatim txt)) o)
   else if (match spec with
            (* the `=` is the pattern's second character, so anything else
-              here is not a candidate at all -- and must behave exactly
-              as the `{` did before raw existed, since every canonical
-              delimiter is spelled `{`-first *)
+              here is not a candidate and takes the ordinary `{` path;
+              every canonical delimiter is spelled `{`-first *)
            | EmptyString => negb (Ascii.eqb c eqchar)
            | _ => (Ascii.eqb c rbrace || raw_stop c)%bool
            end)
@@ -3829,6 +3566,9 @@ Definition iwiki_step `{PosPolicy} `{InlineCursor}
     else if Ascii.eqb c rbrack then IWiki false true image region' open o
     else IWiki false false image (region' ++ one c)%string open o.
 
+(* Resolving a `!`: an image opener if a `[` follows, text otherwise.
+   The `!` is not flushed with the text before it: it is the opener's own
+   source, and `fr_src` puts it back if the bracket decays. *)
 Definition ibang_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (txt : string) (prev : option ascii)
   (o : ostate) : iscan :=
@@ -3840,7 +3580,7 @@ Definition ibang_step `{PosPolicy} `{InlineCursor}
 
 (* Resolving an unbraced delimiter, once the byte after it has arrived
    (or not, at the end of a line: `inone`).  Closing wins over opening,
-   as in djot.js, and a `}` immediately after forces the close. *)
+   and a `}` immediately after forces the close. *)
 Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
   (txt ++ ddecay_str k false marker)%string.
 
@@ -3878,14 +3618,12 @@ Definition idelim_resolve `{PosPolicy} `{InlineCursor}
 
 (* Resolving a `$`: another `$` widens the prefix to display math, a
    backtick run opens the span it prefixes, and anything else makes the
-   dollars text.  A third `$` keeps the last two, which is djot.js
-   popping exactly two matches, so the extra one is flushed here.
+   dollars text.  A third `$` keeps the last two, so the extra one is
+   flushed here.
 
    With math off the backtick takes the same exit as any other byte: the
-   dollars join the pending text and `ilead` opens the verbatim they were
-   about to prefix.  So a disabled prefix is not dropped and not
-   announced -- it is the code span it sits on, with its dollars as
-   literal text before it. *)
+   dollars join the pending text and `ilead` opens the verbatim they
+   would have prefixed. *)
 Definition idollar_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
@@ -3898,9 +3636,9 @@ Definition idollar_step `{PosPolicy} `{InlineCursor}
   else ilead c (txt ++ dollars two)%string (Some dollar) o.
 
 (* Three periods are one ellipsis and any other run is literal, so the
-   state counts to two and the third byte decides (`inline.ts:343`).  A
-   run of four is an ellipsis and a period, which falls out of resolving
-   at the third and starting again. *)
+   state counts to two and the third byte decides.  A run of four is an
+   ellipsis and a period, which falls out of resolving at the third and
+   starting again. *)
 Definition iperiod_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (two : bool) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
@@ -3916,8 +3654,7 @@ Definition iperiod_step `{PosPolicy} `{InlineCursor}
    exception, and the only place the dash rule and the delete row meet:
    the run gives its last hyphen back to be a close marker, and what is
    left is cut into dashes.  When no row is spelled with a hyphen there
-   is nothing to close and the two bytes are text, which is djot.js's
-   `hyphens === 0` branch. *)
+   is nothing to close and the two bytes are text. *)
 Definition idash_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (n : nat) (txt : string)
   (prev : option ascii) (o : ostate) : iscan :=
@@ -3940,9 +3677,9 @@ Definition idash_step `{PosPolicy} `{InlineCursor}
        end
   else ilead c (txt ++ typography_dashes n)%string (Some hyphen) o.
 
-(* No byte follows: the end of a line or of the paragraph.  `IBrace` and
-   `IDelim` are the only states this changes, and after it neither
-   remains, which is what lets `ibreak` and `ifinish` match on the rest. *)
+(* No byte follows: the end of a line or of the paragraph.  Every state
+   waiting on a next byte resolves here, so after it none remains, which
+   is what lets `ibreak` and `ifinish` match on the rest. *)
 Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   | IBrace txt _ o => IText false (txt ++ one lbrace)%string (Some lbrace) o
@@ -3961,18 +3698,18 @@ Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
              (Some (dchar k)) o
       else if marked then idelim_open_marked k false txt o
       else idelim_resolve k txt before false None o
-  (* The newline is an ordinary byte to djot.js, and none of the three
-     that make a construct, so `[a]` at the end of a line leaves the `]`
-     as text and the scope open. *)
+  (* The line end is none of the three bytes that make a construct, so
+     `[a]` at the end of a line leaves the `]` as text and the scope
+     open. *)
   | IClosed txt o => IText false (txt ++ one rbrack)%string (Some rbrack) o
   | _ => st
   end.
 
 (* What a backslash and a whitespace run decay to when the line does not
-   end after them.  djot.js tests the byte after the backslash for a
-   space and for nothing else (`inline.ts:250`), so a tab leaves the
-   backslash literal; either way the decision consumes only the first
-   byte of the run and the rest is ordinary text. *)
+   end after them.  Only a space after the backslash makes a
+   non-breaking space; a tab leaves the backslash literal.  Either way
+   the decision consumes only the first byte of the run, and the rest is
+   ordinary text. *)
 Definition iescws_resolve `{PosPolicy} `{InlineCursor}
   (ws txt : string) (prev : option ascii)
   (o : ostate) : string * option ascii * ostate :=
@@ -3992,16 +3729,15 @@ Definition iescws_resolve `{PosPolicy} `{InlineCursor}
   | EmptyString => ((txt ++ one bslash)%string, Some bslash, o)
   end.
 
-(* The line ended after the backslash.  djot.js trims the whitespace that
-   preceded it off the last `str` match (`inline.ts:222-237`); the run
-   pending here is that match, so the trim is local. *)
+(* The line ended after the backslash: a hard break.  The whitespace
+   before the backslash is trimmed off the pending text. *)
 Definition iesc_hard `{PosPolicy} `{InlineCursor}
   (ws txt : string) (o : ostate) : ostate :=
   let kept := strip_trailing_ws txt in
   (* the source between the text and the line end: the whitespace the
      trim dropped, the backslash, and the run after it.  Two lengths per
-     hard break, which is per line at worst -- the rule that matters is
-     that no `String.length` runs per scanned byte (plan section 8). *)
+     hard break, which is per line at worst; no `String.length` runs per
+     scanned byte. *)
   let over := S (String.length ws
                  + (String.length txt - String.length kept)) in
   oemit (imk_here HardBreak)
@@ -4059,8 +3795,8 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       if is_tick c then IVerb n (S run) txt vk o
       else if Nat.eqb run n
       (* the byte after the closing run decides whether a raw spec
-         follows, which is where djot.js asks it too -- and it asks only
-         of a verbatim, so math takes the ordinary path *)
+         follows, and only for a verbatim: math takes the ordinary
+         path *)
       then (if (Ascii.eqb c lbrace && vkind_verb vk)%bool
             then IRaw EmptyString (trim_verb txt) o
             else ilead c EmptyString (Some tick)
@@ -4141,11 +3877,10 @@ Definition istep `{PosPolicy} `{InlineCursor}
   (c : ascii) (st : iscan) : iscan :=
   istep_at inline_attrs_enabled c st.
 
-(* End of line.  An unclosed verbatim closes here, as djot.js does in
-   `getMatches`.  A pending backslash is a hard break, djot.js's reading;
-   djoths keeps a literal backslash, a logged disagreement
-   (`escapes.test:30`).  It cannot arise from a canonical rendering,
-   since `escape_str` never emits a backslash that is not followed by
+(* End of the paragraph.  An unclosed verbatim closes here.  A pending
+   backslash is a hard break; djoths keeps it as a literal backslash
+   (`.project/oracle-disagreements.md`).  A canonical rendering cannot
+   produce one, since `escape_str` emits a backslash only before
    punctuation. *)
 Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (st : iscan) : ostate :=
@@ -4188,17 +3923,17 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
      text: the brace, then what the machine has read since *)
   | IAttr _ src txt _ _ o =>
       let '(t, o') := battr_lit src txt o in flush_text_at t o'
-  (* unreachable: `iresolve` leaves no `IBrace`, `IBang`,
-     `IDollar`, `IDelim` or `IClosed` *)
+  (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDollar`,
+     `IPeriod`, `IDash`, `IDelim` or `IClosed` *)
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
   | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ o => o
   end.
 
-(* An unclosed destination is not literal: upstream turns the region into
-   source at the *close*, so a region that never closes keeps the reading
-   the ordinary scan gave it, and the `[` and `](` come back out of the
-   `FKDest` frame when `oflatten` abandons it. *)
+(* An unclosed destination is not literal: the region turns literal only
+   at the close, so a region that never closes keeps its ordinary
+   reading, and `oflatten` puts the `[` and `](` back when it abandons
+   the `FKDest` frame. *)
 Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   match st with
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
@@ -4220,18 +3955,14 @@ Proof. reflexivity. Qed.
 Definition ifinish `{PosPolicy} `{InlineCursor} (st : iscan) : inlines :=
   List.rev (ifinish_rev st).
 
-(* A line boundary inside a paragraph.
-   djot.js scans the newline as an ordinary character of the subject, and
-   tests it *before* the verbatim mode (`inline.ts:832`), so a span may
-   cross a break: `` `a `` / `` b` `` is one code span containing a
-   newline, and the same will hold of the delimiter family.  A paragraph
-   is therefore one scan with this between its lines, not a scan per
-   line.
+(* A line boundary inside a paragraph.  The newline is an ordinary byte
+   of the paragraph, so a span may cross a break: `` `a `` / `` b` `` is
+   one code span containing a newline.  A paragraph is therefore one scan
+   with this between its lines.
 
-   Only `IText` ends the line.  Inside a verbatim the newline is content,
-   which is why it arrives here as `one nl` rather than closing anything;
-   a resolved closing run (`run = n`) is the one case where the span ends
-   *at* the break and the newline is the soft break after it. *)
+   Inside a verbatim the newline is content.  A resolved closing run
+   (`run = n`) is the one case where the span ends at the break and the
+   newline is the soft break after it. *)
 Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   (* A hard break replaces the soft one: it is the break, rendered. *)
@@ -4291,10 +4022,9 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
      whether the break separates two tokens. *)
   | ISpan kids image open p src o =>
       ispan_feed nl_char kids image open p src o
-  (* and so does a bare spec, on the same reading: `hi{#i .c` / `k="v"}`
-     attaches to `hi`.  No `SoftBreak` is emitted -- the break is inside
-     the spec's source, and djot.js's `attributeSlices` swallow it the
-     same way. *)
+  (* and so does a bare spec: `hi{#i .c` / `k="v"}` attaches to `hi`.  No
+     `SoftBreak` is emitted, since the break is inside the spec's
+     source. *)
   | IAttr p src txt prev sh o =>
       (* unreachable: `ibreak_at` advances the ordinary reading too *)
       iattr_feed nl_char p src txt prev sh o
@@ -4304,11 +4034,9 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
     | IDelim _ _ _ _ _ _ | IClosed _ _) as st' => st'
   end.
 
-(* A destination crosses the break: djot.js keeps scanning and strips the
-   newline from the destination text at the close, so the byte is
-   accumulated and dropped later rather than dropped here.  The ordinary
-   reading takes the break as the soft one it is, which is why it is
-   `ibreak` and not `istep nl` that the shadow gets. *)
+(* A destination crosses the break: the byte is accumulated and dropped
+   at the close.  The ordinary reading takes the break as the soft one it
+   is, so the shadow gets `ibreak` and not `istep nl`. *)
 Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
   (attrs_enabled : bool) (st : iscan) : iscan :=
   match st with
@@ -4385,12 +4113,11 @@ Definition iscan_settled `{PosPolicy} `{InlineCursor}
   (c : ascii) (st : iscan) : bool :=
   iclosed_at (iresolve_next c st).
 
-(* The two recursive definitions above take their own branch on a state
-   carrying an alternative scan and go through `iresolve` on everything
-   else.  Every lemma
-   below that reasons by cases on the resolved state wants the second
-   half, and a state with an unresolved alternative is one none of them is
-   about -- `iclosed_at` and `iscan_wf`'s obligations both exclude it. *)
+(* The two recursive definitions above handle a state carrying an
+   alternative scan themselves and send everything else through
+   `iresolve`.  The lemmas below that reason by cases on the resolved
+   state are about the second kind; `iclosed_at` and `iscan_wf` both
+   exclude the first. *)
 Definition is_compound (st : iscan) : bool :=
   match st with
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
@@ -4464,21 +4191,14 @@ Fixpoint iscan_str (s : string) (st : iscan) : iscan :=
       iscan_str rest (@istep semantic_pos semantic_inline_cursor c st)
   end.
 
-(* An executable certificate for this outer scan's source dispatch.  One
-   unit of fuel authorizes dispatching one source byte;
-   state rewrites such as closing or abandoning a scope spend no source
-   fuel and never feed that byte back to the scanner.  This deliberately
-   says nothing about the internal cost of a dispatch -- `oclose` may walk
-   the opener stack -- so it is not a linear-time theorem.
-
-   djot.js's `reparseAttributes` does backtrack: it buffers slices fed to
-   the attribute machine and, when a spec dies, replays them through the
-   inline scanner with attributes switched off.  The current state does
-   not reproduce that recovery, as recorded at
-   `attr_unclosed_spec_is_not_rescanned`.  This lemma is not an
-   impossibility result: an ordinary-inline shadow can advance with
-   the attribute candidate and preserve this fuel discipline.  See
-   `.project/no-backtracking.md`. *)
+(* An executable certificate for the outer scan's source dispatch: one
+   unit of fuel dispatches one source byte, and state rewrites such as
+   closing or abandoning a scope spend none and never feed a byte back.
+   It says nothing about the cost of one dispatch (`oclose` may walk the
+   opener stack), so it is not a linear-time theorem.  Where djot.js
+   replays a failed candidate's source, this scanner advances an
+   ordinary-reading shadow alongside the candidate (`IAttr`, `IDest`,
+   `ISymbol`) and selects it (`.project/no-backtracking.md`). *)
 Fixpoint iscan_str_fuel (fuel : nat) (s : string) (st : iscan)
   : option iscan :=
   match s with
@@ -4512,10 +4232,9 @@ Proof.
 Qed.
 
 (* A paragraph's lines, in order.  Trailing whitespace is stripped from
-   the last line only -- djot.js's `getMatches` drops the final soft
-   break and the spaces before it, and does so whatever state the scan is
-   in, so `` `a  `` closes on the trimmed content.  Interior lines keep
-   their trailing spaces, which is observable inside a verbatim. *)
+   the last line only, whatever state the scan is in, so `` `a  `` closes
+   on the trimmed content.  Interior lines keep their trailing spaces,
+   which is observable inside a verbatim. *)
 Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
   match l with
   | [] => st
@@ -4525,10 +4244,9 @@ Fixpoint iscan_lines (l : list string) (st : iscan) : iscan :=
         (@ibreak semantic_pos semantic_inline_cursor (iscan_str x st))
   end.
 
-(* The same scan with attribute recognition switched off.  A block
-   attribute spec that fails hands its lines back to the paragraph, and
-   djot.js re-reads exactly those lines with `allowAttributes` false
-   (`block.ts:592`, `inline.ts:651`). *)
+(* The same scan with attribute recognition off.  A block attribute spec
+   that fails hands its lines back to the paragraph, which reads them this
+   way. *)
 Fixpoint iscan_str_off (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
@@ -4538,14 +4256,12 @@ Fixpoint iscan_str_off (s : string) (st : iscan) : iscan :=
   end.
 
 (* `k` leading lines of a paragraph read with attributes off, the rest as
-   usual.  The region is whole lines because `block.ts:552` records one
-   slice per line, so the inline shadow's `islice_end` disposition has no
-   counterpart here: what is cut inside a line there is not cut at all
-   here.  The break that ends each off line is off too, since a slice
-   runs to and includes its newline.
+   usual.  The region is whole lines, so the in-line slice boundaries of
+   `islice_end` have no counterpart here.  The break that ends each off
+   line is off too.
 
-   `k = 0` is `iscan_lines`, definitionally, which is what leaves every
-   existing statement about a paragraph's scan unconditioned. *)
+   `k = 0` is `iscan_lines`, definitionally, which leaves every statement
+   about a paragraph's scan unconditioned. *)
 Fixpoint iscan_lines_off (k : nat) (l : list string) (st : iscan) : iscan :=
   match k with
   | O => iscan_lines l st
@@ -5521,13 +5237,11 @@ Proof. reflexivity. Qed.
 The transition erases
 ---------------------
 
-The inline half of C2, and uniform in the policy on purpose: at
-`located_pos` it says the spans the scan records are all that
-distinguishes it from the semantic reading, and at `semantic_pos` the
-same statement says the semantic reading is position-free, which is what
-the block erasure needs wherever a paragraph is still built by the
-ambient instance.  No branch reads a coordinate, so every case closes by
-rewriting erasure through the state the branch builds.
+Uniform in the policy: at `located_pos` it says the spans the scan
+records are all that distinguish it from the semantic reading, and at
+`semantic_pos` it says the semantic reading is position-free.  No branch
+reads a coordinate, so every case closes by rewriting erasure through the
+state the branch builds.
 *)
 Theorem erase_istep_at :
   forall `{P : PosPolicy} `{C : InlineCursor} allow c st,
@@ -6024,17 +5738,13 @@ Definition oout_app (base : oitems) (o : ostate) : ostate :=
   OState (os_out o ++ base)%list (os_stk o) (os_word_start o).
 
 (* What a suffix always is: empty, or a previous line, whose most recent
-   node is the `SoftBreak` that ended it.  Every `_app` lemma below asks
-   this of its suffix, and the one caller -- `para_inlines_cons2_closed`
-   -- discharges it by `reflexivity`, because it builds the suffix by
-   consing that very break.
+   node is the `SoftBreak` that ended it.  The `_app` lemmas below ask
+   this of their suffix.
 
-   The weaker `starts_str base = false` is all the seam merge in
-   `osnoc_nonstr` needs, but not enough for attachment, which reads the
-   current scope: a scope that has emitted nothing sees the suffix's head
-   there, so a suffix headed by anything *else* would make the same query
-   answer two ways across a splice.  `oresolve` asks that question of
-   that same list, which is why `oattach_list` refuses a `SoftBreak`. *)
+   `starts_str base = false` would do for the seam merge in
+   `osnoc_nonstr`, but not for attachment: a scope that has emitted
+   nothing sees the suffix's head, so the head has to be one
+   `oattach_list` declines, as it declines an empty scope. *)
 Definition base_ok (base : oitems) : bool :=
   match base with
   | [] => true
@@ -6161,12 +5871,9 @@ Proof.
     as [[[[content image] open] rest]|]; reflexivity.
 Qed.
 
-(* The bracket reconstruction is the second place the suffix is not
-   inert, and for the same reason as `oflatten`: `opop_str` reads the
-   most recent node, and with nothing emitted yet that node comes from
-   the suffix.  The hypothesis is the one `ofinish_out_app` already
-   carries, and its single caller discharges it the same way -- the
-   suffix is a previous line, ending in a `SoftBreak`. *)
+(* The bracket reconstruction reads the suffix too: `opop_str` reads the
+   most recent node, which, with nothing emitted yet, is the suffix's
+   head.  Hence the hypothesis `ofinish_out_app` carries. *)
 Lemma opop_str_app :
   forall o base,
     base_ok base = true ->
@@ -6670,12 +6377,9 @@ Proof.
   - rewrite iscan_str_out_app, ibreak_out_app by exact Hb. apply IH, Hb.
 Qed.
 
-(* The one place the suffix is not entirely inert: flattening an
-   abandoned scope merges a `Str` seam, and if the suffix began with a
-   `Str` the merge would reach across into it.  This is the weakest form
-   of what `base_ok` says, and the only consumer that needs no more than
-   it; the `_app` lemmas carry the stronger fact because `oresolve` reads
-   the head rather than merely declining to merge with it. *)
+(* Flattening an abandoned scope merges a `Str` seam, which would reach
+   into a suffix beginning with a `Str`.  This is the weakest form of
+   `base_ok`, and the one consumer that needs no more. *)
 Lemma osnoc_nonstr :
   forall n out, starts_str out = false -> osnoc n out = (n :: out)%list.
 Proof.
@@ -6889,8 +6593,7 @@ Proof.
   rewrite List.rev_app_distr. reflexivity.
 Qed.
 
-(* Parse one line's inline content.  Every construct of
-   `.project/260811.inline-parser.md` lands here. *)
+(* Parse one line's inline content. *)
 Definition parse_inline_line (s : string) : inlines := ifinish (iscan_str s istart).
 
 Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
@@ -6912,9 +6615,8 @@ Proof.
 Qed.
 
 (* Canonical text never opens a verbatim: `needs_escape` claims the
-   backtick, so `escape_str` emits none bare.  The scanner therefore
-   stays in `IText` throughout, and this is the whole of what the
-   roundtrip needs from it today. *)
+   backtick, so `escape_str` emits none bare, and the scanner stays in
+   `IText` throughout. *)
 Lemma ilead_plain :
   forall c txt prev o,
     needs_escape c = false ->
@@ -6935,11 +6637,8 @@ Proof.
 Qed.
 
 (* Canonical text never leaves `IText`: `needs_escape` claims every
-   character the scanner dispatches on -- the backslash, the backtick,
-   the six delimiters and the two braces -- so `escape_str` emits none of
-   them bare.  This is the whole of what the roundtrip needs from the
-   scanner, and it is why adding a table row costs an escape and not a
-   proof. *)
+   character the scanner dispatches on, so `escape_str` emits none of
+   them bare.  So adding a table row costs an escape, not a proof. *)
 Lemma iscan_escape :
   forall s txt prev o,
     iscan_str (escape_str s) (IText false txt prev o)
@@ -7039,9 +6738,9 @@ Proof.
 Qed.
 
 (* `ilead` dispatches the reserved characters first, so a row is reached
-   at all only because its character is free of them -- and it finds
+   at all only because its character is free of them, and it finds
    itself again because the table is unambiguous.  Both come from
-   `config_ok`; neither is a fact about djot. *)
+   `dconfig_ok`. *)
 (* The hypothesis the hyphen adds.  `ilead` claims that character before
    it consults the table, so a row spelled with it is reached from `{` or
    from `}` instead -- see `iscan_marked_close_step`, which is where this
@@ -7068,7 +6767,7 @@ Proof.
   rewrite (dstyle_of_dchar k Hen). destruct (_ && _)%bool; reflexivity.
 Qed.
 
-(* Which is what condition 4 promises, with no hypothesis left over: a
+(* What the hyphen condition promises, with no hypothesis left over: a
    row that says it is bare is reached from the source in its bare
    spelling.  `ilead_dchar` keeps the hypothesis because
    `iscan_marked_close_step` calls it for a braced row too. *)
@@ -7103,9 +6802,7 @@ Proof.
 Qed.
 
 (* A row's whole token, scanned from text: it leaves the token complete
-   and its role undecided, which is the state the next byte resolves.
-   This is what `ilead` did in one step when a delimiter was one
-   character. *)
+   and its role undecided, which is the state the next byte resolves. *)
 Lemma iscan_dtoken :
   forall k txt prev o,
     denabled_of k = true ->
@@ -7155,9 +6852,8 @@ Proof.
   reflexivity.
 Qed.
 
-(* The token then `}`: a marked span closes.  When a delimiter was one
-   character this was a single `istep`; the content is the same, and the
-   only hypothesis is that a row has a token at all. *)
+(* The token then `}`: a marked span closes.  The only hypothesis is that
+   the row has a token. *)
 Lemma iscan_marked_close_step :
   forall k txt prev o o',
     denabled_of k = true ->
@@ -7462,9 +7158,8 @@ Qed.
 
 (* What a verbatim needs of whatever follows it: a nonempty continuation
    that does not start with a backtick, or its closing run would grow.
-   Stated over an arbitrary closer because two constructs now supply one
-   -- a marked delimiter and a bracket -- and the proof never looks at
-   which. *)
+   Stated over an arbitrary closer, since a marked delimiter and a
+   bracket both supply one. *)
 (*
 Scanning a link
 ---------------
@@ -9083,8 +8778,8 @@ Qed.
 (* The other half of what a canonical line owes the paragraph: it leaves
    the scan owing nothing to the next line.  Every canonical constituent
    either stays in `IText` (a string) or resolves its closing run before
-   the line ends (a verbatim), which is exactly why the empty verbatim
-   had to go: two adjacent runs leave `IOpen`. *)
+   the line ends (a verbatim).  An empty verbatim would not: two adjacent
+   runs leave `IOpen`, which is why `ci_ok` excludes it. *)
 Lemma iscan_cis_closed :
   forall cis prev' txt out,
     cis_ok cis = true ->
@@ -9253,8 +8948,8 @@ Qed.
 
 (* Every way a pending delimiter can resolve lands back in text mode:
    closing, opening and decaying to literal text all do.  So after
-   `iresolve` there is no `IBrace` and no `IDelim` left, which is what
-   makes the catch-all arms of `ibreak` and `ifinish_ostate` dead. *)
+   `iresolve` no state waiting on a next byte is left, and the catch-all
+   arms of `ibreak` and `ifinish_ostate` are dead. *)
 Lemma idelim_done_text :
   forall k txt bef marker next o,
     exists txt' prev' o',
@@ -9304,17 +8999,15 @@ Proof.
 Qed.
 
 (* A paragraph's lines, in order, into inlines: one scan, with `ibreak`
-   between lines.  It was a scan per line joined by `SoftBreak` until
-   spans were allowed to cross a break; the two agree exactly when no
-   line leaves the scan mid-span, which is what the canonical view
-   guarantees and `para_inlines_cons2_closed` states. *)
+   between lines.  A scan per line joined by `SoftBreak` agrees with it
+   exactly when no line leaves the scan mid-span, which the canonical
+   view guarantees (`para_inlines_cons2_closed`). *)
 Definition para_inlines (l : list string) : inlines :=
   ifinish (iscan_lines l istart).
 
 (* A paragraph whose first `k` lines came from a block attribute spec
-   that failed.  Those lines are re-read with attributes off and the rest
-   of the paragraph is read as usual, which is what `reparseAttributes`
-   followed by `this.pos = lastpos + 1` does (`block.ts:592-595`). *)
+   that failed: those lines are read with attributes off, and the rest as
+   usual. *)
 Definition para_inlines_off (k : nat) (l : list string) : inlines :=
   ifinish (iscan_lines_off k l istart).
 
@@ -9330,12 +9023,11 @@ Definition para_inlines_located `{PosPolicy} (off : nat)
   ifinish_located l (iscan_lines_located off (lines_start l) l istart).
 
 (* The one entry the block layer calls.  It asks the policy before it
-   looks at the lines, so at `semantic_pos` it *is* `para_inlines_off` of
-   their texts, by conversion: a paragraph the located parse builds and
+   looks at the lines, so at `semantic_pos` it is `para_inlines_off` of
+   their texts by conversion: a paragraph the located parse builds and
    one the semantic parse builds differ in what the nodes carry and in
-   nothing else, and no statement about the latter has to mention this.
-   (`.project/project-engineering-lessons.md`, on a conversion identity
-   being free.) *)
+   nothing else, and no statement about the latter has to mention
+   this. *)
 Definition para_inlines_at `{PosPolicy} (off : nat)
   (l : list (nat * string)) : inlines :=
   if pos_records
@@ -9398,11 +9090,10 @@ Lemma erase_inlines_para_inlines : forall l,
   erase_inlines (para_inlines l) = para_inlines l.
 Proof. intros l. apply (erase_inlines_para_inlines_off 0). Qed.
 
-(* The inline half of C2.  Uniform in the policy on purpose: at
-   `located_pos` it says the spans the scan records are all that
-   distinguishes it from the semantic reading; at `semantic_pos` the same
-   statement says the semantic reading is position-free, which is what
-   the block erasure needs wherever a paragraph is still built by the
+(* Uniform in the policy: at `located_pos` it says the spans the scan
+   records are all that distinguish it from the semantic reading; at
+   `semantic_pos` it says the semantic reading is position-free, which
+   is what the block erasure needs wherever a paragraph is built by the
    ambient instance. *)
 Theorem para_inlines_at_erase : forall `{P : PosPolicy} off l,
   erase_inlines (@para_inlines_at P off l) =
@@ -9413,11 +9104,10 @@ Proof.
     [apply erase_para_inlines_located|apply erase_inlines_para_inlines_off].
 Qed.
 
-(* Classification sees the source and nothing else.  The environment is
-   named here before brackets arrive so their parser can produce
-   unresolved `Reference` and `FootnoteReference` nodes without consulting
-   either side table; a later resolution pass may fill targets but may not
-   change this tree. *)
+(* Classification sees the source and nothing else: brackets produce
+   unresolved `Reference` and `FootnoteReference` nodes without
+   consulting either side table.  A later resolution pass may fill
+   targets but may not change this tree. *)
 Record inline_env : Type := InlineEnv {
   inline_notes : note_map;
   inline_references : reference_map;
@@ -9435,9 +9125,9 @@ Lemma para_inlines_one :
   forall x, para_inlines [x] = parse_inline_line (strip_trailing_ws x).
 Proof. reflexivity. Qed.
 
-(* The old defining equation, now conditional: a line that leaves the
-   scan mid-span does not contribute a separable run of inlines, because
-   the span it opened is finished by a later line. *)
+(* The per-line equation, which holds when the line leaves the scan
+   closed.  A line that leaves it mid-span does not contribute a
+   separable run of inlines, because a later line finishes the span. *)
 Lemma para_inlines_cons2_closed :
   forall x y rest,
     iscan_closed (iscan_str x istart) = true ->
@@ -9906,6 +9596,9 @@ Qed.
 (*
 Escapes, pinned
 ===============
+
+The examples from here on pin the scanner's behaviour, each checked
+against djot.js.
 *)
 
 (* The scanner accepts any punctuation after a backslash... *)
@@ -9915,10 +9608,10 @@ End WithTable.
 Djot's instance
 ---------------
 
-The table in force for everything downstream: the harness, the corpus,
-and the examples below.  A second one lives in `dev/check/Markdown.v`, which
-names it explicitly rather than putting it in scope -- two instances of
-one class in one scope is how the wrong table gets inferred.
+The table in force for everything downstream.  A second one lives in
+`dev/check/Markdown.v`, named explicitly rather than put in scope: two
+instances of one class in one scope is how the wrong table gets
+inferred.
 *)
 
 #[export] Instance djot_table : dtable :=
@@ -9955,7 +9648,7 @@ Example escaped_space_claims_one :
   = [mk (Str "a"); mk NonBreakingSpace; mk (Str " b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A tab is not a space, so djot.js leaves the backslash literal. *)
+(* A tab is not a space, so the backslash stays literal. *)
 Example escaped_tab_is_literal :
   parse_inline_line (String "\"%char (String "009"%char "b"))
   = [mk (Str (String "\"%char (String "009"%char "b")))].
@@ -9989,8 +9682,7 @@ Example verbatim_unclosed_closes_at_eol :
 Proof. reflexivity. Qed.
 
 (* The encoder emits only what `needs_escape` names, which is why a
-   comma renders bare where a backslash does not.  Matching djot.js,
-   which renders `\,` back as `,`. *)
+   comma renders bare where a backslash does not. *)
 Example escape_backslash : escape_str "a\b" = "a\\b".
 Proof. reflexivity. Qed.
 
@@ -10037,9 +9729,7 @@ Spans cross a line break
 *)
 
 (* A verbatim opened on one line closes on the next, with the break as
-   content -- matching djot.js, which scans the newline as an ordinary
-   character.  It was two spans and a stray empty one before the scan was
-   threaded through the paragraph. *)
+   content. *)
 Example verbatim_crosses_break :
   para_inlines ["`a"; "b`"] = [mk (Verbatim "a
 b")].
@@ -10086,8 +9776,6 @@ Proof. vm_compute. reflexivity. Qed.
 (*
 The delimiter family, pinned
 ============================
-
-Every one of these was checked against djot.js before it was written.
 *)
 
 Example canonical_emph_source :
@@ -10134,8 +9822,7 @@ Example doubled_is_nested :
 Proof. vm_compute. reflexivity. Qed.
 
 (* An opener the closer spans is abandoned: its source becomes text, and
-   its content splices into the scope that closed.  This is the stack's
-   half of djot.js's `clearOpeners`. *)
+   its content splices into the scope that closed. *)
 Example abandoned_opener_becomes_text :
   parse_inline_line "_a*b_" = [mk (Emph [mk (Str "a*b")])].
 Proof. vm_compute. reflexivity. Qed.
@@ -10167,9 +9854,9 @@ Example delete_nests :
 Proof. vm_compute. reflexivity. Qed.
 
 (* And the row round-trips through the canonical view like the others.
-   `-` is now a delimiter character, so a canonical `Str` holding one
-   spells it escaped -- which is what keeps `{-a-}` from reappearing out
-   of text that only looked like it. *)
+   `-` is a delimiter character, so a canonical `Str` holding one spells
+   it escaped, which keeps `{-a-}` from reappearing out of text that only
+   looked like it. *)
 Example delete_ci_roundtrip :
   (ci_src (CIDelim DDelete [CIStr "a"]),
    parse_inline_line (ci_src (CIDelim DDelete [CIStr "a"])))
@@ -10181,8 +9868,8 @@ Example hyphen_in_str_is_escaped :
   = ("a\-b", [mk (Str "a-b")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* An empty span is not a span: djot.js excludes a closer that sits
-   immediately after its opener. *)
+(* An empty span is not a span: a closer immediately after its opener
+   does not close it. *)
 Example empty_span_is_text :
   parse_inline_line "{__}" = [mk (Str "{__}")].
 Proof. vm_compute. reflexivity. Qed.
@@ -10216,8 +9903,8 @@ Example dash_run_gives_back_its_closer :
   = [mk (Delete [mk (Str ("a" ++ endash))])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* With nothing open, `-}` is what is left over, exactly as djot.js
-   emits it: two literal characters, and the run before them cut. *)
+(* With nothing open, `-}` is what is left over: two literal characters,
+   and the run before them cut. *)
 Example dash_run_without_an_opener :
   parse_inline_line "a---}" = [mk (Str ("a" ++ endash ++ "-}"))].
 Proof. vm_compute. reflexivity. Qed.
@@ -10239,8 +9926,7 @@ Math
 ----
 
 `$` and `$$` before a backtick run make the span math instead of
-verbatim -- djot.js's `verbatimType`, decided retroactively there and at
-the opening run here.  Every reading below was taken from the oracle.
+verbatim.
 *)
 
 Example math_inline :
@@ -10257,8 +9943,8 @@ Example math_unclosed :
   parse_inline_line "$`x" = [mk (Math InlineMath "x")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A third dollar is text: djot.js pops exactly two matches, so the
-   prefix is the last two and the extra one is flushed. *)
+(* A third dollar is text: the prefix is the last two, and the extra one
+   is flushed. *)
 Example math_three_dollars :
   parse_inline_line "$$$`x`" = [mk (Str "$"); mk (Math DisplayMath "x")].
 Proof. vm_compute. reflexivity. Qed.
@@ -10291,9 +9977,8 @@ Proof. vm_compute. reflexivity. Qed.
 Smart quotes
 ------------
 
-Two more table rows, and every reading below was taken from djot.js
-first.  What the rows needed beyond a character and a width is the
-*decay*: an unmatched quote is a curly character rather than its own
+Two more table rows.  What they need beyond a character and a width is
+the decay: an unmatched quote is a curly character rather than its own
 source, and the markers choose the side.
 *)
 
@@ -10305,9 +9990,7 @@ Example dquote_pair :
   parse_inline_line """a""" = [mk (Quoted DoubleQuotes [mk (Str "a")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An apostrophe cannot open, so it decays -- this is `DBareAfterBreak`,
-   djot's `opentest` for the single quote, and the reason the row needed
-   a third syntax value rather than a fourth field. *)
+(* An apostrophe cannot open, so it decays: this is `DBareAfterBreak`. *)
 Example apostrophe_is_not_an_opener :
   parse_inline_line "can't" = [mk (Str ("can" ++ rsquo ++ "t"))].
 Proof. vm_compute. reflexivity. Qed.
@@ -10354,13 +10037,12 @@ Example marked_squote_abandoned_is_left :
   parse_inline_line "{'a" = [mk (Str (lsquo ++ "a"))].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Both markers at once, which is the one token whose two flips compete.
-   The row's own default decides: the single quote defaults right, so the
+(* Both markers at once, the one token whose two flips compete.  The
+   row's own default decides: the single quote defaults right, so the
    open marker is the flip that applies and the `}` changes nothing,
    while the double quote defaults left and the close marker wins.  The
-   `}` is not consumed either way -- upstream moves `endcloser` past it
-   only when there is no open marker -- so the token still opens a scope
-   and the brace is text after it. *)
+   `}` is not consumed either way, since the token has an open marker, so
+   the token still opens a scope and the brace is text after it. *)
 Example marked_squote_with_close_marker_is_left :
   parse_inline_line "{'}a" = [mk (Str (lsquo ++ "}a"))].
 Proof. vm_compute. reflexivity. Qed.
@@ -10382,9 +10064,9 @@ Example marked_strong_with_close_marker_keeps_one_brace :
   parse_inline_line "{*}" = [mk (Str "{*}")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* And an escape still wins, which is what keeps a canonical `Str`
-   containing a quote round-tripping: the rows joined `is_delim`, so
-   `needs_escape` grew by two characters without being edited. *)
+(* And an escape still wins, which keeps a canonical `Str` containing a
+   quote round-tripping: the quote rows are in `is_delim`, so
+   `needs_escape` covers them. *)
 Example escaped_quotes_are_literal :
   parse_inline_line "\'a\'" = [mk (Str "'a'")].
 Proof. vm_compute. reflexivity. Qed.
@@ -10405,8 +10087,7 @@ Proof. vm_compute. reflexivity. Qed.
 (*
 Direct links
 ------------
-
-Every reading below was taken from djot.js first. *)
+*)
 
 Definition bkids : inlines := [mk (Str "a")].
 
@@ -10434,19 +10115,19 @@ Example bracket_literal_keeps_children :
   = [mk (Str "["); mk (Emph [mk (Str "a")]); mk (Str "]x")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An unterminated destination is not literal source: upstream turns the
-   region literal only at the balanced `)`, so a region that never gets
-   one keeps what the ordinary scan made of it.  The `[` and the `](`
-   come back out of the `FKDest` scope the state opened. *)
+(* An unterminated destination is not literal source: the region turns
+   literal only at the balanced `)`, so a region that never gets one
+   keeps what the ordinary scan made of it.  The `[` and the `](` come
+   back out of the `FKDest` scope the state opened. *)
 Example dest_unterminated_is_scanned :
   para_inlines ["[unclosed](hello *a"; "b*"]
   = [mk (Str "[unclosed](hello ");
      mk (Strong [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The scope is a barrier as well as a container: `inline.ts:150` refuses
-   a closer inside a destination an opener from before the `[`, which is
-   what `fr_barrier` stops `oclose_go` for. *)
+(* The scope is a barrier as well as a container: a closer inside a
+   destination may not reach an opener from before the `[`
+   (`fr_barrier`). *)
 Example dest_bars_an_outer_opener :
   parse_inline_line "*x [u](a* b" = [mk (Str "*x [u](a* b")].
 Proof. vm_compute. reflexivity. Qed.
@@ -10497,9 +10178,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* The canonical spelling, and what it excludes.  An empty label is
    canonical, which is the one place a link differs from a delimiter. *)
-(* Images are the bracket family's second member, and the `!` is a
-   lookbehind djot.js takes off the subject at the close; we cannot, so
-   the scanner has a mode for it and the frame records the answer. *)
+(* Images.  The `!` is a state of its own (`IBang`), and the frame
+   records the answer. *)
 Example image_basic :
   parse_inline_line "![a](u)" = [mk (Image bkids (Direct "u"))].
 Proof. vm_compute. reflexivity. Qed.
@@ -10618,9 +10298,7 @@ Proof. vm_compute. reflexivity. Qed.
 Spans
 =====
 
-`[...]` followed immediately by an attribute spec.  Each of these was
-pinned against djot.js before the mode was written; they are the mode's
-dispositions read back off the scanner.
+`[...]` followed immediately by an attribute spec.
 *)
 
 Example span_simple :
@@ -10680,8 +10358,7 @@ Footnote references
 
 The label is source, trimmed and whitespace-collapsed by
 `normalize_label`, and everything the brackets would have held is
-discarded.  Every one of these was read from `djot.js` before it was
-written.
+discarded.
 *)
 
 Example note_basic :
@@ -10806,9 +10483,8 @@ Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 Autolinks
 =========
 
-`<...>` with no whitespace inside, which is a link to its own text.  Each
-of these was read off djot.js before it was written down; the last two
-are the divergence, logged in [[oracle-disagreements]].
+`<...>` with no whitespace inside: a link to its own text.  One example
+below is a divergence, logged in `.project/oracle-disagreements.md`.
 *)
 
 Example auto_url :
@@ -10846,8 +10522,7 @@ Example auto_empty_is_text :
 Proof. vm_compute. reflexivity. Qed.
 
 (* Whitespace ends the candidate where it stands, and a second `<` starts
-   a new one -- which is what the regex does by failing at the first `<`
-   and being retried one byte later. *)
+   a new one. *)
 Example auto_space_is_text :
   parse_inline_line "<a b>" = [mk (Str "<a b>")].
 Proof. vm_compute. reflexivity. Qed.
@@ -10914,8 +10589,7 @@ Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 Raw inline
 ==========
 
-A verbatim whose closer is followed immediately by `{=format}`.  Every
-line here was read off djot.js first.
+A verbatim whose closer is followed immediately by `{=format}`.
 *)
 
 Example raw_simple :
@@ -10936,8 +10610,8 @@ Example raw_beats_the_row :
   parse_inline_line "{=a=}" = [mk (Highlight [mk (Str "a")])].
 Proof. vm_compute. split; reflexivity. Qed.
 
-(* Only a verbatim takes one.  djot.js guards the lookahead with
-   `verbatimType`, so math keeps its node and the spec is text. *)
+(* Only a verbatim takes one: math keeps its node and the spec is
+   text. *)
 Example raw_not_after_math :
   parse_inline_line "$`x`{=html}"
   = [mk (Math InlineMath "x"); mk (Str "{=html}")].
@@ -10967,9 +10641,7 @@ Example raw_non_candidate_is_an_attribute :
 Proof. vm_compute. reflexivity. Qed.
 
 (* A candidate that fails puts back what it read and dispatches the byte
-   that failed it, so a construct inside the region still parses -- which
-   is what djot.js's rescan does, and the reason raw needs no divergence
-   entry where the autolink did. *)
+   that failed it, so a construct inside the region still parses. *)
 Example raw_failed_spec_resumes_the_scan :
   parse_inline_line "`x`{=a`b`}"
   = [mk (Verbatim "x"); mk (Str "{=a"); mk (Verbatim "b"); mk (Str "}")].
@@ -11034,12 +10706,12 @@ Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 The empty-span exclusion
 ========================
 
-djot.js looks at the *top* of the opener stack for a delimiter character
-and nowhere else (inline.ts:145).  When that opener is empty it declines
-to close and the closer becomes an opener, so a run of n identical
-delimiters around content nests n deep, and a bare run is literal.  These
-are the rows of the baseline table in .project/extension-decisions.md,
-which the configurable delimiter table has to keep reproducing.
+A closer looks only at the innermost matching opener.  When that opener
+is empty it declines to close and becomes an opener itself, so a run of
+n identical delimiters around content nests n deep, and a bare run is
+literal.  These are the rows of the baseline table in
+`.project/extension-decisions.md`, which the configurable delimiter table
+has to keep reproducing.
 *)
 
 Example emph_run_two : parse_inline_line "__a__"
@@ -11050,9 +10722,8 @@ Example emph_run_three : parse_inline_line "___a___"
   = [mk (Emph [mk (Emph [mk (Emph [mk (Str "a")])])])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The case flagged to check first: a fourth level is still just nesting,
-   so the exclusion does generalize to longer runs of one character.  It
-   is what a multi-character delimiter has to be stated against. *)
+(* A fourth level is still nesting, so the exclusion generalizes to
+   longer runs of one character. *)
 Example emph_run_four : parse_inline_line "____a____"
   = [mk (Emph [mk (Emph [mk (Emph [mk (Emph [mk (Str "a")])])])])].
 Proof. vm_compute. reflexivity. Qed.
@@ -11111,16 +10782,13 @@ Example attr_needs_adjacency :
   parse_inline_line "foo {.a}" = [mk (Str "foo ")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An empty spec attaches nothing.  djot.js cuts the text in two here;
-   both halves are plain, so one run is the same HTML and keeps us inside
-   `no_adjacent_str`. *)
+(* An empty spec attaches nothing, and the text stays one run. *)
 Example attr_empty_spec :
   parse_inline_line "foo{}bar" = [mk (Str "foobar")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* `{` before a delimiter character is a braced delimiter, never a spec:
-   djot.js resolves the ambiguity that way even when the contents would
-   have parsed as attributes. *)
+(* `{` before a delimiter character is a braced delimiter, never a spec,
+   even when the contents would have parsed as attributes. *)
 Example attr_brace_delimiter_wins :
   parse_inline_line "a{_x=y_}"
   = [mk (Str "a"); mk (Emph [mk (Str "x=y")])].
@@ -11154,8 +10822,7 @@ Example attr_empty_spec_on_node :
 Proof. vm_compute. reflexivity. Qed.
 
 (* Nothing at all before it and the spec is gone, source included.  A
-   line that is nothing else resolves to no inlines at all, which is why
-   `para_block` may answer with no block. *)
+   line that is nothing else resolves to no inlines. *)
 Example attr_with_nothing_before_vanishes :
   parse_inline_line "{#i} x"
   = [mk (Str " x")].
@@ -11165,8 +10832,8 @@ Example attr_alone_leaves_nothing :
   parse_inline_line "{#i}" = [].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A scope holding nothing else closes onto nothing, which is djot.js's
-   `<strong></strong>`: the empty-scope test runs on the items, before
+(* A scope holding nothing else closes onto nothing
+   (`<strong></strong>`): the empty-scope test runs on the items, before
    attachment. *)
 Example attr_alone_in_scope_closes_empty :
   parse_inline_line "*{#i}*" = [mk (Strong [])].
@@ -11199,9 +10866,7 @@ Example attr_reaches_over_a_bracket :
   = [mk (Str "a "); Node NoPos [("class", "c")] (Str "[x"); mk (Str "o")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* When the opener *does* close it is a node, and the spec stops there --
-   which is what the scan always did, and what deferring must not
-   change. *)
+(* When the opener does close it is a node, and the spec stops there. *)
 Example attr_stops_at_a_closed_opener :
   parse_inline_line "a b*c*d{.e}f"
   = [mk (Str "a b"); mk (Strong [mk (Str "c")]);
@@ -11237,7 +10902,7 @@ Proof. vm_compute. reflexivity. Qed.
    here: the byte after it is not one of the three that close a bracket,
    so the scope stays open and `oflatten` abandons it at the end of the
    paragraph, merging the opener's `[` into the `Str` the spec then
-   attaches to.  djot.js reads it the same way. *)
+   attaches to. *)
 Example attr_inside_a_decaying_bracket :
   parse_inline_line "[a{.c}b] c"
   = [Node NoPos [("class", "c")] (Str "[a"); mk (Str "b] c")].
@@ -11245,8 +10910,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* The break is a byte of the spec, so the machine is fed it and the
    spec closes on the next line.  Nothing separates the two lines in the
-   output: the break was inside the spec's source, and djot.js's
-   `attributeSlices` swallow it the same way. *)
+   output: the break was inside the spec's source. *)
 Example attr_spec_crosses_a_break :
   para_inlines ["hi{#id .class"; "key=""value""}"]
   = [Node NoPos [("id", "id"); ("class", "class"); ("key", "value")]
@@ -11280,10 +10944,10 @@ Example attr_unclosed_spec_keeps_ordinary_scan :
      mk (Quoted DoubleQuotes [mk (Strong [mk (Str "b")])])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* And it is cut at the slice boundaries djot.js re-feeds that source on,
-   so a run inside the candidate never grows into one token: `-` and `-`
-   are two hyphens rather than an en dash, where the same two bytes
-   outside a candidate are one. *)
+(* And it is cut at slice boundaries (`islice_end`), so a run inside the
+   candidate never grows into one token: `-` and `-` are two hyphens
+   rather than an en dash, where the same two bytes outside a candidate
+   are one. *)
 Example attr_failed_spec_cuts_a_run :
   parse_inline_line "x{a--" = [mk (Str "x{a--")].
 Proof. vm_compute. reflexivity. Qed.
@@ -11458,9 +11122,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* A spec with nothing before it leaves no inline at all, so a label that
    is nothing else is not one inline and the line is not a key.  This is
-   `key_label_ok` doing the work: 3.2's advice -- an attribute meant for
-   the keyed node goes on its own line above -- now has a mechanism
-   behind it rather than an accident of spelling. *)
+   `key_label_ok` at work: 3.2's advice, to put an attribute meant for
+   the keyed node on its own line above, follows from it. *)
 Example key_leading_brace_is_no_key :
   key_split "{#i}: bar" = None.
 Proof. vm_compute. reflexivity. Qed.

@@ -98,9 +98,6 @@ Lemma parse_lines_step :
     parse_lines (l :: rest) st = (bs ++ parse_lines rest st')%list.
 Proof. intros l rest st bs st' H. cbn [parse_lines]. rewrite H. reflexivity. Qed.
 
-(* para_inlines_one / para_inlines_cons2 are in Inline.v, next to the
-   definition they unfold. *)
-
 Lemma parse_lines_nil_cons :
   forall c cur',
     parse_lines [] (PPara (c :: cur')) =
@@ -536,11 +533,9 @@ Proof.
   - cbn in Hmode. apply Nat.eqb_eq in Hmode. destruct ls; [reflexivity|discriminate].
 Qed.
 
-(* Same, seen through an all-whitespace pad: classify_canonical_heading_pad
-   still extracts a clean, pad-free `a`, so push_text's own drop_leading_ws
-   erases whatever's left the same as in the unpadded case — no new
-   argument, just classify_canonical_heading_pad in place of
-   classify_canonical_heading. *)
+(* The same through an all-whitespace pad: `classify_canonical_heading_pad`
+   extracts the same pad-free `a`, and `push_text` drops what is left of
+   the pad. *)
 Lemma parse_lines_heading_seed_pad :
   forall pad, is_blank pad = true ->
   forall lvl ls tail rng cur,
@@ -593,108 +588,14 @@ Uniformity of block quotes
 
 The payoff of routing a quote's contents back through `step`: prefixing
 every line of a document with "> " parses to exactly that document,
-wrapped in a quote.  Nothing about the contents is assumed — this holds
-for every construct the parser knows, including future ones and nested
-quotes. *)
+wrapped in a quote.  Nothing about the contents is assumed, so this
+holds for every construct the parser knows, nested quotes included. *)
 
-(* Inside an open quote, the prefixed lines drive the inner state and
-   the blank line that follows closes the quote. *)
-Lemma parse_lines_quote_cont :
-  forall lines tail range done inner,
-    parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
-                (PQuote range done (pad_state quote_pad inner))
-    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
-      :: parse_lines tail (PPara []).
-Proof.
-  induction lines as [|l lines IH]; intros tail range done inner.
-  - cbn [map app].
-    rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_close _ KBlank _ _ _ _ _
-                  (classify_blank EmptyString eq_refl) eq_refl eq_refl eq_refl)).
-    rewrite pad_state_finish. reflexivity.
-  - cbn [map app].
-    destruct (step l inner) as [bs inner'] eqn:Es.
-    assert (Esh : step_at (consumed ("> " ++ l) l) l (pad_state quote_pad inner)
-                  = (bs, pad_state quote_pad inner')).
-    { rewrite consumed_quote_prefix.
-      rewrite <- (Nat.add_0_r quote_pad) at 1. rewrite step_at_shift.
-      rewrite step_at_zero, Es. reflexivity. }
-    rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ _ (classify_canonical_quote l) Esh)).
-    cbn [app]. rewrite IH.
-    rewrite (parse_lines_step _ _ _ _ _ Es).
-    rewrite rev_app_distr, rev_involutive, <- app_assoc.
-    reflexivity.
-Qed.
-
-(* ...and the same when the input simply ends. *)
-Lemma parse_lines_quote_cont_eof :
-  forall lines range done inner,
-    parse_lines (map (fun l => ("> " ++ l)%string) lines)
-                (PQuote range done (pad_state quote_pad inner))
-    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
-Proof.
-  induction lines as [|l lines IH]; intros range done inner.
-  - cbn [map parse_lines finish]. rewrite pad_state_finish. reflexivity.
-  - cbn [map].
-    destruct (step l inner) as [bs inner'] eqn:Es.
-    assert (Esh : step_at (consumed ("> " ++ l) l) l (pad_state quote_pad inner)
-                  = (bs, pad_state quote_pad inner')).
-    { rewrite consumed_quote_prefix.
-      rewrite <- (Nat.add_0_r quote_pad) at 1. rewrite step_at_shift.
-      rewrite step_at_zero, Es. reflexivity. }
-    rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ _ (classify_canonical_quote l) Esh)).
-    cbn [app]. rewrite IH.
-    rewrite (parse_lines_step _ _ _ _ _ Es).
-    rewrite rev_app_distr, rev_involutive, <- app_assoc.
-    reflexivity.
-Qed.
-
-Lemma parse_lines_quote :
-  forall l lines tail,
-    parse_lines
-      (map (fun x => ("> " ++ x)%string) (l :: lines) ++ EmptyString :: tail)%list
-      (PPara [])
-    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
-      :: parse_lines tail (PPara []).
-Proof.
-  intros l lines tail. cbn [map app].
-  destruct (step l (PPara [])) as [bs inner] eqn:Es.
-  rewrite (parse_lines_step _ _ _ _ _
-             (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
-  cbn [app]. rewrite consumed_quote_prefix.
-  rewrite parse_lines_quote_cont, rev_involutive.
-  rewrite (parse_lines_step _ _ _ _ _ Es).
-  reflexivity.
-Qed.
-
-(** Uniformity for block quotes: a quote's contents parse exactly as
-    they would at top level.  One proof, every construct. *)
-Theorem quote_uniformity :
-  forall l lines,
-    parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
-    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
-Proof.
-  intros l lines. cbn [map].
-  destruct (step l (PPara [])) as [bs inner] eqn:Es.
-  rewrite (parse_lines_step _ _ _ _ _
-             (step_quote_open _ _ _ _ (classify_canonical_quote l) Es)).
-  cbn [app]. rewrite consumed_quote_prefix.
-  rewrite parse_lines_quote_cont_eof, rev_involutive.
-  rewrite (parse_lines_step _ _ _ _ _ Es).
-  reflexivity.
-Qed.
-
-(* The same four lemmas, seen through an all-whitespace pad in front of
-   every "> " — verbatim copies of the proofs above with
-   classify_canonical_quote_pad in place of classify_canonical_quote.
-   This is what lets a quote nested inside a list item ignore the
-   item's own indent entirely: the pad never reaches `rest`, so the
-   recursion into the quote's contents is byte-identical to the
-   unpadded case.  A nested list is not byte-identical -- its recorded
-   column moves with the pad -- which is why the list side is stated as
-   a shift (`run_lines_pad_shift`) rather than an equality. *)
+(* The quote lemmas through an all-whitespace pad in front of every "> ";
+   the unpadded forms below are the empty pad.  A quote nested in a list
+   item ignores the item's indent: the pad never reaches `rest`.  A
+   nested list is not like that, since its recorded column moves with the
+   pad, so the list side is stated as a shift (`run_lines_pad_shift`). *)
 Lemma consumed_quote_prefix_pad :
   forall pad l, consumed (pad ++ "> " ++ l) l = String.length pad + quote_pad.
 Proof.
@@ -794,6 +695,56 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ Es).
   reflexivity.
 Qed.
+
+(* Inside an open quote, the prefixed lines drive the inner state and
+   the blank line that follows closes the quote. *)
+Lemma parse_lines_quote_cont :
+  forall lines tail range done inner,
+    parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
+                (PQuote range done (pad_state quote_pad inner))
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines tail (PPara []).
+Proof.
+  intros lines tail range done inner.
+  exact (parse_lines_quote_cont_pad EmptyString eq_refl EmptyString
+           (classify_blank EmptyString eq_refl) lines tail range done inner).
+Qed.
+
+(* ...and the same when the input simply ends. *)
+Lemma parse_lines_quote_cont_eof :
+  forall lines range done inner,
+    parse_lines (map (fun l => ("> " ++ l)%string) lines)
+                (PQuote range done (pad_state quote_pad inner))
+    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
+Proof.
+  intros lines range done inner.
+  exact (parse_lines_quote_cont_eof_pad EmptyString eq_refl
+           lines range done inner).
+Qed.
+
+Lemma parse_lines_quote :
+  forall l lines tail,
+    parse_lines
+      (map (fun x => ("> " ++ x)%string) (l :: lines) ++ EmptyString :: tail)%list
+      (PPara [])
+    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros l lines tail.
+  exact (parse_lines_quote_pad EmptyString eq_refl EmptyString
+           (classify_blank EmptyString eq_refl) l lines tail).
+Qed.
+
+ (** Uniformity for block quotes: a quote's contents parse exactly as
+    they would at top level.  One proof, every construct. *)
+Theorem quote_uniformity :
+  forall l lines,
+    parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros l lines. exact (quote_uniformity_pad EmptyString eq_refl l lines).
+Qed.
+
 (*
 Running lines without finishing
 -------------------------------
@@ -875,27 +826,22 @@ Uniformity of fenced divs
 
 Same payoff as the quote's, and a shorter argument, because a div strips
 no prefix and shifts no column: its contents are handed the line
-unchanged.  What replaces the prefix machinery is the side condition, and
-that is the interesting part.
+unchanged.  What replaces the prefix machinery is the side condition.
 
-The obvious statement of it -- "no content line is a closing fence" --
-is *false*, because `div_close` strips leading whitespace before it
-looks.  A `:::` indented under a list item closes the div through the
-list; `- a` / `  :::` / `  b` parses one way at top level and another
-inside a div (`div_indented_close_differs` below pins it).  So the
-condition has to reach every line of the contents, nested ones included.
+"No content line is a closing fence" is false as a side condition,
+because `div_close` strips leading whitespace before it looks.  A `:::`
+indented under a list item closes the div through the list; `- a` /
+`  :::` / `  b` parses one way at top level and another inside a div
+(`div_indented_close_differs` below).  So the condition has to reach
+every line of the contents, nested ones included.
 
-But it cannot be lexical either, because of the code-block exception:
-inside an open fence a `:::` line is content, not a closer, so the
-condition depends on the state each line is reached in.  That makes it a
-run predicate of exactly the shape `run_safe` has -- which is worth
-recording, since the container-uniformity proposal predicted a div would
-need no such thing (.project/260809.container-uniformity.md).
-
-`run_div_open` is that predicate: fold `step` over the contents and check
-at each line that the div does not close there.  It is decidable and
-computable, and `div_code_fence_uniform` below is a document it accepts
-that a lexical condition would have thrown away. *)
+It cannot be lexical either, because inside an open fence a `:::` line
+is content, not a closer: the condition depends on the state each line
+is reached in.  That makes it a run predicate of the shape `run_safe`
+has.  `run_div_open` is that predicate: fold `step` over the contents
+and check at each line that the div does not close there.
+`div_code_fence_uniform` below is a document it accepts that a lexical
+condition would have thrown away. *)
 
 Fixpoint run_div_open (len : nat) (lines : list string) (st : pstate) : bool :=
   match lines with
@@ -1005,11 +951,6 @@ Proof.
   reflexivity.
 Qed.
 
-(* The boundary, pinned.  Deleting either of these should break. *)
-
-(* Why the side condition cannot be "no *top-level* content line closes
-   the div": here the closing line is a list-item continuation, and the
-   div takes it anyway.  Both oracles agree with the left-hand side. *)
 (*
 Block attributes
 ----------------
@@ -1027,8 +968,7 @@ Definition pend_carriable (st : pstate) : bool :=
 
 (* The same question of a state and the line about to reach it.  An idle
    state is carriable for every line but the two `PPend` answers itself:
-   a blank drops the pending set (parse.ts:1231) and a spec merges into
-   it. *)
+   a blank drops the pending set and a spec merges into it. *)
 Definition pend_ready (st : pstate) (l : string) : bool :=
   match st with
   | PPara [] => match classify l with KBlank | KAttr _ => false | _ => true end
@@ -1263,6 +1203,10 @@ Qed.
 
 End WithTable.
 
+(* The div boundary, pinned at djot's table.  The side condition cannot
+   be "no top-level content line closes the div": here the closing line
+   is a list-item continuation, and the div takes it anyway.  Both
+   oracles agree with the left-hand side. *)
 Example div_indented_close_differs :
   let content := ["- a"; "  :::"; "  b"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
@@ -1303,36 +1247,31 @@ the contribution a line makes to block-level structure never depends on
 a future line."  `Line.v` gives each line its kind; these say the fold
 over those kinds commits as it goes.
 
-`parse_lines` is a fold, so the property is true by construction rather
-than by argument, and the three statements below are one rewrite each
-off `parse_lines_app_run`.  They are here because "true by construction"
-is a claim about the definition that a reader should not have to
-reconstruct, and because a future block parser -- a `BlockSpec` record
-dispatched over a container stack, say -- must keep them.
+`parse_lines` is a fold, so the property holds by construction, and the
+three statements below are one rewrite each off `parse_lines_app_run`.
+They state what the construction guarantees, so a reader need not
+reconstruct it.
 
 Stated at the line level, which is where the parser is incremental.
 Lifting to `parse_doc` would need `split_lines` to distribute over
 concatenation, and it does so only when the prefix ends at a newline:
 `split_lines "a" ++ split_lines "b"` is `["a"; "b"]` while
-`split_lines "ab"` is `["ab"]`.  The line-level form is the honest one.
+`split_lines "ab"` is `["ab"]`.
 
-One caveat for later.  The plan (`.project/260802.plan.autonomous.md`,
-Phase 2 item 3) scopes prefix determinism to block *tree shape*, because
-djot's pipe-table rule turns a paragraph into a table header
-retroactively.  We have no tables, so the statements below are over full
-parse results, which is strictly stronger.  Adding tables falsifies them
-as written; the shape-only weakening is the fallback, and it should be a
-deliberate step, not a surprise.
+A pipe table's separator turns the row before it into a header, but
+that happens inside the open table state (`Step.table_fold`) before
+anything is emitted, so the statements are over full parse results
+rather than tree shape.
 *)
 
-(** What a line prefix has already emitted.  A fold over the prefix, so
-    "computable line by line" is definitional. *)
 (* Back into the family: the determinism theorems below are about any
    admissible table, like the fold equations above them. *)
 Section WithTableDet.
 Context {T : dtable}.
 Context {K : bconfig}.
 
+ (** What a line prefix has already emitted.  A fold over the prefix, so
+    "computable line by line" is definitional. *)
 Definition committed (xs : list string) (st : pstate) : blocks :=
   fst (run_lines xs st).
 

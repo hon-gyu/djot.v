@@ -6,13 +6,13 @@
 
    [parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs]
 
-   for canonical blocks (Render.v).  Exact equality — canonicality is in
+   for canonical blocks (Render.v).  Exact equality: canonicality is in
    the cb_ok hypothesis, so no quotient is needed.
 
    Proof shape, per block: rendering emits lines; split_lines recovers
    them exactly (Strings.v split/join inversion); the parser folds them
-   back via its equation lemmas (Parser.v).  Extending to a new construct
-   touches the three case analyses marked below and nothing else.
+   back via its equation lemmas.  A new construct adds a case to
+   `cb_ok_lines_ok`, `parse_cblock` and `render_cb_lines`.
 
    Sections, in dependency order:
 
@@ -65,7 +65,7 @@ Splitting a rendered document
 
 (* What the split/join inversion needs of each block's lines: newline-free
    throughout, and a nonempty final line (split_lines drops a trailing
-   empty line).  Interior lines may be blank — code content is verbatim. *)
+   empty line).  Interior lines may be blank: code content is verbatim. *)
 Definition lines_ok (ls : list string) : bool :=
   nonempty ls
   && forallb no_nl ls
@@ -253,9 +253,9 @@ Proof.
 Qed.
 
 (* Canonical lines are already flush left, so stripping leading
-   whitespace off each one is the identity — the fact that lets the
-   parser's now-stripping continuation rule reproduce a canonical
-   cblock's lines unchanged. *)
+   whitespace off each one is the identity: the parser's continuation
+   rule, which strips, reproduces a canonical cblock's lines
+   unchanged. *)
 Lemma forallb_line_ok_map_drop_leading_ws :
   forall ls, forallb line_ok ls = true -> map drop_leading_ws ls = ls.
 Proof.
@@ -266,7 +266,7 @@ Proof.
 Qed.
 
 (* Pushing an all-whitespace pad through a mapped nonblank/drop_leading_ws
-   check — the two facts parse_cblock_pad's paragraph case needs to reuse
+   check: the two facts parse_cblock_pad's paragraph case needs to reuse
    parse_lines_para_seed (already generic over its lines) with padded
    arguments. *)
 Lemma forallb_nonblank_map_pad :
@@ -354,8 +354,8 @@ Proof.
 Qed.
 
 (* Marker-prefixed lines: every construct whose rendering puts a fixed
-   marker in front of each line (quotes, headings) needs exactly this —
-   newline-freedom survives, and the last line is nonempty because the
+   marker in front of each line (quotes, headings) needs exactly this.
+   Newline-freedom survives, and the last line is nonempty because the
    marker is. *)
 Lemma no_nl_quote_line :
   forall l, no_nl (quote_line l) = no_nl l.
@@ -373,9 +373,9 @@ Proof.
   cbn [map forallb]. rewrite no_nl_append, Hp, Hl. cbn [andb]. apply IH, Hls.
 Qed.
 
-(* A list item's rendering: marker on the first line, plain indent on
-   the rest — two prefixes instead of quote_line's one, so this isn't
-   quite lines_ok_map, but the same shape otherwise. *)
+(* A list item's rendering: marker on the first line, plain indent on the
+   rest.  Two prefixes instead of quote_line's one, so this is not quite
+   lines_ok_map, but the same shape otherwise. *)
 Lemma lines_ok_indent :
   forall p1 p2 ls,
     no_nl p1 = true -> no_nl p2 = true -> p1 <> EmptyString -> p2 <> EmptyString ->
@@ -720,7 +720,7 @@ Proof.
       cbn [map forallb] in IH |- *.
       specialize (IH Hok). apply andb_true_iff in IH as [Hc _]. exact Hc.
     + apply sep_lines_no_nl. apply IH. exact Hok.
-  - (* div: the fences carry both conditions by themselves — the last
+  - (* div: the fences carry both conditions by themselves.  The last
        line is `:::` whatever the contents are, so unlike the quote case
        there is nothing to prove about nonemptiness *)
     intros inner IH H.
@@ -835,9 +835,9 @@ Canonical lists
 `Parser.list_uniformity` does all the work: a list's rendering parses
 back to a BulletList whose items are the items' own lines parsed at top
 level, and whose spacing is a scan of those lines.  It needs only
-`item_ok` on each item's rendering, which `cb_ok` now asks for directly,
-so nothing here reasons about what is inside an item -- including
-another list.
+`item_ok` on each item's rendering, which `cb_ok` asks for directly, so
+nothing here reasons about what is inside an item, another list
+included.
 
 What is left is bookkeeping: `cb_lines`'s shape has to be matched to
 `list_lines`'s, the spacing verdict read off `cb_ok`'s conjunct, and the
@@ -1388,9 +1388,8 @@ Proof.
                forallb (fun it => (nonempty it && forallb cb_ok it)%bool) items = true ->
                items_parse items)
             _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _).
-  - (* paragraph.  The parse is the same line-level argument as before the
-       inline layer existed; `cb_ast_para_of_lines` is the one new step,
-       identifying what the parser built with what `cb_ast` names.
+  - (* paragraph: the line-level argument, then `cb_ast_para_of_lines`
+       identifies what the parser built with what `cb_ast` names.
        `destruct ... eqn:E` abstracts it in `Hast` too, which is why the
        branches close on `Hast` and not on `reflexivity`. *)
     intros lss. split; [intros next tail _ _ H | intros H];
@@ -1468,7 +1467,7 @@ Proof.
       rewrite line_texts_rev_remember_lines, rev_involutive, Hast. reflexivity.
   - (* heading: open on the first line, accumulate the rest, close on the
        blank line or at end of input.  No first-line classification
-       condition — the hashes make every rendered line a heading line. *)
+       condition: the hashes make every rendered line a heading line. *)
     intros lvl ls. split; [intros next tail _ _ H | intros H];
       pose proof (cb_ast_heading_of_lines lvl ls H) as Hast;
       rewrite cb_ok_heading in H;
@@ -1540,10 +1539,10 @@ Proof.
       unfold quote_line, quote_open.
       rewrite quote_uniformity, <- E, IHinner. reflexivity.
   - (* div: Parser.div_uniformity, with cb_ok supplying its side
-       condition.  Simpler than the quote case in one way — the fences
+       condition.  Simpler than the quote case in one way (the fences
        make the rendering nonempty on their own, so there is no
-       `Hsplit` — and it needs no `cb_pairs_ok` for its own sake,
-       only to drive the contents' induction hypothesis. *)
+       `Hsplit`), and it needs no `cb_pairs_ok` for its own sake, only
+       to drive the contents' induction hypothesis. *)
     intros inner IH.
     assert (Hparts : cb_ok (CDiv inner) = true ->
                      bdivs = true
@@ -1778,7 +1777,7 @@ Proof.
     destruct (map ci_line ls) as [|a ls'] eqn:E; [discriminate|].
     apply para_ok_parts in Hp as (_ & Hlok & _).
     rewrite <- E in Hlok.
-    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
          cb_ast cb_lines node_contents mk render_block_lines].
     apply inline_lines_ci.
     + exact Hc.
@@ -1789,21 +1788,21 @@ Proof.
     intros info content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [H _].
     apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
          cb_ast cb_lines node_contents mk render_block_lines].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* raw block *)
     intros format content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [_ H].
     unfold raw_ok in H. apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
          cb_ast cb_lines node_contents mk render_block_lines].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     intros lvl ls H.
     rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
     apply heading_ok_parts in Hh as (_ & Hne & Hlok & _ & _).
-    cbn [render_node_lines id_spec_lines node_attrs lookup_attr app
+    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
          cb_ast cb_lines node_contents mk render_block_lines].
     f_equal.
     apply inline_lines_ci.
@@ -1864,7 +1863,7 @@ Proof.
     specialize (IH Hinner). rewrite Ex, render_node_lines_mk in IH.
     cbn [cb_ast cb_lines]. rewrite Ex, add_attr_mk.
     unfold render_node_lines, id_spec_lines.
-    cbn [node_attrs node_contents lookup_attr String.eqb Ascii.eqb app].
+    cbn [node_attrs node_contents alist_lookup String.eqb Ascii.eqb app].
     rewrite IH. reflexivity.
   - intros label inner IH H.
     destruct (cb_ok_key_parts label inner H) as (_ & _ & Hi & _).
@@ -1883,8 +1882,8 @@ Proof.
     cbn [map]. rewrite (Hitem Hit), (Hitems Hrest). reflexivity.
 Qed.
 
-(* Rendering a canonical document is the same as joining its cb_lines —
-   this is what lets split_render/parse_sep take over. *)
+(* Rendering a canonical document is the same as joining its cb_lines,
+   which is what lets split_render/parse_sep take over. *)
 Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
   render_djot (blocks_of_cblocks cbs)
@@ -1982,8 +1981,7 @@ Example quote_example_roundtrip :
 Proof. apply roundtrip_blocks; reflexivity. Qed.
 
 (* A paragraph whose text contains a backslash: the renderer escapes it,
-   the parser takes it back.  The first inline construct to reach the
-   block roundtrip. *)
+   the parser takes it back. *)
 Example escape_roundtrip :
   let cbs := [cpara ["a\b"]] in
   render_djot (blocks_of_cblocks cbs) = "a\\b"
@@ -2016,7 +2014,7 @@ Example heading_in_quote_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
-(* Divs roundtrip, and so do the containers inside them — the whole
+(* Divs roundtrip, and so do the containers inside them: the whole
    content of Parser.div_uniformity, seen end to end. *)
 Example div_roundtrip :
   let cbs := [CDiv [cpara ["a"]; cpara ["b"]]] in
@@ -2131,13 +2129,13 @@ Proof.
 Qed.
 
 (* Excluded and impossible: each of these three cannot round-trip at
-   all, so no theorem will ever admit them, and why each is excluded.  An
-   alpha list from `i` at length 1 renders `i. a`, which is also what
-   roman from 1 renders -- two canonical ASTs, one source, so at most one
-   can round-trip and it is the roman one.  At length 2 the letters `c`
-   and `d` are *both* roman digits, so `c. / d.` is still unresolved
-   after its second marker and reads as roman from 100.  The last is the
-   wrap: `z` leaves no 27th letter.  Measured in `dev/check/Probe.v`. *)
+   all, so no theorem will ever admit them.  An alpha list from `i` at
+   length 1 renders `i. a`, which is also what roman from 1 renders: two
+   canonical ASTs, one source, so at most one can round-trip, and it is
+   the roman one.  At length 2 the letters `c` and `d` are both roman
+   digits, so `c. / d.` is still unresolved after its second marker and
+   reads as roman from 100.  The last is the wrap: `z` leaves no 27th
+   letter. *)
 Example excluded_ordered_starts :
   (cb_ok (CList (LKAlpha false RightPeriod 9) Tight [[cpara ["a"]]]),
    cb_ok (CList (LKAlpha false RightPeriod 3) Tight
@@ -2185,15 +2183,15 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 
 (* A div's closing line arms the enclosing list, so an item that ends
    with one hands a gap to the next marker and the list comes back loose.
-   `- ::: / a / ::: / - t` is the shape, and `Tight` is now unspellable
-   for it -- correctly, since the parser cannot produce it.
+   `- ::: / a / ::: / - t` is the shape, and `Tight` is unspellable for
+   it, correctly, since the parser cannot produce it.
 
-   The second half is the coverage this costs, and it is the residue
-   named in `oracle-disagreements.md`: `item_ok` asks the gap of *every*
+   The second half is the coverage this costs (the residue named in
+   `.project/oracle-disagreements.md`): `item_ok` asks the gap of every
    item, including the last, where nothing follows to spend it.  So the
-   two below are rejected while their renderings do round-trip.  Lifting
-   it means carrying the gap through `list_loose_of` as a fold rather
-   than an `existsb`; until then this example is the boundary, and its
+   two below are rejected although their renderings do round-trip.
+   Lifting it means carrying the gap through `list_loose_of` as a fold
+   rather than an `existsb`; this example is the boundary, and its
    deletion is the confirmation that the fix was real. *)
 Example div_ending_item_excluded :
   let tight_last := [CList LKBullet Tight [[CDiv [cpara ["a"]]]]] in
@@ -2313,10 +2311,10 @@ Above the block layer
 roundtrip_blocks is about `parse_blocks`, the line fold.  The parser's
 actual entry point is `Document.parse_doc`, which runs the whole-document
 pass on top.  The primary theorem therefore says render-and-parse
-commutes with that pass and retains all of its derived data.  The older
-erasure theorem remains useful on the pristine fragment: cb_ast builds
-bare `mk` nodes, so no heading carries an explicit id, and it builds no
-sections.
+commutes with that pass and retains all of its derived data.  The
+erasure theorem `roundtrip_doc` remains useful on the pristine fragment:
+cb_ast builds bare `mk` nodes, so no heading carries an explicit id, and
+it builds no sections.
 *)
 
 (* Back into the family: the document-level roundtrip is a theorem about

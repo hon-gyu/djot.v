@@ -2,33 +2,18 @@
 
 (* The depth-3 half of `dev/Generate.v`, in the Rocq kernel.
 
-   **`make roundtrip` is the routine check now.**  It runs this exact
-   sweep -- `Generate.rt_lhs` and `rt_rhs`, the same functions -- in the
-   extracted parser, at depth 3 in about five seconds, and it pins the
-   counts too.  This file does the same work in the kernel and takes
-   about twenty minutes, so run it when you want the *certification*
-   rather than the answer: before a release, or when the extraction
-   itself is in doubt.
+   `make roundtrip` runs the same sweep (`Generate.rt_lhs` and `rt_rhs`)
+   in the extracted parser in seconds and pins the counts too.  This file
+   does the work in the kernel, in about twenty minutes, for when the
+   certification is wanted rather than the answer: before a release, or
+   when the extraction itself is in doubt.
 
-   Why the kernel is so much slower, and why the obvious fix is not one.
-   `vm_compute` normalizes the sweep and then `Qed` converts the proof
-   term again, so the cost looks like it should halve with a single
-   kernel-side cast.  Measured at depth 2 on 2026-08-21: 16.9s split
-   between tactic and `Qed`, 16.2s as one `vm_cast_no_check`.  A 4%
-   saving.  The conversion is the cost, and it is paid either way.
+   The cost is conversion, and it is paid either way: replacing
+   `vm_compute` then `Qed` with one kernel-side `vm_cast_no_check` saved
+   about 4% at depth 2.
 
-   | check              | vm_compute | Qed    |
-   | ------------------ | ---------- | ------ |
-   | `gen_roundtrip_3`  | 88.5s      | 87.6s  |
-   | `accepted_counts`  | 42.1s      | 42.4s  |
-
-   Those were measured at 17140 accepted documents; the pool is 24220 now
-   and the file takes ~20 minutes.
-
-   `dev/check/dune` leaves this file out of the build.  The depth-1
-   and depth-2 roundtrips stay in `Generate.v` and do run on every build,
-   in ~17s, so the kernel still certifies the small instance on every
-   edit and only the deep sweep moved. *)
+   `dev/check/dune` leaves this file out of the build.  Depths 1 and 2
+   are checked in `Generate.v` on every build. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Ast Parser Render.

@@ -23,7 +23,7 @@ Set Extraction Output Directory ".".
    through append, and [String.length] recursively takes every copied tail.
    These are replaced by native OCaml equal to the Gallina definitions; they
    are trusted, not proved.  The unary result of [String.length] remains, but
-   the conversion is tail recursive and no longer copies the string. *)
+   the conversion is tail recursive and does not copy the string. *)
 Extract Constant List.rev => "List.rev".
 Extract Constant String.length =>
   "(fun s ->

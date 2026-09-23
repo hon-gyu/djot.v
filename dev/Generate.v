@@ -3,22 +3,20 @@
 (* Exhaustive generation of canonical blocks, and the roundtrip checked
    on every generated inhabitant by computation.
 
-   Part of the build, not a side tool.  `parse_blocks (render_djot ...)`
-   and `cb_ast` are both closed terms on a closed `cblock`, so agreement
-   between them is decided by `vm_compute; reflexivity`: no decidable
-   equality on `block`, no extraction, no oracle process.  The `Example`s
-   below are therefore kernel-checked on every `dune build`, and
-   `extraction/Extract.v` extracts the pools here to drive the differential
-   run against djot.js.
+   `parse_blocks (render_djot ...)` and `cb_ast` are both closed terms on
+   a closed `cblock`, so their agreement is decided by `vm_compute;
+   reflexivity`, with no decidable equality on `block` and no oracle
+   process.  The `Example`s below are kernel-checked on every `dune
+   build`.
 
    `roundtrip_blocks` implies the accepted-side examples, so they prove
    nothing new at a fixed `cb_ok`.  Their value is under change: relaxing
    `cb_ok` re-scopes `accepted` automatically, so a proposed relaxation
    is tested for soundness before any proof work.
 
-   Coverage of *shapes*, not volume: the alphabet is deliberately tiny
-   and sequences take their tail from a fixed set, so the pool grows
-   linearly (5, 110, 2315, 48620) instead of quadratically. *)
+   Coverage of shapes, not volume: the alphabet is deliberately tiny and
+   sequences take their tail from a fixed set, so the pool grows linearly
+   (5, 110, 2315, 48620) instead of quadratically. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Line Ast Inline Parser Render.
@@ -113,9 +111,9 @@ The roundtrip, decided
 ======================
 *)
 
-(* Extracted and run directly, so a sweep at a depth the kernel cannot
-   reach checks the same statement `gen_roundtrip_1` and
-   `gen_roundtrip_2` prove below, not a restatement of it. *)
+(* The two sides of the roundtrip as functions, so that a sweep at a
+   depth the kernel cannot reach checks the same statement
+   `gen_roundtrip_1` and `gen_roundtrip_2` prove below. *)
 Definition rt_lhs (c : cblock) : blocks :=
   parse_blocks (render_djot (blocks_of_cblocks [c])).
 
@@ -178,9 +176,8 @@ Proof. vm_compute. reflexivity. Qed.
 Example gen_roundtrip_2 : map rt_lhs (accepted 2) = map rt_rhs (accepted 2).
 Proof. vm_compute. reflexivity. Qed.
 
-(* Depth 3 lives in `dev/check/Deep.v`, outside the dune build: it costs
-   ~176s, and this file is downstream of Parser.v, so every parser edit
-   was paying it.  `make deep` runs it. *)
+(* Depth 3 is in `dev/check/Deep.v`, outside the dune build, since it
+   takes minutes.  `make deep` runs it. *)
 
 (*
 Ordered lists
@@ -371,10 +368,10 @@ Proof. reflexivity. Qed.
 List uniformity applies
 =======================
 
-`Parser.list_uniformity` is what `cb_ok`'s list case now asks for
-directly: `item_ok` on the item's rendering, and nothing about what is
-inside it.  So the fragment covers nested lists and code blocks, and the
-checks below record how much that is worth and that the hypothesis is
+`Parser.list_uniformity` is what `cb_ok`'s list case asks for directly:
+`item_ok` on the item's rendering, and nothing about what is inside it.
+So the fragment covers nested lists and code blocks, and the checks
+below record how much that is worth and that the hypothesis is
 satisfiable on renderings `cb_ok` does not itself constrain.
 *)
 

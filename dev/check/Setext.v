@@ -5,19 +5,12 @@ Setext headings, pinned
 =======================
 
 The second block setting: may a run of one character, alone on a line,
-turn the paragraph above it into a heading?  djot answers no -- it has
-no setext headings at all -- and `setext_bconfig` answers `=` at any
-length for level 1, `-` at two or more for level 2.
+turn the paragraph above it into a heading?  djot answers no (it has no
+setext headings at all), and `setext_bconfig` answers `=` at any length
+for level 1, `-` at two or more for level 2.  The argument is in
+`.project/extension-decisions.md` under `E3`.
 
 Every line here was measured.
-
-```
-dune build && rocq c -R _build/default/theories DjotV dev/check/Setext.v
-```
-
-Out of the dune build for the reason `dev/check/Markdown.v` and
-`dev/check/Sublist.v` are.  The argument is in `.project/extension-decisions.md`
-under `E3`.
 *)
 
 From Stdlib Require Import String List Ascii.

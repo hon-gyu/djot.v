@@ -2,37 +2,26 @@
 
 (** * Whole-document resolution
 
-   The whole-document pass is the part of parsing that is a function of the
-   finished block list rather than of a single line.
-
-   It runs strictly *after* `Parser.parse_blocks`, never inside the fold.
-   That separation is deliberate and load-bearing: Phase 3's locality
-   theorem says inline classification does not depend on the reference and
-   note maps, which is only true if those maps are built by a pass the
-   line fold cannot see.
-
-   Three computations live here today:
+   The part of parsing that is a function of the finished block list
+   rather than of a single line.  It runs after `Parser.parse_blocks`,
+   never inside the fold, so inline classification cannot depend on the
+   reference and note maps.
 
    - Auto-identifiers and implicit heading references, assigned in
      document order because uniqueness suffixes depend on what came
-     before (djot.js `getUniqueIdentifier`, parse.ts:193).
+     before.
    - Section nesting: a level-driven container stack over the top-level
-     block list, moving each heading's id onto the section that wraps it
-     (djot.js parse.ts:769-792, the id move at :788).
+     block list, moving each heading's id onto the section that wraps it.
+   - Footnote collection: definition containers are removed from the
+     visible block sequences, and their cleaned bodies assigned into the
+     note map.
+   - Reference definitions: read into the reference map without being
+     removed from the tree.
 
-   - Footnote collection: recursively remove definition containers from
-     visible block sequences and assign their cleaned bodies into the
-     document note map.
-
-   Reference definitions are the same shape of computation — block syntax
-   that contributes only a side-table entry — and are read here without
-   being removed from the retained parser tree.
-
-   Sectioning is top-level only.  djot.js pushes a section container only
-   when the enclosing container tracks a heading level, which the document
-   does and a block quote does not, so `> # h` yields a bare
-   `<h1 id="h">` (djot.js test/block_quote.test).  Identifiers, by
-   contrast, are assigned everywhere and share one counter. *)
+   Sectioning is top-level only: a section opens only where the enclosing
+   container tracks a heading level, which the document does and a block
+   quote does not, so `> # h` yields a bare `<h1 id="h">`.  Identifiers
+   are assigned everywhere and share one counter. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Ast Parser.
@@ -52,15 +41,12 @@ Heading text
 ============
 *)
 
-(* The string an element contributes to its heading's identifier
-   (djot.js `addStringContent`): text-carrying leaves give their text,
-   breaks give a newline, containers concatenate their children, and
-   footnote references contribute nothing — a heading's marker must not
-   leak into its id.
-
-   Only Str and SoftBreak occur until the inline pass lands; the rest
-   follow djot.js's AST field names, so a constructor whose djot.js node
-   has neither `text` nor `children` (Symbol carries `alias`) is silent. *)
+(* The string an element contributes to its heading's identifier:
+   text-carrying leaves give their text, breaks give a newline,
+   containers concatenate their children, and footnote references
+   contribute nothing, so a heading's marker does not leak into its id.
+   A symbol carries only its alias and contributes nothing, as in
+   djot.js. *)
 Fixpoint inline_text (il : inline) : string :=
   let go :=
     fix go (ns : list (node inline)) : string :=
@@ -78,9 +64,8 @@ Fixpoint inline_text (il : inline) : string :=
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
   | Superscript ils | Subscript ils | Span ils
   | Link ils _ | Image ils _ | Quoted _ ils => go ils
-  (* an autolink carries its region as `text`, which `addStringContent`
-     pushes like any other (parse.ts:44) -- so it reaches a heading id
-     and an image `alt` *)
+  (* an autolink contributes its region, so it reaches a heading id and
+     an image `alt` *)
   | UrlLink s | EmailLink s => s
   (* the text a wikilink displays, as its desugared link would push it *)
   | Wikilink _ t al => wiki_display t al
@@ -95,11 +80,9 @@ Auto-identifiers
 ================
 *)
 
-(* djot.js replaces runs of this class with a space, trims, then joins
-   with "-" (parse.ts `getUniqueIdentifier`).  That is `words` over the
-   class, joined with "-": collapsing and trimming are what dropping
-   empty tokens already does, so the source-level `.trim()` on the
-   heading text is subsumed here and in `normalize_label`. *)
+(* The characters an identifier drops.  Runs of them separate words,
+   which are joined with "-": `words` over the class, where collapsing
+   and trimming are what dropping empty tokens already does. *)
 Definition is_id_sep (c : ascii) : bool :=
   (* JavaScript \s, ASCII part: HT VT FF CR LF and space *)
   ((Ascii.eqb c "009" || Ascii.eqb c "010" || Ascii.eqb c "011"
@@ -131,10 +114,9 @@ Definition id_candidate (base : string) (i : nat) : string :=
 (* Fuel, fixed by `unique_id` below so that nothing outside this section
    mentions it.  With n identifiers taken, candidates 0..n+1 are n+2
    distinct strings, so one of them is free and the O branch is
-   unreachable — argued here, not yet proved: the discharge lemma
-   (compare Parser.step_fuel_enough) needs pigeonhole plus injectivity of
-   nat_str.  Nothing depends on it today; freshness of the assigned
-   identifier is exactly what it would buy. *)
+   unreachable.  Argued, not proved: the discharge lemma (compare
+   `Step.step_fuel_enough`) needs pigeonhole plus injectivity of
+   `nat_str`, and would buy freshness of the assigned identifier. *)
 Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
   : string :=
   let cand := id_candidate base i in
@@ -163,22 +145,21 @@ Record id_state : Type := IdSt
 Definition id_state_init : id_state := IdSt [] [].
 
 (* An implicit reference from the heading's text to its own id, unless
-   that label is already spoken for.  djot.js checks the explicit
-   `references` too; we do not, because `Html.doc_refs` appends the
-   implicit map after the explicit one and `alist_lookup` takes the
-   first, so an explicit definition wins at lookup instead. *)
+   that label already has an implicit one.  Explicit references are not
+   consulted: `Html.doc_refs` appends the implicit map after the explicit
+   one and lookup takes the first match, so an explicit definition wins
+   at lookup. *)
 Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
   if existsb (fun p => String.eqb (fst p) label) (id_refs st)
   then st
   else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st).
 
-(* An identifier that a block attribute spec supplied is taken, and a
-   later heading's auto-identifier has to step around it: djot.js records
-   it into `identifiers` when the spec closes (parse.ts:519), before the
-   block it decorates is opened.  Every id present in the tree at this
-   point came from a spec, since this pass is what adds the others. *)
+(* An identifier a block attribute spec supplied is taken, and a later
+   heading's auto-identifier steps around it.  Every id present in the
+   tree at this point came from a spec, since this pass adds the
+   others. *)
 Definition register_id (a : attr) (st : id_state) : id_state :=
-  match lookup_attr "id" a with
+  match alist_lookup "id" a with
   | None => st
   | Some ident => IdSt (ident :: id_used st) (id_refs st)
   end.
@@ -186,11 +167,10 @@ Definition register_id (a : attr) (st : id_state) : id_state :=
 Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
   (st : id_state) : id_state * node block :=
   let text := inlines_text ils in
-  match lookup_attr "id" a with
+  match alist_lookup "id" a with
   (* An explicit id wins, and takes its slot.  The implicit reference is
-     registered either way: djot.js reads its destination off
-     `attributes?.id || autoAttributes?.id` (parse.ts:764), so `{#foo}`
-     over `# Introduction` makes `[Introduction][]` a link to `#foo`. *)
+     registered either way and points at that id, so `{#foo}` over
+     `# Introduction` makes `[Introduction][]` a link to `#foo`. *)
   | Some ident =>
       (add_auto_ref (normalize_label text) ident (register_id a st),
        Node p a (Heading lvl ils))
@@ -204,11 +184,11 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
 (* Pre-order, which is document order for headings: a heading closes
    before anything that starts after it, and headings do not nest.
 
-   Recursion is on the *payload*, with the node's position and attributes
-   passed alongside, because `block` recurses through `list (node block)`
-   — two type constructors deep, which the guard checker will not follow
-   from a `node block` principal argument.  Html.render_block has the
-   same shape for the same reason. *)
+   Recursion is on the payload, with the node's position and attributes
+   passed alongside, because `block` recurses through `list (node
+   block)`, two type constructors deep, which the guard checker will not
+   follow from a `node block` principal argument.  `Html.render_block`
+   has the same shape for the same reason. *)
 Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   {struct b} : id_state * node block :=
   let go :=
@@ -287,12 +267,9 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
                (s2, (chk, it1) :: rest1)
            end) items (register_id a st) in
       (st', Node p a (TaskList sp items'))
-  (* The remaining containers -- Section and the task list --
-     are not reachable from the line fold yet (`Wf.supported` is the
-     record of that).  Each needs its arm here when it lands, or a
-     heading inside it silently goes without an identifier.  A table is
-     reachable and still belongs here: its cells and its caption hold
-     inlines, so there is no heading inside one to find. *)
+  (* No other block needs an arm.  The line fold builds no `Section`, and
+     a table's cells and caption hold inlines, so there is no heading
+     inside one to find. *)
   | _ => (register_id a st, Node p a b)
   end.
 
@@ -519,8 +496,7 @@ Proof.
   reflexivity.
 Qed.
 
-(* The ordered arm is the bullet arm with a different wrapper: djot.js
-   runs one `list` spec for both, and so does `assign_ids`. *)
+(* The ordered arm is the bullet arm with a different wrapper. *)
 Lemma assign_ids_olist :
   forall p a oa sp items st,
     assign_ids (OrderedList oa sp items) p a st
@@ -556,16 +532,15 @@ Section nesting
 ===============
 *)
 
-(* A stack of open sections, innermost first, mirroring djot.js's
-   container stack.  Each entry carries the heading level that opened it,
-   the attributes moved off that heading, and the blocks collected so far
-   in reverse.  The bottom entry is the document, at level 0: no heading
-   level is <= 0, so it is never closed and the stack is never empty. *)
+(* A stack of open sections, innermost first.  Each entry carries the
+   heading level that opened it, the attributes moved off that heading,
+   and the blocks collected so far in reverse.  The bottom entry is the
+   document, at level 0: no heading level is <= 0, so it is never closed
+   and the stack is never empty. *)
 (* The section builder and the pass are the only parts of this file that
    build a node of their own, so they are the only ones the position
    policy reaches.  Closing the section before the lemmas below leaves
-   every one of them meaning the semantic instance, which is what they
-   were about. *)
+   every one of them at the semantic instance. *)
 Section WithPolicy.
 Context {P : PosPolicy}.
 
@@ -576,8 +551,8 @@ Definition sect_init : sect_state := [(0, [], [])].
 (* Close every section a level-`lvl` heading interrupts, carrying the
    already-closed nodes inward-out in `pending` so each lands inside the
    section that encloses it.  Recursion is on the stack, so this is
-   structural — nesting the current section into its parent *before*
-   testing the parent is what the `pending` argument buys. *)
+   structural: `pending` is what lets the current section nest into its
+   parent before the parent is tested. *)
 (* A section covers its heading and everything under it, which is
    exactly the children it is built from. *)
 Definition section_node (a : attr) (bs : blocks) : node block :=
@@ -638,7 +613,7 @@ Definition sect_push (b : node block) (stk : sect_state) : sect_state :=
 
 (* A heading closes the sections it interrupts, then opens its own with
    the heading as its first child.  The id moves from the heading to the
-   section (djot.js: "move id attribute from heading to section"). *)
+   section. *)
 Definition sect_step (stk : sect_state) (n : node block) : sect_state :=
   match n with
   | Node p a (Heading lvl ils) =>
@@ -666,20 +641,19 @@ The pass
 Reference definitions
 =====================
 
-A definition contributes no HTML and no structure — only an entry in the
-document's map, which is why it is collected here rather than in the line
-fold, and why `undo_pass` below needs no arm for it: the pass reads the
-block tree and does not touch it.
+A definition contributes no HTML and no structure, only an entry in the
+document's map, which is why it is collected here rather than in the
+line fold, and why `undo_pass` below needs no arm for it: the pass reads
+the block tree and does not touch it.
 
 Nesting is not a barrier: a definition inside a quote or a list item
-registers with the document all the same (checked against djot.js), so
-the traversal descends into every container the fold can build.
+registers with the document all the same, so the traversal descends
+into every container the fold can build.
 *)
 
-(* djot.js keys the map by normalized label and assigns into a JS object,
-   so a repeated label keeps the first definition's position and takes the
-   last one's value (parse.ts:336).  An *empty* label is dropped there by
-   a truthiness test on the raw key, before normalization — so `[ ]: u`,
+(* Keyed by normalized label, assigned the way a JS object is: a repeated
+   label keeps the first definition's position and takes the last one's
+   value.  An empty label is dropped before normalization, so `[ ]: u`,
    whose normalized label is empty, is still recorded. *)
 Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
   : reference_map :=
@@ -1107,30 +1081,26 @@ The pass only adds, and what it adds is recoverable: a section is
 exactly its heading plus the blocks that followed it, and an
 auto-identifier is exactly an "id" attribute on a heading that carried
 none.  `undo_pass` takes both back out in one traversal, and
-`pass_erase` says it takes out precisely what the pass put in.
-
-That is what keeps Roundtrip.v's theorem meaningful above the block
-layer: render, parse, erase is the identity.  It is also the guard on
-this file's future — reference definitions and footnotes will add
-side-table entries here, and each should either extend `undo_pass` or
-be shown not to touch the block tree.
+`pass_erase` says it takes out precisely what the pass put in.  That is
+what keeps Roundtrip.v's theorem meaningful above the block layer:
+render, parse, erase is the identity.
 *)
 
-(* Oriented like lookup_attr, so the two compose without an eqb flip. *)
+(* Oriented like alist_lookup, so the two compose without an eqb flip. *)
 Definition strip_id (a : attr) : attr :=
   filter (fun kv => negb (String.eqb "id" (fst kv))) a.
 
 Lemma strip_id_absent :
-  forall a, lookup_attr "id" a = None -> strip_id a = a.
+  forall a, alist_lookup "id" a = None -> strip_id a = a.
 Proof.
   induction a as [|[k v] rest IH]; intros H; [reflexivity|].
-  cbn [lookup_attr] in H. cbn [strip_id filter fst].
+  cbn [alist_lookup] in H. cbn [strip_id filter fst].
   destruct (String.eqb "id" k); [discriminate|].
   cbn [negb]. f_equal. apply IH. exact H.
 Qed.
 
 Lemma strip_id_cons :
-  forall v a, lookup_attr "id" a = None -> strip_id (("id", v) :: a) = a.
+  forall v a, alist_lookup "id" a = None -> strip_id (("id", v) :: a) = a.
 Proof.
   intros v a H. cbn [strip_id filter fst].
   rewrite String.eqb_refl. cbn [negb].
@@ -1403,8 +1373,8 @@ Lemma undo_pass_single : forall n, undo_pass [n] = undo_pass_node n.
 Proof. intros [p a b]. cbn [undo_pass undo_pass_node]. apply app_nil_r. Qed.
 
 (* Input the pass has not already run on: no sections, and no heading
-   carrying an explicit id.  Checked exactly where undo_pass looks — the
-   top level and block-quote contents — because those are the only
+   carrying an explicit id.  Checked exactly where undo_pass looks (the
+   top level and block-quote contents), because those are the only
    places either half of the pass reaches. *)
 Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
   let go :=
@@ -1422,7 +1392,7 @@ Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
   match b with
   | Section _ => false
   | Heading _ _ =>
-      match lookup_attr "id" a with Some _ => false | None => true end
+      match alist_lookup "id" a with Some _ => false | None => true end
   | FootnoteDef _ _ => false
   | BlockQuote inner | Div inner => go inner
   | Keyed _ (Node _ a' x) => pristine_block x a'
@@ -1816,7 +1786,7 @@ Proof.
   - (* Heading *)
     cbn [pristine_block] in H.
     unfold assign_ids, assign_heading_id.
-    destruct (lookup_attr "id" a) as [v|] eqn:Eid; [discriminate|].
+    destruct (alist_lookup "id" a) as [v|] eqn:Eid; [discriminate|].
     cbn [snd undo_pass_node undo_pass_block].
     rewrite strip_id_cons by exact Eid. reflexivity.
   - (* BlockQuote *)
@@ -2069,7 +2039,7 @@ Proof.
         notes_free_task_items (snd (assign_ids_task_items its st)) = true);
     intros; try exact H; try reflexivity.
   - unfold assign_ids, assign_heading_id.
-    destruct (lookup_attr "id" a); cbn [snd node_contents notes_free_block];
+    destruct (alist_lookup "id" a); cbn [snd node_contents notes_free_block];
       reflexivity.
   - rewrite notes_free_quote in H. rewrite assign_ids_quote.
     destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
@@ -2182,7 +2152,7 @@ Undoing the sections
 
 Unconditional: sectionize only ever wraps, and undo_pass unwraps.  A
 `Section` already present in the input is flattened the same way on both
-sides, so it needs no hypothesis — only the identifier half cares what
+sides, so it needs no hypothesis; only the identifier half cares what
 the input looked like.
 *)
 
@@ -2200,7 +2170,7 @@ Proof. intros z [|[p a b] X'] Y H; [discriminate|reflexivity]. Qed.
 
 (* The blocks the stack has consumed so far, recovered.  Entries hold
    their accumulators reversed, and every entry above the document's
-   carries the attributes that came off its heading — hence the
+   carries the attributes that came off its heading, hence the
    set_first, which is why those entries have to erase to something
    nonempty.  That, plus "only the document sits at level 0", is the
    whole invariant. *)
@@ -2214,7 +2184,7 @@ Fixpoint stack_erase (stk : sect_state) : blocks :=
 
 (* The only thing erasure needs of the stack: every entry above the
    document's erases to something nonempty, so that set_first has a node
-   to put the section's attributes back on.  True by construction — such
+   to put the section's attributes back on.  True by construction: such
    an entry always starts with the heading that opened it. *)
 Fixpoint sect_ok (stk : sect_state) : bool :=
   match stk with
@@ -2283,7 +2253,7 @@ Proof.
       rewrite app_assoc. reflexivity.
 Qed.
 
-(* close_all always lands on the document entry alone — which is what
+(* close_all always lands on the document entry alone, which is what
    lets sect_bottom read the answer off. *)
 Lemma close_all_singleton :
   forall stk pending,
@@ -2612,7 +2582,7 @@ Proof.
     intros; try solve [split; reflexivity].
   - (* Heading *)
     cbn [erase_block assign_ids]. unfold assign_heading_id. rewrite inlines_text_erase.
-    destruct (lookup_attr "id" a) as [v|] eqn:E;
+    destruct (alist_lookup "id" a) as [v|] eqn:E;
       cbn [fst snd erase_blocks erase_block]; split; reflexivity.
   - (* BlockQuote *)
     cbn [erase_block]. fold erase_blocks. rewrite !assign_ids_quote.

@@ -61,19 +61,17 @@ val all_char : char -> string -> bool
 
 val underline_of : string -> (char * nat) option
 
+val take_while : (char -> bool) -> string -> string * string
+
 val count_run : char -> string -> nat * string
 
 val is_info_char : char -> bool
-
-val take_info : string -> string * string
 
 val fence_open : string -> fence option
 
 val fence_close : fence -> string -> bool
 
 val is_class_char : char -> bool
-
-val take_class : string -> string * string
 
 val div_open : string -> (nat * string) option
 
@@ -102,8 +100,6 @@ val is_roman_lo : char -> bool
 val is_roman_up : char -> bool
 
 val str_forallb : (char -> bool) -> string -> bool
-
-val take_while : (char -> bool) -> string -> string * string
 
 val marker_shape : string -> ((string * ordered_list_delim) * string) option
 

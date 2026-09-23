@@ -2,13 +2,8 @@
 
 (* Concrete `parse_blocks` / `parse_lines` regressions for the block
    parser: one closed document per construct, each decided by
-   `reflexivity`.
-
-   Separate from `Parser.v` because nothing requires it.  These pin
-   behaviour, they are not part of the interface the wf and roundtrip
-   proofs use, so a proof about `step` never needs them in scope.  The
-   examples that stay in `Parser.v` are the ones that document a
-   theorem's boundary and sit beside it.
+   `reflexivity`.  Nothing requires this file, so a proof about `step`
+   never has these in scope.
 
    Concrete evaluation here is `reflexivity`, never bare `cbn`: see the
    build-time note in `.project/project-engineering-lessons.md`. *)
@@ -99,7 +94,7 @@ Example parse_quote_basic :
   [ mk (BlockQuote [mk (Para [mk (Str "Basic"); mk SoftBreak; mk (Str "quote.")])]) ].
 Proof. reflexivity. Qed.
 
-(* A bare ">" is a quote with no content — the reason wf_block lets
+(* A bare ">" is a quote with no content, which is why wf_block lets
    BlockQuote be empty. *)
 Example parse_quote_empty :
   parse_blocks ">" = [mk (BlockQuote [])].
@@ -250,13 +245,14 @@ Example parse_list_trailing_blank :
 " = [mk (BulletList Tight [[mk (Para [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
-(* Thematic breaks win over bullet markers, matching djot.js spec order. *)
+(* Thematic breaks win over bullet markers: `classify` tests them
+   first. *)
 Example parse_list_not_thematic :
   parse_blocks "* * *" = [mk ThematicBreak].
 Proof. reflexivity. Qed.
 
 (* A marker never interrupts an open paragraph, so this is one item whose
-   paragraph runs on — not a nested list. *)
+   paragraph runs on, not a nested list. *)
 Example parse_list_no_interrupt :
   parse_blocks "- a
   - b"
@@ -315,7 +311,7 @@ A paragraph"
        (Para [mk (Str "A paragraph")])].
 Proof. reflexivity. Qed.
 
-(* A blank line spends them (djot.js parse.ts:1231). *)
+(* A blank line drops them. *)
 Example parse_attr_blank_resets :
   parse_blocks "{#id}
 
@@ -421,10 +417,9 @@ Hello."
 Proof. reflexivity. Qed.
 
 (* Not in the corpus: a blank line indented past the opener continues an
-   open spec rather than closing it, because djot.js runs the container's
-   `continue` on every line and measures a blank line's indentation as
-   its whole length (checked against the oracle: `{#i` / two spaces /
-   two spaces and `}` yields `<p id="i">Hi</p>`). *)
+   open spec rather than closing it, since a blank line's indentation is
+   its whole length.  djot.js agrees: `{#i` / two spaces / two spaces and
+   `}` yields `<p id="i">Hi</p>`. *)
 Example parse_attr_blank_continues_spec :
   parse_blocks "{#i
   
@@ -454,8 +449,7 @@ Reference definitions
 =====================
 
 Every case here was decided against djot.js first; the boundaries are
-its `pattReferenceDefinition` (block.ts:57) and the continuation test
-next to it, both of which are tighter than the prose spec suggests.
+tighter than the prose spec suggests.
 *)
 
 Example parse_ref_simple :
@@ -501,8 +495,8 @@ Example parse_ref_after_text_is_text :
   = [mk (Para [mk (Str "text"); mk SoftBreak; mk (Str "[a]: u")])].
 Proof. reflexivity. Qed.
 
-(* The footnote container claims `[^...]:` first (block.ts:264 before
-   :301), so such a line is not a reference definition. *)
+(* The footnote container claims `[^...]:` first, so such a line is not a
+   reference definition. *)
 Example parse_ref_footnote_label_excluded :
   parse_blocks "[^a]: note"
   = [mk (FootnoteDef "a" [mk (Para [mk (Str "note")])])].
@@ -552,10 +546,10 @@ Example parse_ref_attributes :
   = [Node NoPos [("id", "x")] (RefDef "a" "u")].
 Proof. reflexivity. Qed.
 
-(* Tightness and what absorbs a blank line inside a list item.  Each of
-   these was pinned against djot.js before `blank_absorbed` was written:
-   the predicate is the list of containers that survive a blank, so the
-   examples are the predicate read back off the parser. *)
+(* Tightness and what absorbs a blank line inside a list item, pinned
+   against djot.js.  `blank_absorbed` is the list of containers that
+   survive a blank, so the examples are that predicate read back off the
+   parser. *)
 
 (* A div survives the blank and takes it, so the list stays tight. *)
 Example parse_blank_absorbed_by_div :
@@ -727,9 +721,9 @@ Proof. reflexivity. Qed.
 Definition lists
 ================
 
-A definition list is an ordinary list whose marker style is `:`
-(`getListStyles`, block.ts:9), so what is pinned here is the one thing
-that differs: the term split `Ast.def_item` runs when an item closes.
+A definition list is an ordinary list whose marker style is `:`, so what
+is pinned here is the one thing that differs: the term split
+`Ast.def_item` runs when an item closes.
 *)
 
 (* The item's first block, when it is a paragraph, becomes the term and

@@ -8,12 +8,11 @@
    `cblock` is the canonical (renderable) view of a block: the parser's
    image, described by the data that determines it.  Renderability of a
    paragraph is phrased through the line classifier: the first line must
-   *classify* as text (so the parse re-opens a paragraph there), interior
-   lines merely nonblank (paragraphs cannot be interrupted), the last
+   classify as text (so the parse re-opens a paragraph there), interior
+   lines merely nonblank (paragraphs cannot be interrupted), and the last
    line pre-stripped (the parser strips it, so a roundtripping AST cannot
-   carry trailing whitespace).  Each new construct added to Line.v gets a
-   cblock constructor, a canonical rendering, and a cb_ok obligation —
-   that is the whole roundtrip extension recipe. *)
+   carry trailing whitespace).  A construct added to Line.v gets a cblock
+   constructor, a canonical rendering, and a cb_ok obligation. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Attributes Parser.
@@ -36,26 +35,23 @@ Block layout
 (* The renderer's canonical spellings, fixed once so both the rendering
    and the classification lemmas can refer to them. *)
 Definition thematic_line : string := "* * * *".
-(* A reference definition, on one line.  The space is not optional: djot.js
-   demands whitespace between the colon and the destination, and refuses a
-   line with anything after it, so `[l]:d` is not a definition and `[l]: d `
-   is not either.  An empty destination still gets the space, which the
-   recognizer accepts as a whitespace run followed by an empty token. *)
+(* A reference definition, on one line.  The space is not optional:
+   `[l]:d` is not a definition, and neither is `[l]: d `.  An empty
+   destination still gets the space, which the recognizer accepts as a
+   whitespace run followed by an empty token. *)
 Definition ref_line (label dest : string) : string :=
   "[" ++ label ++ "]: " ++ dest.
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
 
 (* A table's two line shapes.  A cell is written with a space on each
-   side, which is what keeps the two apart under the recognizer: a
-   separator's cell must start immediately after its bar
-   (`Line.sep_cell`), so a padded row can never be read as a separator
-   and a cell may hold `---` or `:-:` with no escaping at all.
+   side, which keeps the two apart under the recognizer: a separator's
+   cell must start immediately after its bar (`Line.sep_cell`), so a
+   padded row can never be read as a separator and a cell may hold `---`
+   or `:-:` with no escaping at all.
 
-   The dashes are three wide whatever the column holds.  djoths pads a
-   separator to its column's width (`Djot.hs:284`); nothing reads the
-   width back, so the fixed spelling is the same table with less to
-   prove. *)
+   The dashes are three wide whatever the column holds; nothing reads the
+   width back. *)
 Definition align_dashes (a : align) : string :=
   match a with
   | AlignDefault => "---"
@@ -85,13 +81,11 @@ Definition cells_line (cs : list string) : string := ("|" ++ cells_body cs)%stri
    parser for a code block wherever it is nested. *)
 Lemma indent_of_code_open : forall info, indent_of (code_open info) = 0.
 Proof. intros info. reflexivity. Qed.
-(* quote_open / quote_line are in Line, next to quote_prefix_canonical:
-   Parser needs to name the quote prefix's width. *)
 
 (* Flatten per-block line lists into one line list, with a single blank
-   line between blocks (and none at either end).  This is the layout
-   both a document and a block quote's contents use — which is
-   uniformity, on the rendering side. *)
+   line between blocks (and none at either end).  A document and a block
+   quote's contents use the same layout, which is uniformity on the
+   rendering side. *)
 Fixpoint sep_lines (lss : list (list string)) : list string :=
   match lss with
   | [] => []
@@ -251,14 +245,14 @@ Canonical blocks
 ================
 *)
 
-(* A block described by the source data that determines it — a paragraph
+(* A block described by the source data that determines it: a paragraph
    by its lines, a code block by its info string and content lines, a
    quote by the canonical blocks inside it.  One constructor per block
    construct the roundtrip covers.
 
    The list-valued constructor makes `cblock` a nested inductive.  A
    quote's or div's contents recurse through `map` directly, but a list's
-   list of *items* needs a hand-inlined fixpoint (Rocq rejects the mutual
+   list of items needs a hand-inlined fixpoint (Rocq rejects the mutual
    recursion), so each projection carries one and each gets an equation
    lemma recovering the `map`/`forallb` form the proofs use. *)
 Inductive cblock : Type :=
@@ -272,13 +266,13 @@ Inductive cblock : Type :=
   | CHeading (level : nat) (lss : list (list cinline))
   | CQuote (inner : list cblock)
   (* A canonical div: bare `:::` at both ends, no class.  The fence
-     length is fixed for the same reason `CCode`'s is — content that
-     would close it early is excluded by `cb_ok` rather than escaped by
-     growing the fence. *)
+     length is fixed for the same reason `CCode`'s is: content that would
+     close it early is excluded by `cb_ok` rather than escaped by growing
+     the fence. *)
   | CDiv (inner : list cblock)
-  (* `list_kind` (Parser.v) is the bullet/decimal choice; it carries the
-     delimiter and start of an ordered list, which are the only data the
-     markers depend on. *)
+  (* `list_kind` (`OrderedList.v`) is the list flavour: bullet,
+     definition, task, or an ordered scheme with its delimiter and start,
+     which are the only data the markers depend on. *)
   | CList (k : list_kind) (sp : list_spacing) (items : list (list cblock))
   (* A reference definition, which is a leaf: `cb_ok` keeps its label and
      destination within what one line can carry, and the document's
@@ -376,12 +370,11 @@ Lemma cb_lines_list :
     = list_lines sp (map litem_lines (ck_items k (map item_lines items))).
 Proof. reflexivity. Qed.
 
-(* Rocq's generated cblock_ind does not descend into CQuote's list or
-   CList's list of lists, so every proof over cblocks needs this
-   three-predicate version: P for a block, Q for a list of them (a
-   quote's contents, or one list item), R for a list of item lists (a
-   whole CList's items) — R just packages "Q holds for every item",
-   built from the same Q/golist a quote uses. *)
+(* Induction over cblocks that reaches into containers: the generated
+   `cblock_ind` does not descend into `CQuote`'s list or `CList`'s list of
+   lists.  P for a block, Q for a list of them (a quote's contents, or one
+   list item), R for a list of item lists (a whole `CList`'s items), which
+   packages "Q holds for every item". *)
 Definition cblock_ind2
   (P : cblock -> Prop) (Q : list cblock -> Prop) (R : list (list cblock) -> Prop)
   (hpara : forall ls, P (CPara ls))
@@ -431,10 +424,9 @@ Definition cblock_ind2
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
 
-(* Plain-text paragraphs and headings: one `Str` per line, which is every
-   inhabitant `cinline` has so far and will stay the common case in
-   examples.  `cb_lines (cpara ls) = ls`, so a test written against source
-   lines keeps reading that way. *)
+(* Plain-text paragraphs and headings: one `Str` per line.  `cb_lines
+   (cpara ls) = ls` when no line needs escaping, so a test written
+   against source lines keeps reading that way. *)
 Definition cline (s : string) : list cinline := [CIStr s].
 Definition cpara (ls : list string) : cblock := CPara (map cline ls).
 Definition cheading (lvl : nat) (ls : list string) : cblock :=
@@ -447,17 +439,14 @@ Proof.
   cbn [map cline ci_line ci_text]. rewrite IH, append_empty_r. reflexivity.
 Qed.
 
-(* `cpara` is faithful: it names the paragraph whose *content* is `ls`,
+(* `cpara` is faithful: it names the paragraph whose content is `ls`,
    which it renders escaped.  The two coincide, and the statement reads
    as the plain `= ls` a reader expects, exactly when no line needs
-   escaping -- which is every example here.
+   escaping, which is every example here.
 
-   Nothing consumes this, and that is the point: it is what a reader of a
-   `cpara`-spelled example would otherwise take on trust, and it is the
-   first thing to break if `cline`, `ci_line` or `needs_escape` drifts.
-   It already caught one such drift: before escapes it read `= ls`
-   unconditionally, and step 2 falsified that.  The `cheading` analogue
-   is this with `map (heading_line lvl)` on top and is left unstated. *)
+   Nothing consumes this: it is what a reader of a `cpara`-spelled example
+   would otherwise take on trust, and the first thing to break if
+   `cline`, `ci_line` or `needs_escape` drifts. *)
 Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_str ls.
 Proof. intros ls. cbn [cb_lines cpara]. apply map_ci_line_cline. Qed.
 
@@ -490,7 +479,7 @@ Definition para_ok (ls : list string) : bool :=
 
 (* A canonical code block: valid info string, and content lines that are
    newline-free and do not close a 3-backtick fence.  Content lines may
-   be blank or look like any other construct — fences are verbatim. *)
+   be blank or look like any other construct: fences are verbatim. *)
 Definition code_ok (info : string) (content : list string) : bool :=
   all_info_chars info
   && forallb
@@ -503,9 +492,9 @@ Definition raw_ok (format : string) (content : list string) : bool :=
 (* A canonical heading: a real level, and text lines that are nonblank
    and newline-free with the last one pre-stripped (the parser strips
    it).  Unlike a paragraph there is no first-line classification
-   condition — the hashes make every rendered line a heading line, and
-   the text is never reclassified.  Nonempty for the same reason a quote
-   is: `Heading lvl []` renders to no lines at all. *)
+   condition: the hashes make every rendered line a heading line, and the
+   text is never reclassified.  Nonempty for the same reason a quote is:
+   `Heading lvl []` renders to no lines at all. *)
 Definition heading_ok (lvl : nat) (ls : list string) : bool :=
   Nat.leb 1 lvl
   && nonempty ls
@@ -602,7 +591,7 @@ Qed.
    not a `line_kind`, so unlike a row this cannot be excluded once and
    for all by `para_ok`'s `is_text`; it is a condition on the *pair*.
 
-   Vacuous today, and deliberately not proved so.  A canonical first line
+   Vacuous, and deliberately not proved so.  A canonical first line
    is nonblank, and `^` is in `Inline.needs_escape` (the footnote marker
    forces it) so none begins with a caret -- but the second half is a
    fact about the inline layer's escape set, and the roundtrip should not
@@ -676,16 +665,16 @@ End PairTests.
 
    A quote must be nonempty: its rendering is its contents' lines with a
    prefix, so an empty quote would render to nothing at all.  The parser
-   *can* build `BlockQuote []` (from a bare ">"), so that one value sits
-   outside the canonical view — see cb_ok_quote.  A list's items are each
-   held to the same nonempty-and-cb_ok-and-cb_pairs_ok standard as
-   a quote's contents (`inner_ok`, reused per item), plus `item_ok` on
-   the item's rendering (above) and a spacing
-   condition tying `sp` back to what item_forces_loose can prove about
-   the *specific* rendering below: tight needs no gap to force looseness
-   anywhere; loose needs either two-or-more items (list_lines then always
-   inserts a forcing blank itself) or an internal gap to justify the
-   single-item case, where no inter-item blank exists at all. *)
+   can build `BlockQuote []` (from a bare ">"), so that one value sits
+   outside the canonical view (see cb_ok_quote).  A list's items are each
+   held to the same nonempty-and-cb_ok-and-cb_pairs_ok standard as a
+   quote's contents (`inner_ok`, reused per item), plus `item_ok` on the
+   item's rendering (above) and a spacing condition tying `sp` back to
+   what item_forces_loose can prove about the specific rendering: tight
+   needs no gap to force looseness anywhere; loose needs either two or
+   more items (list_lines then always inserts a forcing blank itself) or
+   an internal gap to justify the single-item case, where no inter-item
+   blank exists at all. *)
 (* What one line can carry back: a label that ends where its bracket does,
    is not a footnote's, and holds no line break, and a destination that is
    one whitespace-free run.  These are `Wf.wf_block`'s conditions on
@@ -745,9 +734,8 @@ Definition row_reparses (r : trow) (l : string) : bool :=
    `CRef` is the only leaf that reaches `Ast.invisible_block`: the view
    has no footnote definition. *)
 (* A definition item's head is also where its term comes from, and
-   `Ast.def_split` drops that paragraph's attributes -- djot.js does too
-   -- so a named head cannot round-trip and the canonical view has no
-   spelling for one. *)
+   `Ast.def_split` drops that paragraph's attributes, so a named head
+   cannot round-trip and the canonical view has no spelling for one. *)
 Definition cdef_head_ok (it : list cblock) : bool :=
   match it with c :: _ => negb (is_cid c || is_cref c) | [] => true end.
 
@@ -1117,11 +1105,10 @@ Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
 
 (* A table's rows, back to source.  A header row is followed by the
    separator its own cells' alignments spell, which is where the
-   alignment of the body rows after it comes from too -- so nothing has
-   to be emitted for them.  The one exception is djoths' `initialSep`
-   (`Djot.hs:290`): a table whose first row is a body row already carrying
-   an alignment was aligned by a separator that preceded it, and that
-   separator has to come back. *)
+   alignment of the body rows after it comes from too, so nothing has to
+   be emitted for them.  The one exception: a table whose first row is a
+   body row already carrying an alignment was aligned by a separator that
+   preceded it, and that separator has to come back. *)
 Definition cell_text (c : cell) : string :=
   match c with Cell _ _ ils => hd EmptyString (inline_lines ils EmptyString) end.
 
@@ -1147,12 +1134,10 @@ Definition table_lines (rows : list (list cell)) : list string :=
 Definition caption_line (ils : inlines) : string :=
   ("^ " ++ hd EmptyString (inline_lines ils EmptyString))%string.
 
-(* A task marker carries data per item, unlike the list kinds handled by
-   [ck_items].  Keep its source spelling here, next to the source renderer,
-   until the canonical-list proof learns to carry checkbox statuses through
-   the uniformity chain.  The continuation prefix is six columns wide for
-   both statuses.  An empty item omits the otherwise trailing separator
-   space, matching the source shape accepted by [Line.task_check]. *)
+(* A task item's source lines, as the renderer spells them.  The
+   continuation prefix is six columns wide for both statuses.  An empty
+   item omits the trailing separator space, the shape `Line.task_check`
+   accepts. *)
 Definition task_open (chk : task_status) : string :=
   match chk with Complete => "- [x] " | Incomplete => "- [ ] " end.
 
@@ -1171,7 +1156,7 @@ Definition task_litem_lines (it : task_status * list string) : list string :=
    `id` is spelled: a div's class is part of its fence, and no other
    canonical block carries attributes at all. *)
 Definition id_spec_lines (n : node block) : list string :=
-  match lookup_attr "id" (node_attrs n) with
+  match alist_lookup "id" (node_attrs n) with
   | Some v => [("{#" ++ v ++ "}")%string]
   | None => []
   end.
@@ -1243,7 +1228,7 @@ Fixpoint render_block_lines (b : block) : list string :=
                            | Some ils => [caption_line ils]
                            | None => []
                            end)%list
-  | _ => []   (* TODO: extend with the parser, construct by construct *)
+  | _ => []   (* `Section` and `FootnoteDef` are not rendered yet *)
   end.
 
 (* One node's lines: its attribute line, then its block's. *)
@@ -1266,7 +1251,7 @@ Proof. reflexivity. Qed.
 
 Lemma render_node_lines_noid :
   forall q a x,
-    lookup_attr "id" a = None ->
+    alist_lookup "id" a = None ->
     render_node_lines (Node q a x) = render_block_lines x.
 Proof.
   intros q a x H. unfold render_node_lines, id_spec_lines.
@@ -1294,7 +1279,7 @@ Proof. reflexivity. Qed.
    front of it in the rendering: the two spellings have the same AST,
    and `cb_ok` picks the one the renderer produces. *)
 Definition has_id (a : attr) : bool :=
-  match lookup_attr "id" a with Some _ => true | None => false end.
+  match alist_lookup "id" a with Some _ => true | None => false end.
 
 Definition def_head_ok (bs : blocks) : bool :=
   match bs with
@@ -1380,7 +1365,7 @@ Proof.
        nothing to come back to. *)
     destruct ils as [|i ils']; [discriminate Hit|].
     apply andb_true_iff in Hit as [_ Hid]. apply negb_true_iff in Hid.
-    unfold has_id in Hid. destruct (lookup_attr "id" b) eqn:Eb; [discriminate Hid|].
+    unfold has_id in Hid. destruct (alist_lookup "id" b) eqn:Eb; [discriminate Hid|].
     cbn [render_blocks_lines map]. rewrite (render_node_lines_noid q b _ Eb).
     cbn [render_block_lines app]. reflexivity. }
   intros [| |checks|d start|up d start|up d start] sp items Hrok;
@@ -1443,7 +1428,7 @@ Proof.
     rewrite (IH Hrest Hconts), andb_true_r.
     destruct it as [|c more]; [reflexivity|].
     cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
-    destruct c; cbn [map cb_ast def_head_ok has_id lookup_attr mk node_contents
+    destruct c; cbn [map cb_ast def_head_ok has_id alist_lookup mk node_contents
                      invisible_block negb andb];
       try reflexivity; try discriminate Hhead.
     + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
@@ -1575,14 +1560,10 @@ Proof.
   reflexivity.
 Qed.
 
-(* Blocks separated by a blank line — the separator the parser reads back
+(* Blocks separated by a blank line: the separator the parser reads back
    as "end the current block". *)
 Definition render_djot (bs : blocks) : string :=
   String.concat nl (sep_lines (render_blocks_lines bs)).
-
-(* Rendering is now a single join over one flat line list, so the
-   roundtrip's split side is just split/join inversion (Strings.v) —
-   there is no separate "paragraph layout" notion to invert. *)
 
 End WithTable.
 

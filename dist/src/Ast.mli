@@ -8,8 +8,6 @@ val alist_set : string -> 'a1 -> (string * 'a1) list -> (string * 'a1) list
 
 type attr = (string * string) list
 
-val lookup_attr : string -> attr -> string option
-
 val integrate : (string * string) -> attr -> attr
 
 val attr_union : attr -> attr -> attr
@@ -135,8 +133,6 @@ type inline =
 | HardBreak
 
 type inlines = inline node list
-
-val wiki_display : string -> string option -> string
 
 type list_spacing =
 | Tight

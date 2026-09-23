@@ -2,28 +2,18 @@
 
 (** * Block parsing as an incremental fold
 
-   Block parsing is a fold over classified lines with an explicit state.
+   Block parsing is a fold over classified lines with an explicit state, a
+   container stack growing inward: a paragraph accumulator (empty is
+   idle), a fence collecting verbatim lines, or a container holding the
+   blocks it has closed so far and the state of its contents.  A
+   container strips its prefix and `step` re-enters on the enclosed line,
+   so a container's contents run the same transition as the top level;
+   nesting and uniformity both come from that.
 
-   The state is a *container stack*, growing inward: an open paragraph
-   accumulator (empty = idle), an open code fence collecting verbatim
-   lines, or a block quote holding the blocks it has closed so far plus
-   the state of its contents.  Per line:
-   - inside a fence, only the close test applies — no classification;
-   - otherwise KBlank ends any open paragraph, KThematic/KFence start
-     blocks only when no paragraph is open (paragraphs can never be
-     interrupted — spec), and KText extends or opens a paragraph;
-   - KQuote strips its prefix and re-enters `step` on the enclosed line,
-     which is where nesting and uniformity both come from: a quote's
-     contents run the same transition as the top level.
-
-   `step` is the whole per-line transition (Phase 2's `continue`/`close`/
-   `finalize` rolled into one function) and `finish` closes the stack at
-   end of input.  `parse_lines` is then a plain fold.
-
-   The equation lemmas are the interface the wf and roundtrip proofs
-   use; those for the fold live in `Uniformity.v`, the per-branch ones
-   for `step` at the bottom of this file.  Keep both in sync with the
-   definition. *)
+   `step` is the per-line transition and `finish` closes the stack at end
+   of input; `parse_lines` is the fold.  The fold's equation lemmas live
+   in `Uniformity.v`, the per-branch ones for `step` at the end of this
+   file. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From DjotV Require Import Strings Line Ast Attributes Marker Inline.
@@ -33,18 +23,12 @@ Local Open Scope string_scope.
 
 (** ** Block settings
 
-What the block layer is configurable in.  Today that is seven questions:
-may a list marker close an open paragraph rather than extend it, may an
-underline turn that paragraph into a heading, are pipe tables enabled, may an
-open ATX heading consume another source line, are fenced divs enabled, are task
-markers semantic, and do `=format` fences produce raw blocks? Djot answers no
-to the first two and yes to the remaining five.
-
-Its inline counterpart is `Inline.dconfig`, which is a genuine table --
-a row per delimiter -- and carries a side condition that admissible
-tables have to satisfy.  The first two decisions' single overlap is checked
-separately by `Invariants.block_prefix_ok`; keeping the class computational
-avoids threading a proof through the parser.
+What the block layer is configurable in, one question per field.  Its
+inline counterpart is `Inline.dconfig`, a table with a side condition
+admissible tables satisfy.  The one overlap between the first two
+settings is checked separately by `Invariants.block_prefix_ok`, which
+keeps the class computational rather than threading a proof through the
+parser.
 *)
 Class bconfig : Type := BConfig {
   (* May a list marker close an open paragraph?  Asked of the marker's
@@ -204,15 +188,9 @@ Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
     (@bdeflists K) (@battrs K) (@bfootnotes K) enabled.
 
-(* Other settings, deliberately not `Instance`s: they are named where wanted
-   (for example, in `dev/check/Sublist.v`) so inference here always means Djot's.
-
-   A marker interrupts when it cannot be the tail of ordinary prose: a
-   bullet, whose core is empty, or the numeral `1`.  Excluding every
-   other numeral is what keeps `The civil war ended in` / `1865. And
-   this should not start a list.` one paragraph -- djot's own regression
-   test for the rule this knob relaxes, and the only corpus case the
-   unrestricted knob gets wrong. *)
+(* Other settings, deliberately not `Instance`s: they are named where
+   wanted (`dev/check/Sublist.v`, `dev/check/Setext.v`), so that
+   inference here always means djot's. *)
 Definition sublist_bconfig : bconfig :=
   with_marker_interrupts prose_safe_markers djot_bconfig.
 Definition setext_bconfig : bconfig :=
@@ -327,8 +305,6 @@ Context {LI : LineIx}.
    so the located and the semantic parse take the same descent. *)
 Context {P : PosPolicy}.
 
-(* Paragraph assembly is `Inline.para_inlines`. *)
-
 (* Every line retained beyond the transition that read it carries its source
    line index.  The text remains a suffix of the input line; its right-hand
    coordinate is therefore just [String.length (snd l)]. *)
@@ -376,8 +352,8 @@ Definition extent_span (e : extent) : span :=
   SrcSpan (extent_start e) (extent_stop e).
 
 (* A stored line is a suffix of its source line with nothing trimmed at
-   the end (plan F2), so its content starts `String.length` bytes before
-   the end of that line. *)
+   the end, so its content starts `String.length` bytes before the end of
+   that line. *)
 Definition stored_start (sl : stored_line) : spot :=
   Spot (fst sl) (String.length (snd sl)).
 
@@ -395,7 +371,7 @@ Definition stored_span (cur : list stored_line) : span :=
   end.
 
 (* A construct whose accumulated lines are followed by a closing line
-   this line is: a setext underline, and nothing else so far. *)
+   this line is: a setext underline. *)
 Definition span_through_line (r : span) : span :=
   SrcSpan (span_start r) line_stop.
 
@@ -498,13 +474,12 @@ Definition fence_block (f : fence) (content : list string) : node block :=
 Table assembly
 ==============
 
-A row line contributes a `trow` and nothing else (`Line.table_row`);
-head/align assignment happens here, over the rows a table has
-collected, because a separator marks the row *before* it.  djot.js does
-the same at `-row` (parse.ts:987-1014): a separator sets the table's
-aligns for every following row and, if the table already has a row,
-turns that row into a header at the aligns it just read.  So the target
-is the *last* row built, which two consecutive separators both claim.
+A row line contributes a `trow` and nothing else (`Line.table_row`).
+Head/align assignment happens here, over the rows a table has collected,
+because a separator marks the row before it: it sets the aligns for
+every following row and, if the table already has a row, turns that row
+into a header at those aligns.  So the target is the last row built,
+which two consecutive separators both claim.
 *)
 
 (* A cell's alignment is its column's, positionally, defaulting past the
@@ -547,21 +522,17 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
       table_fold rest aligns (cells_of BodyCell aligns cs :: acc)
   end.
 
-(* What a table has seen after its rows.  `TOpen` is still taking rows;
+(* What a table has seen after its rows.  `TOpen` still takes rows;
    `TAfterBlank` has seen a blank, which ends the rows but not the table,
-   because a caption may still follow across any number of blanks; and
-   `TCaption` is accumulating a caption's lines, reversed, exactly as a
-   paragraph accumulator does.
+   since a caption may still follow across any number of blanks; and
+   `TCaption` accumulates a caption's lines, reversed, as a paragraph
+   accumulator does.
 
-   The blank is what makes the third state necessary rather than
-   optional.  djot.js closes the table at the blank and merges the
-   caption into it afterwards, reaching backward past a container that
-   has already been reified (parse.ts:1048-1069).  Nothing here can reach
-   backward -- `step` emits blocks upward -- so the table waits instead,
-   and the two are the same function.  What waiting must not change is
-   list tightness: `blank_absorbed` stays `false` for a table, so the
-   blank arms the enclosing list exactly as it does today, which is what
-   djot.js's own `blankline` event does. *)
+   The table waits because `step` emits blocks upward and cannot reach
+   back into a table already emitted to add its caption.  Waiting does
+   not change list tightness: `blank_absorbed` stays `false` for a table,
+   so a blank arms the enclosing list as it would after a closed
+   table. *)
 Record cell_part : Type := CellPart
   { cell_range : span
   ; cell_text_start : spot }.
@@ -579,9 +550,8 @@ Inductive tcap : Type :=
 Definition cap_lines (c : tcap) : list stored_line :=
   match c with TCaption _ _ ls => ls | _ => [] end.
 
-(* An empty caption is no caption: `^ ` with nothing after it opens one
-   with no content, and djot.js renders that as no caption at all, so
-   `Some []` would be a second spelling of `None` -- which is what
+(* An empty caption is no caption: `^ ` with nothing after it has no
+   content, so `Some []` would be a second spelling of `None`, which
    `wf_block` rules out.  The test is on the inlines rather than on the
    lines because a line can have content and still leave none: an
    attribute spec with nothing to attach to is gone by the time the
@@ -689,33 +659,24 @@ The line fold
 =============
 *)
 
-(* A list, mid-parse.  `ls_indent` is the column its markers sit at:
-   continuation is "indented past the marker", djot.js's `this.indent >
-   container.extra.indent`.  Note what that rule does *not* mention —
-   the marker's width.  A list records no column but this one, and the
-   parser never consults how wide a marker was.
+(* A list, mid-parse.  `ls_indent` is the column its markers sit at: a
+   continuation line is one indented past it.  The rule does not mention
+   the marker's width, and the parser never consults it.
 
    `ls_styles` is the candidate style set, which siblings narrow by
    intersection (`narrow`); an empty intersection ends the list.  Each
-   candidate is paired with the start number the *first* item's marker
-   yields under it, because that decoding is style-dependent: `i.` is 1
-   read as roman and 9 read as alpha, and which one it is may not be
-   settled until a later sibling narrows the set.  djot.js keeps the two
-   apart — `extra.styles` and `firstMarker`, combined at close by
-   `getListStart` (parse.ts:823) — but pairing them at open says the
-   same thing without carrying the marker text, and makes narrowing a
-   plain filter that cannot disturb the number.
+   candidate is paired with the start number the first item's marker
+   yields under it, because the decoding depends on the style: `i.` is 1
+   read as roman and 9 read as alpha, and which it is may not be settled
+   until a later sibling narrows the set.  Pairing them at open makes
+   narrowing a plain filter that cannot disturb the number.
 
-   Tight/loose is a stateful rule, and djot.js decides it on the *event*
-   stream rather than on the finished tree: a blank line arms
-   `ls_blanks`, and the next event that is neither a blank nor a list
-   boundary turns the list loose (parse.ts:1242-1256).  That is why
-   `- a`, blank, `  - b` stays tight even though a blank line separates
-   the item's two children — the next event opens a list.  The textbook
-   "blank line between block children" rule gets that case wrong.
-
-   Carried in the state because the list is only emitted when it closes,
-   so nothing is ever revised retroactively. *)
+   Tight/loose is decided on the line sequence rather than on the
+   finished tree: a blank line arms `ls_blanks`, and the next line that is
+   neither blank nor a list boundary makes the list loose.  So `- a`,
+   blank, `  - b` stays tight although a blank separates the item's two
+   children: the next line opens a list.  The list is emitted only when it
+   closes, so nothing is revised retroactively. *)
 Record list_state : Type := LSt
   { ls_indent : nat
   ; ls_extent : extent               (* the list's own source range *)
@@ -725,14 +686,12 @@ Record list_state : Type := LSt
   ; ls_loose : bool
   ; ls_blanks : bool
   ; ls_items : list blocks      (* finished items, reversed *)
-  (* The checkbox of the item still open, and of the ones already
-     closed -- parallel to `done`/`inner` and to `ls_items`, and pushed
-     with them in `list_next`, so the two lists pair up by construction.
-     A list whose style is not a task style carries `Incomplete`
-     everywhere and nothing reads it, which is djot.js's `checkbox: null`
-     on every list-item container.  Kept beside `ls_items` rather than
-     inside it because `ls_items`'s element type is what twenty proofs in
-     `ListUniformity.v` manipulate. *)
+  (* The checkbox of the item still open, and of those already closed:
+     parallel to `done`/`inner` and to `ls_items`, and pushed with them in
+     `list_next`, so the two pair up by construction.  A non-task list
+     carries `Incomplete` everywhere and nothing reads it.  Kept beside
+     `ls_items` rather than inside it, so that `ls_items`'s element type
+     stays the one `ListUniformity.v` works with. *)
   ; ls_check : task_status
   ; ls_checks : list task_status }.
 
@@ -752,18 +711,15 @@ Inductive pstate : Type :=
      marker, so the accumulator alone cannot say where the heading
      began. *)
   | PHeading (level : nat) (range : extent) (cur : list stored_line)
-  (* An open code fence: the closer it wants, the *absolute* column its
-     opening backticks sit at, and the content lines it has taken.  The
-     column is what makes the content independent of how deep the fence
-     is nested: djot.js removes exactly `tip.indent` characters of
-     leading whitespace from each line (block.ts:1081-1086), so a fence
-     opened at column 2 inside a list item stores `code`, not `  code`.
-     Like every other column in this state it is absolute, `off +
-     indent_of l` -- see `open_attr`.
+  (* An open code fence: the closer it wants, the absolute column its
+     opening backticks sit at (`off + indent_of l`, as for `open_attr`),
+     and the content lines it has taken.  Each content line loses up to
+     that many columns of leading whitespace, so a fence opened at column
+     2 inside a list item stores `code`, not `  code`.
 
      `range` is the source it has claimed and `open_line_span` its
-     opening line, which a consumer reads to tell a fence with a closing
-     line from one the input ended inside (plan 1). *)
+     opening line, which tells a fence with a closing line from one the
+     input ended inside. *)
   | PFence (f : fence) (ind : nat) (range : extent)
       (open_line_span : span) (acc : list stored_line)
   | PQuote (range : extent) (done : blocks) (inner : pstate)
@@ -778,24 +734,24 @@ Inductive pstate : Type :=
      ls_items holds the items already closed. *)
   | PList (ls : list_state) (done : blocks) (inner : pstate)
   (* An open block attribute spec.  `pend` is what earlier consecutive
-     specs already contributed, `ind` the opener's indentation — a
-     continuation line has to be indented past it — `ap` the character
+     specs already contributed, `ind` the opener's indentation (a
+     continuation line has to be indented past it), `ap` the character
      machine, and `slices` the lines eaten so far, reversed.  The slices
      are kept because a spec that turns out not to parse becomes an
-     ordinary paragraph of exactly those lines (djot.js block.ts:585-596),
-     which is the only reason this state is not just an `attr`.  `specs`
-     holds the ranges of the settled specs `pend` came from, in source
-     order, and `range` the one still open, which joins them when it
-     settles: one `RAttrSpec` entry each on the block they decorate. *)
+     ordinary paragraph of exactly those lines, which is the only reason
+     this state is not just an `attr`.  `specs` holds the ranges of the
+     settled specs `pend` came from, in source order, and `range` the one
+     still open, which joins them when it settles: one `RAttrSpec` entry
+     each on the block they decorate. *)
   | PAttr (pend : attr) (specs : list span) (range : extent)
       (ind : nat) (ap : aparser) (slices : list stored_line)
   (* A paragraph the block attribute recovery built.  `cur` is its lines,
      reversed, exactly as `PPara` holds them; `k` counts the lines from
      the front that the failed spec had eaten, which are read with
-     attribute recognition off (`block.ts:592`, `inline.ts:651`).  It
-     records no column, so `pad_state` leaves it alone, and it is never
-     built with `k = 0` or with an empty `cur`: the recovery always hands
-     over at least the line the spec opened on. *)
+     attribute recognition off.  It records no column, so `pad_state`
+     leaves it alone, and it is never built with `k = 0` or with an empty
+     `cur`: the recovery always hands over at least the line the spec
+     opened on. *)
   | PParaOff (k : nat) (cur : list stored_line)
   (* An open reference definition: the column its bracket sits at, its
      label, and the destination so far.  Like `PAttr`'s the column is
@@ -811,19 +767,16 @@ Inductive pstate : Type :=
   | PFoot (range : extent) (ind : nat) (lbl : string)
       (done : blocks) (inner : pstate)
   (* An open table: its source range and the row lines it has taken,
-     reversed.  It records no column, unlike every other container that spans lines: a row's
-     content is what is left of the line after the container prefixes,
-     and nothing in it is measured against the column the first bar sat
-     at.  So this is the state that costs `step_fuel_shift` and
-     `step_fuel_pad` nothing. *)
+     reversed.  Unlike every other container that spans lines it records
+     no column: a row's content is what is left of the line after the
+     container prefixes, and nothing in it is measured against the column
+     the first bar sat at. *)
   | PTable (range : extent) (rows : list trow) (cap : tcap)
-  (* Attributes looking for the block they decorate.  djot.js keeps them
-     in a document-wide `blockAttributes` and attaches them when the next
-     container *opens* (parse.ts:183); here a container is reified only
-     when it closes, so they ride along until it emits.  `inner` is idle
-     exactly while they are still unclaimed, which is what makes "a blank
-     line drops them" a test on `inner` rather than a separate state.
-     `specs` travels with `pend`: the same set, as source ranges. *)
+  (* Attributes looking for the block they decorate.  A container is
+     built only when it closes, so they ride along until it emits.
+     `inner` is idle exactly while they are unclaimed, which makes "a
+     blank line drops them" a test on `inner` rather than a separate
+     state.  `specs` is the same set as source ranges. *)
   | PPend (pend : attr) (specs : list span) (inner : pstate)
   (* An open key: the label's source, the key line as written, and the
      state its block is being built in.  Like `PDiv` it eats no prefix
@@ -970,8 +923,8 @@ Definition is_idle (st : pstate) : bool :=
 
 (* End of input (or of an enclosing container): close everything still
    open, outermost result first. *)
-(* A heading's text lines become its inlines exactly as a paragraph's do
-   — same assembly, different wrapper. *)
+(* A heading's text lines become its inlines exactly as a paragraph's
+   do. *)
 Definition heading_block (lvl : nat) (cur : list stored_line) : node block :=
   mk (Heading lvl (para_inlines_at 0 (rev cur))).
 
@@ -984,11 +937,10 @@ Definition heading_block_off (k lvl : nat) (cur : list stored_line) : node block
 
 (* The lines a failed block attribute spec ate, handed to the paragraph
    that inherits them.  All of them are frozen, so the count is their
-   length -- plus `extra`, which is 1 in the one case where the line that
+   length, plus `extra`, which is 1 in the one case where the line that
    failed the spec is frozen too without being in `slices`: an indented
-   continuation line has its slice pushed before it is fed
-   (`block.ts:569-572`), and it reaches the paragraph by being
-   reprocessed against this state rather than by being recorded here.
+   continuation line is frozen before it is fed, and reaches the
+   paragraph by being reprocessed against this state.
 
    Over-counting is harmless.  A line that does not join the paragraph
    leaves `k` above the length, and `iscan_lines_off` then reads every
@@ -1007,45 +959,37 @@ Definition finish_para_recover (slices : list stored_line) : blocks :=
                          (rev slices))))]
   end.
 
-(* A div's class becomes a `class` attribute on the node, as in djot.js
-   (block.ts:670-672); a classless div carries no attributes at all, so
-   the canonical case stays `mk`-wrapped and proofs compute through it. *)
+(* A div's class becomes a `class` attribute on the node; a classless div
+   carries no attributes at all, so the canonical case stays `mk`-wrapped
+   and proofs compute through it. *)
 Definition div_block (cls : string) (bs : blocks) : node block :=
   if String.eqb cls EmptyString
   then mk (Div bs)
   else Node NoPos [("class", cls)] (Div bs).
 
 (* The block a list closes to, read off the candidate set its state
-   carries.  Stated on the *set* rather than on a marker because the set
-   is what `list_block` matches on, and because siblings narrow it: a
-   list whose first marker is ambiguous closes to a block that marker
-   alone does not determine.
-
-   It lives here rather than beside the markers because of its one
-   configured arm: the colon needs `bdeflists`, and the section variable
-   is what keeps that argument implicit at its twenty-odd call sites in
-   the uniformity chain. *)
+   carries.  Stated on the set rather than on a marker because siblings
+   narrow it: a list whose first marker is ambiguous closes to a block
+   that marker alone does not determine.  Defined here rather than beside
+   the markers because the colon's arm reads `bdeflists`, which this
+   section keeps implicit. *)
 Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
                        (items : list blocks) : node block :=
   match S with
   | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
   (* The colon is the definition-list style, and this is the only place
-     it differs from a bullet: djot.js's `-list` picks the node from the
-     same style set (parse.ts:824), and `def_items` is the split its
-     `-list_item` runs.  Spelled as a test on the character rather than
-     as a pattern so that a proof holding an unknown bullet can case on
-     it in one step.
-
-     With definition lists off the split is what goes away: the items are
-     the same items, their markers are still colons, and the list is the
-     bullet list any other marker would have made. *)
+     it differs from a bullet.  Spelled as a test on the character rather
+     than as a pattern, so that a proof holding an unknown bullet can case
+     on it in one step.  With definition lists off the split goes away:
+     the items and their colon markers stay, and the list is the bullet
+     list any other marker would make. *)
   | (SBullet c, _) :: _ =>
       if (Ascii.eqb c ":" && bdeflists)%bool
       then mk (DefinitionList sp (def_items items))
       else mk (BulletList sp items)
-  (* The state-free form cannot construct a task list because statuses are
-     per item.  [styles_list_checked] below is the uniformity result used for
-     that style; this fallback keeps the older projection total. *)
+  (* The state-free form cannot build a task list, since statuses are per
+     item: `styles_list_checked` below handles that style, and this arm
+     keeps the function total. *)
   | _ => mk (BulletList sp items)
   end.
 
@@ -1059,10 +1003,9 @@ Definition styles_list_checked (S : list (lstyle * nat)) (sp : list_spacing)
   | _ => styles_list S sp items
   end.
 
-(* The same at a marker whose set no sibling narrows.  Bullets give a
-   `BulletList` definitionally, so instantiating the uniformity chain at
-   `bullet` still reads as it did; an ordered marker gives the
-   `OrderedList` its style and start. *)
+(* The same at a marker whose set no sibling narrows.  A bullet gives a
+   `BulletList` definitionally; an ordered marker gives the `OrderedList`
+   of its style and start. *)
 Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
   : node block := styles_list (mk_styles m) sp items.
 
@@ -1140,11 +1083,10 @@ Definition list_parts (ls : list_state) (last : blocks) : parts :=
   | _ => PItems ranges
   end.
 
-(* The list a `PList` closes to.  djot.js takes the first surviving
-   candidate -- "take first if ambiguous", parse.ts:817 -- which is why
-   `styles_of_core` lists the roman reading before the alpha one.  The
-   empty case is unreachable: `open_list` is only reached from a `KList`,
-   whose style set `list_marker` has already found nonempty, and
+(* The list a `PList` closes to: the first surviving candidate, which is
+   why `styles_of_core` lists the roman reading before the alpha one.
+   The empty case is unreachable: `open_list` is only reached from a
+   `KList`, whose style set `list_marker` has already found nonempty, and
    `narrow` replaces the set only when the result is nonempty. *)
 Definition list_block (ls : list_state) (last : blocks) : node block :=
   styles_list_checked (ls_styles ls)
@@ -1180,34 +1122,33 @@ Proof.
       rewrite map_rev. reflexivity.
 Qed.
 
-(* The block a reference definition closes to.  It carries no HTML of its
-   own — `Html.v` renders it as nothing, as djot.js does, which keeps it a
-   block only for the roundtrip's sake — and `Document.v` reads the pair
-   off it into the document's reference map. *)
+(* The block a reference definition closes to.  It renders to no HTML and
+   is a block for the roundtrip's sake; `Document.v` reads the pair off it
+   into the document's reference map. *)
 Definition ref_block (lbl val : string) : node block := mk (RefDef lbl val).
 
 Definition foot_block (lbl : string) (bs : blocks) : node block :=
   mk (FootnoteDef lbl bs).
 
-(* What an open key becomes once the state under it has been closed.
-   Both cases are the same fact read two ways: a key claims the *first*
-   block that comes out and nothing after it (section 4), so no block at
-   all is a key that never got one, and that retracts to the paragraph
-   its own line would have been with the setting off (section 6).
+(* What an open key becomes once the state under it has been closed.  A
+   key claims the first block that comes out and nothing after it, so no
+   block at all is a key that never got one, and that retracts to the
+   paragraph its own line would have been with the setting off
+   (`.project/keyed-blocks.md` sections 4 and 6).
 
-   The label's inlines are built here rather than at classification,
-   exactly as a paragraph's are built when the paragraph closes: the
-   scan that found the split kept a byte offset and nothing else. *)
+   The label's inlines are built here rather than at classification, as a
+   paragraph's are built when it closes: the scan that found the split
+   kept a byte offset and nothing else. *)
 Definition key_close (lbl src : string) (bs : blocks) : blocks :=
   match bs with
   | [] => [mk (Para (para_inlines [src]))]
   | b :: rest => (mk (Keyed (para_inlines [lbl]) b) :: rest)%list
   end.
 
-(* A continuation line's contribution: one whitespace-free run, whitespace
-   stripped, and nothing else on the line (djot.js block.ts:308-313).  A
-   blank line is excluded by `nonempty_str`, which is what closes an open
-   definition at a paragraph break. *)
+(* A continuation line's contribution: one whitespace-free run,
+   whitespace stripped, and nothing else on the line.  A blank line is
+   excluded by `nonempty_str`, which is what closes an open definition at
+   a paragraph break. *)
 Definition ref_cont (l : string) : option string :=
   let t := drop_leading_ws l in
   if (nonempty_str t && no_ws t)%bool then Some t else None.
@@ -1333,12 +1274,11 @@ Proof.
   apply (finish_list_styles _ _ _ _ H).
 Qed.
 
-(* Lazy continuation (djot.js: `isLazy`).  A nonblank, otherwise
-   featureless line that is missing its container prefixes still
-   continues the innermost open *inline* container — a paragraph or a
-   heading — but nothing else, which is why fence content is excluded.
-   An empty PPara is the idle state, not an open block; a PHeading is
-   always open, even with no text yet. *)
+(* Lazy continuation.  A nonblank, otherwise featureless line that is
+   missing its container prefixes still continues the innermost open
+   inline container (a paragraph or a heading) and nothing else, which is
+   why fence content is excluded.  An empty PPara is the idle state, not
+   an open block; a PHeading is always open, even with no text yet. *)
 Fixpoint lazy_ok (st : pstate) : bool :=
   match st with
   | PPara [] => false
@@ -1359,11 +1299,10 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PKey _ _ _ inner => lazy_ok inner
   end.
 
-(* djot.js's `this.tip()`: the innermost open container.  Nothing can be
-   nested inside a code block, so "the tip is a code block" is exactly
-   "a fence is open anywhere down the spine".  `fenced_div`'s `continue`
-   consults it before testing for its own closer (block.ts:635-638,
-   issue #109), so a `:::` line that is code stays code. *)
+(* Whether the innermost open container is a code block, i.e. a fence is
+   open anywhere down the spine (nothing nests inside a code block).  An
+   open div consults this before testing for its own closer, so a `:::`
+   line that is code stays code. *)
 Fixpoint in_fence (st : pstate) : bool :=
   match st with
   | PFence _ _ _ _ _ => true
@@ -1379,13 +1318,10 @@ Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
   match k with KText => lazy_ok inner | _ => false end.
 
 (* Append a lazy line to the innermost paragraph.  Its leading whitespace
-   goes, exactly as on a non-lazy continuation line: a lazy line *is* a
-   continuation line, distinguished only by the container prefixes it
-   omits, and djot.js strips it either way (checked against the oracle on
-   both a quote and a list).  Canonical renderings never produce a lazy
-   line, so no roundtrip proof can observe this; it matters for the
-   parser's agreement with the oracle on hand-written input, and it is
-   what makes the state's content independent of ambient indentation. *)
+   goes, as on a non-lazy continuation line: a lazy line is a
+   continuation line that omits container prefixes.  Canonical renderings
+   never produce one, so no roundtrip proof observes this; it keeps the
+   state's content independent of ambient indentation. *)
 Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
   match st with
   | PPara cur => PPara (remember_line (drop_leading_ws l) :: cur)
@@ -1467,11 +1403,10 @@ Proof.
   reflexivity.
 Qed.
 
-(* What a line opens, for every kind but KQuote — a quote has to parse
-   the line it encloses, which is the parser's one recursion, so it stays
-   inside `step_fuel`.  The split is deliberate: every equation lemma
-   downstream is stated over `open_kind`, which is exactly why fuel
-   appears in no lemma statement anywhere in the development. *)
+(* What a line opens, for every kind but KQuote: a quote parses the line
+   it encloses, which is the parser's one recursion, so it stays inside
+   `step_fuel`.  Every equation lemma downstream is stated over
+   `open_kind`, which keeps fuel out of every lemma statement. *)
 Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KBlank => ([], PPara [])
@@ -1514,14 +1449,13 @@ Definition open_kind `{bconfig} (l : string) (k : line_kind) : blocks * pstate :
 (* The other half of the per-line rule: this line does not continue the
    open container, so the container's blocks close and the line is
    reprocessed at the enclosing level.  Every state answers a line one of
-   these two ways — continue, or close-and-reopen — which is the
-   `continue`/`close`/`finalize` split of Phase 2's BlockSpec, with
-   `finish` supplying finalize.  A new container gets its continuation
-   rule and nothing else; this rule it inherits.
+   these two ways, continue or close-and-reopen, and `finish` closes the
+   stack at end of input; a new container supplies only its continuation
+   rule.
 
-   Both wrappers take the opening *already computed* rather than
-   computing it, so neither joins the recursion — which is what keeps
-   `step`'s fuel decrementing once per nesting level and no more. *)
+   Both wrappers take the opening already computed rather than computing
+   it, so neither joins the recursion, and `step`'s fuel decrements once
+   per nesting level. *)
 Definition close_reopen (st : pstate) (opened : blocks * pstate)
   : blocks * pstate :=
   let (bs, st') := opened in ((finish st ++ bs)%list, st').
@@ -1567,10 +1501,10 @@ Definition open_quote (l : string) (descended : blocks * pstate)
   ([], PQuote (open_extent l (indent_of l)) (rev bs) inner).
 
 (* An attribute spec opens its container at the column its brace sits
-   at.  Like a list's `ls_indent` this is an *absolute* column, `off +
+   at.  Like a list's `ls_indent` this is an absolute column, `off +
    indent_of l`, not a line-local one: continuation lines are tested
-   against it, and the two ways of reaching a nested line — moving the
-   offset, or padding the line — have to record the same number
+   against it, and the two ways of reaching a nested line (moving the
+   offset, or padding the line) have to record the same number
    (`step_fuel_shift`, `step_fuel_pad`).  That is also why it is not part
    of `open_kind`, which never sees the offset. *)
 (* With block attributes off the spec never opens, so `PAttr` is
@@ -1666,7 +1600,7 @@ Definition open_list (l : string) (ind : nat) (sty : list (lstyle * nat))
 Tight/loose bookkeeping
 -----------------------
 
-Three events move the flags, mirroring djot.js's annot tests. *)
+Three events move the flags. *)
 
 (* A blank line inside the list arms the flag. *)
 Definition list_blank (ls : list_state) : list_state :=
@@ -1691,24 +1625,16 @@ Lemma list_narrow_id : forall ls, list_narrow ls (ls_styles ls) = ls.
 Proof. intros ls. destruct ls. reflexivity. Qed.
 
 (* Does a blank line arriving here come to rest inside something the item
-   still has open?  djot.js's tight/loose machinery only ever inspects the
-   top container and the one below it (parse.ts:1199-1203), which are the
-   item and the list exactly when the item's content is a leaf; anything
-   deeper hides the list, so the blank never reaches it.
+   still has open?  A div, a code block, a nested list and an unfinished
+   attribute spec survive a blank and absorb it.  A block quote, a
+   heading and a reference definition close and let it through, and
+   pending attributes are not a container.
 
-   The containers' `continue`s run before the blankline handler
-   (block.ts:634 before parse.ts:1197), so what matters is the stack
-   *after* this line: a div, a code block, a nested list and an unfinished
-   attribute spec all survive a blank and absorb it, while a blockquote
-   has already closed and lets it through.  A heading and a reference
-   definition close too, and `PPend` is not on the stack at all -- djot.js
-   keeps pending block attributes in a document-wide variable.
-
-   Tabulating survival that way is what lets this be a predicate on the
-   state *before* the descent even though the rule is about the stack
-   after: `step` is deterministic and a blank's effect on the top
-   constructor depends on nothing else.  Reading it off `inner` rather
-   than `inner'` is why every pad lemma below stays one line. *)
+   The rule is about the container stack after the line, but `step` is
+   deterministic and a blank's effect on the top constructor depends on
+   nothing else, so it is a predicate on the state before the descent.
+   Reading it off `inner` rather than `inner'` keeps every pad lemma
+   below one line. *)
 (*
 Claiming a block out of column
 ------------------------------
@@ -1775,21 +1701,16 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
   end.
 
 (* Does this line come to rest as a container closer, leaving nothing at
-   the tip?  djot.js tests `isBlank` *after* the container `continue`s
-   have eaten the line (block.ts:1051), so a `:::` that closes a div
-   fires the same `blankline` event an empty line does -- and the
-   enclosing list is armed by a line that is not blank at all.
+   the tip?  A `:::` that closes a div counts as a blank line for list
+   tightness, so the enclosing list is armed by a line that is not blank
+   at all.  A code fence's closer does not: the code block consumes it
+   before the blank test runs (`.project/oracle-disagreements.md`, "a
+   div's closing line").
 
-   A fence closer does not, and the difference is which side of that test
-   consumes it: a code block eats its closer inside its own `continue`,
-   before `isBlank` runs.  Verified against the oracle both ways
-   (`.project/oracle-disagreements.md`, "a div's closing line").
-
-   Read off the state *before* the descent, like `blank_absorbed` and for
-   the same reason: `step` is deterministic, so whether the line closes
-   the div is a fact about the state it arrives at.  Only the immediate
-   inner is inspected -- a `PList` between here and the div is the list
-   that gets armed instead, exactly as it is for a blank. *)
+   Read off the state before the descent, like `blank_absorbed` and for
+   the same reason.  Only the immediate inner is inspected: a `PList`
+   between here and the div is the list that gets armed instead, as for
+   a blank. *)
 Fixpoint div_closer (l : string) (st : pstate) : bool :=
   match st with
   | PDiv len _ _ _ _ inner =>
@@ -1801,10 +1722,9 @@ Fixpoint div_closer (l : string) (st : pstate) : bool :=
   | _ => false
   end.
 
-(* Content within the current item.  A line that opens a nested list is
-   a `+list` event, which djot.js excludes from loosening; anything else
-   loosens the list if a blank line is armed.  Either way the flag is
-   spent. *)
+(* Content within the current item.  A line that opens a nested list does
+   not loosen; anything else loosens the list if a blank line is armed.
+   Either way the flag is spent. *)
 Definition list_content (ls : list_state) (k : line_kind) : list_state :=
   let loose :=
     match k with
@@ -1816,9 +1736,9 @@ Definition list_content (ls : list_state) (k : line_kind) : list_state :=
       (ls_styles ls) loose false (ls_items ls) (ls_check ls) (ls_checks ls).
 
 (* A sibling marker closes the current item and opens the next.  The
-   boundary itself neither loosens nor spends the flag (djot.js keeps
-   `blanklines` across `+list_item`); the content that follows on the
-   same line does, which is what makes `- a`, blank, `- b` loose. *)
+   boundary itself neither loosens nor spends the flag; the content that
+   follows on the same line does, which is what makes `- a`, blank, `- b`
+   loose. *)
 Definition list_next (ls : list_state) (item : blocks) (chk : task_status)
   (l rest : string) : list_state :=
   let items := item :: ls_items ls in
@@ -1839,7 +1759,7 @@ Definition list_next (ls : list_state) (item : blocks) (chk : task_status)
 
 (* The per-line transition, on fuel.  The only recursion is into a
    stripped quote prefix, and `classify_quote_length` says that line is
-   strictly shorter — so the line's own length is always enough fuel.
+   strictly shorter, so the line's own length is always enough fuel.
    `step` below fixes it there, and `step_fuel_enough` retires it, so no
    downstream statement mentions fuel. *)
 (* Columns a container prefix ate before handing down its residue.  The
@@ -1910,10 +1830,10 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
       match st with
       | PFence f ind range opener acc =>
           (* Verbatim: only the close test, and the closing line is
-             consumed rather than reprocessed — the one state that is
-             not "continue or close-and-reopen".  Verbatim up to the
-             fence's own column, that is: the line keeps whatever it is
-             indented *past* the opener and nothing before it. *)
+             consumed rather than reprocessed, the one state that is not
+             "continue or close-and-reopen".  A content line keeps
+             whatever it is indented past the opener, and nothing before
+             it. *)
           if fence_close f l
           then ([set_pos
                    (prov_with (extent_span (touch_extent range))
@@ -2004,17 +1924,14 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           end
       | PDiv len cls range opener done inner =>
           (* The close test runs before the line reaches anything nested
-             inside, because djot.js runs container `continue`s
-             outermost-first (block.ts:634) and `div_close` strips
-             leading whitespace.  That is why an indented `:::` inside a
-             list inside a div closes the *div*, and why
-             `div_uniformity`'s side condition has to reach every line of
-             the contents rather than only the outermost ones.
+             inside, and `div_close` strips leading whitespace, so an
+             indented `:::` inside a list inside a div closes the div.
+             Hence `div_uniformity`'s side condition reaches every line of
+             the contents, not only the outermost ones.
 
              The closing line is consumed rather than reprocessed, as a
-             code fence's is: djot.js advances `this.pos` past the fence
-             before closing (block.ts:645).  Otherwise the line descends
-             unchanged, at the same offset — a div eats no prefix.
+             code fence's is.  Otherwise the line descends unchanged at
+             the same offset: a div eats no prefix.
 
              `in_fence` is checked first: inside an open code block a
              `:::` line is content, not a closer. *)
@@ -2044,7 +1961,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               if list_takes ls off l inner
               then
                 (* indented past the marker: contents of the current
-                   item.  The line is passed down unchanged — every
+                   item.  The line is passed down unchanged: every
                    recognizer already skips leading whitespace, so block
                    structure is right; what the extra indent still costs
                    is inline and verbatim text, the same open indentation
@@ -2087,47 +2004,30 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 end
           end
       | PAttr pend specs range ind ap slices =>
-          (* djot.js runs this container's `continue` before anything
-             else (block.ts:566).  A finished spec refuses every line and
-             closes; an unfinished one takes the line only if it is
-             indented past the opener; and a spec that fails, at either
-             point, becomes a paragraph of the lines it ate.  In all three
-             cases the line is reprocessed against what the container
-             became, which is the close-and-reopen rule with the reopening
-             computed rather than supplied.
+          (* A finished spec refuses every line and closes; an unfinished
+             one takes the line only if it is indented past the opener;
+             and a spec that fails, at either point, becomes a paragraph
+             of the lines it ate.  In all three cases the line is
+             reprocessed against what the container became.
 
-             The failing *indented* line is part of that paragraph — its
-             slice is pushed before the feed (block.ts:569-572) — and the
-             non-indented line is not, but both are then handed to
-             `PPara slices`, which appends the one and closes on the
-             other.  One equation covers both.
+             The failing indented line is part of that paragraph (it is
+             frozen before it is fed) and a non-indented one is not, but
+             both are handed to the recovered paragraph, which appends the
+             one and closes on the other.  One equation covers both.  An
+             earlier spec's attributes travel with the recovery, and
+             `pend_result` attaches them to the paragraph when it closes.
 
-             An earlier spec's attributes are waiting on the block this
-             one turns out to be, so they travel with the recovery rather
-             than being dropped with the spec: `pend_result` attaches
-             them to the paragraph when it closes.
-
-             A blank line splits on the same indentation test as any
-             other, and the two halves are unrelated.
-
-             Indented past the opener, it is a continuation: djot.js
-             feeds it to the machine and records its slice, so a spec
-             that spans such a blank and then fails reproduces the blank
-             inside its paragraph, and a paragraph containing a blank
-             line is exactly what `Wf.wf_block` rules out, because it
-             does not round-trip.  We feed it and do not record it; the
+             A blank line splits on the same indentation test.  Indented
+             past the opener it is a continuation, fed to the machine but
+             not recorded.  djot.js records it, so a spec that spans a
+             blank and then fails gives a paragraph containing a blank
+             line, which does not round-trip (`Wf.wf_block`); the
              divergence is confined to specs that both span a blank line
-             and fail.
-
-             Not indented past it, the blank is what fails the spec, and
-             the recovery runs *on that line*.  djot.js then rewinds
-             `this.pos` into the slices it has just replayed
-             (block.ts:597), so the blank is never tested for blankness:
-             the paragraph the recovery opened stays open and takes the
-             line without recording anything.  `{%` / blank / `c` is
-             therefore one paragraph of two lines upstream, and only a
-             second blank closes it, met by the recovered paragraph as
-             any paragraph meets one. *)
+             and fail.  Not indented past it, the blank fails the spec and
+             the recovery runs on that line: the recovered paragraph stays
+             open and takes the blank without recording it, so `{%` /
+             blank / `c` is one paragraph of two lines, and only a second
+             blank closes it. *)
           if ap_done ap
           then step_fuel n' off l
                  (PPend (attr_merge (ap_attrs ap) pend)
@@ -2148,8 +2048,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           (* A line indented past the bracket and carrying one
              whitespace-free run extends the destination; anything else
              ends the definition and is reprocessed at this level.  There
-             is no failure case — the definition is already complete when
-             the state is entered — so unlike `PAttr` nothing is
+             is no failure case, since the definition is already complete
+             when the state is entered, so unlike `PAttr` nothing is
              retracted. *)
           match (if Nat.ltb ind (off + indent_of l) then ref_cont l else None) with
           | Some t => ([], PRef (touch_extent range) ind lbl (val ++ t))
@@ -2161,10 +2061,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
       | PTable range rows cap =>
           (* Four rules, and which apply depends on what the table has
              seen.  A caption opener is read here rather than by
-             `classify`, which is what confines the construct to a table
-             (see `Line.caption_open`).  A line that looks like a row but
-             fails to scan (an unclosed verbatim) is a `KText` line by
-             then, so it arrives already carrying djot.js's answer. *)
+             `classify`, which confines the construct to a table (see
+             `Line.caption_open`).  A line that looks like a row but fails
+             to scan (an unclosed verbatim) is a `KText` line by then. *)
           match cap with
           | TCaption parts start ls =>
               (* The caption owns every nonblank line, row lines
@@ -2222,10 +2121,9 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 :: bs)%list, st')
       | PPend pend specs inner =>
           (* Two lines are the pending attributes' own business, and only
-             while nothing has claimed them yet: a blank line drops them
-             (parse.ts:1231), and another spec merges into them.  Every
-             other line goes down to `inner` and gets decorated by
-             whatever it closes. *)
+             while nothing has claimed them yet: a blank line drops them,
+             and another spec merges into them.  Every other line goes
+             down to `inner` and gets decorated by whatever it closes. *)
           match classify l with
           | KBlank =>
               if is_idle inner then ([], PPara [])
@@ -2257,9 +2155,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
 (* The transition proper.  Each descent either shortens the line (a
    quote prefix, a list marker) or drops a container from the state (a
    list item's contents), so line length plus nesting depth strictly
-   decreases and this much fuel is always enough — `step_fuel_enough`
-   retires it, and it appears in no lemma statement anywhere (only in
-   the tactics that unfold `step`). *)
+   decreases and this much fuel is always enough.  `step_fuel_enough`
+   retires it, and it appears in no lemma statement. *)
 Definition step (l : string) (st : pstate) : blocks * pstate :=
   step_fuel (S (String.length l + pstate_depth st)) 0 l st.
 
@@ -2794,10 +2691,10 @@ Proof.
   reflexivity.
 Qed.
 
-(* `open_kind`'s text arm is a case split now (a line that opens a
-   paragraph may open a key instead), and the shift and pad proofs meet
-   it wherever a line opens one.  Neither branch records a column, so
-   both close the same way. *)
+(* `open_kind`'s text arm is a case split (a line that opens a paragraph
+   may open a key instead), and the shift and pad proofs meet it wherever
+   a line opens one.  Neither branch records a column, so both close the
+   same way. *)
 Ltac key_open_cases :=
   cbn [open_kind]; unfold open_text;
   match goal with
@@ -3358,7 +3255,7 @@ Proof.
 Qed.
 
 (* Anything else closes the quote, and the line is then reprocessed
-   outside it — the same `open_kind` the idle state uses. *)
+   outside it, by the same `open_kind` the idle state uses. *)
 Lemma step_quote_close :
   forall l k range done inner bs st',
     classify l = k -> direct_open k = true -> is_lazy k inner = false ->
@@ -3424,11 +3321,11 @@ List transitions
 ----------------
 
 A blank line always recurses into the item's own state, regardless of
-indent (it can never close the list itself — only a later non-blank,
-non-indented, non-matching-marker line can).  Everything else checks
-indent first: indented past the marker keeps it item content; otherwise
-a matching marker is a sibling, a different marker opens a new list, and
-   anything else is lazy continuation or a close, exactly as for a quote. *)
+indent: it can never close the list itself, only a later non-blank,
+non-indented, non-matching-marker line can.  Everything else checks
+indent first: indented past the marker it is item content; otherwise a
+matching marker is a sibling, a different marker opens a new list, and
+anything else is lazy continuation or a close, as for a quote. *)
 
 Lemma step_list_open :
   forall l sty core chk rest bs inner,
@@ -3580,9 +3477,9 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-(* An attribute spec is not `direct_open` — it records a column, so it
-   opens through `open_attr` rather than `open_kind` — which is why it
-   needs its own pair of equations, exactly as a quote does. *)
+(* An attribute spec records a column, so it opens through `open_attr`
+   rather than `open_kind` and needs its own pair of equations, as a
+   quote does. *)
 (* Stated through `open_attr` rather than through `PAttr`, because the
    spec opens only where the capability is on and the two consumers below
    need the equation at either setting. *)
@@ -3894,8 +3791,8 @@ exclusion.  It strips its own column from every content line, and the two
 sides here carry the *same* state, so the padded side strips from a line
 that is `String.length p` characters longer while subtracting the same
 column: the two agree exactly when the fence sits at or right of where the
-padded line starts.  `fence_cols_ok` is that condition, and `pad_safe` is
-what is left once the fence no longer needs excluding.  Both stop at
+padded line starts.  `fence_cols_ok` is that condition, and `pad_safe`
+excludes only an open attribute spec.  Both stop at
 `PQuote`, because a quote prefix absorbs the pad before handing down its
 residue. *)
 
@@ -3954,11 +3851,11 @@ Fixpoint pad_safe (st : pstate) : bool :=
   | PFoot _ _ _ _ inner => pad_safe inner
   | PPend _ _ inner => pad_safe inner
   | PKey _ _ _ inner => pad_safe inner
-  (* PAttr is the whole of the exclusion now, and it is not
-     `step_fuel_pad` that wants it: a pad is invisible to a spec, but a
-     *blank* line inside an open one is a continuation line rather than a
-     close, so `step_blank_finish` fails.  Nothing a canonical rendering
-     emits opens a spec. *)
+  (* PAttr is the whole of the exclusion, and it is not `step_fuel_pad`
+     that wants it: a pad is invisible to a spec, but a blank line inside
+     an open one is a continuation line rather than a close, so
+     `step_blank_finish` fails.  Nothing a canonical rendering emits
+     opens a spec. *)
   | PAttr _ _ _ _ _ _ => false
   | _ => true
   end.
@@ -4780,8 +4677,8 @@ Proof.
   rewrite close_reopen_erase, (open_line_erase _ _ _ _ _ H). reflexivity.
 Qed.
 
-(* C2: the located transition and the semantic one are the same descent.
-   No branch reads a position, so each case closes by rewriting erasure
+(* The located transition and the semantic one are the same descent.  No
+   branch reads a position, so each case closes by rewriting erasure
    through the constructors the branch builds. *)
 Lemma step_fuel_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
   n off l st,
@@ -4995,10 +4892,8 @@ Proof.
     rewrite key_result_erase, IH. reflexivity.
 Qed.
 
-(* C1 of the source-location pipeline: drive the same transition with the
-   actual line index installed at each step.  This runner deliberately does
-   not expose a located AST yet; it is the provenance-bearing state fold used
-   by the located block assembly layer. *)
+(* The fold with the actual line index installed at each step: the
+   provenance-bearing state fold the located block assembly uses. *)
 Fixpoint run_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
   (lines : list (nat * string)) (st : pstate) : blocks * pstate :=
   match lines with
@@ -5016,8 +4911,7 @@ Definition finish_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
 
 (* The located parse: the same fold, each line stepped at its own index
    and under the policy that keeps what the states record.  Erasing it
-   is the semantic parse; that is the theorem C2 owes, and until it is
-   proved nothing downstream reads this. *)
+   gives the semantic parse (`parse_blocks_located_erase`). *)
 Definition parse_blocks_located {T : dtable} {K : bconfig} (s : string)
   : blocks :=
   @finish_lines_tagged T K located_pos (split_lines_indexed s) (PPara []).

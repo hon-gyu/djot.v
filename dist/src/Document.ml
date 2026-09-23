@@ -165,7 +165,7 @@ let add_auto_ref label ident st =
 (** val register_id : attr -> id_state -> id_state **)
 
 let register_id a st =
-  match lookup_attr "id" a with
+  match alist_lookup "id" a with
   | Some ident -> { id_used = (ident :: st.id_used); id_refs = st.id_refs }
   | None -> st
 
@@ -174,7 +174,7 @@ let register_id a st =
 
 let assign_heading_id p a lvl ils st =
   let text = inlines_text ils in
-  (match lookup_attr "id" a with
+  (match alist_lookup "id" a with
    | Some ident ->
      ((add_auto_ref (normalize_label text) ident (register_id a st)), (Node
        (p, a, (Heading (lvl, ils)))))

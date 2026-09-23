@@ -1,7 +1,6 @@
 (* Byte-string utilities and their lemmas: whitespace, reversal, line
-   splitting/joining, and small list/bool helpers.  Everything here is
-   parser-agnostic; Line.v builds classification on top, Parser.v the
-   block structure. *)
+   splitting and joining, the source-line table that resolves spans to
+   byte offsets, and small list helpers. *)
 
 From Stdlib Require Import String Ascii List Bool Lia.
 From Stdlib Require DecimalString.
@@ -16,8 +15,8 @@ Whitespace and blank lines
 ==========================
 *)
 
-(* Intra-line whitespace: space, tab, CR.  Deliberately excludes LF —
-   newlines are line separators, never content. *)
+(* Intra-line whitespace: space, tab, CR.  Not LF: newlines separate
+   lines and are never content. *)
 Definition is_ws (c : ascii) : bool :=
   Ascii.eqb c " " || Ascii.eqb c "009" || Ascii.eqb c "013".
 
@@ -32,33 +31,26 @@ Lemma is_blank_cons :
   forall c s, is_blank (String c s) = (is_ws c && is_blank s)%bool.
 Proof. reflexivity. Qed.
 
+(* About content, where `nonempty_str` is about length: a line of spaces
+   is nonempty but blank. *)
 Definition nonblank (l : string) : bool := negb (is_blank l).
-
-(* Note: nonblank is about *content*, nonempty_str below about *length*.
-   A line of spaces is nonempty but blank. *)
 
 (*
 Shape helpers
 =============
 *)
 
-(* Decidable "has at least one element", for lists and for strings.  Used
-   pervasively in the well-formedness predicate, which is boolean. *)
-
+(* Decidable "has at least one element", for lists and for strings. *)
 Definition nonempty {A : Type} (l : list A) : bool :=
   match l with [] => false | _ => true end.
 
 Definition nonempty_str (s : string) : bool :=
   match s with EmptyString => false | _ => true end.
 
-(* Decimal rendering, for heading levels and identifier disambiguators. *)
-Definition nat_str (n : nat) : string :=
-  DecimalString.NilZero.string_of_uint (Nat.to_uint n).
-
 Lemma nonempty_str_intro :
   forall s, s <> EmptyString -> nonempty_str s = true.
 Proof. 
-    destruct s. (* String has two constructors: String and EmptyString *)
+    destruct s.
     - congruence.
     - reflexivity.
 Qed.
@@ -75,6 +67,10 @@ Qed.
 Lemma nonempty_app_singleton :
   forall {A : Type} (l : list A) (x : A), nonempty (l ++ [x])%list = true.
 Proof. intros A l x. destruct l. all: reflexivity. Qed.
+
+(* Decimal rendering, for heading levels and identifier disambiguators. *)
+Definition nat_str (n : nat) : string :=
+  DecimalString.NilZero.string_of_uint (Nat.to_uint n).
 
 Lemma forallb_rev :
   forall {A : Type} (f : A -> bool) (l : list A),
@@ -103,9 +99,8 @@ Proof.
 Qed.
 
 (* String reversal, accumulator-style so it is structurally recursive.
-   Its only real job here is to give strip_trailing_ws in terms of
-   drop_leading_ws, and to let split_lines build lines front-to-back. *)
-
+   It defines strip_trailing_ws by drop_leading_ws, and lets split_lines
+   build lines front to back. *)
 Fixpoint rev_string_aux (s acc : string) : string :=
   match s with
   | EmptyString => acc
@@ -176,8 +171,8 @@ Proof.
 Qed.
 
 (*
-Trailing-whitespace stripping
-=============================
+Leading and trailing whitespace
+===============================
 *)
 
 (* Drop a leading run of whitespace. *)
@@ -187,27 +182,24 @@ Fixpoint drop_leading_ws (s : string) : string :=
   | EmptyString => EmptyString
   end.
 
-(* ...and the same at the other end, by reversing.  The parser applies
-   this to a paragraph's last line; Render.v's para_ok demands it be the
-   identity there, which is what makes the roundtrip exact. *)
-(* How far in a line's first non-whitespace character sits.  This is
-   djot.js's `this.indent`, and it is what list-item continuation is
-   stated against. *)
+(* The column of a line's first non-whitespace character.  List-item
+   continuation is stated against it. *)
 Fixpoint indent_of (s : string) : nat :=
   match s with
   | EmptyString => 0
   | String c s' => if is_ws c then S (indent_of s') else 0
   end.
 
+(* Drop a trailing run of whitespace, by reversing.  The parser applies it
+   to a paragraph's last line; `Render.para_ok` requires it to be the
+   identity there. *)
 Definition strip_trailing_ws (s : string) : string :=
   rev_string (drop_leading_ws (rev_string s)).
 
 (* Drop a leading run of whitespace, but no more than `n` characters of
-   it.  This is djot.js's `startpos - (indent - tip.indent)`
-   (block.ts:1083): a container whose content is verbatim text removes
-   its own column from every line and leaves the rest, so a line indented
-   less than the container keeps nothing and a line indented more keeps
-   the difference. *)
+   it.  A container whose content is verbatim text removes its own column
+   from every line: a line indented less keeps none of its indent, and a
+   line indented more keeps the difference. *)
 Fixpoint drop_ws_upto (n : nat) (s : string) : string :=
   match n, s with
   | S n', String c s' => if is_ws c then drop_ws_upto n' s' else s
@@ -239,8 +231,7 @@ Lemma length_append :
   forall a b, String.length (a ++ b) = String.length a + String.length b.
 Proof. induction a as [|c a IH]; intros b; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
 
-(* Dropping whitespace never lengthens: the measure that makes container
-   prefix stripping terminate (Line.quote_prefix_length). *)
+(* Dropping whitespace never lengthens a string. *)
 Lemma drop_leading_ws_length :
   forall s, String.length (drop_leading_ws s) <= String.length s.
 Proof.
@@ -259,9 +250,7 @@ Proof.
     + discriminate.
 Qed.
 
-(* Dropping leading whitespace never turns a blank line nonblank or vice
-   versa: the whitespace it removes was already all the classifier ever
-   looked past. *)
+(* Dropping leading whitespace preserves blankness. *)
 Lemma is_blank_drop_leading_ws :
   forall s, is_blank (drop_leading_ws s) = is_blank s.
 Proof.
@@ -280,11 +269,7 @@ Proof.
 Qed.
 
 (* An all-whitespace prefix is invisible to drop_leading_ws, is_blank and
-   indent_of: they all just keep scanning through it into `l`.  This is
-   what lets a list's "  " continuation indent be pushed through the
-   classifier for free — Render.v/Roundtrip.v's list case is the only
-   caller, since quotes and headings use a fixed-content, not
-   whitespace-only, prefix. *)
+   indent_of: they scan through it into `l`. *)
 Lemma drop_leading_ws_ws_prefix :
   forall p l, is_blank p = true -> drop_leading_ws (p ++ l) = drop_leading_ws l.
 Proof.
@@ -336,10 +321,9 @@ Lines: splitting and joining
 (* The newline, as a one-character string. *)
 Definition nl : string := String "010" EmptyString.
 
-(* Split on LF.  A trailing newline does NOT yield a final empty line
-   ("a\n" splits to ["a"], not ["a"; ""]) — hence the "last line must be
-   nonempty" side condition that follows split_lines around. *)
-
+(* Split on LF.  A trailing newline does not yield a final empty line:
+   "a\n" splits to ["a"], not ["a"; ""].  Hence the side condition, on
+   lemmas about split_lines, that the last line is nonempty. *)
 Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
   match s with
   | EmptyString =>
@@ -355,9 +339,7 @@ Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
 
 Definition split_lines (s : string) : list string := split_lines_aux s EmptyString.
 
-(* The located block driver consumes exactly [split_lines], paired with a
-   monotonically increasing source-line index.  Keeping this operation
-   separate makes the correspondence to the semantic driver explicit. *)
+(* [split_lines], each line paired with its index. *)
 Fixpoint index_lines_from (i : nat) (lines : list string)
   : list (nat * string) :=
   match lines with
@@ -410,17 +392,6 @@ Definition line_table (s : string) : list source_line :=
 Definition source_line_at (lines : list source_line) (i : nat)
   : option source_line := nth_error lines i.
 
-(* Resolve the end-anchored internal coordinate once, at the API boundary.
-   Malformed spots are rejected rather than silently clamped. *)
-Definition spot_byte (lines : list source_line) (p : spot) : option nat :=
-  match source_line_at lines (spot_line p) with
-  | Some l =>
-      if Nat.leb (spot_rem p) (source_line_length l)
-      then Some (source_line_start l + source_line_length l - spot_rem p)
-      else None
-  | None => None
-  end.
-
 Record source_point : Type := SourcePoint
   { source_byte : nat
   ; source_line_index : nat
@@ -430,6 +401,9 @@ Record source_span : Type := SourceSpan
   { source_span_start : source_point
   ; source_span_stop : source_point }.
 
+(* Resolve the end-anchored `spot` to a byte offset and column, once, at
+   the API boundary.  A spot past its line's end is rejected rather than
+   clamped. *)
 Definition resolve_spot (lines : list source_line) (p : spot)
   : option source_point :=
   match source_line_at lines (spot_line p) with
@@ -457,18 +431,15 @@ Fixpoint no_nl (s : string) : bool :=
   | String c s' => negb (Ascii.eqb c "010") && no_nl s'
   end.
 
-(* One character absent.  `no_nl` is the instance this file already had a
-   use for; a reference definition's label needs the same for `]`. *)
+(* One character absent. *)
 Fixpoint no_char (c : ascii) (s : string) : bool :=
   match s with
   | EmptyString => true
   | String c' s' => negb (Ascii.eqb c' c) && no_char c s'
   end.
 
-(* djot.js's `[ \t\r\n]` class: intra-line whitespace plus the line
-   separator.  `is_ws` excludes LF because a line never contains one;
-   a token that must survive being written onto a line by itself has to
-   exclude both. *)
+(* Intra-line whitespace plus the line separator.  A token that must be
+   written back onto one line has to exclude both. *)
 Definition is_ws_nl (c : ascii) : bool := is_ws c || Ascii.eqb c "010".
 
 (* No whitespace at all.  A reference definition's destination is one
@@ -519,11 +490,10 @@ Proof.
   rewrite is_blank_cons, Hc. reflexivity.
 Qed.
 
-(* A line as produced by a renderer: nonblank, newline-free, and already
-   flush against its own left margin — the parser strips any leading
-   whitespace off a text line as it stores it (Parser.push_text,
-   PPara/PHeading continuation), so a line that still had leading
-   whitespace could never be what parsing this source produced. *)
+(* A line as a renderer may produce it: nonblank, newline-free, and flush
+   against its left margin.  The parser strips a text line's leading
+   whitespace as it stores it (`Step.push_text`), so a line with leading
+   whitespace cannot come back unchanged. *)
 Definition line_ok (l : string) : bool :=
   nonblank l && no_nl l && String.eqb (drop_leading_ws l) l.
 
@@ -645,8 +615,8 @@ Proof.
 Qed.
 
 (*
-Small helpers for the roundtrip hypotheses
-------------------------------------------
+List helpers
+------------
 *)
 
 Lemma no_nl_append :
