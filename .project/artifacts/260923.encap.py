@@ -379,36 +379,43 @@ SPLIT_ANCHORS = {20: 'Local Open Scope string_scope.', 835: 'Section WithTable.'
                  836: 'Context {T : dtable}.', 1974: '(*', 1975: 'The inline pass',
                  4279: '(*', 4280: 'The located scan', 5721: '(*',
                  5722: 'The output frame', 9150: '(*', 9151: 'The key connective',
-                 9386: '(*', 9387: 'The pass inverts the view', 9596: '(*',
-                 9597: 'Escapes, pinned', 9605: 'End WithTable.',
+                 9386: '(*', 9387: 'The pass inverts the view', 9438: '(*',
+                 9439: 'The renderer', 9596: '(*', 9597: 'Escapes, pinned',
+                 9605: 'End WithTable.',
+                 5617: 'Lemma iscan_str_app :', 5622: 'Qed.',
+                 5732: 'Definition istart : iscan := IText false EmptyString None ostart.',
+                 9001: "(* A paragraph's lines, in order, into inlines: one scan, with `ibreak`",
+                 9006: '  ifinish (iscan_lines l istart).',
+                 9369: "(* The canonical view's paragraph, laid out the same way. *)",
+                 9384: 'Proof. reflexivity. Qed.',
                  9617: '#[export] Instance djot_table : dtable :=',
                  9629: '  DTable markdown_like_config eq_refl.'}
 
 SPLIT_PARTS = [
-    # (file, [(first, last)], in_section, header)
+    # (file, [(first, last)], in_section, header).  Ranges are copied in
+    # the order listed; the moved declarations go to the end of the part
+    # they now belong to, after everything they use.
     ('theories/InlineTable.v', [(21, 834)], False,
      'The delimiter table: the characters the scanner claims, the table of\n'
      '   delimiter rows as a parameter, its admissibility condition, and the\n'
      '   checked row updates.  The class `dtable` packages an admissible table.'),
-    ('theories/InlineView.v', [(837, 1973)], True,
-     'The table in force, the escape encoding, and the canonical inline view\n'
+    ('theories/InlineView.v', [(837, 1973), (9369, 9385), (9438, 9595)], True,
+     'The table in force, the escape encoding, the canonical inline view\n'
      '   `cinline` with its source (`ci_src`), AST (`ci_ast`) and conditions\n'
-     '   (`ci_ok`).'),
-    ('theories/InlineScan.v', [(1974, 4278)], True,
+     '   (`ci_ok`), the canonical paragraph (`ci_para`), and the renderer.'),
+    ('theories/InlineScan.v', [(1974, 4278), (5732, 5732), (5617, 5623),
+                               (9001, 9007), (9150, 9368)], True,
      'The inline pass: the single-pass scanner over a paragraph\'s text, its\n'
-     '   scope stack, and the line-level drivers.'),
-    ('theories/InlineLocated.v', [(4279, 5720)], True,
+     '   scope stack, the line-level drivers, `para_inlines`, and the key\n'
+     '   connective (`.project/keyed-blocks.md`).'),
+    ('theories/InlineLocated.v', [(4279, 5616), (5624, 5720)], True,
      'The located scan, and erasure: the located and semantic scans agree\n'
      '   once coordinates are dropped.'),
-    ('theories/InlineInvert.v', [(5721, 9149)], True,
+    ('theories/InlineInvert.v', [(5721, 5731), (5733, 9000), (9008, 9149),
+                                 (9386, 9437)], True,
      'The scan inverts the canonical view: scanning a canonical line reaches\n'
-     '   the state that emitting its nodes reaches.'),
-    ('theories/InlineKey.v', [(9150, 9385)], True,
-     'The key connective: where a colon on a line pairs a label with what\n'
-     '   follows it (`.project/keyed-blocks.md`).'),
-    ('theories/InlineRender.v', [(9386, 9595)], True,
-     'The pass inverts the view, a paragraph at a time, and the inline\n'
-     '   renderer.'),
+     '   the state that emitting its nodes reaches, and a canonical paragraph\n'
+     '   parses back to its inlines.'),
 ]
 SPLIT_AGG_RANGE = (9606, 9630)
 SPLIT_EXAMPLES = ('dev/InlineExamples.v', [(9596, 9604), (9631, None)])
