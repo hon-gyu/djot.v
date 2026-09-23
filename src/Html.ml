@@ -212,7 +212,7 @@ let checkbox_elt chk =
 
 let ref_extra a0 a =
   filter (fun kv ->
-    match lookup_attr (fst kv) a with
+    match alist_lookup (fst kv) a with
     | Some _ -> false
     | None -> true) a0
 

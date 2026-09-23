@@ -569,7 +569,7 @@ let task_litem_lines = function
 (** val id_spec_lines : block node -> string list **)
 
 let id_spec_lines n =
-  match lookup_attr "id" (node_attrs n) with
+  match alist_lookup "id" (node_attrs n) with
   | Some v -> ((^) "{#" ((^) v "}")) :: []
   | None -> []
 

@@ -194,6 +194,25 @@ let underline_of l =
     if all_char c s then Some (c, (S (length s))) else None)
     (strip_trailing_ws (drop_leading_ws l))
 
+(** val take_while : (char -> bool) -> string -> string * string **)
+
+let rec take_while p s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> ("", s))
+    (fun c s' ->
+    if p c
+    then let (a, b) = take_while p s' in
+         (((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+         (c, a)), b)
+    else ("", s))
+    s
+
 (** val count_run : char -> string -> nat * string **)
 
 let rec count_run c s =
@@ -211,25 +230,6 @@ let rec count_run c s =
 
 let is_info_char c =
   negb ((||) ((||) (is_ws c) ((=) c '`')) ((=) c '\n'))
-
-(** val take_info : string -> string * string **)
-
-let rec take_info s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", s))
-    (fun c s' ->
-    if is_info_char c
-    then let (info, r) = take_info s' in
-         (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-         (c, info)), r)
-    else ("", s))
-    s
 
 (** val fence_open : string -> fence option **)
 
@@ -250,7 +250,7 @@ let fence_open l =
              (c, s))
          in
          if Nat.leb (S (S (S O))) n
-         then let (info, r') = take_info (drop_leading_ws r) in
+         then let (info, r') = take_while is_info_char (drop_leading_ws r) in
               if is_blank r'
               then Some { f_ch = c; f_len = n; f_info = info }
               else None
@@ -312,25 +312,6 @@ let is_class_char c =
       ((=) c '_'))
     ((=) c '-')
 
-(** val take_class : string -> string * string **)
-
-let rec take_class s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", s))
-    (fun c s' ->
-    if is_class_char c
-    then let (cls, r) = take_class s' in
-         (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-         (c, cls)), r)
-    else ("", s))
-    s
-
 (** val div_open : string -> (nat * string) option **)
 
 let div_open l =
@@ -350,7 +331,7 @@ let div_open l =
              (c, s))
          in
          if Nat.leb (S (S (S O))) n
-         then let (cls, r') = take_class (drop_leading_ws r) in
+         then let (cls, r') = take_while is_class_char (drop_leading_ws r) in
               if is_blank r' then Some (n, cls) else None
          else None
     else None)
@@ -493,25 +474,6 @@ let rec str_forallb p s =
 
     (fun _ -> true)
     (fun c s' -> (&&) (p c) (str_forallb p s'))
-    s
-
-(** val take_while : (char -> bool) -> string -> string * string **)
-
-let rec take_while p s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", s))
-    (fun c s' ->
-    if p c
-    then let (a, b) = take_while p s' in
-         (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-         (c, a)), b)
-    else ("", s))
     s
 
 (** val marker_shape :

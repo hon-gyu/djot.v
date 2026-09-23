@@ -76,11 +76,6 @@ let tick =
 let is_tick c =
   (=) c tick
 
-(** val bslash : char **)
-
-let bslash =
-  '\\'
-
 (** val is_bslash : char -> bool **)
 
 let is_bslash c =
@@ -124,15 +119,15 @@ let dqchar =
 let hyphen =
   '-'
 
-(** val bang : char **)
-
-let bang =
-  '!'
-
 (** val period : char **)
 
 let period =
   '.'
+
+(** val bang : char **)
+
+let bang =
+  '!'
 
 (** val lbrack : char **)
 
@@ -144,16 +139,6 @@ let lbrack =
 let rbrack =
   ']'
 
-(** val vbar : char **)
-
-let vbar =
-  '|'
-
-(** val hat : char **)
-
-let hat =
-  '^'
-
 (** val lparen : char **)
 
 let lparen =
@@ -163,6 +148,16 @@ let lparen =
 
 let rparen =
   ')'
+
+(** val vbar : char **)
+
+let vbar =
+  '|'
+
+(** val hat : char **)
+
+let hat =
+  '^'
 
 (** val lt : char **)
 
@@ -303,6 +298,38 @@ let rec chars c = function
 let dstyles =
   DEmph :: (DStrong :: (DSuper :: (DSub :: (DMark :: (DInsert :: (DDelete :: (DSQuote :: (DDQuote :: []))))))))
 
+(** val dstyle_eq : dstyle -> dstyle -> bool **)
+
+let dstyle_eq a b =
+  match a with
+  | DEmph -> (match b with
+              | DEmph -> true
+              | _ -> false)
+  | DStrong -> (match b with
+                | DStrong -> true
+                | _ -> false)
+  | DSuper -> (match b with
+               | DSuper -> true
+               | _ -> false)
+  | DSub -> (match b with
+             | DSub -> true
+             | _ -> false)
+  | DMark -> (match b with
+              | DMark -> true
+              | _ -> false)
+  | DInsert -> (match b with
+                | DInsert -> true
+                | _ -> false)
+  | DDelete -> (match b with
+                | DDelete -> true
+                | _ -> false)
+  | DSQuote -> (match b with
+                | DSQuote -> true
+                | _ -> false)
+  | DDQuote -> (match b with
+                | DDQuote -> true
+                | _ -> false)
+
 (** val denabled : dconfig -> dstyle -> bool **)
 
 let denabled c k =
@@ -327,6 +354,26 @@ let with_wikilinks enabled c =
 
 let bnode image ns tgt =
   if image then Image (ns, tgt) else Link (ns, tgt)
+
+(** val dnode : dstyle -> inlines -> inline **)
+
+let dnode k ns =
+  match k with
+  | DEmph -> Emph ns
+  | DStrong -> Strong ns
+  | DSuper -> Superscript ns
+  | DSub -> Subscript ns
+  | DMark -> Highlight ns
+  | DInsert -> Insert ns
+  | DDelete -> Delete ns
+  | DSQuote -> Quoted (SingleQuotes, ns)
+  | DDQuote -> Quoted (DoubleQuotes, ns)
+
+(** val wiki_display : string -> string option -> string **)
+
+let wiki_display target0 = function
+| Some d -> d
+| None -> target0
 
 (** val reference_text : inline -> string **)
 
@@ -362,20 +409,6 @@ let rec reference_text il =
 
 let reference_inlines_text ns =
   String.concat "" (map (fun n -> reference_text (node_contents n)) ns)
-
-(** val dnode : dstyle -> inlines -> inline **)
-
-let dnode k ns =
-  match k with
-  | DEmph -> Emph ns
-  | DStrong -> Strong ns
-  | DSuper -> Superscript ns
-  | DSub -> Subscript ns
-  | DMark -> Highlight ns
-  | DInsert -> Insert ns
-  | DDelete -> Delete ns
-  | DSQuote -> Quoted (SingleQuotes, ns)
-  | DDQuote -> Quoted (DoubleQuotes, ns)
 
 type dtable = dconfig
   (* singleton inductive, whose constructor was DTable *)
@@ -1243,43 +1276,11 @@ let fr_lit t h f =
 let add_inline_role h role r n =
   add_roles h ((role, r) :: []) n
 
-(** val dstyle_eqb : dstyle -> dstyle -> bool **)
-
-let dstyle_eqb a b =
-  match a with
-  | DEmph -> (match b with
-              | DEmph -> true
-              | _ -> false)
-  | DStrong -> (match b with
-                | DStrong -> true
-                | _ -> false)
-  | DSuper -> (match b with
-               | DSuper -> true
-               | _ -> false)
-  | DSub -> (match b with
-             | DSub -> true
-             | _ -> false)
-  | DMark -> (match b with
-              | DMark -> true
-              | _ -> false)
-  | DInsert -> (match b with
-                | DInsert -> true
-                | _ -> false)
-  | DDelete -> (match b with
-                | DDelete -> true
-                | _ -> false)
-  | DSQuote -> (match b with
-                | DSQuote -> true
-                | _ -> false)
-  | DDQuote -> (match b with
-                | DDQuote -> true
-                | _ -> false)
-
 (** val dmatch : dstyle -> bool -> frame -> bool **)
 
 let dmatch k m f =
   match f.fr_kind with
-  | FKDelim (k', _) -> (&&) (dstyle_eqb k k') (Bool0.eqb m f.fr_marked)
+  | FKDelim (k', _) -> (&&) (dstyle_eq k k') (Bool0.eqb m f.fr_marked)
   | _ -> false
 
 (** val merge_text_pos : pos -> pos -> pos **)

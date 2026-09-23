@@ -20,18 +20,11 @@ let rec alist_set k v = function
 
 type attr = (string * string) list
 
-(** val lookup_attr : string -> attr -> string option **)
-
-let rec lookup_attr k = function
-| [] -> None
-| p :: rest ->
-  let (k', v) = p in if (=) k k' then Some v else lookup_attr k rest
-
 (** val integrate : (string * string) -> attr -> attr **)
 
 let integrate kv kvs =
   let (k, v) = kv in
-  (match lookup_attr k kvs with
+  (match alist_lookup k kvs with
    | Some v' ->
      if (=) k "class"
      then (k,
@@ -53,7 +46,7 @@ let attr_set =
 (** val attr_add_class : string -> attr -> attr **)
 
 let attr_add_class v a =
-  match lookup_attr "class" a with
+  match alist_lookup "class" a with
   | Some old -> attr_set "class" ((^) old ((^) " " v)) a
   | None -> attr_set "class" v a
 
@@ -293,12 +286,6 @@ type inline =
 | HardBreak
 
 type inlines = inline node list
-
-(** val wiki_display : string -> string option -> string **)
-
-let wiki_display target0 = function
-| Some d -> d
-| None -> target0
 
 type list_spacing =
 | Tight
