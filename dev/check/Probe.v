@@ -345,9 +345,9 @@ Compute fails 40 (fun s => holds (ord_items_ok (Roman.str false) RightPeriod s 3
 
 (* Alpha: same two questions.  Here the expected exceptions are the seven
    letters that are also roman digits. *)
-Compute fails 40 (fun s => holds (ord_rt LetterLower (alpha_str false) RightPeriod s 3))
+Compute fails 40 (fun s => holds (ord_rt LetterLower (Alpha.str false) RightPeriod s 3))
                  (seq 1 24).
-Compute fails 40 (fun s => holds (ord_items_ok (alpha_str false) RightPeriod s 3))
+Compute fails 40 (fun s => holds (ord_items_ok (Alpha.str false) RightPeriod s 3))
                  (seq 1 24).
 
 (* The real form, and the one to copy: a *conditional* statement, where

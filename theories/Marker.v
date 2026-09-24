@@ -252,7 +252,7 @@ Proof.
     [left|right]; apply Nat.leb_le, H.
 Qed.
 
-(* The three fields, unpacked.  Stated at `str` / `alpha_str` so
+(* The three fields, unpacked.  Stated at `str` / `Alpha.str` so
    that the ordered-list chain never mentions `ok`. *)
 Lemma str_nonempty :
   forall up n, 1 <= n -> n <= upper -> nonempty_str (str up n) = true.
@@ -281,59 +281,63 @@ Qed.
 
 End Roman.
 
+Module Alpha.
+
 (* An alpha numeral's value, from its first character: an alpha core is
    one character. *)
-Definition alpha_value (up : bool) (core : string) : nat :=
+Definition value (up : bool) (core : string) : nat :=
   match core with
   | String c _ => nat_of_ascii c - (if up then 64 else 96)
   | EmptyString => 1
   end.
 
-Definition alpha_str (up : bool) (n : nat) : string :=
+Definition str (up : bool) (n : nat) : string :=
   String (ascii_of_nat ((if up then 64 else 96) + n)) EmptyString.
 
-Definition alpha_ok (up : bool) (n : nat) : bool :=
-  let s := alpha_str up n in
+Definition ok (up : bool) (n : nat) : bool :=
+  let s := str up n in
   (nonempty_str s
    && str_forallb (if up then is_upper else is_lower) s
-   && Nat.eqb (alpha_value up s) n)%bool.
+   && Nat.eqb (value up s) n)%bool.
 
-Definition alpha_upper : nat := 26.
+Definition upper : nat := 26.
 
-Example alpha_ok_lo : forallb (alpha_ok false) (seq 1 alpha_upper) = true.
+Example ok_lo : forallb (ok false) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Example alpha_ok_up : forallb (alpha_ok true) (seq 1 alpha_upper) = true.
+Example ok_up : forallb (ok true) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Local Lemma alpha_ok_lt :
-  forall up n, 1 <= n -> n <= alpha_upper -> alpha_ok up n = true.
+Local Lemma ok_lt :
+  forall up n, 1 <= n -> n <= upper -> ok up n = true.
 Proof.
   intros [|] n H1 H2;
-    [ exact (range_ok _ _ _ alpha_ok_up H1 H2)
-    | exact (range_ok _ _ _ alpha_ok_lo H1 H2) ].
+    [ exact (range_ok _ _ _ ok_up H1 H2)
+    | exact (range_ok _ _ _ ok_lo H1 H2) ].
 Qed.
 
-Lemma alpha_str_nonempty :
-  forall up n, 1 <= n -> n <= alpha_upper -> nonempty_str (alpha_str up n) = true.
+Lemma str_nonempty :
+  forall up n, 1 <= n -> n <= upper -> nonempty_str (str up n) = true.
 Proof. intros. reflexivity. Qed.
 
-Lemma alpha_str_alphabet :
-  forall (up : bool) n, 1 <= n -> n <= alpha_upper ->
-    str_forallb (if up then is_upper else is_lower) (alpha_str up n) = true.
+Lemma str_alphabet :
+  forall (up : bool) n, 1 <= n -> n <= upper ->
+    str_forallb (if up then is_upper else is_lower) (str up n) = true.
 Proof.
-  intros up n H1 H2. pose proof (alpha_ok_lt up n H1 H2) as H.
-  unfold alpha_ok in H. apply andb_true_iff in H as [H _].
+  intros up n H1 H2. pose proof (ok_lt up n H1 H2) as H.
+  unfold ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
-Lemma alpha_value_str :
-  forall up n, 1 <= n -> n <= alpha_upper -> alpha_value up (alpha_str up n) = n.
+Lemma value_str :
+  forall up n, 1 <= n -> n <= upper -> value up (str up n) = n.
 Proof.
-  intros up n H1 H2. pose proof (alpha_ok_lt up n H1 H2) as H.
-  unfold alpha_ok in H. apply andb_true_iff in H as [_ H].
+  intros up n H1 H2. pose proof (ok_lt up n H1 H2) as H.
+  unfold ok in H. apply andb_true_iff in H as [_ H].
   apply Nat.eqb_eq, H.
 Qed.
+
+End Alpha.
 
 (*
 Alphabets
@@ -426,8 +430,8 @@ Definition style_start (s : lstyle) (core : string) : nat :=
   match s with
   | SBullet _ | STask _ => 1
   | SOrd Decimal _ => dec_value core
-  | SOrd LetterLower _ => alpha_value false core
-  | SOrd LetterUpper _ => alpha_value true core
+  | SOrd LetterLower _ => Alpha.value false core
+  | SOrd LetterUpper _ => Alpha.value true core
   | SOrd RomanLower _ | SOrd RomanUpper _ => Roman.value core
   end.
 
