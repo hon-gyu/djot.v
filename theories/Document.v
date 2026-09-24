@@ -72,7 +72,7 @@ Fixpoint inline_text (il : inline) : string :=
   | Symbol _ | NonBreakingSpace => ""
   end.
 
-Definition inlines_text (ils : inlines) : string :=
+Local Definition inlines_text (ils : inlines) : string :=
   String.concat "" (map (fun n => inline_text (node_contents n)) ils).
 
 (*
@@ -83,7 +83,7 @@ Auto-identifiers
 (* The characters an identifier drops.  Runs of them separate words,
    which are joined with "-": `words` over the class, where collapsing
    and trimming are what dropping empty tokens already does. *)
-Definition is_id_sep (c : ascii) : bool :=
+Local Definition is_id_sep (c : ascii) : bool :=
   (* JavaScript \s, ASCII part: HT VT FF CR LF and space *)
   ((Ascii.eqb c "009" || Ascii.eqb c "010" || Ascii.eqb c "011"
     || Ascii.eqb c "012" || Ascii.eqb c "013" || Ascii.eqb c " ")
@@ -98,15 +98,15 @@ Definition is_id_sep (c : ascii) : bool :=
        || Ascii.eqb c "|" || Ascii.eqb c "=" || Ascii.eqb c "+"
        || Ascii.eqb c "/" || Ascii.eqb c "?"))%char%bool.
 
-Definition id_base (s : string) : string :=
+Local Definition id_base (s : string) : string :=
   String.concat "-" (words is_id_sep s).
 
-Definition id_taken (used : list string) (s : string) : bool :=
+Local Definition id_taken (used : list string) (s : string) : bool :=
   existsb (String.eqb s) used.
 
 (* Candidate i: the base itself at 0, then base-1, base-2, ...  An empty
    base is rejected at 0 and becomes "s-1", "s-2", ... *)
-Definition id_candidate (base : string) (i : nat) : string :=
+Local Definition id_candidate (base : string) (i : nat) : string :=
   if Nat.eqb i 0 then base
   else (match base with EmptyString => "s" | _ => base end)
        ++ "-" ++ nat_str i.
@@ -117,7 +117,7 @@ Definition id_candidate (base : string) (i : nat) : string :=
    unreachable.  Argued, not proved: the discharge lemma (compare
    `Step.step_fuel_enough`) needs pigeonhole plus injectivity of
    `nat_str`, and would buy freshness of the assigned identifier. *)
-Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
+Local Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
   : string :=
   let cand := id_candidate base i in
   match fuel with
@@ -128,7 +128,7 @@ Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
       else unique_id_from f (S i) used base
   end.
 
-Definition unique_id (used : list string) (base : string) : string :=
+Local Definition unique_id (used : list string) (base : string) : string :=
   unique_id_from (S (S (length used))) 0 used base.
 
 (*
@@ -149,7 +149,7 @@ Definition id_state_init : id_state := IdSt [] [].
    consulted: `Html.doc_refs` appends the implicit map after the explicit
    one and lookup takes the first match, so an explicit definition wins
    at lookup. *)
-Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
+Local Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
   if existsb (fun p => String.eqb (fst p) label) (id_refs st)
   then st
   else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st).
@@ -325,7 +325,7 @@ Fixpoint assign_ids_task_items (its : list (task_status * blocks)) (st : id_stat
    `pristine_inner_go` and `undo_pass_inner_go`: Rocq will not let the
    definition mention `assign_ids_list` directly, so the identity is
    proved once here. *)
-Lemma assign_ids_inner_go :
+Local Lemma assign_ids_inner_go :
   forall ns st,
     (fix go (l : blocks) (s : id_state) : id_state * blocks :=
        match l with
@@ -546,7 +546,7 @@ Context {P : PosPolicy}.
 
 Definition sect_state : Type := list (nat * attr * blocks).
 
-Definition sect_init : sect_state := [(0, [], [])].
+Local Definition sect_init : sect_state := [(0, [], [])].
 
 (* Close every section a level-`lvl` heading interrupts, carrying the
    already-closed nodes inward-out in `pending` so each lands inside the
@@ -572,12 +572,12 @@ Fixpoint close_ge (lvl : nat) (pending : blocks) (stk : sect_state)
 (* Equation lemmas, as everywhere else in this development: `cbn` on
    close_ge reduces the *recursive* call as well, and an induction
    hypothesis about it then no longer matches. *)
-Lemma close_ge_singleton :
+Local Lemma close_ge_singleton :
   forall lvl pending l a acc,
     close_ge lvl pending [(l, a, acc)] = [(l, a, (pending ++ acc)%list)].
 Proof. reflexivity. Qed.
 
-Lemma close_ge_cons :
+Local Lemma close_ge_cons :
   forall lvl pending l a acc outer,
     outer <> [] ->
     close_ge lvl pending ((l, a, acc) :: outer)
@@ -655,7 +655,7 @@ into every container the fold can build.
    label keeps the first definition's position and takes the last one's
    value.  An empty label is dropped before normalization, so `[ ]: u`,
    whose normalized label is empty, is still recorded. *)
-Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
+Local Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
   : reference_map :=
   match b with
   | RefDef label dest =>
@@ -667,7 +667,7 @@ Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
 
 (* Pre-order, which is document order, with the same inlined list
    recursion `assign_ids` needs and for the same guard-checker reason. *)
-Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
+Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
   {struct b} : reference_map :=
   let go :=
     fix go (ns : blocks) (acc : reference_map) {struct ns} : reference_map :=
@@ -721,7 +721,7 @@ Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
   | _ => add_ref p a b m
   end.
 
-Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_map :=
+Local Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_map :=
   match ns with
   | [] => m
   | Node p a b :: rest => collect_refs_list rest (collect_refs b p a m)
@@ -856,7 +856,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma collect_notes_inner_go :
+Local Lemma collect_notes_inner_go :
   forall ns m,
     (fix go (ns' : blocks) (acc : note_map) {struct ns'}
        : note_map * blocks :=
@@ -877,7 +877,7 @@ Proof.
     rewrite IH; reflexivity.
 Qed.
 
-Lemma collect_notes_inner_goit :
+Local Lemma collect_notes_inner_goit :
   forall its m,
     (fix goit (its' : list blocks) (acc : note_map) {struct its'}
        : note_map * list blocks :=
@@ -1087,10 +1087,10 @@ render, parse, erase is the identity.
 *)
 
 (* Oriented like alist_lookup, so the two compose without an eqb flip. *)
-Definition strip_id (a : attr) : attr :=
+Local Definition strip_id (a : attr) : attr :=
   filter (fun kv => negb (String.eqb "id" (fst kv))) a.
 
-Lemma strip_id_absent :
+Local Lemma strip_id_absent :
   forall a, alist_lookup "id" a = None -> strip_id a = a.
 Proof.
   induction a as [|[k v] rest IH]; intros H; [reflexivity|].
@@ -1099,7 +1099,7 @@ Proof.
   cbn [negb]. f_equal. apply IH. exact H.
 Qed.
 
-Lemma strip_id_cons :
+Local Lemma strip_id_cons :
   forall v a, alist_lookup "id" a = None -> strip_id (("id", v) :: a) = a.
 Proof.
   intros v a H. cbn [strip_id filter fst].
@@ -1109,7 +1109,7 @@ Qed.
 
 (* A section's attributes came off the heading that opened it, which
    sectionize left as its first child. *)
-Definition set_first (a : attr) (bs : blocks) : blocks :=
+Local Definition set_first (a : attr) (bs : blocks) : blocks :=
   match bs with
   | [] => []
   | Node p _ x :: rest => Node p a x :: rest
@@ -1118,7 +1118,7 @@ Definition set_first (a : attr) (bs : blocks) : blocks :=
 (* Stripping the id *before* handing the attributes back is what makes
    one traversal enough: the identifier the pass added rides on the
    section, so it has to come off there. *)
-Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
+Local Fixpoint undo_pass_block (b : block) (p : pos) (a : attr) {struct b}
   : blocks :=
   let go :=
     fix go (ns : blocks) : blocks :=
@@ -1171,27 +1171,27 @@ Fixpoint undo_pass (bs : blocks) : blocks :=
   | Node p a b :: rest => (undo_pass_block b p a ++ undo_pass rest)%list
   end.
 
-Fixpoint undo_pass_items (its : list blocks) : list blocks :=
+Local Fixpoint undo_pass_items (its : list blocks) : list blocks :=
   match its with
   | [] => []
   | it :: rest => undo_pass it :: undo_pass_items rest
   end.
 
-Fixpoint undo_pass_def_items (its : list (inlines * blocks))
+Local Fixpoint undo_pass_def_items (its : list (inlines * blocks))
   : list (inlines * blocks) :=
   match its with
   | [] => []
   | (term, it) :: rest => (term, undo_pass it) :: undo_pass_def_items rest
   end.
 
-Fixpoint undo_pass_task_items (its : list (task_status * blocks))
+Local Fixpoint undo_pass_task_items (its : list (task_status * blocks))
   : list (task_status * blocks) :=
   match its with
   | [] => []
   | (chk, it) :: rest => (chk, undo_pass it) :: undo_pass_task_items rest
   end.
 
-Lemma undo_pass_inner_go :
+Local Lemma undo_pass_inner_go :
   forall ns,
     (fix go (l : blocks) : blocks :=
        match l with
@@ -1203,7 +1203,7 @@ Proof.
   cbn [undo_pass]. rewrite IH. reflexivity.
 Qed.
 
-Lemma undo_pass_section :
+Local Lemma undo_pass_section :
   forall inner p a,
     undo_pass_block (Section inner) p a
     = set_first (strip_id a) (undo_pass inner).
@@ -1229,7 +1229,7 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma undo_pass_quote :
+Local Lemma undo_pass_quote :
   forall inner p a,
     undo_pass_block (BlockQuote inner) p a
     = [Node p a (BlockQuote (undo_pass inner))].
@@ -1255,7 +1255,7 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma undo_pass_inner_goit :
+Local Lemma undo_pass_inner_goit :
   forall its,
     (fix goit (l : list blocks) : list blocks :=
        match l with
@@ -1272,7 +1272,7 @@ Proof.
   cbn [undo_pass_items]. rewrite undo_pass_inner_go, IH. reflexivity.
 Qed.
 
-Lemma undo_pass_div :
+Local Lemma undo_pass_div :
   forall inner p a,
     undo_pass_block (Div inner) p a = [Node p a (Div (undo_pass inner))].
 Proof.
@@ -1288,7 +1288,7 @@ Proof.
   rewrite undo_pass_inner_go. reflexivity.
 Qed.
 
-Lemma undo_pass_foot :
+Local Lemma undo_pass_foot :
   forall label inner p a,
     undo_pass_block (FootnoteDef label inner) p a
     = [Node p a (FootnoteDef label (undo_pass inner))].
@@ -1305,7 +1305,7 @@ Proof.
   rewrite undo_pass_inner_go. reflexivity.
 Qed.
 
-Lemma undo_pass_blist :
+Local Lemma undo_pass_blist :
   forall sp items p a,
     undo_pass_block (BulletList sp items) p a
     = [Node p a (BulletList sp (undo_pass_items items))].
@@ -1326,7 +1326,7 @@ Proof.
   rewrite undo_pass_inner_goit. reflexivity.
 Qed.
 
-Lemma undo_pass_olist :
+Local Lemma undo_pass_olist :
   forall oa sp items p a,
     undo_pass_block (OrderedList oa sp items) p a
     = [Node p a (OrderedList oa sp (undo_pass_items items))].
@@ -1350,33 +1350,33 @@ Qed.
 (* Convertible, where the bullet arm needs `undo_pass_inner_goit`: the
    definition traversal has one inner fixpoint and `undo_pass_def_items`
    is spelled as that fixpoint, so nothing has to be identified. *)
-Lemma undo_pass_deflist :
+Local Lemma undo_pass_deflist :
   forall sp items p a,
     undo_pass_block (DefinitionList sp items) p a
     = [Node p a (DefinitionList sp (undo_pass_def_items items))].
 Proof. reflexivity. Qed.
 
-Lemma undo_pass_tasklist :
+Local Lemma undo_pass_tasklist :
   forall sp items p a,
     undo_pass_block (TaskList sp items) p a
     = [Node p a (TaskList sp (undo_pass_task_items items))].
 Proof. reflexivity. Qed.
 
-Definition undo_pass_node (n : node block) : blocks :=
+Local Definition undo_pass_node (n : node block) : blocks :=
   match n with Node p a b => undo_pass_block b p a end.
 
-Lemma undo_pass_cons :
+Local Lemma undo_pass_cons :
   forall n rest, undo_pass (n :: rest) = (undo_pass_node n ++ undo_pass rest)%list.
 Proof. intros [p a b] rest. reflexivity. Qed.
 
-Lemma undo_pass_single : forall n, undo_pass [n] = undo_pass_node n.
+Local Lemma undo_pass_single : forall n, undo_pass [n] = undo_pass_node n.
 Proof. intros [p a b]. cbn [undo_pass undo_pass_node]. apply app_nil_r. Qed.
 
 (* Input the pass has not already run on: no sections, and no heading
    carrying an explicit id.  Checked exactly where undo_pass looks (the
    top level and block-quote contents), because those are the only
    places either half of the pass reaches. *)
-Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
+Local Fixpoint pristine_block (b : block) (a : attr) {struct b} : bool :=
   let go :=
     fix go (ns : blocks) : bool :=
       match ns with
@@ -1427,7 +1427,7 @@ Fixpoint pristine_items (its : list blocks) : bool :=
   | it :: rest => (pristine it && pristine_items rest)%bool
   end.
 
-Fixpoint pristine_def_items (its : list (inlines * blocks)) : bool :=
+Local Fixpoint pristine_def_items (its : list (inlines * blocks)) : bool :=
   match its with
   | [] => true
   | (_, it) :: rest => (pristine it && pristine_def_items rest)%bool
@@ -1441,7 +1441,7 @@ Fixpoint pristine_task_items (its : list (task_status * blocks)) : bool :=
 
 (* Splitting the term off keeps an item pristine: the block that leaves
    is a paragraph, and `pristine_block` asks nothing of one. *)
-Lemma pristine_def_split :
+Local Lemma pristine_def_split :
   forall bs ils def,
     pristine bs = true -> def_split bs = Some (ils, def) -> pristine def = true.
 Proof.
@@ -1457,7 +1457,7 @@ Proof.
     cbn [pristine]. rewrite Hx. exact (IH ils' more Hrest eq_refl).
 Qed.
 
-Lemma pristine_def_items_split :
+Local Lemma pristine_def_items_split :
   forall its,
     pristine_items its = true -> pristine_def_items (def_items its) = true.
 Proof.
@@ -1474,7 +1474,7 @@ Qed.
 (* The collection pass needs only this projection of pristine: there is
    no definition node to remove.  Unlike pristine, assigned heading ids
    do not affect it, so it survives assign_ids. *)
-Fixpoint notes_free_block (b : block) {struct b} : bool :=
+Local Fixpoint notes_free_block (b : block) {struct b} : bool :=
   let go :=
     fix go (ns : blocks) : bool :=
       match ns with
@@ -1507,31 +1507,31 @@ Fixpoint notes_free_block (b : block) {struct b} : bool :=
   | _ => true
   end.
 
-Fixpoint notes_free (bs : blocks) : bool :=
+Local Fixpoint notes_free (bs : blocks) : bool :=
   match bs with
   | [] => true
   | Node _ _ b :: rest => (notes_free_block b && notes_free rest)%bool
   end.
 
-Fixpoint notes_free_items (its : list blocks) : bool :=
+Local Fixpoint notes_free_items (its : list blocks) : bool :=
   match its with
   | [] => true
   | it :: rest => (notes_free it && notes_free_items rest)%bool
   end.
 
-Fixpoint notes_free_def_items (its : list (inlines * blocks)) : bool :=
+Local Fixpoint notes_free_def_items (its : list (inlines * blocks)) : bool :=
   match its with
   | [] => true
   | (_, it) :: rest => (notes_free it && notes_free_def_items rest)%bool
   end.
 
-Fixpoint notes_free_task_items (its : list (task_status * blocks)) : bool :=
+Local Fixpoint notes_free_task_items (its : list (task_status * blocks)) : bool :=
   match its with
   | [] => true
   | (_, it) :: rest => (notes_free it && notes_free_task_items rest)%bool
   end.
 
-Lemma notes_free_inner_go :
+Local Lemma notes_free_inner_go :
   forall ns,
     (fix go (l : blocks) : bool :=
        match l with
@@ -1543,7 +1543,7 @@ Proof.
   cbn [notes_free]. rewrite IH. reflexivity.
 Qed.
 
-Lemma notes_free_inner_goit :
+Local Lemma notes_free_inner_goit :
   forall its,
     (fix goit (l : list blocks) : bool :=
        match l with
@@ -1561,19 +1561,19 @@ Proof.
   cbn [notes_free_items]. rewrite notes_free_inner_go, IH. reflexivity.
 Qed.
 
-Lemma notes_free_quote :
+Local Lemma notes_free_quote :
   forall bs, notes_free_block (BlockQuote bs) = notes_free bs.
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
-Lemma notes_free_section :
+Local Lemma notes_free_section :
   forall bs, notes_free_block (Section bs) = notes_free bs.
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
-Lemma notes_free_div :
+Local Lemma notes_free_div :
   forall bs, notes_free_block (Div bs) = notes_free bs.
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
-Lemma notes_free_deflist :
+Local Lemma notes_free_deflist :
   forall sp items,
     notes_free_block (DefinitionList sp items) = notes_free_def_items items.
 Proof.
@@ -1593,7 +1593,7 @@ Proof.
   cbn [notes_free_def_items]. rewrite notes_free_inner_go, IH. reflexivity.
 Qed.
 
-Lemma notes_free_tasklist :
+Local Lemma notes_free_tasklist :
   forall sp items,
     notes_free_block (TaskList sp items) = notes_free_task_items items.
 Proof.
@@ -1613,12 +1613,12 @@ Proof.
   cbn [notes_free_task_items]. rewrite notes_free_inner_go, IH. reflexivity.
 Qed.
 
-Lemma notes_free_blist :
+Local Lemma notes_free_blist :
   forall sp items,
     notes_free_block (BulletList sp items) = notes_free_items items.
 Proof. intros sp items. cbn [notes_free_block]. apply notes_free_inner_goit. Qed.
 
-Lemma notes_free_olist :
+Local Lemma notes_free_olist :
   forall oa sp items,
     notes_free_block (OrderedList oa sp items) = notes_free_items items.
 Proof. intros oa sp items. cbn [notes_free_block]. apply notes_free_inner_goit. Qed.
@@ -1626,7 +1626,7 @@ Proof. intros oa sp items. cbn [notes_free_block]. apply notes_free_inner_goit. 
 (* The inner fixpoints of `pristine_block` are `pristine` and
    `pristine_items`; Rocq will not let them be spelled that way, so each
    arm needs its identity proved once and rewritten with thereafter. *)
-Lemma pristine_inner_go :
+Local Lemma pristine_inner_go :
   forall ns,
     (fix go (l : blocks) : bool :=
        match l with
@@ -1638,7 +1638,7 @@ Proof.
   cbn [pristine]. rewrite IH. reflexivity.
 Qed.
 
-Lemma pristine_quote :
+Local Lemma pristine_quote :
   forall inner a, pristine_block (BlockQuote inner) a = pristine inner.
 Proof.
   intros inner a.
@@ -1651,7 +1651,7 @@ Proof.
   rewrite pristine_inner_go. reflexivity.
 Qed.
 
-Lemma pristine_div :
+Local Lemma pristine_div :
   forall inner a, pristine_block (Div inner) a = pristine inner.
 Proof.
   intros inner a.
@@ -1664,7 +1664,7 @@ Proof.
   rewrite pristine_inner_go. reflexivity.
 Qed.
 
-Lemma pristine_deflist :
+Local Lemma pristine_deflist :
   forall sp items a,
     pristine_block (DefinitionList sp items) a = pristine_def_items items.
 Proof.
@@ -1684,7 +1684,7 @@ Proof.
   cbn [pristine_def_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
-Lemma pristine_tasklist :
+Local Lemma pristine_tasklist :
   forall sp items a,
     pristine_block (TaskList sp items) a = pristine_task_items items.
 Proof.
@@ -1704,7 +1704,7 @@ Proof.
   cbn [pristine_task_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
-Lemma pristine_blist :
+Local Lemma pristine_blist :
   forall sp items a,
     pristine_block (BulletList sp items) a = pristine_items items.
 Proof.
@@ -1724,7 +1724,7 @@ Proof.
   cbn [pristine_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
-Lemma pristine_olist :
+Local Lemma pristine_olist :
   forall oa sp items a,
     pristine_block (OrderedList oa sp items) a = pristine_items items.
 Proof.
@@ -1744,15 +1744,15 @@ Proof.
   cbn [pristine_items]. rewrite pristine_inner_go, IH. reflexivity.
 Qed.
 
-Lemma pristine_cons :
+Local Lemma pristine_cons :
   forall p a b rest,
     pristine (Node p a b :: rest) = (pristine_block b a && pristine rest)%bool.
 Proof. reflexivity. Qed.
 
-Definition pristine_node (n : node block) : bool :=
+Local Definition pristine_node (n : node block) : bool :=
   match n with Node _ a b => pristine_block b a end.
 
-Lemma pristine_cons_node :
+Local Lemma pristine_cons_node :
   forall n rest, pristine (n :: rest) = (pristine_node n && pristine rest)%bool.
 Proof. intros [p a b] rest. reflexivity. Qed.
 
@@ -1761,7 +1761,7 @@ Undoing the identifiers
 -----------------------
 *)
 
-Lemma undo_assign_ids :
+Local Lemma undo_assign_ids :
   forall b p a st,
     pristine_block b a = true ->
     undo_pass_node (snd (assign_ids b p a st)) = [Node p a b].
@@ -1894,7 +1894,7 @@ Qed.
 
 (* The list version, as in Wf.v: block_ind2 proves it as its Q, but the
    principle does not hand it back as a lemma. *)
-Lemma undo_assign_ids_list :
+Local Lemma undo_assign_ids_list :
   forall bs st,
     pristine bs = true -> undo_pass (snd (assign_ids_list bs st)) = bs.
 Proof.
@@ -1911,7 +1911,7 @@ Proof.
   rewrite IH by exact Hrest. reflexivity.
 Qed.
 
-Lemma collect_notes_pristine_block :
+Local Lemma collect_notes_pristine_block :
   forall b p a m,
     notes_free_block b = true ->
     collect_notes b p a m = (m, Some (Node p a b)).
@@ -1965,7 +1965,7 @@ Proof.
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
-Lemma collect_notes_list_pristine :
+Local Lemma collect_notes_list_pristine :
   forall bs m,
     notes_free bs = true -> collect_notes_list bs m = (m, bs).
 Proof.
@@ -1975,7 +1975,7 @@ Proof.
   rewrite IH by exact Hrest. reflexivity.
 Qed.
 
-Lemma pristine_notes_free_block :
+Local Lemma pristine_notes_free_block :
   forall b a, pristine_block b a = true -> notes_free_block b = true.
 Proof.
   intros b. induction b using block_ind2 with
@@ -2010,7 +2010,7 @@ Proof.
     cbn [notes_free_task_items]. rewrite (IHb Hit), (IHb0 Hrest). reflexivity.
 Qed.
 
-Lemma pristine_notes_free :
+Local Lemma pristine_notes_free :
   forall bs, pristine bs = true -> notes_free bs = true.
 Proof.
   induction bs as [|[p a b] rest IH]; intros H; [reflexivity|].
@@ -2019,7 +2019,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma assign_ids_notes_free :
+Local Lemma assign_ids_notes_free :
   forall b p a st,
     notes_free_block b = true ->
     notes_free_block (node_contents (snd (assign_ids b p a st))) = true.
@@ -2128,7 +2128,7 @@ Proof.
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
-Lemma assign_ids_list_notes_free :
+Local Lemma assign_ids_list_notes_free :
   forall bs st,
     notes_free bs = true -> notes_free (snd (assign_ids_list bs st)) = true.
 Proof.
@@ -2156,14 +2156,14 @@ sides, so it needs no hypothesis; only the identifier half cares what
 the input looked like.
 *)
 
-Lemma undo_pass_app :
+Local Lemma undo_pass_app :
   forall l1 l2, undo_pass (l1 ++ l2)%list = (undo_pass l1 ++ undo_pass l2)%list.
 Proof.
   induction l1 as [|[p a b] rest IH]; intros l2; [reflexivity|].
   cbn [app undo_pass]. rewrite IH, app_assoc. reflexivity.
 Qed.
 
-Lemma set_first_app :
+Local Lemma set_first_app :
   forall z X Y,
     nonempty X = true -> set_first z (X ++ Y)%list = (set_first z X ++ Y)%list.
 Proof. intros z [|[p a b] X'] Y H; [discriminate|reflexivity]. Qed.
@@ -2174,7 +2174,7 @@ Proof. intros z [|[p a b] X'] Y H; [discriminate|reflexivity]. Qed.
    set_first, which is why those entries have to erase to something
    nonempty.  That, plus "only the document sits at level 0", is the
    whole invariant. *)
-Fixpoint stack_erase (stk : sect_state) : blocks :=
+Local Fixpoint stack_erase (stk : sect_state) : blocks :=
   match stk with
   | [] => []
   | [(_, _, acc)] => undo_pass (rev acc)
@@ -2186,31 +2186,31 @@ Fixpoint stack_erase (stk : sect_state) : blocks :=
    document's erases to something nonempty, so that set_first has a node
    to put the section's attributes back on.  True by construction: such
    an entry always starts with the heading that opened it. *)
-Fixpoint sect_ok (stk : sect_state) : bool :=
+Local Fixpoint sect_ok (stk : sect_state) : bool :=
   match stk with
   | [] => false
   | [_] => true
   | (_, _, acc) :: outer => (nonempty (undo_pass (rev acc)) && sect_ok outer)%bool
   end.
 
-Lemma stack_erase_cons :
+Local Lemma stack_erase_cons :
   forall l a acc outer,
     outer <> [] ->
     stack_erase ((l, a, acc) :: outer)
     = (stack_erase outer ++ set_first (strip_id a) (undo_pass (rev acc)))%list.
 Proof. intros l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
 
-Lemma sect_ok_cons :
+Local Lemma sect_ok_cons :
   forall l a acc outer,
     outer <> [] ->
     sect_ok ((l, a, acc) :: outer)
     = (nonempty (undo_pass (rev acc)) && sect_ok outer)%bool.
 Proof. intros l a acc [|e outer] H; [contradiction|reflexivity]. Qed.
 
-Lemma sect_ok_nonnil : forall stk, sect_ok stk = true -> stk <> [].
+Local Lemma sect_ok_nonnil : forall stk, sect_ok stk = true -> stk <> [].
 Proof. intros [|e stk] H; [discriminate|congruence]. Qed.
 
-Lemma close_ge_ok :
+Local Lemma close_ge_ok :
   forall stk lvl pending,
     sect_ok stk = true -> sect_ok (close_ge lvl pending stk) = true.
 Proof.
@@ -2227,7 +2227,7 @@ Proof.
     destruct (undo_pass (rev acc)) as [|x r]; [discriminate|reflexivity].
 Qed.
 
-Lemma close_ge_erase :
+Local Lemma close_ge_erase :
   forall stk lvl pending,
     sect_ok stk = true ->
     stack_erase (close_ge lvl pending stk)
@@ -2255,7 +2255,7 @@ Qed.
 
 (* close_all always lands on the document entry alone, which is what
    lets sect_bottom read the answer off. *)
-Lemma close_all_singleton :
+Local Lemma close_all_singleton :
   forall stk pending,
     stk <> [] -> exists l a acc, close_all pending stk = [(l, a, acc)].
 Proof.
@@ -2265,7 +2265,7 @@ Proof.
   - rewrite close_all_cons by discriminate. apply IH. discriminate.
 Qed.
 
-Lemma close_all_erase :
+Local Lemma close_all_erase :
   forall stk pending,
     sect_ok stk = true ->
     stack_erase (close_all pending stk)
@@ -2286,7 +2286,7 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
-Lemma sect_push_ok :
+Local Lemma sect_push_ok :
   forall stk n, sect_ok stk = true -> sect_ok (sect_push n stk) = true.
 Proof.
   intros [|[[l a] acc] outer] n Hs; [discriminate|].
@@ -2298,7 +2298,7 @@ Proof.
   destruct (undo_pass (rev acc)) as [|x r]; [discriminate|reflexivity].
 Qed.
 
-Lemma sect_push_erase :
+Local Lemma sect_push_erase :
   forall stk n,
     sect_ok stk = true ->
     stack_erase (sect_push n stk) = (stack_erase stk ++ undo_pass_node n)%list.
@@ -2315,7 +2315,7 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
-Lemma sect_step_ok :
+Local Lemma sect_step_ok :
   forall stk n, sect_ok stk = true -> sect_ok (sect_step stk n) = true.
 Proof.
   intros stk [p a b] Hs. destruct b; try (apply sect_push_ok; exact Hs).
@@ -2328,7 +2328,7 @@ Proof.
   cbn [rev undo_pass undo_pass_block app nonempty]. reflexivity.
 Qed.
 
-Lemma sect_step_erase :
+Local Lemma sect_step_erase :
   forall stk n,
     sect_ok stk = true ->
     stack_erase (sect_step stk n) = (stack_erase stk ++ undo_pass_node n)%list.
@@ -2345,7 +2345,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma fold_sect_step_ok :
+Local Lemma fold_sect_step_ok :
   forall bs stk,
     sect_ok stk = true -> sect_ok (fold_left sect_step bs stk) = true.
 Proof.
@@ -2353,7 +2353,7 @@ Proof.
   cbn [fold_left]. apply IH. apply sect_step_ok. exact Hs.
 Qed.
 
-Lemma fold_sect_step_erase :
+Local Lemma fold_sect_step_erase :
   forall bs stk,
     sect_ok stk = true ->
     stack_erase (fold_left sect_step bs stk)
@@ -2421,7 +2421,7 @@ the record; `doc_references`, `doc_auto_references` and
 `doc_auto_identifiers` hold no nodes, so they are carried through.
 *)
 
-Lemma inlines_text_cons : forall (n : node inline) (rest : inlines),
+Local Lemma inlines_text_cons : forall (n : node inline) (rest : inlines),
   inlines_text (n :: rest)%list
   = (inline_text (node_contents n) ++ inlines_text rest)%string.
 Proof.
@@ -2431,7 +2431,7 @@ Proof.
   - reflexivity.
 Qed.
 
-Lemma inline_text_go : forall ns,
+Local Lemma inline_text_go : forall ns,
   (fix go (ns : list (node inline)) : string :=
      match ns with
      | [] => ""
@@ -2442,7 +2442,7 @@ Proof.
   rewrite inlines_text_cons. cbn [inline_text]. rewrite IH. reflexivity.
 Qed.
 
-Lemma inline_text_erase : forall il,
+Local Lemma inline_text_erase : forall il,
   inline_text (erase_inline il) = inline_text il.
 Proof.
   induction il using inline_ind2 with
@@ -2465,7 +2465,7 @@ Proof.
     congruence.
 Qed.
 
-Lemma inlines_text_erase : forall ils,
+Local Lemma inlines_text_erase : forall ils,
   inlines_text (erase_inlines ils) = inlines_text ils.
 Proof.
   induction ils as [|[p a x] rest IH]; [reflexivity|].
@@ -2475,7 +2475,7 @@ Proof.
   rewrite IH, inline_text_erase. reflexivity.
 Qed.
 
-Definition erase_note_map (m : note_map) : note_map :=
+Local Definition erase_note_map (m : note_map) : note_map :=
   map (fun kv => (fst kv, erase_blocks (snd kv))) m.
 
 Definition erase_doc (d : doc) : doc :=
@@ -2485,7 +2485,7 @@ Definition erase_doc (d : doc) : doc :=
    ; doc_auto_references := doc_auto_references d
    ; doc_auto_identifiers := doc_auto_identifiers d |}.
 
-Lemma erase_note_map_alist_set : forall k v m,
+Local Lemma erase_note_map_alist_set : forall k v m,
   erase_note_map (alist_set k v m)
   = alist_set k (erase_blocks v) (erase_note_map m).
 Proof.
@@ -2502,7 +2502,7 @@ Qed.
 
 (* The item erasures as `erase_block` spells them internally, bridged to
    the map form the statements below use. *)
-Lemma erase_items_fix : forall its,
+Local Lemma erase_items_fix : forall its,
   (fix goitems (its : list blocks) : list blocks :=
      match its with
      | [] => []
@@ -2513,7 +2513,7 @@ Proof.
   cbn [map]. rewrite IH. reflexivity.
 Qed.
 
-Lemma erase_def_items_fix : forall its,
+Local Lemma erase_def_items_fix : forall its,
   (fix godefs (its : list (inlines * blocks)) : list (inlines * blocks) :=
      match its with
      | [] => []
@@ -2526,7 +2526,7 @@ Proof.
   cbn [map fst snd]. rewrite IH. reflexivity.
 Qed.
 
-Lemma erase_task_items_fix : forall its,
+Local Lemma erase_task_items_fix : forall its,
   (fix gotasks (its : list (task_status * blocks))
       : list (task_status * blocks) :=
      match its with
@@ -2544,7 +2544,7 @@ Qed.
 assign_ids
 *)
 
-Lemma assign_ids_erase :
+Local Lemma assign_ids_erase :
   forall b p a st,
     fst (assign_ids (erase_block b) NoPos a st) = fst (assign_ids b p a st)
     /\ erase_blocks [snd (assign_ids b p a st)]
@@ -2721,7 +2721,7 @@ Proof.
     cbn [snd fst map fst snd]. rewrite He, He2. reflexivity.
 Qed.
 
-Lemma assign_ids_list_erase : forall bs st,
+Local Lemma assign_ids_list_erase : forall bs st,
   fst (assign_ids_list (erase_blocks bs) st) = fst (assign_ids_list bs st)
   /\ erase_blocks (snd (assign_ids_list bs st))
      = snd (assign_ids_list (erase_blocks bs) st).
@@ -2742,7 +2742,7 @@ Proof.
   rewrite He2. subst n2. reflexivity.
 Qed.
 
-Lemma assign_ids_items_erase : forall its st,
+Local Lemma assign_ids_items_erase : forall its st,
   fst (assign_ids_items (map erase_blocks its) st)
     = fst (assign_ids_items its st)
   /\ map erase_blocks (snd (assign_ids_items its st))
@@ -2761,7 +2761,7 @@ Proof.
   cbn [snd fst map]. rewrite He, He2. reflexivity.
 Qed.
 
-Lemma assign_ids_def_items_erase : forall its st,
+Local Lemma assign_ids_def_items_erase : forall its st,
   fst (assign_ids_def_items
          (map (fun kv => (erase_inlines (fst kv), erase_blocks (snd kv))) its)
          st)
@@ -2787,7 +2787,7 @@ Proof.
   cbn [snd fst map fst snd]. rewrite He, He2. reflexivity.
 Qed.
 
-Lemma assign_ids_task_items_erase : forall its st,
+Local Lemma assign_ids_task_items_erase : forall its st,
   fst (assign_ids_task_items
          (map (fun kv => (fst kv, erase_blocks (snd kv))) its) st)
     = fst (assign_ids_task_items its st)
@@ -2814,7 +2814,7 @@ Qed.
 collect_notes
 *)
 
-Lemma collect_notes_erase : forall b p a m,
+Local Lemma collect_notes_erase : forall b p a m,
   collect_notes (erase_block b) NoPos a (erase_note_map m)
   = (erase_note_map (fst (collect_notes b p a m)),
      option_map (fun n => match n with
@@ -2976,7 +2976,7 @@ Proof.
     cbn [fst snd map]. reflexivity.
 Qed.
 
-Lemma collect_notes_list_erase : forall ns m,
+Local Lemma collect_notes_list_erase : forall ns m,
   collect_notes_list (erase_blocks ns) (erase_note_map m)
   = (erase_note_map (fst (collect_notes_list ns m)),
      erase_blocks (snd (collect_notes_list ns m))).
@@ -3002,7 +3002,7 @@ Proof.
     injection Hq2 as Hm2 Hb2. subst m4 rest2. reflexivity.
 Qed.
 
-Lemma collect_notes_items_erase : forall its m,
+Local Lemma collect_notes_items_erase : forall its m,
   collect_notes_items (map erase_blocks its) (erase_note_map m)
   = (erase_note_map (fst (collect_notes_items its m)),
      map erase_blocks (snd (collect_notes_items its m))).
@@ -3020,7 +3020,7 @@ Proof.
   cbn [fst snd map]. reflexivity.
 Qed.
 
-Lemma collect_notes_def_items_erase : forall its m,
+Local Lemma collect_notes_def_items_erase : forall its m,
   collect_notes_def_items
     (map (fun kv => (erase_inlines (fst kv), erase_blocks (snd kv))) its)
     (erase_note_map m)
@@ -3043,7 +3043,7 @@ Proof.
   cbn [fst snd map fst snd]. reflexivity.
 Qed.
 
-Lemma collect_notes_task_items_erase : forall its m,
+Local Lemma collect_notes_task_items_erase : forall its m,
   collect_notes_task_items
     (map (fun kv => (fst kv, erase_blocks (snd kv))) its)
     (erase_note_map m)
@@ -3070,7 +3070,7 @@ Qed.
 collect_refs
 *)
 
-Lemma collect_refs_go : forall ns m,
+Local Lemma collect_refs_go : forall ns m,
   (fix go (ns : blocks) (acc : reference_map) : reference_map :=
      match ns with
      | [] => acc
@@ -3081,7 +3081,7 @@ Proof.
   cbn [collect_refs_list]. rewrite IH. reflexivity.
 Qed.
 
-Lemma collect_refs_goit : forall its m,
+Local Lemma collect_refs_goit : forall its m,
   (fix goit (its : list blocks) (acc : reference_map) : reference_map :=
      match its with
      | [] => acc
@@ -3099,7 +3099,7 @@ Proof.
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
 Qed.
 
-Lemma collect_refs_god : forall its m,
+Local Lemma collect_refs_god : forall its m,
   (fix god (its : list (inlines * blocks)) (acc : reference_map)
       : reference_map :=
      match its with
@@ -3118,7 +3118,7 @@ Proof.
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
 Qed.
 
-Lemma collect_refs_got : forall its m,
+Local Lemma collect_refs_got : forall its m,
   (fix got (its : list (task_status * blocks)) (acc : reference_map)
       : reference_map :=
      match its with
@@ -3137,7 +3137,7 @@ Proof.
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
 Qed.
 
-Lemma collect_refs_erase : forall b p a m,
+Local Lemma collect_refs_erase : forall b p a m,
   collect_refs (erase_block b) NoPos a m = collect_refs b p a m.
 Proof.
   intros b.
@@ -3185,7 +3185,7 @@ Proof.
     rewrite (IHb m), IHb0. reflexivity.
 Qed.
 
-Lemma collect_refs_list_erase : forall ns m,
+Local Lemma collect_refs_list_erase : forall ns m,
   collect_refs_list (erase_blocks ns) m = collect_refs_list ns m.
 Proof.
   induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
@@ -3195,13 +3195,13 @@ Qed.
 (* The sectionizer is the one part of the pass that reads a position:
    `section_node` takes the hull of the children it wraps.  Erasure of
    the stack is erasure of each entry's accumulator. *)
-Fixpoint erase_sect (stk : sect_state) : sect_state :=
+Local Fixpoint erase_sect (stk : sect_state) : sect_state :=
   match stk with
   | [] => []
   | (l, a, acc) :: rest => (l, a, erase_blocks acc) :: erase_sect rest
   end.
 
-Lemma section_node_pos : forall a bs,
+Local Lemma section_node_pos : forall a bs,
   erase_blocks [@section_node located_pos a bs]
   = [@section_node semantic_pos a (erase_blocks bs)].
 Proof.
@@ -3209,7 +3209,7 @@ Proof.
   rewrite section_node_nopos. reflexivity.
 Qed.
 
-Lemma close_ge_pos : forall lvl pending stk,
+Local Lemma close_ge_pos : forall lvl pending stk,
   erase_sect (@close_ge located_pos lvl pending stk) =
   @close_ge semantic_pos lvl (erase_blocks pending) (erase_sect stk).
 Proof.
@@ -3230,7 +3230,7 @@ Proof.
       * cbn [erase_sect]. rewrite erase_blocks_app. reflexivity.
 Qed.
 
-Lemma close_all_pos : forall pending stk,
+Local Lemma close_all_pos : forall pending stk,
   erase_sect (@close_all located_pos pending stk) =
   @close_all semantic_pos (erase_blocks pending) (erase_sect stk).
 Proof.
@@ -3246,12 +3246,12 @@ Proof.
       rewrite erase_blocks_rev, erase_blocks_app. reflexivity.
 Qed.
 
-Lemma sect_push_pos : forall p a b stk,
+Local Lemma sect_push_pos : forall p a b stk,
   erase_sect (sect_push (Node p a b) stk) =
   sect_push (Node NoPos a (erase_block b)) (erase_sect stk).
 Proof. intros p a b [|[[l a'] acc] outer]; reflexivity. Qed.
 
-Lemma sect_step_pos : forall stk p a b,
+Local Lemma sect_step_pos : forall stk p a b,
   erase_sect (@sect_step located_pos stk (Node p a b)) =
   @sect_step semantic_pos (erase_sect stk) (Node NoPos a (erase_block b)).
 Proof.
@@ -3263,7 +3263,7 @@ Proof.
   rewrite close_ge_pos. reflexivity.
 Qed.
 
-Lemma fold_sect_step_pos : forall bs stk,
+Local Lemma fold_sect_step_pos : forall bs stk,
   erase_sect (fold_left (@sect_step located_pos) bs stk) =
   fold_left (@sect_step semantic_pos) (erase_blocks bs) (erase_sect stk).
 Proof.
@@ -3271,7 +3271,7 @@ Proof.
   cbn [fold_left erase_blocks]. rewrite IH, sect_step_pos. reflexivity.
 Qed.
 
-Lemma sect_bottom_pos : forall stk,
+Local Lemma sect_bottom_pos : forall stk,
   erase_blocks (sect_bottom stk) = sect_bottom (erase_sect stk).
 Proof.
   induction stk as [|[[l a] acc] outer IH]; [reflexivity|].
@@ -3280,7 +3280,7 @@ Proof.
   - cbn [erase_sect]. cbn [sect_bottom]. cbn [erase_sect] in IH. exact IH.
 Qed.
 
-Lemma sectionize_erase : forall bs,
+Local Lemma sectionize_erase : forall bs,
   erase_blocks (@sectionize located_pos bs) =
   @sectionize semantic_pos (erase_blocks bs).
 Proof.
@@ -3292,7 +3292,7 @@ Qed.
 (* The pass as a whole.  Three of its four components never read a
    position, so erasing the blocks they are given commutes with each;
    the fourth is the sectionizer above. *)
-Lemma doc_pass_erase : forall bs,
+Local Lemma doc_pass_erase : forall bs,
   erase_doc (@doc_pass located_pos bs) =
   @doc_pass semantic_pos (erase_blocks bs).
 Proof.

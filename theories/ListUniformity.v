@@ -78,7 +78,7 @@ Proof.
     destruct rest as [|y ys]; destruct x; reflexivity.
 Qed.
 
-Lemma configured_mrk_check :
+Local Lemma configured_mrk_check :
   @configured_list_check K (mk_task_marker mrk) = mk_check mrk.
 Proof.
   unfold configured_list_check. destruct (@btasks K);
@@ -86,7 +86,7 @@ Proof.
   destruct mrk; cbn [marker_tasks_ok] in Htasks; try discriminate; reflexivity.
 Qed.
 
-Lemma configured_mrk_rest :
+Local Lemma configured_mrk_rest :
   forall l, @configured_list_rest K (mk_task_marker mrk) l = l.
 Proof.
   intros l. unfold configured_list_rest. destruct (@btasks K);
@@ -94,7 +94,7 @@ Proof.
   destruct mrk; cbn [marker_tasks_ok] in Htasks; try discriminate; reflexivity.
 Qed.
 
-Fixpoint scan_list_content (ls : list_state) (inner : pstate)
+Local Fixpoint scan_list_content (ls : list_state) (inner : pstate)
                            (lines : list string) : list_state :=
   match lines with
   | [] => ls
@@ -119,7 +119,7 @@ Fixpoint scan_inner (inner : pstate) (lines : list string) : pstate :=
   | l :: rest => scan_inner (snd (step (mk_cont mrk ++ l) inner)) rest
   end.
 
-Lemma run_lines_list_cont :
+Local Lemma run_lines_list_cont :
   forall lines ls done inner bs inner',
     ls_indent ls = 0 ->
     run_lines (map (fun l => ((mk_cont mrk) ++ l)%string) lines) inner =
@@ -289,7 +289,7 @@ The scan's state algebra
 ------------------------
 *)
 
-Lemma scan_list_content_loose :
+Local Lemma scan_list_content_loose :
   forall lines inner ind e ie ies marker blanks items,
     ls_loose (scan_list_content
                 (LSt ind e ie ies marker true blanks items Incomplete [])
@@ -302,7 +302,7 @@ Proof.
     try (destruct (div_closer l inner)); apply IH.
 Qed.
 
-Lemma scan_list_content_app :
+Local Lemma scan_list_content_app :
   forall xs ys ls inner,
     scan_list_content ls inner (xs ++ ys)%list =
     scan_list_content (scan_list_content ls inner xs) (scan_inner inner xs) ys.
@@ -312,7 +312,7 @@ Proof.
     cbn [scan_list_content]; rewrite Hclass; apply IH.
 Qed.
 
-Lemma scan_list_content_fields :
+Local Lemma scan_list_content_fields :
   forall lines inner ls,
     ls_indent (scan_list_content ls inner lines) = ls_indent ls /\
     ls_styles (scan_list_content ls inner lines) = ls_styles ls /\
@@ -354,7 +354,7 @@ Proof.
       rewrite IH; destruct ls; reflexivity.
 Qed.
 
-Lemma scan_list_content_loose_ext :
+Local Lemma scan_list_content_loose_ext :
   forall lines inner ind e ie ies e' ie' ies' marker loose blanks done,
     ls_loose (scan_list_content
                 (LSt ind e ie ies marker loose blanks done Incomplete [])
@@ -433,14 +433,14 @@ record where the blanks sit relative to the markers.
    rather than as an equality is what makes it hold for an item whose
    content opens a list, where the pad genuinely moves a recorded
    column. *)
-Lemma pad_safe_pad_state :
+Local Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
   intros k st. induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
-Lemma blank_safe_pad_state :
+Local Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
   intros k st. induction st as [| |f ind crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
@@ -452,7 +452,7 @@ Qed.
 (* The fence side condition `step_pad` asks for is free here: `pad_state`
    has already moved every recorded column by the pad's own width, and
    column zero is left of everything. *)
-Lemma step_pad_shift :
+Local Lemma step_pad_shift :
   forall p l st,
     is_blank p = true -> pad_safe st = true ->
     step (p ++ l) (pad_state (String.length p) st)
@@ -472,13 +472,13 @@ Qed.
    ends in meets a blank line, the item separator, so it must also be
    `blank_safe`: a run may contain a code block, but must not end inside
    one. *)
-Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
+Local Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
   match lines with
   | [] => blank_safe st
   | l :: rest => (pad_safe st && run_safe rest (snd (step l st)))%bool
   end.
 
-Lemma run_lines_pad_shift :
+Local Lemma run_lines_pad_shift :
   forall p lines st,
     is_blank p = true ->
     run_safe lines st = true ->
@@ -500,7 +500,7 @@ Qed.
    a blank pad in front of every line of a run changes nothing at all,
    whatever the run opens -- a nested list or a code block included.
    `run_safe` is the whole side condition. *)
-Lemma run_lines_pad_invisible :
+Local Lemma run_lines_pad_invisible :
   forall p L,
     is_blank p = true ->
     run_safe L (PPara []) = true ->
@@ -511,7 +511,7 @@ Proof.
   intros p L Hp Hsafe. exact (run_lines_pad_shift p L (PPara []) Hp Hsafe).
 Qed.
 
-Lemma parse_lines_pad_invisible :
+Local Lemma parse_lines_pad_invisible :
   forall p L,
     is_blank p = true ->
     run_safe L (PPara []) = true ->
@@ -526,7 +526,7 @@ Qed.
 
 (* The marker line consumes exactly the item's content column, so this is
    `(mk_pad mrk)` and not an incidental 2: an ordered marker widens both. *)
-Lemma consumed_marker_open :
+Local Lemma consumed_marker_open :
   forall l, consumed (mk_open mrk ++ l) l = mk_pad mrk.
 Proof.
   intros l. unfold consumed, mk_pad. rewrite length_append. lia.
@@ -534,7 +534,7 @@ Qed.
 
 (* The marker line, with the item's residue parsed at the marker's
    width. *)
-Lemma step_item_open :
+Local Lemma step_item_open :
   forall l0,
     is_thematic ((mk_open mrk) ++ l0) = false ->
     task_shadow mrk l0 = false ->
@@ -610,7 +610,7 @@ Definition item_gap (L : list string) : bool :=
 
 (* A nonblank first line is read from idle, where nothing is open for it
    to close, so an item's gap is its continuation lines'. *)
-Lemma item_gap_more :
+Local Lemma item_gap_more :
   forall l0 more,
     nonblank l0 = true ->
     item_gap (l0 :: more) = lines_gap false (snd (step l0 (PPara []))) more.
@@ -625,7 +625,7 @@ Qed.
    with nothing armed it cannot spend one either.  So the verdict for an
    item's lines is the verdict for its continuation lines, which is the
    form `list_uniformity` states and the renderer consumes. *)
-Lemma lines_loose_cons_nonblank :
+Local Lemma lines_loose_cons_nonblank :
   forall a rest,
     classify a <> KBlank ->
     item_loose (a :: rest) = lines_loose false false (snd (step a (PPara []))) rest.
@@ -637,7 +637,7 @@ Qed.
 (* The scan and `lines_loose` are the same fold: the scan carries the
    item's state padded into the enclosing item, `lines_loose` carries it
    bare, and `blank_absorbed` cannot tell the two apart. *)
-Lemma scan_loose_eq :
+Local Lemma scan_loose_eq :
   forall lines st ls,
     run_safe lines st = true ->
     ls_loose (scan_list_content ls (pad_state (mk_pad mrk) st) lines)
@@ -656,7 +656,7 @@ Qed.
 
 (* The gap flag, the same way.  Together with `scan_loose_eq` this is the
    scan's whole state: `scan_list_content_fields` pins the other three. *)
-Lemma scan_gap_eq :
+Local Lemma scan_gap_eq :
   forall lines st ls,
     run_safe lines st = true ->
     ls_blanks (scan_list_content ls (pad_state (mk_pad mrk) st) lines)
@@ -673,7 +673,7 @@ Proof.
     | destruct (div_closer l st); rewrite IH by exact Hrest; reflexivity ..].
 Qed.
 
-Lemma scan_items_eq :
+Local Lemma scan_items_eq :
   forall lines inner ls, ls_items (scan_list_content ls inner lines) = ls_items ls.
 Proof.
   intros lines inner ls.
@@ -683,7 +683,7 @@ Qed.
 (* The scan's state in closed form, once no blank is left armed.  The
    canonical setting always ends an item on a nonblank line, so this is
    the form every use wants. *)
-Lemma scan_shape :
+Local Lemma scan_shape :
   forall lines st ls,
     run_safe lines st = true ->
     ls_blanks (scan_list_content ls (pad_state (mk_pad mrk) st) lines) = false ->
@@ -706,13 +706,13 @@ Qed.
 
 (* The list state a first item leaves behind: its marker line opens the
    list, and its continuation lines are scanned into it. *)
-Definition item_scan (l0 : string) (rest : list string) : list_state :=
+Local Definition item_scan (l0 : string) (rest : list string) : list_state :=
   scan_list_content (list_opened ((mk_open mrk) ++ l0) 0 (mk_styles mrk) (mk_check mrk))
     (pad_state (mk_pad mrk) (snd (step l0 (PPara [])))) rest.
 
 (* One item's lines, run from idle: the marker opens the list and the
    continuation lines land in it, shifted by the marker's width. *)
-Lemma run_item_open :
+Local Lemma run_item_open :
   forall l0 rest,
     is_thematic ((mk_open mrk) ++ l0) = false ->
     task_shadow mrk l0 = false ->
@@ -750,7 +750,7 @@ Qed.
    list continues exactly when the intersection is nonempty; whether it
    *moved* is not this lemma's business, which is what lets a first
    marker naming two styles be handled by the same descent. *)
-Lemma run_item_sibling_narrow :
+Local Lemma run_item_sibling_narrow :
   forall l0 rest ls done inner,
     ls_indent ls = 0 ->
     (* the item in progress does not claim the marker line out of
@@ -799,7 +799,7 @@ Qed.
 (* The instance the canonical chain uses: the sibling re-offers what the
    list already has, so the narrowing is the identity and the state's set
    does not move. *)
-Lemma run_item_sibling :
+Local Lemma run_item_sibling :
   forall l0 rest ls done inner,
     ls_indent ls = 0 ->
     key_claims ((mk_open mrk) ++ l0) inner = false ->
@@ -824,7 +824,7 @@ Qed.
 (* `lines_loose` only ever accumulates with `||`, so the incoming verdict
    factors out.  This is what lets an item's contribution be read off its
    own lines, independent of what the items before it decided. *)
-Lemma lines_loose_or :
+Local Lemma lines_loose_or :
   forall L st lo g, lines_loose lo g st L = (lo || lines_loose false g st L)%bool.
 Proof.
   induction L as [|l rest IH]; intros st lo g.
@@ -840,7 +840,7 @@ Qed.
    equation holds one level down instead, which is the induction.  A
    fence and an open spec are the two states where it fails, and
    `blank_safe` excludes both. *)
-Lemma step_blank_finish :
+Local Lemma step_blank_finish :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
 Proof.
@@ -946,7 +946,7 @@ Qed.
    nothing and so the key is still open.  A state that emitted nothing
    kept its container, so it is not idle; when it did not already hold
    an announced-end block, a blank cannot create one. *)
-Lemma step_blank_inner_settled :
+Local Lemma step_blank_inner_settled :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     announces_end st = false -> is_idle st = false -> fst (step l st) = [] ->
     (is_idle (snd (step l st)) = false
@@ -1004,7 +1004,7 @@ Proof.
     [split; reflexivity|discriminate Hempty].
 Qed.
 
-Lemma step_blank_key_claims :
+Local Lemma step_blank_key_claims :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     forall next, key_claims next (snd (step l st)) = false.
 Proof.
@@ -1072,7 +1072,7 @@ Qed.
 (* `blank_safe` is what rules out an open attribute spec, whose blank
    opens the recovered paragraph rather than closing anything.  The one
    caller has the hypothesis already, for the neighbouring lemmas. *)
-Lemma step_blank_lazy_false :
+Local Lemma step_blank_lazy_false :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     lazy_ok (snd (step l st)) = false.
 Proof.
@@ -1128,7 +1128,7 @@ Proof.
     destruct bs; cbn [key_result snd lazy_ok]; exact (IH Hsafe).
 Qed.
 
-Lemma run_safe_final :
+Local Lemma run_safe_final :
   forall L st, run_safe L st = true -> blank_safe (snd (run_lines L st)) = true.
 Proof.
   induction L as [|l rest IH]; intros st H; [exact H|].
@@ -1164,13 +1164,13 @@ Definition litem : Type := (marker * list string)%type.
 Definition litem_lines (it : litem) : list string :=
   indent_lines (mk_open (fst it)) (mk_cont (fst it)) (snd it).
 
-Fixpoint list_tail_lines (sp : list_spacing) (items : list litem) : list string :=
+Local Fixpoint list_tail_lines (sp : list_spacing) (items : list litem) : list string :=
   match items with
   | [] => []
   | it :: rest => (item_sep sp ++ litem_lines it ++ list_tail_lines sp rest)%list
   end.
 
-Definition item_checks (ls : list_state) (items : list litem)
+Local Definition item_checks (ls : list_state) (items : list litem)
   : list task_status :=
   (rev (ls_check ls :: ls_checks ls)
    ++ map (fun it => mk_check (fst it)) items)%list.
@@ -1180,7 +1180,7 @@ Lemma list_lines_cons2 :
     list_lines sp (x :: xs) = (x ++ item_sep sp ++ list_lines sp xs)%list.
 Proof. intros sp x xs H. destruct xs; [congruence|reflexivity]. Qed.
 
-Lemma list_lines_cons :
+Local Lemma list_lines_cons :
   forall sp it rest,
     list_lines sp (map litem_lines (it :: rest))
     = (litem_lines it ++ list_tail_lines sp rest)%list.
@@ -1239,7 +1239,7 @@ Definition item_ok (m : marker) (L : list string) : bool :=
    (5.2).  This is the override's discharge everywhere the arriving line
    is a sibling marker; `parse_list_close`, where the line is arbitrary,
    uses `step_blank_key_claims` instead. *)
-Lemma item_ok_marker_unclaimable :
+Local Lemma item_ok_marker_unclaimable :
   forall m l0 more, marker_ok m = true -> item_ok m (l0 :: more) = true ->
     claimable (classify ((mk_open m) ++ l0)) = false.
 Proof.
@@ -1285,7 +1285,7 @@ Definition ends_open_container (L : list string) : bool :=
    encodes for the lines inside an item.  A separator blank is spent by
    the next item's first line, so the same exclusion applies there, as
    `list_next` implements. *)
-Definition starts_list (L : list string) : bool :=
+Local Definition starts_list (L : list string) : bool :=
   match L with
   | [] => false
   | l :: _ => match classify l with KList _ _ _ _ => true | _ => false end
@@ -1317,7 +1317,7 @@ Fixpoint seps_loosen (itemss : list (list string)) : bool :=
    is the state the current item ended in: it decides the separator that
    sits between it and the head of `itemss`, and `seps_loosen` decides
    the separators internal to `itemss`. *)
-Definition list_loose_of (sp : list_spacing) (inner : pstate)
+Local Definition list_loose_of (sp : list_spacing) (inner : pstate)
                          (itemss : list (list string)) : bool :=
   (existsb (fun L => item_loose L) itemss
    || match sp with
@@ -1338,7 +1338,7 @@ Definition list_loose_of (sp : list_spacing) (inner : pstate)
    corollaries. *)
 (* Padding shifts columns; it does not change which container is on top,
    so the separator's verdict is pad-invariant. *)
-Lemma list_loose_of_pad :
+Local Lemma list_loose_of_pad :
   forall sp n st itemss,
     list_loose_of sp (pad_state n st) itemss = list_loose_of sp st itemss.
 Proof.
@@ -1346,7 +1346,7 @@ Proof.
   rewrite pad_state_blank_absorbed. reflexivity.
 Qed.
 
-Lemma parse_item_and_tail_narrow :
+Local Lemma parse_item_and_tail_narrow :
   forall S S' Sout m sp l0 more rest post out ls done inner,
     S' <> [] -> marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
     narrow S (mk_sty m) = S' ->
@@ -1444,7 +1444,7 @@ Qed.
 
 (* The instance the canonical chain uses: the item's marker leaves the
    set where it was. *)
-Lemma parse_item_and_tail :
+Local Lemma parse_item_and_tail :
   forall S m sp l0 more rest post out ls done inner,
     S <> [] -> marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
     narrow S (mk_sty m) = S ->
@@ -1485,7 +1485,7 @@ Qed.
 (* Cutting `seps_loosen` at the head: the separator after `L` exists only
    when something follows it, and then it is `L`'s trailing state that
    decides whether it loosens. *)
-Lemma seps_loosen_cons :
+Local Lemma seps_loosen_cons :
   forall L rest,
     seps_loosen (L :: rest)
     = match rest with
@@ -1496,7 +1496,7 @@ Lemma seps_loosen_cons :
       end.
 Proof. intros L rest. destruct rest; reflexivity. Qed.
 
-Lemma parse_list_tail :
+Local Lemma parse_list_tail :
   forall S sp items post out ls done inner,
     S <> [] ->
     (forall ls2 done2 inner2,
@@ -1592,7 +1592,7 @@ Qed.
    is all the ambiguous first marker needs, because a candidate set has at
    most two members -- one narrowing settles it and nothing later moves
    it. *)
-Lemma parse_item_peel :
+Local Lemma parse_item_peel :
   forall S S' Sout sp mi l0 more rest post out ls done inner,
     S' <> [] -> marker_ok mi = true -> marker_tasks_ok (@btasks K) mi = true ->
     narrow S (mk_sty mi) = S' ->
@@ -1674,7 +1674,7 @@ Proof.
 Qed.
 
 (* One peel: the set resolves at this item and the rest holds it. *)
-Lemma parse_list_tail_head_narrow :
+Local Lemma parse_list_tail_head_narrow :
   forall S S' sp mi l0 more rest post out ls done inner,
     S' <> [] -> marker_ok mi = true -> marker_tasks_ok (@btasks K) mi = true ->
     narrow S (mk_sty mi) = S' ->
@@ -1710,7 +1710,7 @@ Qed.
    but the line after it, once that line is not blank, not a sibling
    marker, and not indented into the item.  The list is emitted whole and
    the parser restarts on that line from idle. *)
-Lemma parse_list_close :
+Local Lemma parse_list_close :
   forall ls done inner next tail,
     blank_safe inner = true ->
     classify next <> KBlank ->
@@ -2232,7 +2232,7 @@ Qed.
 Definition same_marker (m : marker) (lss : list (list string)) : list litem :=
   map (fun L => (m, L)) lss.
 
-Lemma items_ok_same_marker :
+Local Lemma items_ok_same_marker :
   forall m lss,
     marker_ok m = true -> marker_tasks_ok (@btasks K) m = true ->
     forallb (item_ok m) lss = true ->

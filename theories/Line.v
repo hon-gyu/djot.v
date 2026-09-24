@@ -48,7 +48,7 @@ Definition task_marker_source (m : task_marker) : string :=
 Definition task_literal_rest (chk : option task_marker) (rest : string) : string :=
   match chk with Some m => task_marker_source m ++ rest | None => rest end.
 
-Definition canonical_task_marker (st : task_status) : task_marker :=
+Local Definition canonical_task_marker (st : task_status) : task_marker :=
   TaskMarker st
     (match st with Complete => "x"%char | Incomplete => " "%char end)
     (Some " "%char).
@@ -87,14 +87,14 @@ Inductive trow : Type :=
 
 (* Decided equality on rows, for the canonical view's check that a line
    scans back as the row it was rendered from. *)
-Fixpoint aligns_eqb (xs ys : list align) : bool :=
+Local Fixpoint aligns_eqb (xs ys : list align) : bool :=
   match xs, ys with
   | [], [] => true
   | x :: xs', y :: ys' => (align_eqb x y && aligns_eqb xs' ys')%bool
   | _, _ => false
   end.
 
-Fixpoint strs_eqb (xs ys : list string) : bool :=
+Local Fixpoint strs_eqb (xs ys : list string) : bool :=
   match xs, ys with
   | [], [] => true
   | x :: xs', y :: ys' => (String.eqb x y && strs_eqb xs' ys')%bool
@@ -108,14 +108,14 @@ Definition trow_eqb (x y : trow) : bool :=
   | _, _ => false
   end.
 
-Lemma aligns_eqb_eq : forall xs ys, aligns_eqb xs ys = true -> xs = ys.
+Local Lemma aligns_eqb_eq : forall xs ys, aligns_eqb xs ys = true -> xs = ys.
 Proof.
   induction xs as [|x xs IH]; intros [|y ys] H; try discriminate; [reflexivity|].
   cbn [aligns_eqb] in H. apply andb_true_iff in H as [Hx Hxs].
   rewrite (align_eqb_eq _ _ Hx), (IH _ Hxs). reflexivity.
 Qed.
 
-Lemma strs_eqb_eq : forall xs ys, strs_eqb xs ys = true -> xs = ys.
+Local Lemma strs_eqb_eq : forall xs ys, strs_eqb xs ys = true -> xs = ys.
 Proof.
   induction xs as [|x xs IH]; intros [|y ys] H; try discriminate; [reflexivity|].
   cbn [strs_eqb] in H. apply andb_true_iff in H as [Hx Hxs].
@@ -169,7 +169,7 @@ Definition is_marker (c : ascii) : bool :=
 (* A thematic break: at least three markers, and nothing else but
    whitespace.  Indentation goes through the whitespace branch. *)
 
-Fixpoint thematic_count (s : string) (count : nat) : bool :=
+Local Fixpoint thematic_count (s : string) (count : nat) : bool :=
   match s with
   | EmptyString => Nat.leb 3 count
   | String c s' =>
@@ -183,7 +183,7 @@ Definition is_thematic (l : string) : bool := thematic_count l 0.
 (* Marker and whitespace are disjoint character classes, so a thematic
    count run through an all-whitespace prefix never touches the marker
    branch: it just keeps the count. *)
-Lemma is_ws_not_marker : forall c, is_ws c = true -> is_marker c = false.
+Local Lemma is_ws_not_marker : forall c, is_ws c = true -> is_marker c = false.
 Proof.
   intros c H. unfold is_marker.
   destruct (Ascii.eqb c "-") eqn:E1.
@@ -192,7 +192,7 @@ Proof.
     apply Ascii.eqb_eq in E2. subst c. discriminate H.
 Qed.
 
-Lemma thematic_count_ws_prefix :
+Local Lemma thematic_count_ws_prefix :
   forall p l n, is_blank p = true -> thematic_count (p ++ l) n = thematic_count l n.
 Proof.
   induction p as [|c p IH]; intros l n H; [reflexivity|].
@@ -201,7 +201,7 @@ Proof.
   cbn [thematic_count]. rewrite (is_ws_not_marker c Hc), Hc. apply IH, Hp.
 Qed.
 
-Lemma is_thematic_ws_prefix :
+Local Lemma is_thematic_ws_prefix :
   forall p l, is_blank p = true -> is_thematic (p ++ l) = is_thematic l.
 Proof. intros p l H. unfold is_thematic. apply thematic_count_ws_prefix, H. Qed.
 
@@ -212,7 +212,7 @@ Proof. intros p l H. unfold is_thematic. apply thematic_count_ws_prefix, H. Qed.
    A query beside `classify` rather than a `line_kind`, because an
    underline's shapes already have kinds: `---` is `KThematic`, `-` a
    bullet marker, and `===` `KText`. *)
-Fixpoint all_char (c : ascii) (s : string) : bool :=
+Local Fixpoint all_char (c : ascii) (s : string) : bool :=
   match s with
   | EmptyString => true
   | String a s' => (Ascii.eqb a c && all_char c s')%bool
@@ -240,7 +240,7 @@ Qed.
    else but whitespace. *)
 
 (* The longest prefix of `s` satisfying `p`, and what is left. *)
-Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
+Local Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
   match s with
   | String c s' =>
       if p c
@@ -249,7 +249,7 @@ Fixpoint take_while (p : ascii -> bool) (s : string) : string * string :=
   | EmptyString => (EmptyString, s)
   end.
 
-Lemma take_while_length :
+Local Lemma take_while_length :
   forall p s, String.length (snd (take_while p s)) <= String.length s.
 Proof.
   intros p s. induction s as [|c s' IH]; [reflexivity|].
@@ -258,7 +258,7 @@ Proof.
 Qed.
 
 (* Length of the leading run of c, and the rest of the string. *)
-Fixpoint count_run (c : ascii) (s : string) : nat * string :=
+Local Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   match s with
   | String c' s' =>
       if Ascii.eqb c c'
@@ -313,7 +313,7 @@ Qed.
 (* The class token is `[\w_-]*`, narrower than a fence's info string.
    `:::a!` opens no div at all, because the pattern must match to end of
    line. *)
-Definition is_class_char (c : ascii) : bool :=
+Local Definition is_class_char (c : ascii) : bool :=
   let n := nat_of_ascii c in
   (Nat.leb 48 n && Nat.leb n 57)      (* 0-9 *)
   || (Nat.leb 65 n && Nat.leb n 90)   (* A-Z *)
@@ -361,7 +361,7 @@ Definition quote_prefix (l : string) : option string :=
 
 (* The enclosed line is strictly shorter, which is what makes the
    parser's descent into nested quotes terminate. *)
-Lemma quote_prefix_length :
+Local Lemma quote_prefix_length :
   forall l rest,
     quote_prefix l = Some rest -> String.length rest < String.length l.
 Proof.
@@ -409,7 +409,7 @@ intersection ends the list. *)
    whose style is `:`, and the term split happens when the list closes.
    `::` is not a marker, since the character after the first colon is not
    whitespace, and `:::` is a div, which `classify` tests first. *)
-Definition is_bullet (c : ascii) : bool :=
+Local Definition is_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+"
    || Ascii.eqb c ":")%char%bool.
 
@@ -455,7 +455,7 @@ Marker shape and candidate styles
 (* An ordered marker's two halves: an alphanumeric `core` and a
    delimiter shape.  `(` forces the enclosed form, which is why this is
    one function rather than a delimiter test after a scan. *)
-Definition marker_shape (s : string)
+Local Definition marker_shape (s : string)
   : option (string * ordered_list_delim * string) :=
   match s with
   | EmptyString => None
@@ -479,7 +479,7 @@ Definition marker_shape (s : string)
         end
   end.
 
-Lemma marker_shape_length :
+Local Lemma marker_shape_length :
   forall s core d r,
     marker_shape s = Some (core, d, r) ->
     String.length r < String.length s.
@@ -533,12 +533,12 @@ Definition styles_of_core (core : string) (d : ordered_list_delim)
    never `- [x] a`.  Exactly one space before the bracket and whitespace
    or end of line after it, so `-  [ ] a` and `- [ ]a` are plain
    bullets. *)
-Definition box_status (c : ascii) : option task_status :=
+Local Definition box_status (c : ascii) : option task_status :=
   if Ascii.eqb c " " then Some Incomplete
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then Some Complete
   else None.
 
-Definition task_check (l : string) : option (task_marker * string) :=
+Local Definition task_check (l : string) : option (task_marker * string) :=
   match l with
   | String c0 (String b (String c2 r)) =>
       if (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool
@@ -682,7 +682,7 @@ Proof. reflexivity. Qed.
 
 (* A checkbox is three characters and an optional separator, so what it
    leaves is shorter than what it was given. *)
-Lemma task_check_length :
+Local Lemma task_check_length :
   forall l st r,
     task_check l = Some (st, r) -> String.length r < String.length l.
 Proof.
@@ -696,7 +696,7 @@ Proof.
     injection H as _ <-. simpl. lia.
 Qed.
 
-Lemma task_check_source :
+Local Lemma task_check_source :
   forall l m r, task_check l = Some (m, r) -> l = task_marker_source m ++ r.
 Proof.
   intros [|c0 [|c1 [|c2 rest]]] m r H; try (cbn in H; discriminate H).
@@ -715,7 +715,7 @@ Qed.
 (* Like quote_prefix_length: the content after a list marker is strictly
    shorter than the line, which is what makes the parser's descent into
    a list item terminate. *)
-Lemma list_marker_length :
+Local Lemma list_marker_length :
   forall l sty core chk rest,
     list_marker l = Some (sty, core, chk, rest) ->
     String.length rest < String.length l.
@@ -746,7 +746,7 @@ Proof.
       injection H as _ _ _ <-. simpl in *. lia.
 Qed.
 
-Lemma list_marker_literal_length :
+Local Lemma list_marker_literal_length :
   forall l sty core chk rest,
     list_marker l = Some (sty, core, chk, rest) ->
     String.length (task_literal_rest chk rest) < String.length l.
@@ -789,7 +789,7 @@ may continue on following indented lines, so it opens a container state
 
 (* The label: everything up to the first `]`, and the line after it.
    Only the bracket is excluded, so `[a[b]: u` defines `a[b`. *)
-Fixpoint ref_label (s : string) : option (string * string) :=
+Local Fixpoint ref_label (s : string) : option (string * string) :=
   match s with
   | EmptyString => None
   | String c rest =>
@@ -804,7 +804,7 @@ Fixpoint ref_label (s : string) : option (string * string) :=
 (* What may follow the `:`: nothing, or whitespace and then one
    whitespace-free run to end of line.  So `[a]:u` and `[a]: u ` are not
    definitions. *)
-Definition ref_value (s : string) : option string :=
+Local Definition ref_value (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
   | String c _ =>
@@ -844,7 +844,7 @@ Definition foot_open (l : string) : option (string * string) :=
   | _ => None
   end.
 
-Lemma foot_open_ws_prefix :
+Local Lemma foot_open_ws_prefix :
   forall p l, is_blank p = true -> foot_open (p ++ l) = foot_open l.
 Proof.
   intros p l Hp. unfold foot_open.
@@ -852,7 +852,7 @@ Proof.
 Qed.
 
 (* A label can be written back between brackets. *)
-Lemma ref_label_no_bracket :
+Local Lemma ref_label_no_bracket :
   forall s lbl tail,
     ref_label s = Some (lbl, tail) -> no_char "]"%char lbl = true.
 Proof.
@@ -884,7 +884,7 @@ Proof.
     apply (ref_label_no_bracket s lbl' _ Er).
 Qed.
 
-Lemma ref_label_tail_length :
+Local Lemma ref_label_tail_length :
   forall s lbl tail,
     ref_label s = Some (lbl, tail) -> String.length tail < String.length s.
 Proof.
@@ -895,7 +895,7 @@ Proof.
     injection H as _ <-. specialize (IH lbl' tail' eq_refl). cbn. lia.
 Qed.
 
-Lemma foot_open_length :
+Local Lemma foot_open_length :
   forall l lbl rest,
     foot_open l = Some (lbl, rest) -> String.length rest < String.length l.
 Proof.
@@ -972,7 +972,7 @@ Qed.
 (* Leading whitespace is invisible to the recognizer, as it is to every
    other one here: the opener's column is recorded by the parser, from
    `indent_of`, not by the classification. *)
-Lemma ref_open_ws_prefix :
+Local Lemma ref_open_ws_prefix :
   forall p l, is_blank p = true -> ref_open (p ++ l) = ref_open l.
 Proof.
   intros p l Hp. unfold ref_open. rewrite (drop_leading_ws_ws_prefix p l Hp).
@@ -995,7 +995,7 @@ the columns' alignment, or a row of cells; the separator is tried first.
    cell's match, which is why `| :- |` is not a separator while
    `|:-| -: |` is: the first cell has no previous match to eat its
    space. *)
-Definition sep_align (left right : bool) : align :=
+Local Definition sep_align (left right : bool) : align :=
   match left, right with
   | true, true => AlignCenter
   | true, false => AlignLeft
@@ -1005,7 +1005,7 @@ Definition sep_align (left right : bool) : align :=
 
 (* One separator cell, from just after the bar that opens it.  Returns
    its alignment and what follows the bar that closes it. *)
-Definition sep_cell (s : string) : option (align * string) :=
+Local Definition sep_cell (s : string) : option (align * string) :=
   let (left, s1) :=
     match s with
     | String c r => if Ascii.eqb c ":" then (true, r) else (false, s)
@@ -1031,7 +1031,7 @@ Definition sep_cell (s : string) : option (align * string) :=
 (* The cells of a separator line, from just after its opening bar.  Fuel
    is the string's length: every cell consumes at least the bar that
    ends it. *)
-Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
+Local Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
   match n with
   | O => None
   | S n' =>
@@ -1049,14 +1049,14 @@ Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
       end
   end.
 
-Definition sep_cells (s : string) : option (list align) :=
+Local Definition sep_cells (s : string) : option (list align) :=
   sep_cells_fuel (S (String.length s)) s.
 
 (* Cell text is trimmed on both sides, except that an escaped whitespace
    character stops the right trim and everything after it is kept:
    `| a\ |` renders `a&nbsp;`.  Escapes are consumed in pairs, so this is
    a parity test: `a\\  ` trims, `a\   ` keeps one space. *)
-Fixpoint cell_trim_r (s : string) : string :=
+Local Fixpoint cell_trim_r (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c1 s1 =>
@@ -1073,7 +1073,7 @@ Fixpoint cell_trim_r (s : string) : string :=
            else String c1 (cell_trim_r s1)
   end.
 
-Definition cell_trim (s : string) : string :=
+Local Definition cell_trim (s : string) : string :=
   cell_trim_r (drop_leading_ws s).
 
 (* Splitting a row's interior into cells.  A bar ends a cell unless it is
@@ -1088,7 +1088,7 @@ Definition cell_trim (s : string) : string :=
    backtick run that opened it, which only a run of exactly that length
    closes.  `run` is the backtick run being read, resolved against `vb`
    at the first byte that is not a backtick. *)
-Definition vb_step (vb run : nat) : nat :=
+Local Definition vb_step (vb run : nat) : nat :=
   match run with
   | O => vb
   | _ => match vb with
@@ -1099,7 +1099,7 @@ Definition vb_step (vb run : nat) : nat :=
 
 (* One cell's entry: its trimmed text, its start and stop relative to the
    opening bar, and where its content starts after leading whitespace. *)
-Definition row_cell_entry (cur : string) (start stop : nat)
+Local Definition row_cell_entry (cur : string) (start stop : nat)
   : string * nat * nat * nat :=
   let raw := rev_string cur in
   let content := drop_leading_ws raw in
@@ -1153,7 +1153,7 @@ Fixpoint row_cells_trace
                acc (S pos) start
   end.
 
-Definition row_cells (s : string) (vb run : nat) (bs : bool)
+Local Definition row_cells (s : string) (vb run : nat) (bs : bool)
   (cur : string) (acc : list string) : option (list string) :=
   option_map (map (fun x => let '(c, _, _, _) := x in c))
     (row_cells_trace s vb run bs cur
@@ -1367,7 +1367,7 @@ Proof.
 Qed.
 
 (* Leading whitespace is invisible here too. *)
-Lemma table_row_ws_prefix :
+Local Lemma table_row_ws_prefix :
   forall p l, is_blank p = true -> table_row (p ++ l) = table_row l.
 Proof.
   intros p l Hp. unfold table_row, row_body.
@@ -1549,14 +1549,14 @@ Proof.
   injection H as <- <- <- <-. reflexivity.
 Qed.
 
-Lemma classify_not_kblank_nonblank :
+Local Lemma classify_not_kblank_nonblank :
   forall l, classify l <> KBlank -> is_blank l = false.
 Proof.
   intros l H. destruct (is_blank l) eqn:E; [|reflexivity].
   exfalso. apply H, classify_blank, E.
 Qed.
 
-Lemma classify_ktext :
+Local Lemma classify_ktext :
   forall l,
     is_blank l = false -> quote_prefix l = None -> heading_open l = None ->
     fence_open l = None -> div_open l = None ->
@@ -1726,7 +1726,7 @@ Proof.
   auto.
 Qed.
 
-Lemma count_run_info :
+Local Lemma count_run_info :
   forall info, all_info_chars info = true ->
   count_run "`" info = (O, info).
 Proof.
@@ -1739,7 +1739,7 @@ Proof.
   rewrite Ascii.eqb_refl in Hb. discriminate.
 Qed.
 
-Lemma drop_leading_ws_info :
+Local Lemma drop_leading_ws_info :
   forall info, all_info_chars info = true ->
   drop_leading_ws info = info.
 Proof.
@@ -1749,7 +1749,7 @@ Proof.
   cbn [drop_leading_ws]. rewrite Hw. reflexivity.
 Qed.
 
-Lemma take_info_all :
+Local Lemma take_info_all :
   forall info, all_info_chars info = true ->
   take_while is_info_char info = (info, EmptyString).
 Proof.
@@ -1758,12 +1758,12 @@ Proof.
   cbn [take_while]. rewrite Hc, (IH Hinfo). reflexivity.
 Qed.
 
-Lemma drop_head_nonws :
+Local Lemma drop_head_nonws :
   forall c s, is_ws c = false -> drop_leading_ws (String c s) = String c s.
 Proof. intros c s H. cbn [drop_leading_ws]. rewrite H. reflexivity. Qed.
 
 (* The renderer's "```INFO" opener classifies as intended. *)
-Lemma fence_open_backtick :
+Local Lemma fence_open_backtick :
   forall info, all_info_chars info = true ->
   fence_open ("```" ++ info) = Some (Fence "`" 3 info).
 Proof.
@@ -1804,7 +1804,7 @@ Definition quote_line (l : string) : string := quote_open ++ l.
    so that it cannot be confused with `item_pad`. *)
 Definition quote_pad : nat := String.length quote_open.
 
-Lemma quote_prefix_canonical :
+Local Lemma quote_prefix_canonical :
   forall l, quote_prefix ("> " ++ l) = Some l.
 Proof. reflexivity. Qed.
 
@@ -1842,7 +1842,7 @@ Definition heading_line (lvl : nat) (l : string) : string :=
 
 (* The hashes are consumed exactly: the renderer's space stops the run,
    so the level comes back out unchanged however long the text is. *)
-Lemma count_run_hashes_space :
+Local Lemma count_run_hashes_space :
   forall n l, count_run "#" (hashes n ++ " " ++ l) = (n, " " ++ l).
 Proof.
   induction n as [|n IH]; intros l; [reflexivity|].
@@ -1862,7 +1862,7 @@ Proof.
   apply drop_head_nonws. reflexivity.
 Qed.
 
-Lemma no_nl_hashes : forall n, no_nl (hashes n) = true.
+Local Lemma no_nl_hashes : forall n, no_nl (hashes n) = true.
 Proof.
   induction n as [|n IH]; [reflexivity|].
   cbn [hashes]. change ("#" ++ hashes n)%string with (String "#" (hashes n)).
@@ -1962,10 +1962,10 @@ starting on a continuation line classifies as it would unindented. *)
 Fixpoint blanks (n : nat) : string :=
   match n with O => EmptyString | S k => String " " (blanks k) end.
 
-Lemma blanks_blank : forall n, is_blank (blanks n) = true.
+Local Lemma blanks_blank : forall n, is_blank (blanks n) = true.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks is_blank]. exact IH. Qed.
 
-Lemma blanks_length : forall n, String.length (blanks n) = n.
+Local Lemma blanks_length : forall n, String.length (blanks n) = n.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks String.length]. rewrite IH. reflexivity. Qed.
 
 (* A list marker as the renderer writes it.  Shaped after `list_marker`'s
@@ -2072,7 +2072,7 @@ Proof. reflexivity. Qed.
 Lemma marker_cont_blank : forall m, is_blank (mk_cont m) = true.
 Proof. intros m. apply blanks_blank. Qed.
 
-Lemma bullet_cont_blank : is_blank bullet_cont = true.
+Local Lemma bullet_cont_blank : is_blank bullet_cont = true.
 Proof. reflexivity. Qed.
 
 Lemma classify_marker_cont :
@@ -2086,18 +2086,18 @@ Proof.
   unfold mk_cont. rewrite blanks_length. reflexivity.
 Qed.
 
-Lemma classify_bullet_cont :
+Local Lemma classify_bullet_cont :
   forall l, classify (bullet_cont ++ l) = classify l.
 Proof. intros l. apply classify_marker_cont. Qed.
 
-Lemma indent_of_bullet_cont :
+Local Lemma indent_of_bullet_cont :
   forall l, indent_of (bullet_cont ++ l) = item_pad + indent_of l.
 Proof. intros l. apply indent_of_marker_cont. Qed.
 
 (* The four bullet styles, enumerated: `is_bullet` is a disjunction of
    character tests, so every fact about a recognized marker reduces to
    four concrete cases. *)
-Lemma is_bullet_cases :
+Local Lemma is_bullet_cases :
   forall c, is_bullet c = true ->
     c = "-"%char \/ c = "*"%char \/ c = "+"%char \/ c = ":"%char.
 Proof.
@@ -2111,7 +2111,7 @@ Proof.
   cbn in H. discriminate.
 Qed.
 
-Lemma is_task_bullet_cases :
+Local Lemma is_task_bullet_cases :
   forall c, is_task_bullet c = true ->
     c = "-"%char \/ c = "*"%char \/ c = "+"%char.
 Proof.
@@ -2126,7 +2126,7 @@ Qed.
 (* An alphanumeric run followed by something that is not: exactly what
    `marker_shape` scans, so an ordered marker's core comes off whole and
    the rest of the line survives untouched. *)
-Lemma take_while_alnum_app :
+Local Lemma take_while_alnum_app :
   forall core rest,
     str_forallb is_alnum core = true ->
     match rest with String c _ => is_alnum c = false | EmptyString => True end ->
@@ -2142,7 +2142,7 @@ Qed.
 
 (* An alphanumeric character is none of the characters the recognizers
    ahead of `list_marker` look for. *)
-Lemma is_alnum_not_bullet :
+Local Lemma is_alnum_not_bullet :
   forall c, is_alnum c = true -> is_bullet c = false.
 Proof.
   intros c H. destruct (is_bullet c) eqn:E; [|reflexivity].
@@ -2180,7 +2180,7 @@ Proof.
   rewrite Hm, Hw. reflexivity.
 Qed.
 
-Lemma is_alnum_not_paren :
+Local Lemma is_alnum_not_paren :
   forall c, is_alnum c = true -> Ascii.eqb c "(" = false.
 Proof.
   intros c H. destruct (Ascii.eqb c "(") eqn:E; [|reflexivity].
@@ -2208,7 +2208,7 @@ Proof.
 Qed.
 
 (* A line whose first character is not a colon opens no div. *)
-Lemma div_open_not_colon :
+Local Lemma div_open_not_colon :
   forall c r, is_ws c = false -> Ascii.eqb c ":" = false ->
     div_open (String c r) = None.
 Proof.
@@ -2219,7 +2219,7 @@ Qed.
 (* A marker opener is never blank and never starts with whitespace, so
    the recognizers `classify` runs before `list_marker` all see its first
    character and all reject it. *)
-Lemma marker_open_shape :
+Local Lemma marker_open_shape :
   forall m l, marker_ok m = true ->
     drop_leading_ws (mk_open m ++ l) = (mk_open m ++ l)%string /\
     is_blank (mk_open m ++ l) = false /\
@@ -2293,7 +2293,7 @@ Proof.
   destruct (task_check l); [discriminate H|reflexivity].
 Qed.
 
-Lemma list_marker_open :
+Local Lemma list_marker_open :
   forall m l, marker_ok m = true -> task_shadow m l = false ->
     list_marker (mk_open m ++ l) =
       Some (mk_sty m, mk_core m,
@@ -2391,7 +2391,7 @@ Proof.
   rewrite (list_marker_open m l Hm Hts). reflexivity.
 Qed.
 
-Lemma classify_bullet_open :
+Local Lemma classify_bullet_open :
   forall l, is_thematic (bullet_open ++ l) = false ->
   task_shadow bullet l = false ->
   classify (bullet_open ++ l) = KList [SBullet "-"%char] EmptyString None l.
@@ -2420,7 +2420,7 @@ Proof.
       [discriminate Hsty|]. exists s, ss. reflexivity.
 Qed.
 
-Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
+Local Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
 Proof.
   intros [c|c|n d] [c'|c'|n' d'] H; cbn [lstyle_eqb] in H; try discriminate.
   - apply Ascii.eqb_eq in H. subst c'. reflexivity.
@@ -2460,13 +2460,13 @@ Proof.
   unfold mk_cont. destruct (mk_pad m); [lia | discriminate].
 Qed.
 
-Lemma blanks_no_nl : forall n, no_nl (blanks n) = true.
+Local Lemma blanks_no_nl : forall n, no_nl (blanks n) = true.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks no_nl]. exact IH. Qed.
 
 Lemma mk_cont_no_nl : forall m, no_nl (mk_cont m) = true.
 Proof. intros m. unfold mk_cont. apply blanks_no_nl. Qed.
 
-Lemma is_alnum_no_nl : forall c, is_alnum c = true -> negb (Ascii.eqb c "010") = true.
+Local Lemma is_alnum_no_nl : forall c, is_alnum c = true -> negb (Ascii.eqb c "010") = true.
 Proof.
   intros c H. destruct (Ascii.eqb c "010") eqn:E; [|reflexivity].
   apply Ascii.eqb_eq in E. subst c. discriminate H.
@@ -2489,5 +2489,5 @@ Proof.
     destruct d; cbn [mk_open]; rewrite ?no_nl_append, Hcore; reflexivity.
 Qed.
 
-Lemma indent_of_bullet_open : forall l, indent_of (bullet_open ++ l) = 0.
+Local Lemma indent_of_bullet_open : forall l, indent_of (bullet_open ++ l) = 0.
 Proof. reflexivity. Qed.

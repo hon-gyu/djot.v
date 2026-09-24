@@ -52,7 +52,7 @@ The collision, and that it is the only one
 *)
 
 (* Routing either leaves a path alone or drops one trailing `_index`. *)
-Lemma route_shape :
+Local Lemma route_shape :
   forall p, p = route p \/ p = (route p ++ [index_name])%list.
 Proof.
   intros p. unfold route.
@@ -89,7 +89,7 @@ The check an SSG runs
 Definition url_eqb (u v : url) : bool :=
   if list_eq_dec String.string_dec u v then true else false.
 
-Fixpoint no_dup_urls (us : list url) : bool :=
+Local Fixpoint no_dup_urls (us : list url) : bool :=
   match us with
   | [] => true
   | u :: rest => negb (existsb (url_eqb u) rest) && no_dup_urls rest
@@ -100,13 +100,13 @@ Fixpoint no_dup_urls (us : list url) : bool :=
    nothing to show for it. *)
 Definition routes_ok (s : site) : bool := no_dup_urls (map route (dom s)).
 
-Lemma url_eqb_true : forall u v, url_eqb u v = true -> u = v.
+Local Lemma url_eqb_true : forall u v, url_eqb u v = true -> u = v.
 Proof.
   intros u v H. unfold url_eqb in H.
   destruct (list_eq_dec String.string_dec u v); [assumption|discriminate].
 Qed.
 
-Lemma url_eqb_refl : forall u, url_eqb u u = true.
+Local Lemma url_eqb_refl : forall u, url_eqb u u = true.
 Proof.
   intros u. unfold url_eqb. destruct (list_eq_dec String.string_dec u u);
     [reflexivity|contradiction].
@@ -162,15 +162,15 @@ Variable render_page : list (path * S) -> path -> list cblock -> P.
 
 Definition env : Type := list (path * S).
 
-Definition env_of (s : site) : env :=
+Local Definition env_of (s : site) : env :=
   map (fun pd => (fst pd, summ (snd pd))) s.
 
-Definition page (e : env) (pd : path * list cblock) : url * P :=
+Local Definition page (e : env) (pd : path * list cblock) : url * P :=
   (route (fst pd), render_page e (fst pd) (snd pd)).
 
-Definition build (s : site) : list (url * P) := map (page (env_of s)) s.
+Local Definition build (s : site) : list (url * P) := map (page (env_of s)) s.
 
-Lemma env_of_app :
+Local Lemma env_of_app :
   forall pre q d post,
     env_of (pre ++ (q, d) :: post)%list
     = (env_of pre ++ (q, summ d) :: env_of post)%list.
@@ -201,7 +201,7 @@ Qed.
 (* The companion equation, so that the two sides of the theorem above can
    be compared entry by entry: the unedited build has the same shape, with
    the old document in the one place that moved. *)
-Lemma build_app :
+Local Lemma build_app :
   forall pre q d post,
     let s := (pre ++ (q, d) :: post)%list in
     build s
@@ -353,7 +353,7 @@ though, without an alias, it is also the visible text: saying the name
 once is what the construct is for.
 *)
 
-Fixpoint ci_dests (c : cinline) : list string :=
+Local Fixpoint ci_dests (c : cinline) : list string :=
   match c with
   | CIDelim _ kids => flat_map ci_dests kids
   | CIRef _ kids _ => flat_map ci_dests kids
@@ -362,7 +362,7 @@ Fixpoint ci_dests (c : cinline) : list string :=
   | _ => []
   end.
 
-Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
+Local Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
   match c with
   | CIDelim k kids => CIDelim k (map (ci_map_dest f) kids)
   | CILink img kids dst => CILink img (map (ci_map_dest f) kids) (f dst)
@@ -374,7 +374,7 @@ Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
 (* The inline layer's own two-predicate induction: `cinline`'s children
    are a `list cinline`, which the generated principle does not descend
    into.  Same shape as `Render.cblock_ind2`. *)
-Definition cinline_ind2
+Local Definition cinline_ind2
   (P : cinline -> Prop) (Q : list cinline -> Prop)
   (hstr : forall s, P (CIStr s))
   (hverb : forall s, P (CIVerb s))
@@ -407,7 +407,7 @@ Definition cinline_ind2
     | CIWiki embed t al => hwiki embed t al
     end.
 
-Lemma ci_dests_map :
+Local Lemma ci_dests_map :
   forall f c, ci_dests (ci_map_dest f c) = map f (ci_dests c).
 Proof.
   intros f.
@@ -423,16 +423,16 @@ Proof.
     rewrite map_app, IHc, IHcs. reflexivity.
 Qed.
 
-Definition cis_dests (cs : list cinline) : list string := flat_map ci_dests cs.
-Definition css_dests (lss : list (list cinline)) : list string :=
+Local Definition cis_dests (cs : list cinline) : list string := flat_map ci_dests cs.
+Local Definition css_dests (lss : list (list cinline)) : list string :=
   flat_map cis_dests lss.
-Definition cis_map_dest (f : string -> string) (cs : list cinline) : list cinline :=
+Local Definition cis_map_dest (f : string -> string) (cs : list cinline) : list cinline :=
   map (ci_map_dest f) cs.
-Definition css_map_dest (f : string -> string) (lss : list (list cinline))
+Local Definition css_map_dest (f : string -> string) (lss : list (list cinline))
   : list (list cinline) := map (cis_map_dest f) lss.
 
-Definition ctrow_dests (r : ctrow) : list string := css_dests (ctrow_cells r).
-Definition ctrow_map_dest (f : string -> string) (r : ctrow) : ctrow :=
+Local Definition ctrow_dests (r : ctrow) : list string := css_dests (ctrow_cells r).
+Local Definition ctrow_map_dest (f : string -> string) (r : ctrow) : ctrow :=
   match r with
   | CTBody cs => CTBody (css_map_dest f cs)
   | CTHead als cs => CTHead als (css_map_dest f cs)
@@ -469,7 +469,7 @@ Fixpoint cb_map_dest (f : string -> string) (cb : cblock) : cblock :=
   | cb => cb
   end.
 
-Lemma cis_dests_map :
+Local Lemma cis_dests_map :
   forall f cs, cis_dests (cis_map_dest f cs) = map f (cis_dests cs).
 Proof.
   intros f. induction cs as [|c cs IH]; [reflexivity|].
@@ -477,7 +477,7 @@ Proof.
   rewrite map_app, ci_dests_map, IH. reflexivity.
 Qed.
 
-Lemma css_dests_map :
+Local Lemma css_dests_map :
   forall f lss, css_dests (css_map_dest f lss) = map f (css_dests lss).
 Proof.
   intros f. induction lss as [|cs lss IH]; [reflexivity|].
@@ -485,7 +485,7 @@ Proof.
   rewrite map_app, cis_dests_map, IH. reflexivity.
 Qed.
 
-Lemma ctrow_dests_map :
+Local Lemma ctrow_dests_map :
   forall f r, ctrow_dests (ctrow_map_dest f r) = map f (ctrow_dests r).
 Proof.
   intros f [cs|als cs]; unfold ctrow_dests, ctrow_map_dest;
@@ -526,11 +526,11 @@ Proof.
     rewrite map_app, IHitem, IHitems. reflexivity.
 Qed.
 
-Definition doc_dests (d : list cblock) : list string := flat_map cb_dests d.
-Definition doc_map_dest (f : string -> string) (d : list cblock) : list cblock :=
+Local Definition doc_dests (d : list cblock) : list string := flat_map cb_dests d.
+Local Definition doc_map_dest (f : string -> string) (d : list cblock) : list cblock :=
   map (cb_map_dest f) d.
 
-Lemma doc_dests_map :
+Local Lemma doc_dests_map :
   forall f d, doc_dests (doc_map_dest f d) = map f (doc_dests d).
 Proof.
   intros f. induction d as [|cb d IH]; [reflexivity|].
@@ -620,7 +620,7 @@ Rename
 *)
 
 Definition subst_path (p q t : path) : path := if path_eqb t p then q else t.
-Definition subst_url (u v x : url) : url := if url_eqb x u then v else x.
+Local Definition subst_url (u v x : url) : url := if url_eqb x u then v else x.
 
 Definition rename (L : lcodec) (p q : path) (s : site) : site :=
   map (fun pd => (subst_path p q (fst pd),
@@ -640,7 +640,7 @@ Definition map_urls (u v : url) (b : list (url * list url))
 (* Substituting a path and substituting its URL are the same operation --
    but only on a site whose routes are injective, which is where
    `routes_ok` earns its place a second time. *)
-Lemma route_subst :
+Local Lemma route_subst :
   forall s p q x,
     routes_ok s = true -> In p (dom s) -> In x (dom s) ->
     route (subst_path p q x) = subst_url (route p) (route q) (route x).
@@ -654,7 +654,7 @@ Proof.
     subst x. rewrite url_eqb_refl in Exp. discriminate.
 Qed.
 
-Lemma dom_rename :
+Local Lemma dom_rename :
   forall L p q s, dom (rename L p q s) = map (subst_path p q) (dom s).
 Proof.
   intros L p q s. unfold dom, rename. rewrite !map_map. reflexivity.
@@ -693,13 +693,13 @@ Qed.
    name that routes where another note already routes is not.
    `route_collide` is what says those are the only two shapes to think
    about. *)
-Lemma subst_url_id : forall u x, subst_url u u x = x.
+Local Lemma subst_url_id : forall u x, subst_url u u x = x.
 Proof.
   intros u x. unfold subst_url. destruct (url_eqb x u) eqn:E; [|reflexivity].
   apply url_eqb_true in E. symmetry. exact E.
 Qed.
 
-Lemma no_dup_urls_subst :
+Local Lemma no_dup_urls_subst :
   forall us u v,
     no_dup_urls us = true ->
     (url_eqb v u = true \/ existsb (url_eqb v) us = false) ->
@@ -774,7 +774,7 @@ law `cb_dests_map`'s other half: mapping with a function that fixes
 every destination fixes the document.
 *)
 
-Lemma ci_map_dest_id :
+Local Lemma ci_map_dest_id :
   forall f c, (forall s, In s (ci_dests c) -> f s = s) -> ci_map_dest f c = c.
 Proof.
   intros f.
@@ -796,7 +796,7 @@ Proof.
     + intros s Hs. apply H. cbn [flat_map]. apply in_or_app. left. exact Hs.
 Qed.
 
-Lemma cis_map_dest_id :
+Local Lemma cis_map_dest_id :
   forall f cs, (forall s, In s (cis_dests cs) -> f s = s) -> cis_map_dest f cs = cs.
 Proof.
   intros f. induction cs as [|c cs IH]; [reflexivity|]. intros H.
@@ -806,7 +806,7 @@ Proof.
   - intros s Hs. apply H, in_or_app. left. exact Hs.
 Qed.
 
-Lemma css_map_dest_id :
+Local Lemma css_map_dest_id :
   forall f lss, (forall s, In s (css_dests lss) -> f s = s) -> css_map_dest f lss = lss.
 Proof.
   intros f. induction lss as [|cs lss IH]; [reflexivity|]. intros H.
@@ -816,14 +816,14 @@ Proof.
   - intros s Hs. apply H, in_or_app. left. exact Hs.
 Qed.
 
-Lemma ctrow_map_dest_id :
+Local Lemma ctrow_map_dest_id :
   forall f r, (forall s, In s (ctrow_dests r) -> f s = s) -> ctrow_map_dest f r = r.
 Proof.
   intros f [cs|als cs] H; unfold ctrow_dests in H; cbn [ctrow_cells] in H;
     cbn [ctrow_map_dest]; rewrite css_map_dest_id; auto.
 Qed.
 
-Lemma cb_map_dest_id :
+Local Lemma cb_map_dest_id :
   forall f cb, (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb.
 Proof.
   intros f.
@@ -860,7 +860,7 @@ Proof.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
 Qed.
 
-Lemma doc_map_dest_id :
+Local Lemma doc_map_dest_id :
   forall f d, (forall s, In s (doc_dests d) -> f s = s) -> doc_map_dest f d = d.
 Proof.
   intros f. induction d as [|cb d IH]; [reflexivity|]. intros H.
@@ -870,7 +870,7 @@ Proof.
   - intros s Hs. apply H, in_or_app. left. exact Hs.
 Qed.
 
-Lemma links_of_in :
+Local Lemma links_of_in :
   forall L self d s t,
     In s (doc_dests d) -> l_parse L self s = Some t -> In t (links_of L self d).
 Proof.
@@ -908,7 +908,7 @@ Definition rename_entry (L : lcodec) (p q : path) (pd : path * list cblock)
   (subst_path p q (fst pd),
    retarget L (fst pd) (subst_path p q (fst pd)) (subst_path p q) (snd pd)).
 
-Lemma rename_map_entry :
+Local Lemma rename_map_entry :
   forall L p q s, rename L p q s = map (rename_entry L p q) s.
 Proof. reflexivity. Qed.
 
@@ -919,7 +919,7 @@ Proof. reflexivity. Qed.
 Definition touched_entry (L : lcodec) (p : path) (pd : path * list cblock) : bool :=
   (path_eqb (fst pd) p || existsb (path_eqb p) (links_of L (fst pd) (snd pd)))%bool.
 
-Lemma touched_entry_shape :
+Local Lemma touched_entry_shape :
   forall L p r d,
     touched_entry L p (r, d) = true -> r = p \/ In p (links_of L r d).
 Proof.
@@ -930,7 +930,7 @@ Proof.
     apply url_eqb_true in Heq. subst x. exact Hx.
 Qed.
 
-Lemma url_eqb_false : forall u v, u <> v -> url_eqb u v = false.
+Local Lemma url_eqb_false : forall u v, u <> v -> url_eqb u v = false.
 Proof.
   intros u v H. unfold url_eqb.
   destruct (list_eq_dec String.string_dec u v); [contradiction|reflexivity].
@@ -990,15 +990,15 @@ side condition someone remembers.
 Definition flat_ok (p : path) : bool :=
   match p with [n] => (nonempty_str n && no_char "/"%char n)%bool | _ => false end.
 
-Definition flat_spell (_ : path) (p : path) : string :=
+Local Definition flat_spell (_ : path) (p : path) : string :=
   match p with [n] => n | _ => EmptyString end.
 
-Definition flat_parse (_ : path) (s : string) : option path :=
+Local Definition flat_parse (_ : path) (s : string) : option path :=
   if (nonempty_str s && no_char "/"%char s)%bool then Some [s] else None.
 
 Definition flat : lcodec := LCodec flat_ok flat_spell flat_parse.
 
-Lemma flat_lcodec_ok : lcodec_ok flat.
+Local Lemma flat_lcodec_ok : lcodec_ok flat.
 Proof.
   split; [|split].
   - intros self [|n [|m rest]] H; try discriminate H.

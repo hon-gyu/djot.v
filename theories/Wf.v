@@ -60,7 +60,7 @@ Inline well-formedness
 (* Well-formedness of one inline.  The inner fixpoints are inlined by
    hand because `inline` is nested through `list (node _)`, which Rocq's
    guard checker will not accept as a plain mutual recursion. *)
-Fixpoint wf_inline (il : inline) : bool :=
+Local Fixpoint wf_inline (il : inline) : bool :=
   let wf_ils :=
     fix go (ns : list (node inline)) : bool :=
       match ns with
@@ -98,7 +98,7 @@ Block well-formedness
 (* Well-formedness of one block; same hand-inlined-fixpoint shape as
    wf_inline, one helper per container flavour.  A new block construct
    gets its case in the final match. *)
-Fixpoint wf_block (b : block) : bool :=
+Local Fixpoint wf_block (b : block) : bool :=
   let wf_bs :=
     fix go (ns : list (node block)) : bool :=
       match ns with
@@ -181,7 +181,7 @@ Fixpoint wf_block (b : block) : bool :=
 Definition wf_blocks (bs : blocks) : bool :=
   forallb (fun n => wf_block (node_contents n)) bs.
 
-Lemma wf_block_footnote :
+Local Lemma wf_block_footnote :
   forall label bs,
     wf_block (FootnoteDef label bs) = (nonempty_str label && wf_blocks bs)%bool.
 Proof.
@@ -190,7 +190,7 @@ Proof.
   cbn [wf_blocks forallb node_contents]. rewrite IH. reflexivity.
 Qed.
 
-Lemma wf_block_keyed :
+Local Lemma wf_block_keyed :
   forall label b,
     wf_block (Keyed label b)
     = (wf_inlines label && wf_blocks [b])%bool.
@@ -198,7 +198,7 @@ Proof. intros label [p a x]. reflexivity. Qed.
 
 (* Well-formedness reads payloads, never attributes, so hanging block
    attributes on a node is invisible to it. *)
-Lemma wf_blocks_decorate_head :
+Local Lemma wf_blocks_decorate_head :
   forall a bs, wf_blocks (decorate_head a bs) = wf_blocks bs.
 Proof. intros a bs. destruct bs as [|[q a' x] rest]; reflexivity. Qed.
 
@@ -213,7 +213,7 @@ Equation lemmas
 ===============
 *)
 
-Lemma wf_inlines_cons :
+Local Lemma wf_inlines_cons :
   forall n ns,
     wf_inlines (n :: ns) =
     (wf_inline (node_contents n)
@@ -221,7 +221,7 @@ Lemma wf_inlines_cons :
      && no_adjacent_str (n :: ns))%bool.
 Proof. reflexivity. Qed.
 
-Lemma wf_blocks_cons :
+Local Lemma wf_blocks_cons :
   forall n bs,
     wf_blocks (n :: bs) = (wf_block (node_contents n) && wf_blocks bs)%bool.
 Proof. reflexivity. Qed.
@@ -229,7 +229,7 @@ Proof. reflexivity. Qed.
 (* wf_block's hand-inlined block-list fixpoint is wf_blocks.  Stated for
    the one container that carries no side condition, so the equation is
    an identity rather than an implication. *)
-Lemma wf_block_quote :
+Local Lemma wf_block_quote :
   forall bs, wf_block (BlockQuote bs) = wf_blocks bs.
 Proof.
   induction bs as [|n bs IH]; [reflexivity|].
@@ -240,7 +240,7 @@ Proof.
 Qed.
 
 (* Divs share BlockQuote's clause, so they share its lemma's shape. *)
-Lemma wf_block_div :
+Local Lemma wf_block_div :
   forall bs, wf_block (Div bs) = wf_blocks bs.
 Proof.
   induction bs as [|n bs IH]; [reflexivity|].
@@ -252,7 +252,7 @@ Qed.
 
 (* A div's node carries a class attribute when it has one; `wf_block`
    reads only the payload, so the wrapper is irrelevant to it. *)
-Lemma div_block_wf :
+Local Lemma div_block_wf :
   forall cls bs,
     wf_blocks bs = true -> wf_blocks [div_block cls bs] = true.
 Proof.
@@ -264,7 +264,7 @@ Qed.
 
 (* wf_block's hand-inlined item-list fixpoint, named for the same reason
    as wf_block_quote. *)
-Lemma wf_block_bullet :
+Local Lemma wf_block_bullet :
   forall sp items,
     wf_block (BulletList sp items)
     = (nonempty items && forallb wf_blocks items)%bool.
@@ -291,7 +291,7 @@ Qed.
 (* The ordered flavour asks for exactly the same thing, which is what
    lets `finish_wf` stay one case: `list_block` chooses the wrapper, and
    `wf_block` cannot tell the two apart. *)
-Lemma wf_block_olist :
+Local Lemma wf_block_olist :
   forall oa sp items,
     wf_block (OrderedList oa sp items)
     = (nonempty items && forallb wf_blocks items)%bool.
@@ -317,7 +317,7 @@ Qed.
 
 (* The definition flavour, over (term, definition) pairs: a term is
    inlines and asks only `wf_inlines`. *)
-Lemma wf_block_deflist :
+Local Lemma wf_block_deflist :
   forall sp items,
     wf_block (DefinitionList sp items)
     = (nonempty items
@@ -349,7 +349,7 @@ Qed.
 (* Splitting the term off an item keeps it well-formed: the term's
    inlines are the leading paragraph's, which `wf_blocks` already
    checked, and the definition is the rest of a list it checked. *)
-Lemma wf_def_split :
+Local Lemma wf_def_split :
   forall bs ils def,
     wf_blocks bs = true ->
     def_split bs = Some (ils, def) ->
@@ -372,7 +372,7 @@ Proof.
     rewrite Hi, wf_blocks_cons, Hx, Hm. reflexivity.
 Qed.
 
-Lemma wf_def_item :
+Local Lemma wf_def_item :
   forall bs,
     wf_blocks bs = true ->
     (wf_inlines (fst (def_item bs)) && wf_blocks (snd (def_item bs)))%bool
@@ -384,7 +384,7 @@ Proof.
   - rewrite (def_item_none bs E). cbn [fst snd]. rewrite H. reflexivity.
 Qed.
 
-Lemma wf_def_items :
+Local Lemma wf_def_items :
   forall its,
     forallb wf_blocks its = true ->
     forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
@@ -396,12 +396,12 @@ Proof.
   rewrite (wf_def_item it Hit), (IH Hrest). reflexivity.
 Qed.
 
-Lemma nonempty_def_items :
+Local Lemma nonempty_def_items :
   forall its, nonempty (def_items its) = nonempty its.
 Proof. intros [|it rest]; reflexivity. Qed.
 
 (* As `wf_block_bullet`, for the flavour whose items carry a status. *)
-Lemma wf_block_tasklist :
+Local Lemma wf_block_tasklist :
   forall sp items,
     wf_block (TaskList sp items)
     = (nonempty items && forallb (fun ti => wf_blocks (snd ti)) items)%bool.
@@ -425,12 +425,12 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma nonempty_task_items :
+Local Lemma nonempty_task_items :
   forall chks its, nonempty (task_items chks its) = nonempty its.
 Proof. intros chks [|it rest]; [reflexivity|destruct chks; reflexivity]. Qed.
 
 (* Pairing the statuses onto the items is invisible to `wf_block`. *)
-Lemma wf_task_items :
+Local Lemma wf_task_items :
   forall (chks : list task_status) its,
     forallb wf_blocks its = true ->
     forallb (fun ti => wf_blocks (snd ti)) (task_items chks its) = true.
@@ -445,7 +445,7 @@ Qed.
 (* A closed list is well-formed when its items are, whichever flavour
    `list_block` picks.  An implication: `wf_def_items` gives the
    definition flavour in this direction only. *)
-Lemma wf_list_block :
+Local Lemma wf_list_block :
   forall ls last,
     (nonempty (rev (last :: ls_items ls))
      && forallb wf_blocks (rev (last :: ls_items ls)))%bool = true ->
@@ -469,28 +469,28 @@ Proof.
     rewrite wf_block_olist. apply andb_true_iff. split; assumption.
 Qed.
 
-Lemma nonempty_rev :
+Local Lemma nonempty_rev :
   forall (A : Type) (l : list A), nonempty (rev l) = nonempty l.
 Proof.
   intros A l. destruct l as [|x l']; [reflexivity|].
   cbn [rev nonempty]. destruct (rev l') as [|y r]; reflexivity.
 Qed.
 
-Lemma nonempty_app_r :
+Local Lemma nonempty_app_r :
   forall (A : Type) (l1 l2 : list A),
     nonempty l2 = true -> nonempty (l1 ++ l2)%list = true.
 Proof. intros A [|x l1] l2 H; [exact H|reflexivity]. Qed.
 
-Lemma wf_blocks_app :
+Local Lemma wf_blocks_app :
   forall bs1 bs2,
     wf_blocks (bs1 ++ bs2)%list = (wf_blocks bs1 && wf_blocks bs2)%bool.
 Proof. intros bs1 bs2. unfold wf_blocks. apply forallb_app. Qed.
 
-Lemma wf_blocks_rev :
+Local Lemma wf_blocks_rev :
   forall bs, wf_blocks (rev bs) = wf_blocks bs.
 Proof. intros bs. unfold wf_blocks. apply forallb_rev. Qed.
 
-Lemma no_adjacent_cons_false :
+Local Lemma no_adjacent_cons_false :
   forall n ns,
     plain_str n = false -> no_adjacent_str ns = true ->
     no_adjacent_str (n :: ns) = true.
@@ -500,7 +500,7 @@ Proof.
   - simpl in Hns. rewrite H. simpl. exact Hns.
 Qed.
 
-Lemma no_adjacent_cons2 :
+Local Lemma no_adjacent_cons2 :
   forall n1 n2 ns,
     plain_str n2 = false -> no_adjacent_str (n2 :: ns) = true ->
     no_adjacent_str (n1 :: n2 :: ns) = true.
@@ -522,7 +522,7 @@ runs exactly on the transition into `IOpen`, whose own next push is a
 `iscan_wf`'s `IText` case records, by asserting the head is not a `Str`
 whenever text is still being accumulated. *)
 
-Lemma no_adjacent_str_app2 :
+Local Lemma no_adjacent_str_app2 :
   forall l a b,
     no_adjacent_str (l ++ [a])%list = true ->
     (plain_str a && plain_str b)%bool = false ->
@@ -539,7 +539,7 @@ Proof.
       rewrite H1. cbn [andb]. exact (IH a b H2 Hc).
 Qed.
 
-Lemma no_adjacent_str_app2_l :
+Local Lemma no_adjacent_str_app2_l :
   forall l a b,
     no_adjacent_str (l ++ [a; b])%list = true ->
     no_adjacent_str (l ++ [a])%list = true.
@@ -553,7 +553,7 @@ Proof.
     rewrite H1. cbn [andb]. exact (IH a b H2).
 Qed.
 
-Lemma no_adjacent_str_app2_pair :
+Local Lemma no_adjacent_str_app2_pair :
   forall l a b,
     no_adjacent_str (l ++ [a; b])%list = true ->
     (plain_str a && plain_str b)%bool = false.
@@ -574,10 +574,10 @@ Qed.
    but it may *vanish* when it resolves, which is what
    `oresolve_go`'s flag is for, and why the seam obligation here is still
    only about the nodes on either side of it. *)
-Definition plain_item (i : oitem) : bool :=
+Local Definition plain_item (i : oitem) : bool :=
   match i with OIn n => plain_str n | OMark _ _ _ => false end.
 
-Fixpoint no_adjacent_item (l : oitems) : bool :=
+Local Fixpoint no_adjacent_item (l : oitems) : bool :=
   match l with
   | i1 :: ((i2 :: _) as rest) =>
       negb (plain_item i1 && plain_item i2) && no_adjacent_item rest
@@ -586,27 +586,27 @@ Fixpoint no_adjacent_item (l : oitems) : bool :=
 
 (* A waiting spec has no condition of its own: it carries no source, and
    what it resolves to is `rlist_ok_attach`'s business. *)
-Definition oitem_ok (i : oitem) : bool :=
+Local Definition oitem_ok (i : oitem) : bool :=
   match i with
   | OIn n => wf_inline (node_contents n)
   | OMark _ _ _ => true
   end.
 
-Definition hd_str (out : oitems) : bool :=
+Local Definition hd_str (out : oitems) : bool :=
   match out with i :: _ => plain_item i | [] => false end.
 
 (* What a scope carries.  What a *resolved* list carries is `rlist_ok`
    below; `oresolve_ok` is the bridge. *)
-Definition ilist_ok (out : oitems) : bool :=
+Local Definition ilist_ok (out : oitems) : bool :=
   (forallb oitem_ok out && no_adjacent_item (List.rev out))%bool.
 
-Definition rlist_ok (out : inlines) : bool :=
+Local Definition rlist_ok (out : inlines) : bool :=
   (forallb (fun n => wf_inline (node_contents n)) out
    && no_adjacent_str (List.rev out))%bool.
 
 (* `no_adjacent_item` is `no_adjacent_str` over a wider element type, so
    the three list facts it needs are proved again rather than reused. *)
-Lemma no_adjacent_item_app2 :
+Local Lemma no_adjacent_item_app2 :
   forall l a b,
     no_adjacent_item (l ++ [a])%list = true ->
     (plain_item a && plain_item b)%bool = false ->
@@ -620,7 +620,7 @@ Proof.
       exact (IH a b H2 Hc).
 Qed.
 
-Lemma no_adjacent_item_app2_l :
+Local Lemma no_adjacent_item_app2_l :
   forall l a b,
     no_adjacent_item (l ++ [a; b])%list = true ->
     no_adjacent_item (l ++ [a])%list = true.
@@ -633,7 +633,7 @@ Proof.
       exact (IH a b H2).
 Qed.
 
-Lemma no_adjacent_item_app2_pair :
+Local Lemma no_adjacent_item_app2_pair :
   forall l a b,
     no_adjacent_item (l ++ [a; b])%list = true ->
     (plain_item a && plain_item b)%bool = false.
@@ -646,7 +646,7 @@ Proof.
     + apply andb_true_iff in H as [_ H]. exact (IH a b H).
 Qed.
 
-Lemma ilist_ok_push :
+Local Lemma ilist_ok_push :
   forall n out,
     ilist_ok out = true ->
     oitem_ok n = true ->
@@ -673,7 +673,7 @@ as text -- are where it has to be re-established.  Abandoning is the
 interesting one: it is the only place two `Str` nodes can meet, which is
 why `oapp` merges its seam rather than concatenating. *)
 
-Lemma no_adjacent_str_last_subst :
+Local Lemma no_adjacent_str_last_subst :
   forall l a b,
     plain_str a = plain_str b ->
     no_adjacent_str (l ++ [a])%list = no_adjacent_str (l ++ [b])%list.
@@ -684,10 +684,10 @@ Proof.
   - cbn [app no_adjacent_str] in IH |- *. rewrite (IH a b H). reflexivity.
 Qed.
 
-Lemma hd_str_is_starts_str : forall l, hd_str l = starts_str l.
+Local Lemma hd_str_is_starts_str : forall l, hd_str l = starts_str l.
 Proof. intros [|[[? [|? ?] ?]|?] ?]; reflexivity. Qed.
 
-Lemma no_adjacent_item_snoc_ext :
+Local Lemma no_adjacent_item_snoc_ext :
   forall l n m,
     plain_item n = plain_item m ->
     no_adjacent_item (l ++ [n])%list = no_adjacent_item (l ++ [m])%list.
@@ -698,7 +698,7 @@ Proof.
   - f_equal. exact (IH n m H).
 Qed.
 
-Lemma no_adjacent_item_last_subst :
+Local Lemma no_adjacent_item_last_subst :
   forall l a b,
     plain_item a = plain_item b ->
     no_adjacent_item (l ++ [a])%list = no_adjacent_item (l ++ [b])%list.
@@ -707,7 +707,7 @@ Proof. exact no_adjacent_item_snoc_ext. Qed.
 (* `no_adjacent_str` reads nothing but `plain_str` of each node, so the
    element at the end may be swapped for any other with the same verdict.
    `oattach_list` is the one writer that replaces a node in place. *)
-Lemma no_adjacent_str_snoc_ext :
+Local Lemma no_adjacent_str_snoc_ext :
   forall l n m,
     plain_str n = plain_str m ->
     no_adjacent_str (l ++ [n])%list = no_adjacent_str (l ++ [m])%list.
@@ -721,7 +721,7 @@ Qed.
 (* Decorating the most recent node keeps the scope well-formed: the
    payload is untouched, so `wf_inline` transfers, and the seam is
    decided by `plain_str` alone. *)
-Lemma ilist_ok_reattr :
+Local Lemma ilist_ok_reattr :
   forall n m out,
     ilist_ok (OIn n :: out) = true ->
     node_contents m = node_contents n ->
@@ -735,7 +735,7 @@ Proof.
   exact H.
 Qed.
 
-Lemma ilist_ok_osnoc :
+Local Lemma ilist_ok_osnoc :
   forall n out,
     ilist_ok out = true ->
     oitem_ok n = true ->
@@ -779,7 +779,7 @@ Proof.
     destruct j; try reflexivity. discriminate.
 Qed.
 
-Lemma hd_str_oapp :
+Local Lemma hd_str_oapp :
   forall cur out, nonempty cur = true -> hd_str (oapp cur out) = hd_str cur.
 Proof.
   intros [|n [|m cur']] out H; [discriminate| |rewrite oapp_cons2; reflexivity].
@@ -791,7 +791,7 @@ Proof.
   destruct j; reflexivity.
 Qed.
 
-Lemma ilist_ok_oapp :
+Local Lemma ilist_ok_oapp :
   forall cur out,
     ilist_ok cur = true -> ilist_ok out = true ->
     ilist_ok (oapp cur out) = true.
@@ -823,7 +823,7 @@ node side -- the same three as above, over `isnoc` rather than `osnoc`.
 (* Merging attributes onto a node cannot turn it into a plain `Str`:
    either it already carried some, and `attr_merge_cons` says it still
    does, or it carried none and its payload was not a `Str`. *)
-Lemma plain_str_reattr :
+Local Lemma plain_str_reattr :
   forall p a' v a,
     plain_str (Node p a' v) = false ->
     plain_str (Node p (attr_merge a a') v) = false.
@@ -834,13 +834,13 @@ Proof.
     [destruct v; try reflexivity; discriminate H|reflexivity].
 Qed.
 
-Lemma istarts_str_cons :
+Local Lemma istarts_str_cons :
   forall m out, istarts_str (m :: out)%list = plain_str m.
 Proof.
   intros [q [|kv b] w] out; [destruct w; reflexivity|reflexivity].
 Qed.
 
-Lemma rlist_ok_push :
+Local Lemma rlist_ok_push :
   forall n out,
     rlist_ok out = true ->
     wf_inline (node_contents n) = true ->
@@ -857,7 +857,7 @@ Proof.
     rewrite istarts_str_cons in Hc. rewrite andb_comm. exact Hc.
 Qed.
 
-Lemma rlist_ok_tail :
+Local Lemma rlist_ok_tail :
   forall n out, rlist_ok (n :: out)%list = true -> rlist_ok out = true.
 Proof.
   intros n out H. unfold rlist_ok in *.
@@ -870,7 +870,7 @@ Proof.
   exact (no_adjacent_str_app2_l _ _ _ Hadj).
 Qed.
 
-Lemma rlist_ok_reattr :
+Local Lemma rlist_ok_reattr :
   forall n m out,
     rlist_ok (n :: out) = true ->
     node_contents m = node_contents n ->
@@ -884,7 +884,7 @@ Proof.
   exact H.
 Qed.
 
-Lemma istarts_str_isnoc :
+Local Lemma istarts_str_isnoc :
   forall n out, istarts_str (isnoc n out) = plain_str n.
 Proof.
   intros [p a v] out. unfold isnoc.
@@ -896,7 +896,7 @@ Proof.
   destruct v; try (rewrite istarts_str_cons; reflexivity).
 Qed.
 
-Lemma rlist_ok_isnoc :
+Local Lemma rlist_ok_isnoc :
   forall n out,
     rlist_ok out = true ->
     wf_inline (node_contents n) = true ->
@@ -938,7 +938,7 @@ Qed.
    Every disposition either leaves the list alone or replaces its head
    by nodes carrying its payload, so no condition on the spec is
    needed. *)
-Lemma rlist_ok_attach :
+Local Lemma rlist_ok_attach :
   forall a spec word_start out,
     rlist_ok out = true ->
     rlist_ok (oattach_list a spec word_start out) = true.
@@ -968,7 +968,7 @@ Qed.
    two plain `Str` items with a spec between them, because that spec may
    vanish -- and when it does, `oresolve_go`'s flag makes the next node
    merge rather than sit adjacent. *)
-Lemma oresolve_go_ok :
+Local Lemma oresolve_go_ok :
   forall l,
     ilist_ok l = true ->
     rlist_ok (fst (oresolve_go l)) = true
@@ -1006,17 +1006,17 @@ Proof.
     cbn [fst snd]. intros Hs. exact Hs.
 Qed.
 
-Lemma oresolve_ok :
+Local Lemma oresolve_ok :
   forall l, ilist_ok l = true -> rlist_ok (oresolve l) = true.
 Proof. intros l H. apply (proj1 (oresolve_go_ok l H)). Qed.
 
-Definition frames_ok (stk : list frame) : bool :=
+Local Definition frames_ok (stk : list frame) : bool :=
   forallb (fun f => ilist_ok (fr_out f)) stk.
 
-Definition oscope_ok (o : ostate) : bool :=
+Local Definition oscope_ok (o : ostate) : bool :=
   (ilist_ok (os_out o) && frames_ok (os_stk o))%bool.
 
-Fixpoint iscan_wf (st : iscan) : bool :=
+Local Fixpoint iscan_wf (st : iscan) : bool :=
   match st with
   | IText _ _ _ o | IEscWs _ _ _ o | IBrace _ _ o
   | IDelim _ _ _ _ _ o | IDollar _ _ _ o | IPeriod _ _ _ o
@@ -1066,20 +1066,20 @@ Fixpoint iscan_wf (st : iscan) : bool :=
 (* `wf_inline`'s inline-list check, as a global fixpoint with the same
    body: the local one is not nameable, and every container obligation
    below needs to talk about it. *)
-Fixpoint wf_ils (ns : list (node inline)) : bool :=
+Local Fixpoint wf_ils (ns : list (node inline)) : bool :=
   match ns with
   | [] => true
   | Node _ _ x :: rest => wf_inline x && wf_ils rest
   end.
 
-Lemma wf_ils_forallb :
+Local Lemma wf_ils_forallb :
   forall ns, wf_ils ns = forallb (fun n => wf_inline (node_contents n)) ns.
 Proof.
   induction ns as [|[p a x] ns IH]; [reflexivity|].
   cbn [wf_ils forallb node_contents]. rewrite IH. reflexivity.
 Qed.
 
-Lemma wf_inline_dnode :
+Local Lemma wf_inline_dnode :
   forall k ns, rlist_ok (List.rev ns) = true -> wf_inline (dnode k ns) = true.
 Proof.
   intros k ns Hok. unfold rlist_ok in Hok.
@@ -1096,7 +1096,7 @@ Qed.
 
 (* The bracket node, both spellings.  Same two conditions as
    `wf_inline_dnode`, since neither carries a nonemptiness one. *)
-Lemma wf_inline_bnode :
+Local Lemma wf_inline_bnode :
   forall img ns tgt,
     wf_ils ns = true -> no_adjacent_str ns = true ->
     wf_inline (bnode img ns tgt) = true.
@@ -1113,10 +1113,10 @@ The scope operations preserve it
 --------------------------------
 *)
 
-Lemma ocur_emit : forall n o, ocur (oemit n o) = (OIn n :: ocur o)%list.
+Local Lemma ocur_emit : forall n o, ocur (oemit n o) = (OIn n :: ocur o)%list.
 Proof. intros n [out [|f stk]]; reflexivity. Qed.
 
-Lemma ocur_mark :
+Local Lemma ocur_mark :
   forall a spec o,
     ocur (omark a spec o) = (OMark a spec (os_word_start o) :: ocur o)%list.
 Proof. intros a spec [out [|f stk] word]; reflexivity. Qed.
@@ -1124,17 +1124,17 @@ Proof. intros a spec [out [|f stk] word]; reflexivity. Qed.
 (* A closed backtick run emits a `Verbatim` or a `Math`, and neither is
    a container or a plain `Str` -- which is all the scope invariant asks
    of it. *)
-Lemma wf_inline_vnode : forall vk s, wf_inline (vnode vk s) = true.
+Local Lemma wf_inline_vnode : forall vk s, wf_inline (vnode vk s) = true.
 Proof. intros [|st] s; reflexivity. Qed.
 
-Lemma plain_str_vnode : forall vk s, plain_str (mk (vnode vk s)) = false.
+Local Lemma plain_str_vnode : forall vk s, plain_str (mk (vnode vk s)) = false.
 Proof. intros [|st] s; reflexivity. Qed.
 
-Lemma starts_str_vnode :
+Local Lemma starts_str_vnode :
   forall vk s out, starts_str (OIn (mk (vnode vk s)) :: out) = false.
 Proof. intros [|st] s out; reflexivity. Qed.
 
-Lemma oscope_ok_emit :
+Local Lemma oscope_ok_emit :
   forall n o,
     oscope_ok o = true ->
     wf_inline (node_contents n) = true ->
@@ -1155,7 +1155,7 @@ Qed.
 
 (* A waiting spec is never a plain `Str`, so it needs no seam condition:
    whatever it resolves to, `oresolve_go` rejoins the neighbours itself. *)
-Lemma oscope_ok_mark :
+Local Lemma oscope_ok_mark :
   forall a spec o, oscope_ok o = true -> oscope_ok (omark a spec o) = true.
 Proof.
   intros a spec [out [|f stk] word] Ho; unfold oscope_ok, omark in *;
@@ -1171,7 +1171,7 @@ Proof.
       [exact Hff | reflexivity | reflexivity].
 Qed.
 
-Lemma oscope_ok_emit_merge :
+Local Lemma oscope_ok_emit_merge :
   forall n o,
     oscope_ok o = true ->
     wf_inline (node_contents n) = true ->
@@ -1187,7 +1187,7 @@ Proof.
     apply ilist_ok_osnoc; assumption.
 Qed.
 
-Lemma oscope_ok_emit_all_merge :
+Local Lemma oscope_ok_emit_all_merge :
   forall ns o,
     oscope_ok o = true ->
     forallb (fun n => wf_inline (node_contents n)) ns = true ->
@@ -1199,7 +1199,7 @@ Proof.
   apply IH; [apply oscope_ok_emit_merge; assumption|exact Hns].
 Qed.
 
-Lemma oscope_ok_push_at :
+Local Lemma oscope_ok_push_at :
   forall k m cm open o,
     oscope_ok o = true -> oscope_ok (opush_at k m cm open o) = true.
 Proof.
@@ -1208,11 +1208,11 @@ Proof.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
 
-Lemma oscope_ok_push :
+Local Lemma oscope_ok_push :
   forall k m o, oscope_ok o = true -> oscope_ok (opush k m o) = true.
 Proof. intros k m o H. apply oscope_ok_push_at, H. Qed.
 
-Lemma oscope_ok_bpush :
+Local Lemma oscope_ok_bpush :
   forall image o, oscope_ok o = true -> oscope_ok (bpush image o) = true.
 Proof.
   intros image [out stk word] H. unfold oscope_ok, bpush in *;
@@ -1220,7 +1220,7 @@ Proof.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
 
-Lemma oscope_ok_dpush :
+Local Lemma oscope_ok_dpush :
   forall image open o,
     oscope_ok o = true -> oscope_ok (dpush image open o) = true.
 Proof.
@@ -1229,14 +1229,14 @@ Proof.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
 
-Lemma frames_ok_tail :
+Local Lemma frames_ok_tail :
   forall f stk, frames_ok (f :: stk) = true -> frames_ok stk = true.
 Proof.
   intros f stk H. unfold frames_ok in *. cbn [forallb] in H.
   apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
-Lemma frames_ok_head :
+Local Lemma frames_ok_head :
   forall f stk, frames_ok (f :: stk) = true -> ilist_ok (fr_out f) = true.
 Proof.
   intros f stk H. unfold frames_ok in *. cbn [forallb] in H.
@@ -1247,7 +1247,7 @@ Qed.
    nonempty by construction -- a bracket writes its own byte, and a
    delimiter writes its row's token, which an admissible table never
    leaves empty. *)
-Lemma fr_src_nonempty : forall f, nonempty_str (fr_src f) = true.
+Local Lemma fr_src_nonempty : forall f, nonempty_str (fr_src f) = true.
 Proof.
   intros [kind marked out]. unfold fr_src; cbn [fr_kind fr_marked].
   destruct kind as [k|image|image].
@@ -1256,14 +1256,14 @@ Proof.
   - destruct image; reflexivity.
 Qed.
 
-Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
+Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
 Proof.
   intros f. unfold ilist_ok.
   cbn [forallb oitem_ok node_contents mk List.rev].
   cbn [wf_inline no_adjacent_item]. rewrite (fr_src_nonempty f). reflexivity.
 Qed.
 
-Lemma oclose_go_ok :
+Local Lemma oclose_go_ok :
   forall stk k m pend content open rest,
     frames_ok stk = true -> ilist_ok pend = true ->
     oclose_go k m pend stk = Some (content, open, rest) ->
@@ -1284,7 +1284,7 @@ Proof.
     |apply ilist_ok_src].
 Qed.
 
-Lemma oclose_go_nonempty :
+Local Lemma oclose_go_nonempty :
   forall stk k m pend content open rest,
     oclose_go k m pend stk = Some (content, open, rest) ->
     nonempty content = true.
@@ -1300,7 +1300,7 @@ Proof.
            content open rest E).
 Qed.
 
-Lemma oclose_ok :
+Local Lemma oclose_ok :
   forall k m o o',
     oscope_ok o = true -> sclose k m o = Some o' ->
     (oscope_ok o' && negb (starts_str (ocur o')))%bool = true.
@@ -1338,7 +1338,7 @@ The transitions preserve it
 ---------------------------
 *)
 
-Lemma iscan_wf_text :
+Local Lemma iscan_wf_text :
   forall esc txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (IText esc txt prev o) = true.
@@ -1349,14 +1349,14 @@ Qed.
 
 (* The same, of a state the line break has reset: the word start is no
    part of either obligation. *)
-Lemma oscope_ok_word_reset :
+Local Lemma oscope_ok_word_reset :
   forall o, oscope_ok (oword_reset o) = oscope_ok o.
 Proof. intros o. reflexivity. Qed.
 
-Lemma ocur_word_reset : forall o, ocur (oword_reset o) = ocur o.
+Local Lemma ocur_word_reset : forall o, ocur (oword_reset o) = ocur o.
 Proof. intros o. reflexivity. Qed.
 
-Lemma iscan_wf_text_reset :
+Local Lemma iscan_wf_text_reset :
   forall esc txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (IText esc txt prev (oword_reset o)) = true.
@@ -1371,7 +1371,7 @@ Qed.
    states that still have text pending and not to `IOpen` and `IVerb` --
    a flush happens only on the way into a verbatim, whose own next
    emission is a `Verbatim`. *)
-Lemma iscan_wf_flush :
+Local Lemma iscan_wf_flush :
   forall txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     oscope_ok (flush_text txt o) = true.
@@ -1385,7 +1385,7 @@ Qed.
    delimiter scopes above the bracket the same way, and hands back the
    label rather than wrapping it, so the label carries the list
    invariant and the restored state carries the scope one. *)
-Lemma bclose_go_ok :
+Local Lemma bclose_go_ok :
   forall stk pend content image open rest,
     frames_ok stk = true -> ilist_ok pend = true ->
     bclose_go pend stk = Some (content, image, open, rest) ->
@@ -1404,7 +1404,7 @@ Proof.
   - discriminate E.
 Qed.
 
-Lemma bclose_ok :
+Local Lemma bclose_ok :
   forall o kids image open o',
     oscope_ok o = true -> bclose o = Some (kids, image, open, o') ->
     (oscope_ok o' && wf_inlines kids)%bool = true.
@@ -1435,7 +1435,7 @@ carries.  Popping the flushed `Str` is what makes the head condition
 hold with nothing else emitted, and alternating `Str` with non-`Str`
 emissions is what makes it hold once something is. *)
 
-Lemma ilist_ok_tail :
+Local Lemma ilist_ok_tail :
   forall n out, ilist_ok (n :: out)%list = true -> ilist_ok out = true.
 Proof.
   intros n out H. unfold ilist_ok in *.
@@ -1448,7 +1448,7 @@ Proof.
   exact (no_adjacent_item_app2_l _ _ _ Hadj).
 Qed.
 
-Lemma ilist_ok_head_pop :
+Local Lemma ilist_ok_head_pop :
   forall n out,
     ilist_ok (n :: out)%list = true -> plain_item n = true ->
     hd_str out = false.
@@ -1462,7 +1462,7 @@ Proof.
   rewrite Hp in Hc. discriminate.
 Qed.
 
-Lemma opop_str_ok :
+Local Lemma opop_str_ok :
   forall o,
     oscope_ok o = true ->
     oscope_ok (snd (opop_str o)) = true
@@ -1496,7 +1496,7 @@ Proof.
     exact (ilist_ok_head_pop _ _ Hf eq_refl).
 Qed.
 
-Lemma bflat_ok :
+Local Lemma bflat_ok :
   forall kids txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     wf_inlines kids = true ->
@@ -1530,7 +1530,7 @@ Proof.
     apply IH; assumption.
 Qed.
 
-Lemma bsplit_nl_ok :
+Local Lemma bsplit_nl_ok :
   forall s txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     oscope_ok (snd (bsplit_nl s txt o)) = true
@@ -1547,7 +1547,7 @@ Qed.
 
 (* The ordinary reading a `](` opens: the label goes into a fresh frame,
    which is empty, so the head condition holds however the label ends. *)
-Lemma idest_open_wf :
+Local Lemma idest_open_wf :
   forall kids image open o,
     oscope_ok o = true -> wf_inlines kids = true ->
     iscan_wf (idest_open kids image open o) = true.
@@ -1560,7 +1560,7 @@ Proof.
   apply iscan_wf_text; assumption.
 Qed.
 
-Lemma bclosed_lit_ok :
+Local Lemma bclosed_lit_ok :
   forall kids image o,
     oscope_ok o = true -> wf_inlines kids = true ->
     oscope_ok (snd (bclosed_lit kids image o)) = true
@@ -1575,7 +1575,7 @@ Proof.
     cbn [snd] in Hb |- *. exact Hb.
 Qed.
 
-Lemma bref_lit_ok :
+Local Lemma bref_lit_ok :
   forall kids image label o,
     oscope_ok o = true -> wf_inlines kids = true ->
     oscope_ok (snd (bref_lit kids image label o)) = true
@@ -1586,7 +1586,7 @@ Proof.
   destruct (bclosed_lit kids image o). exact Hc.
 Qed.
 
-Lemma bspan_lit_ok :
+Local Lemma bspan_lit_ok :
   forall kids image src o,
     oscope_ok o = true -> wf_inlines kids = true ->
     oscope_ok (snd (bspan_lit kids image src o)) = true
@@ -1598,7 +1598,7 @@ Proof.
   destruct Hc as [H1 H2]. apply bsplit_nl_ok; assumption.
 Qed.
 
-Lemma battr_lit_ok :
+Local Lemma battr_lit_ok :
   forall src txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     oscope_ok (snd (battr_lit src txt o)) = true
@@ -1610,7 +1610,7 @@ Qed.
 (* A marked open holds the state it was in: the push waits for the byte
    after the token, and it is that byte's arm that owes the scope
    condition. *)
-Lemma idelim_marked_wf :
+Local Lemma idelim_marked_wf :
   forall k extra txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_marked k extra txt o) = true.
@@ -1620,7 +1620,7 @@ Proof.
 Qed.
 
 (* And the push, which is exactly what `oscope_ok_push_at` covers. *)
-Lemma oopen_marked_wf :
+Local Lemma oopen_marked_wf :
   forall k cm txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     oscope_ok (oopen_marked k cm txt o) = true
@@ -1630,7 +1630,7 @@ Proof.
   split; [apply oscope_ok_push_at, iscan_wf_flush; assumption | reflexivity].
 Qed.
 
-Lemma idelim_open_marked_wf :
+Local Lemma idelim_open_marked_wf :
   forall k cm txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_open_marked k cm txt o) = true.
@@ -1643,7 +1643,7 @@ Qed.
 (* The non-breaking space is a node, not text, so the branch that emits
    one restores the head condition rather than owing it; the branch that
    puts the backslash back does not touch the scopes at all. *)
-Lemma iescws_resolve_wf :
+Local Lemma iescws_resolve_wf :
   forall ws txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     let '(_, _, o') := iescws_resolve ws txt prev o in
@@ -1658,7 +1658,7 @@ Qed.
 
 (* Popping a frame keeps both halves of the scope invariant: the bottom
    scope is untouched and the rest of the stack was already well-formed. *)
-Lemma oscope_ok_bunpush :
+Local Lemma oscope_ok_bunpush :
   forall o image open o',
     oscope_ok o = true -> bunpush o = Some (image, open, o') ->
     oscope_ok o' = true.
@@ -1671,7 +1671,7 @@ Proof.
   rewrite H1, H3. reflexivity.
 Qed.
 
-Lemma ilead_wf :
+Local Lemma ilead_wf :
   forall c txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (ilead c txt prev o) = true.
@@ -1712,7 +1712,7 @@ Proof.
     cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity.
 Qed.
 
-Lemma idelim_done_wf :
+Local Lemma idelim_done_wf :
   forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_done k txt bef marker next o) = true.
@@ -1724,7 +1724,7 @@ Proof.
   apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
 Qed.
 
-Lemma idelim_resolve_wf :
+Local Lemma idelim_resolve_wf :
   forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_resolve k txt bef marker next o) = true.
@@ -1748,7 +1748,7 @@ Qed.
 (* Flushing the decayed `!` keeps the scopes well-formed: the pop is the
    same one `bclosed_lit` does, so the text it re-emits is one `Str` and
    the tip it lands on is not one. *)
-Lemma ospan_bang_ok :
+Local Lemma ospan_bang_ok :
   forall image o,
     oscope_ok o = true -> oscope_ok (ospan_bang image o) = true.
 Proof.
@@ -1761,7 +1761,7 @@ Qed.
 (* Nothing has to be said about what attachment does to a scope:
    `iattr_mark` only pushes an item, and `oresolve` settles it once the
    scope is complete. *)
-Lemma iattr_mark_wf :
+Local Lemma iattr_mark_wf :
   forall src a txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (iattr_mark src a txt o) = true.
@@ -1773,7 +1773,7 @@ Proof.
   - rewrite ocur_mark. reflexivity.
 Qed.
 
-Lemma islice_end_wf :
+Local Lemma islice_end_wf :
   forall st, iscan_wf st = true -> iscan_wf (islice_end st) = true.
 Proof.
   induction st; intros H; try exact H.
@@ -1782,7 +1782,7 @@ Proof.
     apply IHst, Hsh.
 Qed.
 
-Lemma iattr_feed_wf :
+Local Lemma iattr_feed_wf :
   forall c p src txt prev sh o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf sh = true ->
@@ -1796,7 +1796,7 @@ Proof.
   cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs, Hsl. reflexivity.
 Qed.
 
-Lemma ispan_feed_wf :
+Local Lemma ispan_feed_wf :
   forall c kids image open p src o,
     oscope_ok o = true -> wf_inlines kids = true ->
     iscan_wf (ispan_feed c kids image open p src o) = true.
@@ -1821,7 +1821,7 @@ Proof.
     rewrite wf_ils_forallb, Hall, Hadj. reflexivity.
 Qed.
 
-Lemma iscan_wf_step_at :
+Local Lemma iscan_wf_step_at :
   forall attrs_enabled c st,
     iscan_wf st = true -> iscan_wf (istep_at attrs_enabled c st) = true.
 Proof.
@@ -2039,20 +2039,20 @@ Proof.
         [apply ilead_wf; assumption | cbn [iscan_wf]; exact H].
 Qed.
 
-Lemma iscan_wf_step :
+Local Lemma iscan_wf_step :
   forall c st, iscan_wf st = true -> iscan_wf (istep c st) = true.
 Proof.
   intros c st H. unfold istep. apply iscan_wf_step_at, H.
 Qed.
 
-Lemma iscan_wf_str :
+Local Lemma iscan_wf_str :
   forall s st, iscan_wf st = true -> iscan_wf (iscan_str s st) = true.
 Proof.
   induction s as [|c rest IH]; intros st H; [exact H|].
   cbn [iscan_str]. apply IH, iscan_wf_step, H.
 Qed.
 
-Lemma wf_inlines_of_rlist :
+Local Lemma wf_inlines_of_rlist :
   forall out, rlist_ok out = true -> wf_inlines (List.rev out) = true.
 Proof.
   intros out H. unfold rlist_ok in H. unfold wf_inlines.
@@ -2063,7 +2063,7 @@ Qed.
 (* Flattening abandons every open scope, splicing each into the level
    below with its opener as text -- the same `oapp` merge as closing,
    repeated to the bottom. *)
-Lemma ilist_ok_oflatten :
+Local Lemma ilist_ok_oflatten :
   forall stk pend bottom,
     frames_ok stk = true -> ilist_ok pend = true -> ilist_ok bottom = true ->
     ilist_ok (oflatten pend stk bottom) = true.
@@ -2076,7 +2076,7 @@ Proof.
       |apply ilist_ok_src].
 Qed.
 
-Lemma ilist_ok_oitems_of :
+Local Lemma ilist_ok_oitems_of :
   forall o, oscope_ok o = true -> ilist_ok (oitems_of o) = true.
 Proof.
   intros o H. apply andb_true_iff in H as [Hb Hs].
@@ -2084,13 +2084,13 @@ Proof.
   apply ilist_ok_oflatten; [exact Hs | reflexivity | exact Hb].
 Qed.
 
-Lemma rlist_ok_ofinish :
+Local Lemma rlist_ok_ofinish :
   forall o, oscope_ok o = true -> rlist_ok (ofinish o) = true.
 Proof.
   intros o H. unfold ofinish. apply oresolve_ok, ilist_ok_oitems_of, H.
 Qed.
 
-Lemma iscan_wf_resolve :
+Local Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
   intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob] H;
@@ -2107,7 +2107,7 @@ Proof.
       [apply idelim_open_marked_wf | apply idelim_resolve_wf]; assumption.
 Qed.
 
-Lemma iscan_wf_ostate_flat :
+Local Lemma iscan_wf_ostate_flat :
   forall st,
     iscan_wf st = true ->
     oscope_ok (ifinish_ostate_flat (iresolve st)) = true.
@@ -2165,7 +2165,7 @@ Qed.
 
 (* A compound state hands the question to its ordinary shadow, which is
    where the last conjunct of its obligation was kept for. *)
-Lemma iscan_wf_ostate :
+Local Lemma iscan_wf_ostate :
   forall st, iscan_wf st = true -> oscope_ok (ifinish_ostate st) = true.
 Proof.
   induction st; intros H;
@@ -2178,14 +2178,14 @@ Proof.
        cbn [iscan_wf] in H; apply andb_true_iff in H as [_ H]; exact H.
 Qed.
 
-Lemma iscan_wf_finish_rev :
+Local Lemma iscan_wf_finish_rev :
   forall st, iscan_wf st = true -> rlist_ok (ifinish_rev st) = true.
 Proof.
   intros st H. unfold ifinish_rev.
   apply rlist_ok_ofinish, iscan_wf_ostate, H.
 Qed.
 
-Lemma iscan_wf_finish :
+Local Lemma iscan_wf_finish :
   forall st, iscan_wf st = true -> wf_inlines (ifinish st) = true.
 Proof.
   intros st H. unfold ifinish.
@@ -2196,7 +2196,7 @@ Qed.
    which leaves a head that is not a `Str` -- what the next line's text
    accumulation needs.  Open scopes survive the break: a span may cross
    it. *)
-Lemma iscan_wf_break_flat :
+Local Lemma iscan_wf_break_flat :
   forall st, is_compound st = false -> iscan_wf st = true ->
     iscan_wf (ibreak_flat (iresolve st)) = true.
 Proof.
@@ -2267,7 +2267,7 @@ Proof.
 Qed.
 
 (* A compound state takes the break in both readings at once. *)
-Lemma iscan_wf_break_at :
+Local Lemma iscan_wf_break_at :
   forall attrs_enabled st,
     iscan_wf st = true -> iscan_wf (ibreak_at attrs_enabled st) = true.
 Proof.
@@ -2287,13 +2287,13 @@ Proof.
     apply andb_true_iff in H as [_ Hsh]. apply IHst, Hsh.
 Qed.
 
-Lemma iscan_wf_break :
+Local Lemma iscan_wf_break :
   forall st, iscan_wf st = true -> iscan_wf (ibreak st) = true.
 Proof.
   intros st H. unfold ibreak. apply iscan_wf_break_at, H.
 Qed.
 
-Lemma iscan_wf_lines :
+Local Lemma iscan_wf_lines :
   forall l st, iscan_wf st = true -> iscan_wf (iscan_lines l st) = true.
 Proof.
   induction l as [|x [|y rest] IH]; intros st H; cbn [iscan_lines].
@@ -2302,7 +2302,7 @@ Proof.
   - apply IH, iscan_wf_break, iscan_wf_str, H.
 Qed.
 
-Lemma iscan_wf_str_off :
+Local Lemma iscan_wf_str_off :
   forall s st, iscan_wf st = true -> iscan_wf (iscan_str_off s st) = true.
 Proof.
   induction s as [|c rest IH]; intros st H; [exact H|].
@@ -2311,7 +2311,7 @@ Qed.
 
 (* The bit the frozen lines are read with is invisible to the invariant:
    `iscan_wf_step_at` and `iscan_wf_break_at` hold for either value. *)
-Lemma iscan_wf_lines_off :
+Local Lemma iscan_wf_lines_off :
   forall k l st, iscan_wf st = true -> iscan_wf (iscan_lines_off k l st) = true.
 Proof.
   induction k as [|k IH]; intros l st H; [apply iscan_wf_lines, H|].
@@ -2336,21 +2336,21 @@ Paragraph assembly is well-formed
 
 (* No hypothesis: the scan's invariant does not care what the lines
    look like. *)
-Lemma para_inlines_wf :
+Local Lemma para_inlines_wf :
   forall ls, wf_inlines (para_inlines ls) = true.
 Proof.
   intros ls. unfold para_inlines.
   apply iscan_wf_finish, iscan_wf_lines. reflexivity.
 Qed.
 
-Lemma para_inlines_off_wf :
+Local Lemma para_inlines_off_wf :
   forall k ls, wf_inlines (para_inlines_off k ls) = true.
 Proof.
   intros k ls. unfold para_inlines_off.
   apply iscan_wf_finish, iscan_wf_lines_off. reflexivity.
 Qed.
 
-Lemma flush_para_wf :
+Local Lemma flush_para_wf :
   forall cur k,
     wf_blocks k = true ->
     wf_blocks (mk (Para (para_inlines cur)) :: k) = true.
@@ -2364,7 +2364,7 @@ Qed.
    paragraph the key line retracts to, which is `flush_para_wf` at a
    one-line accumulator; with one it is the key, whose only condition
    beyond its block's is that the label is a well-formed inline list. *)
-Lemma flush_para_off_wf :
+Local Lemma flush_para_off_wf :
   forall n cur k,
     wf_blocks k = true ->
     wf_blocks (mk (Para (para_inlines_off n cur)) :: k) = true.
@@ -2374,7 +2374,7 @@ Proof.
   rewrite para_inlines_off_wf, Hk. reflexivity.
 Qed.
 
-Lemma key_close_wf :
+Local Lemma key_close_wf :
   forall lbl src bs,
     wf_blocks bs = true -> wf_blocks (key_close lbl src bs) = true.
 Proof.
@@ -2392,7 +2392,7 @@ The parser produces well-formed output
 *)
 
 (* Fenced blocks are always well-formed, whatever the info and content. *)
-Lemma fence_block_wf :
+Local Lemma fence_block_wf :
   forall f content, wf_block (node_contents (fence_block f content)) = true.
 Proof.
   intros f content. unfold fence_block.
@@ -2406,7 +2406,7 @@ Qed.
    Paragraph and fence accumulators carry nothing: `para_inlines` is
    well-formed whatever the lines, and `CodeBlock`/`RawBlock` are
    unconditionally well-formed. *)
-Fixpoint state_wf (st : pstate) : bool :=
+Local Fixpoint state_wf (st : pstate) : bool :=
   match st with
   (* A paragraph accumulator carries nothing: `wf_block` asks only that
      the inlines are well formed, and `para_inlines_wf` says they are
@@ -2453,7 +2453,7 @@ Fixpoint state_wf (st : pstate) : bool :=
 (* Every cell a table is built from is well-formed, whichever of the two
    builders made it: `cells_of` calls `parse_inline_line`, and `head_of`
    only re-labels cells that already exist. *)
-Lemma cells_of_wf :
+Local Lemma cells_of_wf :
   forall ct aligns cs,
     forallb (fun c => match c with Cell _ _ ils => wf_inlines ils end)
       (cells_of ct aligns cs) = true.
@@ -2464,7 +2464,7 @@ Proof.
     rewrite parse_inline_line_wf; apply IH.
 Qed.
 
-Lemma head_of_wf :
+Local Lemma head_of_wf :
   forall aligns r,
     forallb (fun c => match c with Cell _ _ ils => wf_inlines ils end) r = true ->
     forallb (fun c => match c with Cell _ _ ils => wf_inlines ils end)
@@ -2476,7 +2476,7 @@ Proof.
   destruct aligns as [|a als]; cbn [head_of forallb]; rewrite Hc; apply IH, Hr.
 Qed.
 
-Lemma table_fold_wf :
+Local Lemma table_fold_wf :
   forall rows aligns acc,
     forallb (forallb (fun c => match c with Cell _ _ ils => wf_inlines ils end))
       acc = true ->
@@ -2497,7 +2497,7 @@ Qed.
    the `nonempty` half of `wf_block`'s clause read straight off the
    definition.  The lines' own shape says nothing -- a line with content
    can still leave no inlines. *)
-Lemma caption_of_wf :
+Local Lemma caption_of_wf :
   forall c,
     match caption_of c with
     | Some ils => (nonempty ils && wf_inlines ils)%bool
@@ -2511,7 +2511,7 @@ Proof.
   rewrite E, para_inlines_wf. reflexivity.
 Qed.
 
-Lemma table_block_wf :
+Local Lemma table_block_wf :
   forall rows c, wf_blocks [table_block rows c] = true.
 Proof.
   intros rows c. unfold table_block.
@@ -2525,7 +2525,7 @@ Qed.
 
 (* Closing the stack at end of input preserves the invariant. *)
 (* A heading block is well-formed as soon as its level is. *)
-Lemma heading_block_wf :
+Local Lemma heading_block_wf :
   forall lvl cur,
     Nat.leb 1 lvl = true -> wf_blocks [heading_block lvl cur] = true.
 Proof.
@@ -2535,7 +2535,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma heading_block_off_wf :
+Local Lemma heading_block_off_wf :
   forall k lvl cur,
     Nat.leb 1 lvl = true -> wf_blocks [heading_block_off k lvl cur] = true.
 Proof.
@@ -2545,7 +2545,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma finish_wf :
+Local Lemma finish_wf :
   forall st, state_wf st = true -> wf_blocks (finish st) = true.
 Proof.
   induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
@@ -2602,7 +2602,7 @@ Proof.
 Qed.
 
 (* A lazy line joins the innermost paragraph, which asks nothing of it. *)
-Lemma feed_lazy_wf :
+Local Lemma feed_lazy_wf :
   forall l st, state_wf st = true -> state_wf (feed_lazy l st) = true.
 Proof.
   induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
@@ -2631,7 +2631,7 @@ Proof.
 Qed.
 
 (* Opening a block from an idle state. *)
-Lemma open_kind_wf :
+Local Lemma open_kind_wf :
   forall l k,
     classify l = k ->
     wf_blocks (fst (open_kind l k)) = true
@@ -2657,7 +2657,7 @@ Qed.
    blocks.  Proved on fuel, since that is what `step` recurses on. *)
 (* Opening a list: a fresh list has no closed items yet, so all the
    invariant needs is what the descent already gives. *)
-Lemma open_list_wf :
+Local Lemma open_list_wf :
   forall l ind m chk bs inner,
     wf_blocks bs = true -> state_wf inner = true ->
     wf_blocks (fst (open_list l ind m chk (bs, inner))) = true
@@ -2669,7 +2669,7 @@ Proof.
 Qed.
 
 (* Opening an attribute spec: the recorded line carries no condition. *)
-Lemma open_attr_wf :
+Local Lemma open_attr_wf :
   forall pend specs ind ap l,
     wf_blocks (fst (open_attr pend specs ind ap l)) = true
     /\ state_wf (snd (open_attr pend specs ind ap l)) = true.
@@ -2680,7 +2680,7 @@ Qed.
 
 (* Opening a code fence: it carries no invariant at all, its column
    least of all. *)
-Lemma open_fence_wf :
+Local Lemma open_fence_wf :
   forall l ind f,
     wf_blocks (fst (open_fence l ind f)) = true
     /\ state_wf (snd (open_fence l ind f)) = true.
@@ -2688,7 +2688,7 @@ Proof. intros l ind f. split; reflexivity. Qed.
 
 (* Opening a reference definition: the classifier's guarantees about the
    label and the destination are exactly the block's. *)
-Lemma open_ref_wf :
+Local Lemma open_ref_wf :
   forall ind l lbl v,
     classify l = KRef lbl v ->
     wf_blocks (fst (open_ref l ind lbl v)) = true
@@ -2700,7 +2700,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma open_foot_wf :
+Local Lemma open_foot_wf :
   forall ind l lbl rest bs inner,
     classify l = KFoot lbl rest ->
     wf_blocks bs = true -> state_wf inner = true ->
@@ -2718,7 +2718,7 @@ Qed.
 (* Pending attributes are invisible to the invariant: decoration touches
    only a head that was already well-formed, and a `PPend` carries the
    state under it unchanged. *)
-Lemma pend_result_wf :
+Local Lemma pend_result_wf :
   forall pend specs r,
     wf_blocks (fst r) = true ->
     state_wf (snd r) = true ->
@@ -2730,7 +2730,7 @@ Proof.
     (split; [rewrite ?wf_blocks_decorate_head; exact Hb | exact Hs]).
 Qed.
 
-Lemma step_fuel_wf :
+Local Lemma step_fuel_wf :
   forall n off l st,
     state_wf st = true ->
     wf_blocks (fst (step_fuel n off l st)) = true
@@ -3237,13 +3237,13 @@ Proof.
     + split; [exact (key_close_wf _ _ _ Hb) | exact Hs].
 Qed.
 
-Lemma step_wf :
+Local Lemma step_wf :
   forall l st,
     state_wf st = true ->
     wf_blocks (fst (step l st)) = true /\ state_wf (snd (step l st)) = true.
 Proof. intros l st H. apply step_fuel_wf. exact H. Qed.
 
-Lemma parse_lines_wf :
+Local Lemma parse_lines_wf :
   forall lines st,
     state_wf st = true ->
     wf_blocks (parse_lines lines st) = true.
@@ -3277,7 +3277,7 @@ Definition wf_complete : Prop :=
 (* The block constructs Parser.v has a rule for.  One is left without:
    `Section` is the document pass's, not the line fold's.  Recursive, so
    a quote whose contents are unreachable is itself unreachable. *)
-Fixpoint supported (b : block) : bool :=
+Local Fixpoint supported (b : block) : bool :=
   let sup_bs :=
     fix go (ns : list (node block)) : bool :=
       match ns with
@@ -3319,10 +3319,10 @@ Fixpoint supported (b : block) : bool :=
   | _ => false
   end.
 
-Definition supported_blocks (bs : blocks) : bool :=
+Local Definition supported_blocks (bs : blocks) : bool :=
   forallb (fun n => supported (node_contents n)) bs.
 
-Lemma supported_footnote :
+Local Lemma supported_footnote :
   forall label bs, supported (FootnoteDef label bs) = supported_blocks bs.
 Proof.
   intros label bs. cbn [supported].
@@ -3330,27 +3330,27 @@ Proof.
   cbn [supported_blocks forallb node_contents]. rewrite IH. reflexivity.
 Qed.
 
-Lemma supported_blocks_cons :
+Local Lemma supported_blocks_cons :
   forall n bs,
     supported_blocks (n :: bs)
     = (supported (node_contents n) && supported_blocks bs)%bool.
 Proof. reflexivity. Qed.
 
-Lemma supported_blocks_app :
+Local Lemma supported_blocks_app :
   forall bs1 bs2,
     supported_blocks (bs1 ++ bs2)%list
     = (supported_blocks bs1 && supported_blocks bs2)%bool.
 Proof. intros bs1 bs2. unfold supported_blocks. apply forallb_app. Qed.
 
-Lemma supported_blocks_rev :
+Local Lemma supported_blocks_rev :
   forall bs, supported_blocks (rev bs) = supported_blocks bs.
 Proof. intros bs. unfold supported_blocks. apply forallb_rev. Qed.
 
-Lemma supported_keyed :
+Local Lemma supported_keyed :
   forall label b, supported (Keyed label b) = supported (node_contents b).
 Proof. intros label [q a x]. cbn [supported]. apply andb_true_r. Qed.
 
-Lemma supported_quote :
+Local Lemma supported_quote :
   forall bs, supported (BlockQuote bs) = supported_blocks bs.
 Proof.
   induction bs as [|n bs IH]; [reflexivity|].
@@ -3360,7 +3360,7 @@ Proof.
   rewrite IH. reflexivity.
 Qed.
 
-Lemma supported_div :
+Local Lemma supported_div :
   forall bs, supported (Div bs) = supported_blocks bs.
 Proof.
   induction bs as [|n bs IH]; [reflexivity|].
@@ -3370,7 +3370,7 @@ Proof.
   rewrite IH. reflexivity.
 Qed.
 
-Lemma div_block_supported :
+Local Lemma div_block_supported :
   forall cls bs,
     supported_blocks bs = true -> supported_blocks [div_block cls bs] = true.
 Proof.
@@ -3380,7 +3380,7 @@ Proof.
     rewrite supported_div, H; reflexivity.
 Qed.
 
-Lemma supported_bullet :
+Local Lemma supported_bullet :
   forall sp items,
     supported (BulletList sp items) = forallb supported_blocks items.
 Proof.
@@ -3402,7 +3402,7 @@ Proof.
   apply H.
 Qed.
 
-Lemma supported_olist :
+Local Lemma supported_olist :
   forall oa sp items,
     supported (OrderedList oa sp items) = forallb supported_blocks items.
 Proof.
@@ -3424,7 +3424,7 @@ Proof.
   apply H.
 Qed.
 
-Lemma supported_deflist :
+Local Lemma supported_deflist :
   forall sp items,
     supported (DefinitionList sp items)
     = forallb (fun ti => supported_blocks (snd ti)) items.
@@ -3445,7 +3445,7 @@ Qed.
 (* Unlike `wf_list_block`, this one stays an equation: the blocks the
    split removes are a paragraph, which `supported` answers `true` for,
    and the definitions it steps over stay in the list. *)
-Lemma supported_def_split :
+Local Lemma supported_def_split :
   forall bs ils def,
     def_split bs = Some (ils, def) ->
     supported_blocks def = supported_blocks bs.
@@ -3462,7 +3462,7 @@ Proof.
     rewrite !supported_blocks_cons, (IH ils' more eq_refl). reflexivity.
 Qed.
 
-Lemma supported_def_items :
+Local Lemma supported_def_items :
   forall its,
     forallb (fun ti => supported_blocks (snd ti)) (def_items its)
     = forallb supported_blocks its.
@@ -3475,7 +3475,7 @@ Proof.
   - rewrite (def_item_none it E). reflexivity.
 Qed.
 
-Lemma supported_tasklist :
+Local Lemma supported_tasklist :
   forall sp items,
     supported (TaskList sp items)
     = forallb (fun ti => supported_blocks (snd ti)) items.
@@ -3494,7 +3494,7 @@ Proof.
 Qed.
 
 (* Pairing statuses onto items is invisible to `supported`. *)
-Lemma supported_task_items :
+Local Lemma supported_task_items :
   forall (chks : list task_status) its,
     forallb (fun ti => supported_blocks (snd ti)) (task_items chks its)
     = forallb supported_blocks its.
@@ -3507,7 +3507,7 @@ Qed.
 
 (* `supported` cannot tell the list flavours apart, so
    `finish_supported` stays one case. *)
-Lemma supported_list_block :
+Local Lemma supported_list_block :
   forall ls last,
     supported (node_contents (list_block ls last))
     = forallb supported_blocks (rev (last :: ls_items ls)).
@@ -3523,7 +3523,7 @@ Proof.
   - cbn [node_contents mk]. apply supported_olist.
 Qed.
 
-Lemma fence_block_supported :
+Local Lemma fence_block_supported :
   forall f content, supported (node_contents (fence_block f content)) = true.
 Proof.
   intros f content. unfold fence_block.
@@ -3534,7 +3534,7 @@ Qed.
 
 (* The same shape as state_wf: only a quote's closed blocks carry an
    obligation. *)
-Fixpoint state_supported (st : pstate) : bool :=
+Local Fixpoint state_supported (st : pstate) : bool :=
   match st with
   | PPara _ | PParaOff _ _ | PHeading _ _ _ | PFence _ _ _ _ _ => true
   | PQuote _ done inner => supported_blocks done && state_supported inner
@@ -3551,11 +3551,11 @@ Fixpoint state_supported (st : pstate) : bool :=
   | PKey _ _ _ inner => state_supported inner
   end.
 
-Lemma supported_blocks_decorate_head :
+Local Lemma supported_blocks_decorate_head :
   forall a bs, supported_blocks (decorate_head a bs) = supported_blocks bs.
 Proof. intros a bs. destruct bs as [|[q a' x] rest]; reflexivity. Qed.
 
-Lemma finish_supported :
+Local Lemma finish_supported :
   forall st, state_supported st = true -> supported_blocks (finish st) = true.
 Proof.
   induction st as [cur|lvl hrng hcur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
@@ -3600,7 +3600,7 @@ Proof.
     cbn [node_contents mk]. rewrite supported_keyed. exact Hi.
 Qed.
 
-Lemma feed_lazy_supported :
+Local Lemma feed_lazy_supported :
   forall l st,
     state_supported st = true -> state_supported (feed_lazy l st) = true.
 Proof.
@@ -3623,7 +3623,7 @@ Proof.
     apply andb_true_iff in H as [Hd Hi]. rewrite Hd, (IH Hi). reflexivity.
 Qed.
 
-Lemma open_list_supported :
+Local Lemma open_list_supported :
   forall l ind m chk bs inner,
     supported_blocks bs = true -> state_supported inner = true ->
     supported_blocks (fst (open_list l ind m chk (bs, inner))) = true
@@ -3638,7 +3638,7 @@ Qed.
    supported unconditionally, so only the container accumulators are
    threaded. *)
 (* `pend_result_wf` for the support invariant, and for the same reason. *)
-Lemma pend_result_supported :
+Local Lemma pend_result_supported :
   forall pend specs r,
     supported_blocks (fst r) = true ->
     state_supported (snd r) = true ->
@@ -3650,7 +3650,7 @@ Proof.
     (split; [rewrite ?supported_blocks_decorate_head; exact Hb | exact Hs]).
 Qed.
 
-Lemma step_fuel_supported :
+Local Lemma step_fuel_supported :
   forall n off l st,
     state_supported st = true ->
     supported_blocks (fst (step_fuel n off l st)) = true
@@ -4073,7 +4073,7 @@ Proof.
       rewrite supported_keyed. exact Hb.
 Qed.
 
-Lemma parse_lines_supported :
+Local Lemma parse_lines_supported :
   forall lines st,
     state_supported st = true ->
     supported_blocks (parse_lines lines st) = true.
@@ -4121,7 +4121,7 @@ Two obligations, one per half of the pass:
   that opened it.
 *)
 
-Lemma wf_block_section :
+Local Lemma wf_block_section :
   forall bs, wf_block (Section bs) = (nonempty bs && wf_blocks bs)%bool.
 Proof.
   intros bs.
@@ -4135,7 +4135,7 @@ Identifiers
 -----------
 *)
 
-Lemma assign_ids_wf :
+Local Lemma assign_ids_wf :
   forall b p a st,
     wf_block b = true ->
     wf_block (node_contents (snd (assign_ids b p a st))) = true.
@@ -4286,7 +4286,7 @@ Proof.
       apply IHb0. exact Hrest.
 Qed.
 
-Lemma assign_ids_list_wf :
+Local Lemma assign_ids_list_wf :
   forall bs st,
     wf_blocks bs = true -> wf_blocks (snd (assign_ids_list bs st)) = true.
 Proof.
@@ -4311,14 +4311,14 @@ Sections
    well-formed, and every entry above the document's has a nonempty one,
    which discharges Section's nonempty obligation on close.  The bottom
    entry may be empty: an empty document is well-formed. *)
-Fixpoint sect_state_wf (stk : sect_state) : bool :=
+Local Fixpoint sect_state_wf (stk : sect_state) : bool :=
   match stk with
   | [] => false                      (* the document entry is never popped *)
   | [(_, _, acc)] => wf_blocks acc
   | (_, _, acc) :: outer => nonempty acc && wf_blocks acc && sect_state_wf outer
   end.
 
-Lemma close_ge_wf :
+Local Lemma close_ge_wf :
   forall stk lvl pending,
     wf_blocks pending = true ->
     sect_state_wf stk = true ->
@@ -4345,7 +4345,7 @@ Proof.
 Qed.
 
 (* Same shape as close_ge_wf, minus the level test. *)
-Lemma close_all_wf :
+Local Lemma close_all_wf :
   forall stk pending,
     wf_blocks pending = true ->
     sect_state_wf stk = true ->
@@ -4367,7 +4367,7 @@ Proof.
     rewrite nonempty_rev, andb_true_r. apply nonempty_app_r. exact Hne.
 Qed.
 
-Lemma sect_push_wf :
+Local Lemma sect_push_wf :
   forall stk n,
     wf_block (node_contents n) = true ->
     sect_state_wf stk = true ->
@@ -4385,7 +4385,7 @@ Qed.
 (* Stated separately because sect_state_wf's two list patterns make `cbn`
    unfold one step too many: it reduces the recursive call as well, and
    the induction hypothesis then no longer matches. *)
-Lemma sect_state_wf_cons :
+Local Lemma sect_state_wf_cons :
   forall l a acc stk,
     nonempty acc = true -> wf_blocks acc = true -> sect_state_wf stk = true ->
     sect_state_wf ((l, a, acc) :: stk) = true.
@@ -4396,7 +4396,7 @@ Proof.
   rewrite Hne, Hacc, Hstk. reflexivity.
 Qed.
 
-Lemma sect_step_wf :
+Local Lemma sect_step_wf :
   forall stk n,
     wf_block (node_contents n) = true ->
     sect_state_wf stk = true ->
@@ -4413,7 +4413,7 @@ Proof.
   - apply close_ge_wf; [reflexivity | exact Hs].
 Qed.
 
-Lemma sect_bottom_wf :
+Local Lemma sect_bottom_wf :
   forall stk, sect_state_wf stk = true -> wf_blocks (sect_bottom stk) = true.
 Proof.
   induction stk as [|[[l a] acc] outer IH]; intros Hs; [discriminate|].
@@ -4425,7 +4425,7 @@ Proof.
 Qed.
 
 (* The fold that drives the stack, carrying the invariant. *)
-Lemma fold_sect_step_wf :
+Local Lemma fold_sect_step_wf :
   forall bs stk,
     wf_blocks bs = true ->
     sect_state_wf stk = true ->
@@ -4437,7 +4437,7 @@ Proof.
   apply sect_step_wf; assumption.
 Qed.
 
-Lemma sectionize_wf :
+Local Lemma sectionize_wf :
   forall bs, wf_blocks bs = true -> wf_blocks (sectionize bs) = true.
 Proof.
   intros bs H. unfold sectionize.
@@ -4445,10 +4445,10 @@ Proof.
   apply fold_sect_step_wf; [exact H | reflexivity].
 Qed.
 
-Definition wf_note_map (m : note_map) : bool :=
+Local Definition wf_note_map (m : note_map) : bool :=
   forallb (fun p : string * blocks => wf_blocks (snd p)) m.
 
-Lemma wf_note_map_set :
+Local Lemma wf_note_map_set :
   forall label bs m,
     wf_blocks bs = true -> wf_note_map m = true ->
     wf_note_map (alist_set label bs m) = true.
@@ -4463,7 +4463,7 @@ Proof.
       rewrite Hhead, (IH Hrest). reflexivity.
 Qed.
 
-Lemma collect_notes_block_wf :
+Local Lemma collect_notes_block_wf :
   forall b p a m,
     wf_block b = true -> wf_note_map m = true ->
     let r := collect_notes b p a m in
@@ -4603,7 +4603,7 @@ Proof.
     split; [exact Hm2|]. rewrite Hit', Hrest'. reflexivity.
 Qed.
 
-Lemma collect_notes_list_wf :
+Local Lemma collect_notes_list_wf :
   forall bs m,
     wf_blocks bs = true -> wf_note_map m = true ->
     wf_note_map (fst (collect_notes_list bs m)) = true /\

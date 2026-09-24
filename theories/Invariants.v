@@ -325,7 +325,7 @@ Definition wrap_neutral : invariant bconfig := fun K =>
      weakest side condition is that it is false. *)
   /\ @bkeyed K = false.
 
-Lemma wrap_neutral_bcuts :
+Local Lemma wrap_neutral_bcuts :
   forall K, wrap_neutral K -> forall l, @bcuts K l = false.
 Proof.
   intros K [Hm [Hu _]] l. unfold bcuts, bunderline_of.
@@ -333,11 +333,11 @@ Proof.
     destruct (classify l); try reflexivity; apply Hm.
 Qed.
 
-Lemma wrap_neutral_accidental_list_immune :
+Local Lemma wrap_neutral_accidental_list_immune :
   forall K, wrap_neutral K -> accidental_list_immune K.
 Proof. intros K [Hm _] sty core chk rest H. rewrite Hm in H. discriminate. Qed.
 
-Lemma wrap_neutral_keyless :
+Local Lemma wrap_neutral_keyless :
   forall K, wrap_neutral K -> forall T l, @keyless T K l = true.
 Proof. intros K [_ [_ Hk]] T l. unfold keyless. rewrite Hk. reflexivity. Qed.
 
@@ -590,7 +590,7 @@ Qed.
 (* The other half: what a state closes to.  `finish` reads the
    configuration only through the two block builders that have a
    configured arm. *)
-Lemma finish_config_ext :
+Local Lemma finish_config_ext :
   forall T K1 K2,
     (forall f content, @fence_block K1 f content = @fence_block K2 f content) ->
     (forall ls items, @list_block K1 ls items = @list_block K2 ls items) ->

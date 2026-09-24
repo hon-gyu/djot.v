@@ -64,7 +64,7 @@ Proof.
 Qed.
 
 
-Lemma nonempty_app_singleton :
+Local Lemma nonempty_app_singleton :
   forall {A : Type} (l : list A) (x : A), nonempty (l ++ [x])%list = true.
 Proof. intros A l x. destruct l. all: reflexivity. Qed.
 
@@ -109,7 +109,7 @@ Fixpoint rev_string_aux (s acc : string) : string :=
 
 Definition rev_string (s : string) : string := rev_string_aux s EmptyString.
 
-Lemma rev_aux_app :
+Local Lemma rev_aux_app :
   forall s acc, rev_string_aux s acc = rev_string s ++ acc.
 Proof.
   induction s as [|c s IH]; intros acc; simpl.
@@ -139,7 +139,7 @@ Proof.
   - rewrite rev_string_cons, rev_string_app, IH. reflexivity.
 Qed.
 
-Lemma rev_aux_length :
+Local Lemma rev_aux_length :
   forall s acc,
     String.length (rev_string_aux s acc) =
     (String.length s + String.length acc)%nat.
@@ -149,13 +149,13 @@ Proof.
   - rewrite IH. simpl. lia.
 Qed.
 
-Lemma rev_length :
+Local Lemma rev_length :
   forall s, String.length (rev_string s) = String.length s.
 Proof.
   intros s. unfold rev_string. rewrite rev_aux_length. simpl. lia.
 Qed.
 
-Lemma rev_aux_blank :
+Local Lemma rev_aux_blank :
   forall s acc, is_blank (rev_string_aux s acc) = (is_blank s && is_blank acc)%bool.
 Proof.
   induction s as [|c s IH]; intros acc; simpl.
@@ -206,7 +206,7 @@ Fixpoint drop_ws_upto (n : nat) (s : string) : string :=
   | _, _ => s
   end.
 
-Lemma drop_ws_upto_0 : forall s, drop_ws_upto 0 s = s.
+Local Lemma drop_ws_upto_0 : forall s, drop_ws_upto 0 s = s.
 Proof. destruct s; reflexivity. Qed.
 
 Lemma map_drop_ws_upto_0 : forall ls, map (drop_ws_upto 0) ls = ls.
@@ -239,7 +239,7 @@ Proof.
   destruct (is_ws c); [lia | simpl; lia].
 Qed.
 
-Lemma drop_leading_ws_nonempty :
+Local Lemma drop_leading_ws_nonempty :
   forall s, is_blank s = false -> drop_leading_ws s <> EmptyString.
 Proof.
   induction s as [|c s IH]; intros H.
@@ -251,7 +251,7 @@ Proof.
 Qed.
 
 (* Dropping leading whitespace preserves blankness. *)
-Lemma is_blank_drop_leading_ws :
+Local Lemma is_blank_drop_leading_ws :
   forall s, is_blank (drop_leading_ws s) = is_blank s.
 Proof.
   induction s as [|c s IH]; [reflexivity|].
@@ -299,7 +299,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma strip_trailing_ws_nonempty :
+Local Lemma strip_trailing_ws_nonempty :
   forall s, is_blank s = false -> nonempty_str (strip_trailing_ws s) = true.
 Proof.
   intros s H. unfold strip_trailing_ws.
@@ -324,7 +324,7 @@ Definition nl : string := String "010" EmptyString.
 (* Split on LF.  A trailing newline does not yield a final empty line:
    "a\n" splits to ["a"], not ["a"; ""].  Hence the side condition, on
    lemmas about split_lines, that the last line is nonempty. *)
-Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
+Local Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
   match s with
   | EmptyString =>
       match cur with
@@ -340,7 +340,7 @@ Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
 Definition split_lines (s : string) : list string := split_lines_aux s EmptyString.
 
 (* [split_lines], each line paired with its index. *)
-Fixpoint index_lines_from (i : nat) (lines : list string)
+Local Fixpoint index_lines_from (i : nat) (lines : list string)
   : list (nat * string) :=
   match lines with
   | [] => []
@@ -350,7 +350,7 @@ Fixpoint index_lines_from (i : nat) (lines : list string)
 Definition split_lines_indexed (s : string) : list (nat * string) :=
   index_lines_from 0 (split_lines s).
 
-Lemma map_snd_index_lines_from :
+Local Lemma map_snd_index_lines_from :
   forall i lines, map snd (index_lines_from i lines) = lines.
 Proof.
   intros i lines. revert i.
@@ -371,7 +371,7 @@ Record source_line : Type := SourceLine
   ; source_line_length : nat
   ; source_line_ending : nat }.
 
-Fixpoint line_table_aux (s : string) (start len : nat)
+Local Fixpoint line_table_aux (s : string) (start len : nat)
   : list source_line :=
   match s with
   | EmptyString =>
@@ -389,7 +389,7 @@ Fixpoint line_table_aux (s : string) (start len : nat)
 Definition line_table (s : string) : list source_line :=
   line_table_aux s 0 0.
 
-Definition source_line_at (lines : list source_line) (i : nat)
+Local Definition source_line_at (lines : list source_line) (i : nat)
   : option source_line := nth_error lines i.
 
 Record source_point : Type := SourcePoint
@@ -480,7 +480,7 @@ Proof.
 Qed.
 
 (* A whitespace-free string is not blank unless it is empty. *)
-Lemma no_ws_nonempty_nonblank :
+Local Lemma no_ws_nonempty_nonblank :
   forall s, no_ws s = true -> nonempty_str s = true -> is_blank s = false.
 Proof.
   intros [|c s] H He; [discriminate|].
@@ -516,12 +516,12 @@ Proof.
   apply andb_true_iff in H as [_ H]. apply String.eqb_eq in H. exact H.
 Qed.
 
-Lemma line_ok_nonempty : forall l, line_ok l = true -> l <> EmptyString.
+Local Lemma line_ok_nonempty : forall l, line_ok l = true -> l <> EmptyString.
 Proof.
   intros l H E. subst. discriminate (line_ok_nonblank _ H).
 Qed.
 
-Lemma split_aux_no_nl :
+Local Lemma split_aux_no_nl :
   forall x cur, no_nl x = true ->
   split_lines_aux x cur =
   match rev_string_aux x cur with
@@ -536,7 +536,7 @@ Proof.
     apply IH. exact Hx.
 Qed.
 
-Lemma split_lines_single :
+Local Lemma split_lines_single :
   forall x, no_nl x = true -> x <> EmptyString -> split_lines x = [x].
 Proof.
   intros x H Hne. unfold split_lines.
@@ -549,7 +549,7 @@ Proof.
   - rewrite <- E, rev_string_involutive. reflexivity.
 Qed.
 
-Lemma split_lines_line :
+Local Lemma split_lines_line :
   forall x r, no_nl x = true ->
   split_lines (x ++ String "010" r) = x :: split_lines r.
 Proof.
@@ -568,7 +568,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma split_lines_cons_nl :
+Local Lemma split_lines_cons_nl :
   forall r, split_lines (String "010" r) = EmptyString :: split_lines r.
 Proof. reflexivity. Qed.
 
@@ -598,7 +598,7 @@ Qed.
 
 (* ...and the same when more input follows the join: the joined lines
    come off the front and the remainder splits independently. *)
-Lemma split_join_line :
+Local Lemma split_join_line :
   forall a ls r, forallb no_nl (a :: ls) = true ->
   split_lines (String.concat nl (a :: ls) ++ String "010" r) =
   ((a :: ls) ++ split_lines r)%list.
@@ -645,14 +645,14 @@ Fixpoint join_nl (ls : list string) : string :=
   | l :: rest => l ++ nl ++ join_nl rest
   end.
 
-Lemma concat_cons_ne :
+Local Lemma concat_cons_ne :
   forall sep x l, l <> [] ->
   String.concat sep (x :: l) = x ++ sep ++ String.concat sep l.
 Proof. intros sep x l H. destruct l; [congruence | reflexivity]. Qed.
 
 (* Content lines followed by a final line: the newline-terminated join
    against the final line is the same as concat over all of them. *)
-Lemma join_nl_last :
+Local Lemma join_nl_last :
   forall content x,
     (join_nl content ++ x)%string = String.concat nl (content ++ [x])%list.
 Proof.

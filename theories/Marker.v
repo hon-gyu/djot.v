@@ -22,7 +22,7 @@ what the block layer does with a number: it reads one, at the list's
 first item, and never counts.  Renumbering is the renderer's job.
 *)
 
-Fixpoint dec_acc (s : string) (acc : nat) : nat :=
+Local Fixpoint dec_acc (s : string) (acc : nat) : nat :=
   match s with
   | EmptyString => acc
   | String c s' => dec_acc s' (acc * 10 + (nat_of_ascii c - 48))
@@ -34,9 +34,9 @@ Definition dec_value (s : string) : nat := dec_acc s 0.
    its first marker and has to come back.  Rendered here rather than with
    `Strings.nat_str`, whose round-trip is stated against the stdlib's
    decoder rather than `dec_value`. *)
-Definition digit_char (d : nat) : ascii := ascii_of_nat (48 + d).
+Local Definition digit_char (d : nat) : ascii := ascii_of_nat (48 + d).
 
-Fixpoint dec_str_fuel (fuel n : nat) : string :=
+Local Fixpoint dec_str_fuel (fuel n : nat) : string :=
   match fuel with
   | O => EmptyString
   | S f =>
@@ -48,21 +48,21 @@ Fixpoint dec_str_fuel (fuel n : nat) : string :=
 
 Definition dec_str (n : nat) : string := dec_str_fuel (S n) n.
 
-Lemma dec_acc_app :
+Local Lemma dec_acc_app :
   forall s1 s2 a, dec_acc (s1 ++ s2) a = dec_acc s2 (dec_acc s1 a).
 Proof.
   induction s1 as [|c s1 IH]; intros s2 a; [reflexivity|].
   cbn [append dec_acc]. apply IH.
 Qed.
 
-Lemma digit_char_value :
+Local Lemma digit_char_value :
   forall d, d < 10 -> nat_of_ascii (digit_char d) - 48 = d.
 Proof.
   intros d Hd. unfold digit_char.
   rewrite nat_ascii_embedding by lia. lia.
 Qed.
 
-Lemma dec_str_fuel_value :
+Local Lemma dec_str_fuel_value :
   forall fuel n, n < fuel -> dec_acc (dec_str_fuel fuel n) 0 = n.
 Proof.
   induction fuel as [|f IH]; intros n Hn; [lia|].
@@ -80,7 +80,7 @@ Qed.
 Lemma dec_value_dec_str : forall n, dec_value (dec_str n) = n.
 Proof. intros n. unfold dec_value, dec_str. apply dec_str_fuel_value. lia. Qed.
 
-Lemma dec_str_fuel_digits :
+Local Lemma dec_str_fuel_digits :
   forall fuel n, str_forallb is_digit (dec_str_fuel fuel n) = true
                  /\ (0 < fuel -> dec_str_fuel fuel n <> EmptyString).
 Proof.
@@ -115,7 +115,7 @@ Proof.
   exfalso. apply (Hne ltac:(lia)). reflexivity.
 Qed.
 
-Definition roman_digit (c : ascii) : nat :=
+Local Definition roman_digit (c : ascii) : nat :=
   if (Ascii.eqb c "i" || Ascii.eqb c "I")%char%bool then 1
   else if (Ascii.eqb c "v" || Ascii.eqb c "V")%char%bool then 5
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then 10
@@ -127,7 +127,7 @@ Definition roman_digit (c : ascii) : nat :=
 
 (* Scan right to left, subtracting a digit smaller than the one to its
    right, so `ix` is 9. *)
-Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
+Local Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
   match s with
   | EmptyString => total
   | String c s' =>
@@ -160,14 +160,14 @@ Definition alpha_value (up : bool) (core : string) : nat :=
    file is upstream of everything. *)
 Definition roman_upper : nat := 1000.
 
-Definition roman_table (up : bool) : list (nat * string) :=
+Local Definition roman_table (up : bool) : list (nat * string) :=
   if up
   then [(1000,"M");(900,"CM");(500,"D");(400,"CD");(100,"C");(90,"XC");(50,"L");
         (40,"XL");(10,"X");(9,"IX");(5,"V");(4,"IV");(1,"I")]
   else [(1000,"m");(900,"cm");(500,"d");(400,"cd");(100,"c");(90,"xc");(50,"l");
         (40,"xl");(10,"x");(9,"ix");(5,"v");(4,"iv");(1,"i")].
 
-Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string) :=
+Local Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string) :=
   match tbl with
   | [] => None
   | (v, s) :: rest => if Nat.leb v n then Some (v, s) else roman_pick rest n
@@ -178,7 +178,7 @@ Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string
    symbolically normalizing `roman_str up n` at an unknown `n` unfolds to
    13^16 branches, and a `Qed` that converts it does not terminate.
    `roman_pick` leaves one recursive call per level. *)
-Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
+Local Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
   match fuel with
   | O => EmptyString
   | S f =>
@@ -247,7 +247,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* Turning a checked range into the pointwise fact.  Generic: another
    codec supplies its own `forallb` and reuses this. *)
-Lemma range_ok :
+Local Lemma range_ok :
   forall (f : nat -> bool) (hi n : nat),
     forallb f (seq 1 hi) = true -> 1 <= n -> n <= hi -> f n = true.
 Proof.
@@ -255,7 +255,7 @@ Proof.
   apply (proj1 (forallb_forall f (seq 1 hi)) H). apply in_seq. lia.
 Qed.
 
-Lemma roman_ok_lt :
+Local Lemma roman_ok_lt :
   forall up n, 1 <= n -> n <= roman_upper -> roman_ok up n = true.
 Proof.
   intros [|] n H1 H2;
@@ -275,7 +275,7 @@ Proof.
     [left|right]; apply Nat.leb_le, H.
 Qed.
 
-Lemma alpha_ok_lt :
+Local Lemma alpha_ok_lt :
   forall up n, 1 <= n -> n <= alpha_upper -> alpha_ok up n = true.
 Proof.
   intros [|] n H1 H2;
@@ -454,7 +454,7 @@ Qed.
    This is what makes the uniformity chain blind to styles: a canonical
    rendering repeats one marker, so every sibling re-offers exactly the
    candidates the list already has. *)
-Lemma filter_map_all :
+Local Lemma filter_map_all :
   forall (sty : list lstyle) (f : lstyle -> nat) (p : lstyle * nat -> bool),
     (forall s, In s sty -> p (s, f s) = true) ->
     filter p (map (fun s => (s, f s)) sty) = map (fun s => (s, f s)) sty.
@@ -464,7 +464,7 @@ Proof.
   f_equal. apply IH. intros s' Hin. apply Hp, or_intror, Hin.
 Qed.
 
-Lemma narrow_with_starts_self :
+Local Lemma narrow_with_starts_self :
   forall sty core, narrow (with_starts sty core) sty = with_starts sty core.
 Proof.
   intros sty core. unfold narrow, with_starts.
@@ -472,7 +472,7 @@ Proof.
   apply existsb_exists. exists s. split; [exact Hin | apply lstyle_eqb_refl].
 Qed.
 
-Lemma narrow_mk_styles :
+Local Lemma narrow_mk_styles :
   forall m, narrow (mk_styles m) (mk_sty m) = mk_styles m.
 Proof. intros m. apply narrow_with_starts_self. Qed.
 
@@ -512,7 +512,7 @@ Proof.
   apply existsb_exists. exists s. split; [exact Hin | apply lstyle_eqb_refl].
 Qed.
 
-Lemma admits_refl : forall m, admits m m = true.
+Local Lemma admits_refl : forall m, admits m m = true.
 Proof. intros m. apply admits_agree. reflexivity. Qed.
 
 (* The same fact at the spelling `items_ok_at` leaves in a goal. *)

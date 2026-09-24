@@ -24,7 +24,7 @@ The inline pass
    backtick then a space" is "starts with a space then a backtick", so
    one function does both ends. *)
 
-Definition strip_pad (s : string) : string :=
+Local Definition strip_pad (s : string) : string :=
   match s with
   | String c rest =>
       if (Ascii.eqb c " "%char && starts_tick rest)%bool then rest else s
@@ -34,7 +34,7 @@ Definition strip_pad (s : string) : string :=
 Definition trim_verb (s : string) : string :=
   rev_string (strip_pad (rev_string (strip_pad s))).
 
-Lemma strip_pad_added :
+Local Lemma strip_pad_added :
   forall s, starts_tick s = true -> strip_pad (" " ++ s) = s.
 Proof.
   intros [|c s] H; [discriminate|].
@@ -42,7 +42,7 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma strip_pad_stable :
+Local Lemma strip_pad_stable :
   forall s, negb (starts_space_tick s) = true -> strip_pad s = s.
 Proof.
   intros [|c s] H; [reflexivity|]. destruct s as [|d s].
@@ -53,7 +53,7 @@ Proof.
     cbn [starts_tick]. rewrite Hd. reflexivity.
 Qed.
 
-Lemma strip_pad_pad_verb :
+Local Lemma strip_pad_pad_verb :
   forall s, negb (starts_space_tick s) = true ->
     strip_pad (pad_verb s)
     = (s ++ if ends_tick s then " " else EmptyString)%string.
@@ -195,7 +195,7 @@ Record ostate : Type := OState {
 Definition ostart : ostate := OState [] [] None.
 
 (* Which of two points is further into the source. *)
-Definition spot_later (a b : spot) : spot :=
+Local Definition spot_later (a b : spot) : spot :=
   if Nat.ltb (spot_line a) (spot_line b) then b
   else if Nat.ltb (spot_line b) (spot_line a) then a
   else if Nat.ltb (spot_rem a) (spot_rem b) then a else b.
@@ -204,17 +204,17 @@ Definition spot_later (a b : spot) : spot :=
    or the end of the authored syntax it carries but does not cover.  An
    attribute spec sits after the node it attaches to and is not part of
    its range (`RAttrSpec`). *)
-Definition roles_stop (p : provenance) : spot :=
+Local Definition roles_stop (p : provenance) : spot :=
   fold_left (fun acc e => spot_later acc (span_stop (snd e)))
     (syntax_spans p) (span_stop (node_span p)).
 
-Definition node_stop (fallback : spot) (n : node inline) : spot :=
+Local Definition node_stop (fallback : spot) (n : node inline) : spot :=
   match node_provenance n with
   | Some p => roles_stop p
   | None => fallback
   end.
 
-Fixpoint items_stop (fallback : spot) (l : oitems) : spot :=
+Local Fixpoint items_stop (fallback : spot) (l : oitems) : spot :=
   match l with
   | [] => fallback
   | OIn n :: _ => node_stop fallback n
@@ -239,7 +239,7 @@ Definition remember_word_start `{PosPolicy} `{InlineCursor}
 Definition oword_reset (o : ostate) : ostate :=
   OState (os_out o) (os_stk o) None.
 
-Definition inline_prov (start stop : spot) : provenance :=
+Local Definition inline_prov (start stop : spot) : provenance :=
   prov_at (SrcSpan start stop).
 
 Definition imk `{PosPolicy} (start stop : spot) (x : inline) : node inline :=
@@ -264,7 +264,7 @@ Definition imk_here `{PosPolicy} `{InlineCursor} (x : inline) : node inline :=
 Definition fr_lit `{PosPolicy} (f : frame) : node inline :=
   imk (span_start (fr_open f)) (span_stop (fr_open f)) (Str (fr_src f)).
 
-Lemma fr_lit_semantic : forall f,
+Local Lemma fr_lit_semantic : forall f,
   @fr_lit semantic_pos f = mk (Str (fr_src f)).
 Proof. reflexivity. Qed.
 
@@ -356,7 +356,7 @@ Proof.
   destruct v; try reflexivity. discriminate.
 Qed.
 
-Lemma isnoc_nonstr :
+Local Lemma isnoc_nonstr :
   forall n out, istarts_str out = false -> isnoc n out = (n :: out)%list.
 Proof.
   intros n [|[a [|x xs] i] out'] H; try reflexivity.
@@ -472,13 +472,13 @@ Definition flush_text_to_at `{PosPolicy} `{InlineCursor}
 Definition flush_text (txt : string) (o : ostate) : ostate :=
   @flush_text_at semantic_pos semantic_inline_cursor txt o.
 
-Lemma flush_text_at_semantic : forall txt o,
+Local Lemma flush_text_at_semantic : forall txt o,
   @flush_text_at semantic_pos semantic_inline_cursor txt o = flush_text txt o.
 Proof. reflexivity. Qed.
 
 (* A stop the policy discards is a stop the semantic reading cannot see,
    so at that instance the two flushes are one function. *)
-Lemma flush_text_to_at_semantic : forall stop txt o,
+Local Lemma flush_text_to_at_semantic : forall stop txt o,
   @flush_text_to_at semantic_pos semantic_inline_cursor stop txt o =
   flush_text txt o.
 Proof. reflexivity. Qed.
@@ -494,7 +494,7 @@ Definition previous_spot (p : spot) : spot :=
 
 (* How much source a string covers, as (line breaks, bytes before the
    first of them, bytes in all). *)
-Fixpoint source_shape (s : string) : nat * nat * nat :=
+Local Fixpoint source_shape (s : string) : nat * nat * nat :=
   match s with
   | EmptyString => (0, 0, 0)
   | String c rest =>
@@ -519,7 +519,7 @@ Definition spot_before (p : spot) (s : string) : spot :=
 
 (* [n] bytes to the left, on the same line.  The counted form of
    `spot_before`, for a token whose source is known by length. *)
-Definition spot_plus (n : nat) (p : spot) : spot :=
+Local Definition spot_plus (n : nat) (p : spot) : spot :=
   Spot (spot_line p) (spot_rem p + n).
 
 (* Where a delimiter token being resolved began, and so where the text
@@ -596,7 +596,7 @@ Fixpoint last_ws_split (s : string) : string * string :=
   end.
 
 (* A last word can only come from text there was. *)
-Lemma last_ws_split_nonempty :
+Local Lemma last_ws_split_nonempty :
   forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.
 Proof. intros [|c s] H; [exact H|reflexivity]. Qed.
 
@@ -674,7 +674,7 @@ Definition oresolve `{PosPolicy} (l : oitems) : inlines :=
 
 (* Nothing waiting: resolution gives the list back, with no side
    condition. *)
-Lemma oresolve_go_map : forall `{PosPolicy} ns,
+Local Lemma oresolve_go_map : forall `{PosPolicy} ns,
   oresolve_go (List.map OIn ns) = (ns, false).
 Proof.
   intros P ns. induction ns as [|n ns IH]; [reflexivity|].
@@ -694,7 +694,7 @@ Lemma oresolve_map : forall `{PosPolicy} ns,
   oresolve (List.map OIn ns) = ns.
 Proof. intros P ns. unfold oresolve. rewrite oresolve_go_map. reflexivity. Qed.
 
-Lemma oresolve_map_rev : forall `{PosPolicy} ns,
+Local Lemma oresolve_map_rev : forall `{PosPolicy} ns,
   oresolve (List.rev (List.map OIn ns)) = List.rev ns.
 Proof.
   intros P ns. rewrite <- List.map_rev. apply oresolve_map.
@@ -761,7 +761,7 @@ Definition oclose `{PosPolicy} (k : dstyle) (m : bool) (stop : spot)
 Definition sclose (k : dstyle) (m : bool) (o : ostate) : option ostate :=
   @oclose semantic_pos k m (Spot 0 0) o.
 
-Lemma oclose_semantic : forall k m stop o,
+Local Lemma oclose_semantic : forall k m stop o,
   @oclose semantic_pos k m stop o = sclose k m o.
 Proof. reflexivity. Qed.
 
@@ -845,7 +845,7 @@ Definition bunpush (o : ostate) : option (bool * span * ostate) :=
   | _ => None
   end.
 
-Lemma bunpush_opush :
+Local Lemma bunpush_opush :
   forall k m o, bunpush (opush k m o) = None.
 Proof. intros k m [out stk word]. reflexivity. Qed.
 
@@ -958,7 +958,7 @@ Definition battr_lit `{PosPolicy} `{InlineCursor}
    headed by the construct's own opening byte, so an empty residue means
    `bsplit_nl` cut the fragment at a newline and that newline is the byte
    in question. *)
-Definition blit_prev (t : string) : option ascii := str_last t (Some nl_char).
+Local Definition blit_prev (t : string) : option ascii := str_last t (Some nl_char).
 
 Definition bref_lit `{PosPolicy} `{InlineCursor}
   (kids : inlines) (image : bool) (label : string)
@@ -1248,13 +1248,13 @@ Definition endash : string :=
 Definition emdash : string :=
   String "226"%char (String "128"%char (String "148"%char EmptyString)).
 
-Definition periods (two : bool) : string :=
+Local Definition periods (two : bool) : string :=
   if two then String period (one period) else one period.
 
-Definition typography_ellipsis : string :=
+Local Definition typography_ellipsis : string :=
   if smart_typography then ellipsis else chars period 3.
 
-Fixpoint srep (s : string) (n : nat) : string :=
+Local Fixpoint srep (s : string) (n : nat) : string :=
   match n with O => EmptyString | S m => (s ++ srep s m)%string end.
 
 (* How a run of `n` hyphens is cut: a run divisible by three is all em
@@ -1266,7 +1266,7 @@ Fixpoint srep (s : string) (n : nat) : string :=
    has no normal form at an unknown `n`, so every `Compute` would pass
    while every general lemma stayed unprovable
    (`.project/project-engineering-lessons.md`). *)
-Definition dash_counts (n : nat) : nat * nat * nat :=
+Local Definition dash_counts (n : nat) : nat * nat * nat :=
   if Nat.eqb (Nat.modulo n 3) 0 then (Nat.div n 3, 0, 0)
   else if Nat.eqb (Nat.modulo n 2) 0 then (0, Nat.div n 2, 0)
   else if Nat.eqb n 1 then (0, 0, 1)
@@ -1295,13 +1295,13 @@ Proof. reflexivity. Qed.
 
 (* The dollars a pending prefix is holding, when they turn out to be
    text. *)
-Definition dollars (two : bool) : string :=
+Local Definition dollars (two : bool) : string :=
   if two then (one dollar ++ one dollar)%string else one dollar.
 
 (* A candidate that failed is its own source: the `<`, what it ate, and
    whatever pended before it.  One string rather than a state, because
    the byte that killed it still has to be dispatched. *)
-Definition auto_lit (src txt : string) : string :=
+Local Definition auto_lit (src txt : string) : string :=
   (txt ++ String lt src)%string.
 
 (* A slice boundary in the ordinary reading of a candidate's region.
@@ -1383,11 +1383,11 @@ Definition idelim_open_marked `{PosPolicy} `{InlineCursor}
 (* What a token that never finished decays to: the row's characters
    received so far, with the `{` of a marked open back in front of
    them. *)
-Definition idelim_run (k : dstyle) (extra : nat) (marked : bool) : string :=
+Local Definition idelim_run (k : dstyle) (extra : nat) (marked : bool) : string :=
   ((if marked then one lbrace else EmptyString)
      ++ chars (dchar k) (S extra))%string.
 
-Lemma idelim_run_nonempty :
+Local Lemma idelim_run_nonempty :
   forall k extra marked, nonempty_str (idelim_run k extra marked) = true.
 Proof. intros k extra []; reflexivity. Qed.
 
@@ -1506,7 +1506,7 @@ Definition isymbol_step `{PosPolicy} `{InlineCursor}
    two cases differ.  With nothing read yet the `{` had no `=` after it,
    so it takes the ordinary attribute path.  With an `=` read the region
    cannot parse as attributes, so it is text. *)
-Definition iraw_lit (spec : string) : string :=
+Local Definition iraw_lit (spec : string) : string :=
   (String lbrace spec)%string.
 
 Definition iraw_step_at `{PosPolicy} `{InlineCursor}
@@ -1535,7 +1535,7 @@ Definition iraw_step_at `{PosPolicy} `{InlineCursor}
        end
   else IRaw (spec ++ one c)%string txt o.
 
-Definition iraw_step `{PosPolicy} `{InlineCursor}
+Local Definition iraw_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (spec txt : string) (o : ostate) : iscan :=
   iraw_step_at inline_attrs_enabled c spec txt o.
 
@@ -1571,7 +1571,7 @@ Fixpoint wiki_split (s : string) : string * option string :=
 (* A wikilink candidate's own source: both brackets, the region, and the
    pending `]` and backslash.  The literal fallback, with whatever text
    pended before the first bracket, as `bnote_lit` rebuilds a label. *)
-Definition wiki_lit (esc rb image : bool) (region : string) : string :=
+Local Definition wiki_lit (esc rb image : bool) (region : string) : string :=
   (bracket_open image ++ one lbrack ++ region
      ++ (if rb then one rbrack else EmptyString)
      ++ (if esc then one bslash else EmptyString))%string.
@@ -1623,12 +1623,12 @@ Definition ibang_step `{PosPolicy} `{InlineCursor}
 (* Resolving an unbraced delimiter, once the byte after it has arrived
    (or not, at the end of a line: `inone`).  Closing wins over opening,
    and a `}` immediately after forces the close. *)
-Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
+Local Definition idelim_lit (k : dstyle) (txt : string) (marker : bool) : string :=
   (txt ++ ddecay_str k false marker)%string.
 
 (* And the source byte it ends on, which `ddecay_str` does not spell for a
    smart quote: `'` is written and `’` is what lands in the buffer. *)
-Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
+Local Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
   Some (if marker then rbrace else dchar k).
 
 Definition idelim_done `{PosPolicy} `{InlineCursor}
@@ -2134,7 +2134,7 @@ Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
    `idelim_done` consults that byte and `iresolve` passes `None`, so a
    run that cannot close settles as text at the end of a line and opens
    in the middle of one. *)
-Definition iresolve_next `{PosPolicy} `{InlineCursor}
+Local Definition iresolve_next `{PosPolicy} `{InlineCursor}
   (c : ascii) (st : iscan) : iscan :=
   match st with
   | IDelim k extra txt before marked o =>
@@ -2262,7 +2262,7 @@ Proof.
     iscan_str]; [reflexivity|apply IH].
 Qed.
 
-Lemma iscan_str_fuel_short :
+Local Lemma iscan_str_fuel_short :
   forall s fuel st,
     fuel < String.length s -> iscan_str_fuel fuel s st = None.
 Proof.
@@ -2342,7 +2342,7 @@ Definition para_inlines (l : list string) : inlines :=
 Definition para_inlines_off (k : nat) (l : list string) : inlines :=
   ifinish (iscan_lines_off k l istart).
 
-Lemma para_inlines_off_0 :
+Local Lemma para_inlines_off_0 :
   forall l, para_inlines_off 0 l = para_inlines l.
 Proof. reflexivity. Qed.
 
@@ -2382,12 +2382,12 @@ the test lives here and not beside the other line recognizers in
 
 (* The colon sits against its label: the byte before it is not
    whitespace, and a line-initial colon has no label at all. *)
-Definition key_before (prev : option ascii) : bool :=
+Local Definition key_before (prev : option ascii) : bool :=
   match prev with None => false | Some c => negb (is_ws c) end.
 
 (* And a space or the end of the line follows it.  A tab is neither, so
    this is spelled out rather than reusing `is_space`, which admits one. *)
-Definition key_after (rest : string) : bool :=
+Local Definition key_after (rest : string) : bool :=
   match rest with
   | EmptyString => true
   | String c _ => Ascii.eqb c " "%char
@@ -2402,7 +2402,7 @@ Definition key_after (rest : string) : bool :=
 
    An escaped colon is declined by that same test, a pending backslash
    being an open state, so `foo\: bar` needs no case of its own. *)
-Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
+Local Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
   : option (string * string) :=
   match s with
   | EmptyString => None
@@ -2439,7 +2439,7 @@ Definition key_split (l : string) : option (string * string) :=
    to the whole test.  `step_fuel_pad` is what needs it: a padded line
    and a shifted offset are the same descent, and a key opened by one
    has to be the key opened by the other. *)
-Lemma key_point_ws_prefix :
+Local Lemma key_point_ws_prefix :
   forall p l, is_blank p = true -> key_point (p ++ l) = key_point l.
 Proof.
   intros p l Hp. unfold key_point.
@@ -2450,7 +2450,7 @@ Qed.
    not to be whitespace, so the accumulator is headed by that byte.  The
    invariant is what the recursion has to carry, since the character is
    `prev` at the split and the head of the accumulator one step later. *)
-Lemma key_scan_label_nonblank :
+Local Lemma key_scan_label_nonblank :
   forall s acc prev st r v,
     (forall c, prev = Some c -> is_ws c = false -> is_blank acc = false) ->
     key_scan s acc prev st = Some (r, v) -> nonblank r = true.
@@ -2470,7 +2470,7 @@ Proof.
   unfold nonblank. rewrite rev_blank, (Hinv c0 eq_refl E). reflexivity.
 Qed.
 
-Lemma key_point_label_nonblank :
+Local Lemma key_point_label_nonblank :
   forall l lbl v, key_point l = Some (lbl, v) -> nonblank lbl = true.
 Proof.
   intros l lbl v H. unfold key_point in H.
@@ -2478,7 +2478,7 @@ Proof.
   intros c Hc. discriminate Hc.
 Qed.
 
-Lemma key_split_label_nonblank :
+Local Lemma key_split_label_nonblank :
   forall l lbl v, key_split l = Some (lbl, v) -> nonblank lbl = true.
 Proof.
   intros l lbl v H. unfold key_split in H.
@@ -2491,7 +2491,7 @@ Qed.
    accumulator it returns as the label.  This is the bridge between the
    test performed during the one-pass search and a statement about the
    returned label itself. *)
-Lemma key_scan_label_settled :
+Local Lemma key_scan_label_settled :
   forall s acc prev st lbl v,
     st = iscan_str (rev_string acc) istart ->
     key_scan s acc prev st = Some (lbl, v) ->
@@ -2514,7 +2514,7 @@ Proof.
       * exact Hsplit.
 Qed.
 
-Lemma key_point_label_settled :
+Local Lemma key_point_label_settled :
   forall l lbl v,
     key_point l = Some (lbl, v) ->
     iscan_settled ":"%char (iscan_str lbl istart) = true.
@@ -2523,7 +2523,7 @@ Proof.
   eapply key_scan_label_settled; [reflexivity|exact H].
 Qed.
 
-Lemma key_split_label_settled :
+Local Lemma key_split_label_settled :
   forall l lbl v,
     key_split l = Some (lbl, v) ->
     iscan_settled ":"%char (iscan_str lbl istart) = true.
@@ -2534,7 +2534,7 @@ Proof.
   injection H as <- <-. eapply key_point_label_settled; exact E.
 Qed.
 
-Lemma key_split_label_one :
+Local Lemma key_split_label_one :
   forall l lbl v,
     key_split l = Some (lbl, v) ->
     exists x, para_inlines [lbl] = [x].
@@ -2567,7 +2567,7 @@ Qed.
 
 (* The same fact in the form the block layer wants: `open_kind` hands
    the arm the line already normalized. *)
-Lemma key_point_drop_leading_ws :
+Local Lemma key_point_drop_leading_ws :
   forall l, key_point (drop_leading_ws l) = key_point l.
 Proof.
   intros l. unfold key_point. rewrite drop_leading_ws_idem. reflexivity.

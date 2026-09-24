@@ -47,7 +47,7 @@ Fixpoint parse_lines_at (off : nat) (lines : list string) (st : pstate)
       (bs ++ parse_lines_at off rest st')%list
   end.
 
-Lemma parse_lines_at_zero :
+Local Lemma parse_lines_at_zero :
   forall lines st, parse_lines_at 0 lines st = parse_lines lines st.
 Proof.
   induction lines as [|l lines IH]; intros st; [reflexivity|].
@@ -69,7 +69,7 @@ Proof.
   rewrite IH. reflexivity.
 Qed.
 
-Lemma parse_lines_shift :
+Local Lemma parse_lines_shift :
   forall k lines st,
     parse_lines_at k lines (pad_state k st) = parse_lines lines st.
 Proof.
@@ -80,7 +80,7 @@ Proof.
 Qed.
 
 (* A canonical quote prefix eats exactly two columns. *)
-Lemma consumed_quote_prefix :
+Local Lemma consumed_quote_prefix :
   forall l, consumed ("> " ++ l) l = quote_pad.
 Proof.
   intros l. unfold consumed, quote_pad, quote_open.
@@ -150,7 +150,7 @@ Qed.
    is about the second: a line that *continues* a paragraph is never
    tested for a split (keyed-blocks 3.5), so an open paragraph swallows
    a colon that would have keyed a fresh line. *)
-Lemma parse_lines_text :
+Local Lemma parse_lines_text :
   forall l rest cur, classify l = KText -> bcuts l = false ->
   keyless l = true ->
   parse_lines (l :: rest) (PPara cur) =
@@ -167,7 +167,7 @@ Proof.
 Qed.
 
 (* Any nonblank line continues an open paragraph. *)
-Lemma parse_lines_cont :
+Local Lemma parse_lines_cont :
   forall l rest c cur',
     classify l <> KBlank -> bcuts l = false ->
   parse_lines (l :: rest) (PPara (c :: cur')) =
@@ -263,7 +263,7 @@ Fence equations
 ---------------
 *)
 
-Lemma parse_lines_fence_eof :
+Local Lemma parse_lines_fence_eof :
   forall f ind range opener acc,
     parse_lines [] (PFence f ind range opener acc)
     = [fence_block f (line_texts (rev acc))].
@@ -278,7 +278,7 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ (step_fence_close _ _ _ _ _ _ H)). reflexivity.
 Qed.
 
-Lemma parse_lines_fence_content :
+Local Lemma parse_lines_fence_content :
   forall l rest f ind range opener acc, fence_close f l = false ->
   parse_lines (l :: rest) (PFence f ind range opener acc) =
   parse_lines rest
@@ -296,7 +296,7 @@ Seed lemmas: feeding runs of lines
 
 (* A run of nonblank lines accumulates (reversed, leading whitespace
    stripped) onto an open paragraph. *)
-Lemma parse_lines_cont_seed :
+Local Lemma parse_lines_cont_seed :
   forall ls tail c cur',
     forallb nonblank ls = true ->
     forallb (fun l => negb (bcuts l)) ls = true ->
@@ -427,7 +427,7 @@ Heading equations
 -----------------
 *)
 
-Lemma step_heading_cont :
+Local Lemma step_heading_cont :
   forall l lvl rng txt cur,
     bheading_continues = true ->
     classify l = KHeading lvl txt ->
@@ -459,7 +459,7 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ (step_idle _ _ H eq_refl)). reflexivity.
 Qed.
 
-Lemma parse_lines_heading_cont :
+Local Lemma parse_lines_heading_cont :
   forall l rest lvl rng txt cur,
     bheading_continues = true ->
     classify l = KHeading lvl txt ->
@@ -486,7 +486,7 @@ Qed.
 (* A run of canonically-rendered heading lines accumulates (reversed,
    leading whitespace stripped) onto the open heading, exactly as
    paragraph lines do. *)
-Lemma parse_lines_heading_seed :
+Local Lemma parse_lines_heading_seed :
   forall lvl ls tail rng cur,
     bheading_continues = true ->
     touch_extent rng = rng ->
@@ -536,7 +536,7 @@ Qed.
 (* The same through an all-whitespace pad: `classify_canonical_heading_pad`
    extracts the same pad-free `a`, and `push_text` drops what is left of
    the pad. *)
-Lemma parse_lines_heading_seed_pad :
+Local Lemma parse_lines_heading_seed_pad :
   forall pad, is_blank pad = true ->
   forall lvl ls tail rng cur,
     bheading_continues = true ->
@@ -563,7 +563,7 @@ Proof.
     rewrite <- app_assoc. reflexivity.
 Qed.
 
-Lemma parse_lines_heading_seed_pad_ok :
+Local Lemma parse_lines_heading_seed_pad_ok :
   forall pad, is_blank pad = true ->
   forall lvl ls tail rng cur,
     (bheading_continues || Nat.eqb (List.length ls) 0)%bool = true ->
@@ -596,14 +596,14 @@ holds for every construct the parser knows, nested quotes included. *)
    item ignores the item's indent: the pad never reaches `rest`.  A
    nested list is not like that, since its recorded column moves with the
    pad, so the list side is stated as a shift (`run_lines_pad_shift`). *)
-Lemma consumed_quote_prefix_pad :
+Local Lemma consumed_quote_prefix_pad :
   forall pad l, consumed (pad ++ "> " ++ l) l = String.length pad + quote_pad.
 Proof.
   intros pad l. unfold consumed, quote_pad, quote_open.
   rewrite !length_append. cbn [String.length]. lia.
 Qed.
 
-Lemma parse_lines_quote_cont_pad :
+Local Lemma parse_lines_quote_cont_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
   forall lines tail range done inner,
@@ -634,7 +634,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma parse_lines_quote_cont_eof_pad :
+Local Lemma parse_lines_quote_cont_eof_pad :
   forall pad, is_blank pad = true ->
   forall lines range done inner,
     parse_lines (map (fun l => pad ++ "> " ++ l)%string lines)
@@ -660,7 +660,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma parse_lines_quote_pad :
+Local Lemma parse_lines_quote_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
   forall l lines tail,
@@ -698,7 +698,7 @@ Qed.
 
 (* Inside an open quote, the prefixed lines drive the inner state and
    the blank line that follows closes the quote. *)
-Lemma parse_lines_quote_cont :
+Local Lemma parse_lines_quote_cont :
   forall lines tail range done inner,
     parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
                 (PQuote range done (pad_state quote_pad inner))
@@ -711,7 +711,7 @@ Proof.
 Qed.
 
 (* ...and the same when the input simply ends. *)
-Lemma parse_lines_quote_cont_eof :
+Local Lemma parse_lines_quote_cont_eof :
   forall lines range done inner,
     parse_lines (map (fun l => ("> " ++ l)%string) lines)
                 (PQuote range done (pad_state quote_pad inner))
@@ -762,7 +762,7 @@ Fixpoint run_lines (lines : list string) (st : pstate) : blocks * pstate :=
       ((bs ++ more)%list, st'')
   end.
 
-Lemma run_lines_app :
+Local Lemma run_lines_app :
   forall xs ys st,
     run_lines (xs ++ ys)%list st =
       let '(bs, st') := run_lines xs st in
@@ -779,7 +779,7 @@ Proof.
   rewrite app_assoc. reflexivity.
 Qed.
 
-Lemma run_lines_continue :
+Local Lemma run_lines_continue :
   forall xs ys st head middle tail final,
     run_lines xs st = (head, middle) ->
     run_lines ys middle = (tail, final) ->
@@ -859,7 +859,7 @@ Definition div_content_ok (lines : list string) : bool :=
 
 (* Inside an open div, contents that never close it drive the inner state,
    and the fence that follows closes the div and is consumed. *)
-Lemma parse_lines_div_cont :
+Local Lemma parse_lines_div_cont :
   forall content tail range opener done inner,
     run_div_open 3 content inner = true ->
     in_fence (snd (run_lines content inner)) = false ->
@@ -960,7 +960,7 @@ Block attributes
    claim them?  Three cannot: the idle state hands a blank line back as
    nothing at all, and `PAttr` and `PPend` are the two states that read
    the pending set themselves rather than passing it on. *)
-Definition pend_carriable (st : pstate) : bool :=
+Local Definition pend_carriable (st : pstate) : bool :=
   match st with
   | PPara [] | PAttr _ _ _ _ _ _ | PPend _ _ _ => false
   | _ => true
@@ -976,7 +976,7 @@ Definition pend_ready (st : pstate) (l : string) : bool :=
   | _ => true
   end.
 
-Lemma pend_carriable_ready :
+Local Lemma pend_carriable_ready :
   forall st l, pend_carriable st = true -> pend_ready st l = true.
 Proof.
   intros [cur| | | | | | | | | | | |] l H; try exact H;
@@ -985,7 +985,7 @@ Qed.
 
 (* On a ready state the wrapper is transparent: the line goes down
    unchanged and `pend_result` decides what to do with what comes back. *)
-Lemma step_pend_pass :
+Local Lemma step_pend_pass :
   forall l pend specs st, pend_ready st l = true ->
   step l (PPend pend specs st) = pend_result pend specs (step l st).
 Proof.
@@ -1002,7 +1002,7 @@ Qed.
 (* What a line opens is carriable, save for the two kinds `pend_ready`
    excludes: a blank opens nothing and a spec opens the state that reads
    the pending set. *)
-Lemma open_line_carriable :
+Local Lemma open_line_carriable :
   forall descend ind l k,
     match k with KBlank | KAttr _ => false | _ => true end = true ->
     fst (open_line descend ind l k) = [] ->
@@ -1023,7 +1023,7 @@ Qed.
    emits nothing has not yet handed the pending set anywhere, and what it
    became can still carry it.  Every close emits, so the cases that would
    lose the set are the ones the hypothesis rules out. *)
-Lemma step_empty_carriable :
+Local Lemma step_empty_carriable :
   forall l st, pend_ready st l = true -> fst (step l st) = [] ->
   pend_carriable (snd (step l st)) = true.
 Proof.
@@ -1048,7 +1048,7 @@ Qed.
    run under the wrapper is the run without it, decorated.  The side
    condition is on the first line only, because after it the wrapper
    either is gone or sits on a carriable state. *)
-Lemma parse_lines_pend :
+Local Lemma parse_lines_pend :
   forall ls pend specs st,
     match ls with [] => True | l :: _ => pend_ready st l = true end ->
     parse_lines ls (PPend pend specs st) = decorate_head pend (parse_lines ls st).
@@ -1067,7 +1067,7 @@ Qed.
 
 (* A finished spec refuses the line and resolves to the pending set over
    an idle state, on the same line. *)
-Lemma step_attr_done :
+Local Lemma step_attr_done :
   forall l pend specs range ind ap slices, ap_done ap = true ->
   step l (PAttr pend specs range ind ap slices)
   = step l (PPend (attr_merge (ap_attrs ap) pend)
@@ -1078,7 +1078,7 @@ Proof.
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia). reflexivity.
 Qed.
 
-Lemma parse_lines_attr_done :
+Local Lemma parse_lines_attr_done :
   forall ls pend specs range ind ap slices, ap_done ap = true ->
   parse_lines ls (PAttr pend specs range ind ap slices)
   = parse_lines ls (PPend (attr_merge (ap_attrs ap) pend)
@@ -1111,7 +1111,7 @@ Qed.
 
 (* A key passes every line that pending attributes can pass.  Reusing
    that invariant lets a completed child prefix admit any suffix. *)
-Lemma pend_ready_key_pass :
+Local Lemma pend_ready_key_pass :
   forall st l, pend_ready st l = true ->
     (is_blank l && is_idle st)%bool = false.
 Proof.
@@ -1124,13 +1124,13 @@ Qed.
 
 (* Pending attributes around a live child are safe too: the key wraps
    the attributed node after the pending wrapper has decorated it. *)
-Definition key_carriable (st : pstate) : bool :=
+Local Definition key_carriable (st : pstate) : bool :=
   match st with
   | PPend _ _ inner => pend_carriable inner
   | _ => pend_carriable st
   end.
 
-Lemma key_carriable_pass :
+Local Lemma key_carriable_pass :
   forall st l, key_carriable st = true ->
     (is_blank l && is_idle st)%bool = false.
 Proof.
@@ -1138,7 +1138,7 @@ Proof.
   apply pend_ready_key_pass, pend_carriable_ready, H.
 Qed.
 
-Lemma step_empty_key_carriable :
+Local Lemma step_empty_key_carriable :
   forall l st, key_carriable st = true -> fst (step l st) = [] ->
     key_carriable (snd (step l st)) = true.
 Proof.
@@ -1159,7 +1159,7 @@ Proof.
   - destruct b as [p a x]. destruct x; discriminate Hempty.
 Qed.
 
-Lemma parse_lines_key_carriable :
+Local Lemma parse_lines_key_carriable :
   forall ls range lbl src st, key_carriable st = true ->
     parse_lines ls (PKey range lbl src st) = key_close lbl src (parse_lines ls st).
 Proof.
@@ -1388,7 +1388,7 @@ Proof.
   rewrite Hedit, Hold. reflexivity.
 Qed.
 
-Lemma app_cons_app :
+Local Lemma app_cons_app :
   forall {A : Type} (xs : list A) x ys tail,
     ((xs ++ (x :: ys)) ++ tail)%list =
     (xs ++ (x :: (ys ++ tail)))%list.

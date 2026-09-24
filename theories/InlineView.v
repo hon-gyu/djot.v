@@ -44,7 +44,7 @@ Definition dtoken (k : dstyle) : string := chars (dchar k) (dwidth k).
 
 (* Whitespace as the delimiter rules see it.  `can_open` and `can_close`
    each test one neighbouring byte against this. *)
-Definition is_space (c : ascii) : bool :=
+Local Definition is_space (c : ascii) : bool :=
   (Ascii.eqb c " "%char || Ascii.eqb c "009"%char
    || Ascii.eqb c "013"%char || Ascii.eqb c "010"%char)%bool.
 
@@ -54,7 +54,7 @@ Definition nonspace_at (p : option ascii) : bool :=
 (* The bytes after which the single quote may open: the start of the
    line, whitespace, either quote, a hyphen, or an opening paren or
    bracket.  After anything else an apostrophe could be meant. *)
-Definition dopens_after (c : option ascii) : bool :=
+Local Definition dopens_after (c : option ascii) : bool :=
   match c with
   | None => true
   | Some ch =>
@@ -104,7 +104,7 @@ Definition is_delim (c : ascii) : bool :=
 (* Everything the scanner and the renderer assume about the table is
    derived from the instance's own side condition, so an instance is
    admissible or it does not exist. *)
-Lemma drow_ok_of : forall k, drow_ok cfg k = true.
+Local Lemma drow_ok_of : forall k, drow_ok cfg k = true.
 Proof. intros k. exact (dconfig_ok_row cfg k cfg_ok). Qed.
 
 (* An enabled row has a token to write.  A width of zero would spell a
@@ -129,7 +129,7 @@ Proof.
 Qed.
 
 (* Its character is punctuation, so a backslash escapes it... *)
-Lemma dchar_punct : forall k, is_punct (dchar k) = true.
+Local Lemma dchar_punct : forall k, is_punct (dchar k) = true.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
@@ -195,7 +195,7 @@ Qed.
 
 (* The lookup is by character, so a row it finds is spelled with the
    character that found it. *)
-Lemma dstyle_of_char :
+Local Lemma dstyle_of_char :
   forall c k, dstyle_of c = Some k -> dchar k = c.
 Proof.
   intros c k H. unfold dstyle_of, dstyle_at in H.
@@ -204,7 +204,7 @@ Proof.
 Qed.
 
 (* And it only ever finds a row that is switched on. *)
-Lemma dstyle_of_enabled :
+Local Lemma dstyle_of_enabled :
   forall c k, dstyle_of c = Some k -> denabled_of k = true.
 Proof.
   intros c k H. unfold dstyle_of, dstyle_at in H.
@@ -218,7 +218,7 @@ Proof.
 Qed.
 
 
-Lemma nl_one_char : nl = one nl_char.
+Local Lemma nl_one_char : nl = one nl_char.
 Proof. reflexivity. Qed.
 
 (* The braced spelling of a delimiter, which is the canonical one: it
@@ -260,7 +260,7 @@ Definition needs_escape (c : ascii) : bool :=
    The fixed characters are punctuation by computation; the table's
    characters satisfy the obligation because an admissible row is
    spelled with punctuation. *)
-Lemma dreserved_punct : forall c, dreserved c = true -> is_punct c = true.
+Local Lemma dreserved_punct : forall c, dreserved c = true -> is_punct c = true.
 Proof.
   intros [b0 b1 b2 b3 b4 b5 b6 b7] H.
   destruct b0, b1, b2, b3, b4, b5, b6, b7;
@@ -282,7 +282,7 @@ Qed.
 
 (* Obligation 2: the escape character escapes itself, or a text ending in
    a backslash would decode as an escape of whatever followed. *)
-Lemma needs_escape_backslash : needs_escape "\"%char = true.
+Local Lemma needs_escape_backslash : needs_escape "\"%char = true.
 Proof. reflexivity. Qed.
 
 (* Obligation 3: a backtick in a `Str` must not reach the scanner bare,
@@ -295,7 +295,7 @@ Qed.
 
 (* Obligation 4, the same for every delimiter the table claims, and for
    the braces that force one open or closed. *)
-Lemma needs_escape_delim : forall c, is_delim c = true -> needs_escape c = true.
+Local Lemma needs_escape_delim : forall c, is_delim c = true -> needs_escape c = true.
 Proof.
   intros c H. unfold needs_escape. rewrite H.
   rewrite orb_true_r, orb_true_l. reflexivity.
@@ -303,39 +303,39 @@ Qed.
 
 (* And the hyphen, which no table can decline: `ilead` dispatches it
    before the lookup. *)
-Lemma needs_escape_hyphen : needs_escape hyphen = true.
+Local Lemma needs_escape_hyphen : needs_escape hyphen = true.
 Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
 (* The footnote marker, for the same reason the brackets are here: `[^`
    is a construct, so a `^` after a `[` must not reach the scanner
    bare. *)
-Lemma needs_escape_hat : needs_escape hat = true.
+Local Lemma needs_escape_hat : needs_escape hat = true.
 Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
 Lemma needs_escape_lbrace : needs_escape lbrace = true.
 Proof. reflexivity. Qed.
 
-Lemma needs_escape_rbrace : needs_escape rbrace = true.
+Local Lemma needs_escape_rbrace : needs_escape rbrace = true.
 Proof. reflexivity. Qed.
 
 (* And the same for the brackets, on which the scanner dispatches: a `[`
    in a `Str` would open a scope, and a `]` would close one that a later
    construct opened. *)
-Lemma needs_escape_lbrack : needs_escape lbrack = true.
+Local Lemma needs_escape_lbrack : needs_escape lbrack = true.
 Proof. reflexivity. Qed.
 
-Lemma needs_escape_rbrack : needs_escape rbrack = true.
+Local Lemma needs_escape_rbrack : needs_escape rbrack = true.
 Proof. reflexivity. Qed.
 
 (* The `!` an image opens on.  Escaping it unconditionally lets a `Str`
    ending in `!` sit before a link without making it an image. *)
-Lemma needs_escape_bang : needs_escape bang = true.
+Local Lemma needs_escape_bang : needs_escape bang = true.
 Proof. reflexivity. Qed.
 
 (* A literal colon must not become a key connective when its line opens
    a paragraph.  The decoder reads `\:` as `:` with keys on or off, so the
    escape is emitted everywhere and rendering needs no block setting. *)
-Lemma needs_escape_colon : needs_escape ":"%char = true.
+Local Lemma needs_escape_colon : needs_escape ":"%char = true.
 Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
 (* Inside a destination the scanner dispatches on two more characters,
@@ -376,7 +376,7 @@ Fixpoint escape_dest (s : string) : string :=
 
 (* Verbatim delimiters use the least positive backtick-run length that
    does not occur in the content. *)
-Fixpoint tick_runs_from (run : nat) (s : string) : list nat :=
+Local Fixpoint tick_runs_from (run : nat) (s : string) : list nat :=
   match s with
   | EmptyString => if Nat.eqb run 0 then [] else [run]
   | String c rest =>
@@ -386,9 +386,9 @@ Fixpoint tick_runs_from (run : nat) (s : string) : list nat :=
            else run :: tick_runs_from 0 rest
   end.
 
-Definition tick_runs (s : string) : list nat := tick_runs_from 0 s.
+Local Definition tick_runs (s : string) : list nat := tick_runs_from 0 s.
 
-Fixpoint first_missing (fuel candidate : nat) (runs : list nat) : nat :=
+Local Fixpoint first_missing (fuel candidate : nat) (runs : list nat) : nat :=
   match fuel with
   | 0 => candidate
   | S fuel' =>
@@ -400,7 +400,7 @@ Fixpoint first_missing (fuel candidate : nat) (runs : list nat) : nat :=
 Definition verb_ticks (s : string) : nat :=
   first_missing (S (String.length s)) 1 (tick_runs s).
 
-Lemma first_missing_nonzero :
+Local Lemma first_missing_nonzero :
   forall fuel n runs, n <> 0 -> first_missing fuel n runs <> 0.
 Proof.
   induction fuel as [|fuel IH]; intros n runs Hn; cbn [first_missing].
@@ -434,7 +434,7 @@ Proof.
   apply starts_tick_app_l. rewrite rev_nonempty_str. reflexivity.
 Qed.
 
-Lemma ends_tick_app_r :
+Local Lemma ends_tick_app_r :
   forall a b, nonempty_str b = true -> ends_tick (a ++ b) = ends_tick b.
 Proof.
   intros a b Hb. unfold ends_tick. rewrite rev_string_app.
@@ -572,7 +572,7 @@ parser. *)
 
 (* `/[^:]@/`: an `@` with a character before it that is not a colon.  The
    leading position cannot match, so `<@x>` is not an email. *)
-Fixpoint auto_email_from (prev : option ascii) (s : string) : bool :=
+Local Fixpoint auto_email_from (prev : option ascii) (s : string) : bool :=
   match s with
   | EmptyString => false
   | String c rest =>
@@ -589,7 +589,7 @@ Definition auto_email (s : string) : bool := auto_email_from None s.
 (* `/[a-zA-Z]:/`: a letter immediately followed by a colon, anywhere.
    Not a scheme in the URI sense -- `<a:b>` is a link to `a:b` -- and the
    name says only what it tests. *)
-Definition is_alpha (c : ascii) : bool :=
+Local Definition is_alpha (c : ascii) : bool :=
   ((Ascii.leb "a"%char c && Ascii.leb c "z"%char)
    || (Ascii.leb "A"%char c && Ascii.leb c "Z"%char))%bool.
 
@@ -599,7 +599,7 @@ Definition symbol_char (c : ascii) : bool :=
    || Ascii.eqb c "_"%char || Ascii.eqb c "+"%char
    || Ascii.eqb c "-"%char)%bool.
 
-Fixpoint auto_scheme (s : string) : bool :=
+Local Fixpoint auto_scheme (s : string) : bool :=
   match s with
   | String c ((String d _) as rest) =>
       if (is_alpha c && Ascii.eqb d ":"%char)%bool then true
@@ -825,7 +825,7 @@ Fixpoint ci_text (cis : list cinline) : string :=
 Definition ci_line (cis : list cinline) : string := ci_text cis.
 
 (* The traversal inside [ci_src] is [ci_text]. *)
-Lemma ci_src_children : forall xs,
+Local Lemma ci_src_children : forall xs,
   (fix go (cis : list cinline) : string :=
      match cis with
      | [] => EmptyString
@@ -886,7 +886,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
 
 (* The traversal inside [ci_ast] is [ci_inlines]. *)
-Lemma ci_ast_children : forall xs,
+Local Lemma ci_ast_children : forall xs,
   (fix go (cis : list cinline) : inlines :=
      match cis with
      | [] => []
@@ -922,10 +922,10 @@ Proof.
   cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
 Qed.
 
-Lemma ci_line_nil : ci_line [] = EmptyString.
+Local Lemma ci_line_nil : ci_line [] = EmptyString.
 Proof. reflexivity. Qed.
 
-Lemma ci_line_str : forall s, ci_line [CIStr s] = escape_str s.
+Local Lemma ci_line_str : forall s, ci_line [CIStr s] = escape_str s.
 Proof. intros s. unfold ci_line. cbn [ci_text]. apply append_empty_r. Qed.
 
 (*
@@ -954,7 +954,7 @@ Definition ci_pair_ok (a b : cinline) : bool :=
    the start of a link's text such a `[` is the second bracket of a
    wikilink, so with wikilinks on a canonical link or reference may not
    begin with one (wikilink spec, section 6). *)
-Definition ci_lbrack_head (c : cinline) : bool :=
+Local Definition ci_lbrack_head (c : cinline) : bool :=
   match c with
   | CILink false _ _ | CIRef false _ _ | CINote _ | CIWiki false _ _ => true
   | _ => false
@@ -1072,7 +1072,7 @@ Definition cis_ok (cis : list cinline) : bool :=
 
 (* The two traversals inside [ci_ok] are [forallb ci_ok] and
    [ci_sep_ok]. *)
-Lemma ci_ok_children : forall xs,
+Local Lemma ci_ok_children : forall xs,
   (fix go (cis : list cinline) : bool :=
      match cis with
      | [] => true
@@ -1083,7 +1083,7 @@ Proof.
   rewrite IH. reflexivity.
 Qed.
 
-Lemma ci_sep_children : forall xs,
+Local Lemma ci_sep_children : forall xs,
   (fix sep (cis : list cinline) : bool :=
      match cis with
      | a :: ((b :: _) as rest) => ci_pair_ok a b && sep rest
@@ -1129,7 +1129,7 @@ Qed.
 (* Nonemptiness of a line's content is not a separate obligation: the
    block layer already asks that a paragraph's rendered lines are
    nonblank, and only `[]` renders blank. *)
-Lemma cis_nonempty_of_line :
+Local Lemma cis_nonempty_of_line :
   forall cis, nonempty_str (ci_line cis) = true -> nonempty cis = true.
 Proof.
   intros [|c rest] H; [rewrite ci_line_nil in H; discriminate | reflexivity].
@@ -1251,12 +1251,12 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   | Node _ _ il :: rest => inline_lines rest (cur ++ inline_text il)
   end.
 
-Lemma inline_lines_softbreak :
+Local Lemma inline_lines_softbreak :
   forall rest cur,
     inline_lines (mk SoftBreak :: rest) cur = cur :: inline_lines rest EmptyString.
 Proof. reflexivity. Qed.
 
-Lemma inline_lines_ci_ast :
+Local Lemma inline_lines_ci_ast :
   forall ci rest cur,
     inline_lines (ci_ast ci :: rest) cur
     = inline_lines rest (cur ++ ci_src ci).
@@ -1291,7 +1291,7 @@ Proof.
     cbn [ci_line ci_text]. rewrite append_assoc. reflexivity.
 Qed.
 
-Lemma inline_lines_ci_para :
+Local Lemma inline_lines_ci_para :
   forall rest cis cur,
     forallb cis_ok (cis :: rest) = true ->
     forallb nonempty (cis :: rest) = true ->

@@ -30,7 +30,7 @@ Ltac sem_flush :=
       change (@oclose T semantic_pos k m stop o) with (sclose k m o)
   end.
 
-Lemma iscan_open_ticks_more :
+Local Lemma iscan_open_ticks_more :
   forall k n vk out,
     iscan_str (ticks k) (IOpen n vk out) = IOpen (n + k) vk out.
 Proof.
@@ -41,7 +41,7 @@ Proof.
     rewrite IH. f_equal. lia.
 Qed.
 
-Lemma iscan_open_ticks :
+Local Lemma iscan_open_ticks :
   forall k txt prev o,
     iscan_str (ticks (S k)) (IText false txt prev o)
     = IOpen (S k) VVerb (flush_text txt o).
@@ -52,7 +52,7 @@ Proof.
   rewrite iscan_open_ticks_more. f_equal.
 Qed.
 
-Lemma iscan_verb_ticks_more :
+Local Lemma iscan_verb_ticks_more :
   forall k n run txt vk out,
     iscan_str (ticks k) (IVerb n run txt vk out) = IVerb n (run + k) txt vk out.
 Proof.
@@ -64,7 +64,7 @@ Proof.
     rewrite IH. f_equal. lia.
 Qed.
 
-Lemma iscan_open_body :
+Local Lemma iscan_open_body :
   forall s n vk out,
     nonempty_str s = true -> starts_tick s = false -> n <> 0 ->
     iscan_str s (IOpen n vk out) = iscan_str s (IVerb n 0 EmptyString vk out).
@@ -76,7 +76,7 @@ Proof.
   - destruct n; [contradiction|reflexivity].
 Qed.
 
-Lemma iscan_verb_safe_nonempty :
+Local Lemma iscan_verb_safe_nonempty :
   forall s n run txt vk out,
     nonempty_str s = true -> ends_tick s = false ->
     verb_safe_from n run s = true ->
@@ -103,7 +103,7 @@ Proof.
       f_equal. cbn [ticks one]. rewrite !append_assoc. reflexivity.
 Qed.
 
-Lemma iscan_verb_text_nonempty :
+Local Lemma iscan_verb_text_nonempty :
   forall s txt prev o,
     nonempty_str s = true ->
     verb_safe (verb_ticks s) (pad_verb s) = true ->
@@ -143,7 +143,7 @@ suffix holding the lines before it. *)
 (* Appending at the *bottom* -- `os_out`, the outermost scope -- is what
    makes this commute with every transition: pushing and popping scopes
    only ever touch `os_stk`, so the suffix is out of their reach. *)
-Definition oout_app (base : oitems) (o : ostate) : ostate :=
+Local Definition oout_app (base : oitems) (o : ostate) : ostate :=
   OState (os_out o ++ base)%list (os_stk o) (os_word_start o).
 
 (* What a suffix always is: empty, or a previous line, whose most recent
@@ -154,21 +154,21 @@ Definition oout_app (base : oitems) (o : ostate) : ostate :=
    `osnoc_nonstr`, but not for attachment: a scope that has emitted
    nothing sees the suffix's head, so the head has to be one
    `oattach_list` declines, as it declines an empty scope. *)
-Definition base_ok (base : oitems) : bool :=
+Local Definition base_ok (base : oitems) : bool :=
   match base with
   | [] => true
   | OIn (Node _ _ SoftBreak) :: _ => true
   | _ => false
   end.
 
-Lemma base_ok_starts_str :
+Local Lemma base_ok_starts_str :
   forall base, base_ok base = true -> starts_str base = false.
 Proof.
   intros [|[[p [|kv a'] v]|ma] base] H; try reflexivity.
   destruct v; try reflexivity. discriminate.
 Qed.
 
-Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
+Local Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   match st with
   | IText esc txt prev o => IText esc txt prev (oout_app base o)
   | IEscWs ws txt prev o => IEscWs ws txt prev (oout_app base o)
@@ -200,14 +200,14 @@ Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   | IRaw spec txt o => IRaw spec txt (oout_app base o)
   end.
 
-Lemma oemit_app :
+Local Lemma oemit_app :
   forall n o base,
     oemit n (oout_app base o) = oout_app base (oemit n o).
 Proof.
   intros n [out [|f stk] word] base; reflexivity.
 Qed.
 
-Lemma flush_text_app :
+Local Lemma flush_text_app :
   forall txt o base,
     flush_text txt (oout_app base o) = oout_app base (flush_text txt o).
 Proof.
@@ -216,18 +216,18 @@ Proof.
 Qed.
 
 
-Lemma opush_at_app :
+Local Lemma opush_at_app :
   forall k m cm open o base,
     opush_at k m cm open (oout_app base o)
     = oout_app base (opush_at k m cm open o).
 Proof. intros k m cm open o base. reflexivity. Qed.
 
-Lemma opush_app :
+Local Lemma opush_app :
   forall k m o base,
     opush k m (oout_app base o) = oout_app base (opush k m o).
 Proof. intros k m o base. reflexivity. Qed.
 
-Lemma oclose_app :
+Local Lemma oclose_app :
   forall `{P : PosPolicy} k m stop o base,
     oclose k m stop (oout_app base o)
     = option_map (oout_app base) (oclose k m stop o).
@@ -243,19 +243,19 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma sclose_app :
+Local Lemma sclose_app :
   forall k m o base,
     sclose k m (oout_app base o) = option_map (oout_app base) (sclose k m o).
 Proof. intros k m o base. apply oclose_app. Qed.
 
-Lemma bpush_app :
+Local Lemma bpush_app :
   forall image o base,
     bpush image (oout_app base o) = oout_app base (bpush image o).
 Proof. intros image o base. reflexivity. Qed.
 
 (* Taking a bracket back reads only the stack, which the suffix never
    touches. *)
-Lemma bunpush_app :
+Local Lemma bunpush_app :
   forall o base,
     bunpush (oout_app base o)
     = option_map
@@ -267,7 +267,7 @@ Proof.
   destruct f as [[k|im|im] m open [|n l]]; reflexivity.
 Qed.
 
-Lemma bclose_app :
+Local Lemma bclose_app :
   forall o base,
     bclose (oout_app base o)
     = option_map
@@ -283,7 +283,7 @@ Qed.
 (* The bracket reconstruction reads the suffix too: `opop_str` reads the
    most recent node, which, with nothing emitted yet, is the suffix's
    head.  Hence the hypothesis `ofinish_out_app` carries. *)
-Lemma opop_str_app :
+Local Lemma opop_str_app :
   forall o base,
     base_ok base = true ->
     opop_str (oout_app base o)
@@ -301,7 +301,7 @@ Proof.
     destruct i; reflexivity.
 Qed.
 
-Lemma bflat_app :
+Local Lemma bflat_app :
   forall kids txt o base,
     bflat kids txt (oout_app base o)
     = (fst (bflat kids txt o), oout_app base (snd (bflat kids txt o))).
@@ -313,7 +313,7 @@ Proof.
       |rewrite flush_text_app, oemit_app; apply IH].
 Qed.
 
-Lemma bsplit_nl_app :
+Local Lemma bsplit_nl_app :
   forall s txt o base,
     bsplit_nl s txt (oout_app base o)
     = (fst (bsplit_nl s txt o), oout_app base (snd (bsplit_nl s txt o))).
@@ -324,13 +324,13 @@ Proof.
     [rewrite flush_text_app, oemit_app|]; apply IH.
 Qed.
 
-Lemma dpush_app :
+Local Lemma dpush_app :
   forall image open o base,
     dpush image open (oout_app base o) =
     oout_app base (dpush image open o).
 Proof. intros image open o base. reflexivity. Qed.
 
-Lemma idest_open_app :
+Local Lemma idest_open_app :
   forall kids image open o base,
     idest_open kids image open (oout_app base o)
     = iout_app base (idest_open kids image open o).
@@ -341,7 +341,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma bclosed_lit_app :
+Local Lemma bclosed_lit_app :
   forall kids image o base,
     base_ok base = true ->
     bclosed_lit kids image (oout_app base o)
@@ -356,7 +356,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma bref_lit_app :
+Local Lemma bref_lit_app :
   forall kids image label o base,
     base_ok base = true ->
     bref_lit kids image label (oout_app base o) =
@@ -368,7 +368,7 @@ Proof.
   destruct (bclosed_lit kids image o). reflexivity.
 Qed.
 
-Lemma bnote_lit_app :
+Local Lemma bnote_lit_app :
   forall esc image label o base,
     base_ok base = true ->
     bnote_lit esc image label (oout_app base o) =
@@ -380,7 +380,7 @@ Proof.
   destruct (opop_str o) as [pre o1]; cbn [fst snd]. reflexivity.
 Qed.
 
-Lemma bwiki_lit_app :
+Local Lemma bwiki_lit_app :
   forall esc rb image region o base,
     base_ok base = true ->
     bwiki_lit esc rb image region (oout_app base o) =
@@ -392,7 +392,7 @@ Proof.
   destruct (opop_str o) as [pre o1]; cbn [fst snd]. reflexivity.
 Qed.
 
-Lemma bspan_lit_app :
+Local Lemma bspan_lit_app :
   forall kids image src o base,
     base_ok base = true ->
     bspan_lit kids image src (oout_app base o) =
@@ -406,7 +406,7 @@ Proof.
   destruct (bsplit_nl src (txt ++ one lbrace)%string o'). reflexivity.
 Qed.
 
-Lemma battr_lit_app :
+Local Lemma battr_lit_app :
   forall src txt o base,
     battr_lit src txt (oout_app base o) =
     let '(t, o') := battr_lit src txt o in (t, oout_app base o').
@@ -415,7 +415,7 @@ Proof.
   destruct (bsplit_nl src (txt ++ one lbrace)%string o). reflexivity.
 Qed.
 
-Lemma iescws_resolve_app :
+Local Lemma iescws_resolve_app :
   forall ws txt prev o base,
     base_ok base = true ->
     iescws_resolve ws txt prev (oout_app base o)
@@ -426,7 +426,7 @@ Proof.
   rewrite flush_text_app, oemit_app. reflexivity.
 Qed.
 
-Lemma ilead_app :
+Local Lemma ilead_app :
   forall c txt prev o base,
     ilead c txt prev (oout_app base o) = iout_app base (ilead c txt prev o).
 Proof.
@@ -452,7 +452,7 @@ Proof.
     destruct (dstyle_of c); reflexivity.
 Qed.
 
-Lemma ospan_bang_app :
+Local Lemma ospan_bang_app :
   forall image o base,
     base_ok base = true ->
     ospan_bang image (oout_app base o) = oout_app base (ospan_bang image o).
@@ -463,14 +463,14 @@ Proof.
   apply flush_text_app.
 Qed.
 
-Lemma omark_app :
+Local Lemma omark_app :
   forall a spec o base,
     omark a spec (oout_app base o) = oout_app base (omark a spec o).
 Proof.
   intros a spec [out [|f stk] word] base; reflexivity.
 Qed.
 
-Lemma iattr_mark_app :
+Local Lemma iattr_mark_app :
   forall src a txt o base,
     iattr_mark src a txt (oout_app base o) =
     iout_app base (iattr_mark src a txt o).
@@ -479,7 +479,7 @@ Proof.
   cbn [iout_app]. rewrite flush_text_app, omark_app. reflexivity.
 Qed.
 
-Lemma islice_end_app :
+Local Lemma islice_end_app :
   forall base st,
     islice_end (iout_app base st) = iout_app base (islice_end st).
 Proof.
@@ -488,7 +488,7 @@ Proof.
   exact IHsob.
 Qed.
 
-Lemma iattr_feed_app :
+Local Lemma iattr_feed_app :
   forall c p src txt prev sh o base,
     base_ok base = true ->
     iattr_feed c p src txt prev (iout_app base sh) (oout_app base o)
@@ -500,7 +500,7 @@ Proof.
   destruct (ap_done (astep p c)); [apply iattr_mark_app|reflexivity].
 Qed.
 
-Lemma ispan_feed_app :
+Local Lemma ispan_feed_app :
   forall c kids image open p src o base,
     base_ok base = true ->
     ispan_feed c kids image open p src (oout_app base o)
@@ -515,7 +515,7 @@ Proof.
     rewrite oemit_app. reflexivity.
 Qed.
 
-Lemma idelim_resolve_app :
+Local Lemma idelim_resolve_app :
   forall k txt bef marker next o base,
     @idelim_resolve T semantic_pos semantic_inline_cursor
       k txt bef marker next (oout_app base o)
@@ -541,7 +541,7 @@ Proof.
   apply Hdone.
 Qed.
 
-Lemma idelim_open_marked_out_app :
+Local Lemma idelim_open_marked_out_app :
   forall k cm txt base o,
     idelim_open_marked k cm txt (oout_app base o)
     = iout_app base (idelim_open_marked k cm txt o).
@@ -551,7 +551,7 @@ Proof.
   sem_flush. rewrite flush_text_app, opush_at_app. reflexivity.
 Qed.
 
-Lemma iresolve_app :
+Local Lemma iresolve_app :
   forall base st,
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
@@ -563,13 +563,13 @@ Proof.
     destruct mrk; [apply idelim_open_marked_out_app | apply idelim_resolve_app].
 Qed.
 
-Lemma idelim_marked_out_app :
+Local Lemma idelim_marked_out_app :
   forall k extra txt base o,
     idelim_marked k extra txt (oout_app base o)
     = iout_app base (idelim_marked k extra txt o).
 Proof. intros. reflexivity. Qed.
 
-Lemma istep_at_out_app :
+Local Lemma istep_at_out_app :
   forall attrs_enabled c base st,
     base_ok base = true ->
     istep_at attrs_enabled c (iout_app base st)
@@ -694,7 +694,7 @@ Proof.
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
 Qed.
 
-Lemma istep_out_app :
+Local Lemma istep_out_app :
   forall c base st,
     base_ok base = true ->
     istep c (iout_app base st) = iout_app base (istep c st).
@@ -702,7 +702,7 @@ Proof.
   intros c base st Hb. unfold istep. apply istep_at_out_app, Hb.
 Qed.
 
-Lemma iscan_str_out_app :
+Local Lemma iscan_str_out_app :
   forall s base st,
     base_ok base = true ->
     iscan_str s (iout_app base st) = iout_app base (iscan_str s st).
@@ -711,7 +711,7 @@ Proof.
   rewrite istep_out_app by exact Hb. apply IH, Hb.
 Qed.
 
-Lemma ibreak_flat_app :
+Local Lemma ibreak_flat_app :
   forall base st,
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
@@ -731,7 +731,7 @@ Proof.
   - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
 Qed.
 
-Lemma ibreak_flat_state_app :
+Local Lemma ibreak_flat_state_app :
   forall base st,
     base_ok base = true -> is_compound st = false ->
     ibreak (iout_app base st) = iout_app base (ibreak st).
@@ -743,7 +743,7 @@ Proof.
   rewrite iresolve_app by exact Hb. apply ibreak_flat_app, Hb.
 Qed.
 
-Lemma ibreak_at_out_app :
+Local Lemma ibreak_at_out_app :
   forall attrs_enabled base st,
     base_ok base = true ->
     ibreak_at attrs_enabled (iout_app base st)
@@ -761,7 +761,7 @@ Proof.
   - cbn [ibreak_at iout_app]. rewrite IHsob by exact Hb. reflexivity.
 Qed.
 
-Lemma ibreak_out_app :
+Local Lemma ibreak_out_app :
   forall base st,
     base_ok base = true ->
     ibreak (iout_app base st) = iout_app base (ibreak st).
@@ -769,13 +769,13 @@ Proof.
   intros base st Hb. unfold ibreak. apply ibreak_at_out_app, Hb.
 Qed.
 
-Lemma iscan_lines_cons2 :
+Local Lemma iscan_lines_cons2 :
   forall x y rest st,
     iscan_lines (x :: y :: rest) st
     = iscan_lines (y :: rest) (ibreak (iscan_str x st)).
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_out_app :
+Local Lemma iscan_lines_out_app :
   forall l base st,
     base_ok base = true ->
     iscan_lines l (iout_app base st) = iout_app base (iscan_lines l st).
@@ -789,7 +789,7 @@ Qed.
 (* Flattening an abandoned scope merges a `Str` seam, which would reach
    into a suffix beginning with a `Str`.  This is the weakest form of
    `base_ok`, and the one consumer that needs no more. *)
-Lemma osnoc_nonstr :
+Local Lemma osnoc_nonstr :
   forall n out, starts_str out = false -> osnoc n out = (n :: out)%list.
 Proof.
   intros n [|[[a [|x xs] i]|ma] out'] H; try reflexivity.
@@ -805,7 +805,7 @@ Lemma oapp_cons2 :
   forall n m rest out, oapp (n :: m :: rest) out = (n :: oapp (m :: rest) out)%list.
 Proof. reflexivity. Qed.
 
-Lemma oapp_app :
+Local Lemma oapp_app :
   forall cur out base,
     base_ok base = true ->
     oapp cur (out ++ base)%list = (oapp cur out ++ base)%list.
@@ -821,7 +821,7 @@ Proof.
   - rewrite !oapp_cons2. cbn [app]. f_equal. apply (IH out base Hb).
 Qed.
 
-Lemma oflatten_app :
+Local Lemma oflatten_app :
   forall stk pend bottom base,
     base_ok base = true ->
     oflatten pend stk (bottom ++ base)%list
@@ -834,7 +834,7 @@ Qed.
 (* A previous line resolves to something headed by the `SoftBreak` that
    ended it, which is what makes the splice invisible to both the seam
    merge and a waiting spec. *)
-Lemma oresolve_base_head :
+Local Lemma oresolve_base_head :
   forall base,
     base_ok base = true -> ibase_ok (oresolve base) = true.
 Proof.
@@ -848,7 +848,7 @@ Qed.
 
 (* Resolution distributes over the splice: the suffix is already settled
    and nothing in the prefix can reach into it. *)
-Lemma oresolve_go_base :
+Local Lemma oresolve_go_base :
   forall base, base_ok base = true -> snd (oresolve_go base) = false.
 Proof.
   intros [|[[p a v]|ma] base'] H; try discriminate; [reflexivity|].
@@ -859,7 +859,7 @@ Qed.
 (* A waiting spec reads only the head of what is below it, and `base_ok`
    makes that head a `SoftBreak` -- which it declines exactly as it
    declines an empty scope.  So the splice is invisible to it. *)
-Lemma oattach_list_app :
+Local Lemma oattach_list_app :
   forall a spec word out base,
     base_ok base = true ->
     oattach_list a spec word (out ++ oresolve base)%list
@@ -885,7 +885,7 @@ Proof.
       apply isnoc_app, Hh.
 Qed.
 
-Lemma oresolve_go_app :
+Local Lemma oresolve_go_app :
   forall l base,
     base_ok base = true ->
     oresolve_go (l ++ base)%list
@@ -905,7 +905,7 @@ Proof.
         [exact Hh|reflexivity].
 Qed.
 
-Lemma oresolve_app :
+Local Lemma oresolve_app :
   forall l base,
     base_ok base = true ->
     oresolve (l ++ base)%list = (oresolve l ++ oresolve base)%list.
@@ -914,7 +914,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma ofinish_out_app :
+Local Lemma ofinish_out_app :
   forall base o,
     base_ok base = true ->
     ofinish (oout_app base o) = (ofinish o ++ oresolve base)%list.
@@ -924,7 +924,7 @@ Proof.
   rewrite oflatten_app by exact Hb. apply oresolve_app, Hb.
 Qed.
 
-Lemma ifinish_ostate_flat_app :
+Local Lemma ifinish_ostate_flat_app :
   forall base st,
     base_ok base = true ->
     ifinish_ostate_flat (iout_app base st)
@@ -956,7 +956,7 @@ Proof.
   - rewrite oemit_app, flush_text_app. reflexivity.
 Qed.
 
-Lemma ifinish_ostate_flat_state_app :
+Local Lemma ifinish_ostate_flat_state_app :
   forall base st,
     base_ok base = true -> is_compound st = false ->
     ifinish_ostate (iout_app base st) = oout_app base (ifinish_ostate st).
@@ -969,7 +969,7 @@ Proof.
   rewrite iresolve_app by exact Hb. apply ifinish_ostate_flat_app, Hb.
 Qed.
 
-Lemma ifinish_ostate_out_app :
+Local Lemma ifinish_ostate_out_app :
   forall base st,
     base_ok base = true ->
     ifinish_ostate (iout_app base st) = oout_app base (ifinish_ostate st).
@@ -980,7 +980,7 @@ Proof.
   all: cbn [ifinish_ostate iout_app]; exact IHst.
 Qed.
 
-Lemma ifinish_rev_out_app :
+Local Lemma ifinish_rev_out_app :
   forall base st,
     base_ok base = true ->
     ifinish_rev (iout_app base st)
@@ -991,7 +991,7 @@ Proof.
   apply ofinish_out_app, Hb.
 Qed.
 
-Lemma ifinish_out_app :
+Local Lemma ifinish_out_app :
   forall base st,
     base_ok base = true ->
     ifinish (iout_app base st)
@@ -1002,13 +1002,13 @@ Proof.
   rewrite List.rev_app_distr. reflexivity.
 Qed.
 
-Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
+Local Definition text_sep_ok (txt : string) (cis : list cinline) : bool :=
   match txt, cis with
   | String _ _, CIStr _ :: _ => false
   | _, _ => true
   end.
 
-Lemma ifinish_text :
+Local Lemma ifinish_text :
   forall txt prev out,
     ifinish (IText false txt prev (OState out [] None))
     = List.rev (oresolve (os_out (flush_text txt (OState out [] None)))).
@@ -1023,7 +1023,7 @@ Qed.
 (* Canonical text never opens a verbatim: `needs_escape` claims the
    backtick, so `escape_str` emits none bare, and the scanner stays in
    `IText` throughout. *)
-Lemma ilead_plain :
+Local Lemma ilead_plain :
   forall c txt prev o,
     needs_escape c = false ->
     ilead c txt prev o = IText false (txt ++ one c)%string (Some c) o.
@@ -1045,7 +1045,7 @@ Qed.
 (* Canonical text never leaves `IText`: `needs_escape` claims every
    character the scanner dispatches on, so `escape_str` emits none of
    them bare.  So adding a table row costs an escape, not a proof. *)
-Lemma iscan_escape :
+Local Lemma iscan_escape :
   forall s txt prev o,
     iscan_str (escape_str s) (IText false txt prev o)
     = IText false (txt ++ s)%string (str_last s prev) o.
@@ -1062,7 +1062,7 @@ Proof.
       rewrite IH, append_assoc. reflexivity.
 Qed.
 
-Lemma iscan_escape_after_verb :
+Local Lemma iscan_escape_after_verb :
   forall s n body vk o,
     nonempty_str s = true ->
     iscan_str (escape_str s) (IVerb n n body vk o)
@@ -1093,7 +1093,7 @@ Proof.
     rewrite iscan_escape. cbn [one append]. reflexivity.
 Qed.
 
-Lemma cis_ok_tail :
+Local Lemma cis_ok_tail :
   forall c rest, cis_ok (c :: rest) = true -> cis_ok rest = true.
 Proof.
   intros c rest H. unfold cis_ok in *. apply andb_true_iff in H as [Ha Hs].
@@ -1103,14 +1103,14 @@ Proof.
     cbn [ci_sep_ok] in Hs. apply andb_true_iff in Hs as [_ Hs]. exact Hs.
 Qed.
 
-Lemma cis_ok_head :
+Local Lemma cis_ok_head :
   forall c rest, cis_ok (c :: rest) = true -> ci_ok c = true.
 Proof.
   intros c rest H. unfold cis_ok in H. apply andb_true_iff in H as [H _].
   cbn [forallb] in H. apply andb_true_iff in H as [H _]. exact H.
 Qed.
 
-Lemma ci_str_tail_sep :
+Local Lemma ci_str_tail_sep :
   forall s rest,
     cis_ok (CIStr s :: rest) = true -> nonempty_str s = true ->
     text_sep_ok s rest = true.
@@ -1122,21 +1122,21 @@ Proof.
   repeat rewrite andb_false_r in H. discriminate.
 Qed.
 
-Lemma ci_verb_nonempty :
+Local Lemma ci_verb_nonempty :
   forall v rest, cis_ok (CIVerb v :: rest) = true -> nonempty_str v = true.
 Proof.
   intros v rest H. pose proof (cis_ok_head (CIVerb v) rest H) as Hv.
   cbn [ci_ok] in Hv. apply andb_true_iff in Hv as [Hv _]. exact Hv.
 Qed.
 
-Lemma ci_verb_content_ok :
+Local Lemma ci_verb_content_ok :
   forall v rest, cis_ok (CIVerb v :: rest) = true -> verb_content_ok v = true.
 Proof.
   intros v rest H. pose proof (cis_ok_head (CIVerb v) rest H) as Hv.
   cbn [ci_ok] in Hv. apply andb_true_iff in Hv as [_ Hv]. exact Hv.
 Qed.
 
-Lemma verb_content_safe :
+Local Lemma verb_content_safe :
   forall v, verb_content_ok v = true -> verb_safe (verb_ticks v) (pad_verb v) = true.
 Proof.
   intros v H. unfold verb_content_ok in H.
@@ -1151,7 +1151,7 @@ Qed.
    it consults the table, so a row spelled with it is reached from `{` or
    from `}` instead -- see `iscan_marked_close_step`, which is where this
    hypothesis stops travelling. *)
-Lemma ilead_dchar :
+Local Lemma ilead_dchar :
   forall k txt prev o,
     denabled_of k = true ->
     Ascii.eqb (dchar k) hyphen = false ->
@@ -1177,7 +1177,7 @@ Qed.
    row that says it is bare is reached from the source in its bare
    spelling.  `ilead_dchar` keeps the hypothesis because
    `iscan_marked_close_step` calls it for a braced row too. *)
-Lemma ilead_dchar_bare :
+Local Lemma ilead_dchar_bare :
   forall k txt prev o,
     denabled_of k = true ->
     dsyntax_bare (dsyntax_of k) = true ->
@@ -1191,7 +1191,7 @@ Qed.
 (* Spelling a token, one character at a time: each of the row's
    characters after the first advances the count, and the token is still
    incomplete throughout because the arithmetic says so. *)
-Lemma iscan_chars_delim :
+Local Lemma iscan_chars_delim :
   forall n k extra txt bef o,
     S extra + n = dwidth k ->
     iscan_str (chars (dchar k) n) (IDelim k extra txt bef false o)
@@ -1209,7 +1209,7 @@ Qed.
 
 (* A row's whole token, scanned from text: it leaves the token complete
    and its role undecided, which is the state the next byte resolves. *)
-Lemma iscan_dtoken :
+Local Lemma iscan_dtoken :
   forall k txt prev o,
     denabled_of k = true ->
     Ascii.eqb (dchar k) hyphen = false ->
@@ -1227,7 +1227,7 @@ Qed.
 (* A run of hyphens, scanned from text: `ilead` claims the first and the
    state counts the rest.  This is `iscan_dtoken`'s counterpart for the
    one character the table does not get to dispatch. *)
-Lemma iscan_dash_run :
+Local Lemma iscan_dash_run :
   forall n m txt prev o,
     iscan_str (chars hyphen n) (IDash m txt prev o) = IDash (m + n) txt prev o.
 Proof.
@@ -1237,7 +1237,7 @@ Proof.
     rewrite Ascii.eqb_refl, (IH (S m) txt prev o). f_equal. lia.
 Qed.
 
-Lemma ilead_hyphen :
+Local Lemma ilead_hyphen :
   forall txt prev o, ilead hyphen txt prev o = IDash 1 txt prev o.
 Proof.
   intros txt prev o. unfold ilead.
@@ -1248,7 +1248,7 @@ Proof.
   rewrite Ascii.eqb_refl. reflexivity.
 Qed.
 
-Lemma iscan_chars_dash :
+Local Lemma iscan_chars_dash :
   forall n txt prev o,
     iscan_str (chars hyphen (S n)) (IText false txt prev o)
     = IDash (S n) txt prev o.
@@ -1260,7 +1260,7 @@ Qed.
 
 (* The token then `}`: a marked span closes.  The only hypothesis is that
    the row has a token. *)
-Lemma iscan_marked_close_step :
+Local Lemma iscan_marked_close_step :
   forall k txt prev o o',
     denabled_of k = true ->
     bunpush o = None ->
@@ -1299,7 +1299,7 @@ Qed.
 (* Where the token lemmas get their hypothesis: a marked close runs with
    the delimiter's own frame on top, which is not a bracket, and nothing
    the close does before the token can turn it into one. *)
-Lemma bunpush_oemit_all_opush :
+Local Lemma bunpush_oemit_all_opush :
   forall ns k m cm open o,
     bunpush (oemit_all ns (opush_at k m cm open o)) = None.
 Proof.
@@ -1307,7 +1307,7 @@ Proof.
   rewrite oemit_all_frame. reflexivity.
 Qed.
 
-Lemma bunpush_flush :
+Local Lemma bunpush_flush :
   forall txt o, bunpush o = None -> bunpush (flush_text txt o) = None.
 Proof.
   intros txt [out [|[[k|im|im] m open [|n l]] stk] word] H;
@@ -1315,7 +1315,7 @@ Proof.
     destruct (nonempty_str txt); solve [exact H | reflexivity | discriminate H].
 Qed.
 
-Lemma iscan_marked_flush :
+Local Lemma iscan_marked_flush :
   forall k cm tail txt prev before open base,
     denabled_of k = true ->
     (nonempty before || nonempty_str txt)%bool = true ->
@@ -1369,7 +1369,7 @@ Qed.
    `iscan_chars_delim`, and it stops one byte earlier than the push does:
    a marked opener's role is settled but the side its decay takes is
    not. *)
-Lemma iscan_chars_marked :
+Local Lemma iscan_chars_marked :
   forall n k extra txt o,
     S extra + n = dwidth k ->
     iscan_str (chars (dchar k) n) (idelim_marked k extra txt o)
@@ -1386,7 +1386,7 @@ Proof.
     f_equal. lia.
 Qed.
 
-Lemma iscan_marked_open :
+Local Lemma iscan_marked_open :
   forall d txt prev o,
     denabled_of d = true ->
     iscan_str (marked_open d) (IText false txt prev o)
@@ -1408,7 +1408,7 @@ Qed.
    into the scope as any byte would be.  A caller whose scope closes never
    learns which side it was, so the bit is existential here -- the only
    thing the chain below needs is that the scope is open. *)
-Lemma iscan_marked_open_app :
+Local Lemma iscan_marked_open_app :
   forall d s txt prev o,
     denabled_of d = true -> nonempty_str s = true ->
     exists cm open,
@@ -1425,7 +1425,7 @@ Proof.
   rewrite Ew, Nat.ltb_irrefl. unfold oopen_marked. reflexivity.
 Qed.
 
-Lemma iscan_marked_close_emit :
+Local Lemma iscan_marked_close_emit :
   forall d cm tail ns open base p,
     denabled_of d = true ->
     nonempty ns = true ->
@@ -1449,7 +1449,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma iscan_after_verb_nontick :
+Local Lemma iscan_after_verb_nontick :
   forall s n body vk o,
     nonempty_str s = true -> starts_tick s = false ->
     after_verb_next s = true ->
@@ -1475,7 +1475,7 @@ Proof.
   rewrite Hnext, andb_false_r. unfold ilead; cbn. reflexivity.
 Qed.
 
-Lemma escape_str_starts_nontick :
+Local Lemma escape_str_starts_nontick :
   forall s, nonempty_str s = true -> starts_tick (escape_str s) = false.
 Proof.
   intros [|c s] H; [discriminate|]. cbn [escape_str].
@@ -1487,29 +1487,29 @@ Qed.
 (* `after_verb_next` asks about the brace and nothing else, so anything
    that cannot start with one satisfies it outright.  That is every
    canonical constituent but a delimiter, whose brace is its opener. *)
-Definition starts_brace (s : string) : bool :=
+Local Definition starts_brace (s : string) : bool :=
   match s with String c _ => Ascii.eqb c lbrace | EmptyString => false end.
 
-Lemma after_verb_next_nonbrace :
+Local Lemma after_verb_next_nonbrace :
   forall s, starts_brace s = false -> after_verb_next s = true.
 Proof.
   intros [|c s] H; [reflexivity|].
   cbn [after_verb_next starts_brace] in H |- *. rewrite H. reflexivity.
 Qed.
 
-Lemma nonempty_str_app_l :
+Local Lemma nonempty_str_app_l :
   forall a b, nonempty_str b = true -> nonempty_str (a ++ b)%string = true.
 Proof. intros [|x a] b H; [exact H | reflexivity]. Qed.
 
-Lemma nonempty_str_app_r :
+Local Lemma nonempty_str_app_r :
   forall a b, nonempty_str a = true -> nonempty_str (a ++ b)%string = true.
 Proof. intros [|x a] b H; [discriminate | reflexivity]. Qed.
 
-Lemma starts_brace_app_l :
+Local Lemma starts_brace_app_l :
   forall a b, nonempty_str a = true -> starts_brace (a ++ b) = starts_brace a.
 Proof. intros [|c a] b H; [discriminate|reflexivity]. Qed.
 
-Lemma escape_str_starts_nonbrace :
+Local Lemma escape_str_starts_nonbrace :
   forall s, starts_brace (escape_str s) = false.
 Proof.
   intros [|c s]; [reflexivity|]. cbn [escape_str].
@@ -1519,7 +1519,7 @@ Proof.
   rewrite needs_escape_lbrace in Hc. discriminate.
 Qed.
 
-Lemma escape_str_nonempty :
+Local Lemma escape_str_nonempty :
   forall s, nonempty_str s = true -> nonempty_str (escape_str s) = true.
 Proof.
   intros [|c s] H; [discriminate|]. cbn [escape_str].
@@ -1529,14 +1529,14 @@ Qed.
 (* The two things a closer has to be for the scope machinery: nonempty,
    which is the row having a token, and not starting with a backtick,
    which is its character being free of the ones the scanner claims. *)
-Lemma marked_close_nonempty :
+Local Lemma marked_close_nonempty :
   forall k tail, nonempty_str (marked_close k tail) = true.
 Proof.
   intros k tail. pose proof (dtoken_nonempty k) as H.
   unfold marked_close. destruct (dtoken k); [discriminate|reflexivity].
 Qed.
 
-Lemma marked_close_starts_nontick :
+Local Lemma marked_close_starts_nontick :
   forall k tail, starts_tick (marked_close k tail) = false.
 Proof.
   intros k tail.
@@ -1548,7 +1548,7 @@ Qed.
 
 (* ...and it is not a brace either, since a row's character is not
    reserved -- which is what a verbatim before the closer needs. *)
-Lemma marked_close_after_verb :
+Local Lemma marked_close_after_verb :
   forall k tail, after_verb_next (marked_close k tail) = true.
 Proof.
   intros k tail. apply after_verb_next_nonbrace.
@@ -1579,11 +1579,11 @@ because it spans three dispatches -- the `]`, the `(` and the balanced
    only decides which frame is pushed. *)
 (* Whether a `[` read in text mode from this state is the second bracket
    of a wikilink: `ilead`'s guard, as a predicate on the state. *)
-Definition wiki_opens (txt : string) (prev : option ascii) (o : ostate) : bool :=
+Local Definition wiki_opens (txt : string) (prev : option ascii) (o : ostate) : bool :=
   (note_pos txt prev && wikilinks_enabled
    && match bunpush o with Some _ => true | None => false end)%bool.
 
-Lemma iscan_bracket_open :
+Local Lemma iscan_bracket_open :
   forall image txt prev o,
     (image || negb (wiki_opens txt prev o))%bool = true ->
     iscan_str (bracket_open image) (IText false txt prev o)
@@ -1608,7 +1608,7 @@ Qed.
 
 (* Once anything has been emitted into the scope, no bracket can be
    taken back, so no `[` there opens a wikilink. *)
-Lemma wiki_opens_oemit_all :
+Local Lemma wiki_opens_oemit_all :
   forall txt prev before O,
     nonempty before = true ->
     wiki_opens txt prev (oemit_all before O) = false.
@@ -1624,15 +1624,15 @@ Proof.
   apply andb_false_r.
 Qed.
 
-Lemma wiki_opens_text :
+Local Lemma wiki_opens_text :
   forall txt prev o, nonempty_str txt = true -> wiki_opens txt prev o = false.
 Proof. intros txt prev o H. unfold wiki_opens, note_pos. rewrite H. reflexivity. Qed.
 
-Lemma wiki_opens_top :
+Local Lemma wiki_opens_top :
   forall txt prev out w, wiki_opens txt prev (OState out [] w) = false.
 Proof. intros txt prev out w. unfold wiki_opens. cbn [bunpush os_stk]. apply andb_false_r. Qed.
 
-Lemma wiki_opens_opush :
+Local Lemma wiki_opens_opush :
   forall txt prev ns k m cm open o,
     wiki_opens txt prev (oemit_all ns (opush_at k m cm open o)) = false.
 Proof.
@@ -1642,7 +1642,7 @@ Qed.
 
 (* What a link's `bracket_kids_ok` is for: its text never begins where a
    `[` would open a wikilink. *)
-Lemma wiki_opens_bracket_kids :
+Local Lemma wiki_opens_bracket_kids :
   forall kids txt prev o,
     bracket_kids_ok kids = true -> cis_lbrack_head kids = true ->
     wiki_opens txt prev o = false.
@@ -1652,7 +1652,7 @@ Proof.
   unfold wiki_opens. rewrite Hk, andb_false_r. reflexivity.
 Qed.
 
-Lemma bclose_flush_bpush :
+Local Lemma bclose_flush_bpush :
   forall txt image before base,
     bclose (flush_text txt (oemit_all before (bpush image base)))
     = Some (if nonempty_str txt
@@ -1669,7 +1669,7 @@ Proof.
   - apply bclose_oemit_all.
 Qed.
 
-Lemma drop_nl_no_nl : forall s, no_nl s = true -> drop_nl s = s.
+Local Lemma drop_nl_no_nl : forall s, no_nl s = true -> drop_nl s = s.
 Proof.
   induction s as [|c s IH]; intros H; [reflexivity|].
   cbn [no_nl] in H. apply andb_true_iff in H as [Hc H].
@@ -1680,7 +1680,7 @@ Qed.
 (* The destination is escaped text, and reads back the way escaped text
    does: `needs_escape_dest` claims every byte the mode dispatches on,
    and its escapes decode because each such byte is punctuation. *)
-Lemma iscan_dest_escape :
+Local Lemma iscan_dest_escape :
   forall s kids image open depth dst sh o,
     iscan_str (escape_dest s) (IDest kids image open false depth dst sh o)
     = IDest kids image open false depth (dst ++ s)%string
@@ -1710,7 +1710,7 @@ Proof.
     cbn [iscan_str istep istep_at]. rewrite Hbs, Hlp, Hrp, IH, Hsplit. reflexivity.
 Qed.
 
-Lemma istep_rbrack_close :
+Local Lemma istep_rbrack_close :
   forall txt prev o, istep rbrack (IText false txt prev o) = IClosed txt o.
 Proof.
   intros txt prev o. cbn [istep istep_at]. unfold ilead.
@@ -1724,7 +1724,7 @@ Proof.
 Qed.
 
 (* ...and the byte after it is what closes the bracket. *)
-Lemma istep_lbrack_ref :
+Local Lemma istep_lbrack_ref :
   forall txt o kids image open o',
     bclose (flush_text txt o) = Some (kids, image, open, o') ->
     istep lbrack (IClosed txt o) =
@@ -1736,7 +1736,7 @@ Proof.
   sem_flush. rewrite H. reflexivity.
 Qed.
 
-Lemma istep_lparen_dest :
+Local Lemma istep_lparen_dest :
   forall txt o kids image open o',
     bclose (flush_text txt o) = Some (kids, image, open, o') ->
     istep lparen (IClosed txt o)
@@ -1748,7 +1748,7 @@ Proof.
   sem_flush. rewrite H. reflexivity.
 Qed.
 
-Lemma iscan_link_close :
+Local Lemma iscan_link_close :
   forall dst tail ns image base p,
     no_nl dst = true ->
     iscan_str (link_close dst tail)
@@ -1774,7 +1774,7 @@ Qed.
 (* The bracket's flush law, and it needs no precondition: a `]` closes an
    empty label as happily as a full one, which is what `empty_ok` below
    records and what makes `[](u)` representable. *)
-Lemma iscan_bracket_flush :
+Local Lemma iscan_bracket_flush :
   forall dst tail txt prev image before base,
     exists p,
       iscan_str (link_close dst tail)
@@ -1799,7 +1799,7 @@ Proof.
   apply (bclose_flush_bpush txt image before base).
 Qed.
 
-Lemma link_close_app :
+Local Lemma link_close_app :
   forall dst t, (link_close dst EmptyString ++ t)%string = link_close dst t.
 Proof.
   intros dst t. unfold link_close. cbn [append].
@@ -1816,7 +1816,7 @@ the mode escapes nothing and dispatches on nothing but `]`, so the whole
 of it goes in one induction.
 *)
 
-Lemma iscan_ref_label :
+Local Lemma iscan_ref_label :
   forall label kids image open acc o,
     no_char rbrack label = true ->
     iscan_str label (IReference kids image open acc o)
@@ -1830,7 +1830,7 @@ Proof.
   rewrite append_assoc. reflexivity.
 Qed.
 
-Lemma iscan_ref_close :
+Local Lemma iscan_ref_close :
   forall label tail ns image base p,
     nonempty_str label = true ->
     no_char rbrack label = true ->
@@ -1855,7 +1855,7 @@ Proof.
 Qed.
 
 (* The flush law, as for a direct link and by the same `]` dispatch. *)
-Lemma iscan_ref_flush :
+Local Lemma iscan_ref_flush :
   forall label tail txt prev image before base,
     exists p,
       iscan_str (ref_close label tail)
@@ -1883,7 +1883,7 @@ Qed.
 (* A canonical note label reaches its closing bracket without leaving an
    escape pending.  Backslashes are consumed in pairs with the following
    byte, and both bytes remain in the label. *)
-Lemma iscan_note_label :
+Local Lemma iscan_note_label :
   forall label tail esc image acc open o,
     note_label_safe_from esc label = true ->
     iscan_str (label ++ one rbrack ++ tail)
@@ -1920,7 +1920,7 @@ Proof.
         rewrite !append_assoc. reflexivity.
 Qed.
 
-Lemma iscan_note_text :
+Local Lemma iscan_note_text :
   forall label tail txt prev o,
     notes_enabled = true ->
     note_label_safe label = true ->
@@ -1963,7 +1963,7 @@ Qed.
 (* A canonical target splits off exactly: it has no bar and no
    backslash, and what follows the first bar is the alias whatever it
    holds. *)
-Lemma wiki_split_canonical :
+Local Lemma wiki_split_canonical :
   forall t al,
     no_char vbar t = true -> no_char bslash t = true ->
     wiki_split (t ++ match al with Some a => String vbar a | None => EmptyString end)
@@ -1979,7 +1979,7 @@ Proof.
 Qed.
 
 (* A canonical region has nothing the region scan gives a role. *)
-Lemma iscan_wiki_region :
+Local Lemma iscan_wiki_region :
   forall r image acc open o,
     no_char rbrack r = true -> no_char bslash r = true ->
     iscan_str r (IWiki false false image acc open o)
@@ -1994,7 +1994,7 @@ Proof.
     rewrite Hbc, Hrc, (IH image _ open o Hr Hb), append_assoc. reflexivity.
 Qed.
 
-Lemma iscan_wiki_text :
+Local Lemma iscan_wiki_text :
   forall embed t al tail txt prev o,
     ci_ok (CIWiki embed t al) = true ->
     (embed || negb (wiki_opens txt prev o))%bool = true ->
@@ -2057,7 +2057,7 @@ Qed.
 
 (* The region is accumulated and nothing in it is dispatched, which is
    the whole of why a successful autolink's content is literal. *)
-Lemma iscan_auto_region :
+Local Lemma iscan_auto_region :
   forall s acc txt o,
     auto_region s = true ->
     iscan_str s (IAuto acc txt o) = IAuto (acc ++ s)%string txt o.
@@ -2083,7 +2083,7 @@ Qed.
 
 (* A raw spec accumulates the same way an autolink's region does, and
    under the same kind of condition: the format's own exclusions. *)
-Lemma iscan_raw_format :
+Local Lemma iscan_raw_format :
   forall fmt acc txt o,
     (no_ws fmt && no_char lbrace fmt && no_char rbrace fmt
      && no_char tick fmt)%bool = true ->
@@ -2117,7 +2117,7 @@ Qed.
 
 (* ...and the `>` that resolves it, which is the only byte the mode
    treats as anything but region. *)
-Lemma iscan_auto_text :
+Local Lemma iscan_auto_text :
   forall s tail txt prev o,
     auto_body_ok s = true -> auto_kind_ok s = true ->
     iscan_str (auto_text s ++ tail) (IText false txt prev o)
@@ -2150,7 +2150,7 @@ Qed.
    closing run, the `{` enters the mode, the format accumulates and the
    `}` decides the node.  `verb_content_ok` is what the verbatim half
    needs and `raw_fmt_ok` the spec half; the `=` is where they meet. *)
-Lemma iscan_raw_text :
+Local Lemma iscan_raw_text :
   forall fmt v tail txt prev o,
     raw_inline_enabled = true ->
     nonempty_str v = true -> verb_content_ok v = true ->
@@ -2190,30 +2190,30 @@ Proof.
   rewrite Hraw. unfold raw_format. reflexivity.
 Qed.
 
-Lemma ref_close_app :
+Local Lemma ref_close_app :
   forall label t, (ref_close label EmptyString ++ t)%string = ref_close label t.
 Proof.
   intros label t. unfold ref_close. cbn [append].
   rewrite append_assoc. cbn [append]. reflexivity.
 Qed.
 
-Lemma ref_close_nonempty :
+Local Lemma ref_close_nonempty :
   forall label tail, nonempty_str (ref_close label tail) = true.
 Proof. intros label tail. reflexivity. Qed.
 
-Lemma ref_close_starts_nontick :
+Local Lemma ref_close_starts_nontick :
   forall label tail, starts_tick (ref_close label tail) = false.
 Proof. intros label tail. reflexivity. Qed.
 
-Lemma link_close_nonempty :
+Local Lemma link_close_nonempty :
   forall dst tail, nonempty_str (link_close dst tail) = true.
 Proof. intros dst tail. reflexivity. Qed.
 
-Lemma link_close_starts_nontick :
+Local Lemma link_close_starts_nontick :
   forall dst tail, starts_tick (link_close dst tail) = false.
 Proof. intros dst tail. reflexivity. Qed.
 
-Lemma after_verb_source_nontick :
+Local Lemma after_verb_source_nontick :
   forall v rest cl,
     cis_ok (CIVerb v :: rest) = true ->
     nonempty_str cl = true -> starts_tick cl = false ->
@@ -2279,7 +2279,7 @@ Proof.
         split; [reflexivity|split; reflexivity|reflexivity|split; reflexivity].
 Qed.
 
-Lemma after_verb_rest_nontick :
+Local Lemma after_verb_rest_nontick :
   forall v c rest,
     cis_ok (CIVerb v :: c :: rest) = true ->
     nonempty_str (ci_text (c :: rest)) = true /\
@@ -2340,7 +2340,7 @@ Proof.
       split; [reflexivity|split; reflexivity|reflexivity|split; reflexivity].
 Qed.
 
-Lemma orb_false_r_true : forall b, (b || false)%bool = true -> b = true.
+Local Lemma orb_false_r_true : forall b, (b || false)%bool = true -> b = true.
 Proof. intros [] H; [reflexivity | exact H]. Qed.
 
 (* The scanner inversion, one scope deep.
@@ -2354,7 +2354,7 @@ Proof. intros [] H; [reflexivity | exact H]. Qed.
    last is the `Hflush` hypothesis, and `empty_ok` is where the two
    differ: `oclose` refuses an empty scope, `bclose` does not, which is
    what makes `[](u)` representable and `{__}` not. *)
-Lemma iscan_cis_scope :
+Local Lemma iscan_cis_scope :
   forall cis cl O empty_ok txt prev before,
     nonempty_str cl = true -> starts_tick cl = false ->
     after_verb_next cl = true ->
@@ -2842,7 +2842,7 @@ Proof.
 Qed.
 
 (* The delimiter instance, which is what the two callers below use. *)
-Lemma iscan_cis_marked :
+Local Lemma iscan_cis_marked :
   forall cis k cm tail txt prev before open base,
     denabled_of k = true ->
     cis_ok cis = true -> text_sep_ok txt cis = true ->
@@ -2871,7 +2871,7 @@ Proof.
 Qed.
 
 (* And the bracket instance, for a label scanned inside its own scope. *)
-Lemma iscan_cis_bracket :
+Local Lemma iscan_cis_bracket :
   forall cis dst tail txt prev image before base,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     bracket_kids_ok cis = true ->
@@ -2895,7 +2895,7 @@ Proof.
 Qed.
 
 (* And the reference instance, which differs only in the closer. *)
-Lemma iscan_cis_ref :
+Local Lemma iscan_cis_ref :
   forall cis label tail txt prev image before base,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     bracket_kids_ok cis = true ->
@@ -2920,13 +2920,13 @@ Qed.
 
 (* Once a canonical scan has closed every nested delimiter, the output
    state again has an empty scope stack. *)
-Definition flush_out (txt : string) (out : inlines) : inlines :=
+Local Definition flush_out (txt : string) (out : inlines) : inlines :=
   if nonempty_str txt then mk (Str txt) :: out else out.
 
 (* The canonical scan never leaves a spec waiting -- `needs_escape`
    claims `{` -- so every state it reaches holds nodes only, and is
    written that way. *)
-Lemma flush_text_flat :
+Local Lemma flush_text_flat :
   forall txt out,
     flush_text txt (OState (List.map OIn out) [] None)
     = OState (List.map OIn (flush_out txt out)) [] None.
@@ -2935,7 +2935,7 @@ Proof.
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
-Lemma iscan_cis :
+Local Lemma iscan_cis :
   forall cis prev' txt out,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
     ifinish (iscan_str (ci_text cis)
@@ -3186,7 +3186,7 @@ Qed.
    either stays in `IText` (a string) or resolves its closing run before
    the line ends (a verbatim).  An empty verbatim would not: two adjacent
    runs leave `IOpen`, which is why `ci_ok` excludes it. *)
-Lemma iscan_cis_closed :
+Local Lemma iscan_cis_closed :
   forall cis prev' txt out,
     cis_ok cis = true ->
     iscan_closed (iscan_str (ci_text cis)
@@ -3356,7 +3356,7 @@ Qed.
    closing, opening and decaying to literal text all do.  So after
    `iresolve` no state waiting on a next byte is left, and the catch-all
    arms of `ibreak` and `ifinish_ostate` are dead. *)
-Lemma idelim_done_text :
+Local Lemma idelim_done_text :
   forall k txt bef marker next o,
     exists txt' prev' o',
       idelim_done k txt bef marker next o = IText false txt' prev' o'.
@@ -3393,7 +3393,7 @@ Proof.
     rewrite E. exact I.
 Qed.
 
-Lemma parse_inline_line_escape :
+Local Lemma parse_inline_line_escape :
   forall s, nonempty_str s = true ->
   parse_inline_line (escape_str s) = [mk (Str s)].
 Proof.
@@ -3407,7 +3407,7 @@ Qed.
 (* The per-line equation, which holds when the line leaves the scan
    closed.  A line that leaves it mid-span does not contribute a
    separable run of inlines, because a later line finishes the span. *)
-Lemma para_inlines_cons2_closed :
+Local Lemma para_inlines_cons2_closed :
   forall x y rest,
     iscan_closed (iscan_str x istart) = true ->
     para_inlines (x :: y :: rest) =

@@ -50,10 +50,10 @@ from the end (`.project/260916.plan.source-locations.md`, F2).
    begin on an earlier line than the byte being scanned: a spec that
    spans a break is not flushed at the break, so the run it precedes is
    still open when the next line starts (`text_start`'s fallback). *)
-Definition cursor_in (k rem : nat) (origin : spot) : InlineCursor :=
+Local Definition cursor_in (k rem : nat) (origin : spot) : InlineCursor :=
   CursorAt (Spot k rem) (Spot k (pred rem)) origin.
 
-Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k : nat)
+Local Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k : nat)
   (origin : spot) (rem : nat) (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
@@ -64,13 +64,13 @@ Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k : nat)
 
 (* Where a line's stored text begins, and where a paragraph's content
    ends: its last line stripped, since `iscan_lines` scans it stripped. *)
-Definition lines_start (l : list (nat * string)) : spot :=
+Local Definition lines_start (l : list (nat * string)) : spot :=
   match l with
   | [] => Spot 0 0
   | (k, x) :: _ => Spot k (String.length x)
   end.
 
-Fixpoint lines_stop (l : list (nat * string)) : spot :=
+Local Fixpoint lines_stop (l : list (nat * string)) : spot :=
   match l with
   | [] => Spot 0 0
   | [(k, x)] => Spot k (String.length x - String.length (strip_trailing_ws x))
@@ -79,14 +79,14 @@ Fixpoint lines_stop (l : list (nat * string)) : spot :=
 
 (* Attributes are off for the leading lines a failed block spec handed
    back, as in `iscan_lines_off`, and off for the break that ends one. *)
-Definition allow_attrs (off : nat) : bool :=
+Local Definition allow_attrs (off : nat) : bool :=
   match off with O => inline_attrs_enabled | S _ => false end.
 
 (* A break runs from the end of its line to the start of the next one,
    so the text after it starts where that line's content does: the stop
    of the `SoftBreak` is what `text_start` reads.  Container prefixes are
    why this is not the byte after the terminator. *)
-Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
+Local Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
   (l : list (nat * string)) (st : iscan) : iscan :=
   match l with
   | [] => st
@@ -104,7 +104,7 @@ Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
 
 (* The paragraph ends where its last line's content does, and a text run
    with nothing before it starts at the first line's first byte. *)
-Definition ifinish_located `{PosPolicy} (l : list (nat * string))
+Local Definition ifinish_located `{PosPolicy} (l : list (nat * string))
   (st : iscan) : inlines :=
   @ifinish T _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l)) st.
 
@@ -121,25 +121,25 @@ erasure, so the refinement is one equation rather than an equation and
 an invariant over the state.
 *)
 
-Definition erase_oitem (i : oitem) : oitem :=
+Local Definition erase_oitem (i : oitem) : oitem :=
   match i with
   | OIn n => OIn (erase_inode n)
   | OMark a _ _ => OMark a null_span None
   end.
 
-Fixpoint erase_oitems (l : oitems) : oitems :=
+Local Fixpoint erase_oitems (l : oitems) : oitems :=
   match l with
   | [] => []
   | i :: rest => erase_oitem i :: erase_oitems rest
   end.
 
-Lemma erase_oitems_map : forall l, erase_oitems l = map erase_oitem l.
+Local Lemma erase_oitems_map : forall l, erase_oitems l = map erase_oitem l.
 Proof. induction l as [|i l IH]; cbn [erase_oitems map]; congruence. Qed.
 
-Definition erase_frame (f : frame) : frame :=
+Local Definition erase_frame (f : frame) : frame :=
   Frame (fr_kind f) (fr_marked f) null_span (erase_oitems (fr_out f)).
 
-Definition erase_ostate (o : ostate) : ostate :=
+Local Definition erase_ostate (o : ostate) : ostate :=
   OState (erase_oitems (os_out o)) (map erase_frame (os_stk o)) None.
 
 Fixpoint erase_iscan (st : iscan) : iscan :=
@@ -177,21 +177,21 @@ Fixpoint erase_iscan (st : iscan) : iscan :=
 
 (* A node the policy built: its payload survives, its provenance does
    not, and the roles a spec attached to it are provenance. *)
-Lemma erase_imk : forall `{P : PosPolicy} start stop x,
+Local Lemma erase_imk : forall `{P : PosPolicy} start stop x,
   erase_inode (@imk P start stop x) = mk (erase_inline x).
 Proof.
   intros P start stop x. unfold imk, posnode, mk, erase_inode.
   destruct pos_records; reflexivity.
 Qed.
 
-Lemma erase_add_inline_role : forall `{P : PosPolicy} role r n,
+Local Lemma erase_add_inline_role : forall `{P : PosPolicy} role r n,
   erase_inode (@add_inline_role P role r n) = erase_inode n.
 Proof.
   intros P role r [p a x]. unfold add_inline_role, add_roles.
   destruct pos_records; [destruct p|]; reflexivity.
 Qed.
 
-Lemma erase_osnoc : forall n l,
+Local Lemma erase_osnoc : forall n l,
   erase_oitems (osnoc n l) = osnoc (erase_oitem n) (erase_oitems l).
 Proof.
   intros [n|a sp w] [|[m|b sq w'] l]; try reflexivity;
@@ -201,7 +201,7 @@ Proof.
     destruct v; reflexivity.
 Qed.
 
-Lemma erase_oapp : forall cur out,
+Local Lemma erase_oapp : forall cur out,
   erase_oitems (oapp cur out) = oapp (erase_oitems cur) (erase_oitems out).
 Proof.
   induction cur as [|n cur IH]; intros out; [reflexivity|].
@@ -212,21 +212,21 @@ Proof.
     cbn [oapp]. rewrite <- IH. reflexivity.
 Qed.
 
-Lemma erase_oemit : forall n o,
+Local Lemma erase_oemit : forall n o,
   erase_ostate (oemit n o) = oemit (erase_inode n) (erase_ostate o).
 Proof. intros n [out [|f stk] word]; [reflexivity|destruct f; reflexivity]. Qed.
 
-Lemma erase_oemit_node : forall p a x o,
+Local Lemma erase_oemit_node : forall p a x o,
   oemit (Node NoPos a (erase_inline x)) (erase_ostate o) =
   erase_ostate (oemit (Node p a x) o).
 Proof. intros p a x o. rewrite erase_oemit. reflexivity. Qed.
 
-Lemma erase_imk_here : forall `{P : PosPolicy} `{C : InlineCursor} x,
+Local Lemma erase_imk_here : forall `{P : PosPolicy} `{C : InlineCursor} x,
   erase_inode (@imk_here P C x) =
   @imk_here semantic_pos semantic_inline_cursor (erase_inline x).
 Proof. intros P C x. unfold imk_here. rewrite erase_imk. reflexivity. Qed.
 
-Lemma erase_oemit_merge : forall n o,
+Local Lemma erase_oemit_merge : forall n o,
   erase_ostate (oemit_merge n o) =
   oemit_merge (erase_inode n) (erase_ostate o).
 Proof.
@@ -236,18 +236,18 @@ Proof.
     rewrite (erase_osnoc (OIn n)); reflexivity.
 Qed.
 
-Lemma erase_omark : forall a spec o,
+Local Lemma erase_omark : forall a spec o,
   erase_ostate (omark a spec o) = omark a null_span (erase_ostate o).
 Proof. intros a spec [out [|f stk] word]; [reflexivity|destruct f; reflexivity]. Qed.
 
-Lemma erase_oemit_all : forall ns o,
+Local Lemma erase_oemit_all : forall ns o,
   erase_ostate (oemit_all ns o) = oemit_all (erase_inlines ns) (erase_ostate o).
 Proof.
   induction ns as [|n ns IH]; intros o; [reflexivity|].
   cbn [oemit_all]. rewrite IH, erase_oemit. reflexivity.
 Qed.
 
-Lemma erase_oemit_all_merge : forall ns o,
+Local Lemma erase_oemit_all_merge : forall ns o,
   erase_ostate (oemit_all_merge ns o) =
   oemit_all_merge (erase_inlines ns) (erase_ostate o).
 Proof.
@@ -255,22 +255,22 @@ Proof.
   cbn [oemit_all_merge]. rewrite IH, erase_oemit_merge. reflexivity.
 Qed.
 
-Lemma erase_oset_cur : forall l o,
+Local Lemma erase_oset_cur : forall l o,
   erase_ostate (oset_cur l o) = oset_cur (erase_oitems l) (erase_ostate o).
 Proof. intros l [out [|f stk] word]; [reflexivity|destruct f; reflexivity]. Qed.
 
-Lemma erase_oword_reset : forall o,
+Local Lemma erase_oword_reset : forall o,
   erase_ostate (oword_reset o) = oword_reset (erase_ostate o).
 Proof. intros [out stk word]; reflexivity. Qed.
 
-Lemma erase_remember_word_start : forall `{P : PosPolicy} `{C : InlineCursor} c o,
+Local Lemma erase_remember_word_start : forall `{P : PosPolicy} `{C : InlineCursor} c o,
   erase_ostate (@remember_word_start P C c o) = erase_ostate o.
 Proof.
   intros P C c [out stk word]. unfold remember_word_start.
   destruct (pos_records && is_ws c)%bool; reflexivity.
 Qed.
 
-Lemma erase_flush_text_at : forall `{P : PosPolicy} `{C : InlineCursor} txt o,
+Local Lemma erase_flush_text_at : forall `{P : PosPolicy} `{C : InlineCursor} txt o,
   erase_ostate (@flush_text_at P C txt o) = flush_text txt (erase_ostate o).
 Proof.
   intros P C txt o. unfold flush_text; unfold flush_text_at.
@@ -278,7 +278,7 @@ Proof.
   rewrite erase_oemit, erase_imk. reflexivity.
 Qed.
 
-Lemma erase_flush_text_to_at :
+Local Lemma erase_flush_text_to_at :
   forall `{P : PosPolicy} `{C : InlineCursor} stop txt o,
   erase_ostate (@flush_text_to_at P C stop txt o) =
   flush_text txt (erase_ostate o).
@@ -288,12 +288,12 @@ Proof.
   rewrite !erase_oemit, !erase_imk. reflexivity.
 Qed.
 
-Lemma erase_opush_at : forall k m cm open o,
+Local Lemma erase_opush_at : forall k m cm open o,
   erase_ostate (opush_at k m cm open o) =
   opush_at k m cm null_span (erase_ostate o).
 Proof. intros k m cm open [out stk word]; reflexivity. Qed.
 
-Lemma erase_opush : forall `{P : PosPolicy} `{C : InlineCursor} k m o,
+Local Lemma erase_opush : forall `{P : PosPolicy} `{C : InlineCursor} k m o,
   erase_ostate (@opush T P C k m o) =
   @opush T semantic_pos semantic_inline_cursor k m (erase_ostate o).
 Proof.
@@ -301,7 +301,7 @@ Proof.
   rewrite erase_opush_at. destruct (@pos_records P); reflexivity.
 Qed.
 
-Lemma erase_bpush : forall `{P : PosPolicy} `{C : InlineCursor} image o,
+Local Lemma erase_bpush : forall `{P : PosPolicy} `{C : InlineCursor} image o,
   erase_ostate (@bpush P C image o) =
   @bpush semantic_pos semantic_inline_cursor image (erase_ostate o).
 Proof.
@@ -309,12 +309,12 @@ Proof.
   destruct (@pos_records P); reflexivity.
 Qed.
 
-Lemma erase_dpush : forall image open o,
+Local Lemma erase_dpush : forall image open o,
   erase_ostate (dpush image open o) =
   dpush image null_span (erase_ostate o).
 Proof. intros image open [out stk word]; reflexivity. Qed.
 
-Lemma erase_isnoc : forall n l,
+Local Lemma erase_isnoc : forall n l,
   erase_inlines (isnoc n l) = isnoc (erase_inode n) (erase_inlines l).
 Proof.
   intros n [|m l]; [reflexivity|].
@@ -324,31 +324,31 @@ Proof.
     destruct v; reflexivity.
 Qed.
 
-Lemma erase_fr_src : forall f, fr_src (erase_frame f) = fr_src f.
+Local Lemma erase_fr_src : forall f, fr_src (erase_frame f) = fr_src f.
 Proof. intros [k m open out]; destruct k; reflexivity. Qed.
 
-Lemma erase_fr_lit : forall `{P : PosPolicy} f,
+Local Lemma erase_fr_lit : forall `{P : PosPolicy} f,
   @fr_lit T semantic_pos (erase_frame f) = erase_inode (@fr_lit T P f).
 Proof.
   intros P f. unfold fr_lit. rewrite erase_imk, erase_fr_src. reflexivity.
 Qed.
 
-Lemma erase_nonempty : forall l, nonempty (erase_oitems l) = nonempty l.
+Local Lemma erase_nonempty : forall l, nonempty (erase_oitems l) = nonempty l.
 Proof. intros [|i l]; reflexivity. Qed.
 
-Lemma erase_dmatch : forall k m f, dmatch k m (erase_frame f) = dmatch k m f.
+Local Lemma erase_dmatch : forall k m f, dmatch k m (erase_frame f) = dmatch k m f.
 Proof. intros k m [[?|?|?] ? ? ?]; reflexivity. Qed.
 
-Lemma erase_fr_barrier : forall f, fr_barrier (erase_frame f) = fr_barrier f.
+Local Lemma erase_fr_barrier : forall f, fr_barrier (erase_frame f) = fr_barrier f.
 Proof. intros [[?|?|?] ? ? ?]; reflexivity. Qed.
 
-Lemma erase_istarts_str : forall l,
+Local Lemma erase_istarts_str : forall l,
   istarts_str (erase_inlines l) = istarts_str l.
 Proof.
   intros [|[p [|kv a] v] l]; try reflexivity; destruct v; reflexivity.
 Qed.
 
-Lemma erase_oattach_list : forall `{P : PosPolicy} a spec w out,
+Local Lemma erase_oattach_list : forall `{P : PosPolicy} a spec w out,
   erase_inlines (@oattach_list P a spec w out) =
   @oattach_list semantic_pos a null_span None (erase_inlines out).
 Proof.
@@ -372,7 +372,7 @@ Qed.
 (* Erasure commutes with resolution for the same reason it commutes with
    `oattach_list`: the pass moves attributes and a spec's range, and the
    range is what erasure drops. *)
-Lemma erase_oresolve_go : forall `{P : PosPolicy} l,
+Local Lemma erase_oresolve_go : forall `{P : PosPolicy} l,
   @oresolve_go semantic_pos (erase_oitems l) =
   (erase_inlines (fst (@oresolve_go P l)), snd (@oresolve_go P l)).
 Proof.
@@ -384,13 +384,13 @@ Proof.
     rewrite erase_oattach_list. reflexivity.
 Qed.
 
-Lemma erase_oresolve : forall `{P : PosPolicy} l,
+Local Lemma erase_oresolve : forall `{P : PosPolicy} l,
   erase_inlines (@oresolve P l) = @oresolve semantic_pos (erase_oitems l).
 Proof.
   intros P l. unfold oresolve. rewrite erase_oresolve_go. reflexivity.
 Qed.
 
-Lemma erase_oclose_go : forall `{P : PosPolicy} k m pend stk,
+Local Lemma erase_oclose_go : forall `{P : PosPolicy} k m pend stk,
   @oclose_go T semantic_pos k m (erase_oitems pend) (map erase_frame stk) =
   match @oclose_go T P k m pend stk with
   | None => None
@@ -414,21 +414,21 @@ Proof.
     rewrite <- erase_oapp in IH. exact IH.
 Qed.
 
-Lemma erase_dnode : forall k ns,
+Local Lemma erase_dnode : forall k ns,
   erase_inline (dnode k ns) = dnode k (erase_inlines ns).
 Proof.
   intros k ns. destruct k; cbn [dnode erase_inline];
     rewrite erase_inline_children; reflexivity.
 Qed.
 
-Lemma erase_bnode : forall image ns tgt,
+Local Lemma erase_bnode : forall image ns tgt,
   erase_inline (bnode image ns tgt) = bnode image (erase_inlines ns) tgt.
 Proof.
   intros image ns tgt. destruct image; cbn [bnode erase_inline];
     rewrite erase_inline_children; reflexivity.
 Qed.
 
-Lemma erase_span_node : forall ns,
+Local Lemma erase_span_node : forall ns,
   erase_inline (Span ns) = Span (erase_inlines ns).
 Proof.
   intros ns. cbn [erase_inline]. rewrite erase_inline_children. reflexivity.
@@ -436,7 +436,7 @@ Qed.
 
 (* An empty reference's label is the string content of its first
    bracket, which is payload and so survives erasure. *)
-Lemma erase_reference_text : forall i,
+Local Lemma erase_reference_text : forall i,
   reference_text (erase_inline i) = reference_text i.
 Proof.
   refine (inline_ind2
@@ -450,7 +450,7 @@ Proof.
     rewrite ?erase_inline_children in *; congruence.
 Qed.
 
-Lemma erase_reference_inlines_text : forall ns,
+Local Lemma erase_reference_inlines_text : forall ns,
   reference_inlines_text (erase_inlines ns) = reference_inlines_text ns.
 Proof.
   intros ns. unfold reference_inlines_text. f_equal.
@@ -458,13 +458,13 @@ Proof.
   intros [p a x]; cbn [node_contents erase_inode]. apply erase_reference_text.
 Qed.
 
-Lemma erase_auto_node : forall s, erase_inline (auto_node s) = auto_node s.
+Local Lemma erase_auto_node : forall s, erase_inline (auto_node s) = auto_node s.
 Proof. intros s. unfold auto_node. destruct (auto_email s); reflexivity. Qed.
 
-Lemma erase_vnode : forall vk s, erase_inline (vnode vk s) = vnode vk s.
+Local Lemma erase_vnode : forall vk s, erase_inline (vnode vk s) = vnode vk s.
 Proof. intros [|st] s; reflexivity. Qed.
 
-Lemma erase_oclose : forall `{P : PosPolicy} k m stop o,
+Local Lemma erase_oclose : forall `{P : PosPolicy} k m stop o,
   sclose k m (erase_ostate o) =
   option_map erase_ostate (@oclose T P k m stop o).
 Proof.
@@ -480,7 +480,7 @@ Proof.
   destruct o as [out stk word]; reflexivity.
 Qed.
 
-Lemma erase_bclose_go : forall `{P : PosPolicy} pend stk,
+Local Lemma erase_bclose_go : forall `{P : PosPolicy} pend stk,
   @bclose_go T semantic_pos (erase_oitems pend) (map erase_frame stk) =
   match @bclose_go T P pend stk with
   | None => None
@@ -502,7 +502,7 @@ Proof.
   - cbn [erase_frame fr_open]. reflexivity.
 Qed.
 
-Lemma erase_bclose : forall `{P : PosPolicy} o,
+Local Lemma erase_bclose : forall `{P : PosPolicy} o,
   @bclose T semantic_pos (erase_ostate o) =
   match @bclose T P o with
   | None => None
@@ -520,7 +520,7 @@ Proof.
   destruct o as [out stk word]; reflexivity.
 Qed.
 
-Lemma erase_bunpush : forall o,
+Local Lemma erase_bunpush : forall o,
   bunpush (erase_ostate o) =
   match bunpush o with
   | None => None
@@ -530,7 +530,7 @@ Proof.
   intros [out [|[[image| |] marked open [|i l]] stk] word]; reflexivity.
 Qed.
 
-Lemma erase_opop_str : forall o,
+Local Lemma erase_opop_str : forall o,
   opop_str (erase_ostate o) =
   (fst (opop_str o), erase_ostate (snd (opop_str o))).
 Proof.
@@ -541,7 +541,7 @@ Proof.
     destruct a as [|kv a]; [destruct v; reflexivity|reflexivity].
 Qed.
 
-Lemma erase_bflat : forall `{P : PosPolicy} `{C : InlineCursor} kids txt o,
+Local Lemma erase_bflat : forall `{P : PosPolicy} `{C : InlineCursor} kids txt o,
   @bflat semantic_pos semantic_inline_cursor (erase_inlines kids) txt
     (erase_ostate o)
   = (fst (@bflat P C kids txt o), erase_ostate (snd (@bflat P C kids txt o))).
@@ -555,7 +555,7 @@ Proof.
     rewrite <- erase_flush_text_at, (erase_oemit_node p); apply IH.
 Qed.
 
-Lemma erase_bsplit_nl : forall `{P : PosPolicy} `{C : InlineCursor} s txt o,
+Local Lemma erase_bsplit_nl : forall `{P : PosPolicy} `{C : InlineCursor} s txt o,
   @bsplit_nl semantic_pos semantic_inline_cursor s txt (erase_ostate o)
   = (fst (@bsplit_nl P C s txt o),
      erase_ostate (snd (@bsplit_nl P C s txt o))).
@@ -569,7 +569,7 @@ Proof.
   rewrite <- erase_imk_here, <- erase_oemit. apply IH.
 Qed.
 
-Lemma erase_oclose_barred : forall k m o,
+Local Lemma erase_oclose_barred : forall k m o,
   oclose_barred k m (erase_ostate o) = oclose_barred k m o.
 Proof.
   intros k m o. unfold oclose_barred.
@@ -580,7 +580,7 @@ Proof.
   destruct (dmatch k m f); [reflexivity|apply IH].
 Qed.
 
-Lemma erase_bclosed_lit : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_bclosed_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image o,
   @bclosed_lit semantic_pos semantic_inline_cursor (erase_inlines kids) image
     (erase_ostate o)
@@ -595,7 +595,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma erase_bspan_lit : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_bspan_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image src o,
   @bspan_lit semantic_pos semantic_inline_cursor (erase_inlines kids) image
     src (erase_ostate o)
@@ -608,13 +608,13 @@ Proof.
   apply erase_bsplit_nl.
 Qed.
 
-Lemma erase_battr_lit : forall `{P : PosPolicy} `{C : InlineCursor} src txt o,
+Local Lemma erase_battr_lit : forall `{P : PosPolicy} `{C : InlineCursor} src txt o,
   @battr_lit semantic_pos semantic_inline_cursor src txt (erase_ostate o)
   = (fst (@battr_lit P C src txt o),
      erase_ostate (snd (@battr_lit P C src txt o))).
 Proof. intros P C src txt o. apply erase_bsplit_nl. Qed.
 
-Lemma erase_bref_lit : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_bref_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image label o,
   @bref_lit semantic_pos semantic_inline_cursor (erase_inlines kids) image
     label (erase_ostate o)
@@ -626,7 +626,7 @@ Proof.
   destruct (@bclosed_lit P C kids image o) as [txt o']; reflexivity.
 Qed.
 
-Lemma erase_bnote_lit : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_bnote_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   esc image label o,
   @bnote_lit semantic_pos semantic_inline_cursor esc image label
     (erase_ostate o)
@@ -638,7 +638,7 @@ Proof.
   destruct (opop_str o) as [pre o1]; reflexivity.
 Qed.
 
-Lemma erase_ospan_bang : forall `{P : PosPolicy} `{C : InlineCursor} image o,
+Local Lemma erase_ospan_bang : forall `{P : PosPolicy} `{C : InlineCursor} image o,
   erase_ostate (@ospan_bang P C image o) =
   @ospan_bang semantic_pos semantic_inline_cursor image (erase_ostate o).
 Proof.
@@ -647,7 +647,7 @@ Proof.
   apply erase_flush_text_at.
 Qed.
 
-Lemma erase_ilead : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,
+Local Lemma erase_ilead : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,
   erase_iscan (@ilead T P C c txt prev o) =
   @ilead T semantic_pos semantic_inline_cursor c txt prev (erase_ostate o).
 Proof.
@@ -676,7 +676,7 @@ Proof.
     rewrite ?erase_remember_word_start; reflexivity.
 Qed.
 
-Lemma erase_idest_open : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idest_open : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image open o,
   erase_iscan (@idest_open P C kids image open o) =
   @idest_open semantic_pos semantic_inline_cursor (erase_inlines kids) image
@@ -688,7 +688,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma erase_oopen_marked : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_oopen_marked : forall `{P : PosPolicy} `{C : InlineCursor}
   k cm txt o,
   erase_ostate (@oopen_marked T P C k cm txt o) =
   @oopen_marked T semantic_pos semantic_inline_cursor k cm txt (erase_ostate o).
@@ -698,7 +698,7 @@ Proof.
   unfold dtoken_span, pspan. destruct (@pos_records P); reflexivity.
 Qed.
 
-Lemma erase_idelim_open_marked : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idelim_open_marked : forall `{P : PosPolicy} `{C : InlineCursor}
   k cm txt o,
   erase_iscan (@idelim_open_marked T P C k cm txt o) =
   @idelim_open_marked T semantic_pos semantic_inline_cursor k cm txt
@@ -708,7 +708,7 @@ Proof.
   cbn [erase_iscan]. rewrite erase_oopen_marked. reflexivity.
 Qed.
 
-Lemma erase_islice_end : forall st,
+Local Lemma erase_islice_end : forall st,
   erase_iscan (islice_end st) = islice_end (erase_iscan st).
 Proof.
   induction st; cbn [erase_iscan islice_end];
@@ -716,7 +716,7 @@ Proof.
   exact IHst.
 Qed.
 
-Lemma erase_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
   src a txt o,
   erase_iscan (@iattr_mark P C src a txt o) =
   @iattr_mark semantic_pos semantic_inline_cursor src a txt (erase_ostate o).
@@ -727,7 +727,7 @@ Proof.
   unfold pspan. destruct (@pos_records P); reflexivity.
 Qed.
 
-Lemma erase_iattr_feed : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iattr_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c p src txt prev sh o,
   erase_iscan (@iattr_feed T P C c p src txt prev sh o) =
   @iattr_feed T semantic_pos semantic_inline_cursor c p src txt prev
@@ -739,7 +739,7 @@ Proof.
   cbn [erase_iscan]. rewrite erase_islice_end. reflexivity.
 Qed.
 
-Lemma erase_ibrace_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_ibrace_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
   allow c txt prev o,
   erase_iscan (@ibrace_step_at T P C allow c txt prev o) =
   @ibrace_step_at T semantic_pos semantic_inline_cursor allow c txt prev
@@ -754,7 +754,7 @@ Proof.
     apply erase_ilead.
 Qed.
 
-Lemma erase_ibang_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_ibang_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c txt prev o,
   erase_iscan (@ibang_step T P C c txt prev o) =
   @ibang_step T semantic_pos semantic_inline_cursor c txt prev (erase_ostate o).
@@ -764,7 +764,7 @@ Proof.
   cbn [erase_iscan]. rewrite erase_bpush, erase_flush_text_to_at. reflexivity.
 Qed.
 
-Lemma erase_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
   erase_iscan (@idelim_done T P C k txt before marker next o) =
   @idelim_done T semantic_pos semantic_inline_cursor k txt before marker next
@@ -776,7 +776,7 @@ Proof.
   cbn [erase_iscan]. rewrite erase_opush, erase_flush_text_to_at. reflexivity.
 Qed.
 
-Lemma erase_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
   erase_iscan (@idelim_resolve T P C k txt before marker next o) =
   @idelim_resolve T semantic_pos semantic_inline_cursor k txt before marker next
@@ -795,7 +795,7 @@ Proof.
       [reflexivity|apply erase_idelim_done].
 Qed.
 
-Lemma erase_idollar_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idollar_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c two txt prev o,
   erase_iscan (@idollar_step T P C c two txt prev o) =
   @idollar_step T semantic_pos semantic_inline_cursor c two txt prev
@@ -807,7 +807,7 @@ Proof.
   cbn [erase_iscan]. rewrite erase_flush_text_to_at. reflexivity.
 Qed.
 
-Lemma erase_iperiod_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iperiod_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c two txt prev o,
   erase_iscan (@iperiod_step T P C c two txt prev o) =
   @iperiod_step T semantic_pos semantic_inline_cursor c two txt prev
@@ -817,7 +817,7 @@ Proof.
   destruct (Ascii.eqb c period); [destruct two; reflexivity|apply erase_ilead].
 Qed.
 
-Lemma erase_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c n txt prev o,
   erase_iscan (@idash_step T P C c n txt prev o) =
   @idash_step T semantic_pos semantic_inline_cursor c n txt prev
@@ -830,7 +830,7 @@ Proof.
   destruct (Nat.leb (dwidth k) n); [apply erase_idelim_resolve|reflexivity].
 Qed.
 
-Lemma erase_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
+Local Lemma erase_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_iscan (@iresolve T P C st) =
   @iresolve T semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
@@ -842,7 +842,7 @@ Proof.
     [apply erase_idelim_open_marked|apply erase_idelim_resolve].
 Qed.
 
-Lemma erase_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
   ws txt prev o,
   let '(t, pv, o') := @iescws_resolve P C ws txt prev o in
   @iescws_resolve semantic_pos semantic_inline_cursor ws txt prev
@@ -853,7 +853,7 @@ Proof.
   rewrite erase_oemit, erase_imk, erase_flush_text_to_at. reflexivity.
 Qed.
 
-Lemma erase_iesc_hard : forall `{P : PosPolicy} `{C : InlineCursor} ws txt o,
+Local Lemma erase_iesc_hard : forall `{P : PosPolicy} `{C : InlineCursor} ws txt o,
   erase_ostate (@iesc_hard P C ws txt o) =
   @iesc_hard semantic_pos semantic_inline_cursor ws txt (erase_ostate o).
 Proof.
@@ -861,7 +861,7 @@ Proof.
   rewrite erase_oemit, erase_flush_text_to_at, erase_imk_here. reflexivity.
 Qed.
 
-Lemma erase_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c kids image open p src o,
   erase_iscan (@ispan_feed T P C c kids image open p src o) =
   @ispan_feed T semantic_pos semantic_inline_cursor c (erase_inlines kids) image
@@ -878,7 +878,7 @@ Proof.
     cbn [erase_inode]. rewrite erase_span_node. reflexivity.
 Qed.
 
-Lemma erase_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c esc image label open o,
   erase_iscan (@inote_step P C c esc image label open o) =
   @inote_step semantic_pos semantic_inline_cursor c esc image label null_span
@@ -892,7 +892,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma erase_bwiki_lit : forall esc rb image region o,
+Local Lemma erase_bwiki_lit : forall esc rb image region o,
   bwiki_lit esc rb image region (erase_ostate o) =
   (fst (bwiki_lit esc rb image region o),
    erase_ostate (snd (bwiki_lit esc rb image region o))).
@@ -901,7 +901,7 @@ Proof.
   rewrite erase_opop_str. destruct (opop_str o) as [pre o1]; reflexivity.
 Qed.
 
-Lemma erase_iwiki_close : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iwiki_close : forall `{P : PosPolicy} `{C : InlineCursor}
   image region open o,
   erase_iscan (@iwiki_close P C image region open o) =
   @iwiki_close semantic_pos semantic_inline_cursor image region null_span
@@ -914,7 +914,7 @@ Proof.
   - cbn [erase_iscan]. rewrite erase_oemit, erase_imk. reflexivity.
 Qed.
 
-Lemma erase_iwiki_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iwiki_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c esc rb image region open o,
   erase_iscan (@iwiki_step P C c esc rb image region open o) =
   @iwiki_step semantic_pos semantic_inline_cursor c esc rb image region
@@ -927,7 +927,7 @@ Proof.
   destruct (Ascii.eqb c rbrack); reflexivity.
 Qed.
 
-Lemma erase_iauto_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iauto_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c src txt o,
   erase_iscan (@iauto_step T P C c src txt o) =
   @iauto_step T semantic_pos semantic_inline_cursor c src txt (erase_ostate o).
@@ -940,7 +940,7 @@ Proof.
       [apply erase_ilead|reflexivity].
 Qed.
 
-Lemma erase_iraw_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_iraw_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
   allow c spec txt o,
   erase_iscan (@iraw_step_at T P C allow c spec txt o) =
   @iraw_step_at T semantic_pos semantic_inline_cursor allow c spec txt
@@ -961,7 +961,7 @@ Proof.
       rewrite erase_oemit, erase_imk; reflexivity.
 Qed.
 
-Lemma erase_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
+Local Lemma erase_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c alias txt o sh,
   erase_iscan (@isymbol_step P C c alias txt o sh) =
   @isymbol_step semantic_pos semantic_inline_cursor c alias txt
@@ -975,12 +975,12 @@ Proof.
     erase_flush_text_to_at. reflexivity.
 Qed.
 
-Lemma erase_iscan_attr : forall ap src txt prev sh o,
+Local Lemma erase_iscan_attr : forall ap src txt prev sh o,
   erase_iscan (IAttr ap src txt prev sh o) =
   IAttr ap src txt prev (erase_iscan sh) (erase_ostate o).
 Proof. reflexivity. Qed.
 
-Lemma erase_iscan_dest : forall kids image open esc depth dst sh o,
+Local Lemma erase_iscan_dest : forall kids image open esc depth dst sh o,
   erase_iscan (IDest kids image open esc depth dst sh o) =
   IDest (erase_inlines kids) image null_span esc depth dst
     (erase_iscan sh) (erase_ostate o).
@@ -1092,7 +1092,7 @@ Proof.
   - (* IRaw *) apply erase_iraw_step_at.
 Qed.
 
-Lemma erase_ifinish_ostate_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
+Local Lemma erase_ifinish_ostate_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_ostate (@ifinish_ostate_flat P C st) =
   @ifinish_ostate_flat semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
@@ -1130,7 +1130,7 @@ Proof.
   - rewrite erase_flush_text_at, erase_oemit, erase_imk. reflexivity.
 Qed.
 
-Lemma erase_ifinish_ostate : forall `{P : PosPolicy} `{C : InlineCursor} st,
+Local Lemma erase_ifinish_ostate : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_ostate (@ifinish_ostate T P C st) =
   @ifinish_ostate T semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
@@ -1142,7 +1142,7 @@ Proof.
   - cbn [erase_iscan ifinish_ostate]. assumption.
 Qed.
 
-Lemma erase_oflatten : forall `{P : PosPolicy} pend stk bottom,
+Local Lemma erase_oflatten : forall `{P : PosPolicy} pend stk bottom,
   erase_oitems (@oflatten T P pend stk bottom) =
   @oflatten T semantic_pos (erase_oitems pend) (map erase_frame stk)
     (erase_oitems bottom).
@@ -1157,7 +1157,7 @@ Proof.
   rewrite <- erase_oapp in IH. exact IH.
 Qed.
 
-Lemma erase_oitems_of : forall `{P : PosPolicy} o,
+Local Lemma erase_oitems_of : forall `{P : PosPolicy} o,
   erase_oitems (@oitems_of T P o) =
   @oitems_of T semantic_pos (erase_ostate o).
 Proof.
@@ -1168,14 +1168,14 @@ Proof.
   apply erase_oflatten.
 Qed.
 
-Lemma erase_ofinish : forall `{P : PosPolicy} o,
+Local Lemma erase_ofinish : forall `{P : PosPolicy} o,
   erase_inlines (@ofinish T P o) = @ofinish T semantic_pos (erase_ostate o).
 Proof.
   intros P o. unfold ofinish.
   rewrite erase_oresolve, erase_oitems_of. reflexivity.
 Qed.
 
-Lemma erase_ifinish : forall `{P : PosPolicy} `{C : InlineCursor} st,
+Local Lemma erase_ifinish : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_inlines (@ifinish T P C st) =
   @ifinish T semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
@@ -1183,7 +1183,7 @@ Proof.
   rewrite erase_inlines_rev, erase_ofinish, erase_ifinish_ostate. reflexivity.
 Qed.
 
-Lemma erase_ibreak_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
+Local Lemma erase_ibreak_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
   erase_iscan (@ibreak_flat T P C st) =
   @ibreak_flat T semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof.
@@ -1219,7 +1219,7 @@ Proof.
       erase_flush_text_at, erase_oemit, erase_imk. reflexivity.
 Qed.
 
-Lemma erase_ibreak_at : forall `{P : PosPolicy} `{C : InlineCursor} allow st,
+Local Lemma erase_ibreak_at : forall `{P : PosPolicy} `{C : InlineCursor} allow st,
   erase_iscan (@ibreak_at T P C allow st) =
   @ibreak_at T semantic_pos semantic_inline_cursor allow (erase_iscan st).
 Proof.
@@ -1237,7 +1237,7 @@ Qed.
    `iscan_str_off` are its two instances; it exists so that one statement
    covers a paragraph whose leading lines a failed block spec handed
    back. *)
-Fixpoint iscan_str_at (allow : bool) (s : string) (st : iscan) : iscan :=
+Local Fixpoint iscan_str_at (allow : bool) (s : string) (st : iscan) : iscan :=
   match s with
   | EmptyString => st
   | String c rest =>
@@ -1245,15 +1245,15 @@ Fixpoint iscan_str_at (allow : bool) (s : string) (st : iscan) : iscan :=
         (@istep_at T semantic_pos semantic_inline_cursor allow c st)
   end.
 
-Lemma iscan_str_at_on : forall s st,
+Local Lemma iscan_str_at_on : forall s st,
   iscan_str_at inline_attrs_enabled s st = iscan_str s st.
 Proof. induction s as [|c s IH]; intros st; [reflexivity|apply IH]. Qed.
 
-Lemma iscan_str_at_off : forall s st,
+Local Lemma iscan_str_at_off : forall s st,
   iscan_str_at false s st = iscan_str_off s st.
 Proof. induction s as [|c s IH]; intros st; [reflexivity|apply IH]. Qed.
 
-Lemma erase_iscan_str_located :
+Local Lemma erase_iscan_str_located :
   forall `{P : PosPolicy} allow k origin rem s st,
   erase_iscan (@iscan_str_located P allow k origin rem s st) =
   iscan_str_at allow s (erase_iscan st).
@@ -1267,13 +1267,13 @@ Qed.
 (* The driver's two step equations, so that a proof over a paragraph's
    lines rewrites rather than reduces: `cbn` unfolds the recursive call
    as well and loses the name. *)
-Lemma iscan_lines_located_one : forall `{P : PosPolicy} off org k x st,
+Local Lemma iscan_lines_located_one : forall `{P : PosPolicy} off org k x st,
   @iscan_lines_located P off org [(k, x)] st =
   @iscan_str_located P (allow_attrs off) k org
     (String.length x) (strip_trailing_ws x) st.
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_located_cons :
+Local Lemma iscan_lines_located_cons :
   forall `{P : PosPolicy} off org k x y rest st,
   @iscan_lines_located P off org ((k, x) :: y :: rest)%list st =
   @iscan_lines_located P (pred off) org (y :: rest)%list
@@ -1285,7 +1285,7 @@ Lemma iscan_lines_located_cons :
           (String.length x) x st)).
 Proof. reflexivity. Qed.
 
-Lemma erase_iscan_lines_located : forall `{P : PosPolicy} off org l st,
+Local Lemma erase_iscan_lines_located : forall `{P : PosPolicy} off org l st,
   erase_iscan (@iscan_lines_located P off org l st) =
   iscan_lines_off off (map snd l) (erase_iscan st).
 Proof.
@@ -1308,7 +1308,7 @@ Qed.
 
 (* The same at the ambient instance, which the statement above reads as
    the semantic scan being position-free. *)
-Lemma erase_iscan_str_at : forall allow s st,
+Local Lemma erase_iscan_str_at : forall allow s st,
   erase_iscan (iscan_str_at allow s st) = iscan_str_at allow s (erase_iscan st).
 Proof.
   intros allow s. induction s as [|c s IH]; intros st; [reflexivity|].
@@ -1316,30 +1316,30 @@ Proof.
 Qed.
 
 (* The ambient driver's step equations, for the same reason. *)
-Lemma iscan_lines_off_O : forall l st, iscan_lines_off 0 l st = iscan_lines l st.
+Local Lemma iscan_lines_off_O : forall l st, iscan_lines_off 0 l st = iscan_lines l st.
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_last : forall x st,
+Local Lemma iscan_lines_last : forall x st,
   iscan_lines [x] st = iscan_str (strip_trailing_ws x) st.
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_step : forall x y rest st,
+Local Lemma iscan_lines_step : forall x y rest st,
   iscan_lines (x :: y :: rest)%list st =
   iscan_lines (y :: rest)%list
     (@ibreak T semantic_pos semantic_inline_cursor (iscan_str x st)).
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_off_last : forall k x st,
+Local Lemma iscan_lines_off_last : forall k x st,
   iscan_lines_off (S k) [x] st = iscan_str_off (strip_trailing_ws x) st.
 Proof. reflexivity. Qed.
 
-Lemma iscan_lines_off_step : forall k x y rest st,
+Local Lemma iscan_lines_off_step : forall k x y rest st,
   iscan_lines_off (S k) (x :: y :: rest)%list st =
   iscan_lines_off k (y :: rest)%list
     (@ibreak_at T semantic_pos semantic_inline_cursor false (iscan_str_off x st)).
 Proof. reflexivity. Qed.
 
-Lemma erase_iscan_lines_off : forall off l st,
+Local Lemma erase_iscan_lines_off : forall off l st,
   erase_iscan (iscan_lines_off off l st) =
   iscan_lines_off off l (erase_iscan st).
 Proof.
@@ -1361,7 +1361,7 @@ Proof.
           <- !iscan_str_at_off, erase_iscan_str_at. reflexivity.
 Qed.
 
-Lemma erase_ifinish_located : forall `{P : PosPolicy} l st,
+Local Lemma erase_ifinish_located : forall `{P : PosPolicy} l st,
   erase_inlines (@ifinish_located P l st) =
   @ifinish T semantic_pos semantic_inline_cursor (erase_iscan st).
 Proof. intros P l st. apply erase_ifinish. Qed.
@@ -1369,7 +1369,7 @@ Proof. intros P l st. apply erase_ifinish. Qed.
 (* A paragraph's lines with their source line indices, scanned so that
    every node records where it came from.  `off` is `para_inlines_off`'s:
    how many leading lines are read with attributes off. *)
-Definition para_inlines_located `{PosPolicy} (off : nat)
+Local Definition para_inlines_located `{PosPolicy} (off : nat)
   (l : list (nat * string)) : inlines :=
   ifinish_located l (iscan_lines_located off (lines_start l) l istart).
 
@@ -1415,10 +1415,10 @@ Lemma para_inlines_at_semantic : forall off l,
   @para_inlines_at semantic_pos off l = para_inlines_off off (map snd l).
 Proof. reflexivity. Qed.
 
-Lemma erase_istart : erase_iscan istart = istart.
+Local Lemma erase_istart : erase_iscan istart = istart.
 Proof. reflexivity. Qed.
 
-Lemma erase_para_inlines_located : forall `{P : PosPolicy} off l,
+Local Lemma erase_para_inlines_located : forall `{P : PosPolicy} off l,
   erase_inlines (@para_inlines_located P off l) =
   para_inlines_off off (map snd l).
 Proof.
@@ -1430,7 +1430,7 @@ Qed.
 (* The same statement at the ambient instance, which is what a block
    built by it needs: a paragraph the semantic scan produced is already
    position-free. *)
-Lemma erase_inlines_para_inlines_off : forall off l,
+Local Lemma erase_inlines_para_inlines_off : forall off l,
   erase_inlines (para_inlines_off off l) = para_inlines_off off l.
 Proof.
   intros off l. unfold para_inlines_off.

@@ -63,7 +63,7 @@ Fixpoint nsc_items (core : nat -> string) (d : ordered_list_delim) (n : nat)
   | L :: rest => (nsc_marker core d n, L) :: nsc_items core d (S n) rest
   end.
 
-Lemma map_snd_nsc_items :
+Local Lemma map_snd_nsc_items :
   forall core d n lss, map snd (nsc_items core d n lss) = lss.
 Proof.
   intros core d n lss. revert n.
@@ -71,7 +71,7 @@ Proof.
   cbn [nsc_items map snd]. rewrite IH. reflexivity.
 Qed.
 
-Lemma map_parse_nsc_items :
+Local Lemma map_parse_nsc_items :
   forall core d n lss,
     map (fun it => parse_lines (snd it) (PPara [])) (nsc_items core d n lss)
     = map (fun L => parse_lines L (PPara [])) lss.
@@ -81,7 +81,7 @@ Proof.
   cbn [nsc_items map snd]. rewrite IH. reflexivity.
 Qed.
 
-Lemma map_litem_lines_nsc_items :
+Local Lemma map_litem_lines_nsc_items :
   forall core d n lss,
     map litem_lines (nsc_items core d n lss)
     = map (fun p => indent_lines (mk_open (nsc_marker core d (fst p)))
@@ -154,7 +154,7 @@ ones every list has.
 Definition dec_marker (d : ordered_list_delim) (n : nat) : marker :=
   MOrd (dec_str n) d.
 
-Lemma styles_of_core_dec :
+Local Lemma styles_of_core_dec :
   forall core d, nonempty_str core = true -> str_forallb is_digit core = true ->
     styles_of_core core d = [SOrd Decimal d].
 Proof.
@@ -162,14 +162,14 @@ Proof.
   cbn [styles_of_core]. rewrite Hd. reflexivity.
 Qed.
 
-Lemma dec_marker_sty :
+Local Lemma dec_marker_sty :
   forall d n, mk_sty (dec_marker d n) = [SOrd Decimal d].
 Proof.
   intros d n. cbn [mk_sty dec_marker].
   apply styles_of_core_dec; [apply dec_str_nonempty | apply dec_str_digits].
 Qed.
 
-Lemma dec_marker_ok : forall d n, marker_ok (dec_marker d n) = true.
+Local Lemma dec_marker_ok : forall d n, marker_ok (dec_marker d n) = true.
 Proof.
   intros d n. cbn [marker_ok dec_marker].
   rewrite dec_str_nonempty, (str_digits_alnum _ (dec_str_digits n)).
@@ -181,7 +181,7 @@ Qed.
    a thematic break -- which is the one part of `item_ok` that mentions
    the marker, and therefore the reason a decimal item's acceptability
    does not depend on its number. *)
-Lemma is_thematic_dec_marker :
+Local Lemma is_thematic_dec_marker :
   forall d n l, is_thematic (mk_open (dec_marker d n) ++ l) = false.
 Proof.
   intros d n l.
@@ -205,14 +205,14 @@ Proof.
     apply thematic_first_char; reflexivity.
 Qed.
 
-Lemma item_ok_dec_marker :
+Local Lemma item_ok_dec_marker :
   forall d k n L, item_ok (dec_marker d k) L = item_ok (dec_marker d n) L.
 Proof.
   intros d k n [|l0 more]; [reflexivity|].
   cbn [item_ok]. rewrite !is_thematic_dec_marker. reflexivity.
 Qed.
 
-Lemma dec_marker_styles :
+Local Lemma dec_marker_styles :
   forall d n, mk_styles (dec_marker d n) = [(SOrd Decimal d, n)].
 Proof.
   intros d n. unfold mk_styles, with_starts. rewrite dec_marker_sty.
@@ -221,7 +221,7 @@ Proof.
 Qed.
 
 (* So a decimal list closes to the `OrderedList` its start names. *)
-Lemma marker_list_dec :
+Local Lemma marker_list_dec :
   forall d n sp checks items,
     marker_list_checked (dec_marker d n) sp checks items
     = mk (OrderedList (OLAttrs Decimal d n) sp items).
@@ -238,7 +238,7 @@ Fixpoint dec_items (d : ordered_list_delim) (n : nat) (lss : list (list string))
   | L :: rest => (dec_marker d n, L) :: dec_items d (S n) rest
   end.
 
-Lemma map_snd_dec_items :
+Local Lemma map_snd_dec_items :
   forall d n lss, map snd (dec_items d n lss) = lss.
 Proof.
   intros d n lss. revert n.
@@ -246,7 +246,7 @@ Proof.
   cbn [dec_items map snd]. rewrite IH. reflexivity.
 Qed.
 
-Lemma items_ok_dec_items :
+Local Lemma items_ok_dec_items :
   forall d n0 n lss,
     forallb (item_ok (dec_marker d n0)) lss = true ->
     items_ok (dec_marker d n0) (dec_items d n lss) = true.
@@ -264,7 +264,7 @@ Proof.
   apply IH, Hrest.
 Qed.
 
-Lemma map_litem_lines_dec_items :
+Local Lemma map_litem_lines_dec_items :
   forall d n lss,
     map litem_lines (dec_items d n lss)
     = map (fun p => indent_lines (mk_open (dec_marker d (fst p)))
@@ -277,7 +277,7 @@ Proof.
   unfold litem_lines at 1. cbn [fst snd]. rewrite IH. reflexivity.
 Qed.
 
-Lemma map_parse_dec_items :
+Local Lemma map_parse_dec_items :
   forall d n lss,
     map (fun it => parse_lines (snd it) (PPara [])) (dec_items d n lss)
     = map (fun L => parse_lines L (PPara [])) lss.
@@ -371,7 +371,7 @@ Definition roman_sty (up : bool) : ordered_list_style :=
 Definition alpha_sty (up : bool) : ordered_list_style :=
   if up then LetterUpper else LetterLower.
 
-Lemma styles_of_core_roman :
+Local Lemma styles_of_core_roman :
   forall (up : bool) core d,
     str_forallb (if up then is_roman_up else is_roman_lo) core = true ->
     2 <= String.length core ->
@@ -389,7 +389,7 @@ Proof.
   - rewrite H. reflexivity.
 Qed.
 
-Lemma styles_of_core_alpha :
+Local Lemma styles_of_core_alpha :
   forall (up : bool) c d,
     (if up then is_upper else is_lower) c = true ->
     (if up then is_roman_up else is_roman_lo) c = false ->
@@ -405,7 +405,7 @@ Qed.
 
 (* The two hypotheses `nsc_uniformity` asks of a first marker, discharged
    for roman under its range and length conditions. *)
-Lemma roman_marker_styles :
+Local Lemma roman_marker_styles :
   forall (up : bool) d n,
     1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
     mk_styles (nsc_marker (roman_str up) d n) = [(SOrd (roman_sty up) d, n)].
@@ -417,7 +417,7 @@ Proof.
   destruct up; cbn [style_start]; rewrite (roman_value_str _ n H1 H2); reflexivity.
 Qed.
 
-Lemma roman_marker_ok :
+Local Lemma roman_marker_ok :
   forall (up : bool) d n,
     1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
     marker_ok (nsc_marker (roman_str up) d n) = true.
@@ -435,7 +435,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma alpha_marker_styles :
+Local Lemma alpha_marker_styles :
   forall (up : bool) d n,
     1 <= n -> n <= alpha_upper ->
     (if up then is_roman_up else is_roman_lo)
@@ -456,7 +456,7 @@ Proof.
   destruct up; cbn [style_start]; rewrite Hv; reflexivity.
 Qed.
 
-Lemma alpha_marker_ok :
+Local Lemma alpha_marker_ok :
   forall (up : bool) d n,
     1 <= n -> n <= alpha_upper ->
     (if up then is_roman_up else is_roman_lo)
@@ -498,7 +498,7 @@ false for every marker whose numeral starts with an alphanumeric, so
 `item_ok` at one marker of the run gives it at all of them.
 *)
 
-Lemma styles_of_core_roman_cons :
+Local Lemma styles_of_core_roman_cons :
   forall (up : bool) core d,
     str_forallb (if up then is_roman_up else is_roman_lo) core = true ->
     nonempty_str core = true ->
@@ -516,14 +516,14 @@ Proof.
   - exists []. apply (styles_of_core_roman up _ d H). cbn [String.length]. lia.
 Qed.
 
-Lemma existsb_nonempty :
+Local Lemma existsb_nonempty :
   forall {A} (f : A -> bool) l, existsb f l = true -> nonempty l = true.
 Proof. intros A f [|x l] H; [discriminate|reflexivity]. Qed.
 
 (* Alpha items get membership, not a singleton: a letter that is also a
    roman digit offers roman *first*, and only the first marker of a list
    is required to name one style. *)
-Lemma styles_of_core_alpha_mem :
+Local Lemma styles_of_core_alpha_mem :
   forall (up : bool) c d,
     (if up then is_upper else is_lower) c = true ->
     existsb (lstyle_eqb (SOrd (alpha_sty up) d))
@@ -543,7 +543,7 @@ Proof.
       cbn [existsb alpha_sty]. rewrite lstyle_eqb_refl. reflexivity.
 Qed.
 
-Lemma is_thematic_ord_marker :
+Local Lemma is_thematic_ord_marker :
   forall c rest d l,
     is_alnum c = true ->
     is_thematic (mk_open (MOrd (String c rest) d) ++ l) = false.
@@ -564,7 +564,7 @@ Qed.
 
 (* The whole of `item_ok`'s dependence on its marker.  The task-marker
    conjunct is not part of it: it tests the line alone (`Line.task_start`). *)
-Lemma item_ok_thematic_indep :
+Local Lemma item_ok_thematic_indep :
   forall m m' L,
     (forall l, is_thematic (mk_open m ++ l) = false) ->
     (forall l, is_thematic (mk_open m' ++ l) = false) ->
@@ -574,7 +574,7 @@ Proof.
   cbn [item_ok]. rewrite H, H'. reflexivity.
 Qed.
 
-Lemma items_ok_nsc_run :
+Local Lemma items_ok_nsc_run :
   forall core d Sty m0 lss n,
     (forall k, k < length lss ->
        marker_ok (nsc_marker core d (n + k)) = true
@@ -601,7 +601,7 @@ Qed.
 
 (* What every item of a roman run satisfies, with no condition beyond the
    range -- a bare `v` included. *)
-Lemma roman_item_facts :
+Local Lemma roman_item_facts :
   forall (up : bool) d n, 1 <= n -> n <= roman_upper ->
     marker_ok (nsc_marker (roman_str up) d n) = true
     /\ existsb (lstyle_eqb (SOrd (roman_sty up) d))
@@ -627,7 +627,7 @@ Proof.
   - intros l. unfold nsc_marker. rewrite E. apply is_thematic_ord_marker, Hc.
 Qed.
 
-Lemma alpha_item_facts :
+Local Lemma alpha_item_facts :
   forall (up : bool) d n, 1 <= n -> n <= alpha_upper ->
     marker_ok (nsc_marker (alpha_str up) d n) = true
     /\ existsb (lstyle_eqb (SOrd (alpha_sty up) d))
@@ -667,7 +667,7 @@ digits, as are `l` and `m`, so an alpha list from 3 or 12 is still
 unresolved after its second marker.
 *)
 
-Lemma styles_of_core_roman_single :
+Local Lemma styles_of_core_roman_single :
   forall (up : bool) c d,
     (if up then is_roman_up else is_roman_lo) c = true ->
     styles_of_core (String c EmptyString) d
@@ -681,7 +681,7 @@ Proof.
 Qed.
 
 (* The head, with no length condition. *)
-Lemma roman_marker_head :
+Local Lemma roman_marker_head :
   forall (up : bool) d n, 1 <= n -> n <= roman_upper ->
     exists rest, mk_styles (nsc_marker (roman_str up) d n)
                  = (SOrd (roman_sty up) d, n) :: rest.
@@ -698,7 +698,7 @@ Proof.
 Qed.
 
 (* And the set a second item narrows it to, always the singleton. *)
-Lemma roman_narrow_singleton :
+Local Lemma roman_narrow_singleton :
   forall (up : bool) d n, 1 <= n -> S n <= roman_upper ->
     narrow (mk_styles (nsc_marker (roman_str up) d n))
            (mk_sty (nsc_marker (roman_str up) d (S n)))
@@ -913,7 +913,7 @@ where the next letter (`d` after `c`, `m` after `l`) is itself a roman
 digit and the set survives two markers.
 *)
 
-Definition alpha_char (up : bool) (n : nat) : ascii :=
+Local Definition alpha_char (up : bool) (n : nat) : ascii :=
   ascii_of_nat ((if up then 64 else 96) + n).
 
 (* Is this position's letter also a roman digit?  The seven that are --
@@ -925,7 +925,7 @@ Definition alpha_roman_digit (up : bool) (n : nat) : bool :=
    it offers both candidates, so every style the list still has survives.
    This is the step that makes an alpha list from `c` or from `l` need a
    second peel -- `d` and `m` leave the set exactly where it was. *)
-Lemma alpha_narrow_id :
+Local Lemma alpha_narrow_id :
   forall (up : bool) d n m, 1 <= n -> n <= alpha_upper -> 1 <= m -> m <= alpha_upper ->
     alpha_roman_digit up m = true ->
     narrow (mk_styles (nsc_marker (alpha_str up) d n))
@@ -951,7 +951,7 @@ Proof.
     rewrite lstyle_eqb_refl, ?orb_true_r, ?andb_true_r. reflexivity.
 Qed.
 
-Lemma alpha_narrow_by :
+Local Lemma alpha_narrow_by :
   forall (up : bool) d n m, 1 <= n -> n <= alpha_upper -> 1 <= m -> m <= alpha_upper ->
     alpha_roman_digit up m = false ->
     narrow (mk_styles (nsc_marker (alpha_str up) d n))
@@ -1391,7 +1391,7 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
                && negb (alpha_roman_digit up (S (S start))))))%bool
   end.
 
-Lemma task_ck_items_lines :
+Local Lemma task_ck_items_lines :
   forall checks lss, map snd (task_ck_items checks lss) = lss.
 Proof.
   intros checks lss. induction lss as [|L rest IH] in checks |- *;
@@ -1409,7 +1409,7 @@ Proof.
     | apply map_snd_nsc_items | apply map_snd_nsc_items].
 Qed.
 
-Lemma task_ck_items_checks :
+Local Lemma task_ck_items_checks :
   forall checks lss,
     length checks = length lss ->
     map (fun it => mk_check (fst it)) (task_ck_items checks lss) = checks.
@@ -1420,7 +1420,7 @@ Proof.
   f_equal. apply IH. injection H. trivial.
 Qed.
 
-Lemma map_parse_task_ck_items :
+Local Lemma map_parse_task_ck_items :
   forall checks lss,
     map (fun it => parse_lines (snd it) (PPara []))
       (task_ck_items checks lss) =
@@ -1431,15 +1431,15 @@ Proof.
     rewrite IH; reflexivity.
 Qed.
 
-Lemma task_marker_thematic :
+Local Lemma task_marker_thematic :
   forall chk l, is_thematic (mk_open (MTask "-" chk) ++ l) = false.
 Proof. intros [] l; reflexivity. Qed.
 
-Lemma item_ok_task_status :
+Local Lemma item_ok_task_status :
   forall a b L, item_ok (MTask "-" a) L = item_ok (MTask "-" b) L.
 Proof. intros [] [] [|l more]; reflexivity. Qed.
 
-Lemma task_ck_items_ok :
+Local Lemma task_ck_items_ok :
   forall checks lss,
     (@btasks K) = true ->
     length checks = length lss ->
@@ -1481,7 +1481,7 @@ Proof.
   unfold items_ok_at in Htail. rewrite Htasks in Htail. exact Htail.
 Qed.
 
-Lemma nsc_items_markers_ok :
+Local Lemma nsc_items_markers_ok :
   forall core d n lss,
     (forall k, k < length lss -> marker_ok (nsc_marker core d (n + k)) = true) ->
     forallb (fun it => marker_ok (fst it)) (nsc_items core d n lss) = true.
@@ -1533,7 +1533,7 @@ Proof.
   destruct (ck_items k lss); [reflexivity | discriminate Hnil].
 Qed.
 
-Lemma task_uniformity :
+Local Lemma task_uniformity :
   forall checks sp lss,
     (@btasks K) = true -> lss <> [] -> length checks = length lss ->
     forallb (item_ok (MTask "-" (hd Incomplete checks))) lss = true ->
@@ -1559,7 +1559,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma task_uniformity_tail :
+Local Lemma task_uniformity_tail :
   forall checks sp lss next tail,
     (@btasks K) = true -> lss <> [] -> length checks = length lss ->
     forallb (item_ok (MTask "-" (hd Incomplete checks))) lss = true ->
@@ -1698,7 +1698,7 @@ Qed.
 (* The first item's marker is the one `item_ok` is asked for: every
    flavour builds its items left to right and `ck_first` names what it
    starts with. *)
-Lemma ck_items_first :
+Local Lemma ck_items_first :
   forall k L rest, exists more, ck_items k (L :: rest) = (ck_first k, L) :: more.
 Proof.
   intros [| |checks|d start|up d start|up d start] L rest;

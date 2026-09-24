@@ -18,7 +18,7 @@ Import ListNotations.
 
 Local Open Scope string_scope.
 
-Definition escape_char (c : ascii) : string :=
+Local Definition escape_char (c : ascii) : string :=
   match c with
   | "&"%char => "&amp;"
   | "<"%char => "&lt;"
@@ -26,20 +26,20 @@ Definition escape_char (c : ascii) : string :=
   | _ => String c EmptyString
   end.
 
-Fixpoint escape (s : string) : string :=
+Local Fixpoint escape (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c s' => escape_char c ++ escape s'
   end.
 
 (* Attribute values escape the quote as well (djot.js escapeAttribute). *)
-Definition escape_attr_char (c : ascii) : string :=
+Local Definition escape_attr_char (c : ascii) : string :=
   match c with
   | """"%char => "&quot;"
   | _ => escape_char c
   end.
 
-Fixpoint escape_attr (s : string) : string :=
+Local Fixpoint escape_attr (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c s' => escape_attr_char c ++ escape_attr s'
@@ -47,7 +47,7 @@ Fixpoint escape_attr (s : string) : string :=
 
 (* Rendered in source order, each as ` key="value"`, so that the empty
    attribute set contributes nothing to a tag. *)
-Definition render_attrs (a : attr) : string :=
+Local Definition render_attrs (a : attr) : string :=
   String.concat ""
     (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
@@ -82,7 +82,7 @@ Inductive helt : Type :=
      node's own -- is just the front of it. *)
   | HElem (tag : string) (nls : nat) (attrs : attr) (kids : list helt).
 
-Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
+Local Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
   "<" ++ tag ++ render_attrs a ++ (if self then "/>" else ">").
 
 (* Recursion on the element with the children walked by an inner `fix`,
@@ -90,7 +90,7 @@ Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
    fixpoint on the list is rejected, since `kids` is not a subterm of the
    list being matched.  `serialize_elt_elem` below recovers the equation
    that spelling costs. *)
-Fixpoint serialize_elt (e : helt) : string :=
+Local Fixpoint serialize_elt (e : helt) : string :=
   let go :=
     fix go (es : list helt) : string :=
       match es with
@@ -114,7 +114,7 @@ Fixpoint serialize (es : list helt) : string :=
   | e :: rest => serialize_elt e ++ serialize rest
   end.
 
-Lemma serialize_elt_elem : forall tag nls a kids,
+Local Lemma serialize_elt_elem : forall tag nls a kids,
   serialize_elt (HElem tag nls a kids)
   = open_tag tag false a
     ++ (if Nat.leb 2 nls then nl else "")
@@ -134,7 +134,7 @@ Proof.
 Qed.
 
 (* A task item's checkbox. *)
-Definition checkbox_elt (chk : task_status) : helt :=
+Local Definition checkbox_elt (chk : task_status) : helt :=
   HVoid "input" true
     ([("disabled", ""); ("type", "checkbox")]
      ++ match chk with Complete => [("checked", "")] | Incomplete => [] end)%list.
@@ -146,7 +146,7 @@ Definition checkbox_elt (chk : task_status) : helt :=
    `{title=foo}` definition renders two `title`s.  A `class` join is
    unreachable from here, since it needs an extra `class`, which this
    filter admits only when the node has none to join with. *)
-Definition ref_extra (a0 a : attr) : attr :=
+Local Definition ref_extra (a0 a : attr) : attr :=
   filter (fun kv => match alist_lookup (fst kv) a with
                     | Some _ => false
                     | None => true
@@ -155,7 +155,7 @@ Definition ref_extra (a0 a : attr) : attr :=
 (* An ordered list's `start` and `type`.  Both are omitted at their HTML
    defaults (start 1, decimal numbering), and both precede the node's own
    attributes, as extra attributes always do. *)
-Definition ol_attrs (oa : ordered_list_attributes) : attr :=
+Local Definition ol_attrs (oa : ordered_list_attributes) : attr :=
   ((if Nat.eqb (ol_start oa) 1
     then [] else [("start", nat_str (ol_start oa))])
    ++ (match ol_style oa with
@@ -175,7 +175,7 @@ Inlines
    each node's text, a break as a newline, containers recursing.  Only
    the constructs the parser builds are covered; the rest contribute
    nothing here in any case. *)
-Fixpoint plain_text (il : inline) : string :=
+Local Fixpoint plain_text (il : inline) : string :=
   let go :=
     fix go (ns : list (node inline)) : string :=
       match ns with
@@ -194,7 +194,7 @@ Fixpoint plain_text (il : inline) : string :=
   | FootnoteReference _ | Symbol _ => ""
   end.
 
-Definition plain_texts (ns : list (node inline)) : string :=
+Local Definition plain_texts (ns : list (node inline)) : string :=
   String.concat "" (map (fun n => plain_text (node_contents n)) ns).
 
 (*
@@ -216,7 +216,7 @@ Context (refs : reference_map).
    attributed one is wrapped in a `<span>` and a bare one left alone:
    `foo{.a}` is a `Str` carrying attributes in the AST and a span only in
    the output. *)
-Fixpoint render_inline (il : inline) (a : attr) : list helt :=
+Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   let render_ils :=
     fix go (ns : list (node inline)) : list helt :=
       match ns with
@@ -303,12 +303,12 @@ Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | HardBreak => [HVoid "br" false []; HText nl]
   end.
 
-Definition render_inlines (ils : inlines) : list helt :=
+Local Definition render_inlines (ils : inlines) : list helt :=
   flat_map (fun n => match n with Node _ a x => render_inline x a end) ils.
 
 (* Section 5 of the wikilink spec: a wikilink renders as the ordinary
    link it desugars to, attributes included. *)
-Lemma render_wikilink : forall embed t al a,
+Local Lemma render_wikilink : forall embed t al a,
   render_inline (Wikilink embed t al) a = render_inline (wiki_desugar embed t al) a.
 Proof. intros [|] t al a; reflexivity. Qed.
 
@@ -320,7 +320,7 @@ Cells hold inlines only, so the whole of a table renders without
 touching `render_block`'s recursion.  Alignment is a style attribute on
 the cell, and `AlignDefault` carries none. *)
 
-Definition align_attr (al : align) : attr :=
+Local Definition align_attr (al : align) : attr :=
   match al with
   | AlignDefault => []
   | AlignLeft => [("style", "text-align: left;")]
@@ -328,7 +328,7 @@ Definition align_attr (al : align) : attr :=
   | AlignCenter => [("style", "text-align: center;")]
   end.
 
-Definition render_cell (c : cell) : helt :=
+Local Definition render_cell (c : cell) : helt :=
   match c with
   | Cell ct al ils =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
@@ -338,7 +338,7 @@ Definition render_cell (c : cell) : helt :=
 Definition render_row (r : list cell) : helt :=
   HElem "tr" 2 [] (map render_cell r).
 
-Definition render_caption (caption : option inlines) : list helt :=
+Local Definition render_caption (caption : option inlines) : list helt :=
   match caption with
   | None => []
   | Some ils => [HElem "caption" 1 [] (render_inlines ils)]
@@ -359,7 +359,7 @@ Blocks
    on the opening tag, but recursion has to be on `block`: `list (node
    block)` is two type constructors deep, which the guard checker will
    not follow from a `node block` argument. *)
-Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
+Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   : list helt :=
   (* Takes the flag as an argument so that one list recursion serves both
      the containers, which pass it through, and the items, which set it. *)
@@ -461,7 +461,7 @@ Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
           HElem "dd" 2 [] (render_bs [b])]]
   end.
 
-Definition render_node (n : node block) : list helt :=
+Local Definition render_node (n : node block) : list helt :=
   match n with Node _ a b => render_block false b a end.
 
 Definition render_blocks (bs : blocks) : list helt :=
@@ -478,7 +478,7 @@ Record foot_state : Type := FootState
 
 Definition foot_initial : foot_state := FootState [] 1.
 
-Definition number_footnote (label : string) (st : foot_state)
+Local Definition number_footnote (label : string) (st : foot_state)
   : foot_state * nat * bool :=
   let label := normalize_label label in
   match alist_lookup label (foot_numbers st) with
@@ -488,7 +488,7 @@ Definition number_footnote (label : string) (st : foot_state)
       (FootState ((foot_numbers st ++ [(label, n)])%list) (S n), n, true)
   end.
 
-Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
+Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   {struct il} : foot_state * list helt :=
   let render_ils :=
     fix go (st0 : foot_state) (ns : list (node inline))
@@ -549,7 +549,7 @@ Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | _ => (st, render_inline il a)
   end.
 
-Definition render_inlines_foot (st : foot_state) (ils : inlines)
+Local Definition render_inlines_foot (st : foot_state) (ils : inlines)
   : foot_state * list helt :=
   fold_left
     (fun acc n =>
@@ -562,7 +562,7 @@ Definition render_inlines_foot (st : foot_state) (ils : inlines)
 (* The table renderers again, threading the footnote counter: a cell may
    carry a footnote reference, and it is numbered in source order like
    any other. *)
-Definition render_cell_foot (st : foot_state) (c : cell)
+Local Definition render_cell_foot (st : foot_state) (c : cell)
   : foot_state * helt :=
   match c with
   | Cell ct al ils =>
@@ -571,7 +571,7 @@ Definition render_cell_foot (st : foot_state) (c : cell)
       (st', HElem tag 1 (align_attr al) s)
   end.
 
-Fixpoint render_cells_foot (st : foot_state) (r : list cell)
+Local Fixpoint render_cells_foot (st : foot_state) (r : list cell)
   : foot_state * list helt :=
   match r with
   | [] => (st, [])
@@ -581,7 +581,7 @@ Fixpoint render_cells_foot (st : foot_state) (r : list cell)
       (st2, e :: es)
   end.
 
-Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
+Local Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
   : foot_state * list helt :=
   match rows with
   | [] => (st, [])
@@ -591,7 +591,7 @@ Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
       (st2, HElem "tr" 2 [] cells :: es)
   end.
 
-Definition render_caption_foot (st : foot_state) (caption : option inlines)
+Local Definition render_caption_foot (st : foot_state) (caption : option inlines)
   : foot_state * list helt :=
   match caption with
   | None => (st, [])
@@ -600,7 +600,7 @@ Definition render_caption_foot (st : foot_state) (caption : option inlines)
       (st', [HElem "caption" 1 [] s])
   end.
 
-Fixpoint render_block_foot (st : foot_state) (tight : bool)
+Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   (b : block) (a : attr) {struct b} : foot_state * list helt :=
   let render_bs_at :=
     fix go (st0 : foot_state) (t : bool) (ns : list (node block))
@@ -704,7 +704,7 @@ Definition render_blocks_foot (st : foot_state) (bs : blocks)
        (st1, (out ++ s)%list))
     bs (st, []).
 
-Definition note_backlink (n : nat) : helt :=
+Local Definition note_backlink (n : nat) : helt :=
   HElem "a" 0
     [("href", "#fnref" ++ nat_str n); ("role", "doc-backlink")]
     [HText "↩︎"].
@@ -714,7 +714,7 @@ Definition note_backlink (n : nat) : helt :=
    matching `/<\/p>[\r\n]*$/` against the rendered string (`addBacklink`);
    on the tree it is a look at the last element, which is the same
    question asked of the structure rather than of its serialization. *)
-Definition add_backlink (body : list helt) (n : nat) : list helt :=
+Local Definition add_backlink (body : list helt) (n : nat) : list helt :=
   match rev body with
   | HElem tag nls a kids :: earlier =>
       if String.eqb tag "p"
@@ -723,7 +723,7 @@ Definition add_backlink (body : list helt) (n : nat) : list helt :=
   | _ => (body ++ [HElem "p" 1 [] [note_backlink n]])%list
   end.
 
-Fixpoint render_note_defs (st : foot_state) (notes : note_map)
+Local Fixpoint render_note_defs (st : foot_state) (notes : note_map)
   : foot_state * list (string * list helt) :=
   match notes with
   | [] => (st, [])
@@ -733,14 +733,14 @@ Fixpoint render_note_defs (st : foot_state) (notes : note_map)
       (st2, (label, body) :: rendered)
   end.
 
-Fixpoint label_at (n : nat) (numbers : list (string * nat)) : option string :=
+Local Fixpoint label_at (n : nat) (numbers : list (string * nat)) : option string :=
   match numbers with
   | [] => None
   | (label, n') :: rest =>
       if Nat.eqb n n' then Some label else label_at n rest
   end.
 
-Definition rendered_note_at (n : nat) (st : foot_state)
+Local Definition rendered_note_at (n : nat) (st : foot_state)
   (rendered : list (string * list helt)) : list helt :=
   match label_at n (foot_numbers st) with
   | None => []
@@ -748,7 +748,7 @@ Definition rendered_note_at (n : nat) (st : foot_state)
       match alist_lookup label rendered with Some s => s | None => [] end
   end.
 
-Fixpoint render_note_items (fuel n : nat) (st : foot_state)
+Local Fixpoint render_note_items (fuel n : nat) (st : foot_state)
   (rendered : list (string * list helt)) : list helt :=
   match fuel with
   | O => []
@@ -758,7 +758,7 @@ Fixpoint render_note_items (fuel n : nat) (st : foot_state)
       :: render_note_items fuel' (S n) st rendered
   end.
 
-Definition render_document_foot (blocks : blocks) (notes : note_map)
+Local Definition render_document_foot (blocks : blocks) (notes : note_map)
   : list helt :=
   let '(st1, body) := render_blocks_foot foot_initial blocks in
   if Nat.eqb (foot_next st1) 1 then body
@@ -774,7 +774,7 @@ End WithRefs.
 
 (* Explicit definitions first, so a label defined both ways resolves to
    the explicit one. *)
-Definition doc_refs (d : doc) : reference_map :=
+Local Definition doc_refs (d : doc) : reference_map :=
   (doc_references d ++ doc_auto_references d)%list.
 
 (* The output tree of a whole document, named because the safety
@@ -1330,7 +1330,7 @@ Fixpoint count_char (c : ascii) (s : string) : nat :=
       (if Ascii.eqb c c' then 1 else 0) + count_char c s'
   end.
 
-Lemma count_char_app : forall c s1 s2,
+Local Lemma count_char_app : forall c s1 s2,
   count_char c (s1 ++ s2) = count_char c s1 + count_char c s2.
 Proof.
   intros c s1 s2. induction s1 as [|c' s1' IH]; cbn; [reflexivity|].
@@ -1339,7 +1339,7 @@ Qed.
 
 Definition lt_char : ascii := "<"%char.
 
-Lemma escape_no_lt : forall s, count_char lt_char (escape s) = 0.
+Local Lemma escape_no_lt : forall s, count_char lt_char (escape s) = 0.
 Proof.
   induction s as [|c s' IH]; cbn [escape]; [reflexivity|].
   rewrite count_char_app, IH, Nat.add_0_r.
@@ -1347,7 +1347,7 @@ Proof.
     destruct b0, b1, b2, b3, b4, b5, b6, b7; reflexivity.
 Qed.
 
-Lemma escape_attr_no_lt : forall s, count_char lt_char (escape_attr s) = 0.
+Local Lemma escape_attr_no_lt : forall s, count_char lt_char (escape_attr s) = 0.
 Proof.
   induction s as [|c s' IH]; cbn [escape_attr]; [reflexivity|].
   rewrite count_char_app, IH, Nat.add_0_r.
@@ -1356,18 +1356,18 @@ Proof.
     destruct b0, b1, b2, b3, b4, b5, b6, b7; reflexivity.
 Qed.
 
-Definition no_lt (s : string) : bool := Nat.eqb (count_char lt_char s) 0.
+Local Definition no_lt (s : string) : bool := Nat.eqb (count_char lt_char s) 0.
 
-Definition attr_ok (a : attr) : bool := forallb (fun kv => no_lt (fst kv)) a.
+Local Definition attr_ok (a : attr) : bool := forallb (fun kv => no_lt (fst kv)) a.
 
-Lemma concat_empty_cons : forall x l,
+Local Lemma concat_empty_cons : forall x l,
   String.concat "" (x :: l) = x ++ String.concat "" l.
 Proof.
   intros x l. destruct l as [|y l'];
     [cbn [String.concat]; symmetry; apply append_empty_r | reflexivity].
 Qed.
 
-Lemma count_char_concat : forall c l,
+Local Lemma count_char_concat : forall c l,
   count_char c (String.concat "" l)
   = fold_right (fun s n => count_char c s + n) 0 l.
 Proof.
@@ -1375,7 +1375,7 @@ Proof.
   rewrite concat_empty_cons, count_char_app, IH. reflexivity.
 Qed.
 
-Lemma render_attrs_no_lt : forall a,
+Local Lemma render_attrs_no_lt : forall a,
   attr_ok a = true -> count_char lt_char (render_attrs a) = 0.
 Proof.
   intros a. unfold render_attrs, attr_ok. rewrite count_char_concat.
@@ -1389,7 +1389,7 @@ Qed.
 (* The two hypotheses, as functions on the tree.  Both take the shape
    `serialize_elt` does -- an outer fixpoint on the element, an inner one
    on the children -- and pay for it with the same equation lemma. *)
-Fixpoint helt_ok (e : helt) : bool :=
+Local Fixpoint helt_ok (e : helt) : bool :=
   let go :=
     fix go (es : list helt) : bool :=
       match es with
@@ -1409,7 +1409,7 @@ Fixpoint helts_ok (es : list helt) : bool :=
   | e :: rest => (helt_ok e && helts_ok rest)%bool
   end.
 
-Lemma helt_ok_elem : forall tag nls a kids,
+Local Lemma helt_ok_elem : forall tag nls a kids,
   helt_ok (HElem tag nls a kids)
   = (no_lt tag && attr_ok a && helts_ok kids)%bool.
 Proof.
@@ -1426,7 +1426,7 @@ Proof.
 Qed.
 
 (* Two per element with a closing tag, one per element without. *)
-Fixpoint helt_tags (e : helt) : nat :=
+Local Fixpoint helt_tags (e : helt) : nat :=
   let go :=
     fix go (es : list helt) : nat :=
       match es with
@@ -1446,7 +1446,7 @@ Fixpoint helts_tags (es : list helt) : nat :=
   | e :: rest => helt_tags e + helts_tags rest
   end.
 
-Lemma helt_tags_elem : forall tag nls a kids,
+Local Lemma helt_tags_elem : forall tag nls a kids,
   helt_tags (HElem tag nls a kids) = 2 + helts_tags kids.
 Proof.
   intros tag nls a kids. cbn [helt_tags].
@@ -1463,7 +1463,7 @@ Qed.
 
 (* Induction that reaches the children, in the shape `Render.cblock_ind2`
    established: the inner `fix` is what carries `P` through `list helt`. *)
-Definition helt_ind2
+Local Definition helt_ind2
   (P : helt -> Prop) (Q : list helt -> Prop)
   (htext : forall s, P (HText s))
   (hraw : forall s, P (HRaw s))
@@ -1486,7 +1486,7 @@ Definition helt_ind2
     | HElem tag nls a kids => helem tag nls a kids (golist kids)
     end.
 
-Definition helts_ind2
+Local Definition helts_ind2
   (P : helt -> Prop) (Q : list helt -> Prop)
   (htext : forall s, P (HText s))
   (hraw : forall s, P (HRaw s))
@@ -1503,7 +1503,7 @@ Definition helts_ind2
           (helt_ind2 P Q htext hraw hvoid helem hnil hcons e) (golist rest)
     end.
 
-Lemma open_tag_lt : forall tag self a,
+Local Lemma open_tag_lt : forall tag self a,
   no_lt tag = true -> attr_ok a = true ->
   count_char lt_char (open_tag tag self a) = 1.
 Proof.

@@ -46,7 +46,7 @@ Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
 
-Lemma pristine_task_items_of_items :
+Local Lemma pristine_task_items_of_items :
   forall checks items,
     pristine_items items = true ->
     pristine_task_items (task_items checks items) = true.
@@ -66,16 +66,16 @@ Splitting a rendered document
 (* What the split/join inversion needs of each block's lines: newline-free
    throughout, and a nonempty final line (split_lines drops a trailing
    empty line).  Interior lines may be blank: code content is verbatim. *)
-Definition lines_ok (ls : list string) : bool :=
+Local Definition lines_ok (ls : list string) : bool :=
   nonempty ls
   && forallb no_nl ls
   && nonempty_str (last ls EmptyString).
 
-Lemma nonempty_str_neq :
+Local Lemma nonempty_str_neq :
   forall s, nonempty_str s = true -> s <> EmptyString.
 Proof. destruct s; [discriminate | congruence]. Qed.
 
-Lemma lines_ok_parts :
+Local Lemma lines_ok_parts :
   forall ls, lines_ok ls = true ->
   ls <> [] /\ forallb no_nl ls = true /\ last ls EmptyString <> EmptyString.
 Proof.
@@ -93,7 +93,7 @@ sep_lines is itself a well-formed line list
 Which is what lets a block quote's contents be laid out by exactly the
 same function as a document's, and inverted by the same lemma. *)
 
-Lemma sep_lines_nonempty :
+Local Lemma sep_lines_nonempty :
   forall ls rest, lines_ok ls = true -> sep_lines (ls :: rest) <> [].
 Proof.
   intros ls rest H. apply lines_ok_parts in H as (Hne & _ & _).
@@ -102,7 +102,7 @@ Proof.
   - cbn [sep_lines]. destruct ls; [congruence | discriminate].
 Qed.
 
-Lemma sep_lines_no_nl :
+Local Lemma sep_lines_no_nl :
   forall lss,
     forallb lines_ok lss = true -> forallb no_nl (sep_lines lss) = true.
 Proof.
@@ -114,7 +114,7 @@ Proof.
   cbn [forallb no_nl andb]. apply IH. exact Hrest.
 Qed.
 
-Lemma sep_lines_last :
+Local Lemma sep_lines_last :
   forall ls rest,
     forallb lines_ok (ls :: rest) = true ->
     last (sep_lines (ls :: rest)) EmptyString <> EmptyString.
@@ -140,7 +140,7 @@ list_lines Loose is sep_lines under a different name (same unconditional
 blank separator); list_lines Tight is plain concatenation, so its three
 facts drop the "blank cons" step sep_lines needs. *)
 
-Lemma list_lines_loose_eq : forall lss, list_lines Loose lss = sep_lines lss.
+Local Lemma list_lines_loose_eq : forall lss, list_lines Loose lss = sep_lines lss.
 Proof.
   induction lss as [|ls rest IH]; [reflexivity|].
   destruct rest as [|ls2 rest']; [reflexivity|].
@@ -151,7 +151,7 @@ Proof.
   rewrite IH. reflexivity.
 Qed.
 
-Lemma list_lines_tight_nonempty :
+Local Lemma list_lines_tight_nonempty :
   forall ls rest, lines_ok ls = true -> list_lines Tight (ls :: rest) <> [].
 Proof.
   intros ls rest H. apply lines_ok_parts in H as (Hne & _ & _).
@@ -160,7 +160,7 @@ Proof.
   - cbn [list_lines]. destruct ls; [congruence | discriminate].
 Qed.
 
-Lemma list_lines_tight_no_nl :
+Local Lemma list_lines_tight_no_nl :
   forall lss,
     forallb lines_ok lss = true -> forallb no_nl (list_lines Tight lss) = true.
 Proof.
@@ -171,7 +171,7 @@ Proof.
   cbn [list_lines]. rewrite forallb_app, Hnl. cbn [andb]. apply IH. exact Hrest.
 Qed.
 
-Lemma list_lines_tight_last :
+Local Lemma list_lines_tight_last :
   forall ls rest,
     forallb lines_ok (ls :: rest) = true ->
     last (list_lines Tight (ls :: rest)) EmptyString <> EmptyString.
@@ -189,7 +189,7 @@ Qed.
 
 (* A block sequence's layout is lines_ok when each block's is.  Used
    twice: for the loose list layout, and for an item's own contents. *)
-Lemma sep_lines_ok :
+Local Lemma sep_lines_ok :
   forall lss, lss <> [] -> forallb lines_ok lss = true ->
   lines_ok (sep_lines lss) = true.
 Proof.
@@ -205,7 +205,7 @@ Qed.
 
 (* Either spacing: nonempty items with lines_ok lines produce lines_ok
    output.  The single lemma cb_ok_lines_ok's CList case needs. *)
-Lemma list_lines_ok :
+Local Lemma list_lines_ok :
   forall sp lss, lss <> [] -> forallb lines_ok lss = true ->
   lines_ok (list_lines sp lss) = true.
 Proof.
@@ -223,7 +223,7 @@ Qed.
 
 (* Half one of the roundtrip: rendering then splitting recovers the
    per-block lines, laid out by sep_lines. *)
-Lemma split_render :
+Local Lemma split_render :
   forall lss, forallb lines_ok lss = true ->
   split_lines (String.concat nl (sep_lines lss)) = sep_lines lss.
 Proof.
@@ -242,7 +242,7 @@ Facts about canonical blocks
 ============================
 *)
 
-Lemma forallb_line_ok_nonblank :
+Local Lemma forallb_line_ok_nonblank :
   forall ls, forallb line_ok ls = true -> forallb nonblank ls = true.
 Proof.
   induction ls as [|l ls IH]; intros H; simpl in *.
@@ -256,7 +256,7 @@ Qed.
    whitespace off each one is the identity: the parser's continuation
    rule, which strips, reproduces a canonical cblock's lines
    unchanged. *)
-Lemma forallb_line_ok_map_drop_leading_ws :
+Local Lemma forallb_line_ok_map_drop_leading_ws :
   forall ls, forallb line_ok ls = true -> map drop_leading_ws ls = ls.
 Proof.
   induction ls as [|l ls IH]; intros H; simpl in *.
@@ -269,7 +269,7 @@ Qed.
    check: the two facts parse_cblock_pad's paragraph case needs to reuse
    parse_lines_para_seed (already generic over its lines) with padded
    arguments. *)
-Lemma forallb_nonblank_map_pad :
+Local Lemma forallb_nonblank_map_pad :
   forall pad ls, is_blank pad = true -> forallb nonblank ls = true ->
   forallb nonblank (map (fun l => pad ++ l) ls) = true.
 Proof.
@@ -279,7 +279,7 @@ Proof.
   rewrite is_blank_ws_prefix by exact Hpad. rewrite Hl. cbn [andb]. apply IH, Hls.
 Qed.
 
-Lemma map_drop_leading_ws_map_pad :
+Local Lemma map_drop_leading_ws_map_pad :
   forall pad ls, is_blank pad = true ->
   map drop_leading_ws (map (fun l => pad ++ l) ls) = map drop_leading_ws ls.
 Proof.
@@ -287,7 +287,7 @@ Proof.
   apply map_ext. intros a. apply drop_leading_ws_ws_prefix, Hpad.
 Qed.
 
-Lemma para_ok_parts :
+Local Lemma para_ok_parts :
   forall a ls, para_ok (a :: ls) = true ->
   classify a = KText
   /\ forallb line_ok (a :: ls) = true
@@ -308,7 +308,7 @@ Proof.
   - exact Hkey.
 Qed.
 
-Lemma forallb_weaken :
+Local Lemma forallb_weaken :
   forall {A : Type} (f g : A -> bool),
     (forall x, f x = true -> g x = true) ->
     forall l, forallb f l = true -> forallb g l = true.
@@ -319,7 +319,7 @@ Proof.
   rewrite (Hfg _ Hx). simpl. apply IH. exact Hl.
 Qed.
 
-Lemma info_no_nl :
+Local Lemma info_no_nl :
   forall info, all_info_chars info = true -> no_nl info = true.
 Proof.
   induction info as [|c info IH]; intros H; simpl in *; [reflexivity|].
@@ -328,7 +328,7 @@ Proof.
   rewrite Hn. simpl. apply IH. exact Hinfo.
 Qed.
 
-Lemma code_ok_parts :
+Local Lemma code_ok_parts :
   forall info content, code_ok info content = true ->
   all_info_chars info = true
   /\ forallb no_nl content = true
@@ -344,7 +344,7 @@ Proof.
     intros l Hl. apply andb_true_iff in Hl as [_ Hl]. exact Hl.
 Qed.
 
-Lemma last_cons_app :
+Local Lemma last_cons_app :
   forall {A : Type} (a : A) (l : list A) (x d : A),
     last (a :: l ++ [x])%list d = x.
 Proof.
@@ -357,14 +357,14 @@ Qed.
    marker in front of each line (quotes, headings) needs exactly this.
    Newline-freedom survives, and the last line is nonempty because the
    marker is. *)
-Lemma no_nl_quote_line :
+Local Lemma no_nl_quote_line :
   forall l, no_nl (quote_line l) = no_nl l.
 Proof.
   intros l. unfold quote_line, quote_open.
   rewrite no_nl_append. reflexivity.
 Qed.
 
-Lemma forallb_no_nl_map_append :
+Local Lemma forallb_no_nl_map_append :
   forall p ls, no_nl p = true -> forallb no_nl ls = true ->
   forallb no_nl (map (fun x => p ++ x) ls) = true.
 Proof.
@@ -376,7 +376,7 @@ Qed.
 (* A list item's rendering: marker on the first line, plain indent on the
    rest.  Two prefixes instead of quote_line's one, so this is not quite
    lines_ok_map, but the same shape otherwise. *)
-Lemma lines_ok_indent :
+Local Lemma lines_ok_indent :
   forall p1 p2 ls,
     no_nl p1 = true -> no_nl p2 = true -> p1 <> EmptyString -> p2 <> EmptyString ->
     ls <> [] -> forallb no_nl ls = true ->
@@ -406,7 +406,7 @@ Qed.
 (* Putting an item's marker and continuation pad on preserves the layout
    conditions: both prefixes are one line's worth of text (Line.v), and
    the item's own lines already satisfy them. *)
-Lemma litem_lines_ok :
+Local Lemma litem_lines_ok :
   forall m L, marker_ok m = true -> lines_ok L = true ->
   lines_ok (litem_lines (m, L)) = true.
 Proof.
@@ -416,7 +416,7 @@ Proof.
     auto using mk_open_no_nl, mk_cont_no_nl, mk_open_nonempty, mk_cont_nonempty.
 Qed.
 
-Lemma litems_lines_ok :
+Local Lemma litems_lines_ok :
   forall its,
     forallb (fun it => marker_ok (fst it)) its = true ->
     forallb lines_ok (map snd its) = true ->
@@ -429,7 +429,7 @@ Proof.
 Qed.
 
 (* ...and a whole list's items, whichever markers its kind hands out. *)
-Lemma ck_items_lines_ok :
+Local Lemma ck_items_lines_ok :
   forall k lss, ck_ok k (length lss) = true -> forallb lines_ok lss = true ->
   forallb lines_ok (map litem_lines (ck_items k lss)) = true.
 Proof.
@@ -438,7 +438,7 @@ Proof.
   - rewrite ck_items_lines. exact Hok.
 Qed.
 
-Lemma lines_ok_map :
+Local Lemma lines_ok_map :
   forall (f : string -> string) ls,
     (forall l, no_nl l = true -> no_nl (f l) = true) ->
     (forall l, f l <> EmptyString) ->
@@ -458,7 +458,7 @@ Proof.
     apply nonempty_str_intro, Hnef.
 Qed.
 
-Lemma lines_ok_quote :
+Local Lemma lines_ok_quote :
   forall ls, ls <> [] -> forallb no_nl ls = true ->
   lines_ok (map quote_line ls) = true.
 Proof.
@@ -467,7 +467,7 @@ Proof.
   - intros l. unfold quote_line, quote_open. discriminate.
 Qed.
 
-Lemma heading_ok_parts :
+Local Lemma heading_ok_parts :
   forall lvl ls, heading_ok lvl ls = true ->
   1 <= lvl /\ ls <> [] /\ forallb line_ok ls = true
   /\ (bheading_continues || Nat.eqb (List.length ls) 1)%bool = true
@@ -493,7 +493,7 @@ Qed.
    three hypotheses are exactly what `cb_ok` carries: `cis_ok` per line
    from the inline conjunct, nonemptiness derived from the block
    conjunct's `line_ok`, and the trailing-whitespace condition verbatim. *)
-Lemma cb_ast_para_of_lines :
+Local Lemma cb_ast_para_of_lines :
   forall lss, cb_ok (CPara lss) = true ->
   mk (Para (para_inlines (map ci_line lss))) = cb_ast (CPara lss).
 Proof.
@@ -507,7 +507,7 @@ Proof.
     [exact Hc | apply cis_nonempty_of_lines; exact Hlok | exact Hlast].
 Qed.
 
-Lemma cb_ast_heading_of_lines :
+Local Lemma cb_ast_heading_of_lines :
   forall lvl lss, cb_ok (CHeading lvl lss) = true ->
   mk (Heading lvl (para_inlines (map ci_line lss))) = cb_ast (CHeading lvl lss).
 Proof.
@@ -531,7 +531,7 @@ there is no interior structure to invert and no column to match, so the
 whole construct reads off `ctrow_ok`'s per-line test.
 *)
 
-Lemma ctrow_lines_ok :
+Local Lemma ctrow_lines_ok :
   forall r, ctrow_ok r = true -> forallb line_ok (ctrow_lines r) = true.
 Proof.
   intros r H. apply ctrow_ok_parts in H as (_ & _ & Hlok & _).
@@ -540,7 +540,7 @@ Proof.
     rewrite Hlok, ?line_ok_sep_line; reflexivity.
 Qed.
 
-Lemma ctable_lines_forallb :
+Local Lemma ctable_lines_forallb :
   forall rows, forallb ctrow_ok rows = true ->
   forallb line_ok (flat_map ctrow_lines rows) = true.
 Proof.
@@ -552,7 +552,7 @@ Qed.
 
 (* A row is at least one line, so a nonempty table renders to a nonempty
    line list -- which is what `sep_lines` needs of every block. *)
-Lemma ctable_lines_cons :
+Local Lemma ctable_lines_cons :
   forall r rows,
     exists a ls, flat_map ctrow_lines (r :: rows) = a :: ls.
 Proof.
@@ -564,7 +564,7 @@ Qed.
    accumulator grows by the row's `trow`s, reversed.  The range is one a
    row has already reached, which is what opening the table leaves, so
    later rows do not move it. *)
-Lemma parse_ctrow_cont :
+Local Lemma parse_ctrow_cont :
   forall r range acc rest, ctrow_ok r = true -> touch_extent range = range ->
   parse_lines (ctrow_lines r ++ rest) (PTable range acc (TOpen []))
   = parse_lines rest (PTable range (rev (ctrow_trows r) ++ acc) (TOpen [])).
@@ -583,7 +583,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma parse_ctrow_open :
+Local Lemma parse_ctrow_open :
   forall r rest, btables = true -> ctrow_ok r = true ->
   exists range, touch_extent range = range /\
   parse_lines (ctrow_lines r ++ rest) (PPara [])
@@ -602,7 +602,7 @@ Proof.
     eexists; split; [|reflexivity]; reflexivity.
 Qed.
 
-Lemma parse_ctrows :
+Local Lemma parse_ctrows :
   forall rows range acc rest, forallb ctrow_ok rows = true ->
   touch_extent range = range ->
   parse_lines (flat_map ctrow_lines rows ++ rest) (PTable range acc (TOpen []))
@@ -618,7 +618,7 @@ Qed.
 
 (* The whole table, from idle: the state it leaves is the rows in reverse
    source order, which is what `finish` folds. *)
-Lemma parse_ctable :
+Local Lemma parse_ctable :
   forall rows rest, btables = true ->
   nonempty rows = true -> forallb ctrow_ok rows = true ->
   exists range,
@@ -638,7 +638,7 @@ Qed.
 (* And what that state finishes to.  `table_block` is `table_fold` on the
    rows in source order, which `table_fold_ctable_cells` identifies with
    the canonical fold. *)
-Lemma table_block_ctable :
+Local Lemma table_block_ctable :
   forall rows cap,
     forallb ctrow_ok rows = true ->
     caption_of cap = None ->
@@ -651,7 +651,7 @@ Proof.
   intros r Hr. apply ctrow_ok_parts in Hr as (_ & Hcis & _). exact Hcis.
 Qed.
 
-Lemma cb_ok_lines_ok :
+Local Lemma cb_ok_lines_ok :
   forall cb, cb_ok cb = true -> lines_ok (cb_lines cb) = true.
 Proof.
   refine (cblock_ind2
@@ -806,7 +806,7 @@ Proof.
     cbn [map forallb]. rewrite (Hc H1). cbn [andb]. apply Hrest. exact H2.
 Qed.
 
-Lemma forallb_cb_lines_ok :
+Local Lemma forallb_cb_lines_ok :
   forall cbs, forallb cb_ok cbs = true ->
   forallb lines_ok (map cb_lines cbs) = true.
 Proof.
@@ -817,7 +817,7 @@ Proof.
     apply IH. exact Hcbs.
 Qed.
 
-Lemma rev_cons_shape :
+Local Lemma rev_cons_shape :
   forall {A : Type} (a : A) (ls : list A),
   exists c cur', rev (a :: ls) = c :: cur'.
 Proof.
@@ -845,7 +845,7 @@ block that closes the list shown to be a line the parser will not
 mistake for a continuation.
 *)
 
-Lemma classify_not_blank_nonblank :
+Local Lemma classify_not_blank_nonblank :
   forall l, classify l <> KBlank -> nonblank l = true.
 Proof.
   intros l H. unfold nonblank. apply negb_true_iff.
@@ -853,7 +853,7 @@ Proof.
   exfalso. apply H. apply classify_blank. exact Hblank.
 Qed.
 
-Lemma nonlist_cblock_first :
+Local Lemma nonlist_cblock_first :
   forall cb,
     is_clist cb = false -> cb_ok cb = true ->
     exists a rest,
@@ -943,7 +943,7 @@ Proof.
     intros m mc chk item E. rewrite Hcl in E. discriminate.
 Qed.
 
-Lemma drop_leading_ws_indent_zero :
+Local Lemma drop_leading_ws_indent_zero :
   forall l, drop_leading_ws l = l -> indent_of l = 0.
 Proof.
   induction l as [|c l IH]; intros H; [reflexivity|].
@@ -955,7 +955,7 @@ Proof.
   - reflexivity.
 Qed.
 
-Lemma cb_lines_first_line_ok :
+Local Lemma cb_lines_first_line_ok :
   forall cb first rest,
     is_clist cb = false -> cb_ok cb = true ->
     cb_lines cb = first :: rest -> line_ok first = true.
@@ -1045,7 +1045,7 @@ Qed.
 (* The one symbolic fact the CId roundtrip needs from the attribute
    scanner: feeding identifier characters accumulates exactly that id.
    The token is reversed in the scanner, hence the accumulator form. *)
-Lemma afeed_id_acc :
+Local Lemma afeed_id_acc :
   forall id tok key attrs,
     id_chars_ok id = true -> nonempty_str tok = true ->
     afeed (id ++ ("}" ++ attr_nl)) (AP AId tok key attrs)
@@ -1069,7 +1069,7 @@ Proof.
     rewrite rev_string_cons, !append_assoc. reflexivity.
 Qed.
 
-Lemma attr_open_canonical_id :
+Local Lemma attr_open_canonical_id :
   forall id, explicit_id_ok id = true ->
     Attributes.attr_open ("{#" ++ id ++ "}")
     = Some (AP ADone "" "" [("id", id)]).
@@ -1095,7 +1095,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma classify_canonical_id :
+Local Lemma classify_canonical_id :
   forall id, explicit_id_ok id = true ->
     classify ("{#" ++ id ++ "}")
     = KAttr (AP ADone "" "" [("id", id)]).
@@ -1116,22 +1116,22 @@ Qed.
    item's lines parse at top level to that item's blocks.  Passed in
    rather than assumed, since it is `parse_cblock`'s own induction
    hypothesis. *)
-Definition items_parse (items : list (list cblock)) : Prop :=
+Local Definition items_parse (items : list (list cblock)) : Prop :=
   map (fun it => parse_lines (item_lines it) (PPara [])) items
   = map (fun it => map cb_ast it) items.
 
-Lemma forallb_map :
+Local Lemma forallb_map :
   forall {A B : Type} (f : B -> bool) (g : A -> B) l,
     forallb f (map g l) = forallb (fun x => f (g x)) l.
 Proof. induction l as [|x l IH]; [reflexivity|cbn; rewrite IH; reflexivity]. Qed.
 
-Lemma existsb_map :
+Local Lemma existsb_map :
   forall {A B : Type} (f : B -> bool) (g : A -> B) l,
     existsb f (map g l) = existsb (fun x => f (g x)) l.
 Proof. induction l as [|x l IH]; [reflexivity|cbn; rewrite IH; reflexivity]. Qed.
 
 (* cb_ok's list conjuncts, in the form ck_uniformity asks for. *)
-Lemma cb_ok_list_parts :
+Local Lemma cb_ok_list_parts :
   forall k sp items,
     cb_ok (CList k sp items) = true ->
     map item_lines items <> []
@@ -1164,7 +1164,7 @@ Qed.
    constructor's first line has a classification of its own, and a list's
    is a marker (`Parser.ck_lines_first_ready`).  This is what lets an id
    reach the block it names. *)
-Lemma cb_lines_first_ready :
+Local Lemma cb_lines_first_ready :
   forall cb a rest,
     is_cid cb = false -> cb_ok cb = true -> cb_lines cb = (a :: rest)%list ->
     pend_ready (PPara []) a = true.
@@ -1232,7 +1232,7 @@ Qed.
    `cb_ast` does to the block it wraps.  The two spellings agree on the
    attribute sets a canonical block carries -- none, or a div's class --
    which is why the wrapper may not nest. *)
-Lemma decorate_head_cb_ast :
+Local Lemma decorate_head_cb_ast :
   forall id cb bs, is_cid cb = false ->
     decorate_head [("id", id)] (cb_ast cb :: bs) = (cb_ast (CId id cb) :: bs)%list.
 Proof.
@@ -1240,7 +1240,7 @@ Proof.
   destruct cb; try reflexivity; discriminate Hnotid.
 Qed.
 
-Lemma fence_block_canonical_code :
+Local Lemma fence_block_canonical_code :
   forall info content,
     cb_ok (CCode info content) = true ->
     fence_block (Fence "`"%char 3 info) content = cb_ast (CCode info content).
@@ -1253,7 +1253,7 @@ Proof.
     try reflexivity; destruct braw_blocks; cbn in Hgate; discriminate || reflexivity.
 Qed.
 
-Lemma fence_block_canonical_raw :
+Local Lemma fence_block_canonical_raw :
   forall format content,
     cb_ok (CRaw format content) = true ->
     fence_block (Fence "`"%char 3 (String "="%char format)) content
@@ -1265,7 +1265,7 @@ Proof.
 Qed.
 
 (* The AST side, likewise. *)
-Lemma cb_ast_list_uniform :
+Local Lemma cb_ast_list_uniform :
   forall k sp items,
     items_parse items ->
     cb_ast (CList k sp items)
@@ -1275,7 +1275,7 @@ Proof.
   intros k sp items Hitems. rewrite cb_ast_list, map_map, Hitems. reflexivity.
 Qed.
 
-Lemma parse_canonical_list_end :
+Local Lemma parse_canonical_list_end :
   forall k sp items,
     cb_ok (CList k sp items) = true ->
     items_parse items ->
@@ -1293,7 +1293,7 @@ Qed.
    list rather than into the current item: nonblank (a blank only records
    a gap), not a sibling marker, and not indented.  A canonical non-list
    block's first line is all three. *)
-Lemma parse_canonical_list_then_nonlist :
+Local Lemma parse_canonical_list_then_nonlist :
   forall k sp items next tail,
     cb_ok (CList k sp items) = true ->
     items_parse items ->
@@ -1331,7 +1331,7 @@ Blocks and block sequences
    returns the parser to idle, whether a blank line follows (the
    in-document case) or the input ends.  Proved for a block and a list of
    blocks together, because a quote's contents are the latter. *)
-Lemma parse_ckey_open :
+Local Lemma parse_ckey_open :
   forall label ls, bkeyed = true -> ckey_label_ok label = true ->
     parse_lines ((ci_line [label] ++ ":") :: ls) (PPara [])
     = parse_lines ls
@@ -1345,7 +1345,7 @@ Proof.
   rewrite (line_ok_no_leading_ws _ Hline), Hkeys, Hsplit. reflexivity.
 Qed.
 
-Lemma key_close_canonical :
+Local Lemma key_close_canonical :
   forall label b bs, ckey_label_ok label = true ->
     key_close (ci_line [label]) (ci_line [label] ++ ":") (b :: bs)
     = mk (Keyed [ci_ast label] b) :: bs.
@@ -1356,7 +1356,7 @@ Proof.
   rewrite (parse_inline_line_ci _ Hcis). reflexivity.
 Qed.
 
-Lemma parse_cblock :
+Local Lemma parse_cblock :
   forall cb,
     (forall next tail,
        cb_pair_ok cb next = true ->
@@ -1717,7 +1717,7 @@ Proof.
     rewrite (IHitem Hadjitem Hokitem), (IHrest Hadjrest Hokrest). reflexivity.
 Qed.
 
-Lemma parse_sep :
+Local Lemma parse_sep :
   forall cbs, cb_pairs_ok cbs = true -> forallb cb_ok cbs = true ->
   parse_lines (sep_lines (map cb_lines cbs)) (PPara []) = map cb_ast cbs.
 Proof.
@@ -1756,7 +1756,7 @@ The renderer emits exactly the canonical lines
 
 (* The renderer emits exactly a cblock's canonical lines.  The third
    induction predicate handles a list's list of item lists. *)
-Lemma render_cb_lines :
+Local Lemma render_cb_lines :
   forall cb, cb_ok cb = true ->
   render_node_lines (cb_ast cb) = cb_lines cb.
 Proof.
@@ -1884,7 +1884,7 @@ Qed.
 
 (* Rendering a canonical document is the same as joining its cb_lines,
    which is what lets split_render/parse_sep take over. *)
-Lemma render_djot_cblocks :
+Local Lemma render_djot_cblocks :
   forall cbs, forallb cb_ok cbs = true ->
   render_djot (blocks_of_cblocks cbs)
   = String.concat nl (sep_lines (map cb_lines cbs)).

@@ -93,9 +93,9 @@ configuration reads as a choice per question rather than as a tuple.
 *)
 
 (* djot's answers. *)
-Definition no_interrupt (_ : list lstyle) (_ : string)
+Local Definition no_interrupt (_ : list lstyle) (_ : string)
   (_ : option task_marker) (_ : string) : bool := false.
-Definition no_underline (_ : ascii) (_ : nat) : option nat := None.
+Local Definition no_underline (_ : ascii) (_ : nat) : option nat := None.
 
 (* A marker interrupts when it cannot be the tail of ordinary prose: a
    bullet, whose core is empty, or the numeral `1`.  Excluding every
@@ -114,7 +114,7 @@ Definition prose_safe_markers (_ : list lstyle) (core : string)
    condition on `-` is not a style choice -- a lone `-` is a bullet
    marker, so admitting it would make one line answer to two settings at
    once, and which won would depend on the order `step` tests them in. *)
-Definition setext_underline (c : ascii) (n : nat) : option nat :=
+Local Definition setext_underline (c : ascii) (n : nat) : option nat :=
   if Ascii.eqb c "=" then Some 0
   else if Ascii.eqb c "-" then (if Nat.leb 2 n then Some 1 else None)
   else None.
@@ -240,7 +240,7 @@ Definition configured_list_rest `{bconfig}
   | None => rest
   end.
 
-Lemma configured_list_rest_length `{bconfig} :
+Local Lemma configured_list_rest_length `{bconfig} :
   forall l sty core chk rest,
     classify l = KList sty core chk rest ->
     String.length (configured_list_rest chk rest) < String.length l.
@@ -269,14 +269,14 @@ Definition bunderline_of `{bconfig} (l : string) : option nat :=
   | None => None
   end.
 
-Lemma bunderline_of_blank `{bconfig} :
+Local Lemma bunderline_of_blank `{bconfig} :
   forall l, is_blank l = true -> bunderline_of l = None.
 Proof.
   intros l Hb. unfold bunderline_of. rewrite (underline_of_blank l Hb).
   reflexivity.
 Qed.
 
-Lemma bunderline_of_ws_prefix `{bconfig} :
+Local Lemma bunderline_of_ws_prefix `{bconfig} :
   forall p l, is_blank p = true -> bunderline_of (p ++ l) = bunderline_of l.
 Proof.
   intros p l Hp. unfold bunderline_of.
@@ -330,12 +330,12 @@ Record extent : Type := Extent
 (* A column on the current line, as bytes from there to the line's end.
    `column` is absolute, so a caller inside a container passes the column
    it measured the line at, never `indent_of` of a stripped residue. *)
-Definition spot_at (l : string) (column : nat) : spot :=
+Local Definition spot_at (l : string) (column : nat) : spot :=
   Spot lix (String.length l - column).
 
 (* The end of the current line's content, which is where a half-open
    range that runs to the end of the line stops. *)
-Definition line_stop : spot := Spot lix 0.
+Local Definition line_stop : spot := Spot lix 0.
 
 Definition line_span_from (l : string) (column : nat) : span :=
   SrcSpan (spot_at l column) line_stop.
@@ -354,10 +354,10 @@ Definition extent_span (e : extent) : span :=
 (* A stored line is a suffix of its source line with nothing trimmed at
    the end, so its content starts `String.length` bytes before the end of
    that line. *)
-Definition stored_start (sl : stored_line) : spot :=
+Local Definition stored_start (sl : stored_line) : spot :=
   Spot (fst sl) (String.length (snd sl)).
 
-Definition stored_stop (sl : stored_line) : spot := Spot (fst sl) 0.
+Local Definition stored_stop (sl : stored_line) : spot := Spot (fst sl) 0.
 
 (* The range of an accumulator, which every state holds reversed: from
    the first line's content to the end of the last.  The empty list is
@@ -372,7 +372,7 @@ Definition stored_span (cur : list stored_line) : span :=
 
 (* A construct whose accumulated lines are followed by a closing line
    this line is: a setext underline. *)
-Definition span_through_line (r : span) : span :=
+Local Definition span_through_line (r : span) : span :=
   SrcSpan (span_start r) line_stop.
 
 
@@ -381,34 +381,34 @@ Definition span_through_line (r : span) : span :=
    right-hand coordinate is `String.length`, which no instance sees --
    so forgetting the provenance a state accumulated is setting every
    line index to the one `semantic_line_ix` writes. *)
-Definition erase_spot (s : spot) : spot := Spot 0 (spot_rem s).
+Local Definition erase_spot (s : spot) : spot := Spot 0 (spot_rem s).
 
-Definition erase_span (r : span) : span :=
+Local Definition erase_span (r : span) : span :=
   SrcSpan (erase_spot (span_start r)) (erase_spot (span_stop r)).
 
-Definition erase_extent (e : extent) : extent :=
+Local Definition erase_extent (e : extent) : extent :=
   Extent (erase_spot (extent_start e)) (erase_spot (extent_stop e)).
 
-Definition erase_line (sl : stored_line) : stored_line := (0, snd sl).
+Local Definition erase_line (sl : stored_line) : stored_line := (0, snd sl).
 
-Definition erase_lines (ls : list stored_line) : list stored_line :=
+Local Definition erase_lines (ls : list stored_line) : list stored_line :=
   map erase_line ls.
 
 (* And every reader of a stored line reads past the index. *)
-Lemma erase_line_texts : forall ls, line_texts (erase_lines ls) = line_texts ls.
+Local Lemma erase_line_texts : forall ls, line_texts (erase_lines ls) = line_texts ls.
 Proof.
   induction ls as [|x ls IH]; [reflexivity|].
   unfold line_texts, erase_lines in *; cbn [map]. rewrite IH. reflexivity.
 Qed.
 
-Lemma erase_lines_rev : forall ls, erase_lines (rev ls) = rev (erase_lines ls).
+Local Lemma erase_lines_rev : forall ls, erase_lines (rev ls) = rev (erase_lines ls).
 Proof. intros ls. apply map_rev. Qed.
 
-Lemma erase_line_texts_rev : forall ls,
+Local Lemma erase_line_texts_rev : forall ls,
   line_texts (rev (erase_lines ls)) = line_texts (rev ls).
 Proof. intros ls. rewrite <- erase_lines_rev. apply erase_line_texts. Qed.
 
-Lemma erase_lines_length : forall ls,
+Local Lemma erase_lines_length : forall ls,
   List.length (erase_lines ls) = List.length ls.
 Proof. intros ls. apply length_map. Qed.
 
@@ -547,7 +547,7 @@ Inductive tcap : Type :=
 
 (* The caption's lines, for the state invariant: they are a paragraph
    accumulator and carry its condition. *)
-Definition cap_lines (c : tcap) : list stored_line :=
+Local Definition cap_lines (c : tcap) : list stored_line :=
   match c with TCaption _ _ ls => ls | _ => [] end.
 
 (* An empty caption is no caption: `^ ` with nothing after it has no
@@ -564,7 +564,7 @@ Definition caption_of (c : tcap) : option inlines :=
       if nonempty ils then Some ils else None
   end.
 
-Definition cap_row_parts (c : tcap) : list row_part :=
+Local Definition cap_row_parts (c : tcap) : list row_part :=
   match c with
   | TOpen rs | TAfterBlank rs | TCaption rs _ _ => rs
   end.
@@ -580,7 +580,7 @@ Definition table_parts (c : tcap) : parts :=
     (map (fun r => (fst r, map cell_range (snd r)))
        (rev (cap_row_parts c))).
 
-Fixpoint cells_of_located (ct : cell_type) (aligns : list align)
+Local Fixpoint cells_of_located (ct : cell_type) (aligns : list align)
   (cs : list string) (parts : list cell_part) : list cell :=
   match cs with
   | [] => []
@@ -601,7 +601,7 @@ Fixpoint cells_of_located (ct : cell_type) (aligns : list align)
 (* Separator lines change alignment but do not consume a row part.
    [table_fold] still makes every structural decision; this fold only
    chooses the located scan for the same cell strings. *)
-Fixpoint table_fold_located (rows : list trow) (parts : list row_part)
+Local Fixpoint table_fold_located (rows : list trow) (parts : list row_part)
   (aligns : list align) (acc : list (list cell)) : list (list cell) :=
   match rows with
   | [] => rev acc
@@ -647,7 +647,7 @@ Definition table_row_part (l : string) (r : trow)
   | _, _ => None
   end.
 
-Lemma table_row_part_ws_prefix : forall p l r,
+Local Lemma table_row_part_ws_prefix : forall p l r,
   is_blank p = true -> table_row_part (p ++ l) r = table_row_part l r.
 Proof.
   intros p l r Hp. unfold table_row_part, row_body.
@@ -797,7 +797,7 @@ Inductive pstate : Type :=
    branches on either -- so this is the state half of the refinement
    relation, and its fixed point is the state the ambient instance
    reaches on the same input. *)
-Definition erase_cap (c : tcap) : tcap :=
+Local Definition erase_cap (c : tcap) : tcap :=
   match c with
   | TOpen _ => TOpen []
   | TAfterBlank _ => TAfterBlank []
@@ -807,7 +807,7 @@ Definition erase_cap (c : tcap) : tcap :=
 (* A paragraph's inlines, erased, are the ones the ambient instance
    builds from the same texts: `InlineLocated.para_inlines_at_erase` with the
    line indices the located state recorded thrown away. *)
-Lemma erase_para_inlines_at : forall off ls,
+Local Lemma erase_para_inlines_at : forall off ls,
   erase_inlines (@para_inlines_at T located_pos off ls) =
   @para_inlines_at T semantic_pos off (erase_lines ls).
 Proof.
@@ -816,11 +816,11 @@ Proof.
   unfold line_texts in *. rewrite erase_line_texts. reflexivity.
 Qed.
 
-Lemma erase_inlines_nonempty : forall (xs : inlines),
+Local Lemma erase_inlines_nonempty : forall (xs : inlines),
   nonempty (erase_inlines xs) = nonempty xs.
 Proof. intros [|x xs]; reflexivity. Qed.
 
-Lemma erase_cells_of_located : forall ct aligns cs parts,
+Local Lemma erase_cells_of_located : forall ct aligns cs parts,
   erase_row (cells_of_located ct aligns cs parts) = cells_of ct aligns cs.
 Proof.
   intros ct aligns cs. revert aligns.
@@ -831,7 +831,7 @@ Proof.
             ?erase_parse_inline_line, IH; reflexivity.
 Qed.
 
-Lemma erase_head_of : forall als r,
+Local Lemma erase_head_of : forall als r,
   erase_row (head_of als r) = head_of als (erase_row r).
 Proof.
   intros als r. revert als.
@@ -840,7 +840,7 @@ Proof.
     rewrite IH; reflexivity.
 Qed.
 
-Lemma erase_table_fold_located : forall rows parts aligns acc,
+Local Lemma erase_table_fold_located : forall rows parts aligns acc,
   map erase_row (table_fold_located rows parts aligns acc) =
   table_fold rows aligns (map erase_row acc).
 Proof.
@@ -856,14 +856,14 @@ Proof.
         cbn [map]; rewrite erase_cells_of_located; reflexivity.
 Qed.
 
-Definition erase_list_state (ls : list_state) : list_state :=
+Local Definition erase_list_state (ls : list_state) : list_state :=
   LSt (ls_indent ls) (erase_extent (ls_extent ls))
     (erase_extent (ls_item_extent ls))
     (map erase_extent (ls_item_extents ls))
     (ls_styles ls) (ls_loose ls) (ls_blanks ls)
     (map erase_blocks (ls_items ls)) (ls_check ls) (ls_checks ls).
 
-Fixpoint erase_state (st : pstate) : pstate :=
+Local Fixpoint erase_state (st : pstate) : pstate :=
   match st with
   | PPara cur => PPara (erase_lines cur)
   | PHeading lvl range cur =>
@@ -893,7 +893,7 @@ Fixpoint erase_state (st : pstate) : pstate :=
       PKey (erase_extent range) lbl src (erase_state inner)
   end.
 
-Definition erase_result (r : blocks * pstate) : blocks * pstate :=
+Local Definition erase_result (r : blocks * pstate) : blocks * pstate :=
   (erase_blocks (fst r), erase_state (snd r)).
 
 (* Container nesting depth.  Half of the parser's termination measure:
@@ -1006,7 +1006,7 @@ Definition styles_list_checked (S : list (lstyle * nat)) (sp : list_spacing)
 (* The same at a marker whose set no sibling narrows.  A bullet gives a
    `BulletList` definitionally; an ordered marker gives the `OrderedList`
    of its style and start. *)
-Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
+Local Definition marker_list (m : marker) (sp : list_spacing) (items : list blocks)
   : node block := styles_list (mk_styles m) sp items.
 
 Definition marker_list_checked (m : marker) (sp : list_spacing)
@@ -1030,14 +1030,14 @@ Qed.
 
 (* The spans of a list's items, in source order, parallel to the items
    themselves: the one still open is the last. *)
-Definition list_item_spans (ls : list_state) : parts :=
+Local Definition list_item_spans (ls : list_state) : parts :=
   PItems (map extent_span (rev (ls_item_extent ls :: ls_item_extents ls))).
 
 (* [def_split] takes the first paragraph as the term.  The blocks it
    leaves are the definition.  Read the same split for provenance, so
    invisible blocks before the term and an absent term follow exactly
    the semantic definition-list assembly. *)
-Fixpoint def_term_span (bs : blocks) : option span :=
+Local Fixpoint def_term_span (bs : blocks) : option span :=
   match bs with
   | [] => None
   | n :: rest =>
@@ -1047,7 +1047,7 @@ Fixpoint def_term_span (bs : blocks) : option span :=
       end
   end.
 
-Definition blocks_span (bs : blocks) (fallback : spot) : span :=
+Local Definition blocks_span (bs : blocks) (fallback : spot) : span :=
   match bs with
   | [] => SrcSpan fallback fallback
   | first :: _ =>
@@ -1059,7 +1059,7 @@ Definition blocks_span (bs : blocks) (fallback : spot) : span :=
       end
   end.
 
-Fixpoint def_item_spans (ranges : list span) (items : list blocks)
+Local Fixpoint def_item_spans (ranges : list span) (items : list blocks)
   : list (span * span * span) :=
   match ranges, items with
   | item :: ranges', bs :: items' =>
@@ -1072,7 +1072,7 @@ Fixpoint def_item_spans (ranges : list span) (items : list blocks)
   | _, _ => []
   end.
 
-Definition list_parts (ls : list_state) (last : blocks) : parts :=
+Local Definition list_parts (ls : list_state) (last : blocks) : parts :=
   let ranges := map extent_span
                     (rev (ls_item_extent ls :: ls_item_extents ls)) in
   match ls_styles ls with
@@ -1094,7 +1094,7 @@ Definition list_block (ls : list_state) (last : blocks) : node block :=
     (rev (ls_check ls :: ls_checks ls))
     (rev (last :: ls_items ls)).
 
-Lemma list_block_erase : forall ls last,
+Local Lemma list_block_erase : forall ls last,
   erase_blocks [list_block ls last] =
   [list_block (erase_list_state ls) (erase_blocks last)].
 Proof.
@@ -1156,7 +1156,7 @@ Definition ref_cont (l : string) : option string :=
 (* A blank line is never a continuation: it has no run to contribute.
    This is what closes an open definition at a paragraph break, and what
    keeps `PRef` inside `pad_safe` where `PAttr` is not. *)
-Lemma ref_cont_blank : forall l, is_blank l = true -> ref_cont l = None.
+Local Lemma ref_cont_blank : forall l, is_blank l = true -> ref_cont l = None.
 Proof.
   intros l H. unfold ref_cont. rewrite (drop_leading_ws_blank l H). reflexivity.
 Qed.
@@ -1234,7 +1234,7 @@ Proof.
   intros S ls last H. unfold list_block. rewrite H. reflexivity.
 Qed.
 
-Lemma list_block_marker :
+Local Lemma list_block_marker :
   forall m ls last,
     ls_styles ls = mk_styles m ->
     list_block ls last
@@ -1246,7 +1246,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma finish_list_styles :
+Local Lemma finish_list_styles :
   forall S ls done inner,
     ls_styles ls = S ->
     finish (PList ls done inner)
@@ -1260,7 +1260,7 @@ Proof.
   rewrite (list_block_styles S ls _ H). reflexivity.
 Qed.
 
-Lemma finish_list_marker :
+Local Lemma finish_list_marker :
   forall m ls done inner,
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
@@ -1396,7 +1396,7 @@ Qed.
 
 (* And a pad is invisible to it, which is what `step_fuel_pad`'s users
    need wherever the condition travels. *)
-Lemma keyless_ws_prefix :
+Local Lemma keyless_ws_prefix :
   forall p l, is_blank p = true -> keyless (p ++ l) = keyless l.
 Proof.
   intros p l Hp. unfold keyless. rewrite (key_split_ws_prefix p l Hp).
@@ -1475,7 +1475,7 @@ Definition pend_result (pend : attr) (specs : list span)
 (* Pending attributes change what a line emits, never what it leaves
    open: they either attach to an emitted block or move into a `PPend`,
    which `lazy_ok` reads through. *)
-Lemma lazy_ok_pend_result :
+Local Lemma lazy_ok_pend_result :
   forall pend specs r,
     lazy_ok (snd (pend_result pend specs r)) = lazy_ok (snd r).
 Proof. intros pend specs [bs st]. destruct bs; reflexivity. Qed.
@@ -1581,7 +1581,7 @@ Qed.
    it loose, and starts with every style its marker admits. *)
 (* A non-task marker's item is `Incomplete`, which nothing reads: see
    `ls_check`. *)
-Definition chk_status (chk : option task_marker) : task_status :=
+Local Definition chk_status (chk : option task_marker) : task_status :=
   match chk with Some m => tm_status m | None => Incomplete end.
 
 (* A list just opened on line `l`: one item, nothing closed yet, and both
@@ -1811,7 +1811,7 @@ Definition open_line (descend : string -> blocks * pstate)
 (* `open_line` is a case split on `direct_open` and nothing else, which
    is what lets a lemma about a kind it does not name stay stated over
    `open_kind`. *)
-Lemma open_line_direct :
+Local Lemma open_line_direct :
   forall descend ind l k,
     direct_open k = true -> open_line descend ind l k = open_kind l k.
 Proof. intros descend ind l k H. destruct k; (reflexivity || discriminate). Qed.
@@ -2195,7 +2195,7 @@ Fuel is an implementation detail of `step_fuel`: any amount past the
 line's length gives the same answer, so `step` can fix it and no
 downstream statement ever mentions it. *)
 
-Lemma step_fuel_stable :
+Local Lemma step_fuel_stable :
   forall bound n off l st,
     n <= bound -> S (String.length l + pstate_depth st) <= n ->
     step_fuel n off l st
@@ -2440,7 +2440,7 @@ Proof. intros n l st H. apply (step_fuel_stable n); lia. Qed.
 
 (* The same, at an arbitrary offset: descents need it, since only the
    outermost call runs at offset 0. *)
-Lemma step_fuel_enough_off :
+Local Lemma step_fuel_enough_off :
   forall n off l st,
     S (String.length l + pstate_depth st) <= n ->
     step_fuel n off l st
@@ -2470,7 +2470,7 @@ columns too few. *)
 
 (* The shift, on a list: its indent is the only column it records.  Its
    extents are measured from the end of the line and do not move. *)
-Definition ls_pad (n : nat) (ls : list_state) : list_state :=
+Local Definition ls_pad (n : nat) (ls : list_state) : list_state :=
   LSt (n + ls_indent ls) (ls_extent ls) (ls_item_extent ls)
       (ls_item_extents ls) (ls_styles ls) (ls_loose ls) (ls_blanks ls)
       (ls_items ls) (ls_check ls) (ls_checks ls).
@@ -2496,11 +2496,11 @@ Fixpoint pad_state (n : nat) (st : pstate) : pstate :=
 (* The recovery's paragraph records no column, so padding leaves it
    alone.  `pad_state`'s catch-all says this; the lemma exists so the
    shift proof can rewrite without unfolding `para_recover`. *)
-Lemma pad_state_para_recover :
+Local Lemma pad_state_para_recover :
   forall n e sl, pad_state n (para_recover e sl) = para_recover e sl.
 Proof. reflexivity. Qed.
 
-Lemma ltb_add_mono_l :
+Local Lemma ltb_add_mono_l :
   forall n a b, Nat.ltb (n + a) (n + b) = Nat.ltb a b.
 Proof.
   intros n a b. destruct (Nat.ltb a b) eqn:E.
@@ -2508,7 +2508,7 @@ Proof.
   - apply Nat.ltb_ge. apply Nat.ltb_ge in E. lia.
 Qed.
 
-Lemma pad_state_in_fence :
+Local Lemma pad_state_in_fence :
   forall n st, in_fence (pad_state n st) = in_fence st.
 Proof.
   intros n st.
@@ -2516,7 +2516,7 @@ Proof.
     cbn [pad_state in_fence]; try reflexivity; exact IH.
 Qed.
 
-Lemma pad_state_depth :
+Local Lemma pad_state_depth :
   forall n st, pstate_depth (pad_state n st) = pstate_depth st.
 Proof.
   intros n st. induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
@@ -2531,14 +2531,14 @@ Proof.
     try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
 Qed.
 
-Lemma pad_state_lazy_ok :
+Local Lemma pad_state_lazy_ok :
   forall n st, lazy_ok (pad_state n st) = lazy_ok st.
 Proof.
   intros n st. induction st as [cur| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state lazy_ok]; exact IH.
 Qed.
 
-Lemma pad_state_feed_lazy :
+Local Lemma pad_state_feed_lazy :
   forall n l st, feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
 Proof.
   intros n l st.
@@ -2548,7 +2548,7 @@ Qed.
 
 (* The three flag updates preserve ls_indent, so each commutes with the
    shift. *)
-Lemma pad_list_blank :
+Local Lemma pad_list_blank :
   forall n ls,
     list_blank (ls_pad n ls)
     = ls_pad n (list_blank ls).
@@ -2602,7 +2602,7 @@ Lemma pad_state_announces_end :
   forall n st, announces_end (pad_state n st) = announces_end st.
 Proof. intros n st. destruct st; reflexivity. Qed.
 
-Lemma pad_state_key_claims :
+Local Lemma pad_state_key_claims :
   forall n l st, key_claims l (pad_state n st) = key_claims l st.
 Proof.
   intros n l st.
@@ -2615,7 +2615,7 @@ Qed.
 
 (* A pad is invisible to the override for the same reason it is
    invisible to the classifier: the line's kind is what the test reads. *)
-Lemma key_claims_ws_prefix :
+Local Lemma key_claims_ws_prefix :
   forall p l st, is_blank p = true ->
     key_claims (p ++ l) st = key_claims l st.
 Proof.
@@ -2627,7 +2627,7 @@ Proof.
   rewrite (classify_ws_prefix p l Hp). reflexivity.
 Qed.
 
-Lemma pad_state_list_takes :
+Local Lemma pad_state_list_takes :
   forall n ls off l inner,
     list_takes (ls_pad n ls)
                (n + off) l (pad_state n inner)
@@ -2638,19 +2638,19 @@ Proof.
   rewrite <- Nat.add_assoc, ltb_add_mono_l. reflexivity.
 Qed.
 
-Lemma pad_list_content :
+Local Lemma pad_list_content :
   forall n ls k,
     list_content (ls_pad n ls) k
     = ls_pad n (list_content ls k).
 Proof. intros n ls k. destruct ls; destruct k; reflexivity. Qed.
 
-Lemma pad_list_narrow :
+Local Lemma pad_list_narrow :
   forall n ls ns,
     list_narrow (ls_pad n ls) ns
     = ls_pad n (list_narrow ls ns).
 Proof. intros n ls ns. destruct ls. reflexivity. Qed.
 
-Lemma pad_list_next :
+Local Lemma pad_list_next :
   forall n ls item chk l rest,
     list_next (ls_pad n ls) item chk l rest
     = ls_pad n (list_next ls item chk l rest).
@@ -2659,12 +2659,12 @@ Proof.
   destruct ls; destruct (is_blank rest); reflexivity.
 Qed.
 
-Lemma pad_list_touch :
+Local Lemma pad_list_touch :
   forall n ls, list_touch (ls_pad n ls) = ls_pad n (list_touch ls).
 Proof. reflexivity. Qed.
 
 (* The two shapes `pad_state` leaves behind, as `close_reopen` sees them. *)
-Lemma finish_pad_list :
+Local Lemma finish_pad_list :
   forall n ls done inner,
     finish (PList (ls_pad n ls) done (pad_state n inner))
     = finish (PList ls done inner).
@@ -2673,7 +2673,7 @@ Proof.
   rewrite (pad_state_finish n inner). destruct ls. reflexivity.
 Qed.
 
-Lemma finish_pad_div :
+Local Lemma finish_pad_div :
   forall n len cls range opener done inner,
     finish (PDiv len cls range opener done (pad_state n inner))
     = finish (PDiv len cls range opener done inner).
@@ -2682,7 +2682,7 @@ Proof.
   rewrite (pad_state_finish n inner). reflexivity.
 Qed.
 
-Lemma finish_pad_quote :
+Local Lemma finish_pad_quote :
   forall n range done inner,
     finish (PQuote range done (pad_state n inner))
     = finish (PQuote range done inner).
@@ -3114,7 +3114,7 @@ Qed.
 
 (* Descending from idle is the common case: the residue starts a fresh
    run, so its whole state is the shift of the run at column 0. *)
-Lemma step_at_idle :
+Local Lemma step_at_idle :
   forall k l,
     step_at k l (PPara [])
     = (fst (step l (PPara [])), pad_state k (snd (step l (PPara [])))).
@@ -3244,7 +3244,7 @@ Proof.
 Qed.
 
 (* A prefix-less text line still continues the innermost paragraph. *)
-Lemma step_quote_lazy :
+Local Lemma step_quote_lazy :
   forall l range done inner,
     classify l = KText -> lazy_ok inner = true ->
     step l (PQuote range done inner)
@@ -3377,7 +3377,7 @@ Qed.
 (* The descend side keeps its column hypothesis: the override only
    weakens the test, so a line already indented past the marker is taken
    whatever any key below is doing. *)
-Lemma list_takes_of_ltb :
+Local Lemma list_takes_of_ltb :
   forall ls off l inner,
     Nat.ltb (ls_indent ls) (off + indent_of l) = true ->
     list_takes ls off l inner = true.
@@ -3443,7 +3443,7 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-Lemma step_list_diffstyle :
+Local Lemma step_list_diffstyle :
   forall l sty core chk rest ls done inner bs inner',
     classify l = KList sty core chk rest ->
     narrow (ls_styles ls) (configured_list_styles sty chk) = [] ->
@@ -3643,7 +3643,7 @@ Proof.
   cbn [open_kind]. rewrite Htables. reflexivity.
 Qed.
 
-Lemma step_row_disabled :
+Local Lemma step_row_disabled :
   forall l r, btables = false -> classify l = KRow r ->
     step l (PPara [])
     = ([], PPara [remember_line (drop_leading_ws l)]).
@@ -3747,7 +3747,7 @@ Proof.
   rewrite app_nil_r. reflexivity.
 Qed.
 
-Lemma step_list_lazy :
+Local Lemma step_list_lazy :
   forall l ls done inner,
     classify l = KText -> list_takes ls 0 l inner = false ->
     lazy_ok inner = true ->
@@ -3811,13 +3811,13 @@ Fixpoint fence_cols_ok (off : nat) (st : pstate) : bool :=
 
 (* Column zero is left of everything, which is what makes the condition
    free at `step`. *)
-Lemma fence_cols_ok_0 : forall st, fence_cols_ok 0 st = true.
+Local Lemma fence_cols_ok_0 : forall st, fence_cols_ok 0 st = true.
 Proof.
   induction st as [| | | |dlen dcls drng dop ddone dinner IH|ls done inner IH| | | |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [fence_cols_ok]; try reflexivity; assumption.
 Qed.
 
-Lemma fence_cols_ok_pad_state :
+Local Lemma fence_cols_ok_pad_state :
   forall k off st, fence_cols_ok (k + off) (pad_state k st) = fence_cols_ok off st.
 Proof.
   intros k off st.
@@ -3830,7 +3830,7 @@ Qed.
 
 (* A lazy line's pad is dropped wherever the line comes to rest -- the
    reason feed_lazy strips leading whitespace at all. *)
-Lemma feed_lazy_ws_prefix :
+Local Lemma feed_lazy_ws_prefix :
   forall p l st,
     is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
 Proof.
@@ -3918,7 +3918,7 @@ Qed.
 
 (* The recorded spots are counted from the end of the line, so a blank
    prefix leaves every one of them where it was. *)
-Lemma open_extent_ws_prefix :
+Local Lemma open_extent_ws_prefix :
   forall p l, is_blank p = true ->
   open_extent (p ++ l) (indent_of (p ++ l)) = open_extent l (indent_of l).
 Proof.
@@ -3929,7 +3929,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma line_span_from_ws_prefix :
+Local Lemma line_span_from_ws_prefix :
   forall p l, is_blank p = true ->
   line_span_from (p ++ l) (indent_of (p ++ l)) = line_span_from l (indent_of l).
 Proof.
@@ -3940,7 +3940,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma spot_at_ws_prefix :
+Local Lemma spot_at_ws_prefix :
   forall p l, is_blank p = true ->
     spot_at (p ++ l) (indent_of (p ++ l)) = spot_at l (indent_of l).
 Proof.
@@ -3951,14 +3951,14 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma open_quote_ws_prefix :
+Local Lemma open_quote_ws_prefix :
   forall p l d, is_blank p = true -> open_quote (p ++ l) d = open_quote l d.
 Proof.
   intros p l [bs inner] Hp. unfold open_quote.
   rewrite (open_extent_ws_prefix p l Hp). reflexivity.
 Qed.
 
-Lemma open_list_ws_prefix :
+Local Lemma open_list_ws_prefix :
   forall p l ind sty chk d, is_blank p = true ->
   open_list (p ++ l) ind sty chk d = open_list l ind sty chk d.
 Proof.
@@ -3966,7 +3966,7 @@ Proof.
   rewrite (open_extent_ws_prefix p l Hp). reflexivity.
 Qed.
 
-Lemma open_fence_ws_prefix :
+Local Lemma open_fence_ws_prefix :
   forall p l ind f, is_blank p = true ->
   open_fence (p ++ l) ind f = open_fence l ind f.
 Proof.
@@ -3975,7 +3975,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma open_ref_ws_prefix :
+Local Lemma open_ref_ws_prefix :
   forall p l ind lbl v, is_blank p = true ->
   open_ref (p ++ l) ind lbl v = open_ref l ind lbl v.
 Proof.
@@ -3983,7 +3983,7 @@ Proof.
   rewrite (open_extent_ws_prefix p l Hp). reflexivity.
 Qed.
 
-Lemma list_next_ws_prefix :
+Local Lemma list_next_ws_prefix :
   forall p l ls item chk rest, is_blank p = true ->
   list_next ls item chk (p ++ l) rest = list_next ls item chk l rest.
 Proof.
@@ -3991,7 +3991,7 @@ Proof.
   rewrite (open_extent_ws_prefix p l Hp). reflexivity.
 Qed.
 
-Lemma open_foot_ws_prefix :
+Local Lemma open_foot_ws_prefix :
   forall p l ind lbl d, is_blank p = true ->
   open_foot (p ++ l) ind lbl d = open_foot l ind lbl d.
 Proof.
@@ -4006,7 +4006,7 @@ Ltac ws_openers p l Hp :=
     ?(list_next_ws_prefix p l _ _ _ _ Hp), ?(open_foot_ws_prefix p l _ _ _ Hp),
     ?(table_row_part_ws_prefix p l _ Hp).
 
-Lemma step_fuel_pad :
+Local Lemma step_fuel_pad :
   forall n p off l st,
     is_blank p = true ->
     pad_safe st = true ->
@@ -4305,37 +4305,37 @@ Ltac sem_para :=
   end.
 
 (* Every coordinate constructor is the ambient one, erased. *)
-Lemma erase_spot_at : forall `{LI : LineIx} l c,
+Local Lemma erase_spot_at : forall `{LI : LineIx} l c,
   erase_spot (@spot_at LI l c) = @spot_at semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
-Lemma erase_line_stop : forall `{LI : LineIx},
+Local Lemma erase_line_stop : forall `{LI : LineIx},
   erase_spot (@line_stop LI) = @line_stop semantic_line_ix.
 Proof. reflexivity. Qed.
 
-Lemma erase_line_span_from : forall `{LI : LineIx} l c,
+Local Lemma erase_line_span_from : forall `{LI : LineIx} l c,
   erase_span (@line_span_from LI l c) = @line_span_from semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
-Lemma erase_open_extent : forall `{LI : LineIx} l c,
+Local Lemma erase_open_extent : forall `{LI : LineIx} l c,
   erase_extent (@open_extent LI l c) = @open_extent semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
-Lemma erase_touch_extent : forall `{LI : LineIx} e,
+Local Lemma erase_touch_extent : forall `{LI : LineIx} e,
   erase_extent (@touch_extent LI e) =
   @touch_extent semantic_line_ix (erase_extent e).
 Proof. reflexivity. Qed.
 
-Lemma erase_span_through_line : forall `{LI : LineIx} r,
+Local Lemma erase_span_through_line : forall `{LI : LineIx} r,
   erase_span (@span_through_line LI r) =
   @span_through_line semantic_line_ix (erase_span r).
 Proof. reflexivity. Qed.
 
-Lemma erase_remember_line : forall `{LI : LineIx} t,
+Local Lemma erase_remember_line : forall `{LI : LineIx} t,
   erase_line (@remember_line LI t) = @remember_line semantic_line_ix t.
 Proof. reflexivity. Qed.
 
-Lemma erase_remember_lines : forall `{LI : LineIx} lines,
+Local Lemma erase_remember_lines : forall `{LI : LineIx} lines,
   erase_lines (@remember_lines LI lines) =
   @remember_lines semantic_line_ix lines.
 Proof.
@@ -4343,14 +4343,14 @@ Proof.
   unfold erase_lines, remember_lines in *; cbn [map]. rewrite IH. reflexivity.
 Qed.
 
-Lemma erase_push_text : forall `{LI : LineIx} rest cur,
+Local Lemma erase_push_text : forall `{LI : LineIx} rest cur,
   erase_lines (@push_text LI rest cur) =
   @push_text semantic_line_ix rest (erase_lines cur).
 Proof.
   intros LI rest cur. unfold push_text. destruct (is_blank rest); reflexivity.
 Qed.
 
-Lemma erase_para_recover : forall extra slices,
+Local Lemma erase_para_recover : forall extra slices,
   erase_state (para_recover extra slices) =
   para_recover extra (erase_lines slices).
 Proof.
@@ -4358,7 +4358,7 @@ Proof.
   rewrite erase_lines_length. reflexivity.
 Qed.
 
-Lemma erase_list_opened : forall `{LI : LineIx} l ind sty chk,
+Local Lemma erase_list_opened : forall `{LI : LineIx} l ind sty chk,
   erase_list_state (@list_opened LI l ind sty chk) =
   @list_opened semantic_line_ix l ind sty chk.
 Proof. reflexivity. Qed.
@@ -4366,7 +4366,7 @@ Proof. reflexivity. Qed.
 (* A fence closes to a raw or a code block, neither of which holds a
    node.  Stated over a whole list because both callers have one: the
    block a fence emits, in front of what the state below it emitted. *)
-Lemma fence_block_erase : forall `{K : bconfig} f texts rest,
+Local Lemma fence_block_erase : forall `{K : bconfig} f texts rest,
   erase_blocks (@fence_block K f texts :: rest)%list =
   (@fence_block K f texts :: erase_blocks rest)%list.
 Proof.
@@ -4380,7 +4380,7 @@ Qed.
 (* The caption is a paragraph, so it is scanned like one and its
    erasure is that paragraph's.  Outside the section because the two
    sides sit at different policies. *)
-Lemma erase_caption_of : forall `{T : dtable} c,
+Local Lemma erase_caption_of : forall `{T : dtable} c,
   option_map erase_inlines (@caption_of T located_pos c) =
   @caption_of T semantic_pos (erase_cap c).
 Proof.
@@ -4394,7 +4394,7 @@ Qed.
 
 (* Stated over a whole list because both callers have one: the table a
    caption closes, in front of what the state below it emitted. *)
-Lemma erase_table_block : forall `{T : dtable} rows c rest,
+Local Lemma erase_table_block : forall `{T : dtable} rows c rest,
   erase_blocks (@table_block T located_pos rows c :: rest)%list =
   (@table_block T semantic_pos rows (erase_cap c) :: erase_blocks rest)%list.
 Proof.
@@ -4407,7 +4407,7 @@ Qed.
 (* Closing a located state adds only provenance.  The recursive cases are
    the reason erasure is structural: blocks retained below quotes, lists,
    divs, footnotes and keys must be stripped along with the outer node. *)
-Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
+Local Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
   erase_blocks (@finish T K located_pos st) =
   @finish T K semantic_pos (erase_state st).
 Proof.
@@ -4480,25 +4480,25 @@ Proof.
       fold erase_blocks. reflexivity.
 Qed.
 
-Lemma list_touch_erase : forall `{LI : LineIx} ls,
+Local Lemma list_touch_erase : forall `{LI : LineIx} ls,
   erase_list_state (@list_touch LI ls) =
   @list_touch semantic_line_ix (erase_list_state ls).
 Proof. intros LI []; reflexivity. Qed.
 
-Lemma list_blank_erase : forall ls,
+Local Lemma list_blank_erase : forall ls,
   erase_list_state (list_blank ls) = list_blank (erase_list_state ls).
 Proof. intros []; reflexivity. Qed.
 
-Lemma list_narrow_erase : forall ls ns,
+Local Lemma list_narrow_erase : forall ls ns,
   erase_list_state (list_narrow ls ns) = list_narrow (erase_list_state ls) ns.
 Proof. intros [] ns; reflexivity. Qed.
 
-Lemma list_content_erase : forall `{LI : LineIx} ls k,
+Local Lemma list_content_erase : forall `{LI : LineIx} ls k,
   erase_list_state (@list_content LI ls k) =
   @list_content semantic_line_ix (erase_list_state ls) k.
 Proof. intros LI [] k; destruct k; reflexivity. Qed.
 
-Lemma list_next_erase : forall `{LI : LineIx} ls item chk l rest,
+Local Lemma list_next_erase : forall `{LI : LineIx} ls item chk l rest,
   erase_list_state (@list_next LI ls item chk l rest) =
   @list_next semantic_line_ix (erase_list_state ls) (erase_blocks item)
     chk l rest.
@@ -4508,34 +4508,34 @@ Proof.
   destruct (classify rest); reflexivity.
 Qed.
 
-Lemma lazy_ok_erase : forall st, lazy_ok (erase_state st) = lazy_ok st.
+Local Lemma lazy_ok_erase : forall st, lazy_ok (erase_state st) = lazy_ok st.
 Proof.
   induction st; cbn [erase_state lazy_ok] in *; auto.
   destruct cur; reflexivity.
 Qed.
 
-Lemma in_fence_erase : forall st, in_fence (erase_state st) = in_fence st.
+Local Lemma in_fence_erase : forall st, in_fence (erase_state st) = in_fence st.
 Proof. induction st; cbn [erase_state in_fence] in *; auto. Qed.
 
-Lemma blank_absorbed_erase : forall st,
+Local Lemma blank_absorbed_erase : forall st,
   blank_absorbed (erase_state st) = blank_absorbed st.
 Proof. induction st; cbn [erase_state blank_absorbed] in *; auto. Qed.
 
-Lemma is_idle_erase : forall st, is_idle (erase_state st) = is_idle st.
+Local Lemma is_idle_erase : forall st, is_idle (erase_state st) = is_idle st.
 Proof. intros []; (reflexivity || (destruct cur; reflexivity)). Qed.
 
-Lemma announces_end_erase : forall st,
+Local Lemma announces_end_erase : forall st,
   announces_end (erase_state st) = announces_end st.
 Proof. intros []; (reflexivity || (destruct cur; reflexivity)). Qed.
 
-Lemma key_claims_erase : forall `{K : bconfig} l st,
+Local Lemma key_claims_erase : forall `{K : bconfig} l st,
   key_claims l (erase_state st) = key_claims l st.
 Proof.
   intros K l st. induction st; cbn [erase_state key_claims] in *;
     rewrite ?IHst, ?is_idle_erase, ?announces_end_erase; reflexivity.
 Qed.
 
-Lemma list_takes_erase : forall `{K : bconfig} ls off l st,
+Local Lemma list_takes_erase : forall `{K : bconfig} ls off l st,
   list_takes (erase_list_state ls) off l (erase_state st) =
   list_takes ls off l st.
 Proof.
@@ -4543,14 +4543,14 @@ Proof.
   destruct ls. reflexivity.
 Qed.
 
-Lemma div_closer_erase : forall l st,
+Local Lemma div_closer_erase : forall l st,
   div_closer l (erase_state st) = div_closer l st.
 Proof.
   intros l st. induction st; cbn [erase_state div_closer] in *;
     rewrite ?in_fence_erase, ?IHst; reflexivity.
 Qed.
 
-Lemma feed_lazy_erase : forall `{LI : LineIx} l st,
+Local Lemma feed_lazy_erase : forall `{LI : LineIx} l st,
   erase_state (@feed_lazy LI l st) =
   @feed_lazy semantic_line_ix l (erase_state st).
 Proof.
@@ -4558,7 +4558,7 @@ Proof.
     rewrite ?IHst, ?list_touch_erase; reflexivity.
 Qed.
 
-Lemma close_reopen_erase : forall `{T : dtable} `{K : bconfig} st r,
+Local Lemma close_reopen_erase : forall `{T : dtable} `{K : bconfig} st r,
   erase_result (@close_reopen T K located_pos st r) =
   @close_reopen T K semantic_pos (erase_state st) (erase_result r).
 Proof.
@@ -4566,7 +4566,7 @@ Proof.
   rewrite erase_blocks_app, finish_erase. reflexivity.
 Qed.
 
-Lemma pend_result_erase : forall pend specs r,
+Local Lemma pend_result_erase : forall pend specs r,
   erase_result (@pend_result located_pos pend specs r) =
   @pend_result semantic_pos pend (map erase_span specs) (erase_result r).
 Proof.
@@ -4576,7 +4576,7 @@ Proof.
   destruct p; reflexivity.
 Qed.
 
-Lemma key_result_erase : forall `{T : dtable} range lbl src r,
+Local Lemma key_result_erase : forall `{T : dtable} range lbl src r,
   erase_result (@key_result T located_pos range lbl src r) =
   @key_result T semantic_pos (erase_extent range) lbl src (erase_result r).
 Proof.
@@ -4587,7 +4587,7 @@ Proof.
   fold erase_blocks. reflexivity.
 Qed.
 
-Lemma open_line_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
+Local Lemma open_line_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
   dl ds ind l k,
   (forall rest, erase_result (dl rest) = ds rest) ->
   erase_result (@open_line T K LI located_pos dl ind l k) =
@@ -4632,7 +4632,7 @@ Qed.
 
 (* An opener emits at most one block and always a fresh state, so the
    only thing erasure has to see through is the position it writes. *)
-Lemma open_kind_erase : forall `{T : dtable} `{LI : LineIx} `{K : bconfig} l k,
+Local Lemma open_kind_erase : forall `{T : dtable} `{LI : LineIx} `{K : bconfig} l k,
   erase_result (@open_kind T LI located_pos K l k) =
   @open_kind T semantic_line_ix semantic_pos K l k.
 Proof.
@@ -4653,7 +4653,7 @@ Qed.
 (* The two shapes every close-and-reopen branch of `step_fuel` has.  They
    are stated as `apply`-ready equations rather than rewrites because the
    semantic descent is not determined by the located one syntactically. *)
-Lemma close_reopen_kind_erase :
+Local Lemma close_reopen_kind_erase :
   forall `{T : dtable} `{K : bconfig} `{LI : LineIx} st l k,
   erase_result
     (@close_reopen T K located_pos st (@open_kind T LI located_pos K l k)) =
@@ -4664,7 +4664,7 @@ Proof.
   rewrite close_reopen_erase, open_kind_erase. reflexivity.
 Qed.
 
-Lemma close_reopen_line_erase :
+Local Lemma close_reopen_line_erase :
   forall `{T : dtable} `{K : bconfig} `{LI : LineIx} st dl ds ind l k,
   (forall rest, erase_result (dl rest) = ds rest) ->
   erase_result
@@ -4680,7 +4680,7 @@ Qed.
 (* The located transition and the semantic one are the same descent.  No
    branch reads a position, so each case closes by rewriting erasure
    through the constructors the branch builds. *)
-Lemma step_fuel_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
+Local Lemma step_fuel_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
   n off l st,
   erase_result (@step_fuel T K LI located_pos n off l st) =
   @step_fuel T K semantic_line_ix semantic_pos n off l (erase_state st).
@@ -4904,7 +4904,7 @@ Fixpoint run_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
       ((bs ++ more)%list, final)
   end.
 
-Definition finish_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
+Local Definition finish_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
   (lines : list (nat * string)) (st : pstate) : blocks :=
   let (bs, final) := run_lines_tagged lines st in
   (bs ++ @finish T K P final)%list.
@@ -4918,7 +4918,7 @@ Definition parse_blocks_located {T : dtable} {K : bconfig} (s : string)
 
 (* Each line's blocks are complete when the next line is read, so the
    fold is the ordinary one with the per-line index installed. *)
-Lemma finish_lines_tagged_cons :
+Local Lemma finish_lines_tagged_cons :
   forall `{T : dtable} `{K : bconfig} `{P : PosPolicy} i l rest st,
   @finish_lines_tagged T K P ((i, l) :: rest)%list st =
   (fst (@step T K (LineIxAt i) P l st)
@@ -4932,11 +4932,11 @@ Proof.
   rewrite <- app_assoc. reflexivity.
 Qed.
 
-Lemma pstate_depth_erase : forall st,
+Local Lemma pstate_depth_erase : forall st,
   pstate_depth (erase_state st) = pstate_depth st.
 Proof. induction st; cbn [erase_state pstate_depth]; auto. Qed.
 
-Lemma step_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx} l st,
+Local Lemma step_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx} l st,
   erase_result (@step T K LI located_pos l st) =
   @step T K semantic_line_ix semantic_pos l (erase_state st).
 Proof.
@@ -4944,7 +4944,7 @@ Proof.
   apply step_fuel_erase.
 Qed.
 
-Lemma finish_lines_tagged_erase : forall `{T : dtable} `{K : bconfig} lines st,
+Local Lemma finish_lines_tagged_erase : forall `{T : dtable} `{K : bconfig} lines st,
   erase_blocks (@finish_lines_tagged T K located_pos lines st) =
   @parse_lines T K semantic_line_ix semantic_pos (map snd lines)
     (erase_state st).

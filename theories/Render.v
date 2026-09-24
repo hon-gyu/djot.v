@@ -52,7 +52,7 @@ Definition code_open (info : string) : string := "```" ++ info.
 
    The dashes are three wide whatever the column holds; nothing reads the
    width back. *)
-Definition align_dashes (a : align) : string :=
+Local Definition align_dashes (a : align) : string :=
   match a with
   | AlignDefault => "---"
   | AlignLeft => ":--"
@@ -60,7 +60,7 @@ Definition align_dashes (a : align) : string :=
   | AlignCenter => ":-:"
   end.
 
-Fixpoint sep_body (als : list align) : string :=
+Local Fixpoint sep_body (als : list align) : string :=
   match als with
   | [] => EmptyString
   | a :: rest => (align_dashes a ++ "|" ++ sep_body rest)%string
@@ -68,7 +68,7 @@ Fixpoint sep_body (als : list align) : string :=
 
 Definition sep_line (als : list align) : string := ("|" ++ sep_body als)%string.
 
-Fixpoint cells_body (cs : list string) : string :=
+Local Fixpoint cells_body (cs : list string) : string :=
   match cs with
   | [] => EmptyString
   | c :: rest => (" " ++ c ++ " |" ++ cells_body rest)%string
@@ -93,7 +93,7 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
   | ls :: rest => (ls ++ EmptyString :: sep_lines rest)%list
   end.
 
-Lemma quote_line_empty : quote_line EmptyString = quote_open.
+Local Lemma quote_line_empty : quote_line EmptyString = quote_open.
 Proof. unfold quote_line. apply append_empty_r. Qed.
 
 (*
@@ -136,7 +136,7 @@ Definition ctrow_lines (r : ctrow) : list string :=
 (* `Step.cells_of` and `Step.head_of` with the canonical view's inlines in
    place of the inline parser's: the same positional alignment, defaulting
    past the end of the separator. *)
-Fixpoint ccells_of (ct : cell_type) (als : list align) (cs : list (list cinline))
+Local Fixpoint ccells_of (ct : cell_type) (als : list align) (cs : list (list cinline))
   : list cell :=
   match cs with
   | [] => []
@@ -197,7 +197,7 @@ Qed.
 (* The parser's fold, on a canonical table, is the canonical fold.  Both
    halves are the same positional walk with the inline layer's answer in
    place of the view's, so each is one induction over the cells. *)
-Lemma cells_of_ccells_of :
+Local Lemma cells_of_ccells_of :
   forall ct als cs,
     forallb cis_ok cs = true ->
     cells_of ct als (map ci_line cs) = ccells_of ct als cs.
@@ -212,7 +212,7 @@ Qed.
 (* Promoting the row a separator sits under: the cells keep their
    inlines and take the separator's alignments, which is `ccells_of` at
    the header type. *)
-Lemma head_of_ccells_of :
+Local Lemma head_of_ccells_of :
   forall als als0 cs,
     head_of als (ccells_of BodyCell als0 cs) = ccells_of HeadCell als cs.
 Proof.
@@ -432,7 +432,7 @@ Definition cpara (ls : list string) : cblock := CPara (map cline ls).
 Definition cheading (lvl : nat) (ls : list string) : cblock :=
   CHeading lvl (map cline ls).
 
-Lemma map_ci_line_cline :
+Local Lemma map_ci_line_cline :
   forall ls, map ci_line (map cline ls) = map escape_str ls.
 Proof.
   induction ls as [|s ls IH]; [reflexivity|].
@@ -447,7 +447,7 @@ Qed.
    Nothing consumes this: it is what a reader of a `cpara`-spelled example
    would otherwise take on trust, and the first thing to break if
    `cline`, `ci_line` or `needs_escape` drifts. *)
-Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_str ls.
+Local Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_str ls.
 Proof. intros ls. cbn [cb_lines cpara]. apply map_ci_line_cline. Qed.
 
 (*
@@ -555,7 +555,7 @@ Fixpoint ends_ctable (cb : cblock) : bool :=
   | _ => false
   end.
 
-Fixpoint is_cref (cb : cblock) : bool :=
+Local Fixpoint is_cref (cb : cblock) : bool :=
   match cb with
   | CRef _ _ => true
   | CId _ inner => is_cref inner
@@ -596,7 +596,7 @@ Qed.
    forces it) so none begins with a caret -- but the second half is a
    fact about the inline layer's escape set, and the roundtrip should not
    rest on it silently.  `no_canonical_caption_opener` pins it. *)
-Definition closes_table (cb : cblock) : bool :=
+Local Definition closes_table (cb : cblock) : bool :=
   match cb_lines cb with
   | [] => false
   | a :: _ =>
@@ -684,7 +684,7 @@ Definition ref_ok (label dest : string) : bool :=
   no_char "]"%char label && negb (is_footnote_label label)
   && no_nl label && no_ws dest.
 
-Lemma ref_ok_parts :
+Local Lemma ref_ok_parts :
   forall label dest,
     ref_ok label dest = true ->
     no_char "]"%char label = true /\ is_footnote_label label = false
@@ -723,7 +723,7 @@ Qed.
    shape `para_ok` states its first-line condition -- and it is what
    subsumes every hazard a cell could carry (a bare bar, an unclosed
    verbatim, a cell that reads as a separator). *)
-Definition row_reparses (r : trow) (l : string) : bool :=
+Local Definition row_reparses (r : trow) (l : string) : bool :=
   match classify l with KRow r' => trow_eqb r' r | _ => false end.
 
 (* A definition item may not begin with a reference definition.
@@ -736,7 +736,7 @@ Definition row_reparses (r : trow) (l : string) : bool :=
 (* A definition item's head is also where its term comes from, and
    `Ast.def_split` drops that paragraph's attributes, so a named head
    cannot round-trip and the canonical view has no spelling for one. *)
-Definition cdef_head_ok (it : list cblock) : bool :=
+Local Definition cdef_head_ok (it : list cblock) : bool :=
   match it with c :: _ => negb (is_cid c || is_cref c) | [] => true end.
 
 Definition ck_content_ok (k : list_kind) (items : list (list cblock)) : bool :=
@@ -762,7 +762,7 @@ Definition ctrow_ok (r : ctrow) : bool :=
          && row_reparses (TSep als) (sep_line als)
      end.
 
-Lemma row_reparses_classify :
+Local Lemma row_reparses_classify :
   forall r l, row_reparses r l = true -> classify l = KRow r.
 Proof.
   intros r l H. unfold row_reparses in H.
@@ -918,7 +918,7 @@ Proof. reflexivity. Qed.
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
    item are renderable exactly when nonempty and every cblock in them is
    cb_ok.  One fact, reused for both cb_ok_quote and cb_ok_list. *)
-Lemma inner_ok_eq :
+Local Lemma inner_ok_eq :
   forall cs,
     (fix go (cs : list cblock) : bool :=
        match cs with
@@ -963,7 +963,7 @@ Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
 
 (* The div analogues.  `divs_ok` collapses to a plain `forallb` because
    it has no nonempty case to carry. *)
-Lemma divs_ok_eq :
+Local Lemma divs_ok_eq :
   forall cs,
     (fix godiv (cs : list cblock) : bool :=
        match cs with
@@ -1023,7 +1023,7 @@ Proof.
 Qed.
 
 (* cb_ok's `items_ok` helper, spelled out via inner_ok_eq per item. *)
-Lemma items_ok_eq :
+Local Lemma items_ok_eq :
   forall items,
     (fix goitems (iss : list (list cblock)) : bool :=
        match iss with
@@ -1094,7 +1094,7 @@ The renderer
 (* Which numbering scheme an `OrderedList` node's attributes name.  The
    inverse of `ck_block`'s ordered arms, which is what `render_ck_list`
    needs: rendering a list that `ck_block k` built has to recover `k`. *)
-Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
+Local Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
   match ol_style oa with
   | Decimal => LKDecimal (ol_delim oa) (ol_start oa)
   | RomanLower => LKRoman false (ol_delim oa) (ol_start oa)
@@ -1109,10 +1109,10 @@ Definition lk_of_ol (oa : ordered_list_attributes) : list_kind :=
    be emitted for them.  The one exception: a table whose first row is a
    body row already carrying an alignment was aligned by a separator that
    preceded it, and that separator has to come back. *)
-Definition cell_text (c : cell) : string :=
+Local Definition cell_text (c : cell) : string :=
   match c with Cell _ _ ils => hd EmptyString (inline_lines ils EmptyString) end.
 
-Definition cell_align (c : cell) : align := match c with Cell _ al _ => al end.
+Local Definition cell_align (c : cell) : align := match c with Cell _ al _ => al end.
 
 Definition render_row (r : list cell) : list string :=
   (cells_line (map cell_text r)
@@ -1121,7 +1121,7 @@ Definition render_row (r : list cell) : list string :=
       | _ => []
       end)%list.
 
-Definition initial_sep (rows : list (list cell)) : list string :=
+Local Definition initial_sep (rows : list (list cell)) : list string :=
   match rows with
   | (Cell BodyCell a _ :: _) as r :: _ =>
       if align_eqb a AlignDefault then [] else [sep_line (map cell_align r)]
@@ -1131,20 +1131,20 @@ Definition initial_sep (rows : list (list cell)) : list string :=
 Definition table_lines (rows : list (list cell)) : list string :=
   (initial_sep rows ++ flat_map render_row rows)%list.
 
-Definition caption_line (ils : inlines) : string :=
+Local Definition caption_line (ils : inlines) : string :=
   ("^ " ++ hd EmptyString (inline_lines ils EmptyString))%string.
 
 (* A task item's source lines, as the renderer spells them.  The
    continuation prefix is six columns wide for both statuses.  An empty
    item omits the trailing separator space, the shape `Line.task_check`
    accepts. *)
-Definition task_open (chk : task_status) : string :=
+Local Definition task_open (chk : task_status) : string :=
   match chk with Complete => "- [x] " | Incomplete => "- [ ] " end.
 
-Definition task_empty (chk : task_status) : string :=
+Local Definition task_empty (chk : task_status) : string :=
   match chk with Complete => "- [x]" | Incomplete => "- [ ]" end.
 
-Definition task_litem_lines (it : task_status * list string) : list string :=
+Local Definition task_litem_lines (it : task_status * list string) : list string :=
   match it with
   | (chk, []) => [task_empty chk]
   | (chk, l0 :: more) =>
@@ -1249,7 +1249,7 @@ Lemma render_node_lines_mk :
   forall x, render_node_lines (mk x) = render_block_lines x.
 Proof. reflexivity. Qed.
 
-Lemma render_node_lines_noid :
+Local Lemma render_node_lines_noid :
   forall q a x,
     alist_lookup "id" a = None ->
     render_node_lines (Node q a x) = render_block_lines x.
@@ -1278,10 +1278,10 @@ Proof. reflexivity. Qed.
    *over*, so the term it finds sits behind it in the source and in
    front of it in the rendering: the two spellings have the same AST,
    and `cb_ok` picks the one the renderer produces. *)
-Definition has_id (a : attr) : bool :=
+Local Definition has_id (a : attr) : bool :=
   match alist_lookup "id" a with Some _ => true | None => false end.
 
-Definition def_head_ok (bs : blocks) : bool :=
+Local Definition def_head_ok (bs : blocks) : bool :=
   match bs with
   | Node _ a (Para ils) :: _ => nonempty ils && negb (has_id a)
   | Node _ _ x :: _ => negb (invisible_block x)
@@ -1298,12 +1298,12 @@ Definition ck_render_ok (k : list_kind) (items : list blocks) : bool :=
   | _ => true
   end.
 
-Lemma render_forallb_map :
+Local Lemma render_forallb_map :
   forall {A B : Type} (f : B -> bool) (g : A -> B) xs,
     forallb f (map g xs) = forallb (fun x => f (g x)) xs.
 Proof. induction xs as [|x xs IH]; [reflexivity|cbn; rewrite IH; reflexivity]. Qed.
 
-Lemma forallb_item_ok_nonempty :
+Local Lemma forallb_item_ok_nonempty :
   forall m items,
     forallb (fun it => item_ok m (item_lines it)) items = true ->
     forallb (fun it => nonempty (item_lines it)) items = true.
@@ -1394,7 +1394,7 @@ Qed.
 
 (* A canonical paragraph has content: `para_ok` asks `is_text` of the
    first line, and an empty line is blank. *)
-Lemma ci_para_nonempty :
+Local Lemma ci_para_nonempty :
   forall lss, para_ok (map ci_line lss) = true -> nonempty (ci_para lss) = true.
 Proof.
   intros [|cis rest] H; [discriminate|].
@@ -1452,14 +1452,14 @@ Qed.
 
    `initial_sep` never fires on a canonical table: the view has no way to
    spell a leading body row that is already aligned. *)
-Lemma cell_text_ci : forall ct al c, cell_text (Cell ct al (ci_inlines c)) = ci_line c.
+Local Lemma cell_text_ci : forall ct al c, cell_text (Cell ct al (ci_inlines c)) = ci_line c.
 Proof.
   intros ct al c. unfold cell_text.
   rewrite <- (app_nil_r (ci_inlines c)), inline_lines_ci_inlines.
   reflexivity.
 Qed.
 
-Lemma map_cell_text_ccells :
+Local Lemma map_cell_text_ccells :
   forall ct als cs, map cell_text (ccells_of ct als cs) = map ci_line cs.
 Proof.
   intros ct als cs. revert als.
@@ -1468,7 +1468,7 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma map_cell_align_ccells :
+Local Lemma map_cell_align_ccells :
   forall ct als cs,
     List.length als = List.length cs ->
     map cell_align (ccells_of ct als cs) = als.
@@ -1480,7 +1480,7 @@ Proof.
   rewrite IH by (injection Hlen; auto). reflexivity.
 Qed.
 
-Lemma render_row_body_cells :
+Local Lemma render_row_body_cells :
   forall als c cs,
     render_row (ccells_of BodyCell als (c :: cs))
     = [cells_line (map ci_line (c :: cs))].
@@ -1490,7 +1490,7 @@ Proof.
     rewrite cell_text_ci, map_cell_text_ccells; reflexivity.
 Qed.
 
-Lemma render_row_head_cells :
+Local Lemma render_row_head_cells :
   forall als c cs,
     List.length als = List.length (c :: cs) ->
     render_row (ccells_of HeadCell als (c :: cs))
@@ -1504,7 +1504,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma render_row_ctrow :
+Local Lemma render_row_ctrow :
   forall als r, ctrow_ok r = true ->
   render_row (match r with
               | CTBody cs => ccells_of BodyCell als cs
@@ -1529,7 +1529,7 @@ Proof.
     cbn [ctrow_lines]. apply render_row_head_cells. exact Hlen.
 Qed.
 
-Lemma flat_map_render_row_ctable :
+Local Lemma flat_map_render_row_ctable :
   forall rows als, forallb ctrow_ok rows = true ->
   flat_map render_row (ctable_cells als rows) = flat_map ctrow_lines rows.
 Proof.
@@ -1541,7 +1541,7 @@ Proof.
   - rewrite (IH als' Hrows). reflexivity.
 Qed.
 
-Lemma initial_sep_ctable :
+Local Lemma initial_sep_ctable :
   forall rows, initial_sep (ctable_cells [] rows) = [].
 Proof.
   intros [|r rows]; [reflexivity|].

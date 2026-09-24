@@ -45,7 +45,7 @@ Definition top_level_ids (cbs : list cblock) : list string :=
 (* Every explicit id on the page, containers included.  A quote's
    contents and a list item's blocks are `list cblock`, so the recursion
    is the same three-way one `cb_ok` uses. *)
-Fixpoint all_explicit_ids (cb : cblock) : list string :=
+Local Fixpoint all_explicit_ids (cb : cblock) : list string :=
   match cb with
   | CId i inner => i :: all_explicit_ids inner
   | CKey _ inner => all_explicit_ids inner
@@ -54,10 +54,10 @@ Fixpoint all_explicit_ids (cb : cblock) : list string :=
   | _ => []
   end.
 
-Definition page_ids (cbs : list cblock) : list string :=
+Local Definition page_ids (cbs : list cblock) : list string :=
   flat_map all_explicit_ids cbs.
 
-Fixpoint no_dups (xs : list string) : bool :=
+Local Fixpoint no_dups (xs : list string) : bool :=
   match xs with
   | [] => true
   | x :: rest => negb (existsb (String.eqb x) rest) && no_dups rest
@@ -69,7 +69,7 @@ Fixpoint no_dups (xs : list string) : bool :=
 Definition explicit_ids_unique (cbs : list cblock) : bool :=
   no_dups (top_level_ids cbs).
 
-Definition page_ids_unique (cbs : list cblock) : bool :=
+Local Definition page_ids_unique (cbs : list cblock) : bool :=
   no_dups (page_ids cbs).
 
 (*
@@ -80,7 +80,7 @@ Resolution
 (* Every way the name could be read, as splits of the input.  A list
    rather than an option: the two failures an editor must not confuse
    are "no such block" and "more than one", and both are visible here. *)
-Fixpoint find_top_ids (i : string) (cbs : list cblock)
+Local Fixpoint find_top_ids (i : string) (cbs : list cblock)
   : list (list cblock * cblock * list cblock) :=
   match cbs with
   | [] => []
@@ -123,7 +123,7 @@ What a resolved address means
 (* Every candidate a search returns reconstructs the document, so the
    caller can rebuild it without an index and without trusting the
    search: the split *is* the answer. *)
-Lemma find_top_ids_sound :
+Local Lemma find_top_ids_sound :
   forall i cbs pre c post,
     In (pre, c, post) (find_top_ids i cbs) ->
     cbs = (pre ++ c :: post)%list /\ top_id c = Some i.
@@ -149,7 +149,7 @@ Proof.
   - exact (Hbelow _ H).
 Qed.
 
-Lemma find_top_ids_absent :
+Local Lemma find_top_ids_absent :
   forall i cbs, existsb (String.eqb i) (top_level_ids cbs) = false ->
     find_top_ids i cbs = [].
 Proof.
@@ -164,7 +164,7 @@ Qed.
 (* Uniqueness is what turns the search into a lookup: a name that occurs
    at all occurs once, so the ambiguous answer is unreachable and no
    caller has to decide which occurrence was meant. *)
-Lemma find_top_ids_unique :
+Local Lemma find_top_ids_unique :
   forall i cbs,
     explicit_ids_unique cbs = true ->
     existsb (String.eqb i) (top_level_ids cbs) = true ->
@@ -298,7 +298,7 @@ makes a build a function rather than an iteration is that installing it
 once is enough.
 *)
 
-Lemma find_top_ids_app :
+Local Lemma find_top_ids_app :
   forall i xs ys,
     find_top_ids i (xs ++ ys)%list
     = (map (fun s => let '(p, c, q) := s in (p, c, (q ++ ys)%list))
@@ -321,7 +321,7 @@ Qed.
    split can hide a second occurrence.  This is what survives the edit:
    the id the caller used still resolves in the document the edit
    produced. *)
-Lemma find_top_ids_singleton_parts :
+Local Lemma find_top_ids_singleton_parts :
   forall i pre c post,
     top_id c = Some i ->
     find_top_ids i (pre ++ c :: post)%list = [(pre, c, post)] ->
@@ -336,7 +336,7 @@ Proof.
   split; apply length_zero_iff_nil; lia.
 Qed.
 
-Lemma find_top_ids_replace :
+Local Lemma find_top_ids_replace :
   forall i body pre post,
     find_top_ids i pre = [] -> find_top_ids i post = [] ->
     find_top_ids i (pre ++ CId i body :: post)%list = [(pre, CId i body, post)].
@@ -488,7 +488,7 @@ Definition refresh_twice {V : Type} (D : derived V) (cbs : list cblock)
    document's heading becomes `H-1` -- so the view this block is built
    from moved because the block was installed.  `refresh_stable`'s
    hypothesis is exactly what this document fails. *)
-Definition toc_make (v : list string) : cblock :=
+Local Definition toc_make (v : list string) : cblock :=
   CDiv (CHeading 1 [[CIStr "H"]] :: map (fun s => cpara [s]) v).
 
 Definition toc : derived (list string) := Derived "toc" auto_ids toc_make.
@@ -511,7 +511,7 @@ Proof. vm_compute. discriminate. Qed.
 (* The same view with a block that generates no heading converges in one
    step, and `refresh_stable` is what says so: the only obligation is the
    view equality, which the build can run. *)
-Definition ids_make (v : list string) : cblock :=
+Local Definition ids_make (v : list string) : cblock :=
   CDiv (map (fun s => cpara [s]) v).
 
 Definition ids_block : derived (list string) := Derived "toc" auto_ids ids_make.

@@ -268,7 +268,7 @@ Definition null_span : span := SrcSpan (Spot 0 0) (Spot 0 0).
 Definition pspan `{PosPolicy} (r : span) : span :=
   if pos_records then r else null_span.
 
-Lemma pspan_semantic : forall r, @pspan semantic_pos r = null_span.
+Local Lemma pspan_semantic : forall r, @pspan semantic_pos r = null_span.
 Proof. reflexivity. Qed.
 
 (* Provenance that is just a range. *)
@@ -295,7 +295,7 @@ Definition set_pos `{PosPolicy} {A : Type} (p : provenance) (n : node A)
   | q => match n with Node _ a x => Node q a x end
   end.
 
-Lemma set_pos_mk :
+Local Lemma set_pos_mk :
   forall `{PosPolicy} A (p : provenance) (x : A),
     set_pos p (mk x) = posnode p x.
 Proof.
@@ -338,12 +338,12 @@ Definition add_roles_head `{PosPolicy} {A : Type}
     end
   else ns.
 
-Lemma add_roles_off :
+Local Lemma add_roles_off :
   forall `{PosPolicy} A rs (n : node A),
     pos_records = false -> add_roles rs n = n.
 Proof. intros. unfold add_roles. rewrite H0. reflexivity. Qed.
 
-Lemma add_roles_head_off :
+Local Lemma add_roles_head_off :
   forall `{PosPolicy} A rs (ns : list (node A)),
     pos_records = false -> add_roles_head rs ns = ns.
 Proof. intros. unfold add_roles_head. rewrite H0. reflexivity. Qed.
@@ -351,7 +351,7 @@ Proof. intros. unfold add_roles_head. rewrite H0. reflexivity. Qed.
 (* The range from the first node's start to the last node's stop: the
    range of a `Section` the document pass builds from a heading and the
    blocks under it. *)
-Definition hull_pos `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
+Local Definition hull_pos `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
   if pos_records then
     match ns with
     | [] => NoPos
@@ -383,34 +383,34 @@ Definition hull_pos_with `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
       end
   end.
 
-Lemma hull_pos_with_semantic :
+Local Lemma hull_pos_with_semantic :
   forall A (ns : list (node A)), @hull_pos_with semantic_pos A ns = NoPos.
 Proof. reflexivity. Qed.
 
-Lemma hull_pos_off :
+Local Lemma hull_pos_off :
   forall `{PosPolicy} A (ns : list (node A)),
     pos_records = false -> hull_pos ns = NoPos.
 Proof. intros. unfold hull_pos. rewrite H0. reflexivity. Qed.
 
 (* At the semantic instance the wrappers are the identity. *)
-Lemma hull_pos_semantic :
+Local Lemma hull_pos_semantic :
   forall A (ns : list (node A)), @hull_pos semantic_pos A ns = NoPos.
 Proof. reflexivity. Qed.
 
-Lemma add_roles_semantic :
+Local Lemma add_roles_semantic :
   forall A rs (n : node A), @add_roles semantic_pos A rs n = n.
 Proof. reflexivity. Qed.
 
-Lemma add_roles_head_semantic :
+Local Lemma add_roles_head_semantic :
   forall A rs (ns : list (node A)), @add_roles_head semantic_pos A rs ns = ns.
 Proof. reflexivity. Qed.
 
-Lemma pos_head_semantic :
+Local Lemma pos_head_semantic :
   forall A (p : provenance) (ns : list (node A)),
     @pos_head semantic_pos A p ns = ns.
 Proof. reflexivity. Qed.
 
-Lemma set_pos_semantic :
+Local Lemma set_pos_semantic :
   forall A (p : provenance) (n : node A), @set_pos semantic_pos A p n = n.
 Proof. reflexivity. Qed.
 
@@ -420,16 +420,16 @@ Ltac nopos :=
   rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
     ?add_roles_head_semantic, ?hull_pos_semantic, ?hull_pos_with_semantic.
 
-Lemma set_pos_located :
+Local Lemma set_pos_located :
   forall A (p : provenance) (q : pos) (a : attr) (x : A),
     @set_pos located_pos A p (Node q a x) = Node (SomePos p) a x.
 Proof. reflexivity. Qed.
 
-Lemma posnode_semantic :
+Local Lemma posnode_semantic :
   forall A (p : provenance) (x : A), @posnode semantic_pos A p x = mk x.
 Proof. reflexivity. Qed.
 
-Lemma posnode_located :
+Local Lemma posnode_located :
   forall A (p : provenance) (x : A),
     @posnode located_pos A p x = Node (SomePos p) [] x.
 Proof. reflexivity. Qed.
@@ -852,7 +852,7 @@ Proof.
   rewrite erase_inlines_cons, IH. reflexivity.
 Qed.
 
-Lemma erase_inlines_app : forall (xs ys : inlines),
+Local Lemma erase_inlines_app : forall (xs ys : inlines),
   erase_inlines (xs ++ ys)%list =
   (erase_inlines xs ++ erase_inlines ys)%list.
 Proof. intros xs ys. rewrite !erase_inlines_map. apply map_app. Qed.
@@ -942,7 +942,7 @@ Proof. intros p [q a b] rest; reflexivity. Qed.
 
 (* The term is a paragraph's inlines, so the split commutes with erasure
    on both halves. *)
-Lemma def_split_erase : forall bs,
+Local Lemma def_split_erase : forall bs,
   def_split (erase_blocks bs) =
   option_map (fun r => (erase_inlines (fst r), erase_blocks (snd r)))
     (def_split bs).
@@ -958,7 +958,7 @@ Proof.
   - destruct b. reflexivity.
 Qed.
 
-Lemma def_item_erase : forall bs,
+Local Lemma def_item_erase : forall bs,
   (fst (def_item (erase_blocks bs)), snd (def_item (erase_blocks bs))) =
   (erase_inlines (fst (def_item bs)), erase_blocks (snd (def_item bs))).
 Proof.
@@ -1038,7 +1038,7 @@ Definition normalize_label (s : string) : string :=
 Definition note_map : Type := list (string * blocks).
 Definition reference_map : Type := list (string * (string * attr)).
 
-Definition lookup_note (label : string) (m : note_map) : option blocks :=
+Local Definition lookup_note (label : string) (m : note_map) : option blocks :=
   alist_lookup (normalize_label label) m.
 
 Definition lookup_reference (label : string) (m : reference_map)
@@ -1055,4 +1055,4 @@ Record doc : Type := Doc
   ; doc_auto_references : reference_map
   ; doc_auto_identifiers : list string }.
 
-Definition empty_doc : doc := Doc [] [] [] [] [].
+Local Definition empty_doc : doc := Doc [] [] [] [] [].

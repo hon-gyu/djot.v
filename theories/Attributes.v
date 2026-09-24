@@ -34,10 +34,10 @@ Character classes
 *)
 
 Definition bslash : ascii := "092".
-Definition dquote : ascii := """".
+Local Definition dquote : ascii := """".
 
 (* `reKeyChar`: keys, bare values and class names. *)
-Definition is_key_char (c : ascii) : bool :=
+Local Definition is_key_char (c : ascii) : bool :=
   let n := Ascii.nat_of_ascii c in
   (Nat.leb 97 n && Nat.leb n 122)          (* a-z *)
   || (Nat.leb 65 n && Nat.leb n 90)        (* A-Z *)
@@ -61,7 +61,7 @@ Definition is_id_char (c : ascii) : bool :=
 
 (* Class names are narrower: `\w` plus `:` and `-`, which is exactly the
    key-character class. *)
-Definition is_attr_class_char (c : ascii) : bool := is_key_char c.
+Local Definition is_attr_class_char (c : ascii) : bool := is_key_char c.
 
 (*
 Value normalization
@@ -72,11 +72,11 @@ collapse to one space, then backslash escapes of punctuation resolve.
 Collapsing first makes a value spanning several indented lines come out
 as one line. *)
 
-Definition collapse_char (c : ascii) : bool :=
+Local Definition collapse_char (c : ascii) : bool :=
   Ascii.eqb c " " || Ascii.eqb c "013" || Ascii.eqb c "010".
 
 (* `skip` is "the previous character was part of a run already emitted". *)
-Fixpoint collapse_from (skip : bool) (s : string) : string :=
+Local Fixpoint collapse_from (skip : bool) (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c s' =>
@@ -85,16 +85,16 @@ Fixpoint collapse_from (skip : bool) (s : string) : string :=
       else String c (collapse_from false s')
   end.
 
-Definition collapse_ws (s : string) : string := collapse_from false s.
+Local Definition collapse_ws (s : string) : string := collapse_from false s.
 
 (* The punctuation a backslash may escape inside a value. *)
-Definition is_escapable (c : ascii) : bool :=
+Local Definition is_escapable (c : ascii) : bool :=
   List.existsb (Ascii.eqb c)
     ["."; ","; bslash; "/"; "#"; "!"; "$"; "%"; "^"; "&"; "*"; ";"; ":";
      "{"; "}"; "="; "-"; "_"; "`"; "~"; "+"; "["; "]"; "("; ")"; "'";
      dquote; "?"; "|"].
 
-Fixpoint unescape (s : string) : string :=
+Local Fixpoint unescape (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c s' =>
@@ -109,7 +109,7 @@ Fixpoint unescape (s : string) : string :=
       else String c (unescape s')
   end.
 
-Definition norm_value (s : string) : string := unescape (collapse_ws s).
+Local Definition norm_value (s : string) : string := unescape (collapse_ws s).
 
 (*
 The machine
@@ -145,7 +145,7 @@ Definition ap_token (p : aparser) : string := rev_string (ap_tok p).
 Definition ap_push (c : ascii) (p : aparser) : aparser :=
   AP (ap_st p) (String c (ap_tok p)) (ap_key p) (ap_attrs p).
 
-Definition ap_goto (s : astate) (p : aparser) : aparser :=
+Local Definition ap_goto (s : astate) (p : aparser) : aparser :=
   AP s (ap_tok p) (ap_key p) (ap_attrs p).
 
 (* Enter s with a fresh token. *)
@@ -160,13 +160,13 @@ Definition ap_commit_id (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p)
      (if String.eqb t EmptyString then ap_attrs p else attr_set "id" t (ap_attrs p)).
 
-Definition ap_commit_class (s : astate) (p : aparser) : aparser :=
+Local Definition ap_commit_class (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
   AP s EmptyString (ap_key p)
      (if String.eqb t EmptyString then ap_attrs p else attr_add_class t (ap_attrs p)).
 
 (* A value always commits, empty included, so `{a=""}` carries an `a`. *)
-Definition ap_commit_value (s : astate) (p : aparser) : aparser :=
+Local Definition ap_commit_value (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p)
      (attr_set (ap_key p) (norm_value (ap_token p)) (ap_attrs p)).
 

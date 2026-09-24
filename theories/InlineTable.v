@@ -51,7 +51,7 @@ Definition is_tick (c : ascii) : bool := Ascii.eqb c tick.
    verbatim span. *)
 Definition is_bslash (c : ascii) : bool := Ascii.eqb c bslash.
 
-Lemma is_tick_bslash : is_tick bslash = false.
+Local Lemma is_tick_bslash : is_tick bslash = false.
 Proof. reflexivity. Qed.
 
 Lemma is_bslash_bslash : is_bslash bslash = true.
@@ -241,7 +241,7 @@ Definition djot_config : dconfig :=
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
 
-Definition dstyles : list dstyle :=
+Local Definition dstyles : list dstyle :=
   [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DDelete;
    DSQuote; DDQuote].
 
@@ -253,13 +253,13 @@ Definition dstyle_eq (a b : dstyle) : bool :=
   | _, _ => false
   end.
 
-Lemma dstyle_eq_true : forall a b, dstyle_eq a b = true -> a = b.
+Local Lemma dstyle_eq_true : forall a b, dstyle_eq a b = true -> a = b.
 Proof. intros [] []; first [reflexivity | discriminate]. Qed.
 
 Definition denabled (C : dconfig) (k : dstyle) : bool :=
   match dc_syntax C k with DOff => false | _ => true end.
 
-Lemma dstyles_complete : forall k, In k dstyles.
+Local Lemma dstyles_complete : forall k, In k dstyles.
 Proof. intros []; cbn; tauto. Qed.
 
 (* Look a character up in the table rather than repeating it, which is
@@ -308,7 +308,7 @@ Definition drow_ok (C : dconfig) (k : dstyle) : bool :=
    && ddecay_ok (dc_decay C k)
    && negb (dsyntax_bare (dc_syntax C k) && Ascii.eqb (dc_char C k) hyphen))%bool.
 
-Definition dconfig_distinct (C : dconfig) : bool :=
+Local Definition dconfig_distinct (C : dconfig) : bool :=
   forallb
     (fun k => forallb
        (fun k' => implb (denabled C k && denabled C k'
@@ -317,7 +317,7 @@ Definition dconfig_distinct (C : dconfig) : bool :=
        dstyles)
     dstyles.
 
-Definition dconfig_rows_ok (C : dconfig) : bool :=
+Local Definition dconfig_rows_ok (C : dconfig) : bool :=
   forallb (drow_ok C) dstyles.
 
 Definition dconfig_ok (C : dconfig) : bool :=
@@ -334,7 +334,7 @@ Record dentry : Type := DEntry {
   de_decay : ddecay
 }.
 
-Definition dentry_of (C : dconfig) (k : dstyle) : dentry :=
+Local Definition dentry_of (C : dconfig) (k : dstyle) : dentry :=
   DEntry (dc_char C k) (dc_width C k) (dc_syntax C k) (dc_decay C k).
 
 Definition update_drow
@@ -411,7 +411,7 @@ Theorem with_wikilinks_preserves_admissible :
   forall enabled, preserves (with_wikilinks enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
-Definition drow_trigger_compatible
+Local Definition drow_trigger_compatible
   (C : dconfig) (target : dstyle) (e : dentry) : bool :=
   let C' := update_drow target e C in
   forallb
@@ -430,7 +430,7 @@ Definition drow_update_compatible
   (drow_ok (update_drow target e C) target
    && drow_trigger_compatible C target e)%bool.
 
-Lemma denabled_update_drow_other :
+Local Lemma denabled_update_drow_other :
   forall C target e k,
     dstyle_eq k target = false ->
     denabled (update_drow target e C) k = denabled C k.
@@ -439,7 +439,7 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma denabled_update_drow_target :
+Local Lemma denabled_update_drow_target :
   forall C target e,
     denabled (update_drow target e C) target =
     match de_syntax e with DOff => false | _ => true end.
@@ -448,7 +448,7 @@ Proof.
     destruct (de_syntax e); reflexivity.
 Qed.
 
-Lemma dchar_update_drow_other :
+Local Lemma dchar_update_drow_other :
   forall C target e k,
     dstyle_eq k target = false ->
     dc_char (update_drow target e C) k = dc_char C k.
@@ -457,24 +457,24 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma dchar_update_drow_target :
+Local Lemma dchar_update_drow_target :
   forall C target e,
     dc_char (update_drow target e C) target = de_char e.
 Proof. intros C [] e; reflexivity. Qed.
 
-Lemma no_trigger_collision :
+Local Lemma no_trigger_collision :
   forall a b same conclusion,
     implb (a && b) (negb same) = true ->
     implb (a && b && same) conclusion = true.
 Proof. intros [] [] [] []; reflexivity || discriminate. Qed.
 
-Lemma no_trigger_collision_sym :
+Local Lemma no_trigger_collision_sym :
   forall a b same conclusion,
     implb (a && b) (negb same) = true ->
     implb (b && a && same) conclusion = true.
 Proof. intros [] [] [] []; reflexivity || discriminate. Qed.
 
-Lemma dconfig_distinct_update_drow :
+Local Lemma dconfig_distinct_update_drow :
   forall C target e,
     dconfig_distinct C = true ->
     drow_trigger_compatible C target e = true ->
@@ -526,7 +526,7 @@ Proof.
       exact Hbase.
 Qed.
 
-Lemma drow_ok_update_drow_other :
+Local Lemma drow_ok_update_drow_other :
   forall C target e k,
     dstyle_eq k target = false ->
     drow_ok (update_drow target e C) k = drow_ok C k.
@@ -535,7 +535,7 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-Lemma drow_ok_update_drow_target :
+Local Lemma drow_ok_update_drow_target :
   forall C target e,
     drow_ok (update_drow target e C) target =
     (negb (Nat.eqb (de_width e) 0) && is_punct (de_char e)
@@ -614,7 +614,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* Disabling a row changes only its syntax field; the row stays valid
    while switched off. *)
-Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
+Local Definition disable_entry (C : dconfig) (target : dstyle) : dentry :=
   DEntry (dc_char C target) (dc_width C target) DOff (dc_decay C target).
 
 Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
@@ -623,7 +623,7 @@ Definition disable_row (target : dstyle) (C : dconfig) : dconfig :=
 (* Disabling can only make a row more admissible: it keeps every field
    but the syntax, and a switched-off row is not a bare one, so the
    hyphen condition is discharged rather than carried. *)
-Lemma drow_ok_disable_row :
+Local Lemma drow_ok_disable_row :
   forall C target k,
     drow_ok C k = true -> drow_ok (disable_row target C) k = true.
 Proof.
@@ -633,7 +633,7 @@ Proof.
     repeat (apply andb_true_iff; split); try assumption; reflexivity.
 Qed.
 
-Lemma disable_row_compatible :
+Local Lemma disable_row_compatible :
   forall C target,
     delimiter_admissible C ->
     drow_update_compatible C target (disable_entry C target) = true.
@@ -683,7 +683,7 @@ Qed.
 (* CommonMark has only emphasis and strong among these delimiter containers.
    This is intentionally called Markdown-like rather than CommonMark: the
    scanner still uses djot's simpler opening and closing rules. *)
-Definition markdown_like_disabled_rows : list dstyle :=
+Local Definition markdown_like_disabled_rows : list dstyle :=
   [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
 
 Definition markdown_like_config : dconfig :=
@@ -696,7 +696,7 @@ Definition markdown_like_config : dconfig :=
 Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Lemma dconfig_ok_distinct :
+Local Lemma dconfig_ok_distinct :
   forall C, dconfig_ok C = true -> dconfig_distinct C = true.
 Proof. intros C H. apply andb_true_iff in H as [H _]. exact H. Qed.
 
