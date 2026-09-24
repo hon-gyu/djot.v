@@ -115,6 +115,16 @@ Proof.
   exfalso. apply (Hne ltac:(lia)). reflexivity.
 Qed.
 
+(* Turning a checked range into the pointwise fact.  Generic: another
+   codec supplies its own `forallb` and reuses this. *)
+Local Lemma range_ok :
+  forall (f : nat -> bool) (hi n : nat),
+    forallb f (seq 1 hi) = true -> 1 <= n -> n <= hi -> f n = true.
+Proof.
+  intros f hi n H H1 H2.
+  apply (proj1 (forallb_forall f (seq 1 hi)) H). apply in_seq. lia.
+Qed.
+
 Local Definition roman_digit (c : ascii) : nat :=
   if (Ascii.eqb c "i" || Ascii.eqb c "I")%char%bool then 1
   else if (Ascii.eqb c "v" || Ascii.eqb c "V")%char%bool then 5
@@ -136,14 +146,6 @@ Local Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
   end.
 
 Definition roman_value (s : string) : nat := roman_acc (rev_string s) 0 0.
-
-(* An alpha numeral's value, from its first character: an alpha core is
-   one character. *)
-Definition alpha_value (up : bool) (core : string) : nat :=
-  match core with
-  | String c _ => nat_of_ascii c - (if up then 64 else 96)
-  | EmptyString => 1
-  end.
 
 (* The largest roman start the codec covers.
 
@@ -195,9 +197,6 @@ Local Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
    `nat`, which does not depend on the fuel. *)
 Definition roman_str (up : bool) (n : nat) : string := roman_fuel up 16 n.
 
-Definition alpha_str (up : bool) (n : nat) : string :=
-  String (ascii_of_nat ((if up then 64 else 96) + n)) EmptyString.
-
 (* What a codec has to deliver for the marker layer: a nonempty core, in
    the alphabet its style is recognized by, decoding back to the number
    it was made from.  One boolean, so that one computation settles all
@@ -207,14 +206,6 @@ Definition roman_ok (up : bool) (n : nat) : bool :=
   (nonempty_str s
    && str_forallb (if up then is_roman_up else is_roman_lo) s
    && Nat.eqb (roman_value s) n)%bool.
-
-Definition alpha_ok (up : bool) (n : nat) : bool :=
-  let s := alpha_str up n in
-  (nonempty_str s
-   && str_forallb (if up then is_upper else is_lower) s
-   && Nat.eqb (alpha_value up s) n)%bool.
-
-Definition alpha_upper : nat := 26.
 
 (* No two consecutive roman numerals are both a single character, so if a
    list's first numeral is ambiguous its second is not, and one narrowing
@@ -239,22 +230,6 @@ Proof. vm_compute. reflexivity. Qed.
 Example roman_ok_up : forallb (roman_ok true) (seq 1 roman_upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Example alpha_ok_lo : forallb (alpha_ok false) (seq 1 alpha_upper) = true.
-Proof. vm_compute. reflexivity. Qed.
-
-Example alpha_ok_up : forallb (alpha_ok true) (seq 1 alpha_upper) = true.
-Proof. vm_compute. reflexivity. Qed.
-
-(* Turning a checked range into the pointwise fact.  Generic: another
-   codec supplies its own `forallb` and reuses this. *)
-Local Lemma range_ok :
-  forall (f : nat -> bool) (hi n : nat),
-    forallb f (seq 1 hi) = true -> 1 <= n -> n <= hi -> f n = true.
-Proof.
-  intros f hi n H H1 H2.
-  apply (proj1 (forallb_forall f (seq 1 hi)) H). apply in_seq. lia.
-Qed.
-
 Local Lemma roman_ok_lt :
   forall up n, 1 <= n -> n <= roman_upper -> roman_ok up n = true.
 Proof.
@@ -273,14 +248,6 @@ Proof.
                      |exact (range_ok _ _ _ roman_consec_lo H1 H2)]).
   unfold roman_consec_ok in H. apply orb_true_iff in H as [H|H];
     [left|right]; apply Nat.leb_le, H.
-Qed.
-
-Local Lemma alpha_ok_lt :
-  forall up n, 1 <= n -> n <= alpha_upper -> alpha_ok up n = true.
-Proof.
-  intros [|] n H1 H2;
-    [ exact (range_ok _ _ _ alpha_ok_up H1 H2)
-    | exact (range_ok _ _ _ alpha_ok_lo H1 H2) ].
 Qed.
 
 (* The three fields, unpacked.  Stated at `roman_str` / `alpha_str` so
@@ -308,6 +275,39 @@ Proof.
   intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
   unfold roman_ok in H. apply andb_true_iff in H as [_ H].
   apply Nat.eqb_eq, H.
+Qed.
+
+(* An alpha numeral's value, from its first character: an alpha core is
+   one character. *)
+Definition alpha_value (up : bool) (core : string) : nat :=
+  match core with
+  | String c _ => nat_of_ascii c - (if up then 64 else 96)
+  | EmptyString => 1
+  end.
+
+Definition alpha_str (up : bool) (n : nat) : string :=
+  String (ascii_of_nat ((if up then 64 else 96) + n)) EmptyString.
+
+Definition alpha_ok (up : bool) (n : nat) : bool :=
+  let s := alpha_str up n in
+  (nonempty_str s
+   && str_forallb (if up then is_upper else is_lower) s
+   && Nat.eqb (alpha_value up s) n)%bool.
+
+Definition alpha_upper : nat := 26.
+
+Example alpha_ok_lo : forallb (alpha_ok false) (seq 1 alpha_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Example alpha_ok_up : forallb (alpha_ok true) (seq 1 alpha_upper) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Local Lemma alpha_ok_lt :
+  forall up n, 1 <= n -> n <= alpha_upper -> alpha_ok up n = true.
+Proof.
+  intros [|] n H1 H2;
+    [ exact (range_ok _ _ _ alpha_ok_up H1 H2)
+    | exact (range_ok _ _ _ alpha_ok_lo H1 H2) ].
 Qed.
 
 Lemma alpha_str_nonempty :
