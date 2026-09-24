@@ -36,8 +36,7 @@ val assign_heading_id :
 
 module Ids :
  sig
-  val of_assign_ids :
-    block -> pos -> attr -> id_state -> id_state * block node
+  val of_block : block -> pos -> attr -> id_state -> id_state * block node
 
   val of_node : block node -> id_state -> id_state * block node
 
@@ -66,14 +65,14 @@ val add_ref : pos -> attr -> block -> reference_map -> reference_map
 
 module Refs :
  sig
-  val of_collect_refs : block -> pos -> attr -> reference_map -> reference_map
+  val of_block : block -> pos -> attr -> reference_map -> reference_map
 
   val of_list : blocks -> reference_map -> reference_map
  end
 
 module Notes :
  sig
-  val of_collect_notes :
+  val of_block :
     block -> pos -> attr -> note_map -> note_map * block node option
 
   val of_list : blocks -> note_map -> note_map * blocks
