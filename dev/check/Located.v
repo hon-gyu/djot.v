@@ -4,14 +4,14 @@
 Block ranges, pinned against djot.js
 ====================================
 
-Every range below was read off `harness/oracles/djotjs-sourcepos.mjs
+Every range below was read off `harness/djotjs/djotjs-sourcepos.mjs
 --trim` and is recorded beside the `Example` that asserts it.  Two
 conventions make the comparison direct: the script prints 0-based
 half-open byte ranges, and `resolve` here turns the parser's
 end-anchored `spot`s into the same thing.
 
-What the oracle does not decide is the attribute-spec ranges: djot.js
-gives an attribute spec no position at all, so `RAttrSpec` is pinned
+djot.js does not decide the attribute-spec ranges: it gives an
+attribute spec no position at all, so `RAttrSpec` is pinned
 against the source text alone (plan F1, section 9).
 *)
 
@@ -201,7 +201,7 @@ x = 1
 " = [(0, 15)].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Each authored spec, in source order.  No oracle: djot.js records
+(* Each authored spec, in source order.  djot.js records
    none of these. *)
 Example y_attr_specs : roles "{#id}
 {.cls}
@@ -757,7 +757,7 @@ The combined document
 One document with every part this layer records: a loose list holding a
 nested list, a task list, a definition list, and a table with a
 separator and a caption.  Block ranges, items, definition parts and
-table parts all come out of one parse.  The oracle is
+table parts all come out of one parse.  The djot.js side is
 `djotjs-sourcepos.mjs --trim`:
 
   bullet_list [0,14), items [0,10) and [11,14), paras [2,3) and [13,14),
@@ -769,8 +769,8 @@ table parts all come out of one parse.  The oracle is
 
 Two table ranges are ours rather than djot.js's, and `p_table_parts`
 pins both on `table_sample` as well.  The caption's part span includes
-the authored `^`, [79,84) against the oracle's [81,84); its inline range
-is the oracle's exactly.  And the table node runs on through the caption
+the authored `^`, [79,84) against djot.js's [81,84); its inline range
+is djot.js's exactly.  And the table node runs on through the caption
 line to [48,84), where djot.js stops at the last row, [48,77): a node
 covers its whole construct (section 4.4).
 *)

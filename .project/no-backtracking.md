@@ -95,7 +95,7 @@ formalized parser claims djot.js-compatible recovery for all strings.
 `Inline.iscan_str_no_reread` certifies that the current outer scan spends
 one source-dispatch unit per byte. It does not establish that every
 possible conforming implementation has the current state's shape, and it
-does not make an oracle behaviour impossible merely because djot.js
+does not make a djot.js behaviour impossible merely because djot.js
 implements that behaviour with replay.
 
 ### Linear time
@@ -140,10 +140,10 @@ separate question from its compatibility verdict.
 
 ## Proof-design rule
 
-Before declaring an oracle difference necessary for no-backtracking,
+Before declaring a djot.js difference necessary for no-backtracking,
 separate these questions:
 
-1. Does the oracle implementation rewind or replay source?
+1. Does djot.js rewind or replay source?
 2. Does the observable result inherently require rewind, or can a
    compound state compute it while input advances?
 3. Which theorem states the intended property, and over which inputs?

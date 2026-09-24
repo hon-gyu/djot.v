@@ -16,14 +16,14 @@ section 3's three tables pinned as an `Example` beside it; `Ast.Keyed`
 is the node, with arms in `Wf.v`, `Html.v` and `Document.v`; and the
 parser produces one, through `Step.bkeyed`, `Step.open_text` and the
 `PKey` state. Sections 3, 4, 5, 6 and every worked example of section 7 are
-pinned as whole documents in `dev/check/Keyed.v` (`make keyed`); 7.5 is
+pinned as whole documents in `dev/check/Keyed.v`; 7.5 is
 stated against `keyed_sublist_bconfig`, since it needs the sublist
 setting as well as keys. `out_of_column_needs_the_setting` in that
 file is what the parser does with keys off, and
 `out_of_column_is_claimed` is the same document with them on. `Render.CKey` gives keys a canonical
 two-line spelling and the existing `roundtrip_blocks` theorem covers
-them. `make keyed` checks the worked documents and a separate extracted
-keyed pool; no external parser provides an oracle for that pool.
+them. The harness runs the extracted roundtrip over a separate keyed
+pool; no external parser covers that pool.
 This file stands on its own: it is the
 definition of the construct, not a staging area, and it stays here once
 the construct exists.
@@ -33,7 +33,7 @@ identifier in the development; everything that touches the code is
 gathered in section 8, and section 9 is what is still undecided.
 
 Prior art is oyster's `struct`, in `oyster/specification/oyster/`. It is
-a reference, not an oracle, and nothing below depends on having read it.
+prior art, not something to conform to, and nothing below depends on having read it.
 
 ## 0. The idea
 
@@ -372,7 +372,7 @@ it one. There an inline attribute with nothing in front of it to
 decorate is dropped, so `{#i}: bar` is a paragraph holding `: bar` alone
 and there is no label element for a split to take. We keep such a spec
 as literal text, on purpose and for a reason that predates keys
-(`oracle-disagreements.md`, 2026-08-15: dropping it would falsify
+(`djotjs-divergences.md`, 2026-08-15: dropping it would falsify
 `parse_inline_line_nonempty`). So `{#i}: bar` is a key whose label is
 the four literal characters `{#i}`, and `{#i}foo: bar` a key labelled
 `{#i}foo` rather than `foo`.
@@ -590,7 +590,7 @@ line is the one the container outside needed to see.
 Headings are not on that list, although section 4 says a heading ends on
 its own line. That row is conditional: in djot a plain text line
 continues a heading (`# h` then `more` is one heading, checked against
-the oracle), so a heading announces its end only in a profile with
+djot.js), so a heading announces its end only in a profile with
 heading continuation switched off. Rather than make the override depend
 on a second setting, headings are excluded outright; a key over a
 heading has to indent it like any other block.
@@ -693,8 +693,8 @@ foo:
 {#i}
 ```
 
-A lone attribute line contributes no block at all (checked against the
-oracle: `{#i}` on its own renders nothing). So the key ends with no
+A lone attribute line contributes no block at all (checked against
+djot.js: `{#i}` on its own renders nothing). So the key ends with no
 block and retracts, giving `Para "foo:"` and nothing else. The `{#i}`
 line vanishes exactly as it does today. Retraction reproduces the key
 line, never the lines that followed it.
@@ -973,7 +973,7 @@ no existing theorem statement gains a hypothesis. Destination traversal
 visits both the label and the child, and explicit-id collection visits
 the child. List and table endings remain visible through the wrapper.
 
-**The oracle stops covering this.** djot.js has no keyed construct, so
+**djot.js stops covering this.** djot.js has no keyed construct, so
 every keyed document is a divergence by construction and the
 differential harness cannot adjudicate one. What is left is the
 extracted roundtrip sweep and the generated corpus against our own
@@ -1145,5 +1145,5 @@ that is probably too strong. The class is what keeps a keyed node and a
 one-term definition list from rendering identically.
 
 `render_keyed_description_list` in `Html.v` pins the choice. It is an
-output contract rather than an oracle finding: changing it later would be
+output contract rather than a djot.js finding: changing it later would be
 a deliberate presentation change, not a parser correction.

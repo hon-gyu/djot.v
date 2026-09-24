@@ -3,7 +3,7 @@
 (* HTML rendering, targeting byte-identical agreement with djot.js's
    renderer, the authority.  djoths's serialization diverges on attribute
    order, section wrapping and task items, and we follow djot.js on all
-   three (`.project/oracle-disagreements.md`).
+   three (`.project/djotjs-divergences.md`).
 
    The renderer builds an output tree (`helt`) and `serialize` writes it
    out.  So a tag is opened and closed by one constructor rather than by
@@ -449,7 +449,7 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   (* Collected by the later document pass; while it remains in the block
      tree it is metadata rather than visible document content. *)
   | FootnoteDef _ _ => []
-  (* No oracle has this construct, so there is no image to match.  A
+  (* djot.js does not have this construct, so there is no image to match.  A
      one-term description list says "this names that" while keeping the
      label as inline content, which a label carried in an attribute could
      not.  The class keeps the construct distinct from an ordinary

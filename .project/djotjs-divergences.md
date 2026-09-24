@@ -1,16 +1,21 @@
 ---
 ai-disclosure: autonomous
 ---
-# Oracle disagreements
+# djot.js divergences
 
-Append-only adjudication log: cases where djoths's output differs from
-djot.js's expected corpus output (djot.js passes its own corpus 287/287, so
-"expected" and "djot.js" coincide on this corpus).
+Append-only adjudication log: where our parser's output differs from
+djot.js's, and what we did about each case. djot.js is the implementation
+we conform to; an entry says whether the difference is ours to fix, ours
+by choice (and why), or djot.js's.
 
-Baseline established 2026-08-02 with `make baseline`
+Entries up to 2026-09-24 also adjudicate djoths against djot.js; djoths was
+dropped from the harness then. The baseline below was made with a recipe
+that no longer exists (`make baseline`: djot.js and djoths against the
+expected corpus output).
+
+Baseline established 2026-08-02
 (djot.js @ v0.3.2 submodule, djoths @ 0.1.4.1 submodule; 287 cases run,
 6 skipped for `p`/`a` options, filter cases dropped).
-Full diffs: `baseline-report.txt` (regenerate with `make baseline`).
 
 Context for adjudication (djot README): current development is focused on
 djot.js; djot.lua and probably djoths are not kept up to date with the
@@ -680,7 +685,7 @@ kinds at 1.
 | ours | `<ol start="0">` |
 
 The two oracles disagree, so by the rule in
-[[project-engineering-lessons#Ask the oracle]] this is a log entry rather
+[[project-engineering-lessons#Ask djot.js]] this is a log entry rather
 than a judgement call. `<ol>` with no attribute means start 1, so djot.js
 is reading `0.` as 1 or suppressing the attribute below 1; djoths takes
 the numeral at face value and so do we.
@@ -904,7 +909,7 @@ in the wrong place deletes itself and everything it ate.
 representable.** There is no AST for "a block that renders as nothing",
 and inventing one would put a node in `wf_block` that no rendering can
 produce -- the clause from
-[[project-engineering-lessons#When the oracle's answer is
+[[project-engineering-lessons#When djot.js's answer is
 unrepresentable]]. Dropping the lines silently is worse than diverging:
 a document that renders empty is the one failure mode a reader cannot
 diagnose.

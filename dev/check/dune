@@ -1,8 +1,8 @@
 ; Focused checks, built with the rest so a signature change cannot rot
 ; them silently.  Two exclusions, for different reasons: `Deep.v` is the
 ; one file here a parser edit should not pay for (~176s), and `Probe.v`
-; is a falsification scratchpad whose `Compute`s print.  `make deep` and
-; `make probe` run them.
+; is a falsification scratchpad whose `Compute`s print.  The Makefile
+; runs both.
 (rocq.theory
  (name DjotVDev.check)
  (synopsis "Focused checks for DjotV")

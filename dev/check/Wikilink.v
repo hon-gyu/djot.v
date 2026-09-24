@@ -6,8 +6,8 @@ Wikilinks, pinned
 
 Every row of `.project/wikilinks.md` sections 3, 7 and 9.4, as the
 parser reads it with the setting on.  The spec is the reference: no djot
-implementation has the construct, so nothing here is checked against an
-oracle.  The last section pins what the setting changes for the rest of
+implementation has the construct, so nothing here is checked against
+djot.js.  The last section pins what the setting changes for the rest of
 the language, which is where it is not conservative.
 *)
 

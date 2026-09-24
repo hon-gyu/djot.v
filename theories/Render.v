@@ -727,7 +727,7 @@ Local Definition row_reparses (r : trow) (l : string) : bool :=
   match classify l with KRow r' => trow_eqb r' r | _ => false end.
 
 (* A definition item may not begin with a reference definition.
-   `Ast.def_split` steps over one to find the term (both oracles do, and
+   `Ast.def_split` steps over one to find the term (djot.js does, and
    the term is inlines with nowhere to record what stood before it), so
    `: [r]: u` / blank / `t` and `: t` / blank / `[r]: u` have the same
    AST.  The renderer produces the second, and this is `cb_ok` saying so.
@@ -868,7 +868,7 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
   | CQuote inner => inner_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
-     contentless div in both oracles), so this is the one container
+     contentless div in djot.js), so this is the one container
      without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
      side condition of Parser.div_uniformity, specialised to the lines
      this rendering produces. *)

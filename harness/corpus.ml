@@ -1,4 +1,4 @@
-(* Parser for the djot.js/djoths ".test" corpus format.
+(* Parser for the djot.js ".test" corpus format.
 
    A case is:
      <pretext lines>

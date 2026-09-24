@@ -26,7 +26,7 @@ Definition generated_docs (d : nat) : list string := map render_cb (accepted d).
    already contains a list inside a list item.
 
    Ordered lists ride along rather than joining `enum_cblock`, for the
-   reason `Generate.ordered_pool` gives.  Against the oracles they matter
+   reason `Generate.ordered_pool` gives.  Against djot.js they matter
    most, since the marker text is what our renderer invents. *)
 Definition generated : list string :=
   Eval vm_compute in (generated_docs 2 ++ map render_cb ordered_accepted

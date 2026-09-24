@@ -1,5 +1,5 @@
-// djot.js oracle: djot on stdin, HTML on stdout.
-// Requires the submodule to be built (make oracles).
+// djot.js: djot on stdin, HTML on stdout.
+// Requires the submodule to be built (make build-djotjs).
 //
 // Two modes:
 //   (default)  one document on stdin, its HTML on stdout.
@@ -35,7 +35,7 @@ const warn = () => {};
 // Neither changes a default that is already the row's own, so the pair is
 // idempotent, and running it before each document is what makes a batch mean
 // what it says.  Upstream's own behaviour within one document is left alone;
-// see `.project/oracle-disagreements.md`.
+// see `.project/djotjs-divergences.md`.
 const resetQuoteDefaults = () => {
   parse('{"', { warn });
   parse("'}", { warn });

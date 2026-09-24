@@ -2,7 +2,7 @@
 
 (* The depth-3 half of `dev/Generate.v`, in the Rocq kernel.
 
-   `make roundtrip` runs the same sweep (`Generate.rt_lhs` and `rt_rhs`)
+   The harness's `--roundtrip` runs the same sweep (`Generate.rt_lhs` and `rt_rhs`)
    in the extracted parser in seconds and pins the counts too.  This file
    does the work in the kernel, in about twenty minutes, for when the
    certification is wanted rather than the answer: before a release, or

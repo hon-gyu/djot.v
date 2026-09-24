@@ -2024,7 +2024,7 @@ Example div_roundtrip :
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 
 (* An empty div is renderable: `cb_ok` has no nonempty obligation for
-   `CDiv`, because both oracles accept `:::` / `:::`. *)
+   `CDiv`, because djot.js accepts `:::` / `:::`. *)
 Example empty_div_roundtrip :
   let cbs := [CDiv []] in
   render_djot (blocks_of_cblocks cbs) = (":::" ++ nl ++ ":::")%string
@@ -2187,7 +2187,7 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
    it, correctly, since the parser cannot produce it.
 
    The second half is the coverage this costs (the residue named in
-   `.project/oracle-disagreements.md`): `item_ok` asks the gap of every
+   `.project/djotjs-divergences.md`): `item_ok` asks the gap of every
    item, including the last, where nothing follows to spend it.  So the
    two below are rejected although their renderings do round-trip.
    Lifting it means carrying the gap through `list_loose_of` as a fold

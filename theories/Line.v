@@ -1236,7 +1236,7 @@ Proof. reflexivity. Qed.
 
 (* The leading space belongs to the previous cell's match, and the first
    cell has none: `| :- |` is a row of text, `|:-| -: |` a separator.
-   djoths reads both as separators (`.project/oracle-disagreements.md`). *)
+   djoths reads both as separators (`.project/djotjs-divergences.md`). *)
 Example row_sep_leading_space : table_row "| --- |" = Some (TCells ["---"]).
 Proof. reflexivity. Qed.
 
@@ -1305,7 +1305,7 @@ Local Open Scope char_scope.
    Not a `line_kind`: only a table's continuation consults it, so a
    caption with no table before it is a paragraph, as djoths reads it.
    djot.js opens a caption wherever a block may start and renders an
-   orphan one as nothing (`.project/oracle-disagreements.md`). *)
+   orphan one as nothing (`.project/djotjs-divergences.md`). *)
 Definition caption_open (l : string) : option string :=
   match drop_leading_ws l with
   | String c rest =>

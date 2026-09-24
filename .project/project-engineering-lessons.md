@@ -37,7 +37,7 @@ is the confirmation that the fix was real
 
 `dev/check/Probe.v` does the part that was awkward, which was never the
 computing but having to guess the input: it runs a candidate over a
-curated pool of reachable states and line shapes (`make probe`, ~0.5s).
+curated pool of reachable states and line shapes (`make probe-lemmas`, ~0.5s).
 Two rules for reading it. `None` is not a proof, only "no counterexample
 in the pool". And for a conditional candidate use `guarded` and read
 `t_pass` first — a probe whose guard discarded every input reports a
@@ -105,25 +105,25 @@ through, while the side condition the other theorem then needs
 theorem with the fewest users — [[#Prefer the stronger precondition when
 the weaker one is viral]] one level down.
 
-## Ask the oracle; do not reason about what djot "should" do
+## Ask djot.js; do not reason about what djot "should" do
 
 **What happened.** `feed_lazy` kept a lazy continuation line's leading
 whitespace while every other continuation path stripped it. Both
 behaviours are defensible from the prose spec. One `node` invocation
-against `djot.js` settled it in under a minute: the oracle strips.
+against `djot.js` settled it in under a minute: djot.js strips.
 
-**General form.** Two executable specifications sit in the repo.
+**General form.** An executable specification sits in the repo.
 Behaviour questions are empirical, not a matter of taste or of reading
 the prose reference — which is, on record, behind the implementation (the
 tilde-fence and table-trimming SPEC-GAPs).
 
-**What to do instead.** The oracle runs before the argument. Oracles
-disagreeing is an `oracle-disagreements.md` entry, not a judgement call;
-oracles agreeing against us means we are wrong. The interesting cases are
+**What to do instead.** djot.js runs before the argument. djot.js
+disagreeing with us is a `djotjs-divergences.md` entry, not a judgement
+call, and by default it means we are wrong. The interesting cases are
 the two below, where knowing what djot does still does not settle what we
 do.
 
-### First check the oracle is a function
+### First check djot.js is a function
 
 **What happened.** A sweep over the attribute alphabet reported 4610
 mismatches. 4069 of them were an artefact: djot.js's `betweenMatched`
@@ -135,17 +135,17 @@ avoid node startup, so the harness ran a whole sweep in one process and
 the answer depended on enumeration order. Twenty minutes went into
 diagnosing a divergence that did not exist, and the real families were
 underneath it: 541 after a per-document reset, 341 after the leak was
-patched out of a scratch copy of the oracle.
+patched out of a scratch copy of djot.js.
 
-**General form.** [[#Ask the oracle; do not reason about what djot
-"should" do]] assumes the oracle answers the same question the same way
-twice. A differential count is a claim about a function, and an oracle
+**General form.** [[#Ask djot.js; do not reason about what djot
+"should" do]] assumes djot.js answers the same question the same way
+twice. A differential count is a claim about a function, and a program
 with process-global state is not one. The failure is silent and looks
 exactly like a real family -- consistent, reproducible, and clustered on
 a plausible construct.
 
 **What to do instead.** Before diagnosing anything a sweep reports, run
-the first few mismatches through the oracle one document per process and
+the first few mismatches through djot.js one document per process and
 check the answers agree with the batch. It costs seconds. When they
 differ, the harness is what to fix: batch mode promises nothing except
 that it equals N processes, so make it equal them, and log the
@@ -153,7 +153,7 @@ underlying behaviour separately rather than deciding on the spot whether
 to match it. The check is cheap enough to be reflexive and the reward is
 not paying for a diagnosis of nothing.
 
-### When the oracle's answer is unrepresentable
+### When djot.js's answer is unrepresentable
 
 **What happened.** A block-attribute spec that spans a blank line and
 then fails to parse becomes a paragraph of the lines it ate, and djot.js
@@ -164,18 +164,18 @@ paragraph not for tidiness but because such a paragraph does not
 round-trip, so matching would have made `roundtrip_blocks` false for a
 document our own parser can produce.
 
-**General form.** The oracle settles what djot *does*. It does not settle
+**General form.** djot.js settles what djot *does*. It does not settle
 what *we* do when what it does is unrepresentable in the canonical AST,
 because `wf_block` is not a convention — it is the set of ASTs the
 roundtrip theorem quantifies over. Fidelity and a proved theorem can
 conflict, and when they do the conflict is not a matter of taste either.
 
 **What to do instead.** Do not relax `wf_block` and do not match the
-oracle by reflex. Ask the one question that decides it: *would matching
+djot.js by reflex. Ask the one question that decides it: *would matching
 falsify `parse (render d) = d` for a `d` the parser can reach?* If yes,
 diverge, confine the divergence as narrowly as possible, and log it in
-`oracle-disagreements.md` under "ours" with the roundtrip argument spelled
-out. If no, the oracle wins and `wf_block` is what has to give. Here the
+`djotjs-divergences.md` under "ours" with the roundtrip argument spelled
+out. If no, djot.js wins and `wf_block` is what has to give. Here the
 answer was yes, and `push_text` confined the divergence to specs that
 both span a blank line and fail.
 
@@ -198,23 +198,23 @@ and proof cost explain why a gap remains; they do not turn it into chosen
 language semantics.
 
 **General form.** There are two independent questions. Canonical
-reachability says whether a disagreement threatens roundtrip. Oracle
+reachability says whether a disagreement threatens roundtrip. djot.js
 fidelity says whether the parser matches the designated implementation
 on the source in front of it. A negative answer to the first bounds the
 impact of a gap but says nothing favorable about the second. Likewise, a
-theorem blocks the oracle only when the theorem states a property the
+theorem blocks djot.js only when the theorem states a property the
 project intends on that input domain; a stronger helper lemma is allowed
 to acquire the side condition its real callers can discharge.
 
 **What to do instead.** Characterize the divergent input set. First ask
-whether the oracle implementation replays source; then separately ask
+whether djot.js replays source; then separately ask
 whether the observable result inherently requires replay, including
 whether a product state can compute it in one pass. Only the
 second can justify an intentional no-backtracking boundary. Otherwise
 keep the item open as conformance work even when it is noncanonical or
 expensive. Name the affected lemmas and the side conditions a repair
 would require; do not use proof convenience, implementation effort, or
-the oracle's implementation strategy as an adjudication verdict. See
+djot.js's implementation strategy as an adjudication verdict. See
 [[no-backtracking]].
 
 ## The corpus is djot.js's regression suite, not a map of the grammar
@@ -228,11 +228,11 @@ the first; only generated inputs fix the second.
 **General form.** The corpus covers what djot.js's authors got wrong or
 thought worth pinning. Nothing forces it to contain the product of
 "nesting position" x "has continuation", and no amount of instrumenting
-the oracles supplies an input that is not there.
+djot.js supplies an input that is not there.
 
 **What to do instead.** Ask whether an input exercising the property
 exists before asking whether the comparison would show it. `cblock` +
-`cb_lines` generates canonical documents and `make generated` runs them
+`cb_lines` generates canonical documents and the harness diffs them
 against djot.js — and a property the generator cannot reach is a gap in
 `cb_ok`, which is usually the more interesting finding.
 
@@ -247,7 +247,7 @@ existing. Both corpora were clean before the fix and clean after it, and
 the exact-HTML number did not move. What found it was reading djot.js's
 `]` handler while investigating a *different* gap (the unterminated
 destination); what measured it was 200k documents in a bracket-shaped
-alphabet run through both parsers and the oracle, 826 mismatches to 447.
+alphabet run through the old and new parser and djot.js, 826 mismatches to 447.
 
 **General form.** The clause above says the corpus is not the grammar
 and points at the generator. But the generator emits *canonical* source,
@@ -263,7 +263,7 @@ shape in either corpus. `harness/main.exe --convert --batch` takes the
 same length-delimited framing `djotjs.mjs --batch` does, so a sweep is
 two subprocesses and 200k short documents cost about a minute. Run it
 against the parent commit too: "did this regress anything" then gets a
-partition -- moved onto the oracle, moved off it, changed and still
+partition -- moved onto djot.js, moved off it, changed and still
 wrong -- instead of a total, and the second class is the one to explain.
 
 ## Predict the falsifier at the right granularity, or the prediction teaches nothing
@@ -412,7 +412,7 @@ statement is its own lemma and an existing `_list` lemma next door is
 the tell.
 
 **And check the users exist at all.** The div-closer rule was priced, in
-`oracle-disagreements.md`, as "three `ListUniformity` statements have to
+`djotjs-divergences.md`, as "three `ListUniformity` statements have to
 carry the incoming flag". Two of the three had no users anywhere and were
 deleted in a line each; the third needed a replacement, not a
 generalization, and the `ls_blanks ls = false` preconditions the note
@@ -436,7 +436,7 @@ place it gets checked.
 independent rules. A blank must not arm a list when something the item
 still has open absorbs it (63 generated mismatches), and a div's closing
 line must arm it because djot.js computes `isBlank` after the closers eat
-the line (27, then unmeasured). Both were confirmed against the oracle in
+the line (27, then unmeasured). Both were confirmed against djot.js in
 the same hour and implemented together. The second then hit
 `scan_list_content_blanks_last` and `roundtrip_blocks`, and reverting it
 to land the first alone took the corpus from 3022/3085 to 3067/3094,
@@ -454,7 +454,7 @@ lemma is one line, and the whole change is a rename.
 **General form.** Two corrections found together are not one step: their
 measured benefit and their proof cost are independent, and landing them
 as a unit prices the pair at the maximum of the two. And a rule
-discovered by reading the oracle's *control flow* ("the handler runs
+discovered by reading djot.js's *control flow* ("the handler runs
 after the continues") arrives phrased as a claim about an intermediate
 state, which can be far more expensive to formalize than an
 extensionally equal phrasing. `step` is deterministic, so a predicate on
@@ -692,7 +692,7 @@ and made the `step_empty_carriable` problem disappear rather than need
 solving -- the pending set now attaches to the empty paragraph, which is
 what djot.js does.
 
-**General form.** [[#When the oracle's answer is unrepresentable]] says
+**General form.** [[#When djot.js's answer is unrepresentable]] says
 to ask whether matching would falsify `parse (render d) = d` for a
 reachable `d`. Answering it requires knowing which predicate the theorem
 actually quantifies over, and a predicate that *sounds* like the

@@ -1205,8 +1205,8 @@ End WithTable.
 
 (* The div boundary, pinned at djot's table.  The side condition cannot
    be "no top-level content line closes the div": here the closing line
-   is a list-item continuation, and the div takes it anyway.  Both
-   oracles agree with the left-hand side. *)
+   is a list-item continuation, and the div takes it anyway.  djot.js
+   agrees with the left-hand side. *)
 Example div_indented_close_differs :
   let content := ["- a"; "  :::"; "  b"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])

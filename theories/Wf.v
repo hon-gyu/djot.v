@@ -138,7 +138,7 @@ Local Fixpoint wf_block (b : block) : bool :=
   (* A block quote may be empty: a bare ">" line is a valid, contentless
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
      empty for the same reason and on the same evidence: `:::` then `:::`
-     renders as `<div>\n</div>` in both oracles. *)
+     renders as `<div>\n</div>` in djot.js. *)
   | BlockQuote bs | Div bs => wf_bs bs
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true

@@ -14,9 +14,9 @@ gathered in section 8.
 
 Prior art is Obsidian's callouts, and GitHub's alerts, which are the
 same syntax with a fixed set of five kinds and no title. Both are
-references, not oracles: no djot implementation has the construct, so
+prior art, not something to conform to: no djot implementation has the construct, so
 the discipline in [[extension-decisions]] applies rather than
-[[project-engineering-lessons#Ask the oracle]].
+[[project-engineering-lessons#Ask djot.js]].
 
 ## 0. The idea
 
@@ -367,10 +367,10 @@ header to the last body line, the extent `PQuote` already records. The
 title's inlines are located at their own columns because the title is a
 stored line. The erasure refinement takes one case.
 
-**The oracle stops covering this**, as it does for keys and wikilinks.
+**djot.js stops covering this**, as it does for keys and wikilinks.
 The baseline rows of section 1 are what djot.js still checks: with the
 setting off, every one must be unchanged. What remains is a generator
-pool and a harness mode, as `make wiki` is for wikilinks, and a
+pool and a harness roundtrip mode, as wikilinks have, and a
 `dev/check/Callout.v` pinning sections 3 and 7.
 
 ## 9. Open questions

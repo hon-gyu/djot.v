@@ -10,14 +10,12 @@ is regenerated with
 dune exec harness/main.exe -- --verbose --report exact.txt
 ```
 
-which prints input, expected and ours for every case either oracle
-disagrees on. Ours are the ones with a `gallina:` line.
+which prints input, expected and ours for every case we get wrong.
 
 ## What the corpus numbers are measuring
 
-`make shape` compares block structure with inline content dropped, and
-is **287/287**. `make test` compares exact HTML and is **287/287** as
-well, as of 2026-09-09: the corpus has no mismatch left. The generated
+On the test suite, block structure with inline content dropped is
+**287/287**, and exact HTML is **287/287** as well, as of 2026-09-09: the corpus has no mismatch left. The generated
 corpus is exact and roundtrip is clean.
 
 That is a smaller claim than it sounds, and the rest of this file is why.
@@ -48,9 +46,9 @@ Four, none of them in the corpus:
 | | where |
 | --- | --- |
 | a spec attaching to a decayed quote (`'{.a}`) | below |
-| `{a=}=`, a `key=` slice hiding a marked opener | [[oracle-disagreements]] |
+| `{a=}=`, a `key=` slice hiding a marked opener | [[djotjs-divergences]] |
 | a `]` inside a link destination re-entering the bracket | below |
-| a container prefix inside a recovered paragraph | [[oracle-disagreements]] |
+| a container prefix inside a recovered paragraph | [[djotjs-divergences]] |
 
 ## Closed 2026-09-09 — a block-attribute candidate's lines, re-parsed
 
@@ -148,8 +146,8 @@ Not diagnosed, and **not the blank-line case this file already decided
 against matching**. That one is a spec that *spans* a blank which djot.js
 records as a slice, so the recovered paragraph contains a blank line,
 which `wf_block` excludes because it does not round-trip. Here the
-oracle's paragraph holds no blank at all. The shapes look alike and the
-verdict does not carry across; see [[oracle-disagreements]] under the
+djot.js's paragraph holds no blank at all. The shapes look alike and the
+verdict does not carry across; see [[djotjs-divergences]] under the
 same date.
 
 ### Closed 2026-09-09 — an unclosed inline spec
@@ -192,7 +190,7 @@ that disposition -- which is why `{a--` is two hyphens and `x{% <a> y` a
 literal `<a>`, while an open delimiter or verbatim mode, being parser
 state rather than slice state, still crosses. The mechanism, the sweeps
 that measured it and the families left over are in
-[[oracle-disagreements]] under the same date.
+[[djotjs-divergences]] under the same date.
 
 The corpus moved **285/287 -> 286/287** and the 6,167-document generated
 corpus stayed exact against djot.js. See [[no-backtracking]] for the
@@ -217,7 +215,7 @@ shadow landed, and is **0** here: `{#a"`, `{a="x` and `{% "x` all agree
 now. Re-measured 2026-09-09 at `f159676`, exhaustive at length 5 over
 `{}#."='a` (37,448 documents), the sweep leaves **9**, and none of them
 is this family. Eight are the decayed-quote attachment below and one is
-the marked-delimiter case in [[oracle-disagreements]] under *2026-09-09
+the marked-delimiter case in [[djotjs-divergences]] under *2026-09-09
 -- ours: a `key=` slice hides a marked opener*.
 
 The implementation trace is under *2026-08-22 -- ours: an unclosed
@@ -270,7 +268,7 @@ is listed here as an open question rather than a boundary.
 
 ## Diagnosis is not closure
 
-`oracle-disagreements.md` is append-only, one entry per divergence, and
+`djotjs-divergences.md` is append-only, one entry per divergence, and
 every entry ends in a verdict naming an authority:
 
 | verdict | meaning |
@@ -301,7 +299,7 @@ There can be two statuses after diagnosis:
 2. **Open conformance gap.** Matching is compatible with the chosen
    properties, but needs implementation work or narrower helper lemmas.
    The remaining block-level case in this note is currently in this
-   class. `attributes:370` demonstrated the other outcome: the oracle's
+   class. `attributes:370` demonstrated the other outcome: djot.js's
    implementation replays source, but a product state computes the same
    output without replay.
 
@@ -324,20 +322,20 @@ quote families named at the top. The five that remain are open on the
 same terms: found by sweeping, invisible to both corpora, and each one
 measured against an alphabet rather than a test file.
 
-**And the number the sweeps report is only as good as the oracle.**
+**And the number the sweeps report is only as good as djot.js.**
 Until 2026-09-09 `djotjs.mjs --batch` disagreed with the same documents
 run one per process, because djot.js's smart-quote defaults live in a
 closure the scanner assigns to. A sweep's answer then depended on
 enumeration order. That is fixed and checked; the point to carry is that
-a differential number needs the oracle to be a function before it means
-anything. See [[oracle-disagreements]], *the smart-quote default is
+a differential number needs djot.js to be a function before it means
+anything. See [[djotjs-divergences]], *the smart-quote default is
 process-global*.
 
 The fix resets the defaults *between* documents, which is all batch mode
 ever promised. Within one document the leak is upstream's and is left
 alone, so a sweep whose alphabet contains `{`, `}` and a quote still has
 to subtract it: the 37,448-document sweep above reports 613 against the
-shipped oracle and 9 against a copy with the assignment made local, and
+shipped djot.js and 9 against a copy with the assignment made local, and
 the 604 in between are that quirk rather than ours. Patching it is three
 lines in `djot.js/lib/inline.js` -- give the scanner `let defaultmatch =
 defaultmatch0;` of its own -- and any sweep that mixes braces with quotes

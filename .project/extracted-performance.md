@@ -69,9 +69,8 @@ How the equality was checked (2026-09-13):
   from `git show 223cbf0:dist/src/Strings.ml`: every string over
   `{a, b, space, \n, \t, \r}` up to length 6, plus 20000 random strings at
   each length 7 to 12. 419593 strings, no difference.
-- `make test`: corpus 287/287 and generated 6167/6167 exact HTML, as
-  before.
-- `make roundtrip`: 43857 documents, no mismatch.
+- test suite 287/287 and generated 6167/6167 exact HTML, as before.
+- depth-3 roundtrip: 43857 documents, no mismatch.
 
 How the additions were checked (2026-09-16):
 
@@ -81,9 +80,9 @@ How the additions were checked (2026-09-16):
   176243 strings, no difference;
 - extracted `List.rev` against the previous extraction on every list over
   `{0, 1, 2}` up to length 10; 88573 lists, no difference;
-- `make test`: corpus 287/287 and generated 6167/6167 exact HTML;
-- `make roundtrip`: 43857 documents, no mismatch;
-- `make check-dist`: the committed extracted package is current.
+- test suite 287/287 and generated 6167/6167 exact HTML;
+- depth-3 roundtrip: 43857 documents, no mismatch;
+- the committed extracted package matched the extraction.
 
 Any further `Extract Constant` joins this list and gets the same check.
 
@@ -149,9 +148,9 @@ Inputs are `djot.js/bench/readme.dj` and the same file joined 64 times
 with newlines, as in the first table.  Both sides are best of 20, in
 process: ours through `dune exec harness/main.exe -- --time 20`, the
 incumbent through a node driver over the same `djot.js/lib/index.js`
-the oracle scripts import.  Node startup is about 0.4 s, so a shell
+`harness/djotjs/` scripts import.  Node startup is about 0.4 s, so a shell
 timing would measure that and not the parse; `--parse-only` on the two
-oracle scripts is the same call with the render or the tree walk
+djot.js scripts is the same call with the render or the tree walk
 removed, and is what the driver's loop stands in for at 20 repeats.
 
 | input | bytes | ours `parse_blocks` | ours `parse_blocks_located` | djot.js `parse` | djot.js `parse` + sourcePositions |

@@ -1921,7 +1921,7 @@ Definition istep `{PosPolicy} `{InlineCursor}
 
 (* End of the paragraph.  An unclosed verbatim closes here.  A pending
    backslash is a hard break; djoths keeps it as a literal backslash
-   (`.project/oracle-disagreements.md`).  A canonical rendering cannot
+   (`.project/djotjs-divergences.md`).  A canonical rendering cannot
    produce one, since `escape_str` emits a backslash only before
    punctuation. *)
 Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}

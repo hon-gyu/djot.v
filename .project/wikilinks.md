@@ -7,8 +7,8 @@ Status: **implemented** (2026-09-22). Sections 0, 3, 4, 5, 6 and 9.2
 were revised that day so that the construct carries syntax only, 9.4 was
 added, and section 8 was restated against the tree before any code was
 written and checked against it afterwards (8.1). `dev/check/Wikilink.v`
-pins every row of sections 3 and 7 and the source ranges; `make wiki`
-runs the extracted roundtrip over the wikilink pool.
+pins every row of sections 3 and 7 and the source ranges, and the
+harness runs the extracted roundtrip over the wikilink pool.
 Section 8 is the estimate, and section 9 is what is still undecided;
 both are written to be checked against reality once the construct is
 built, in the way [[keyed-blocks]] section 9 was.
@@ -17,10 +17,10 @@ Prose first. Sections 0 to 7 define the syntax without naming a single
 identifier in the development; everything that touches the code is
 gathered in section 8.
 
-Prior art is Obsidian, and it is a reference rather than an oracle: no
+Prior art is Obsidian, and it is prior art, not something to conform to: no
 djot implementation has this construct, so the discipline in
 [[extension-decisions]] applies rather than
-[[project-engineering-lessons#Ask the oracle]].
+[[project-engineering-lessons#Ask djot.js]].
 
 ## 0. The idea
 
@@ -370,7 +370,7 @@ bracket-start condition, which moves the `ci_ok` equation for links and
 the scan-lemma cases that unfold it. The single-line inline knob
 preservation lemma is the only theorem the setting itself owes.
 
-**The oracle stops covering this**, as it does for keys: no djot
+**djot.js stops covering this**, as it does for keys: no djot
 implementation has the construct, so every wikilink document is a
 divergence by construction. What remains is the extracted roundtrip sweep
 and the generated corpus against our own parser.

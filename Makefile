@@ -1,6 +1,14 @@
-.PHONY: build doc test shape baseline generated roundtrip located-bounds deep probe keyed wiki oracles dist check-dist copy-extracted clean help
+.PHONY: help build doc build-djotjs diff diff-shape \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks \
+        check-spans probe-lemmas dist check-dist copy-parser
 
-help:  ## Show this help (usage: make help)
+# Inputs the harness runs over:
+#   test suite     djot.js/test/*.test, the cases with expected HTML
+#   generated      canonical documents enumerated by dev/Generate.v
+# V=1 on any harness recipe prints each mismatch.
+HARNESS = dune exec harness/main.exe -- $(if $(V),--verbose)
+
+help:  ## Show this help
 	@echo "Usage: make [recipe]"
 	@echo "Recipes:"
 	@awk '/^[a-zA-Z0-9_.-]+:.*?##/ { \
@@ -15,8 +23,7 @@ help:  ## Show this help (usage: make help)
 build:  ## Build the Rocq development and harness
 	dune build
 
-# Reader-facing Rocqdoc site.  Use Dune's copied sources so the adjacent
-# globalization files provide cross-module identifier links.
+# Built from Dune's copies so the .glob files resolve cross-module links.
 doc: build  ## Generate the Rocqdoc HTML site
 	rm -rf _build/doc
 	mkdir -p _build/doc
@@ -26,96 +33,64 @@ doc: build  ## Generate the Rocqdoc HTML site
 	  _build/default/theories/*.v
 	cp _build/doc/toc.html _build/doc/index.html
 
-# full differential run: gallina vs djot.js vs djoths over the corpus,
-# then over the enumerated corpus (fast: djot.js is batched, one process)
-test: build  ## Compare the parser with both oracles over the corpus
-	dune exec harness/main.exe
-	dune exec harness/main.exe -- --generated --engines gallina,djotjs
+build-djotjs:  ## Build the djot.js submodule
+	cd djot.js && npm install --no-audit --no-fund && npm run build
 
-# block structure only: inline content dropped, so a container bug is
-# not buried under inline differences
-shape: build  ## Compare block structure, ignoring inline content
-	dune exec harness/main.exe -- --shape
+# Differential runs
+# -----------------
 
-# oracle-vs-oracle (and vs expected output); seeds the disagreement log
-baseline: build  ## Compare the oracles and write baseline-report.txt
-	dune exec harness/main.exe -- --baseline --verbose \
-	  --report baseline-report.txt
+diff: build  ## Parser vs expected HTML on the test suite, then vs djot.js on generated
+	$(HARNESS)
+	$(HARNESS) --generated
 
-# the enumerated cblock fragment against both oracles, with diffs.  Slower
-# than the `test` run because djoths takes one process per document; it is
-# here because adjudicating a diff needs the second opinion.
-generated: build  ## Compare generated blocks with both oracles
-	dune exec harness/main.exe -- --generated --verbose \
-	  --report generated-report.txt
+diff-shape: build  ## As diff on the test suite, comparing block structure only
+	$(HARNESS) --shape
 
-# every span the located parse records lies inside its document and
-# inside its parent, over the generated corpus and the file corpus.
-# Exits nonzero on a failure.  It found one when it landed: a spec
-# spanning a line break left the run before it starting on the wrong
-# line.
-located-bounds: build  ## Check source span bounds over both corpora
-	dune exec harness/main.exe -- --located-bounds 3
+# Roundtrip: parse (render d) = d
+# -------------------------------
 
-# `parse (render d) = d` over every canonical document the enumerator
-# accepts, in the extracted parser: depth 3 in ~5 seconds.  Depths 1 and
-# 2 are certified in the kernel by `Generate.gen_roundtrip_1` and
-# `gen_roundtrip_2` on every build; `make deep` certifies depth 3.
-#
-# Run it when `cb_ok`, the enumeration, `Render.v` or the block parser
-# changes.  An inline change reaches it only through `escape_str`, and
-# that is exercised at depth 1 -- what the depth buys is *nesting*, so
-# the trigger is behaviour that varies with how deep a container sits:
-# columns, offsets, container prefixes, `pad_state`.
-roundtrip: build  ## Check extracted parser roundtrips at depth 3
-	dune exec harness/main.exe -- --roundtrip 3
+# Depths 1 and 2 are kernel-checked on every build (Generate.gen_roundtrip_1/2).
+roundtrip: build  ## Extracted parser, generated documents to depth 3 (~5s)
+	$(HARNESS) --roundtrip 3
 
-# The same sweep in the kernel, for when certification is wanted rather
-# than an answer: ~20 minutes.  It also pins `accepted_counts`, as
-# `--roundtrip` does.
-deep: build  ## Certify depth-3 roundtrips in the Rocq kernel
+roundtrip-kernel: build  ## Same as roundtrip, checked in the Rocq kernel (~20min)
 	rocq c -R _build/default/theories DjotV \
 	  -R _build/default/dev DjotVDev dev/check/Deep.v
 	@rm -f dev/check/Deep.vo dev/check/Deep.vok dev/check/Deep.vos dev/check/Deep.glob \
 	       dev/check/.Deep.aux
 
-# The keyed-block pool against `keyed_bconfig`, in the extracted parser:
-# keyed children and containers over them.  No oracle has the construct.
-# The whole-document examples are in dev/check/Keyed.v, which `dune build`
-# checks.  Run it when key recognition, transitions, or canonical
-# rendering change.
-keyed: build  ## Check keyed-block roundtrips
-	dune exec harness/main.exe -- --keyed-roundtrip 1
+roundtrip-keyed: build  ## Keyed-block extension (keyed_bconfig)
+	$(HARNESS) --keyed-roundtrip 1
 
-# The wikilink pool: the ordinary one read with wikilinks on, plus each
-# wikilink leaf in the containers.  No oracle has the construct, so the
-# pinned count is what shows the pool still reaches it.
-wiki: build  ## Check wikilink roundtrips
-	dune exec harness/main.exe -- --wiki-roundtrip 2
+roundtrip-wikilinks: build  ## Wikilink extension
+	$(HARNESS) --wiki-roundtrip 2
 
-# falsify a candidate lemma before proving it: add a `Compute` to
-# dev/check/Probe.v and run this.  ~0.5s.  Out of the dune build because
-# dev/check/Probe.v matches on every `pstate` constructor, so a parser edit
-# should break `make probe` and not `dune build`.  The combinators live
-# in dev/Probe.v, which is Stdlib-only and does build.
-probe: build  ## Run candidate-lemma probes in Rocq
+# Other checks
+# ------------
+
+check-spans: build  ## Located parse: every span lies inside its document and parent
+	$(HARNESS) --located-bounds 3
+
+# Kept out of dune build so that a new pstate constructor breaks this
+# recipe rather than the build.  See dev/check/Probe.v.
+probe-lemmas: build  ## Search for counterexamples to candidate lemmas in dev/check/Probe.v
 	rocq c -R _build/default/theories DjotV \
 	  -R _build/default/dev DjotVDev dev/check/Probe.v
 	@rm -f dev/check/Probe.vo dev/check/Probe.vok dev/check/Probe.vos dev/check/Probe.glob \
 	       dev/check/.Probe.aux
 
+# Extracted parser package
+# ------------------------
+
 EXTRACTED = _build/default/extraction
 
-# `dist/` is the extracted parser as a standalone dune project, committed
-# so that a consumer builds it without Rocq.  The main build ignores the
-# directory (`data_only_dirs`); build it with `cd dist && dune build`.
-dist: build  ## Regenerate the standalone extracted parser
-	@$(MAKE) -s copy-extracted DEST=dist/src
+# dist/ is committed so consumers build it without Rocq (cd dist && dune build).
+dist: build  ## Regenerate dist/src from the extraction
+	@$(MAKE) -s copy-parser DEST=dist/src
 	@echo "dist/src regenerated from $(EXTRACTED)"
 
-# Fails when dist/src is behind the theories.
-check-dist: build  ## Check that dist/src matches extraction
-	@tmp=`mktemp -d`; $(MAKE) -s copy-extracted DEST=$$tmp; \
+check-dist: build  ## Fail if dist/src is behind the extraction
+	@tmp=`mktemp -d`; $(MAKE) -s copy-parser DEST=$$tmp; \
 	if diff -r --exclude=dune dist/src $$tmp >/dev/null; then \
 	  rm -rf $$tmp; echo "dist/src is current"; \
 	else \
@@ -123,14 +98,11 @@ check-dist: build  ## Check that dist/src matches extraction
 	  echo "dist/src is stale: run make dist"; exit 1; \
 	fi
 
-# The parser, without the fixtures the harness links alongside it.
-copy-extracted:  ## Copy parser modules to DEST
+# Helper for dist and check-dist: copy the extracted modules, minus the
+# harness-only Fixtures and Generate, into directory DEST.
+copy-parser:
 	@mkdir -p $(DEST)
 	@rm -f $(DEST)/*.ml $(DEST)/*.mli
 	@for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
 	  case `basename $$f` in Fixtures.*|Generate.*) ;; *) install -m 644 $$f $(DEST)/ ;; esac; \
 	done
-
-oracles:  ## Build the djot.js and djoths oracles
-	cd djot.js && npm install --no-audit --no-fund && npm run build
-	cd djoths && cabal build exe:djoths

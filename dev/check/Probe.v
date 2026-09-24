@@ -8,12 +8,12 @@
    parser drift*: `show_pstate` matches on every `pstate` constructor, so
    adding one breaks this file.  That break is wanted (a state the
    printer ignores would silently compare equal to a different one), but
-   it should land on `make probe` rather than on `dune build`, so that a
+   it should land on a probe run rather than on `dune build`, so that a
    parser edit is never blocked by a testing file.  The combinators it
    uses are in `dev/Probe.v`, which is Stdlib-only and does build.
 
    How to use it.  To decide whether a candidate lemma is worth proving,
-   add a `Compute` below and run `make probe`.  A `Some` is a
+   add a `Compute` below and run `make probe-lemmas`.  A `Some` is a
    counterexample and the statement is dead.  A `None` is *not* a proof:
    read the tally beside it, and disbelieve any result whose `t_pass` is
    0, because the guard discarded everything. *)

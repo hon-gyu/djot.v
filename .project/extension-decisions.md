@@ -7,7 +7,7 @@ Standing log of semantic decisions for behaviour **djot does not have**.
 Undated, per `.project/README.md`: it reflects the current state, and an
 entry that stops being true is edited, not appended to.
 
-## Why this is not `oracle-disagreements.md`
+## Why this is not `djotjs-divergences.md`
 
 That log adjudicates cases where two implementations that both exist
 disagree, or where one contradicts the prose. Its verdicts name an
@@ -16,9 +16,9 @@ append-only, because it records history.
 
 Here there is no authority by construction: these are choices about
 syntax djot does not implement, so
-[[project-engineering-lessons#Ask the oracle]] has nothing to ask. Its
+[[project-engineering-lessons#Ask djot.js]] has nothing to ask. Its
 replacement is the discipline below. The two logs also have opposite
-lifecycles: an oracle disagreement is a fact about the past, an extension
+lifecycles: a djot.js divergence is a fact about the past, an extension
 decision is a *live constraint* on the config family that every later
 table entry has to keep satisfying.
 
@@ -324,7 +324,7 @@ buys is saying so in the statements rather than by rebuilding.
 **The open sub-questions, now measured.** `dev/check/Markdown.v` pins
 `markdown_like_config`'s behaviour -- thirty examples, with the two-step
 recipe in its header (point `config` at it, truncate `Inline.v`'s
-djot-specific examples, compile). No oracle can adjudicate any of this:
+djot-specific examples, compile). No existing implementation can adjudicate any of this:
 djot.js has no doubled row, so the evidence is what our own table does,
 which is why it is pinned rather than described.
 
@@ -560,7 +560,7 @@ renderer knob-independent, but it means the extension is input-only.
 
 From [[beyond-djot]], not inline and not this file's business yet: link
 references. They get entries here only if they turn out
-to need a decision no oracle can settle.
+to need a decision no existing implementation can settle.
 
 ## Settled: `E4`, tables as a profile capability
 

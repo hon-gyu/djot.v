@@ -5,7 +5,7 @@
 
    `parse_blocks (render_djot ...)` and `cb_ast` are both closed terms on
    a closed `cblock`, so their agreement is decided by `vm_compute;
-   reflexivity`, with no decidable equality on `block` and no oracle
+   reflexivity`, with no decidable equality on `block` and no djot.js
    process.  The `Example`s below are kernel-checked on every `dune
    build`.
 
@@ -119,7 +119,7 @@ Definition rt_lhs (c : cblock) : blocks :=
 
 Definition rt_rhs (c : cblock) : blocks := blocks_of_cblocks [c].
 
-(* Keys have no differential oracle.  Keep their pool separate so the
+(* djot.js has no keys to compare against.  Keep their pool separate so the
    djot.js corpus stays meaningful, and exercise both sides of nesting:
    a key over each ordinary child, and containers over each key. *)
 Definition keyed_pool (d : nat) : list cblock :=
@@ -138,7 +138,7 @@ Definition keyed_accepted (d : nat) : list cblock :=
 Definition keyed_rt_lhs (c : cblock) : blocks :=
   @parse_blocks _ keyed_bconfig _ _ (render_djot (blocks_of_cblocks [c])).
 
-(* Wikilinks have no oracle either.  Their pool is the ordinary one read
+(* djot.js has no wikilinks either.  Their pool is the ordinary one read
    at a table with the setting on, since switching it on must not move
    the rest of the fragment, plus each wikilink leaf in the containers a
    key is put in.  Three leaves are ones the canonical view excludes, so
@@ -177,7 +177,7 @@ Example gen_roundtrip_2 : map rt_lhs (accepted 2) = map rt_rhs (accepted 2).
 Proof. vm_compute. reflexivity. Qed.
 
 (* Depth 3 is in `dev/check/Deep.v`, outside the dune build, since it
-   takes minutes.  `make deep` runs it. *)
+   takes minutes. *)
 
 (*
 Ordered lists
@@ -445,7 +445,7 @@ A blank at the end of a nested list
 
 `["- - b"; ""; "- d"]`: the blank ends the inner list and separates two
 items of the outer one.  The spec exempts a list's trailing blank from
-tightness, and both oracles read it that way, so the outer list is
+tightness, and djot.js reads it that way, so the outer list is
 Tight.
 
 The three below pin the boundary: the `Tight` tree is what the source

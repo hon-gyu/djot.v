@@ -1717,7 +1717,7 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
    the tip?  A `:::` that closes a div counts as a blank line for list
    tightness, so the enclosing list is armed by a line that is not blank
    at all.  A code fence's closer does not: the code block consumes it
-   before the blank test runs (`.project/oracle-disagreements.md`, "a
+   before the blank test runs (`.project/djotjs-divergences.md`, "a
    div's closing line").
 
    Read off the state before the descent, like `blank_absorbed` and for
@@ -1778,7 +1778,7 @@ Definition list_next (ls : list_state) (item : blocks) (chk : task_status)
 (* Columns a container prefix ate before handing down its residue.  The
    parser measures indentation in the original line's coordinates, so a
    nested marker's column survives the descent -- see the nested-list
-   entry in .project/oracle-disagreements.md. *)
+   entry in .project/djotjs-divergences.md. *)
 Definition consumed (l rest : string) : nat :=
   String.length l - String.length rest.
 

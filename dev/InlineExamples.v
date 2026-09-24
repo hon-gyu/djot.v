@@ -874,7 +874,7 @@ Autolinks
 =========
 
 `<...>` with no whitespace inside: a link to its own text.  One example
-below is a divergence, logged in `.project/oracle-disagreements.md`.
+below is a divergence, logged in `.project/djotjs-divergences.md`.
 *)
 
 Example auto_url :

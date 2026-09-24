@@ -1,21 +1,18 @@
 (* ai-disclosure: autonomous *)
 
-(* Differential test harness: runs corpus cases through the extracted
-   Gallina parser and the two oracles (djot.js, djoths), and reports
-   agreement per engine and per case.
+(* Differential test harness: runs the extracted Gallina parser over the
+   djot.js test suite (against its expected HTML) or over generated
+   documents (against djot.js), and reports agreement per case.
 
    Usage:
-     main [--engines gallina,djotjs,djoths] [--baseline] [--generated]
-          [--shape] [--roundtrip [DEPTH]] [--keyed-roundtrip [DEPTH]]
-          [--wiki-roundtrip [DEPTH]] [--located-bounds [N]]
-          [--convert [--batch]] [--time [N]] [--report FILE] [--verbose]
-          [TEST_FILES...]
+     main [--generated] [--shape] [--roundtrip [DEPTH]]
+          [--keyed-roundtrip [DEPTH]] [--wiki-roundtrip [DEPTH]]
+          [--located-bounds [N]] [--convert [--batch]] [--time [N]]
+          [--report FILE] [--verbose] [TEST_FILES...]
 
-   With no files, runs the whole djot.js corpus.  --baseline compares the
-   two oracles against each other (and against expected output), ignoring
-   the Gallina parser; it seeds .project/oracle-disagreements.md.
+   With no files, runs the whole djot.js test suite.
    --generated runs the enumerated corpus instead of the file corpus,
-   engine against engine; see "Generated mode" below.
+   against djot.js; see "Generated mode" below.
    --shape compares block structure only; see "Block shape" below.
    --located-bounds [N] checks every recorded span lies inside its
      document and inside its parent, over the generated corpus at depth N
@@ -24,7 +21,7 @@
      with --batch, a framed batch.
 
    --roundtrip checks `parse (render d) = d` over the enumerated
-   documents and consults no oracle at all; see "Roundtrip" below.
+   documents and consults no other parser; see "Roundtrip" below.
    --time [N] reads one document from stdin and prints the best of N
    (default 5) wall times for the semantic and the located block parse. *)
 
@@ -116,7 +113,7 @@ let gallina =
     run_batch = None }
 
 let djotjs =
-  let script = root / "harness" / "oracles" / "djotjs.mjs" in
+  let script = root / "harness" / "djotjs" / "djotjs.mjs" in
   { ename = "djotjs";
     run = (fun s -> run_process [| "node"; script |] s);
     run_batch =
@@ -135,33 +132,10 @@ let djotjs =
                 docs
             else List.map (fun o -> Ok o) outs) }
 
-let djoths_bin = ref ""
-
-let djoths =
-  { ename = "djoths";
-    run = (fun s -> run_process [| !djoths_bin |] s);
-    run_batch = None }
-
 let run_all e docs =
   match e.run_batch with
   | Some f -> f docs
   | None -> List.map e.run docs
-
-let find_djoths () =
-  if !djoths_bin = "" then begin
-    match Sys.getenv_opt "DJOTHS_BIN" with
-    | Some p -> djoths_bin := p
-    | None ->
-      let ic =
-        Unix.open_process_in
-          (Printf.sprintf "cd %s && cabal list-bin exe:djoths 2>/dev/null"
-             (Filename.quote (root / "djoths")))
-      in
-      let line = try input_line ic with End_of_file -> "" in
-      ignore (Unix.close_process_in ic);
-      if line = "" then failwith "djoths binary not found; run: make oracles";
-      djoths_bin := line
-  end
 
 (*
 Runner
@@ -176,9 +150,8 @@ Structure only: keep the block-level tags, drop everything inline.
 
 An exact-HTML diff mixes block and inline differences, so a container
 bug can be lost among inline mismatches; comparing shapes isolates the
-block layer.  Derived from each engine's HTML rather than its AST, so all
-three engines are compared on the same footing with no changes to any of
-them. *)
+block layer.  Derived from HTML rather than an AST, so the expected
+output, djot.js and our parser are compared on the same footing. *)
 
 let block_tags =
   [ "p"; "h1"; "h2"; "h3"; "h4"; "h5"; "h6"; "hr"; "blockquote"; "ul"; "ol";
@@ -236,9 +209,8 @@ Generated mode
 
 The corpus compares each engine against a recorded expected output.  A
 generated document has none: it comes from `Generate.enum_cblock` via the
-renderer, so the only available judgement is engine against engine.  The
-reference is djot.js: the corpus is its test suite, so it is the
-implementation we are conforming to.
+renderer, so the only available judgement is our parser against djot.js,
+the implementation we conform to.
 
 `roundtrip_blocks` is a meta-property, and cannot catch a rule we got
 wrong in both the parser and the renderer.  Every shape the fragment
@@ -247,20 +219,11 @@ admits is checked here against something we did not write.
 Exact HTML by default, not `--shape`, which would drop the field under
 test. *)
 
-let run_generated engines docs rbuf verbose =
+let run_generated docs rbuf verbose =
   let out fmt =
     Printf.ksprintf (fun s -> print_string s; Buffer.add_string rbuf s) fmt
   in
-  let reference =
-    match List.find_opt (fun e -> e.ename = "djotjs") engines with
-    | Some e -> e
-    | None -> List.hd engines
-  in
-  let subjects = List.filter (fun e -> e.ename <> reference.ename) engines in
-  if subjects = [] then begin
-    out "--generated needs an engine to compare against %s\n" reference.ename;
-    exit 2
-  end;
+  let reference = djotjs and subjects = [ gallina ] in
   let proj s = if !shape_mode then shape s else normalize s in
   let ref_out = Array.of_list (run_all reference docs) in
   let docs_a = Array.of_list docs in
@@ -325,7 +288,7 @@ legitimately grows. *)
 
 let expected_counts = [ (1, 296); (2, 3695); (3, 43857) ]
 
-(* Same witness for the keyed pool, which no oracle covers: the only
+(* Same witness for the keyed pool, which djot.js does not have: the only
    evidence a key generator still reaches keys is the count. *)
 let keyed_expected_counts = [ (1, 6628); (2, 81536) ]
 
@@ -542,17 +505,15 @@ let default_files () =
   |> List.map (fun f -> dir / f)
 
 let () =
-  let engines = ref [ gallina; djotjs; djoths ] in
   let files = ref [] in
   let report = ref "" in
   let verbose = ref false in
-  let baseline = ref false in
   let generated = ref false in
   let roundtrip = ref None in
   let rt_pool = ref `Plain in
-  (* the same interface the oracle scripts have: one document on stdin,
-     its HTML on stdout.  Probing a divergence means running all three on
-     the same bytes, and without this ours is the one that cannot be. *)
+  (* the same interface djotjs.mjs has: one document on stdin, its HTML
+     on stdout.  Probing a divergence means running both on the same
+     bytes, and without this ours is the one that cannot be. *)
   let convert_stdin = ref false in
   let convert_batch = ref false in
   (* 0 is off; --time without a count means 5 *)
@@ -562,15 +523,6 @@ let () =
   let located_bounds = ref None in
   let rec parse_args = function
     | [] -> ()
-    | "--engines" :: v :: rest ->
-      let sel = String.split_on_char ',' v in
-      engines :=
-        List.filter (fun e -> List.mem e.ename sel) [ gallina; djotjs; djoths ];
-      parse_args rest
-    | "--baseline" :: rest ->
-      baseline := true;
-      engines := [ djotjs; djoths ];
-      parse_args rest
     | "--report" :: v :: rest -> report := v; parse_args rest
     | "--shape" :: rest -> shape_mode := true; parse_args rest
     | "--verbose" :: rest -> verbose := true; parse_args rest
@@ -645,7 +597,6 @@ let () =
     end;
     exit 0
   end;
-  if List.exists (fun e -> e.ename = "djoths") !engines then find_djoths ();
   let files = if !files = [] then default_files () else List.rev !files in
   (match !located_bounds with
    | None -> ()
@@ -666,7 +617,7 @@ let () =
       close_out oc
     end
   in
-  (* the roundtrip consults no oracle and reads no corpus file, so it
+  (* the roundtrip runs no other parser and reads no corpus file, so it
      answers before either is touched *)
   (match !roundtrip with
    | Some depth ->
@@ -675,7 +626,7 @@ let () =
      exit (if ok then 0 else 1)
    | None -> ());
   if !generated then begin
-    let any_err = run_generated !engines Djot_fixtures.Fixtures.generated rbuf verbose in
+    let any_err = run_generated Djot_fixtures.Fixtures.generated rbuf verbose in
     finish_report ();
     exit (if any_err then 1 else 0)
   end;
@@ -689,8 +640,8 @@ let () =
        | `MM -> (m, mm + 1, e)
        | `E -> (m, mm, e + 1))
   in
-  (* All cases up front, then each engine over the whole list: the batched
-     engines get one process for the run instead of one per case. *)
+  (* The test suite has expected HTML, so only our parser runs; djot.js
+     on its own test suite would show nothing. *)
   let all_cases =
     List.concat_map (fun file -> Corpus.parse_file file) files
   in
@@ -705,7 +656,7 @@ let () =
   let outs =
     List.map
       (fun e -> (e, Array.of_list (run_all e (List.map (fun (c : Corpus.case) -> c.input) cases))))
-      !engines
+      [ gallina ]
   in
   Array.iteri
     (fun i (c : Corpus.case) ->
@@ -750,11 +701,9 @@ let () =
         try Hashtbl.find stats e.ename with Not_found -> (0, 0, 0)
       in
       out "%-8s  match %4d   mismatch %4d   error %4d\n" e.ename m mm er)
-    !engines;
-  if !baseline then
-    out "(baseline mode: mismatches are oracle-vs-expected disagreements)\n";
+    [ gallina ];
   finish_report ();
-    (* exit code: nonzero only when a selected engine errored, not on
+  (* exit code: nonzero only when the parser errored, not on
      mismatches: a mismatch is data, not failure *)
   let any_err =
     Hashtbl.fold (fun _ (_, _, e) acc -> acc || e > 0) stats false

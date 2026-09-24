@@ -15,7 +15,7 @@
    `all_explicit_ids` descends containers and is what page-wide
    uniqueness and link checking read.
 
-   Parsing accepts duplicate ids -- both oracles do, and `cb_ok` follows
+   Parsing accepts duplicate ids -- djot.js does, and `cb_ok` follows
    them -- so uniqueness is a condition on the operations rather than on
    the document: `resolve_top_id` reports absence and ambiguity rather
    than choosing the first occurrence, since choosing would make
