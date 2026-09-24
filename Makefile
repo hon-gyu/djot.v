@@ -2,11 +2,11 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks \
         check-spans probe-lemmas dist check-dist copy-parser
 
-# Inputs the harness runs over:
+# Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
 #   generated      canonical documents enumerated by dev/Generate.v
-# V=1 on any harness recipe prints each mismatch.
-HARNESS = dune exec harness/main.exe -- $(if $(V),--verbose)
+# V=1 on any test/ recipe prints each mismatch.
+VERBOSE = $(if $(V),--verbose)
 
 help:  ## Show this help
 	@echo "Usage: make [recipe]"
@@ -20,7 +20,7 @@ help:  ## Show this help
 		} \
 	}' $(MAKEFILE_LIST)
 
-build:  ## Build the Rocq development and harness
+build:  ## Build the Rocq development and test/
 	dune build
 
 # Built from Dune's copies so the .glob files resolve cross-module links.
@@ -40,18 +40,18 @@ build-djotjs:  ## Build the djot.js submodule
 # -----------------
 
 diff: build  ## Parser vs expected HTML on the test suite, then vs djot.js on generated
-	$(HARNESS)
-	$(HARNESS) --generated
+	dune exec test/diff.exe -- $(VERBOSE)
+	dune exec test/diff.exe -- $(VERBOSE) --generated
 
 diff-shape: build  ## As diff on the test suite, comparing block structure only
-	$(HARNESS) --shape
+	dune exec test/diff.exe -- $(VERBOSE) --shape
 
 # Roundtrip: parse (render d) = d
 # -------------------------------
 
 # Depths 1 and 2 are kernel-checked on every build (Generate.gen_roundtrip_1/2).
-roundtrip: build  ## Extracted parser, generated documents to depth 3 (~5s)
-	$(HARNESS) --roundtrip 3
+roundtrip: build  ## Extracted parser, generated documents to depth 3 (~20s)
+	dune exec test/roundtrip.exe -- $(VERBOSE) 3
 
 roundtrip-kernel: build  ## Same as roundtrip, checked in the Rocq kernel (~20min)
 	rocq c -R _build/default/theories DjotV \
@@ -60,16 +60,16 @@ roundtrip-kernel: build  ## Same as roundtrip, checked in the Rocq kernel (~20mi
 	       dev/check/.Deep.aux
 
 roundtrip-keyed: build  ## Keyed-block extension (keyed_bconfig)
-	$(HARNESS) --keyed-roundtrip 1
+	dune exec test/roundtrip.exe -- $(VERBOSE) --keyed 1
 
 roundtrip-wikilinks: build  ## Wikilink extension
-	$(HARNESS) --wiki-roundtrip 2
+	dune exec test/roundtrip.exe -- $(VERBOSE) --wiki 2
 
 # Other checks
 # ------------
 
 check-spans: build  ## Located parse: every span lies inside its document and parent
-	$(HARNESS) --located-bounds 3
+	dune exec test/spans.exe -- $(VERBOSE) 3
 
 # Kept out of dune build so that a new pstate constructor breaks this
 # recipe rather than the build.  See dev/check/Probe.v.
@@ -99,7 +99,7 @@ check-dist: build  ## Fail if dist/src is behind the extraction
 	fi
 
 # Helper for dist and check-dist: copy the extracted modules, minus the
-# harness-only Fixtures and Generate, into directory DEST.
+# test-only Fixtures and Generate, into directory DEST.
 copy-parser:
 	@mkdir -p $(DEST)
 	@rm -f $(DEST)/*.ml $(DEST)/*.mli

@@ -370,7 +370,7 @@ stored line. The erasure refinement takes one case.
 **djot.js stops covering this**, as it does for keys and wikilinks.
 The baseline rows of section 1 are what djot.js still checks: with the
 setting off, every one must be unchanged. What remains is a generator
-pool and a harness roundtrip mode, as wikilinks have, and a
+pool and a `test/roundtrip.exe` mode, as wikilinks have, and a
 `dev/check/Callout.v` pinning sections 3 and 7.
 
 ## 9. Open questions

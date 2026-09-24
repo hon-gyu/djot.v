@@ -68,3 +68,12 @@ let parse_file path =
     end
   done;
   List.rev !cases
+
+(* The whole djot.js test suite. *)
+let default_files () =
+  let ( / ) = Filename.concat in
+  let dir = Parsers.root / "djot.js" / "test" in
+  Sys.readdir dir |> Array.to_list
+  |> List.filter (fun f -> Filename.check_suffix f ".test")
+  |> List.sort compare
+  |> List.map (fun f -> dir / f)

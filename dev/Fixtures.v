@@ -1,6 +1,6 @@
 (* ai-disclosure: ai-generated *)
 
-(* Test fixtures for the harness executable: the generated corpus as
+(* Test fixtures for the test/ executables: the generated corpus as
    data.  Extracted alongside the parser but kept out of the parser's
    library, so nothing a consumer links against carries a test corpus. *)
 

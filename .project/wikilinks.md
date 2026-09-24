@@ -7,8 +7,8 @@ Status: **implemented** (2026-09-22). Sections 0, 3, 4, 5, 6 and 9.2
 were revised that day so that the construct carries syntax only, 9.4 was
 added, and section 8 was restated against the tree before any code was
 written and checked against it afterwards (8.1). `dev/check/Wikilink.v`
-pins every row of sections 3 and 7 and the source ranges, and the
-harness runs the extracted roundtrip over the wikilink pool.
+pins every row of sections 3 and 7 and the source ranges, and
+`test/roundtrip.exe --wiki` runs the extracted roundtrip over the wikilink pool.
 Section 8 is the estimate, and section 9 is what is still undecided;
 both are written to be checked against reality once the construct is
 built, in the way [[keyed-blocks]] section 9 was.

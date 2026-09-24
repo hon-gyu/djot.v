@@ -7,7 +7,7 @@ Evergreen, per [[README]]: it says what the gap is now. The list below
 is regenerated with
 
 ```
-dune exec harness/main.exe -- --verbose --report exact.txt
+dune exec test/diff.exe -- --verbose --report exact.txt
 ```
 
 which prints input, expected and ours for every case we get wrong.

@@ -1,0 +1,12 @@
+; Checks and tools over the extracted parser (../extraction).  The
+; parser itself is not here; this is the OCaml that runs it.
+
+(library
+ (name djot_test)
+ (modules parsers corpus report)
+ (libraries djot unix))
+
+(executables
+ (names diff roundtrip spans convert)
+ (modules diff roundtrip spans convert)
+ (libraries djot djot_fixtures djot_test unix))

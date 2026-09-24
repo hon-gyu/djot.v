@@ -1,6 +1,0 @@
-; The parser itself lives in ../extraction; this is only the OCaml
-; driver.
-(executable
- (name main)
- (modules main corpus)
- (libraries djot djot_fixtures unix))

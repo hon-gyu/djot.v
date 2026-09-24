@@ -146,9 +146,9 @@ its largest measured constant cost remains character classification.
 2026-09-21, `64b0724`, dev profile, same machine as the tables above.
 Inputs are `djot.js/bench/readme.dj` and the same file joined 64 times
 with newlines, as in the first table.  Both sides are best of 20, in
-process: ours through `dune exec harness/main.exe -- --time 20`, the
+process: ours through `dune exec test/convert.exe -- --time 20`, the
 incumbent through a node driver over the same `djot.js/lib/index.js`
-`harness/djotjs/` scripts import.  Node startup is about 0.4 s, so a shell
+`test/djotjs/` scripts import.  Node startup is about 0.4 s, so a shell
 timing would measure that and not the parse; `--parse-only` on the two
 djot.js scripts is the same call with the render or the tree walk
 removed, and is what the driver's loop stands in for at 20 repeats.

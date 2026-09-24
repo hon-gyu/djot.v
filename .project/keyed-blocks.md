@@ -22,7 +22,7 @@ setting as well as keys. `out_of_column_needs_the_setting` in that
 file is what the parser does with keys off, and
 `out_of_column_is_claimed` is the same document with them on. `Render.CKey` gives keys a canonical
 two-line spelling and the existing `roundtrip_blocks` theorem covers
-them. The harness runs the extracted roundtrip over a separate keyed
+them. `test/roundtrip.exe --keyed` runs the extracted roundtrip over a separate keyed
 pool; no external parser covers that pool.
 This file stands on its own: it is the
 definition of the construct, not a staging area, and it stays here once

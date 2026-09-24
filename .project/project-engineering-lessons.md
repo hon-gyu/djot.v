@@ -232,7 +232,7 @@ djot.js supplies an input that is not there.
 
 **What to do instead.** Ask whether an input exercising the property
 exists before asking whether the comparison would show it. `cblock` +
-`cb_lines` generates canonical documents and the harness diffs them
+`cb_lines` generates canonical documents and `test/diff.exe` diffs them
 against djot.js — and a property the generator cannot reach is a gap in
 `cb_ok`, which is usually the more interesting finding.
 
@@ -259,7 +259,7 @@ what neither can see.
 **What to do instead.** When a construct's scanner is under suspicion,
 enumerate over its own alphabet -- the bytes it dispatches on, plus a
 letter -- and diff against djot.js directly, rather than looking for the
-shape in either corpus. `harness/main.exe --convert --batch` takes the
+shape in either corpus. `test/convert.exe --batch` takes the
 same length-delimited framing `djotjs.mjs --batch` does, so a sweep is
 two subprocesses and 200k short documents cost about a minute. Run it
 against the parent commit too: "did this regress anything" then gets a

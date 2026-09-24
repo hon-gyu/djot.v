@@ -4,7 +4,7 @@
 Block ranges, pinned against djot.js
 ====================================
 
-Every range below was read off `harness/djotjs/djotjs-sourcepos.mjs
+Every range below was read off `test/djotjs/djotjs-sourcepos.mjs
 --trim` and is recorded beside the `Example` that asserts it.  Two
 conventions make the comparison direct: the script prints 0-based
 half-open byte ranges, and `resolve` here turns the parser's
