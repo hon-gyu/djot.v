@@ -338,9 +338,9 @@ Definition ord_items_ok (core : nat -> string) (d : ordered_list_delim)
 (* Roman: which starts does a 3-item run round-trip at, and which does
    `items_ok` describe?  The answers are expected to coincide except
    where the first numeral is a bare roman letter. *)
-Compute fails 40 (fun s => holds (ord_rt RomanLower (roman_str false) RightPeriod s 3))
+Compute fails 40 (fun s => holds (ord_rt RomanLower (Roman.str false) RightPeriod s 3))
                  (seq 1 30).
-Compute fails 40 (fun s => holds (ord_items_ok (roman_str false) RightPeriod s 3))
+Compute fails 40 (fun s => holds (ord_items_ok (Roman.str false) RightPeriod s 3))
                  (seq 1 30).
 
 (* Alpha: same two questions.  Here the expected exceptions are the seven

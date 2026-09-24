@@ -407,31 +407,31 @@ Qed.
    for roman under its range and length conditions. *)
 Local Lemma roman_marker_styles :
   forall (up : bool) d n,
-    1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
-    mk_styles (nsc_marker (roman_str up) d n) = [(SOrd (roman_sty up) d, n)].
+    1 <= n -> n <= Roman.upper -> 2 <= String.length (Roman.str up n) ->
+    mk_styles (nsc_marker (Roman.str up) d n) = [(SOrd (roman_sty up) d, n)].
 Proof.
   intros up d n H1 H2 Hlen. unfold mk_styles, with_starts.
   cbn [mk_sty nsc_marker].
-  rewrite (styles_of_core_roman up _ d (roman_str_alphabet up n H1 H2) Hlen).
+  rewrite (styles_of_core_roman up _ d (Roman.str_alphabet up n H1 H2) Hlen).
   cbn [map mk_core nsc_marker]. unfold roman_sty.
-  destruct up; cbn [style_start]; rewrite (roman_value_str _ n H1 H2); reflexivity.
+  destruct up; cbn [style_start]; rewrite (Roman.value_str _ n H1 H2); reflexivity.
 Qed.
 
 Local Lemma roman_marker_ok :
   forall (up : bool) d n,
-    1 <= n -> n <= roman_upper -> 2 <= String.length (roman_str up n) ->
-    marker_ok (nsc_marker (roman_str up) d n) = true.
+    1 <= n -> n <= Roman.upper -> 2 <= String.length (Roman.str up n) ->
+    marker_ok (nsc_marker (Roman.str up) d n) = true.
 Proof.
   intros up d n H1 H2 Hlen. cbn [marker_ok nsc_marker].
-  rewrite (roman_str_nonempty up n H1 H2).
-  assert (Halnum : str_forallb is_alnum (roman_str up n) = true).
+  rewrite (Roman.str_nonempty up n H1 H2).
+  assert (Halnum : str_forallb is_alnum (Roman.str up n) = true).
   { apply (str_forallb_impl (if up then is_roman_up else is_roman_lo)).
     - intros c Hc. unfold is_alnum. destruct up.
       + rewrite (is_roman_up_upper c Hc), !orb_true_r. reflexivity.
       + rewrite (is_roman_lo_lower c Hc), orb_true_r. reflexivity.
-    - apply roman_str_alphabet; assumption. }
+    - apply Roman.str_alphabet; assumption. }
   rewrite Halnum.
-  rewrite (styles_of_core_roman up _ d (roman_str_alphabet up n H1 H2) Hlen).
+  rewrite (styles_of_core_roman up _ d (Roman.str_alphabet up n H1 H2) Hlen).
   reflexivity.
 Qed.
 
@@ -602,22 +602,22 @@ Qed.
 (* What every item of a roman run satisfies, with no condition beyond the
    range -- a bare `v` included. *)
 Local Lemma roman_item_facts :
-  forall (up : bool) d n, 1 <= n -> n <= roman_upper ->
-    marker_ok (nsc_marker (roman_str up) d n) = true
+  forall (up : bool) d n, 1 <= n -> n <= Roman.upper ->
+    marker_ok (nsc_marker (Roman.str up) d n) = true
     /\ existsb (lstyle_eqb (SOrd (roman_sty up) d))
-               (mk_sty (nsc_marker (roman_str up) d n)) = true
-    /\ (forall l, is_thematic (mk_open (nsc_marker (roman_str up) d n) ++ l) = false).
+               (mk_sty (nsc_marker (Roman.str up) d n)) = true
+    /\ (forall l, is_thematic (mk_open (nsc_marker (Roman.str up) d n) ++ l) = false).
 Proof.
   intros up d n H1 H2.
-  pose proof (roman_str_alphabet up n H1 H2) as Halpha.
-  pose proof (roman_str_nonempty up n H1 H2) as Hne.
-  destruct (styles_of_core_roman_cons up (roman_str up n) d Halpha Hne) as [rest Hs].
-  assert (Halnum : str_forallb is_alnum (roman_str up n) = true).
+  pose proof (Roman.str_alphabet up n H1 H2) as Halpha.
+  pose proof (Roman.str_nonempty up n H1 H2) as Hne.
+  destruct (styles_of_core_roman_cons up (Roman.str up n) d Halpha Hne) as [rest Hs].
+  assert (Halnum : str_forallb is_alnum (Roman.str up n) = true).
   { apply (str_forallb_impl (if up then is_roman_up else is_roman_lo)); [|exact Halpha].
     intros c Hc. unfold is_alnum. destruct up.
     - rewrite (is_roman_up_upper c Hc), !orb_true_r. reflexivity.
     - rewrite (is_roman_lo_lower c Hc), orb_true_r. reflexivity. }
-  destruct (roman_str up n) as [|c t] eqn:E; [discriminate Hne|].
+  destruct (Roman.str up n) as [|c t] eqn:E; [discriminate Hne|].
   cbn [str_forallb] in Halnum. apply andb_true_iff in Halnum as [Hc Ht].
   split; [|split].
   - cbn [marker_ok nsc_marker]. rewrite E in *. rewrite Hne.
@@ -658,7 +658,7 @@ The ambiguity condition drops out for roman entirely.  Two facts do it.
 A roman numeral's candidate set always has `(RomanLower, n)` at its
 head, ambiguous or not, so a one-item list closes correctly with no
 narrowing at all.  And no two consecutive roman numerals are both a
-single character (`roman_consec_lt`), so a list with a second item has
+single character (`Roman.consec_lt`), so a list with a second item has
 its set narrowed to the singleton by that item, and everything after
 holds it.
 
@@ -682,30 +682,30 @@ Qed.
 
 (* The head, with no length condition. *)
 Local Lemma roman_marker_head :
-  forall (up : bool) d n, 1 <= n -> n <= roman_upper ->
-    exists rest, mk_styles (nsc_marker (roman_str up) d n)
+  forall (up : bool) d n, 1 <= n -> n <= Roman.upper ->
+    exists rest, mk_styles (nsc_marker (Roman.str up) d n)
                  = (SOrd (roman_sty up) d, n) :: rest.
 Proof.
   intros up d n H1 H2.
-  destruct (styles_of_core_roman_cons up (roman_str up n) d
-              (roman_str_alphabet up n H1 H2) (roman_str_nonempty up n H1 H2))
+  destruct (styles_of_core_roman_cons up (Roman.str up n) d
+              (Roman.str_alphabet up n H1 H2) (Roman.str_nonempty up n H1 H2))
     as [rest Hs].
   unfold mk_styles, with_starts. cbn [mk_sty nsc_marker]. rewrite Hs.
   cbn [map mk_core nsc_marker].
   eexists. f_equal. f_equal.
   unfold roman_sty; destruct up; cbn [style_start];
-    apply roman_value_str; assumption.
+    apply Roman.value_str; assumption.
 Qed.
 
 (* And the set a second item narrows it to, always the singleton. *)
 Local Lemma roman_narrow_singleton :
-  forall (up : bool) d n, 1 <= n -> S n <= roman_upper ->
-    narrow (mk_styles (nsc_marker (roman_str up) d n))
-           (mk_sty (nsc_marker (roman_str up) d (S n)))
+  forall (up : bool) d n, 1 <= n -> S n <= Roman.upper ->
+    narrow (mk_styles (nsc_marker (Roman.str up) d n))
+           (mk_sty (nsc_marker (Roman.str up) d (S n)))
     = [(SOrd (roman_sty up) d, n)].
 Proof.
   intros up d n H1 H2.
-  destruct (Nat.leb 2 (String.length (roman_str up n))) eqn:Hl.
+  destruct (Nat.leb 2 (String.length (Roman.str up n))) eqn:Hl.
   - (* this numeral is unambiguous already *)
     apply Nat.leb_le in Hl.
     rewrite (roman_marker_styles up d n H1 ltac:(lia) Hl).
@@ -714,15 +714,15 @@ Proof.
     reflexivity.
   - (* it is a bare roman letter, so the next numeral is not *)
     apply Nat.leb_gt in Hl.
-    destruct (roman_consec_lt up n H1 ltac:(lia)) as [Hbad | Hlen]; [lia|].
-    pose proof (roman_str_alphabet up n H1 ltac:(lia)) as Ha.
-    pose proof (roman_str_nonempty up n H1 ltac:(lia)) as Hne.
-    destruct (roman_str up n) as [|c t] eqn:E; [discriminate Hne|].
+    destruct (Roman.consec_lt up n H1 ltac:(lia)) as [Hbad | Hlen]; [lia|].
+    pose proof (Roman.str_alphabet up n H1 ltac:(lia)) as Ha.
+    pose proof (Roman.str_nonempty up n H1 ltac:(lia)) as Hne.
+    destruct (Roman.str up n) as [|c t] eqn:E; [discriminate Hne|].
     destruct t as [|c' t']; [|cbn [String.length] in Hl; lia].
     cbn [str_forallb] in Ha. apply andb_true_iff in Ha as [Hc _].
     unfold mk_styles, with_starts. cbn [mk_sty nsc_marker mk_core]. rewrite E.
     rewrite (styles_of_core_roman_single up c d Hc).
-    rewrite (styles_of_core_roman up _ d (roman_str_alphabet up (S n) ltac:(lia) H2)
+    rewrite (styles_of_core_roman up _ d (Roman.str_alphabet up (S n) ltac:(lia) H2)
                Hlen).
     cbn [map narrow filter fst existsb].
     rewrite lstyle_eqb_refl. cbn [orb].
@@ -731,7 +731,7 @@ Proof.
     rewrite Hne2. cbn [orb].
     f_equal. f_equal. rewrite <- E.
     unfold roman_sty; destruct up; cbn [style_start];
-      apply roman_value_str; [lia|lia|lia|lia].
+      apply Roman.value_str; [lia|lia|lia|lia].
 Qed.
 
 (* Uniformity for a roman ordered list at *any* start in range.  One item
@@ -739,9 +739,9 @@ Qed.
    the second, and hold it. *)
 Theorem ordered_roman_uniformity_any :
   forall (up : bool) d start sp lss,
-    lss <> [] -> 1 <= start -> start + length lss <= S roman_upper ->
-    forallb (item_ok (nsc_marker (roman_str up) d start)) lss = true ->
-    parse_lines (list_lines sp (map litem_lines (nsc_items (roman_str up) d start lss)))
+    lss <> [] -> 1 <= start -> start + length lss <= S Roman.upper ->
+    forallb (item_ok (nsc_marker (Roman.str up) d start)) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))].
@@ -756,7 +756,7 @@ Proof.
       as [r Hhead].
     cbn [nsc_items].
     etransitivity;
-      [exact (list_uniformity (nsc_marker (roman_str up) d start) sp L0 [] Hmk0
+      [exact (list_uniformity (nsc_marker (Roman.str up) d start) sp L0 [] Hmk0
                 ltac:(unfold items_ok, items_ok_at; cbn [forallb fst snd];
                       rewrite Hmk0, HL0, admits_styles_refl; reflexivity))|].
     unfold marker_list_checked. rewrite Hhead.
@@ -768,14 +768,14 @@ Proof.
     cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL0 Hok'].
     pose proof Hok' as Hok''. apply andb_true_iff in Hok'' as [HL1 Hrest].
     destruct L1 as [|l1 more1]; [cbn [item_ok] in HL1; discriminate|].
-    assert (HS : narrow (mk_styles (nsc_marker (roman_str up) d start))
-                        (mk_sty (nsc_marker (roman_str up) d (S start)))
+    assert (HS : narrow (mk_styles (nsc_marker (Roman.str up) d start))
+                        (mk_sty (nsc_marker (Roman.str up) d (S start)))
                  = [(SOrd (roman_sty up) d, start)])
       by (apply roman_narrow_singleton; lia).
     assert (Hitems : items_ok_at [(SOrd (roman_sty up) d, start)]
-                       (nsc_items (roman_str up) d (S (S start)) rest) = true).
-    { apply (items_ok_nsc_run (roman_str up) d [(SOrd (roman_sty up) d, start)]
-               (nsc_marker (roman_str up) d start) rest (S (S start))).
+                       (nsc_items (Roman.str up) d (S (S start)) rest) = true).
+    { apply (items_ok_nsc_run (Roman.str up) d [(SOrd (roman_sty up) d, start)]
+               (nsc_marker (Roman.str up) d start) rest (S (S start))).
       - intros k Hk.
         destruct (roman_item_facts up d (S (S start) + k) ltac:(lia) ltac:(lia))
           as (A & B & C).
@@ -784,10 +784,10 @@ Proof.
       - exact Hth0.
       - exact Hrest. }
     cbn [nsc_items].
-    rewrite (list_uniformity_narrow (nsc_marker (roman_str up) d start)
-               (nsc_marker (roman_str up) d (S start))
+    rewrite (list_uniformity_narrow (nsc_marker (Roman.str up) d start)
+               (nsc_marker (Roman.str up) d (S start))
                [(SOrd (roman_sty up) d, start)] sp L0 (l1 :: more1)
-               (nsc_items (roman_str up) d (S (S start)) rest)
+               (nsc_items (Roman.str up) d (S (S start)) rest)
                Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
@@ -799,12 +799,12 @@ Qed.
 
 Theorem ordered_roman_uniformity_any_tail :
   forall (up : bool) d start sp lss next tl,
-    lss <> [] -> 1 <= start -> start + length lss <= S roman_upper ->
-    forallb (item_ok (nsc_marker (roman_str up) d start)) lss = true ->
+    lss <> [] -> 1 <= start -> start + length lss <= S Roman.upper ->
+    forallb (item_ok (nsc_marker (Roman.str up) d start)) lss = true ->
     classify next <> KBlank ->
     (forall a b c d, classify next <> KList a b c d) ->
     indent_of next = 0 ->
-    parse_lines (list_lines sp (map litem_lines (nsc_items (roman_str up) d start lss))
+    parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
     = mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))
@@ -820,7 +820,7 @@ Proof.
       as [r Hhead].
     cbn [nsc_items].
     etransitivity;
-      [exact (list_uniformity_tail (nsc_marker (roman_str up) d start) sp L0 [] next tl Hmk0
+      [exact (list_uniformity_tail (nsc_marker (Roman.str up) d start) sp L0 [] next tl Hmk0
                 ltac:(unfold items_ok, items_ok_at; cbn [forallb fst snd];
                       rewrite Hmk0, HL0, admits_styles_refl; reflexivity)
                 Hnb Hnl Hindent)|].
@@ -833,14 +833,14 @@ Proof.
     cbn [forallb] in Hok. apply andb_true_iff in Hok as [HL0 Hok'].
     pose proof Hok' as Hok''. apply andb_true_iff in Hok'' as [HL1 Hrest].
     destruct L1 as [|l1 more1]; [cbn [item_ok] in HL1; discriminate|].
-    assert (HS : narrow (mk_styles (nsc_marker (roman_str up) d start))
-                        (mk_sty (nsc_marker (roman_str up) d (S start)))
+    assert (HS : narrow (mk_styles (nsc_marker (Roman.str up) d start))
+                        (mk_sty (nsc_marker (Roman.str up) d (S start)))
                  = [(SOrd (roman_sty up) d, start)])
       by (apply roman_narrow_singleton; lia).
     assert (Hitems : items_ok_at [(SOrd (roman_sty up) d, start)]
-                       (nsc_items (roman_str up) d (S (S start)) rest) = true).
-    { apply (items_ok_nsc_run (roman_str up) d [(SOrd (roman_sty up) d, start)]
-               (nsc_marker (roman_str up) d start) rest (S (S start))).
+                       (nsc_items (Roman.str up) d (S (S start)) rest) = true).
+    { apply (items_ok_nsc_run (Roman.str up) d [(SOrd (roman_sty up) d, start)]
+               (nsc_marker (Roman.str up) d start) rest (S (S start))).
       - intros k Hk.
         destruct (roman_item_facts up d (S (S start) + k) ltac:(lia) ltac:(lia))
           as (A & B & C).
@@ -849,10 +849,10 @@ Proof.
       - exact Hth0.
       - exact Hrest. }
     cbn [nsc_items].
-    rewrite (list_uniformity_narrow_tail (nsc_marker (roman_str up) d start)
-               (nsc_marker (roman_str up) d (S start))
+    rewrite (list_uniformity_narrow_tail (nsc_marker (Roman.str up) d start)
+               (nsc_marker (Roman.str up) d (S start))
                [(SOrd (roman_sty up) d, start)] sp L0 (l1 :: more1)
-               (nsc_items (roman_str up) d (S (S start)) rest) next tl
+               (nsc_items (Roman.str up) d (S (S start)) rest) next tl
                Hmk0 Hmk1 eq_refl eq_refl ltac:(discriminate) HS HL0
                (ltac:(rewrite (item_ok_thematic_indep _ _ (l1 :: more1) Hth1 Hth0);
                       exact HL1))
@@ -868,23 +868,23 @@ Qed.
 Theorem ordered_roman_uniformity :
   forall (up : bool) d start sp lss,
     lss <> [] ->
-    1 <= start -> start + length lss <= S roman_upper ->
-    2 <= String.length (roman_str up start) ->
-    forallb (item_ok (nsc_marker (roman_str up) d start)) lss = true ->
-    parse_lines (list_lines sp (map litem_lines (nsc_items (roman_str up) d start lss)))
+    1 <= start -> start + length lss <= S Roman.upper ->
+    2 <= String.length (Roman.str up start) ->
+    forallb (item_ok (nsc_marker (Roman.str up) d start)) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))].
 Proof.
   intros up d start sp lss Hne H1 H2 Hlen Hok.
   assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
-  assert (Hsty : mk_styles (nsc_marker (roman_str up) d start)
+  assert (Hsty : mk_styles (nsc_marker (Roman.str up) d start)
                  = [(SOrd (roman_sty up) d, start)])
     by (apply roman_marker_styles; [lia|lia|exact Hlen]).
-  assert (Hio : items_ok (nsc_marker (roman_str up) d start)
-                  (nsc_items (roman_str up) d start lss) = true).
-  { apply (items_ok_nsc_run (roman_str up) d (mk_styles (nsc_marker (roman_str up) d start))
-             (nsc_marker (roman_str up) d start) lss start).
+  assert (Hio : items_ok (nsc_marker (Roman.str up) d start)
+                  (nsc_items (Roman.str up) d start lss) = true).
+  { apply (items_ok_nsc_run (Roman.str up) d (mk_styles (nsc_marker (Roman.str up) d start))
+             (nsc_marker (Roman.str up) d start) lss start).
     - intros k Hk.
       destruct (roman_item_facts up d (start + k) ltac:(lia) ltac:(lia)) as (A & B & C).
       split; [exact A|]. split; [|exact C].
@@ -892,7 +892,7 @@ Proof.
       rewrite B. reflexivity.
     - exact (proj2 (proj2 (roman_item_facts up d start ltac:(lia) ltac:(lia)))).
     - exact Hok. }
-  exact (nsc_uniformity (roman_sty up) (roman_str up) d start sp lss Hne
+  exact (nsc_uniformity (roman_sty up) (Roman.str up) d start sp lss Hne
            (roman_marker_ok up d start ltac:(lia) ltac:(lia) Hlen) Hsty Hio).
 Qed.
 
@@ -1326,7 +1326,7 @@ Definition ck_first (k : list_kind) : marker :=
   | LKDef => colon
   | LKTask checks => MTask "-" (hd Incomplete checks)
   | LKDecimal d start => dec_marker d start
-  | LKRoman up d start => nsc_marker (roman_str up) d start
+  | LKRoman up d start => nsc_marker (Roman.str up) d start
   | LKAlpha up d start => nsc_marker (alpha_str up) d start
   end.
 
@@ -1347,7 +1347,7 @@ Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
   | LKDef => same_marker colon lss
   | LKTask checks => task_ck_items checks lss
   | LKDecimal d start => dec_items d start lss
-  | LKRoman up d start => nsc_items (roman_str up) d start lss
+  | LKRoman up d start => nsc_items (Roman.str up) d start lss
   | LKAlpha up d start => nsc_items (alpha_str up) d start lss
   end.
 
@@ -1376,7 +1376,7 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
      whatever its length, and a second item narrows it to the singleton
      (`roman_narrow_singleton`).  Only the range is needed. *)
   | LKRoman up d start =>
-      (Nat.leb 1 start && Nat.leb (start + n) (S roman_upper))%bool
+      (Nat.leb 1 start && Nat.leb (start + n) (S Roman.upper))%bool
   (* Either the opener already names alpha alone, or there is a second
      item whose letter is not a roman digit to resolve it, or -- when the
      second is a roman digit too, which happens only at 3 and 12 -- a
@@ -1981,7 +1981,7 @@ Proof. reflexivity. Qed.
    `ordered_roman_uniformity` but the nonemptiness is decidable, so a
    concrete start discharges them by computation. *)
 Example roman_from_two_lines :
-  map litem_lines (nsc_items (roman_str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])
+  map litem_lines (nsc_items (Roman.str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])
   = [["ii. a"]; ["iii. b"]; ["iv. c"]].
 Proof. reflexivity. Qed.
 
@@ -1989,7 +1989,7 @@ Corollary roman_from_two_uniform :
   forall sp,
     parse_lines (list_lines sp
                    (map litem_lines
-                      (nsc_items (roman_str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])))
+                      (nsc_items (Roman.str false) RightPeriod 2 [["a"]; ["b"]; ["c"]])))
                 (PPara [])
     = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2)
              (list_spacing_of sp [["a"]; ["b"]; ["c"]])
@@ -2031,8 +2031,8 @@ Qed.
 (* The boundary, kept as a failing-by-construction pair: the parser reads
    a roman list from 1 correctly, and `items_ok` cannot say so. *)
 Example roman_from_one_items_ok_still_fails :
-  items_ok (nsc_marker (roman_str false) RightPeriod 1)
-           (nsc_items (roman_str false) RightPeriod 1 [["a"]; ["b"]]) = false.
+  items_ok (nsc_marker (Roman.str false) RightPeriod 1)
+           (nsc_items (Roman.str false) RightPeriod 1 [["a"]; ["b"]]) = false.
 Proof. reflexivity. Qed.
 
 Example roman_from_one_parses_anyway_too :

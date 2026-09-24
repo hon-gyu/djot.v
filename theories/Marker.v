@@ -125,7 +125,9 @@ Proof.
   apply (proj1 (forallb_forall f (seq 1 hi)) H). apply in_seq. lia.
 Qed.
 
-Local Definition roman_digit (c : ascii) : nat :=
+Module Roman.
+
+Local Definition digit (c : ascii) : nat :=
   if (Ascii.eqb c "i" || Ascii.eqb c "I")%char%bool then 1
   else if (Ascii.eqb c "v" || Ascii.eqb c "V")%char%bool then 5
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then 10
@@ -137,56 +139,56 @@ Local Definition roman_digit (c : ascii) : nat :=
 
 (* Scan right to left, subtracting a digit smaller than the one to its
    right, so `ix` is 9. *)
-Local Fixpoint roman_acc (s : string) (prev total : nat) : nat :=
+Local Fixpoint acc (s : string) (prev total : nat) : nat :=
   match s with
   | EmptyString => total
   | String c s' =>
-      let n := roman_digit c in
-      roman_acc s' n (if Nat.ltb n prev then total - n else total + n)
+      let n := digit c in
+      acc s' n (if Nat.ltb n prev then total - n else total + n)
   end.
 
-Definition roman_value (s : string) : nat := roman_acc (rev_string s) 0 0.
+Definition value (s : string) : nat := acc (rev_string s) 0 0.
 
 (* The largest roman start the codec covers.
 
-   The encoder below is a left-to-right greedy emission and `roman_value`
+   The encoder below is a left-to-right greedy emission and `value`
    a right-to-left subtractive scan, inverse for a reason no induction on
    either exposes.  So every property the codec needs is proved by
-   computation over a bounded range: `roman_ok` bundles them,
+   computation over a bounded range: `ok` bundles them,
    `roman_ok_range` decides the bundle for every start at once, and
-   `roman_ok_lt` is the only form the rest of the development sees.  The
+   `ok_lt` is the only form the rest of the development sees.  The
    alpha codec needs a bound anyway (there is no 27th letter).
 
    1000 rather than 3999, where the standard spelling stops, because the
    check is quadratic in the bound (0.25s at 1000, 2.0s at 3999) and this
    file is upstream of everything. *)
-Definition roman_upper : nat := 1000.
+Definition upper : nat := 1000.
 
-Local Definition roman_table (up : bool) : list (nat * string) :=
+Local Definition table (up : bool) : list (nat * string) :=
   if up
   then [(1000,"M");(900,"CM");(500,"D");(400,"CD");(100,"C");(90,"XC");(50,"L");
         (40,"XL");(10,"X");(9,"IX");(5,"V");(4,"IV");(1,"I")]
   else [(1000,"m");(900,"cm");(500,"d");(400,"cd");(100,"c");(90,"xc");(50,"l");
         (40,"xl");(10,"x");(9,"ix");(5,"v");(4,"iv");(1,"i")].
 
-Local Fixpoint roman_pick (tbl : list (nat * string)) (n : nat) : option (nat * string) :=
+Local Fixpoint pick (tbl : list (nat * string)) (n : nat) : option (nat * string) :=
   match tbl with
   | [] => None
-  | (v, s) :: rest => if Nat.leb v n then Some (v, s) else roman_pick rest n
+  | (v, s) :: rest => if Nat.leb v n then Some (v, s) else pick rest n
   end.
 
 (* A table and a lookup rather than thirteen nested `if`s.  With the
    branches inlined the recursive call appears in all thirteen, so
-   symbolically normalizing `roman_str up n` at an unknown `n` unfolds to
+   symbolically normalizing `str up n` at an unknown `n` unfolds to
    13^16 branches, and a `Qed` that converts it does not terminate.
-   `roman_pick` leaves one recursive call per level. *)
-Local Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
+   `pick` leaves one recursive call per level. *)
+Local Fixpoint of_fuel (up : bool) (fuel n : nat) : string :=
   match fuel with
   | O => EmptyString
   | S f =>
-      match roman_pick (roman_table up) n with
+      match pick (table up) n with
       | None => EmptyString
-      | Some (v, s) => s ++ roman_fuel up f (n - v)
+      | Some (v, s) => s ++ of_fuel up f (n - v)
       end
   end.
 
@@ -195,87 +197,89 @@ Local Fixpoint roman_fuel (up : bool) (fuel n : nat) : string :=
    checks that it suffices, since exhausted fuel truncates the numeral.
    Not a speedup: the range check's cost is `Nat.leb 1000 n` on a unary
    `nat`, which does not depend on the fuel. *)
-Definition roman_str (up : bool) (n : nat) : string := roman_fuel up 16 n.
+Definition str (up : bool) (n : nat) : string := of_fuel up 16 n.
 
 (* What a codec has to deliver for the marker layer: a nonempty core, in
    the alphabet its style is recognized by, decoding back to the number
    it was made from.  One boolean, so that one computation settles all
    three. *)
-Definition roman_ok (up : bool) (n : nat) : bool :=
-  let s := roman_str up n in
+Definition ok (up : bool) (n : nat) : bool :=
+  let s := str up n in
   (nonempty_str s
    && str_forallb (if up then is_roman_up else is_roman_lo) s
-   && Nat.eqb (roman_value s) n)%bool.
+   && Nat.eqb (value s) n)%bool.
 
 (* No two consecutive roman numerals are both a single character, so if a
    list's first numeral is ambiguous its second is not, and one narrowing
    settles the set.  Checked rather than argued: the single-character
    numerals are 1, 5, 10, 50, 100, 500, 1000 and none is adjacent to
    another, but that is a fact about the table, not about the code. *)
-Definition roman_consec_ok (up : bool) (n : nat) : bool :=
-  (Nat.leb 2 (String.length (roman_str up n))
-   || Nat.leb 2 (String.length (roman_str up (S n))))%bool.
+Definition consec_ok (up : bool) (n : nat) : bool :=
+  (Nat.leb 2 (String.length (str up n))
+   || Nat.leb 2 (String.length (str up (S n))))%bool.
 
-Example roman_consec_lo : forallb (roman_consec_ok false) (seq 1 roman_upper) = true.
+Example consec_lo : forallb (consec_ok false) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Example roman_consec_up : forallb (roman_consec_ok true) (seq 1 roman_upper) = true.
+Example consec_up : forallb (consec_ok true) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (* The four computations the codecs rest on.  Everything below is
    bookkeeping on top of these. *)
-Example roman_ok_lo : forallb (roman_ok false) (seq 1 roman_upper) = true.
+Example ok_lo : forallb (ok false) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Example roman_ok_up : forallb (roman_ok true) (seq 1 roman_upper) = true.
+Example ok_up : forallb (ok true) (seq 1 upper) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Local Lemma roman_ok_lt :
-  forall up n, 1 <= n -> n <= roman_upper -> roman_ok up n = true.
+Local Lemma ok_lt :
+  forall up n, 1 <= n -> n <= upper -> ok up n = true.
 Proof.
   intros [|] n H1 H2;
-    [ exact (range_ok _ _ _ roman_ok_up H1 H2)
-    | exact (range_ok _ _ _ roman_ok_lo H1 H2) ].
+    [ exact (range_ok _ _ _ ok_up H1 H2)
+    | exact (range_ok _ _ _ ok_lo H1 H2) ].
 Qed.
 
-Lemma roman_consec_lt :
-  forall (up : bool) n, 1 <= n -> n <= roman_upper ->
-    2 <= String.length (roman_str up n) \/ 2 <= String.length (roman_str up (S n)).
+Lemma consec_lt :
+  forall (up : bool) n, 1 <= n -> n <= upper ->
+    2 <= String.length (str up n) \/ 2 <= String.length (str up (S n)).
 Proof.
   intros up n H1 H2.
-  assert (H : roman_consec_ok up n = true)
-    by (destruct up; [exact (range_ok _ _ _ roman_consec_up H1 H2)
-                     |exact (range_ok _ _ _ roman_consec_lo H1 H2)]).
-  unfold roman_consec_ok in H. apply orb_true_iff in H as [H|H];
+  assert (H : consec_ok up n = true)
+    by (destruct up; [exact (range_ok _ _ _ consec_up H1 H2)
+                     |exact (range_ok _ _ _ consec_lo H1 H2)]).
+  unfold consec_ok in H. apply orb_true_iff in H as [H|H];
     [left|right]; apply Nat.leb_le, H.
 Qed.
 
-(* The three fields, unpacked.  Stated at `roman_str` / `alpha_str` so
-   that the ordered-list chain never mentions `roman_ok`. *)
-Lemma roman_str_nonempty :
-  forall up n, 1 <= n -> n <= roman_upper -> nonempty_str (roman_str up n) = true.
+(* The three fields, unpacked.  Stated at `str` / `alpha_str` so
+   that the ordered-list chain never mentions `ok`. *)
+Lemma str_nonempty :
+  forall up n, 1 <= n -> n <= upper -> nonempty_str (str up n) = true.
 Proof.
-  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
-  unfold roman_ok in H. apply andb_true_iff in H as [H _].
+  intros up n H1 H2. pose proof (ok_lt up n H1 H2) as H.
+  unfold ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [H _]. exact H.
 Qed.
 
-Lemma roman_str_alphabet :
-  forall (up : bool) n, 1 <= n -> n <= roman_upper ->
-    str_forallb (if up then is_roman_up else is_roman_lo) (roman_str up n) = true.
+Lemma str_alphabet :
+  forall (up : bool) n, 1 <= n -> n <= upper ->
+    str_forallb (if up then is_roman_up else is_roman_lo) (str up n) = true.
 Proof.
-  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
-  unfold roman_ok in H. apply andb_true_iff in H as [H _].
+  intros up n H1 H2. pose proof (ok_lt up n H1 H2) as H.
+  unfold ok in H. apply andb_true_iff in H as [H _].
   apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
-Lemma roman_value_str :
-  forall up n, 1 <= n -> n <= roman_upper -> roman_value (roman_str up n) = n.
+Lemma value_str :
+  forall up n, 1 <= n -> n <= upper -> value (str up n) = n.
 Proof.
-  intros up n H1 H2. pose proof (roman_ok_lt up n H1 H2) as H.
-  unfold roman_ok in H. apply andb_true_iff in H as [_ H].
+  intros up n H1 H2. pose proof (ok_lt up n H1 H2) as H.
+  unfold ok in H. apply andb_true_iff in H as [_ H].
   apply Nat.eqb_eq, H.
 Qed.
+
+End Roman.
 
 (* An alpha numeral's value, from its first character: an alpha core is
    one character. *)
@@ -424,7 +428,7 @@ Definition style_start (s : lstyle) (core : string) : nat :=
   | SOrd Decimal _ => dec_value core
   | SOrd LetterLower _ => alpha_value false core
   | SOrd LetterUpper _ => alpha_value true core
-  | SOrd RomanLower _ | SOrd RomanUpper _ => roman_value core
+  | SOrd RomanLower _ | SOrd RomanUpper _ => Roman.value core
   end.
 
 Definition with_starts (sty : list lstyle) (core : string)
