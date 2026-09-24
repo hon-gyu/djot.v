@@ -679,15 +679,25 @@ Local Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
   | _ => m
   end.
 
+End WithPolicy.
+End WithTable.
+Module Refs.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
+Section WithPolicy.
+Context {P : PosPolicy}.
+
 (* Pre-order, which is document order, with the same inlined list
    recursion `Ids.of_assign_ids` needs and for the same guard-checker reason. *)
-Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
+Local Fixpoint of_collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
   {struct b} : reference_map :=
   let go :=
     fix go (ns : blocks) (acc : reference_map) {struct ns} : reference_map :=
       match ns with
       | [] => acc
-      | Node p' a' x :: rest => go rest (collect_refs x p' a' acc)
+      | Node p' a' x :: rest => go rest (of_collect_refs x p' a' acc)
       end in
   let goit :=
     fix goit (its : list blocks) (acc : reference_map) {struct its}
@@ -699,12 +709,12 @@ Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
                         {struct ns} : reference_map :=
                         match ns with
                         | [] => acc'
-                        | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                        | Node p' a' x :: more => go' more (of_collect_refs x p' a' acc')
                         end) it acc)
       end in
   match b with
   | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
-  | Keyed _ (Node p' a' x) => collect_refs x p' a' m
+  | Keyed _ (Node p' a' x) => of_collect_refs x p' a' m
   | BulletList _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
       (fix god (its : list (inlines * blocks)) (acc : reference_map)
@@ -716,7 +726,7 @@ Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
                           {struct ns} : reference_map :=
                           match ns with
                           | [] => acc'
-                          | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                          | Node p' a' x :: more => go' more (of_collect_refs x p' a' acc')
                           end) it acc)
          end) items m
   | TaskList _ items =>
@@ -729,17 +739,27 @@ Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
                           {struct ns} : reference_map :=
                           match ns with
                           | [] => acc'
-                          | Node p' a' x :: more => go' more (collect_refs x p' a' acc')
+                          | Node p' a' x :: more => go' more (of_collect_refs x p' a' acc')
                           end) it acc)
          end) items m
   | _ => add_ref p a b m
   end.
 
-Local Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_map :=
+Local Fixpoint of_list (ns : blocks) (m : reference_map) : reference_map :=
   match ns with
   | [] => m
-  | Node p a b :: rest => collect_refs_list rest (collect_refs b p a m)
+  | Node p a b :: rest => of_list rest (of_collect_refs b p a m)
   end.
+
+End WithPolicy.
+End WithTable.
+End Refs.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
+Section WithPolicy.
+Context {P : PosPolicy}.
 
 End WithPolicy.
 End WithTable.
@@ -1085,7 +1105,7 @@ Definition doc_pass (bs : blocks) : doc :=
   let (notes, visible) := Notes.of_list bs' [] in
   {| doc_blocks := sectionize visible
    ; doc_footnotes := notes
-   ; doc_references := collect_refs_list bs' []
+   ; doc_references := Refs.of_list bs' []
    ; doc_auto_references := rev (id_refs st)
    ; doc_auto_identifiers := rev (id_used st) |}.
 
@@ -2446,7 +2466,7 @@ Erasure of the side tables
 The document pass reads the tree and writes two side tables; erasing a
 located tree's positions has to give the document the pass produces on
 the erased tree.  The traversals below are the pos-blind half of that:
-none of `Ids.of_assign_ids`, `Notes.of_collect_notes` or `collect_refs` reads a
+none of `Ids.of_assign_ids`, `Notes.of_collect_notes` or `Refs.of_collect_refs` reads a
 position, so each commutes with `Erase.of_blocks` structurally.  The
 sectionizer is the other half and is not here.
 
@@ -3101,18 +3121,18 @@ Proof.
 Qed.
 
 (*
-collect_refs
+Refs.of_collect_refs
 *)
 
 Local Lemma collect_refs_go : forall ns m,
   (fix go (ns : blocks) (acc : reference_map) : reference_map :=
      match ns with
      | [] => acc
-     | Node p' a' x :: rest => go rest (collect_refs x p' a' acc)
-     end) ns m = collect_refs_list ns m.
+     | Node p' a' x :: rest => go rest (Refs.of_collect_refs x p' a' acc)
+     end) ns m = Refs.of_list ns m.
 Proof.
   induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [collect_refs_list]. rewrite IH. reflexivity.
+  cbn [Refs.of_list]. rewrite IH. reflexivity.
 Qed.
 
 Local Lemma collect_refs_goit : forall its m,
@@ -3124,10 +3144,10 @@ Local Lemma collect_refs_goit : forall its m,
            ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
                match ns with
                | [] => acc'
-               | Node p' a' x :: more => go more (collect_refs x p' a' acc')
+               | Node p' a' x :: more => go more (Refs.of_collect_refs x p' a' acc')
                end) it acc)
      end) its m
-  = fold_left (fun acc it => collect_refs_list it acc) its m.
+  = fold_left (fun acc it => Refs.of_list it acc) its m.
 Proof.
   induction its as [|it rest IH]; intros m; [reflexivity|].
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
@@ -3143,10 +3163,10 @@ Local Lemma collect_refs_god : forall its m,
            ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
                match ns with
                | [] => acc'
-               | Node p' a' x :: more => go more (collect_refs x p' a' acc')
+               | Node p' a' x :: more => go more (Refs.of_collect_refs x p' a' acc')
                end) it acc)
      end) its m
-  = fold_left (fun acc kv => collect_refs_list (snd kv) acc) its m.
+  = fold_left (fun acc kv => Refs.of_list (snd kv) acc) its m.
 Proof.
   induction its as [|[term it] rest IH]; intros m; [reflexivity|].
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
@@ -3162,51 +3182,51 @@ Local Lemma collect_refs_got : forall its m,
            ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
                match ns with
                | [] => acc'
-               | Node p' a' x :: more => go more (collect_refs x p' a' acc')
+               | Node p' a' x :: more => go more (Refs.of_collect_refs x p' a' acc')
                end) it acc)
      end) its m
-  = fold_left (fun acc kv => collect_refs_list (snd kv) acc) its m.
+  = fold_left (fun acc kv => Refs.of_list (snd kv) acc) its m.
 Proof.
   induction its as [|[chk it] rest IH]; intros m; [reflexivity|].
   cbn [fold_left]. rewrite collect_refs_go, IH. reflexivity.
 Qed.
 
 Local Lemma collect_refs_erase : forall b p a m,
-  collect_refs (Erase.of_block b) NoPos a m = collect_refs b p a m.
+  Refs.of_collect_refs (Erase.of_block b) NoPos a m = Refs.of_collect_refs b p a m.
 Proof.
   intros b.
   induction b using block_ind2 with
     (Q := fun ns => forall m,
-        collect_refs_list (Erase.of_blocks ns) m = collect_refs_list ns m)
+        Refs.of_list (Erase.of_blocks ns) m = Refs.of_list ns m)
     (R := fun its => forall m,
-        fold_left (fun acc it => collect_refs_list it acc)
+        fold_left (fun acc it => Refs.of_list it acc)
           (map Erase.of_blocks its) m
-        = fold_left (fun acc it => collect_refs_list it acc) its m)
+        = fold_left (fun acc it => Refs.of_list it acc) its m)
     (D := fun its => forall m,
-        fold_left (fun acc kv => collect_refs_list (snd kv) acc)
+        fold_left (fun acc kv => Refs.of_list (snd kv) acc)
           (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) its) m
-        = fold_left (fun acc kv => collect_refs_list (snd kv) acc) its m)
+        = fold_left (fun acc kv => Refs.of_list (snd kv) acc) its m)
     (K := fun its => forall m,
-        fold_left (fun acc kv => collect_refs_list (snd kv) acc)
+        fold_left (fun acc kv => Refs.of_list (snd kv) acc)
           (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its) m
-        = fold_left (fun acc kv => collect_refs_list (snd kv) acc) its m);
-    intros; try (cbn [Erase.of_block collect_refs]; reflexivity).
-  all: try solve [cbn [Erase.of_block collect_refs]; fold Erase.of_blocks;
+        = fold_left (fun acc kv => Refs.of_list (snd kv) acc) its m);
+    intros; try (cbn [Erase.of_block Refs.of_collect_refs]; reflexivity).
+  all: try solve [cbn [Erase.of_block Refs.of_collect_refs]; fold Erase.of_blocks;
                   rewrite !collect_refs_go; exact (IHb m)].
-  all: try solve [cbn [Erase.of_block collect_refs]; fold Erase.of_blocks;
+  all: try solve [cbn [Erase.of_block Refs.of_collect_refs]; fold Erase.of_blocks;
                   rewrite erase_items_fix; rewrite !collect_refs_goit;
                   exact (IHb m)].
-  all: try solve [cbn [Erase.of_block collect_refs]; fold Erase.of_blocks;
+  all: try solve [cbn [Erase.of_block Refs.of_collect_refs]; fold Erase.of_blocks;
                   rewrite erase_task_items_fix; rewrite !collect_refs_got;
                   exact (IHb m)].
-  all: try solve [cbn [Erase.of_block collect_refs]; fold Erase.of_blocks;
+  all: try solve [cbn [Erase.of_block Refs.of_collect_refs]; fold Erase.of_blocks;
                   rewrite erase_def_items_fix; rewrite !collect_refs_god;
                   exact (IHb m)].
-  all: try solve [destruct b as [p' a' x]; cbn [Erase.of_block collect_refs];
+  all: try solve [destruct b as [p' a' x]; cbn [Erase.of_block Refs.of_collect_refs];
                   pose proof (IHb m) as Hk;
-                  cbn [Erase.of_blocks collect_refs_list] in Hk; exact Hk].
+                  cbn [Erase.of_blocks Refs.of_list] in Hk; exact Hk].
   - (* Q cons *)
-    cbn [Erase.of_blocks collect_refs_list].
+    cbn [Erase.of_blocks Refs.of_list].
     rewrite (IHb p a m), IHb0. reflexivity.
   - (* R cons *)
     cbn [map fold_left].
@@ -3220,10 +3240,10 @@ Proof.
 Qed.
 
 Local Lemma collect_refs_list_erase : forall ns m,
-  collect_refs_list (Erase.of_blocks ns) m = collect_refs_list ns m.
+  Refs.of_list (Erase.of_blocks ns) m = Refs.of_list ns m.
 Proof.
   induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [Erase.of_blocks collect_refs_list].
+  cbn [Erase.of_blocks Refs.of_list].
   rewrite (collect_refs_erase b p a m), IH. reflexivity.
 Qed.
 (* The sectionizer is the one part of the pass that reads a position:

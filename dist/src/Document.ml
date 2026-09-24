@@ -360,80 +360,83 @@ let add_ref _ a b m =
     else m
   | _ -> m
 
-(** val collect_refs :
-    block -> pos -> attr -> reference_map -> reference_map **)
+module Refs =
+ struct
+  (** val of_collect_refs :
+      block -> pos -> attr -> reference_map -> reference_map **)
 
-let rec collect_refs b p a m =
-  let go =
-    let rec go ns acc =
-      match ns with
-      | [] -> acc
-      | n :: rest ->
-        let Node (p', a', x) = n in go rest (collect_refs x p' a' acc)
-    in go
-  in
-  let goit =
-    let rec goit its acc =
-      match its with
-      | [] -> acc
-      | it :: rest ->
-        goit rest
-          (let rec go' ns acc' =
-             match ns with
-             | [] -> acc'
-             | n :: more ->
-               let Node (p', a', x) = n in
-               go' more (collect_refs x p' a' acc')
-           in go' it acc)
-    in goit
-  in
-  (match b with
-   | Section bs -> go bs m
-   | BlockQuote bs -> go bs m
-   | Div bs -> go bs m
-   | OrderedList (_, _, items) -> goit items m
-   | BulletList (_, items) -> goit items m
-   | TaskList (_, items) ->
-     let rec got its acc =
-       match its with
-       | [] -> acc
-       | p0 :: rest ->
-         let (_, it) = p0 in
-         got rest
-           (let rec go' ns acc' =
-              match ns with
-              | [] -> acc'
-              | n :: more ->
-                let Node (p', a', x) = n in
-                go' more (collect_refs x p' a' acc')
-            in go' it acc)
-     in got items m
-   | DefinitionList (_, items) ->
-     let rec god its acc =
-       match its with
-       | [] -> acc
-       | p0 :: rest ->
-         let (_, it) = p0 in
-         god rest
-           (let rec go' ns acc' =
-              match ns with
-              | [] -> acc'
-              | n :: more ->
-                let Node (p', a', x) = n in
-                go' more (collect_refs x p' a' acc')
-            in go' it acc)
-     in god items m
-   | FootnoteDef (_, bs) -> go bs m
-   | Keyed (_, b0) -> let Node (p', a', x) = b0 in collect_refs x p' a' m
-   | _ -> add_ref p a b m)
+  let rec of_collect_refs b p a m =
+    let go =
+      let rec go ns acc =
+        match ns with
+        | [] -> acc
+        | n :: rest ->
+          let Node (p', a', x) = n in go rest (of_collect_refs x p' a' acc)
+      in go
+    in
+    let goit =
+      let rec goit its acc =
+        match its with
+        | [] -> acc
+        | it :: rest ->
+          goit rest
+            (let rec go' ns acc' =
+               match ns with
+               | [] -> acc'
+               | n :: more ->
+                 let Node (p', a', x) = n in
+                 go' more (of_collect_refs x p' a' acc')
+             in go' it acc)
+      in goit
+    in
+    (match b with
+     | Section bs -> go bs m
+     | BlockQuote bs -> go bs m
+     | Div bs -> go bs m
+     | OrderedList (_, _, items) -> goit items m
+     | BulletList (_, items) -> goit items m
+     | TaskList (_, items) ->
+       let rec got its acc =
+         match its with
+         | [] -> acc
+         | p0 :: rest ->
+           let (_, it) = p0 in
+           got rest
+             (let rec go' ns acc' =
+                match ns with
+                | [] -> acc'
+                | n :: more ->
+                  let Node (p', a', x) = n in
+                  go' more (of_collect_refs x p' a' acc')
+              in go' it acc)
+       in got items m
+     | DefinitionList (_, items) ->
+       let rec god its acc =
+         match its with
+         | [] -> acc
+         | p0 :: rest ->
+           let (_, it) = p0 in
+           god rest
+             (let rec go' ns acc' =
+                match ns with
+                | [] -> acc'
+                | n :: more ->
+                  let Node (p', a', x) = n in
+                  go' more (of_collect_refs x p' a' acc')
+              in go' it acc)
+       in god items m
+     | FootnoteDef (_, bs) -> go bs m
+     | Keyed (_, b0) -> let Node (p', a', x) = b0 in of_collect_refs x p' a' m
+     | _ -> add_ref p a b m)
 
-(** val collect_refs_list : blocks -> reference_map -> reference_map **)
+  (** val of_list : blocks -> reference_map -> reference_map **)
 
-let rec collect_refs_list ns m =
-  match ns with
-  | [] -> m
-  | n :: rest ->
-    let Node (p, a, b) = n in collect_refs_list rest (collect_refs b p a m)
+  let rec of_list ns m =
+    match ns with
+    | [] -> m
+    | n :: rest ->
+      let Node (p, a, b) = n in of_list rest (of_collect_refs b p a m)
+ end
 
 module Notes =
  struct
@@ -532,7 +535,7 @@ let doc_pass p bs =
   let (st, bs') = Ids.of_list bs id_state_init in
   let (notes, visible) = Notes.of_list bs' [] in
   { doc_blocks = (sectionize p visible); doc_footnotes = notes;
-  doc_references = (collect_refs_list bs' []); doc_auto_references =
+  doc_references = (Refs.of_list bs' []); doc_auto_references =
   (rev st.id_refs); doc_auto_identifiers = (rev st.id_used) }
 
 (** val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc **)
