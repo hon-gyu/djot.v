@@ -25,7 +25,7 @@ byte columns.  `check/located.ml` exercises these entry points as a
 separate package consumer.
 
 Wikilinks (`[[target|alias]]`, `![[target]]`) are off in djot's table.
-Pass `Djot.Inline.with_wikilinks true Djot.Inline.djot_config` as the
+Pass `Djot.InlineTable.with_wikilinks true Djot.InlineTable.djot_config` as the
 table to switch them on; they parse to `Djot.Ast.Wikilink (embed,
 target, alias)` with both strings as written.
 
