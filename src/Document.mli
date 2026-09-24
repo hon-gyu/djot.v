@@ -34,11 +34,15 @@ val register_id : attr -> id_state -> id_state
 val assign_heading_id :
   pos -> attr -> nat -> inlines -> id_state -> id_state * block node
 
-val assign_ids : block -> pos -> attr -> id_state -> id_state * block node
+module Ids :
+ sig
+  val of_assign_ids :
+    block -> pos -> attr -> id_state -> id_state * block node
 
-val assign_ids_node : block node -> id_state -> id_state * block node
+  val of_node : block node -> id_state -> id_state * block node
 
-val assign_ids_list : blocks -> id_state -> id_state * blocks
+  val of_list : blocks -> id_state -> id_state * blocks
+ end
 
 type sect_state = ((nat * attr) * blocks) list
 

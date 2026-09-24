@@ -184,96 +184,99 @@ let assign_heading_id p a lvl ils st =
      ((add_auto_ref (normalize_label text) ident st'), (Node (p, (("id",
      ident) :: a), (Heading (lvl, ils))))))
 
-(** val assign_ids :
-    block -> pos -> attr -> id_state -> id_state * block node **)
+module Ids =
+ struct
+  (** val of_assign_ids :
+      block -> pos -> attr -> id_state -> id_state * block node **)
 
-let rec assign_ids b p a st =
-  let go =
-    let rec go ns s =
-      match ns with
-      | [] -> (s, [])
-      | n :: rest ->
-        let Node (p', a', x) = n in
-        let (s1, n1) = assign_ids x p' a' s in
-        let (s2, rest1) = go rest s1 in (s2, (n1 :: rest1))
-    in go
-  in
-  (match b with
-   | Heading (lvl, ils) -> assign_heading_id p a lvl ils st
-   | BlockQuote bs ->
-     let (st', bs') = go bs (register_id a st) in
-     (st', (Node (p, a, (BlockQuote bs'))))
-   | Div bs ->
-     let (st', bs') = go bs (register_id a st) in
-     (st', (Node (p, a, (Div bs'))))
-   | OrderedList (oa, sp, items) ->
-     let (st', items') =
-       let rec goit its s =
-         match its with
-         | [] -> (s, [])
-         | it :: rest ->
-           let (s1, it1) = go it s in
-           let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
-       in goit items (register_id a st)
-     in
-     (st', (Node (p, a, (OrderedList (oa, sp, items')))))
-   | BulletList (sp, items) ->
-     let (st', items') =
-       let rec goit its s =
-         match its with
-         | [] -> (s, [])
-         | it :: rest ->
-           let (s1, it1) = go it s in
-           let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
-       in goit items (register_id a st)
-     in
-     (st', (Node (p, a, (BulletList (sp, items')))))
-   | TaskList (sp, items) ->
-     let (st', items') =
-       let rec got its s =
-         match its with
-         | [] -> (s, [])
-         | p0 :: rest ->
-           let (chk, it) = p0 in
-           let (s1, it1) = go it s in
-           let (s2, rest1) = got rest s1 in (s2, ((chk, it1) :: rest1))
-       in got items (register_id a st)
-     in
-     (st', (Node (p, a, (TaskList (sp, items')))))
-   | DefinitionList (sp, items) ->
-     let (st', items') =
-       let rec god its s =
-         match its with
-         | [] -> (s, [])
-         | p0 :: rest ->
-           let (term, it) = p0 in
-           let (s1, it1) = go it s in
-           let (s2, rest1) = god rest s1 in (s2, ((term, it1) :: rest1))
-       in god items (register_id a st)
-     in
-     (st', (Node (p, a, (DefinitionList (sp, items')))))
-   | FootnoteDef (label, bs) ->
-     let (st', bs') = go bs (register_id a st) in
-     (st', (Node (p, a, (FootnoteDef (label, bs')))))
-   | Keyed (label, b0) ->
-     let Node (p', a', x) = b0 in
-     let (st', n') = assign_ids x p' a' (register_id a st) in
-     (st', (Node (p, a, (Keyed (label, n')))))
-   | _ -> ((register_id a st), (Node (p, a, b))))
+  let rec of_assign_ids b p a st =
+    let go =
+      let rec go ns s =
+        match ns with
+        | [] -> (s, [])
+        | n :: rest ->
+          let Node (p', a', x) = n in
+          let (s1, n1) = of_assign_ids x p' a' s in
+          let (s2, rest1) = go rest s1 in (s2, (n1 :: rest1))
+      in go
+    in
+    (match b with
+     | Heading (lvl, ils) -> assign_heading_id p a lvl ils st
+     | BlockQuote bs ->
+       let (st', bs') = go bs (register_id a st) in
+       (st', (Node (p, a, (BlockQuote bs'))))
+     | Div bs ->
+       let (st', bs') = go bs (register_id a st) in
+       (st', (Node (p, a, (Div bs'))))
+     | OrderedList (oa, sp, items) ->
+       let (st', items') =
+         let rec goit its s =
+           match its with
+           | [] -> (s, [])
+           | it :: rest ->
+             let (s1, it1) = go it s in
+             let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
+         in goit items (register_id a st)
+       in
+       (st', (Node (p, a, (OrderedList (oa, sp, items')))))
+     | BulletList (sp, items) ->
+       let (st', items') =
+         let rec goit its s =
+           match its with
+           | [] -> (s, [])
+           | it :: rest ->
+             let (s1, it1) = go it s in
+             let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
+         in goit items (register_id a st)
+       in
+       (st', (Node (p, a, (BulletList (sp, items')))))
+     | TaskList (sp, items) ->
+       let (st', items') =
+         let rec got its s =
+           match its with
+           | [] -> (s, [])
+           | p0 :: rest ->
+             let (chk, it) = p0 in
+             let (s1, it1) = go it s in
+             let (s2, rest1) = got rest s1 in (s2, ((chk, it1) :: rest1))
+         in got items (register_id a st)
+       in
+       (st', (Node (p, a, (TaskList (sp, items')))))
+     | DefinitionList (sp, items) ->
+       let (st', items') =
+         let rec god its s =
+           match its with
+           | [] -> (s, [])
+           | p0 :: rest ->
+             let (term, it) = p0 in
+             let (s1, it1) = go it s in
+             let (s2, rest1) = god rest s1 in (s2, ((term, it1) :: rest1))
+         in god items (register_id a st)
+       in
+       (st', (Node (p, a, (DefinitionList (sp, items')))))
+     | FootnoteDef (label, bs) ->
+       let (st', bs') = go bs (register_id a st) in
+       (st', (Node (p, a, (FootnoteDef (label, bs')))))
+     | Keyed (label, b0) ->
+       let Node (p', a', x) = b0 in
+       let (st', n') = of_assign_ids x p' a' (register_id a st) in
+       (st', (Node (p, a, (Keyed (label, n')))))
+     | _ -> ((register_id a st), (Node (p, a, b))))
 
-(** val assign_ids_node : block node -> id_state -> id_state * block node **)
+  (** val of_node : block node -> id_state -> id_state * block node **)
 
-let assign_ids_node n st =
-  let Node (p, a, b) = n in assign_ids b p a st
+  let of_node n st =
+    let Node (p, a, b) = n in of_assign_ids b p a st
 
-(** val assign_ids_list : blocks -> id_state -> id_state * blocks **)
+  (** val of_list : blocks -> id_state -> id_state * blocks **)
 
-let rec assign_ids_list ns st =
-  match ns with
-  | [] -> (st, [])
-  | n :: rest ->
-    let (st1, n1) = assign_ids_node n st in
-    let (st2, rest1) = assign_ids_list rest st1 in (st2, (n1 :: rest1))
+  let rec of_list ns st =
+    match ns with
+    | [] -> (st, [])
+    | n :: rest ->
+      let (st1, n1) = of_node n st in
+      let (st2, rest1) = of_list rest st1 in (st2, (n1 :: rest1))
+ end
 
 type sect_state = ((nat * attr) * blocks) list
 
@@ -521,7 +524,7 @@ let rec collect_notes_list ns m =
 (** val doc_pass : coq_PosPolicy -> blocks -> doc **)
 
 let doc_pass p bs =
-  let (st, bs') = assign_ids_list bs id_state_init in
+  let (st, bs') = Ids.of_list bs id_state_init in
   let (notes, visible) = collect_notes_list bs' [] in
   { doc_blocks = (sectionize p visible); doc_footnotes = notes;
   doc_references = (collect_refs_list bs' []); doc_auto_references =
