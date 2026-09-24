@@ -12,7 +12,7 @@
 #   rename --file F --module M --begin B --end E --map TSV [--dry-run]
 #                                         workstream C
 #   codediff --old REV:PATH... --new PATH... [--ignore-qualifiers]
-#            [--map TSV]                  "did code move and nothing else"
+#            [--map TSV]                  supplemental textual comparison
 #
 # Every check that fails prints a line starting with HANDBACK and exits 2.
 # The plan says what to do then: stop and ask, do not work around it.
@@ -49,9 +49,10 @@ def handback(msg):
 # ---------------------------------------------------------------------------
 # Lexing: comments and strings blanked, offsets and newlines kept.
 
-def mask(s, ocaml=False):
+def mask(s, ocaml=False, keep_strings=False):
     """Return (code, comment) masks of s: each keeps only its own
-    characters, everything else blanked to spaces (newlines kept)."""
+    characters, everything else blanked to spaces (newlines kept).
+    String literals are blanked unless keep_strings is requested."""
     code, com = list(s), list(s)
     i, n = 0, len(s)
 
@@ -83,7 +84,8 @@ def mask(s, ocaml=False):
                     if ocaml and s[j - 1] == '\\': j += 1; continue
                     break
                 j += 1
-            blank(code, i, j + 1); i = j + 1
+            if not keep_strings: blank(code, i, j + 1)
+            i = j + 1
         elif ocaml and s[i] == "'" and i + 2 < n and s[i + 2] == "'":
             blank(code, i, i + 3); i += 3
         else:
@@ -382,7 +384,7 @@ SPLIT_ANCHORS = {20: 'Local Open Scope string_scope.', 835: 'Section WithTable.'
                  9386: '(*', 9387: 'The pass inverts the view', 9438: '(*',
                  9439: 'The renderer', 9596: '(*', 9597: 'Escapes, pinned',
                  9605: 'End WithTable.',
-                 5617: 'Lemma iscan_str_app :', 5622: 'Qed.',
+                 5616: 'Lemma iscan_str_app :', 5621: 'Qed.',
                  5732: 'Definition istart : iscan := IText false EmptyString None ostart.',
                  9001: "(* A paragraph's lines, in order, into inlines: one scan, with `ibreak`",
                  9006: '  ifinish (iscan_lines l istart).',
@@ -403,15 +405,15 @@ SPLIT_PARTS = [
      'The table in force, the escape encoding, the canonical inline view\n'
      '   `cinline` with its source (`ci_src`), AST (`ci_ast`) and conditions\n'
      '   (`ci_ok`), the canonical paragraph (`ci_para`), and the renderer.'),
-    ('theories/InlineScan.v', [(1974, 4278), (5732, 5732), (5617, 5623),
-                               (9001, 9007), (9150, 9368)], True,
+    ('theories/InlineScan.v', [(1974, 4278), (5732, 5732), (6596, 6598), (5616, 5622),
+                               (9001, 9017), (9107, 9127), (9150, 9368)], True,
      'The inline pass: the single-pass scanner over a paragraph\'s text, its\n'
      '   scope stack, the line-level drivers, `para_inlines`, and the key\n'
      '   connective (`.project/keyed-blocks.md`).'),
-    ('theories/InlineLocated.v', [(4279, 5616), (5624, 5720)], True,
+    ('theories/InlineLocated.v', [(4279, 5615), (9018, 9106)], True,
      'The located scan, and erasure: the located and semantic scans agree\n'
      '   once coordinates are dropped.'),
-    ('theories/InlineInvert.v', [(5721, 5731), (5733, 9000), (9008, 9149),
+    ('theories/InlineInvert.v', [(5623, 5731), (5733, 6595), (6599, 9000), (9128, 9149),
                                  (9386, 9437)], True,
      'The scan inverts the canonical view: scanning a canonical line reaches\n'
      '   the state that emitting its nodes reaches, and a canonical paragraph\n'
@@ -420,13 +422,31 @@ SPLIT_PARTS = [
 SPLIT_AGG_RANGE = (9606, 9630)
 SPLIT_EXAMPLES = ('dev/InlineExamples.v', [(9596, 9604), (9631, None)])
 SECTION_LTACS = ['sem_flush']   # section-local tactics a later part may need
+SPLIT_IMPORTS = {
+    'InlineTable': [],
+    'InlineView': ['InlineTable'],
+    'InlineScan': ['InlineTable', 'InlineView'],
+    'InlineLocated': ['InlineTable', 'InlineView', 'InlineScan'],
+    'InlineInvert': ['InlineTable', 'InlineView', 'InlineScan'],
+}
 
 
 def cmd_split_inline(args):
     dry = '--dry-run' in args
     src_path = 'theories/Inline.v'
     s = open(src_path).read()
+    baseline = subprocess.run(['git', 'show', '155a400:theories/Inline.v'],
+                              capture_output=True, text=True, check=True).stdout
+    if s != baseline:
+        handback('Inline.v differs from the pinned 155a400 source; re-plan the split')
     raw = s.split('\n')
+    coverage = collections.Counter()
+    for _, ranges, _, _ in SPLIT_PARTS:
+        for a, b in ranges:
+            coverage.update(range(a, b + 1))
+    expected = set(range(21, 9596)) - {835, 836}
+    if set(coverage) != expected or any(n != 1 for n in coverage.values()):
+        handback('split ranges must cover the implementation exactly once')
     for ln, want in SPLIT_ANCHORS.items():
         if raw[ln - 1].rstrip() != want:
             handback(f'{src_path}:{ln} is {raw[ln - 1]!r}, expected {want!r}; '
@@ -459,7 +479,7 @@ def cmd_split_inline(args):
             if used and not defined_here:
                 t2, _ = add_section_args(txt, {n for n, p in owner.items() if p != part}, args_of)
                 copies += t2 + '\n'
-        imports = header_imports + ''.join(' ' + os.path.basename(p)[:-2] for p in prev) + '.\n'
+        imports = header_imports + ''.join(' ' + p for p in SPLIT_IMPORTS[mod]) + '.\n'
         text = ('(* ai-disclosure: autonomous *)\n\n(* ' + head + ' *)\n\n' + imports
                 + 'Import ListNotations.\n\nLocal Open Scope string_scope.\n\n')
         if in_sect:
@@ -690,7 +710,11 @@ WRAPPER = re.compile(r'^(Section|End|Context|Module|From|Require|Import|Local Op
 
 
 def code_lines(text, ignore_q, rmap):
-    code, _ = mask(text)
+    code, _ = mask(text, keep_strings=True)
+    # Preserve literal bytes, including whitespace and newlines, before
+    # normalizing layout or names. This is still a textual review aid.
+    code = re.sub(r'"(?:[^"]|"")*"',
+                  lambda m: '__encap_literal_' + m.group(0).encode().hex(), code)
     out = collections.Counter()
     for l in code.split('\n'):
         l = ' '.join(l.split())
