@@ -8,19 +8,22 @@ val alist_set : string -> 'a1 -> (string * 'a1) list -> (string * 'a1) list
 
 type attr = (string * string) list
 
-val integrate : (string * string) -> attr -> attr
+module Attr :
+ sig
+  val integrate : (string * string) -> attr -> attr
 
-val attr_union : attr -> attr -> attr
+  val union : attr -> attr -> attr
 
-val attr_set : string -> string -> attr -> attr
+  val set : string -> string -> attr -> attr
 
-val attr_add_class : string -> attr -> attr
+  val add_class : string -> attr -> attr
 
-val attr_put : (string * string) -> attr -> attr
+  val put : (string * string) -> attr -> attr
 
-val attr_merge : attr -> attr -> attr
+  val merge : attr -> attr -> attr
 
-val attr_apply : attr -> attr -> attr
+  val apply_pending : attr -> attr -> attr
+ end
 
 type spot = { spot_line : nat; spot_rem : nat }
 

@@ -216,20 +216,20 @@ let ap_begin s p =
 let ap_commit_id s p =
   let t = ap_token p in
   { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
-  (if (=) t "" then p.ap_attrs else attr_set "id" t p.ap_attrs) }
+  (if (=) t "" then p.ap_attrs else Attr.set "id" t p.ap_attrs) }
 
 (** val ap_commit_class : astate -> aparser -> aparser **)
 
 let ap_commit_class s p =
   let t = ap_token p in
   { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
-  (if (=) t "" then p.ap_attrs else attr_add_class t p.ap_attrs) }
+  (if (=) t "" then p.ap_attrs else Attr.add_class t p.ap_attrs) }
 
 (** val ap_commit_value : astate -> aparser -> aparser **)
 
 let ap_commit_value s p =
   { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
-    (attr_set p.ap_key (norm_value (ap_token p)) p.ap_attrs) }
+    (Attr.set p.ap_key (norm_value (ap_token p)) p.ap_attrs) }
 
 (** val astep : aparser -> char -> aparser **)
 

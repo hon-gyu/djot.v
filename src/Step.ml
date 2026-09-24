@@ -1182,7 +1182,7 @@ let rec step_fuel t k lI p n off l st =
      | PAttr (pend, specs, range, ind, ap, slices) ->
        if ap_done ap
        then step_fuel t k lI p n' off l (PPend
-              ((attr_merge ap.ap_attrs pend),
+              ((Attr.merge ap.ap_attrs pend),
               (app specs ((extent_span range) :: [])), (PPara [])))
        else if Nat.ltb ind (add off (indent_of l))
             then let ap' = attr_feed l ap in

@@ -426,13 +426,13 @@ let oattach_list h a spec word_start out = match out with
       | SoftBreak -> out
       | _ ->
         (add_inline_role h RAttrSpec spec
-          (let Node (p0, a', v) = n in Node (p0, (attr_merge a a'), v))) :: rest)
+          (let Node (p0, a', v) = n in Node (p0, (Attr.merge a a'), v))) :: rest)
    | _ :: _ ->
      (match x with
       | SoftBreak -> out
       | _ ->
         (add_inline_role h RAttrSpec spec
-          (let Node (p0, a', v) = n in Node (p0, (attr_merge a a'), v))) :: rest))
+          (let Node (p0, a', v) = n in Node (p0, (Attr.merge a a'), v))) :: rest))
 
 (** val oresolve_go : coq_PosPolicy -> oitems -> inlines * bool **)
 
