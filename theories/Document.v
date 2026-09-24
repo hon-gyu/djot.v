@@ -181,6 +181,13 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
        Node p (("id", ident) :: a) (Heading lvl ils))
   end.
 
+End WithTable.
+Module Ids.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
+
 (* Pre-order, which is document order for headings: a heading closes
    before anything that starts after it, and headings do not nest.
 
@@ -189,14 +196,14 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
    block)`, two type constructors deep, which the guard checker will not
    follow from a `node block` principal argument.  `Html.render_block`
    has the same shape for the same reason. *)
-Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
+Fixpoint of_assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   {struct b} : id_state * node block :=
   let go :=
     fix go (ns : blocks) (s : id_state) {struct ns} : id_state * blocks :=
       match ns with
       | [] => (s, [])
       | Node p' a' x :: rest =>
-          let (s1, n1) := assign_ids x p' a' s in
+          let (s1, n1) := of_assign_ids x p' a' s in
           let (s2, rest1) := go rest s1 in
           (s2, n1 :: rest1)
       end in
@@ -214,7 +221,7 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   (* Its one block is a node, not a list, so the recursion is on the
      payload directly and no list wrapper is needed. *)
   | Keyed label (Node p' a' x) =>
-      let (st', n') := assign_ids x p' a' (register_id a st) in
+      let (st', n') := of_assign_ids x p' a' (register_id a st) in
       (st', Node p a (Keyed label n'))
   | BulletList sp items =>
       let (st', items') :=
@@ -273,119 +280,119 @@ Fixpoint assign_ids (b : block) (p : pos) (a : attr) (st : id_state)
   | _ => (register_id a st, Node p a b)
   end.
 
-Definition assign_ids_node (n : node block) (st : id_state)
+Definition of_node (n : node block) (st : id_state)
   : id_state * node block :=
-  match n with Node p a b => assign_ids b p a st end.
+  match n with Node p a b => of_assign_ids b p a st end.
 
-(* The list version, named so proofs can talk about it; `assign_ids`
+(* The list version, named so proofs can talk about it; `of_assign_ids`
    inlines its own copy because Rocq rejects the mutual spelling
    (see Render.v for the same pattern). *)
-Fixpoint assign_ids_list (ns : blocks) (st : id_state) : id_state * blocks :=
+Fixpoint of_list (ns : blocks) (st : id_state) : id_state * blocks :=
   match ns with
   | [] => (st, [])
   | n :: rest =>
-      let (st1, n1) := assign_ids_node n st in
-      let (st2, rest1) := assign_ids_list rest st1 in
+      let (st1, n1) := of_node n st in
+      let (st2, rest1) := of_list rest st1 in
       (st2, n1 :: rest1)
   end.
 
-Fixpoint assign_ids_items (its : list blocks) (st : id_state)
+Fixpoint of_items (its : list blocks) (st : id_state)
   : id_state * list blocks :=
   match its with
   | [] => (st, [])
   | it :: rest =>
-      let (s1, it1) := assign_ids_list it st in
-      let (s2, rest1) := assign_ids_items rest s1 in
+      let (s1, it1) := of_list it st in
+      let (s2, rest1) := of_items rest s1 in
       (s2, it1 :: rest1)
   end.
 
 (* The same over definition items, whose term half is carried through
    untouched: it is inlines, and no identifier is assigned inside one. *)
-Fixpoint assign_ids_def_items (its : list (inlines * blocks)) (st : id_state)
+Fixpoint of_def_items (its : list (inlines * blocks)) (st : id_state)
   : id_state * list (inlines * blocks) :=
   match its with
   | [] => (st, [])
   | (term, it) :: rest =>
-      let (s1, it1) := assign_ids_list it st in
-      let (s2, rest1) := assign_ids_def_items rest s1 in
+      let (s1, it1) := of_list it st in
+      let (s2, rest1) := of_def_items rest s1 in
       (s2, (term, it1) :: rest1)
   end.
 
-Fixpoint assign_ids_task_items (its : list (task_status * blocks)) (st : id_state)
+Fixpoint of_task_items (its : list (task_status * blocks)) (st : id_state)
   : id_state * list (task_status * blocks) :=
   match its with
   | [] => (st, [])
   | (chk, it) :: rest =>
-      let (s1, it1) := assign_ids_list it st in
-      let (s2, rest1) := assign_ids_task_items rest s1 in
+      let (s1, it1) := of_list it st in
+      let (s2, rest1) := of_task_items rest s1 in
       (s2, (chk, it1) :: rest1)
   end.
 
-(* The inner fixpoints of `assign_ids`, named.  Same shape as
+(* The inner fixpoints of `of_assign_ids`, named.  Same shape as
    `pristine_inner_go` and `undo_pass_inner_go`: Rocq will not let the
-   definition mention `assign_ids_list` directly, so the identity is
+   definition mention `of_list` directly, so the identity is
    proved once here. *)
-Local Lemma assign_ids_inner_go :
+Local Lemma inner_go :
   forall ns st,
     (fix go (l : blocks) (s : id_state) : id_state * blocks :=
        match l with
        | [] => (s, [])
        | Node p' a' x :: rest =>
-           let (s1, n1) := assign_ids x p' a' s in
+           let (s1, n1) := of_assign_ids x p' a' s in
            let (s2, rest1) := go rest s1 in
            (s2, n1 :: rest1)
-       end) ns st = assign_ids_list ns st.
+       end) ns st = of_list ns st.
 Proof.
   induction ns as [|[p' a' x] rest IH]; intros st; [reflexivity|].
-  cbn. destruct (assign_ids x p' a' st) as [s1 n1]. rewrite IH. reflexivity.
+  cbn. destruct (of_assign_ids x p' a' st) as [s1 n1]. rewrite IH. reflexivity.
 Qed.
 
-Lemma assign_ids_quote :
+Lemma quote :
   forall p a bs st,
-    assign_ids (BlockQuote bs) p a st
-    = let (st', bs') := assign_ids_list bs (register_id a st) in
+    of_assign_ids (BlockQuote bs) p a st
+    = let (st', bs') := of_list bs (register_id a st) in
       (st', Node p a (BlockQuote bs')).
 Proof.
-  intros p a bs st. cbn [assign_ids].
-  rewrite assign_ids_inner_go. reflexivity.
+  intros p a bs st. cbn [of_assign_ids].
+  rewrite inner_go. reflexivity.
 Qed.
 
-Lemma assign_ids_div :
+Lemma div :
   forall p a bs st,
-    assign_ids (Div bs) p a st
-    = let (st', bs') := assign_ids_list bs (register_id a st) in
+    of_assign_ids (Div bs) p a st
+    = let (st', bs') := of_list bs (register_id a st) in
       (st', Node p a (Div bs')).
 Proof.
-  intros p a bs st. cbn [assign_ids].
-  rewrite assign_ids_inner_go. reflexivity.
+  intros p a bs st. cbn [of_assign_ids].
+  rewrite inner_go. reflexivity.
 Qed.
 
-Lemma assign_ids_foot :
+Lemma foot :
   forall p a label bs st,
-    assign_ids (FootnoteDef label bs) p a st
-    = let (st', bs') := assign_ids_list bs (register_id a st) in
+    of_assign_ids (FootnoteDef label bs) p a st
+    = let (st', bs') := of_list bs (register_id a st) in
       (st', Node p a (FootnoteDef label bs')).
 Proof.
-  intros p a label bs st. cbn [assign_ids].
-  rewrite assign_ids_inner_go. reflexivity.
+  intros p a label bs st. cbn [of_assign_ids].
+  rewrite inner_go. reflexivity.
 Qed.
 
 (* The traversal rewrites items in place, so a list that was nonempty
    still is.  `wf_block (BulletList ...)` needs this. *)
-Lemma assign_ids_items_nonempty :
-  forall its st, nonempty (snd (assign_ids_items its st)) = nonempty its.
+Lemma items_nonempty :
+  forall its st, nonempty (snd (of_items its st)) = nonempty its.
 Proof.
   intros [|it rest] st; [reflexivity|].
-  cbn [assign_ids_items].
-  destruct (assign_ids_list it st) as [s1 it1].
-  destruct (assign_ids_items rest s1) as [s2 rest1].
+  cbn [of_items].
+  destruct (of_list it st) as [s1 it1].
+  destruct (of_items rest s1) as [s2 rest1].
   reflexivity.
 Qed.
 
-Lemma assign_ids_blist :
+Lemma blist :
   forall p a sp items st,
-    assign_ids (BulletList sp items) p a st
-    = let (st', items') := assign_ids_items items (register_id a st) in
+    of_assign_ids (BulletList sp items) p a st
+    = let (st', items') := of_items items (register_id a st) in
       (st', Node p a (BulletList sp items')).
 Proof.
   assert (H : forall its st,
@@ -399,25 +406,25 @@ Proof.
                          match m with
                          | [] => (s', [])
                          | Node p' a' x :: r =>
-                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s2, n2) := of_assign_ids x p' a' s' in
                              let (s3, r1) := go r s2 in
                              (s3, n2 :: r1)
                          end) it s in
                     let (s4, rest1) := goit rest s1 in
                     (s4, it1 :: rest1)
-                end) its st = assign_ids_items its st).
+                end) its st = of_items its st).
   { induction its as [|it rest IH]; intros st; [reflexivity|].
-    cbn [assign_ids_items]. rewrite assign_ids_inner_go.
-    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+    cbn [of_items]. rewrite inner_go.
+    destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [of_assign_ids]. rewrite H. reflexivity.
 Qed.
 
 (* The definition arm, whose inner fixpoint differs from the bullet's
    only in carrying the term past the traversal. *)
-Lemma assign_ids_deflist :
+Lemma deflist :
   forall p a sp items st,
-    assign_ids (DefinitionList sp items) p a st
-    = let (st', items') := assign_ids_def_items items (register_id a st) in
+    of_assign_ids (DefinitionList sp items) p a st
+    = let (st', items') := of_def_items items (register_id a st) in
       (st', Node p a (DefinitionList sp items')).
 Proof.
   assert (H : forall its st,
@@ -431,34 +438,34 @@ Proof.
                          match m with
                          | [] => (s', [])
                          | Node p' a' x :: r =>
-                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s2, n2) := of_assign_ids x p' a' s' in
                              let (s3, r1) := go r s2 in
                              (s3, n2 :: r1)
                          end) it s in
                     let (s4, rest1) := god rest s1 in
                     (s4, (term, it1) :: rest1)
-                end) its st = assign_ids_def_items its st).
+                end) its st = of_def_items its st).
   { induction its as [|[term it] rest IH]; intros st; [reflexivity|].
-    cbn [assign_ids_def_items]. rewrite assign_ids_inner_go.
-    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+    cbn [of_def_items]. rewrite inner_go.
+    destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [of_assign_ids]. rewrite H. reflexivity.
 Qed.
 
-Lemma assign_ids_def_items_nonempty :
+Lemma def_items_nonempty :
   forall its st,
-    nonempty (snd (assign_ids_def_items its st)) = nonempty its.
+    nonempty (snd (of_def_items its st)) = nonempty its.
 Proof.
   intros [|[term it] rest] st; [reflexivity|].
-  cbn [assign_ids_def_items].
-  destruct (assign_ids_list it st) as [s1 it1].
-  destruct (assign_ids_def_items rest s1) as [s2 rest1].
+  cbn [of_def_items].
+  destruct (of_list it st) as [s1 it1].
+  destruct (of_def_items rest s1) as [s2 rest1].
   reflexivity.
 Qed.
 
-Lemma assign_ids_tasklist :
+Lemma tasklist :
   forall p a sp items st,
-    assign_ids (TaskList sp items) p a st
-    = let (st', items') := assign_ids_task_items items (register_id a st) in
+    of_assign_ids (TaskList sp items) p a st
+    = let (st', items') := of_task_items items (register_id a st) in
       (st', Node p a (TaskList sp items')).
 Proof.
   assert (H : forall its st,
@@ -472,35 +479,35 @@ Proof.
                          match m with
                          | [] => (s', [])
                          | Node p' a' x :: r =>
-                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s2, n2) := of_assign_ids x p' a' s' in
                              let (s3, r1) := go r s2 in
                              (s3, n2 :: r1)
                          end) it s in
                     let (s4, rest1) := got rest s1 in
                     (s4, (chk, it1) :: rest1)
-                end) its st = assign_ids_task_items its st).
+                end) its st = of_task_items its st).
   { induction its as [|[chk it] rest IH]; intros st; [reflexivity|].
-    cbn [assign_ids_task_items]. rewrite assign_ids_inner_go.
-    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+    cbn [of_task_items]. rewrite inner_go.
+    destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items st. cbn [of_assign_ids]. rewrite H. reflexivity.
 Qed.
 
-Lemma assign_ids_task_items_nonempty :
+Lemma task_items_nonempty :
   forall its st,
-    nonempty (snd (assign_ids_task_items its st)) = nonempty its.
+    nonempty (snd (of_task_items its st)) = nonempty its.
 Proof.
   intros [|[chk it] rest] st; [reflexivity|].
-  cbn [assign_ids_task_items].
-  destruct (assign_ids_list it st) as [s1 it1].
-  destruct (assign_ids_task_items rest s1) as [s2 rest1].
+  cbn [of_task_items].
+  destruct (of_list it st) as [s1 it1].
+  destruct (of_task_items rest s1) as [s2 rest1].
   reflexivity.
 Qed.
 
 (* The ordered arm is the bullet arm with a different wrapper. *)
-Lemma assign_ids_olist :
+Lemma olist :
   forall p a oa sp items st,
-    assign_ids (OrderedList oa sp items) p a st
-    = let (st', items') := assign_ids_items items (register_id a st) in
+    of_assign_ids (OrderedList oa sp items) p a st
+    = let (st', items') := of_items items (register_id a st) in
       (st', Node p a (OrderedList oa sp items')).
 Proof.
   assert (H : forall its st,
@@ -514,18 +521,25 @@ Proof.
                          match m with
                          | [] => (s', [])
                          | Node p' a' x :: r =>
-                             let (s2, n2) := assign_ids x p' a' s' in
+                             let (s2, n2) := of_assign_ids x p' a' s' in
                              let (s3, r1) := go r s2 in
                              (s3, n2 :: r1)
                          end) it s in
                     let (s4, rest1) := goit rest s1 in
                     (s4, it1 :: rest1)
-                end) its st = assign_ids_items its st).
+                end) its st = of_items its st).
   { induction its as [|it rest IH]; intros st; [reflexivity|].
-    cbn [assign_ids_items]. rewrite assign_ids_inner_go.
-    destruct (assign_ids_list it st) as [s1 it1]. rewrite IH. reflexivity. }
-  intros p a oa sp items st. cbn [assign_ids]. rewrite H. reflexivity.
+    cbn [of_items]. rewrite inner_go.
+    destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
+  intros p a oa sp items st. cbn [of_assign_ids]. rewrite H. reflexivity.
 Qed.
+
+End WithTable.
+End Ids.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
 
 (*
 Section nesting
@@ -666,7 +680,7 @@ Local Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
   end.
 
 (* Pre-order, which is document order, with the same inlined list
-   recursion `assign_ids` needs and for the same guard-checker reason. *)
+   recursion `Ids.of_assign_ids` needs and for the same guard-checker reason. *)
 Local Fixpoint collect_refs (b : block) (p : pos) (a : attr) (m : reference_map)
   {struct b} : reference_map :=
   let go :=
@@ -1047,7 +1061,7 @@ Proof.
 Qed.
 
 Definition doc_pass (bs : blocks) : doc :=
-  let (st, bs') := assign_ids_list bs id_state_init in
+  let (st, bs') := Ids.of_list bs id_state_init in
   let (notes, visible) := collect_notes_list bs' [] in
   {| doc_blocks := sectionize visible
    ; doc_footnotes := notes
@@ -1473,7 +1487,7 @@ Qed.
 
 (* The collection pass needs only this projection of pristine: there is
    no definition node to remove.  Unlike pristine, assigned heading ids
-   do not affect it, so it survives assign_ids. *)
+   do not affect it, so it survives Ids.of_assign_ids. *)
 Local Fixpoint notes_free_block (b : block) {struct b} : bool :=
   let go :=
     fix go (ns : blocks) : bool :=
@@ -1764,70 +1778,70 @@ Undoing the identifiers
 Local Lemma undo_assign_ids :
   forall b p a st,
     pristine_block b a = true ->
-    undo_pass_node (snd (assign_ids b p a st)) = [Node p a b].
+    undo_pass_node (snd (Ids.of_assign_ids b p a st)) = [Node p a b].
 Proof.
   intros b.
   induction b using block_ind2 with
     (Q := fun bs => forall st,
             pristine bs = true ->
-            undo_pass (snd (assign_ids_list bs st)) = bs)
+            undo_pass (snd (Ids.of_list bs st)) = bs)
     (R := fun its => forall st,
             pristine_items its = true ->
-            undo_pass_items (snd (assign_ids_items its st)) = its)
+            undo_pass_items (snd (Ids.of_items its st)) = its)
     (D := fun its => forall st,
             pristine_def_items its = true ->
-            undo_pass_def_items (snd (assign_ids_def_items its st)) = its)
+            undo_pass_def_items (snd (Ids.of_def_items its st)) = its)
     (K := fun its => forall st,
             pristine_task_items its = true ->
-            undo_pass_task_items (snd (assign_ids_task_items its st)) = its);
+            undo_pass_task_items (snd (Ids.of_task_items its st)) = its);
     intros; try reflexivity.
   - (* Section: excluded by pristine *)
     discriminate.
   - (* Heading *)
     cbn [pristine_block] in H.
-    unfold assign_ids, assign_heading_id.
+    unfold Ids.of_assign_ids, assign_heading_id.
     destruct (alist_lookup "id" a) as [v|] eqn:Eid; [discriminate|].
     cbn [snd undo_pass_node undo_pass_block].
     rewrite strip_id_cons by exact Eid. reflexivity.
   - (* BlockQuote *)
     rewrite pristine_quote in H.
-    rewrite assign_ids_quote.
-    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    rewrite Ids.quote.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_quote.
     change bs' with (snd (st', bs')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* Div: the same, one constructor over *)
     rewrite pristine_div in H.
-    rewrite assign_ids_div.
-    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+    rewrite Ids.div.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_div.
     change bs' with (snd (st', bs')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* OrderedList: the same shape as the bullet case below *)
     rewrite pristine_olist in H.
-    rewrite assign_ids_olist.
-    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    rewrite Ids.olist.
+    destruct (Ids.of_items items (register_id a st)) as [st' its'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_olist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* BulletList: the item list, which is what R is for *)
     rewrite pristine_blist in H.
-    rewrite assign_ids_blist.
-    destruct (assign_ids_items items (register_id a st)) as [st' its'] eqn:E.
+    rewrite Ids.blist.
+    destruct (Ids.of_items items (register_id a st)) as [st' its'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_blist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* TaskList: the same over K's *)
     rewrite pristine_tasklist in H.
-    rewrite assign_ids_tasklist.
-    destruct (assign_ids_task_items items (register_id a st)) as [st' its'] eqn:E.
+    rewrite Ids.tasklist.
+    destruct (Ids.of_task_items items (register_id a st)) as [st' its'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_tasklist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
   - (* DefinitionList: the bullet case again, over D's item list *)
     rewrite pristine_deflist in H.
-    rewrite assign_ids_deflist.
-    destruct (assign_ids_def_items items (register_id a st)) as [st' its'] eqn:E.
+    rewrite Ids.deflist.
+    destruct (Ids.of_def_items items (register_id a st)) as [st' its'] eqn:E.
     cbn [snd undo_pass_node]. rewrite undo_pass_deflist.
     change its' with (snd (st', its')). rewrite <- E.
     rewrite IHb by exact H. reflexivity.
@@ -1837,9 +1851,9 @@ Proof.
     destruct b as [p' a' x].
     cbn [pristine_block] in H.
     specialize (IHb (register_id a st)).
-    cbn [assign_ids assign_ids_list assign_ids_node undo_pass undo_pass_node
+    cbn [Ids.of_assign_ids Ids.of_list Ids.of_node undo_pass undo_pass_node
       snd] in *.
-    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    destruct (Ids.of_assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
     cbn [snd] in *.
     assert (Hu : undo_pass [n1] = [Node p' a' x])
       by (apply IHb; cbn [pristine pristine_node]; rewrite H; reflexivity).
@@ -1848,46 +1862,46 @@ Proof.
     cbn [undo_pass_node undo_pass_block]. rewrite Hu. reflexivity.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
     rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
-    cbn [assign_ids_list assign_ids_node].
-    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
-    destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+    cbn [Ids.of_list Ids.of_node].
+    destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
     cbn [snd]. rewrite undo_pass_cons.
-    replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
+    replace n1 with (snd (Ids.of_assign_ids b p a st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hb.
-    replace rest1 with (snd (assign_ids_list rest st1))
+    replace rest1 with (snd (Ids.of_list rest st1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - (* R's cons: one item, then the rest *)
     cbn [pristine_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_items].
-    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
-    destruct (assign_ids_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [Ids.of_items].
+    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
+    destruct (Ids.of_items rest s1) as [s2 rest1] eqn:E2.
     cbn [snd undo_pass_items].
-    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    replace it1 with (snd (Ids.of_list it st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
-    replace rest1 with (snd (assign_ids_items rest s1))
+    replace rest1 with (snd (Ids.of_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - (* D's cons: the term rides through untouched *)
     cbn [pristine_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_def_items].
-    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
-    destruct (assign_ids_def_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [Ids.of_def_items].
+    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
+    destruct (Ids.of_def_items rest s1) as [s2 rest1] eqn:E2.
     cbn [snd undo_pass_def_items].
-    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    replace it1 with (snd (Ids.of_list it st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
-    replace rest1 with (snd (assign_ids_def_items rest s1))
+    replace rest1 with (snd (Ids.of_def_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - (* K's cons: the status rides through untouched *)
     cbn [pristine_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_task_items].
-    destruct (assign_ids_list it st) as [s1 it1] eqn:E1.
-    destruct (assign_ids_task_items rest s1) as [s2 rest1] eqn:E2.
+    cbn [Ids.of_task_items].
+    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
+    destruct (Ids.of_task_items rest s1) as [s2 rest1] eqn:E2.
     cbn [snd undo_pass_task_items].
-    replace it1 with (snd (assign_ids_list it st)) by (rewrite E1; reflexivity).
+    replace it1 with (snd (Ids.of_list it st)) by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
-    replace rest1 with (snd (assign_ids_task_items rest s1))
+    replace rest1 with (snd (Ids.of_task_items rest s1))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
@@ -1896,17 +1910,17 @@ Qed.
    principle does not hand it back as a lemma. *)
 Local Lemma undo_assign_ids_list :
   forall bs st,
-    pristine bs = true -> undo_pass (snd (assign_ids_list bs st)) = bs.
+    pristine bs = true -> undo_pass (snd (Ids.of_list bs st)) = bs.
 Proof.
   induction bs as [|[p a b] rest IH]; intros st H; [reflexivity|].
   rewrite pristine_cons in H. apply andb_true_iff in H as [Hb Hrest].
-  cbn [assign_ids_list assign_ids_node].
-  destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
-  destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+  cbn [Ids.of_list Ids.of_node].
+  destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
+  destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
   cbn [snd]. rewrite undo_pass_cons.
-  replace n1 with (snd (assign_ids b p a st)) by (rewrite E1; reflexivity).
+  replace n1 with (snd (Ids.of_assign_ids b p a st)) by (rewrite E1; reflexivity).
   rewrite undo_assign_ids by exact Hb.
-  replace rest1 with (snd (assign_ids_list rest st1))
+  replace rest1 with (snd (Ids.of_list rest st1))
     by (rewrite E2; reflexivity).
   rewrite IH by exact Hrest. reflexivity.
 Qed.
@@ -2022,48 +2036,48 @@ Qed.
 Local Lemma assign_ids_notes_free :
   forall b p a st,
     notes_free_block b = true ->
-    notes_free_block (node_contents (snd (assign_ids b p a st))) = true.
+    notes_free_block (node_contents (snd (Ids.of_assign_ids b p a st))) = true.
 Proof.
   intros b. induction b using block_ind2 with
     (Q := fun bs => forall st,
         notes_free bs = true ->
-        notes_free (snd (assign_ids_list bs st)) = true)
+        notes_free (snd (Ids.of_list bs st)) = true)
     (R := fun its => forall st,
         notes_free_items its = true ->
-        notes_free_items (snd (assign_ids_items its st)) = true)
+        notes_free_items (snd (Ids.of_items its st)) = true)
     (D := fun its => forall st,
         notes_free_def_items its = true ->
-        notes_free_def_items (snd (assign_ids_def_items its st)) = true)
+        notes_free_def_items (snd (Ids.of_def_items its st)) = true)
     (K := fun its => forall st,
         notes_free_task_items its = true ->
-        notes_free_task_items (snd (assign_ids_task_items its st)) = true);
+        notes_free_task_items (snd (Ids.of_task_items its st)) = true);
     intros; try exact H; try reflexivity.
-  - unfold assign_ids, assign_heading_id.
+  - unfold Ids.of_assign_ids, assign_heading_id.
     destruct (alist_lookup "id" a); cbn [snd node_contents notes_free_block];
       reflexivity.
-  - rewrite notes_free_quote in H. rewrite assign_ids_quote.
-    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+  - rewrite notes_free_quote in H. rewrite Ids.quote.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_quote.
     change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact H.
-  - rewrite notes_free_div in H. rewrite assign_ids_div.
-    destruct (assign_ids_list bs (register_id a st)) as [st' bs'] eqn:E.
+  - rewrite notes_free_div in H. rewrite Ids.div.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_div.
     change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact H.
-  - rewrite notes_free_olist in H. rewrite assign_ids_olist.
-    destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
+  - rewrite notes_free_olist in H. rewrite Ids.olist.
+    destruct (Ids.of_items items (register_id a st)) as [st' items'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_olist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
-  - rewrite notes_free_blist in H. rewrite assign_ids_blist.
-    destruct (assign_ids_items items (register_id a st)) as [st' items'] eqn:E.
+  - rewrite notes_free_blist in H. rewrite Ids.blist.
+    destruct (Ids.of_items items (register_id a st)) as [st' items'] eqn:E.
     cbn [snd node_contents]. rewrite notes_free_blist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
-  - rewrite notes_free_tasklist in H. rewrite assign_ids_tasklist.
-    destruct (assign_ids_task_items items (register_id a st)) as [st' items']
+  - rewrite notes_free_tasklist in H. rewrite Ids.tasklist.
+    destruct (Ids.of_task_items items (register_id a st)) as [st' items']
       eqn:E.
     cbn [snd node_contents]. rewrite notes_free_tasklist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
-  - rewrite notes_free_deflist in H. rewrite assign_ids_deflist.
-    destruct (assign_ids_def_items items (register_id a st)) as [st' items']
+  - rewrite notes_free_deflist in H. rewrite Ids.deflist.
+    destruct (Ids.of_def_items items (register_id a st)) as [st' items']
       eqn:E.
     cbn [snd node_contents]. rewrite notes_free_deflist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
@@ -2073,75 +2087,75 @@ Proof.
     destruct b as [p' a' x]. cbn [notes_free_block] in H.
     specialize (IHb (register_id a st)). cbn [notes_free] in IHb.
     rewrite H in IHb. specialize (IHb eq_refl).
-    cbn [assign_ids assign_ids_list assign_ids_node] in *.
-    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    cbn [Ids.of_assign_ids Ids.of_list Ids.of_node] in *.
+    destruct (Ids.of_assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
     cbn [snd notes_free node_contents] in *.
     destruct n1 as [q b1 y]. cbn [notes_free_block] in *.
     rewrite andb_true_r in IHb. exact IHb.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
-    cbn [assign_ids_list assign_ids_node].
-    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+    cbn [Ids.of_list Ids.of_node].
+    destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
     destruct n1 as [np na nb].
-    destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+    destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
     cbn [snd notes_free].
     pose proof (IHb p a st Hb) as Hnode.
     rewrite E1 in Hnode. cbn [snd node_contents] in Hnode. rewrite Hnode.
     replace (notes_free rest1) with
-      (notes_free (snd (assign_ids_list rest st1)))
+      (notes_free (snd (Ids.of_list rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_items].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [Ids.of_items].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_items rest st1) as [st2 rest1] eqn:E2.
     cbn [snd notes_free_items].
-    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+    replace (notes_free it1) with (notes_free (snd (Ids.of_list it st)))
       by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
     replace (notes_free_items rest1) with
-      (notes_free_items (snd (assign_ids_items rest st1)))
+      (notes_free_items (snd (Ids.of_items rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_def_items].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_def_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [Ids.of_def_items].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_def_items rest st1) as [st2 rest1] eqn:E2.
     cbn [snd notes_free_def_items].
-    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+    replace (notes_free it1) with (notes_free (snd (Ids.of_list it st)))
       by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
     replace (notes_free_def_items rest1) with
-      (notes_free_def_items (snd (assign_ids_def_items rest st1)))
+      (notes_free_def_items (snd (Ids.of_def_items rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [assign_ids_task_items].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_task_items rest st1) as [st2 rest1] eqn:E2.
+    cbn [Ids.of_task_items].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_task_items rest st1) as [st2 rest1] eqn:E2.
     cbn [snd notes_free_task_items].
-    replace (notes_free it1) with (notes_free (snd (assign_ids_list it st)))
+    replace (notes_free it1) with (notes_free (snd (Ids.of_list it st)))
       by (rewrite E1; reflexivity).
     rewrite IHb by exact Hit.
     replace (notes_free_task_items rest1) with
-      (notes_free_task_items (snd (assign_ids_task_items rest st1)))
+      (notes_free_task_items (snd (Ids.of_task_items rest st1)))
       by (rewrite E2; reflexivity).
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
 Local Lemma assign_ids_list_notes_free :
   forall bs st,
-    notes_free bs = true -> notes_free (snd (assign_ids_list bs st)) = true.
+    notes_free bs = true -> notes_free (snd (Ids.of_list bs st)) = true.
 Proof.
   induction bs as [|[p a b] rest IH]; intros st H; [reflexivity|].
   cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
-  cbn [assign_ids_list assign_ids_node].
-  destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
+  cbn [Ids.of_list Ids.of_node].
+  destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
   destruct n1 as [np na nb].
-  destruct (assign_ids_list rest st1) as [st2 rest1] eqn:E2.
+  destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
   cbn [snd notes_free].
   pose proof (assign_ids_notes_free b p a st Hb) as Hnode.
   rewrite E1 in Hnode. cbn [snd node_contents] in Hnode. rewrite Hnode.
-  replace (notes_free rest1) with (notes_free (snd (assign_ids_list rest st1)))
+  replace (notes_free rest1) with (notes_free (snd (Ids.of_list rest st1)))
     by (rewrite E2; reflexivity).
   rewrite IH by exact Hrest. reflexivity.
 Qed.
@@ -2396,11 +2410,11 @@ Proof.
   intros bs H. unfold doc_pass.
   pose proof (pristine_notes_free bs H) as Hfree.
   pose proof (assign_ids_list_notes_free bs id_state_init Hfree) as Hfree'.
-  destruct (assign_ids_list bs id_state_init) as [st bs'] eqn:E.
+  destruct (Ids.of_list bs id_state_init) as [st bs'] eqn:E.
   cbn [snd] in Hfree'.
   rewrite (collect_notes_list_pristine bs' [] Hfree').
   cbn [doc_blocks]. rewrite undo_sectionize.
-  replace bs' with (snd (assign_ids_list bs id_state_init))
+  replace bs' with (snd (Ids.of_list bs id_state_init))
     by (rewrite E; reflexivity).
   apply undo_assign_ids_list. exact H.
 Qed.
@@ -2412,7 +2426,7 @@ Erasure of the side tables
 The document pass reads the tree and writes two side tables; erasing a
 located tree's positions has to give the document the pass produces on
 the erased tree.  The traversals below are the pos-blind half of that:
-none of `assign_ids`, `collect_notes` or `collect_refs` reads a
+none of `Ids.of_assign_ids`, `collect_notes` or `collect_refs` reads a
 position, so each commutes with `Erase.of_blocks` structurally.  The
 sectionizer is the other half and is not here.
 
@@ -2541,53 +2555,53 @@ Proof.
 Qed.
 
 (*
-assign_ids
+Ids.of_assign_ids
 *)
 
 Local Lemma assign_ids_erase :
   forall b p a st,
-    fst (assign_ids (Erase.of_block b) NoPos a st) = fst (assign_ids b p a st)
-    /\ Erase.of_blocks [snd (assign_ids b p a st)]
-       = [snd (assign_ids (Erase.of_block b) NoPos a st)].
+    fst (Ids.of_assign_ids (Erase.of_block b) NoPos a st) = fst (Ids.of_assign_ids b p a st)
+    /\ Erase.of_blocks [snd (Ids.of_assign_ids b p a st)]
+       = [snd (Ids.of_assign_ids (Erase.of_block b) NoPos a st)].
 Proof.
   intros b.
   induction b using block_ind2 with
     (Q := fun bs => forall st,
-        fst (assign_ids_list (Erase.of_blocks bs) st) = fst (assign_ids_list bs st)
-        /\ Erase.of_blocks (snd (assign_ids_list bs st))
-           = snd (assign_ids_list (Erase.of_blocks bs) st))
+        fst (Ids.of_list (Erase.of_blocks bs) st) = fst (Ids.of_list bs st)
+        /\ Erase.of_blocks (snd (Ids.of_list bs st))
+           = snd (Ids.of_list (Erase.of_blocks bs) st))
     (R := fun its => forall st,
-        fst (assign_ids_items (map Erase.of_blocks its) st)
-          = fst (assign_ids_items its st)
-        /\ map Erase.of_blocks (snd (assign_ids_items its st))
-           = snd (assign_ids_items (map Erase.of_blocks its) st))
+        fst (Ids.of_items (map Erase.of_blocks its) st)
+          = fst (Ids.of_items its st)
+        /\ map Erase.of_blocks (snd (Ids.of_items its st))
+           = snd (Ids.of_items (map Erase.of_blocks its) st))
     (D := fun its => forall st,
-        fst (assign_ids_def_items
+        fst (Ids.of_def_items
                (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
                   its) st)
-          = fst (assign_ids_def_items its st)
+          = fst (Ids.of_def_items its st)
         /\ map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
-               (snd (assign_ids_def_items its st))
-           = snd (assign_ids_def_items
+               (snd (Ids.of_def_items its st))
+           = snd (Ids.of_def_items
                     (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
                        its) st))
     (K := fun its => forall st,
-        fst (assign_ids_task_items
+        fst (Ids.of_task_items
                (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its) st)
-          = fst (assign_ids_task_items its st)
+          = fst (Ids.of_task_items its st)
         /\ map (fun kv => (fst kv, Erase.of_blocks (snd kv)))
-               (snd (assign_ids_task_items its st))
-           = snd (assign_ids_task_items
+               (snd (Ids.of_task_items its st))
+           = snd (Ids.of_task_items
                     (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its) st));
     intros; try solve [split; reflexivity].
   - (* Heading *)
-    cbn [Erase.of_block assign_ids]. unfold assign_heading_id. rewrite inlines_text_erase.
+    cbn [Erase.of_block Ids.of_assign_ids]. unfold assign_heading_id. rewrite inlines_text_erase.
     destruct (alist_lookup "id" a) as [v|] eqn:E;
       cbn [fst snd Erase.of_blocks Erase.of_block]; split; reflexivity.
   - (* BlockQuote *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !assign_ids_quote.
-    destruct (assign_ids_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
-    destruct (assign_ids_list bs (register_id a st)) as [st1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Ids.quote.
+    destruct (Ids.of_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
+    destruct (Ids.of_list bs (register_id a st)) as [st1 bs1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2595,9 +2609,9 @@ Proof.
     cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
     rewrite He. reflexivity.
   - (* Div *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !assign_ids_div.
-    destruct (assign_ids_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
-    destruct (assign_ids_list bs (register_id a st)) as [st1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Ids.div.
+    destruct (Ids.of_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
+    destruct (Ids.of_list bs (register_id a st)) as [st1 bs1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2606,9 +2620,9 @@ Proof.
     rewrite He. reflexivity.
   - (* OrderedList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_items_fix.
-    rewrite !assign_ids_olist.
-    destruct (assign_ids_items (map Erase.of_blocks items) (register_id a st)) as [st2 its2] eqn:E2.
-    destruct (assign_ids_items items (register_id a st)) as [st1 its1] eqn:E1.
+    rewrite !Ids.olist.
+    destruct (Ids.of_items (map Erase.of_blocks items) (register_id a st)) as [st2 its2] eqn:E2.
+    destruct (Ids.of_items items (register_id a st)) as [st1 its1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2617,9 +2631,9 @@ Proof.
     rewrite erase_items_fix. rewrite He. reflexivity.
   - (* BulletList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_items_fix.
-    rewrite !assign_ids_blist.
-    destruct (assign_ids_items (map Erase.of_blocks items) (register_id a st)) as [st2 its2] eqn:E2.
-    destruct (assign_ids_items items (register_id a st)) as [st1 its1] eqn:E1.
+    rewrite !Ids.blist.
+    destruct (Ids.of_items (map Erase.of_blocks items) (register_id a st)) as [st2 its2] eqn:E2.
+    destruct (Ids.of_items items (register_id a st)) as [st1 its1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2628,11 +2642,11 @@ Proof.
     rewrite erase_items_fix. rewrite He. reflexivity.
   - (* TaskList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_task_items_fix.
-    rewrite !assign_ids_tasklist.
-    destruct (assign_ids_task_items
+    rewrite !Ids.tasklist.
+    destruct (Ids.of_task_items
       (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) items)
       (register_id a st)) as [st2 its2] eqn:E2.
-    destruct (assign_ids_task_items items (register_id a st)) as [st1 its1] eqn:E1.
+    destruct (Ids.of_task_items items (register_id a st)) as [st1 its1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2641,11 +2655,11 @@ Proof.
     rewrite erase_task_items_fix. rewrite He. reflexivity.
   - (* DefinitionList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_def_items_fix.
-    rewrite !assign_ids_deflist.
-    destruct (assign_ids_def_items
+    rewrite !Ids.deflist.
+    destruct (Ids.of_def_items
       (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) items)
       (register_id a st)) as [st2 its2] eqn:E2.
-    destruct (assign_ids_def_items items (register_id a st)) as [st1 its1] eqn:E1.
+    destruct (Ids.of_def_items items (register_id a st)) as [st1 its1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2653,9 +2667,9 @@ Proof.
     cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
     rewrite erase_def_items_fix. rewrite He. reflexivity.
   - (* FootnoteDef *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !assign_ids_foot.
-    destruct (assign_ids_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
-    destruct (assign_ids_list bs (register_id a st)) as [st1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Ids.foot.
+    destruct (Ids.of_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
+    destruct (Ids.of_list bs (register_id a st)) as [st1 bs1] eqn:E1.
     destruct (IHb (register_id a st)) as [Hf He].
     rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
     rewrite E1, E2 in He. cbn [fst snd] in He.
@@ -2663,22 +2677,22 @@ Proof.
     cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
     rewrite He. reflexivity.
   - (* Keyed *)
-    destruct b as [p' a' x]. cbn [Erase.of_block assign_ids].
-    destruct (assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
-    destruct (assign_ids (Erase.of_block x) NoPos a' (register_id a st)) as [st2 n2] eqn:E2.
+    destruct b as [p' a' x]. cbn [Erase.of_block Ids.of_assign_ids].
+    destruct (Ids.of_assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    destruct (Ids.of_assign_ids (Erase.of_block x) NoPos a' (register_id a st)) as [st2 n2] eqn:E2.
     pose proof (IHb (register_id a st)) as Hk.
-    cbn [Erase.of_blocks assign_ids_list assign_ids_node] in Hk.
+    cbn [Erase.of_blocks Ids.of_list Ids.of_node] in Hk.
     rewrite E1, E2 in Hk. cbn [fst snd] in Hk.
     destruct Hk as [Hf He].
     destruct n1 as [np na nb].
     cbn [Erase.of_blocks Erase.of_block] in He. injection He as Hn2.
     split; [exact Hf|]. subst n2. reflexivity.
   - (* Q cons *)
-    cbn [Erase.of_blocks assign_ids_list assign_ids_node].
-    destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
-    destruct (assign_ids (Erase.of_block b) NoPos a st) as [st2 n2] eqn:E2.
-    destruct (assign_ids_list rest st1) as [st3 rest1] eqn:E3.
-    destruct (assign_ids_list (Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
+    cbn [Erase.of_blocks Ids.of_list Ids.of_node].
+    destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct (Ids.of_assign_ids (Erase.of_block b) NoPos a st) as [st2 n2] eqn:E2.
+    destruct (Ids.of_list rest st1) as [st3 rest1] eqn:E3.
+    destruct (Ids.of_list (Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
     destruct n1 as [np na nb].
     destruct (IHb p a st) as [Hf He]. rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
     destruct (IHb0 st2) as [Hf2 He2]. rewrite E4, Hf, E3 in Hf2, He2. cbn [fst snd] in Hf2, He2.
@@ -2687,21 +2701,21 @@ Proof.
     cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
     rewrite He2. subst n2. reflexivity.
   - (* R cons *)
-    cbn [assign_ids_items map].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-    destruct (assign_ids_items rest st1) as [st3 rest1] eqn:E3.
-    destruct (assign_ids_items (map Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
+    cbn [Ids.of_items map].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+    destruct (Ids.of_items rest st1) as [st3 rest1] eqn:E3.
+    destruct (Ids.of_items (map Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
     destruct (IHb st) as [Hf He]. rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
     destruct (IHb0 st2) as [Hf2 He2]. rewrite E4, Hf, E3 in Hf2, He2. cbn [fst snd] in Hf2, He2.
     split; [exact Hf2|].
     cbn [snd fst map]. rewrite He, He2. reflexivity.
   - (* D cons *)
-    cbn [assign_ids_def_items map fst snd].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-    destruct (assign_ids_def_items rest st1) as [st3 rest1] eqn:E3.
-    destruct (assign_ids_def_items
+    cbn [Ids.of_def_items map fst snd].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+    destruct (Ids.of_def_items rest st1) as [st3 rest1] eqn:E3.
+    destruct (Ids.of_def_items
       (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) rest)
       st2) as [st4 rest2] eqn:E4.
     destruct (IHb st) as [Hf He]. rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
@@ -2709,11 +2723,11 @@ Proof.
     split; [exact Hf2|].
     cbn [snd fst map fst snd]. rewrite He, He2. reflexivity.
   - (* K cons *)
-    cbn [assign_ids_task_items map fst snd].
-    destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-    destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-    destruct (assign_ids_task_items rest st1) as [st3 rest1] eqn:E3.
-    destruct (assign_ids_task_items
+    cbn [Ids.of_task_items map fst snd].
+    destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+    destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+    destruct (Ids.of_task_items rest st1) as [st3 rest1] eqn:E3.
+    destruct (Ids.of_task_items
       (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) rest) st2) as [st4 rest2] eqn:E4.
     destruct (IHb st) as [Hf He]. rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
     destruct (IHb0 st2) as [Hf2 He2]. rewrite E4, Hf, E3 in Hf2, He2. cbn [fst snd] in Hf2, He2.
@@ -2722,16 +2736,16 @@ Proof.
 Qed.
 
 Local Lemma assign_ids_list_erase : forall bs st,
-  fst (assign_ids_list (Erase.of_blocks bs) st) = fst (assign_ids_list bs st)
-  /\ Erase.of_blocks (snd (assign_ids_list bs st))
-     = snd (assign_ids_list (Erase.of_blocks bs) st).
+  fst (Ids.of_list (Erase.of_blocks bs) st) = fst (Ids.of_list bs st)
+  /\ Erase.of_blocks (snd (Ids.of_list bs st))
+     = snd (Ids.of_list (Erase.of_blocks bs) st).
 Proof.
   induction bs as [|[p a b] rest IH]; intros st; [split; reflexivity|].
-  cbn [Erase.of_blocks assign_ids_list assign_ids_node].
-  destruct (assign_ids b p a st) as [st1 n1] eqn:E1.
-  destruct (assign_ids (Erase.of_block b) NoPos a st) as [st2 n2] eqn:E2.
-  destruct (assign_ids_list rest st1) as [st3 rest1] eqn:E3.
-  destruct (assign_ids_list (Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
+  cbn [Erase.of_blocks Ids.of_list Ids.of_node].
+  destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
+  destruct (Ids.of_assign_ids (Erase.of_block b) NoPos a st) as [st2 n2] eqn:E2.
+  destruct (Ids.of_list rest st1) as [st3 rest1] eqn:E3.
+  destruct (Ids.of_list (Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
   destruct n1 as [np na nb].
   destruct (assign_ids_erase b p a st) as [Hf He].
   rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
@@ -2743,17 +2757,17 @@ Proof.
 Qed.
 
 Local Lemma assign_ids_items_erase : forall its st,
-  fst (assign_ids_items (map Erase.of_blocks its) st)
-    = fst (assign_ids_items its st)
-  /\ map Erase.of_blocks (snd (assign_ids_items its st))
-     = snd (assign_ids_items (map Erase.of_blocks its) st).
+  fst (Ids.of_items (map Erase.of_blocks its) st)
+    = fst (Ids.of_items its st)
+  /\ map Erase.of_blocks (snd (Ids.of_items its st))
+     = snd (Ids.of_items (map Erase.of_blocks its) st).
 Proof.
   induction its as [|it rest IH]; intros st; [split; reflexivity|].
-  cbn [assign_ids_items map].
-  destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-  destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-  destruct (assign_ids_items rest st1) as [st3 rest1] eqn:E3.
-  destruct (assign_ids_items (map Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
+  cbn [Ids.of_items map].
+  destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+  destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+  destruct (Ids.of_items rest st1) as [st3 rest1] eqn:E3.
+  destruct (Ids.of_items (map Erase.of_blocks rest) st2) as [st4 rest2] eqn:E4.
   destruct (assign_ids_list_erase it st) as [Hf He].
   rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
   destruct (IH st2) as [Hf2 He2]. rewrite E4, Hf, E3 in Hf2, He2. cbn [fst snd] in Hf2, He2.
@@ -2762,22 +2776,22 @@ Proof.
 Qed.
 
 Local Lemma assign_ids_def_items_erase : forall its st,
-  fst (assign_ids_def_items
+  fst (Ids.of_def_items
          (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) its)
          st)
-    = fst (assign_ids_def_items its st)
+    = fst (Ids.of_def_items its st)
   /\ map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
-       (snd (assign_ids_def_items its st))
-     = snd (assign_ids_def_items
+       (snd (Ids.of_def_items its st))
+     = snd (Ids.of_def_items
               (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) its)
               st).
 Proof.
   induction its as [|[term it] rest IH]; intros st; [split; reflexivity|].
-  cbn [assign_ids_def_items map fst snd].
-  destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-  destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-  destruct (assign_ids_def_items rest st1) as [st3 rest1] eqn:E3.
-  destruct (assign_ids_def_items
+  cbn [Ids.of_def_items map fst snd].
+  destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+  destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+  destruct (Ids.of_def_items rest st1) as [st3 rest1] eqn:E3.
+  destruct (Ids.of_def_items
     (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) rest)
     st2) as [st4 rest2] eqn:E4.
   destruct (assign_ids_list_erase it st) as [Hf He].
@@ -2788,20 +2802,20 @@ Proof.
 Qed.
 
 Local Lemma assign_ids_task_items_erase : forall its st,
-  fst (assign_ids_task_items
+  fst (Ids.of_task_items
          (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its) st)
-    = fst (assign_ids_task_items its st)
+    = fst (Ids.of_task_items its st)
   /\ map (fun kv => (fst kv, Erase.of_blocks (snd kv)))
-       (snd (assign_ids_task_items its st))
-     = snd (assign_ids_task_items
+       (snd (Ids.of_task_items its st))
+     = snd (Ids.of_task_items
               (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its) st).
 Proof.
   induction its as [|[chk it] rest IH]; intros st; [split; reflexivity|].
-  cbn [assign_ids_task_items map fst snd].
-  destruct (assign_ids_list it st) as [st1 it1] eqn:E1.
-  destruct (assign_ids_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
-  destruct (assign_ids_task_items rest st1) as [st3 rest1] eqn:E3.
-  destruct (assign_ids_task_items
+  cbn [Ids.of_task_items map fst snd].
+  destruct (Ids.of_list it st) as [st1 it1] eqn:E1.
+  destruct (Ids.of_list (Erase.of_blocks it) st) as [st2 it2] eqn:E2.
+  destruct (Ids.of_task_items rest st1) as [st3 rest1] eqn:E3.
+  destruct (Ids.of_task_items
     (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) rest) st2) as [st4 rest2] eqn:E4.
   destruct (assign_ids_list_erase it st) as [Hf He].
   rewrite E1, E2 in Hf, He. cbn [fst snd] in Hf, He.
@@ -3297,8 +3311,8 @@ Local Lemma doc_pass_erase : forall bs,
   @doc_pass semantic_pos (Erase.of_blocks bs).
 Proof.
   intros bs. unfold doc_pass.
-  destruct (assign_ids_list bs id_state_init) as [st tagged] eqn:E.
-  destruct (assign_ids_list (Erase.of_blocks bs) id_state_init)
+  destruct (Ids.of_list bs id_state_init) as [st tagged] eqn:E.
+  destruct (Ids.of_list (Erase.of_blocks bs) id_state_init)
     as [st' tagged'] eqn:E'.
   destruct (assign_ids_list_erase bs id_state_init) as [Hst Htagged].
   rewrite E, E' in Hst, Htagged. cbn [fst snd] in Hst, Htagged.
