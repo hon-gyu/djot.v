@@ -16,6 +16,10 @@
   Generate
   Html
   Inline
+  InlineLocated
+  InlineScan
+  InlineTable
+  InlineView
   Line
   List0
   ListDef

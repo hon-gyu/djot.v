@@ -1,7 +1,9 @@
 open Ast
 open Attributes
 open Datatypes
-open Inline
+open InlineScan
+open InlineTable
+open InlineView
 open Line
 open List0
 open ListDef

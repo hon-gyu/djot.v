@@ -24,7 +24,7 @@ Local Open Scope string_scope.
 (** ** Block settings
 
 What the block layer is configurable in, one question per field.  Its
-inline counterpart is `Inline.dconfig`, a table with a side condition
+inline counterpart is `InlineTable.dconfig`, a table with a side condition
 admissible tables satisfy.  The one overlap between the first two
 settings is checked separately by `Invariants.block_prefix_ok`, which
 keeps the class computational rather than threading a proof through the
@@ -805,7 +805,7 @@ Definition erase_cap (c : tcap) : tcap :=
   end.
 
 (* A paragraph's inlines, erased, are the ones the ambient instance
-   builds from the same texts: `Inline.para_inlines_at_erase` with the
+   builds from the same texts: `InlineLocated.para_inlines_at_erase` with the
    line indices the located state recorded thrown away. *)
 Lemma erase_para_inlines_at : forall off ls,
   erase_inlines (@para_inlines_at T located_pos off ls) =

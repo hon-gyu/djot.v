@@ -222,7 +222,7 @@ let () =
 (* Wikilinks, which a consumer switches on: r_wiki_alias and
    r_wiki_embed, together. *)
 let () =
-  let table = Djot.Inline.with_wikilinks true Djot.Inline.djot_config in
+  let table = Djot.InlineTable.with_wikilinks true Djot.InlineTable.djot_config in
   let src = "p [[a|b]] ![[c]] q" in
   let lines = Djot.Strings.line_table src in
   match first_para

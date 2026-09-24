@@ -592,7 +592,7 @@ Qed.
    for all by `para_ok`'s `is_text`; it is a condition on the *pair*.
 
    Vacuous, and deliberately not proved so.  A canonical first line
-   is nonblank, and `^` is in `Inline.needs_escape` (the footnote marker
+   is nonblank, and `^` is in `InlineView.needs_escape` (the footnote marker
    forces it) so none begins with a caret -- but the second half is a
    fact about the inline layer's escape set, and the roundtrip should not
    rest on it silently.  `no_canonical_caption_opener` pins it. *)
@@ -1078,7 +1078,7 @@ The renderer
 ============
 *)
 
-(* `Inline.inline_lines` recovers a paragraph's lines from its inlines. *)
+(* `InlineView.inline_lines` recovers a paragraph's lines from its inlines. *)
 
 (* Render one block to its djot source *lines*.  Line-valued rather than
    string-valued because djot's block structure is line structure: a
@@ -1568,7 +1568,7 @@ Definition render_djot (bs : blocks) : string :=
 End WithTable.
 
 (* `cb_pairs_ok`'s caption conjunct, on the one pair that could reach it:
-   `^` is in `Inline.needs_escape`, so a paragraph of literal `^ cap`
+   `^` is in `InlineView.needs_escape`, so a paragraph of literal `^ cap`
    renders `\^ cap` and the pair is accepted.  Read at djot's own table,
    since the escape set is where the answer comes from. *)
 Example no_canonical_caption_opener :

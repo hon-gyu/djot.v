@@ -9,7 +9,7 @@ it that the parser implements, as a closed document apiece.  Sections 3
 to 6, including claiming a block out of column (5), and every worked
 example of section 7.
 
-The split rule itself is pinned line by line beside `Inline.key_split`;
+The split rule itself is pinned line by line beside `InlineScan.key_split`;
 here the unit is a document, and what is being checked is where the
 block boundaries land.
 *)

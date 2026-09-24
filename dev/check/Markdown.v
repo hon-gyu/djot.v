@@ -39,7 +39,7 @@ Local Notation MdBlocks := (@parse_blocks markdown_table markdown_bconfig _).
 Definition literal_typography_table : dtable :=
   DTable (with_smart_typography false djot_config) eq_refl.
 Local Notation LiteralTypographyInline :=
-  (@Inline.parse_inline_line literal_typography_table).
+  (@InlineScan.parse_inline_line literal_typography_table).
 
 (* `ci_inlines` needs no instance: the AST a canonical inline denotes is
    the same whatever the table spells it with.  Only the source and the
@@ -118,7 +118,7 @@ Definition markdown_with_raw_inline_table : dtable :=
   DTable (with_raw_inline true markdown_like_config) eq_refl.
 
 Example customized_markdown_table_restores_raw_inline :
-  @Inline.parse_inline_line markdown_with_raw_inline_table "`<a>`{=html}"
+  @InlineScan.parse_inline_line markdown_with_raw_inline_table "`<a>`{=html}"
   = [mk (RawInline "html" "<a>")].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -150,8 +150,8 @@ Definition markdown_with_math_table : dtable :=
   DTable (with_math true markdown_like_config) eq_refl.
 
 Example customized_markdown_table_restores_math :
-  (@Inline.parse_inline_line markdown_with_math_table "$`x`",
-   @Inline.parse_inline_line markdown_with_math_table "$$`x`")
+  (@InlineScan.parse_inline_line markdown_with_math_table "$`x`",
+   @InlineScan.parse_inline_line markdown_with_math_table "$$`x`")
   = ([mk (Math InlineMath "x")], [mk (Math DisplayMath "x")]).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -562,8 +562,8 @@ Definition no_attrs_table : dtable :=
   DTable (with_inline_attrs false djot_config) eq_refl.
 
 Example rows_survive_inline_attrs_off :
-  (@Inline.parse_inline_line no_attrs_table "a{-b-}c",
-   @Inline.parse_inline_line no_attrs_table "a{#i}c")
+  (@InlineScan.parse_inline_line no_attrs_table "a{-b-}c",
+   @InlineScan.parse_inline_line no_attrs_table "a{#i}c")
   = ([mk (Str "a"); mk (Delete [mk (Str "b")]); mk (Str "c")],
      [mk (Str "a{#i}c")]).
 Proof. vm_compute. reflexivity. Qed.
@@ -572,7 +572,7 @@ Definition markdown_with_inline_attrs_table : dtable :=
   DTable (with_inline_attrs true markdown_like_config) eq_refl.
 
 Example customized_markdown_table_restores_inline_attrs :
-  @Inline.parse_inline_line markdown_with_inline_attrs_table "[s]{.c}"
+  @InlineScan.parse_inline_line markdown_with_inline_attrs_table "[s]{.c}"
   = [Node NoPos [("class", "c")] (Span [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 

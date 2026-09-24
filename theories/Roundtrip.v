@@ -489,7 +489,7 @@ Qed.
 (* Where the inline layer enters the block roundtrip, and the only place
    it does.  The parser reaches a paragraph as `para_inlines` of the
    lines it read; `cb_ast` names it as `ci_para` of the canonical view.
-   `Inline.para_inlines_ci_para` is what identifies the two, and its
+   `InlineInvert.para_inlines_ci_para` is what identifies the two, and its
    three hypotheses are exactly what `cb_ok` carries: `cis_ok` per line
    from the inline conjunct, nonemptiness derived from the block
    conjunct's `line_ok`, and the trailing-whitespace condition verbatim. *)
@@ -1867,7 +1867,7 @@ Proof.
     rewrite IH. reflexivity.
   - intros label inner IH H.
     destruct (cb_ok_key_parts label inner H) as (_ & _ & Hi & _).
-    change ((String.concat "" [Inline.inline_text (node_contents (ci_ast label))] ++ ":")
+    change ((String.concat "" [InlineView.inline_text (node_contents (ci_ast label))] ++ ":")
               :: render_node_lines (cb_ast inner) = (ci_line [label] ++ ":") :: cb_lines inner).
     rewrite inline_text_ci_ast, (IH Hi). cbn [String.concat ci_line ci_text].
     rewrite !append_empty_r. reflexivity.

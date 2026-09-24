@@ -559,7 +559,7 @@ one the codec can re-spell.
 
 No condition here mentions what a destination may contain: the
 canonical view's conditions on a destination are conditions on the
-rendered line, not on the codec.  `no_nl` (`Inline.ci_ok`) and `no_ws`
+rendered line, not on the codec.  `no_nl` (`InlineView.ci_ok`) and `no_ws`
 (`Render.ref_ok`) are necessary and not sufficient: `dest_bar_breaks_row`
 below is a `no_ws` destination that leaves a table uncanonical, while in
 `dest_backtick_row_ok` the destination escaper and the row scanner

@@ -1,6 +1,6 @@
 open Ast
 open Datatypes
-open Inline
+open InlineTable
 open List0
 open ListDef
 open Nat0

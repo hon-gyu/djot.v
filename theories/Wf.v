@@ -25,7 +25,7 @@ Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
 
-(* `Inline.sem_flush` is local to its own section, and the invariant
+(* `InlineScan.sem_flush` is local to its own section, and the invariant
    proofs below meet the same two spellings: a generic definition
    unfolded at the semantic instances leaves the located forms, which
    `rewrite` and `destruct` do not match against the names the theory is
@@ -513,7 +513,7 @@ Qed.
 (*
 The inline scan emits a well-formed sequence
 ============================================
-`no_adjacent_str` recurses from the front while `Inline.iscan` accumulates
+`no_adjacent_str` recurses from the front while `InlineScan.iscan` accumulates
 at the front of a *reversed* list, so the invariant needs one snoc lemma
 and then reads off the scanner states.
 Why it holds: `flush_text` is the only thing that pushes a `Str`, and it

@@ -1,6 +1,6 @@
 open Ast
 open Datatypes
-open Inline
+open InlineTable
 open Line
 open Step
 open Strings

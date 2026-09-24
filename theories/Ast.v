@@ -449,7 +449,7 @@ Inductive target : Type :=
 
 Inductive quote_type : Type := SingleQuotes | DoubleQuotes.
 
-(* Inline content.  `Inline.para_inlines` produces it one paragraph at a
+(* Inline content.  `InlineScan.para_inlines` produces it one paragraph at a
    time, with the source lines joined by SoftBreak.  A symbol is a node
    rather than text: its default HTML is the literal `:name:`, which HTML
    alone cannot tell apart from text. *)
