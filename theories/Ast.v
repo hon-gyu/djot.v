@@ -63,6 +63,8 @@ Qed.
    that it extracts to a plain OCaml list. *)
 Definition attr : Type := list (string * string).
 
+Module Attr.
+
 (*
 Merging by union
 ----------------
@@ -84,7 +86,7 @@ Local Definition integrate (kv : string * string) (kvs : attr) : attr :=
 
 (* Merge [a] into [b].  For a repeated key the rightmost binding wins, and
    classes concatenate left to right.  New keys are prepended. *)
-Local Definition attr_union (a b : attr) : attr := fold_right integrate b a.
+Local Definition union (a b : attr) : attr := fold_right integrate b a.
 
 (*
 Merging by assignment
@@ -92,33 +94,33 @@ Merging by assignment
 
 Assignment keeps attribute order the way djot.js does, and order is
 observable in a rendered tag, so block attributes use these rather than
-`attr_union`.
+`union`.
 *)
 
-Definition attr_set (k v : string) (a : attr) : attr := alist_set k v a.
+Definition set (k v : string) (a : attr) : attr := alist_set k v a.
 
 (* Classes accumulate, space-separated, within one attribute spec and
    across consecutive ones. *)
-Definition attr_add_class (v : string) (a : attr) : attr :=
+Definition add_class (v : string) (a : attr) : attr :=
   match alist_lookup "class" a with
-  | None => attr_set "class" v a
-  | Some old => attr_set "class" (old ++ " " ++ v) a
+  | None => set "class" v a
+  | Some old => set "class" (old ++ " " ++ v) a
   end.
 
 (* One binding into a set, with the class rule. *)
-Local Definition attr_put (kv : string * string) (a : attr) : attr :=
+Local Definition put (kv : string * string) (a : attr) : attr :=
   if String.eqb (fst kv) "class"
-  then attr_add_class (snd kv) a
-  else attr_set (fst kv) (snd kv) a.
+  then add_class (snd kv) a
+  else set (fst kv) (snd kv) a.
 
 (* Fold a finished attribute spec into the pending set. *)
-Definition attr_merge (new acc : attr) : attr :=
-  fold_left (fun acc' kv => attr_put kv acc') new acc.
+Definition merge (new acc : attr) : attr :=
+  fold_left (fun acc' kv => put kv acc') new acc.
 
 (* A one-binding spec merged into nothing is that binding. *)
-Lemma attr_merge_one : forall kv, attr_merge [kv] [] = [kv].
+Lemma merge_one : forall kv, merge [kv] [] = [kv].
 Proof.
-  intros [k v]. unfold attr_merge, attr_put, attr_add_class, attr_set.
+  intros [k v]. unfold merge, put, add_class, set.
   cbn [fold_left fst snd].
   destruct (String.eqb k "class") eqn:E;
     [apply String.eqb_eq in E; subst k|];
@@ -126,29 +128,31 @@ Proof.
 Qed.
 
 (* Merging never empties a set. *)
-Local Lemma attr_put_cons :
-  forall kv a, exists x r, attr_put kv a = (x :: r)%list.
+Local Lemma put_cons :
+  forall kv a, exists x r, put kv a = (x :: r)%list.
 Proof.
-  intros kv a. unfold attr_put, attr_add_class, attr_set.
+  intros kv a. unfold put, add_class, set.
   destruct (String.eqb (fst kv) "class"); [|apply alist_set_cons].
   destruct (alist_lookup "class" a); apply alist_set_cons.
 Qed.
 
-Lemma attr_merge_cons :
-  forall a kv acc, exists x r, attr_merge a (kv :: acc)%list = (x :: r)%list.
+Lemma merge_cons :
+  forall a kv acc, exists x r, merge a (kv :: acc)%list = (x :: r)%list.
 Proof.
   induction a as [|y a IH]; intros kv acc; [exists kv, acc; reflexivity|].
-  unfold attr_merge in *; cbn [fold_left].
-  destruct (attr_put y (kv :: acc)%list) as [|z r] eqn:E;
-    [destruct (attr_put_cons y (kv :: acc)%list) as [? [? E']];
+  unfold merge in *; cbn [fold_left].
+  destruct (put y (kv :: acc)%list) as [|z r] eqn:E;
+    [destruct (put_cons y (kv :: acc)%list) as [? [? E']];
      rewrite E' in E; discriminate|].
   apply IH.
 Qed.
 
 (* The pending set onto the attributes of the block it decorates.  Plain
    assignment: classes do not accumulate here, as in djot.js. *)
-Local Definition attr_apply (pending a : attr) : attr :=
-  fold_left (fun a' kv => attr_set (fst kv) (snd kv) a') pending a.
+Local Definition apply_pending (pending a : attr) : attr :=
+  fold_left (fun a' kv => set (fst kv) (snd kv) a') pending a.
+
+End Attr.
 
 (*
 Positions
@@ -227,7 +231,7 @@ Definition node_attrs {A : Type} (n : node A) : attr :=
   match n with Node _ a _ => a end.
 
 Definition add_attr {A : Type} (a : attr) (n : node A) : node A :=
-  match n with Node p a' x => Node p (attr_union a' a) x end.
+  match n with Node p a' x => Node p (Attr.union a' a) x end.
 
 Lemma add_attr_mk :
   forall A (a : attr) (x : A), add_attr a (mk x) = Node NoPos a x.
@@ -717,7 +721,7 @@ Assembling blocks
 Definition decorate_head (pending : attr) (bs : blocks) : blocks :=
   match bs with
   | [] => []
-  | Node p a x :: rest => Node p (attr_apply pending a) x :: rest
+  | Node p a x :: rest => Node p (Attr.apply_pending pending a) x :: rest
   end.
 
 (* Decoration touches only the head, so on a nonempty list it commutes

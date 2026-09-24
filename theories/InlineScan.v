@@ -642,7 +642,7 @@ Definition oattach_list `{PosPolicy}
   | Node _ _ SoftBreak :: _ | [] => out
   | n :: rest => add_inline_role RAttrSpec spec
                    (match n with
-                    | Node p a' v => Node p (attr_merge a a') v
+                    | Node p a' v => Node p (Attr.merge a a') v
                     end) :: rest
   end.
 

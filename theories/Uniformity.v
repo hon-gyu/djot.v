@@ -1070,7 +1070,7 @@ Qed.
 Local Lemma step_attr_done :
   forall l pend specs range ind ap slices, ap_done ap = true ->
   step l (PAttr pend specs range ind ap slices)
-  = step l (PPend (attr_merge (ap_attrs ap) pend)
+  = step l (PPend (Attr.merge (ap_attrs ap) pend)
               (specs ++ [extent_span range])%list (PPara [])).
 Proof.
   intros l pend specs range ind ap slices H. unfold step at 1.
@@ -1081,7 +1081,7 @@ Qed.
 Local Lemma parse_lines_attr_done :
   forall ls pend specs range ind ap slices, ap_done ap = true ->
   parse_lines ls (PAttr pend specs range ind ap slices)
-  = parse_lines ls (PPend (attr_merge (ap_attrs ap) pend)
+  = parse_lines ls (PPend (Attr.merge (ap_attrs ap) pend)
                       (specs ++ [extent_span range])%list (PPara [])).
 Proof.
   intros [|l rest] pend specs range ind ap slices H;
@@ -1100,7 +1100,7 @@ Theorem attr_uniformity :
     battrs = true -> classify l = KAttr ap -> ap_done ap = true ->
     match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
     parse_lines (l :: ls) (PPara [])
-    = decorate_head (attr_merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
+    = decorate_head (Attr.merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
 Proof.
   intros l ap ls Hattrs Hcl Hdone Hready.
   cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).

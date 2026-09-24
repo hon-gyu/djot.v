@@ -20,52 +20,55 @@ let rec alist_set k v = function
 
 type attr = (string * string) list
 
-(** val integrate : (string * string) -> attr -> attr **)
+module Attr =
+ struct
+  (** val integrate : (string * string) -> attr -> attr **)
 
-let integrate kv kvs =
-  let (k, v) = kv in
-  (match alist_lookup k kvs with
-   | Some v' ->
-     if (=) k "class"
-     then (k,
-            ((^) v ((^) " " v'))) :: (filter (fun p ->
-                                       negb ((=) (fst p) "class")) kvs)
-     else kvs
-   | None -> (k, v) :: kvs)
+  let integrate kv kvs =
+    let (k, v) = kv in
+    (match alist_lookup k kvs with
+     | Some v' ->
+       if (=) k "class"
+       then (k,
+              ((^) v ((^) " " v'))) :: (filter (fun p ->
+                                         negb ((=) (fst p) "class")) kvs)
+       else kvs
+     | None -> (k, v) :: kvs)
 
-(** val attr_union : attr -> attr -> attr **)
+  (** val union : attr -> attr -> attr **)
 
-let attr_union a b =
-  fold_right integrate b a
+  let union a b =
+    fold_right integrate b a
 
-(** val attr_set : string -> string -> attr -> attr **)
+  (** val set : string -> string -> attr -> attr **)
 
-let attr_set =
-  alist_set
+  let set =
+    alist_set
 
-(** val attr_add_class : string -> attr -> attr **)
+  (** val add_class : string -> attr -> attr **)
 
-let attr_add_class v a =
-  match alist_lookup "class" a with
-  | Some old -> attr_set "class" ((^) old ((^) " " v)) a
-  | None -> attr_set "class" v a
+  let add_class v a =
+    match alist_lookup "class" a with
+    | Some old -> set "class" ((^) old ((^) " " v)) a
+    | None -> set "class" v a
 
-(** val attr_put : (string * string) -> attr -> attr **)
+  (** val put : (string * string) -> attr -> attr **)
 
-let attr_put kv a =
-  if (=) (fst kv) "class"
-  then attr_add_class (snd kv) a
-  else attr_set (fst kv) (snd kv) a
+  let put kv a =
+    if (=) (fst kv) "class"
+    then add_class (snd kv) a
+    else set (fst kv) (snd kv) a
 
-(** val attr_merge : attr -> attr -> attr **)
+  (** val merge : attr -> attr -> attr **)
 
-let attr_merge new0 acc =
-  fold_left (fun acc' kv -> attr_put kv acc') new0 acc
+  let merge new0 acc =
+    fold_left (fun acc' kv -> put kv acc') new0 acc
 
-(** val attr_apply : attr -> attr -> attr **)
+  (** val apply_pending : attr -> attr -> attr **)
 
-let attr_apply pending a =
-  fold_left (fun a' kv -> attr_set (fst kv) (snd kv) a') pending a
+  let apply_pending pending a =
+    fold_left (fun a' kv -> set (fst kv) (snd kv) a') pending a
+ end
 
 type spot = { spot_line : nat; spot_rem : nat }
 
@@ -128,7 +131,7 @@ let node_attrs = function
 (** val add_attr : attr -> 'a1 node -> 'a1 node **)
 
 let add_attr a = function
-| Node (p, a', x) -> Node (p, (attr_union a' a), x)
+| Node (p, a', x) -> Node (p, (Attr.union a' a), x)
 
 type coq_PosPolicy = { mkpos : (provenance -> pos); pos_records : bool }
 
@@ -366,7 +369,8 @@ type blocks = block node list
 let decorate_head pending = function
 | [] -> []
 | n :: rest ->
-  let Node (p, a, x) = n in (Node (p, (attr_apply pending a), x)) :: rest
+  let Node (p, a, x) = n in
+  (Node (p, (Attr.apply_pending pending a), x)) :: rest
 
 (** val invisible_block : block -> bool **)
 

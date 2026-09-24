@@ -734,7 +734,7 @@ Example span_image_marker_merges :
 Proof. vm_compute. reflexivity. Qed.
 
 (* A second spec belongs to the span too, and classes accumulate where
-   other keys overwrite: `attr_merge` is the same rule the block layer
+   other keys overwrite: `Attr.merge` is the same rule the block layer
    uses.  There is no pending text when the second `{` arrives, so
    `oattach_list` finds the span node itself. *)
 Example span_stacked_specs :

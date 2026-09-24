@@ -158,17 +158,17 @@ Definition ap_begin (s : astate) (p : aparser) : aparser :=
 Definition ap_commit_id (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
   AP s EmptyString (ap_key p)
-     (if String.eqb t EmptyString then ap_attrs p else attr_set "id" t (ap_attrs p)).
+     (if String.eqb t EmptyString then ap_attrs p else Attr.set "id" t (ap_attrs p)).
 
 Local Definition ap_commit_class (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
   AP s EmptyString (ap_key p)
-     (if String.eqb t EmptyString then ap_attrs p else attr_add_class t (ap_attrs p)).
+     (if String.eqb t EmptyString then ap_attrs p else Attr.add_class t (ap_attrs p)).
 
 (* A value always commits, empty included, so `{a=""}` carries an `a`. *)
 Local Definition ap_commit_value (s : astate) (p : aparser) : aparser :=
   AP s EmptyString (ap_key p)
-     (attr_set (ap_key p) (norm_value (ap_token p)) (ap_attrs p)).
+     (Attr.set (ap_key p) (norm_value (ap_token p)) (ap_attrs p)).
 
 Definition astep (p : aparser) (c : ascii) : aparser :=
   match ap_st p with

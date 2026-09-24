@@ -1049,7 +1049,7 @@ Local Lemma afeed_id_acc :
   forall id tok key attrs,
     id_chars_ok id = true -> nonempty_str tok = true ->
     afeed (id ++ ("}" ++ attr_nl)) (AP AId tok key attrs)
-    = (AP ADone "" key (attr_set "id" (rev_string tok ++ id) attrs), attr_nl).
+    = (AP ADone "" key (Attr.set "id" (rev_string tok ++ id) attrs), attr_nl).
 Proof.
   induction id as [|c rest IH]; intros tok key attrs Hids Htok.
   - cbn [append afeed ap_st astep].
@@ -1091,7 +1091,7 @@ Proof.
   pose proof (afeed_id_acc rest (String c "") "" [] Hr eq_refl) as Ha.
   rewrite append_assoc, Ha.
   cbn [rev_string append ap_failed ap_done blank_to_eol negb andb
-       attr_set alist_set].
+       Attr.set alist_set].
   reflexivity.
 Qed.
 
@@ -1646,7 +1646,7 @@ Proof.
                  (a :: more ++ "" :: cb_lines next ++ tail)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).
-      cbn [ap_attrs]. rewrite attr_merge_one.
+      cbn [ap_attrs]. rewrite Attr.merge_one.
       cbn [app] in IHtail. rewrite (IHtail next tail Hpair Hnext Hinner).
       apply decorate_head_cb_ast, Hnid.
     + intros H.
@@ -1659,7 +1659,7 @@ Proof.
                  (a :: more)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).
-      cbn [ap_attrs]. rewrite attr_merge_one.
+      cbn [ap_attrs]. rewrite Attr.merge_one.
       rewrite (IHend Hinner).
       apply decorate_head_cb_ast, Hnid.
   - (* key: the child prefix passes the wrapper until its first output. *)

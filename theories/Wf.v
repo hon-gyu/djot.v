@@ -821,16 +821,16 @@ node side -- the same three as above, over `isnoc` rather than `osnoc`.
 *)
 
 (* Merging attributes onto a node cannot turn it into a plain `Str`:
-   either it already carried some, and `attr_merge_cons` says it still
+   either it already carried some, and `Attr.merge_cons` says it still
    does, or it carried none and its payload was not a `Str`. *)
 Local Lemma plain_str_reattr :
   forall p a' v a,
     plain_str (Node p a' v) = false ->
-    plain_str (Node p (attr_merge a a') v) = false.
+    plain_str (Node p (Attr.merge a a') v) = false.
 Proof.
   intros p [|kv a'] v a H;
-    [|destruct (attr_merge_cons a kv a') as [x [r E]]; rewrite E; reflexivity].
-  destruct (attr_merge a []) as [|z r];
+    [|destruct (Attr.merge_cons a kv a') as [x [r E]]; rewrite E; reflexivity].
+  destruct (Attr.merge a []) as [|z r];
     [destruct v; try reflexivity; discriminate H|reflexivity].
 Qed.
 
@@ -948,7 +948,7 @@ Proof.
   - exact Ho.
   - assert (Hre : plain_str (Node p a' v) = false ->
                   rlist_ok (add_inline_role RAttrSpec spec
-                              (Node p (attr_merge a a') v) :: out) = true).
+                              (Node p (Attr.merge a a') v) :: out) = true).
     { intros Hp. apply rlist_ok_reattr with (n := Node p a' v);
         [exact Ho | reflexivity | apply plain_str_reattr, Hp | exact Hp]. }
     destruct a' as [|kv a'']; destruct v;

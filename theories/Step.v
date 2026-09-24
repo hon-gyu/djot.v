@@ -2030,7 +2030,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              blank closes it. *)
           if ap_done ap
           then step_fuel n' off l
-                 (PPend (attr_merge (ap_attrs ap) pend)
+                 (PPend (Attr.merge (ap_attrs ap) pend)
                     (specs ++ [extent_span range])%list (PPara []))
           else if Nat.ltb ind (off + indent_of l)
           then
@@ -2357,7 +2357,7 @@ Proof.
   - (* an open attribute spec: every branch but "take the line" hands the
        line on, and each target is shallower than PAttr's depth of 2 *)
     cbn [pstate_depth] in Hn |- *.
-    set (q := PPend (attr_merge (ap_attrs aap) apend) (aspecs ++ [extent_span arng])%list (PPara [])).
+    set (q := PPend (Attr.merge (ap_attrs aap) apend) (aspecs ++ [extent_span arng])%list (PPara [])).
     assert (Hq : pstate_depth q = 1) by reflexivity.
     destruct (ap_done aap).
     + rewrite (IH n' _ l q) by lia.
@@ -3001,7 +3001,7 @@ Proof.
      turns into *)
   { cbn [pad_state step_fuel open_line].
     destruct (ap_done aap).
-    { pose proof (IH k off l (PPend (attr_merge (ap_attrs aap) apend) (aspecs ++ [extent_span arng])%list (PPara [])))
+    { pose proof (IH k off l (PPend (Attr.merge (ap_attrs aap) apend) (aspecs ++ [extent_span arng])%list (PPara [])))
         as H; cbn [pad_state] in H; rewrite H; reflexivity. }
     { rewrite <- Nat.add_assoc, ltb_add_mono_l.
       destruct (Nat.ltb aind (off + indent_of l)).
@@ -4788,7 +4788,7 @@ Proof.
         | apply close_reopen_line_erase; exact Hd ].
   - (* PAttr *)
     cbn [step_fuel erase_state]. destruct (ap_done ap).
-    + rewrite (IH off l (PPend (attr_merge (ap_attrs ap) pend)
+    + rewrite (IH off l (PPend (Attr.merge (ap_attrs ap) pend)
         (specs ++ [extent_span range])%list (PPara []))).
       cbn [erase_state erase_lines map]. rewrite map_app. reflexivity.
     + destruct (Nat.ltb ind (off + indent_of l)).
