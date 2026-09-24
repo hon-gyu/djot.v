@@ -201,19 +201,15 @@ Definition setext_bconfig : bconfig :=
    `.project/keyed-blocks.md` is stated against. *)
 Definition keyed_bconfig : bconfig := with_keyed true djot_bconfig.
 
-(* The block half of the Markdown-facing profile.  Apply the field-local
-   knobs rather than spelling a record so adding another independent block
-   setting has one composition point. Core CommonMark has no tables. *)
-Definition markdown_bconfig : bconfig :=
-  with_block_attrs false
-   (with_deflists false
-    (with_raw_blocks false
-     (with_tasks false
-      (with_divs false
-       (with_heading_continuation false
-         (with_tables false
-           (with_underline setext_underline
-             (with_marker_interrupts prose_safe_markers djot_bconfig)))))))).
+(* The block half of the Markdown-like profile: djot plus the Markdown
+   readings a Markdown writer relies on.  Setext underlines and sublists
+   without a blank line are additions; an ATX heading is one line, because
+   `# a` then `# b` is two headings to a Markdown reader.  Every other
+   construct stays djot's. *)
+Definition markdown_like_bconfig : bconfig :=
+  with_heading_continuation false
+    (with_underline setext_underline
+      (with_marker_interrupts prose_safe_markers djot_bconfig)).
 
 (* Classification remains profile-independent.  This projection is the
    construct-creation gate: disabling tasks changes only a recognized task

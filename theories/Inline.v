@@ -25,8 +25,8 @@ Local Open Scope string_scope.
 Djot's instance
 ---------------
 
-The table in force for everything downstream.  A second one lives in
-`dev/check/Markdown.v`, named explicitly rather than put in scope: two
+The table in force for everything downstream.  A second one,
+`markdown_like_table` below, is named explicitly rather than put in scope: two
 instances of one class in one scope is how the wrong table gets
 inferred.
 *)
@@ -35,12 +35,8 @@ inferred.
   DTable djot_config eq_refl.
 
 (* The Markdown-like table, as an instance but deliberately *not* an
-   `Instance`: it is named where it is wanted (`dev/check/Markdown.v`) so
-   that inference in this development always means djot's. *)
-Definition markdown_table : dtable :=
-  DTable markdown_config eq_refl.
-
-(* The narrower profile keeps Markdown spelling and switches off every
-   djot-only delimiter container. *)
+   `Instance`: it is named where it is wanted (`Profile.v`,
+   `dev/check/Markdown.v`) so that inference in this development always
+   means djot's. *)
 Definition markdown_like_table : dtable :=
   DTable markdown_like_config eq_refl.

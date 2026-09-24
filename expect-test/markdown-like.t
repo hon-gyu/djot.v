@@ -33,7 +33,7 @@
   > Compute render_html (parse_profile_doc markdown_like_profile
   >   "a---b and ...").
   > EOF
-  "<p>a---b and ...</p>
+  "<p>a—b and …</p>
   "
 
   $ ss <<'EOF'
@@ -42,6 +42,5 @@
   > <b>x</b>
   > ```").
   > EOF
-  "<pre><code class=""language-=html"">&lt;b&gt;x&lt;/b&gt;
-  </code></pre>
+  "<b>x</b>
   "

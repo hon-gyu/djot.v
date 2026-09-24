@@ -90,14 +90,13 @@ strong character differs from the emphasis character, configurably, with
 djot as the instance that disables it.
 
 **The tables this ships.** The point is not "a knob"; it is named
-configurations, all inhabitants of one family. `markdown_config` isolates
-the doubled-strong decision; `markdown_like_config` starts there and disables
-the seven djot-only delimiter containers.
+configurations, all inhabitants of one family. `markdown_like_config` is
+djot's table with the strong row changed, and nothing else: every djot-only
+container stays on, and switching one off is a separate knob.
 
 | | emphasis | strong | a lone `*` |
 | --- | --- | --- | --- |
 | `djot_config` | `_` | `*` | strong |
-| `markdown_config` | `_` | `**` | literal text |
 | `markdown_like_config` | `_` | `**` | literal text |
 
 The second is Markdown's *spelling* with djot's *semantics*: no run-length
@@ -121,7 +120,7 @@ width.
 **Status: settled and pinned.** The table is now a record (`dconfig` in
 `theories/Inline.v`) carrying, per row, the character it is written
 with, how wide it is and how it may be written; `djot_config` and
-`markdown_config` are its two inhabitants. `dstyle_of` looks a character
+`markdown_like_config` are its two inhabitants. `dstyle_of` looks a character
 up in the table instead of repeating it, so the character assignment
 lives in one place.
 
@@ -217,7 +216,7 @@ The pieces, in the order they bite:
    `dtable` is a class carrying a `dconfig` *and* its `dconfig_ok` proof,
    so an instance is admissible or it does not exist, and `Inline.v`'s
    whole general half is a section over one. `djot_table` is an exported
-   instance and `markdown_table` is a plain definition, named where it is
+   instance and `markdown_like_table` is a plain definition, named where it is
    wanted -- two instances of one class in scope is how the wrong table
    gets inferred.
 
@@ -229,7 +228,7 @@ The pieces, in the order they bite:
 
    `dev/check/Markdown.v` is the payoff. It used to need a recipe -- point
    `config` at the second table, truncate the djot examples, rebuild --
-   and now it names `markdown_table` in four notations and compiles
+   and now it names `markdown_like_table` in its notations and compiles
    against the ordinary build, beside djot's own examples.
 
    One fact fell out of the discharge that is worth keeping: `ci_inlines`
@@ -253,7 +252,7 @@ The pieces, in the order they bite:
    ```
 
    `dev/check/Markdown.v` closes the loop by *applying* them:
-   `md_roundtrip_blocks` is `@roundtrip_blocks markdown_table`, the same
+   `md_roundtrip_blocks` is `@roundtrip_blocks markdown_like_table`, the same
    proof term at the other instance. Not a rebuild -- the rebuild audit
    could only ever say "the script still works"; this says the theorem
    holds of the family and names two inhabitants.
@@ -276,7 +275,7 @@ The pieces, in the order they bite:
 
 **Where the second-table build stops.** Every general statement in
 `Inline.v` and every file downstream of it -- `Wf.v`, `Roundtrip.v`,
-`Parser.v`, the renderer -- compiles under `markdown_config`, and also
+`Parser.v`, the renderer -- compiles under `markdown_like_config`, and also
 under a table that additionally switches a row off. Measured by pointing
 `config` at it, truncating `Inline.v`'s pinned examples and building the
 rest: what fails is exactly those examples, which spell djot's `*a*` as
@@ -288,7 +287,7 @@ buys is saying so in the statements rather than by rebuilding.
 
 - *The extension is non-conservative.* Every string the second table
   reads differently is already a valid djot document: `*a*` is strong in
-  djot and literal under `markdown_config`, `**a**` is nested strong
+  djot and literal under `markdown_like_config`, `**a**` is nested strong
   there and one strong span here. So the theorem cannot be "we extend
   djot"; it is "djot's table and the Markdown-like table are both
   inhabitants of a family satisfying the same invariants".
@@ -298,7 +297,7 @@ buys is saying so in the statements rather than by rebuilding.
   claim the same character. That is `dconfig_ok`, a decidable check on a
   table, and `dstyle_at_dchar` is what it buys -- a row's own character
   finds that row again, which is the only fact about the table the
-  scanner needs. `djot_config_ok` and `markdown_config_ok` check it;
+  scanner needs. `djot_config_ok` and `markdown_like_config_ok` check it;
   `clashing_config_not_ok` shows it has teeth, and
   `clashing_config_ok_when_off` shows switching a row off frees its
   character.
@@ -307,7 +306,7 @@ buys is saying so in the statements rather than by rebuilding.
   `drow_update_compatible` checks exactly what is not inherited from the
   input table: the new row is intrinsically valid and its trigger differs
   from every unchanged enabled row. `update_drow_preserves_admissible` proves that
-  check sufficient. `markdown_config` is the update of djot's strong row to
+  check sufficient. `markdown_like_config` is the update of djot's strong row to
   `markdown_strong_entry`; executable controls reject a clash with `_`, a
   scanner-reserved backslash, and width zero.
 
@@ -317,14 +316,13 @@ buys is saying so in the statements rather than by rebuilding.
   optional for the rest. Off is what makes "which containers exist" a
   setting rather than a fixed list.
 
-- *A reduced profile composes those switches.* `disable_rows` lifts the
-  single-row preservation theorem over an explicit list.
-  `markdown_like_config` disables superscript, subscript, highlight, insert,
-  delete and both quote rows; `dev/check/Markdown.v` pins their literal reading,
-  rejection from the canonical fragment, and document roundtrip.
+- *Switches compose.* `disable_rows` lifts the single-row preservation
+  theorem over an explicit list. No shipped profile disables a row;
+  `dev/check/Capabilities.v` disables all seven djot-only containers and
+  pins their literal reading and rejection from the canonical fragment.
 
 **The open sub-questions, now measured.** `dev/check/Markdown.v` pins
-`markdown_config`'s behaviour -- thirty examples, with the two-step
+`markdown_like_config`'s behaviour -- thirty examples, with the two-step
 recipe in its header (point `config` at it, truncate `Inline.v`'s
 djot-specific examples, compile). No oracle can adjudicate any of this:
 djot.js has no doubled row, so the evidence is what our own table does,
@@ -347,7 +345,7 @@ which is why it is pinned rather than described.
   was never stated in positions.
 
 **The compatibility fact**, which is what discipline 4 asks for: what
-changes under `markdown_config` is every document that used `*` for
+changes under `markdown_like_config` is every document that used `*` for
 strong. `*a*` is literal text there, and `**a**` is one strong span where
 djot reads nested strong. Emphasis is untouched, since `_` is emphasis in
 both tables. The change is loud rather than silent -- a document whose
@@ -566,10 +564,11 @@ to need a decision no oracle can settle.
 
 ## Settled: `E4`, tables as a profile capability
 
-**Ask.** The reduced Markdown-like profile should not expose djot tables.
-Core CommonMark defines no table construct; GFM adds pipe tables but no
-caption syntax. Captions therefore remain a separate future extension rather
-than being invented as part of this profile.
+**Ask.** A profile should be able to leave djot tables out. Core CommonMark
+defines no table construct; GFM adds pipe tables but no caption syntax. The
+ask came from an earlier Markdown-like profile that removed tables; that
+profile now keeps them (see the profiles entry below), so `btables` is a
+capability every shipped profile leaves on.
 
 **Boundary.** `Line.classify` continues to recognize a syntactic row as
 `KRow`; classification is shared evidence, not a feature decision. A new
@@ -592,18 +591,18 @@ assembly, caption, or renderer data type changes.
 **Status: settled and pinned.** The prediction held. `btables` is the third
 field of `bconfig`; `with_tables` preserves block incrementality and the
 lone-dash compatibility invariant. Djot and the individual sublist/setext
-profiles keep it enabled, while `markdown_bconfig` disables it.
-`dev/check/Markdown.v` pins a two-row table spelling as one paragraph and checks
-that `CTable` is outside that profile's canonical fragment. Typography stays
-independent of tables: `dc_smart_typography` now makes `---` literal in the
-Markdown-like profile while djot continues to read it as an em dash.
+profiles keep it enabled, and so does `markdown_like_bconfig`.
+`dev/check/Capabilities.v` pins a two-row table spelling as one paragraph with
+tables off and checks that `CTable` is then outside the canonical fragment.
+Typography stays independent of tables: `with_smart_typography false` makes
+`---` literal without touching tables.
 
 ## Settled: single-line ATX headings in the Markdown profile
 
 Djot lets a same-level heading marker or a plain text line continue an open
 heading. This makes `# a` / `# b` one heading, a silent surprise for Markdown
 authors. `bheading_continues` now states that choice explicitly: djot keeps it
-enabled and `markdown_bconfig` disables it.
+enabled and `markdown_like_bconfig` disables it.
 
 The disabled transition closes the heading and opens the current line exactly
 as the idle state would, without a second source read or another fuel step.
@@ -621,10 +620,20 @@ sides of the canonical-view boundary.
 `with_inline_profile` and `with_block_profile` retain arbitrary combinations
 of the fine-grained knobs.
 
-Fenced divs are the first Djot-only block construct switched off in the
-Markdown-like value. `bdivs` acts only at `KDiv` opening, and `cb_ok` excludes
-`CDiv` at the same setting. Djot remains enabled, and a customization witness
-restores divs on top of every other Markdown-like choice.
+The Markdown-like profile extends djot: it adds `**` strong, setext
+underlines and sublists without a blank line, and makes ATX headings one
+line, and it switches nothing off. A capability is disabled only where a
+Markdown spelling needs it, and heading continuation is the one such case.
+Removing a djot construct is a knob a caller applies to either profile
+(`dev/check/Capabilities.v`), not part of a profile's definition. Every
+guarantee the development proves (roundtrip, well-formedness, block
+incrementality, single-pass inline scanning, wrap neutrality) holds at
+every setting of these knobs, so a profile's choice among them is a
+default, not a restriction.
+
+Fenced divs were the first djot-only block construct given a switch.
+`bdivs` acts only at `KDiv` opening, and `cb_ok` excludes `CDiv` at the same
+setting.
 
 Task lists deliberately do not receive a nominal boolean in this step. Their
 classifier erases `[x]` versus `[X]`, source that is required when task syntax

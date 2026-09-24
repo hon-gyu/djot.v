@@ -573,7 +573,10 @@ Qed.
 Definition markdown_strong_entry : dentry :=
   DEntry "*"%char 2 DBare DDSelf.
 
-Definition markdown_config : dconfig :=
+(* The Markdown-like table is djot's with that one row changed.  Every
+   other capability stays on: the profile extends djot rather than
+   removing from it, and each capability remains a knob of its own. *)
+Definition markdown_like_config : dconfig :=
   update_drow DStrong markdown_strong_entry djot_config.
 
 (* Executable witnesses for each part of the compatibility boundary. *)
@@ -680,22 +683,6 @@ Proof.
   - apply IH. exact (disable_row_preserves_admissible target C H).
 Qed.
 
-(* CommonMark has only emphasis and strong among these delimiter containers.
-   This is intentionally called Markdown-like rather than CommonMark: the
-   scanner still uses djot's simpler opening and closing rules. *)
-Local Definition markdown_like_disabled_rows : list dstyle :=
-  [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote].
-
-Definition markdown_like_config : dconfig :=
-  with_inline_attrs false
-    (with_math false
-      (with_raw_inline false
-        (with_smart_typography false
-          (disable_rows markdown_like_disabled_rows markdown_config)))).
-
-Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
-Proof. vm_compute. reflexivity. Qed.
-
 Local Lemma dconfig_ok_distinct :
   forall C, dconfig_ok C = true -> dconfig_distinct C = true.
 Proof. intros C H. apply andb_true_iff in H as [H _]. exact H. Qed.
@@ -784,7 +771,7 @@ Definition reference_inlines_text (ns : inlines) : string :=
 Example djot_config_ok : dconfig_ok djot_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
-Example markdown_config_ok : dconfig_ok markdown_config = true.
+Example markdown_like_config_ok : dconfig_ok markdown_like_config = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (* And a table that is not admissible, so the condition is known to have
@@ -817,7 +804,7 @@ Proof. vm_compute. reflexivity. Qed.
    roundtrip theorems are about the family rather than about djot.
 
    A class, so that the argument stays implicit.  Another table is named
-   explicitly (`@parse_inline_line markdown_table`). *)
+   explicitly (`@parse_inline_line markdown_like_table`). *)
 Class dtable : Type := DTable {
   cfg : dconfig;
   cfg_ok : dconfig_ok cfg = true

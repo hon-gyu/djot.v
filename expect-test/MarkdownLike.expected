@@ -7,10 +7,9 @@
 </section>
 "
      : string
-     = "<p>a---b and ...</p>
+     = "<p>a—b and …</p>
 "
      : string
-     = "<pre><code class=""language-=html"">&lt;b&gt;x&lt;/b&gt;
-</code></pre>
+     = "<b>x</b>
 "
      : string

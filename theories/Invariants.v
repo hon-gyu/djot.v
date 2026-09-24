@@ -220,7 +220,7 @@ Proof. reflexivity. Qed.
 Example setext_prefix_admissible : block_prefix_ok setext_bconfig = true.
 Proof. reflexivity. Qed.
 
-Example markdown_prefix_admissible : block_prefix_ok markdown_bconfig = true.
+Example markdown_prefix_admissible : block_prefix_ok markdown_like_bconfig = true.
 Proof. reflexivity. Qed.
 
 Example lone_dash_overlap_rejected :
@@ -452,7 +452,7 @@ Proof. vm_compute. reflexivity. Qed.
 (* The Markdown-facing profile is deliberately not wrap-neutral: it sets
    both fields, and a bullet on a continuation line ends the paragraph. *)
 Example markdown_wrap_splits :
-  List.length (@parse_blocks djot_table markdown_bconfig _ _ "text
+  List.length (@parse_blocks djot_table markdown_like_bconfig _ _ "text
 - item
 ") = 2.
 Proof. vm_compute. reflexivity. Qed.

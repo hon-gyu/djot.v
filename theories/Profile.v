@@ -8,8 +8,8 @@
    bundle the result again.
 
    [djot_profile] is the compatibility baseline. [markdown_like_profile] is
-   a separately composed starting point, not a claim of full CommonMark or
-   GFM compatibility. *)
+   djot with Markdown spellings added, not a claim of full CommonMark or GFM
+   compatibility. *)
 
 From Stdlib Require Import String.
 From DjotV Require Import Ast Inline Step Parser Document.
@@ -40,10 +40,13 @@ Definition with_footnotes (enabled : bool) (P : profile) : profile :=
 Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
-(** Markdown-like, not CommonMark or GFM: Djot-only constructs are removed
-   capability by capability, and there are no GFM tables. *)
+(** Markdown-like, not CommonMark or GFM: djot with strong spelled `**`,
+   setext headings, sublists without a blank line, and one-line ATX
+   headings.  Every djot construct stays available; each setting is a
+   starting point that [with_inline_profile] and [with_block_profile]
+   can change. *)
 Definition markdown_like_profile : profile :=
-  Profile markdown_like_table markdown_bconfig.
+  Profile markdown_like_table markdown_like_bconfig.
 
 Definition parse_profile_blocks (P : profile) (s : string) : blocks :=
   @parse_blocks (profile_inline P) (profile_block P) _ _ s.

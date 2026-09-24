@@ -18,41 +18,30 @@ drifts; those do not.
 
 ## The profile this describes
 
-Fifteen settings describe the Djot/Markdown-facing surface, and this document
-gives the Markdown-facing choice for each. djot's own answer is in the last
-column. A sixteenth block setting, `bkeyed`, enables the separate keyed-block
-extension; it is off in both shipped profiles and is specified in
-[[keyed-blocks]].
+`markdown_like_profile` is djot with Markdown spellings added. It changes
+four settings and keeps every djot construct:
 
-| setting | Markdown-facing | djot |
+| setting | Markdown-like | djot |
 | --- | --- | --- |
-| strong / emphasis spelling | `**strong**`, `_emph_` (`markdown_config`) | `*strong*`, `_emph_` (`djot_config`) |
-| djot-only delimiter containers | disabled (`markdown_like_config`) | highlight, insert, delete, super/subscript and smart quotes enabled |
-| sublist without a blank line | allowed (`markdown_bconfig`) | not allowed (`djot_bconfig`) |
-| `===` / `--` underlines a heading | allowed (`markdown_bconfig`) | not allowed |
-| pipe tables and captions | disabled (`markdown_bconfig`) | enabled |
-| ATX heading continuation | one source line (`markdown_bconfig`) | same-level markers and lazy text continue |
-| fenced divs | disabled (`markdown_bconfig`) | enabled |
-| task-list checkboxes | literal bullet text (`markdown_bconfig`) | task-list items |
-| fenced `=format` blocks | ordinary code blocks (`markdown_bconfig`) | raw output blocks |
-| inline `` `code`{=format} `` | code plus literal format text (`markdown_like_config`) | raw inline output |
-| ``$`x` `` and ``$$`x` `` | literal dollars plus code (`markdown_like_config`) | inline and display math |
-| `: term` | a bullet item (`markdown_bconfig`) | a definition list |
-| `{#id}` on its own line | paragraph text (`markdown_bconfig`) | attributes for the next block |
-| `x{#id}` and `[s]{.c}` | literal text (`markdown_like_config`) | inline attributes and spans |
-| `[^1]` and `[^1]: text` | footnotes, as in GFM (`with_footnotes`) | footnotes |
+| strong / emphasis spelling | `**strong**`, `_emph_` (`markdown_like_config`) | `*strong*`, `_emph_` (`djot_config`) |
+| sublist without a blank line | allowed (`markdown_like_bconfig`) | not allowed (`djot_bconfig`) |
+| `===` / `--` underlines a heading | allowed (`markdown_like_bconfig`) | not allowed |
+| ATX heading continuation | one source line (`markdown_like_bconfig`) | same-level markers and lazy text continue |
 
-The first two, raw inline, math and inline attributes compose in
-`markdown_like_config`: it starts from the doubled strong spelling and
-applies field-local capability updates. The nine block settings in the table
-and the separate keyed-block setting live in one record with one field each;
-`markdown_bconfig` composes the nine profile-facing knobs and leaves keys off.
-`dev/check/Markdown.v` pins the combined profile, and `dev/check/Sublist.v` and
-`dev/check/Setext.v` pin the individual settings.
+Everything else is djot's in both profiles: pipe tables, divs, task lists,
+raw blocks and raw inline, definition lists, block and inline attributes,
+math, footnotes, the djot-only delimiter containers and smart typography.
+Each of those is a capability with a setting of its own, so a caller can
+start from either profile and switch any of them off
+([What could become opt-in](#what-could-become-opt-in)). A further block
+setting, `bkeyed`, enables the separate keyed-block extension; it is off in
+both profiles and is specified in [[keyed-blocks]].
 
-The profile is not yet a CommonMark implementation: djot-only block and
-non-delimiter inline constructs remain enabled. See
-[What could become opt-in](#what-could-become-opt-in).
+`markdown_like_config` is djot's table with the strong row changed to `**`.
+`markdown_like_bconfig` composes the three block settings above.
+`dev/check/Markdown.v` pins the profile, `dev/check/Sublist.v` and
+`dev/check/Setext.v` pin the two block additions, and
+`dev/check/Capabilities.v` pins each capability switched off.
 
 ## Works exactly as you expect
 
@@ -153,11 +142,14 @@ A heading continues until something ends it: a blank line, a different
 level, or a block construct. (`parse_heading_level_change`,
 `parse_heading_interrupted`)
 
-**Markdown-profile status: fixed.** `markdown_bconfig` closes an ATX heading
-after its first source line, so the first example is two headings and the
-second is a heading followed by a paragraph
+**Markdown-profile status: fixed.** `markdown_like_bconfig` closes an ATX
+heading after its first source line, so the first example is two headings
+and the second is a heading followed by a paragraph
 (`md_adjacent_headings_stay_separate`,
-`md_text_after_heading_is_a_paragraph`). Djot retains lazy continuation.
+`md_text_after_heading_is_a_paragraph`). Djot retains lazy continuation,
+and `with_heading_continuation true` gives it back to the Markdown-like
+profile without changing anything else
+(`customized_markdown_profile_continues_headings`).
 Canonical multiline headings are excluded only at the single-line setting,
 which keeps the generic roundtrip theorem valid for both profiles.
 
@@ -171,10 +163,10 @@ ellipsis, and `"` and `'` become curly quotes. (`parse_no_interrupt`,
 stays literal, and so does a fenced code block or `` `verbatim` ``, which
 are never touched.
 
-Curly quotes are rows in the delimiter table and are switched off in
-`markdown_like_config`. Dashes and ellipses remain scanner dispatch, but the
-same profile now sets `dc_smart_typography` to false, so all three spellings
-above stay literal there. Djot's configuration keeps them enabled.
+Both profiles keep this. Dashes and ellipses are scanner dispatch, and
+`with_smart_typography false` leaves all three spellings literal
+(`periods_are_literal`, `hyphens_are_literal`). Curly quotes are rows in
+the delimiter table and switch off with `disable_row`.
 
 ### A hard line break is a trailing backslash
 
@@ -214,8 +206,8 @@ entire ambiguity class from the parser, and it is what makes an
 output-safety theorem about the renderer possible at all: if no HTML can
 enter through the source, then every `<` in the output came from the
 renderer. Djot still offers raw output deliberately through a fenced block
-tagged `=html`; the Markdown-facing profile reads that fence as a code block
-whose language is `=html`.
+tagged `=html`, in both profiles; with `with_raw_blocks false` that fence is
+a code block whose language is `=html` (`raw_fence_is_code`).
 
 ## Extra syntax you do not have in Markdown
 
@@ -224,16 +216,18 @@ characters literally may read differently.
 
 | syntax | what |
 | --- | --- |
-| `{#id .class key=val}` | attributes, on a block or an inline span (literal text in the Markdown-facing profile) |
+| `{#id .class key=val}` | attributes, on a block or an inline span |
 | `:::` | a div, a named block container |
-| `- [x] item` | a task-list item (ordinary bullet text in the Markdown-facing profile) |
-| `[text]{.class}` | a span (literal text in the Markdown-facing profile) |
+| `- [x] item` | a task-list item |
+| `[text]{.class}` | a span |
 | `{=highlight=}`, `{+insert+}`, `{-delete-}` | marked spans |
 | `^super^`, `~sub~` | super and subscript |
-| ``$`x` ``, ``$$`x` `` | math (literal dollars plus code here) |
-| `` `code`{=html} `` | raw inline in Djot (code plus literal `{=html}` here) |
-| `: term` | a definition list (an ordinary bullet item here) |
-| `` ` `` fence with `=format` | a raw block in Djot (a code block here) |
+| ``$`x` ``, ``$$`x` `` | math |
+| `` `code`{=html} `` | raw inline |
+| `: term` | a definition list |
+| `` ` `` fence with `=format` | a raw block |
+
+All of these are on in both profiles, and each can be switched off.
 
 The characters to watch are `{`, `}`, `[`, `]`, `$`, `^`, `~`, `:` and
 `.`, all of which are reserved and all of which escape with `\`.
@@ -243,54 +237,48 @@ The characters to watch are `{`, `}`, `[`, `]`, `$`, `^`, `~`, `:` and
 Asked because a Markdown user should not have to learn what they are not
 using. Where things stand:
 
-**Already switched off in `markdown_like_config`, and the proofs go through
-there.** Highlight, insert, delete, superscript, subscript, single and double
-curly quotes are rows in the delimiter table. `disable_rows` turns them off
-compositionally. Raw inline is a separate scanner capability; when disabled,
-the verbatim remains code and its complete `{=format}` suffix is text. These
-constructs are removed from the canonical view too, so the roundtrip theorem
-specializes to the reduced table rather than being restated for it.
+**Every construct above has a setting, and both profiles leave it on.**
+The Markdown-like profile adds Markdown spellings to djot rather than
+removing djot from it. Switching a construct off is a knob on either
+profile, and `dev/check/Capabilities.v` pins each one off against djot.
+
+Highlight, insert, delete, superscript, subscript, single and double curly
+quotes are rows in the delimiter table, and `disable_rows` turns them off
+compositionally (`disabled_rows_read_literally`). Raw inline is a separate
+scanner capability; when disabled, the verbatim remains code and its
+complete `{=format}` suffix is text (`raw_inline_is_verbatim_and_text`).
 
 Math is the third scanner capability and the one that cost nothing on the
 canonical side, because the canonical view never had a math constructor. With
 it off the dollar prefix is not dropped and not announced: it becomes literal
 text before the code span it was about to mark, so ``$`x` `` reads as `$`
-followed by `` `x` `` (`markdown_like_math_is_code_and_text`).
+followed by `` `x` `` (`math_is_code_and_text`).
 
-**Already switched off in `markdown_bconfig`.** Djot pipe rows and their
-caption continuation are a single table capability. Fenced divs, task-list
-checkboxes, raw blocks and definition lists are independent capabilities.
-The definition list is the one gated at the close rather than at the open,
-because it has no opener of its own: `: t` is an ordinary list item at every
-setting, and what the capability decides is whether the item's content is
-split into a term and a definition
-(`markdown_like_definition_list_is_a_bullet_list`). When task semantics
-are off, the complete checkbox token remains ordinary bullet-item text,
-including `[x]` versus `[X]` and its following separator. Each disabled
-canonical construct is outside the accepted roundtrip fragment. A disabled
-raw fence retains its complete `=format` info string as an ordinary code
-block. GFM-style tables are therefore not currently part of the Markdown-like
-profile either; adding a separate caption-free GFM table mode would be a new
-extension.
+In the block layer, djot pipe rows and their caption continuation are a
+single table capability. Fenced divs, task-list checkboxes, raw blocks and
+definition lists are independent capabilities. The definition list is the
+one gated at the close rather than at the open, because it has no opener of
+its own: `: t` is an ordinary list item at every setting, and what the
+capability decides is whether the item's content is split into a term and a
+definition (`definition_list_is_a_bullet_list`). When task semantics are
+off, the complete checkbox token remains ordinary bullet-item text,
+including `[x]` versus `[X]` and its following separator. A disabled raw
+fence retains its complete `=format` info string as an ordinary code block.
 
-**Already switched off, both halves.** Attributes are two capabilities:
-`battrs` for the `{...}` line, `dc_attrs` for a brace inside a paragraph and
-for the `]{` that opens a span. With both off a multi-line spec is simply
-the paragraph its lines make
-(`markdown_like_multiline_attribute_is_prose`). The braced *delimiter rows*
-are not covered by either: they are reached from the same `{` one branch
-earlier, so switching them off remains a question for the table.
+Attributes are two capabilities: `battrs` for the `{...}` line, `dc_attrs`
+for a brace inside a paragraph and for the `]{` that opens a span. With both
+off a multi-line spec is simply the paragraph its lines make
+(`multiline_attribute_is_prose`). The braced *delimiter rows* are not
+covered by either: they are reached from the same `{` one branch earlier,
+so switching them off remains a question for the table.
 
-**A capability, but on in both profiles.** Footnotes. CommonMark has none
-and GFM has them, so the Markdown-facing answer is not "off" -- but the
-setting exists, because a dialect that wants prose only should be able to
-say so. It is the one capability with a field in each record, since the
+Footnotes are the one capability with a field in each record, since the
 reference is an inline decision and the definition a block one;
 `Profile.with_footnotes` moves both
 (`no_footnotes_profile_reads_both_halves_as_prose`).
 
-**Nothing left on this list.** Every construct named above now has a
-setting.
+Each switched-off construct is also outside the canonical view's accepted
+fragment, so the roundtrip theorem holds at every setting.
 
 **The shape the work takes** is known, since it was done once for the
 delimiter rows and twice in the block layer: a predicate in the settings
@@ -301,9 +289,10 @@ part is what keeps the roundtrip theorem true at every setting, and it is
 also why "off" means something rather than being announced.
 
 **One constraint on how this is spelled.** Compatibility with djot is
-non-negotiable, so djot's instance has to keep everything on. "Opt-in"
-therefore means a named profile in which these are off, not a change of
-default. Profiles, not flags.
+non-negotiable, so djot's instance has to keep everything on. The named
+profiles are starting points: a caller who wants fewer constructs takes one
+and switches settings off, rather than a profile being defined by what it
+removes.
 
 ## The three known conformance gaps
 
