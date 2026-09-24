@@ -197,7 +197,7 @@ def section_header(path, sect, upto, text=None):
     depth = 0
     for ln in range(sect[2] + 1, upto):
         t = lines[ln - 1]
-        if depth == 0 and re.match(r'Ltac\b', t.strip()):
+        if depth == 0 and re.match(r'(?:Local\s+)?Ltac\b', t.strip()):
             k = ln
             while k < len(lines) and not (lines[k - 1].rstrip().endswith('.')
                                           and not lines[k].strip()):
@@ -726,6 +726,15 @@ def cmd_rename(args):
         headers.append((sect[1], ctx + copies))
     # section arguments: names of the same file whose section is cut here
     args_of = sectargs(path) if sects else {}
+    # Only the context variables of the sections actually being closed and
+    # reopened may be inserted; a name that also depends on an enclosing
+    # section already closed (e.g. `WithPolicy`'s `P`) must spell that
+    # argument itself.
+    sect_ctx_vars = set()
+    for _, ctx in headers:
+        for c in ctx:
+            for mm in re.finditer(r"[{(`]\s*([A-Za-z_][\w' ]*?)\s*:", c):
+                sect_ctx_vars.update(mm.group(1).split())
     seg_of = {}
     for d in decls:
         if not sects or not (stacks.get(d['line']) and stacks[d['line']][:len(sects)] == tuple(sects)):
@@ -756,8 +765,10 @@ def cmd_rename(args):
             renamed_args = {}
             for nm in targets:
                 if nm in args_of:
-                    renamed_args[nm] = args_of[nm]
-                    if nm in mp: renamed_args[mp[nm]] = args_of[nm]
+                    keep = [a for a in args_of[nm] if a in sect_ctx_vars]
+                    if keep:
+                        renamed_args[nm] = keep
+                        if nm in mp: renamed_args[mp[nm]] = keep
             tnames = targets | {mp[n] for n in targets if n in mp}
             if i == 2 and outer_end is not None:
                 parts = t.split('\n')
