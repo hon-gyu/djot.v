@@ -791,6 +791,8 @@ Fixpoint task_items (chks : list task_status) (its : list blocks)
       end
   end.
 
+Module Erase.
+
 (*
 Erasure
 =======
@@ -801,12 +803,12 @@ where the located parse records positions.  A keyed block's label is not
 erased, since the located parse records none in it.
 *)
 
-Fixpoint erase_inline (i : inline) : inline :=
+Fixpoint of_inline (i : inline) : inline :=
   let go :=
     fix go (ils : inlines) : inlines :=
       match ils with
       | [] => []
-      | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
+      | Node _ a x :: rest => Node NoPos a (of_inline x) :: go rest
       end in
   match i with
   | Emph ils => Emph (go ils)
@@ -823,59 +825,59 @@ Fixpoint erase_inline (i : inline) : inline :=
   | x => x
   end.
 
-Definition erase_inode (n : node inline) : node inline :=
-  match n with Node _ a x => Node NoPos a (erase_inline x) end.
+Definition inode (n : node inline) : node inline :=
+  match n with Node _ a x => Node NoPos a (of_inline x) end.
 
-Fixpoint erase_inlines (ils : inlines) : inlines :=
+Fixpoint of_inlines (ils : inlines) : inlines :=
   match ils with
   | [] => []
-  | n :: rest => erase_inode n :: erase_inlines rest
+  | n :: rest => inode n :: of_inlines rest
   end.
 
-Lemma erase_inlines_cons : forall (n : node inline) (l : inlines),
-  erase_inlines (n :: l)%list = (erase_inode n :: erase_inlines l)%list.
+Lemma inlines_cons : forall (n : node inline) (l : inlines),
+  of_inlines (n :: l)%list = (inode n :: of_inlines l)%list.
 Proof. reflexivity. Qed.
 
-(* The traversal inside [erase_inline] is [erase_inlines]; the guard
+(* The traversal inside [of_inline] is [of_inlines]; the guard
    condition is why it cannot be spelled as one mutual fixpoint. *)
-Lemma erase_inline_children : forall ils : inlines,
+Lemma inline_children : forall ils : inlines,
   (fix go (ils : inlines) : inlines :=
      match ils with
      | [] => []
-     | Node _ a x :: rest => Node NoPos a (erase_inline x) :: go rest
-     end) ils = erase_inlines ils.
+     | Node _ a x :: rest => Node NoPos a (of_inline x) :: go rest
+     end) ils = of_inlines ils.
 Proof.
   induction ils as [|[p a x] ils IH]; [reflexivity|].
-  cbn [erase_inlines erase_inode]. rewrite IH. reflexivity.
+  cbn [of_inlines inode]. rewrite IH. reflexivity.
 Qed.
 
-Lemma erase_inlines_map : forall (xs : inlines),
-  erase_inlines xs = map erase_inode xs.
+Lemma inlines_map : forall (xs : inlines),
+  of_inlines xs = map inode xs.
 Proof.
   induction xs as [|n xs IH]; [reflexivity|].
-  rewrite erase_inlines_cons, IH. reflexivity.
+  rewrite inlines_cons, IH. reflexivity.
 Qed.
 
-Local Lemma erase_inlines_app : forall (xs ys : inlines),
-  erase_inlines (xs ++ ys)%list =
-  (erase_inlines xs ++ erase_inlines ys)%list.
-Proof. intros xs ys. rewrite !erase_inlines_map. apply map_app. Qed.
+Local Lemma inlines_app : forall (xs ys : inlines),
+  of_inlines (xs ++ ys)%list =
+  (of_inlines xs ++ of_inlines ys)%list.
+Proof. intros xs ys. rewrite !inlines_map. apply map_app. Qed.
 
-Lemma erase_inlines_rev : forall (xs : inlines),
-  erase_inlines (rev xs) = rev (erase_inlines xs).
-Proof. intros xs. rewrite !erase_inlines_map. apply map_rev. Qed.
+Lemma inlines_rev : forall (xs : inlines),
+  of_inlines (rev xs) = rev (of_inlines xs).
+Proof. intros xs. rewrite !inlines_map. apply map_rev. Qed.
 
-Definition erase_cell (c : cell) : cell :=
-  match c with Cell ct al ils => Cell ct al (erase_inlines ils) end.
+Definition of_cell (c : cell) : cell :=
+  match c with Cell ct al ils => Cell ct al (of_inlines ils) end.
 
-Definition erase_row (r : list cell) : list cell := map erase_cell r.
+Definition row (r : list cell) : list cell := map of_cell r.
 
-Fixpoint erase_block (b : block) : block :=
+Fixpoint of_block (b : block) : block :=
   let go :=
     fix go (bs : blocks) : blocks :=
       match bs with
       | [] => []
-      | Node _ a x :: rest => Node NoPos a (erase_block x) :: go rest
+      | Node _ a x :: rest => Node NoPos a (of_block x) :: go rest
       end in
   let goitems :=
     fix goitems (items : list blocks) : list blocks :=
@@ -884,9 +886,9 @@ Fixpoint erase_block (b : block) : block :=
       | item :: rest => go item :: goitems rest
       end in
   match b with
-  | Para ils => Para (erase_inlines ils)
+  | Para ils => Para (of_inlines ils)
   | Section bs => Section (go bs)
-  | Heading lvl ils => Heading lvl (erase_inlines ils)
+  | Heading lvl ils => Heading lvl (of_inlines ils)
   | BlockQuote bs => BlockQuote (go bs)
   | Div bs => Div (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
@@ -905,66 +907,66 @@ Fixpoint erase_block (b : block) : block :=
             match items with
             | [] => []
             | (term, item) :: rest =>
-                (erase_inlines term, go item) :: godefs rest
+                (of_inlines term, go item) :: godefs rest
             end) items)
   | Table caption rows =>
-      Table (option_map erase_inlines caption) (map erase_row rows)
+      Table (option_map of_inlines caption) (map row rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Keyed label (Node _ a x) =>
-      Keyed label (Node NoPos a (erase_block x))
+      Keyed label (Node NoPos a (of_block x))
   | x => x
   end.
 
-Fixpoint erase_blocks (bs : blocks) : blocks :=
+Fixpoint of_blocks (bs : blocks) : blocks :=
   match bs with
   | [] => []
   | Node _ a b :: rest =>
-      Node NoPos a (erase_block b) :: erase_blocks rest
+      Node NoPos a (of_block b) :: of_blocks rest
   end.
 
-Lemma erase_blocks_app : forall (xs ys : blocks),
-  erase_blocks (xs ++ ys)%list =
-  (erase_blocks xs ++ erase_blocks ys)%list.
+Lemma blocks_app : forall (xs ys : blocks),
+  of_blocks (xs ++ ys)%list =
+  (of_blocks xs ++ of_blocks ys)%list.
 Proof.
   induction xs as [|[p a b] xs IH]; intros ys; cbn; rewrite ?IH; reflexivity.
 Qed.
 
-Lemma erase_blocks_rev : forall (xs : blocks),
-  erase_blocks (rev xs) = rev (erase_blocks xs).
+Lemma blocks_rev : forall (xs : blocks),
+  of_blocks (rev xs) = rev (of_blocks xs).
 Proof.
   induction xs as [|[p a b] xs IH].
   - reflexivity.
-  - cbn [rev]. rewrite erase_blocks_app. cbn [erase_blocks].
+  - cbn [rev]. rewrite blocks_app. cbn [of_blocks].
     rewrite IH. reflexivity.
 Qed.
 
 (* `set_pos` writes only a node's position, so erasure sees through it. *)
-Lemma erase_blocks_set_pos : forall (p : provenance) (n : node block) rest,
-  erase_blocks (@set_pos located_pos block p n :: rest)%list =
-  erase_blocks (n :: rest)%list.
+Lemma blocks_set_pos : forall (p : provenance) (n : node block) rest,
+  of_blocks (@set_pos located_pos block p n :: rest)%list =
+  of_blocks (n :: rest)%list.
 Proof. intros p [q a b] rest; reflexivity. Qed.
 
 (* The term is a paragraph's inlines, so the split commutes with erasure
    on both halves. *)
 Local Lemma def_split_erase : forall bs,
-  def_split (erase_blocks bs) =
-  option_map (fun r => (erase_inlines (fst r), erase_blocks (snd r)))
+  def_split (of_blocks bs) =
+  option_map (fun r => (of_inlines (fst r), of_blocks (snd r)))
     (def_split bs).
 Proof.
   induction bs as [|[p a b] rest IH]; [reflexivity|].
-  destruct b; cbn [erase_blocks erase_block def_split invisible_block] in *;
+  destruct b; cbn [of_blocks of_block def_split invisible_block] in *;
     try reflexivity;
     try (rewrite IH; destruct (def_split rest); reflexivity).
   - rewrite IH. destruct (def_split rest) as [[ils more]|]; cbn.
-    + fold erase_blocks. reflexivity.
+    + fold of_blocks. reflexivity.
     + reflexivity.
   - rewrite IH. destruct (def_split rest) as [[ils more]|]; reflexivity.
   - destruct b. reflexivity.
 Qed.
 
 Local Lemma def_item_erase : forall bs,
-  (fst (def_item (erase_blocks bs)), snd (def_item (erase_blocks bs))) =
-  (erase_inlines (fst (def_item bs)), erase_blocks (snd (def_item bs))).
+  (fst (def_item (of_blocks bs)), snd (def_item (of_blocks bs))) =
+  (of_inlines (fst (def_item bs)), of_blocks (snd (def_item bs))).
 Proof.
   intros bs. unfold def_item. rewrite def_split_erase.
   destruct (def_split bs) as [[term rest]|]; reflexivity.
@@ -975,14 +977,14 @@ Lemma def_items_erase : forall items,
      match items with
      | [] => []
      | (term, item) :: rest =>
-         (erase_inlines term, erase_blocks item) :: go rest
-     end) (def_items items) = def_items (map erase_blocks items).
+         (of_inlines term, of_blocks item) :: go rest
+     end) (def_items items) = def_items (map of_blocks items).
 Proof.
   induction items as [|item rest IH]; [reflexivity|].
   cbn [def_items map]. fold def_items. unfold def_items in IH.
   rewrite <- IH. pose proof (def_item_erase item) as H.
   destruct (def_item item) as [term item'];
-    destruct (def_item (erase_blocks item)) as [term' item''];
+    destruct (def_item (of_blocks item)) as [term' item''];
     cbn in H |- *.
   injection H as -> ->. reflexivity.
 Qed.
@@ -991,15 +993,17 @@ Lemma task_items_erase : forall checks items,
   (fix go (items : list (task_status * blocks)) :=
      match items with
      | [] => []
-     | (status, item) :: rest => (status, erase_blocks item) :: go rest
+     | (status, item) :: rest => (status, of_blocks item) :: go rest
      end) (task_items checks items) =
-  task_items checks (map erase_blocks items).
+  task_items checks (map of_blocks items).
 Proof.
   intros checks items. revert checks.
   induction items as [|item rest IH]; intros checks; [reflexivity|].
   destruct checks as [|check checks]; cbn [task_items map];
     unfold task_items in IH; rewrite IH; reflexivity.
 Qed.
+
+End Erase.
 
 (*
 Documents

@@ -461,7 +461,7 @@ carry.
 *)
 
 Example semantic_unchanged :
-  erase_blocks (Located "# h
+  Erase.of_blocks (Located "# h
 
 para more
 ")
