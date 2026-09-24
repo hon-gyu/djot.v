@@ -64,9 +64,12 @@ val sectionize : coq_PosPolicy -> blocks -> blocks
 
 val add_ref : pos -> attr -> block -> reference_map -> reference_map
 
-val collect_refs : block -> pos -> attr -> reference_map -> reference_map
+module Refs :
+ sig
+  val of_collect_refs : block -> pos -> attr -> reference_map -> reference_map
 
-val collect_refs_list : blocks -> reference_map -> reference_map
+  val of_list : blocks -> reference_map -> reference_map
+ end
 
 module Notes :
  sig
