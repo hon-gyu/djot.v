@@ -166,6 +166,24 @@ def section_stack_at(path, text=None):
     return stacks
 
 
+def section_ends(path, text=None):
+    """Map an opening line to the line of its matching `End`."""
+    s = text if text is not None else open(path).read()
+    code, _ = mask(s)
+    events = []
+    for m in SECT_OPEN.finditer(code):
+        events.append((line_of(code, m.start()), 'open', m.group(2)))
+    for m in SECT_END.finditer(code):
+        events.append((line_of(code, m.start()), 'end', m.group(1)))
+    events.sort()
+    stack, ends = [], {}
+    for ln, what, name in events:
+        if what == 'open': stack.append((ln, name))
+        else:
+            if stack: ol, _ = stack.pop(); ends[ol] = ln
+    return ends
+
+
 def section_header(path, sect, upto, text=None):
     """The `Context` lines of section `sect` (kind,name,open_line) that
     appear before line `upto`, its section-local `Ltac` definitions (a
@@ -727,6 +745,10 @@ def cmd_rename(args):
             return None
         return fn
     new_segs, total = [], 0
+    # The original outermost section ends at `outer_end`; code past it was
+    # never inside the section, so a close-and-reopen does not affect how
+    # its `@name` references are written.
+    outer_end = section_ends(path, s).get(sects[0][2]) if sects else None
     for i, seg in enumerate(segs):  # 0 before the range, 1 inside, 2 after
         t, n = rewrite_tokens(seg, renamer(i)); total += n
         if sects:
@@ -736,7 +758,16 @@ def cmd_rename(args):
                 if nm in args_of:
                     renamed_args[nm] = args_of[nm]
                     if nm in mp: renamed_args[mp[nm]] = args_of[nm]
-            t, k = add_section_args(t, targets | {mp[n] for n in targets if n in mp}, renamed_args)
+            tnames = targets | {mp[n] for n in targets if n in mp}
+            if i == 2 and outer_end is not None:
+                parts = t.split('\n')
+                cut = outer_end - end
+                head = '\n'.join(parts[:cut])
+                tail = '\n'.join(parts[cut:])
+                head, k = add_section_args(head, tnames, renamed_args)
+                t = head + '\n' + tail
+            else:
+                t, k = add_section_args(t, tnames, renamed_args)
             total += k
         new_segs.append(t)
     close = ''.join(f'End {n}.\n' for n, _ in reversed(headers))
