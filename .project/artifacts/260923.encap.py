@@ -361,14 +361,22 @@ def rewrite_tokens(text, fn, in_comments=True):
 
 
 def add_section_args(text, targets, args_of):
-    """`@X` -> `@X T ...` in code, for X in targets."""
+    """`@X` -> `@X T ...` in code, for X in targets, unless the section
+    arguments are already spelled out.  A shadowing binder (e.g. a lemma's
+    own `{LI : LineIx}`) makes the source write them itself; prepending
+    again would pass two instances."""
     code, _ = mask(text)
     out, pos, n = [], 0, 0
     for m in re.finditer(r"@((?:[A-Za-z_][\w']*\.)*[A-Za-z_][\w']*)", code):
         name = m.group(1).split('.')[-1]
-        if name in targets and args_of.get(name):
-            out.append(text[pos:m.end()]); out.append(' ' + ' '.join(args_of[name]))
-            pos = m.end(); n += 1
+        if name not in targets or not args_of.get(name):
+            continue
+        args = args_of[name]
+        if re.match(r'(?:\s+' + r'\s+'.join(map(re.escape, args)) + r')(?![\w\'])',
+                    code[m.end():]):
+            continue
+        out.append(text[pos:m.end()]); out.append(' ' + ' '.join(args))
+        pos = m.end(); n += 1
     out.append(text[pos:])
     return ''.join(out), n
 
