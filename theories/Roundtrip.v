@@ -48,13 +48,13 @@ Context {K : bconfig}.
 
 Local Lemma pristine_task_items_of_items :
   forall checks items,
-    pristine_items items = true ->
-    pristine_task_items (task_items checks items) = true.
+    Undo.of_items items = true ->
+    Undo.of_task_items (task_items checks items) = true.
 Proof.
   intros checks items. induction items as [|it rest IH] in checks |- *;
     [reflexivity|].
-  cbn [pristine_items]. intros H. apply andb_true_iff in H as [Hit Hrest].
-  destruct checks; cbn [task_items pristine_task_items]; rewrite Hit;
+  cbn [Undo.of_items]. intros H. apply andb_true_iff in H as [Hit Hrest].
+  destruct checks; cbn [task_items Undo.of_task_items]; rewrite Hit;
     apply IH, Hrest.
 Qed.
 
@@ -2312,7 +2312,7 @@ roundtrip_blocks is about `parse_blocks`, the line fold.  The parser's
 actual entry point is `Document.parse_doc`, which runs the whole-document
 pass on top.  The primary theorem therefore says render-and-parse
 commutes with that pass and retains all of its derived data.  The
-erasure theorem `roundtrip_doc` remains useful on the pristine fragment:
+erasure theorem `roundtrip_doc` remains useful on the Undo.of_pristine fragment:
 cb_ast builds bare `mk` nodes, so no heading carries an explicit id, and
 it builds no sections.
 *)
@@ -2325,7 +2325,7 @@ Context {K : bconfig}.
 
 (** The whole-document pass commutes with canonical render-and-parse.
     Unlike [roundtrip_doc] below, this statement retains the derived side
-    tables and needs no pristine-input hypothesis: the block roundtrip
+    tables and needs no Undo.of_pristine-input hypothesis: the block roundtrip
     supplies exactly the input on which [doc_pass] is run. *)
 Theorem roundtrip_doc_pass :
   forall cbs, cblocks_ok cbs = true ->
@@ -2341,8 +2341,8 @@ Qed.
     result for them is [roundtrip_doc_pass] above. *)
 Theorem roundtrip_doc :
   forall cbs, cblocks_ok cbs = true ->
-  pristine (blocks_of_cblocks cbs) = true ->
-  undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
+  Undo.of_pristine (blocks_of_cblocks cbs) = true ->
+  Undo.pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
   = blocks_of_cblocks cbs.
 Proof.
   intros cbs H Hpristine. unfold parse_doc.
@@ -2359,6 +2359,6 @@ Example heading_roundtrip_doc :
   doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs)))
   = [ Node NoPos [("id", "h")]
         (Section [ mk (Heading 1 [mk (Str "h")]); mk (Para [mk (Str "p")]) ]) ]
-  /\ undo_pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
+  /\ Undo.pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
      = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_doc; reflexivity]. Qed.
