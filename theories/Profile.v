@@ -11,8 +11,9 @@
    djot with Markdown spellings added, not a claim of full CommonMark or GFM
    compatibility. *)
 
-From Stdlib Require Import String.
-From DjotV Require Import Ast Inline Step Parser Document.
+From Stdlib Require Import String List.
+From DjotV Require Import Ast Inline InlineTable Step Parser Document Html.
+Import ListNotations.
 
 Record profile : Type := Profile {
   profile_inline : dtable;
@@ -48,8 +49,38 @@ Definition djot_profile : profile :=
 Definition markdown_like_profile : profile :=
   Profile markdown_like_table markdown_like_bconfig.
 
+(** A measured CommonMark-facing setting.  It keeps the Markdown spellings
+    and turns off Djot extensions that can reinterpret ordinary Markdown
+    text.  This is a test configuration, not a CommonMark grammar. *)
+Definition commonmark_test_config : dconfig :=
+  disable_rows [DSuper; DSub; DMark; DInsert; DDelete; DSQuote; DDQuote]
+    (with_wikilinks false
+      (with_inline_footnotes false
+        (with_inline_attrs false
+          (with_math false
+            (with_raw_inline false
+              (with_smart_typography false markdown_like_config)))))).
+
+Definition commonmark_test_table : dtable :=
+  DTable commonmark_test_config eq_refl.
+
+Definition commonmark_test_bconfig : bconfig :=
+  with_block_footnotes false
+    (with_block_attrs false
+      (with_deflists false
+        (with_raw_blocks false
+          (with_tasks false
+            (with_divs false
+              (with_tables false markdown_like_bconfig)))))).
+
+Definition commonmark_test_profile : profile :=
+  Profile commonmark_test_table commonmark_test_bconfig.
+
 Definition parse_profile_blocks (P : profile) (s : string) : blocks :=
   @parse_blocks (profile_inline P) (profile_block P) _ _ s.
 
 Definition parse_profile_doc (P : profile) (s : string) : doc :=
   @parse_doc (profile_inline P) (profile_block P) _ s.
+
+Definition convert_profile (P : profile) (s : string) : string :=
+  render_html (parse_profile_doc P s).

@@ -1,0 +1,109 @@
+# Generated 2026-09-24 with commonmark/score.py and Rocq vm_compute
+
+profile: djot_profile
+exact HTML: 154/652
+Rocq execution failures: 2
+  Tabs: 0/11
+  Backslash escapes: 1/13
+  Entity and numeric character references: 4/17
+  Precedence: 0/1
+  Thematic breaks: 3/19
+  ATX headings: 3/18
+  Setext headings: 2/27
+  Indented code blocks: 2/12
+  Fenced code blocks: 21/29
+  HTML blocks: 0/44
+  Link reference definitions: 3/27
+  Paragraphs: 6/8
+  Blank lines: 0/1
+  Block quotes: 11/25
+  List items: 9/48
+  Lists: 6/26
+  Inlines: 0/1
+  Code spans: 8/22
+  Emphasis and strong emphasis: 30/132
+  Links: 24/90
+  Images: 0/22
+  Autolinks: 15/19
+  Raw HTML: 2/20
+  Hard line breaks: 1/15
+  Soft line breaks: 1/2
+  Textual content: 2/3
+  execution failure #265: timeout
+  execution failure #266: timeout
+
+profile: markdown_like_profile
+exact HTML: 173/652
+Rocq execution failures: 2
+  Tabs: 0/11
+  Backslash escapes: 1/13
+  Entity and numeric character references: 4/17
+  Precedence: 0/1
+  Thematic breaks: 3/19
+  ATX headings: 3/18
+  Setext headings: 2/27
+  Indented code blocks: 2/12
+  Fenced code blocks: 21/29
+  HTML blocks: 0/44
+  Link reference definitions: 3/27
+  Paragraphs: 6/8
+  Blank lines: 0/1
+  Block quotes: 11/25
+  List items: 8/48
+  Lists: 6/26
+  Inlines: 0/1
+  Code spans: 8/22
+  Emphasis and strong emphasis: 48/132
+  Links: 26/90
+  Images: 0/22
+  Autolinks: 15/19
+  Raw HTML: 2/20
+  Hard line breaks: 1/15
+  Soft line breaks: 1/2
+  Textual content: 2/3
+  execution failure #265: timeout
+  execution failure #266: timeout
+
+profile: commonmark_test_profile
+exact HTML: 179/652
+Rocq execution failures: 2
+  Tabs: 0/11
+  Backslash escapes: 1/13
+  Entity and numeric character references: 4/17
+  Precedence: 0/1
+  Thematic breaks: 5/19
+  ATX headings: 3/18
+  Setext headings: 3/27
+  Indented code blocks: 2/12
+  Fenced code blocks: 21/29
+  HTML blocks: 0/44
+  Link reference definitions: 4/27
+  Paragraphs: 6/8
+  Blank lines: 0/1
+  Block quotes: 11/25
+  List items: 8/48
+  Lists: 6/26
+  Inlines: 0/1
+  Code spans: 8/22
+  Emphasis and strong emphasis: 48/132
+  Links: 26/90
+  Images: 0/22
+  Autolinks: 15/19
+  Raw HTML: 3/20
+  Hard line breaks: 1/15
+  Soft line breaks: 1/2
+  Textual content: 3/3
+  execution failure #265: timeout
+  execution failure #266: timeout
+  failure #1 (Tabs): different HTML
+  failure #2 (Tabs): different HTML
+  failure #3 (Tabs): different HTML
+  failure #4 (Tabs): different HTML
+  failure #5 (Tabs): different HTML
+  failure #6 (Tabs): different HTML
+  failure #7 (Tabs): different HTML
+  failure #8 (Tabs): different HTML
+  failure #9 (Tabs): different HTML
+  failure #10 (Tabs): different HTML
+  failure #11 (Tabs): different HTML
+  failure #12 (Backslash escapes): different HTML
