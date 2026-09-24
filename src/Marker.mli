@@ -18,27 +18,33 @@ val dec_str_fuel : nat -> nat -> string
 
 val dec_str : nat -> string
 
-val roman_digit : char -> nat
+module Roman :
+ sig
+  val digit : char -> nat
 
-val roman_acc : string -> nat -> nat -> nat
+  val acc : string -> nat -> nat -> nat
 
-val roman_value : string -> nat
+  val value : string -> nat
 
-val alpha_value : bool -> string -> nat
+  val upper : nat
 
-val roman_upper : nat
+  val table : bool -> (nat * string) list
 
-val roman_table : bool -> (nat * string) list
+  val pick : (nat * string) list -> nat -> (nat * string) option
 
-val roman_pick : (nat * string) list -> nat -> (nat * string) option
+  val of_fuel : bool -> nat -> nat -> string
 
-val roman_fuel : bool -> nat -> nat -> string
+  val str : bool -> nat -> string
+ end
 
-val roman_str : bool -> nat -> string
+module Alpha :
+ sig
+  val value : bool -> string -> nat
 
-val alpha_str : bool -> nat -> string
+  val str : bool -> nat -> string
 
-val alpha_upper : nat
+  val upper : nat
+ end
 
 val style_start : lstyle -> string -> nat
 

@@ -85,8 +85,8 @@ let ck_first = function
 | LKDef -> colon
 | LKTask checks -> MTask ('-', (hd Incomplete checks))
 | LKDecimal (d, start) -> dec_marker d start
-| LKRoman (up, d, start) -> nsc_marker (roman_str up) d start
-| LKAlpha (up, d, start) -> nsc_marker (alpha_str up) d start
+| LKRoman (up, d, start) -> nsc_marker (Roman.str up) d start
+| LKAlpha (up, d, start) -> nsc_marker (Alpha.str up) d start
 
 (** val task_ck_items : task_status list -> string list list -> litem list **)
 
@@ -105,8 +105,8 @@ let ck_items k lss =
   | LKDef -> same_marker colon lss
   | LKTask checks -> task_ck_items checks lss
   | LKDecimal (d, start) -> dec_items d start lss
-  | LKRoman (up, d, start) -> nsc_items (roman_str up) d start lss
-  | LKAlpha (up, d, start) -> nsc_items (alpha_str up) d start lss
+  | LKRoman (up, d, start) -> nsc_items (Roman.str up) d start lss
+  | LKAlpha (up, d, start) -> nsc_items (Alpha.str up) d start lss
 
 (** val ck_block : list_kind -> list_spacing -> blocks list -> block **)
 
@@ -132,9 +132,9 @@ let ck_ok k k0 n =
   | LKDef -> k.bdeflists
   | LKTask checks -> (&&) k.btasks (Nat.eqb (length checks) n)
   | LKRoman (_, _, start) ->
-    (&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S roman_upper))
+    (&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S Roman.upper))
   | LKAlpha (up, _, start) ->
-    (&&) ((&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S alpha_upper)))
+    (&&) ((&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S Alpha.upper)))
       ((||)
         ((||) (negb (alpha_roman_digit up start))
           ((&&) (Nat.leb (S (S O)) n) (negb (alpha_roman_digit up (S start)))))
