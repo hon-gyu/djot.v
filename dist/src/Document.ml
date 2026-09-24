@@ -186,17 +186,17 @@ let assign_heading_id p a lvl ils st =
 
 module Ids =
  struct
-  (** val of_assign_ids :
+  (** val of_block :
       block -> pos -> attr -> id_state -> id_state * block node **)
 
-  let rec of_assign_ids b p a st =
+  let rec of_block b p a st =
     let go =
       let rec go ns s =
         match ns with
         | [] -> (s, [])
         | n :: rest ->
           let Node (p', a', x) = n in
-          let (s1, n1) = of_assign_ids x p' a' s in
+          let (s1, n1) = of_block x p' a' s in
           let (s2, rest1) = go rest s1 in (s2, (n1 :: rest1))
       in go
     in
@@ -259,14 +259,14 @@ module Ids =
        (st', (Node (p, a, (FootnoteDef (label, bs')))))
      | Keyed (label, b0) ->
        let Node (p', a', x) = b0 in
-       let (st', n') = of_assign_ids x p' a' (register_id a st) in
+       let (st', n') = of_block x p' a' (register_id a st) in
        (st', (Node (p, a, (Keyed (label, n')))))
      | _ -> ((register_id a st), (Node (p, a, b))))
 
   (** val of_node : block node -> id_state -> id_state * block node **)
 
   let of_node n st =
-    let Node (p, a, b) = n in of_assign_ids b p a st
+    let Node (p, a, b) = n in of_block b p a st
 
   (** val of_list : blocks -> id_state -> id_state * blocks **)
 
@@ -362,16 +362,16 @@ let add_ref _ a b m =
 
 module Refs =
  struct
-  (** val of_collect_refs :
+  (** val of_block :
       block -> pos -> attr -> reference_map -> reference_map **)
 
-  let rec of_collect_refs b p a m =
+  let rec of_block b p a m =
     let go =
       let rec go ns acc =
         match ns with
         | [] -> acc
         | n :: rest ->
-          let Node (p', a', x) = n in go rest (of_collect_refs x p' a' acc)
+          let Node (p', a', x) = n in go rest (of_block x p' a' acc)
       in go
     in
     let goit =
@@ -384,8 +384,7 @@ module Refs =
                match ns with
                | [] -> acc'
                | n :: more ->
-                 let Node (p', a', x) = n in
-                 go' more (of_collect_refs x p' a' acc')
+                 let Node (p', a', x) = n in go' more (of_block x p' a' acc')
              in go' it acc)
       in goit
     in
@@ -406,8 +405,7 @@ module Refs =
                 match ns with
                 | [] -> acc'
                 | n :: more ->
-                  let Node (p', a', x) = n in
-                  go' more (of_collect_refs x p' a' acc')
+                  let Node (p', a', x) = n in go' more (of_block x p' a' acc')
               in go' it acc)
        in got items m
      | DefinitionList (_, items) ->
@@ -421,12 +419,11 @@ module Refs =
                 match ns with
                 | [] -> acc'
                 | n :: more ->
-                  let Node (p', a', x) = n in
-                  go' more (of_collect_refs x p' a' acc')
+                  let Node (p', a', x) = n in go' more (of_block x p' a' acc')
               in go' it acc)
        in god items m
      | FootnoteDef (_, bs) -> go bs m
-     | Keyed (_, b0) -> let Node (p', a', x) = b0 in of_collect_refs x p' a' m
+     | Keyed (_, b0) -> let Node (p', a', x) = b0 in of_block x p' a' m
      | _ -> add_ref p a b m)
 
   (** val of_list : blocks -> reference_map -> reference_map **)
@@ -434,23 +431,22 @@ module Refs =
   let rec of_list ns m =
     match ns with
     | [] -> m
-    | n :: rest ->
-      let Node (p, a, b) = n in of_list rest (of_collect_refs b p a m)
+    | n :: rest -> let Node (p, a, b) = n in of_list rest (of_block b p a m)
  end
 
 module Notes =
  struct
-  (** val of_collect_notes :
+  (** val of_block :
       block -> pos -> attr -> note_map -> note_map * block node option **)
 
-  let rec of_collect_notes b p a m =
+  let rec of_block b p a m =
     let go =
       let rec go ns acc =
         match ns with
         | [] -> (acc, [])
         | n :: rest ->
           let Node (p', a', x) = n in
-          let (acc1, n1) = of_collect_notes x p' a' acc in
+          let (acc1, n1) = of_block x p' a' acc in
           let (acc2, rest1) = go rest acc1 in
           (match n1 with
            | Some n0 -> (acc2, (n0 :: rest1))
@@ -508,7 +504,7 @@ module Notes =
        ((alist_set (normalize_label label) bs' m'), None)
      | Keyed (label, b0) ->
        let Node (p', a', x) = b0 in
-       let (m', o) = of_collect_notes x p' a' m in
+       let (m', o) = of_block x p' a' m in
        (m',
        (match o with
         | Some n' -> Some (Node (p, a, (Keyed (label, n'))))
@@ -522,7 +518,7 @@ module Notes =
     | [] -> (m, [])
     | n :: rest ->
       let Node (p, a, b) = n in
-      let (m1, n1) = of_collect_notes b p a m in
+      let (m1, n1) = of_block b p a m in
       let (m2, rest1) = of_list rest m1 in
       (match n1 with
        | Some n0 -> (m2, (n0 :: rest1))

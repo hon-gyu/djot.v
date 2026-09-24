@@ -376,43 +376,6 @@ Local Definition span_through_line (r : span) : span :=
   SrcSpan (span_start r) line_stop.
 
 
-(* The coordinate half of erasure.  A line index is the only thing in a
-   spot that the ambient instance would have written differently -- the
-   right-hand coordinate is `String.length`, which no instance sees --
-   so forgetting the provenance a state accumulated is setting every
-   line index to the one `semantic_line_ix` writes. *)
-Local Definition erase_spot (s : spot) : spot := Spot 0 (spot_rem s).
-
-Local Definition erase_span (r : span) : span :=
-  SrcSpan (erase_spot (span_start r)) (erase_spot (span_stop r)).
-
-Local Definition erase_extent (e : extent) : extent :=
-  Extent (erase_spot (extent_start e)) (erase_spot (extent_stop e)).
-
-Local Definition erase_line (sl : stored_line) : stored_line := (0, snd sl).
-
-Local Definition erase_lines (ls : list stored_line) : list stored_line :=
-  map erase_line ls.
-
-(* And every reader of a stored line reads past the index. *)
-Local Lemma erase_line_texts : forall ls, line_texts (erase_lines ls) = line_texts ls.
-Proof.
-  induction ls as [|x ls IH]; [reflexivity|].
-  unfold line_texts, erase_lines in *; cbn [map]. rewrite IH. reflexivity.
-Qed.
-
-Local Lemma erase_lines_rev : forall ls, erase_lines (rev ls) = rev (erase_lines ls).
-Proof. intros ls. apply map_rev. Qed.
-
-Local Lemma erase_line_texts_rev : forall ls,
-  line_texts (rev (erase_lines ls)) = line_texts (rev ls).
-Proof. intros ls. rewrite <- erase_lines_rev. apply erase_line_texts. Qed.
-
-Local Lemma erase_lines_length : forall ls,
-  List.length (erase_lines ls) = List.length ls.
-Proof. intros ls. apply length_map. Qed.
-
-
 Lemma line_texts_remember_lines :
   forall lines, line_texts (remember_lines lines) = lines.
 Proof.
@@ -800,6 +763,42 @@ Context {K : bconfig}.
 Context {LI : LineIx}.
 Context {P : PosPolicy}.
 
+(* The coordinate half of erasure.  A line index is the only thing in a
+   spot that the ambient instance would have written differently -- the
+   right-hand coordinate is `String.length`, which no instance sees --
+   so forgetting the provenance a state accumulated is setting every
+   line index to the one `semantic_line_ix` writes. *)
+Local Definition of_spot (s : spot) : spot := Spot 0 (spot_rem s).
+
+Local Definition of_span (r : span) : span :=
+  SrcSpan (of_spot (span_start r)) (of_spot (span_stop r)).
+
+Local Definition of_extent (e : extent) : extent :=
+  Extent (of_spot (extent_start e)) (of_spot (extent_stop e)).
+
+Local Definition of_line (sl : stored_line) : stored_line := (0, snd sl).
+
+Local Definition of_lines (ls : list stored_line) : list stored_line :=
+  map of_line ls.
+
+(* And every reader of a stored line reads past the index. *)
+Local Lemma of_lines_texts : forall ls, line_texts (of_lines ls) = line_texts ls.
+Proof.
+  induction ls as [|x ls IH]; [reflexivity|].
+  unfold line_texts, of_lines in *; cbn [map]. rewrite IH. reflexivity.
+Qed.
+
+Local Lemma of_lines_rev : forall ls, of_lines (rev ls) = rev (of_lines ls).
+Proof. intros ls. apply map_rev. Qed.
+
+Local Lemma of_lines_texts_rev : forall ls,
+  line_texts (rev (of_lines ls)) = line_texts (rev ls).
+Proof. intros ls. rewrite <- of_lines_rev. apply of_lines_texts. Qed.
+
+Local Lemma of_lines_length : forall ls,
+  List.length (of_lines ls) = List.length ls.
+Proof. intros ls. apply length_map. Qed.
+
 (* Forget the provenance an incremental state has accumulated: the
    positions on the blocks it retains, and the line indices of every
    coordinate it recorded.  Both are observational -- no transition
@@ -810,7 +809,7 @@ Local Definition of_cap (c : tcap) : tcap :=
   match c with
   | TOpen _ => TOpen []
   | TAfterBlank _ => TAfterBlank []
-  | TCaption _ start lines => TCaption [] (erase_spot start) (erase_lines lines)
+  | TCaption _ start lines => TCaption [] (of_spot start) (of_lines lines)
   end.
 
 (* A paragraph's inlines, erased, are the ones the ambient instance
@@ -818,11 +817,11 @@ Local Definition of_cap (c : tcap) : tcap :=
    line indices the located state recorded thrown away. *)
 Local Lemma of_para_inlines_at : forall off ls,
   Erase.of_inlines (@para_inlines_at T located_pos off ls) =
-  @para_inlines_at T semantic_pos off (erase_lines ls).
+  @para_inlines_at T semantic_pos off (of_lines ls).
 Proof.
   intros off ls. rewrite (@para_inlines_at_erase T located_pos),
     (@para_inlines_at_semantic T).
-  unfold line_texts in *. rewrite erase_line_texts. reflexivity.
+  unfold line_texts in *. rewrite of_lines_texts. reflexivity.
 Qed.
 
 Local Lemma inlines_nonempty : forall (xs : inlines),
@@ -866,40 +865,40 @@ Proof.
 Qed.
 
 Local Definition of_list_state (ls : list_state) : list_state :=
-  LSt (ls_indent ls) (erase_extent (ls_extent ls))
-    (erase_extent (ls_item_extent ls))
-    (map erase_extent (ls_item_extents ls))
+  LSt (ls_indent ls) (of_extent (ls_extent ls))
+    (of_extent (ls_item_extent ls))
+    (map of_extent (ls_item_extents ls))
     (ls_styles ls) (ls_loose ls) (ls_blanks ls)
     (map Erase.of_blocks (ls_items ls)) (ls_check ls) (ls_checks ls).
 
 Local Fixpoint state (st : pstate) : pstate :=
   match st with
-  | PPara cur => PPara (erase_lines cur)
+  | PPara cur => PPara (of_lines cur)
   | PHeading lvl range cur =>
-      PHeading lvl (erase_extent range) (erase_lines cur)
+      PHeading lvl (of_extent range) (of_lines cur)
   | PFence f ind range opener acc =>
-      PFence f ind (erase_extent range) (erase_span opener) (erase_lines acc)
+      PFence f ind (of_extent range) (of_span opener) (of_lines acc)
   | PQuote range done inner =>
-      PQuote (erase_extent range) (Erase.of_blocks done) (state inner)
+      PQuote (of_extent range) (Erase.of_blocks done) (state inner)
   | PDiv len cls range opener done inner =>
-      PDiv len cls (erase_extent range) (erase_span opener)
+      PDiv len cls (of_extent range) (of_span opener)
         (Erase.of_blocks done) (state inner)
   | PList ls done inner =>
       PList (of_list_state ls) (Erase.of_blocks done) (state inner)
   | PAttr pend specs range ind ap slices =>
-      PAttr pend (map erase_span specs) (erase_extent range) ind ap
-        (erase_lines slices)
-  | PParaOff k cur => PParaOff k (erase_lines cur)
-  | PRef range ind lbl val => PRef (erase_extent range) ind lbl val
+      PAttr pend (map of_span specs) (of_extent range) ind ap
+        (of_lines slices)
+  | PParaOff k cur => PParaOff k (of_lines cur)
+  | PRef range ind lbl val => PRef (of_extent range) ind lbl val
   | PFoot range ind lbl done inner =>
-      PFoot (erase_extent range) ind lbl (Erase.of_blocks done)
+      PFoot (of_extent range) ind lbl (Erase.of_blocks done)
         (state inner)
   | PTable range rows cap =>
-      PTable (erase_extent range) rows (of_cap cap)
+      PTable (of_extent range) rows (of_cap cap)
   | PPend pend specs inner =>
-      PPend pend (map erase_span specs) (state inner)
+      PPend pend (map of_span specs) (state inner)
   | PKey range lbl src inner =>
-      PKey (erase_extent range) lbl src (state inner)
+      PKey (of_extent range) lbl src (state inner)
   end.
 
 Local Definition result (r : blocks * pstate) : blocks * pstate :=
@@ -4324,56 +4323,56 @@ Ltac sem_para :=
 
 (* Every coordinate constructor is the ambient one, erased. *)
 Local Lemma erase_spot_at : forall `{LI : LineIx} l c,
-  erase_spot (@spot_at LI l c) = @spot_at semantic_line_ix l c.
+  StateErase.of_spot (@spot_at LI l c) = @spot_at semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
 Local Lemma erase_line_stop : forall `{LI : LineIx},
-  erase_spot (@line_stop LI) = @line_stop semantic_line_ix.
+  StateErase.of_spot (@line_stop LI) = @line_stop semantic_line_ix.
 Proof. reflexivity. Qed.
 
 Local Lemma erase_line_span_from : forall `{LI : LineIx} l c,
-  erase_span (@line_span_from LI l c) = @line_span_from semantic_line_ix l c.
+  StateErase.of_span (@line_span_from LI l c) = @line_span_from semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
 Local Lemma erase_open_extent : forall `{LI : LineIx} l c,
-  erase_extent (@open_extent LI l c) = @open_extent semantic_line_ix l c.
+  StateErase.of_extent (@open_extent LI l c) = @open_extent semantic_line_ix l c.
 Proof. reflexivity. Qed.
 
 Local Lemma erase_touch_extent : forall `{LI : LineIx} e,
-  erase_extent (@touch_extent LI e) =
-  @touch_extent semantic_line_ix (erase_extent e).
+  StateErase.of_extent (@touch_extent LI e) =
+  @touch_extent semantic_line_ix (StateErase.of_extent e).
 Proof. reflexivity. Qed.
 
 Local Lemma erase_span_through_line : forall `{LI : LineIx} r,
-  erase_span (@span_through_line LI r) =
-  @span_through_line semantic_line_ix (erase_span r).
+  StateErase.of_span (@span_through_line LI r) =
+  @span_through_line semantic_line_ix (StateErase.of_span r).
 Proof. reflexivity. Qed.
 
 Local Lemma erase_remember_line : forall `{LI : LineIx} t,
-  erase_line (@remember_line LI t) = @remember_line semantic_line_ix t.
+  StateErase.of_line (@remember_line LI t) = @remember_line semantic_line_ix t.
 Proof. reflexivity. Qed.
 
 Local Lemma erase_remember_lines : forall `{LI : LineIx} lines,
-  erase_lines (@remember_lines LI lines) =
+  StateErase.of_lines (@remember_lines LI lines) =
   @remember_lines semantic_line_ix lines.
 Proof.
   intros LI lines. induction lines as [|l rest IH]; [reflexivity|].
-  unfold erase_lines, remember_lines in *; cbn [map]. rewrite IH. reflexivity.
+  unfold StateErase.of_lines, remember_lines in *; cbn [map]. rewrite IH. reflexivity.
 Qed.
 
 Local Lemma erase_push_text : forall `{LI : LineIx} rest cur,
-  erase_lines (@push_text LI rest cur) =
-  @push_text semantic_line_ix rest (erase_lines cur).
+  StateErase.of_lines (@push_text LI rest cur) =
+  @push_text semantic_line_ix rest (StateErase.of_lines cur).
 Proof.
   intros LI rest cur. unfold push_text. destruct (is_blank rest); reflexivity.
 Qed.
 
 Local Lemma erase_para_recover : forall extra slices,
   StateErase.state (para_recover extra slices) =
-  para_recover extra (erase_lines slices).
+  para_recover extra (StateErase.of_lines slices).
 Proof.
   intros extra slices. unfold para_recover. cbn [StateErase.state].
-  rewrite erase_lines_length. reflexivity.
+  rewrite StateErase.of_lines_length. reflexivity.
 Qed.
 
 Local Lemma erase_list_opened : forall `{LI : LineIx} l ind sty chk,
@@ -4404,7 +4403,7 @@ Local Lemma erase_caption_of : forall `{T : dtable} c,
 Proof.
   intros T [rs|rs|rs start lines]; cbn [StateErase.of_cap caption_of];
     try reflexivity.
-  rewrite <- erase_lines_rev, <- (@StateErase.of_para_inlines_at T),
+  rewrite <- StateErase.of_lines_rev, <- (@StateErase.of_para_inlines_at T),
     StateErase.inlines_nonempty.
   destruct (nonempty (@para_inlines_at T located_pos 0 (rev lines)));
     reflexivity.
@@ -4433,18 +4432,18 @@ Proof.
     cbn [finish StateErase.state StateErase.of_list_state Erase.of_blocks set_pos mkpos
       located_pos semantic_pos Erase.of_block pos_records add_roles_head add_roles
       pos_head posnode];
-    rewrite ?erase_line_texts_rev, ?erase_lines_length, ?erase_table_block,
+    rewrite ?StateErase.of_lines_texts_rev, ?StateErase.of_lines_length, ?erase_table_block,
       ?Erase.blocks_app, ?Erase.blocks_rev, ?IHst;
     try reflexivity;
     (* the arms whose block holds inlines: a paragraph, a heading, and the
        recovery's paragraph, each closing once the located scan's inlines
        are erased (`StateErase.of_para_inlines_at`) *)
     try (cbn [mk Erase.of_blocks Erase.of_block heading_block];
-         rewrite StateErase.of_para_inlines_at, erase_lines_rev, ?erase_lines_length;
+         rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev, ?StateErase.of_lines_length;
          reflexivity).
   - destruct cur as [|first cur]; [reflexivity|].
     cbn [mk Erase.of_blocks Erase.of_block].
-    rewrite StateErase.of_para_inlines_at, erase_lines_rev. reflexivity.
+    rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev. reflexivity.
   - destruct (@fence_block K f (line_texts (rev acc))) as [q a b] eqn:Ef.
     pose proof (@fence_block_erase K f (line_texts (rev acc)) []) as Hf.
     rewrite Ef in Hf. cbn [Erase.of_blocks] in Hf. exact Hf.
@@ -4470,7 +4469,7 @@ Proof.
       [reflexivity|].
     cbn [decorate_head Erase.of_blocks add_roles_head add_roles set_pos mkpos
       located_pos semantic_pos mk Erase.of_block].
-    rewrite StateErase.of_para_inlines_at, erase_lines_rev, erase_lines_length.
+    rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev, StateErase.of_lines_length.
     reflexivity.
   - cbn [foot_block mk Erase.of_block]. fold Erase.of_blocks.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
@@ -4586,7 +4585,7 @@ Qed.
 
 Local Lemma pend_result_erase : forall pend specs r,
   StateErase.result (@pend_result located_pos pend specs r) =
-  @pend_result semantic_pos pend (map erase_span specs) (StateErase.result r).
+  @pend_result semantic_pos pend (map StateErase.of_span specs) (StateErase.result r).
 Proof.
   intros pend specs [bs st]. destruct bs as [|[p a b] rest]; [reflexivity|].
   cbn [pend_result StateErase.result Erase.of_blocks decorate_head add_roles_head
@@ -4596,7 +4595,7 @@ Qed.
 
 Local Lemma key_result_erase : forall `{T : dtable} range lbl src r,
   StateErase.result (@key_result T located_pos range lbl src r) =
-  @key_result T semantic_pos (erase_extent range) lbl src (StateErase.result r).
+  @key_result T semantic_pos (StateErase.of_extent range) lbl src (StateErase.result r).
 Proof.
   intros T range lbl src [bs st].
   destruct bs as [|[p a b] rest]; [reflexivity|].
@@ -4614,9 +4613,9 @@ Proof.
   intros T K LI dl ds ind l k H. destruct k;
     cbn [open_line open_kind StateErase.result StateErase.state StateErase.of_list_state
       posnode mkpos located_pos semantic_pos Erase.of_blocks Erase.of_block mk
-      erase_lines];
+      StateErase.of_lines];
     try reflexivity.
-  - unfold StateErase.result; cbn [fst snd StateErase.state erase_lines].
+  - unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct bdivs; reflexivity.
   - specialize (H rest). destruct (dl rest) as [bs st].
     destruct (ds rest) as [bs' st']. cbn [StateErase.result fst snd] in H.
@@ -4631,20 +4630,20 @@ Proof.
     cbn [StateErase.result fst snd] in H. injection H as Hbs Hst. subst bs' st'.
     unfold StateErase.result, open_list. cbn [StateErase.state fst snd].
     rewrite Erase.blocks_rev, erase_list_opened. reflexivity.
-  - unfold StateErase.result, open_attr; cbn [fst snd StateErase.state erase_lines].
+  - unfold StateErase.result, open_attr; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct battrs; reflexivity.
   - specialize (H rest). destruct (dl rest) as [bs st].
     destruct (ds rest) as [bs' st']. cbn [StateErase.result fst snd] in H.
     injection H as Hbs Hst. subst bs' st'.
     unfold StateErase.result, open_foot. destruct bfootnotes;
-      cbn [StateErase.state fst snd erase_lines]; rewrite ?Erase.blocks_rev;
+      cbn [StateErase.state fst snd StateErase.of_lines]; rewrite ?Erase.blocks_rev;
       reflexivity.
-  - unfold StateErase.result; cbn [fst snd StateErase.state erase_lines].
+  - unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct btables; reflexivity.
   - unfold StateErase.result, open_text.
     destruct bkeyed;
       [destruct (key_split (drop_leading_ws l)) as [[lbl src]|]|];
-      cbn [fst snd StateErase.state erase_lines Erase.of_blocks];
+      cbn [fst snd StateErase.state StateErase.of_lines Erase.of_blocks];
       rewrite ?erase_push_text; reflexivity.
 Qed.
 
@@ -4656,7 +4655,7 @@ Local Lemma open_kind_erase : forall `{T : dtable} `{LI : LineIx} `{K : bconfig}
 Proof.
   intros T LI K l k. destruct k;
     unfold StateErase.result, open_kind;
-    cbn [fst snd StateErase.state erase_lines Erase.of_blocks Erase.of_block posnode
+    cbn [fst snd StateErase.state StateErase.of_lines Erase.of_blocks Erase.of_block posnode
       mkpos located_pos semantic_pos mk];
     rewrite ?erase_push_text;
     try reflexivity.
@@ -4664,7 +4663,7 @@ Proof.
   - destruct btables; reflexivity.
   - unfold open_text. destruct bkeyed;
       [destruct (key_split (drop_leading_ws l)) as [[lbl src]|]|];
-      cbn [fst snd StateErase.state erase_lines Erase.of_blocks];
+      cbn [fst snd StateErase.state StateErase.of_lines Erase.of_blocks];
       rewrite ?erase_push_text; reflexivity.
 Qed.
 
@@ -4713,20 +4712,20 @@ Proof.
     by (intros rest; apply (IH (off + consumed l rest) rest (PPara []))).
   destruct st.
   - (* PPara *)
-    destruct cur as [|c cur']; cbn [step_fuel StateErase.state erase_lines map];
+    destruct cur as [|c cur']; cbn [step_fuel StateErase.state StateErase.of_lines map];
       [apply open_line_erase; exact Hd|];
       destruct (bunderline_of l) as [lvl|];
       [ unfold StateErase.result; cbn [fst snd StateErase.state];
         rewrite Erase.blocks_set_pos; unfold heading_block;
-        cbn [Erase.of_blocks Erase.of_block mk erase_lines];
-        change (erase_line c :: map erase_line cur')
-          with (erase_lines (c :: cur'));
-        rewrite StateErase.of_para_inlines_at, erase_lines_rev; reflexivity |];
+        cbn [Erase.of_blocks Erase.of_block mk StateErase.of_lines];
+        change (StateErase.of_line c :: map StateErase.of_line cur')
+          with (StateErase.of_lines (c :: cur'));
+        rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev; reflexivity |];
       destruct (classify l);
       try apply close_reopen_kind_erase;
       try (destruct (binterrupt _);
            [apply close_reopen_line_erase; exact Hd
-           |unfold StateErase.result; cbn [fst snd StateErase.state erase_lines map];
+           |unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines map];
             rewrite erase_remember_line; reflexivity]).
   - (* PHeading *)
     cbn [step_fuel StateErase.state]; destruct (classify l);
@@ -4734,7 +4733,7 @@ Proof.
       try (destruct bheading_continues;
            [ try (destruct (Nat.eqb _ _));
              try (unfold StateErase.result;
-                  cbn [fst snd StateErase.state erase_lines map];
+                  cbn [fst snd StateErase.state StateErase.of_lines map];
                   rewrite ?erase_push_text, ?erase_remember_line;
                   reflexivity);
              apply close_reopen_kind_erase
@@ -4742,10 +4741,10 @@ Proof.
   - (* PFence *)
     cbn [step_fuel StateErase.state].
     destruct (fence_close f l);
-      [|unfold StateErase.result; cbn [fst snd StateErase.state erase_lines map];
+      [|unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines map];
         rewrite erase_remember_line; reflexivity].
     unfold StateErase.result; cbn [fst snd StateErase.state].
-    rewrite Erase.blocks_set_pos, erase_line_texts_rev.
+    rewrite Erase.blocks_set_pos, StateErase.of_lines_texts_rev.
     f_equal. apply fence_block_erase.
   - (* PQuote *)
     cbn [step_fuel StateErase.state]. destruct (classify l) eqn:E; cbn [is_lazy];
@@ -4808,7 +4807,7 @@ Proof.
     cbn [step_fuel StateErase.state]. destruct (ap_done ap).
     + rewrite (IH off l (PPend (Attr.merge (ap_attrs ap) pend)
         (specs ++ [extent_span range])%list (PPara []))).
-      cbn [StateErase.state erase_lines map]. rewrite map_app. reflexivity.
+      cbn [StateErase.state StateErase.of_lines map]. rewrite map_app. reflexivity.
     + destruct (Nat.ltb ind (off + indent_of l)).
       * destruct (ap_failed (attr_feed l ap)).
         -- rewrite pend_result_erase, IH, erase_para_recover. reflexivity.
@@ -4824,16 +4823,16 @@ Proof.
       [ unfold StateErase.result; cbn [fst snd StateErase.state];
         rewrite Erase.blocks_set_pos; unfold heading_block_off;
         cbn [Erase.of_blocks Erase.of_block mk];
-        rewrite StateErase.of_para_inlines_at, erase_lines_rev; reflexivity |];
+        rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev; reflexivity |];
       destruct (classify l);
       try apply close_reopen_kind_erase;
       try (destruct (binterrupt _);
            [apply close_reopen_line_erase; exact Hd
-           |unfold StateErase.result; cbn [fst snd StateErase.state erase_lines map];
+           |unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines map];
             rewrite erase_remember_line; reflexivity]).
   - (* PRef *)
     pose proof (IH off l (PPara [])) as Hp;
-      cbn [StateErase.state erase_lines map] in Hp.
+      cbn [StateErase.state StateErase.of_lines map] in Hp.
     cbn [step_fuel StateErase.state].
     destruct (if Nat.ltb ind (off + indent_of l) then ref_cont l else None);
       [reflexivity|].
@@ -4844,7 +4843,7 @@ Proof.
   - (* PFoot *)
     cbn [step_fuel StateErase.state].
     pose proof (IH off l (PPara [])) as Hp;
-      cbn [StateErase.state erase_lines map] in Hp.
+      cbn [StateErase.state StateErase.of_lines map] in Hp.
     assert (Hi : StateErase.result (@step_fuel T K LI located_pos n off l st) =
       @step_fuel T K semantic_line_ix semantic_pos n off l (StateErase.state st))
       by apply IH.
@@ -4866,7 +4865,7 @@ Proof.
   - (* PTable *)
     cbn [step_fuel StateErase.state].
     pose proof (IH off l (PPara [])) as Hp;
-      cbn [StateErase.state erase_lines map] in Hp.
+      cbn [StateErase.state StateErase.of_lines map] in Hp.
     destruct cap; cbn [StateErase.of_cap];
       [ | |
         destruct (is_blank l);
@@ -4874,7 +4873,7 @@ Proof.
           rewrite Erase.blocks_set_pos, erase_table_block;
           cbn [StateErase.of_cap Erase.of_blocks]; reflexivity
         | unfold StateErase.result;
-          cbn [fst snd StateErase.state StateErase.of_cap erase_lines map];
+          cbn [fst snd StateErase.state StateErase.of_cap StateErase.of_lines map];
           reflexivity ] ].
     all: destruct (caption_open l) as [crest|];
          [ unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_cap];
@@ -4897,7 +4896,7 @@ Proof.
       rewrite pend_result_erase, IH. reflexivity.
     + destruct (is_idle st);
         [unfold StateErase.result, open_attr;
-         cbn [fst snd StateErase.state erase_lines map];
+         cbn [fst snd StateErase.state StateErase.of_lines map];
          destruct battrs; reflexivity|].
       rewrite pend_result_erase, IH. reflexivity.
   - (* PKey *)

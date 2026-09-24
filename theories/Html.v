@@ -988,7 +988,7 @@ Proof. reflexivity. Qed.
 
 (* An item whose first block is not a paragraph has an empty term and
    keeps everything.  The heading's auto-identifier is
-   `Document.Ids.of_assign_ids` reaching into a definition. *)
+   `Document.Ids.of_block` reaching into a definition. *)
 Example convert_deflist_no_term :
   convert ": # h" = "<dl>
 <dt></dt>

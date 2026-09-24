@@ -4138,7 +4138,7 @@ Identifiers
 Local Lemma assign_ids_wf :
   forall b p a st,
     wf_block b = true ->
-    wf_block (node_contents (snd (Ids.of_assign_ids b p a st))) = true.
+    wf_block (node_contents (snd (Ids.of_block b p a st))) = true.
 Proof.
   intros b.
   induction b using block_ind2 with
@@ -4160,9 +4160,9 @@ Proof.
     intros; try exact H.
   (* A `Section` is unreachable from the line fold, but the lemma is
      stated for every block, so it is discharged by the identity branch
-     of Ids.of_assign_ids above. *)
+     of Ids.of_block above. *)
   - (* Heading *)
-    unfold Ids.of_assign_ids, assign_heading_id.
+    unfold Ids.of_block, assign_heading_id.
     destruct (alist_lookup "id" a) as [v|]; exact H.
   - (* BlockQuote *)
     rewrite Ids.quote.
@@ -4238,8 +4238,8 @@ Proof.
        singleton. *)
     rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
     destruct b as [p' a' x].
-    cbn [Ids.of_assign_ids] in *.
-    destruct (Ids.of_assign_ids x p' a' (register_id a st)) as [st1 n1] eqn:E1.
+    cbn [Ids.of_block] in *.
+    destruct (Ids.of_block x p' a' (register_id a st)) as [st1 n1] eqn:E1.
     cbn [snd node_contents]. rewrite wf_block_keyed.
     apply andb_true_iff. split; [exact Hlbl|].
     specialize (IHb (register_id a st) Hb).
@@ -4248,7 +4248,7 @@ Proof.
   - (* Node p a b :: rest *)
     rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
     cbn [Ids.of_list Ids.of_node].
-    destruct (Ids.of_assign_ids b p a st) as [st1 n1] eqn:E1.
+    destruct (Ids.of_block b p a st) as [st1 n1] eqn:E1.
     destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
     cbn [snd]. rewrite wf_blocks_cons.
     apply andb_true_iff. split.
@@ -4293,7 +4293,7 @@ Proof.
   induction bs as [|[p a x] rest IH]; intros st H; [reflexivity|].
   rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
   cbn [Ids.of_list Ids.of_node].
-  destruct (Ids.of_assign_ids x p a st) as [st1 n1] eqn:E1.
+  destruct (Ids.of_block x p a st) as [st1 n1] eqn:E1.
   destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
   cbn [snd]. rewrite wf_blocks_cons. apply andb_true_iff. split.
   - change n1 with (snd (st1, n1)). rewrite <- E1.
@@ -4466,7 +4466,7 @@ Qed.
 Local Lemma collect_notes_block_wf :
   forall b p a m,
     wf_block b = true -> wf_note_map m = true ->
-    let r := Notes.of_collect_notes b p a m in
+    let r := Notes.of_block b p a m in
     wf_note_map (fst r) = true /\
     match snd r with
     | Some n => wf_block (node_contents n) = true
@@ -4550,8 +4550,8 @@ Proof.
        the `None` case, and otherwise it keeps a well-formed block. *)
     unfold r. rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
     specialize (IHb m Hb H0).
-    destruct b as [p' a' x]. cbn [Notes.of_collect_notes] in *.
-    destruct (Notes.of_collect_notes x p' a' m) as [m1 [n0|]] eqn:E1;
+    destruct b as [p' a' x]. cbn [Notes.of_block] in *.
+    destruct (Notes.of_block x p' a' m) as [m1 [n0|]] eqn:E1;
       cbn [Notes.of_list fst snd] in IHb |- *; rewrite E1 in IHb;
       cbn [fst snd] in IHb.
     + destruct IHb as [Hm1 Hn]. rewrite wf_blocks_cons in Hn.
@@ -4561,7 +4561,7 @@ Proof.
     + destruct IHb as [Hm1 _]. split; [exact Hm1| exact I].
   - unfold r. rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [Notes.of_list].
-    destruct (Notes.of_collect_notes b p a m) as [m1 [n|]] eqn:E1.
+    destruct (Notes.of_block b p a m) as [m1 [n|]] eqn:E1.
     + specialize (IHb p a m Hb H0). rewrite E1 in IHb.
       cbn [fst snd] in IHb. destruct IHb as [Hm1 Hn].
       destruct (Notes.of_list rest m1) as [m2 rest'] eqn:E2.
@@ -4613,7 +4613,7 @@ Proof.
   - split; assumption.
   - rewrite wf_blocks_cons in Hbs. apply andb_true_iff in Hbs as [Hb Hrest].
     cbn [Notes.of_list].
-    destruct (Notes.of_collect_notes b p a m) as [m1 [n|]] eqn:E1.
+    destruct (Notes.of_block b p a m) as [m1 [n|]] eqn:E1.
     + pose proof (collect_notes_block_wf b p a m Hb Hm) as Hhead.
       rewrite E1 in Hhead. cbn [fst snd] in Hhead.
       destruct Hhead as [Hm1 Hn].
