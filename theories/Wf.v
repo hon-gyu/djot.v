@@ -4466,7 +4466,7 @@ Qed.
 Local Lemma collect_notes_block_wf :
   forall b p a m,
     wf_block b = true -> wf_note_map m = true ->
-    let r := collect_notes b p a m in
+    let r := Notes.of_collect_notes b p a m in
     wf_note_map (fst r) = true /\
     match snd r with
     | Some n => wf_block (node_contents n) = true
@@ -4476,73 +4476,73 @@ Proof.
   intros b. induction b using block_ind2 with
       (Q := fun bs => forall m,
           wf_blocks bs = true -> wf_note_map m = true ->
-          let r := collect_notes_list bs m in
+          let r := Notes.of_list bs m in
           wf_note_map (fst r) = true /\ wf_blocks (snd r) = true)
       (R := fun its => forall m,
           forallb wf_blocks its = true -> wf_note_map m = true ->
-          let r := collect_notes_items its m in
+          let r := Notes.of_items its m in
           wf_note_map (fst r) = true /\ forallb wf_blocks (snd r) = true)
       (D := fun its => forall m,
           forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti)) its
           = true -> wf_note_map m = true ->
-          let r := collect_notes_def_items its m in
+          let r := Notes.of_def_items its m in
           wf_note_map (fst r) = true /\
           forallb (fun ti => wf_inlines (fst ti) && wf_blocks (snd ti))
             (snd r) = true)
       (K := fun its => forall m,
           forallb (fun ti => wf_blocks (snd ti)) its = true ->
           wf_note_map m = true ->
-          let r := collect_notes_task_items its m in
+          let r := Notes.of_task_items its m in
           wf_note_map (fst r) = true /\
           forallb (fun ti => wf_blocks (snd ti)) (snd r) = true);
     intros; try (split; assumption).
-  - unfold r. rewrite wf_block_quote in H. rewrite collect_notes_quote.
-    destruct (collect_notes_list bs m) as [m' bs'] eqn:E.
+  - unfold r. rewrite wf_block_quote in H. rewrite Notes.quote.
+    destruct (Notes.of_list bs m) as [m' bs'] eqn:E.
     specialize (IHb m H H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hbs]. split; [exact Hm|].
     cbn [node_contents]. rewrite wf_block_quote. exact Hbs.
-  - unfold r. rewrite wf_block_div in H. rewrite collect_notes_div.
-    destruct (collect_notes_list bs m) as [m' bs'] eqn:E.
+  - unfold r. rewrite wf_block_div in H. rewrite Notes.div.
+    destruct (Notes.of_list bs m) as [m' bs'] eqn:E.
     specialize (IHb m H H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hbs]. split; [exact Hm|].
     cbn [node_contents]. rewrite wf_block_div. exact Hbs.
   - unfold r. rewrite wf_block_olist in H. apply andb_true_iff in H as [Hne Hits].
-    rewrite collect_notes_olist.
-    destruct (collect_notes_items items m) as [m' items'] eqn:E.
+    rewrite Notes.olist.
+    destruct (Notes.of_items items m) as [m' items'] eqn:E.
     specialize (IHb m Hits H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hits']. split; [exact Hm|]. cbn [node_contents].
     rewrite wf_block_olist. apply andb_true_iff. split; [|exact Hits'].
     change items' with (snd (m', items')). rewrite <- E.
-    rewrite collect_notes_items_nonempty. exact Hne.
+    rewrite Notes.items_nonempty. exact Hne.
   - unfold r. rewrite wf_block_bullet in H. apply andb_true_iff in H as [Hne Hits].
-    rewrite collect_notes_blist.
-    destruct (collect_notes_items items m) as [m' items'] eqn:E.
+    rewrite Notes.blist.
+    destruct (Notes.of_items items m) as [m' items'] eqn:E.
     specialize (IHb m Hits H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hits']. split; [exact Hm|]. cbn [node_contents].
     rewrite wf_block_bullet. apply andb_true_iff. split; [|exact Hits'].
     change items' with (snd (m', items')). rewrite <- E.
-    rewrite collect_notes_items_nonempty. exact Hne.
+    rewrite Notes.items_nonempty. exact Hne.
   - unfold r. rewrite wf_block_tasklist in H.
     apply andb_true_iff in H as [Hne Hits].
-    rewrite collect_notes_tasklist.
-    destruct (collect_notes_task_items items m) as [m' items'] eqn:E.
+    rewrite Notes.tasklist.
+    destruct (Notes.of_task_items items m) as [m' items'] eqn:E.
     specialize (IHb m Hits H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hits']. split; [exact Hm|]. cbn [node_contents].
     rewrite wf_block_tasklist. apply andb_true_iff. split; [|exact Hits'].
     change items' with (snd (m', items')). rewrite <- E.
-    rewrite collect_notes_task_items_nonempty. exact Hne.
+    rewrite Notes.task_items_nonempty. exact Hne.
   - unfold r. rewrite wf_block_deflist in H.
     apply andb_true_iff in H as [Hne Hits].
-    rewrite collect_notes_deflist.
-    destruct (collect_notes_def_items items m) as [m' items'] eqn:E.
+    rewrite Notes.deflist.
+    destruct (Notes.of_def_items items m) as [m' items'] eqn:E.
     specialize (IHb m Hits H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hits']. split; [exact Hm|]. cbn [node_contents].
     rewrite wf_block_deflist. apply andb_true_iff. split; [|exact Hits'].
     change items' with (snd (m', items')). rewrite <- E.
-    rewrite collect_notes_def_items_nonempty. exact Hne.
+    rewrite Notes.def_items_nonempty. exact Hne.
   - unfold r. rewrite wf_block_footnote in H. apply andb_true_iff in H as [_ Hbs].
-    rewrite collect_notes_foot.
-    destruct (collect_notes_list bs m) as [m' bs'] eqn:E.
+    rewrite Notes.foot.
+    destruct (Notes.of_list bs m) as [m' bs'] eqn:E.
     specialize (IHb m Hbs H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hbs']. split; [|exact I].
     apply wf_note_map_set; assumption.
@@ -4550,9 +4550,9 @@ Proof.
        the `None` case, and otherwise it keeps a well-formed block. *)
     unfold r. rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
     specialize (IHb m Hb H0).
-    destruct b as [p' a' x]. cbn [collect_notes] in *.
-    destruct (collect_notes x p' a' m) as [m1 [n0|]] eqn:E1;
-      cbn [collect_notes_list fst snd] in IHb |- *; rewrite E1 in IHb;
+    destruct b as [p' a' x]. cbn [Notes.of_collect_notes] in *.
+    destruct (Notes.of_collect_notes x p' a' m) as [m1 [n0|]] eqn:E1;
+      cbn [Notes.of_list fst snd] in IHb |- *; rewrite E1 in IHb;
       cbn [fst snd] in IHb.
     + destruct IHb as [Hm1 Hn]. rewrite wf_blocks_cons in Hn.
       apply andb_true_iff in Hn as [Hn _].
@@ -4560,44 +4560,44 @@ Proof.
       rewrite Hlbl. cbn [wf_blocks forallb]. rewrite Hn. reflexivity.
     + destruct IHb as [Hm1 _]. split; [exact Hm1| exact I].
   - unfold r. rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hb Hrest].
-    cbn [collect_notes_list].
-    destruct (collect_notes b p a m) as [m1 [n|]] eqn:E1.
+    cbn [Notes.of_list].
+    destruct (Notes.of_collect_notes b p a m) as [m1 [n|]] eqn:E1.
     + specialize (IHb p a m Hb H0). rewrite E1 in IHb.
       cbn [fst snd] in IHb. destruct IHb as [Hm1 Hn].
-      destruct (collect_notes_list rest m1) as [m2 rest'] eqn:E2.
+      destruct (Notes.of_list rest m1) as [m2 rest'] eqn:E2.
       specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
       cbn [fst snd] in IHb0 |- *. destruct IHb0 as [Hm2 Hr].
       split; [exact Hm2|]. rewrite wf_blocks_cons, Hn, Hr. reflexivity.
     + specialize (IHb p a m Hb H0). rewrite E1 in IHb.
       cbn [fst snd] in IHb. destruct IHb as [Hm1 _].
-      destruct (collect_notes_list rest m1) as [m2 rest'] eqn:E2.
+      destruct (Notes.of_list rest m1) as [m2 rest'] eqn:E2.
       specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
       cbn [fst snd] in IHb0 |- *. exact IHb0.
   - unfold r. cbn [forallb] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [collect_notes_items].
-    destruct (collect_notes_list it m) as [m1 it'] eqn:E1.
+    cbn [Notes.of_items].
+    destruct (Notes.of_list it m) as [m1 it'] eqn:E1.
     specialize (IHb m Hit H0). rewrite E1 in IHb.
     cbn [fst snd] in IHb. destruct IHb as [Hm1 Hit'].
-    destruct (collect_notes_items rest m1) as [m2 rest'] eqn:E2.
+    destruct (Notes.of_items rest m1) as [m2 rest'] eqn:E2.
     specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
     cbn [fst snd forallb] in IHb0 |- *. destruct IHb0 as [Hm2 Hrest'].
     split; [exact Hm2|]. rewrite Hit', Hrest'. reflexivity.
   - unfold r. cbn [forallb fst snd] in H. apply andb_true_iff in H as [Hit Hrest].
     apply andb_true_iff in Hit as [Hterm Hit].
-    cbn [collect_notes_def_items].
-    destruct (collect_notes_list it m) as [m1 it'] eqn:E1.
+    cbn [Notes.of_def_items].
+    destruct (Notes.of_list it m) as [m1 it'] eqn:E1.
     specialize (IHb m Hit H0). rewrite E1 in IHb.
     cbn [fst snd] in IHb. destruct IHb as [Hm1 Hit'].
-    destruct (collect_notes_def_items rest m1) as [m2 rest'] eqn:E2.
+    destruct (Notes.of_def_items rest m1) as [m2 rest'] eqn:E2.
     specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
     cbn [fst snd forallb] in IHb0 |- *. destruct IHb0 as [Hm2 Hrest'].
     split; [exact Hm2|]. rewrite Hterm, Hit', Hrest'. reflexivity.
   - unfold r. cbn [forallb snd] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [collect_notes_task_items].
-    destruct (collect_notes_list it m) as [m1 it'] eqn:E1.
+    cbn [Notes.of_task_items].
+    destruct (Notes.of_list it m) as [m1 it'] eqn:E1.
     specialize (IHb m Hit H0). rewrite E1 in IHb.
     cbn [fst snd] in IHb. destruct IHb as [Hm1 Hit'].
-    destruct (collect_notes_task_items rest m1) as [m2 rest'] eqn:E2.
+    destruct (Notes.of_task_items rest m1) as [m2 rest'] eqn:E2.
     specialize (IHb0 m1 Hrest Hm1). rewrite E2 in IHb0.
     cbn [fst snd forallb] in IHb0 |- *. destruct IHb0 as [Hm2 Hrest'].
     split; [exact Hm2|]. rewrite Hit', Hrest'. reflexivity.
@@ -4606,18 +4606,18 @@ Qed.
 Local Lemma collect_notes_list_wf :
   forall bs m,
     wf_blocks bs = true -> wf_note_map m = true ->
-    wf_note_map (fst (collect_notes_list bs m)) = true /\
-    wf_blocks (snd (collect_notes_list bs m)) = true.
+    wf_note_map (fst (Notes.of_list bs m)) = true /\
+    wf_blocks (snd (Notes.of_list bs m)) = true.
 Proof.
   induction bs as [|[p a b] rest IH]; intros m Hbs Hm.
   - split; assumption.
   - rewrite wf_blocks_cons in Hbs. apply andb_true_iff in Hbs as [Hb Hrest].
-    cbn [collect_notes_list].
-    destruct (collect_notes b p a m) as [m1 [n|]] eqn:E1.
+    cbn [Notes.of_list].
+    destruct (Notes.of_collect_notes b p a m) as [m1 [n|]] eqn:E1.
     + pose proof (collect_notes_block_wf b p a m Hb Hm) as Hhead.
       rewrite E1 in Hhead. cbn [fst snd] in Hhead.
       destruct Hhead as [Hm1 Hn].
-      destruct (collect_notes_list rest m1) as [m2 rest'] eqn:E2.
+      destruct (Notes.of_list rest m1) as [m2 rest'] eqn:E2.
       specialize (IH m1 Hrest Hm1). cbn [fst snd] in IH |- *.
       destruct IH as [Hm2 Hr]. rewrite E2 in Hm2, Hr. cbn [fst snd] in Hm2, Hr.
       split; [exact Hm2|].
@@ -4625,7 +4625,7 @@ Proof.
     + pose proof (collect_notes_block_wf b p a m Hb Hm) as Hhead.
       rewrite E1 in Hhead. cbn [fst snd] in Hhead.
       destruct Hhead as [Hm1 _].
-      destruct (collect_notes_list rest m1) as [m2 rest'] eqn:E2.
+      destruct (Notes.of_list rest m1) as [m2 rest'] eqn:E2.
       specialize (IH m1 Hrest Hm1). destruct IH as [Hm2 Hr].
       rewrite E2 in Hm2, Hr. cbn [fst snd] in Hm2, Hr |- *.
       split; assumption.
@@ -4646,7 +4646,7 @@ Proof.
   assert (Hbs' : wf_blocks bs' = true).
   { change bs' with (snd (st, bs')). rewrite <- E.
     apply assign_ids_list_wf. exact H. }
-  destruct (collect_notes_list bs' []) as [notes visible] eqn:En.
+  destruct (Notes.of_list bs' []) as [notes visible] eqn:En.
   pose proof (collect_notes_list_wf bs' [] Hbs' eq_refl) as Hcollect.
   cbn [fst snd] in Hcollect.
   destruct Hcollect as [Hnotes Hvisible].

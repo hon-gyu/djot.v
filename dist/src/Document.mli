@@ -68,10 +68,13 @@ val collect_refs : block -> pos -> attr -> reference_map -> reference_map
 
 val collect_refs_list : blocks -> reference_map -> reference_map
 
-val collect_notes :
-  block -> pos -> attr -> note_map -> note_map * block node option
+module Notes :
+ sig
+  val of_collect_notes :
+    block -> pos -> attr -> note_map -> note_map * block node option
 
-val collect_notes_list : blocks -> note_map -> note_map * blocks
+  val of_list : blocks -> note_map -> note_map * blocks
+ end
 
 val doc_pass : coq_PosPolicy -> blocks -> doc
 

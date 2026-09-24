@@ -741,17 +741,27 @@ Local Fixpoint collect_refs_list (ns : blocks) (m : reference_map) : reference_m
   | Node p a b :: rest => collect_refs_list rest (collect_refs b p a m)
   end.
 
+End WithPolicy.
+End WithTable.
+Module Notes.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
+Section WithPolicy.
+Context {P : PosPolicy}.
+
 (** Remove footnote-definition nodes while assigning their recursively
     cleaned bodies into the document table.  A definition is assigned
     after its body, matching the order in which nested containers close. *)
-Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
+Fixpoint of_collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
   {struct b} : note_map * option (node block) :=
   let go :=
     fix go (ns : blocks) (acc : note_map) {struct ns} : note_map * blocks :=
       match ns with
       | [] => (acc, [])
       | Node p' a' x :: rest =>
-          let (acc1, n1) := collect_notes x p' a' acc in
+          let (acc1, n1) := of_collect_notes x p' a' acc in
           let (acc2, rest1) := go rest acc1 in
           match n1 with
           | Some n => (acc2, n :: rest1)
@@ -779,7 +789,7 @@ Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
   (* A key whose one block is a definition has nothing left to name, so
      it goes with it.  Every other container keeps its (shorter) list. *)
   | Keyed label (Node p' a' x) =>
-      let (m', o) := collect_notes x p' a' m in
+      let (m', o) := of_collect_notes x p' a' m in
       (m', match o with
            | Some n' => Some (Node p a (Keyed label n'))
            | None => None
@@ -817,81 +827,81 @@ Fixpoint collect_notes (b : block) (p : pos) (a : attr) (m : note_map)
   | _ => (m, Some (Node p a b))
   end.
 
-Fixpoint collect_notes_list (ns : blocks) (m : note_map) : note_map * blocks :=
+Fixpoint of_list (ns : blocks) (m : note_map) : note_map * blocks :=
   match ns with
   | [] => (m, [])
   | Node p a b :: rest =>
-      let (m1, n1) := collect_notes b p a m in
-      let (m2, rest1) := collect_notes_list rest m1 in
+      let (m1, n1) := of_collect_notes b p a m in
+      let (m2, rest1) := of_list rest m1 in
       match n1 with
       | Some n => (m2, n :: rest1)
       | None => (m2, rest1)
       end
   end.
 
-Fixpoint collect_notes_items (its : list blocks) (m : note_map)
+Fixpoint of_items (its : list blocks) (m : note_map)
   : note_map * list blocks :=
   match its with
   | [] => (m, [])
   | it :: rest =>
-      let (m1, it1) := collect_notes_list it m in
-      let (m2, rest1) := collect_notes_items rest m1 in
+      let (m1, it1) := of_list it m in
+      let (m2, rest1) := of_items rest m1 in
       (m2, it1 :: rest1)
   end.
 
-Fixpoint collect_notes_def_items (its : list (inlines * blocks)) (m : note_map)
+Fixpoint of_def_items (its : list (inlines * blocks)) (m : note_map)
   : note_map * list (inlines * blocks) :=
   match its with
   | [] => (m, [])
   | (term, it) :: rest =>
-      let (m1, it1) := collect_notes_list it m in
-      let (m2, rest1) := collect_notes_def_items rest m1 in
+      let (m1, it1) := of_list it m in
+      let (m2, rest1) := of_def_items rest m1 in
       (m2, (term, it1) :: rest1)
   end.
 
-Fixpoint collect_notes_task_items (its : list (task_status * blocks)) (m : note_map)
+Fixpoint of_task_items (its : list (task_status * blocks)) (m : note_map)
   : note_map * list (task_status * blocks) :=
   match its with
   | [] => (m, [])
   | (chk, it) :: rest =>
-      let (m1, it1) := collect_notes_list it m in
-      let (m2, rest1) := collect_notes_task_items rest m1 in
+      let (m1, it1) := of_list it m in
+      let (m2, rest1) := of_task_items rest m1 in
       (m2, (chk, it1) :: rest1)
   end.
 
-Lemma collect_notes_items_nonempty :
+Lemma items_nonempty :
   forall its m,
-    nonempty (snd (collect_notes_items its m)) = nonempty its.
+    nonempty (snd (of_items its m)) = nonempty its.
 Proof.
   intros [|it rest] m; [reflexivity|].
-  cbn [collect_notes_items].
-  destruct (collect_notes_list it m) as [m1 it1].
-  destruct (collect_notes_items rest m1) as [m2 rest1].
+  cbn [of_items].
+  destruct (of_list it m) as [m1 it1].
+  destruct (of_items rest m1) as [m2 rest1].
   reflexivity.
 Qed.
 
-Local Lemma collect_notes_inner_go :
+Local Lemma inner_go :
   forall ns m,
     (fix go (ns' : blocks) (acc : note_map) {struct ns'}
        : note_map * blocks :=
        match ns' with
        | [] => (acc, [])
        | Node p a b :: rest =>
-           let (acc1, n1) := collect_notes b p a acc in
+           let (acc1, n1) := of_collect_notes b p a acc in
            let (acc2, rest1) := go rest acc1 in
            match n1 with
            | Some n => (acc2, n :: rest1)
            | None => (acc2, rest1)
            end
-       end) ns m = collect_notes_list ns m.
+       end) ns m = of_list ns m.
 Proof.
   induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [collect_notes_list].
-  destruct (collect_notes b p a m) as [m1 [n|]] eqn:E;
+  cbn [of_list].
+  destruct (of_collect_notes b p a m) as [m1 [n|]] eqn:E;
     rewrite IH; reflexivity.
 Qed.
 
-Local Lemma collect_notes_inner_goit :
+Local Lemma inner_goit :
   forall its m,
     (fix goit (its' : list blocks) (acc : note_map) {struct its'}
        : note_map * list blocks :=
@@ -904,7 +914,7 @@ Local Lemma collect_notes_inner_goit :
                 match ns with
                 | [] => (acc0, [])
                 | Node p a b :: more =>
-                    let (acc2, n1) := collect_notes b p a acc0 in
+                    let (acc2, n1) := of_collect_notes b p a acc0 in
                     let (acc3, more1) := go more acc2 in
                     match n1 with
                     | Some n => (acc3, n :: more1)
@@ -913,57 +923,57 @@ Local Lemma collect_notes_inner_goit :
                 end) it acc in
            let (acc2, rest1) := goit rest acc1 in
            (acc2, it1 :: rest1)
-       end) its m = collect_notes_items its m.
+       end) its m = of_items its m.
 Proof.
   induction its as [|it rest IH]; intros m; [reflexivity|].
-  cbn [collect_notes_items]. rewrite collect_notes_inner_go.
-  destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity.
+  cbn [of_items]. rewrite inner_go.
+  destruct (of_list it m) as [m1 it1]. rewrite IH. reflexivity.
 Qed.
 
-Lemma collect_notes_quote :
+Lemma quote :
   forall p a bs m,
-    collect_notes (BlockQuote bs) p a m
-    = let (m', bs') := collect_notes_list bs m in
+    of_collect_notes (BlockQuote bs) p a m
+    = let (m', bs') := of_list bs m in
       (m', Some (Node p a (BlockQuote bs'))).
 Proof.
-  intros p a bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  intros p a bs m. cbn [of_collect_notes]. rewrite inner_go.
   reflexivity.
 Qed.
 
-Lemma collect_notes_div :
+Lemma div :
   forall p a bs m,
-    collect_notes (Div bs) p a m
-    = let (m', bs') := collect_notes_list bs m in
+    of_collect_notes (Div bs) p a m
+    = let (m', bs') := of_list bs m in
       (m', Some (Node p a (Div bs'))).
 Proof.
-  intros p a bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  intros p a bs m. cbn [of_collect_notes]. rewrite inner_go.
   reflexivity.
 Qed.
 
-Lemma collect_notes_foot :
+Lemma foot :
   forall p a label bs m,
-    collect_notes (FootnoteDef label bs) p a m
-    = let (m', bs') := collect_notes_list bs m in
+    of_collect_notes (FootnoteDef label bs) p a m
+    = let (m', bs') := of_list bs m in
       (alist_set (normalize_label label) bs' m', None).
 Proof.
-  intros p a label bs m. cbn [collect_notes]. rewrite collect_notes_inner_go.
+  intros p a label bs m. cbn [of_collect_notes]. rewrite inner_go.
   reflexivity.
 Qed.
 
-Lemma collect_notes_blist :
+Lemma blist :
   forall p a sp items m,
-    collect_notes (BulletList sp items) p a m
-    = let (m', items') := collect_notes_items items m in
+    of_collect_notes (BulletList sp items) p a m
+    = let (m', items') := of_items items m in
       (m', Some (Node p a (BulletList sp items'))).
 Proof.
-  intros p a sp items m. cbn [collect_notes]. rewrite collect_notes_inner_goit.
+  intros p a sp items m. cbn [of_collect_notes]. rewrite inner_goit.
   reflexivity.
 Qed.
 
-Lemma collect_notes_deflist :
+Lemma deflist :
   forall p a sp items m,
-    collect_notes (DefinitionList sp items) p a m
-    = let (m', items') := collect_notes_def_items items m in
+    of_collect_notes (DefinitionList sp items) p a m
+    = let (m', items') := of_def_items items m in
       (m', Some (Node p a (DefinitionList sp items'))).
 Proof.
   assert (H : forall its m,
@@ -978,7 +988,7 @@ Proof.
                          match ns with
                          | [] => (acc0, [])
                          | Node p a b :: more =>
-                             let (acc2, n1) := collect_notes b p a acc0 in
+                             let (acc2, n1) := of_collect_notes b p a acc0 in
                              let (acc3, more1) := go more acc2 in
                              match n1 with
                              | Some n => (acc3, n :: more1)
@@ -987,28 +997,28 @@ Proof.
                          end) it acc in
                     let (acc2, rest1) := god rest acc1 in
                     (acc2, (term, it1) :: rest1)
-                end) its m = collect_notes_def_items its m).
+                end) its m = of_def_items its m).
   { induction its as [|[term it] rest IH]; intros m; [reflexivity|].
-    cbn [collect_notes_def_items]. rewrite collect_notes_inner_go.
-    destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items m. cbn [collect_notes]. rewrite H. reflexivity.
+    cbn [of_def_items]. rewrite inner_go.
+    destruct (of_list it m) as [m1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items m. cbn [of_collect_notes]. rewrite H. reflexivity.
 Qed.
 
-Lemma collect_notes_def_items_nonempty :
+Lemma def_items_nonempty :
   forall its m,
-    nonempty (snd (collect_notes_def_items its m)) = nonempty its.
+    nonempty (snd (of_def_items its m)) = nonempty its.
 Proof.
   intros [|[term it] rest] m; [reflexivity|].
-  cbn [collect_notes_def_items].
-  destruct (collect_notes_list it m) as [m1 it1].
-  destruct (collect_notes_def_items rest m1) as [m2 rest1].
+  cbn [of_def_items].
+  destruct (of_list it m) as [m1 it1].
+  destruct (of_def_items rest m1) as [m2 rest1].
   reflexivity.
 Qed.
 
-Lemma collect_notes_tasklist :
+Lemma tasklist :
   forall p a sp items m,
-    collect_notes (TaskList sp items) p a m
-    = let (m', items') := collect_notes_task_items items m in
+    of_collect_notes (TaskList sp items) p a m
+    = let (m', items') := of_task_items items m in
       (m', Some (Node p a (TaskList sp items'))).
 Proof.
   assert (H : forall its m,
@@ -1023,7 +1033,7 @@ Proof.
                          match ns with
                          | [] => (acc0, [])
                          | Node p a b :: more =>
-                             let (acc2, n1) := collect_notes b p a acc0 in
+                             let (acc2, n1) := of_collect_notes b p a acc0 in
                              let (acc3, more1) := go more acc2 in
                              match n1 with
                              | Some n => (acc3, n :: more1)
@@ -1032,37 +1042,47 @@ Proof.
                          end) it acc in
                     let (acc2, rest1) := got rest acc1 in
                     (acc2, (chk, it1) :: rest1)
-                end) its m = collect_notes_task_items its m).
+                end) its m = of_task_items its m).
   { induction its as [|[chk it] rest IH]; intros m; [reflexivity|].
-    cbn [collect_notes_task_items]. rewrite collect_notes_inner_go.
-    destruct (collect_notes_list it m) as [m1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items m. cbn [collect_notes]. rewrite H. reflexivity.
+    cbn [of_task_items]. rewrite inner_go.
+    destruct (of_list it m) as [m1 it1]. rewrite IH. reflexivity. }
+  intros p a sp items m. cbn [of_collect_notes]. rewrite H. reflexivity.
 Qed.
 
-Lemma collect_notes_task_items_nonempty :
+Lemma task_items_nonempty :
   forall its m,
-    nonempty (snd (collect_notes_task_items its m)) = nonempty its.
+    nonempty (snd (of_task_items its m)) = nonempty its.
 Proof.
   intros [|[chk it] rest] m; [reflexivity|].
-  cbn [collect_notes_task_items].
-  destruct (collect_notes_list it m) as [m1 it1].
-  destruct (collect_notes_task_items rest m1) as [m2 rest1].
+  cbn [of_task_items].
+  destruct (of_list it m) as [m1 it1].
+  destruct (of_task_items rest m1) as [m2 rest1].
   reflexivity.
 Qed.
 
-Lemma collect_notes_olist :
+Lemma olist :
   forall p a oa sp items m,
-    collect_notes (OrderedList oa sp items) p a m
-    = let (m', items') := collect_notes_items items m in
+    of_collect_notes (OrderedList oa sp items) p a m
+    = let (m', items') := of_items items m in
       (m', Some (Node p a (OrderedList oa sp items'))).
 Proof.
-  intros p a oa sp items m. cbn [collect_notes].
-  rewrite collect_notes_inner_goit. reflexivity.
+  intros p a oa sp items m. cbn [of_collect_notes].
+  rewrite inner_goit. reflexivity.
 Qed.
+
+End WithPolicy.
+End WithTable.
+End Notes.
+
+Section WithTable.
+Context {T : dtable}.
+Context {K : bconfig}.
+Section WithPolicy.
+Context {P : PosPolicy}.
 
 Definition doc_pass (bs : blocks) : doc :=
   let (st, bs') := Ids.of_list bs id_state_init in
-  let (notes, visible) := collect_notes_list bs' [] in
+  let (notes, visible) := Notes.of_list bs' [] in
   {| doc_blocks := sectionize visible
    ; doc_footnotes := notes
    ; doc_references := collect_refs_list bs' []
@@ -1928,64 +1948,64 @@ Qed.
 Local Lemma collect_notes_pristine_block :
   forall b p a m,
     notes_free_block b = true ->
-    collect_notes b p a m = (m, Some (Node p a b)).
+    Notes.of_collect_notes b p a m = (m, Some (Node p a b)).
 Proof.
   intros b. induction b using block_ind2 with
     (Q := fun bs => forall m,
-        notes_free bs = true -> collect_notes_list bs m = (m, bs))
+        notes_free bs = true -> Notes.of_list bs m = (m, bs))
     (R := fun its => forall m,
-        notes_free_items its = true -> collect_notes_items its m = (m, its))
+        notes_free_items its = true -> Notes.of_items its m = (m, its))
     (D := fun its => forall m,
         notes_free_def_items its = true ->
-        collect_notes_def_items its m = (m, its))
+        Notes.of_def_items its m = (m, its))
     (K := fun its => forall m,
         notes_free_task_items its = true ->
-        collect_notes_task_items its m = (m, its));
+        Notes.of_task_items its m = (m, its));
     intros; try reflexivity.
-  - rewrite notes_free_quote in H. rewrite collect_notes_quote, IHb by exact H.
+  - rewrite notes_free_quote in H. rewrite Notes.quote, IHb by exact H.
     reflexivity.
-  - rewrite notes_free_div in H. rewrite collect_notes_div, IHb by exact H.
+  - rewrite notes_free_div in H. rewrite Notes.div, IHb by exact H.
     reflexivity.
-  - rewrite notes_free_olist in H. rewrite collect_notes_olist, IHb by exact H.
+  - rewrite notes_free_olist in H. rewrite Notes.olist, IHb by exact H.
     reflexivity.
-  - rewrite notes_free_blist in H. rewrite collect_notes_blist, IHb by exact H.
+  - rewrite notes_free_blist in H. rewrite Notes.blist, IHb by exact H.
     reflexivity.
   - rewrite notes_free_tasklist in H.
-    rewrite collect_notes_tasklist, IHb by exact H. reflexivity.
+    rewrite Notes.tasklist, IHb by exact H. reflexivity.
   - rewrite notes_free_deflist in H.
-    rewrite collect_notes_deflist, IHb by exact H. reflexivity.
+    rewrite Notes.deflist, IHb by exact H. reflexivity.
   - discriminate.
   - (* Keyed: `Q` at the singleton says the block survives collection,
        and a key with a surviving block survives with it. *)
     destruct b as [p' a' x]. cbn [notes_free_block] in H.
     specialize (IHb m). cbn [notes_free] in IHb.
-    rewrite H in IHb. cbn [collect_notes_list] in IHb.
-    destruct (collect_notes x p' a' m) as [m1 n1] eqn:E1.
+    rewrite H in IHb. cbn [Notes.of_list] in IHb.
+    destruct (Notes.of_collect_notes x p' a' m) as [m1 n1] eqn:E1.
     destruct n1 as [n0|].
     + injection (IHb eq_refl) as <- ->.
-      cbn [collect_notes]. rewrite E1. reflexivity.
+      cbn [Notes.of_collect_notes]. rewrite E1. reflexivity.
     + discriminate (f_equal snd (IHb eq_refl)).
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
-    cbn [collect_notes_list]. rewrite IHb by exact Hb.
+    cbn [Notes.of_list]. rewrite IHb by exact Hb.
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [collect_notes_items]. rewrite IHb by exact Hit.
+    cbn [Notes.of_items]. rewrite IHb by exact Hit.
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_def_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [collect_notes_def_items]. rewrite IHb by exact Hit.
+    cbn [Notes.of_def_items]. rewrite IHb by exact Hit.
     rewrite IHb0 by exact Hrest. reflexivity.
   - cbn [notes_free_task_items] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [collect_notes_task_items]. rewrite IHb by exact Hit.
+    cbn [Notes.of_task_items]. rewrite IHb by exact Hit.
     rewrite IHb0 by exact Hrest. reflexivity.
 Qed.
 
 Local Lemma collect_notes_list_pristine :
   forall bs m,
-    notes_free bs = true -> collect_notes_list bs m = (m, bs).
+    notes_free bs = true -> Notes.of_list bs m = (m, bs).
 Proof.
   induction bs as [|[p a b] rest IH]; intros m H; [reflexivity|].
   cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
-  cbn [collect_notes_list]. rewrite collect_notes_pristine_block by exact Hb.
+  cbn [Notes.of_list]. rewrite collect_notes_pristine_block by exact Hb.
   rewrite IH by exact Hrest. reflexivity.
 Qed.
 
@@ -2426,7 +2446,7 @@ Erasure of the side tables
 The document pass reads the tree and writes two side tables; erasing a
 located tree's positions has to give the document the pass produces on
 the erased tree.  The traversals below are the pos-blind half of that:
-none of `Ids.of_assign_ids`, `collect_notes` or `collect_refs` reads a
+none of `Ids.of_assign_ids`, `Notes.of_collect_notes` or `collect_refs` reads a
 position, so each commutes with `Erase.of_blocks` structurally.  The
 sectionizer is the other half and is not here.
 
@@ -2825,105 +2845,105 @@ Proof.
 Qed.
 
 (*
-collect_notes
+Notes.of_collect_notes
 *)
 
 Local Lemma collect_notes_erase : forall b p a m,
-  collect_notes (Erase.of_block b) NoPos a (erase_note_map m)
-  = (erase_note_map (fst (collect_notes b p a m)),
+  Notes.of_collect_notes (Erase.of_block b) NoPos a (erase_note_map m)
+  = (erase_note_map (fst (Notes.of_collect_notes b p a m)),
      option_map (fun n => match n with
                           | Node _ a' x => Node NoPos a' (Erase.of_block x)
                           end)
-       (snd (collect_notes b p a m))).
+       (snd (Notes.of_collect_notes b p a m))).
 Proof.
   intros b.
   induction b using block_ind2 with
     (Q := fun ns => forall m,
-        collect_notes_list (Erase.of_blocks ns) (erase_note_map m)
-        = (erase_note_map (fst (collect_notes_list ns m)),
-           Erase.of_blocks (snd (collect_notes_list ns m))))
+        Notes.of_list (Erase.of_blocks ns) (erase_note_map m)
+        = (erase_note_map (fst (Notes.of_list ns m)),
+           Erase.of_blocks (snd (Notes.of_list ns m))))
     (R := fun its => forall m,
-        collect_notes_items (map Erase.of_blocks its) (erase_note_map m)
-        = (erase_note_map (fst (collect_notes_items its m)),
-           map Erase.of_blocks (snd (collect_notes_items its m))))
+        Notes.of_items (map Erase.of_blocks its) (erase_note_map m)
+        = (erase_note_map (fst (Notes.of_items its m)),
+           map Erase.of_blocks (snd (Notes.of_items its m))))
     (D := fun its => forall m,
-        collect_notes_def_items
+        Notes.of_def_items
           (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) its)
           (erase_note_map m)
-        = (erase_note_map (fst (collect_notes_def_items its m)),
+        = (erase_note_map (fst (Notes.of_def_items its m)),
            map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
-             (snd (collect_notes_def_items its m))))
+             (snd (Notes.of_def_items its m))))
     (K := fun its => forall m,
-        collect_notes_task_items
+        Notes.of_task_items
           (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its)
           (erase_note_map m)
-        = (erase_note_map (fst (collect_notes_task_items its m)),
+        = (erase_note_map (fst (Notes.of_task_items its m)),
            map (fun kv => (fst kv, Erase.of_blocks (snd kv)))
-             (snd (collect_notes_task_items its m))));
+             (snd (Notes.of_task_items its m))));
     intros; try reflexivity.
   - (* BlockQuote *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !collect_notes_quote.
-    destruct (collect_notes_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
-    destruct (collect_notes_list bs m) as [m1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Notes.quote.
+    destruct (Notes.of_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
+    destruct (Notes.of_list bs m) as [m1 bs1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 bs2.
     cbn [Erase.of_block]. reflexivity.
   - (* Div *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !collect_notes_div.
-    destruct (collect_notes_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
-    destruct (collect_notes_list bs m) as [m1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Notes.div.
+    destruct (Notes.of_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
+    destruct (Notes.of_list bs m) as [m1 bs1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 bs2.
     cbn [Erase.of_block]. reflexivity.
   - (* OrderedList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_items_fix.
-    rewrite !collect_notes_olist.
-    destruct (collect_notes_items (map Erase.of_blocks items) (erase_note_map m)) as [m2 its2] eqn:E2.
-    destruct (collect_notes_items items m) as [m1 its1] eqn:E1.
+    rewrite !Notes.olist.
+    destruct (Notes.of_items (map Erase.of_blocks items) (erase_note_map m)) as [m2 its2] eqn:E2.
+    destruct (Notes.of_items items m) as [m1 its1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 its2.
     cbn [Erase.of_block]. reflexivity.
   - (* BulletList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_items_fix.
-    rewrite !collect_notes_blist.
-    destruct (collect_notes_items (map Erase.of_blocks items) (erase_note_map m)) as [m2 its2] eqn:E2.
-    destruct (collect_notes_items items m) as [m1 its1] eqn:E1.
+    rewrite !Notes.blist.
+    destruct (Notes.of_items (map Erase.of_blocks items) (erase_note_map m)) as [m2 its2] eqn:E2.
+    destruct (Notes.of_items items m) as [m1 its1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 its2.
     cbn [Erase.of_block]. reflexivity.
   - (* TaskList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_task_items_fix.
-    rewrite !collect_notes_tasklist.
-    destruct (collect_notes_task_items
+    rewrite !Notes.tasklist.
+    destruct (Notes.of_task_items
       (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) items)
       (erase_note_map m)) as [m2 its2] eqn:E2.
-    destruct (collect_notes_task_items items m) as [m1 its1] eqn:E1.
+    destruct (Notes.of_task_items items m) as [m1 its1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 its2.
     cbn [snd fst option_map Erase.of_block]. rewrite erase_task_items_fix. reflexivity.
   - (* DefinitionList *)
     cbn [Erase.of_block]. fold Erase.of_blocks. rewrite erase_def_items_fix.
-    rewrite !collect_notes_deflist.
-    destruct (collect_notes_def_items
+    rewrite !Notes.deflist.
+    destruct (Notes.of_def_items
       (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) items)
       (erase_note_map m)) as [m2 its2] eqn:E2.
-    destruct (collect_notes_def_items items m) as [m1 its1] eqn:E1.
+    destruct (Notes.of_def_items items m) as [m1 its1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 its2.
     cbn [snd fst option_map Erase.of_block]. rewrite erase_def_items_fix. reflexivity.
   - (* FootnoteDef *)
-    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !collect_notes_foot.
-    destruct (collect_notes_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
-    destruct (collect_notes_list bs m) as [m1 bs1] eqn:E1.
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Notes.foot.
+    destruct (Notes.of_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
+    destruct (Notes.of_list bs m) as [m1 bs1] eqn:E1.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 bs2.
     rewrite <- erase_note_map_alist_set. reflexivity.
   - (* Keyed *)
-    destruct b as [p' a' x]. cbn [Erase.of_block collect_notes].
-    destruct (collect_notes x p' a' m) as [m1 o1] eqn:E1.
-    destruct (collect_notes (Erase.of_block x) NoPos a' (erase_note_map m)) as [m2 o2] eqn:E2.
+    destruct b as [p' a' x]. cbn [Erase.of_block Notes.of_collect_notes].
+    destruct (Notes.of_collect_notes x p' a' m) as [m1 o1] eqn:E1.
+    destruct (Notes.of_collect_notes (Erase.of_block x) NoPos a' (erase_note_map m)) as [m2 o2] eqn:E2.
     pose proof (IHb m) as Hq.
-    cbn [Erase.of_blocks collect_notes_list] in Hq.
+    cbn [Erase.of_blocks Notes.of_list] in Hq.
     rewrite E1, E2 in Hq. cbn [fst snd] in Hq.
     destruct o1 as [n1|]; destruct o2 as [n2|]; cbn [fst snd] in Hq.
     + destruct n1 as [np na nb]. cbn [Erase.of_blocks Erase.of_block] in Hq.
@@ -2933,42 +2953,42 @@ Proof.
     + discriminate Hq.
     + injection Hq as Hm. subst m2. reflexivity.
   - (* Q cons *)
-    cbn [Erase.of_blocks collect_notes_list].
-    destruct (collect_notes b p a m) as [m1 n1] eqn:E1.
-    destruct (collect_notes (Erase.of_block b) NoPos a (erase_note_map m)) as [m0 n0] eqn:E0.
+    cbn [Erase.of_blocks Notes.of_list].
+    destruct (Notes.of_collect_notes b p a m) as [m1 n1] eqn:E1.
+    destruct (Notes.of_collect_notes (Erase.of_block b) NoPos a (erase_note_map m)) as [m0 n0] eqn:E0.
     pose proof (IHb p a m) as Hq. rewrite E1, E0 in Hq.
     destruct n1 as [n1|]; destruct n0 as [n0|];
       cbn [fst snd option_map] in Hq.
     + destruct n1 as [np na nb]. cbn [Erase.of_blocks Erase.of_block] in Hq.
       injection Hq as Hm Hn. subst m0 n0.
-      destruct (collect_notes_list rest m1) as [m3 rest1] eqn:E3.
-      destruct (collect_notes_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
+      destruct (Notes.of_list rest m1) as [m3 rest1] eqn:E3.
+      destruct (Notes.of_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
       pose proof (IHb0 m1) as Hq2. rewrite E3, E4 in Hq2.
       injection Hq2 as Hm2 Hb2. subst m4 rest2. reflexivity.
     + discriminate Hq.
     + discriminate Hq.
     + injection Hq as Hm. subst m0.
-      destruct (collect_notes_list rest m1) as [m3 rest1] eqn:E3.
-      destruct (collect_notes_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
+      destruct (Notes.of_list rest m1) as [m3 rest1] eqn:E3.
+      destruct (Notes.of_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
       pose proof (IHb0 m1) as Hq2. rewrite E3, E4 in Hq2.
       injection Hq2 as Hm2 Hb2. subst m4 rest2. reflexivity.
   - (* R cons *)
-    cbn [collect_notes_items map].
-    destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-    destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
-    destruct (collect_notes_items rest m1) as [m3 rest1] eqn:E3.
-    destruct (collect_notes_items (map Erase.of_blocks rest) m2) as [m4 rest2] eqn:E4.
+    cbn [Notes.of_items map].
+    destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+    destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+    destruct (Notes.of_items rest m1) as [m3 rest1] eqn:E3.
+    destruct (Notes.of_items (map Erase.of_blocks rest) m2) as [m4 rest2] eqn:E4.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 it2.
     pose proof (IHb0 m1) as Hq2. rewrite E3, E4 in Hq2.
     injection Hq2 as Hm2 Hb2. subst m4 rest2.
     cbn [fst snd map]. reflexivity.
   - (* D cons *)
-    cbn [collect_notes_def_items map fst snd].
-    destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-    destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
-    destruct (collect_notes_def_items rest m1) as [m3 rest1] eqn:E3.
-    destruct (collect_notes_def_items
+    cbn [Notes.of_def_items map fst snd].
+    destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+    destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+    destruct (Notes.of_def_items rest m1) as [m3 rest1] eqn:E3.
+    destruct (Notes.of_def_items
       (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) rest)
       m2) as [m4 rest2] eqn:E4.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
@@ -2977,11 +2997,11 @@ Proof.
     injection Hq2 as Hm2 Hb2. subst m4 rest2.
     cbn [fst snd map]. reflexivity.
   - (* K cons *)
-    cbn [collect_notes_task_items map fst snd].
-    destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-    destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
-    destruct (collect_notes_task_items rest m1) as [m3 rest1] eqn:E3.
-    destruct (collect_notes_task_items
+    cbn [Notes.of_task_items map fst snd].
+    destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+    destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+    destruct (Notes.of_task_items rest m1) as [m3 rest1] eqn:E3.
+    destruct (Notes.of_task_items
       (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) rest) m2) as [m4 rest2] eqn:E4.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 it2.
@@ -2991,65 +3011,65 @@ Proof.
 Qed.
 
 Local Lemma collect_notes_list_erase : forall ns m,
-  collect_notes_list (Erase.of_blocks ns) (erase_note_map m)
-  = (erase_note_map (fst (collect_notes_list ns m)),
-     Erase.of_blocks (snd (collect_notes_list ns m))).
+  Notes.of_list (Erase.of_blocks ns) (erase_note_map m)
+  = (erase_note_map (fst (Notes.of_list ns m)),
+     Erase.of_blocks (snd (Notes.of_list ns m))).
 Proof.
   induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [Erase.of_blocks collect_notes_list].
-  destruct (collect_notes b p a m) as [m1 n1] eqn:E1.
-  destruct (collect_notes (Erase.of_block b) NoPos a (erase_note_map m)) as [m0 n0] eqn:E0.
+  cbn [Erase.of_blocks Notes.of_list].
+  destruct (Notes.of_collect_notes b p a m) as [m1 n1] eqn:E1.
+  destruct (Notes.of_collect_notes (Erase.of_block b) NoPos a (erase_note_map m)) as [m0 n0] eqn:E0.
   pose proof (collect_notes_erase b p a m) as Hq. rewrite E1, E0 in Hq.
   destruct n1 as [n1|]; destruct n0 as [n0|]; cbn [fst snd option_map] in Hq.
   + destruct n1 as [np na nb]. cbn [Erase.of_blocks Erase.of_block] in Hq.
     injection Hq as Hm Hn. subst m0 n0.
-    destruct (collect_notes_list rest m1) as [m3 rest1] eqn:E3.
-    destruct (collect_notes_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
+    destruct (Notes.of_list rest m1) as [m3 rest1] eqn:E3.
+    destruct (Notes.of_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
     pose proof (IH m1) as Hq2. rewrite E3, E4 in Hq2.
     injection Hq2 as Hm2 Hb2. subst m4 rest2. reflexivity.
   + discriminate Hq.
   + discriminate Hq.
   + injection Hq as Hm. subst m0.
-    destruct (collect_notes_list rest m1) as [m3 rest1] eqn:E3.
-    destruct (collect_notes_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
+    destruct (Notes.of_list rest m1) as [m3 rest1] eqn:E3.
+    destruct (Notes.of_list (Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
     pose proof (IH m1) as Hq2. rewrite E3, E4 in Hq2.
     injection Hq2 as Hm2 Hb2. subst m4 rest2. reflexivity.
 Qed.
 
 Local Lemma collect_notes_items_erase : forall its m,
-  collect_notes_items (map Erase.of_blocks its) (erase_note_map m)
-  = (erase_note_map (fst (collect_notes_items its m)),
-     map Erase.of_blocks (snd (collect_notes_items its m))).
+  Notes.of_items (map Erase.of_blocks its) (erase_note_map m)
+  = (erase_note_map (fst (Notes.of_items its m)),
+     map Erase.of_blocks (snd (Notes.of_items its m))).
 Proof.
   induction its as [|it rest IH]; intros m; [reflexivity|].
-  cbn [collect_notes_items map].
-  destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-  destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+  cbn [Notes.of_items map].
+  destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+  destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
   pose proof (collect_notes_list_erase it m) as Hq. rewrite E1, E2 in Hq.
   injection Hq as Hm Hb. subst m2 it2.
-  destruct (collect_notes_items rest m1) as [m3 rest1] eqn:E3.
-  destruct (collect_notes_items (map Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
+  destruct (Notes.of_items rest m1) as [m3 rest1] eqn:E3.
+  destruct (Notes.of_items (map Erase.of_blocks rest) (erase_note_map m1)) as [m4 rest2] eqn:E4.
   pose proof (IH m1) as Hq2. rewrite E3, E4 in Hq2.
   injection Hq2 as Hm2 Hb2. subst m4 rest2.
   cbn [fst snd map]. reflexivity.
 Qed.
 
 Local Lemma collect_notes_def_items_erase : forall its m,
-  collect_notes_def_items
+  Notes.of_def_items
     (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) its)
     (erase_note_map m)
-  = (erase_note_map (fst (collect_notes_def_items its m)),
+  = (erase_note_map (fst (Notes.of_def_items its m)),
      map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv)))
-       (snd (collect_notes_def_items its m))).
+       (snd (Notes.of_def_items its m))).
 Proof.
   induction its as [|[term it] rest IH]; intros m; [reflexivity|].
-  cbn [collect_notes_def_items map fst snd].
-  destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-  destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+  cbn [Notes.of_def_items map fst snd].
+  destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+  destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
   pose proof (collect_notes_list_erase it m) as Hq. rewrite E1, E2 in Hq.
   injection Hq as Hm Hb. subst m2 it2.
-  destruct (collect_notes_def_items rest m1) as [m3 rest1] eqn:E3.
-  destruct (collect_notes_def_items
+  destruct (Notes.of_def_items rest m1) as [m3 rest1] eqn:E3.
+  destruct (Notes.of_def_items
     (map (fun kv => (Erase.of_inlines (fst kv), Erase.of_blocks (snd kv))) rest)
     (erase_note_map m1)) as [m4 rest2] eqn:E4.
   pose proof (IH m1) as Hq2. rewrite E3, E4 in Hq2.
@@ -3058,21 +3078,21 @@ Proof.
 Qed.
 
 Local Lemma collect_notes_task_items_erase : forall its m,
-  collect_notes_task_items
+  Notes.of_task_items
     (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) its)
     (erase_note_map m)
-  = (erase_note_map (fst (collect_notes_task_items its m)),
+  = (erase_note_map (fst (Notes.of_task_items its m)),
      map (fun kv => (fst kv, Erase.of_blocks (snd kv)))
-       (snd (collect_notes_task_items its m))).
+       (snd (Notes.of_task_items its m))).
 Proof.
   induction its as [|[chk it] rest IH]; intros m; [reflexivity|].
-  cbn [collect_notes_task_items map fst snd].
-  destruct (collect_notes_list it m) as [m1 it1] eqn:E1.
-  destruct (collect_notes_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
+  cbn [Notes.of_task_items map fst snd].
+  destruct (Notes.of_list it m) as [m1 it1] eqn:E1.
+  destruct (Notes.of_list (Erase.of_blocks it) (erase_note_map m)) as [m2 it2] eqn:E2.
   pose proof (collect_notes_list_erase it m) as Hq. rewrite E1, E2 in Hq.
   injection Hq as Hm Hb. subst m2 it2.
-  destruct (collect_notes_task_items rest m1) as [m3 rest1] eqn:E3.
-  destruct (collect_notes_task_items
+  destruct (Notes.of_task_items rest m1) as [m3 rest1] eqn:E3.
+  destruct (Notes.of_task_items
     (map (fun kv => (fst kv, Erase.of_blocks (snd kv))) rest)
     (erase_note_map m1)) as [m4 rest2] eqn:E4.
   pose proof (IH m1) as Hq2. rewrite E3, E4 in Hq2.
@@ -3317,7 +3337,7 @@ Proof.
   destruct (assign_ids_list_erase bs id_state_init) as [Hst Htagged].
   rewrite E, E' in Hst, Htagged. cbn [fst snd] in Hst, Htagged.
   subst st' tagged'.
-  destruct (collect_notes_list tagged []) as [notes visible] eqn:En.
+  destruct (Notes.of_list tagged []) as [notes visible] eqn:En.
   pose proof (collect_notes_list_erase tagged []) as Hn.
   cbn [erase_note_map map] in Hn. rewrite En in Hn. cbn [fst snd] in Hn.
   rewrite Hn. unfold erase_doc.
