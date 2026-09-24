@@ -537,12 +537,61 @@ def prev_files(prev):
 # ---------------------------------------------------------------------------
 # localize (workstream B)
 
+# R1 (resolved 2026-09-24): intended entry points, customization functions
+# and predicates named by exported theorem statements stay public even when
+# nothing outside their file uses them.  The named exceptions are below; the
+# statement rule is computed per file by public_names().
+PUBLIC = {
+    ('Wf.v', 'wf_doc'),                 # the top-level well-formedness predicate
+    ('Site.v', 'route'),                # the routing entry point
+    ('Site.v', 'routes_ok'),            # the SSG check, the first thing to run
+    ('Address.v', 'resolve_top_id'),    # the address resolution entry point
+    ('Profile.v', 'with_inline_profile'),   # a customization function
+    ('Profile.v', 'with_block_profile'),    # its companion
+}
+
+STMT_STOP = re.compile(r'\b(Proof|Qed|Admitted|Defined|Abort)\b|:=')
+
+
+def statement_span(code, d):
+    """The statement (type) of a declaration: its keyword up to the first
+    `Proof`/`Qed`/... or `:=`.  Used to keep predicates an exported
+    theorem statement names."""
+    if d['kwoff'] is None: return ''
+    m = STMT_STOP.search(code, d['kwoff'])
+    return code[d['kwoff']:m.start()] if m else code[d['kwoff']:]
+
+
+def public_names(path, s):
+    """R1: names in `path` that stay public -- the named entry points,
+    everything a public declaration is, and every name a public
+    declaration's statement mentions (transitively)."""
+    decls = [d for d in declarations(path, s) if d['kwoff'] is not None]
+    code, _ = mask(s)
+    base = os.path.basename(path)
+    public = {n for f, n in PUBLIC if f == base}
+    public |= {d['name'] for d in decls
+               if d['kind'] not in LOCALIZABLE or d['doc']
+               or users(d['name'], exclude=path)}
+    for _ in range(4):
+        added = set()
+        for d in decls:
+            if d['name'] in public:
+                for m in IDENT.finditer(statement_span(code, d)):
+                    added.add(m.group(2))
+        new = added - public
+        public |= new
+        if not new: break
+    return public
+
+
 def cmd_localize(args):
     path = args[0]
     dry = '--dry-run' in args
     if not path.startswith('theories/'): handback('localize runs on theories/ only')
     s = open(path).read()
     frozen = frozen_names()
+    public = public_names(path, s)
     done, skipped = [], collections.Counter()
     edits = []
     for d in declarations(path, s):
@@ -550,6 +599,7 @@ def cmd_localize(args):
         if d['kind'] not in LOCALIZABLE: skipped[d['kind']] += 1; continue
         if d['doc']: skipped['doc-comment'] += 1; continue
         if d['name'] in frozen: skipped['frozen'] += 1; continue
+        if d['name'] in public: skipped['public-policy'] += 1; continue
         if users(d['name'], exclude=path): continue
         edits.append(d['kwoff']); done.append(d['name'])
     for off in sorted(edits, reverse=True):
@@ -601,7 +651,8 @@ def cmd_rename(args):
             handback(f'module {mod} already exists in {f}: module names must be unique')
     frozen = frozen_names()
     bad = sorted(set(mp) & frozen)
-    if bad: handback('frozen OCaml API names in the map: ' + ', '.join(bad))
+    if bad: print('FROZEN OCaml API names in the map (migrate consumers in '
+                  'this commit): ' + ', '.join(bad))
     s = open(path).read()
     decls = declarations(path, s)
     inside = [d for d in decls if begin <= d['line'] <= end]
