@@ -745,10 +745,10 @@ def cmd_rename(args):
             return None
         return fn
     new_segs, total = [], 0
-    # The original outermost section ends at `outer_end`; code past it was
-    # never inside the section, so a close-and-reopen does not affect how
-    # its `@name` references are written.
-    outer_end = section_ends(path, s).get(sects[0][2]) if sects else None
+    # The innermost original section ends at `outer_end`; code past it was
+    # never inside that section, so closing and reopening does not affect
+    # how its `@name` references are written.
+    outer_end = section_ends(path, s).get(sects[-1][2]) if sects else None
     for i, seg in enumerate(segs):  # 0 before the range, 1 inside, 2 after
         t, n = rewrite_tokens(seg, renamer(i)); total += n
         if sects:
@@ -837,7 +837,7 @@ def cmd_codediff(args):
     for spec in olds:
         rev, p = spec.split(':', 1)
         old += code_lines(subprocess.run(['git', 'show', f'{rev}:{p}'], capture_output=True,
-                                         text=True, check=True).stdout, iq, {})
+                                         text=True, check=True).stdout, iq, rmap)
     for p in news:
         new += code_lines(open(p).read(), iq, rmap)
     gone, added = old - new, new - old
