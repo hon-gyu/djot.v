@@ -41,7 +41,8 @@ Status is **proved**, **planned**, or **planned (long-term)**.
 | With heading continuation enabled, ordinary text lines and repeated same-level heading markers remain in the open heading until a blank line. | Rewrapping within either kind of continuation keeps one heading; other block openers can end it. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 | Every input parses, and the output is always well-formed. | No syntax errors. Consumers need not handle malformed trees. | proved: `wf_parse`, `wf_parse_doc` |
 | `parse (render d) = d` for every canonical document, that is, every document the renderer can write. | djot-to-djot conversion loses nothing. | proved: `roundtrip_blocks`, `roundtrip_doc` |
-| `parse (render (parse s)) = parse s` for every input. | A formatter never changes a document's meaning. Needs every parse result to be canonical. | planned |
+| The current renderer's fixed three-backtick fence can change a parsed code block containing a line of three backticks. | Formatter normalization does not yet hold for every input. | proved: `normalization_code_fence_counterexample` |
+| `parse (render (parse s)) = parse s` for every input after the renderer covers every parsed document. | A formatter never changes a document's meaning. Adaptive code fences are one required fix. | planned |
 | The parser state is all a prefix passes forward. | An editor can reparse after an edit only until the state matches the old one, and reuse the rest. | proved: `prefix_state_suffices`, `reparse_only_new` |
 | Replacing one block, directly or by its id, leaves every other block's parse unchanged. | | proved: `block_replace`, `replace_at_id_parse` |
 | The located parse is the plain parse with positions attached. | Source positions do not affect the parse. | proved: `parse_blocks_located_erase`, `parse_doc_located_erase` |

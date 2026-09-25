@@ -2362,3 +2362,16 @@ Example heading_roundtrip_doc :
   /\ Undo.pass (doc_blocks (parse_doc (render_djot (blocks_of_cblocks cbs))))
      = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_doc; reflexivity]. Qed.
+
+(* A four-backtick source fence can contain a line of three backticks.
+   The current renderer always chooses three, which closes at that body
+   line and changes the parse.  Normalization therefore needs an adaptive
+   fence before it can quantify over all parsed documents. *)
+Example normalization_code_fence_counterexample :
+  parse_blocks (render_djot (parse_blocks "````
+```
+````"))
+  <> parse_blocks "````
+```
+````".
+Proof. discriminate. Qed.
