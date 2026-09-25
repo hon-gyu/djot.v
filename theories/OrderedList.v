@@ -1639,6 +1639,24 @@ Proof.
       split; [exact Hd1 | apply negb_true_iff, Hd2].
 Qed.
 
+(** The colon-marker instance, named separately so clients can use the
+    definition-list statement without unpacking [list_kind].  Each item's
+    blocks are parsed at top level before [def_items] pairs definitions
+    with their terms. *)
+Theorem definition_list_uniformity :
+  forall sp lss,
+    bdeflists = true ->
+    lss <> [] ->
+    forallb (item_ok colon) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (same_marker colon lss)))
+      (PPara []) =
+    [mk (DefinitionList (list_spacing_of sp lss)
+      (def_items (map (fun L => parse_lines L (PPara [])) lss)))].
+Proof.
+  intros sp lss Hdefs Hne Hok.
+  exact (ck_uniformity LKDef sp lss Hne Hdefs Hok).
+Qed.
+
 (** The same with the list closed by a following line. *)
 Theorem ck_uniformity_tail :
   forall k sp lss next tail,
