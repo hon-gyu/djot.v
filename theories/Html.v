@@ -828,6 +828,430 @@ Proof.
   f_equal; [apply render_inline_reference_shape|apply IH].
 Qed.
 
+Local Definition foot_shape (x y : foot_state * list helt) : Prop :=
+  fst x = fst y /\ map erase_helt_attrs (snd x) = map erase_helt_attrs (snd y).
+
+Local Lemma foot_shape_elem : forall x y tag nls a a',
+  foot_shape x y ->
+  foot_shape
+    (let '(st, s) := x in (st, [HElem tag nls a s]))
+    (let '(st, s) := y in (st, [HElem tag nls a' s])).
+Proof.
+  intros [st s] [st' s'] tag nls a a' [Hs Hshape].
+  unfold foot_shape in *. cbn [fst snd] in *. subst st'.
+  split; [reflexivity|]. cbn [map erase_helt_attrs].
+  rewrite Hshape. reflexivity.
+Qed.
+
+(* The recursion used for children of a footnote-aware inline. *)
+Local Definition render_ils_foot (refs : reference_map) (st : foot_state)
+  (ils : inlines) : foot_state * list helt :=
+  (fix go (st0 : foot_state) (ns : inlines) : foot_state * list helt :=
+     match ns with
+     | [] => (st0, [])
+     | Node _ a x :: rest =>
+         let '(st1, s1) := render_inline_foot refs st0 x a in
+         let '(st2, s2) := go st1 rest in
+         (st2, (s1 ++ s2)%list)
+     end) st ils.
+
+Theorem render_inline_foot_reference_shape :
+  forall il st a refs refs',
+    foot_shape (render_inline_foot refs st il a)
+               (render_inline_foot refs' st il a).
+Proof.
+  pose (Q := fun (ils : inlines) => forall st refs refs',
+    foot_shape (render_ils_foot refs st ils) (render_ils_foot refs' st ils)).
+  apply (inline_ind2
+    (fun il => forall st a refs refs',
+      foot_shape (render_inline_foot refs st il a)
+                 (render_inline_foot refs' st il a)) Q);
+    intros; cbn [render_inline_foot];
+    try (unfold foot_shape; split; reflexivity);
+    try (eapply foot_shape_elem; exact (H st refs refs')).
+  - destruct tgt as [url|label].
+    + eapply foot_shape_elem. exact (H st refs refs').
+    + destruct (lookup_reference label refs) as [[url a0]|];
+        destruct (lookup_reference label refs') as [[url' a0']|];
+        eapply foot_shape_elem; exact (H st refs refs').
+  - unfold foot_shape. cbn [fst snd].
+    split; [reflexivity|apply render_inline_reference_shape].
+  - destruct qt.
+    + change (foot_shape
+        (let '(u,v) := render_ils_foot refs st ils in
+         (u, ([HText lsquo] ++ v ++ [HText rsquo])%list))
+        (let '(u,v) := render_ils_foot refs' st ils in
+         (u, ([HText lsquo] ++ v ++ [HText rsquo])%list))).
+      destruct (render_ils_foot refs st ils) as [s1 o1] eqn:E1.
+      destruct (render_ils_foot refs' st ils) as [s2 o2] eqn:E2.
+      specialize (H st refs refs'). unfold Q, foot_shape in H.
+      rewrite E1, E2 in H. cbn [fst snd] in H.
+      destruct H as [Hs Ho]. unfold foot_shape. cbn [fst snd].
+      split; [exact Hs|]. repeat rewrite map_app. rewrite Ho. reflexivity.
+    + change (foot_shape
+        (let '(u,v) := render_ils_foot refs st ils in
+         (u, ([HText ldquo] ++ v ++ [HText rdquo])%list))
+        (let '(u,v) := render_ils_foot refs' st ils in
+         (u, ([HText ldquo] ++ v ++ [HText rdquo])%list))).
+      destruct (render_ils_foot refs st ils) as [s1 o1] eqn:E1.
+      destruct (render_ils_foot refs' st ils) as [s2 o2] eqn:E2.
+      specialize (H st refs refs'). unfold Q, foot_shape in H.
+      rewrite E1, E2 in H. cbn [fst snd] in H.
+      destruct H as [Hs Ho]. unfold foot_shape. cbn [fst snd].
+      split; [exact Hs|]. repeat rewrite map_app. rewrite Ho. reflexivity.
+  - unfold Q. intros st refs refs'. cbn [render_ils_foot].
+    destruct (render_inline_foot refs st x a) as [s1 o1] eqn:E1.
+    destruct (render_inline_foot refs' st x a) as [s2 o2] eqn:E2.
+    pose proof (H st a refs refs') as Hhead.
+    unfold foot_shape in Hhead. rewrite E1, E2 in Hhead.
+    cbn [fst snd] in Hhead. destruct Hhead as [Hs Ho]. subst s2.
+    change (foot_shape
+      (let '(u,v) := render_ils_foot refs s1 rest in (u, (o1 ++ v)%list))
+      (let '(u,v) := render_ils_foot refs' s1 rest in (u, (o2 ++ v)%list))).
+    destruct (render_ils_foot refs s1 rest) as [s3 o3] eqn:E3.
+    destruct (render_ils_foot refs' s1 rest) as [s4 o4] eqn:E4.
+    pose proof (H0 s1 refs refs') as Htail.
+    unfold Q, foot_shape in Htail. rewrite E3, E4 in Htail.
+    cbn [fst snd] in Htail. destruct Htail as [Hs HoTail].
+    unfold foot_shape. cbn [fst snd].
+    split; [exact Hs|]. rewrite !map_app, Ho, HoTail. reflexivity.
+Qed.
+
+Theorem render_inlines_foot_reference_shape :
+  forall ils st refs refs',
+    foot_shape (render_inlines_foot refs st ils)
+               (render_inlines_foot refs' st ils).
+Proof.
+  pose (step := fun (refs : reference_map)
+                    (acc : foot_state * list helt) (n : node inline) =>
+    let '(st0, out) := acc in
+    let '(st1, s) := match n with Node _ a x => render_inline_foot refs st0 x a end in
+    (st1, (out ++ s)%list)).
+  assert (Hfold : forall ils refs refs' acc acc',
+    foot_shape acc acc' ->
+    foot_shape (fold_left (step refs) ils acc)
+               (fold_left (step refs') ils acc')).
+  { induction ils as [|[p a x] rest IH];
+      intros refs refs' [s out] [s' out'] Hacc;
+      [exact Hacc|].
+    cbn [fold_left]. unfold foot_shape in Hacc.
+    cbn [fst snd] in Hacc. destruct Hacc as [Hs Hout]. subst s'.
+    unfold step. cbn [fst snd].
+    destruct (render_inline_foot refs s x a) as [s1 o1] eqn:E1.
+    destruct (render_inline_foot refs' s x a) as [s2 o2] eqn:E2.
+    apply IH.
+    pose proof (render_inline_foot_reference_shape x s a refs refs') as Hx.
+    unfold foot_shape in Hx. rewrite E1, E2 in Hx.
+    cbn [fst snd] in Hx. destruct Hx as [Hstate Hshape].
+    unfold foot_shape. cbn [fst snd]. split; [exact Hstate|].
+    rewrite !map_app, Hout, Hshape. reflexivity. }
+  intros ils st refs refs'.
+  change (foot_shape (fold_left (step refs) ils (st, []))
+                     (fold_left (step refs') ils (st, []))).
+  apply Hfold. unfold foot_shape. cbn [fst snd]. split; reflexivity.
+Qed.
+
+Local Lemma render_caption_foot_reference_shape :
+  forall caption st refs refs',
+    foot_shape (render_caption_foot refs st caption)
+               (render_caption_foot refs' st caption).
+Proof.
+  intros [ils|] st refs refs'; [|unfold foot_shape; split; reflexivity].
+  cbn [render_caption_foot].
+  apply foot_shape_elem, render_inlines_foot_reference_shape.
+Qed.
+
+Local Definition foot_cell_shape (x y : foot_state * helt) : Prop :=
+  fst x = fst y /\ erase_helt_attrs (snd x) = erase_helt_attrs (snd y).
+
+Local Lemma render_cell_foot_reference_shape :
+  forall c st refs refs',
+    foot_cell_shape (render_cell_foot refs st c)
+                    (render_cell_foot refs' st c).
+Proof.
+  intros [ct al ils] st refs refs'. cbn [render_cell_foot].
+  destruct (render_inlines_foot refs st ils) as [s1 o1] eqn:E1.
+  destruct (render_inlines_foot refs' st ils) as [s2 o2] eqn:E2.
+  pose proof (render_inlines_foot_reference_shape ils st refs refs') as H.
+  unfold foot_shape in H. rewrite E1, E2 in H.
+  cbn [fst snd] in H. destruct H as [Hs Ho].
+  unfold foot_cell_shape. cbn [fst snd erase_helt_attrs].
+  split; [exact Hs|]. rewrite Ho. reflexivity.
+Qed.
+
+Local Lemma render_cells_foot_reference_shape :
+  forall cells st refs refs',
+    foot_shape (render_cells_foot refs st cells)
+               (render_cells_foot refs' st cells).
+Proof.
+  induction cells as [|c rest IH]; intros st refs refs';
+    [unfold foot_shape; cbn; split; reflexivity|].
+  cbn [render_cells_foot].
+  destruct (render_cell_foot refs st c) as [s1 e1] eqn:E1.
+  destruct (render_cell_foot refs' st c) as [s2 e2] eqn:E2.
+  pose proof (render_cell_foot_reference_shape c st refs refs') as Hhead.
+  unfold foot_cell_shape in Hhead. rewrite E1, E2 in Hhead.
+  cbn [fst snd] in Hhead. destruct Hhead as [Hs He]. subst s2.
+  destruct (render_cells_foot refs s1 rest) as [s3 es1] eqn:E3.
+  destruct (render_cells_foot refs' s1 rest) as [s4 es2] eqn:E4.
+  pose proof (IH s1 refs refs') as Htail.
+  unfold foot_shape in Htail. rewrite E3, E4 in Htail.
+  cbn [fst snd] in Htail. destruct Htail as [Ht Ho].
+  unfold foot_shape. cbn [fst snd map].
+  split; [exact Ht|]. rewrite He, Ho. reflexivity.
+Qed.
+
+Local Lemma render_rows_foot_reference_shape :
+  forall rows st refs refs',
+    foot_shape (render_rows_foot refs st rows)
+               (render_rows_foot refs' st rows).
+Proof.
+  induction rows as [|row rest IH]; intros st refs refs';
+    [unfold foot_shape; cbn; split; reflexivity|].
+  cbn [render_rows_foot].
+  destruct (render_cells_foot refs st row) as [s1 es1] eqn:E1.
+  destruct (render_cells_foot refs' st row) as [s2 es2] eqn:E2.
+  pose proof (render_cells_foot_reference_shape row st refs refs') as Hhead.
+  unfold foot_shape in Hhead. rewrite E1, E2 in Hhead.
+  cbn [fst snd] in Hhead. destruct Hhead as [Hs He]. subst s2.
+  destruct (render_rows_foot refs s1 rest) as [s3 out1] eqn:E3.
+  destruct (render_rows_foot refs' s1 rest) as [s4 out2] eqn:E4.
+  pose proof (IH s1 refs refs') as Htail.
+  unfold foot_shape in Htail. rewrite E3, E4 in Htail.
+  cbn [fst snd] in Htail. destruct Htail as [Ht Ho].
+  unfold foot_shape. cbn [fst snd map erase_helt_attrs].
+  split; [exact Ht|]. rewrite He, Ho. reflexivity.
+Qed.
+
+Local Definition render_bs_foot (refs : reference_map) (st : foot_state)
+  (tight : bool) (bs : blocks) : foot_state * list helt :=
+  (fix go (st0 : foot_state) (t : bool) (ns : blocks)
+     : foot_state * list helt :=
+     match ns with
+     | [] => (st0, [])
+     | Node _ a b :: rest =>
+         let '(st1, s1) := render_block_foot refs st0 t b a in
+         let '(st2, s2) := go st1 t rest in
+         (st2, (s1 ++ s2)%list)
+     end) st tight bs.
+
+Local Definition render_items_foot (refs : reference_map)
+  : foot_state -> list_spacing -> list blocks -> foot_state * list helt :=
+  fix goi (st : foot_state) (sp : list_spacing) (items : list blocks)
+    {struct items} : foot_state * list helt :=
+    match items with
+    | [] => (st, [])
+    | it :: rest =>
+        let t := match sp with Tight => true | Loose => false end in
+        let '(st1, s1) := render_bs_foot refs st t it in
+        let '(st2, s2) := goi st1 sp rest in
+        (st2, HElem "li" 2 [] s1 :: s2)
+    end.
+
+Local Definition render_task_items_foot (refs : reference_map)
+  : foot_state -> list_spacing -> list (task_status * blocks)
+    -> foot_state * list helt :=
+  fix got (st : foot_state) (sp : list_spacing)
+    (items : list (task_status * blocks)) {struct items}
+    : foot_state * list helt :=
+    match items with
+    | [] => (st, [])
+    | (chk, it) :: rest =>
+        let t := match sp with Tight => true | Loose => false end in
+        let '(st1, s1) := render_bs_foot refs st t it in
+        let '(st2, s2) := got st1 sp rest in
+        (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
+    end.
+
+Local Definition render_def_items_foot (refs : reference_map) (tight : bool)
+  : foot_state -> list (inlines * blocks) -> foot_state * list helt :=
+  fix god (st : foot_state) (items : list (inlines * blocks))
+    {struct items} : foot_state * list helt :=
+    match items with
+    | [] => (st, [])
+    | (term, it) :: rest =>
+        let '(st1, s1) := render_inlines_foot refs st term in
+        let '(st2, s2) := render_bs_foot refs st1 tight it in
+        let '(st3, s3) := god st2 rest in
+        (st3, HElem "dt" 1 [] s1 :: HElem "dd" 2 [] s2 :: s3)
+    end.
+
+Local Lemma foot_shape_bind :
+  forall {A} (x y : foot_state * list helt)
+    (f g : foot_state -> list helt -> foot_state * A)
+    (R : foot_state * A -> foot_state * A -> Prop),
+    foot_shape x y ->
+    (forall st o o', map erase_helt_attrs o = map erase_helt_attrs o' ->
+       R (f st o) (g st o')) ->
+    R (let '(st, o) := x in f st o) (let '(st, o) := y in g st o).
+Proof.
+  intros A [st o] [st' o'] f g R [Hs Ho] H. cbn [fst snd] in *. subst st'.
+  exact (H st o o' Ho).
+Qed.
+
+Theorem render_block_foot_reference_shape :
+  forall b st tight a refs refs',
+    foot_shape (render_block_foot refs st tight b a)
+               (render_block_foot refs' st tight b a).
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => forall st t refs refs',
+       foot_shape (render_bs_foot refs st t bs) (render_bs_foot refs' st t bs))
+    (R := fun its => forall st sp refs refs',
+       foot_shape (render_items_foot refs st sp its)
+                  (render_items_foot refs' st sp its))
+    (K := fun its => forall st sp refs refs',
+       foot_shape (render_task_items_foot refs st sp its)
+                  (render_task_items_foot refs' st sp its))
+    (D := fun its => forall st t refs refs',
+       foot_shape (render_def_items_foot refs t st its)
+                  (render_def_items_foot refs' t st its));
+    intros; cbn [render_block_foot];
+    unfold render_bs_foot, render_items_foot, render_task_items_foot,
+      render_def_items_foot; cbn iota beta;
+    repeat (eapply foot_shape_bind;
+      [first [apply IHb | apply IHb0 | exact (IHb _ tight refs refs')
+             | apply render_inlines_foot_reference_shape
+             | apply render_caption_foot_reference_shape
+             | apply render_rows_foot_reference_shape]|];
+      intros ? ? ? ?);
+    try destruct tight;
+    unfold foot_shape; cbn [fst snd]; split; try reflexivity;
+    cbn [map erase_helt_attrs]; rewrite ?map_app; congruence.
+Qed.
+
+Theorem render_blocks_foot_reference_shape :
+  forall bs st refs refs',
+    foot_shape (render_blocks_foot refs st bs)
+               (render_blocks_foot refs' st bs).
+Proof.
+  pose (step := fun (refs : reference_map)
+                    (acc : foot_state * list helt) (n : node block) =>
+    let '(st0, out) := acc in
+    let '(st1, s) :=
+      match n with Node _ a b => render_block_foot refs st0 false b a end in
+    (st1, (out ++ s)%list)).
+  assert (Hfold : forall bs refs refs' acc acc',
+    foot_shape acc acc' ->
+    foot_shape (fold_left (step refs) bs acc)
+               (fold_left (step refs') bs acc')).
+  { induction bs as [|[p a b] rest IH];
+      intros refs refs' [s out] [s' out'] [Hs Hout]; [split; assumption|].
+    cbn [fst snd] in Hs, Hout. subst s'. cbn [fold_left]. apply IH.
+    unfold step.
+    eapply foot_shape_bind;
+      [apply render_block_foot_reference_shape|intros st1 o o' Ho].
+    unfold foot_shape. cbn [fst snd].
+    split; [reflexivity|]. rewrite !map_app, Hout, Ho. reflexivity. }
+  intros bs st refs refs'.
+  change (foot_shape (fold_left (step refs) bs (st, []))
+                     (fold_left (step refs') bs (st, []))).
+  apply Hfold. split; reflexivity.
+Qed.
+
+(* Note bodies are keyed by label; only the bodies' attributes may differ. *)
+Local Definition erase_rendered (r : list (string * list helt))
+  : list (string * list helt) :=
+  map (fun p => (fst p, map erase_helt_attrs (snd p))) r.
+
+Local Definition notes_shape (x y : foot_state * list (string * list helt))
+  : Prop :=
+  fst x = fst y /\ erase_rendered (snd x) = erase_rendered (snd y).
+
+Local Lemma render_note_defs_reference_shape :
+  forall notes st refs refs',
+    notes_shape (render_note_defs refs st notes)
+                (render_note_defs refs' st notes).
+Proof.
+  induction notes as [|[label bs] rest IH]; intros st refs refs';
+    [split; reflexivity|].
+  cbn [render_note_defs].
+  eapply foot_shape_bind;
+    [apply render_blocks_foot_reference_shape|intros st1 o o' Ho].
+  destruct (render_note_defs refs st1 rest) as [s2 r2] eqn:E2.
+  destruct (render_note_defs refs' st1 rest) as [s3 r3] eqn:E3.
+  pose proof (IH st1 refs refs') as [Hs Hr].
+  rewrite E2, E3 in Hs, Hr. cbn [fst snd] in Hs, Hr.
+  split; [exact Hs|]. unfold erase_rendered in *. cbn [map fst snd].
+  rewrite Ho, Hr. reflexivity.
+Qed.
+
+Local Lemma alist_lookup_erase_rendered : forall k r,
+  alist_lookup k (erase_rendered r) =
+  option_map (map erase_helt_attrs) (alist_lookup k r).
+Proof.
+  intros k r. induction r as [|[k' v] rest IH]; [reflexivity|].
+  cbn [erase_rendered map alist_lookup fst snd].
+  destruct (String.eqb k k'); [reflexivity|exact IH].
+Qed.
+
+Local Lemma rendered_note_at_reference_shape : forall n st r r',
+  erase_rendered r = erase_rendered r' ->
+  map erase_helt_attrs (rendered_note_at n st r) =
+  map erase_helt_attrs (rendered_note_at n st r').
+Proof.
+  intros n st r r' Hr. unfold rendered_note_at.
+  destruct (label_at n (foot_numbers st)) as [label|]; [|reflexivity].
+  pose proof (alist_lookup_erase_rendered label r) as E.
+  rewrite Hr, alist_lookup_erase_rendered in E.
+  destruct (alist_lookup label r), (alist_lookup label r');
+    cbn in E; try discriminate; [|reflexivity].
+  injection E as E. symmetry. exact E.
+Qed.
+
+Local Lemma add_backlink_reference_shape : forall body body' n,
+  map erase_helt_attrs body = map erase_helt_attrs body' ->
+  map erase_helt_attrs (add_backlink body n) =
+  map erase_helt_attrs (add_backlink body' n).
+Proof.
+  intros body body' n H. unfold add_backlink.
+  assert (Hr : map erase_helt_attrs (rev body) =
+               map erase_helt_attrs (rev body'))
+    by (rewrite !map_rev, H; reflexivity).
+  destruct (rev body) as [|h t], (rev body') as [|h' t'];
+    cbn [map] in Hr; try discriminate;
+    [rewrite !map_app, H; reflexivity|].
+  injection Hr as Hh Ht.
+  destruct h, h'; cbn [erase_helt_attrs] in Hh; try discriminate;
+    try (rewrite !map_app, H; reflexivity).
+  injection Hh as Htag Hnls Hkids. subst tag0 nls0.
+  destruct (String.eqb tag "p");
+    [|rewrite !map_app, H; reflexivity].
+  rewrite !map_rev. cbn [map erase_helt_attrs].
+  rewrite !map_app, Hkids, Ht. reflexivity.
+Qed.
+
+Local Lemma render_note_items_reference_shape : forall fuel n st r r',
+  erase_rendered r = erase_rendered r' ->
+  map erase_helt_attrs (render_note_items fuel n st r) =
+  map erase_helt_attrs (render_note_items fuel n st r').
+Proof.
+  induction fuel as [|fuel IH]; intros n st r r' Hr; [reflexivity|].
+  cbn [render_note_items map erase_helt_attrs].
+  rewrite (add_backlink_reference_shape _ _ n
+             (rendered_note_at_reference_shape n st r r' Hr)).
+  rewrite (IH (S n) st r r' Hr). reflexivity.
+Qed.
+
+Theorem render_document_foot_reference_shape : forall bs notes refs refs',
+  map erase_helt_attrs (render_document_foot refs bs notes) =
+  map erase_helt_attrs (render_document_foot refs' bs notes).
+Proof.
+  intros bs notes refs refs'. unfold render_document_foot.
+  pose proof (render_blocks_foot_reference_shape bs foot_initial refs refs')
+    as Hb.
+  destruct (render_blocks_foot refs foot_initial bs) as [s1 b1].
+  destruct (render_blocks_foot refs' foot_initial bs) as [s1' b1'].
+  destruct Hb as [Hs Hb]. cbn [fst snd] in Hs, Hb. subst s1'.
+  destruct (Nat.eqb (foot_next s1) 1); [exact Hb|].
+  pose proof (render_note_defs_reference_shape notes s1 refs refs') as Hn.
+  destruct (render_note_defs refs s1 notes) as [s2 r].
+  destruct (render_note_defs refs' s1 notes) as [s2' r'].
+  destruct Hn as [Hs Hr]. cbn [fst snd] in Hs, Hr. subst s2'.
+  rewrite !map_app, Hb. cbn [map erase_helt_attrs].
+  rewrite (render_note_items_reference_shape _ 1 s2 r r' Hr). reflexivity.
+Qed.
+
 (* The local block renderer uses this recursion at each container. *)
 Local Definition render_bs_at (refs : reference_map) (tight : bool) (bs : blocks)
   : list helt :=
@@ -959,6 +1383,17 @@ Local Definition doc_refs (d : doc) : reference_map :=
    statements below are about it rather than about its serialization. *)
 Definition html_tree (d : doc) : list helt :=
   render_document_foot (doc_refs d) (doc_blocks d) (doc_footnotes d).
+
+(* Reference definitions reach the output only through link and image
+   attributes, and footnote numbering does not depend on them. *)
+Theorem html_tree_reference_shape : forall d d',
+  doc_blocks d = doc_blocks d' ->
+  doc_footnotes d = doc_footnotes d' ->
+  map erase_helt_attrs (html_tree d) = map erase_helt_attrs (html_tree d').
+Proof.
+  intros d d' Hb Hn. unfold html_tree. rewrite Hb, Hn.
+  apply render_document_foot_reference_shape.
+Qed.
 
 Definition render_html (d : doc) : string := serialize (html_tree d).
 
