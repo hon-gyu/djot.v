@@ -483,6 +483,64 @@ Proof.
   reflexivity.
 Qed.
 
+(* Ordinary text lines remain in the open heading when continuation is on.
+   A line that classifies differently is deliberately outside this claim:
+   lists, quotes and other block openers can end a heading. *)
+Lemma parse_lines_heading_text :
+  forall l rest lvl rng cur,
+    bheading_continues = true ->
+    classify l = KText ->
+    parse_lines (l :: rest) (PHeading lvl rng cur) =
+    parse_lines rest
+      (PHeading lvl (touch_extent rng)
+        (remember_line (drop_leading_ws l) :: cur)).
+Proof.
+  intros l rest lvl rng cur Hcontinues H.
+  assert (Hs : step l (PHeading lvl rng cur) =
+    ([], PHeading lvl (touch_extent rng)
+      (remember_line (drop_leading_ws l) :: cur))).
+  { unfold step. cbn [step_fuel open_line].
+    rewrite H, Hcontinues. reflexivity. }
+  rewrite (parse_lines_step _ _ _ _ _ Hs). reflexivity.
+Qed.
+
+Lemma parse_lines_heading_text_seed :
+  forall lvl ls tail rng cur,
+    bheading_continues = true ->
+    touch_extent rng = rng ->
+    forallb (fun l => match classify l with KText => true | _ => false end) ls = true ->
+    parse_lines (ls ++ tail)%list (PHeading lvl rng cur) =
+    parse_lines tail
+      (PHeading lvl rng
+        (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list).
+Proof.
+  intros lvl ls. induction ls as [|l ls IH];
+    intros tail rng cur Hcontinues Hrng H.
+  - reflexivity.
+  - cbn [forallb] in H. apply andb_true_iff in H as [Hl Hls].
+    destruct (classify l) eqn:Hclass; try discriminate.
+    cbn [app]. rewrite (parse_lines_heading_text _ _ _ _ _ Hcontinues Hclass), Hrng.
+    rewrite IH by assumption.
+    cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
+    rewrite <- app_assoc. reflexivity.
+Qed.
+
+Theorem heading_text_wrap_then_rest :
+  forall lvl ls b rest rng cur,
+    bheading_continues = true ->
+    touch_extent rng = rng ->
+    forallb (fun l => match classify l with KText => true | _ => false end) ls = true ->
+    classify b = KBlank ->
+    parse_lines (ls ++ b :: rest)%list (PHeading lvl rng cur) =
+    heading_block lvl
+      (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list
+      :: parse_lines rest (PPara []).
+Proof.
+  intros lvl ls b rest rng cur Hcontinues Hrng Hls Hb.
+  rewrite parse_lines_heading_text_seed by assumption.
+  apply parse_lines_heading_close. exact Hb.
+Qed.
+
 (* A run of canonically-rendered heading lines accumulates (reversed,
    leading whitespace stripped) onto the open heading, exactly as
    paragraph lines do. *)
@@ -510,6 +568,24 @@ Proof.
     rewrite IH by assumption.
     cbn [rev map]. unfold remember_lines. rewrite map_app. cbn [map].
     rewrite <- app_assoc. reflexivity.
+Qed.
+
+Theorem heading_marker_wrap_then_rest :
+  forall lvl ls b rest rng cur,
+    bheading_continues = true ->
+    touch_extent rng = rng ->
+    1 <= lvl ->
+    forallb nonblank ls = true ->
+    classify b = KBlank ->
+    parse_lines (map (heading_line lvl) ls ++ b :: rest)%list
+      (PHeading lvl rng cur) =
+    heading_block lvl
+      (remember_lines (rev (map drop_leading_ws ls)) ++ cur)%list
+      :: parse_lines rest (PPara []).
+Proof.
+  intros lvl ls b rest rng cur Hcontinues Hrng Hlvl Hls Hb.
+  rewrite parse_lines_heading_seed by assumption.
+  apply parse_lines_heading_close. exact Hb.
 Qed.
 
 (* A canonical single-line heading has no continuation lines to consume, so

@@ -33,7 +33,7 @@ Status is **proved**, **planned**, or **planned (long-term)**.
 | Whether `[foo][bar]` is a link does not depend on whether `bar` is defined. | An editor can highlight links without document-wide information. | proved, but only because classification is never given the definitions: `classify_inlines_locality` |
 | Resolving references changes link targets, never the tree's structure. | The substantive version of the row above. | planned |
 | A paragraph's continuation line never starts a block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Rewrapping a paragraph cannot turn part of it into a list, heading or quote. Inline content can still change when a break moves into verbatim, after a backslash, or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
-| The same for a heading's continuation lines. | Rewrapping a heading keeps it one heading. | planned |
+| With heading continuation enabled, ordinary text lines and repeated same-level heading markers remain in the open heading until a blank line. | Rewrapping within either kind of continuation keeps one heading; other block openers can end it. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 | Every input parses, and the output is always well-formed. | No syntax errors. Consumers need not handle malformed trees. | proved: `wf_parse`, `wf_parse_doc` |
 | `parse (render d) = d` for every canonical document, that is, every document the renderer can write. | djot-to-djot conversion loses nothing. | proved: `roundtrip_blocks`, `roundtrip_doc` |
 | `parse (render (parse s)) = parse s` for every input. | A formatter never changes a document's meaning. Needs every parse result to be canonical. | planned |
