@@ -1027,6 +1027,123 @@ Proof.
   reflexivity.
 Qed.
 
+(* A footnote keeps a blank line or a line indented past its opener in
+   its body.  The body transition is the same one top-level parsing takes;
+   the footnote only collects blocks that transition commits. *)
+Lemma step_foot_cont :
+  forall l range ind lbl done inner bs inner',
+    (is_blank l || Nat.ltb ind (indent_of l))%bool = true ->
+    step l inner = (bs, inner') ->
+    step l (PFoot range ind lbl done inner) =
+      ([], PFoot (touch_extent range) ind lbl
+            (rev bs ++ done)%list inner').
+Proof.
+  intros l range ind lbl done inner bs inner' Howned Hr.
+  unfold step at 1. cbn [step_fuel open_line pstate_depth].
+  destruct (is_blank l) eqn:Hblank.
+  - rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    rewrite Hr. reflexivity.
+  - cbn [orb] in Howned. rewrite Nat.add_0_l, Howned.
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    rewrite Hr. reflexivity.
+Qed.
+
+Lemma step_foot_close :
+  forall l range ind lbl done inner bs st',
+    is_blank l = false ->
+    Nat.ltb ind (indent_of l) = false ->
+    step l (PPara []) = (bs, st') ->
+    step l (PFoot range ind lbl done inner) =
+      (foot_block lbl (rev done ++ finish inner)%list :: bs, st').
+Proof.
+  intros l range ind lbl done inner bs st' Hblank Hind Hr.
+  unfold step at 1. cbn [step_fuel open_line pstate_depth].
+  rewrite Hblank, Nat.add_0_l, Hind.
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+  rewrite Hr. nopos. reflexivity.
+Qed.
+
+Theorem footnote_content_uniformity :
+  forall lines range ind lbl done inner,
+    forallb (fun l => (is_blank l || Nat.ltb ind (indent_of l))%bool)
+      lines = true ->
+    parse_lines lines (PFoot range ind lbl done inner) =
+      [foot_block lbl (rev done ++ parse_lines lines inner)%list].
+Proof.
+  intros lines. induction lines as [|l lines IH];
+    intros range ind lbl done inner Howned.
+  - cbn [parse_lines finish]. nopos. reflexivity.
+  - cbn [forallb] in Howned.
+    apply andb_true_iff in Howned as [Hl Hlines].
+    destruct (step l inner) as [bs inner'] eqn:Hs.
+    rewrite (parse_lines_step _ _ _ _ _
+      (step_foot_cont _ _ _ _ _ _ _ _ Hl Hs)).
+    rewrite (parse_lines_step _ _ _ _ _ Hs).
+    cbn [app]. rewrite (IH _ _ _ _ _ Hlines).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+Theorem footnote_content_uniformity_tail :
+  forall lines l tail range ind lbl done inner,
+    forallb (fun x => (is_blank x || Nat.ltb ind (indent_of x))%bool)
+      lines = true ->
+    is_blank l = false ->
+    Nat.ltb ind (indent_of l) = false ->
+    parse_lines (lines ++ l :: tail)%list
+      (PFoot range ind lbl done inner) =
+      foot_block lbl (rev done ++ parse_lines lines inner)%list
+        :: parse_lines (l :: tail) (PPara []).
+Proof.
+  intros lines. induction lines as [|x lines IH];
+    intros l tail range ind lbl done inner Howned Hb Hind.
+  - cbn [app].
+    destruct (step l (PPara [])) as [bs st'] eqn:Hs.
+    rewrite (parse_lines_step _ _ _ _ _
+      (step_foot_close _ _ _ _ _ _ _ _ Hb Hind Hs)).
+    rewrite (parse_lines_step _ _ _ _ _ Hs).
+    cbn [parse_lines app]. reflexivity.
+  - cbn [forallb] in Howned.
+    apply andb_true_iff in Howned as [Hx Hlines].
+    destruct (step x inner) as [bs inner'] eqn:Hs.
+    cbn [app].
+    rewrite (parse_lines_step _ _ _ _ _
+      (step_foot_cont _ _ _ _ _ _ _ _ Hx Hs)).
+    rewrite (parse_lines_step _ _ _ _ _ Hs).
+    cbn [app]. rewrite (IH _ _ _ _ _ _ _ Hlines Hb Hind).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+(** From a footnote opener through its owned lines: the body keeps the
+    parser state produced by the opener's residue, while the first line
+    outside the footnote is parsed again at top level. *)
+Theorem footnote_open_uniformity_tail :
+  forall opener lbl first lines l tail bs inner,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    step first (PPara []) = (bs, inner) ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    is_blank l = false ->
+    Nat.ltb (indent_of opener) (indent_of l) = false ->
+    parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
+      foot_block lbl
+        (bs ++ parse_lines lines
+          (pad_state (consumed opener first) inner))%list
+        :: parse_lines (l :: tail) (PPara []).
+Proof.
+  intros opener lbl first lines l tail bs inner
+    Hfoot Hclass Hfirst Hlines Hb Hind.
+  cbn [parse_lines].
+  rewrite (step_foot_open opener lbl first bs inner Hclass Hfirst).
+  unfold open_foot. rewrite Hfoot. cbn [fst snd app].
+  rewrite (footnote_content_uniformity_tail
+    lines l tail _ _ _ _ _ Hlines Hb Hind).
+  rewrite rev_involutive. reflexivity.
+Qed.
+
 (*
 Block attributes
 ----------------
