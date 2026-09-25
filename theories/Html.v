@@ -828,6 +828,128 @@ Proof.
   f_equal; [apply render_inline_reference_shape|apply IH].
 Qed.
 
+(* The local block renderer uses this recursion at each container. *)
+Local Definition render_bs_at (refs : reference_map) (tight : bool) (bs : blocks)
+  : list helt :=
+  (fix go (t : bool) (ns : blocks) : list helt :=
+     match ns with
+     | [] => []
+     | Node _ a b :: rest => (render_block refs t b a ++ go t rest)%list
+     end) tight bs.
+
+Local Lemma render_bs_at_flat_map : forall refs tight bs,
+  render_bs_at refs tight bs =
+  flat_map (fun n => match n with Node _ a b => render_block refs tight b a end) bs.
+Proof.
+  intros refs tight bs. induction bs as [|[p a b] rest IH]; [reflexivity|].
+  cbn [render_bs_at flat_map]. rewrite <- IH. reflexivity.
+Qed.
+
+Theorem render_blocks_reference_shape :
+  forall bs refs refs',
+    map erase_helt_attrs (render_blocks refs bs) =
+    map erase_helt_attrs (render_blocks refs' bs).
+Proof.
+  pose (Q := fun (bs : blocks) => forall tight refs refs',
+    map erase_helt_attrs
+      (flat_map (fun n => match n with Node _ a b => render_block refs tight b a end) bs) =
+    map erase_helt_attrs
+      (flat_map (fun n => match n with Node _ a b => render_block refs' tight b a end) bs)).
+  assert (Hb : forall b tight a refs refs',
+    map erase_helt_attrs (render_block refs tight b a) =
+    map erase_helt_attrs (render_block refs' tight b a)).
+  { intros b. induction b using block_ind2 with
+      (Q := Q) (R := Forall Q)
+      (D := Forall (fun ti => Q (snd ti)))
+      (K := Forall (fun ti => Q (snd ti)));
+      intros; try reflexivity.
+    - destruct tight; cbn [render_block map erase_helt_attrs];
+        [rewrite !map_app|];
+        rewrite (render_inlines_reference_shape ils refs refs'); reflexivity.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      change (map erase_helt_attrs (render_bs_at refs tight bs) =
+              map erase_helt_attrs (render_bs_at refs' tight bs)).
+      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
+    - cbn [render_block map erase_helt_attrs].
+      rewrite (render_inlines_reference_shape ils refs refs'). reflexivity.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      change (map erase_helt_attrs (render_bs_at refs tight bs) =
+              map erase_helt_attrs (render_bs_at refs' tight bs)).
+      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      change (map erase_helt_attrs (render_bs_at refs tight bs) =
+              map erase_helt_attrs (render_bs_at refs' tight bs)).
+      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      induction IHb as [|it rest Hit Hrest IH]; [reflexivity|].
+      cbn [map erase_helt_attrs]. f_equal.
+      + f_equal.
+        change (map erase_helt_attrs
+                  (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
+                map erase_helt_attrs
+                  (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
+        rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
+      + exact IH.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      induction IHb as [|it rest Hit Hrest IH]; [reflexivity|].
+      cbn [map erase_helt_attrs]. f_equal.
+      + f_equal.
+        change (map erase_helt_attrs
+                  (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
+                map erase_helt_attrs
+                  (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
+        rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
+      + exact IH.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      induction IHb as [|[st it] rest Hit Hrest IH]; [reflexivity|].
+      cbn [map erase_helt_attrs]. f_equal. f_equal. f_equal. f_equal.
+      change (map erase_helt_attrs
+                (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
+              map erase_helt_attrs
+                (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
+      rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
+      exact IH.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      induction IHb as [|[term it] rest Hit Hrest IH]; [reflexivity|].
+      cbn [map erase_helt_attrs].
+      rewrite (render_inlines_reference_shape term refs refs').
+      f_equal. f_equal. f_equal.
+      change (map erase_helt_attrs (render_bs_at refs tight it) =
+              map erase_helt_attrs (render_bs_at refs' tight it)).
+      rewrite !render_bs_at_flat_map. exact (Hit tight refs refs').
+      exact IH.
+    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+      rewrite !map_app. f_equal.
+      + destruct caption as [ils|]; cbn [render_caption map erase_helt_attrs];
+          [rewrite (render_inlines_reference_shape ils refs refs')|]; reflexivity.
+      + induction rows as [|row rest IH]; [reflexivity|].
+        cbn [map]. f_equal.
+        * cbn [render_row erase_helt_attrs]. f_equal.
+          induction row as [|[ct al ils] row IHrow]; [reflexivity|].
+          cbn [map render_cell erase_helt_attrs].
+          rewrite (render_inlines_reference_shape ils refs refs').
+          f_equal. exact IHrow.
+        * exact IH.
+    - cbn [render_block map erase_helt_attrs].
+      rewrite (render_inlines_reference_shape label refs refs').
+      destruct b as [p a' x]. cbn [flat_map map] in IHb |- *.
+      rewrite !app_nil_r in *. f_equal. f_equal. f_equal. f_equal. f_equal.
+      specialize (IHb tight refs refs').
+      cbn [flat_map map] in IHb. rewrite !app_nil_r in IHb. exact IHb.
+    - unfold Q. intros. reflexivity.
+    - unfold Q in *. intros tight refs refs'. cbn [flat_map].
+      rewrite !map_app. f_equal; [apply IHb|apply IHb0].
+    - constructor.
+    - constructor; assumption.
+    - constructor.
+    - constructor; assumption.
+    - constructor.
+    - constructor; assumption. }
+  intros bs refs refs'. induction bs as [|[p a b] rest IH]; [reflexivity|].
+  cbn [render_blocks render_node flat_map]. rewrite !map_app.
+  f_equal; [apply Hb|exact IH].
+Qed.
+
 (* Explicit definitions first, so a label defined both ways resolves to
    the explicit one. *)
 Local Definition doc_refs (d : doc) : reference_map :=
