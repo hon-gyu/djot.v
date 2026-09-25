@@ -16,7 +16,7 @@
 
    Coverage of shapes, not volume: the alphabet is deliberately tiny and
    sequences take their tail from a fixed set, so the pool grows linearly
-   (5, 110, 2315, 48620) instead of quadratically. *)
+   instead of quadratically. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Line Ast Inline Parser Render.

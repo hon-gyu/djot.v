@@ -21,7 +21,7 @@ Definition generated_docs (d : nat) : list string := map render_cb (accepted d).
    `Eval vm_compute in` forces the list to string literals here, so what
    crosses into OCaml is data rather than the enumerator.
 
-   Depth 2 (796 documents) rather than 3 (7151): this file rebuilds on
+   Depth 2 rather than 3 : this file rebuilds on
    every proof edit (about 2s at depth 2, 23s at depth 3), and depth 2
    already contains a list inside a list item.
 
