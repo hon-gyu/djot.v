@@ -521,6 +521,17 @@ Example parse_footnote_list_body :
        [mk (BulletList Tight [[mk (Para [mk (Str "item")])]])])].
 Proof. reflexivity. Qed.
 
+(* The opener shifts the list's indentation.  djot.js agrees: in the
+   footnote these are two list items, while at top level the second line
+   continues the first item's paragraph.  This refutes whole-body
+   footnote uniformity without a condition on column-bearing states. *)
+Example footnote_list_shift_counterexample :
+  parse_blocks "[^a]: - x
+  - y"
+  <> [mk (FootnoteDef "a" (parse_blocks "- x
+  - y"))].
+Proof. discriminate. Qed.
+
 Example parse_footnote_inside_quote :
   parse_blocks "> [^a]: note"
   = [mk (BlockQuote
