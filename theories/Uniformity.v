@@ -1144,6 +1144,146 @@ Proof.
   rewrite rev_involutive. reflexivity.
 Qed.
 
+(* An opener whose body state carries no column shift needs no further
+   normalization: its complete body is the top-level parse of the
+   residue followed by the footnote-owned lines. *)
+Theorem footnote_unshifted_uniformity_tail :
+  forall opener lbl first lines l tail bs inner,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    step first (PPara []) = (bs, inner) ->
+    pad_state (consumed opener first) inner = inner ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    is_blank l = false ->
+    Nat.ltb (indent_of opener) (indent_of l) = false ->
+    parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
+      foot_block lbl (parse_lines (first :: lines) (PPara []))
+        :: parse_lines (l :: tail) (PPara []).
+Proof.
+  intros opener lbl first lines l tail bs inner
+    Hfoot Hopen Hfirst Hstable Hlines Hb Hind.
+  rewrite (footnote_open_uniformity_tail opener lbl first lines l tail
+    bs inner Hfoot Hopen Hfirst Hlines Hb Hind).
+  rewrite Hstable.
+  rewrite (parse_lines_step _ _ _ _ _ Hfirst).
+  reflexivity.
+Qed.
+
+Theorem footnote_unshifted_uniformity :
+  forall opener lbl first lines bs inner,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    step first (PPara []) = (bs, inner) ->
+    pad_state (consumed opener first) inner = inner ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    parse_lines (opener :: lines) (PPara []) =
+      [foot_block lbl (parse_lines (first :: lines) (PPara []))].
+Proof.
+  intros opener lbl first lines bs inner
+    Hfoot Hopen Hfirst Hstable Hlines.
+  cbn [parse_lines].
+  rewrite (step_foot_open opener lbl first bs inner Hopen Hfirst).
+  unfold open_foot. rewrite Hfoot. cbn [fst snd app].
+  rewrite (footnote_content_uniformity lines _ _ _ _ _ Hlines).
+  rewrite Hstable, Hfirst, rev_involutive.
+  cbn [fst snd app]. reflexivity.
+Qed.
+
+(** For a text residue, padding leaves the paragraph state unchanged.
+    Thus the whole footnote body has the same block parse as the residue
+    followed by its owned lines at top level. *)
+Theorem footnote_text_uniformity_tail :
+  forall opener lbl first lines l tail,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    classify first = KText ->
+    keyless first = true ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    is_blank l = false ->
+    Nat.ltb (indent_of opener) (indent_of l) = false ->
+    parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
+      foot_block lbl (parse_lines (first :: lines) (PPara []))
+        :: parse_lines (l :: tail) (PPara []).
+Proof.
+  intros opener lbl first lines l tail
+    Hfoot Hopen Htext Hkey Hlines Hb Hind.
+  assert (Hfirst : step first (PPara []) =
+    ([], PPara [remember_line (drop_leading_ws first)])).
+  { rewrite (step_idle first KText Htext eq_refl).
+    apply open_text_keyless. exact Hkey. }
+  exact (footnote_unshifted_uniformity_tail opener lbl first lines l tail
+    [] (PPara [remember_line (drop_leading_ws first)])
+    Hfoot Hopen Hfirst eq_refl Hlines Hb Hind).
+Qed.
+
+Theorem footnote_text_uniformity :
+  forall opener lbl first lines,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    classify first = KText ->
+    keyless first = true ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    parse_lines (opener :: lines) (PPara []) =
+      [foot_block lbl (parse_lines (first :: lines) (PPara []))].
+Proof.
+  intros opener lbl first lines Hfoot Hopen Htext Hkey Hlines.
+  assert (Hfirst : step first (PPara []) =
+    ([], PPara [remember_line (drop_leading_ws first)])).
+  { rewrite (step_idle first KText Htext eq_refl).
+    apply open_text_keyless. exact Hkey. }
+  exact (footnote_unshifted_uniformity opener lbl first lines []
+    (PPara [remember_line (drop_leading_ws first)])
+    Hfoot Hopen Hfirst eq_refl Hlines).
+Qed.
+
+Theorem footnote_blank_uniformity_tail :
+  forall opener lbl first lines l tail,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    classify first = KBlank ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    is_blank l = false ->
+    Nat.ltb (indent_of opener) (indent_of l) = false ->
+    parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
+      foot_block lbl (parse_lines (first :: lines) (PPara []))
+        :: parse_lines (l :: tail) (PPara []).
+Proof.
+  intros opener lbl first lines l tail
+    Hfoot Hopen Hblank Hlines Hb Hind.
+  assert (Hfirst : step first (PPara []) = ([], PPara [])).
+  { rewrite (step_idle first KBlank Hblank eq_refl). reflexivity. }
+  exact (footnote_unshifted_uniformity_tail opener lbl first lines l tail
+    [] (PPara []) Hfoot Hopen Hfirst eq_refl Hlines Hb Hind).
+Qed.
+
+Theorem footnote_blank_uniformity :
+  forall opener lbl first lines,
+    bfootnotes = true ->
+    classify opener = KFoot lbl first ->
+    classify first = KBlank ->
+    forallb (fun x =>
+      (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+      lines = true ->
+    parse_lines (opener :: lines) (PPara []) =
+      [foot_block lbl (parse_lines (first :: lines) (PPara []))].
+Proof.
+  intros opener lbl first lines Hfoot Hopen Hblank Hlines.
+  assert (Hfirst : step first (PPara []) = ([], PPara [])).
+  { rewrite (step_idle first KBlank Hblank eq_refl). reflexivity. }
+  exact (footnote_unshifted_uniformity opener lbl first lines
+    [] (PPara []) Hfoot Hopen Hfirst eq_refl Hlines).
+Qed.
+
 (*
 Block attributes
 ----------------
