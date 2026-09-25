@@ -304,7 +304,11 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   end.
 
 Local Definition render_inlines (ils : inlines) : list helt :=
-  flat_map (fun n => match n with Node _ a x => render_inline x a end) ils.
+  (fix go (ns : inlines) : list helt :=
+    match ns with
+    | [] => []
+    | Node _ a x :: rest => (render_inline x a ++ go rest)%list
+    end) ils.
 
 (* Section 5 of the wikilink spec: a wikilink renders as the ordinary
    link it desugars to, attributes included. *)
@@ -771,6 +775,58 @@ Local Definition render_document_foot (blocks : blocks) (notes : note_map)
               (render_note_items (foot_next st2 - 1) 1 st2 rendered)]])%list.
 
 End WithRefs.
+
+(* Reference lookup changes only attributes on link and image elements.
+   Erasing attributes from the output tree exposes the stable structure,
+   including the text and nesting of inline children. *)
+Fixpoint erase_helt_attrs (h : helt) : helt :=
+  match h with
+  | HText s => HText s
+  | HRaw s => HRaw s
+  | HVoid tag self _ => HVoid tag self []
+  | HElem tag nls _ kids => HElem tag nls [] (map erase_helt_attrs kids)
+  end.
+
+Theorem render_inline_reference_shape :
+  forall il refs refs' a,
+    map erase_helt_attrs (render_inline refs il a) =
+    map erase_helt_attrs (render_inline refs' il a).
+Proof.
+  apply (inline_ind2
+    (fun il => forall refs refs' a,
+      map erase_helt_attrs (render_inline refs il a) =
+      map erase_helt_attrs (render_inline refs' il a))
+    (fun ils => forall refs refs',
+      map erase_helt_attrs (render_inlines refs ils) =
+      map erase_helt_attrs (render_inlines refs' ils)));
+    intros; cbn [render_inline render_inlines erase_helt_attrs];
+    try reflexivity.
+  all: try (cbn [map erase_helt_attrs]; f_equal; f_equal;
+            exact (H refs refs')).
+  - destruct tgt as [url|label].
+    + cbn [map erase_helt_attrs]. f_equal. f_equal. exact (H refs refs').
+    + destruct (lookup_reference label refs) as [[url a0]|];
+        destruct (lookup_reference label refs') as [[url' a0']|];
+        cbn [map erase_helt_attrs]; f_equal; f_equal;
+        exact (H refs refs').
+  - destruct tgt as [url|label]; [reflexivity|].
+    destruct (lookup_reference label refs) as [[url a0]|];
+      destruct (lookup_reference label refs') as [[url' a0']|]; reflexivity.
+  - destruct qt; cbn [map erase_helt_attrs]; repeat rewrite map_app;
+      f_equal; f_equal; exact (H refs refs').
+  - rewrite !map_app. f_equal;
+      [exact (H refs refs' a)|exact (H0 refs refs')].
+Qed.
+
+Theorem render_inlines_reference_shape :
+  forall ils refs refs',
+    map erase_helt_attrs (render_inlines refs ils) =
+    map erase_helt_attrs (render_inlines refs' ils).
+Proof.
+  induction ils as [|[p a x] rest IH]; intros refs refs'; [reflexivity|].
+  cbn [render_inlines]. rewrite !map_app.
+  f_equal; [apply render_inline_reference_shape|apply IH].
+Qed.
 
 (* Explicit definitions first, so a label defined both ways resolves to
    the explicit one. *)

@@ -1,3 +1,4 @@
+<!-- ai-disclosure: ai-assisted -->
 # djot.v
 
 djot.v is a [djot](https://djot.net) parser written and verified in Rocq, with an extracted OCaml parser, a AST-to-djot renderer and an AST-to-HTML renderer. 
@@ -31,7 +32,7 @@ Status is **proved**, **planned**, or **planned (long-term)**.
 | A list item's contents parse as they would at top level, for bullet and ordered lists (including roman and alphabetic), for items the renderer can produce (`items_ok`). | Content moved into a list item keeps its meaning. | proved: `list_uniformity`, `ordered_uniformity` |
 | The same for divs, footnotes and definition lists. | | planned |
 | Whether `[foo][bar]` is a link does not depend on whether `bar` is defined. | An editor can highlight links without document-wide information. | proved, but only because classification is never given the definitions: `classify_inlines_locality` |
-| Resolving references changes link targets, never the tree's structure. | The substantive version of the row above. | planned |
+| Changing reference definitions leaves inline HTML element nesting and text unchanged; it can change link and image attributes. | Inline structure does not depend on reference lookup. The whole-document result remains to be proved. | partly proved: `render_inline_reference_shape`, `render_inlines_reference_shape` |
 | A paragraph's continuation line never starts a block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Rewrapping a paragraph cannot turn part of it into a list, heading or quote. Inline content can still change when a break moves into verbatim, after a backslash, or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
 | With heading continuation enabled, ordinary text lines and repeated same-level heading markers remain in the open heading until a blank line. | Rewrapping within either kind of continuation keeps one heading; other block openers can end it. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 | Every input parses, and the output is always well-formed. | No syntax errors. Consumers need not handle malformed trees. | proved: `wf_parse`, `wf_parse_doc` |
