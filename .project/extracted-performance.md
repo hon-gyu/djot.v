@@ -338,6 +338,57 @@ shape for each source accumulator.  `isnoc` and `osnoc` remain flat
 AST-string seam merges; wrapped brackets and emphasis do not show a
 growth regression warranting an AST representation change here.
 
+Linear inline close-time readers (2026-09-26, baseline `3cc9b28`,
+result `9073bcf`).  `source_shape`, `wiki_split`, the autolink body,
+kind, and email predicates, and `str_last` keep their Gallina definitions
+for proofs; narrow native extraction realizations read flat strings by
+offset.  Attribute tokens and label words grow as reversed byte lists,
+with one native linear conversion at commit.  `words_spec` proves the
+Gallina word builder equivalent to its prior definition, and the
+identifier roundtrip proof covers the new attribute state.
+`dstyle_at_fast_eq` proves the direct delimiter dispatch equal to the
+table search.  `Print Assumptions` on both new lemmas was empty.  The
+native readers and conversion remain trusted extraction code.
+
+Old and new extractions, linked in one process, matched on 2,268,150
+comparisons: every scanner-alphabet string through length four, 6000
+random strings, direct checks of the replaced readers, semantic and
+located output, blocks and HTML, and long targeted constructs.  The
+targeted cases include a table with wikilinks enabled.  A planted
+difference was detected.  The repository's exact-HTML 287/287 and
+6167/6167, depth-3 roundtrip 43857/43857, located bounds
+44150/44150, keyed roundtrip 6628/6628, and wikilink roundtrip
+3725/3725 passed.  `make dist`, `make check-dist`, and standalone Dune
+build and test passed.
+
+Same-process old -> new times, dev profile, milliseconds.  The inline
+column times `para_inlines`; the document column times `parse_doc`.
+The wikilink document uses the same enabled table as its inline
+measurement:
+
+| input, 64 KB construct | inline | parse_doc |
+| --- | ---: | ---: |
+| autolink | 2022 -> 8.1 | 1971 -> 9.3 |
+| escaped whitespace | 1653 -> 6.2 | 1611 -> 6.7 |
+| note label | 243 -> 4.1 | 2405 -> 2351 |
+| wikilink target, enabled | 873 -> 5.2 | 1975 -> 1146 |
+
+The default Djot table disables wikilinks.  The old `wiki` benchmark
+therefore measured literal brackets; `test/bench.ml` now enables the
+capability for that shape.  The note and wikilink inline paths are near
+linear, but their full-document 20/80 KB parse still grows by about
+30x: structural string scans in the block/line path now dominate.
+
+Other same-process `Html.convert` times at 64 KB fell from 427 to 5.2
+ms for a reference label, 411 to 12.2 ms for a symbol alias, 1160 to
+17.2 ms for an attribute, and 789 to 8.4 ms for a span attribute.
+Delimiter lookup alone took 100.9 -> 70.0 ms over two million mixed
+bytes; repeated README x64 conversion took 81.2 -> 75.3 ms.  A
+seam-heavy escaped-punctuation line took 0.11/0.50/2.19 ms at
+4/16/64 KB before and 0.12/0.53/2.60 after.  `isnoc`/`osnoc` have no
+observed repeated-large-merge problem on that witness; their flat AST
+representation was retained.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -452,10 +503,12 @@ and its proof are recorded in Fixed above.
 ### 1. Remaining long-line work
 
 Structural string matches still copy tails in `Line`, `Strings`,
-`Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending and
-source accumulators no longer copy their prefixes (Fixed above), but
-`spot_before`/`source_shape`, `wiki_split`, and label normalization
-still walk flat native strings structurally at a construct's close.
+`Attributes`, `Marker`, and some helper paths.  Pending and source
+accumulators, the measured inline close-time readers, and label-word
+normalization no longer copy their prefixes or native-string tails.
+The remaining block/line path is visible on long note labels and
+enabled wikilinks: their inline scans are near linear, while the whole
+document parse still scales steeply.
 `isnoc` and `osnoc` still merge adjacent flat `Str` nodes with
 `t ++ s`.  The old 2026-09-26 code-span and destination measurements
 are superseded by the buffered-source entry above.
@@ -473,13 +526,6 @@ For remaining tail copies, fix either:
   match on `String c s'` is O(1).  No proof changes, a larger trusted
   realization, and `String c acc` construction stays a copy.
 
-### 2. Delimiter lookup per character
-
-`Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
-row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
-`List0.find` 145, `djot_dsyntax` 133 and `denabled` 99 samples. A
-constant factor; a precomputed character-to-style table would remove it.
-
 ### Recheck: inline links
 
 80 KB of `[a](b) ` wrapped at 78 columns parses in 34.6 ms, against
@@ -494,8 +540,8 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-Remaining long-line shapes first, then delimiter lookup.  Keep inline
-links in the scaling benchmark to catch a recurrence.
+Remaining block/line long-line shapes first.  Keep inline links in the
+scaling benchmark to catch a recurrence.
 
 `make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
 through the document parse and `Html.convert` and prints the growth per
