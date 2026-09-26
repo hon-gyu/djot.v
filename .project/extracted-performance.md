@@ -254,6 +254,19 @@ Wrapped brackets, emphasis, links, and short prose paragraphs moved by
 operations are calls through a record, and each line is lifted and read
 back once.
 
+Failed candidates (2026-09-26).  A failed autolink candidate, a failed
+span spec, and a `{` read with attributes off put their source back as
+text and set `prev` with `blit_prev`, which read the whole rebuilt text:
+`tval` of the pending buffer, then `str_last` by structural recursion,
+O(p^2) in the pending text per failure.  A line of `<a ` took 57 s at
+20 KB.  `blit_prev` now reads the fragment alone; `blit_prev_fragment`
+and `blit_prev_bsplit_nl` prove it agrees with the whole text, cut at a
+newline or not.  The same line parses in 3.1 ms at 20 KB and 9.6 ms at
+80 KB (`candidates` in `make bench`); `[a]{b ` repeated, 1.7 ms at 4 KB
+and 7.4 ms at 16 KB.  Checked as above against `dist/src` at `7884839`:
+1046652 comparisons, adding failed candidates across line breaks, no
+difference; the suites and `dist/` as before.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -369,13 +382,11 @@ and its proof are recorded in Fixed above.
 
 Structural string matches still copy tails in `Line`, `Strings`,
 `Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending text
-no longer copies (Fixed above), but a failed autolink candidate or `{`
-spec still reads the whole pending value once through `blit_prev`, so a
-line of repeated failed candidates (`<a <a <a`) stays quadratic.
-`blit_prev` needs only the last byte of the rebuilt piece, which never
-depends on the pending text.  Verbatim, destination, label, and
+no longer copies (Fixed above).  Verbatim, destination, label, and
 attribute-source accumulators still append to strings, and `isnoc` and
-`osnoc` merge adjacent `Str` nodes with `t ++ s`.
+`osnoc` merge adjacent `Str` nodes with `t ++ s`.  Measured 2026-09-26,
+dev profile, one line: a code span of 20, 40, 80 KB parses in 13.5,
+46.5, 153.9 ms; a link destination in 91.9, 436.5, 2135.2 ms.
 
 Source positions no longer block this.  The located scan
 (`InlineLocated.v`) still matches `String c rest` and carries a counted

@@ -982,7 +982,12 @@ let rec islice_end t x st = match st with
   IText (false, (x.tpush txt (one rbrack)), (Some rbrack), o)
 | IAuto (src, txt, o) ->
   IText (false, (auto_lit x src txt),
-    (blit_prev (x.tval (auto_lit x src txt))), o)
+    (blit_prev
+      ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+      (lt, src))),
+    o)
 | ISymbol (_, _, sh, _) -> islice_end t x sh
 | _ -> st
 
@@ -1056,7 +1061,7 @@ let ibrace_step_at t x h h0 attrs_enabled c txt prev o =
     then iattr_feed t x h h0 c ap_init "" txt prev
            (ilead t x h h0 c (x.tpush txt (one lbrace)) (Some lbrace) o) o
     else let (t0, o') = battr_lit x h h0 "" txt o in
-         ilead t x h h0 c t0 (blit_prev (x.tval t0)) o'
+         ilead t x h h0 c t0 (blit_prev (one lbrace)) o'
 
 (** val ospan_bang :
     coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate **)
@@ -1075,7 +1080,13 @@ let ispan_feed t x h h0 c kids image open0 p src o =
   let p' = astep p c in
   if ap_failed p'
   then let (txt, o') = bspan_lit x h h0 kids image src o in
-       ilead t x h h0 c txt (blit_prev (x.tval txt)) o'
+       ilead t x h h0 c txt
+         (blit_prev
+           ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (lbrace, src)))
+         o'
   else if ap_done p'
        then let spec_start =
               spot_before h0.cursor_start
@@ -1129,7 +1140,12 @@ let iauto_step t x h h0 c src txt o =
          (flush_text_to_at h h0 start (x.tval txt) o)))
   else if (||) ((||) ((=) c gt) (is_ws c)) ((=) c lt)
        then ilead t x h h0 c (auto_lit x src txt)
-              (blit_prev (x.tval (auto_lit x src txt))) o
+              (blit_prev
+                ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                (lt, src)))
+              o
        else IAuto (((^) src (one c)), txt, o)
 
 (** val isymbol_step :

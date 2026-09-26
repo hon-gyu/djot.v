@@ -1032,9 +1032,12 @@ Definition battr_lit `{PosPolicy} `{InlineCursor}
 
 (* The byte to the left of the one being dispatched, when a construct
    hands back what it ate as text.  Every fallback puts back a fragment
-   headed by the construct's own opening byte, so an empty residue means
-   `bsplit_nl` cut the fragment at a newline and that newline is the byte
-   in question. *)
+   headed by the construct's own opening byte, so the fragment alone
+   decides it: its last byte is the last byte of the text it joins, and
+   the pending text before it is never read.  A newline in the fragment
+   is where `bsplit_nl` cut it, and a fragment ending in one yields that
+   newline, as an empty residue does (`blit_prev_fragment`,
+   `blit_prev_bsplit_nl`). *)
 Local Definition blit_prev (t : string) : option ascii := str_last t (Some nl_char).
 
 Definition bref_lit `{PosPolicy} `{InlineCursor}
@@ -1465,7 +1468,7 @@ Fixpoint islice_end (st : iscan) : iscan :=
       IText false (tpush txt (typography_dashes n)) (Some hyphen) o
   | IClosed txt o => IText false (tpush txt (one rbrack)) (Some rbrack) o
   | IAuto src txt o =>
-      IText false (auto_lit src txt) (blit_prev (tval (auto_lit src txt))) o
+      IText false (auto_lit src txt) (blit_prev (String lt src)) o
   | ISymbol _ _ sh _ => islice_end sh
   | _ => st
   end.
@@ -1544,7 +1547,7 @@ Definition ibrace_step_at `{PosPolicy} `{InlineCursor}
          byte is read: `{` goes back into the text and this byte is
          dispatched afresh. *)
       else let '(t, o') := battr_lit EmptyString txt o in
-           ilead c t (blit_prev (tval t)) o'
+           ilead c t (blit_prev (one lbrace)) o'
   end.
 
 Definition ibrace_step `{PosPolicy} `{InlineCursor}
@@ -1575,7 +1578,7 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
   let p' := astep p c in
   if ap_failed p'
   then let '(txt, o') := bspan_lit kids image src o in
-       ilead c txt (blit_prev (tval txt)) o'
+       ilead c txt (blit_prev (String lbrace src)) o'
   else if ap_done p'
   then let spec_start := spot_before cursor_start (String lbrace src) in
        let spec := SrcSpan spec_start cursor_stop in
@@ -1623,7 +1626,7 @@ Definition iauto_step `{PosPolicy} `{InlineCursor}
          (oemit (imk start cursor_stop (auto_node src))
            (flush_text_to_at start (tval txt) o))
   else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
-  then ilead c (auto_lit src txt) (blit_prev (tval (auto_lit src txt))) o
+  then ilead c (auto_lit src txt) (blit_prev (String lt src)) o
   else IAuto (src ++ one c)%string txt o.
 
 Definition isymbol_step `{PosPolicy} `{InlineCursor}
@@ -2309,6 +2312,28 @@ End Text.
 
 (* The specification scanner's state. *)
 Notation iscan := (iscan_g (Buf:=string)).
+
+(* `blit_prev` on the fragment alone agrees with it on the whole text the
+   fragment joins, cut or not: the fallbacks never read the pending text
+   for it. *)
+Lemma str_last_app : forall a b p, str_last (a ++ b) p = str_last b (str_last a p).
+Proof. induction a as [|c a IH]; intros b p; [reflexivity|]. apply IH. Qed.
+
+Lemma blit_prev_fragment : forall a c s,
+  blit_prev (a ++ String c s) = blit_prev (String c s).
+Proof. intros a c s. unfold blit_prev. rewrite str_last_app. reflexivity. Qed.
+
+Lemma blit_prev_bsplit_nl : forall `{PosPolicy} `{InlineCursor} s t o,
+  blit_prev (fst (bsplit_nl s t o)) = blit_prev (t ++ s).
+Proof.
+  intros P C s. induction s as [|c s IH]; intros t o.
+  - cbn. rewrite append_empty_r. reflexivity.
+  - cbn [bsplit_nl]. tred.
+    destruct (Ascii.eqb c nl_char) eqn:E.
+    + apply Ascii.eqb_eq in E. subst c. rewrite IH.
+      unfold blit_prev. rewrite (str_last_app t). reflexivity.
+    + rewrite IH, append_assoc. reflexivity.
+Qed.
 
 (* A buffer's scan state read as the specification's: every pending-text
    field through `tval`, and back through `tof`.  `InlineBuffer.v`
