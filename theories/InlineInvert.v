@@ -335,7 +335,7 @@ Local Lemma idest_open_app :
     idest_open kids image open (oout_app base o)
     = iout_app base (idest_open kids image open o).
 Proof.
-  intros kids image open o base. unfold idest_open.
+  intros kids image open o base. unfold idest_open; tred.
   rewrite dpush_app, bflat_app.
   destruct (bflat kids EmptyString (dpush image open o)) as [txt o1].
   reflexivity.
@@ -350,7 +350,7 @@ Local Lemma bclosed_lit_app :
 Proof.
   intros kids image o base Hb. unfold bclosed_lit.
   rewrite (opop_str_app o base Hb).
-  destruct (opop_str o) as [pre o1]; cbn [fst snd].
+  destruct (opop_str o) as [pre o1]; cbn [fst snd]; tred.
   rewrite bflat_app.
   destruct (bflat kids (pre ++ bracket_open image)%string o1) as [txt o2].
   reflexivity.
@@ -401,7 +401,7 @@ Local Lemma bspan_lit_app :
 Proof.
   intros kids image src o base Hb. unfold bspan_lit.
   rewrite (bclosed_lit_app kids image o base Hb).
-  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd].
+  destruct (bclosed_lit kids image o) as [txt o']; cbn [fst snd]; tred.
   rewrite bsplit_nl_app.
   destruct (bsplit_nl src (txt ++ one lbrace)%string o'). reflexivity.
 Qed.
@@ -411,7 +411,7 @@ Local Lemma battr_lit_app :
     battr_lit src txt (oout_app base o) =
     let '(t, o') := battr_lit src txt o in (t, oout_app base o').
 Proof.
-  intros src txt o base. unfold battr_lit. rewrite bsplit_nl_app.
+  intros src txt o base. unfold battr_lit; tred. rewrite bsplit_nl_app.
   destruct (bsplit_nl src (txt ++ one lbrace)%string o). reflexivity.
 Qed.
 
@@ -517,23 +517,23 @@ Qed.
 
 Local Lemma idelim_resolve_app :
   forall k txt bef marker next o base,
-    @idelim_resolve T semantic_pos semantic_inline_cursor
+    @idelim_resolve T _ _ semantic_pos semantic_inline_cursor
       k txt bef marker next (oout_app base o)
     = iout_app base
-        (@idelim_resolve T semantic_pos semantic_inline_cursor
+        (@idelim_resolve T _ _ semantic_pos semantic_inline_cursor
           k txt bef marker next o).
 Proof.
   intros k txt bef marker next o base.
   assert (Hdone : forall o',
-    @idelim_done T semantic_pos semantic_inline_cursor
+    @idelim_done T _ _ semantic_pos semantic_inline_cursor
       k txt bef marker next (oout_app base o')
     = iout_app base
-        (@idelim_done T semantic_pos semantic_inline_cursor
+        (@idelim_done T _ _ semantic_pos semantic_inline_cursor
           k txt bef marker next o')).
   { intros o'. unfold idelim_done.
     destruct (dbare k bef && negb marker && nonspace_at next)%bool;
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
-  unfold idelim_resolve. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
+  unfold idelim_resolve; tred. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   sem_flush. rewrite flush_text_app, sclose_app.
   destruct (sclose k marker (flush_text txt o)); [reflexivity|].
   unfold oclose_barred, oout_app; cbn [os_stk].
@@ -577,7 +577,7 @@ Local Lemma istep_at_out_app :
 Proof.
   intros attrs_enabled c base st. revert attrs_enabled c base.
   induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob];
-    intros attrs_enabled c base Hb; cbn [iout_app istep_at].
+    intros attrs_enabled c base Hb; cbn [iout_app istep_at]; tred.
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
   - destruct (is_ws c); [reflexivity|].
@@ -1017,7 +1017,7 @@ Proof.
   intros txt prev out.
   unfold ifinish, ifinish_rev, ofinish. rewrite oitems_of_spec.
   cbn [ifinish_ostate ifinish_ostate_flat iresolve].
-  unfold flush_text, flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
+  unfold flush_text, flush_text_at, oemit; cbn [os_stk os_out oflatten oapp]; tred.
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
@@ -1283,17 +1283,17 @@ Proof.
     unfold one. cbn [iscan_str istep istep_at]. unfold idash_step.
     change (Ascii.eqb rbrace hyphen) with false.
     rewrite Ascii.eqb_refl, <- Hhy, (dstyle_of_dchar k Hen), Ew.
-    rewrite Nat.leb_refl, Nat.sub_diag.
+    rewrite Nat.leb_refl, Nat.sub_diag. tred.
     assert (Ezero : typography_dashes 0 = EmptyString).
     { unfold typography_dashes. destruct smart_typography; reflexivity. }
     rewrite Ezero, (append_empty_r txt).
-    unfold idelim_resolve. sem_flush.
+    unfold idelim_resolve. tred. sem_flush.
     rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
   unfold one. cbn [iscan_str istep istep_at].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
-  rewrite Ascii.eqb_refl. unfold idelim_resolve. sem_flush.
+  rewrite Ascii.eqb_refl. unfold idelim_resolve. tred. sem_flush.
   rewrite Bool.orb_true_r, H. reflexivity.
 Qed.
 
@@ -1627,7 +1627,7 @@ Qed.
 
 Local Lemma wiki_opens_text :
   forall txt prev o, nonempty_str txt = true -> wiki_opens txt prev o = false.
-Proof. intros txt prev o H. unfold wiki_opens, note_pos. rewrite H. reflexivity. Qed.
+Proof. intros txt prev o H. unfold wiki_opens, note_pos; tred. rewrite H. reflexivity. Qed.
 
 Local Lemma wiki_opens_top :
   forall txt prev out w, wiki_opens txt prev (OState out [] w) = false.
@@ -1733,7 +1733,7 @@ Local Lemma istep_lbrack_ref :
 Proof.
   intros txt o kids image open o' H. cbn [istep istep_at].
   change (Ascii.eqb lbrack lparen) with false.
-  change (Ascii.eqb lbrack lbrack) with true. cbn [orb].
+  change (Ascii.eqb lbrack lbrack) with true. cbn [orb]; tred.
   sem_flush. rewrite H. reflexivity.
 Qed.
 
@@ -1745,7 +1745,7 @@ Local Lemma istep_lparen_dest :
         (idest_open kids image open o') o'.
 Proof.
   intros txt o kids image open o' H. cbn [istep istep_at].
-  change (Ascii.eqb lparen lparen) with true. cbn [orb].
+  change (Ascii.eqb lparen lparen) with true. cbn [orb]; tred.
   sem_flush. rewrite H. reflexivity.
 Qed.
 
@@ -3372,7 +3372,7 @@ Lemma idelim_resolve_text :
     exists txt' prev' o',
       idelim_resolve k txt bef marker next o = IText false txt' prev' o'.
 Proof.
-  intros k txt bef marker next o. unfold idelim_resolve.
+  intros k txt bef marker next o. unfold idelim_resolve; tred.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_text].
   sem_flush. destruct (sclose k marker (flush_text txt o)); [eauto|].
   destruct (oclose_barred k marker o); [eauto | apply idelim_done_text].
@@ -3402,7 +3402,7 @@ Proof.
   intros s H. unfold parse_inline_line, istart. rewrite iscan_escape.
   change (EmptyString ++ s)%string with s.
   unfold ifinish, ifinish_rev.
-  cbn [ifinish_ostate ifinish_ostate_flat iresolve]. unfold flush_text, flush_text_at.
+  cbn [ifinish_ostate ifinish_ostate_flat iresolve]. unfold flush_text, flush_text_at; tred.
   rewrite H. reflexivity.
 Qed.
 

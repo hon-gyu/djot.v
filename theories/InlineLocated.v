@@ -57,7 +57,7 @@ Local Fixpoint iscan_str_located `{PosPolicy} (allow : bool) (k : nat)
   | EmptyString => st
   | String c rest =>
       iscan_str_located allow k origin (pred rem) rest
-        (@istep_at T _ (cursor_in k rem origin) allow c st)
+        (@istep_at T _ _ _ (cursor_in k rem origin) allow c st)
   end.
 
 (* Where a line's stored text begins, and where a paragraph's content
@@ -93,7 +93,7 @@ Local Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
         (String.length x) (strip_trailing_ws x) st
   | (k, x) :: rest =>
       iscan_lines_located (pred off) origin rest
-        (@ibreak_at T _
+        (@ibreak_at T _ _ _
            (CursorAt (Spot k 0) (lines_start rest) (Spot k (String.length x)))
            (allow_attrs off)
            (iscan_str_located (allow_attrs off) k origin
@@ -104,7 +104,7 @@ Local Fixpoint iscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
    with nothing before it starts at the first line's first byte. *)
 Local Definition ifinish_located `{PosPolicy} (l : list (nat * string))
   (st : iscan) : inlines :=
-  @ifinish T _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l)) st.
+  @ifinish T _ _ _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l)) st.
 
 End WithTable.
 Module ScanErase.
@@ -562,9 +562,9 @@ Proof.
 Qed.
 
 Local Lemma of_bflat : forall `{P : PosPolicy} `{C : InlineCursor} kids txt o,
-  @bflat semantic_pos semantic_inline_cursor (Erase.of_inlines kids) txt
+  @bflat _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) txt
     (of_ostate o)
-  = (fst (@bflat P C kids txt o), of_ostate (snd (@bflat P C kids txt o))).
+  = (fst (@bflat _ _ P C kids txt o), of_ostate (snd (@bflat _ _ P C kids txt o))).
 Proof.
   intros P C kids. induction kids as [|[p a x] kids IH]; intros txt o;
     [reflexivity|].
@@ -576,9 +576,9 @@ Proof.
 Qed.
 
 Local Lemma of_bsplit_nl : forall `{P : PosPolicy} `{C : InlineCursor} s txt o,
-  @bsplit_nl semantic_pos semantic_inline_cursor s txt (of_ostate o)
-  = (fst (@bsplit_nl P C s txt o),
-     of_ostate (snd (@bsplit_nl P C s txt o))).
+  @bsplit_nl _ _ semantic_pos semantic_inline_cursor s txt (of_ostate o)
+  = (fst (@bsplit_nl _ _ P C s txt o),
+     of_ostate (snd (@bsplit_nl _ _ P C s txt o))).
 Proof.
   intros P C s. induction s as [|c s IH]; intros txt o; [reflexivity|].
   cbn [bsplit_nl]. destruct (Ascii.eqb c nl_char); [|apply IH].
@@ -602,48 +602,48 @@ Qed.
 
 Local Lemma of_bclosed_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image o,
-  @bclosed_lit semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
+  @bclosed_lit _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
     (of_ostate o)
-  = (fst (@bclosed_lit P C kids image o),
-     of_ostate (snd (@bclosed_lit P C kids image o))).
+  = (fst (@bclosed_lit _ _ P C kids image o),
+     of_ostate (snd (@bclosed_lit _ _ P C kids image o))).
 Proof.
   intros P C kids image o. unfold bclosed_lit.
   rewrite of_opop_str.
-  destruct (opop_str o) as [pre o1]; cbn [fst snd].
+  destruct (opop_str o) as [pre o1]; cbn [fst snd]; tred.
   rewrite of_bflat.
-  destruct (@bflat P C kids (pre ++ bracket_open image) o1) as [txt o2];
+  destruct (@bflat _ _ P C kids (pre ++ bracket_open image) o1) as [txt o2];
     reflexivity.
 Qed.
 
 Local Lemma of_bspan_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image src o,
-  @bspan_lit semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
+  @bspan_lit _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
     src (of_ostate o)
-  = (fst (@bspan_lit P C kids image src o),
-     of_ostate (snd (@bspan_lit P C kids image src o))).
+  = (fst (@bspan_lit _ _ P C kids image src o),
+     of_ostate (snd (@bspan_lit _ _ P C kids image src o))).
 Proof.
   intros P C kids image src o. unfold bspan_lit.
   rewrite of_bclosed_lit.
-  destruct (@bclosed_lit P C kids image o) as [txt o']; cbn [fst snd].
+  destruct (@bclosed_lit _ _ P C kids image o) as [txt o']; cbn [fst snd].
   apply of_bsplit_nl.
 Qed.
 
 Local Lemma of_battr_lit : forall `{P : PosPolicy} `{C : InlineCursor} src txt o,
-  @battr_lit semantic_pos semantic_inline_cursor src txt (of_ostate o)
-  = (fst (@battr_lit P C src txt o),
-     of_ostate (snd (@battr_lit P C src txt o))).
+  @battr_lit _ _ semantic_pos semantic_inline_cursor src txt (of_ostate o)
+  = (fst (@battr_lit _ _ P C src txt o),
+     of_ostate (snd (@battr_lit _ _ P C src txt o))).
 Proof. intros P C src txt o. apply of_bsplit_nl. Qed.
 
 Local Lemma of_bref_lit : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image label o,
-  @bref_lit semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
+  @bref_lit _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
     label (of_ostate o)
-  = (fst (@bref_lit P C kids image label o),
-     of_ostate (snd (@bref_lit P C kids image label o))).
+  = (fst (@bref_lit _ _ P C kids image label o),
+     of_ostate (snd (@bref_lit _ _ P C kids image label o))).
 Proof.
   intros P C kids image label o. unfold bref_lit.
   rewrite of_bclosed_lit.
-  destruct (@bclosed_lit P C kids image o) as [txt o']; reflexivity.
+  destruct (@bclosed_lit _ _ P C kids image o) as [txt o']; reflexivity.
 Qed.
 
 Local Lemma of_bnote_lit : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -668,8 +668,8 @@ Proof.
 Qed.
 
 Local Lemma of_ilead : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,
-  of_iscan (@ilead T P C c txt prev o) =
-  @ilead T semantic_pos semantic_inline_cursor c txt prev (of_ostate o).
+  of_iscan (@ilead T _ _ P C c txt prev o) =
+  @ilead T _ _ semantic_pos semantic_inline_cursor c txt prev (of_ostate o).
 Proof.
   intros P C c txt prev o. unfold ilead.
   destruct (is_bslash c); [reflexivity|].
@@ -698,20 +698,20 @@ Qed.
 
 Local Lemma of_idest_open : forall `{P : PosPolicy} `{C : InlineCursor}
   kids image open o,
-  of_iscan (@idest_open P C kids image open o) =
-  @idest_open semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
+  of_iscan (@idest_open _ _ P C kids image open o) =
+  @idest_open _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
     null_span (of_ostate o).
 Proof.
-  intros P C kids image open o. unfold idest_open.
+  intros P C kids image open o. unfold idest_open; tred.
   rewrite <- (of_dpush image open), of_bflat.
-  destruct (@bflat P C kids EmptyString (dpush image open o)) as [txt o'];
+  destruct (@bflat _ _ P C kids EmptyString (dpush image open o)) as [txt o'];
     reflexivity.
 Qed.
 
 Local Lemma of_oopen_marked : forall `{P : PosPolicy} `{C : InlineCursor}
   k cm txt o,
-  of_ostate (@oopen_marked T P C k cm txt o) =
-  @oopen_marked T semantic_pos semantic_inline_cursor k cm txt (of_ostate o).
+  of_ostate (@oopen_marked T _ _ P C k cm txt o) =
+  @oopen_marked T _ _ semantic_pos semantic_inline_cursor k cm txt (of_ostate o).
 Proof.
   intros P C k cm txt o. unfold oopen_marked.
   rewrite of_opush_at, of_flush_text_to_at.
@@ -720,8 +720,8 @@ Qed.
 
 Local Lemma of_idelim_open_marked : forall `{P : PosPolicy} `{C : InlineCursor}
   k cm txt o,
-  of_iscan (@idelim_open_marked T P C k cm txt o) =
-  @idelim_open_marked T semantic_pos semantic_inline_cursor k cm txt
+  of_iscan (@idelim_open_marked T _ _ P C k cm txt o) =
+  @idelim_open_marked T _ _ semantic_pos semantic_inline_cursor k cm txt
     (of_ostate o).
 Proof.
   intros P C k cm txt o. unfold idelim_open_marked.
@@ -738,8 +738,8 @@ Qed.
 
 Local Lemma of_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
   src a txt o,
-  of_iscan (@iattr_mark P C src a txt o) =
-  @iattr_mark semantic_pos semantic_inline_cursor src a txt (of_ostate o).
+  of_iscan (@iattr_mark _ _ P C src a txt o) =
+  @iattr_mark _ _ semantic_pos semantic_inline_cursor src a txt (of_ostate o).
 Proof.
   intros P C src a txt o. unfold iattr_mark.
   cbn [of_iscan]. rewrite of_omark,
@@ -749,8 +749,8 @@ Qed.
 
 Local Lemma of_iattr_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c p src txt prev sh o,
-  of_iscan (@iattr_feed T P C c p src txt prev sh o) =
-  @iattr_feed T semantic_pos semantic_inline_cursor c p src txt prev
+  of_iscan (@iattr_feed T _ _ P C c p src txt prev sh o) =
+  @iattr_feed T _ _ semantic_pos semantic_inline_cursor c p src txt prev
     (of_iscan sh) (of_ostate o).
 Proof.
   intros P C c p src txt prev sh o. unfold iattr_feed.
@@ -761,8 +761,8 @@ Qed.
 
 Local Lemma of_ibrace_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
   allow c txt prev o,
-  of_iscan (@ibrace_step_at T P C allow c txt prev o) =
-  @ibrace_step_at T semantic_pos semantic_inline_cursor allow c txt prev
+  of_iscan (@ibrace_step_at T _ _ P C allow c txt prev o) =
+  @ibrace_step_at T _ _ semantic_pos semantic_inline_cursor allow c txt prev
     (of_ostate o).
 Proof.
   intros P C allow c txt prev o. unfold ibrace_step_at.
@@ -770,14 +770,14 @@ Proof.
   destruct allow.
   - rewrite of_iattr_feed, of_ilead. reflexivity.
   - rewrite of_battr_lit.
-    destruct (@battr_lit P C EmptyString txt o) as [t o']; cbn [fst snd].
+    destruct (@battr_lit _ _ P C EmptyString txt o) as [t o']; cbn [fst snd].
     apply of_ilead.
 Qed.
 
 Local Lemma of_ibang_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c txt prev o,
-  of_iscan (@ibang_step T P C c txt prev o) =
-  @ibang_step T semantic_pos semantic_inline_cursor c txt prev (of_ostate o).
+  of_iscan (@ibang_step T _ _ P C c txt prev o) =
+  @ibang_step T _ _ semantic_pos semantic_inline_cursor c txt prev (of_ostate o).
 Proof.
   intros P C c txt prev o. unfold ibang_step.
   destruct (Ascii.eqb c lbrack); [|apply of_ilead].
@@ -786,8 +786,8 @@ Qed.
 
 Local Lemma of_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
-  of_iscan (@idelim_done T P C k txt before marker next o) =
-  @idelim_done T semantic_pos semantic_inline_cursor k txt before marker next
+  of_iscan (@idelim_done T _ _ P C k txt before marker next o) =
+  @idelim_done T _ _ semantic_pos semantic_inline_cursor k txt before marker next
     (of_ostate o).
 Proof.
   intros P C k txt before marker next o. unfold idelim_done.
@@ -798,11 +798,11 @@ Qed.
 
 Local Lemma of_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
-  of_iscan (@idelim_resolve T P C k txt before marker next o) =
-  @idelim_resolve T semantic_pos semantic_inline_cursor k txt before marker next
+  of_iscan (@idelim_resolve T _ _ P C k txt before marker next o) =
+  @idelim_resolve T _ _ semantic_pos semantic_inline_cursor k txt before marker next
     (of_ostate o).
 Proof.
-  intros P C k txt before marker next o. unfold idelim_resolve.
+  intros P C k txt before marker next o. unfold idelim_resolve; tred.
   destruct (nonspace_at before || marker)%bool; [|apply of_idelim_done].
   sem_flush.
   rewrite <- (of_flush_text_to_at
@@ -817,8 +817,8 @@ Qed.
 
 Local Lemma of_idollar_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c two txt prev o,
-  of_iscan (@idollar_step T P C c two txt prev o) =
-  @idollar_step T semantic_pos semantic_inline_cursor c two txt prev
+  of_iscan (@idollar_step T _ _ P C c two txt prev o) =
+  @idollar_step T _ _ semantic_pos semantic_inline_cursor c two txt prev
     (of_ostate o).
 Proof.
   intros P C c two txt prev o. unfold idollar_step.
@@ -829,8 +829,8 @@ Qed.
 
 Local Lemma of_iperiod_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c two txt prev o,
-  of_iscan (@iperiod_step T P C c two txt prev o) =
-  @iperiod_step T semantic_pos semantic_inline_cursor c two txt prev
+  of_iscan (@iperiod_step T _ _ P C c two txt prev o) =
+  @iperiod_step T _ _ semantic_pos semantic_inline_cursor c two txt prev
     (of_ostate o).
 Proof.
   intros P C c two txt prev o. unfold iperiod_step.
@@ -839,8 +839,8 @@ Qed.
 
 Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c n txt prev o,
-  of_iscan (@idash_step T P C c n txt prev o) =
-  @idash_step T semantic_pos semantic_inline_cursor c n txt prev
+  of_iscan (@idash_step T _ _ P C c n txt prev o) =
+  @idash_step T _ _ semantic_pos semantic_inline_cursor c n txt prev
     (of_ostate o).
 Proof.
   intros P C c n txt prev o. unfold idash_step.
@@ -851,8 +851,8 @@ Proof.
 Qed.
 
 Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  of_iscan (@iresolve T P C st) =
-  @iresolve T semantic_pos semantic_inline_cursor (of_iscan st).
+  of_iscan (@iresolve T _ _ P C st) =
+  @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | |];
     try reflexivity.
@@ -864,8 +864,8 @@ Qed.
 
 Local Lemma of_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
   ws txt prev o,
-  let '(t, pv, o') := @iescws_resolve P C ws txt prev o in
-  @iescws_resolve semantic_pos semantic_inline_cursor ws txt prev
+  let '(t, pv, o') := @iescws_resolve _ _ P C ws txt prev o in
+  @iescws_resolve _ _ semantic_pos semantic_inline_cursor ws txt prev
     (of_ostate o) = (t, pv, of_ostate o').
 Proof.
   intros P C [|c rest] txt prev o; [reflexivity|].
@@ -874,8 +874,8 @@ Proof.
 Qed.
 
 Local Lemma of_iesc_hard : forall `{P : PosPolicy} `{C : InlineCursor} ws txt o,
-  of_ostate (@iesc_hard P C ws txt o) =
-  @iesc_hard semantic_pos semantic_inline_cursor ws txt (of_ostate o).
+  of_ostate (@iesc_hard _ _ P C ws txt o) =
+  @iesc_hard _ _ semantic_pos semantic_inline_cursor ws txt (of_ostate o).
 Proof.
   intros P C ws txt o. unfold iesc_hard.
   rewrite of_oemit, of_flush_text_to_at, of_imk_here. reflexivity.
@@ -883,14 +883,14 @@ Qed.
 
 Local Lemma of_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c kids image open p src o,
-  of_iscan (@ispan_feed T P C c kids image open p src o) =
-  @ispan_feed T semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
+  of_iscan (@ispan_feed T _ _ P C c kids image open p src o) =
+  @ispan_feed T _ _ semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
     null_span p src (of_ostate o).
 Proof.
   intros P C c kids image open p src o. unfold ispan_feed.
   destruct (ap_failed (astep p c)).
   - rewrite of_bspan_lit.
-    destruct (@bspan_lit P C kids image src o) as [txt o']; cbn [fst snd].
+    destruct (@bspan_lit _ _ P C kids image src o) as [txt o']; cbn [fst snd].
     apply of_ilead.
   - destruct (ap_done (astep p c)); [|reflexivity].
     cbn [of_iscan]. rewrite of_oemit, of_add_inline_role,
@@ -900,8 +900,8 @@ Qed.
 
 Local Lemma of_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c esc image label open o,
-  of_iscan (@inote_step P C c esc image label open o) =
-  @inote_step semantic_pos semantic_inline_cursor c esc image label null_span
+  of_iscan (@inote_step _ _ P C c esc image label open o) =
+  @inote_step _ _ semantic_pos semantic_inline_cursor c esc image label null_span
     (of_ostate o).
 Proof.
   intros P C c esc image label open o. unfold inote_step.
@@ -923,8 +923,8 @@ Qed.
 
 Local Lemma of_iwiki_close : forall `{P : PosPolicy} `{C : InlineCursor}
   image region open o,
-  of_iscan (@iwiki_close P C image region open o) =
-  @iwiki_close semantic_pos semantic_inline_cursor image region null_span
+  of_iscan (@iwiki_close _ _ P C image region open o) =
+  @iwiki_close _ _ semantic_pos semantic_inline_cursor image region null_span
     (of_ostate o).
 Proof.
   intros P C image region open o. unfold iwiki_close.
@@ -936,8 +936,8 @@ Qed.
 
 Local Lemma of_iwiki_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c esc rb image region open o,
-  of_iscan (@iwiki_step P C c esc rb image region open o) =
-  @iwiki_step semantic_pos semantic_inline_cursor c esc rb image region
+  of_iscan (@iwiki_step _ _ P C c esc rb image region open o) =
+  @iwiki_step _ _ semantic_pos semantic_inline_cursor c esc rb image region
     null_span (of_ostate o).
 Proof.
   intros P C c esc rb image region open o. unfold iwiki_step.
@@ -949,8 +949,8 @@ Qed.
 
 Local Lemma of_iauto_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c src txt o,
-  of_iscan (@iauto_step T P C c src txt o) =
-  @iauto_step T semantic_pos semantic_inline_cursor c src txt (of_ostate o).
+  of_iscan (@iauto_step T _ _ P C c src txt o) =
+  @iauto_step T _ _ semantic_pos semantic_inline_cursor c src txt (of_ostate o).
 Proof.
   intros P C c src txt o. unfold iauto_step.
   destruct (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool.
@@ -962,8 +962,8 @@ Qed.
 
 Local Lemma of_iraw_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
   allow c spec txt o,
-  of_iscan (@iraw_step_at T P C allow c spec txt o) =
-  @iraw_step_at T semantic_pos semantic_inline_cursor allow c spec txt
+  of_iscan (@iraw_step_at T _ _ P C allow c spec txt o) =
+  @iraw_step_at T _ _ semantic_pos semantic_inline_cursor allow c spec txt
     (of_ostate o).
 Proof.
   intros P C allow c spec txt o. unfold iraw_step_at.
@@ -983,8 +983,8 @@ Qed.
 
 Local Lemma of_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c alias txt o sh,
-  of_iscan (@isymbol_step P C c alias txt o sh) =
-  @isymbol_step semantic_pos semantic_inline_cursor c alias txt
+  of_iscan (@isymbol_step _ _ P C c alias txt o sh) =
+  @isymbol_step _ _ semantic_pos semantic_inline_cursor c alias txt
     (of_ostate o) (of_iscan sh).
 Proof.
   intros P C c alias txt o sh. unfold isymbol_step.
@@ -1018,8 +1018,8 @@ state the branch builds.
 *)
 Theorem of_istep_at :
   forall `{P : PosPolicy} `{C : InlineCursor} allow c st,
-  of_iscan (@istep_at T P C allow c st) =
-  @istep_at T semantic_pos semantic_inline_cursor allow c (of_iscan st).
+  of_iscan (@istep_at T _ _ P C allow c st) =
+  @istep_at T _ _ semantic_pos semantic_inline_cursor allow c (of_iscan st).
 Proof.
   intros P C allow c st. revert allow c.
   induction st as
@@ -1039,7 +1039,7 @@ Proof.
   - (* IEscWs *)
     cbn [of_iscan istep_at]. destruct (is_ws c); [reflexivity|].
     pose proof (of_iescws_resolve (P:=P) (C:=C) ws txt prev o) as H.
-    destruct (@iescws_resolve P C ws txt prev o) as [[t pv] o'].
+    destruct (@iescws_resolve _ _ P C ws txt prev o) as [[t pv] o'].
     rewrite H. apply of_ilead.
   - (* IBrace *) apply of_ibrace_step_at.
   - (* IDelim *)
@@ -1053,7 +1053,7 @@ Proof.
                   (Ascii.eqb c rbrace) (Some c) o) as Hr.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
-    destruct (@idelim_resolve T P C k txt before false (Some c) o)
+    destruct (@idelim_resolve T _ _ P C k txt before false (Some c) o)
       as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply of_ilead].
@@ -1069,7 +1069,7 @@ Proof.
   - (* IDash *) apply of_idash_step.
   - (* IBang *) apply of_ibang_step.
   - (* IClosed *)
-    cbn [of_iscan istep_at].
+    cbn [of_iscan istep_at]; tred.
     destruct (Ascii.eqb c lparen || Ascii.eqb c lbrack
               || (Ascii.eqb c lbrace && allow))%bool;
       [|apply of_ilead].
@@ -1113,8 +1113,8 @@ Proof.
 Qed.
 
 Local Lemma of_ifinish_ostate_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  of_ostate (@ifinish_ostate_flat P C st) =
-  @ifinish_ostate_flat semantic_pos semantic_inline_cursor (of_iscan st).
+  of_ostate (@ifinish_ostate_flat _ _ P C st) =
+  @ifinish_ostate_flat _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C
     [esc txt prev o | ws txt prev o | txt prev o
@@ -1132,13 +1132,13 @@ Proof.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
   - rewrite of_bspan_lit.
-    destruct (@bspan_lit P C kids image src o) as [t o']; cbn [fst snd].
+    destruct (@bspan_lit _ _ P C kids image src o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_battr_lit.
-    destruct (@battr_lit P C src txt o) as [t o']; cbn [fst snd].
+    destruct (@battr_lit _ _ P C src txt o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bref_lit.
-    destruct (@bref_lit P C kids image label o) as [t o']; cbn [fst snd].
+    destruct (@bref_lit _ _ P C kids image label o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bnote_lit.
     destruct (@bnote_lit P C esc image label o) as [t o']; cbn [fst snd].
@@ -1151,8 +1151,8 @@ Proof.
 Qed.
 
 Local Lemma of_ifinish_ostate : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  of_ostate (@ifinish_ostate T P C st) =
-  @ifinish_ostate T semantic_pos semantic_inline_cursor (of_iscan st).
+  of_ostate (@ifinish_ostate T _ _ P C st) =
+  @ifinish_ostate T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C st. induction st;
     try (cbn [ifinish_ostate];
@@ -1196,16 +1196,16 @@ Proof.
 Qed.
 
 Local Lemma of_ifinish : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  Erase.of_inlines (@ifinish T P C st) =
-  @ifinish T semantic_pos semantic_inline_cursor (of_iscan st).
+  Erase.of_inlines (@ifinish T _ _ P C st) =
+  @ifinish T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C st. unfold ifinish, ifinish_rev.
   rewrite Erase.inlines_rev, of_ofinish, of_ifinish_ostate. reflexivity.
 Qed.
 
 Local Lemma of_ibreak_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  of_iscan (@ibreak_flat T P C st) =
-  @ibreak_flat T semantic_pos semantic_inline_cursor (of_iscan st).
+  of_iscan (@ibreak_flat T _ _ P C st) =
+  @ibreak_flat T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C. induction st as
     [esc txt prev o | ws txt prev o | txt prev o
@@ -1240,8 +1240,8 @@ Proof.
 Qed.
 
 Local Lemma of_ibreak_at : forall `{P : PosPolicy} `{C : InlineCursor} allow st,
-  of_iscan (@ibreak_at T P C allow st) =
-  @ibreak_at T semantic_pos semantic_inline_cursor allow (of_iscan st).
+  of_iscan (@ibreak_at T _ _ P C allow st) =
+  @ibreak_at T _ _ semantic_pos semantic_inline_cursor allow (of_iscan st).
 Proof.
   intros P C allow st. revert allow. induction st; intros allow;
     try (cbn [ibreak_at];
@@ -1284,7 +1284,7 @@ Local Fixpoint iscan_str_at (allow : bool) (s : string) (st : iscan) : iscan :=
   | EmptyString => st
   | String c rest =>
       iscan_str_at allow rest
-        (@istep_at T semantic_pos semantic_inline_cursor allow c st)
+        (@istep_at T _ _ semantic_pos semantic_inline_cursor allow c st)
   end.
 
 Local Lemma iscan_str_at_on : forall s st,
@@ -1319,7 +1319,7 @@ Local Lemma iscan_lines_located_cons :
   forall `{P : PosPolicy} off org k x y rest st,
   @iscan_lines_located T P off org ((k, x) :: y :: rest)%list st =
   @iscan_lines_located T P (pred off) org (y :: rest)%list
-    (@ibreak_at T P
+    (@ibreak_at T _ _ P
        (CursorAt (Spot k 0) (lines_start (y :: rest)%list)
           (Spot k (String.length x)))
        (allow_attrs off)
@@ -1368,7 +1368,7 @@ Proof. reflexivity. Qed.
 Local Lemma iscan_lines_step : forall x y rest st,
   iscan_lines (x :: y :: rest)%list st =
   iscan_lines (y :: rest)%list
-    (@ibreak T semantic_pos semantic_inline_cursor (iscan_str x st)).
+    (@ibreak T _ _ semantic_pos semantic_inline_cursor (iscan_str x st)).
 Proof. reflexivity. Qed.
 
 Local Lemma iscan_lines_off_last : forall k x st,
@@ -1378,7 +1378,7 @@ Proof. reflexivity. Qed.
 Local Lemma iscan_lines_off_step : forall k x y rest st,
   iscan_lines_off (S k) (x :: y :: rest)%list st =
   iscan_lines_off k (y :: rest)%list
-    (@ibreak_at T semantic_pos semantic_inline_cursor false (iscan_str_off x st)).
+    (@ibreak_at T _ _ semantic_pos semantic_inline_cursor false (iscan_str_off x st)).
 Proof. reflexivity. Qed.
 
 Local Lemma erase_iscan_lines_off : forall off l st,
@@ -1405,7 +1405,7 @@ Qed.
 
 Local Lemma erase_ifinish_located : forall `{P : PosPolicy} l st,
   Erase.of_inlines (@ifinish_located T P l st) =
-  @ifinish T semantic_pos semantic_inline_cursor (ScanErase.of_iscan st).
+  @ifinish T _ _ semantic_pos semantic_inline_cursor (ScanErase.of_iscan st).
 Proof. intros P l st. apply ScanErase.of_ifinish. Qed.
 
 (* A paragraph's lines with their source line indices, scanned so that
@@ -1434,7 +1434,7 @@ Definition para_inlines_at `{PosPolicy} (off : nat)
 Definition parse_inline_line_located `{PosPolicy}
   (k rem : nat) (s : string) : inlines :=
   let stop := Spot k (rem - String.length s) in
-  @ifinish T _ (CursorAt stop stop (Spot k rem))
+  @ifinish T _ _ _ (CursorAt stop stop (Spot k rem))
     (iscan_str_located inline_attrs_enabled k (Spot k rem) rem s istart).
 
 Lemma erase_parse_inline_line_located : forall `{P : PosPolicy} k rem s,

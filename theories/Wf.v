@@ -1552,7 +1552,7 @@ Local Lemma idest_open_wf :
     oscope_ok o = true -> wf_inlines kids = true ->
     iscan_wf (idest_open kids image open o) = true.
 Proof.
-  intros kids image open o Ho Hk. unfold idest_open.
+  intros kids image open o Ho Hk. unfold idest_open; tred.
   destruct (bflat_ok kids EmptyString (dpush image open o)
               (oscope_ok_dpush image open o Ho) eq_refl Hk) as [H1 H2].
   destruct (bflat kids EmptyString (dpush image open o)) as [txt o1];
@@ -1568,7 +1568,7 @@ Local Lemma bclosed_lit_ok :
 Proof.
   intros kids image o Ho Hk. unfold bclosed_lit.
   destruct (opop_str_ok o Ho) as [H1 H2].
-  destruct (opop_str o) as [pre o1]; cbn [snd] in H1, H2 |- *.
+  destruct (opop_str o) as [pre o1]; cbn [snd] in H1, H2 |- *; tred.
   pose proof (bflat_ok kids (pre ++ bracket_open image)%string o1 H1 H2 Hk)
     as Hb.
   destruct (bflat kids (pre ++ bracket_open image)%string o1) as [txt o2];
@@ -1729,7 +1729,7 @@ Local Lemma idelim_resolve_wf :
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_resolve k txt bef marker next o) = true.
 Proof.
-  intros k txt bef marker next o Ho Hs. unfold idelim_resolve.
+  intros k txt bef marker next o Ho Hs. unfold idelim_resolve; tred.
   sem_flush.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_wf; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
@@ -1831,7 +1831,7 @@ Proof.
     cbn [istep_at];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
          apply negb_true_iff in Hs;
-         rewrite hd_str_is_starts_str in Hs).
+         rewrite hd_str_is_starts_str in Hs); tred.
   - destruct (is_ws c);
       [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity
       |apply iscan_wf_text; [exact Ho | exact Hs]].
@@ -1854,7 +1854,7 @@ Proof.
         [|apply ilead_wf; assumption].
       destruct mrk;
         [apply idelim_marked_wf; assumption
-        |cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity]. }
+        |cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity]; tred. }
     destruct mrk.
     { destruct (oopen_marked_wf k (Ascii.eqb c rbrace) txt o Ho Hs) as [H1 H2].
       apply ilead_wf; assumption. }
@@ -1862,10 +1862,10 @@ Proof.
     pose proof (idelim_resolve_wf k txt cc false (Some c) o Ho Hs) as Hr.
     destruct (idelim_resolve k txt cc false (Some c) o)
       as [[] txt' prev' o'|? ? ? ?|? ? ?|? ? ? ? ? ?|? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ?|? ? ?|? ?|? ? ? ? ?|? ? ? ? ?|? ? ? ?|? ? ? ?|? ? ? ? ? ?|? ? ? ? ? ?|? ? ?|? ? ?|? ? ?]; try exact Hr.
-    cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho' Hs'].
+    cbn [iscan_wf] in Hr; tred. apply andb_true_iff in Hr as [Ho' Hs'].
     apply negb_true_iff in Hs'. rewrite hd_str_is_starts_str in Hs'.
     apply ilead_wf; assumption.
-  - cbn [iscan_wf] in H |- *. destruct (is_tick c); exact H.
+  - cbn [iscan_wf] in H |- *; tred. destruct (is_tick c); exact H.
   - cbn [iscan_wf] in H |- *. destruct (is_tick c); [exact H|].
     destruct (Nat.eqb run n); [|exact H].
     destruct (Ascii.eqb c lbrace && vkind_verb vk)%bool;

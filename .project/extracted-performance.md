@@ -209,8 +209,50 @@ three runs before and after the substitution:
 | 160 KB | 945.7 ms | 8.2 ms |
 
 This fixes the measured ordinary-word line.  A line of `.a` pairs
-still grows superlinearly (20 KB 14.7 ms, 80 KB 148.8 ms), so the
-general long-line issue remains open.
+still grew superlinearly (20 KB 14.7 ms, 80 KB 148.8 ms); the next
+entry fixes it.
+
+Pending inline text (2026-09-26).  Pending text was a `string` grown by
+`txt ++ piece`, so each append copied the text pending so far, and the
+drivers' batch did the same with `txt ^ String.sub ...`.  The scanner is
+now generic over its pending-text buffer (`TextOps`, `iscan_g`).  At
+`string` it is the specification, unchanged: the instance is a literal
+record, so its operations reduce to `++` and the identity, and `tred`
+rewrites them where a proof unfolds.  `chunks` (a list of pieces, newest
+first, joined once when read) runs it.  `InlineBuffer.v` proves the
+chunk laws, that `map_text` commutes with every step, line break, and
+finish, and `iscan_str_buf_spec`, `iscan_str_off_buf_spec`, and
+`iscan_str_located_buf_spec`.  The three native drivers lift the state
+into `chunks`, run the offset loop over the generic step, push a batch
+as one chunk, and read back with `map_text`.  The trusted part is as
+before: each offset loop against its Gallina buffer driver.
+
+Checked (2026-09-26), the previous extraction (`dist/src` at `7884839`)
+and the new one linked into one throwaway executable, comparing
+`iscan_lines`, `iscan_lines_off`, located `para_inlines_at`, semantic
+and located `parse_blocks`, and `Html.convert` by structural marshaling
+without sharing: every string over a 20-character alphabet of the
+scanner's special bytes up to length 4, 6000 random strings up to 200
+bytes, and 18 long targeted lines; 1046634 comparisons, no difference.
+A planted change to one side was caught.  Test suite 287/287, generated
+6167/6167, roundtrip 43857/43857, located bounds 44150/44150, keyed
+6628/6628, wikilink 3725/3725; the standalone `dist/` built and passed
+its test.
+
+`parse_doc`, dev profile, best of five, old and new extraction in one
+process:
+
+| shape | 20 KB | 40 KB | 80 KB | 160 KB |
+| --- | --- | --- | --- | --- |
+| `.a` on one line | 14.1 -> 2.0 ms | 46.8 -> 3.9 | 154.5 -> 8.4 | 478.2 -> 16.1 |
+| `word, ` on one line | 5.5 -> 1.4 | 17.3 -> 2.8 | 54.8 -> 6.8 | 168.7 -> 12.5 |
+| `word ` on one line | 1.0 -> 1.0 | 2.0 -> 2.0 | 3.8 -> 3.8 | 7.6 -> 7.6 |
+| paragraph of short lines | 1.3 -> 1.3 | 2.7 -> 2.5 | 5.4 -> 5.5 | 11.2 -> 11.3 |
+
+Wrapped brackets, emphasis, links, and short prose paragraphs moved by
+0 to 7% across three runs, slower more often than not: the buffer
+operations are calls through a record, and each line is lifted and read
+back once.
 
 ## Measurements
 
@@ -327,10 +369,13 @@ and its proof are recorded in Fixed above.
 
 Structural string matches still copy tails in `Line`, `Strings`,
 `Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending text
-still uses `txt ++ one c` where characters are not batched by the
-native inline drivers.  The added `punctuation` benchmark (`.a` pairs
-on one line) grows from 14.7 ms at 20 KB to 148.8 ms at 80 KB, about
-10x per 4x.  The one-line `word ` shape now grows near linearly.
+no longer copies (Fixed above), but a failed autolink candidate or `{`
+spec still reads the whole pending value once through `blit_prev`, so a
+line of repeated failed candidates (`<a <a <a`) stays quadratic.
+`blit_prev` needs only the last byte of the rebuilt piece, which never
+depends on the pending text.  Verbatim, destination, label, and
+attribute-source accumulators still append to strings, and `isnoc` and
+`osnoc` merge adjacent `Str` nodes with `t ++ s`.
 
 Source positions no longer block this.  The located scan
 (`InlineLocated.v`) still matches `String c rest` and carries a counted
@@ -344,10 +389,6 @@ For remaining tail copies, fix either:
 - or extract `string` to a slice (a string and a start offset), so a
   match on `String c s'` is O(1).  No proof changes, a larger trusted
   realization, and `String c acc` construction stays a copy.
-
-The repeated pending-text append needs its own solution: a scanner
-buffer in the theories with an equality proof, or a wider native
-batching rule checked against the previous extraction.
 
 ### 2. Delimiter lookup per character
 
