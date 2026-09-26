@@ -2080,7 +2080,7 @@ Local Lemma ilist_ok_oitems_of :
   forall o, oscope_ok o = true -> ilist_ok (oitems_of o) = true.
 Proof.
   intros o H. apply andb_true_iff in H as [Hb Hs].
-  unfold oitems_of.
+  rewrite oitems_of_spec.
   apply ilist_ok_oflatten; [exact Hs | reflexivity | exact Hb].
 Qed.
 

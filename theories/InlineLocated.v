@@ -1181,7 +1181,7 @@ Local Lemma of_oitems_of : forall `{P : PosPolicy} o,
   of_oitems (@oitems_of T P o) =
   @oitems_of T semantic_pos (of_ostate o).
 Proof.
-  intros P o. unfold oitems_of.
+  intros P o. rewrite !oitems_of_spec.
   change (os_stk (of_ostate o)) with (map of_frame (os_stk o)).
   change (os_out (of_ostate o)) with (of_oitems (os_out o)).
   change (@nil oitem) with (of_oitems []) at 1.

@@ -919,7 +919,8 @@ Local Lemma ofinish_out_app :
     base_ok base = true ->
     ofinish (oout_app base o) = (ofinish o ++ oresolve base)%list.
 Proof.
-  intros base o Hb. unfold ofinish, oitems_of, oout_app;
+  intros base o Hb. unfold ofinish. rewrite !oitems_of_spec.
+  unfold oout_app;
     cbn [os_out os_stk].
   rewrite oflatten_app by exact Hb. apply oresolve_app, Hb.
 Qed.
@@ -1014,7 +1015,7 @@ Local Lemma ifinish_text :
     = List.rev (oresolve (os_out (flush_text txt (OState out [] None)))).
 Proof.
   intros txt prev out.
-  unfold ifinish, ifinish_rev, ofinish, oitems_of.
+  unfold ifinish, ifinish_rev, ofinish. rewrite oitems_of_spec.
   cbn [ifinish_ostate ifinish_ostate_flat iresolve].
   unfold flush_text, flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
   destruct (nonempty_str txt); reflexivity.
@@ -2975,7 +2976,8 @@ Proof.
         unfold ifinish, ifinish_rev;
         cbn [ifinish_ostate ifinish_ostate_flat iresolve].
         rewrite nat_eqb_refl, trim_verb_pad by exact Hvok. cbn [vnode].
-        unfold oemit, ofinish, oitems_of; cbn [os_stk os_out oflatten oapp].
+        unfold oemit, ofinish. rewrite oitems_of_spec.
+        cbn [os_stk os_out oflatten oapp].
         rewrite <- ?List.map_cons, oresolve_map. cbn [List.rev ci_ast]. reflexivity.
       * destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
         rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).

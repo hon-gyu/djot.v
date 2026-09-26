@@ -667,20 +667,30 @@ let rec drop_nl s =
            (c, (drop_nl rest)))
     s
 
-(** val oflatten :
+(** val oapp_rev : oitems -> oitems -> oitems **)
+
+let oapp_rev acc out =
+  match acc with
+  | [] -> rev out
+  | n :: rest -> app (rev (osnoc n out)) rest
+
+(** val oflatten_rev :
     dtable -> coq_PosPolicy -> oitems -> frame list -> oitems -> oitems **)
 
-let rec oflatten t h pend stk bottom =
+let rec oflatten_rev t h acc stk bottom =
   match stk with
-  | [] -> oapp pend bottom
+  | [] -> oapp_rev acc bottom
   | f :: rest ->
-    oflatten t h (oapp (oapp pend f.fr_out) ((OIn (fr_lit t h f)) :: []))
-      rest bottom
+    oflatten_rev t h
+      (oapp_rev (oapp_rev acc f.fr_out) ((OIn (fr_lit t h f)) :: [])) rest
+      bottom
 
 (** val oitems_of : dtable -> coq_PosPolicy -> ostate -> oitems **)
 
 let oitems_of t h o =
-  oflatten t h [] o.os_stk o.os_out
+  match o.os_stk with
+  | [] -> o.os_out
+  | f :: l -> rev (oflatten_rev t h [] (f :: l) o.os_out)
 
 (** val ofinish : dtable -> coq_PosPolicy -> ostate -> inlines **)
 

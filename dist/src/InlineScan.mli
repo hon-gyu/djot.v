@@ -167,7 +167,9 @@ val bref_lit :
 
 val drop_nl : string -> string
 
-val oflatten :
+val oapp_rev : oitems -> oitems -> oitems
+
+val oflatten_rev :
   dtable -> coq_PosPolicy -> oitems -> frame list -> oitems -> oitems
 
 val oitems_of : dtable -> coq_PosPolicy -> ostate -> oitems

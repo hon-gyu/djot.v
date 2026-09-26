@@ -985,12 +985,72 @@ Fixpoint oflatten `{PosPolicy} (pend : oitems) (stk : list frame)
         rest bottom
   end.
 
+(* Append a scope to a reversed accumulator.  Only the last item of the
+   accumulated scope can meet the first item of [out]; [osnoc] performs
+   that merge in exactly the order used by [oapp]. *)
+Definition oapp_rev (acc out : oitems) : oitems :=
+  match acc with
+  | [] => List.rev out
+  | n :: rest => (List.rev (osnoc n out) ++ rest)%list
+  end.
+
+Lemma oapp_snoc : forall cur n out,
+  oapp (cur ++ [n])%list out = (cur ++ osnoc n out)%list.
+Proof.
+  induction cur as [|x cur IH]; intros n out; [reflexivity|].
+  destruct cur as [|y ys]; cbn [app oapp]; [reflexivity|].
+  f_equal. apply IH.
+Qed.
+
+Lemma oapp_rev_correct : forall cur out,
+  oapp_rev (List.rev cur) out = List.rev (oapp cur out).
+Proof.
+  intros cur out. induction cur using rev_ind.
+  - reflexivity.
+  - rewrite List.rev_app_distr. cbn [List.rev oapp_rev].
+    rewrite oapp_snoc, List.rev_app_distr. reflexivity.
+Qed.
+
+Fixpoint oflatten_rev `{PosPolicy} (acc : oitems) (stk : list frame)
+  (bottom : oitems) : oitems :=
+  match stk with
+  | [] => oapp_rev acc bottom
+  | f :: rest =>
+      oflatten_rev
+        (oapp_rev (oapp_rev acc (fr_out f)) [OIn (fr_lit f)])
+        rest bottom
+  end.
+
+Lemma oflatten_rev_correct : forall `{P : PosPolicy} pend stk bottom,
+  @oflatten_rev P (List.rev pend) stk bottom =
+    List.rev (@oflatten P pend stk bottom).
+Proof.
+  intros P pend stk. revert pend.
+  induction stk as [|f stk IH]; intros pend bottom; cbn [oflatten_rev oflatten].
+  - apply oapp_rev_correct.
+  - rewrite !oapp_rev_correct. apply IH.
+Qed.
+
 (* Everything a state holds, as items: the open scopes abandoned into the
    one below, with each opener's spelling put back as text.  Splitting
    this out of `ofinish` is what lets a line boundary name the state it
    leaves without resolving it -- a spec may still be waiting. *)
 Definition oitems_of `{PosPolicy} (o : ostate) : oitems :=
-  oflatten [] (os_stk o) (os_out o).
+  match os_stk o with
+  | [] => os_out o
+  | stk => List.rev (oflatten_rev [] stk (os_out o))
+  end.
+
+Lemma oitems_of_spec : forall `{P : PosPolicy} o,
+  @oitems_of P o = @oflatten P [] (os_stk o) (os_out o).
+Proof.
+  intros P o. unfold oitems_of.
+  destruct (os_stk o) as [|f stk] eqn:Hstk;
+    [reflexivity|].
+  rewrite <- (List.rev_involutive (@oflatten P [] (f :: stk) (os_out o))).
+  f_equal. change [] with (List.rev ([] : oitems)).
+  apply oflatten_rev_correct.
+Qed.
 
 Definition ofinish `{PosPolicy} (o : ostate) : inlines :=
   oresolve (oitems_of o).
@@ -2195,7 +2255,7 @@ Proof.
   assert (Hd : is_compound st = false)
     by (destruct st; try reflexivity; cbn in H; discriminate H).
   rewrite (ibreak_flat_state st Hd).
-  unfold ifinish_items, oitems_of.
+  unfold ifinish_items. rewrite oitems_of_spec.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
   destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob];

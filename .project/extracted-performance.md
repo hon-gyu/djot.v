@@ -12,7 +12,7 @@ Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
 is linear, and so is heading-identifier assignment up to a log factor.
-Not production ready: three input shapes are superlinear in the parser
+Not production ready: two input shapes are superlinear in the parser
 (ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
@@ -165,6 +165,18 @@ differential and the suites as before.
 
 Any further `Extract Constant` joins this list and gets the same check.
 
+Unclosed inline openers (2026-09-26).  The old `oflatten` repeatedly
+appended a growing list while abandoning frames at paragraph end.  It
+remains the specification.  `oflatten_rev` builds the same result in a
+reversed accumulator with work proportional to each frame's items;
+`oapp_rev_correct`, `oflatten_rev_correct`, and `oitems_of_spec` prove
+equality, including text and source-span merges at each seam.  No
+native substitution was added.  An empty frame stack returns the
+outermost items directly.  On the dev profile, wrapped unclosed
+brackets took 4.1, 16.8, and 30.8 ms to parse at 20, 80, and 160 KB;
+unclosed emphasis took 3.7, 16.2, and 32.6 ms.  The previous 40/160 KB
+release measurements are below and are not directly comparable.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -265,18 +277,18 @@ Measured 2026-09-26 at `537dba9`, release profile, parse (`parse_doc`)
 against full conversion (`Html.convert`).  djot.js figures are its
 `parse` plus `renderHTML` on the same generated inputs.
 
-### 1. Unclosed openers are quadratic in a paragraph
+### Fixed: unclosed openers were quadratic in a paragraph
 
 | input, wrapped at 78 columns | 40 KB | 160 KB | djot.js 160 KB |
 | --- | --- | --- | --- |
 | `[a` repeated | 121 ms | 1951 ms | 12 ms |
 | `_a ` repeated | 87 ms | 1324 ms | 15 ms |
 
-`InlineScan.oapp` appends a failed frame's content to its parent's
-output, so k unclosed openers cost O(k^2).  Algorithmic, in the scanner
-the inline proofs are about.
+`InlineScan.oflatten` appended the growing pending content at each
+open frame, so k unclosed openers cost O(k^2).  The linear replacement
+and its proof are recorded in Fixed above.
 
-### 2. Tail copies inside a line
+### 1. Tail copies inside a line
 
 Per-character recursion with a tail copy: `Line` 60 occurrences,
 `Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
@@ -297,14 +309,14 @@ Fix, either:
   match on `String c s'` is O(1).  No proof changes, a larger trusted
   realization, and `String c acc` construction stays a copy.
 
-### 3. Delimiter lookup per character
+### 2. Delimiter lookup per character
 
 `Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
 row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
 `List0.find` 145, `djot_dsyntax` 133 and `denabled` 99 samples. A
 constant factor; a precomputed character-to-style table would remove it.
 
-### 4. Inline links
+### 3. Inline links
 
 80 KB of `[a](b) ` wrapped at 78 columns parses in 34.6 ms, against
 3.7 ms at 20 KB (dev profile): 9.4x per 4x, superlinear, cause not yet
@@ -315,8 +327,7 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-Unclosed openers first, the remaining algorithmic item; then long
-lines, then constant factors.
+Long lines first, then delimiter lookup and inline links.
 
 `make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
 through the document parse and `Html.convert` and prints the growth per
