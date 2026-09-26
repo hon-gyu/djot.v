@@ -5,14 +5,16 @@
 (source (github hon-gyu/djot.v))
 (authors "hongyu")
 (maintainers "hongyu <linerwang1997@gmail.com>")
-(license MIT)
+(license "MIT AND ISC")
 
 (package
  (name djot)
  (synopsis "A djot parser extracted from a Rocq development")
  (description
-  "OCaml sources extracted from the Gallina parser in djot.v, whose
-roundtrip and well-formedness properties are proved in Rocq.  The
-extraction output is committed here so that building the parser needs
-no Rocq installation.  `Djot.Html.convert : string -> string` takes
-djot source to HTML."))
+  "A djot parser and HTML renderer extracted to OCaml from djot.v, a djot
+parser written and verified in Rocq. The goals behind djot's design are
+proved as theorems about the parser: no backtracking, container
+uniformity, local interpretation of links, and safe rewrapping of
+paragraphs. The extracted modules are the djot.kernel library. The
+Djot module is an API over them whose module types are modeled on
+cmarkit's."))

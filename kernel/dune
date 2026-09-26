@@ -1,0 +1,5 @@
+(library
+ (name djot_kernel)
+ (public_name djot.kernel)
+ (flags
+  (:standard -w -a)))

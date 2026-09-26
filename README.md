@@ -1,33 +1,42 @@
-<!-- ai-disclosure: autonomous -->
-
 # djot
 
-A djot parser extracted from the Rocq development in
-[djot.v](https://github.com/hon-gyu/djot.v).  The roundtrip and
-well-formedness properties it satisfies are proved there; this directory
-carries only the OCaml the extraction produces, so building it needs no
-Rocq installation.
+A djot parser and HTML renderer extracted from
+[djot.v](https://github.com/hon-gyu/djot.v), a djot parser written and
+verified in Rocq. The goals behind djot's design (no backtracking,
+container uniformity, local interpretation, safe rewrapping) are proved
+there as theorems about the parser; this directory
+carries only the OCaml the extraction produces, plus a thin hand-written
+API over it, so building it needs no Rocq installation.
 
 ```ocaml
-let html = Djot.Html.convert "# hi\n\n*strong* and [a](b)\n"
+let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
+let html = Djot.Html.of_doc doc
 ```
 
-`Djot.Html.convert : string -> string` is the intended entry point.  The
-deeper modules mirror the Coq ones and are usable; they speak the
-extracted representation, with numbers as OCaml `int`.
+The API follows [cmarkit](https://erratique.ch/software/cmarkit)'s shape
+(`Doc`, `Block`, `Inline`, `Textloc`, `Mapper`, `Folder`, `Html`).  cmarkit
+is under the ISC license; its notice is in `LICENSE-cmarkit.md`.  The
+differences:
 
-For source locations, call `Djot.Step.parse_blocks_located` or
-`Djot.Document.parse_doc_located` with `Djot.Inline.djot_table` and
-`Djot.Step.djot_bconfig`.  Nodes carry `Djot.Ast.SomePos`; resolve its
-`node_span` using `Djot.Strings.resolve_span (line_table source)`.  The
-resolved endpoints contain zero-based byte offsets, line indices, and
-byte columns.  `check/located.ml` exercises these entry points as a
-separate package consumer.
+- The tree types are the extracted ones, re-exported with their
+  constructors.  Every element is a `'a node = Node of pos * attrs * 'a`.
+- The types are closed.  Syntax extensions are constructors defined in
+  Rocq; there are no `Ext_*` hooks.
+- There is no layout information.
+- A node's location needs its document: `Doc.textloc doc node`.  Parse
+  with `~locs:true` to record locations.
+- The document pass groups each heading and the blocks under it into a
+  `Block.Section`, which carries the heading's id.
+- `Html.tree` returns the output tree before serialization, for
+  post-processing; `Html.to_string` serializes it.
 
-Wikilinks (`[[target|alias]]`, `![[target]]`) are off in djot's table.
-Pass `Djot.InlineTable.with_wikilinks true Djot.InlineTable.djot_config` as the
-table to switch them on; they parse to `Djot.Ast.Wikilink (embed,
-target, alias)` with both strings as written.
+Wikilinks and keyed blocks are off by default.  Switch them on with
+`Djot.Dialect.with_wikilinks` and `Djot.Dialect.with_keyed`.
 
-`src/` is generated.  Change `theories/` upstream and run `make dist`;
-edits made here are overwritten.
+The extracted modules are the `djot.kernel` library (`Djot.Kernel`).
+They mirror the Rocq ones and speak the extracted representation, with
+numbers as OCaml `int`.  `check/located.ml` exercises the kernel's
+source-location entry points; `check/api.ml` exercises the API.
+
+`kernel/` is generated.  Change `theories/` upstream and re-run extraction;
+edits made there are overwritten.
