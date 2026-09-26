@@ -8,19 +8,16 @@ It is _verified_ in the sense that the goals behind djot's design are stated as 
 - **Container uniformity.** Text placed in a block quote or a list item parses as it would on its own, so moving content in or out of a container does not change its meaning.
 - **Local interpretation.** Whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.
 - **Safe rewrapping.** A line inside a paragraph never starts a list, heading or quote, whatever it begins with. Rewrapping a paragraph cannot create one by accident.
-- **No expressive blind spots.** Every document the renderer accepts can be written as djot that parses back to exactly that document.
 
-See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from. [Properties](#properties) lists everything proved, what each proof assumes, and what is still to be done.
+See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from. [Properties](#djot-properties) lists everything proved, what each proof assumes, and what is still to be done.
 
-It is _generalized_ in the sense that djot is one setting of a configurable parser. The theorems are proved for every combination of the settings below, or state which settings break them, so each setting comes with an answer to which of the properties above it keeps. For example, a Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking, uniformity and the roundtrip, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
+It is _generalized_ in the sense that djot is one setting of a configurable parser. The theorems are proved for every combination of the settings below, or state which settings break them, so each setting comes with an answer to which of the properties above it keeps. For example, a Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
 
 > Gen-AI disclosure: most of the proofs were written by LLMs, mainly Claude Opus 5, with some use of OpenAI Sol 5 and Deepseek Flash 4.1.
 
 ## Djot Properties
 
 The theorems are checked by Rocq, with no axioms and no admitted proofs.
-
-Status is **proved**, **planned**, or **planned (long-term)**.
 
 ### No backtracking
 
@@ -54,20 +51,11 @@ Status is **proved**, **planned**, or **planned (long-term)**.
 | A line inside a paragraph never starts a new block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Rewrapping a paragraph cannot accidentally create a list, heading or quote. It can still change inline content when a line break moves into verbatim, after a backslash, or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
 | A heading continues on the following lines, with or without a repeated `#` marker, until a blank line. | Rewrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 
-### Well-formedness and roundtrip
+### Roundtrip
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| Every input parses to a well-formed tree. | There are no syntax errors, and consumers never see a malformed tree. | proved: `wf_parse`, `wf_parse_doc` |
-| Rendering a document to djot and parsing it back gives the same document, for every document the renderer can write. | djot-to-djot conversion loses nothing. | proved: `roundtrip_blocks`, `roundtrip_doc` |
-| Formatting any input (parse, render, parse again) gives the same document as parsing it. | A formatter never changes a document's meaning. | planned. Not true yet: the renderer always fences code with three backticks, which breaks a code block containing a line of three backticks (`normalization_code_fence_counterexample`) |
-
-### HTML output
-
-| Property | Implication | Status |
-| --- | --- | --- |
-| Without raw HTML in the source, every `<` in the output belongs to a tag. | Document text cannot inject HTML. | proved: `serialize_lt_tags` |
-| HTML output is well-nested. | | planned (long-term) |
+| Rendering a document to djot and parsing it back gives the same document. | djot-to-djot conversion loses nothing. | planned (long-term); a restricted version is proved in `theories/Roundtrip.v` |
 
 ## Properties of the Generalized Parser
 
@@ -92,7 +80,7 @@ The parser is compared with [djot.js](https://github.com/jgm/djot.js): it matche
 To run the comparison, build djot.js once with `make build-djotjs`, then
 `make diff`. 
 
-## Extraction
+## Extracted Programs
 
 Rocq supports extraction to OCaml, Haskell and Scheme. We tested extraction to OCaml only.
 
