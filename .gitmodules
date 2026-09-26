@@ -1,6 +1,6 @@
 [submodule "djot.js"]
 	path = djot.js
-	url = git@github.com:jgm/djot.js.git
+	url = https://github.com/jgm/djot.js.git
 [submodule "djoths"]
 	path = djoths
-	url = git@github.com:jgm/djoths.git
+	url = https://github.com/jgm/djoths.git

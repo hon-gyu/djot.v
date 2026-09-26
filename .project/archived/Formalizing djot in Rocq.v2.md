@@ -40,12 +40,10 @@ of testing rather than proving, and disappear under formalization (§4.1).
 
 Four artifacts, playing different roles:
 
-- **The prose spec** — `doc/syntax.md` in the djot repo (mirrored at
-  `reference/djot-syntax-reference.md`). Normative, informal. Crucially, it
+- **The prose spec** — `doc/syntax.md` in the djot repo (https://github.com/jgm/djot/blob/main/doc/syntax.md). Normative, informal. Crucially, it
   makes explicit design commitments (§4 below) that can be formalized as
   theorem statements.
-- **The djot README rationale** — mirrored at
-  `reference/djot-repo-readme.md`. It states the broader design goal that it
+- **The djot README rationale** — https://github.com/jgm/djot#rationale. It states the broader design goal that it
   should be possible to parse djot markup in linear time without
   backtracking. This is an existential implementation and performance claim,
   not the block grammar rule the syntax reference states.

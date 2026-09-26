@@ -5,6 +5,7 @@
 (source (github hon-gyu/djot.v))
 (authors "hongyu")
 (maintainers "hongyu <linerwang1997@gmail.com>")
+(license MIT)
 
 (package
  (name djot)

@@ -24,8 +24,8 @@ and djot.js is the authority wherever the two disagree.
 
 **What counts as authority here.** The engines and the syntax reference
 say what the language *is*. The rationale
-(`reference/djot-repo-readme.md` §Rationale, and behind it
-`reference/beyond-markdown.md`) says what it is *for*: it decides cases
+([djot README §Rationale](https://github.com/jgm/djot#rationale), and behind it
+[Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html)) says what it is *for*: it decides cases
 where the first three conflict or go silent on *why*, which is how the
 `djotjs-bug` verdict below was reached. Note the ordering of the two
 rationale sources. The README is the djot project's own and states
@@ -165,8 +165,8 @@ djot.js 378 times" is not 378 bugs.
 
 ### Tightness after a blank before a nested marker
 
-**The prose decides this one, against djot.js.** From
-`reference/djot-syntax-reference.md`:
+**The prose decides this one, against djot.js.** From the
+[syntax reference](https://github.com/jgm/djot/blob/main/doc/syntax.md):
 
 > A list is classed as *tight* if it does not contain blank lines between
 > items, or between blocks inside an item. Blank lines at the start or end
@@ -209,7 +209,7 @@ looks like an unexplained deviation (the blank is between blocks inside
 an item), and an earlier revision of this entry logged it as a SPEC-GAP
 on the grounds that the boundary of the deviation was unwritten.
 
-It is not unwritten. `reference/djot-repo-readme.md:117-138` states it
+It is not unwritten. [djot's rationale](https://github.com/jgm/djot#rationale) states it
 outright: a sublist "must always be preceded by a blank line", and
 "(This blank line doesn't count against 'tightness.')". It also gives
 the derivation: goal 7 (hard-wrap friendliness) forces block elements

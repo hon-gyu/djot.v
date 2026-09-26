@@ -9,6 +9,7 @@ no Rocq installation.  `Djot.Html.convert : string -> string` takes
 djot source to HTML."""
 maintainer: ["hongyu <linerwang1997@gmail.com>"]
 authors: ["hongyu"]
+license: "MIT"
 homepage: "https://github.com/hon-gyu/djot.v"
 bug-reports: "https://github.com/hon-gyu/djot.v/issues"
 depends: [

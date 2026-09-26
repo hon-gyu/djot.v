@@ -11,10 +11,13 @@ import signal
 import subprocess
 import tempfile
 import sys
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = Path(__file__).with_name("spec-0.31.2.json")
+# The spec is CC-BY-SA 4.0, so it is fetched rather than committed.
+SPEC_URL = "https://spec.commonmark.org/0.31.2/spec.json"
+SPEC = ROOT / "_build" / "commonmark" / "spec-0.31.2.json"
 RESULT = re.compile(r"^\s*= (true|false)\s*$", re.MULTILINE)
 
 
@@ -85,6 +88,9 @@ def main():
     args = parser.parse_args()
     if args.chunk_size < 1 or args.timeout < 1:
         parser.error("chunk size and timeout must be positive")
+    if not SPEC.exists():
+        SPEC.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(SPEC_URL, SPEC)
     cases = json.loads(SPEC.read_text())
     results = []
     # Examples 265-266 have 9- and 10-digit list starts.  Evaluate them

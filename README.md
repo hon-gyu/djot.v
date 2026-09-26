@@ -13,7 +13,7 @@ See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdo
 
 It is _generalized_ in the sense that djot is one setting of a configurable parser. The theorems are proved for every combination of the settings below, or state which settings break them, so each setting comes with an answer to which of the properties above it keeps. For example, a Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
 
-> Gen-AI disclosure: most of the proofs were written by LLMs, mainly Claude Opus 5, with some use of OpenAI Sol 5 and Deepseek Flash 4.1.
+> Gen-AI disclosure: most of the proofs were done by a Gen-AI tool
 
 ## Djot Properties
 
@@ -98,3 +98,7 @@ Performance: long lines are still quadratic. There's ongoing work to improve thi
 - [djot.js](https://github.com/jgm/djot.js)
 - [djoths](https://github.com/jgm/djoths)
 - [cmarkit](https://github.com/dbuenzli/cmarkit)
+
+## License
+
+MIT, see [LICENSE](LICENSE).

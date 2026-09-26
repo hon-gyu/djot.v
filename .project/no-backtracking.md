@@ -154,11 +154,11 @@ implementation trace alone cannot answer it.
 
 ## Sources
 
-- [`reference/djot-repo-readme.md`](../reference/djot-repo-readme.md),
+- [djot README](https://github.com/jgm/djot#rationale),
   Rationale goal 1
-- [`reference/djot-syntax-reference.md`](../reference/djot-syntax-reference.md),
+- [djot syntax reference](https://github.com/jgm/djot/blob/main/doc/syntax.md),
   Block syntax
-- [`reference/beyond-markdown.md`](../reference/beyond-markdown.md)
+- [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html)
 - [`djot.js/src/inline.ts`](../djot.js/src/inline.ts), parser strategy and
   `reparseAttributes`
 - <https://github.com/jgm/djot/discussions/247>
