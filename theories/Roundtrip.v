@@ -1047,32 +1047,33 @@ Qed.
    The token is reversed in the scanner, hence the accumulator form. *)
 Local Lemma afeed_id_acc :
   forall id tok key attrs,
-    id_chars_ok id = true -> nonempty_str tok = true ->
+    id_chars_ok id = true -> tok <> [] ->
     afeed (id ++ ("}" ++ attr_nl)) (AP AId tok key attrs)
-    = (AP ADone "" key (Attr.set "id" (rev_string tok ++ id) attrs), attr_nl).
+    = (AP ADone [] key (Attr.set "id" (rev_chars tok ++ id) attrs), attr_nl).
 Proof.
   induction id as [|c rest IH]; intros tok key attrs Hids Htok.
   - cbn [append afeed ap_st astep].
     assert (Hclose : is_id_char "}" = false) by reflexivity.
     rewrite Hclose. cbn. unfold ap_commit_id, ap_token.
-    cbn [ap_tok ap_key ap_attrs]. pose proof Htok as Hrev.
-    rewrite <- rev_nonempty_str in Hrev.
-    destruct (rev_string tok) eqn:E; [discriminate Hrev|].
+    cbn [ap_tok ap_key ap_attrs].
+    destruct (rev_chars tok) eqn:E.
+    { destruct tok as [|x tok]; [contradiction|].
+      exfalso. eapply rev_chars_nonempty; exact E. }
     cbn [String.eqb]. unfold attr_nl. cbn [afeed ap_st append].
     rewrite append_empty_r. reflexivity.
   - cbn [id_chars_ok] in Hids.
     apply andb_true_iff in Hids as [Hc Hr].
     cbn [append afeed ap_st astep]. rewrite Hc.
     unfold ap_push. cbn [ap_st ap_tok ap_key ap_attrs].
-    specialize (IH (String c tok) key attrs Hr eq_refl).
+    specialize (IH (c :: tok) key attrs Hr (fun H => match H with end)).
     etransitivity; [exact IH|].
-    rewrite rev_string_cons, !append_assoc. reflexivity.
+    cbn [rev_chars]. rewrite !append_assoc. reflexivity.
 Qed.
 
 Local Lemma attr_open_canonical_id :
   forall id, explicit_id_ok id = true ->
     Attributes.attr_open ("{#" ++ id ++ "}")
-    = Some (AP ADone "" "" [("id", id)]).
+    = Some (AP ADone [] "" [("id", id)]).
 Proof.
   intros [|c rest] H; [discriminate|].
   unfold explicit_id_ok in H. apply andb_true_iff in H as [_ Hchars].
@@ -1088,7 +1089,7 @@ Proof.
   assert (Heq : Ascii.eqb "#" "#" = true) by reflexivity.
   rewrite Hws, Hneq, Heq. cbn [ap_begin ap_st astep]. rewrite Hc.
   unfold ap_push, ap_begin, ap_init. cbn [ap_st ap_tok ap_key ap_attrs].
-  pose proof (afeed_id_acc rest (String c "") "" [] Hr eq_refl) as Ha.
+  pose proof (afeed_id_acc rest [c] "" [] Hr (fun H => match H with end)) as Ha.
   rewrite append_assoc, Ha.
   cbn [rev_string append ap_failed ap_done blank_to_eol negb andb
        Attr.set alist_set].
@@ -1098,7 +1099,7 @@ Qed.
 Local Lemma classify_canonical_id :
   forall id, explicit_id_ok id = true ->
     classify ("{#" ++ id ++ "}")
-    = KAttr (AP ADone "" "" [("id", id)]).
+    = KAttr (AP ADone [] "" [("id", id)]).
 Proof.
   intros id H. unfold classify.
   assert (Hb : is_blank ("{#" ++ id ++ "}") = false) by reflexivity.
@@ -1642,7 +1643,7 @@ Proof.
       { exfalso. pose proof (cb_ok_lines_ok inner Hinner) as Hl.
         rewrite El in Hl. discriminate Hl. }
       cbn [cb_lines app]. rewrite El. cbn [app].
-      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone "" "" [("id", id)])
+      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone [] "" [("id", id)])
                  (a :: more ++ "" :: cb_lines next ++ tail)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).
@@ -1655,7 +1656,7 @@ Proof.
       { exfalso. pose proof (cb_ok_lines_ok inner Hinner) as Hl.
         rewrite El in Hl. discriminate Hl. }
       cbn [cb_lines]. rewrite El.
-      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone "" "" [("id", id)])
+      rewrite (attr_uniformity ("{#" ++ id ++ "}") (AP ADone [] "" [("id", id)])
                  (a :: more)%list Hattrs
                  (classify_canonical_id id Hid) eq_refl
                  (cb_lines_first_ready inner a more Hnid Hinner El)).

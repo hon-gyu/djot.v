@@ -95,23 +95,17 @@ val note_label_safe_from : bool -> string -> bool
 
 val note_label_safe : string -> bool
 
-val auto_email_from : char option -> string -> bool
-
 val auto_email : string -> bool
 
 val is_alpha : char -> bool
 
 val symbol_char : char -> bool
 
-val auto_scheme : string -> bool
-
 val auto_node : string -> inline
 
 val auto_kind_ok : string -> bool
 
 val auto_text : string -> string
-
-val auto_region : string -> bool
 
 val auto_body_ok : string -> bool
 

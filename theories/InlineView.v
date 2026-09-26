@@ -34,7 +34,7 @@ Definition wikilinks_enabled : bool := dc_wikilinks cfg.
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
 
-Definition dstyle_of (c : ascii) : option dstyle := dstyle_at cfg c.
+Definition dstyle_of (c : ascii) : option dstyle := dstyle_at_fast cfg c.
 
 (* A row's delimiter as written: `dwidth` copies of its character.  The
    scanner cuts a run of the character into these and leaves any
@@ -198,7 +198,8 @@ Qed.
 Local Lemma dstyle_of_char :
   forall c k, dstyle_of c = Some k -> dchar k = c.
 Proof.
-  intros c k H. unfold dstyle_of, dstyle_at in H.
+  intros c k H. unfold dstyle_of in H. rewrite dstyle_at_fast_eq in H.
+  unfold dstyle_at in H.
   apply find_some in H as [_ H]. apply andb_true_iff in H as [_ H].
   apply Ascii.eqb_eq in H. exact H.
 Qed.
@@ -207,14 +208,16 @@ Qed.
 Local Lemma dstyle_of_enabled :
   forall c k, dstyle_of c = Some k -> denabled_of k = true.
 Proof.
-  intros c k H. unfold dstyle_of, dstyle_at in H.
+  intros c k H. unfold dstyle_of in H. rewrite dstyle_at_fast_eq in H.
+  unfold dstyle_at in H.
   apply find_some in H as [_ H]. apply andb_true_iff in H as [H _]. exact H.
 Qed.
 
 Lemma dstyle_of_dchar :
   forall k, denabled_of k = true -> dstyle_of (dchar k) = Some k.
 Proof.
-  intros k H. exact (dstyle_at_dchar cfg k cfg_ok H).
+  intros k H. unfold dstyle_of. rewrite dstyle_at_fast_eq.
+  exact (dstyle_at_dchar cfg k cfg_ok H).
 Qed.
 
 

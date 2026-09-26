@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Attribute specs, `{#id .class key=value}`, as a character state machine.
 
@@ -134,40 +134,40 @@ Inductive astate : Type :=
    committed, in source order. *)
 Record aparser : Type := AP
   { ap_st : astate
-  ; ap_tok : string
+  ; ap_tok : list ascii
   ; ap_key : string
   ; ap_attrs : attr }.
 
-Definition ap_init : aparser := AP AScan EmptyString EmptyString [].
+Definition ap_init : aparser := AP AScan [] EmptyString [].
 
-Definition ap_token (p : aparser) : string := rev_string (ap_tok p).
+Definition ap_token (p : aparser) : string := rev_chars (ap_tok p).
 
 Definition ap_push (c : ascii) (p : aparser) : aparser :=
-  AP (ap_st p) (String c (ap_tok p)) (ap_key p) (ap_attrs p).
+  AP (ap_st p) (c :: ap_tok p) (ap_key p) (ap_attrs p).
 
 Local Definition ap_goto (s : astate) (p : aparser) : aparser :=
   AP s (ap_tok p) (ap_key p) (ap_attrs p).
 
 (* Enter s with a fresh token. *)
 Definition ap_begin (s : astate) (p : aparser) : aparser :=
-  AP s EmptyString (ap_key p) (ap_attrs p).
+  AP s [] (ap_key p) (ap_attrs p).
 
 (* Commit the accumulated token as an identifier and go to s.  An empty
    token commits nothing, so `{# }` is attribute-free rather than an
    error.  Same for classes. *)
 Definition ap_commit_id (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
-  AP s EmptyString (ap_key p)
+  AP s [] (ap_key p)
      (if String.eqb t EmptyString then ap_attrs p else Attr.set "id" t (ap_attrs p)).
 
 Local Definition ap_commit_class (s : astate) (p : aparser) : aparser :=
   let t := ap_token p in
-  AP s EmptyString (ap_key p)
+  AP s [] (ap_key p)
      (if String.eqb t EmptyString then ap_attrs p else Attr.add_class t (ap_attrs p)).
 
 (* A value always commits, empty included, so `{a=""}` carries an `a`. *)
 Local Definition ap_commit_value (s : astate) (p : aparser) : aparser :=
-  AP s EmptyString (ap_key p)
+  AP s [] (ap_key p)
      (Attr.set (ap_key p) (norm_value (ap_token p)) (ap_attrs p)).
 
 Definition astep (p : aparser) (c : ascii) : aparser :=
@@ -192,7 +192,7 @@ Definition astep (p : aparser) (c : ascii) : aparser :=
       else if attr_ws c then ap_commit_class AScan p
       else ap_goto AFail p
   | AKey =>
-      if Ascii.eqb c "=" then AP AVal EmptyString (ap_token p) (ap_attrs p)
+      if Ascii.eqb c "=" then AP AVal [] (ap_token p) (ap_attrs p)
       else if is_key_char c then ap_push c p
       else ap_goto AFail p
   | AVal =>

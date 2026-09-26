@@ -46,7 +46,7 @@ let shapes = [
     (fun n -> "[x][" ^ String.make n 'a' ^ "]");
   "note", "one long footnote label",
     (fun n -> "[^" ^ String.make n 'a' ^ "]");
-  "wiki", "one long wikilink target",
+  "wiki", "one long wikilink target (wikilinks enabled)",
     (fun n -> "[[" ^ String.make n 'a' ^ "]]");
   "autolink", "one long autolink body",
     (fun n -> "<https://" ^ String.make n 'a' ^ ">");
@@ -93,6 +93,17 @@ let parse_doc s =
   Djot.Document.parse_doc Djot.Inline.djot_table Djot.Step.djot_bconfig
     Djot.Ast.semantic_pos s
 
+(* Djot's default table leaves wikilinks off.  This shape must turn the
+   capability on or it only measures literal bracket text. *)
+let wiki_table =
+  { Djot.Inline.djot_table with Djot.InlineTable.dc_wikilinks = true }
+
+let parse_wiki s =
+  Djot.Document.parse_doc wiki_table Djot.Step.djot_bconfig
+    Djot.Ast.semantic_pos s
+
+let convert_wiki s = Djot.Html.render_html (parse_wiki s)
+
 let growth = function
   | a :: b :: _ when b > 0. -> Some (a /. b)
   | _ -> None
@@ -103,7 +114,10 @@ let run sizes (name, desc, gen) =
     | [] -> ()
     | n :: rest ->
       let s = gen n in
-      let p = time parse_doc s and c = time Djot.Html.convert s in
+      let parse, convert =
+        if name = "wiki" then parse_wiki, convert_wiki
+        else parse_doc, Djot.Html.convert in
+      let p = time parse s and c = time convert s in
       let g xs x =
         match growth (x :: xs) with
         | Some r -> Printf.sprintf "%5.1fx%s" r (if r > 8. then " !" else "  ")

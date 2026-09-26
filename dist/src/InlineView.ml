@@ -60,7 +60,7 @@ let denabled_of =
 (** val dstyle_of : dtable -> char -> dstyle option **)
 
 let dstyle_of =
-  dstyle_at
+  dstyle_at_fast
 
 (** val dtoken : dtable -> dstyle -> string **)
 
@@ -409,28 +409,13 @@ let rec note_label_safe_from esc label =
 let note_label_safe =
   note_label_safe_from false
 
-(** val auto_email_from : char option -> string -> bool **)
-
-let rec auto_email_from prev s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> false)
-    (fun c rest ->
-    match prev with
-    | Some p ->
-      if (&&) ((=) c '@') (negb ((=) p ':'))
-      then true
-      else auto_email_from (Some c) rest
-    | None -> auto_email_from (Some c) rest)
-    s
-
 (** val auto_email : string -> bool **)
 
-let auto_email s =
-  auto_email_from None s
+let auto_email = (fun s ->
+     let rec scan i =
+       i < String.length s &&
+       ((i > 0 && s.[i] = '@' && s.[i-1] <> ':') || scan (i + 1))
+     in scan 0)
 
 (** val is_alpha : char -> bool **)
 
@@ -446,27 +431,6 @@ let symbol_char c =
       ((=) c '+'))
     ((=) c '-')
 
-(** val auto_scheme : string -> bool **)
-
-let rec auto_scheme s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> false)
-    (fun c rest ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> false)
-      (fun d _ ->
-      if (&&) (is_alpha c) ((=) d ':') then true else auto_scheme rest)
-      rest)
-    s
-
 (** val auto_node : string -> inline **)
 
 let auto_node s =
@@ -474,8 +438,13 @@ let auto_node s =
 
 (** val auto_kind_ok : string -> bool **)
 
-let auto_kind_ok s =
-  (||) (auto_email s) (auto_scheme s)
+let auto_kind_ok = (fun s ->
+     let alpha c =
+       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') in
+     let rec scheme i =
+       i + 1 < String.length s &&
+       ((alpha s.[i] && s.[i+1] = ':') || scheme (i + 1)) in
+     auto_email s || scheme 0)
 
 (** val auto_text : string -> string **)
 
@@ -485,15 +454,12 @@ let auto_text s =
 
     (lt, ((^) s (one gt)))
 
-(** val auto_region : string -> bool **)
-
-let auto_region s =
-  (&&) ((&&) (no_ws s) (no_char lt s)) (no_char gt s)
-
 (** val auto_body_ok : string -> bool **)
 
-let auto_body_ok s =
-  (&&) (nonempty_str s) (auto_region s)
+let auto_body_ok = (fun s ->
+     s <> "" && String.for_all (fun c ->
+       c <> ' ' && c <> '\t' && c <> '\r' && c <> '\n' &&
+       c <> '<' && c <> '>') s)
 
 (** val eqchar : char **)
 
@@ -563,15 +529,8 @@ type cinline =
 
 (** val str_last : string -> char option -> char option **)
 
-let rec str_last s prev =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> prev)
-    (fun c rest -> str_last rest (Some c))
-    s
+let rec str_last = (fun s prev ->
+     let n = String.length s in if n = 0 then prev else Some s.[n - 1])
 
 (** val ci_src : dtable -> cinline -> string **)
 

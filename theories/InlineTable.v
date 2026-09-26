@@ -269,6 +269,24 @@ Proof. intros []; cbn; tauto. Qed.
 Definition dstyle_at (C : dconfig) (c : ascii) : option dstyle :=
   find (fun k => denabled C k && Ascii.eqb (dc_char C k) c)%bool dstyles.
 
+(* The scanner's hot path uses the same row order without allocating a
+   search closure and traversing a list for every source byte.  Keep
+   [dstyle_at] as the table specification used by its existing lemmas. *)
+Definition dstyle_at_fast (C : dconfig) (c : ascii) : option dstyle :=
+  let hit k := (denabled C k && Ascii.eqb (dc_char C k) c)%bool in
+  if hit DEmph then Some DEmph else
+  if hit DStrong then Some DStrong else
+  if hit DSuper then Some DSuper else
+  if hit DSub then Some DSub else
+  if hit DMark then Some DMark else
+  if hit DInsert then Some DInsert else
+  if hit DDelete then Some DDelete else
+  if hit DSQuote then Some DSQuote else
+  if hit DDQuote then Some DDQuote else None.
+
+Lemma dstyle_at_fast_eq : forall C c, dstyle_at_fast C c = dstyle_at C c.
+Proof. reflexivity. Qed.
+
 (* A row's decay leaves something behind, so no token vanishes. *)
 Definition ddecay_ok (d : ddecay) : bool :=
   match d with

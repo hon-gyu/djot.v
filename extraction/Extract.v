@@ -106,6 +106,24 @@ Extract Constant OrdersEx.String_as_OT.compare =>
 Extract Constant DjotV.Strings.rev_string =>
   "(fun s -> let n = String.length s in
      String.init n (fun i -> String.get s (n - 1 - i)))".
+(* Reversed byte lists are used by label words and attribute tokens. *)
+Extract Constant DjotV.Ast.rev_chars =>
+  "(fun cs ->
+     let n = List.length cs in
+     let b = Bytes.create n and i = ref n in
+     List.iter (fun c -> decr i; Bytes.set b !i c) cs;
+     Bytes.to_string b)".
+(* The Gallina tokenizer has a reversed byte accumulator, but destructing
+   the input string still copies every native suffix. *)
+Extract Constant DjotV.Ast.words =>
+  "(fun sep s ->
+     let acc = ref [] and word = Buffer.create 32 in
+     let flush () =
+       if Buffer.length word <> 0 then begin
+         acc := Buffer.contents word :: !acc; Buffer.clear word
+       end in
+     String.iter (fun c -> if sep c then flush () else Buffer.add_char word c) s;
+     flush (); List.rev !acc)".
 Extract Constant DjotV.Strings.split_lines =>
   "(fun s -> match List.rev (String.split_on_char '\n' s) with
      | """" :: rest -> List.rev rest
@@ -119,6 +137,54 @@ Extract Constant DjotV.InlineScan.drop_nl =>
      let b = Buffer.create (String.length s) in
      String.iter (fun c -> if c <> '\n' then Buffer.add_char b c) s;
      Buffer.contents b)".
+
+(* These two close-time readers retain their recursive Gallina definitions
+   for the proofs.  Native string destruction copies each suffix, so the
+   extracted readers use offsets and copy only their final result. *)
+Extract Constant DjotV.InlineScan.source_shape =>
+  "(fun s ->
+     let lines = ref 0 and first = ref 0 in
+     String.iter (fun c ->
+       if c = '\n' then incr lines
+       else if !lines = 0 then incr first) s;
+     ((!lines, !first), String.length s))".
+Extract Constant DjotV.InlineScan.wiki_split =>
+  "(fun s ->
+     let n = String.length s in
+     let rec find i =
+       if i >= n then (s, None)
+       else if s.[i] = '\\' then find (i + 2)
+       else if s.[i] = '|' then
+         (String.sub s 0 i, Some (String.sub s (i + 1) (n - i - 1)))
+       else find (i + 1)
+     in find 0)".
+
+(* An autolink tests its completed body at '>'.  These structural Gallina
+   scans copy native suffixes; the offset versions preserve the byte
+   predicates and stop at the same first witness. *)
+Extract Constant DjotV.InlineView.auto_email =>
+  "(fun s ->
+     let rec scan i =
+       i < String.length s &&
+       ((i > 0 && s.[i] = '@' && s.[i-1] <> ':') || scan (i + 1))
+     in scan 0)".
+Extract Constant DjotV.InlineView.auto_kind_ok =>
+  "(fun s ->
+     let alpha c =
+       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') in
+     let rec scheme i =
+       i + 1 < String.length s &&
+       ((alpha s.[i] && s.[i+1] = ':') || scheme (i + 1)) in
+     auto_email s || scheme 0)".
+Extract Constant DjotV.InlineView.auto_body_ok =>
+  "(fun s ->
+     s <> """" && String.for_all (fun c ->
+       c <> ' ' && c <> '\t' && c <> '\r' && c <> '\n' &&
+       c <> '<' && c <> '>') s)".
+(* Escaped whitespace asks for the last byte of its completed run. *)
+Extract Constant DjotV.InlineView.str_last =>
+  "(fun s prev ->
+     let n = String.length s in if n = 0 then prev else Some s.[n - 1])".
 
 (* The Gallina inline drivers recurse through [String c rest].  With native
    OCaml strings that copies the whole remaining line at every byte.  These

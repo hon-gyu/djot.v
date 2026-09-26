@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* The parser-coupled half of the probe apparatus: pools of inputs, a
    comparison on states, and the probe runs themselves.
@@ -75,7 +75,7 @@ Definition s_astate (a : astate) : string :=
   end.
 
 Definition s_aparser (p : aparser) : string :=
-  s_astate (ap_st p) ++ s_str (ap_tok p) ++ s_str (ap_key p)
+  s_astate (ap_st p) ++ s_str (rev_string (ap_token p)) ++ s_str (ap_key p)
   ++ s_attr (ap_attrs p).
 
 Definition s_ols (n : ordered_list_style) : string :=

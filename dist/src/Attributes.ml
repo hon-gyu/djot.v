@@ -273,27 +273,24 @@ type astate =
 | AFail
 | ADone
 
-type aparser = { ap_st : astate; ap_tok : string; ap_key : string;
+type aparser = { ap_st : astate; ap_tok : char list; ap_key : string;
                  ap_attrs : attr }
 
 (** val ap_init : aparser **)
 
 let ap_init =
-  { ap_st = AScan; ap_tok = ""; ap_key = ""; ap_attrs = [] }
+  { ap_st = AScan; ap_tok = []; ap_key = ""; ap_attrs = [] }
 
 (** val ap_token : aparser -> string **)
 
 let ap_token p =
-  rev_string p.ap_tok
+  rev_chars p.ap_tok
 
 (** val ap_push : char -> aparser -> aparser **)
 
 let ap_push c p =
-  { ap_st = p.ap_st; ap_tok =
-    ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-    (c, p.ap_tok)); ap_key = p.ap_key; ap_attrs = p.ap_attrs }
+  { ap_st = p.ap_st; ap_tok = (c :: p.ap_tok); ap_key = p.ap_key; ap_attrs =
+    p.ap_attrs }
 
 (** val ap_goto : astate -> aparser -> aparser **)
 
@@ -303,26 +300,26 @@ let ap_goto s p =
 (** val ap_begin : astate -> aparser -> aparser **)
 
 let ap_begin s p =
-  { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs = p.ap_attrs }
+  { ap_st = s; ap_tok = []; ap_key = p.ap_key; ap_attrs = p.ap_attrs }
 
 (** val ap_commit_id : astate -> aparser -> aparser **)
 
 let ap_commit_id s p =
   let t = ap_token p in
-  { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
+  { ap_st = s; ap_tok = []; ap_key = p.ap_key; ap_attrs =
   (if (=) t "" then p.ap_attrs else Attr.set "id" t p.ap_attrs) }
 
 (** val ap_commit_class : astate -> aparser -> aparser **)
 
 let ap_commit_class s p =
   let t = ap_token p in
-  { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
+  { ap_st = s; ap_tok = []; ap_key = p.ap_key; ap_attrs =
   (if (=) t "" then p.ap_attrs else Attr.add_class t p.ap_attrs) }
 
 (** val ap_commit_value : astate -> aparser -> aparser **)
 
 let ap_commit_value s p =
-  { ap_st = s; ap_tok = ""; ap_key = p.ap_key; ap_attrs =
+  { ap_st = s; ap_tok = []; ap_key = p.ap_key; ap_attrs =
     (Attr.set p.ap_key (norm_value (ap_token p)) p.ap_attrs) }
 
 (** val astep : aparser -> char -> aparser **)
@@ -357,7 +354,7 @@ let astep p c =
          else if attr_ws c then ap_commit_class AScan p else ap_goto AFail p
   | AKey ->
     if (=) c '='
-    then { ap_st = AVal; ap_tok = ""; ap_key = (ap_token p); ap_attrs =
+    then { ap_st = AVal; ap_tok = []; ap_key = (ap_token p); ap_attrs =
            p.ap_attrs }
     else if is_key_char c then ap_push c p else ap_goto AFail p
   | AVal ->

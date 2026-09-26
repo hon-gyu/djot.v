@@ -1013,7 +1013,16 @@ Documents
 (* Split a string into `sep`-free tokens, dropping empty ones.  Label
    normalization (below) and auto-identifiers (`Document.is_id_sep`) both
    collapse runs of a character class this way. *)
-Local Fixpoint words_aux (sep : ascii -> bool) (s : string) (cur : string)
+(* A reversed byte list can grow in constant time.  Conversion is done
+   only when a word ends; extraction gives that conversion a native linear
+   implementation. *)
+Fixpoint rev_chars (cs : list ascii) : string :=
+  match cs with
+  | [] => EmptyString
+  | c :: rest => rev_chars rest ++ String c EmptyString
+  end.
+
+Local Fixpoint words_aux_spec (sep : ascii -> bool) (s : string) (cur : string)
   (acc : list string) : list string :=
   match s with
   | EmptyString =>
@@ -1021,15 +1030,64 @@ Local Fixpoint words_aux (sep : ascii -> bool) (s : string) (cur : string)
   | String c s' =>
       if sep c
       then match cur with
-           | EmptyString => words_aux sep s' EmptyString acc
-           | _ => words_aux sep s' EmptyString (cur :: acc)
+           | EmptyString => words_aux_spec sep s' EmptyString acc
+           | _ => words_aux_spec sep s' EmptyString (cur :: acc)
            end
-      else words_aux sep s' (cur ++ String c EmptyString) acc
+      else words_aux_spec sep s' (cur ++ String c EmptyString) acc
   end.
+
+Local Fixpoint words_aux (sep : ascii -> bool) (s : string)
+  (cur : list ascii) (acc : list string) : list string :=
+  match s with
+  | EmptyString =>
+      match cur with [] => acc | _ => rev_chars cur :: acc end
+  | String c s' =>
+      if sep c
+      then match cur with
+           | [] => words_aux sep s' [] acc
+           | _ => words_aux sep s' [] (rev_chars cur :: acc)
+           end
+      else words_aux sep s' (c :: cur) acc
+  end.
+
+Lemma rev_chars_nonempty :
+  forall c cs, rev_chars (c :: cs) <> EmptyString.
+Proof.
+  intros c cs H. cbn in H. destruct (rev_chars cs); discriminate.
+Qed.
+
+Local Lemma words_aux_eq :
+  forall sep s cur acc,
+    words_aux sep s cur acc = words_aux_spec sep s (rev_chars cur) acc.
+Proof.
+  intros sep s. induction s as [|c s IH]; intros [|x cur] acc; cbn.
+  - reflexivity.
+  - destruct (rev_chars (x :: cur)) eqn:E; [exfalso; eapply rev_chars_nonempty; exact E|].
+    change (rev_chars (x :: cur) :: acc =
+      match rev_chars (x :: cur) with
+      | EmptyString => acc | String _ _ => rev_chars (x :: cur) :: acc end).
+    rewrite E. reflexivity.
+  - destruct (sep c); cbn; [apply IH|].
+    rewrite IH. reflexivity.
+  - destruct (sep c) eqn:E; cbn.
+    + destruct (rev_chars (x :: cur)) eqn:Ecur.
+      * exfalso. eapply rev_chars_nonempty. exact Ecur.
+      * change (words_aux sep s [] (rev_chars (x :: cur) :: acc) =
+          match rev_chars (x :: cur) with
+          | EmptyString => words_aux_spec sep s EmptyString acc
+          | String _ _ => words_aux_spec sep s EmptyString
+                            (rev_chars (x :: cur) :: acc) end).
+        rewrite Ecur. apply IH.
+    + rewrite IH. reflexivity.
+Qed.
 
 (* Tokens in source order; the accumulator above builds them reversed. *)
 Definition words (sep : ascii -> bool) (s : string) : list string :=
-  rev (words_aux sep s EmptyString []).
+  rev (words_aux sep s [] []).
+
+Lemma words_spec : forall sep s,
+  words sep s = rev (words_aux_spec sep s EmptyString []).
+Proof. intros. unfold words. rewrite words_aux_eq. reflexivity. Qed.
 
 (* Labels are normalized by collapsing runs of whitespace to single
    spaces and trimming. *)
