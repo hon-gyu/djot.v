@@ -88,17 +88,17 @@ probe-lemmas: build  ## Search for counterexamples to candidate lemmas in dev/ch
 EXTRACTED = _build/default/extraction
 
 # dist/ is committed so consumers build it without Rocq (cd dist && dune build).
-dist: build  ## Regenerate dist/src from the extraction
-	@$(MAKE) -s copy-parser DEST=dist/src
-	@echo "dist/src regenerated from $(EXTRACTED)"
+dist: build  ## Regenerate dist/kernel from the extraction
+	@$(MAKE) -s copy-parser DEST=dist/kernel
+	@echo "dist/kernel regenerated from $(EXTRACTED)"
 
-check-dist: build  ## Fail if dist/src is behind the extraction
+check-dist: build  ## Fail if dist/kernel is behind the extraction
 	@tmp=`mktemp -d`; $(MAKE) -s copy-parser DEST=$$tmp; \
-	if diff -r --exclude=dune dist/src $$tmp >/dev/null; then \
-	  rm -rf $$tmp; echo "dist/src is current"; \
+	if diff -r --exclude=dune dist/kernel $$tmp >/dev/null; then \
+	  rm -rf $$tmp; echo "dist/kernel is current"; \
 	else \
-	  diff -r --exclude=dune dist/src $$tmp | head -20; rm -rf $$tmp; \
-	  echo "dist/src is stale: run make dist"; exit 1; \
+	  diff -r --exclude=dune dist/kernel $$tmp | head -20; rm -rf $$tmp; \
+	  echo "dist/kernel is stale: run make dist"; exit 1; \
 	fi
 
 # Helper for dist and check-dist: copy the extracted modules, minus the

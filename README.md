@@ -90,6 +90,8 @@ Rocq supports extraction to OCaml, Haskell and Scheme. We carry out performance 
 
 With [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml), a JavaScript or WebAssembly parser can be built in theory.
 
+The OCaml extraction is packaged in [`dist/`](dist) as the `djot` library, which builds without Rocq. Its API is modeled on [cmarkit](https://github.com/dbuenzli/cmarkit)'s: parse a document, walk it with a mapper or folder, render it to HTML. See [dist/README.md](dist/README.md).
+
 ## Development Requirements
 
 - opam switch with Rocq 9.x, dune ≥ 3.20
@@ -104,3 +106,5 @@ With [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml), a JavaScript or WebA
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+The module types of the `djot` package in `dist/` are modeled on cmarkit's, which is under the ISC license; its notice is in [dist/LICENSE-cmarkit.md](dist/LICENSE-cmarkit.md). The package is licensed MIT AND ISC.

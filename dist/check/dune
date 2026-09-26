@@ -1,3 +1,9 @@
 (test
  (name located)
+ (modules located)
+ (libraries djot.kernel))
+
+(test
+ (name api)
+ (modules api)
  (libraries djot))
