@@ -1744,16 +1744,25 @@ let iscan_settled t h h0 c st =
 
 (** val iscan_str : dtable -> string -> iscan -> iscan **)
 
-let rec iscan_str t s st =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> st)
-    (fun c rest ->
-    iscan_str t rest (istep t semantic_pos semantic_inline_cursor c st))
-    s
+let rec iscan_str = (fun t s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | IText (false, txt, _, o) when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           state := IText (false, txt ^ String.sub s !i (!j - !i),
+                           Some s.[!j - 1], o);
+           i := !j
+       | _ ->
+           state := istep t semantic_pos semantic_inline_cursor s.[!i] !state;
+           incr i
+     done;
+     !state)
 
 (** val iscan_lines : dtable -> string list -> iscan -> iscan **)
 
@@ -1769,17 +1778,26 @@ let rec iscan_lines t l st =
 
 (** val iscan_str_off : dtable -> string -> iscan -> iscan **)
 
-let rec iscan_str_off t s st =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> st)
-    (fun c rest ->
-    iscan_str_off t rest
-      (istep_at t semantic_pos semantic_inline_cursor false c st))
-    s
+let rec iscan_str_off = (fun t s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | IText (false, txt, _, o) when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           state := IText (false, txt ^ String.sub s !i (!j - !i),
+                           Some s.[!j - 1], o);
+           i := !j
+       | _ ->
+           state := istep_at t semantic_pos semantic_inline_cursor false
+                      s.[!i] !state;
+           incr i
+     done;
+     !state)
 
 (** val iscan_lines_off : dtable -> int -> string list -> iscan -> iscan **)
 

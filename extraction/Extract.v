@@ -111,7 +111,88 @@ Extract Constant DjotV.Strings.split_lines =>
      | """" :: rest -> List.rev rest
      | parts -> List.rev parts)".
 
+(* The Gallina inline drivers recurse through [String c rest].  With native
+   OCaml strings that copies the whole remaining line at every byte.  These
+   loops read by offset and batch letters, digits, and spaces only when the
+   active delimiter table assigns no style to the byte.  In [IText false]
+   those bytes append to pending text; the located loop also preserves the
+   last whitespace position.  All other bytes take the original step.
+   These realizations are trusted and checked against the old extraction. *)
+Extract Constant DjotV.InlineScan.iscan_str =>
+  "(fun t s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | IText (false, txt, _, o) when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           state := IText (false, txt ^ String.sub s !i (!j - !i),
+                           Some s.[!j - 1], o);
+           i := !j
+       | _ ->
+           state := istep t semantic_pos semantic_inline_cursor s.[!i] !state;
+           incr i
+     done;
+     !state)".
+Extract Constant DjotV.InlineScan.iscan_str_off =>
+  "(fun t s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | IText (false, txt, _, o) when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           state := IText (false, txt ^ String.sub s !i (!j - !i),
+                           Some s.[!j - 1], o);
+           i := !j
+       | _ ->
+           state := istep_at t semantic_pos semantic_inline_cursor false
+                      s.[!i] !state;
+           incr i
+     done;
+     !state)".
+Extract Constant DjotV.InlineLocated.iscan_str_located =>
+  "(fun t h allow k origin rem s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let cursor r = {
+       cursor_start = { spot_line = k; spot_rem = r };
+       cursor_stop = { spot_line = k; spot_rem = max 0 (r - 1) };
+       cursor_origin = origin } in
+     let i = ref 0 and pos = ref rem and state = ref st
+     and n = String.length s in
+     while !i < n do
+       match !state with
+       | IText (false, txt, _, o) when plain s.[!i] ->
+           let j = ref !i and p = ref !pos and scope = ref o in
+           while !j < n && plain s.[!j] do
+             let c = s.[!j] in
+             if is_ws c then scope := remember_word_start h (cursor !p) c !scope;
+             p := max 0 (!p - 1);
+             incr j
+           done;
+           state := IText (false, txt ^ String.sub s !i (!j - !i),
+                           Some s.[!j - 1], !scope);
+           i := !j;
+           pos := !p
+       | _ ->
+           state := istep_at t h (cursor !pos) allow s.[!i] !state;
+           pos := max 0 (!pos - 1);
+           incr i
+     done;
+     !state)".
+
 Separate Extraction convert generated accepted rt_lhs rt_rhs render_cb
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   parse_blocks_located parse_doc_located
-  line_table resolve_span.
+  line_table resolve_span DjotV.InlineLocated.cursor_in.

@@ -30,6 +30,8 @@ let shapes = [
     (fun n -> rep "word word word word word word word\n" (n / 35));
   "line", "one line of words",
     (fun n -> rep "word " (n / 5));
+  "punctuation", "one line of period and letter pairs",
+    (fun n -> rep ".a" (n / 2));
   "verbatim", "code spans, wrapped",
     (fun n -> wrap (rep "`a" (n / 2)));
   "brackets", "unclosed [, wrapped",

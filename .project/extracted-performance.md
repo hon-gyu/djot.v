@@ -12,7 +12,7 @@ Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
 is linear, and so is heading-identifier assignment up to a log factor.
-Not production ready: two input shapes are superlinear in the parser
+Not production ready: some long single lines still grow superlinearly
 (ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
@@ -177,6 +177,41 @@ brackets took 4.1, 16.8, and 30.8 ms to parse at 20, 80, and 160 KB;
 unclosed emphasis took 3.7, 16.2, and 32.6 ms.  The previous 40/160 KB
 release measurements are below and are not directly comparable.
 
+The three inline line drivers (2026-09-26).  `iscan_str`, `iscan_str_off`,
+and `iscan_str_located` now have trusted OCaml realizations that read
+the input by offset.  In ordinary text mode they batch contiguous
+letters, digits, and spaces when the active delimiter table assigns
+no style to the byte, avoiding both tail copies and one pending-text
+append per byte.  The located driver retains the last whitespace spot.
+Other bytes still go through `istep` or `istep_at`.
+
+The old and new extractions were linked as separate libraries in one
+throwaway executable.  It compared semantic, attribute-off, and both
+located scan states, plus `Html.convert`, using structural marshaling
+without sharing: all 256 one-byte strings, all 2801 strings over
+`{a, space, [, ], _, backslash, newline}` up to length 4, 4000
+deterministic random byte strings up to length 150, and four longer
+targeted strings.  All 35305 output comparisons matched.  The regular
+test suite matched 287/287 and generated exact HTML matched 6167/6167;
+depth-3 roundtrip passed 43857/43857, located bounds 44150/44150,
+keyed roundtrip 6628/6628, and wikilink roundtrip 3725/3725.
+The regenerated standalone `dist/` built, passed its tests, and matched
+`check-dist`.
+
+One line of `word `, dev profile, parse (`parse_doc`), best of up to
+three runs before and after the substitution:
+
+| bytes | old drivers | new drivers |
+| --- | --- | --- |
+| 20 KB | 24.3 ms | 1.7 ms |
+| 40 KB | 82.8 ms | 2.8 ms |
+| 80 KB | 291.9 ms | 4.8 ms |
+| 160 KB | 945.7 ms | 8.2 ms |
+
+This fixes the measured ordinary-word line.  A line of `.a` pairs
+still grows superlinearly (20 KB 14.7 ms, 80 KB 148.8 ms), so the
+general long-line issue remains open.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -288,26 +323,31 @@ against full conversion (`Html.convert`).  djot.js figures are its
 open frame, so k unclosed openers cost O(k^2).  The linear replacement
 and its proof are recorded in Fixed above.
 
-### 1. Tail copies inside a line
+### 1. Remaining long-line work
 
-Per-character recursion with a tail copy: `Line` 60 occurrences,
-`Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
-lines split natively this is O(line^2) per line: one 160 KB line of
-`word ` parses in 899 ms, against 89 ms at 40 KB.  Small on prose, and
-a denial-of-service shape for any input with long lines.
+Structural string matches still copy tails in `Line`, `Strings`,
+`Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending text
+still uses `txt ++ one c` where characters are not batched by the
+native inline drivers.  The added `punctuation` benchmark (`.a` pairs
+on one line) grows from 14.7 ms at 20 KB to 148.8 ms at 80 KB, about
+10x per 4x.  The one-line `word ` shape now grows near linearly.
 
 Source positions no longer block this.  The located scan
 (`InlineLocated.v`) still matches `String c rest` and carries a counted
 distance to the end of the line beside it, so positions landed without
 offset scanning.
 
-Fix, either:
+For remaining tail copies, fix either:
 
 - scan by offset, `(s, i)` with `String.get`, in the theories; every
   lemma by induction on `String c s'` is restated for offsets;
 - or extract `string` to a slice (a string and a start offset), so a
   match on `String c s'` is O(1).  No proof changes, a larger trusted
   realization, and `String c acc` construction stays a copy.
+
+The repeated pending-text append needs its own solution: a scanner
+buffer in the theories with an equality proof, or a wider native
+batching rule checked against the previous extraction.
 
 ### 2. Delimiter lookup per character
 
@@ -316,18 +356,22 @@ row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
 `List0.find` 145, `djot_dsyntax` 133 and `denabled` 99 samples. A
 constant factor; a precomputed character-to-style table would remove it.
 
-### 3. Inline links
+### Recheck: inline links
 
 80 KB of `[a](b) ` wrapped at 78 columns parses in 34.6 ms, against
-3.7 ms at 20 KB (dev profile): 9.4x per 4x, superlinear, cause not yet
-located.
+3.7 ms at 20 KB in the earlier dev-profile measurement: 9.4x per 4x.
+After the inline-driver substitution the same shape parses in 2.5,
+10.4, and 23.1 ms at 20, 80, and 160 KB (4.1x, then 2.2x).
+The earlier superlinear signal is not reproduced; its cause has not
+been isolated.
 
 Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 45 ms), and conversion of every shape above beyond its parse.
 
 ## Order
 
-Long lines first, then delimiter lookup and inline links.
+Remaining long-line shapes first, then delimiter lookup.  Keep inline
+links in the scaling benchmark to catch a recurrence.
 
 `make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
 through the document parse and `Html.convert` and prints the growth per
