@@ -3,10 +3,15 @@ ai-disclosure: ai-generated
 ---
 # Callouts
 
-Status: **specified, not implemented** (2026-09-23). Nothing below is
-pinned yet. Section 8 is the estimate and section 9 is what is still
-undecided; both are written to be checked against the tree once the
-construct is built, as [[wikilinks]] section 8.1 was.
+Status: **specified, not implemented** (2026-09-23; refined for
+handover 2026-09-26). Nothing below is pinned yet. Section 8 is the
+estimate, 8.1 the order of work, and section 9 what is still undecided;
+all are written to be checked against the tree once the construct is
+built, as [[wikilinks]] section 8.1 was.
+
+The first consumer is oyster, which is replacing its cmarkit fork with
+this parser and already relies on callouts; section 8 lists what it
+reads.
 
 Prose first. Sections 0 to 7 define the syntax without naming a single
 identifier in the development; everything that touches the code is
@@ -45,9 +50,10 @@ exist.
 
 ## 1. Baseline: what djot does with these documents today
 
-Not decisions. Pinned from djot.js v0.3.2 on 2026-09-23. Our own parser
-has not been checked row by row yet; pinning these as `Example`s is the
-first step of section 8.
+Not decisions. Pinned from djot.js v0.3.2 on 2026-09-23, and checked
+against our extracted parser with the djot profile on 2026-09-26: every
+row agrees. Pinning them as `Example`s is still the first step of
+section 8.1, since that check was a one-off.
 
 | input                                  | djot today                                               |
 | -------------------------------------- | -------------------------------------------------------- |
@@ -81,6 +87,8 @@ not, because it is not a quote.
 ## 2. Enabling
 
 One block setting, off by default, beside the existing block settings.
+It is an extension in the sense of the public API: off in both named
+profiles, and named as one (section 8).
 
 Callouts are **non-conservative**: with the setting on, a document
 containing a quote whose opening line starts with `[!kind]` means
@@ -305,9 +313,15 @@ quote, so it is not tested.
 The one section that names things in the code. Written before the work,
 so every number here is a prediction to be checked afterwards.
 
-**A block setting.** One `bconfig` field, off in `djot_bconfig`, as
-`bkeyed` is, with the same field-local plumbing (`bkeyed` has 26
-mentions across `theories/`).
+**Names.** Extensions are spelled `Ext_*` in the public types since
+2026-09-26, so the node is `Ext_callout`, not `Callout`. The setting is
+`bcallouts`, set by `with_callouts` in `Step.v`, and the facade switch
+is `Profile.with_ext_callouts`, beside `with_ext_keyed`.
+
+**A block setting.** One `bconfig` field, off in `djot_bconfig` and
+`markdown_like_bconfig`, as `bkeyed` is, with the same field-local
+plumbing (`bkeyed` has 26 mentions across `theories/`, 17 of them in
+`Step.v`'s `with_*` definitions).
 
 **A header recognizer in `Line.v`.** A function from the content after
 the quote prefix to an optional header, plus the lemma that it answers
@@ -333,18 +347,22 @@ This is the claim to probe first, with the two-line `Compute` from
 [[project-engineering-lessons#Probe the definitions a theorem already
 constrains, too]].
 
-**A block constructor**, `Callout` in `Ast.v`, with arms in every block
+**A block constructor**, `Ext_callout` in `Ast.v`, with arms in every block
 traversal. `Keyed` is the model, being the most recent block node that
 carries inlines and blocks together. `Document.v` mentions `BlockQuote`
 24 times and `Wf.v` 26; each traversal that visits inlines also takes a
-title case, the way `Heading` does. `Site.v`'s destination traversal and
-rewrite take one arm each, which is what makes a wikilink in a title
-renamable.
+title case, the way `Heading` does. In `Document.v` that is each of the
+passes (identifiers, references, footnotes) and `Undo.pass`: a heading
+inside a callout body gets an identifier, and a footnote definition
+inside one moves to the side table, as inside a quote. `Site.v`'s
+destination traversal and rewrite take one arm each, which is what
+makes a wikilink in a title renamable.
 
 **A canonical constructor**, `CCallout` beside `CQuote` in `Render.v`,
 with arms in `cb_lines`, `cb_ast`, `cb_ok` and `cblock_ind2`, and in
-`Address.v`, `Site.v`, `Generate.v` and `Roundtrip.v` where `CQuote`
-appears (2, 2, 3 and 8 mentions).
+`Address.v`, `Site.v`, `dev/Generate.v` and `Roundtrip.v` where `CQuote`
+appears (2, 2, 3 and 8 mentions). `Render.render_block_lines` also takes
+an arm, since the facade's source renderer will be built on it.
 
 **One HTML arm**, section 5.
 
@@ -353,8 +371,9 @@ appears (2, 2, 3 and 8 mentions).
 - `roundtrip_blocks` gains no hypothesis, for section 6's reason.
   `cb_ok` gains a clause for the new constructor and no existing clause
   changes.
-- `quote_uniformity` and the lemmas under it in `Uniformity.v`
-  (`parse_lines_quote` and its continuation forms) **become false** with
+- `quote_uniformity`, `quote_uniformity_pad` and the lemmas under them
+  in `Uniformity.v` (`parse_lines_quote_pad` and its continuation forms)
+  **become false** with
   the setting on: a quote whose first stripped line is a header does not
   parse as `BlockQuote` of its stripped contents. They gain one
   hypothesis, that the setting is off or the first line is not a header,
@@ -370,8 +389,62 @@ stored line. The erasure refinement takes one case.
 **djot.js stops covering this**, as it does for keys and wikilinks.
 The baseline rows of section 1 are what djot.js still checks: with the
 setting off, every one must be unchanged. What remains is a generator
-pool and a `test/roundtrip.exe` mode, as wikilinks have, and a
+pool in `dev/Generate.v` and a `test/roundtrip.exe --callouts` mode with
+its `make` recipe, as keys and wikilinks have, and a
 `dev/check/Callout.v` pinning sections 3 and 7.
+
+**The facade** (`dist/src/djot.ml`, `djot.mli`). `Block.t` re-exports
+the kernel type, so the new constructor appears there with a doc
+comment naming its fields. `Mapper` and `Folder` match every constructor
+by name and will not compile until the arm is placed; the title is
+inlines and the body blocks, as `Ext_keyed`'s label and block are.
+`Profile.with_ext_callouts`, a case in `dist/test/api.ml`, and the
+extension list in `dist/README.md`. The root README's list of settings
+gains a line saying what the setting breaks, which by the prediction
+above is container uniformity for block quotes.
+
+**What oyster reads.** The kind, the fold marker, the title as inlines
+and the body as blocks: nothing the node does not already hold. Two
+differences from the fork it is leaving, both on oyster's side:
+
+- the fork lowercased the kind; this parser keeps it as written
+  (section 3.2), so oyster folds case when it reads it;
+- the fork kept the header inside the quote and offered a function to
+  strip it; here the body is already separate.
+
+oyster's own notes use only kinds inside section 3.2's alphabet
+(`NOTE`, `FAQ`, `todo`, `example` and the like, surveyed 2026-09-26).
+
+### 8.1 Order of work
+
+Each step ends with the tree building and the existing checks passing.
+
+1. **Probe.** The two-line `Compute` from [[project-engineering-lessons#Probe
+   the definitions a theorem already constrains, too]] on the
+   state-quantified theorems, and the escape claim of section 6 with a
+   throwaway pool. If either fails, stop and revise this file before
+   writing the parser.
+2. **Pin the baseline.** `dev/check/Callout.v` with section 1's rows as
+   `Example`s under the default setting.
+3. **Recognizer.** The header function in `Line.v` and its `None` lemma,
+   with 3.2's and 3.3's rows as `Example`s.
+4. **Node and setting.** `Ext_callout` in `Ast.v`, `bcallouts` and
+   `with_callouts` in `Step.v`, and every traversal arm: `Wf.v`,
+   `Document.v`, `Html.v` (section 5), `Site.v`, `Address.v`. With the
+   setting off the parser never builds the node, so nothing observable
+   changes yet.
+5. **Parser.** `PQuote`'s header field, the opener and `finish`, then
+   the standing state theorems, then section 7's examples pinned whole.
+6. **Uniformity.** The hypothesis on the quote theorems and the
+   callout's own uniformity theorem.
+7. **Canonical form and roundtrip.** `CCallout`, its generator pool, the
+   roundtrip mode and recipe.
+8. **Extraction and facade.** Regenerate `dist/kernel` (`make dist`),
+   then the facade, its test and both READMEs. `make check-dist` must
+   pass.
+
+After step 8, go back over section 8 and record which predictions held,
+as [[wikilinks]] section 8.1 does.
 
 ## 9. Open questions
 
@@ -389,3 +462,11 @@ Obsidian users write kinds like `[!my type]` rarely, and the narrow
 alphabet turns those into paragraphs. If a real document needs one, the
 cost is known (section 3.2): a condition on link text in the canonical
 view, the way wikilinks pay one.
+
+### 9.3 A location for the header
+
+The facade reports a node's delimiting syntax (`Doc.syntax_locs`): fence
+lines and attribute specs. The header line is the callout's delimiter in
+the same sense, and an editor would want it (hovering the kind, folding
+from the header). Recording it is one more syntax role at the quote
+opener. Nothing needs it yet; decide when a consumer asks.
