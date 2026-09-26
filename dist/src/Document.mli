@@ -3,7 +3,6 @@ open Datatypes
 open InlineTable
 open List0
 open ListDef
-open Nat0
 open Step
 open Strings
 
@@ -17,9 +16,9 @@ val id_base : string -> string
 
 val id_taken : string list -> string -> bool
 
-val id_candidate : string -> nat -> string
+val id_candidate : string -> int -> string
 
-val unique_id_from : nat -> nat -> string list -> string -> string
+val unique_id_from : int -> int -> string list -> string -> string
 
 val unique_id : string list -> string -> string
 
@@ -32,7 +31,7 @@ val add_auto_ref : string -> string -> id_state -> id_state
 val register_id : attr -> id_state -> id_state
 
 val assign_heading_id :
-  pos -> attr -> nat -> inlines -> id_state -> id_state * block node
+  pos -> attr -> int -> inlines -> id_state -> id_state * block node
 
 module Ids :
  sig
@@ -43,13 +42,13 @@ module Ids :
   val of_list : blocks -> id_state -> id_state * blocks
  end
 
-type sect_state = ((nat * attr) * blocks) list
+type sect_state = ((int * attr) * blocks) list
 
 val sect_init : sect_state
 
 val section_node : coq_PosPolicy -> attr -> blocks -> block node
 
-val close_ge : coq_PosPolicy -> nat -> blocks -> sect_state -> sect_state
+val close_ge : coq_PosPolicy -> int -> blocks -> sect_state -> sect_state
 
 val close_all : coq_PosPolicy -> blocks -> sect_state -> sect_state
 

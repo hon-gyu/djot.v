@@ -12,27 +12,6 @@ type uint =
 | D8 of uint
 | D9 of uint
 
-(** val revapp : uint -> uint -> uint **)
-
-let rec revapp d d' =
-  match d with
-  | Nil -> d'
-  | D0 d0 -> revapp d0 (D0 d')
-  | D1 d0 -> revapp d0 (D1 d')
-  | D2 d0 -> revapp d0 (D2 d')
-  | D3 d0 -> revapp d0 (D3 d')
-  | D4 d0 -> revapp d0 (D4 d')
-  | D5 d0 -> revapp d0 (D5 d')
-  | D6 d0 -> revapp d0 (D6 d')
-  | D7 d0 -> revapp d0 (D7 d')
-  | D8 d0 -> revapp d0 (D8 d')
-  | D9 d0 -> revapp d0 (D9 d')
-
-(** val rev : uint -> uint **)
-
-let rev d =
-  revapp d Nil
-
 module Little =
  struct
   (** val succ : uint -> uint **)

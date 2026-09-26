@@ -503,17 +503,25 @@ Proof.
       injection H as _ _ <-. cbn [String.length] in *. lia.
 Qed.
 
+(* The longest decimal marker core.  Eighteen digits keep every decimal
+   start below 10^18, inside a 63-bit integer, which is what the extracted
+   parser represents `nat` by; `Marker.dec_start_bound` states it. *)
+Definition dec_digits_max : nat := 18.
+
 (* The candidate styles of a core that `marker_shape` split off.  A single
    roman character is ambiguous (`i.` is roman or alpha); a longer
    all-roman core is roman only.  An empty core, as in `().`, is not a
    marker, and is excluded before `str_forallb` would accept it
-   vacuously. *)
+   vacuously.  A decimal core longer than `dec_digits_max` is not a
+   marker either. *)
 Definition styles_of_core (core : string) (d : ordered_list_delim)
   : list lstyle :=
   match core with
   | EmptyString => []
   | String c rest =>
-      if str_forallb is_digit core then [SOrd Decimal d]
+      if str_forallb is_digit core then
+        if Nat.leb (String.length core) dec_digits_max then [SOrd Decimal d]
+        else []
       else match rest with
            | EmptyString =>
                if is_roman_lo c then [SOrd RomanLower d; SOrd LetterLower d]

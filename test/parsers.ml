@@ -114,11 +114,3 @@ let run_all p docs =
   match p.run_batch with
   | Some f -> f docs
   | None -> List.map p.run docs
-
-(* The extracted code's `nat` is unary. *)
-let rec nat_of_int n =
-  if n <= 0 then Djot.Datatypes.O else Djot.Datatypes.S (nat_of_int (n - 1))
-
-let rec int_of_nat = function
-  | Djot.Datatypes.O -> 0
-  | Djot.Datatypes.S n -> 1 + int_of_nat n

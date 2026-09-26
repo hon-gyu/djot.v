@@ -12,7 +12,7 @@
    `nsc_uniformity` states the list-level argument once for any numbering
    scheme; decimal, roman and alpha are three instantiations.
    `list_kind` packages the flavours the renderer emits, `ck_ok` the side
-   condition roman and alpha carry, and `ck_uniformity` is the one
+   condition roman, alpha and decimal carry, and `ck_uniformity` is the one
    theorem the block layer consumes. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
@@ -48,8 +48,8 @@ the style and start the `OrderedList` node carries.
 Its three hypotheses are decidable, so an instantiation at a concrete
 start discharges them by computation; what a *general* instantiation
 needs is a proof that its numerals name one style, which is where the
-schemes genuinely differ and why roman and alpha carry a range condition
-that decimal does not.
+schemes genuinely differ.  Roman and alpha carry a range condition;
+decimal carries only a length limit on its numerals.
 *)
 
 Definition nsc_marker (core : nat -> string) (d : ordered_list_delim) (n : nat)
@@ -146,9 +146,9 @@ Qed.
 Decimal ordered lists
 ---------------------
 
-One style, one delimiter, and consecutive numbering from a start.
-Unlike roman and alpha, decimal lists need no side condition beyond the
-ones every list has.
+One style, one delimiter, and consecutive numbering from a start.  The
+side condition is `dec_fits` of the last number: the parser takes no
+marker core longer than `dec_digits_max` digits.
 *)
 
 Definition dec_marker (d : ordered_list_delim) (n : nat) : marker :=
@@ -156,25 +156,27 @@ Definition dec_marker (d : ordered_list_delim) (n : nat) : marker :=
 
 Local Lemma styles_of_core_dec :
   forall core d, nonempty_str core = true -> str_forallb is_digit core = true ->
+    Nat.leb (String.length core) dec_digits_max = true ->
     styles_of_core core d = [SOrd Decimal d].
 Proof.
-  intros [|c rest] d Hne Hd; [discriminate|].
-  cbn [styles_of_core]. rewrite Hd. reflexivity.
+  intros [|c rest] d Hne Hd Hl; [discriminate|].
+  cbn [styles_of_core]. rewrite Hd, Hl. reflexivity.
 Qed.
 
 Local Lemma dec_marker_sty :
-  forall d n, mk_sty (dec_marker d n) = [SOrd Decimal d].
+  forall d n, dec_fits n = true -> mk_sty (dec_marker d n) = [SOrd Decimal d].
 Proof.
-  intros d n. cbn [mk_sty dec_marker].
-  apply styles_of_core_dec; [apply dec_str_nonempty | apply dec_str_digits].
+  intros d n Hfit. cbn [mk_sty dec_marker].
+  apply styles_of_core_dec; [apply dec_str_nonempty | apply dec_str_digits | exact Hfit].
 Qed.
 
-Local Lemma dec_marker_ok : forall d n, marker_ok (dec_marker d n) = true.
+Local Lemma dec_marker_ok :
+  forall d n, dec_fits n = true -> marker_ok (dec_marker d n) = true.
 Proof.
-  intros d n. cbn [marker_ok dec_marker].
+  intros d n Hfit. cbn [marker_ok dec_marker].
   rewrite dec_str_nonempty, (str_digits_alnum _ (dec_str_digits n)).
   change (styles_of_core (dec_str n) d) with (mk_sty (dec_marker d n)).
-  rewrite dec_marker_sty. reflexivity.
+  rewrite (dec_marker_sty d n Hfit). reflexivity.
 Qed.
 
 (* A decimal marker opens with a digit or "(", so its line never reads as
@@ -213,9 +215,9 @@ Proof.
 Qed.
 
 Local Lemma dec_marker_styles :
-  forall d n, mk_styles (dec_marker d n) = [(SOrd Decimal d, n)].
+  forall d n, dec_fits n = true -> mk_styles (dec_marker d n) = [(SOrd Decimal d, n)].
 Proof.
-  intros d n. unfold mk_styles, with_starts. rewrite dec_marker_sty.
+  intros d n Hfit. unfold mk_styles, with_starts. rewrite (dec_marker_sty d n Hfit).
   cbn [map]. cbn [mk_core dec_marker style_start].
   rewrite dec_value_dec_str. reflexivity.
 Qed.
@@ -223,11 +225,12 @@ Qed.
 (* So a decimal list closes to the `OrderedList` its start names. *)
 Local Lemma marker_list_dec :
   forall d n sp checks items,
+    dec_fits n = true ->
     marker_list_checked (dec_marker d n) sp checks items
     = mk (OrderedList (OLAttrs Decimal d n) sp items).
 Proof.
-  intros d n sp checks items. unfold marker_list_checked.
-  rewrite dec_marker_styles. reflexivity.
+  intros d n sp checks items Hfit. unfold marker_list_checked.
+  rewrite (dec_marker_styles d n Hfit). reflexivity.
 Qed.
 
 (* The markers of a decimal list: consecutive from its start. *)
@@ -248,20 +251,26 @@ Qed.
 
 Local Lemma items_ok_dec_items :
   forall d n0 n lss,
+    dec_fits n0 = true -> dec_fits (n + length lss - 1) = true ->
     forallb (item_ok (dec_marker d n0)) lss = true ->
     items_ok (dec_marker d n0) (dec_items d n lss) = true.
 Proof.
-  intros d n0 n lss. revert n.
-  induction lss as [|L rest IH]; intros n Hok; [reflexivity|].
+  intros d n0 n lss Hfit0. revert n.
+  induction lss as [|L rest IH]; intros n Hfit Hok; [reflexivity|].
   cbn [forallb] in Hok. apply andb_prop in Hok as [HL Hrest].
+  cbn [length] in Hfit.
+  assert (Hn : dec_fits n = true)
+    by (apply (dec_fits_le n (n + S (length rest) - 1)); [lia | exact Hfit]).
   cbn [dec_items items_ok items_ok_at forallb fst snd].
-  rewrite dec_marker_ok, (item_ok_dec_marker d n n0 L), HL.
+  rewrite (dec_marker_ok d n Hn), (item_ok_dec_marker d n n0 L), HL.
   assert (Hs : admits_styles (mk_styles (dec_marker d n0)) (dec_marker d n) = true).
-  { apply admits_agree. rewrite !dec_marker_sty. reflexivity. }
+  { apply admits_agree. rewrite (dec_marker_sty d n Hn), (dec_marker_sty d n0 Hfit0).
+    reflexivity. }
   rewrite Hs. cbn [andb].
   change (forallb _ (dec_items d (S n) rest))
     with (items_ok_at (mk_styles (dec_marker d n0)) (dec_items d (S n) rest)).
-  apply IH, Hrest.
+  apply IH; [|exact Hrest]. replace (S n + length rest - 1) with (n + S (length rest) - 1)
+    by lia. exact Hfit.
 Qed.
 
 Local Lemma map_litem_lines_dec_items :
@@ -288,24 +297,27 @@ Proof.
 Qed.
 
 (* Uniformity for a decimal ordered list: consecutive markers from
-   `start`, each with its own width, and no side condition beyond the
-   ones every list has. *)
+   `start`, each with its own width, the last short enough to parse. *)
 Theorem ordered_decimal_uniformity :
   forall d start sp lss,
     lss <> [] ->
+    dec_fits (start + length lss - 1) = true ->
     forallb (item_ok (dec_marker d start)) lss = true ->
     parse_lines (list_lines sp (map litem_lines (dec_items d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs Decimal d start) (list_spacing_of sp lss)
              (map (fun L => parse_lines L (PPara [])) lss))].
 Proof.
-  intros d start sp lss Hne Hok.
+  intros d start sp lss Hne Hfit Hok.
   destruct lss as [|L0 rest]; [congruence|].
-  pose proof (items_ok_dec_items d start start (L0 :: rest) Hok) as Hio.
+  assert (H0 : dec_fits start = true)
+    by (apply (dec_fits_le start (start + length (L0 :: rest) - 1));
+        [cbn [length]; lia | exact Hfit]).
+  pose proof (items_ok_dec_items d start start (L0 :: rest) H0 Hfit Hok) as Hio.
   cbn [dec_items] in Hio |- *.
   rewrite (list_uniformity (dec_marker d start) sp L0
-             (dec_items d (S start) rest) (dec_marker_ok d start) Hio).
-  rewrite marker_list_dec.
+             (dec_items d (S start) rest) (dec_marker_ok d start H0) Hio).
+  rewrite (marker_list_dec _ _ _ _ _ H0).
   cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
 Qed.
 
@@ -315,6 +327,7 @@ Qed.
 Theorem ordered_decimal_uniformity_tail :
   forall d start sp lss next tail,
     lss <> [] ->
+    dec_fits (start + length lss - 1) = true ->
     forallb (item_ok (dec_marker d start)) lss = true ->
     classify next <> KBlank ->
     (forall a b c d, classify next <> KList a b c d) ->
@@ -325,14 +338,17 @@ Theorem ordered_decimal_uniformity_tail :
             (map (fun L => parse_lines L (PPara [])) lss))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros d start sp lss next tail Hne Hok Hnb Hnl Hindent.
+  intros d start sp lss next tail Hne Hfit Hok Hnb Hnl Hindent.
   destruct lss as [|L0 rest]; [congruence|].
-  pose proof (items_ok_dec_items d start start (L0 :: rest) Hok) as Hio.
+  assert (H0 : dec_fits start = true)
+    by (apply (dec_fits_le start (start + length (L0 :: rest) - 1));
+        [cbn [length]; lia | exact Hfit]).
+  pose proof (items_ok_dec_items d start start (L0 :: rest) H0 Hfit Hok) as Hio.
   cbn [dec_items] in Hio |- *.
   rewrite (list_uniformity_tail (dec_marker d start) sp L0
              (dec_items d (S start) rest) next tail
-             (dec_marker_ok d start) Hio Hnb Hnl Hindent).
-  rewrite marker_list_dec.
+             (dec_marker_ok d start H0) Hio Hnb Hnl Hindent).
+  rewrite (marker_list_dec _ _ _ _ _ H0).
   cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
 Qed.
 
@@ -1303,10 +1319,11 @@ names the marker `item_ok` is asked for, `ck_block` the block the list
 closes to, and `ck_uniformity` is the one theorem the block layer
 consumes.
 
-`ck_ok` is the fourth piece, because roman and alpha carry a condition
-bullet and decimal do not.  It takes the item count as well as the kind:
-the range has to cover the whole run, which is where the alpha wrap past
-`z` is excluded.  Bullet and decimal answer `true` unconditionally.
+`ck_ok` is the fourth piece, because the ordered kinds carry a condition
+bullets do not.  It takes the item count as well as the kind: the range
+has to cover the whole run, which is where the alpha wrap past `z` and a
+decimal numeral past `dec_digits_max` digits are excluded.  Bullet
+answers `true` unconditionally.
 *)
 
 Inductive list_kind : Type :=
@@ -1371,7 +1388,7 @@ Definition ck_ok (k : list_kind) (n : nat) : bool :=
      does with it. *)
   | LKDef => (@bdeflists K)
   | LKTask checks => (@btasks K) && Nat.eqb (length checks) n
-  | LKDecimal _ _ => true
+  | LKDecimal _ start => dec_fits (start + n - 1)
   (* No ambiguity condition: a roman numeral's set has roman at its head
      whatever its length, and a second item narrows it to the singleton
      (`roman_narrow_singleton`).  Only the range is needed. *)
@@ -1510,9 +1527,14 @@ Proof.
     induction lss as [|L rest IH] in checks |- *; [reflexivity|].
     destruct checks; cbn [task_ck_items forallb fst marker_ok];
       rewrite IH; reflexivity.
-  - clear Hck. cbn [ck_items]. revert start.
-    induction lss as [|L rest IH]; intros start; [reflexivity|].
-    cbn [dec_items forallb fst]. rewrite dec_marker_ok. apply IH.
+  - cbn [ck_ok ck_items] in *. revert start Hck.
+    induction lss as [|L rest IH]; intros start Hck; [reflexivity|].
+    cbn [length] in Hck.
+    cbn [dec_items forallb fst].
+    rewrite (dec_marker_ok d start
+               (dec_fits_le start (start + S (length rest) - 1) ltac:(lia) Hck)).
+    apply IH. replace (S start + length rest - 1)
+      with (start + S (length rest) - 1) by lia. exact Hck.
   - cbn [ck_ok] in Hck.
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
@@ -1618,7 +1640,7 @@ Proof.
   - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].
     apply Nat.eqb_eq in Hck.
     exact (task_uniformity checks sp lss Htasks Hne Hck Hok).
-  - exact (ordered_decimal_uniformity d start sp lss Hne Hok).
+  - exact (ordered_decimal_uniformity d start sp lss Hne Hck Hok).
   - cbn [ck_ok] in Hck.
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
@@ -1690,7 +1712,7 @@ Proof.
     exact (task_uniformity_tail checks sp lss next tail Htasks Hne Hck Hok
              Hnb Hnl Hindent).
   - exact (ordered_decimal_uniformity_tail d start sp lss next tail
-             Hne Hok Hnb Hnl Hindent).
+             Hne Hck Hok Hnb Hnl Hindent).
   - cbn [ck_ok] in Hck.
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
@@ -1977,6 +1999,12 @@ Proof. reflexivity. Qed.
 
 Example decimal_item_ok : item_ok (MOrd "3" RightPeriod) ["a"] = true.
 Proof. reflexivity. Qed.
+
+(* A nineteen-digit numeral is past `dec_digits_max` and is not a marker. *)
+Example decimal_too_long_is_text :
+  parse_lines ["1234567890123456789. a"] (PPara [])
+  = [mk (Para [mk (Str "1234567890123456789. a")])].
+Proof. vm_compute. reflexivity. Qed.
 
 Example paren_list_parses :
   parse_lines ["(1) a"; "(1) b"] (PPara [])

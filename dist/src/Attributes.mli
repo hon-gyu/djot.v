@@ -1,8 +1,6 @@
-open Ascii
 open Ast
 open Datatypes
 open List0
-open Nat0
 open Strings
 
 val bslash : char

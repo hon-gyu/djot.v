@@ -115,6 +115,83 @@ Proof.
   exfalso. apply (Hne ltac:(lia)). reflexivity.
 Qed.
 
+Local Lemma dec_acc_bound :
+  forall s a, str_forallb is_digit s = true ->
+    dec_acc s a < S a * 10 ^ String.length s.
+Proof.
+  induction s as [|c s IH]; intros a Hs; cbn [dec_acc String.length].
+  - cbn [Nat.pow]. lia.
+  - cbn [str_forallb] in Hs. apply andb_true_iff in Hs as [Hc Hs].
+    cbn [is_digit in_range] in Hc. apply andb_true_iff in Hc as [_ Hc].
+    apply Nat.leb_le in Hc.
+    specialize (IH (a * 10 + (nat_of_ascii c - 48)) Hs).
+    assert (S (a * 10 + (nat_of_ascii c - 48)) <= S a * 10) by lia.
+    rewrite Nat.pow_succ_r'. nia.
+Qed.
+
+(* Every decimal start the parser reads is below 10^18, so it fits the
+   OCaml `int` the extraction represents `nat` by. *)
+Lemma dec_start_bound :
+  forall core d d', In (SOrd Decimal d') (styles_of_core core d) ->
+    dec_value core < 10 ^ dec_digits_max.
+Proof.
+  intros [|c rest] d d' H; [destruct H|].
+  cbn [styles_of_core] in H.
+  destruct (str_forallb is_digit (String c rest)) eqn:Hd.
+  - destruct (Nat.leb (String.length (String c rest)) dec_digits_max) eqn:Hl;
+      [|destruct H].
+    apply Nat.leb_le in Hl. unfold dec_value.
+    eapply Nat.lt_le_trans; [apply dec_acc_bound, Hd|].
+    rewrite Nat.mul_1_l. apply Nat.pow_le_mono_r; lia.
+  - destruct rest;
+      repeat match type of H with context [if ?b then _ else _] => destruct b end;
+      cbn [In] in H; intuition discriminate.
+Qed.
+
+(* Whether `n` renders as a marker core the parser takes back: at most
+   `dec_digits_max` digits.  A rendered decimal list asks it of its last
+   number, `dec_fits_le` gives it for the rest. *)
+Definition dec_fits (n : nat) : bool :=
+  Nat.leb (String.length (dec_str n)) dec_digits_max.
+
+Local Lemma dec_str_fuel_irrel :
+  forall f g n, n < f -> n < g -> dec_str_fuel f n = dec_str_fuel g n.
+Proof.
+  induction f as [|f IH]; intros [|g] n Hf Hg; try lia.
+  cbn [dec_str_fuel]. destruct (Nat.ltb n 10) eqn:Hlt; [reflexivity|].
+  apply Nat.ltb_ge in Hlt.
+  assert (Nat.div n 10 < n) by (apply Nat.div_lt; lia).
+  rewrite (IH g (Nat.div n 10)) by lia. reflexivity.
+Qed.
+
+Local Lemma dec_str_length :
+  forall n, String.length (dec_str n)
+            = if Nat.ltb n 10 then 1
+              else S (String.length (dec_str (Nat.div n 10))).
+Proof.
+  intros n. unfold dec_str at 1. cbn [dec_str_fuel].
+  destruct (Nat.ltb n 10) eqn:Hlt; [reflexivity|].
+  apply Nat.ltb_ge in Hlt.
+  assert (Nat.div n 10 < n) by (apply Nat.div_lt; lia).
+  rewrite (dec_str_fuel_irrel n (S (Nat.div n 10)) (Nat.div n 10)) by lia.
+  rewrite length_append. cbn [String.length]. unfold dec_str. lia.
+Qed.
+
+Local Lemma dec_str_length_mono :
+  forall n m, m <= n -> String.length (dec_str m) <= String.length (dec_str n).
+Proof.
+  induction n as [n IH] using (well_founded_induction Nat.lt_wf_0).
+  intros m Hm. rewrite (dec_str_length m), (dec_str_length n).
+  destruct (Nat.ltb_spec m 10), (Nat.ltb_spec n 10); try lia.
+  apply le_n_S, IH; [apply Nat.div_lt; lia | apply Nat.Div0.div_le_mono; lia].
+Qed.
+
+Lemma dec_fits_le : forall m n, m <= n -> dec_fits n = true -> dec_fits m = true.
+Proof.
+  unfold dec_fits. intros m n Hmn H. apply Nat.leb_le in H. apply Nat.leb_le.
+  pose proof (dec_str_length_mono n m Hmn). lia.
+Qed.
+
 (* Turning a checked range into the pointwise fact.  Generic: another
    codec supplies its own `forallb` and reuses this. *)
 Local Lemma range_ok :

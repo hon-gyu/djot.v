@@ -5,33 +5,32 @@ open InlineTable
 open InlineView
 open ListDef
 open Nat0
-open String0
 open Strings
 
-val cursor_in : nat -> nat -> spot -> coq_InlineCursor
+val cursor_in : int -> int -> spot -> coq_InlineCursor
 
 val iscan_str_located :
-  dtable -> coq_PosPolicy -> bool -> nat -> spot -> nat -> string -> iscan ->
+  dtable -> coq_PosPolicy -> bool -> int -> spot -> int -> string -> iscan ->
   iscan
 
-val lines_start : (nat * string) list -> spot
+val lines_start : (int * string) list -> spot
 
-val lines_stop : (nat * string) list -> spot
+val lines_stop : (int * string) list -> spot
 
-val allow_attrs : dtable -> nat -> bool
+val allow_attrs : dtable -> int -> bool
 
 val iscan_lines_located :
-  dtable -> coq_PosPolicy -> nat -> spot -> (nat * string) list -> iscan ->
+  dtable -> coq_PosPolicy -> int -> spot -> (int * string) list -> iscan ->
   iscan
 
 val ifinish_located :
-  dtable -> coq_PosPolicy -> (nat * string) list -> iscan -> inlines
+  dtable -> coq_PosPolicy -> (int * string) list -> iscan -> inlines
 
 val para_inlines_located :
-  dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines
+  dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines
 
 val para_inlines_at :
-  dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines
+  dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines
 
 val parse_inline_line_located :
-  dtable -> coq_PosPolicy -> nat -> nat -> string -> inlines
+  dtable -> coq_PosPolicy -> int -> int -> string -> inlines

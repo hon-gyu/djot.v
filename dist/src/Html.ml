@@ -6,7 +6,6 @@ open InlineTable
 open List0
 open ListDef
 open Nat0
-open PeanoNat
 open Step
 open Strings
 
@@ -167,7 +166,7 @@ type helt =
 | HText of string
 | HRaw of string
 | HVoid of string * bool * attr
-| HElem of string * nat * attr * helt list
+| HElem of string * int * attr * helt list
 
 (** val open_tag : string -> bool -> attr -> string **)
 
@@ -189,10 +188,11 @@ let rec serialize_elt e =
    | HVoid (tag, self, a) -> open_tag tag self a
    | HElem (tag, nls, a, kids) ->
      (^) (open_tag tag false a)
-       ((^) (if Nat.leb (S (S O)) nls then nl else "")
+       ((^) (if ( <= ) (Stdlib.succ (Stdlib.succ 0)) nls then nl else "")
          ((^) (go kids)
            ((^) "</"
-             ((^) tag ((^) ">" (if Nat.leb (S O) nls then nl else "")))))))
+             ((^) tag
+               ((^) ">" (if ( <= ) (Stdlib.succ 0) nls then nl else "")))))))
 
 (** val serialize : helt list -> string **)
 
@@ -221,7 +221,7 @@ let ref_extra a0 a =
 
 let ol_attrs oa =
   app
-    (if Nat.eqb oa.ol_start (S O)
+    (if ( = ) oa.ol_start (Stdlib.succ 0)
      then []
      else ("start", (nat_str oa.ol_start)) :: [])
     (match oa.ol_style with
@@ -283,35 +283,35 @@ let rec render_inline refs il a =
    | Str s ->
      (match a with
       | [] -> (HText s) :: []
-      | _ :: _ -> (HElem ("span", O, a, ((HText s) :: []))) :: [])
-   | Emph ils -> (HElem ("em", O, a, (render_ils ils))) :: []
-   | Strong ils -> (HElem ("strong", O, a, (render_ils ils))) :: []
-   | Highlight ils -> (HElem ("mark", O, a, (render_ils ils))) :: []
-   | Insert ils -> (HElem ("ins", O, a, (render_ils ils))) :: []
-   | Delete ils -> (HElem ("del", O, a, (render_ils ils))) :: []
-   | Superscript ils -> (HElem ("sup", O, a, (render_ils ils))) :: []
-   | Subscript ils -> (HElem ("sub", O, a, (render_ils ils))) :: []
-   | Verbatim s -> (HElem ("code", O, a, ((HText s) :: []))) :: []
+      | _ :: _ -> (HElem ("span", 0, a, ((HText s) :: []))) :: [])
+   | Emph ils -> (HElem ("em", 0, a, (render_ils ils))) :: []
+   | Strong ils -> (HElem ("strong", 0, a, (render_ils ils))) :: []
+   | Highlight ils -> (HElem ("mark", 0, a, (render_ils ils))) :: []
+   | Insert ils -> (HElem ("ins", 0, a, (render_ils ils))) :: []
+   | Delete ils -> (HElem ("del", 0, a, (render_ils ils))) :: []
+   | Superscript ils -> (HElem ("sup", 0, a, (render_ils ils))) :: []
+   | Subscript ils -> (HElem ("sub", 0, a, (render_ils ils))) :: []
+   | Verbatim s -> (HElem ("code", 0, a, ((HText s) :: []))) :: []
    | Symbol s -> (HText ((^) ":" ((^) s ":"))) :: []
    | Math (style, s) ->
      (match style with
       | DisplayMath ->
-        (HElem ("span", O, (("class", "math display") :: []), ((HText
+        (HElem ("span", 0, (("class", "math display") :: []), ((HText
           ((^) "\\[" ((^) s "\\]"))) :: []))) :: []
       | InlineMath ->
-        (HElem ("span", O, (("class", "math inline") :: []), ((HText
+        (HElem ("span", 0, (("class", "math inline") :: []), ((HText
           ((^) "\\(" ((^) s "\\)"))) :: []))) :: [])
    | Link (ils, tgt) ->
      (match tgt with
       | Direct url ->
-        (HElem ("a", O, (("href", url) :: a), (render_ils ils))) :: []
+        (HElem ("a", 0, (("href", url) :: a), (render_ils ils))) :: []
       | Reference label ->
         (match lookup_reference label refs with
          | Some p ->
            let (url, a0) = p in
-           (HElem ("a", O, (("href", url) :: (app (ref_extra a0 a) a)),
+           (HElem ("a", 0, (("href", url) :: (app (ref_extra a0 a) a)),
            (render_ils ils))) :: []
-         | None -> (HElem ("a", O, a, (render_ils ils))) :: []))
+         | None -> (HElem ("a", 0, a, (render_ils ils))) :: []))
    | Image (ils, tgt) ->
      (match tgt with
       | Direct url ->
@@ -325,18 +325,18 @@ let rec render_inline refs il a =
            url) :: (app (ref_extra a0 a) a))))) :: []
          | None ->
            (HVoid ("img", false, (("alt", (plain_texts ils)) :: a))) :: []))
-   | Span ils -> (HElem ("span", O, a, (render_ils ils))) :: []
+   | Span ils -> (HElem ("span", 0, a, (render_ils ils))) :: []
    | FootnoteReference _ -> []
    | UrlLink url ->
-     (HElem ("a", O, (("href", url) :: a), ((HText url) :: []))) :: []
+     (HElem ("a", 0, (("href", url) :: a), ((HText url) :: []))) :: []
    | EmailLink addr ->
-     (HElem ("a", O, (("href", ((^) "mailto:" addr)) :: a), ((HText
+     (HElem ("a", 0, (("href", ((^) "mailto:" addr)) :: a), ((HText
        addr) :: []))) :: []
    | Wikilink (embed, t, al) ->
      if embed
      then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
             t) :: a)))) :: []
-     else (HElem ("a", O, (("href", t) :: a), ((HText
+     else (HElem ("a", 0, (("href", t) :: a), ((HText
             (wiki_display t al)) :: []))) :: []
    | RawInline (fmt, s) -> if (=) fmt "html" then (HRaw s) :: [] else []
    | NonBreakingSpace -> (HRaw "&nbsp;") :: []
@@ -372,17 +372,18 @@ let render_cell refs = function
   let tag = match ct with
             | HeadCell -> "th"
             | BodyCell -> "td" in
-  HElem (tag, (S O), (align_attr al), (render_inlines refs ils))
+  HElem (tag, (Stdlib.succ 0), (align_attr al), (render_inlines refs ils))
 
 (** val render_row : reference_map -> cell list -> helt **)
 
 let render_row refs r =
-  HElem ("tr", (S (S O)), [], (map (render_cell refs) r))
+  HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], (map (render_cell refs) r))
 
 (** val render_caption : reference_map -> inlines option -> helt list **)
 
 let render_caption refs = function
-| Some ils -> (HElem ("caption", (S O), [], (render_inlines refs ils))) :: []
+| Some ils ->
+  (HElem ("caption", (Stdlib.succ 0), [], (render_inlines refs ils))) :: []
 | None -> []
 
 (** val render_block : reference_map -> bool -> block -> attr -> helt list **)
@@ -400,7 +401,7 @@ let rec render_block refs tight b a =
     let rec goi sp = function
     | [] -> []
     | it :: rest ->
-      (HElem ("li", (S (S O)), [],
+      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
         (render_bs_at (match sp with
                        | Tight -> true
                        | Loose -> false) it))) :: (goi sp rest)
@@ -411,8 +412,9 @@ let rec render_block refs tight b a =
     | [] -> []
     | p :: rest ->
       let (term, it) = p in
-      (HElem ("dt", (S O), [], (render_inlines refs term))) :: ((HElem ("dd",
-      (S (S O)), [], (render_bs it))) :: (god rest))
+      (HElem ("dt", (Stdlib.succ 0), [],
+      (render_inlines refs term))) :: ((HElem ("dd", (Stdlib.succ
+      (Stdlib.succ 0)), [], (render_bs it))) :: (god rest))
     in god
   in
   let render_task_items =
@@ -420,7 +422,8 @@ let rec render_block refs tight b a =
     | [] -> []
     | p :: rest ->
       let (st, it) = p in
-      (HElem ("li", (S (S O)), [], ((checkbox_elt st) :: ((HText
+      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
+      ((checkbox_elt st) :: ((HText
       nl) :: (render_bs_at (match sp with
                             | Tight -> true
                             | Loose -> false) it))))) :: (got sp rest)
@@ -430,15 +433,18 @@ let rec render_block refs tight b a =
    | Para ils ->
      if tight
      then app (render_inlines refs ils) ((HText nl) :: [])
-     else (HElem ("p", (S O), a, (render_inlines refs ils))) :: []
-   | Section bs -> (HElem ("section", (S (S O)), a, (render_bs bs))) :: []
+     else (HElem ("p", (Stdlib.succ 0), a, (render_inlines refs ils))) :: []
+   | Section bs ->
+     (HElem ("section", (Stdlib.succ (Stdlib.succ 0)), a,
+       (render_bs bs))) :: []
    | Heading (lvl, ils) ->
-     (HElem (((^) "h" (nat_str lvl)), (S O), a,
+     (HElem (((^) "h" (nat_str lvl)), (Stdlib.succ 0), a,
        (render_inlines refs ils))) :: []
    | BlockQuote bs ->
-     (HElem ("blockquote", (S (S O)), a, (render_bs bs))) :: []
+     (HElem ("blockquote", (Stdlib.succ (Stdlib.succ 0)), a,
+       (render_bs bs))) :: []
    | CodeBlock (lang, code) ->
-     (HElem ("pre", (S O), a, ((HElem ("code", O,
+     (HElem ("pre", (Stdlib.succ 0), a, ((HElem ("code", 0,
        ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -448,38 +454,42 @@ let rec render_block refs tight b a =
           (fun _ _ -> ("class", ((^) "language-" lang)) :: [])
           lang),
        ((HText code) :: []))) :: []))) :: []
-   | Div bs -> (HElem ("div", (S (S O)), a, (render_bs bs))) :: []
+   | Div bs ->
+     (HElem ("div", (Stdlib.succ (Stdlib.succ 0)), a, (render_bs bs))) :: []
    | OrderedList (oa, sp, items) ->
-     (HElem ("ol", (S (S O)), (app (ol_attrs oa) a),
+     (HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), (app (ol_attrs oa) a),
        (render_items sp items))) :: []
    | BulletList (sp, items) ->
-     (HElem ("ul", (S (S O)), a, (render_items sp items))) :: []
+     (HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), a,
+       (render_items sp items))) :: []
    | TaskList (sp, items) ->
-     (HElem ("ul", (S (S O)), (("class", "task-list") :: a),
-       (render_task_items sp items))) :: []
+     (HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), (("class",
+       "task-list") :: a), (render_task_items sp items))) :: []
    | DefinitionList (_, items) ->
-     (HElem ("dl", (S (S O)), a, (render_def_items items))) :: []
+     (HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), a,
+       (render_def_items items))) :: []
    | ThematicBreak -> (HVoid ("hr", false, a)) :: ((HText nl) :: [])
    | Table (caption, rows) ->
-     (HElem ("table", (S (S O)), a,
+     (HElem ("table", (Stdlib.succ (Stdlib.succ 0)), a,
        (app (render_caption refs caption) (map (render_row refs) rows)))) :: []
    | RawBlock (fmt, contents) ->
      if (=) fmt "html" then (HRaw contents) :: [] else []
    | Keyed (label, b0) ->
-     (HElem ("dl", (S (S O)), (("class", "keyed") :: a), ((HElem ("dt", (S
-       O), [], (render_inlines refs label))) :: ((HElem ("dd", (S (S O)), [],
-       (render_bs (b0 :: [])))) :: [])))) :: []
+     (HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), (("class", "keyed") :: a),
+       ((HElem ("dt", (Stdlib.succ 0), [],
+       (render_inlines refs label))) :: ((HElem ("dd", (Stdlib.succ
+       (Stdlib.succ 0)), [], (render_bs (b0 :: [])))) :: [])))) :: []
    | _ -> [])
 
-type foot_state = { foot_numbers : (string * nat) list; foot_next : nat }
+type foot_state = { foot_numbers : (string * int) list; foot_next : int }
 
 (** val foot_initial : foot_state **)
 
 let foot_initial =
-  { foot_numbers = []; foot_next = (S O) }
+  { foot_numbers = []; foot_next = (Stdlib.succ 0) }
 
 (** val number_footnote :
-    string -> foot_state -> (foot_state * nat) * bool **)
+    string -> foot_state -> (foot_state * int) * bool **)
 
 let number_footnote label st =
   let label0 = normalize_label label in
@@ -488,7 +498,7 @@ let number_footnote label st =
    | None ->
      let n = st.foot_next in
      (({ foot_numbers = (app st.foot_numbers ((label0, n) :: []));
-     foot_next = (S n) }, n), true))
+     foot_next = (Stdlib.succ n) }, n), true))
 
 (** val render_inline_foot :
     reference_map -> foot_state -> inline -> attr -> foot_state * helt list **)
@@ -506,47 +516,47 @@ let rec render_inline_foot refs st il a =
   (match il with
    | Emph ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("em", O, a, s)) :: []))
+     (st', ((HElem ("em", 0, a, s)) :: []))
    | Strong ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("strong", O, a, s)) :: []))
+     (st', ((HElem ("strong", 0, a, s)) :: []))
    | Highlight ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("mark", O, a, s)) :: []))
+     (st', ((HElem ("mark", 0, a, s)) :: []))
    | Insert ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("ins", O, a, s)) :: []))
+     (st', ((HElem ("ins", 0, a, s)) :: []))
    | Delete ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("del", O, a, s)) :: []))
+     (st', ((HElem ("del", 0, a, s)) :: []))
    | Superscript ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("sup", O, a, s)) :: []))
+     (st', ((HElem ("sup", 0, a, s)) :: []))
    | Subscript ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("sub", O, a, s)) :: []))
+     (st', ((HElem ("sub", 0, a, s)) :: []))
    | Link (ils, target) ->
      let (st', s) = render_ils st ils in
      (match target with
-      | Direct url -> (st', ((HElem ("a", O, (("href", url) :: a), s)) :: []))
+      | Direct url -> (st', ((HElem ("a", 0, (("href", url) :: a), s)) :: []))
       | Reference label ->
         (match lookup_reference label refs with
          | Some p ->
            let (url, a0) = p in
-           (st', ((HElem ("a", O, (("href",
+           (st', ((HElem ("a", 0, (("href",
            url) :: (app (ref_extra a0 a) a)), s)) :: []))
-         | None -> (st', ((HElem ("a", O, a, s)) :: []))))
+         | None -> (st', ((HElem ("a", 0, a, s)) :: []))))
    | Span ils ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("span", O, a, s)) :: []))
+     (st', ((HElem ("span", 0, a, s)) :: []))
    | FootnoteReference label ->
      let (p, first) = number_footnote label st in
      let (st', n) = p in
      let sn = nat_str n in
-     (st', ((HElem ("a", O,
+     (st', ((HElem ("a", 0,
      (app (if first then ("id", ((^) "fnref" sn)) :: [] else [])
        (app (("href", ((^) "#fn" sn)) :: (("role", "doc-noteref") :: [])) a)),
-     ((HElem ("sup", O, [], ((HText sn) :: []))) :: []))) :: []))
+     ((HElem ("sup", 0, [], ((HText sn) :: []))) :: []))) :: []))
    | Quoted (q, ils) ->
      let (st', s) = render_ils st ils in
      (match q with
@@ -575,7 +585,7 @@ let render_cell_foot refs st = function
             | HeadCell -> "th"
             | BodyCell -> "td" in
   let (st', s) = render_inlines_foot refs st ils in
-  (st', (HElem (tag, (S O), (align_attr al), s)))
+  (st', (HElem (tag, (Stdlib.succ 0), (align_attr al), s)))
 
 (** val render_cells_foot :
     reference_map -> foot_state -> cell list -> foot_state * helt list **)
@@ -594,7 +604,7 @@ let rec render_rows_foot refs st = function
 | r :: rest ->
   let (st1, cells) = render_cells_foot refs st r in
   let (st2, es) = render_rows_foot refs st1 rest in
-  (st2, ((HElem ("tr", (S (S O)), [], cells)) :: es))
+  (st2, ((HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], cells)) :: es))
 
 (** val render_caption_foot :
     reference_map -> foot_state -> inlines option -> foot_state * helt list **)
@@ -602,7 +612,7 @@ let rec render_rows_foot refs st = function
 let render_caption_foot refs st = function
 | Some ils ->
   let (st', s) = render_inlines_foot refs st ils in
-  (st', ((HElem ("caption", (S O), [], s)) :: []))
+  (st', ((HElem ("caption", (Stdlib.succ 0), [], s)) :: []))
 | None -> (st, [])
 
 (** val render_block_foot :
@@ -628,7 +638,7 @@ let rec render_block_foot refs st tight b a =
               | Loose -> false in
       let (st1, s1) = render_bs_at st0 t it in
       let (st2, s2) = goi st1 sp rest in
-      (st2, ((HElem ("li", (S (S O)), [], s1)) :: s2))
+      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [], s1)) :: s2))
     in goi
   in
   let render_task_items =
@@ -641,8 +651,8 @@ let rec render_block_foot refs st tight b a =
               | Loose -> false in
       let (st1, s1) = render_bs_at st0 t it in
       let (st2, s2) = got st1 sp rest in
-      (st2, ((HElem ("li", (S (S O)), [], ((checkbox_elt chk) :: ((HText
-      nl) :: s1)))) :: s2))
+      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
+      ((checkbox_elt chk) :: ((HText nl) :: s1)))) :: s2))
     in got
   in
   let render_def_items =
@@ -653,8 +663,8 @@ let rec render_block_foot refs st tight b a =
       let (st1, s1) = render_inlines_foot refs st0 term in
       let (st2, s2) = render_bs_at st1 tight it in
       let (st3, s3) = god st2 rest in
-      (st3, ((HElem ("dt", (S O), [], s1)) :: ((HElem ("dd", (S (S O)), [],
-      s2)) :: s3)))
+      (st3, ((HElem ("dt", (Stdlib.succ 0), [], s1)) :: ((HElem ("dd",
+      (Stdlib.succ (Stdlib.succ 0)), [], s2)) :: s3)))
     in god
   in
   (match b with
@@ -662,42 +672,45 @@ let rec render_block_foot refs st tight b a =
      let (st', s) = render_inlines_foot refs st ils in
      if tight
      then (st', (app s ((HText nl) :: [])))
-     else (st', ((HElem ("p", (S O), a, s)) :: []))
+     else (st', ((HElem ("p", (Stdlib.succ 0), a, s)) :: []))
    | Section bs ->
      let (st', s) = render_bs_at st tight bs in
-     (st', ((HElem ("section", (S (S O)), a, s)) :: []))
+     (st', ((HElem ("section", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
    | Heading (lvl, ils) ->
      let (st', s) = render_inlines_foot refs st ils in
-     (st', ((HElem (((^) "h" (nat_str lvl)), (S O), a, s)) :: []))
+     (st', ((HElem (((^) "h" (nat_str lvl)), (Stdlib.succ 0), a, s)) :: []))
    | BlockQuote bs ->
      let (st', s) = render_bs_at st tight bs in
-     (st', ((HElem ("blockquote", (S (S O)), a, s)) :: []))
+     (st', ((HElem ("blockquote", (Stdlib.succ (Stdlib.succ 0)), a,
+     s)) :: []))
    | Div bs ->
      let (st', s) = render_bs_at st tight bs in
-     (st', ((HElem ("div", (S (S O)), a, s)) :: []))
+     (st', ((HElem ("div", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
    | OrderedList (oa, sp, items) ->
      let (st', s) = render_items st sp items in
-     (st', ((HElem ("ol", (S (S O)), (app (ol_attrs oa) a), s)) :: []))
+     (st', ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)),
+     (app (ol_attrs oa) a), s)) :: []))
    | BulletList (sp, items) ->
      let (st', s) = render_items st sp items in
-     (st', ((HElem ("ul", (S (S O)), a, s)) :: []))
+     (st', ((HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
    | TaskList (sp, items) ->
      let (st', s) = render_task_items st sp items in
-     (st', ((HElem ("ul", (S (S O)), (("class", "task-list") :: a),
-     s)) :: []))
+     (st', ((HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), (("class",
+     "task-list") :: a), s)) :: []))
    | DefinitionList (_, items) ->
      let (st', s) = render_def_items st items in
-     (st', ((HElem ("dl", (S (S O)), a, s)) :: []))
+     (st', ((HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
    | Table (caption, rows) ->
      let (st1, s1) = render_caption_foot refs st caption in
      let (st2, s2) = render_rows_foot refs st1 rows in
-     (st2, ((HElem ("table", (S (S O)), a, (app s1 s2))) :: []))
+     (st2, ((HElem ("table", (Stdlib.succ (Stdlib.succ 0)), a,
+     (app s1 s2))) :: []))
    | Keyed (label, b0) ->
      let (st1, s1) = render_inlines_foot refs st label in
      let (st2, s2) = render_bs_at st1 tight (b0 :: []) in
-     (st2, ((HElem ("dl", (S (S O)), (("class", "keyed") :: a), ((HElem
-     ("dt", (S O), [], s1)) :: ((HElem ("dd", (S (S O)), [],
-     s2)) :: [])))) :: []))
+     (st2, ((HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), (("class",
+     "keyed") :: a), ((HElem ("dt", (Stdlib.succ 0), [], s1)) :: ((HElem
+     ("dd", (Stdlib.succ (Stdlib.succ 0)), [], s2)) :: [])))) :: []))
    | _ -> (st, (render_block refs tight b a)))
 
 (** val render_blocks_foot :
@@ -711,27 +724,30 @@ let render_blocks_foot refs st bs =
     in
     (st1, (app out s))) bs (st, [])
 
-(** val note_backlink : nat -> helt **)
+(** val note_backlink : int -> helt **)
 
 let note_backlink n =
-  HElem ("a", O, (("href", ((^) "#fnref" (nat_str n))) :: (("role",
+  HElem ("a", 0, (("href", ((^) "#fnref" (nat_str n))) :: (("role",
     "doc-backlink") :: [])), ((HText "\226\134\169\239\184\142") :: []))
 
-(** val add_backlink : helt list -> nat -> helt list **)
+(** val add_backlink : helt list -> int -> helt list **)
 
 let add_backlink body n =
   match rev body with
-  | [] -> app body ((HElem ("p", (S O), [], ((note_backlink n) :: []))) :: [])
+  | [] ->
+    app body ((HElem ("p", (Stdlib.succ 0), [],
+      ((note_backlink n) :: []))) :: [])
   | h :: earlier ->
     (match h with
      | HElem (tag, nls, a, kids) ->
        if (=) tag "p"
        then rev ((HElem (tag, nls, a,
               (app kids ((note_backlink n) :: [])))) :: earlier)
-       else app body ((HElem ("p", (S O), [],
+       else app body ((HElem ("p", (Stdlib.succ 0), [],
               ((note_backlink n) :: []))) :: [])
      | _ ->
-       app body ((HElem ("p", (S O), [], ((note_backlink n) :: []))) :: []))
+       app body ((HElem ("p", (Stdlib.succ 0), [],
+         ((note_backlink n) :: []))) :: []))
 
 (** val render_note_defs :
     reference_map -> foot_state -> note_map -> foot_state * (string * helt
@@ -745,15 +761,15 @@ let rec render_note_defs refs st = function
   let (st2, rendered) = render_note_defs refs st1 rest in
   (st2, ((label, body) :: rendered))
 
-(** val label_at : nat -> (string * nat) list -> string option **)
+(** val label_at : int -> (string * int) list -> string option **)
 
 let rec label_at n = function
 | [] -> None
 | p :: rest ->
-  let (label, n') = p in if Nat.eqb n n' then Some label else label_at n rest
+  let (label, n') = p in if ( = ) n n' then Some label else label_at n rest
 
 (** val rendered_note_at :
-    nat -> foot_state -> (string * helt list) list -> helt list **)
+    int -> foot_state -> (string * helt list) list -> helt list **)
 
 let rendered_note_at n st rendered =
   match label_at n st.foot_numbers with
@@ -764,29 +780,32 @@ let rendered_note_at n st rendered =
   | None -> []
 
 (** val render_note_items :
-    nat -> nat -> foot_state -> (string * helt list) list -> helt list **)
+    int -> int -> foot_state -> (string * helt list) list -> helt list **)
 
 let rec render_note_items fuel n st rendered =
-  match fuel with
-  | O -> []
-  | S fuel' ->
-    (HElem ("li", (S (S O)), (("id", ((^) "fn" (nat_str n))) :: []),
-      (add_backlink (rendered_note_at n st rendered) n))) :: (render_note_items
-                                                               fuel' (S n) st
-                                                               rendered)
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> [])
+    (fun fuel' -> (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), (("id",
+    ((^) "fn" (nat_str n))) :: []),
+    (add_backlink (rendered_note_at n st rendered) n))) :: (render_note_items
+                                                             fuel'
+                                                             (Stdlib.succ n)
+                                                             st rendered))
+    fuel
 
 (** val render_document_foot :
     reference_map -> blocks -> note_map -> helt list **)
 
 let render_document_foot refs blocks0 notes =
   let (st1, body) = render_blocks_foot refs foot_initial blocks0 in
-  if Nat.eqb st1.foot_next (S O)
+  if ( = ) st1.foot_next (Stdlib.succ 0)
   then body
   else let (st2, rendered) = render_note_defs refs st1 notes in
-       app body ((HElem ("section", (S (S O)), (("role",
+       app body ((HElem ("section", (Stdlib.succ (Stdlib.succ 0)), (("role",
          "doc-endnotes") :: []), ((HVoid ("hr", false, [])) :: ((HText
-         nl) :: ((HElem ("ol", (S (S O)), [],
-         (render_note_items (sub st2.foot_next (S O)) (S O) st2 rendered))) :: []))))) :: [])
+         nl) :: ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), [],
+         (render_note_items (sub st2.foot_next (Stdlib.succ 0)) (Stdlib.succ
+           0) st2 rendered))) :: []))))) :: [])
 
 (** val doc_refs : doc -> reference_map **)
 

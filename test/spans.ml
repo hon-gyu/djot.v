@@ -36,8 +36,8 @@ let located_failures src =
     match Djot.Strings.resolve_span lines span with
     | None -> note "unresolvable" what; None
     | Some r ->
-      let a = int_of_nat r.Djot.Strings.source_span_start.Djot.Strings.source_byte
-      and b = int_of_nat r.Djot.Strings.source_span_stop.Djot.Strings.source_byte in
+      let a = r.Djot.Strings.source_span_start.Djot.Strings.source_byte
+      and b = r.Djot.Strings.source_span_stop.Djot.Strings.source_byte in
       if a > b then (note "reversed" (Printf.sprintf "%s [%d,%d)" what a b); None)
       else if b > len then
         (note "out of bounds" (Printf.sprintf "%s [%d,%d) of %d" what a b len); None)
@@ -134,7 +134,7 @@ let run depth files r verbose =
      suite is where those bytes live. *)
   let sources =
     List.map Djot_fixtures.Fixtures.render_cb
-      (Djot_fixtures.Generate.accepted (nat_of_int depth))
+      (Djot_fixtures.Generate.accepted depth)
     @ List.map (fun (c : Corpus.case) -> c.input)
         (List.concat_map Corpus.parse_file files)
   in

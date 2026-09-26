@@ -9,24 +9,22 @@ open List0
 open ListDef
 open Marker
 open Nat0
-open PeanoNat
-open String0
 open Strings
 
 type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                                       option -> string -> bool);
-                 bunderline : (char -> nat -> nat option); btables : 
+                 bunderline : (char -> int -> int option); btables : 
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
                  battrs : bool; bfootnotes : bool; bkeyed : bool }
 
-type coq_LineIx = nat
+type coq_LineIx = int
   (* singleton inductive, whose constructor was LineIxAt *)
 
 (** val semantic_line_ix : coq_LineIx **)
 
 let semantic_line_ix =
-  O
+  0
 
 (** val no_interrupt :
     lstyle list -> string -> task_marker option -> string -> bool **)
@@ -34,7 +32,7 @@ let semantic_line_ix =
 let no_interrupt _ _ _ _ =
   false
 
-(** val no_underline : char -> nat -> nat option **)
+(** val no_underline : char -> int -> int option **)
 
 let no_underline _ _ =
   None
@@ -108,7 +106,7 @@ let binterrupt h = function
     (if h.btasks then chk else None) (configured_list_rest h chk rest)
 | _ -> false
 
-(** val bunderline_of : bconfig -> string -> nat option **)
+(** val bunderline_of : bconfig -> string -> int option **)
 
 let bunderline_of h l =
   match underline_of l with
@@ -122,7 +120,7 @@ let bcuts h l =
   | Some _ -> true
   | None -> binterrupt h (classify l)
 
-type stored_line = nat * string
+type stored_line = int * string
 
 (** val remember_line : coq_LineIx -> string -> stored_line **)
 
@@ -136,22 +134,22 @@ let line_texts lines =
 
 type extent = { extent_start : spot; extent_stop : spot }
 
-(** val spot_at : coq_LineIx -> string -> nat -> spot **)
+(** val spot_at : coq_LineIx -> string -> int -> spot **)
 
 let spot_at lI l column =
-  { spot_line = lI; spot_rem = (sub (length l) column) }
+  { spot_line = lI; spot_rem = (sub (String.length l) column) }
 
 (** val line_stop : coq_LineIx -> spot **)
 
 let line_stop lI =
-  { spot_line = lI; spot_rem = O }
+  { spot_line = lI; spot_rem = 0 }
 
-(** val line_span_from : coq_LineIx -> string -> nat -> span **)
+(** val line_span_from : coq_LineIx -> string -> int -> span **)
 
 let line_span_from lI l column =
   { span_start = (spot_at lI l column); span_stop = (line_stop lI) }
 
-(** val open_extent : coq_LineIx -> string -> nat -> extent **)
+(** val open_extent : coq_LineIx -> string -> int -> extent **)
 
 let open_extent lI l column =
   { extent_start = (spot_at lI l column); extent_stop = (line_stop lI) }
@@ -169,19 +167,19 @@ let extent_span e =
 (** val stored_start : stored_line -> spot **)
 
 let stored_start sl =
-  { spot_line = (fst sl); spot_rem = (length (snd sl)) }
+  { spot_line = (fst sl); spot_rem = (String.length (snd sl)) }
 
 (** val stored_stop : stored_line -> spot **)
 
 let stored_stop sl =
-  { spot_line = (fst sl); spot_rem = O }
+  { spot_line = (fst sl); spot_rem = 0 }
 
 (** val stored_span : stored_line list -> span **)
 
 let stored_span cur = match cur with
 | [] ->
-  { span_start = { spot_line = O; spot_rem = O }; span_stop = { spot_line =
-    O; spot_rem = O } }
+  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line =
+    0; spot_rem = 0 } }
 | newest :: _ ->
   { span_start = (stored_start (last cur newest)); span_stop =
     (stored_stop newest) }
@@ -351,7 +349,7 @@ type tcap =
 
 let caption_of t p = function
 | TCaption (_, _, ls) ->
-  let ils = para_inlines_at t p O (rev ls) in
+  let ils = para_inlines_at t p 0 (rev ls) in
   if nonempty ils then Some ils else None
 | _ -> None
 
@@ -373,7 +371,7 @@ let table_parts t p c =
       (match caption_of t p (TCaption (row_parts, start, ls)) with
        | Some _ ->
          Some { span_start = start; span_stop =
-           (stored_stop (hd (O, "") ls)) }
+           (stored_stop (hd (0, "") ls)) }
        | None -> None)
   in
   PTable (caption,
@@ -448,9 +446,9 @@ let table_row_part lI l = function
 | TCells _ ->
   (match row_body l with
    | Some body ->
-     (match row_cells_trace (row_inner body) O O false "" [] (S O) O with
+     (match row_cells_trace (row_inner body) 0 0 false "" [] (Stdlib.succ 0) 0 with
       | Some cells ->
-        let width = length (drop_leading_ws l) in
+        let width = String.length (drop_leading_ws l) in
         let cell_part_of = fun x ->
           let (y, text_start) = x in
           let (y0, b) = y in
@@ -462,13 +460,14 @@ let table_row_part lI l = function
         in
         Some ({ span_start = { spot_line = lI; spot_rem = width };
         span_stop = { spot_line = lI; spot_rem =
-        (sub width (S (length body))) } }, (map cell_part_of cells))
+        (sub width (Stdlib.succ (String.length body))) } },
+        (map cell_part_of cells))
       | None -> None)
    | None -> None)
 
-type list_state = { ls_indent : nat; ls_extent : extent;
+type list_state = { ls_indent : int; ls_extent : extent;
                     ls_item_extent : extent; ls_item_extents : extent list;
-                    ls_styles : (lstyle * nat) list; ls_loose : bool;
+                    ls_styles : (lstyle * int) list; ls_loose : bool;
                     ls_blanks : bool; ls_items : blocks list;
                     ls_check : task_status; ls_checks : task_status list }
 
@@ -483,32 +482,32 @@ let list_touch lI ls =
 
 type pstate =
 | PPara of stored_line list
-| PHeading of nat * extent * stored_line list
-| PFence of fence * nat * extent * span * stored_line list
+| PHeading of int * extent * stored_line list
+| PFence of fence * int * extent * span * stored_line list
 | PQuote of extent * blocks * pstate
-| PDiv of nat * string * extent * span * blocks * pstate
+| PDiv of int * string * extent * span * blocks * pstate
 | PList of list_state * blocks * pstate
-| PAttr of attr * span list * extent * nat * aparser * stored_line list
-| PParaOff of nat * stored_line list
-| PRef of extent * nat * string * string
-| PFoot of extent * nat * string * blocks * pstate
+| PAttr of attr * span list * extent * int * aparser * stored_line list
+| PParaOff of int * stored_line list
+| PRef of extent * int * string * string
+| PFoot of extent * int * string * blocks * pstate
 | PTable of extent * trow list * tcap
 | PPend of attr * span list * pstate
 | PKey of extent * string * string * pstate
 
-(** val pstate_depth : pstate -> nat **)
+(** val pstate_depth : pstate -> int **)
 
 let rec pstate_depth = function
-| PQuote (_, _, inner) -> S (pstate_depth inner)
-| PDiv (_, _, _, _, _, inner) -> S (pstate_depth inner)
-| PList (_, _, inner) -> S (pstate_depth inner)
-| PAttr (_, _, _, _, _, _) -> S (S O)
-| PRef (_, _, _, _) -> S O
-| PFoot (_, _, _, _, inner) -> S (pstate_depth inner)
-| PTable (_, _, _) -> S O
-| PPend (_, _, inner) -> S (pstate_depth inner)
-| PKey (_, _, _, inner) -> S (pstate_depth inner)
-| _ -> O
+| PQuote (_, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PDiv (_, _, _, _, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PList (_, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PAttr (_, _, _, _, _, _) -> Stdlib.succ (Stdlib.succ 0)
+| PRef (_, _, _, _) -> Stdlib.succ 0
+| PFoot (_, _, _, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PTable (_, _, _) -> Stdlib.succ 0
+| PPend (_, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PKey (_, _, _, inner) -> Stdlib.succ (pstate_depth inner)
+| _ -> 0
 
 (** val is_idle : pstate -> bool **)
 
@@ -519,21 +518,21 @@ let is_idle = function
 | _ -> false
 
 (** val heading_block :
-    dtable -> coq_PosPolicy -> nat -> stored_line list -> block node **)
+    dtable -> coq_PosPolicy -> int -> stored_line list -> block node **)
 
 let heading_block t p lvl cur =
-  mk (Heading (lvl, (para_inlines_at t p O (rev cur))))
+  mk (Heading (lvl, (para_inlines_at t p 0 (rev cur))))
 
 (** val heading_block_off :
-    dtable -> coq_PosPolicy -> nat -> nat -> stored_line list -> block node **)
+    dtable -> coq_PosPolicy -> int -> int -> stored_line list -> block node **)
 
 let heading_block_off t p k lvl cur =
   mk (Heading (lvl, (para_inlines_at t p k (rev cur))))
 
-(** val para_recover : nat -> stored_line list -> pstate **)
+(** val para_recover : int -> stored_line list -> pstate **)
 
 let para_recover extra slices =
-  PParaOff ((add extra (Datatypes.length slices)), slices)
+  PParaOff ((( + ) extra (length slices)), slices)
 
 (** val finish_para_recover :
     dtable -> coq_PosPolicy -> stored_line list -> blocks **)
@@ -542,7 +541,7 @@ let finish_para_recover t p slices = match slices with
 | [] -> []
 | _ :: _ ->
   (set_pos p (prov_at (stored_span slices))
-    (mk (Para (para_inlines_at t p (Datatypes.length slices) (rev slices))))) :: []
+    (mk (Para (para_inlines_at t p (length slices) (rev slices))))) :: []
 
 (** val div_block : string -> blocks -> block node **)
 
@@ -552,7 +551,7 @@ let div_block cls bs =
   else Node (NoPos, (("class", cls) :: []), (Div bs))
 
 (** val styles_list :
-    bconfig -> (lstyle * nat) list -> list_spacing -> blocks list -> block
+    bconfig -> (lstyle * int) list -> list_spacing -> blocks list -> block
     node **)
 
 let styles_list k s sp items =
@@ -571,7 +570,7 @@ let styles_list k s sp items =
          items)))
 
 (** val styles_list_checked :
-    bconfig -> (lstyle * nat) list -> list_spacing -> task_status list ->
+    bconfig -> (lstyle * int) list -> list_spacing -> task_status list ->
     blocks list -> block node **)
 
 let styles_list_checked k s sp checks items =
@@ -678,7 +677,7 @@ let rec finish t k p = function
    | [] -> []
    | _ :: _ ->
      (set_pos p (prov_at (stored_span cur))
-       (mk (Para (para_inlines_at t p O (rev cur))))) :: [])
+       (mk (Para (para_inlines_at t p 0 (rev cur))))) :: [])
 | PHeading (lvl, range, cur) ->
   (set_pos p (prov_at (extent_span range)) (heading_block t p lvl cur)) :: []
 | PFence (f, _, range, opener, acc) ->
@@ -791,7 +790,7 @@ let open_text t lI h t0 =
   match if h.bkeyed then key_split t t0 else None with
   | Some p ->
     let (lbl, v) = p in
-    ([], (PKey ((open_extent lI t0 O), lbl, t0, (PPara (push_text lI v [])))))
+    ([], (PKey ((open_extent lI t0 0), lbl, t0, (PPara (push_text lI v [])))))
   | None -> ([], (PPara ((remember_line lI t0) :: [])))
 
 (** val keyless : dtable -> bconfig -> string -> bool **)
@@ -866,7 +865,7 @@ let open_quote lI l = function
   ([], (PQuote ((open_extent lI l (indent_of l)), (rev bs), inner)))
 
 (** val open_attr :
-    bconfig -> coq_LineIx -> attr -> span list -> nat -> aparser -> string ->
+    bconfig -> coq_LineIx -> attr -> span list -> int -> aparser -> string ->
     blocks * pstate **)
 
 let open_attr k lI pend specs ind ap l =
@@ -876,7 +875,7 @@ let open_attr k lI pend specs ind ap l =
   else ([], (PPara ((remember_line lI (drop_leading_ws l)) :: [])))
 
 (** val open_fence :
-    coq_LineIx -> string -> nat -> fence -> blocks * pstate **)
+    coq_LineIx -> string -> int -> fence -> blocks * pstate **)
 
 let open_fence lI l ind f =
   let col = indent_of l in
@@ -884,13 +883,13 @@ let open_fence lI l ind f =
   [])))
 
 (** val open_ref :
-    coq_LineIx -> string -> nat -> string -> string -> blocks * pstate **)
+    coq_LineIx -> string -> int -> string -> string -> blocks * pstate **)
 
 let open_ref lI l ind lbl val0 =
   ([], (PRef ((open_extent lI l (indent_of l)), ind, lbl, val0)))
 
 (** val open_foot :
-    bconfig -> coq_LineIx -> string -> nat -> string -> (blocks * pstate) ->
+    bconfig -> coq_LineIx -> string -> int -> string -> (blocks * pstate) ->
     blocks * pstate **)
 
 let open_foot k lI l ind lbl descended =
@@ -901,7 +900,7 @@ let open_foot k lI l ind lbl descended =
   else ([], (PPara ((remember_line lI (drop_leading_ws l)) :: [])))
 
 (** val list_opened :
-    coq_LineIx -> string -> nat -> (lstyle * nat) list -> task_status ->
+    coq_LineIx -> string -> int -> (lstyle * int) list -> task_status ->
     list_state **)
 
 let list_opened lI l ind sty chk =
@@ -911,7 +910,7 @@ let list_opened lI l ind sty chk =
   ls_items = []; ls_check = chk; ls_checks = [] }
 
 (** val open_list :
-    coq_LineIx -> string -> nat -> (lstyle * nat) list -> task_status ->
+    coq_LineIx -> string -> int -> (lstyle * int) list -> task_status ->
     (blocks * pstate) -> blocks * pstate **)
 
 let open_list lI l ind sty chk = function
@@ -926,7 +925,7 @@ let list_blank ls =
     ls.ls_styles; ls_loose = ls.ls_loose; ls_blanks = true; ls_items =
     ls.ls_items; ls_check = ls.ls_check; ls_checks = ls.ls_checks }
 
-(** val list_narrow : list_state -> (lstyle * nat) list -> list_state **)
+(** val list_narrow : list_state -> (lstyle * int) list -> list_state **)
 
 let list_narrow ls ns =
   { ls_indent = ls.ls_indent; ls_extent = ls.ls_extent; ls_item_extent =
@@ -960,10 +959,10 @@ let rec key_claims l = function
   if is_idle inner then claimable (classify l) else announces_end inner
 | _ -> false
 
-(** val list_takes : list_state -> nat -> string -> pstate -> bool **)
+(** val list_takes : list_state -> int -> string -> pstate -> bool **)
 
 let list_takes ls off l inner =
-  (||) (key_claims l inner) (Nat.ltb ls.ls_indent (add off (indent_of l)))
+  (||) (key_claims l inner) (( < ) ls.ls_indent (( + ) off (indent_of l)))
 
 (** val blank_absorbed : pstate -> bool **)
 
@@ -1026,14 +1025,14 @@ let list_next lI ls item chk l rest =
        loose; ls_blanks = false; ls_items = items; ls_check = chk;
        ls_checks = checks }
 
-(** val consumed : string -> string -> nat **)
+(** val consumed : string -> string -> int **)
 
 let consumed l rest =
-  sub (length l) (length rest)
+  sub (String.length l) (String.length rest)
 
 (** val open_line :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> (string ->
-    blocks * pstate) -> nat -> string -> line_kind -> blocks * pstate **)
+    blocks * pstate) -> int -> string -> line_kind -> blocks * pstate **)
 
 let open_line t k lI p descend ind l k0 = match k0 with
 | KFence f -> open_fence lI l ind f
@@ -1047,27 +1046,27 @@ let open_line t k lI p descend ind l k0 = match k0 with
 | _ -> open_kind t lI p k l k0
 
 (** val step_fuel :
-    dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> nat -> nat -> string
+    dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> int -> int -> string
     -> pstate -> blocks * pstate **)
 
 let rec step_fuel t k lI p n off l st =
-  match n with
-  | O -> ([], st)
-  | S n' ->
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> ([], st))
+    (fun n' ->
     let descend = fun rest ->
-      step_fuel t k lI p n' (add off (consumed l rest)) rest (PPara [])
+      step_fuel t k lI p n' (( + ) off (consumed l rest)) rest (PPara [])
     in
     (match st with
      | PPara cur ->
        (match cur with
         | [] ->
-          open_line t k lI p descend (add off (indent_of l)) l (classify l)
+          open_line t k lI p descend (( + ) off (indent_of l)) l (classify l)
         | c :: cur' ->
           (match bunderline_of k l with
            | Some lvl ->
              (((set_pos p
                  (prov_at (span_through_line lI (stored_span (c :: cur'))))
-                 (heading_block t p (S lvl) (c :: cur'))) :: []),
+                 (heading_block t p (Stdlib.succ lvl) (c :: cur'))) :: []),
                (PPara []))
            | None ->
              (match classify l with
@@ -1077,15 +1076,15 @@ let rec step_fuel t k lI p n off l st =
               | x ->
                 if binterrupt k x
                 then close_reopen t k p (PPara (c :: cur'))
-                       (open_line t k lI p descend (add off (indent_of l)) l
-                         x)
+                       (open_line t k lI p descend (( + ) off (indent_of l))
+                         l x)
                 else ([], (PPara
                        ((remember_line lI (drop_leading_ws l)) :: (c :: cur')))))))
      | PHeading (lvl, range, cur) ->
        (match classify l with
         | KHeading (lvl', rest) ->
           if k.bheading_continues
-          then if Nat.eqb lvl' lvl
+          then if ( = ) lvl' lvl
                then ([], (PHeading (lvl, (touch_extent lI range),
                       (push_text lI rest cur))))
                else close_reopen t k p (PHeading (lvl, range, cur))
@@ -1100,7 +1099,7 @@ let rec step_fuel t k lI p n off l st =
                  (open_kind t lI p k l KText)
         | x ->
           close_reopen t k p (PHeading (lvl, range, cur))
-            (open_line t k lI p descend (add off (indent_of l)) l x))
+            (open_line t k lI p descend (( + ) off (indent_of l)) l x))
      | PFence (f, ind, range, opener, acc) ->
        if fence_close f l
        then (((set_pos p
@@ -1115,7 +1114,7 @@ let rec step_fuel t k lI p n off l st =
        (match classify l with
         | KQuote rest ->
           let (bs, inner') =
-            step_fuel t k lI p n' (add off (consumed l rest)) rest inner
+            step_fuel t k lI p n' (( + ) off (consumed l rest)) rest inner
           in
           ([], (PQuote ((touch_extent lI range), (app (rev bs) done0),
           inner')))
@@ -1124,7 +1123,7 @@ let rec step_fuel t k lI p n off l st =
           then ([], (PQuote ((touch_extent lI range), done0,
                  (feed_lazy lI l inner))))
           else close_reopen t k p (PQuote (range, done0, inner))
-                 (open_line t k lI p descend (add off (indent_of l)) l x))
+                 (open_line t k lI p descend (( + ) off (indent_of l)) l x))
      | PDiv (len, cls, range, opener, done0, inner) ->
        if (&&) (negb (in_fence inner)) (div_close len l)
        then (((set_pos p
@@ -1157,13 +1156,13 @@ let rec step_fuel t k lI p n off l st =
                            (configured_list_styles k sty chk) with
                    | [] ->
                      close_reopen t k p (PList (ls, done0, inner))
-                       (open_line t k lI p descend (add off (indent_of l)) l
-                         (KList (sty, core, chk, rest)))
+                       (open_line t k lI p descend (( + ) off (indent_of l))
+                         l (KList (sty, core, chk, rest)))
                    | p0 :: l0 ->
                      let item = app (rev done0) (finish t k p inner) in
                      let (bs, inner') =
                        step_fuel t k lI p n'
-                         (add off
+                         (( + ) off
                            (consumed l (configured_list_rest k chk rest)))
                          (configured_list_rest k chk rest) (PPara [])
                      in
@@ -1177,30 +1176,30 @@ let rec step_fuel t k lI p n off l st =
                   then ([], (PList ((list_touch lI ls), done0,
                          (feed_lazy lI l inner))))
                   else close_reopen t k p (PList (ls, done0, inner))
-                         (open_line t k lI p descend (add off (indent_of l))
-                           l x)))
+                         (open_line t k lI p descend
+                           (( + ) off (indent_of l)) l x)))
      | PAttr (pend, specs, range, ind, ap, slices) ->
        if ap_done ap
        then step_fuel t k lI p n' off l (PPend
               ((Attr.merge ap.ap_attrs pend),
               (app specs ((extent_span range) :: [])), (PPara [])))
-       else if Nat.ltb ind (add off (indent_of l))
+       else if ( < ) ind (( + ) off (indent_of l))
             then let ap' = attr_feed l ap in
                  if ap_failed ap'
                  then pend_result p pend specs
                         (step_fuel t k lI p n' off l
-                          (para_recover (S O) slices))
+                          (para_recover (Stdlib.succ 0) slices))
                  else ([], (PAttr (pend, specs, (touch_extent lI range), ind,
                         ap', (push_text lI l slices))))
             else if is_blank l
-                 then ([], (PPend (pend, specs, (para_recover O slices))))
+                 then ([], (PPend (pend, specs, (para_recover 0 slices))))
                  else pend_result p pend specs
-                        (step_fuel t k lI p n' off l (para_recover O slices))
+                        (step_fuel t k lI p n' off l (para_recover 0 slices))
      | PParaOff (koff, cur) ->
        (match bunderline_of k l with
         | Some lvl ->
           (((set_pos p (prov_at (span_through_line lI (stored_span cur)))
-              (heading_block_off t p koff (S lvl) cur)) :: []),
+              (heading_block_off t p koff (Stdlib.succ lvl) cur)) :: []),
             (PPara []))
         | None ->
           (match classify l with
@@ -1210,11 +1209,11 @@ let rec step_fuel t k lI p n off l st =
            | x ->
              if binterrupt k x
              then close_reopen t k p (PParaOff (koff, cur))
-                    (open_line t k lI p descend (add off (indent_of l)) l x)
+                    (open_line t k lI p descend (( + ) off (indent_of l)) l x)
              else ([], (PParaOff (koff,
                     ((remember_line lI (drop_leading_ws l)) :: cur))))))
      | PRef (range, ind, lbl, val0) ->
-       (match if Nat.ltb ind (add off (indent_of l)) then ref_cont l else None with
+       (match if ( < ) ind (( + ) off (indent_of l)) then ref_cont l else None with
         | Some t0 ->
           ([], (PRef ((touch_extent lI range), ind, lbl, ((^) val0 t0))))
         | None ->
@@ -1226,7 +1225,7 @@ let rec step_fuel t k lI p n off l st =
        then let (bs, inner') = step_fuel t k lI p n' off l inner in
             ([], (PFoot ((touch_extent lI range), ind, lbl,
             (app (rev bs) done0), inner')))
-       else if Nat.ltb ind (add off (indent_of l))
+       else if ( < ) ind (( + ) off (indent_of l))
             then let (bs, inner') = step_fuel t k lI p n' off l inner in
                  ([], (PFoot ((touch_extent lI range), ind, lbl,
                  (app (rev bs) done0), inner')))
@@ -1289,7 +1288,7 @@ let rec step_fuel t k lI p n off l st =
           else pend_result p pend specs (step_fuel t k lI p n' off l inner)
         | KAttr ap ->
           if is_idle inner
-          then open_attr k lI pend specs (add off (indent_of l)) ap l
+          then open_attr k lI pend specs (( + ) off (indent_of l)) ap l
           else pend_result p pend specs (step_fuel t k lI p n' off l inner)
         | _ -> pend_result p pend specs (step_fuel t k lI p n' off l inner))
      | PKey (range, lbl, src, inner) ->
@@ -1298,14 +1297,16 @@ let rec step_fuel t k lI p n off l st =
                 (para_inlines t (src :: [])))) :: []),
               (PPara []))
        else key_result t p (touch_extent lI range) lbl src
-              (step_fuel t k lI p n' off l inner))
+              (step_fuel t k lI p n' off l inner)))
+    n
 
 (** val step :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string -> pstate ->
     blocks * pstate **)
 
 let step t k lI p l st =
-  step_fuel t k lI p (S (add (length l) (pstate_depth st))) O l st
+  step_fuel t k lI p (Stdlib.succ
+    (( + ) (String.length l) (pstate_depth st))) 0 l st
 
 (** val parse_lines :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate
@@ -1349,7 +1350,7 @@ let rec blank_safe = function
 | _ -> true
 
 (** val run_lines_tagged :
-    dtable -> bconfig -> coq_PosPolicy -> (nat * string) list -> pstate ->
+    dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
     blocks * pstate **)
 
 let rec run_lines_tagged t k p lines st =
@@ -1362,7 +1363,7 @@ let rec run_lines_tagged t k p lines st =
     ((app bs more), final)
 
 (** val finish_lines_tagged :
-    dtable -> bconfig -> coq_PosPolicy -> (nat * string) list -> pstate ->
+    dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
     blocks **)
 
 let finish_lines_tagged t k p lines st =

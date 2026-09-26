@@ -1,6 +1,5 @@
 open BinNums
 open Datatypes
-open Nat0
 
 module Pos =
  struct
@@ -42,14 +41,16 @@ module Pos =
     | Coq_xO p0 -> iter_op op p0 (op a a)
     | Coq_xH -> a
 
-  (** val to_nat : positive -> nat **)
+  (** val to_nat : positive -> int **)
 
   let to_nat x =
-    iter_op add x (S O)
+    iter_op ( + ) x (Stdlib.succ 0)
 
-  (** val of_succ_nat : nat -> positive **)
+  (** val of_succ_nat : int -> positive **)
 
-  let rec of_succ_nat = function
-  | O -> Coq_xH
-  | S x -> succ (of_succ_nat x)
+  let rec of_succ_nat n =
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> Coq_xH)
+      (fun x -> succ (of_succ_nat x))
+      n
  end

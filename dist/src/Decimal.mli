@@ -12,10 +12,6 @@ type uint =
 | D8 of uint
 | D9 of uint
 
-val revapp : uint -> uint -> uint
-
-val rev : uint -> uint
-
 module Little :
  sig
   val succ : uint -> uint

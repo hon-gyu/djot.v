@@ -70,7 +70,7 @@ module Attr =
     fold_left (fun a' kv -> set (fst kv) (snd kv) a') pending a
  end
 
-type spot = { spot_line : nat; spot_rem : nat }
+type spot = { spot_line : int; spot_rem : int }
 
 type span = { span_start : spot; span_stop : spot }
 
@@ -80,9 +80,9 @@ type coq_InlineCursor = { cursor_start : spot; cursor_stop : spot;
 (** val semantic_inline_cursor : coq_InlineCursor **)
 
 let semantic_inline_cursor =
-  { cursor_start = { spot_line = O; spot_rem = O }; cursor_stop =
-    { spot_line = O; spot_rem = O }; cursor_origin = { spot_line = O;
-    spot_rem = O } }
+  { cursor_start = { spot_line = 0; spot_rem = 0 }; cursor_stop =
+    { spot_line = 0; spot_rem = 0 }; cursor_origin = { spot_line = 0;
+    spot_rem = 0 } }
 
 type syntax_role =
 | RAttrSpec
@@ -153,8 +153,8 @@ let posnode h p x =
 (** val null_span : span **)
 
 let null_span =
-  { span_start = { spot_line = O; spot_rem = O }; span_stop = { spot_line =
-    O; spot_rem = O } }
+  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line =
+    0; spot_rem = 0 } }
 
 (** val pspan : coq_PosPolicy -> span -> span **)
 
@@ -308,7 +308,7 @@ type ordered_list_delim =
 
 type ordered_list_attributes = { ol_style : ordered_list_style;
                                  ol_delim : ordered_list_delim; ol_start : 
-                                 nat }
+                                 int }
 
 type task_status =
 | Complete
@@ -347,7 +347,7 @@ type cell =
 type block =
 | Para of inlines
 | Section of block node list
-| Heading of nat * inlines
+| Heading of int * inlines
 | BlockQuote of block node list
 | CodeBlock of string * string
 | Div of block node list

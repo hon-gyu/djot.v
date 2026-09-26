@@ -1842,3 +1842,18 @@ a consumer walking the tree for the innermost node at a byte relies on.
 Ours keeps it.  The caption's inline range is not affected: it is
 djot.js's `[33,36)` exactly.  Pinned by `p_table_parts` and `c5_table_parts` in
 `dev/check/Located.v`.
+
+## 2026-09-26 -- ours: a decimal marker has at most 18 digits
+
+| Input | djot.js | ours |
+| --- | --- | --- |
+| `1234567890123456789. ok` | `<ol start="1234567890123456800">` | `<p>1234567890123456789. ok</p>` |
+
+djot.js reads the start with `parseInt` and prints the rounded float, so
+from 16 digits on its `start` can differ from the number written
+(`9999999999999999.` gives `start="10000000000000000"`).  Ours takes
+no marker core longer than `Line.dec_digits_max` (18) digits, which keeps
+every start below 10^18 and inside the OCaml `int` the extracted parser
+represents numbers by (`Marker.dec_start_bound`).  Up to 15 digits the
+two agree; from 16 to 18, ours prints the number written.  Pinned by
+`decimal_too_long_is_text` in `OrderedList.v`.

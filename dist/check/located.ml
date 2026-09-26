@@ -2,16 +2,11 @@
 
 (* A consumer outside the generated library: exercise the extracted
    entry points and their byte-coordinate conversion. *)
-let rec int_of_nat = function
-  | Djot.Datatypes.O -> 0
-  | Djot.Datatypes.S n -> 1 + int_of_nat n
-
 let range lines span =
   match Djot.Strings.resolve_span lines span with
   | None -> failwith "unresolvable source span"
   | Some r ->
-      (int_of_nat r.source_span_start.source_byte,
-       int_of_nat r.source_span_stop.source_byte)
+      (r.source_span_start.source_byte, r.source_span_stop.source_byte)
 
 let expect_span lines expected = function
   | Djot.Ast.Node (Djot.Ast.SomePos p, _, _) ->

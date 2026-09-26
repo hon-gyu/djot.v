@@ -1,18 +1,11 @@
-open Datatypes
 
 module Nat :
  sig
-  val sub : nat -> nat -> nat
+  val sub : int -> int -> int
 
-  val eqb : nat -> nat -> bool
+  val divmod : int -> int -> int -> int -> int * int
 
-  val leb : nat -> nat -> bool
+  val div : int -> int -> int
 
-  val ltb : nat -> nat -> bool
-
-  val divmod : nat -> nat -> nat -> nat -> nat * nat
-
-  val div : nat -> nat -> nat
-
-  val modulo : nat -> nat -> nat
+  val modulo : int -> int -> int
  end

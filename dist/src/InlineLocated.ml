@@ -5,17 +5,16 @@ open InlineTable
 open InlineView
 open ListDef
 open Nat0
-open String0
 open Strings
 
-(** val cursor_in : nat -> nat -> spot -> coq_InlineCursor **)
+(** val cursor_in : int -> int -> spot -> coq_InlineCursor **)
 
 let cursor_in k rem origin =
   { cursor_start = { spot_line = k; spot_rem = rem }; cursor_stop =
     { spot_line = k; spot_rem = (pred rem) }; cursor_origin = origin }
 
 (** val iscan_str_located :
-    dtable -> coq_PosPolicy -> bool -> nat -> spot -> nat -> string -> iscan
+    dtable -> coq_PosPolicy -> bool -> int -> spot -> int -> string -> iscan
     -> iscan **)
 
 let rec iscan_str_located t h allow k origin rem s st =
@@ -30,32 +29,34 @@ let rec iscan_str_located t h allow k origin rem s st =
       (istep_at t h (cursor_in k rem origin) allow c st))
     s
 
-(** val lines_start : (nat * string) list -> spot **)
+(** val lines_start : (int * string) list -> spot **)
 
 let lines_start = function
-| [] -> { spot_line = O; spot_rem = O }
-| p :: _ -> let (k, x) = p in { spot_line = k; spot_rem = (length x) }
+| [] -> { spot_line = 0; spot_rem = 0 }
+| p :: _ -> let (k, x) = p in { spot_line = k; spot_rem = (String.length x) }
 
-(** val lines_stop : (nat * string) list -> spot **)
+(** val lines_stop : (int * string) list -> spot **)
 
 let rec lines_stop = function
-| [] -> { spot_line = O; spot_rem = O }
+| [] -> { spot_line = 0; spot_rem = 0 }
 | p :: rest ->
   let (k, x) = p in
   (match rest with
    | [] ->
      { spot_line = k; spot_rem =
-       (sub (length x) (length (strip_trailing_ws x))) }
+       (sub (String.length x) (String.length (strip_trailing_ws x))) }
    | _ :: _ -> lines_stop rest)
 
-(** val allow_attrs : dtable -> nat -> bool **)
+(** val allow_attrs : dtable -> int -> bool **)
 
-let allow_attrs t = function
-| O -> inline_attrs_enabled t
-| S _ -> false
+let allow_attrs t off =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> inline_attrs_enabled t)
+    (fun _ -> false)
+    off
 
 (** val iscan_lines_located :
-    dtable -> coq_PosPolicy -> nat -> spot -> (nat * string) list -> iscan ->
+    dtable -> coq_PosPolicy -> int -> spot -> (int * string) list -> iscan ->
     iscan **)
 
 let rec iscan_lines_located t h off origin l st =
@@ -65,31 +66,31 @@ let rec iscan_lines_located t h off origin l st =
     let (k, x) = p in
     (match rest with
      | [] ->
-       iscan_str_located t h (allow_attrs t off) k origin (length x)
+       iscan_str_located t h (allow_attrs t off) k origin (String.length x)
          (strip_trailing_ws x) st
      | _ :: _ ->
        iscan_lines_located t h (pred off) origin rest
-         (ibreak_at t h { cursor_start = { spot_line = k; spot_rem = O };
+         (ibreak_at t h { cursor_start = { spot_line = k; spot_rem = 0 };
            cursor_stop = (lines_start rest); cursor_origin = { spot_line = k;
-           spot_rem = (length x) } } (allow_attrs t off)
-           (iscan_str_located t h (allow_attrs t off) k origin (length x) x
-             st)))
+           spot_rem = (String.length x) } } (allow_attrs t off)
+           (iscan_str_located t h (allow_attrs t off) k origin
+             (String.length x) x st)))
 
 (** val ifinish_located :
-    dtable -> coq_PosPolicy -> (nat * string) list -> iscan -> inlines **)
+    dtable -> coq_PosPolicy -> (int * string) list -> iscan -> inlines **)
 
 let ifinish_located t h l st =
   ifinish t h { cursor_start = (lines_stop l); cursor_stop = (lines_stop l);
     cursor_origin = (lines_start l) } st
 
 (** val para_inlines_located :
-    dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines **)
+    dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines **)
 
 let para_inlines_located t h off l =
   ifinish_located t h l (iscan_lines_located t h off (lines_start l) l istart)
 
 (** val para_inlines_at :
-    dtable -> coq_PosPolicy -> nat -> (nat * string) list -> inlines **)
+    dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines **)
 
 let para_inlines_at t h off l =
   if h.pos_records
@@ -97,10 +98,10 @@ let para_inlines_at t h off l =
   else para_inlines_off t off (map snd l)
 
 (** val parse_inline_line_located :
-    dtable -> coq_PosPolicy -> nat -> nat -> string -> inlines **)
+    dtable -> coq_PosPolicy -> int -> int -> string -> inlines **)
 
 let parse_inline_line_located t h k rem s =
-  let stop = { spot_line = k; spot_rem = (sub rem (length s)) } in
+  let stop = { spot_line = k; spot_rem = (sub rem (String.length s)) } in
   ifinish t h { cursor_start = stop; cursor_stop = stop; cursor_origin =
     { spot_line = k; spot_rem = rem } }
     (iscan_str_located t h (inline_attrs_enabled t) k { spot_line = k;

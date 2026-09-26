@@ -6,34 +6,34 @@ open List0
 open ListUniformity
 open Marker
 open Nat0
-open PeanoNat
 open Step
 
 (** val nsc_marker :
-    (nat -> string) -> ordered_list_delim -> nat -> marker **)
+    (int -> string) -> ordered_list_delim -> int -> marker **)
 
 let nsc_marker core d n =
   MOrd ((core n), d)
 
 (** val nsc_items :
-    (nat -> string) -> ordered_list_delim -> nat -> string list list -> litem
+    (int -> string) -> ordered_list_delim -> int -> string list list -> litem
     list **)
 
 let rec nsc_items core d n = function
 | [] -> []
-| l :: rest -> ((nsc_marker core d n), l) :: (nsc_items core d (S n) rest)
+| l :: rest ->
+  ((nsc_marker core d n), l) :: (nsc_items core d (Stdlib.succ n) rest)
 
-(** val dec_marker : ordered_list_delim -> nat -> marker **)
+(** val dec_marker : ordered_list_delim -> int -> marker **)
 
 let dec_marker d n =
   MOrd ((dec_str n), d)
 
 (** val dec_items :
-    ordered_list_delim -> nat -> string list list -> litem list **)
+    ordered_list_delim -> int -> string list list -> litem list **)
 
 let rec dec_items d n = function
 | [] -> []
-| l :: rest -> ((dec_marker d n), l) :: (dec_items d (S n) rest)
+| l :: rest -> ((dec_marker d n), l) :: (dec_items d (Stdlib.succ n) rest)
 
 (** val roman_sty : bool -> ordered_list_style **)
 
@@ -47,25 +47,57 @@ let alpha_sty = function
 | true -> LetterUpper
 | false -> LetterLower
 
-(** val alpha_char : bool -> nat -> char **)
+(** val alpha_char : bool -> int -> char **)
 
 let alpha_char up n =
   ascii_of_nat
-    (add
+    (( + )
       (if up
-       then S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-       else S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S
-              O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+       then Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+       else Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
       n)
 
-(** val alpha_roman_digit : bool -> nat -> bool **)
+(** val alpha_roman_digit : bool -> int -> bool **)
 
 let alpha_roman_digit up n =
   if up then is_roman_up (alpha_char up n) else is_roman_lo (alpha_char up n)
@@ -74,9 +106,9 @@ type list_kind =
 | LKBullet
 | LKDef
 | LKTask of task_status list
-| LKDecimal of ordered_list_delim * nat
-| LKRoman of bool * ordered_list_delim * nat
-| LKAlpha of bool * ordered_list_delim * nat
+| LKDecimal of ordered_list_delim * int
+| LKRoman of bool * ordered_list_delim * int
+| LKAlpha of bool * ordered_list_delim * int
 
 (** val ck_first : list_kind -> marker **)
 
@@ -125,20 +157,26 @@ let ck_block k sp items =
     OrderedList ({ ol_style = (alpha_sty up); ol_delim = d; ol_start =
       start }, sp, items)
 
-(** val ck_ok : bconfig -> list_kind -> nat -> bool **)
+(** val ck_ok : bconfig -> list_kind -> int -> bool **)
 
 let ck_ok k k0 n =
   match k0 with
+  | LKBullet -> true
   | LKDef -> k.bdeflists
-  | LKTask checks -> (&&) k.btasks (Nat.eqb (length checks) n)
+  | LKTask checks -> (&&) k.btasks (( = ) (length checks) n)
+  | LKDecimal (_, start) -> dec_fits (sub (( + ) start n) (Stdlib.succ 0))
   | LKRoman (_, _, start) ->
-    (&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S Roman.upper))
+    (&&) (( <= ) (Stdlib.succ 0) start)
+      (( <= ) (( + ) start n) (Stdlib.succ Roman.upper))
   | LKAlpha (up, _, start) ->
-    (&&) ((&&) (Nat.leb (S O) start) (Nat.leb (add start n) (S Alpha.upper)))
+    (&&)
+      ((&&) (( <= ) (Stdlib.succ 0) start)
+        (( <= ) (( + ) start n) (Stdlib.succ Alpha.upper)))
       ((||)
         ((||) (negb (alpha_roman_digit up start))
-          ((&&) (Nat.leb (S (S O)) n) (negb (alpha_roman_digit up (S start)))))
+          ((&&) (( <= ) (Stdlib.succ (Stdlib.succ 0)) n)
+            (negb (alpha_roman_digit up (Stdlib.succ start)))))
         ((&&)
-          ((&&) (Nat.leb (S (S (S O))) n) (alpha_roman_digit up (S start)))
-          (negb (alpha_roman_digit up (S (S start))))))
-  | _ -> true
+          ((&&) (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) n)
+            (alpha_roman_digit up (Stdlib.succ start)))
+          (negb (alpha_roman_digit up (Stdlib.succ (Stdlib.succ start))))))

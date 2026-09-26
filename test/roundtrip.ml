@@ -33,7 +33,7 @@ let run ~pool depth r verbose =
     | `Keyed -> "keyed ", G.keyed_accepted, G.keyed_rt_lhs, keyed_counts
     | `Wiki -> "wiki ", G.wiki_accepted, G.wiki_rt_lhs, wiki_counts
   in
-  let docs = accepted (Parsers.nat_of_int depth) in
+  let docs = accepted depth in
   let t1 = Unix.gettimeofday () in
   let total = ref 0 and bad = ref 0 in
   List.iter

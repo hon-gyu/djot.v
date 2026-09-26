@@ -13,8 +13,8 @@ let html = Djot.Html.convert "# hi\n\n*strong* and [a](b)\n"
 ```
 
 `Djot.Html.convert : string -> string` is the intended entry point.  The
-deeper modules mirror the Coq ones and are usable, but they speak the
-extracted representation: numbers are the unary `Djot.Datatypes.nat`.
+deeper modules mirror the Coq ones and are usable; they speak the
+extracted representation, with numbers as OCaml `int`.
 
 For source locations, call `Djot.Step.parse_blocks_located` or
 `Djot.Document.parse_doc_located` with `Djot.Inline.djot_table` and

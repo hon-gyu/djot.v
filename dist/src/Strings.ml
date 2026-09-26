@@ -1,6 +1,5 @@
 open Ast
 open Datatypes
-open DecimalString
 open List0
 open Nat0
 
@@ -44,10 +43,9 @@ let nonempty_str s =
     (fun _ _ -> true)
     s
 
-(** val nat_str : nat -> string **)
+(** val nat_str : int -> string **)
 
-let nat_str n =
-  NilZero.string_of_uint (to_uint n)
+let nat_str = Stdlib.string_of_int
 
 (** val rev_string : string -> string **)
 
@@ -66,7 +64,7 @@ let rec drop_leading_ws s =
     (fun c s' -> if is_ws c then drop_leading_ws s' else s)
     s
 
-(** val indent_of : string -> nat **)
+(** val indent_of : string -> int **)
 
 let rec indent_of s =
   (* If this appears, you're using String internals. Please don't *)
@@ -74,8 +72,8 @@ let rec indent_of s =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-    (fun _ -> O)
-    (fun c s' -> if is_ws c then S (indent_of s') else O)
+    (fun _ -> 0)
+    (fun c s' -> if is_ws c then Stdlib.succ (indent_of s') else 0)
     s
 
 (** val strip_trailing_ws : string -> string **)
@@ -83,20 +81,21 @@ let rec indent_of s =
 let strip_trailing_ws s =
   rev_string (drop_leading_ws (rev_string s))
 
-(** val drop_ws_upto : nat -> string -> string **)
+(** val drop_ws_upto : int -> string -> string **)
 
 let rec drop_ws_upto n s =
-  match n with
-  | O -> s
-  | S n' ->
-    ((* If this appears, you're using String internals. Please don't *)
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> s)
+    (fun n' ->
+    (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-       (fun _ -> s)
-       (fun c s' -> if is_ws c then drop_ws_upto n' s' else s)
-       s)
+      (fun _ -> s)
+      (fun c s' -> if is_ws c then drop_ws_upto n' s' else s)
+      s)
+    n
 
 (** val nl : string **)
 
@@ -109,21 +108,21 @@ let split_lines = (fun s -> match List.rev (String.split_on_char '\n' s) with
      | "" :: rest -> List.rev rest
      | parts -> List.rev parts)
 
-(** val index_lines_from : nat -> string list -> (nat * string) list **)
+(** val index_lines_from : int -> string list -> (int * string) list **)
 
 let rec index_lines_from i = function
 | [] -> []
-| l :: rest -> (i, l) :: (index_lines_from (S i) rest)
+| l :: rest -> (i, l) :: (index_lines_from (Stdlib.succ i) rest)
 
-(** val split_lines_indexed : string -> (nat * string) list **)
+(** val split_lines_indexed : string -> (int * string) list **)
 
 let split_lines_indexed s =
-  index_lines_from O (split_lines s)
+  index_lines_from 0 (split_lines s)
 
-type source_line = { source_line_start : nat; source_line_length : nat;
-                     source_line_ending : nat }
+type source_line = { source_line_start : int; source_line_length : int;
+                     source_line_ending : int }
 
-(** val line_table_aux : string -> nat -> nat -> source_line list **)
+(** val line_table_aux : string -> int -> int -> source_line list **)
 
 let rec line_table_aux s start len =
   (* If this appears, you're using String internals. Please don't *)
@@ -132,31 +131,31 @@ let rec line_table_aux s start len =
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
     (fun _ ->
-    match len with
-    | O -> []
-    | S _ ->
-      { source_line_start = start; source_line_length = len;
-        source_line_ending = O } :: [])
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> [])
+      (fun _ -> { source_line_start = start; source_line_length = len;
+      source_line_ending = 0 } :: [])
+      len)
     (fun c rest ->
     if (=) c '\n'
     then { source_line_start = start; source_line_length = len;
-           source_line_ending = (S
-           O) } :: (line_table_aux rest (S (add start len)) O)
-    else line_table_aux rest start (S len))
+           source_line_ending = (Stdlib.succ
+           0) } :: (line_table_aux rest (Stdlib.succ (( + ) start len)) 0)
+    else line_table_aux rest start (Stdlib.succ len))
     s
 
 (** val line_table : string -> source_line list **)
 
 let line_table s =
-  line_table_aux s O O
+  line_table_aux s 0 0
 
-(** val source_line_at : source_line list -> nat -> source_line option **)
+(** val source_line_at : source_line list -> int -> source_line option **)
 
 let source_line_at =
   nth_error
 
-type source_point = { source_byte : nat; source_line_index : nat;
-                      source_column : nat }
+type source_point = { source_byte : int; source_line_index : int;
+                      source_column : int }
 
 type source_span = { source_span_start : source_point;
                      source_span_stop : source_point }
@@ -166,9 +165,9 @@ type source_span = { source_span_start : source_point;
 let resolve_spot lines p =
   match source_line_at lines p.spot_line with
   | Some l ->
-    if leb p.spot_rem l.source_line_length
+    if ( <= ) p.spot_rem l.source_line_length
     then let col = sub l.source_line_length p.spot_rem in
-         Some { source_byte = (add l.source_line_start col);
+         Some { source_byte = (( + ) l.source_line_start col);
          source_line_index = p.spot_line; source_column = col }
     else None
   | None -> None

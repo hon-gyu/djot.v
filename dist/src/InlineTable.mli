@@ -1,10 +1,7 @@
-open Ascii
 open Ast
 open Attributes
-open Datatypes
 open List0
 open ListDef
-open PeanoNat
 open Strings
 
 val is_punct : char -> bool
@@ -74,7 +71,7 @@ type ddecay =
 | DDSelf
 | DDPair of bool * string * string
 
-type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> nat);
+type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> int);
                  dc_syntax : (dstyle -> dsyntax);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography : 
                  bool; dc_raw_inline : bool; dc_math : bool; dc_attrs : 
@@ -94,11 +91,11 @@ val rdquo : string
 
 val djot_ddecay : dstyle -> ddecay
 
-val djot_dwidth : dstyle -> nat
+val djot_dwidth : dstyle -> int
 
 val djot_config : dconfig
 
-val chars : char -> nat -> string
+val chars : char -> int -> string
 
 val dstyles : dstyle list
 

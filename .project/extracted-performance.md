@@ -8,10 +8,11 @@ tree now. Measurements are dated and carry the commit they were read at;
 re-measure before quoting them.
 
 Status: document-size and paragraph-length quadratics fixed (`split_lines`,
-`rev_string`, `List.rev`).  Recursive `String.length` no longer copies each
-suffix, but structural matches still make long lines quadratic.  The last
-ordinary-prose comparison against cmarkit measured a roughly 13x constant
-factor before the smaller fixes below; re-measure before quoting it.
+`rev_string`, `List.rev`).  `nat` is extracted to OCaml `int`, which
+removed unary arithmetic and character classification through unary
+`nat` and roughly halved ordinary-prose parse time.  Structural matches
+still make long lines quadratic.  The last comparison against cmarkit
+predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
 beside the existing semantic parser.  `line_table` and `resolve_span`
@@ -37,14 +38,16 @@ with `String c acc` extracts to `String.make 1 c ^ acc` and has the same
 cost on the accumulator. Neither is visible in Rocq, where both are O(1).
 
 Three more costs have the same character, invisible under `vm_compute`
-and quadratic or worse once extracted:
+and quadratic or worse once extracted (all three are now fixed):
 
 - Stdlib `rev` is `rev l' ++ [x]`, O(n^2), and `app` is not tail
   recursive.
 - Stdlib `String.length` is a structural recursion: a tail copy per
   character, a unary result, and a stack frame per character.
-- `nat_of_ascii` goes through an 8-bit `N` and then expands to a unary
-  `nat` of up to 255 cells, per character classified.
+- Unary `nat`: `nat_of_ascii` goes through an 8-bit `N` and expands to up
+  to 255 cells per character classified, and arithmetic recurses once
+  per unit, not in tail position.  A nine-digit list start
+  (`123456789. ok`) overflowed the stack.
 
 A deep non-tail recursion also costs the GC: every minor collection scans
 the whole stack, so a recursion n frames deep makes the collector's share
@@ -83,6 +86,33 @@ How the additions were checked (2026-09-16):
 - test suite 287/287 and generated 6167/6167 exact HTML;
 - depth-3 roundtrip: 43857 documents, no mismatch;
 - the committed extracted package matched the extraction.
+
+`nat` as OCaml `int` (2026-09-26).  `Extract Inductive nat` maps `nat`
+to `int`; `add`, `mul`, `sub`, `pred`, `eqb`, `leb`, `ltb`, `div` and
+`modulo` of both `Init.Nat` and `PeanoNat.Nat` are OCaml arithmetic, with
+`sub` truncated at zero and division by zero as Gallina defines it;
+`nat_of_ascii` is `Char.code`, `ascii_of_nat` keeps the low eight bits,
+and `Strings.nat_str` is `string_of_int`.  `int` wraps at `max_int`
+where `nat` does not.  The parser's numbers are lengths, positions,
+counts, and numerals read from the input; a roman numeral is at most
+1000 per character, and a decimal list start is the one numeral that
+could otherwise grow without bound.  The theories now take no decimal
+marker longer than 18 digits (`Line.dec_digits_max`), and
+`Marker.dec_start_bound` proves every start the parser reads is below
+10^18.  The renderer's side condition `ck_ok` asks the same of a decimal
+list's last number (`Marker.dec_fits`).
+
+How the substitution was checked (2026-09-26), old extraction against new:
+
+- every realized operation on all pairs of operands up to 150, every
+  byte for `nat_of_ascii`, 0 to 2000 for `ascii_of_nat`, 0 to 20000 for
+  `nat_str`;
+- `Html.convert` on the djot.js test files and benchmark inputs, every
+  string over `{1, 9, ., ), (, space, a, i, \n, -}` up to length 6, every
+  string over a 22-character marker alphabet up to length 4, and 4000
+  random strings at each length 5 to 60; 1539344 inputs, no difference;
+- test suite 287/287 and generated 6167/6167 exact HTML; depth-3
+  roundtrip 43857/43857; located bounds 44150/44150.
 
 Any further `Extract Constant` joins this list and gets the same check.
 
@@ -164,24 +194,25 @@ at x64 across two runs.  Ours is 10x to 16x djot.js's parse, which is
 the constant factor the first table already records against cmarkit
 rather than a scaling difference: both grow linearly here.
 
+### `nat` as `int`
+
+2026-09-26, `59a4c82` against the same tree with `nat` extracted to `int`,
+release profile, same machine.  `Html.convert` (parse and HTML), best of
+20 for `readme.dj` and best of 3 to 5 otherwise, both extractions linked
+into one executable.
+
+| input | unary `nat` | `int` |
+| --- | --- | --- |
+| `readme.dj` | 4.16 ms | 2.31 ms |
+| `readme.dj` x64 | 297.9 ms | 157.8 ms |
+| one paragraph, 4000 40-byte lines | 444.6 ms | 313.7 ms |
+| one 20 KB line of `a` | 205.3 ms | 174.6 ms |
+| `12345678. ok` | 1268.9 ms | under 0.01 ms |
+| `123456789. ok` | stack overflow | under 0.01 ms |
+
 ## Open, ranked by what they cost a real document
 
-### 1. Character classification through unary `nat`
-
-`Line.in_range lo hi c` is `Nat.leb lo (nat_of_ascii c) && ...`, and
-`is_digit`, `is_lower`, `is_upper`, `is_alnum` are built on it.
-
-Profile of `readme.dj` x64, 4327 top-of-stack samples: `Nat0.add` 826 and
-`PeanoNat.leb` 792 lead. `add` is called from `N_of_digits` and
-`PosDef.iter_op`, which is the `N` to `nat` conversion. `leb` is called
-from `Line.in_range` and `Line.is_alnum`. This is the largest share of the
-constant factor on ordinary prose.
-
-Fix, cheapest first: define the classes by `Ascii` comparison
-(`Ascii.compare` already extracts to `Char.compare`); or keep the
-definitions and add `Extract Inlined Constant` for the classifiers.
-
-### 2. Tail copies inside a line
+### 1. Tail copies inside a line
 
 Per-character recursion with a tail copy: `Line` 60 occurrences,
 `Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
@@ -196,7 +227,7 @@ this is the expensive item. It is the same change that source positions
 need (`Ast.pos` exists but nothing produces `SomePos`), so do it together
 with positions, not separately.
 
-### 3. Delimiter lookup per character
+### 2. Delimiter lookup per character
 
 `Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
 row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
@@ -205,6 +236,5 @@ constant factor; a precomputed character-to-style table would remove it.
 
 ## Order
 
-Character classification is local to `Line.v` and is the next small
-constant-factor target.  Offset scanning waits for positions.  Delimiter
-lookup is last.
+Offset scanning waits for positions.  Delimiter lookup is the remaining
+local constant-factor target.
