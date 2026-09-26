@@ -398,6 +398,30 @@ Extract Constant DjotV.InlineView.str_last =>
   "(fun s prev ->
      let n = String.length s in if n = 0 then prev else Some s.[n - 1])".
 
+(* The scanner asks which row a byte belongs to for every byte it reads.
+   The table's rows are functions, so the Gallina lookup makes up to
+   eighteen indirect calls per byte.  This builds the answer for all 256
+   bytes once per table, by the same first-match search in the same row
+   order (`dstyles`), and keeps the last table's array.  A caller builds
+   its table once and the parser never builds one, so the cached table
+   is hit for the whole parse; the cache holds an immutable pair, so a
+   reader on another domain sees either pair whole. *)
+Extract Constant DjotV.InlineTable.dstyle_at_fast =>
+  "(let rows = [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DDelete;
+               DSQuote; DDQuote] in
+    let build c =
+      Array.init 256 (fun i ->
+        let ch = Char.chr i in
+        List.find_opt (fun k ->
+          (match c.dc_syntax k with DOff -> false | _ -> true)
+          && c.dc_char k = ch) rows) in
+    let last = Atomic.make None in
+    fun c ch ->
+      let tbl = match Atomic.get last with
+        | Some (c', tbl) when c' == c -> tbl
+        | _ -> let tbl = build c in Atomic.set last (Some (c, tbl)); tbl in
+      Array.unsafe_get tbl (Char.code ch))".
+
 (* The Gallina inline drivers recurse through [String c rest].  With native
    OCaml strings that copies the whole remaining line at every byte.  These
    loops read by offset, and run the scanner on the [chunks] buffer, whose

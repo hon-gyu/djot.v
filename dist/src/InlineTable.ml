@@ -427,27 +427,20 @@ let denabled c k =
 
 (** val dstyle_at_fast : dconfig -> char -> dstyle option **)
 
-let dstyle_at_fast c c0 =
-  let hit = fun k -> (&&) (denabled c k) ((=) (c.dc_char k) c0) in
-  if hit DEmph
-  then Some DEmph
-  else if hit DStrong
-       then Some DStrong
-       else if hit DSuper
-            then Some DSuper
-            else if hit DSub
-                 then Some DSub
-                 else if hit DMark
-                      then Some DMark
-                      else if hit DInsert
-                           then Some DInsert
-                           else if hit DDelete
-                                then Some DDelete
-                                else if hit DSQuote
-                                     then Some DSQuote
-                                     else if hit DDQuote
-                                          then Some DDQuote
-                                          else None
+let dstyle_at_fast = (let rows = [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DDelete;
+               DSQuote; DDQuote] in
+    let build c =
+      Array.init 256 (fun i ->
+        let ch = Char.chr i in
+        List.find_opt (fun k ->
+          (match c.dc_syntax k with DOff -> false | _ -> true)
+          && c.dc_char k = ch) rows) in
+    let last = Atomic.make None in
+    fun c ch ->
+      let tbl = match Atomic.get last with
+        | Some (c', tbl) when c' == c -> tbl
+        | _ -> let tbl = build c in Atomic.set last (Some (c, tbl)); tbl in
+      Array.unsafe_get tbl (Char.code ch))
 
 (** val with_wikilinks : bool -> dconfig -> dconfig **)
 
