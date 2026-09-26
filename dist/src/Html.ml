@@ -351,8 +351,11 @@ let rec render_inline refs il a =
 
 (** val render_inlines : reference_map -> inlines -> helt list **)
 
-let render_inlines refs ils =
-  flat_map (fun n -> let Node (_, a, x) = n in render_inline refs x a) ils
+let rec render_inlines refs = function
+| [] -> []
+| n :: rest ->
+  let Node (_, a, x) = n in
+  app (render_inline refs x a) (render_inlines refs rest)
 
 (** val align_attr : align -> attr **)
 
