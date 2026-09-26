@@ -23,9 +23,17 @@
    quote does not, so `> # h` yields a bare `<h1 id="h">`.  Identifiers
    are assigned everywhere and share one counter. *)
 
-From Stdlib Require Import String Ascii List Bool.
+From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
+From Stdlib Require MSetAVL FMapAVL OrdersEx OrderedTypeEx.
 From DjotV Require Import Strings Ast Parser.
 Import ListNotations.
+
+(* Balanced trees over strings, for the identifier pass: the identifiers
+   taken so far, the labels that already have an implicit reference, and
+   each base's next candidate index.  Declared here because a module
+   cannot be declared inside a section. *)
+Module StrSet := MSetAVL.Make OrdersEx.String_as_OT.
+Module StrMap := FMapAVL.Make OrderedTypeEx.String_as_OT.
 
 Local Open Scope string_scope.
 
@@ -111,12 +119,13 @@ Local Definition id_candidate (base : string) (i : nat) : string :=
   else (match base with EmptyString => "s" | _ => base end)
        ++ "-" ++ nat_str i.
 
-(* Fuel, fixed by `unique_id` below so that nothing outside this section
-   mentions it.  With n identifiers taken, candidates 0..n+1 are n+2
-   distinct strings, so one of them is free and the O branch is
+(* The specification: the first free candidate.  Fuel, fixed by
+   `unique_id` below.  With n identifiers taken, candidates 0..n+1 are
+   n+2 distinct strings, so one of them is free and the O branch is
    unreachable.  Argued, not proved: the discharge lemma (compare
    `Step.step_fuel_enough`) needs pigeonhole plus injectivity of
-   `nat_str`, and would buy freshness of the assigned identifier. *)
+   `nat_str`.  Nothing depends on it: `assign_heading_id_spec` relates the
+   pass to this definition whatever the O branch returns. *)
 Local Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
   : string :=
   let cand := id_candidate base i in
@@ -128,7 +137,7 @@ Local Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string
       else unique_id_from f (S i) used base
   end.
 
-Local Definition unique_id (used : list string) (base : string) : string :=
+Definition unique_id (used : list string) (base : string) : string :=
   unique_id_from (S (S (length used))) 0 used base.
 
 (*
@@ -136,13 +145,30 @@ The identifier pass
 -------------------
 *)
 
-(* Threaded through the block tree in document order.  Both accumulators
-   hold their entries newest-first; `doc_pass` reverses them. *)
+(* Threaded through the block tree in document order.  Both lists hold
+   their entries newest-first; `doc_pass` reverses them.
+
+   Run as written, `unique_id` rescans every candidate from 0 against the
+   whole list, which is cubic in the number of headings sharing a text.
+   The pass keeps three more fields so that it need not: the taken set,
+   the labels with an implicit reference, and per base the index below
+   which every candidate is known to be taken.  `id_inv` says the fields
+   agree with the lists, and `assign_heading_id_spec` says the pass then
+   assigns `unique_id` exactly. *)
 Record id_state : Type := IdSt
   { id_used : list string
-  ; id_refs : reference_map }.
+  ; id_refs : reference_map
+  ; id_count : nat
+  ; id_used_set : StrSet.t
+  ; id_ref_labels : StrSet.t
+  ; id_next : StrMap.t nat }.
 
-Definition id_state_init : id_state := IdSt [] [].
+Definition id_state_init : id_state :=
+  IdSt [] [] 0 StrSet.empty StrSet.empty (@StrMap.empty nat).
+
+Local Definition take_id (ident : string) (st : id_state) : id_state :=
+  IdSt (ident :: id_used st) (id_refs st) (S (id_count st))
+       (StrSet.add ident (id_used_set st)) (id_ref_labels st) (id_next st).
 
 (* An implicit reference from the heading's text to its own id, unless
    that label already has an implicit one.  Explicit references are not
@@ -150,9 +176,11 @@ Definition id_state_init : id_state := IdSt [] [].
    one and lookup takes the first match, so an explicit definition wins
    at lookup. *)
 Local Definition add_auto_ref (label ident : string) (st : id_state) : id_state :=
-  if existsb (fun p => String.eqb (fst p) label) (id_refs st)
+  if StrSet.mem label (id_ref_labels st)
   then st
-  else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st).
+  else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st)
+            (id_count st) (id_used_set st)
+            (StrSet.add label (id_ref_labels st)) (id_next st).
 
 (* An identifier a block attribute spec supplied is taken, and a later
    heading's auto-identifier steps around it.  Every id present in the
@@ -161,8 +189,29 @@ Local Definition add_auto_ref (label ident : string) (st : id_state) : id_state 
 Definition register_id (a : attr) (st : id_state) : id_state :=
   match alist_lookup "id" a with
   | None => st
-  | Some ident => IdSt (ident :: id_used st) (id_refs st)
+  | Some ident => take_id ident st
   end.
+
+(* `unique_id_from` with the taken test on the set, returning the index. *)
+Local Fixpoint fresh_index (taken : StrSet.t) (base : string) (fuel i : nat)
+  : nat :=
+  match fuel with
+  | O => i
+  | S f =>
+      let cand := id_candidate base i in
+      if nonempty_str cand && negb (StrSet.mem cand taken)
+      then i
+      else fresh_index taken base f (S i)
+  end.
+
+(* The index to search from, and the fuel that makes the search end where
+   `unique_id`'s does. *)
+Local Definition fresh_for (st : id_state) (base : string) : nat :=
+  let start := match StrMap.find base (id_next st) with
+               | Some n => n
+               | None => 0
+               end in
+  fresh_index (id_used_set st) base (S (S (id_count st)) - start) start.
 
 Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
   (st : id_state) : id_state * node block :=
@@ -175,11 +224,204 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
       (add_auto_ref (normalize_label text) ident (register_id a st),
        Node p a (Heading lvl ils))
   | None =>
-      let ident := unique_id (id_used st) (id_base text) in
-      let st' := IdSt (ident :: id_used st) (id_refs st) in
+      let base := id_base text in
+      let i := fresh_for st base in
+      let ident := id_candidate base i in
+      let st1 := take_id ident st in
+      let st' := IdSt (id_used st1) (id_refs st1) (id_count st1)
+                      (id_used_set st1) (id_ref_labels st1)
+                      (StrMap.add base (S i) (id_next st1)) in
       (add_auto_ref (normalize_label text) ident st',
        Node p (("id", ident) :: a) (Heading lvl ils))
   end.
+
+(*
+Agreement with the specification
+---------------------------------
+*)
+
+Local Definition id_free (used : list string) (base : string) (j : nat) : bool :=
+  nonempty_str (id_candidate base j)
+  && negb (id_taken used (id_candidate base j)).
+
+Definition id_inv (st : id_state) : Prop :=
+  (forall s, StrSet.In s (id_used_set st) <-> In s (id_used st))
+  /\ (forall l, StrSet.In l (id_ref_labels st) <-> In l (map fst (id_refs st)))
+  /\ id_count st = length (id_used st)
+  /\ (forall base n, StrMap.MapsTo base n (id_next st) ->
+        n <= S (S (length (id_used st)))
+        /\ forall j, j < n -> id_free (id_used st) base j = false).
+
+Lemma id_inv_init : id_inv id_state_init.
+Proof.
+  split; [|split; [|split]]; cbn.
+  - intros s. split; [intros H; apply StrSet.empty_spec in H; contradiction|
+                      intros []].
+  - intros l. split; [intros H; apply StrSet.empty_spec in H; contradiction|
+                      intros []].
+  - reflexivity.
+  - intros base n H. apply StrMap.find_1 in H. discriminate H.
+Qed.
+
+Local Lemma id_taken_in : forall used s, id_taken used s = true <-> In s used.
+Proof.
+  intros used s. unfold id_taken. rewrite existsb_exists. split.
+  - intros [x [Hx He]]. apply String.eqb_eq in He. subst x. exact Hx.
+  - intros H. exists s. split; [exact H|apply String.eqb_refl].
+Qed.
+
+Local Lemma mem_taken : forall st s,
+  (forall s, StrSet.In s (id_used_set st) <-> In s (id_used st)) ->
+  StrSet.mem s (id_used_set st) = id_taken (id_used st) s.
+Proof.
+  intros st s H. destruct (StrSet.mem s (id_used_set st)) eqn:E;
+    destruct (id_taken (id_used st) s) eqn:E'; try reflexivity.
+  - apply StrSet.mem_spec, H, id_taken_in in E. congruence.
+  - apply id_taken_in, H, StrSet.mem_spec in E'. congruence.
+Qed.
+
+(* Taking an identifier only makes more candidates taken. *)
+Local Lemma id_free_cons : forall used x base j,
+  id_free used base j = false -> id_free (x :: used) base j = false.
+Proof.
+  intros used x base j H. unfold id_free, id_taken in *. cbn [existsb].
+  destruct (nonempty_str (id_candidate base j)); [|reflexivity].
+  destruct (existsb (String.eqb (id_candidate base j)) used); [|discriminate H].
+  rewrite orb_true_r. reflexivity.
+Qed.
+
+Local Lemma fresh_index_spec : forall st base f i,
+  (forall s, StrSet.In s (id_used_set st) <-> In s (id_used st)) ->
+  id_candidate base (fresh_index (id_used_set st) base f i)
+  = unique_id_from f i (id_used st) base
+  /\ i <= fresh_index (id_used_set st) base f i <= i + f
+  /\ (forall j, i <= j < fresh_index (id_used_set st) base f i ->
+        id_free (id_used st) base j = false).
+Proof.
+  intros st base f. induction f as [|f IH]; intros i Hset.
+  - cbn. split; [reflexivity|split; [lia|intros j Hj; lia]].
+  - cbn [fresh_index unique_id_from]. rewrite (mem_taken st _ Hset).
+    destruct (nonempty_str (id_candidate base i)
+              && negb (id_taken (id_used st) (id_candidate base i))) eqn:E.
+    + split; [reflexivity|split; [lia|intros j Hj; lia]].
+    + destruct (IH (S i) Hset) as [Hc [Hb Hf]].
+      split; [exact Hc|split; [lia|]].
+      intros j Hj. destruct (Nat.eq_dec j i) as [->|Hne]; [exact E|].
+      apply Hf. lia.
+Qed.
+
+(* Skipping candidates known to be taken does not change the answer. *)
+Local Lemma unique_id_from_skip : forall used base k f i,
+  (forall j, i <= j < i + k -> id_free used base j = false) ->
+  unique_id_from (k + f) i used base = unique_id_from f (i + k) used base.
+Proof.
+  intros used base k. induction k as [|k IH]; intros f i H.
+  - rewrite Nat.add_0_r. reflexivity.
+  - cbn [Nat.add unique_id_from].
+    pose proof (H i ltac:(lia)) as Hi. unfold id_free in Hi. rewrite Hi.
+    rewrite IH by (intros j Hj; apply H; lia).
+    f_equal. lia.
+Qed.
+
+Local Lemma fresh_for_spec : forall st base,
+  id_inv st ->
+  id_candidate base (fresh_for st base) = unique_id (id_used st) base
+  /\ fresh_for st base <= S (S (length (id_used st)))
+  /\ forall j, j < fresh_for st base -> id_free (id_used st) base j = false.
+Proof.
+  intros st base [Hset [_ [Hcount Hnext]]]. unfold fresh_for, unique_id.
+  rewrite Hcount.
+  set (L := S (S (length (id_used st)))).
+  destruct (StrMap.find base (id_next st)) as [n|] eqn:Ef.
+  - apply StrMap.find_2 in Ef. destruct (Hnext base n Ef) as [Hn Hlow].
+    destruct (fresh_index_spec st base (L - n) n Hset) as [Hc [Hb Hf]].
+    assert (Hu : unique_id_from L 0 (id_used st) base
+                 = unique_id_from (L - n) n (id_used st) base).
+    { replace L with (n + (L - n)) at 1 by lia.
+      rewrite (unique_id_from_skip _ _ n (L - n) 0)
+        by (intros j Hj; apply Hlow; lia).
+      reflexivity. }
+    rewrite Hu. split; [exact Hc|split; [lia|]].
+    intros j Hj. destruct (Nat.lt_ge_cases j n); [apply Hlow; lia|apply Hf; lia].
+  - destruct (fresh_index_spec st base (L - 0) 0 Hset) as [Hc [Hb Hf]].
+    rewrite Nat.sub_0_r in *.
+    split; [exact Hc|split; [lia|intros j Hj; apply Hf; lia]].
+Qed.
+
+Local Lemma take_id_inv : forall ident st,
+  id_inv st -> id_inv (take_id ident st).
+Proof.
+  intros ident st [Hset [Hlab [Hcount Hnext]]].
+  unfold take_id. split; [|split; [|split]]; cbn [id_used id_refs id_count
+    id_used_set id_ref_labels id_next length In].
+  - intros s. rewrite StrSet.add_spec, Hset. split; intros [H|H]; auto.
+  - exact Hlab.
+  - rewrite Hcount. reflexivity.
+  - intros base n H. destruct (Hnext base n H) as [Hn Hlow].
+    split; [lia|intros j Hj; apply id_free_cons, Hlow, Hj].
+Qed.
+
+Local Lemma add_auto_ref_inv : forall label ident st,
+  id_inv st -> id_inv (add_auto_ref label ident st).
+Proof.
+  intros label ident st Hinv. unfold add_auto_ref.
+  destruct (StrSet.mem label (id_ref_labels st)); [exact Hinv|].
+  destruct Hinv as [Hset [Hlab [Hcount Hnext]]].
+  split; [|split; [|split]]; cbn [id_used id_refs id_count
+    id_used_set id_ref_labels id_next map fst In]; try assumption.
+  intros l. rewrite StrSet.add_spec, Hlab. split; intros [H|H]; auto.
+Qed.
+
+Lemma register_id_inv : forall a st, id_inv st -> id_inv (register_id a st).
+Proof.
+  intros a st H. unfold register_id.
+  destruct (alist_lookup "id" a); [apply take_id_inv, H|exact H].
+Qed.
+
+(* The pass assigns what the specification assigns, and keeps `id_inv`. *)
+Theorem assign_heading_id_spec : forall p a lvl ils st,
+  id_inv st ->
+  alist_lookup "id" a = None ->
+  snd (assign_heading_id p a lvl ils st)
+  = Node p (("id", unique_id (id_used st) (id_base (inlines_text ils))) :: a)
+         (Heading lvl ils).
+Proof.
+  intros p a lvl ils st Hinv Ha. unfold assign_heading_id. rewrite Ha.
+  cbn [snd]. destruct (fresh_for_spec st (id_base (inlines_text ils)) Hinv)
+    as [Hc _]. rewrite Hc. reflexivity.
+Qed.
+
+Lemma assign_heading_id_inv : forall p a lvl ils st,
+  id_inv st -> id_inv (fst (assign_heading_id p a lvl ils st)).
+Proof.
+  intros p a lvl ils st Hinv. unfold assign_heading_id.
+  destruct (alist_lookup "id" a) as [ident|] eqn:Ha; cbn [fst].
+  - apply add_auto_ref_inv, register_id_inv, Hinv.
+  - apply add_auto_ref_inv.
+    set (base := id_base (inlines_text ils)).
+    destruct (fresh_for_spec st base Hinv) as [_ [Hb Hlow]].
+    set (i := fresh_for st base) in *.
+    pose proof (take_id_inv (id_candidate base i) st Hinv)
+      as [Hset [Hlab [Hcount Hnext]]].
+    unfold take_id in *.
+    split; [|split; [|split]]; cbn [id_used id_refs id_count
+      id_used_set id_ref_labels id_next] in *; try assumption.
+    intros b n Hm.
+    destruct (String.string_dec b base) as [->|Hne].
+    + assert (n = S i) as ->.
+      { apply StrMap.find_1 in Hm.
+        assert (Hm' : StrMap.MapsTo base (S i)
+                        (StrMap.add base (S i) (id_next st)))
+          by (apply StrMap.add_1; reflexivity).
+        apply StrMap.find_1 in Hm'. congruence. }
+      split; [cbn [length]; lia|].
+      intros j Hj. destruct (Nat.eq_dec j i) as [->|Hne].
+      * unfold id_free, id_taken. cbn [existsb].
+        rewrite String.eqb_refl, orb_true_l, andb_false_r. reflexivity.
+      * apply id_free_cons, Hlow. lia.
+    + apply StrMap.add_3 in Hm; [exact (Hnext b n Hm)|].
+      intros He. apply Hne. symmetry. exact He.
+Qed.
 
 End WithTable.
 Module Ids.
@@ -532,6 +774,66 @@ Proof.
     cbn [of_items]. rewrite inner_go.
     destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
   intros p a oa sp items st. cbn [of_block]. rewrite H. reflexivity.
+Qed.
+
+(* The pass keeps `id_inv`, so by `assign_heading_id_spec` every heading
+   without an explicit id gets `unique_id` of the identifiers before it. *)
+Lemma of_block_inv :
+  forall b p a st, id_inv st -> id_inv (fst (of_block b p a st)).
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => forall st, id_inv st -> id_inv (fst (of_list bs st)))
+    (R := fun its => forall st, id_inv st -> id_inv (fst (of_items its st)))
+    (D := fun its => forall st, id_inv st -> id_inv (fst (of_def_items its st)))
+    (K := fun its => forall st, id_inv st -> id_inv (fst (of_task_items its st)));
+    intros.
+  all: try solve [cbn [of_block fst]; apply register_id_inv; assumption].
+  all: try solve [cbn [of_block]; apply assign_heading_id_inv; assumption].
+  all: try solve [
+    first [rewrite quote|rewrite div|rewrite foot|rewrite olist|rewrite blist
+          |rewrite tasklist|rewrite deflist];
+    match goal with
+    | |- id_inv (fst (let (_, _) := ?e in _)) => destruct e as [s' x'] eqn:E
+    end;
+    cbn [fst]; change s' with (fst (s', x')); rewrite <- E;
+    apply IHb, register_id_inv; assumption].
+  all: try solve [exact H].
+  - destruct b as [p' a' x].
+    specialize (IHb (register_id a st) (register_id_inv _ _ H)).
+    cbn [of_list of_node] in IHb. cbn [of_block].
+    destruct (of_block x p' a' (register_id a st)) as [s1 n1].
+    exact IHb.
+  - cbn [of_list of_node].
+    pose proof (IHb p a st H) as H1.
+    destruct (of_block b p a st) as [s1 n1]. cbn [fst] in H1.
+    pose proof (IHb0 s1 H1) as H2.
+    destruct (of_list rest s1) as [s2 r2]. exact H2.
+  - cbn [of_items].
+    pose proof (IHb st H) as H1.
+    destruct (of_list it st) as [s1 n1]. cbn [fst] in H1.
+    pose proof (IHb0 s1 H1) as H2.
+    destruct (of_items rest s1) as [s2 r2]. exact H2.
+  - cbn [of_def_items].
+    pose proof (IHb st H) as H1.
+    destruct (of_list it st) as [s1 n1]. cbn [fst] in H1.
+    pose proof (IHb0 s1 H1) as H2.
+    destruct (of_def_items rest s1) as [s2 r2]. exact H2.
+  - cbn [of_task_items].
+    pose proof (IHb st H) as H1.
+    destruct (of_list it st) as [s1 n1]. cbn [fst] in H1.
+    pose proof (IHb0 s1 H1) as H2.
+    destruct (of_task_items rest s1) as [s2 r2]. exact H2.
+Qed.
+
+Lemma of_list_inv :
+  forall bs st, id_inv st -> id_inv (fst (of_list bs st)).
+Proof.
+  induction bs as [|[p a b] rest IH]; intros st H; [exact H|].
+  cbn [of_list of_node].
+  pose proof (of_block_inv b p a st H) as H1.
+  destruct (of_block b p a st) as [s1 n1]. cbn [fst] in H1.
+  pose proof (IH s1 H1) as H2.
+  destruct (of_list rest s1) as [s2 r2]. exact H2.
 Qed.
 
 End WithTable.

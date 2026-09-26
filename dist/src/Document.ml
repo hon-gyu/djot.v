@@ -1,10 +1,19 @@
 open Ast
 open Datatypes
+open FMapAVL
 open InlineTable
 open List0
 open ListDef
+open MSetAVL
+open Nat0
+open OrderedTypeEx
+open OrdersEx
 open Step
 open Strings
+
+module StrSet = Make(String_as_OT)
+
+module StrMap = FMapAVL.Make(OrderedTypeEx.String_as_OT)
 
 (** val inline_text : inline -> string **)
 
@@ -31,7 +40,7 @@ let rec inline_text il =
    | Span ils -> go ils
    | UrlLink s -> s
    | EmailLink s -> s
-   | Wikilink (_, t, al) -> wiki_display t al
+   | Wikilink (_, t0, al) -> wiki_display t0 al
    | RawInline (_, s) -> s
    | Quoted (_, ils) -> go ils
    | SoftBreak -> nl
@@ -109,11 +118,6 @@ let is_id_sep c =
 let id_base s =
   String.concat "-" (words is_id_sep s)
 
-(** val id_taken : string list -> string -> bool **)
-
-let id_taken used s =
-  existsb ((=) s) used
-
 (** val id_candidate : string -> int -> string **)
 
 let id_candidate base i =
@@ -130,44 +134,62 @@ let id_candidate base i =
             base)
          ((^) "-" (nat_str i))
 
-(** val unique_id_from : int -> int -> string list -> string -> string **)
-
-let rec unique_id_from fuel i used base =
-  let cand = id_candidate base i in
-  ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-     (fun _ -> cand)
-     (fun f ->
-     if (&&) (nonempty_str cand) (negb (id_taken used cand))
-     then cand
-     else unique_id_from f (Stdlib.succ i) used base)
-     fuel)
-
-(** val unique_id : string list -> string -> string **)
-
-let unique_id used base =
-  unique_id_from (Stdlib.succ (Stdlib.succ (length used))) 0 used base
-
-type id_state = { id_used : string list; id_refs : reference_map }
+type id_state = { id_used : string list; id_refs : reference_map;
+                  id_count : int; id_used_set : StrSet.t;
+                  id_ref_labels : StrSet.t; id_next : int StrMap.t }
 
 (** val id_state_init : id_state **)
 
 let id_state_init =
-  { id_used = []; id_refs = [] }
+  { id_used = []; id_refs = []; id_count = 0; id_used_set = StrSet.empty;
+    id_ref_labels = StrSet.empty; id_next = StrMap.empty }
+
+(** val take_id : string -> id_state -> id_state **)
+
+let take_id ident st =
+  { id_used = (ident :: st.id_used); id_refs = st.id_refs; id_count =
+    (Stdlib.succ st.id_count); id_used_set =
+    (StrSet.add ident st.id_used_set); id_ref_labels = st.id_ref_labels;
+    id_next = st.id_next }
 
 (** val add_auto_ref : string -> string -> id_state -> id_state **)
 
 let add_auto_ref label ident st =
-  if existsb (fun p -> (=) (fst p) label) st.id_refs
+  if StrSet.mem label st.id_ref_labels
   then st
   else { id_used = st.id_used; id_refs = ((label, (((^) "#" ident),
-         [])) :: st.id_refs) }
+         [])) :: st.id_refs); id_count = st.id_count; id_used_set =
+         st.id_used_set; id_ref_labels = (StrSet.add label st.id_ref_labels);
+         id_next = st.id_next }
 
 (** val register_id : attr -> id_state -> id_state **)
 
 let register_id a st =
   match alist_lookup "id" a with
-  | Some ident -> { id_used = (ident :: st.id_used); id_refs = st.id_refs }
+  | Some ident -> take_id ident st
   | None -> st
+
+(** val fresh_index : StrSet.t -> string -> int -> int -> int **)
+
+let rec fresh_index taken base fuel i =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> i)
+    (fun f ->
+    let cand = id_candidate base i in
+    if (&&) (nonempty_str cand) (negb (StrSet.mem cand taken))
+    then i
+    else fresh_index taken base f (Stdlib.succ i))
+    fuel
+
+(** val fresh_for : id_state -> string -> int **)
+
+let fresh_for st base =
+  let start = match StrMap.find base st.id_next with
+              | Some n -> n
+              | None -> 0
+  in
+  fresh_index st.id_used_set base
+    (sub (Stdlib.succ (Stdlib.succ st.id_count)) start) start
 
 (** val assign_heading_id :
     pos -> attr -> int -> inlines -> id_state -> id_state * block node **)
@@ -179,8 +201,15 @@ let assign_heading_id p a lvl ils st =
      ((add_auto_ref (normalize_label text) ident (register_id a st)), (Node
        (p, a, (Heading (lvl, ils)))))
    | None ->
-     let ident = unique_id st.id_used (id_base text) in
-     let st' = { id_used = (ident :: st.id_used); id_refs = st.id_refs } in
+     let base = id_base text in
+     let i = fresh_for st base in
+     let ident = id_candidate base i in
+     let st1 = take_id ident st in
+     let st' = { id_used = st1.id_used; id_refs = st1.id_refs; id_count =
+       st1.id_count; id_used_set = st1.id_used_set; id_ref_labels =
+       st1.id_ref_labels; id_next =
+       (StrMap.add base (Stdlib.succ i) st1.id_next) }
+     in
      ((add_auto_ref (normalize_label text) ident st'), (Node (p, (("id",
      ident) :: a), (Heading (lvl, ils))))))
 
@@ -536,10 +565,10 @@ let doc_pass p bs =
 
 (** val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc **)
 
-let parse_doc t k p s =
-  doc_pass p (parse_blocks t k semantic_line_ix p s)
+let parse_doc t0 k p s =
+  doc_pass p (parse_blocks t0 k semantic_line_ix p s)
 
 (** val parse_doc_located : dtable -> bconfig -> string -> doc **)
 
-let parse_doc_located t k s =
-  doc_pass located_pos (parse_blocks_located t k s)
+let parse_doc_located t0 k s =
+  doc_pass located_pos (parse_blocks_located t0 k s)

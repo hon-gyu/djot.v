@@ -11,8 +11,9 @@ Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 `rev_string`, `List.rev`).  `nat` is extracted to OCaml `int`, which
 removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
-is linear.  Not production ready: four input shapes are superlinear in
-the parser (ranked below).  The last comparison
+is linear, and so is heading-identifier assignment up to a log factor.
+Not production ready: three input shapes are superlinear in the parser
+(ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
@@ -138,6 +139,30 @@ before.  A 5 MB file of short paragraphs converts in 2.35 s (dev
 profile, including process start), where it did not finish in ten
 minutes; djot.js takes 323 ms on it.
 
+Heading identifiers (2026-09-26).  `unique_id` tried `base`, `base-1`,
+... from 0 for every heading, each against the whole list of taken ids:
+cubic in the number of headings sharing a text (20 KB of one heading
+repeated took 10.1 s).  `unique_id` stays the specification.  The pass
+state (`Document.id_state`) also carries the taken ids as a balanced
+tree (`StrSet`, stdlib `MSetAVL`), the labels with an implicit reference
+likewise, and per base the index below which every candidate is taken
+(`StrMap`, stdlib `FMapAVL`); the search starts there.
+`assign_heading_id_spec` proves the pass assigns `unique_id` whenever
+`id_inv` holds, and `Ids.of_block_inv` / `Ids.of_list_inv` that the
+pass keeps it.  The same input now takes 6.7 ms, growing about 5x per
+4x.  `String.compare` and `OrdersEx.String_as_OT.compare`, the trees'
+order, are realized by OCaml's `String.compare` (trusted; the Gallina
+ones copy a tail per character).  The stdlib trees add fifteen
+extracted modules to the package.
+
+Checked (2026-09-26): 200000 random documents of headings, explicit ids
+that collide with generated ones, empty headings, headings in
+containers and implicit references, old extraction against new, no
+difference; both orders against a transcription of the Gallina order on
+every pair of strings over four characters (including 0 and 255) up to
+length 4, 116281 pairs, no difference; the 1539343-input `Html.convert`
+differential and the suites as before.
+
 Any further `Extract Constant` joins this list and gets the same check.
 
 ## Measurements
@@ -251,17 +276,7 @@ against full conversion (`Html.convert`).  djot.js figures are its
 output, so k unclosed openers cost O(k^2).  Algorithmic, in the scanner
 the inline proofs are about.
 
-### 2. Repeated heading text is cubic
-
-1000 copies of `# heading` take 1652 ms in the document pass; 1000
-distinct headings take 14 ms.  `unique_id` tries `base-1`, `base-2`, ...
-and each candidate is checked against every identifier used so far.  A
-next-index counter per base removes both factors.  The same refactor can
-prove freshness of the assigned identifier, which `Document.v` currently
-argues in a comment.  djot.js is quadratic here too (7.1 s for 160 KB of
-the same heading).
-
-### 3. Tail copies inside a line
+### 2. Tail copies inside a line
 
 Per-character recursion with a tail copy: `Line` 60 occurrences,
 `Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
@@ -282,14 +297,14 @@ Fix, either:
   match on `String c s'` is O(1).  No proof changes, a larger trusted
   realization, and `String c acc` construction stays a copy.
 
-### 4. Delimiter lookup per character
+### 3. Delimiter lookup per character
 
 `Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
 row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
 `List0.find` 145, `djot_dsyntax` 133 and `denabled` 99 samples. A
 constant factor; a precomputed character-to-style table would remove it.
 
-### 5. Inline links
+### 4. Inline links
 
 80 KB of `[a](b) ` wrapped at 78 columns parses in 34.6 ms, against
 3.7 ms at 20 KB (dev profile): 9.4x per 4x, superlinear, cause not yet
@@ -300,8 +315,8 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-The two algorithmic items first, in the inline scanner and the
-identifier pass; then long lines, then constant factors.
+Unclosed openers first, the remaining algorithmic item; then long
+lines, then constant factors.
 
 `make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
 through the document parse and `Html.convert` and prints the growth per

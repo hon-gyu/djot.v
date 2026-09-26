@@ -10,6 +10,7 @@
    so no conversion glue is needed on the OCaml side. *)
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
+From Stdlib Require OrdersEx.
 From DjotV Require Import Strings Html Step Document.
 From DjotVDev Require Import Fixtures Generate.
 
@@ -90,6 +91,18 @@ Extract Constant DjotV.Html.escape_attr =>
        | '""' -> Buffer.add_string b ""&quot;""
        | c -> Buffer.add_char b c) s;
      Buffer.contents b)".
+(* String order, for the identifier pass's balanced trees
+   (`Document.StrSet`, `Document.StrMap`).  Both Gallina orders are
+   lexicographic by character code with a proper prefix first, which is
+   OCaml's [String.compare]. *)
+Extract Constant String.compare =>
+  "(fun a b -> let c = Stdlib.String.compare a b in
+     if c = 0 then Datatypes.Eq else if c < 0 then Datatypes.Lt
+     else Datatypes.Gt)".
+Extract Constant OrdersEx.String_as_OT.compare =>
+  "(fun a b -> let c = Stdlib.String.compare a b in
+     if c = 0 then Datatypes.Eq else if c < 0 then Datatypes.Lt
+     else Datatypes.Gt)".
 Extract Constant DjotV.Strings.rev_string =>
   "(fun s -> let n = String.length s in
      String.init n (fun i -> String.get s (n - 1 - i)))".

@@ -4,6 +4,7 @@
   Ascii
   Ast
   Attributes
+  BinInt
   BinNat
   BinNums
   BinPos
@@ -13,23 +14,37 @@
   DecimalString
   Document
   Fixtures
+  FMapAVL
+  FMapList
   Generate
+  Hexadecimal
   Html
   Inline
   InlineLocated
   InlineScan
   InlineTable
   InlineView
+  Int
   Line
   List0
   ListDef
   ListUniformity
   Marker
+  MSetAVL
+  MSetInterface
   Nat0
+  Number
   OrderedList
+  OrderedType
+  OrderedTypeEx
+  Orders
+  OrdersEx
+  OrdersFacts
+  OrdersTac
   PeanoNat
   PosDef
   Render
+  Specif
   Step
   String0
   Strings
