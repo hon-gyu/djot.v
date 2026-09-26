@@ -835,17 +835,17 @@ module Roman =
 
   (** val acc : string -> int -> int -> int **)
 
-  let rec acc s prev total =
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> total)
-      (fun c s' ->
-      let n = digit c in
-      acc s' n (if ( < ) n prev then sub total n else ( + ) total n))
-      s
+  let rec acc = (fun s prev total ->
+     let digit = function
+       | 'i' | 'I' -> 1 | 'v' | 'V' -> 5 | 'x' | 'X' -> 10 | 'l' | 'L' -> 50
+       | 'c' | 'C' -> 100 | 'd' | 'D' -> 500 | 'm' | 'M' -> 1000 | _ -> 0 in
+     let n = String.length s in
+     let rec go i prev total =
+       if i >= n then total
+       else
+         let d = digit s.[i] in
+         go (i + 1) d (if d < prev then Stdlib.max 0 (total - d) else total + d) in
+     go 0 prev total)
 
   (** val value : string -> int **)
 

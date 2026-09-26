@@ -178,82 +178,38 @@ let is_id_char c =
 let is_attr_class_char =
   is_key_char
 
-(** val collapse_char : char -> bool **)
-
-let collapse_char c =
-  (||) ((||) ((=) c ' ') ((=) c '\r')) ((=) c '\n')
-
 (** val collapse_from : bool -> string -> string **)
 
-let rec collapse_from skip s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c s' ->
-    if collapse_char c
-    then if skip
-         then collapse_from true s'
-         else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                (' ', (collapse_from true s'))
-    else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, (collapse_from false s')))
-    s
+let rec collapse_from = (fun skip s ->
+     let b = Buffer.create (String.length s) in
+     let skip = ref skip in
+     String.iter (fun c ->
+       if c = ' ' || c = '\r' || c = '\n' then
+         (if not !skip then Buffer.add_char b ' '; skip := true)
+       else (Buffer.add_char b c; skip := false)) s;
+     Buffer.contents b)
 
 (** val collapse_ws : string -> string **)
 
 let collapse_ws s =
   collapse_from false s
 
-(** val is_escapable : char -> bool **)
-
-let is_escapable c =
-  existsb ((=) c)
-    ('.' :: (',' :: (bslash :: ('/' :: ('#' :: ('!' :: ('$' :: ('%' :: ('^' :: ('&' :: ('*' :: (';' :: (':' :: ('{' :: ('}' :: ('=' :: ('-' :: ('_' :: ('`' :: ('~' :: ('+' :: ('[' :: (']' :: ('(' :: (')' :: ('\'' :: (dquote :: ('?' :: ('|' :: [])))))))))))))))))))))))))))))
-
 (** val unescape : string -> string **)
 
-let rec unescape s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c s' ->
-    if (=) c bslash
-    then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-            (fun _ ->
-            (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c, ""))
-            (fun d s'' ->
-            if is_escapable d
-            then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                   (d, (unescape s''))
-            else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                   (c, (unescape s')))
-            s')
-    else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, (unescape s')))
-    s
+let rec unescape = (fun s ->
+     let n = String.length s in
+     let b = Buffer.create n in
+     let escapable = function
+       | '.' | ',' | '\\' | '/' | '#' | '!' | '$' | '%' | '^' | '&' | '*'
+       | ';' | ':' | '{' | '}' | '=' | '-' | '_' | '`' | '~' | '+' | '['
+       | ']' | '(' | ')' | '\'' | '"' | '?' | '|' -> true
+       | _ -> false in
+     let rec go i =
+       if i < n then
+         if s.[i] = '\\' && i + 1 < n && escapable s.[i + 1]
+         then (Buffer.add_char b s.[i + 1]; go (i + 2))
+         else (Buffer.add_char b s.[i]; go (i + 1)) in
+     go 0; Buffer.contents b)
 
 (** val norm_value : string -> string **)
 
@@ -382,19 +338,14 @@ let astep p c =
 
 (** val afeed : string -> aparser -> aparser * string **)
 
-let rec afeed s p =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> (p, ""))
-    (fun c s' ->
-    match p.ap_st with
-    | AFail -> (p, s)
-    | ADone -> (p, s)
-    | _ -> afeed s' (astep p c))
-    s
+let rec afeed = (fun s p ->
+     let n = String.length s in
+     let rec go i p =
+       if i >= n then (p, "")
+       else match p.ap_st with
+         | ADone | AFail -> (p, if i = 0 then s else String.sub s i (n - i))
+         | _ -> go (i + 1) (astep p s.[i]) in
+     go 0 p)
 
 (** val ap_done : aparser -> bool **)
 
@@ -417,15 +368,8 @@ let attr_nl =
 
 (** val blank_to_eol : string -> bool **)
 
-let rec blank_to_eol s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (attr_ws c) (blank_to_eol s'))
-    s
+let rec blank_to_eol = (fun s -> String.for_all (fun c ->
+     c = ' ' || c = '\t' || c = '\r' || c = '\n' || c = '\012' || c = '\011') s)
 
 (** val attr_open : string -> aparser option **)
 

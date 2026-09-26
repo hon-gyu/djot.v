@@ -15,13 +15,9 @@ val is_id_char : char -> bool
 
 val is_attr_class_char : char -> bool
 
-val collapse_char : char -> bool
-
 val collapse_from : bool -> string -> string
 
 val collapse_ws : string -> string
-
-val is_escapable : char -> bool
 
 val unescape : string -> string
 
