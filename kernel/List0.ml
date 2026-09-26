@@ -1,4 +1,5 @@
 open Datatypes
+open Nat0
 
 (** val hd : 'a1 -> 'a1 list -> 'a1 **)
 
@@ -67,3 +68,8 @@ let rec forallb f = function
 let rec filter f = function
 | [] -> []
 | x :: l0 -> if f x then x :: (filter f l0) else filter f l0
+
+(** val list_max : int list -> int **)
+
+let list_max l =
+  fold_right max 0 l

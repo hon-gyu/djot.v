@@ -209,7 +209,11 @@ module Profile = struct
 end
 
 module Doc = struct
-  type t = { kernel : K.Ast.doc; lines : K.Strings.source_line array option }
+  type t = {
+    kernel : K.Ast.doc;
+    lines : K.Strings.source_line array option;
+    profile : Profile.t;
+  }
 
   let of_string ?(profile = Profile.djot) ?(locs = false) s =
     let { K.Profile.profile_inline = table; profile_block = bconfig } = profile in
@@ -217,10 +221,13 @@ module Doc = struct
       {
         kernel = K.Document.parse_doc_located table bconfig s;
         lines = Some (Array.of_list (K.Strings.line_table s));
+        profile;
       }
-    else { kernel = K.Document.parse_doc table bconfig K.Ast.semantic_pos s; lines = None }
+    else
+      { kernel = K.Document.parse_doc table bconfig K.Ast.semantic_pos s; lines = None; profile }
 
-  let of_blocks bs = { kernel = K.Document.doc_pass K.Ast.semantic_pos bs; lines = None }
+  let of_blocks ?(profile = Profile.djot) bs =
+    { kernel = K.Document.doc_pass K.Ast.semantic_pos bs; lines = None; profile }
   let blocks d = d.kernel.doc_blocks
   let footnotes d = d.kernel.doc_footnotes
   let footnote d l = K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
@@ -426,4 +433,9 @@ module Html = struct
   let tree (d : Doc.t) = K.Html.html_tree d.kernel
   let to_string = K.Html.serialize_flat
   let of_doc (d : Doc.t) = K.Html.render_html d.kernel
+end
+
+module Source = struct
+  let of_doc (d : Doc.t) =
+    K.Render.render_doc d.profile.profile_inline d.profile.profile_block d.kernel
 end

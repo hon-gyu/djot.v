@@ -1,6 +1,7 @@
 open Ast
 open Attributes
 open Datatypes
+open Document
 open InlineScan
 open InlineTable
 open InlineView
@@ -9,6 +10,7 @@ open List0
 open ListDef
 open ListUniformity
 open OrderedList
+open PeanoNat
 open Step
 open Strings
 open Uniformity
@@ -295,23 +297,6 @@ let rec is_cref = function
 | CKey (_, inner) -> is_cref inner
 | _ -> false
 
-(** val id_chars_ok : string -> bool **)
-
-let rec id_chars_ok id =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c rest -> (&&) (is_id_char c) (id_chars_ok rest))
-    id
-
-(** val explicit_id_ok : string -> bool **)
-
-let explicit_id_ok id =
-  (&&) (nonempty_str id) (id_chars_ok id)
-
 (** val closes_table : dtable -> cblock -> bool **)
 
 let closes_table t cb =
@@ -541,10 +526,17 @@ let initial_sep = function
 let table_lines t rows =
   app (initial_sep rows) (flat_map (render_row t) rows)
 
-(** val caption_line : dtable -> inlines -> string **)
+(** val text_lines : dtable -> inlines -> string list **)
 
-let caption_line t ils =
-  (^) "^ " (hd "" (inline_lines t ils ""))
+let text_lines t ils =
+  split_lines (join_nl (inline_lines t ils ""))
+
+(** val caption_lines : dtable -> inlines -> string list **)
+
+let caption_lines t ils =
+  match text_lines t ils with
+  | [] -> "^" :: []
+  | l :: rest -> ((^) "^ " l) :: rest
 
 (** val task_open : task_status -> string **)
 
@@ -573,23 +565,71 @@ let task_litem_lines = function
                                      l1)
                                    more))
 
-(** val id_spec_lines : block node -> string list **)
+(** val attr_lines : attr -> string list **)
 
-let id_spec_lines n =
-  match alist_lookup "id" (node_attrs n) with
-  | Some v -> ((^) "{#" ((^) v "}")) :: []
-  | None -> []
+let attr_lines a = match a with
+| [] -> []
+| _ :: _ -> (attr_spec a) :: []
 
-(** val render_block_lines : dtable -> block -> string list **)
+(** val fence_class : attr -> block -> string **)
 
-let rec render_block_lines t b =
+let fence_class a = function
+| Div _ ->
+  (match a with
+   | [] -> ""
+   | p :: _ ->
+     let (k, c) = p in
+     if (&&) ((=) k "class") (class_word_ok c) then c else "")
+| _ -> ""
+
+(** val drop_class : string -> attr -> attr **)
+
+let drop_class cls a =
+  if (=) cls "" then a else filter (fun kv -> negb ((=) (fst kv) "class")) a
+
+(** val closer_run : string -> int **)
+
+let closer_run l =
+  let (n, r) = count_run ':' (drop_leading_ws l) in
+  if (&&) (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) n) (is_blank r)
+  then n
+  else 0
+
+(** val div_fence_for : dtable -> bconfig -> string list -> string **)
+
+let div_fence_for t k body =
+  if div_content_ok t k body
+  then div_fence
+  else chars ':'
+         (Nat.max (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) (Stdlib.succ
+           (list_max (map closer_run body))))
+
+(** val div_open_line : string -> string -> string **)
+
+let div_open_line fence cls =
+  if (=) cls "" then fence else (^) fence ((^) " " cls)
+
+(** val note_indent : string -> string **)
+
+let note_indent l =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun _ _ -> (^) "  " l)
+    l
+
+(** val render_lines : dtable -> bconfig -> attr -> block -> string list **)
+
+let rec render_lines t k a b =
   let itemss =
     let rec goitems = function
     | [] -> []
     | it :: rest ->
       (sep_lines
-        (map (fun n ->
-          app (id_spec_lines n) (render_block_lines t (node_contents n))) it)) :: 
+        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it)) :: 
         (goitems rest)
     in goitems
   in
@@ -600,8 +640,7 @@ let rec render_block_lines t b =
       let (chk, it) = p in
       (chk,
       (sep_lines
-        (map (fun n ->
-          app (id_spec_lines n) (render_block_lines t (node_contents n))) it))) :: 
+        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it))) :: 
       (gotasks rest)
     in gotasks
   in
@@ -611,69 +650,160 @@ let rec render_block_lines t b =
     | p :: rest ->
       let (term, it) = p in
       (sep_lines
-        (app
-          (match term with
-           | [] -> []
-           | _ :: _ -> (inline_lines t term "") :: [])
-          (map (fun n ->
-            app (id_spec_lines n) (render_block_lines t (node_contents n)))
+        (app (match term with
+              | [] -> []
+              | _ :: _ -> (text_lines t term) :: [])
+          (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
             it))) :: (godefs rest)
     in godefs
   in
+  let cls = fence_class a b in
+  app (attr_lines (drop_class cls a))
+    (match b with
+     | Para ils -> text_lines t ils
+     | Section bs ->
+       sep_lines
+         (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) bs)
+     | Heading (lvl, ils) -> map (heading_line lvl) (text_lines t ils)
+     | BlockQuote bs ->
+       map quote_line
+         (sep_lines
+           (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
+             bs))
+     | CodeBlock (lang, text) ->
+       (code_open lang) :: (app (split_lines text) (code_close :: []))
+     | Div bs ->
+       let body =
+         sep_lines
+           (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
+             bs)
+       in
+       (div_open_line (div_fence_for t k body) cls) :: (app body
+                                                         ((div_fence_for t k
+                                                            body) :: []))
+     | OrderedList (oa, sp, items) ->
+       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+     | BulletList (sp, items) ->
+       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+     | TaskList (sp, items) ->
+       list_lines sp (map task_litem_lines (taskitemss items))
+     | DefinitionList (sp, its) ->
+       list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
+     | ThematicBreak -> thematic_line :: []
+     | Table (cap, rows) ->
+       app (table_lines t rows)
+         (match cap with
+          | Some ils -> caption_lines t ils
+          | None -> [])
+     | RawBlock (fmt, text) ->
+       (code_open ((^) "=" fmt)) :: (app (split_lines text)
+                                      (code_close :: []))
+     | FootnoteDef (label, bs) ->
+       ((^) "[^" ((^) label "]:")) :: (map note_indent
+                                        (sep_lines
+                                          (map (fun n ->
+                                            render_lines t k (node_attrs n)
+                                              (node_contents n))
+                                            bs)))
+     | RefDef (label, dest) -> (ref_line label dest) :: []
+     | Ext_keyed (label, inner) ->
+       ((^)
+         (String.concat ""
+           (map (fun n -> inline_text t (node_contents n)) label))
+         ":") :: (render_lines t k (node_attrs inner) (node_contents inner)))
+
+(** val render_node_lines : dtable -> bconfig -> block node -> string list **)
+
+let render_node_lines t k n =
+  render_lines t k (node_attrs n) (node_contents n)
+
+(** val render_blocks_lines :
+    dtable -> bconfig -> blocks -> string list list **)
+
+let render_blocks_lines t k bs =
+  map (render_node_lines t k) bs
+
+(** val render_djot : dtable -> bconfig -> blocks -> string **)
+
+let render_djot t k bs =
+  String.concat nl (sep_lines (render_blocks_lines t k bs))
+
+(** val drop_id_if : string -> attr -> attr **)
+
+let drop_id_if v a =
+  match alist_lookup "id" a with
+  | Some v' ->
+    if (=) v v' then filter (fun kv -> negb ((=) (fst kv) "id")) a else a
+  | None -> a
+
+(** val base_id : inlines -> string **)
+
+let base_id ils =
+  id_base (inlines_text ils)
+
+(** val drop_auto_ids : block -> pos -> attr -> block node **)
+
+let rec drop_auto_ids b p a =
+  let go =
+    let rec go = function
+    | [] -> []
+    | n :: rest ->
+      let Node (p', a', x) = n in (drop_auto_ids x p' a') :: (go rest)
+    in go
+  in
+  let goits =
+    let rec goits = function
+    | [] -> []
+    | it :: rest -> (go it) :: (goits rest)
+    in goits
+  in
   (match b with
-   | Para ils -> inline_lines t ils ""
-   | Heading (lvl, ils) -> map (heading_line lvl) (inline_lines t ils "")
-   | BlockQuote bs ->
-     map quote_line
-       (sep_lines
-         (map (fun n ->
-           app (id_spec_lines n) (render_block_lines t (node_contents n))) bs))
-   | CodeBlock (lang, text) ->
-     (code_open lang) :: (app (split_lines text) (code_close :: []))
-   | Div bs ->
-     div_fence :: (app
-                    (sep_lines
-                      (map (fun n ->
-                        app (id_spec_lines n)
-                          (render_block_lines t (node_contents n)))
-                        bs))
-                    (div_fence :: []))
-   | OrderedList (oa, sp, items) ->
-     list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
-   | BulletList (sp, items) ->
-     list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
-   | TaskList (sp, items) ->
-     list_lines sp (map task_litem_lines (taskitemss items))
+   | Section bs ->
+     let a' =
+       match bs with
+       | [] -> a
+       | n :: _ ->
+         let Node (_, _, x) = n in
+         (match x with
+          | Heading (_, ils) -> drop_id_if (base_id ils) a
+          | _ -> a)
+     in
+     Node (p, a', (Section (go bs)))
+   | Heading (lvl, ils) ->
+     Node (p, (drop_id_if (base_id ils) a), (Heading (lvl, ils)))
+   | BlockQuote bs -> Node (p, a, (BlockQuote (go bs)))
+   | Div bs -> Node (p, a, (Div (go bs)))
+   | OrderedList (oa, sp, its) ->
+     Node (p, a, (OrderedList (oa, sp, (goits its))))
+   | BulletList (sp, its) -> Node (p, a, (BulletList (sp, (goits its))))
+   | TaskList (sp, its) ->
+     Node (p, a, (TaskList (sp,
+       (let rec gotasks = function
+        | [] -> []
+        | p0 :: rest -> let (chk, it) = p0 in (chk, (go it)) :: (gotasks rest)
+        in gotasks its))))
    | DefinitionList (sp, its) ->
-     list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
-   | ThematicBreak -> thematic_line :: []
-   | Table (cap, rows) ->
-     app (table_lines t rows)
-       (match cap with
-        | Some ils -> (caption_line t ils) :: []
-        | None -> [])
-   | RawBlock (fmt, text) ->
-     (code_open ((^) "=" fmt)) :: (app (split_lines text) (code_close :: []))
-   | RefDef (label, dest) -> (ref_line label dest) :: []
-   | Ext_keyed (label, inner) ->
-     ((^)
-       (String.concat ""
-         (map (fun n -> inline_text t (node_contents n)) label))
-       ":") :: (app (id_spec_lines inner)
-                 (render_block_lines t (node_contents inner)))
-   | _ -> [])
+     Node (p, a, (DefinitionList (sp,
+       (let rec godefs = function
+        | [] -> []
+        | p0 :: rest ->
+          let (term, it) = p0 in (term, (go it)) :: (godefs rest)
+        in godefs its))))
+   | FootnoteDef (l, bs) -> Node (p, a, (FootnoteDef (l, (go bs))))
+   | Ext_keyed (label, b0) ->
+     let Node (p', a', x) = b0 in
+     Node (p, a, (Ext_keyed (label, (drop_auto_ids x p' a'))))
+   | _ -> Node (p, a, b))
 
-(** val render_node_lines : dtable -> block node -> string list **)
+(** val doc_source_blocks : doc -> blocks **)
 
-let render_node_lines t n =
-  app (id_spec_lines n) (render_block_lines t (node_contents n))
+let doc_source_blocks d =
+  app
+    (map (fun n -> let Node (p, a, x) = n in drop_auto_ids x p a)
+      d.doc_blocks)
+    (map (fun ln -> mk (FootnoteDef ((fst ln), (snd ln)))) d.doc_footnotes)
 
-(** val render_blocks_lines : dtable -> blocks -> string list list **)
+(** val render_doc : dtable -> bconfig -> doc -> string **)
 
-let render_blocks_lines t bs =
-  map (render_node_lines t) bs
-
-(** val render_djot : dtable -> blocks -> string **)
-
-let render_djot t bs =
-  String.concat nl (sep_lines (render_blocks_lines t bs))
+let render_doc t k d =
+  render_djot t k (doc_source_blocks d)

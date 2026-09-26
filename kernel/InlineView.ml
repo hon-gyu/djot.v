@@ -712,7 +712,11 @@ let rec inline_text t il =
   let go =
     let rec go = function
     | [] -> ""
-    | n :: rest -> let Node (_, _, x) = n in (^) (inline_text t x) (go rest)
+    | n :: rest ->
+      let Node (_, a, x) = n in
+      (match a with
+       | [] -> (^) (inline_text t x) (go rest)
+       | _ :: _ -> (^) (inline_text t x) ((^) (attr_spec a) (go rest)))
     in go
   in
   let marked = fun k ns ->
@@ -729,6 +733,10 @@ let rec inline_text t il =
    | Subscript ns -> marked DSub ns
    | Verbatim s -> verb_text s
    | Symbol s -> (^) (one ':') ((^) s (one ':'))
+   | Math (style, s) ->
+     (match style with
+      | DisplayMath -> (^) (one '$') ((^) (one '$') (verb_text s))
+      | InlineMath -> (^) (one '$') (verb_text s))
    | Link (ns, tgt) ->
      (match tgt with
       | Direct dst ->
@@ -741,16 +749,27 @@ let rec inline_text t il =
         (^) (bracket_open true) ((^) (go ns) (link_close t dst ""))
       | Reference label ->
         (^) (bracket_open true) ((^) (go ns) (ref_close label "")))
+   | Span ns -> (^) (one '[') ((^) (go ns) (one ']'))
    | FootnoteReference label -> note_text label
    | UrlLink s -> auto_text s
    | EmailLink s -> auto_text s
    | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
    | RawInline (fmt, s) -> raw_text fmt s
+   | NonBreakingSpace ->
+     (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+       (bslash, (one ' '))
    | Quoted (qt, ns) ->
      (match qt with
       | SingleQuotes -> marked DSQuote ns
       | DoubleQuotes -> marked DDQuote ns)
-   | _ -> "")
+   | SoftBreak -> one '\n'
+   | HardBreak ->
+     (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+       (bslash, (one '\n')))
 
 (** val inline_lines : dtable -> inlines -> string -> string list **)
 
@@ -758,7 +777,16 @@ let rec inline_lines t ils cur =
   match ils with
   | [] -> cur :: []
   | n :: rest ->
-    let Node (_, _, il) = n in
-    (match il with
-     | SoftBreak -> cur :: (inline_lines t rest "")
-     | _ -> inline_lines t rest ((^) cur (inline_text t il)))
+    let Node (_, a, il) = n in
+    (match a with
+     | [] ->
+       (match il with
+        | SoftBreak -> cur :: (inline_lines t rest "")
+        | HardBreak -> ((^) cur (one bslash)) :: (inline_lines t rest "")
+        | _ -> inline_lines t rest ((^) cur (inline_text t il)))
+     | _ :: _ ->
+       (match il with
+        | SoftBreak -> cur :: (inline_lines t rest "")
+        | HardBreak -> ((^) cur (one bslash)) :: (inline_lines t rest "")
+        | _ ->
+          inline_lines t rest ((^) cur ((^) (inline_text t il) (attr_spec a)))))

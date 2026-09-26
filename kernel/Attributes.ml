@@ -1,6 +1,7 @@
 open Ast
 open Datatypes
 open List0
+open ListDef
 open Strings
 
 (** val bslash : char **)
@@ -421,3 +422,139 @@ let attr_open l =
 
 let attr_feed l p =
   fst (afeed ((^) (drop_leading_ws l) attr_nl) p)
+
+(** val id_chars_ok : string -> bool **)
+
+let rec id_chars_ok id =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun c rest -> (&&) (is_id_char c) (id_chars_ok rest))
+    id
+
+(** val explicit_id_ok : string -> bool **)
+
+let explicit_id_ok id =
+  (&&) (nonempty_str id) (id_chars_ok id)
+
+(** val class_words_ok : bool -> string -> bool **)
+
+let rec class_words_ok after_space s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> negb after_space)
+    (fun c rest ->
+    if (=) c ' '
+    then (&&) (negb after_space) (class_words_ok true rest)
+    else (&&) (is_attr_class_char c) (class_words_ok false rest))
+    s
+
+(** val classes_ok : string -> bool **)
+
+let classes_ok s =
+  (&&) (nonempty_str s) (class_words_ok true s)
+
+(** val class_chars_ok : string -> bool **)
+
+let rec class_chars_ok s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun c rest -> (&&) (is_attr_class_char c) (class_chars_ok rest))
+    s
+
+(** val class_word_ok : string -> bool **)
+
+let class_word_ok s =
+  (&&) (nonempty_str s) (class_chars_ok s)
+
+(** val dot_words : string -> string **)
+
+let rec dot_words s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun c rest ->
+    if (=) c ' '
+    then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (c,
+           ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           ('.', (dot_words rest))))
+    else (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (c, (dot_words rest)))
+    s
+
+(** val escape_value : string -> string **)
+
+let rec escape_value s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun c rest ->
+    if (||) ((=) c dquote) ((=) c bslash)
+    then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (bslash,
+           ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (c, (escape_value rest))))
+    else (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (c, (escape_value rest)))
+    s
+
+(** val attr_part : (string * string) -> string **)
+
+let attr_part = function
+| (k, v) ->
+  if (&&) ((=) k "id") (explicit_id_ok v)
+  then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+         ('#', v)
+  else if (&&) ((=) k "class") (classes_ok v)
+       then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+              ('.', (dot_words v))
+       else (^) k
+              ((^) "="
+                ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                (dquote,
+                ((^) (escape_value v)
+                  ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                  (dquote, ""))))))
+
+(** val attr_spec : attr -> string **)
+
+let attr_spec a = match a with
+| [] -> ""
+| _ :: _ -> (^) "{" ((^) (String.concat " " (map attr_part a)) "}")

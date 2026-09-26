@@ -1,6 +1,7 @@
 open Ast
 open Attributes
 open Datatypes
+open Document
 open InlineScan
 open InlineTable
 open InlineView
@@ -9,6 +10,7 @@ open List0
 open ListDef
 open ListUniformity
 open OrderedList
+open PeanoNat
 open Step
 open Strings
 open Uniformity
@@ -97,10 +99,6 @@ val ends_ctable : cblock -> bool
 
 val is_cref : cblock -> bool
 
-val id_chars_ok : string -> bool
-
-val explicit_id_ok : string -> bool
-
 val closes_table : dtable -> cblock -> bool
 
 val cb_pair_ok : dtable -> cblock -> cblock -> bool
@@ -133,7 +131,9 @@ val initial_sep : cell list list -> string list
 
 val table_lines : dtable -> cell list list -> string list
 
-val caption_line : dtable -> inlines -> string
+val text_lines : dtable -> inlines -> string list
+
+val caption_lines : dtable -> inlines -> string list
 
 val task_open : task_status -> string
 
@@ -141,12 +141,34 @@ val task_empty : task_status -> string
 
 val task_litem_lines : (task_status * string list) -> string list
 
-val id_spec_lines : block node -> string list
+val attr_lines : attr -> string list
 
-val render_block_lines : dtable -> block -> string list
+val fence_class : attr -> block -> string
 
-val render_node_lines : dtable -> block node -> string list
+val drop_class : string -> attr -> attr
 
-val render_blocks_lines : dtable -> blocks -> string list list
+val closer_run : string -> int
 
-val render_djot : dtable -> blocks -> string
+val div_fence_for : dtable -> bconfig -> string list -> string
+
+val div_open_line : string -> string -> string
+
+val note_indent : string -> string
+
+val render_lines : dtable -> bconfig -> attr -> block -> string list
+
+val render_node_lines : dtable -> bconfig -> block node -> string list
+
+val render_blocks_lines : dtable -> bconfig -> blocks -> string list list
+
+val render_djot : dtable -> bconfig -> blocks -> string
+
+val drop_id_if : string -> attr -> attr
+
+val base_id : inlines -> string
+
+val drop_auto_ids : block -> pos -> attr -> block node
+
+val doc_source_blocks : doc -> blocks
+
+val render_doc : dtable -> bconfig -> doc -> string
