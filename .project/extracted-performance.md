@@ -12,8 +12,9 @@ Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
 is linear, and so is heading-identifier assignment up to a log factor.
-Not production ready: some long single lines still grow superlinearly
-(ranked below).  The last comparison
+Long single lines are linear in the inline and block paths.  Not
+production ready: nesting depth on one line, many definitions, and
+some degenerate repetitions still grow superlinearly (ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
@@ -389,6 +390,85 @@ seam-heavy escaped-punctuation line took 0.11/0.50/2.19 ms at
 observed repeated-large-merge problem on that witness; their flat AST
 representation was retained.
 
+Block and line path (2026-09-26, baseline `c7b0943`).  Profiling
+the long note label and wikilink showed `Line.ref_label`, the `[label]:`
+recognizer every line opening with `[` goes through: a non-tail
+structural recursion that copied the rest of the line per byte.  A probe
+of every block recognizer on one long line found the same cost in the
+generic scans `classify` and the container prefixes use, and three more
+costs of other kinds.
+
+Trusted realizations in `extraction/Extract.v`, reading by offset and
+copying only what they return: `Strings.is_blank`, `indent_of`,
+`drop_leading_ws`, `drop_ws_upto`, `no_nl`, `no_char`, `no_ws`;
+`Line.thematic_count`, `all_char`, `str_forallb`, `all_info_chars`,
+`take_while`, `count_run`, `ref_label`; the table scans
+`row_cells_trace`, `cell_trim_r`, and `sep_cells_fuel`; the block
+attribute feed `Attributes.afeed` and `blank_to_eol`; value
+normalization `collapse_from` and `unescape`; and `Marker.Roman.acc`.
+A matched native string copies its tail even when the scan stops at the
+first byte, so each of these cost O(line) per call before, and O(line^2)
+on a run.  Realizations spell out byte classes rather than call the
+extracted predicates, which extraction may place after them or drop
+once unused, and name `Stdlib.max`/`Stdlib.min`: modules that open
+`Nat0` shadow them with the extracted unary `Nat.max`, which returns a
+negative argument unchanged.  The differential check below caught that
+in the roman realization; the located inline driver's three `max 0`
+calls were qualified the same way, with no observed change.
+
+Gallina changes, both proved:
+
+- `idelim_resolve` passed `oclose` a flushed state, and OCaml evaluates
+  the argument, joining the whole pending text for every delimiter byte
+  even when no frame could match (a run of `=`).  `oclose_reaches` tests
+  the stack first; `oclose_guard` proves the guarded form equal to the
+  unguarded one, and the six proofs that unfold `idelim_resolve` rewrite
+  with it.
+- `finish` on `PList` computed `rev done ++ finish inner` twice, for
+  `list_parts` and `list_block`, so list markers nested on one line cost
+  2^depth.  It is let-bound once; no proof changed.
+
+No admits or axioms were added.
+
+Old and new extractions linked in one throwaway executable (`dist/src` at
+`c7b0943` against the new tree), compared by structural equality:
+`Html.convert`, semantic, located, keyed, and wikilink-enabled
+`parse_doc`, and every realized function directly (with several
+accumulator and fuel arguments) plus `classify`, `table_row`, and
+`attr_open`.  Inputs: every string over a 36-byte alphabet of block and
+inline markers through length 4 (documents through length 3), 40000
+random token documents and each of their lines, 20 long targeted
+constructs, and the djot.js test files.  171629979 comparisons, no
+difference; a planted difference was detected.  Test suite 287/287,
+generated 6167/6167, roundtrip 43857/43857, located bounds 44150/44150,
+keyed 6628/6628, wikilink 3725/3725; `make dist`, `check-dist`, and the
+standalone build and test passed.  Internal helpers used only by the
+realized functions (`cell_trim`, `sep_cell`, `row_cell_entry`,
+`is_ws_nl`, ...) are no longer extracted.
+
+`parse_doc`, release profile, best of three, old -> new in one process,
+milliseconds:
+
+| input | 16 KB | 64 KB |
+| --- | ---: | ---: |
+| note label | 72.8 -> 1.0 | 2237.8 -> 4.4 |
+| wikilink target, enabled | 37.6 -> 0.9 | 1145.4 -> 5.3 |
+| `> ` then one long line | 36.8 -> 0.8 | 1135.1 -> 3.0 |
+| `- ` then one long line | 39.2 -> 0.7 | 1134.1 -> 3.0 |
+| fence info | 37.4 -> 0.0 | 1187.5 -> 0.2 |
+| run of `#` | 17.5 -> 0.0 | 401.8 -> 0.1 |
+| roman marker | 56.1 -> 0.1 | 1426.4 -> 0.5 |
+| `a`, newline, run of `=` | 1548.7 -> 1.9 | 34369.4 -> 9.3 |
+| one long table cell | 56.9 -> 1.0 | 1263.2 -> 3.7 |
+| row of many cells | 17.0 -> 1.4 | 284.2 -> 7.8 |
+| long separator row | 31.1 -> 0.1 | 197.3 -> 0.8 |
+| long quoted block attribute value | 105.9 -> 0.2 | 2043.5 -> 1.5 |
+| long block attribute id | 13.7 -> 0.7 | 247.6 -> 3.3 |
+
+`- ` nested on one line took 13.4, 214.6, and 863.8 ms at depths 16,
+20, and 22, and 0.01 ms after.  `readme.dj` x64 took 71.7 -> 63.7 ms.
+`make bench` has a shape for each of these paths.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -500,31 +580,34 @@ against full conversion (`Html.convert`).  djot.js figures are its
 open frame, so k unclosed openers cost O(k^2).  The linear replacement
 and its proof are recorded in Fixed above.
 
-### 1. Remaining long-line work
+### 1. Nesting depth on one line
 
-Structural string matches still copy tails in `Line`, `Strings`,
-`Attributes`, `Marker`, and some helper paths.  Pending and source
-accumulators, the measured inline close-time readers, and label-word
-normalization no longer copy their prefixes or native-string tails.
-The remaining block/line path is visible on long note labels and
-enabled wikilinks: their inline scans are near linear, while the whole
-document parse still scales steeply.
-`isnoc` and `osnoc` still merge adjacent flat `Str` nodes with
-`t ++ s`.  The old 2026-09-26 code-span and destination measurements
-are superseded by the buffered-source entry above.
+Each container prefix hands the rest of the line to the next level as a
+new native string, so `> > > ... a` and `- - - ... a` copy
+O(depth x line).  At 80 KB (40000 levels of `- `) a parse takes about
+3.3 s, growing about 15x per 4x; `> ` nesting grows about 17x.  Real
+documents nest a few levels.  Fixing it means passing offsets through
+`classify` and the prefix recognizers, or extracting `string` to a
+slice (a string and a start offset), where `String c s'` is O(1) and
+the realizations above would be rewritten against slices.
 
-Source positions no longer block this.  The located scan
-(`InlineLocated.v`) still matches `String c rest` and carries a counted
-distance to the end of the line beside it, so positions landed without
-offset scanning.
+### 2. Many definitions
 
-For remaining tail copies, fix either:
+The reference and footnote maps are association lists with JS-object
+semantics (`Ast.alist_set`: first position, last value), so n
+definitions cost O(n^2) to collect and each lookup O(n).  6500
+reference definitions (79 KB) parse in 394 ms, 17x per 4x.  A fix
+changes the map representation, or builds a reversed list and
+deduplicates once, with a proof against the `alist_set` fold.
 
-- scan by offset, `(s, i)` with `String.get`, in the theories; every
-  lemma by induction on `String c s'` is restated for offsets;
-- or extract `string` to a slice (a string and a start offset), so a
-  match on `String c s'` is O(1).  No proof changes, a larger trusted
-  realization, and `String c acc` construction stays a copy.
+### 3. Degenerate repetitions
+
+- Consecutive block attribute lines append to the pending spec list,
+  `specs ++ [span]`: 16000 `{.a}` lines before one paragraph take 3.6 s.
+- A reference destination continued over k lines appends `val ++ t`
+  per line: 20000 continuation lines take 22 ms.
+
+Both are quadratic in a count no document reaches.
 
 ### Recheck: inline links
 
@@ -540,8 +623,10 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-Remaining block/line long-line shapes first.  Keep inline links in the
-scaling benchmark to catch a recurrence.
+Many definitions first, as the one open cost a real document can reach.
+Keep the nested-list shape in `make bench`: it guards the `finish`
+fix, whose regression is exponential, and inline links, to catch a
+recurrence.
 
 `make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
 through the document parse and `Html.convert` and prints the growth per
