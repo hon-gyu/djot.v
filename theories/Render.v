@@ -16,6 +16,7 @@
 
 From Stdlib Require Import String Ascii List Bool PeanoNat.
 From DjotV Require Import Strings Line Ast Attributes Parser.
+From DjotV Require Document.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -562,15 +563,6 @@ Local Fixpoint is_cref (cb : cblock) : bool :=
   | CKey _ inner => is_cref inner
   | _ => false
   end.
-
-Fixpoint id_chars_ok (id : string) : bool :=
-  match id with
-  | EmptyString => true
-  | String c rest => is_id_char c && id_chars_ok rest
-  end.
-
-Definition explicit_id_ok (id : string) : bool :=
-  nonempty_str id && id_chars_ok id.
 
 Lemma id_chars_ok_no_nl :
   forall id, id_chars_ok id = true -> no_nl id = true.
@@ -1131,8 +1123,17 @@ Local Definition initial_sep (rows : list (list cell)) : list string :=
 Definition table_lines (rows : list (list cell)) : list string :=
   (initial_sep rows ++ flat_map render_row rows)%list.
 
-Local Definition caption_line (ils : inlines) : string :=
-  ("^ " ++ hd EmptyString (inline_lines ils EmptyString))%string.
+(* A paragraph's source lines.  `inline_lines` ends a line at each
+   top-level break; a break inside a container is a newline in its text,
+   split off here. *)
+Definition text_lines (ils : inlines) : list string :=
+  split_lines (join_nl (inline_lines ils EmptyString)).
+
+Local Definition caption_lines (ils : inlines) : list string :=
+  match text_lines ils with
+  | [] => ["^"]
+  | l :: rest => ("^ " ++ l)%string :: rest
+  end.
 
 (* A task item's source lines, as the renderer spells them.  The
    continuation prefix is six columns wide for both statuses.  An empty
@@ -1152,22 +1153,57 @@ Local Definition task_litem_lines (it : task_status * list string) : list string
        :: map (fun l => (blanks 6 ++ l)%string) more)%list
   end.
 
-(* The attribute line a node carries into its own rendering.  Only an
-   `id` is spelled: a div's class is part of its fence, and no other
-   canonical block carries attributes at all. *)
-Definition id_spec_lines (n : node block) : list string :=
-  match alist_lookup "id" (node_attrs n) with
-  | Some v => [("{#" ++ v ++ "}")%string]
-  | None => []
+(* A node's attributes, as the line before its block.  A div's class goes
+   on its fence instead when it is one word and comes first: an attribute
+   line's class replaces the fence's, so two words have to go on the line,
+   and a fence's class reads back ahead of the line's attributes. *)
+Definition attr_lines (a : attr) : list string :=
+  match a with [] => [] | _ => [attr_spec a] end.
+
+Definition fence_class (a : attr) (b : block) : string :=
+  match b with
+  | Div _ =>
+      match a with
+      | (k, c) :: _ =>
+          if String.eqb k "class" && class_word_ok c then c else EmptyString
+      | [] => EmptyString
+      end
+  | _ => EmptyString
   end.
 
-Fixpoint render_block_lines (b : block) : list string :=
+Definition drop_class (cls : string) (a : attr) : attr :=
+  if String.eqb cls EmptyString then a
+  else filter (fun kv => negb (String.eqb (fst kv) "class")) a.
+
+(* A div's fence is three colons unless its body would close that early,
+   and then one longer than the longest closer in the body.  The test is
+   the one the canonical fragment asks of a div (`div_content_ok`). *)
+Local Definition closer_run (l : string) : nat :=
+  let (n, r) := count_run ":" (drop_leading_ws l) in
+  if Nat.leb 3 n && is_blank r then n else 0.
+
+Definition div_fence_for (body : list string) : string :=
+  if div_content_ok body then div_fence
+  else chars ":" (Nat.max 3 (S (list_max (map closer_run body)))).
+
+Definition div_open_line (fence cls : string) : string :=
+  if String.eqb cls EmptyString then fence else (fence ++ " " ++ cls)%string.
+
+(* A footnote's body sits under its label, indented so that every line
+   belongs to it; blank lines stay blank. *)
+Local Definition note_indent (l : string) : string :=
+  match l with EmptyString => EmptyString | _ => ("  " ++ l)%string end.
+
+(* A block with its attributes [a], to djot source lines.  A section is its
+   blocks: its attributes came off its heading, and the line in front of
+   the section is the line in front of the heading. *)
+Fixpoint render_lines (a : attr) (b : block) : list string :=
   let itemss :=
     fix goitems (items : list blocks) : list (list string) :=
       match items with
       | [] => []
       | it :: rest =>
-          sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)
+          sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
           :: goitems rest
       end in
   let taskitemss :=
@@ -1177,7 +1213,7 @@ Fixpoint render_block_lines (b : block) : list string :=
       | [] => []
       | (chk, it) :: rest =>
           (chk, sep_lines
-                  (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it))
+                  (map (fun n => render_lines (node_attrs n) (node_contents n)) it))
           :: gotasks rest
       end in
   (* A definition item's lines are its definition's, with the term put
@@ -1191,49 +1227,57 @@ Fixpoint render_block_lines (b : block) : list string :=
           sep_lines
             ((match term with
               | [] => []
-              | _ => [inline_lines term EmptyString]
+              | _ => [text_lines term]
               end)
-             ++ map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)%list
+             ++ map (fun n => render_lines (node_attrs n) (node_contents n)) it)%list
           :: godefs rest
       end in
-  match b with
-  | Para ils => inline_lines ils EmptyString
-  | Heading lvl ils => map (heading_line lvl) (inline_lines ils EmptyString)
-  | ThematicBreak => [thematic_line]
-  | CodeBlock lang text =>
-      (code_open lang :: split_lines text ++ [code_close])%list
-  | RawBlock fmt text =>
-      (code_open ("=" ++ fmt) :: split_lines text ++ [code_close])%list
-  | BlockQuote bs =>
-      map quote_line
-        (sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) bs))
-  | Div bs =>
-      (div_fence
-       :: sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) bs)
-       ++ [div_fence])%list
-  | BulletList sp items =>
-      list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
-  | DefinitionList sp its =>
-      list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
-  | OrderedList oa sp items =>
-      list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
-  | TaskList sp items =>
-      list_lines sp (map task_litem_lines (taskitemss items))
-  | RefDef label dest => [ref_line label dest]
-  | Ext_keyed label inner =>
-      (String.concat "" (map (fun n => inline_text (node_contents n)) label) ++ ":")
-      :: (id_spec_lines inner ++ render_block_lines (node_contents inner))%list
-  | Table cap rows =>
-      (table_lines rows ++ match cap with
-                           | Some ils => [caption_line ils]
-                           | None => []
-                           end)%list
-  | _ => []   (* `Section` and `FootnoteDef` are not rendered yet *)
-  end.
+  let cls := fence_class a b in
+  (attr_lines (drop_class cls a) ++
+   match b with
+   | Para ils => text_lines ils
+   | Heading lvl ils => map (heading_line lvl) (text_lines ils)
+   | ThematicBreak => [thematic_line]
+   | CodeBlock lang text =>
+       (code_open lang :: split_lines text ++ [code_close])%list
+   | RawBlock fmt text =>
+       (code_open ("=" ++ fmt)%string :: split_lines text ++ [code_close])%list
+   | BlockQuote bs =>
+       map quote_line
+         (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
+   | Div bs =>
+       let body := sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
+       (div_open_line (div_fence_for body) cls :: body ++ [div_fence_for body])%list
+   | Section bs =>
+       sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
+   | BulletList sp items =>
+       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+   | DefinitionList sp its =>
+       list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
+   | OrderedList oa sp items =>
+       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+   | TaskList sp items =>
+       list_lines sp (map task_litem_lines (taskitemss items))
+   | RefDef label dest => [ref_line label dest]
+   | FootnoteDef label bs =>
+       ("[^" ++ label ++ "]:")%string
+       :: map note_indent
+            (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
+   | Ext_keyed label inner =>
+       (String.concat "" (map (fun n => inline_text (node_contents n)) label) ++ ":")%string
+       :: render_lines (node_attrs inner) (node_contents inner)
+   | Table cap rows =>
+       (table_lines rows ++ match cap with
+                            | Some ils => caption_lines ils
+                            | None => []
+                            end)%list
+   end)%list.
+
+Definition render_block_lines (b : block) : list string := render_lines [] b.
 
 (* One node's lines: its attribute line, then its block's. *)
 Definition render_node_lines (n : node block) : list string :=
-  (id_spec_lines n ++ render_block_lines (node_contents n))%list.
+  render_lines (node_attrs n) (node_contents n).
 
 Definition render_blocks_lines (bs : blocks) : list (list string) :=
   map render_node_lines bs.
@@ -1249,20 +1293,36 @@ Lemma render_node_lines_mk :
   forall x, render_node_lines (mk x) = render_block_lines x.
 Proof. reflexivity. Qed.
 
-Local Lemma render_node_lines_noid :
-  forall q a x,
-    alist_lookup "id" a = None ->
-    render_node_lines (Node q a x) = render_block_lines x.
+(* Attributes other than a class only add their line: the class is the
+   one a div can move onto its fence. *)
+Lemma render_lines_noclass :
+  forall a x,
+    alist_lookup "class" a = None ->
+    render_lines a x = (attr_lines a ++ render_block_lines x)%list.
 Proof.
-  intros q a x H. unfold render_node_lines, id_spec_lines.
-  cbn [node_attrs node_contents]. rewrite H. reflexivity.
+  intros a x H.
+  assert (Hc : forall bs, fence_class a (Div bs) = EmptyString).
+  { intros bs. destruct a as [|[k v] a']; [reflexivity|].
+    cbn [alist_lookup] in H. cbn [fence_class].
+    destruct (String.eqb "class" k) eqn:E; [discriminate H|].
+    rewrite String.eqb_sym, E. reflexivity. }
+  unfold render_block_lines.
+  destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
+    try (rewrite Hc; reflexivity); reflexivity.
 Qed.
 
 Lemma render_block_div :
   forall bs,
+    div_content_ok (sep_lines (render_blocks_lines bs)) = true ->
     render_block_lines (Div bs)
     = (div_fence :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
-Proof. reflexivity. Qed.
+Proof.
+  intros bs H. unfold render_block_lines. cbn [render_lines fence_class drop_class
+    attr_lines String.eqb app].
+  change (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
+    with (render_blocks_lines bs).
+  unfold div_fence_for. rewrite H. reflexivity.
+Qed.
 
 Lemma render_block_quote :
   forall bs,
@@ -1278,12 +1338,12 @@ Proof. reflexivity. Qed.
    *over*, so the term it finds sits behind it in the source and in
    front of it in the rendering: the two spellings have the same AST,
    and `cb_ok` picks the one the renderer produces. *)
-Local Definition has_id (a : attr) : bool :=
-  match alist_lookup "id" a with Some _ => true | None => false end.
+Local Definition has_attrs (a : attr) : bool :=
+  match a with [] => false | _ => true end.
 
 Local Definition def_head_ok (bs : blocks) : bool :=
   match bs with
-  | Node _ a (Para ils) :: _ => nonempty ils && negb (has_id a)
+  | Node _ a (Para ils) :: _ => nonempty ils && negb (has_attrs a)
   | Node _ _ x :: _ => negb (invisible_block x)
   | [] => true
   end.
@@ -1331,7 +1391,7 @@ Proof.
                match its with
                | [] => []
                | it :: rest =>
-                   sep_lines (map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)
+                   sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
                    :: goitems rest
                end) items
             = map (fun it => sep_lines (render_blocks_lines it)) items).
@@ -1346,9 +1406,9 @@ Proof.
                     sep_lines
                       ((match term with
                         | [] => []
-                        | _ => [inline_lines term EmptyString]
+                        | _ => [text_lines term]
                         end)
-                       ++ map (fun n => (id_spec_lines n ++ render_block_lines (node_contents n))%list) it)%list
+                       ++ map (fun n => render_lines (node_attrs n) (node_contents n)) it)%list
                     :: godefs rest
                 end) (def_items items)
              = map (fun it => sep_lines (render_blocks_lines it)) items).
@@ -1360,17 +1420,18 @@ Proof.
       try discriminate Hit;
       cbn [def_item def_split invisible_block]; try reflexivity.
     (* the paragraph case: the split fires at the head, and `def_head_ok`
-       says the term it takes is not empty and carries no id -- the split
+       says the term it takes is not empty and carries no attributes -- the split
        drops the paragraph's attributes, so a spec line here would have
        nothing to come back to. *)
     destruct ils as [|i ils']; [discriminate Hit|].
     apply andb_true_iff in Hit as [_ Hid]. apply negb_true_iff in Hid.
-    unfold has_id in Hid. destruct (alist_lookup "id" b) eqn:Eb; [discriminate Hid|].
-    cbn [render_blocks_lines map]. rewrite (render_node_lines_noid q b _ Eb).
-    cbn [render_block_lines app]. reflexivity. }
+    destruct b as [|kv b]; [|discriminate Hid].
+    reflexivity. }
   intros [| |checks|d start|up d start|up d start] sp items Hrok;
     [| | | | destruct up | destruct up ];
-    cbn [ck_block render_block_lines lk_of_ol roman_sty alpha_sty
+    unfold render_block_lines;
+    cbn [ck_block render_lines fence_class drop_class attr_lines String.eqb app
+         lk_of_ol roman_sty alpha_sty
          ol_style ol_delim ol_start];
     try solve [rewrite H; reflexivity].
   - cbn [ck_render_ok] in Hrok. rewrite (Hdef items Hrok). reflexivity.
@@ -1381,11 +1442,11 @@ Proof.
       intros [|chk checks] Hlen Hne; try discriminate; [reflexivity|].
     cbn [length forallb] in Hlen, Hne. injection Hlen as Hlen.
     apply andb_true_iff in Hne as [Hit Hitems].
-    cbn [task_items render_block_lines ck_items task_ck_items map fst snd].
+    cbn [task_items render_lines ck_items task_ck_items map fst snd].
     destruct (sep_lines (render_blocks_lines it)) as [|l0 more] eqn:E;
       [discriminate Hit|].
     change (fun n : node block =>
-              (id_spec_lines n ++ render_block_lines (node_contents n))%list)
+              render_lines (node_attrs n) (node_contents n))
       with render_node_lines.
     fold (render_blocks_lines it). rewrite E.
     cbn [task_litem_lines litem_lines indent_lines mk_open mk_cont].
@@ -1428,7 +1489,7 @@ Proof.
     rewrite (IH Hrest Hconts), andb_true_r.
     destruct it as [|c more]; [reflexivity|].
     cbn [forallb] in Hit. apply andb_true_iff in Hit as [Hc _].
-    destruct c; cbn [map cb_ast def_head_ok has_id alist_lookup mk node_contents
+    destruct c; cbn [map cb_ast def_head_ok has_attrs mk node_contents
                      invisible_block negb andb];
       try reflexivity; try discriminate Hhead.
     + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
@@ -1564,6 +1625,85 @@ Qed.
    as "end the current block". *)
 Definition render_djot (bs : blocks) : string :=
   String.concat nl (sep_lines (render_blocks_lines bs)).
+
+(*
+Documents
+---------
+
+A parsed document back to source.  The document pass added two things
+the source did not spell, and moved one thing out of the tree:
+
+- A heading's id, when the pass derived it, is left out.  The test is the
+  heading text's base id: the pass gives a heading exactly that id when
+  it is free, and it is free again in the rendering, since every id taken
+  before the heading is taken there too.  A heading whose id was
+  disambiguated (`a-1`) keeps it, spelled out.
+- A section is its blocks (`render_lines`).
+- Footnote definitions come back after the blocks, in the order of the
+  document's note table.  Where they stood in the source is not kept. *)
+
+Local Definition drop_id_if (v : string) (a : attr) : attr :=
+  match alist_lookup "id" a with
+  | Some v' =>
+      if String.eqb v v' then filter (fun kv => negb (String.eqb (fst kv) "id")) a
+      else a
+  | None => a
+  end.
+
+Local Definition base_id (ils : inlines) : string :=
+  Document.id_base (Document.inlines_text ils).
+
+(* Recursion is on the block, with its node's position and attributes
+   alongside, which is the shape the guard accepts (`Undo.pass_block`). *)
+Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block :=
+  let go :=
+    fix go (bs : blocks) : blocks :=
+      match bs with
+      | [] => []
+      | Node p' a' x :: rest => drop_auto_ids x p' a' :: go rest
+      end in
+  let goits :=
+    fix goits (its : list blocks) : list blocks :=
+      match its with
+      | [] => []
+      | it :: rest => go it :: goits rest
+      end in
+  match b with
+  | Heading lvl ils => Node p (drop_id_if (base_id ils) a) (Heading lvl ils)
+  | Section bs =>
+      let a' := match bs with
+                | Node _ _ (Heading _ ils) :: _ => drop_id_if (base_id ils) a
+                | _ => a
+                end in
+      Node p a' (Section (go bs))
+  | BlockQuote bs => Node p a (BlockQuote (go bs))
+  | Div bs => Node p a (Div (go bs))
+  | FootnoteDef l bs => Node p a (FootnoteDef l (go bs))
+  | BulletList sp its => Node p a (BulletList sp (goits its))
+  | OrderedList oa sp its => Node p a (OrderedList oa sp (goits its))
+  | TaskList sp its =>
+      Node p a (TaskList sp
+        ((fix gotasks (ts : list (task_status * blocks)) :=
+            match ts with
+            | [] => []
+            | (chk, it) :: rest => (chk, go it) :: gotasks rest
+            end) its))
+  | DefinitionList sp its =>
+      Node p a (DefinitionList sp
+        ((fix godefs (ds : list (inlines * blocks)) :=
+            match ds with
+            | [] => []
+            | (term, it) :: rest => (term, go it) :: godefs rest
+            end) its))
+  | Ext_keyed label (Node p' a' x) => Node p a (Ext_keyed label (drop_auto_ids x p' a'))
+  | _ => Node p a b
+  end.
+
+Definition doc_source_blocks (d : doc) : blocks :=
+  (map (fun n => match n with Node p a x => drop_auto_ids x p a end) (doc_blocks d)
+   ++ map (fun ln => mk (FootnoteDef (fst ln) (snd ln))) (doc_footnotes d))%list.
+
+Definition render_doc (d : doc) : string := render_djot (doc_source_blocks d).
 
 End WithTable.
 

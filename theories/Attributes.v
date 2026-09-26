@@ -277,3 +277,72 @@ Proof.
   intros p l Hp. unfold attr_open. rewrite (drop_leading_ws_ws_prefix p l Hp).
   reflexivity.
 Qed.
+
+(*
+Printing
+========
+
+A spec that reads back to the attributes it was printed from: `#id` and
+`.class` where the characters allow, `key="value"` otherwise.  A value
+cannot keep a whitespace run or a line break, which `norm_value`
+collapses, so an attribute holding one reads back collapsed. *)
+
+Fixpoint id_chars_ok (id : string) : bool :=
+  match id with
+  | EmptyString => true
+  | String c rest => is_id_char c && id_chars_ok rest
+  end.
+
+Definition explicit_id_ok (id : string) : bool :=
+  nonempty_str id && id_chars_ok id.
+
+(* A class entry spelled as `.a .b`: words of class characters, one space
+   apart. *)
+Local Fixpoint class_words_ok (after_space : bool) (s : string) : bool :=
+  match s with
+  | EmptyString => negb after_space
+  | String c rest =>
+      if Ascii.eqb c " " then negb after_space && class_words_ok true rest
+      else is_attr_class_char c && class_words_ok false rest
+  end.
+
+Definition classes_ok (s : string) : bool := nonempty_str s && class_words_ok true s.
+
+(* One class word, which a div fence can carry. *)
+Local Fixpoint class_chars_ok (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c rest => is_attr_class_char c && class_chars_ok rest
+  end.
+
+Definition class_word_ok (s : string) : bool := nonempty_str s && class_chars_ok s.
+
+Local Fixpoint dot_words (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if Ascii.eqb c " " then String c (String "." (dot_words rest))
+      else String c (dot_words rest)
+  end.
+
+Local Fixpoint escape_value (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if Ascii.eqb c dquote || Ascii.eqb c bslash
+      then String bslash (String c (escape_value rest))
+      else String c (escape_value rest)
+  end.
+
+Definition attr_part (kv : string * string) : string :=
+  let (k, v) := kv in
+  if String.eqb k "id" && explicit_id_ok v then String "#" v
+  else if String.eqb k "class" && classes_ok v then String "." (dot_words v)
+  else (k ++ "=" ++ String dquote (escape_value v ++ String dquote EmptyString))%string.
+
+(* The spec for a nonempty attribute set; the empty set has none. *)
+Definition attr_spec (a : attr) : string :=
+  match a with
+  | [] => EmptyString
+  | _ => ("{" ++ String.concat " " (map attr_part a) ++ "}")%string
+  end.

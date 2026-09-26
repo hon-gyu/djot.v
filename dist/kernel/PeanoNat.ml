@@ -5,6 +5,18 @@ module Nat =
 
   let rec sub = fun n m -> Stdlib.max 0 (n - m)
 
+  (** val max : int -> int -> int **)
+
+  let rec max n m =
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> m)
+      (fun n' ->
+      (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+        (fun _ -> n)
+        (fun m' -> Stdlib.succ (max n' m'))
+        m)
+      n
+
   (** val divmod : int -> int -> int -> int -> int * int **)
 
   let rec divmod x y q u =

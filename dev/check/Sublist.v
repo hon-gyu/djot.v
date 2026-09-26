@@ -176,6 +176,6 @@ other knob.
 Theorem sublist_roundtrip_blocks :
   forall cbs,
     @cblocks_ok _ sublist_bconfig cbs = true ->
-    @parse_blocks _ sublist_bconfig _ _ (render_djot (blocks_of_cblocks cbs))
+    @parse_blocks _ sublist_bconfig _ _ (@render_djot _ sublist_bconfig (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks _ sublist_bconfig). Qed.

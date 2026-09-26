@@ -253,9 +253,10 @@ module Doc : sig
       open sections, footnote and reference definitions move into side
       tables.  [locs] (default [false]) records source positions. *)
 
-  val of_blocks : Block.t node list -> t
+  val of_blocks : ?profile:Profile.t -> Block.t node list -> t
   (** Run the document pass over parsed blocks.  The result has no
-      source, so {!textloc} is {!Textloc.none} throughout. *)
+      source, so {!textloc} is {!Textloc.none} throughout.  [profile]
+      (default {!Profile.djot}) is the syntax {!Source.of_doc} writes. *)
 
   val blocks : t -> Block.t node list
 
@@ -373,4 +374,23 @@ module Html : sig
 
   val to_string : t list -> string
   val of_doc : Doc.t -> string
+end
+
+(** {1 Djot source} *)
+
+module Source : sig
+  val of_doc : Doc.t -> string
+  (** The document as djot source, in the syntax of the profile it was
+      parsed with.  A heading id the parser would derive again is left
+      out.  Parsing the result with that profile gives the same tree, up
+      to source positions, except that:
+      - footnote definitions come after the blocks;
+      - whitespace runs in attribute values collapse to one space;
+      - a span with no attributes, an empty block quote, an empty table
+        and an empty definition item read back as something else;
+      - two adjacent bullet lists read back as one, since the tree does
+        not keep the marker;
+      - a [|] in a table cell's text splits the cell.
+      Roundtrip.v proves the round trip for a fragment of documents;
+      beyond it this is tested, not proved. *)
 end

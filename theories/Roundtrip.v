@@ -1778,38 +1778,40 @@ Proof.
     destruct (map ci_line ls) as [|a ls'] eqn:E; [discriminate|].
     apply para_ok_parts in Hp as (_ & Hlok & _).
     rewrite <- E in Hlok.
-    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
-         cb_ast cb_lines node_contents mk render_block_lines].
-    apply inline_lines_ci.
-    + exact Hc.
-    + apply cis_nonempty_of_lines. exact Hlok.
-    + destruct ls; [discriminate E | reflexivity].
+    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+         String.eqb node_attrs app cb_ast cb_lines node_contents mk].
+    unfold text_lines. rewrite inline_lines_ci;
+      [ apply split_join_nl; exact (forallb_weaken _ _ line_ok_no_nl _ Hlok)
+      | exact Hc
+      | apply cis_nonempty_of_lines; exact Hlok
+      | destruct ls; [discriminate E | reflexivity] ].
   - reflexivity.
   - (* code block *)
     intros info content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [H _].
     apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
-         cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+         String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* raw block *)
     intros format content H.
     cbn [cb_ok] in H. apply andb_true_iff in H as [_ H].
     unfold raw_ok in H. apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
-         cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+         String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     intros lvl ls H.
     rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
     apply heading_ok_parts in Hh as (_ & Hne & Hlok & _ & _).
-    cbn [render_node_lines id_spec_lines node_attrs alist_lookup app
-         cb_ast cb_lines node_contents mk render_block_lines].
+    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+         String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     f_equal.
-    apply inline_lines_ci.
-    + exact Hc.
-    + apply cis_nonempty_of_lines. exact Hlok.
-    + destruct ls; [cbn [map] in Hne; congruence | reflexivity].
+    unfold text_lines. rewrite inline_lines_ci;
+      [ apply split_join_nl; exact (forallb_weaken _ _ line_ok_no_nl _ Hlok)
+      | exact Hc
+      | apply cis_nonempty_of_lines; exact Hlok
+      | destruct ls; [cbn [map] in Hne; congruence | reflexivity] ].
   - (* quote: prefix the contents' layout *)
     intros inner IH H.
     rewrite cb_ok_quote in H. apply andb_true_iff in H as [H _].
@@ -1819,12 +1821,11 @@ Proof.
     reflexivity.
   - (* div: same shape as the quote, with fences instead of a prefix *)
     intros inner IH H.
-    rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
+    rewrite cb_ok_div in H. apply andb_true_iff in H as [H Hcontent].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [_ Hok].
     rewrite cb_ast_div, render_node_lines_mk.
-    rewrite render_block_div.
-    fold (render_blocks_lines (map cb_ast inner)).
+    rewrite render_block_div by (rewrite (IH Hok); exact Hcontent).
     rewrite (IH Hok), cb_lines_div.
     reflexivity.
   - intros k sp items IH H.
@@ -1850,22 +1851,25 @@ Proof.
        the renderer's caption line is the empty append. *)
     intros rows H. rewrite cb_ok_table in H.
     apply andb_true_iff in H as [_ Hrows].
-    rewrite cb_ast_table, render_node_lines_mk. cbn [render_block_lines].
+    rewrite cb_ast_table, render_node_lines_mk. unfold render_block_lines.
+    cbn [render_lines fence_class drop_class attr_lines String.eqb app].
     rewrite app_nil_r, cb_lines_table.
     apply table_lines_ctable. exact Hrows.
-  - (* explicit id: the spec is its own line, and the only attribute the
-       renderer spells.  Every wrapped block is `mk`-wrapped, so the set
-       `add_attr` builds holds exactly the id. *)
+  - (* explicit id: the spec is its own line.  Every wrapped block is
+       `mk`-wrapped, so the set `add_attr` builds holds exactly the id,
+       and `explicit_id_ok` is what lets the spec spell it `#id`. *)
     intros id inner IH H.
     rewrite cb_ok_id in H.
     apply andb_true_iff in H as [Hid Hinner].
-    apply andb_true_iff in Hid as [_ Hnid]. apply negb_true_iff in Hnid.
+    apply andb_true_iff in Hid as [Hid Hnid]. apply negb_true_iff in Hnid.
+    apply andb_true_iff in Hid as [_ Hidok].
     destruct (cb_ast_mk inner Hnid) as [x Ex].
     specialize (IH Hinner). rewrite Ex, render_node_lines_mk in IH.
     cbn [cb_ast cb_lines]. rewrite Ex, add_attr_mk.
-    unfold render_node_lines, id_spec_lines.
-    cbn [node_attrs node_contents alist_lookup String.eqb Ascii.eqb app].
-    rewrite IH. reflexivity.
+    unfold render_node_lines. cbn [node_attrs node_contents].
+    rewrite render_lines_noclass by reflexivity. rewrite IH.
+    cbn [attr_lines attr_spec map attr_part String.eqb Ascii.eqb andb].
+    rewrite Hidok. reflexivity.
   - intros label inner IH H.
     destruct (cb_ok_key_parts label inner H) as (_ & _ & Hi & _).
     change ((String.concat "" [InlineView.inline_text (node_contents (ci_ast label))] ++ ":")

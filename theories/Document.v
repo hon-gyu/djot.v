@@ -80,7 +80,7 @@ Fixpoint inline_text (il : inline) : string :=
   | Symbol _ | NonBreakingSpace => ""
   end.
 
-Local Definition inlines_text (ils : inlines) : string :=
+Definition inlines_text (ils : inlines) : string :=
   String.concat "" (map (fun n => inline_text (node_contents n)) ils).
 
 (*
@@ -106,7 +106,7 @@ Local Definition is_id_sep (c : ascii) : bool :=
        || Ascii.eqb c "|" || Ascii.eqb c "=" || Ascii.eqb c "+"
        || Ascii.eqb c "/" || Ascii.eqb c "?"))%char%bool.
 
-Local Definition id_base (s : string) : string :=
+Definition id_base (s : string) : string :=
   String.concat "-" (words is_id_sep s).
 
 Local Definition id_taken (used : list string) (s : string) : bool :=

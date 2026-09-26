@@ -292,7 +292,7 @@ Theorem md_roundtrip_blocks :
   forall cbs,
     @cblocks_ok markdown_like_table markdown_like_bconfig cbs = true ->
     @parse_blocks markdown_like_table markdown_like_bconfig _ _
-      (@render_djot markdown_like_table (blocks_of_cblocks cbs))
+      (@render_djot markdown_like_table markdown_like_bconfig (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks markdown_like_table markdown_like_bconfig). Qed.
 
@@ -303,6 +303,6 @@ Theorem md_roundtrip_doc :
     Undo.pass
       (doc_blocks
          (@parse_doc markdown_like_table markdown_like_bconfig _
-            (@render_djot markdown_like_table (blocks_of_cblocks cbs))))
+            (@render_djot markdown_like_table markdown_like_bconfig (blocks_of_cblocks cbs))))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_doc markdown_like_table markdown_like_bconfig). Qed.

@@ -1174,12 +1174,16 @@ The renderer
 ============
 *)
 
+(* A node's attributes follow it as a spec, which is where the scanner
+   reads them from.  Matching the empty set apart keeps an unattributed
+   node's text exactly its contents' text. *)
 Fixpoint inline_text (il : inline) : string :=
   let go :=
     fix go (ns : inlines) : string :=
       match ns with
       | [] => EmptyString
-      | Node _ _ x :: rest => (inline_text x ++ go rest)%string
+      | Node _ [] x :: rest => (inline_text x ++ go rest)%string
+      | Node _ a x :: rest => (inline_text x ++ attr_spec a ++ go rest)%string
       end in
   let marked (k : dstyle) (ns : inlines) :=
     (marked_open k ++ (go ns ++ marked_close k EmptyString))%string in
@@ -1211,8 +1215,20 @@ Fixpoint inline_text (il : inline) : string :=
   (* raw content is its verbatim plus the spec that named its format *)
   | RawInline fmt s => raw_text fmt s
   | Ext_wikilink embed t al => wiki_text embed t al
-  | _ => EmptyString
+  | Math InlineMath s => (one "$"%char ++ verb_text s)%string
+  | Math DisplayMath s => (one "$"%char ++ one "$"%char ++ verb_text s)%string
+  (* a span is its text in brackets; the attributes that make it one are
+     the node's, which `go` appends *)
+  | Span ns => (one "["%char ++ go ns ++ one "]"%char)%string
+  | NonBreakingSpace => String bslash (one " "%char)
+  (* a break inside a container: `inline_lines` owns the breaks between
+     top-level inlines, and a paragraph splits these off as well *)
+  | SoftBreak => one "010"%char
+  | HardBreak => String bslash (one "010"%char)
   end.
+
+Lemma ci_ast_attrs : forall ci, node_attrs (ci_ast ci) = [].
+Proof. destruct ci; reflexivity. Qed.
 
 Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
 Proof.
@@ -1227,6 +1243,7 @@ Proof.
     all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
       induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
       destruct (ci_ast c) as [p a x] eqn:E;
+      pose proof (ci_ast_attrs c) as Ha; rewrite E in Ha; cbn [node_attrs] in Ha; subst a;
       pose proof (IH c) as Hc; rewrite E in Hc;
       cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity.
   - cbn [ci_ast ci_src node_contents inline_text mk bnode].
@@ -1234,6 +1251,7 @@ Proof.
       (cbn [bnode inline_text]; f_equal; f_equal;
        induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
        destruct (ci_ast c) as [p a x] eqn:E;
+      pose proof (ci_ast_attrs c) as Ha; rewrite E in Ha; cbn [node_attrs] in Ha; subst a;
        pose proof (IH c) as Hc; rewrite E in Hc;
        cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity).
   - cbn [ci_ast ci_src node_contents inline_text mk bnode].
@@ -1241,17 +1259,22 @@ Proof.
       (cbn [bnode inline_text]; f_equal; f_equal;
        induction rkids as [|c rest IHkids]; [reflexivity|]; cbn;
        destruct (ci_ast c) as [p a x] eqn:E;
+      pose proof (ci_ast_attrs c) as Ha; rewrite E in Ha; cbn [node_attrs] in Ha; subst a;
        pose proof (IH c) as Hc; rewrite E in Hc;
        cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity).
 Qed.
 
 (* Recover the lines of a paragraph from its inlines: `Str` extends the
-   current line, `SoftBreak` ends it. *)
+   current line, `SoftBreak` ends it, and `HardBreak` ends it with a
+   backslash. *)
 Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   match ils with
   | [] => [cur]
   | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
-  | Node _ _ il :: rest => inline_lines rest (cur ++ inline_text il)
+  | Node _ _ HardBreak :: rest =>
+      (cur ++ one bslash)%string :: inline_lines rest EmptyString
+  | Node _ [] il :: rest => inline_lines rest (cur ++ inline_text il)
+  | Node _ a il :: rest => inline_lines rest (cur ++ (inline_text il ++ attr_spec a))
   end.
 
 Local Lemma inline_lines_softbreak :

@@ -10,7 +10,7 @@ From DjotVDev Require Import Generate.
 Import ListNotations.
 
 Definition render_cb (c : cblock) : string :=
-  render_djot (blocks_of_cblocks [c]).
+  @render_djot _ DjotV.Step.djot_bconfig (blocks_of_cblocks [c]).
 
 Definition generated_docs (d : nat) : list string := map render_cb (accepted d).
 

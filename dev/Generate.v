@@ -136,7 +136,7 @@ Definition keyed_accepted (d : nat) : list cblock :=
   filter (@cb_ok _ keyed_bconfig) (keyed_pool d).
 
 Definition keyed_rt_lhs (c : cblock) : blocks :=
-  @parse_blocks _ keyed_bconfig _ _ (render_djot (blocks_of_cblocks [c])).
+  @parse_blocks _ keyed_bconfig _ _ (@render_djot _ keyed_bconfig (blocks_of_cblocks [c])).
 
 (* djot.js has no wikilinks either.  Their pool is the ordinary one read
    at a table with the setting on, since switching it on must not move
@@ -168,7 +168,7 @@ Definition wiki_accepted (d : nat) : list cblock :=
 
 Definition wiki_rt_lhs (c : cblock) : blocks :=
   @parse_blocks wiki_table _ _ _
-    (@render_djot wiki_table (blocks_of_cblocks [c])).
+    (@render_djot wiki_table _ (blocks_of_cblocks [c])).
 
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.

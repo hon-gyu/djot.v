@@ -265,7 +265,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example literal_colon_documents_roundtrip :
   forall cbs, In cbs literal_colon_documents ->
-    Key (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+    Key (@render_djot _ keyed_bconfig (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof.
   intros cbs Hin. apply roundtrip_blocks.
   pose proof literal_colon_documents_accepted as H.
@@ -308,7 +308,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_key_documents_roundtrip :
   forall cbs, In cbs canonical_key_documents ->
-    Key (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+    Key (@render_djot _ keyed_bconfig (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof.
   intros cbs Hin. apply roundtrip_blocks.
   pose proof canonical_key_documents_accepted as H.

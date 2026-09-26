@@ -1,6 +1,7 @@
 open Ast
 open Datatypes
 open List0
+open ListDef
 open Strings
 
 val bslash : char
@@ -70,3 +71,23 @@ val blank_to_eol : string -> bool
 val attr_open : string -> aparser option
 
 val attr_feed : string -> aparser -> aparser
+
+val id_chars_ok : string -> bool
+
+val explicit_id_ok : string -> bool
+
+val class_words_ok : bool -> string -> bool
+
+val classes_ok : string -> bool
+
+val class_chars_ok : string -> bool
+
+val class_word_ok : string -> bool
+
+val dot_words : string -> string
+
+val escape_value : string -> string
+
+val attr_part : (string * string) -> string
+
+val attr_spec : attr -> string

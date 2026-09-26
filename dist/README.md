@@ -32,6 +32,8 @@ differences:
   `Block.Section`, which carries the heading's id.
 - `Html.tree` returns the output tree before serialization, for
   post-processing; `Html.to_string` serializes it.
+- `Source.of_doc` renders a document back to djot, where cmarkit has a
+  CommonMark renderer.
 
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,

@@ -258,7 +258,7 @@ Proof.
 Qed.
 
 (* Length of the leading run of c, and the rest of the string. *)
-Local Fixpoint count_run (c : ascii) (s : string) : nat * string :=
+Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   match s with
   | String c' s' =>
       if Ascii.eqb c c'

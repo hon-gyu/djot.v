@@ -177,3 +177,24 @@ let () =
   in
   assert (strong (blocks Profile.markdown_like "**a**\n"));
   assert (not (strong (blocks Profile.djot "**a**\n")))
+
+(* Source rendering reads back to the same tree: sections and derived
+   heading ids, attributes and a div's class, footnotes, and breaks
+   inside emphasis. *)
+let () =
+  let src =
+    "# Intro\n\n{#main k=\"a b\"}\n::: warn\nText[^n] with _soft\nbreak_.\n:::\n\n\
+     # Intro\n\n[^n]: A note.\n\n  - x\n  - y\n"
+  in
+  let same profile =
+    let d = Doc.of_string ~profile src in
+    let d' = Doc.of_string ~profile (Source.of_doc d) in
+    assert (Doc.kernel d' = Doc.kernel d)
+  in
+  same Profile.djot;
+  same Profile.markdown_like;
+  let lines = String.split_on_char '\n' (Source.of_doc (Doc.of_string src)) in
+  assert (List.mem "::: warn" lines);
+  assert (List.mem "{#main k=\"a b\"}" lines);
+  assert (List.mem "{#Intro-1}" lines);
+  assert (not (List.mem "{#Intro}" lines))

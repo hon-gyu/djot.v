@@ -137,6 +137,6 @@ Proof. vm_compute. reflexivity. Qed.
 Theorem setext_roundtrip_blocks :
   forall cbs,
     @cblocks_ok _ setext_bconfig cbs = true ->
-    @parse_blocks _ setext_bconfig _ _ (render_djot (blocks_of_cblocks cbs))
+    @parse_blocks _ setext_bconfig _ _ (@render_djot _ setext_bconfig (blocks_of_cblocks cbs))
     = blocks_of_cblocks cbs.
 Proof. exact (@roundtrip_blocks _ setext_bconfig). Qed.
