@@ -417,47 +417,24 @@ let rec task_items chks = function
    | [] -> (Incomplete, it) :: (task_items [] rest)
    | c :: cs -> (c, it) :: (task_items cs rest))
 
-(** val words_aux :
-    (char -> bool) -> string -> string -> string list -> string list **)
+(** val rev_chars : char list -> string **)
 
-let rec words_aux sep s cur acc =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> acc)
-      (fun _ _ -> cur :: acc)
-      cur)
-    (fun c s' ->
-    if sep c
-    then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-            (fun _ -> words_aux sep s' "" acc)
-            (fun _ _ -> words_aux sep s' "" (cur :: acc))
-            cur)
-    else words_aux sep s'
-           ((^) cur
-             ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-             (c, "")))
-           acc)
-    s
+let rec rev_chars = (fun cs ->
+     let n = List.length cs in
+     let b = Bytes.create n and i = ref n in
+     List.iter (fun c -> decr i; Bytes.set b !i c) cs;
+     Bytes.to_string b)
 
 (** val words : (char -> bool) -> string -> string list **)
 
-let words sep s =
-  rev (words_aux sep s "" [])
+let words = (fun sep s ->
+     let acc = ref [] and word = Buffer.create 32 in
+     let flush () =
+       if Buffer.length word <> 0 then begin
+         acc := Buffer.contents word :: !acc; Buffer.clear word
+       end in
+     String.iter (fun c -> if sep c then flush () else Buffer.add_char word c) s;
+     flush (); List.rev !acc)
 
 (** val is_label_ws : char -> bool **)
 

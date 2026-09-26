@@ -209,8 +209,7 @@ val def_items : blocks list -> (inlines * blocks) list
 val task_items :
   task_status list -> blocks list -> (task_status * blocks) list
 
-val words_aux :
-  (char -> bool) -> string -> string -> string list -> string list
+val rev_chars : char list -> string
 
 val words : (char -> bool) -> string -> string list
 

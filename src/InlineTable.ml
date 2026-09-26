@@ -1,6 +1,5 @@
 open Ast
 open Attributes
-open List0
 open ListDef
 open Strings
 
@@ -387,11 +386,6 @@ let rec chars c n =
     (c, (chars c m)))
     n
 
-(** val dstyles : dstyle list **)
-
-let dstyles =
-  DEmph :: (DStrong :: (DSuper :: (DSub :: (DMark :: (DInsert :: (DDelete :: (DSQuote :: (DDQuote :: []))))))))
-
 (** val dstyle_eq : dstyle -> dstyle -> bool **)
 
 let dstyle_eq a b =
@@ -431,10 +425,29 @@ let denabled c k =
   | DOff -> false
   | _ -> true
 
-(** val dstyle_at : dconfig -> char -> dstyle option **)
+(** val dstyle_at_fast : dconfig -> char -> dstyle option **)
 
-let dstyle_at c c0 =
-  find (fun k -> (&&) (denabled c k) ((=) (c.dc_char k) c0)) dstyles
+let dstyle_at_fast c c0 =
+  let hit = fun k -> (&&) (denabled c k) ((=) (c.dc_char k) c0) in
+  if hit DEmph
+  then Some DEmph
+  else if hit DStrong
+       then Some DStrong
+       else if hit DSuper
+            then Some DSuper
+            else if hit DSub
+                 then Some DSub
+                 else if hit DMark
+                      then Some DMark
+                      else if hit DInsert
+                           then Some DInsert
+                           else if hit DDelete
+                                then Some DDelete
+                                else if hit DSQuote
+                                     then Some DSQuote
+                                     else if hit DDQuote
+                                          then Some DDQuote
+                                          else None
 
 (** val with_wikilinks : bool -> dconfig -> dconfig **)
 

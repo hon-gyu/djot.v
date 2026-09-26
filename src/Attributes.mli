@@ -40,7 +40,7 @@ type astate =
 | AFail
 | ADone
 
-type aparser = { ap_st : astate; ap_tok : string; ap_key : string;
+type aparser = { ap_st : astate; ap_tok : char list; ap_key : string;
                  ap_attrs : attr }
 
 val ap_init : aparser

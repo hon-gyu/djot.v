@@ -1,6 +1,5 @@
 open Ast
 open Attributes
-open List0
 open ListDef
 open Strings
 
@@ -97,13 +96,11 @@ val djot_config : dconfig
 
 val chars : char -> int -> string
 
-val dstyles : dstyle list
-
 val dstyle_eq : dstyle -> dstyle -> bool
 
 val denabled : dconfig -> dstyle -> bool
 
-val dstyle_at : dconfig -> char -> dstyle option
+val dstyle_at_fast : dconfig -> char -> dstyle option
 
 val with_wikilinks : bool -> dconfig -> dconfig
 

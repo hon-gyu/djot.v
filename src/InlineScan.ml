@@ -309,20 +309,12 @@ let previous_spot p =
 
 (** val source_shape : string -> (int * int) * int **)
 
-let rec source_shape s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ((0, 0), 0))
-    (fun c rest ->
-    let (p, total) = source_shape rest in
-    let (lines, first) = p in
-    if (=) c nl_char
-    then (((Stdlib.succ lines), 0), (Stdlib.succ total))
-    else ((lines, (Stdlib.succ first)), (Stdlib.succ total)))
-    s
+let rec source_shape = (fun s ->
+     let lines = ref 0 and first = ref 0 in
+     String.iter (fun c ->
+       if c = '\n' then incr lines
+       else if !lines = 0 then incr first) s;
+     ((!lines, !first), String.length s))
 
 (** val spot_before : spot -> string -> spot **)
 
@@ -1222,40 +1214,15 @@ let bnote_lit _ _ esc image label o =
 
 (** val wiki_split : string -> string * string option **)
 
-let rec wiki_split s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", None))
-    (fun c rest ->
-    if is_bslash c
-    then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-            (fun _ -> ((one c), None))
-            (fun c' rest' ->
-            let (t, al) = wiki_split rest' in
-            (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c,
-            ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c', t)))), al))
-            rest)
-    else if (=) c vbar
-         then ("", (Some rest))
-         else let (t, al) = wiki_split rest in
-              (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-              (c, t)), al))
-    s
+let rec wiki_split = (fun s ->
+     let n = String.length s in
+     let rec find i =
+       if i >= n then (s, None)
+       else if s.[i] = '\\' then find (i + 2)
+       else if s.[i] = '|' then
+         (String.sub s 0 i, Some (String.sub s (i + 1) (n - i - 1)))
+       else find (i + 1)
+     in find 0)
 
 (** val wiki_lit : bool -> bool -> bool -> string -> string **)
 
