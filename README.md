@@ -1,6 +1,6 @@
 # djot.v
 
-djot.v is a [djot](https://djot.net) parser written and verified in Rocq, with an extracted OCaml parser, an AST-to-djot renderer and an AST-to-HTML renderer.
+djot.v is a [djot](https://djot.net) verified and generalized implementation in Rocq, with a tuned extraction to OCaml.
 
 It is _verified_ in the sense that the goals behind djot's design[^1] are stated as theorems about the parser and proved. The main ones:
 
@@ -8,8 +8,6 @@ It is _verified_ in the sense that the goals behind djot's design[^1] are stated
 - **Container uniformity**: Text placed in a block quote or a list item parses as it would on its own, so moving content in or out of a container does not change its meaning.
 - **Local interpretation**: Whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.
 - **Safe rewrapping**: A line inside a paragraph never starts a list, heading or quote, whatever it begins with. Rewrapping a paragraph cannot create one by accident.
-
-[Properties](#djot-properties) section lists everything proved, what each proof assumes, and what is still to be done.
 
 It is _generalized_ in the sense that djot is one setting of a configurable parser. 
 - The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. 
@@ -20,6 +18,8 @@ It is _generalized_ in the sense that djot is one setting of a configurable pars
 [^1]: See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from.
 
 ## Djot Properties
+
+This section lists everything proved, what each proof assumes, and what is still to be done.
 
 The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
