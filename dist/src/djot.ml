@@ -141,6 +141,12 @@ module Textloc = struct
   let first_line t = t.first_line
   let last_line t = t.last_line
 
+  let v ~first_byte ~last_byte ~first_line ~last_line =
+    { first_byte; last_byte; first_line; last_line }
+
+  let reloc ~first ~last =
+    { first with last_byte = last.last_byte; last_line = last.last_line }
+
   let pp ppf t =
     if is_none t then Format.pp_print_string ppf "<none>"
     else
@@ -227,6 +233,40 @@ module Doc = struct
     match (d.lines, p) with
     | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
     | _ -> Textloc.none
+
+  type syntax = K.Ast.syntax_role = RAttrSpec | ROpenFence | RCloseFence
+
+  type parts =
+    | NoParts
+    | Items of Textloc.t list
+    | DefItems of (Textloc.t * Textloc.t * Textloc.t) list
+    | TableRows of Textloc.t option * (Textloc.t * Textloc.t list) list
+
+  let provenance d (Node (p, _, _)) =
+    match (d.lines, p) with
+    | Some lines, K.Ast.SomePos p -> Some (lines, p)
+    | _ -> None
+
+  let syntax_locs d n =
+    match provenance d n with
+    | Some (lines, p) ->
+        (* Recorded as the parser settles them: a block's attribute spec
+           comes after its fences. *)
+        List.map (fun (r, s) -> (r, Textloc.of_span lines s)) p.syntax_spans
+        |> List.stable_sort (fun (_, a) (_, b) -> compare a.Textloc.first_byte b.Textloc.first_byte)
+    | None -> []
+
+  let parts d n =
+    match provenance d n with
+    | None -> NoParts
+    | Some (lines, p) -> (
+        let loc = Textloc.of_span lines in
+        match p.part_spans with
+        | K.Ast.PNone -> NoParts
+        | PItems items -> Items (List.map loc items)
+        | PDefItems items -> DefItems (List.map (fun ((i, t), d) -> (loc i, loc t, loc d)) items)
+        | PTable (cap, rows) ->
+            TableRows (Option.map loc cap, List.map (fun (r, cs) -> (loc r, List.map loc cs)) rows))
 
   let kernel d = d.kernel
 end

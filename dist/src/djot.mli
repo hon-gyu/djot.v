@@ -172,6 +172,17 @@ module Textloc : sig
 
   val first_line : t -> line_pos
   val last_line : t -> line_pos
+
+  val v :
+    first_byte:byte_pos ->
+    last_byte:byte_pos ->
+    first_line:line_pos ->
+    last_line:line_pos ->
+    t
+
+  val reloc : first:t -> last:t -> t
+  (** From the start of [first] to the end of [last]. *)
+
   val pp : Format.formatter -> t -> unit
 end
 
@@ -263,6 +274,30 @@ module Doc : sig
   val textloc : t -> 'a node -> Textloc.t
   (** {!Textloc.none} unless the document was parsed with [~locs:true] and
       the node came from that parse. *)
+
+  type syntax = Kernel.Ast.syntax_role =
+    | RAttrSpec  (** An attribute spec [{...}]. *)
+    | ROpenFence  (** A code block's or div's opening fence line. *)
+    | RCloseFence  (** Its closing fence line, absent when unclosed. *)
+
+  val syntax_locs : t -> 'a node -> (syntax * Textloc.t) list
+  (** The node's delimiting syntax, in source order.  Empty under the
+      same conditions as {!textloc}. *)
+
+  (** The ranges of the parts of a node that are not nodes themselves,
+      parallel to its children. *)
+  type parts =
+    | NoParts
+    | Items of Textloc.t list
+        (** A list's items.  A task list's include the checkbox. *)
+    | DefItems of (Textloc.t * Textloc.t * Textloc.t) list
+        (** A definition list's items: the item, its term, its
+            definition. *)
+    | TableRows of Textloc.t option * (Textloc.t * Textloc.t list) list
+        (** A table's caption, then each row and its cells. *)
+
+  val parts : t -> 'a node -> parts
+  (** {!NoParts} under the same conditions as {!textloc}. *)
 
   val kernel : t -> Kernel.Ast.doc
 end

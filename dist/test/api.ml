@@ -42,6 +42,54 @@ let () =
   | [ code ] -> assert (lines (Doc.textloc d code) = ((1, 0), (3, 12)))
   | _ -> failwith "unexpected document"
 
+(* A node's delimiting syntax, in source order; an unclosed div has no
+   closing fence. *)
+let () =
+  let syntax src =
+    let d = Doc.of_string ~locs:true src in
+    match Doc.blocks d with
+    | [ n ] -> List.map (fun (r, t) -> (r, bytes t)) (Doc.syntax_locs d n)
+    | _ -> failwith "unexpected document"
+  in
+  assert (syntax "{#i}\n::: warn\ninside\n:::\n"
+          = [ (Doc.RAttrSpec, (0, 3)); (ROpenFence, (5, 12)); (RCloseFence, (21, 23)) ]);
+  assert (syntax "```py\nx\n```\n" = [ (ROpenFence, (0, 4)); (RCloseFence, (8, 10)) ]);
+  assert (syntax "::: a\nx\n" = [ (ROpenFence, (0, 4)) ]);
+  let plain = Doc.of_string "```\nx\n```\n" in
+  assert (List.for_all (fun n -> Doc.syntax_locs plain n = []) (Doc.blocks plain))
+
+(* The parts of a list, a definition list and a table. *)
+let () =
+  let parts src =
+    let d = Doc.of_string ~locs:true src in
+    match Doc.blocks d with
+    | [ n ] -> Doc.parts d n
+    | _ -> failwith "unexpected document"
+  in
+  (match parts "- a\n- b\n" with
+   | Items l -> assert (List.map bytes l = [ (0, 2); (4, 6) ])
+   | _ -> failwith "unexpected parts");
+  (match parts ": t\n\n  d\n" with
+   | DefItems [ (i, t, d) ] -> assert ((bytes i, bytes t, bytes d) = ((0, 7), (2, 2), (7, 7)))
+   | _ -> failwith "unexpected parts");
+  match parts "| a | b |\n| 1 | 2 |\n^ cap\n" with
+  | TableRows (Some cap, [ (r1, [ _; _ ]); (r2, [ c21; c22 ]) ]) ->
+      assert (bytes cap = (20, 24));
+      assert ((bytes r1, bytes r2) = ((0, 8), (10, 18)));
+      assert ((bytes c21, bytes c22) = ((10, 14), (14, 18)))
+  | _ -> failwith "unexpected parts"
+
+(* Building a range from two others. *)
+let () =
+  let d = Doc.of_string ~locs:true "a\n\nb\n" in
+  match Doc.blocks d with
+  | [ a; b ] ->
+      let t = Textloc.reloc ~first:(Doc.textloc d a) ~last:(Doc.textloc d b) in
+      assert (bytes t = (0, 3));
+      assert (lines t = ((1, 0), (3, 3)));
+      assert (t = Textloc.v ~first_byte:0 ~last_byte:3 ~first_line:(1, 0) ~last_line:(3, 3))
+  | _ -> failwith "unexpected document"
+
 (* Inline ranges in document order, containers before their contents. *)
 let () =
   let rec ranges d ns =
