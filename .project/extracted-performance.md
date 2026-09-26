@@ -469,6 +469,43 @@ milliseconds:
 20, and 22, and 0.01 ms after.  `readme.dj` x64 took 71.7 -> 63.7 ms.
 `make bench` has a shape for each of these paths.
 
+Delimiter lookup (2026-09-26, baseline `a0fcd0a`).  A profile of
+`readme.dj` x64 put about 43% of the parse in `dstyle_at_fast`: the
+native drivers ask it of every letter, digit, and space before batching
+them, and the step asks it of the rest.  The table's rows are functions
+in the `dconfig` record, so a lookup made up to 18 indirect calls.
+`dstyle_at_fast` is now realized by a 256-entry array per table, built
+by the same first-match search in `dstyles` order and cached for the
+last table seen, compared physically.  Callers build a table once and
+the parser builds none, so the cache holds for a whole parse; a switch
+rebuilds 256 entries.  The cache is one `Atomic` holding an immutable
+pair.  Trusted, like the other realizations.
+
+Checked against `dist/src` at `a0fcd0a`, linked in one process: every
+byte on six tables (djot, wikilinks on, rows switched off, strong moved
+to `_`, both), twice around the cache, plus rendered documents on each
+table, and the block-path differential above; 171633075 comparisons, no
+difference.  The suites, `make dist`, `check-dist`, and the standalone
+build and test passed.
+
+`parse_doc`, release profile, best of three, old -> new in one process,
+milliseconds:
+
+| input | 80 KB | 320 KB |
+| --- | ---: | ---: |
+| short paragraphs | 5.0 -> 1.9 | 20.5 -> 9.2 |
+| one paragraph of short lines | 4.5 -> 1.6 | 19.2 -> 7.7 |
+| one line of words | 3.2 -> 0.8 | 13.2 -> 2.1 |
+| `.a` on one line | 7.5 -> 5.2 | 34.2 -> 28.7 |
+| unclosed `_`, wrapped | 15.0 -> 11.0 | 60.1 -> 48.0 |
+| inline links, wrapped | 9.5 -> 7.3 | 43.7 -> 35.5 |
+| table rows | 9.6 -> 7.7 | 44.7 -> 39.5 |
+
+`readme.dj` x64 took 55.3 -> 36.8 ms (`parse_blocks` alone 55.7 ->
+31.2).  Its profile is now led by the collector, allocation, and
+copying (per-line substrings, `rev_string` in trailing-whitespace
+removal, pending-text chunks), spread over many sites.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
