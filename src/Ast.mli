@@ -25,7 +25,7 @@ module Attr :
   val apply_pending : attr -> attr -> attr
  end
 
-type spot = { spot_line : nat; spot_rem : nat }
+type spot = { spot_line : int; spot_rem : int }
 
 type span = { span_start : spot; span_stop : spot }
 
@@ -155,7 +155,7 @@ type ordered_list_delim =
 
 type ordered_list_attributes = { ol_style : ordered_list_style;
                                  ol_delim : ordered_list_delim; ol_start : 
-                                 nat }
+                                 int }
 
 type task_status =
 | Complete
@@ -179,7 +179,7 @@ type cell =
 type block =
 | Para of inlines
 | Section of block node list
-| Heading of nat * inlines
+| Heading of int * inlines
 | BlockQuote of block node list
 | CodeBlock of string * string
 | Div of block node list

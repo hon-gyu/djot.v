@@ -1,15 +1,12 @@
-open Ascii
 open Ast
 open Attributes
 open Datatypes
 open List0
 open ListDef
 open Nat0
-open PeanoNat
-open String0
 open Strings
 
-type fence = { f_ch : char; f_len : nat; f_info : string }
+type fence = { f_ch : char; f_len : int; f_info : string }
 
 type lstyle =
 | SBullet of char
@@ -134,9 +131,9 @@ type line_kind =
 | KBlank
 | KThematic
 | KFence of fence
-| KDiv of nat * string
+| KDiv of int * string
 | KQuote of string
-| KHeading of nat * string
+| KHeading of int * string
 | KList of lstyle list * string * task_marker option * string
 | KAttr of aparser
 | KFoot of string * string
@@ -149,7 +146,7 @@ type line_kind =
 let is_marker c =
   (||) ((=) c '-') ((=) c '*')
 
-(** val thematic_count : string -> nat -> bool **)
+(** val thematic_count : string -> int -> bool **)
 
 let rec thematic_count s count =
   (* If this appears, you're using String internals. Please don't *)
@@ -157,17 +154,18 @@ let rec thematic_count s count =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-    (fun _ -> Nat.leb (S (S (S O))) count)
+    (fun _ ->
+    ( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) count)
     (fun c s' ->
     if is_marker c
-    then thematic_count s' (S count)
+    then thematic_count s' (Stdlib.succ count)
     else if is_ws c then thematic_count s' count else false)
     s
 
 (** val is_thematic : string -> bool **)
 
 let is_thematic l =
-  thematic_count l O
+  thematic_count l 0
 
 (** val all_char : char -> string -> bool **)
 
@@ -181,7 +179,7 @@ let rec all_char c s =
     (fun a s' -> (&&) ((=) a c) (all_char c s'))
     s
 
-(** val underline_of : string -> (char * nat) option **)
+(** val underline_of : string -> (char * int) option **)
 
 let underline_of l =
   (* If this appears, you're using String internals. Please don't *)
@@ -191,7 +189,7 @@ let underline_of l =
 
     (fun _ -> None)
     (fun c s ->
-    if all_char c s then Some (c, (S (length s))) else None)
+    if all_char c s then Some (c, (Stdlib.succ (String.length s))) else None)
     (strip_trailing_ws (drop_leading_ws l))
 
 (** val take_while : (char -> bool) -> string -> string * string **)
@@ -213,7 +211,7 @@ let rec take_while p s =
     else ("", s))
     s
 
-(** val count_run : char -> string -> nat * string **)
+(** val count_run : char -> string -> int * string **)
 
 let rec count_run c s =
   (* If this appears, you're using String internals. Please don't *)
@@ -221,9 +219,11 @@ let rec count_run c s =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-    (fun _ -> (O, s))
+    (fun _ -> (0, s))
     (fun c' s' ->
-    if (=) c c' then let (n, r) = count_run c s' in ((S n), r) else (O, s))
+    if (=) c c'
+    then let (n, r) = count_run c s' in ((Stdlib.succ n), r)
+    else (0, s))
     s
 
 (** val is_info_char : char -> bool **)
@@ -249,7 +249,7 @@ let fence_open l =
 
              (c, s))
          in
-         if Nat.leb (S (S (S O))) n
+         if ( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) n
          then let (info, r') = take_while is_info_char (drop_leading_ws r) in
               if is_blank r'
               then Some { f_ch = c; f_len = n; f_info = info }
@@ -262,57 +262,143 @@ let fence_open l =
 
 let fence_close f l =
   let (n, r) = count_run f.f_ch (drop_leading_ws l) in
-  (&&) (Nat.leb f.f_len n) (is_blank r)
+  (&&) (( <= ) f.f_len n) (is_blank r)
 
 (** val is_class_char : char -> bool **)
 
 let is_class_char c =
-  let n = nat_of_ascii c in
+  let n = Char.code c in
   (||)
     ((||)
       ((||)
         ((||)
           ((&&)
-            (Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))) n)
-            (Nat.leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))) n)
+            (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
           ((&&)
-            (Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
               n)
-            (Nat.leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
         ((&&)
-          (Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S
-            O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+          (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
             n)
-          (Nat.leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+          (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ (Stdlib.succ (Stdlib.succ
+            0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
       ((=) c '_'))
     ((=) c '-')
 
-(** val div_open : string -> (nat * string) option **)
+(** val div_open : string -> (int * string) option **)
 
 let div_open l =
   (* If this appears, you're using String internals. Please don't *)
@@ -330,18 +416,21 @@ let div_open l =
 
              (c, s))
          in
-         if Nat.leb (S (S (S O))) n
+         if ( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) n
          then let (cls, r') = take_while is_class_char (drop_leading_ws r) in
               if is_blank r' then Some (n, cls) else None
          else None
     else None)
     (drop_leading_ws l)
 
-(** val div_close : nat -> string -> bool **)
+(** val div_close : int -> string -> bool **)
 
 let div_close len l =
   let (n, r) = count_run ':' (drop_leading_ws l) in
-  (&&) ((&&) (Nat.leb len n) (Nat.leb (S (S (S O))) n)) (is_blank r)
+  (&&)
+    ((&&) (( <= ) len n)
+      (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) n))
+    (is_blank r)
 
 (** val quote_prefix : string -> string option **)
 
@@ -365,11 +454,11 @@ let quote_prefix l =
     else None)
     (drop_leading_ws l)
 
-(** val heading_open : string -> (nat * string) option **)
+(** val heading_open : string -> (int * string) option **)
 
 let heading_open l =
   let (n, r) = count_run '#' (drop_leading_ws l) in
-  if Nat.leb (S O) n
+  if ( <= ) (Stdlib.succ 0) n
   then ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -390,51 +479,126 @@ let is_bullet c =
 let is_task_bullet c =
   (||) ((||) ((=) c '-') ((=) c '*')) ((=) c '+')
 
-(** val in_range : nat -> nat -> char -> bool **)
+(** val in_range : int -> int -> char -> bool **)
 
 let in_range lo hi c =
-  let n = nat_of_ascii c in (&&) (Nat.leb lo n) (Nat.leb n hi)
+  let n = Char.code c in (&&) (( <= ) lo n) (( <= ) n hi)
 
 (** val is_digit : char -> bool **)
 
 let is_digit c =
-  in_range (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S O)))))))))))))))))))))))))))))))))))))))))))))))) (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))))))))))))) c
+  in_range (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    0)))))))))))))))))))))))))))))))))))))))))))))))) (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ 0))))))))))))))))))))))))))))))))))))))))))))))))))))))))) c
 
 (** val is_lower : char -> bool **)
 
 let is_lower c =
-  in_range (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S
-    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S
-    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  in_range (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ
+    0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ
+    0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
     c
 
 (** val is_upper : char -> bool **)
 
 let is_upper c =
-  in_range (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  in_range (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
     c
 
 (** val is_alnum : char -> bool **)
@@ -512,6 +676,14 @@ let marker_shape s =
             r))
     s
 
+(** val dec_digits_max : int **)
+
+let dec_digits_max =
+  Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))))))))))))))))
+
 (** val styles_of_core : string -> ordered_list_delim -> lstyle list **)
 
 let styles_of_core core d =
@@ -523,7 +695,9 @@ let styles_of_core core d =
     (fun _ -> [])
     (fun c rest ->
     if str_forallb is_digit core
-    then (SOrd (Decimal, d)) :: []
+    then if ( <= ) (String.length core) dec_digits_max
+         then (SOrd (Decimal, d)) :: []
+         else []
     else ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -835,188 +1009,188 @@ let sep_cell s =
     (fun _ ->
     let left = false in
     let (n, s2) = count_run '-' s in
-    (match n with
-     | O -> None
-     | S _ ->
-       ((* If this appears, you're using String internals. Please don't *)
+    ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+       (fun _ -> None)
+       (fun _ ->
+       (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-          (fun _ ->
-          let right = false in
-          ((* If this appears, you're using String internals. Please don't *)
+         (fun _ ->
+         let right = false in
+         ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-             (fun _ -> None)
-             (fun c r ->
-             if (=) c '|'
-             then Some ((sep_align left right), (drop_leading_ws r))
-             else None)
-             (drop_leading_ws s2)))
-          (fun c r ->
-          if (=) c ':'
-          then let right = true in
-               ((* If this appears, you're using String internals. Please don't *)
+            (fun _ -> None)
+            (fun c r ->
+            if (=) c '|'
+            then Some ((sep_align left right), (drop_leading_ws r))
+            else None)
+            (drop_leading_ws s2)))
+         (fun c r ->
+         if (=) c ':'
+         then let right = true in
+              ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                  (fun _ -> None)
-                  (fun c0 r0 ->
-                  if (=) c0 '|'
-                  then Some ((sep_align left right), (drop_leading_ws r0))
-                  else None)
-                  (drop_leading_ws r))
-          else let right = false in
-               ((* If this appears, you're using String internals. Please don't *)
+                 (fun _ -> None)
+                 (fun c0 r0 ->
+                 if (=) c0 '|'
+                 then Some ((sep_align left right), (drop_leading_ws r0))
+                 else None)
+                 (drop_leading_ws r))
+         else let right = false in
+              ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                  (fun _ -> None)
-                  (fun c0 r0 ->
-                  if (=) c0 '|'
-                  then Some ((sep_align left right), (drop_leading_ws r0))
-                  else None)
-                  (drop_leading_ws s2)))
-          s2)))
+                 (fun _ -> None)
+                 (fun c0 r0 ->
+                 if (=) c0 '|'
+                 then Some ((sep_align left right), (drop_leading_ws r0))
+                 else None)
+                 (drop_leading_ws s2)))
+         s2)
+       n))
     (fun c r ->
     if (=) c ':'
     then let left = true in
          let (n, s2) = count_run '-' r in
-         (match n with
-          | O -> None
-          | S _ ->
-            ((* If this appears, you're using String internals. Please don't *)
+         ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+            (fun _ -> None)
+            (fun _ ->
+            (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-               (fun _ ->
-               let right = false in
-               ((* If this appears, you're using String internals. Please don't *)
+              (fun _ ->
+              let right = false in
+              ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                  (fun _ -> None)
-                  (fun c0 r0 ->
-                  if (=) c0 '|'
-                  then Some ((sep_align left right), (drop_leading_ws r0))
-                  else None)
-                  (drop_leading_ws s2)))
-               (fun c0 r0 ->
-               if (=) c0 ':'
-               then let right = true in
-                    ((* If this appears, you're using String internals. Please don't *)
+                 (fun _ -> None)
+                 (fun c0 r0 ->
+                 if (=) c0 '|'
+                 then Some ((sep_align left right), (drop_leading_ws r0))
+                 else None)
+                 (drop_leading_ws s2)))
+              (fun c0 r0 ->
+              if (=) c0 ':'
+              then let right = true in
+                   ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                       (fun _ -> None)
-                       (fun c1 r1 ->
-                       if (=) c1 '|'
-                       then Some ((sep_align left right),
-                              (drop_leading_ws r1))
-                       else None)
-                       (drop_leading_ws r0))
-               else let right = false in
-                    ((* If this appears, you're using String internals. Please don't *)
+                      (fun _ -> None)
+                      (fun c1 r1 ->
+                      if (=) c1 '|'
+                      then Some ((sep_align left right), (drop_leading_ws r1))
+                      else None)
+                      (drop_leading_ws r0))
+              else let right = false in
+                   ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                       (fun _ -> None)
-                       (fun c1 r1 ->
-                       if (=) c1 '|'
-                       then Some ((sep_align left right),
-                              (drop_leading_ws r1))
-                       else None)
-                       (drop_leading_ws s2)))
-               s2))
+                      (fun _ -> None)
+                      (fun c1 r1 ->
+                      if (=) c1 '|'
+                      then Some ((sep_align left right), (drop_leading_ws r1))
+                      else None)
+                      (drop_leading_ws s2)))
+              s2)
+            n)
     else let left = false in
          let (n, s2) = count_run '-' s in
-         (match n with
-          | O -> None
-          | S _ ->
-            ((* If this appears, you're using String internals. Please don't *)
+         ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+            (fun _ -> None)
+            (fun _ ->
+            (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-               (fun _ ->
-               let right = false in
-               ((* If this appears, you're using String internals. Please don't *)
+              (fun _ ->
+              let right = false in
+              ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                  (fun _ -> None)
-                  (fun c0 r0 ->
-                  if (=) c0 '|'
-                  then Some ((sep_align left right), (drop_leading_ws r0))
-                  else None)
-                  (drop_leading_ws s2)))
-               (fun c0 r0 ->
-               if (=) c0 ':'
-               then let right = true in
-                    ((* If this appears, you're using String internals. Please don't *)
+                 (fun _ -> None)
+                 (fun c0 r0 ->
+                 if (=) c0 '|'
+                 then Some ((sep_align left right), (drop_leading_ws r0))
+                 else None)
+                 (drop_leading_ws s2)))
+              (fun c0 r0 ->
+              if (=) c0 ':'
+              then let right = true in
+                   ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                       (fun _ -> None)
-                       (fun c1 r1 ->
-                       if (=) c1 '|'
-                       then Some ((sep_align left right),
-                              (drop_leading_ws r1))
-                       else None)
-                       (drop_leading_ws r0))
-               else let right = false in
-                    ((* If this appears, you're using String internals. Please don't *)
+                      (fun _ -> None)
+                      (fun c1 r1 ->
+                      if (=) c1 '|'
+                      then Some ((sep_align left right), (drop_leading_ws r1))
+                      else None)
+                      (drop_leading_ws r0))
+              else let right = false in
+                   ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                       (fun _ -> None)
-                       (fun c1 r1 ->
-                       if (=) c1 '|'
-                       then Some ((sep_align left right),
-                              (drop_leading_ws r1))
-                       else None)
-                       (drop_leading_ws s2)))
-               s2)))
+                      (fun _ -> None)
+                      (fun c1 r1 ->
+                      if (=) c1 '|'
+                      then Some ((sep_align left right), (drop_leading_ws r1))
+                      else None)
+                      (drop_leading_ws s2)))
+              s2)
+            n))
     s
 
-(** val sep_cells_fuel : nat -> string -> align list option **)
+(** val sep_cells_fuel : int -> string -> align list option **)
 
 let rec sep_cells_fuel n s =
-  match n with
-  | O -> None
-  | S n' ->
-    ((* If this appears, you're using String internals. Please don't *)
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> None)
+    (fun n' ->
+    (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-       (fun _ -> Some [])
-       (fun _ _ ->
-       match sep_cell s with
-       | Some p ->
-         let (a, rest) = p in
-         (match sep_cells_fuel n' rest with
-          | Some rest' -> Some (a :: rest')
-          | None -> None)
-       | None -> None)
-       s)
+      (fun _ -> Some [])
+      (fun _ _ ->
+      match sep_cell s with
+      | Some p ->
+        let (a, rest) = p in
+        (match sep_cells_fuel n' rest with
+         | Some rest' -> Some (a :: rest')
+         | None -> None)
+      | None -> None)
+      s)
+    n
 
 (** val sep_cells : string -> align list option **)
 
 let sep_cells s =
-  sep_cells_fuel (S (length s)) s
+  sep_cells_fuel (Stdlib.succ (String.length s)) s
 
 (** val cell_trim_r : string -> string **)
 
@@ -1077,26 +1251,31 @@ let rec cell_trim_r s =
 let cell_trim s =
   cell_trim_r (drop_leading_ws s)
 
-(** val vb_step : nat -> nat -> nat **)
+(** val vb_step : int -> int -> int **)
 
-let vb_step vb run = match run with
-| O -> vb
-| S _ -> (match vb with
-          | O -> run
-          | S _ -> if Nat.eqb vb run then O else vb)
+let vb_step vb run =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> vb)
+    (fun _ ->
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> run)
+      (fun _ -> if ( = ) vb run then 0 else vb)
+      vb)
+    run
 
 (** val row_cell_entry :
-    string -> nat -> nat -> ((string * nat) * nat) * nat **)
+    string -> int -> int -> ((string * int) * int) * int **)
 
 let row_cell_entry cur start stop =
   let raw = rev_string cur in
   let content = drop_leading_ws raw in
   ((((cell_trim raw), start), stop),
-  (sub (add (S start) (length raw)) (length content)))
+  (sub (( + ) (Stdlib.succ start) (String.length raw))
+    (String.length content)))
 
 (** val row_cells_trace :
-    string -> nat -> nat -> bool -> string -> (((string * nat) * nat) * nat)
-    list -> nat -> nat -> (((string * nat) * nat) * nat) list option **)
+    string -> int -> int -> bool -> string -> (((string * int) * int) * int)
+    list -> int -> int -> (((string * int) * int) * int) list option **)
 
 let rec row_cells_trace s vb run bs cur acc pos start =
   (* If this appears, you're using String internals. Please don't *)
@@ -1107,18 +1286,20 @@ let rec row_cells_trace s vb run bs cur acc pos start =
     (fun _ ->
     if bs
     then None
-    else (match vb_step vb run with
-          | O -> Some (rev ((row_cell_entry cur start (S pos)) :: acc))
-          | S _ -> None))
+    else ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+            (fun _ -> Some
+            (rev ((row_cell_entry cur start (Stdlib.succ pos)) :: acc)))
+            (fun _ -> None)
+            (vb_step vb run)))
     (fun c s' ->
     if (=) c '`'
-    then row_cells_trace s' vb (S run) false
+    then row_cells_trace s' vb (Stdlib.succ run) false
            ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, cur)) acc (S pos) start
+           (c, cur)) acc (Stdlib.succ pos) start
     else let vb' = vb_step vb run in
-         if (&&) (Nat.eqb vb' O) ((=) c '\\')
+         if (&&) (( = ) vb' 0) ((=) c '\\')
          then ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -1126,7 +1307,7 @@ let rec row_cells_trace s vb run bs cur acc pos start =
 
                  (fun _ -> None)
                  (fun c' s'' ->
-                 row_cells_trace s'' O O ((=) c' '\\')
+                 row_cells_trace s'' 0 0 ((=) c' '\\')
                    ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -1134,27 +1315,28 @@ let rec row_cells_trace s vb run bs cur acc pos start =
                    ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-                   (c, cur)))) acc (S (S pos)) start)
+                   (c, cur)))) acc (Stdlib.succ (Stdlib.succ pos)) start)
                  s')
-         else if (&&) ((&&) ((=) c '|') (Nat.eqb vb' O)) (negb bs)
-              then row_cells_trace s' O O false ""
-                     ((row_cell_entry cur start (S pos)) :: acc) (S pos) pos
-              else row_cells_trace s' vb' O ((=) c '\\')
+         else if (&&) ((&&) ((=) c '|') (( = ) vb' 0)) (negb bs)
+              then row_cells_trace s' 0 0 false ""
+                     ((row_cell_entry cur start (Stdlib.succ pos)) :: acc)
+                     (Stdlib.succ pos) pos
+              else row_cells_trace s' vb' 0 ((=) c '\\')
                      ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-                     (c, cur)) acc (S pos) start)
+                     (c, cur)) acc (Stdlib.succ pos) start)
     s
 
 (** val row_cells :
-    string -> nat -> nat -> bool -> string -> string list -> string list
+    string -> int -> int -> bool -> string -> string list -> string list
     option **)
 
 let row_cells s vb run bs cur acc =
   option_map
     (map (fun x -> let (y, _) = x in let (y1, _) = y in let (c, _) = y1 in c))
-    (row_cells_trace s vb run bs cur (map (fun c -> (((c, O), O), O)) acc) (S
-      O) O)
+    (row_cells_trace s vb run bs cur (map (fun c -> (((c, 0), 0), 0)) acc)
+      (Stdlib.succ 0) 0)
 
 (** val row_body : string -> string option **)
 
@@ -1201,12 +1383,12 @@ let table_row l =
      | Some aligns ->
        (match aligns with
         | [] ->
-          (match row_cells (row_inner body) O O false "" [] with
+          (match row_cells (row_inner body) 0 0 false "" [] with
            | Some cells -> Some (TCells cells)
            | None -> None)
         | _ :: _ -> Some (TSep aligns))
      | None ->
-       (match row_cells (row_inner body) O O false "" [] with
+       (match row_cells (row_inner body) 0 0 false "" [] with
         | Some cells -> Some (TCells cells)
         | None -> None))
   | None -> None
@@ -1304,13 +1486,15 @@ let quote_open =
 let quote_line l =
   (^) quote_open l
 
-(** val hashes : nat -> string **)
+(** val hashes : int -> string **)
 
-let rec hashes = function
-| O -> ""
-| S n' -> (^) "#" (hashes n')
+let rec hashes n =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> "")
+    (fun n' -> (^) "#" (hashes n'))
+    n
 
-(** val heading_line : nat -> string -> string **)
+(** val heading_line : int -> string -> string **)
 
 let heading_line lvl l =
   (^) (hashes lvl) ((^) " " l)
@@ -1320,15 +1504,17 @@ let heading_line lvl l =
 let div_fence =
   ":::"
 
-(** val blanks : nat -> string **)
+(** val blanks : int -> string **)
 
-let rec blanks = function
-| O -> ""
-| S k ->
-  (* If this appears, you're using String internals. Please don't *)
+let rec blanks n =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> "")
+    (fun k ->
+    (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-    (' ', (blanks k))
+    (' ', (blanks k)))
+    n
 
 type marker =
 | MBullet of char
@@ -1361,10 +1547,10 @@ let mk_open = function
    | RightParen -> (^) core ") "
    | LeftRightParen -> (^) "(" ((^) core ") "))
 
-(** val mk_pad : marker -> nat **)
+(** val mk_pad : marker -> int **)
 
 let mk_pad m =
-  length (mk_open m)
+  String.length (mk_open m)
 
 (** val mk_cont : marker -> string **)
 

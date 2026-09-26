@@ -9,7 +9,6 @@ open List0
 open ListDef
 open ListUniformity
 open OrderedList
-open PeanoNat
 open Step
 open Strings
 open Uniformity
@@ -51,7 +50,7 @@ type cblock =
 | CThematic
 | CCode of string * string list
 | CRaw of string * string list
-| CHeading of nat * cinline list list
+| CHeading of int * cinline list list
 | CQuote of cblock list
 | CDiv of cblock list
 | CList of list_kind * list_spacing * cblock list list
@@ -72,7 +71,7 @@ val cline : string -> cinline list
 
 val cpara : string list -> cblock
 
-val cheading : nat -> string list -> cblock
+val cheading : int -> string list -> cblock
 
 val para_ok : dtable -> bconfig -> string list -> bool
 
@@ -80,7 +79,7 @@ val code_ok : string -> string list -> bool
 
 val raw_ok : string -> string list -> bool
 
-val heading_ok : bconfig -> nat -> string list -> bool
+val heading_ok : bconfig -> int -> string list -> bool
 
 val item_forces_loose : dtable -> bconfig -> cblock list -> bool
 

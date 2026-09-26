@@ -11,7 +11,7 @@ module N :
 
   val mul : coq_N -> coq_N -> coq_N
 
-  val to_nat : coq_N -> nat
+  val to_nat : coq_N -> int
 
-  val of_nat : nat -> coq_N
+  val of_nat : int -> coq_N
  end

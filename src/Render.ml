@@ -9,7 +9,6 @@ open List0
 open ListDef
 open ListUniformity
 open OrderedList
-open PeanoNat
 open Step
 open Strings
 open Uniformity
@@ -115,7 +114,7 @@ type cblock =
 | CThematic
 | CCode of string * string list
 | CRaw of string * string list
-| CHeading of nat * cinline list list
+| CHeading of int * cinline list list
 | CQuote of cblock list
 | CDiv of cblock list
 | CList of list_kind * list_spacing * cblock list list
@@ -200,7 +199,7 @@ let cline s =
 let cpara ls =
   CPara (map cline ls)
 
-(** val cheading : nat -> string list -> cblock **)
+(** val cheading : int -> string list -> cblock **)
 
 let cheading lvl ls =
   CHeading (lvl, (map cline ls))
@@ -222,7 +221,8 @@ let code_ok info content =
     (forallb (fun l ->
       (&&) (no_nl l)
         (negb
-          (fence_close { f_ch = '`'; f_len = (S (S (S O))); f_info = info } l)))
+          (fence_close { f_ch = '`'; f_len = (Stdlib.succ (Stdlib.succ
+            (Stdlib.succ 0))); f_info = info } l)))
       content)
 
 (** val raw_ok : string -> string list -> bool **)
@@ -234,13 +234,14 @@ let raw_ok format content =
 
     ('=', format)) content
 
-(** val heading_ok : bconfig -> nat -> string list -> bool **)
+(** val heading_ok : bconfig -> int -> string list -> bool **)
 
 let heading_ok k lvl ls =
   (&&)
     ((&&)
-      ((&&) ((&&) (Nat.leb (S O) lvl) (nonempty ls)) (forallb line_ok ls))
-      ((||) k.bheading_continues (Nat.eqb (length ls) (S O))))
+      ((&&) ((&&) (( <= ) (Stdlib.succ 0) lvl) (nonempty ls))
+        (forallb line_ok ls))
+      ((||) k.bheading_continues (( = ) (length ls) (Stdlib.succ 0))))
     ((=) (strip_trailing_ws (last ls "")) (last ls ""))
 
 (** val item_forces_loose : dtable -> bconfig -> cblock list -> bool **)
@@ -378,7 +379,7 @@ let ctrow_ok t r =
     (match r with
      | CTBody _ -> true
      | CTHead (als, _) ->
-       (&&) (Nat.eqb (length als) (length cs))
+       (&&) (( = ) (length als) (length cs))
          (row_reparses (TSep als) (sep_line als)))
 
 (** val ckey_label_ok : dtable -> cinline -> bool **)
@@ -565,7 +566,11 @@ let task_litem_lines = function
    | [] -> (task_empty chk) :: []
    | l0 :: more ->
      ((^) (task_open chk) l0) :: (map (fun l1 ->
-                                   (^) (blanks (S (S (S (S (S (S O))))))) l1)
+                                   (^)
+                                     (blanks (Stdlib.succ (Stdlib.succ
+                                       (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                                       (Stdlib.succ 0)))))))
+                                     l1)
                                    more))
 
 (** val id_spec_lines : block node -> string list **)

@@ -16,7 +16,7 @@ let rec run_lines t k lines st =
     let (more, st'') = run_lines t k rest st' in ((app bs more), st'')
 
 (** val run_div_open :
-    dtable -> bconfig -> nat -> string list -> pstate -> bool **)
+    dtable -> bconfig -> int -> string list -> pstate -> bool **)
 
 let rec run_div_open t k len lines st =
   match lines with
@@ -29,7 +29,9 @@ let rec run_div_open t k len lines st =
 (** val div_content_ok : dtable -> bconfig -> string list -> bool **)
 
 let div_content_ok t k lines =
-  (&&) (run_div_open t k (S (S (S O))) lines (PPara []))
+  (&&)
+    (run_div_open t k (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) lines
+      (PPara []))
     (negb (in_fence (snd (run_lines t k lines (PPara [])))))
 
 (** val pend_carriable : pstate -> bool **)

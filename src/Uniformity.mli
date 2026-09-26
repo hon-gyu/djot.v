@@ -7,7 +7,7 @@ open Strings
 
 val run_lines : dtable -> bconfig -> string list -> pstate -> blocks * pstate
 
-val run_div_open : dtable -> bconfig -> nat -> string list -> pstate -> bool
+val run_div_open : dtable -> bconfig -> int -> string list -> pstate -> bool
 
 val div_content_ok : dtable -> bconfig -> string list -> bool
 

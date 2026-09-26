@@ -1,60 +1,27 @@
-open Datatypes
 
 module Nat =
  struct
-  (** val sub : nat -> nat -> nat **)
+  (** val sub : int -> int -> int **)
 
-  let rec sub n m =
-    match n with
-    | O -> n
-    | S k -> (match m with
-              | O -> n
-              | S l -> sub k l)
+  let rec sub = fun n m -> Stdlib.max 0 (n - m)
 
-  (** val eqb : nat -> nat -> bool **)
-
-  let rec eqb n m =
-    match n with
-    | O -> (match m with
-            | O -> true
-            | S _ -> false)
-    | S n' -> (match m with
-               | O -> false
-               | S m' -> eqb n' m')
-
-  (** val leb : nat -> nat -> bool **)
-
-  let rec leb n m =
-    match n with
-    | O -> true
-    | S n' -> (match m with
-               | O -> false
-               | S m' -> leb n' m')
-
-  (** val ltb : nat -> nat -> bool **)
-
-  let ltb n m =
-    leb (S n) m
-
-  (** val divmod : nat -> nat -> nat -> nat -> nat * nat **)
+  (** val divmod : int -> int -> int -> int -> int * int **)
 
   let rec divmod x y q u =
-    match x with
-    | O -> (q, u)
-    | S x' ->
-      (match u with
-       | O -> divmod x' y (S q) y
-       | S u' -> divmod x' y q u')
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> (q, u))
+      (fun x' ->
+      (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+        (fun _ -> divmod x' y (Stdlib.succ q) y)
+        (fun u' -> divmod x' y q u')
+        u)
+      x
 
-  (** val div : nat -> nat -> nat **)
+  (** val div : int -> int -> int **)
 
-  let div x y = match y with
-  | O -> y
-  | S y' -> fst (divmod x y' O y')
+  let div = fun n m -> if m = 0 then 0 else n / m
 
-  (** val modulo : nat -> nat -> nat **)
+  (** val modulo : int -> int -> int **)
 
-  let modulo x = function
-  | O -> x
-  | S y' -> sub y' (snd (divmod x y' O y'))
+  let modulo = fun n m -> if m = 0 then n else n mod m
  end

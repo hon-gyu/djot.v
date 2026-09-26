@@ -7,7 +7,6 @@ open InlineView
 open List0
 open Nat0
 open PeanoNat
-open String0
 open Strings
 
 val strip_pad : string -> string
@@ -89,11 +88,11 @@ val opush_at : dstyle -> bool -> bool -> span -> ostate -> ostate
 
 val previous_spot : spot -> spot
 
-val source_shape : string -> (nat * nat) * nat
+val source_shape : string -> (int * int) * int
 
 val spot_before : spot -> string -> spot
 
-val spot_plus : nat -> spot -> spot
+val spot_plus : int -> spot -> spot
 
 val dtoken_span :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> span
@@ -187,12 +186,12 @@ type iscan =
 | IText of bool * string * char option * ostate
 | IEscWs of string * string * char option * ostate
 | IBrace of string * char option * ostate
-| IDelim of dstyle * nat * string * char option * bool * ostate
-| IOpen of nat * vkind * ostate
-| IVerb of nat * nat * string * vkind * ostate
+| IDelim of dstyle * int * string * char option * bool * ostate
+| IOpen of int * vkind * ostate
+| IVerb of int * int * string * vkind * ostate
 | IDollar of bool * string * char option * ostate
 | IPeriod of bool * string * char option * ostate
-| IDash of nat * string * char option * ostate
+| IDash of int * string * char option * ostate
 | IBang of string * char option * ostate
 | IClosed of string * ostate
 | ISpan of inlines * bool * span * aparser * string * ostate
@@ -200,7 +199,7 @@ type iscan =
 | IReference of inlines * bool * span * string * ostate
 | INote of bool * bool * string * span * ostate
 | IWiki of bool * bool * bool * string * span * ostate
-| IDest of inlines * bool * span * bool * nat * string * iscan * ostate
+| IDest of inlines * bool * span * bool * int * string * iscan * ostate
 | IAuto of string * string * ostate
 | ISymbol of string * string * iscan * ostate
 | IRaw of string * string * ostate
@@ -227,13 +226,13 @@ val periods : bool -> string
 
 val typography_ellipsis : dtable -> string
 
-val srep : string -> nat -> string
+val srep : string -> int -> string
 
-val dash_counts : nat -> (nat * nat) * nat
+val dash_counts : int -> (int * int) * int
 
-val dashes : nat -> string
+val dashes : int -> string
 
-val typography_dashes : dtable -> nat -> string
+val typography_dashes : dtable -> int -> string
 
 val dollars : bool -> string
 
@@ -249,7 +248,7 @@ val iattr_feed :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> aparser -> string ->
   string -> char option -> iscan -> ostate -> iscan
 
-val idelim_marked : dstyle -> nat -> string -> ostate -> iscan
+val idelim_marked : dstyle -> int -> string -> ostate -> iscan
 
 val oopen_marked :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> string ->
@@ -259,7 +258,7 @@ val idelim_open_marked :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> string ->
   ostate -> iscan
 
-val idelim_run : dtable -> dstyle -> nat -> bool -> string
+val idelim_run : dtable -> dstyle -> int -> bool -> string
 
 val ibrace_step_at :
   dtable -> coq_PosPolicy -> coq_InlineCursor -> bool -> char -> string ->
@@ -332,7 +331,7 @@ val iperiod_step :
   char option -> ostate -> iscan
 
 val idash_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> nat -> string ->
+  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> int -> string ->
   char option -> ostate -> iscan
 
 val iresolve : dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> iscan
@@ -383,7 +382,7 @@ val iscan_lines : dtable -> string list -> iscan -> iscan
 
 val iscan_str_off : dtable -> string -> iscan -> iscan
 
-val iscan_lines_off : dtable -> nat -> string list -> iscan -> iscan
+val iscan_lines_off : dtable -> int -> string list -> iscan -> iscan
 
 val istart : iscan
 
@@ -391,7 +390,7 @@ val parse_inline_line : dtable -> string -> inlines
 
 val para_inlines : dtable -> string list -> inlines
 
-val para_inlines_off : dtable -> nat -> string list -> inlines
+val para_inlines_off : dtable -> int -> string list -> inlines
 
 val key_before : char option -> bool
 

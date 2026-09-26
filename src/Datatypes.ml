@@ -5,10 +5,6 @@ let negb = function
 | true -> false
 | false -> true
 
-type nat =
-| O
-| S of nat
-
 (** val option_map : ('a1 -> 'a2) -> 'a1 option -> 'a2 option **)
 
 let option_map f = function
@@ -25,11 +21,11 @@ let fst = function
 let snd = function
 | (_, y) -> y
 
-(** val length : 'a1 list -> nat **)
+(** val length : 'a1 list -> int **)
 
 let rec length = function
-| [] -> O
-| _ :: l' -> S (length l')
+| [] -> 0
+| _ :: l' -> Stdlib.succ (length l')
 
 (** val app : 'a1 list -> 'a1 list -> 'a1 list **)
 

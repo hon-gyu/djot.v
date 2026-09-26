@@ -3,7 +3,6 @@ open Datatypes
 open InlineTable
 open List0
 open ListDef
-open Nat0
 open Step
 open Strings
 
@@ -115,10 +114,10 @@ let id_base s =
 let id_taken used s =
   existsb ((=) s) used
 
-(** val id_candidate : string -> nat -> string **)
+(** val id_candidate : string -> int -> string **)
 
 let id_candidate base i =
-  if eqb i O
+  if ( = ) i 0
   then base
   else (^)
          ((* If this appears, you're using String internals. Please don't *)
@@ -131,21 +130,22 @@ let id_candidate base i =
             base)
          ((^) "-" (nat_str i))
 
-(** val unique_id_from : nat -> nat -> string list -> string -> string **)
+(** val unique_id_from : int -> int -> string list -> string -> string **)
 
 let rec unique_id_from fuel i used base =
   let cand = id_candidate base i in
-  (match fuel with
-   | O -> cand
-   | S f ->
+  ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+     (fun _ -> cand)
+     (fun f ->
      if (&&) (nonempty_str cand) (negb (id_taken used cand))
      then cand
-     else unique_id_from f (S i) used base)
+     else unique_id_from f (Stdlib.succ i) used base)
+     fuel)
 
 (** val unique_id : string list -> string -> string **)
 
 let unique_id used base =
-  unique_id_from (S (S (length used))) O used base
+  unique_id_from (Stdlib.succ (Stdlib.succ (length used))) 0 used base
 
 type id_state = { id_used : string list; id_refs : reference_map }
 
@@ -170,7 +170,7 @@ let register_id a st =
   | None -> st
 
 (** val assign_heading_id :
-    pos -> attr -> nat -> inlines -> id_state -> id_state * block node **)
+    pos -> attr -> int -> inlines -> id_state -> id_state * block node **)
 
 let assign_heading_id p a lvl ils st =
   let text = inlines_text ils in
@@ -278,12 +278,12 @@ module Ids =
       let (st2, rest1) = of_list rest st1 in (st2, (n1 :: rest1))
  end
 
-type sect_state = ((nat * attr) * blocks) list
+type sect_state = ((int * attr) * blocks) list
 
 (** val sect_init : sect_state **)
 
 let sect_init =
-  ((O, []), []) :: []
+  ((0, []), []) :: []
 
 (** val section_node : coq_PosPolicy -> attr -> blocks -> block node **)
 
@@ -291,7 +291,7 @@ let section_node p a bs =
   Node ((hull_pos_with p bs), a, (Section bs))
 
 (** val close_ge :
-    coq_PosPolicy -> nat -> blocks -> sect_state -> sect_state **)
+    coq_PosPolicy -> int -> blocks -> sect_state -> sect_state **)
 
 let rec close_ge p lvl pending = function
 | [] -> []
@@ -301,7 +301,7 @@ let rec close_ge p lvl pending = function
   (match outer with
    | [] -> ((l, a), (app pending acc)) :: []
    | _ :: _ ->
-     if leb lvl l
+     if ( <= ) lvl l
      then close_ge p lvl ((section_node p a (rev (app pending acc))) :: [])
             outer
      else ((l, a), (app pending acc)) :: outer)

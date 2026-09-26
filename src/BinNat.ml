@@ -34,15 +34,17 @@ module N =
                  | N0 -> N0
                  | Npos q -> Npos (BinPos.Pos.mul p q))
 
-  (** val to_nat : coq_N -> nat **)
+  (** val to_nat : coq_N -> int **)
 
   let to_nat = function
-  | N0 -> O
+  | N0 -> 0
   | Npos p -> Pos.to_nat p
 
-  (** val of_nat : nat -> coq_N **)
+  (** val of_nat : int -> coq_N **)
 
-  let of_nat = function
-  | O -> N0
-  | S n' -> Npos (Pos.of_succ_nat n')
+  let of_nat n =
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> N0)
+      (fun n' -> Npos (Pos.of_succ_nat n'))
+      n
  end

@@ -6,7 +6,6 @@ open InlineTable
 open List0
 open ListDef
 open Nat0
-open PeanoNat
 open Step
 open Strings
 
@@ -24,7 +23,7 @@ type helt =
 | HText of string
 | HRaw of string
 | HVoid of string * bool * attr
-| HElem of string * nat * attr * helt list
+| HElem of string * int * attr * helt list
 
 val open_tag : string -> bool -> attr -> string
 
@@ -56,11 +55,11 @@ val render_caption : reference_map -> inlines option -> helt list
 
 val render_block : reference_map -> bool -> block -> attr -> helt list
 
-type foot_state = { foot_numbers : (string * nat) list; foot_next : nat }
+type foot_state = { foot_numbers : (string * int) list; foot_next : int }
 
 val foot_initial : foot_state
 
-val number_footnote : string -> foot_state -> (foot_state * nat) * bool
+val number_footnote : string -> foot_state -> (foot_state * int) * bool
 
 val render_inline_foot :
   reference_map -> foot_state -> inline -> attr -> foot_state * helt list
@@ -87,21 +86,21 @@ val render_block_foot :
 val render_blocks_foot :
   reference_map -> foot_state -> blocks -> foot_state * helt list
 
-val note_backlink : nat -> helt
+val note_backlink : int -> helt
 
-val add_backlink : helt list -> nat -> helt list
+val add_backlink : helt list -> int -> helt list
 
 val render_note_defs :
   reference_map -> foot_state -> note_map -> foot_state * (string * helt
   list) list
 
-val label_at : nat -> (string * nat) list -> string option
+val label_at : int -> (string * int) list -> string option
 
 val rendered_note_at :
-  nat -> foot_state -> (string * helt list) list -> helt list
+  int -> foot_state -> (string * helt list) list -> helt list
 
 val render_note_items :
-  nat -> nat -> foot_state -> (string * helt list) list -> helt list
+  int -> int -> foot_state -> (string * helt list) list -> helt list
 
 val render_document_foot : reference_map -> blocks -> note_map -> helt list
 

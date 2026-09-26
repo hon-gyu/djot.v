@@ -2,7 +2,7 @@ open Datatypes
 
 val hd : 'a1 -> 'a1 list -> 'a1
 
-val nth_error : 'a1 list -> nat -> 'a1 option
+val nth_error : 'a1 list -> int -> 'a1 option
 
 val last : 'a1 list -> 'a1 -> 'a1
 

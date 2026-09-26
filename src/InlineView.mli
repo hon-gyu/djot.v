@@ -5,15 +5,13 @@ open Datatypes
 open InlineTable
 open List0
 open ListDef
-open PeanoNat
-open String0
 open Strings
 
 val dchar : dtable -> dstyle -> char
 
 val dsyntax_of : dtable -> dstyle -> dsyntax
 
-val dwidth : dtable -> dstyle -> nat
+val dwidth : dtable -> dstyle -> int
 
 val smart_typography : dtable -> bool
 
@@ -57,13 +55,13 @@ val escape_str : dtable -> string -> string
 
 val escape_dest : dtable -> string -> string
 
-val tick_runs_from : nat -> string -> nat list
+val tick_runs_from : int -> string -> int list
 
-val tick_runs : string -> nat list
+val tick_runs : string -> int list
 
-val first_missing : nat -> nat -> nat list -> nat
+val first_missing : int -> int -> int list -> int
 
-val verb_ticks : string -> nat
+val verb_ticks : string -> int
 
 val starts_tick : string -> bool
 
@@ -71,13 +69,13 @@ val ends_tick : string -> bool
 
 val pad_verb : string -> string
 
-val ticks : nat -> string
+val ticks : int -> string
 
 val verb_text : string -> string
 
-val verb_safe_from : nat -> nat -> string -> bool
+val verb_safe_from : int -> int -> string -> bool
 
-val verb_safe : nat -> string -> bool
+val verb_safe : int -> string -> bool
 
 val starts_space_tick : string -> bool
 

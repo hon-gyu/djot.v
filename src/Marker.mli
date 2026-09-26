@@ -8,46 +8,48 @@ open Nat0
 open PeanoNat
 open Strings
 
-val dec_acc : string -> nat -> nat
+val dec_acc : string -> int -> int
 
-val dec_value : string -> nat
+val dec_value : string -> int
 
-val digit_char : nat -> char
+val digit_char : int -> char
 
-val dec_str_fuel : nat -> nat -> string
+val dec_str_fuel : int -> int -> string
 
-val dec_str : nat -> string
+val dec_str : int -> string
+
+val dec_fits : int -> bool
 
 module Roman :
  sig
-  val digit : char -> nat
+  val digit : char -> int
 
-  val acc : string -> nat -> nat -> nat
+  val acc : string -> int -> int -> int
 
-  val value : string -> nat
+  val value : string -> int
 
-  val upper : nat
+  val upper : int
 
-  val table : bool -> (nat * string) list
+  val table : bool -> (int * string) list
 
-  val pick : (nat * string) list -> nat -> (nat * string) option
+  val pick : (int * string) list -> int -> (int * string) option
 
-  val of_fuel : bool -> nat -> nat -> string
+  val of_fuel : bool -> int -> int -> string
 
-  val str : bool -> nat -> string
+  val str : bool -> int -> string
  end
 
 module Alpha :
  sig
-  val value : bool -> string -> nat
+  val value : bool -> string -> int
 
-  val str : bool -> nat -> string
+  val str : bool -> int -> string
 
-  val upper : nat
+  val upper : int
  end
 
-val style_start : lstyle -> string -> nat
+val style_start : lstyle -> string -> int
 
-val with_starts : lstyle list -> string -> (lstyle * nat) list
+val with_starts : lstyle list -> string -> (lstyle * int) list
 
-val narrow : (lstyle * nat) list -> lstyle list -> (lstyle * nat) list
+val narrow : (lstyle * int) list -> lstyle list -> (lstyle * int) list

@@ -1,8 +1,6 @@
-open Ascii
 open Ast
 open Datatypes
 open List0
-open Nat0
 open Strings
 
 (** val bslash : char **)
@@ -18,50 +16,146 @@ let dquote =
 (** val is_key_char : char -> bool **)
 
 let is_key_char c =
-  let n = nat_of_ascii c in
+  let n = Char.code c in
   (||)
     ((||)
       ((||)
         ((||)
           ((||)
             ((&&)
-              (leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+              (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ
+                0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
                 n)
-              (leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S
-                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+              (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ
+                0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
             ((&&)
-              (leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S
-                O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+              (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ
+                0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
                 n)
-              (leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                (S (S (S (S (S (S (S (S (S (S (S
-                O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+              (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (Stdlib.succ (Stdlib.succ
+                0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
           ((&&)
-            (leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S
-              O)))))))))))))))))))))))))))))))))))))))))))))))) n)
-            (leb n (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))) n)
+            (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ
+              0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
         ((=) c '_'))
       ((=) c ':'))
     ((=) c '-')

@@ -5,8 +5,6 @@ open Datatypes
 open InlineTable
 open List0
 open ListDef
-open PeanoNat
-open String0
 open Strings
 
 (** val dchar : dtable -> dstyle -> char **)
@@ -19,7 +17,7 @@ let dchar t k =
 let dsyntax_of t k =
   t.dc_syntax k
 
-(** val dwidth : dtable -> dstyle -> nat **)
+(** val dwidth : dtable -> dstyle -> int **)
 
 let dwidth t k =
   t.dc_width k
@@ -191,7 +189,7 @@ let rec escape_dest t s =
            (c, (escape_dest t rest)))
     s
 
-(** val tick_runs_from : nat -> string -> nat list **)
+(** val tick_runs_from : int -> string -> int list **)
 
 let rec tick_runs_from run s =
   (* If this appears, you're using String internals. Please don't *)
@@ -199,34 +197,35 @@ let rec tick_runs_from run s =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-    (fun _ -> if Nat.eqb run O then [] else run :: [])
+    (fun _ -> if ( = ) run 0 then [] else run :: [])
     (fun c rest ->
     if is_tick c
-    then tick_runs_from (S run) rest
-    else if Nat.eqb run O
-         then tick_runs_from O rest
-         else run :: (tick_runs_from O rest))
+    then tick_runs_from (Stdlib.succ run) rest
+    else if ( = ) run 0
+         then tick_runs_from 0 rest
+         else run :: (tick_runs_from 0 rest))
     s
 
-(** val tick_runs : string -> nat list **)
+(** val tick_runs : string -> int list **)
 
 let tick_runs s =
-  tick_runs_from O s
+  tick_runs_from 0 s
 
-(** val first_missing : nat -> nat -> nat list -> nat **)
+(** val first_missing : int -> int -> int list -> int **)
 
 let rec first_missing fuel candidate runs =
-  match fuel with
-  | O -> candidate
-  | S fuel' ->
-    if existsb (Nat.eqb candidate) runs
-    then first_missing fuel' (S candidate) runs
-    else candidate
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> candidate)
+    (fun fuel' ->
+    if existsb (( = ) candidate) runs
+    then first_missing fuel' (Stdlib.succ candidate) runs
+    else candidate)
+    fuel
 
-(** val verb_ticks : string -> nat **)
+(** val verb_ticks : string -> int **)
 
 let verb_ticks s =
-  first_missing (S (length s)) (S O) (tick_runs s)
+  first_missing (Stdlib.succ (String.length s)) (Stdlib.succ 0) (tick_runs s)
 
 (** val starts_tick : string -> bool **)
 
@@ -251,22 +250,24 @@ let pad_verb s =
   let left = if starts_tick s then " " else "" in
   let right = if ends_tick s then " " else "" in (^) left ((^) s right)
 
-(** val ticks : nat -> string **)
+(** val ticks : int -> string **)
 
-let rec ticks = function
-| O -> ""
-| S k ->
-  (* If this appears, you're using String internals. Please don't *)
+let rec ticks n =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> "")
+    (fun k ->
+    (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-    (tick, (ticks k))
+    (tick, (ticks k)))
+    n
 
 (** val verb_text : string -> string **)
 
 let verb_text s =
   let d = ticks (verb_ticks s) in (^) d ((^) (pad_verb s) d)
 
-(** val verb_safe_from : nat -> nat -> string -> bool **)
+(** val verb_safe_from : int -> int -> string -> bool **)
 
 let rec verb_safe_from n run s =
   (* If this appears, you're using String internals. Please don't *)
@@ -274,17 +275,17 @@ let rec verb_safe_from n run s =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-    (fun _ -> negb (Nat.eqb run n))
+    (fun _ -> negb (( = ) run n))
     (fun c rest ->
     if is_tick c
-    then verb_safe_from n (S run) rest
-    else (&&) (negb (Nat.eqb run n)) (verb_safe_from n O rest))
+    then verb_safe_from n (Stdlib.succ run) rest
+    else (&&) (negb (( = ) run n)) (verb_safe_from n 0 rest))
     s
 
-(** val verb_safe : nat -> string -> bool **)
+(** val verb_safe : int -> string -> bool **)
 
 let verb_safe n s =
-  verb_safe_from n O s
+  verb_safe_from n 0 s
 
 (** val starts_space_tick : string -> bool **)
 
