@@ -267,9 +267,10 @@ and 7.4 ms at 16 KB.  Checked as above against `dist/src` at `7884839`:
 1046652 comparisons, adding failed candidates across line breaks, no
 difference; the suites and `dist/` as before.
 
-Buffered inline source (2026-09-26, baseline `16e4b24`).  The scanner
-now uses its existing `TextOps` buffer for escaped whitespace, verbatim
-content, destination, raw-format spec, attribute and span source,
+Buffered inline source (2026-09-26, baseline `16e4b24`, result
+`0106e92`).  The scanner now uses its existing `TextOps` buffer for
+escaped whitespace, verbatim content, destination, raw-format spec,
+attribute and span source,
 reference and note labels, wiki region, autolink source, and symbol
 alias.  At `string` it remains the specification.  At `chunks`, each
 append conses the new piece; `map_text` reads the source when a rule
