@@ -533,7 +533,8 @@ Proof.
   { intros o'. unfold idelim_done.
     destruct (dbare k bef && negb marker && nonspace_at next)%bool;
       [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
-  unfold idelim_resolve; tred. destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
+  unfold idelim_resolve; rewrite !oclose_guard; tred.
+  destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   sem_flush. rewrite flush_text_app, sclose_app.
   destruct (sclose k marker (flush_text txt o)); [reflexivity|].
   unfold oclose_barred, oout_app; cbn [os_stk].
@@ -1288,13 +1289,13 @@ Proof.
     assert (Ezero : typography_dashes 0 = EmptyString).
     { unfold typography_dashes. destruct smart_typography; reflexivity. }
     rewrite Ezero, (append_empty_r txt).
-    unfold idelim_resolve. tred. sem_flush.
+    unfold idelim_resolve. rewrite !oclose_guard. tred. sem_flush.
     rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
   unfold one. cbn [iscan_str istep istep_at].
   replace (Nat.ltb (S (pred (dwidth k))) (dwidth k)) with false
     by (symmetry; apply Nat.ltb_ge; lia).
-  rewrite Ascii.eqb_refl. unfold idelim_resolve. tred. sem_flush.
+  rewrite Ascii.eqb_refl. unfold idelim_resolve. rewrite !oclose_guard. tred. sem_flush.
   rewrite Bool.orb_true_r, H. reflexivity.
 Qed.
 
@@ -3379,7 +3380,8 @@ Lemma idelim_resolve_text :
     exists txt' prev' o',
       idelim_resolve k txt bef marker next o = IText false txt' prev' o'.
 Proof.
-  intros k txt bef marker next o. unfold idelim_resolve; tred.
+  intros k txt bef marker next o.
+  unfold idelim_resolve; rewrite !oclose_guard; tred.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_text].
   sem_flush. destruct (sclose k marker (flush_text txt o)); [eauto|].
   destruct (oclose_barred k marker o); [eauto | apply idelim_done_text].

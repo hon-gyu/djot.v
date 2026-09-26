@@ -60,6 +60,28 @@ let shapes = [
     (fun n -> "[x]{#" ^ String.make n 'a' ^ "}");
   "escaped-ws", "one long escaped whitespace run",
     (fun n -> "\\" ^ String.make n ' ' ^ "x");
+  "quote-line", "one long line in a block quote",
+    (fun n -> "> " ^ String.make n 'a');
+  "hashes", "one run of #",
+    (fun n -> String.make n '#');
+  "roman", "one long roman list marker",
+    (fun n -> String.make n 'i' ^ ". a");
+  "nested-list", "list markers nested on one line",
+    (fun n -> rep "- " (n / 2) ^ "a");
+  "equals", "a run of = closing nothing",
+    (fun n -> "a\n" ^ String.make n '=');
+  "row", "one long table cell",
+    (fun n -> "| " ^ String.make n 'a' ^ " |");
+  "cells", "one table row of many cells",
+    (fun n -> rep "| a " (n / 4) ^ "|");
+  "separator", "one long table separator row",
+    (fun n -> "| a |\n" ^ rep "|---" (n / 4) ^ "|");
+  "block-attr", "one long block attribute value",
+    (fun n -> "{k=\"" ^ String.make n 'a' ^ "\"}\nx");
+  "definitions", "many reference definitions",
+    (fun n ->
+       String.concat ""
+         (List.init (n / 12) (fun i -> Printf.sprintf "[r%d]: u\n\n" i)));
   "brackets", "unclosed [, wrapped",
     (fun n -> wrap (rep "[a" (n / 2)));
   "emphasis", "unclosed _, wrapped",

@@ -1206,9 +1206,12 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (div_block cls (rev done ++ finish inner)%list)]
   | PList ls done inner =>
+      (* Bound once: a list nested in the item would otherwise be
+         finished twice, and a line of `n` markers `2^n` times. *)
+      let last := (rev done ++ finish inner)%list in
       [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_parts ls (rev done ++ finish inner)%list))
-         (list_block ls (rev done ++ finish inner)%list)]
+                  (list_parts ls last))
+         (list_block ls last)]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
      nothing, which is `{#id}` alone in a document.  An earlier spec's

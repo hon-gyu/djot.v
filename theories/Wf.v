@@ -1729,7 +1729,8 @@ Local Lemma idelim_resolve_wf :
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_resolve k txt bef marker next o) = true.
 Proof.
-  intros k txt bef marker next o Ho Hs. unfold idelim_resolve; tred.
+  intros k txt bef marker next o Ho Hs.
+  unfold idelim_resolve; rewrite !oclose_guard; tred.
   sem_flush.
   destruct (nonspace_at bef || marker)%bool; [|apply idelim_done_wf; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.

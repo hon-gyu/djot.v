@@ -24,7 +24,7 @@ let rec iscan_str_located = (fun t h allow k origin rem s st ->
        && dstyle_of t c = None in
      let cursor r = {
        cursor_start = { spot_line = k; spot_rem = r };
-       cursor_stop = { spot_line = k; spot_rem = max 0 (r - 1) };
+       cursor_stop = { spot_line = k; spot_rem = Stdlib.max 0 (r - 1) };
        cursor_origin = origin } in
      let i = ref 0 and pos = ref rem and state = ref (lift chunks_text st)
      and n = String.length s in
@@ -35,7 +35,7 @@ let rec iscan_str_located = (fun t h allow k origin rem s st ->
            while !j < n && plain s.[!j] do
              let c = s.[!j] in
              if is_ws c then scope := remember_word_start h (cursor !p) c !scope;
-             p := max 0 (!p - 1);
+             p := Stdlib.max 0 (!p - 1);
              incr j
            done;
            state := IText (false, chunks_push txt (String.sub s !i (!j - !i)),
@@ -44,7 +44,7 @@ let rec iscan_str_located = (fun t h allow k origin rem s st ->
            pos := !p
        | _ ->
            state := istep_at t chunks_text h (cursor !pos) allow s.[!i] !state;
-           pos := max 0 (!pos - 1);
+           pos := Stdlib.max 0 (!pos - 1);
            incr i
      done;
      map_text chunks_text !state)

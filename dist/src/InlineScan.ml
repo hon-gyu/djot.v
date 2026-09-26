@@ -508,6 +508,13 @@ let oclose t h k m stop o =
       { os_out = o.os_out; os_stk = rest; os_word_start = o.os_word_start })
   | None -> None
 
+(** val oclose_reaches : dstyle -> bool -> frame list -> bool **)
+
+let rec oclose_reaches k m = function
+| [] -> false
+| f :: rest ->
+  (||) (dmatch k m f) ((&&) (negb (fr_barrier f)) (oclose_reaches k m rest))
+
 (** val bclose_go :
     dtable -> coq_PosPolicy -> oitems -> frame list ->
     (((oitems * bool) * span) * frame list) option **)
@@ -1318,10 +1325,12 @@ let idelim_done t x h h0 k txt before marker next o =
 
 let idelim_resolve t x h h0 k txt before marker next o =
   if (||) (nonspace_at before) marker
-  then (match oclose t h k marker
-                (if marker then h0.cursor_stop else h0.cursor_start)
-                (flush_text_to_at h h0
-                  (dtoken_span t h h0 k false).span_start (x.tval txt) o) with
+  then (match if oclose_reaches k marker o.os_stk
+              then oclose t h k marker
+                     (if marker then h0.cursor_stop else h0.cursor_start)
+                     (flush_text_to_at h h0
+                       (dtoken_span t h h0 k false).span_start (x.tval txt) o)
+              else None with
         | Some o' ->
           IText (false, x.tnil, (Some
             (if marker then rbrace else dchar t k)), o')

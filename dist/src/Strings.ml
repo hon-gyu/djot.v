@@ -10,15 +10,7 @@ let is_ws c =
 
 (** val is_blank : string -> bool **)
 
-let rec is_blank s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (is_ws c) (is_blank s'))
-    s
+let rec is_blank = (fun s -> String.for_all (fun c -> c = ' ' || c = '\t' || c = '\r') s)
 
 (** val nonblank : string -> bool **)
 
@@ -54,27 +46,19 @@ let rev_string = (fun s -> let n = String.length s in
 
 (** val drop_leading_ws : string -> string **)
 
-let rec drop_leading_ws s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c s' -> if is_ws c then drop_leading_ws s' else s)
-    s
+let rec drop_leading_ws = (fun s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = String.length s in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     let i = go 0 in if i = 0 then s else String.sub s i (n - i))
 
 (** val indent_of : string -> int **)
 
-let rec indent_of s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> 0)
-    (fun c s' -> if is_ws c then Stdlib.succ (indent_of s') else 0)
-    s
+let rec indent_of = (fun s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = String.length s in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     go 0)
 
 (** val strip_trailing_ws : string -> string **)
 
@@ -83,19 +67,12 @@ let strip_trailing_ws s =
 
 (** val drop_ws_upto : int -> string -> string **)
 
-let rec drop_ws_upto n s =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> s)
-    (fun n' ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> s)
-      (fun c s' -> if is_ws c then drop_ws_upto n' s' else s)
-      s)
-    n
+let rec drop_ws_upto = (fun k s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = Stdlib.min k (String.length s) in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then s else String.sub s i (String.length s - i))
 
 (** val nl : string **)
 
@@ -184,44 +161,16 @@ let resolve_span lines r =
 
 (** val no_nl : string -> bool **)
 
-let rec no_nl s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (negb ((=) c '\n')) (no_nl s'))
-    s
+let rec no_nl = (fun s -> not (String.contains s '\n'))
 
 (** val no_char : char -> string -> bool **)
 
-let rec no_char c s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c' s' -> (&&) (negb ((=) c' c)) (no_char c s'))
-    s
-
-(** val is_ws_nl : char -> bool **)
-
-let is_ws_nl c =
-  (||) (is_ws c) ((=) c '\n')
+let rec no_char = (fun c s -> not (String.contains s c))
 
 (** val no_ws : string -> bool **)
 
-let rec no_ws s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (negb (is_ws_nl c)) (no_ws s'))
-    s
+let rec no_ws = (fun s -> not (String.exists (fun c ->
+     c = ' ' || c = '\t' || c = '\r' || c = '\n') s))
 
 (** val line_ok : string -> bool **)
 

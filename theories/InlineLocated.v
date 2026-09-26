@@ -802,7 +802,8 @@ Local Lemma of_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
   @idelim_resolve T _ _ semantic_pos semantic_inline_cursor k txt before marker next
     (of_ostate o).
 Proof.
-  intros P C k txt before marker next o. unfold idelim_resolve; tred.
+  intros P C k txt before marker next o.
+  unfold idelim_resolve; rewrite !oclose_guard; tred.
   destruct (nonspace_at before || marker)%bool; [|apply of_idelim_done].
   sem_flush.
   rewrite <- (of_flush_text_to_at

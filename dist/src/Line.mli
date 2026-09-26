@@ -1,9 +1,7 @@
 open Ast
 open Attributes
 open Datatypes
-open List0
 open ListDef
-open Nat0
 open Strings
 
 type fence = { f_ch : char; f_len : int; f_info : string }
@@ -47,8 +45,6 @@ type line_kind =
 | KRef of string * string
 | KRow of trow
 | KText
-
-val is_marker : char -> bool
 
 val thematic_count : string -> int -> bool
 
@@ -121,21 +117,9 @@ val foot_open : string -> (string * string) option
 
 val ref_open : string -> (string * string) option
 
-val sep_align : bool -> bool -> align
-
-val sep_cell : string -> (align * string) option
-
 val sep_cells_fuel : int -> string -> align list option
 
 val sep_cells : string -> align list option
-
-val cell_trim_r : string -> string
-
-val cell_trim : string -> string
-
-val vb_step : int -> int -> int
-
-val row_cell_entry : string -> int -> int -> ((string * int) * int) * int
 
 val row_cells_trace :
   string -> int -> int -> bool -> string -> (((string * int) * int) * int)

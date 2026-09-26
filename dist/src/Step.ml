@@ -690,9 +690,9 @@ let rec finish t k p = function
   (set_pos p (prov_with (extent_span range) ((ROpenFence, opener) :: []))
     (div_block cls (app (rev done0) (finish t k p inner)))) :: []
 | PList (ls, done0, inner) ->
+  let last0 = app (rev done0) (finish t k p inner) in
   (set_pos p { node_span = (extent_span ls.ls_extent); syntax_spans = [];
-    part_spans = (list_parts k ls (app (rev done0) (finish t k p inner))) }
-    (list_block k ls (app (rev done0) (finish t k p inner)))) :: []
+    part_spans = (list_parts k ls last0) } (list_block k ls last0)) :: []
 | PAttr (pend, specs, _, _, ap, slices) ->
   if ap_done ap
   then []

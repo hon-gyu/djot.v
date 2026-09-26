@@ -139,6 +139,8 @@ val oclose_barred : dstyle -> bool -> ostate -> bool
 val oclose :
   dtable -> coq_PosPolicy -> dstyle -> bool -> spot -> ostate -> ostate option
 
+val oclose_reaches : dstyle -> bool -> frame list -> bool
+
 val bclose_go :
   dtable -> coq_PosPolicy -> oitems -> frame list ->
   (((oitems * bool) * span) * frame list) option

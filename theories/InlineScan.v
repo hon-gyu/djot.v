@@ -829,6 +829,38 @@ Definition oclose `{PosPolicy} (k : dstyle) (m : bool) (stop : spot)
               (OState (os_out o) rest (os_word_start o)))
   end.
 
+(* Whether the search above can match: a matching frame with no barrier
+   above it.  It reads only frame kinds, which flushing text into the top
+   frame keeps, so a closer that cannot match skips joining the pending
+   text for a flush the failed close would discard. *)
+Fixpoint oclose_reaches (k : dstyle) (m : bool) (stk : list frame) : bool :=
+  match stk with
+  | [] => false
+  | f :: rest =>
+      (dmatch k m f || negb (fr_barrier f) && oclose_reaches k m rest)%bool
+  end.
+
+Local Lemma oclose_go_unreached : forall `{PosPolicy} k m stk pend,
+  oclose_reaches k m stk = false -> oclose_go k m pend stk = None.
+Proof.
+  intros P k m stk. induction stk as [|f rest IH]; intros pend H; [reflexivity|].
+  cbn [oclose_reaches] in H. apply orb_false_iff in H as [Hd Hr].
+  cbn [oclose_go]. rewrite Hd.
+  destruct (fr_barrier f); [reflexivity|]. apply IH, Hr.
+Qed.
+
+Lemma oclose_guard : forall `{PosPolicy} `{InlineCursor} k m stop fstop t o,
+  (if oclose_reaches k m (os_stk o)
+   then oclose k m stop (flush_text_to_at fstop t o) else None)
+  = oclose k m stop (flush_text_to_at fstop t o).
+Proof.
+  intros P C k m stop fstop t o.
+  destruct (oclose_reaches k m (os_stk o)) eqn:E; [reflexivity|].
+  unfold oclose. rewrite oclose_go_unreached; [reflexivity|].
+  unfold flush_text_to_at. destruct (nonempty_str t); [|exact E].
+  unfold oemit. destruct (os_stk o) as [|f rest]; [exact E|]. exact E.
+Qed.
+
 (* The semantic reading of a close: the node is `mk`-wrapped whatever
    span it is handed, so the canonical scan lemmas below are stated
    without one. *)
@@ -1782,8 +1814,11 @@ Definition idelim_resolve `{PosPolicy} `{InlineCursor}
   (k : dstyle) (txt : Buf) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
   if (nonspace_at before || marker)%bool
-  then match oclose k marker (if marker then cursor_stop else cursor_start)
-              (flush_text_to_at (span_start (dtoken_span k false)) (tval txt) o) with
+  then match (if oclose_reaches k marker (os_stk o)
+               then oclose k marker (if marker then cursor_stop else cursor_start)
+                      (flush_text_to_at (span_start (dtoken_span k false))
+                         (tval txt) o)
+               else None) with
        | Some o' =>
            IText false tnil
              (Some (if marker then rbrace else dchar k)) o'

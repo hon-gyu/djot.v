@@ -138,6 +138,218 @@ Extract Constant DjotV.InlineScan.drop_nl =>
      String.iter (fun c -> if c <> '\n' then Buffer.add_char b c) s;
      Buffer.contents b)".
 
+(* Line scans.  Every line goes through `classify`, and a container
+   classifies what follows its prefix again.  Matching a native string by
+   [String c rest] copies the rest of the line, even when the scan stops
+   at the first byte, and a scan through a run recurses once per byte.
+   These read by offset, stop at the same byte, and copy only what they
+   return.  Extraction may place a realization before the predicates it
+   would call, so `is_ws` and its relatives are spelled out. *)
+Extract Constant DjotV.Strings.is_blank =>
+  "(fun s -> String.for_all (fun c -> c = ' ' || c = '\t' || c = '\r') s)".
+Extract Constant DjotV.Strings.indent_of =>
+  "(fun s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = String.length s in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     go 0)".
+Extract Constant DjotV.Strings.drop_leading_ws =>
+  "(fun s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = String.length s in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     let i = go 0 in if i = 0 then s else String.sub s i (n - i))".
+Extract Constant DjotV.Strings.drop_ws_upto =>
+  "(fun k s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = Stdlib.min k (String.length s) in
+     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then s else String.sub s i (String.length s - i))".
+Extract Constant DjotV.Strings.no_nl =>
+  "(fun s -> not (String.contains s '\n'))".
+Extract Constant DjotV.Strings.no_char =>
+  "(fun c s -> not (String.contains s c))".
+Extract Constant DjotV.Strings.no_ws =>
+  "(fun s -> not (String.exists (fun c ->
+     c = ' ' || c = '\t' || c = '\r' || c = '\n') s))".
+Extract Constant DjotV.Line.thematic_count =>
+  "(fun s count ->
+     let n = String.length s in
+     let rec go i k =
+       if i >= n then 3 <= k
+       else if s.[i] = '-' || s.[i] = '*' then go (i + 1) (k + 1)
+       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go (i + 1) k
+       else false in
+     go 0 count)".
+Extract Constant DjotV.Line.all_char =>
+  "(fun c s -> String.for_all (fun a -> a = c) s)".
+Extract Constant DjotV.Line.str_forallb =>
+  "(fun p s -> String.for_all p s)".
+Extract Constant DjotV.Line.all_info_chars =>
+  "(fun s -> String.for_all (fun c ->
+     not (c = ' ' || c = '\t' || c = '\r' || c = '`' || c = '\n')) s)".
+Extract Constant DjotV.Line.take_while =>
+  "(fun p s ->
+     let n = String.length s in
+     let rec go i = if i < n && p s.[i] then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then ("""", s)
+     else (String.sub s 0 i, String.sub s i (n - i)))".
+Extract Constant DjotV.Line.count_run =>
+  "(fun c s ->
+     let n = String.length s in
+     let rec go i = if i < n && s.[i] = c then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then (0, s) else (i, String.sub s i (n - i)))".
+
+(* Table rows.  The Gallina cell scan grows each cell by consing onto a
+   reversed accumulator, and the separator scan re-reads the rest of the
+   line per cell.  Here a cell is the slice from just after its bar, and
+   `cur`, `row_cell_entry`, `cell_trim`, and `sep_align` are spelled
+   out. *)
+Extract Constant DjotV.Line.cell_trim_r =>
+  "(fun s ->
+     let n = String.length s in
+     let rec go i last =
+       if i >= n then last
+       else if s.[i] = '\\' then
+         (if i + 1 < n then go (i + 2) (i + 2) else i + 1)
+       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go (i + 1) last
+       else go (i + 1) (i + 1) in
+     let last = go 0 0 in
+     if last = n then s else String.sub s 0 last)".
+Extract Constant DjotV.Line.row_cells_trace =>
+  "(fun s vb run bs cur acc pos start ->
+     let n = String.length s in
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let vb_step vb run =
+       if run = 0 then vb else if vb = 0 then run
+       else if vb = run then 0 else vb in
+     let rev s =
+       let k = String.length s in String.init k (fun i -> s.[k - 1 - i]) in
+     let trim_r s =
+       let k = String.length s in
+       let rec go i last =
+         if i >= k then last
+         else if s.[i] = '\\' then (if i + 1 < k then go (i + 2) (i + 2) else i + 1)
+         else if ws s.[i] then go (i + 1) last
+         else go (i + 1) (i + 1) in
+       String.sub s 0 (go 0 0) in
+     (* the cell's source: the reversed [pre] it started with, then
+        [s] from [from] up to [i] *)
+     let entry pre from i start stop =
+       let raw = rev pre ^ String.sub s from (i - from) in
+       let k = String.length raw in
+       let rec lead j = if j < k && ws raw.[j] then lead (j + 1) else j in
+       let d = lead 0 in
+       (((trim_r (String.sub raw d (k - d)), start), stop), start + 1 + d) in
+     let rec go i vb run bs pre from acc pos start =
+       if i >= n then
+         (if bs then None
+          else if vb_step vb run = 0 then
+            Some (List.rev (entry pre from i start (pos + 1) :: acc))
+          else None)
+       else
+         let c = s.[i] in
+         if c = '`' then go (i + 1) vb (run + 1) false pre from acc (pos + 1) start
+         else
+           let vb' = vb_step vb run in
+           if vb' = 0 && c = '\\' then
+             (if i + 1 >= n then None
+              else go (i + 2) 0 0 (s.[i + 1] = '\\') pre from acc (pos + 2) start)
+           else if c = '|' && vb' = 0 && not bs then
+             go (i + 1) 0 0 false """" (i + 1)
+               (entry pre from i start (pos + 1) :: acc) (pos + 1) pos
+           else go (i + 1) vb' 0 (c = '\\') pre from acc (pos + 1) start in
+     go 0 vb run bs cur 0 acc pos start)".
+Extract Constant DjotV.Line.sep_cells_fuel =>
+  "(fun fuel s ->
+     let n = String.length s in
+     let rec skip_ws i =
+       if i < n && (s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r')
+       then skip_ws (i + 1) else i in
+     let rec dashes i = if i < n && s.[i] = '-' then dashes (i + 1) else i in
+     let rec go fuel i acc =
+       if fuel = 0 then None
+       else if i >= n then Some (List.rev acc)
+       else
+         let left = s.[i] = ':' in
+         let i = if left then i + 1 else i in
+         let j = dashes i in
+         if j = i then None
+         else
+           let right = j < n && s.[j] = ':' in
+           let j = skip_ws (if right then j + 1 else j) in
+           if j < n && s.[j] = '|' then
+             let a = match left, right with
+               | true, true -> AlignCenter | true, false -> AlignLeft
+               | false, true -> AlignRight | false, false -> AlignDefault in
+             go (fuel - 1) (skip_ws (j + 1)) (a :: acc)
+           else None in
+     go fuel 0 [])".
+
+(* A roman marker's value, read from its reversed numeral. *)
+Extract Constant DjotV.Marker.Roman.acc =>
+  "(fun s prev total ->
+     let digit = function
+       | 'i' | 'I' -> 1 | 'v' | 'V' -> 5 | 'x' | 'X' -> 10 | 'l' | 'L' -> 50
+       | 'c' | 'C' -> 100 | 'd' | 'D' -> 500 | 'm' | 'M' -> 1000 | _ -> 0 in
+     let n = String.length s in
+     let rec go i prev total =
+       if i >= n then total
+       else
+         let d = digit s.[i] in
+         go (i + 1) d (if d < prev then Stdlib.max 0 (total - d) else total + d) in
+     go 0 prev total)".
+
+(* Block attribute lines, fed to the machine one byte at a time, and the
+   value normalization run on each committed quoted value. *)
+Extract Constant DjotV.Attributes.afeed =>
+  "(fun s p ->
+     let n = String.length s in
+     let rec go i p =
+       if i >= n then (p, """")
+       else match p.ap_st with
+         | ADone | AFail -> (p, if i = 0 then s else String.sub s i (n - i))
+         | _ -> go (i + 1) (astep p s.[i]) in
+     go 0 p)".
+Extract Constant DjotV.Attributes.blank_to_eol =>
+  "(fun s -> String.for_all (fun c ->
+     c = ' ' || c = '\t' || c = '\r' || c = '\n' || c = '\012' || c = '\011') s)".
+Extract Constant DjotV.Attributes.collapse_from =>
+  "(fun skip s ->
+     let b = Buffer.create (String.length s) in
+     let skip = ref skip in
+     String.iter (fun c ->
+       if c = ' ' || c = '\r' || c = '\n' then
+         (if not !skip then Buffer.add_char b ' '; skip := true)
+       else (Buffer.add_char b c; skip := false)) s;
+     Buffer.contents b)".
+Extract Constant DjotV.Attributes.unescape =>
+  "(fun s ->
+     let n = String.length s in
+     let b = Buffer.create n in
+     let escapable = function
+       | '.' | ',' | '\\' | '/' | '#' | '!' | '$' | '%' | '^' | '&' | '*'
+       | ';' | ':' | '{' | '}' | '=' | '-' | '_' | '`' | '~' | '+' | '['
+       | ']' | '(' | ')' | '\'' | '""' | '?' | '|' -> true
+       | _ -> false in
+     let rec go i =
+       if i < n then
+         if s.[i] = '\\' && i + 1 < n && escapable s.[i + 1]
+         then (Buffer.add_char b s.[i + 1]; go (i + 2))
+         else (Buffer.add_char b s.[i]; go (i + 1)) in
+     go 0; Buffer.contents b)".
+
+(* A line opening with `[` is tried as a reference or footnote definition.
+   The label scan stops at the first `]`. *)
+Extract Constant DjotV.Line.ref_label =>
+  "(fun s -> match String.index_opt s ']' with
+     | None -> None
+     | Some i ->
+       Some (String.sub s 0 i, String.sub s (i + 1) (String.length s - i - 1)))".
+
 (* These two close-time readers retain their recursive Gallina definitions
    for the proofs.  Native string destruction copies each suffix, so the
    extracted readers use offsets and copy only their final result. *)
@@ -247,7 +459,7 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
        && dstyle_of t c = None in
      let cursor r = {
        cursor_start = { spot_line = k; spot_rem = r };
-       cursor_stop = { spot_line = k; spot_rem = max 0 (r - 1) };
+       cursor_stop = { spot_line = k; spot_rem = Stdlib.max 0 (r - 1) };
        cursor_origin = origin } in
      let i = ref 0 and pos = ref rem and state = ref (lift chunks_text st)
      and n = String.length s in
@@ -258,7 +470,7 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
            while !j < n && plain s.[!j] do
              let c = s.[!j] in
              if is_ws c then scope := remember_word_start h (cursor !p) c !scope;
-             p := max 0 (!p - 1);
+             p := Stdlib.max 0 (!p - 1);
              incr j
            done;
            state := IText (false, chunks_push txt (String.sub s !i (!j - !i)),
@@ -267,7 +479,7 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
            pos := !p
        | _ ->
            state := istep_at t chunks_text h (cursor !pos) allow s.[!i] !state;
-           pos := max 0 (!pos - 1);
+           pos := Stdlib.max 0 (!pos - 1);
            incr i
      done;
      map_text chunks_text !state)".

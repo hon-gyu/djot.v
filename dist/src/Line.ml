@@ -1,9 +1,7 @@
 open Ast
 open Attributes
 open Datatypes
-open List0
 open ListDef
-open Nat0
 open Strings
 
 type fence = { f_ch : char; f_len : int; f_info : string }
@@ -141,26 +139,16 @@ type line_kind =
 | KRow of trow
 | KText
 
-(** val is_marker : char -> bool **)
-
-let is_marker c =
-  (||) ((=) c '-') ((=) c '*')
-
 (** val thematic_count : string -> int -> bool **)
 
-let rec thematic_count s count =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    ( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) count)
-    (fun c s' ->
-    if is_marker c
-    then thematic_count s' (Stdlib.succ count)
-    else if is_ws c then thematic_count s' count else false)
-    s
+let rec thematic_count = (fun s count ->
+     let n = String.length s in
+     let rec go i k =
+       if i >= n then 3 <= k
+       else if s.[i] = '-' || s.[i] = '*' then go (i + 1) (k + 1)
+       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go (i + 1) k
+       else false in
+     go 0 count)
 
 (** val is_thematic : string -> bool **)
 
@@ -169,15 +157,7 @@ let is_thematic l =
 
 (** val all_char : char -> string -> bool **)
 
-let rec all_char c s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun a s' -> (&&) ((=) a c) (all_char c s'))
-    s
+let rec all_char = (fun c s -> String.for_all (fun a -> a = c) s)
 
 (** val underline_of : string -> (char * int) option **)
 
@@ -194,37 +174,20 @@ let underline_of l =
 
 (** val take_while : (char -> bool) -> string -> string * string **)
 
-let rec take_while p s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", s))
-    (fun c s' ->
-    if p c
-    then let (a, b) = take_while p s' in
-         (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-         (c, a)), b)
-    else ("", s))
-    s
+let rec take_while = (fun p s ->
+     let n = String.length s in
+     let rec go i = if i < n && p s.[i] then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then ("", s)
+     else (String.sub s 0 i, String.sub s i (n - i)))
 
 (** val count_run : char -> string -> int * string **)
 
-let rec count_run c s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> (0, s))
-    (fun c' s' ->
-    if (=) c c'
-    then let (n, r) = count_run c s' in ((Stdlib.succ n), r)
-    else (0, s))
-    s
+let rec count_run = (fun c s ->
+     let n = String.length s in
+     let rec go i = if i < n && s.[i] = c then go (i + 1) else i in
+     let i = go 0 in
+     if i = 0 then (0, s) else (i, String.sub s i (n - i)))
 
 (** val is_info_char : char -> bool **)
 
@@ -630,15 +593,7 @@ let is_roman_up c =
 
 (** val str_forallb : (char -> bool) -> string -> bool **)
 
-let rec str_forallb p s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (p c) (str_forallb p s'))
-    s
+let rec str_forallb = (fun p s -> String.for_all p s)
 
 (** val marker_shape :
     string -> ((string * ordered_list_delim) * string) option **)
@@ -830,26 +785,10 @@ let list_marker l =
 
 (** val ref_label : string -> (string * string) option **)
 
-let rec ref_label s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> None)
-    (fun c rest ->
-    if (=) c ']'
-    then Some ("", rest)
-    else (match ref_label rest with
-          | Some p ->
-            let (lbl, tail) = p in
-            Some
-            (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c, lbl)), tail)
-          | None -> None))
-    s
+let rec ref_label = (fun s -> match String.index_opt s ']' with
+     | None -> None
+     | Some i ->
+       Some (String.sub s 0 i, String.sub s (i + 1) (String.length s - i - 1)))
 
 (** val ref_value : string -> string option **)
 
@@ -991,342 +930,85 @@ let ref_open l =
           | None -> None))
     (drop_leading_ws l)
 
-(** val sep_align : bool -> bool -> align **)
-
-let sep_align left right =
-  if left
-  then if right then AlignCenter else AlignLeft
-  else if right then AlignRight else AlignDefault
-
-(** val sep_cell : string -> (align * string) option **)
-
-let sep_cell s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    let left = false in
-    let (n, s2) = count_run '-' s in
-    ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-       (fun _ -> None)
-       (fun _ ->
-       (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-         (fun _ ->
-         let right = false in
-         ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-            (fun _ -> None)
-            (fun c r ->
-            if (=) c '|'
-            then Some ((sep_align left right), (drop_leading_ws r))
-            else None)
-            (drop_leading_ws s2)))
-         (fun c r ->
-         if (=) c ':'
-         then let right = true in
-              ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> None)
-                 (fun c0 r0 ->
-                 if (=) c0 '|'
-                 then Some ((sep_align left right), (drop_leading_ws r0))
-                 else None)
-                 (drop_leading_ws r))
-         else let right = false in
-              ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> None)
-                 (fun c0 r0 ->
-                 if (=) c0 '|'
-                 then Some ((sep_align left right), (drop_leading_ws r0))
-                 else None)
-                 (drop_leading_ws s2)))
-         s2)
-       n))
-    (fun c r ->
-    if (=) c ':'
-    then let left = true in
-         let (n, s2) = count_run '-' r in
-         ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-            (fun _ -> None)
-            (fun _ ->
-            (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-              (fun _ ->
-              let right = false in
-              ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> None)
-                 (fun c0 r0 ->
-                 if (=) c0 '|'
-                 then Some ((sep_align left right), (drop_leading_ws r0))
-                 else None)
-                 (drop_leading_ws s2)))
-              (fun c0 r0 ->
-              if (=) c0 ':'
-              then let right = true in
-                   ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                      (fun _ -> None)
-                      (fun c1 r1 ->
-                      if (=) c1 '|'
-                      then Some ((sep_align left right), (drop_leading_ws r1))
-                      else None)
-                      (drop_leading_ws r0))
-              else let right = false in
-                   ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                      (fun _ -> None)
-                      (fun c1 r1 ->
-                      if (=) c1 '|'
-                      then Some ((sep_align left right), (drop_leading_ws r1))
-                      else None)
-                      (drop_leading_ws s2)))
-              s2)
-            n)
-    else let left = false in
-         let (n, s2) = count_run '-' s in
-         ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-            (fun _ -> None)
-            (fun _ ->
-            (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-              (fun _ ->
-              let right = false in
-              ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> None)
-                 (fun c0 r0 ->
-                 if (=) c0 '|'
-                 then Some ((sep_align left right), (drop_leading_ws r0))
-                 else None)
-                 (drop_leading_ws s2)))
-              (fun c0 r0 ->
-              if (=) c0 ':'
-              then let right = true in
-                   ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                      (fun _ -> None)
-                      (fun c1 r1 ->
-                      if (=) c1 '|'
-                      then Some ((sep_align left right), (drop_leading_ws r1))
-                      else None)
-                      (drop_leading_ws r0))
-              else let right = false in
-                   ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                      (fun _ -> None)
-                      (fun c1 r1 ->
-                      if (=) c1 '|'
-                      then Some ((sep_align left right), (drop_leading_ws r1))
-                      else None)
-                      (drop_leading_ws s2)))
-              s2)
-            n))
-    s
-
 (** val sep_cells_fuel : int -> string -> align list option **)
 
-let rec sep_cells_fuel n s =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> None)
-    (fun n' ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> Some [])
-      (fun _ _ ->
-      match sep_cell s with
-      | Some p ->
-        let (a, rest) = p in
-        (match sep_cells_fuel n' rest with
-         | Some rest' -> Some (a :: rest')
-         | None -> None)
-      | None -> None)
-      s)
-    n
+let rec sep_cells_fuel = (fun fuel s ->
+     let n = String.length s in
+     let rec skip_ws i =
+       if i < n && (s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r')
+       then skip_ws (i + 1) else i in
+     let rec dashes i = if i < n && s.[i] = '-' then dashes (i + 1) else i in
+     let rec go fuel i acc =
+       if fuel = 0 then None
+       else if i >= n then Some (List.rev acc)
+       else
+         let left = s.[i] = ':' in
+         let i = if left then i + 1 else i in
+         let j = dashes i in
+         if j = i then None
+         else
+           let right = j < n && s.[j] = ':' in
+           let j = skip_ws (if right then j + 1 else j) in
+           if j < n && s.[j] = '|' then
+             let a = match left, right with
+               | true, true -> AlignCenter | true, false -> AlignLeft
+               | false, true -> AlignRight | false, false -> AlignDefault in
+             go (fuel - 1) (skip_ws (j + 1)) (a :: acc)
+           else None in
+     go fuel 0 [])
 
 (** val sep_cells : string -> align list option **)
 
 let sep_cells s =
   sep_cells_fuel (Stdlib.succ (String.length s)) s
 
-(** val cell_trim_r : string -> string **)
-
-let rec cell_trim_r s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c1 s1 ->
-    if (=) c1 '\\'
-    then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-            (fun _ ->
-            (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c1, ""))
-            (fun c2 s2 ->
-            (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c1,
-            ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-            (c2, (cell_trim_r s2)))))
-            s1)
-    else if is_ws c1
-         then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> "")
-                 (fun a s0 ->
-                 (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                 (c1,
-                 ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                 (a, s0))))
-                 (cell_trim_r s1))
-         else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                (c1, (cell_trim_r s1)))
-    s
-
-(** val cell_trim : string -> string **)
-
-let cell_trim s =
-  cell_trim_r (drop_leading_ws s)
-
-(** val vb_step : int -> int -> int **)
-
-let vb_step vb run =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> vb)
-    (fun _ ->
-    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-      (fun _ -> run)
-      (fun _ -> if ( = ) vb run then 0 else vb)
-      vb)
-    run
-
-(** val row_cell_entry :
-    string -> int -> int -> ((string * int) * int) * int **)
-
-let row_cell_entry cur start stop =
-  let raw = rev_string cur in
-  let content = drop_leading_ws raw in
-  ((((cell_trim raw), start), stop),
-  (sub (( + ) (Stdlib.succ start) (String.length raw))
-    (String.length content)))
-
 (** val row_cells_trace :
     string -> int -> int -> bool -> string -> (((string * int) * int) * int)
     list -> int -> int -> (((string * int) * int) * int) list option **)
 
-let rec row_cells_trace s vb run bs cur acc pos start =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    if bs
-    then None
-    else ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-            (fun _ -> Some
-            (rev ((row_cell_entry cur start (Stdlib.succ pos)) :: acc)))
-            (fun _ -> None)
-            (vb_step vb run)))
-    (fun c s' ->
-    if (=) c '`'
-    then row_cells_trace s' vb (Stdlib.succ run) false
-           ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, cur)) acc (Stdlib.succ pos) start
-    else let vb' = vb_step vb run in
-         if (&&) (( = ) vb' 0) ((=) c '\\')
-         then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ -> None)
-                 (fun c' s'' ->
-                 row_cells_trace s'' 0 0 ((=) c' '\\')
-                   ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                   (c',
-                   ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                   (c, cur)))) acc (Stdlib.succ (Stdlib.succ pos)) start)
-                 s')
-         else if (&&) ((&&) ((=) c '|') (( = ) vb' 0)) (negb bs)
-              then row_cells_trace s' 0 0 false ""
-                     ((row_cell_entry cur start (Stdlib.succ pos)) :: acc)
-                     (Stdlib.succ pos) pos
-              else row_cells_trace s' vb' 0 ((=) c '\\')
-                     ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                     (c, cur)) acc (Stdlib.succ pos) start)
-    s
+let rec row_cells_trace = (fun s vb run bs cur acc pos start ->
+     let n = String.length s in
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let vb_step vb run =
+       if run = 0 then vb else if vb = 0 then run
+       else if vb = run then 0 else vb in
+     let rev s =
+       let k = String.length s in String.init k (fun i -> s.[k - 1 - i]) in
+     let trim_r s =
+       let k = String.length s in
+       let rec go i last =
+         if i >= k then last
+         else if s.[i] = '\\' then (if i + 1 < k then go (i + 2) (i + 2) else i + 1)
+         else if ws s.[i] then go (i + 1) last
+         else go (i + 1) (i + 1) in
+       String.sub s 0 (go 0 0) in
+     (* the cell's source: the reversed [pre] it started with, then
+        [s] from [from] up to [i] *)
+     let entry pre from i start stop =
+       let raw = rev pre ^ String.sub s from (i - from) in
+       let k = String.length raw in
+       let rec lead j = if j < k && ws raw.[j] then lead (j + 1) else j in
+       let d = lead 0 in
+       (((trim_r (String.sub raw d (k - d)), start), stop), start + 1 + d) in
+     let rec go i vb run bs pre from acc pos start =
+       if i >= n then
+         (if bs then None
+          else if vb_step vb run = 0 then
+            Some (List.rev (entry pre from i start (pos + 1) :: acc))
+          else None)
+       else
+         let c = s.[i] in
+         if c = '`' then go (i + 1) vb (run + 1) false pre from acc (pos + 1) start
+         else
+           let vb' = vb_step vb run in
+           if vb' = 0 && c = '\\' then
+             (if i + 1 >= n then None
+              else go (i + 2) 0 0 (s.[i + 1] = '\\') pre from acc (pos + 2) start)
+           else if c = '|' && vb' = 0 && not bs then
+             go (i + 1) 0 0 false "" (i + 1)
+               (entry pre from i start (pos + 1) :: acc) (pos + 1) pos
+           else go (i + 1) vb' 0 (c = '\\') pre from acc (pos + 1) start in
+     go 0 vb run bs cur 0 acc pos start)
 
 (** val row_cells :
     string -> int -> int -> bool -> string -> string list -> string list
@@ -1466,15 +1148,8 @@ let is_text l =
 
 (** val all_info_chars : string -> bool **)
 
-let rec all_info_chars s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c s' -> (&&) (is_info_char c) (all_info_chars s'))
-    s
+let rec all_info_chars = (fun s -> String.for_all (fun c ->
+     not (c = ' ' || c = '\t' || c = '\r' || c = '`' || c = '\n')) s)
 
 (** val quote_open : string **)
 
