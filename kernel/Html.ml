@@ -143,7 +143,7 @@ let rec plain_text il =
    | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
-   | Wikilink (_, t, al) -> wiki_display t al
+   | Ext_wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
@@ -217,7 +217,7 @@ let rec render_inline refs il a =
    | EmailLink addr ->
      (HElem ("a", 0, (("href", ((^) "mailto:" addr)) :: a), ((HText
        addr) :: []))) :: []
-   | Wikilink (embed, t, al) ->
+   | Ext_wikilink (embed, t, al) ->
      if embed
      then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
             t) :: a)))) :: []
@@ -359,7 +359,7 @@ let rec render_block refs tight b a =
        (app (render_caption refs caption) (map (render_row refs) rows)))) :: []
    | RawBlock (fmt, contents) ->
      if (=) fmt "html" then (HRaw contents) :: [] else []
-   | Keyed (label, b0) ->
+   | Ext_keyed (label, b0) ->
      (HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), (("class", "keyed") :: a),
        ((HElem ("dt", (Stdlib.succ 0), [],
        (render_inlines refs label))) :: ((HElem ("dd", (Stdlib.succ
@@ -590,7 +590,7 @@ let rec render_block_foot refs st tight b a =
      let (st2, s2) = render_rows_foot refs st1 rows in
      (st2, ((HElem ("table", (Stdlib.succ (Stdlib.succ 0)), a,
      (app s1 s2))) :: []))
-   | Keyed (label, b0) ->
+   | Ext_keyed (label, b0) ->
      let (st1, s1) = render_inlines_foot refs st label in
      let (st2, s2) = render_bs_at st1 tight (b0 :: []) in
      (st2, ((HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), (("class",

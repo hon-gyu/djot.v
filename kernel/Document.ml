@@ -40,7 +40,7 @@ let rec inline_text il =
    | Span ils -> go ils
    | UrlLink s -> s
    | EmailLink s -> s
-   | Wikilink (_, t0, al) -> wiki_display t0 al
+   | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | RawInline (_, s) -> s
    | Quoted (_, ils) -> go ils
    | SoftBreak -> nl
@@ -286,10 +286,10 @@ module Ids =
      | FootnoteDef (label, bs) ->
        let (st', bs') = go bs (register_id a st) in
        (st', (Node (p, a, (FootnoteDef (label, bs')))))
-     | Keyed (label, b0) ->
+     | Ext_keyed (label, b0) ->
        let Node (p', a', x) = b0 in
        let (st', n') = of_block x p' a' (register_id a st) in
-       (st', (Node (p, a, (Keyed (label, n')))))
+       (st', (Node (p, a, (Ext_keyed (label, n')))))
      | _ -> ((register_id a st), (Node (p, a, b))))
 
   (** val of_node : block node -> id_state -> id_state * block node **)
@@ -452,7 +452,7 @@ module Refs =
               in go' it acc)
        in god items m
      | FootnoteDef (_, bs) -> go bs m
-     | Keyed (_, b0) -> let Node (p', a', x) = b0 in of_block x p' a' m
+     | Ext_keyed (_, b0) -> let Node (p', a', x) = b0 in of_block x p' a' m
      | _ -> add_ref p a b m)
 
   (** val of_list : blocks -> reference_map -> reference_map **)
@@ -531,12 +531,12 @@ module Notes =
      | FootnoteDef (label, bs) ->
        let (m', bs') = go bs m in
        ((alist_set (normalize_label label) bs' m'), None)
-     | Keyed (label, b0) ->
+     | Ext_keyed (label, b0) ->
        let Node (p', a', x) = b0 in
        let (m', o) = of_block x p' a' m in
        (m',
        (match o with
-        | Some n' -> Some (Node (p, a, (Keyed (label, n'))))
+        | Some n' -> Some (Node (p, a, (Ext_keyed (label, n'))))
         | None -> None))
      | _ -> (m, (Some (Node (p, a, b)))))
 

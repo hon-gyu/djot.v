@@ -177,7 +177,7 @@ let rec cb_ast cb =
    | CTable rows -> mk (Table (None, (ctable_cells [] rows)))
    | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
    | CKey (label, inner) ->
-     mk (Keyed (((ci_ast label) :: []), (cb_ast inner))))
+     mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner))))
 
 (** val item_lines : dtable -> cblock list -> string list **)
 
@@ -655,7 +655,7 @@ let rec render_block_lines t b =
    | RawBlock (fmt, text) ->
      (code_open ((^) "=" fmt)) :: (app (split_lines text) (code_close :: []))
    | RefDef (label, dest) -> (ref_line label dest) :: []
-   | Keyed (label, inner) ->
+   | Ext_keyed (label, inner) ->
      ((^)
        (String.concat ""
          (map (fun n -> inline_text t (node_contents n)) label))
