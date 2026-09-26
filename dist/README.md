@@ -21,7 +21,9 @@ differences:
 - The tree types are the extracted ones, re-exported with their
   constructors.  Every element is a `'a node = Node of pos * attrs * 'a`.
 - The types are closed.  Syntax extensions are constructors defined in
-  Rocq; there are no `Ext_*` hooks.
+  Rocq and named `Ext_*` (`Inline.Ext_wikilink`, `Block.Ext_keyed`), so
+  a reader who knows djot can tell them apart; there are no extension
+  hooks.
 - There is no layout information.
 - A node's location needs its document: `Doc.textloc doc node`.  Parse
   with `~locs:true` to record locations.
@@ -30,13 +32,15 @@ differences:
 - `Html.tree` returns the output tree before serialization, for
   post-processing; `Html.to_string` serializes it.
 
-Wikilinks and keyed blocks are off by default.  Switch them on with
-`Djot.Dialect.with_wikilinks` and `Djot.Dialect.with_keyed`.
+The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
+`Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
+`Profile.with_footnotes` and so on.  The extensions are off in both and
+switch on with `Profile.with_ext_wikilinks` and `Profile.with_ext_keyed`.
 
 The extracted modules are the `djot.kernel` library (`Djot.Kernel`).
 They mirror the Rocq ones and speak the extracted representation, with
-numbers as OCaml `int`.  `check/located.ml` exercises the kernel's
-source-location entry points; `check/api.ml` exercises the API.
+numbers as OCaml `int`.  `test/api.ml` tests the hand-written API,
+which the Rocq proofs do not cover.
 
 `kernel/` is generated.  Change `theories/` upstream and re-run extraction;
 edits made there are overwritten.

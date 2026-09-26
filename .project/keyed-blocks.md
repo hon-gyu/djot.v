@@ -3,6 +3,9 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
+The constructor this file calls `Keyed` was renamed `Ext_keyed` on
+2026-09-26, to mark it as an extension in the public API.
+
 Status: **implemented**. 9.1 is closed: the split test was wrong for a
 delimiter run against the colon, and `iscan_settled` is the repair.
 Section 5 is in for every block it admits: fenced code and raw blocks,

@@ -128,7 +128,7 @@ type inline =
 | FootnoteReference of string
 | UrlLink of string
 | EmailLink of string
-| Wikilink of bool * string * string option
+| Ext_wikilink of bool * string * string option
 | RawInline of string * string
 | NonBreakingSpace
 | Quoted of quote_type * inline node list
@@ -192,7 +192,7 @@ type block =
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string
-| Keyed of inlines * block node
+| Ext_keyed of inlines * block node
 
 type blocks = block node list
 

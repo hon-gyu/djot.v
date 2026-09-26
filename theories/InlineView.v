@@ -883,7 +883,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
   | CINote label => mk (FootnoteReference label)
   | CIAuto s => mk (auto_node s)
   | CIRaw fmt s => mk (RawInline fmt s)
-  | CIWiki embed t al => mk (Wikilink embed t al)
+  | CIWiki embed t al => mk (Ext_wikilink embed t al)
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
@@ -1210,7 +1210,7 @@ Fixpoint inline_text (il : inline) : string :=
   | UrlLink s | EmailLink s => auto_text s
   (* raw content is its verbatim plus the spec that named its format *)
   | RawInline fmt s => raw_text fmt s
-  | Wikilink embed t al => wiki_text embed t al
+  | Ext_wikilink embed t al => wiki_text embed t al
   | _ => EmptyString
   end.
 

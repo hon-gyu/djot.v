@@ -4,8 +4,8 @@
    SPDX-License-Identifier: MIT AND ISC
   ---------------------------------------------------------------------------*)
 
-(* The module types are modeled on cmarkit's; see LICENSE-cmarkit.  The
-   implementation is not derived from cmarkit: it calls the extracted
+(* The module types are modeled on cmarkit's; see LICENSE-cmarkit. The
+   implementation is not derived from cmarkit: it calls the Rocq-extracted
    kernel. *)
 
 (** Djot documents: parse, traverse, render.
@@ -72,8 +72,9 @@ module Inline : sig
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
-    | Wikilink of bool * string * string option
-        (** [Wikilink (embed, target, alias)], both strings as written. *)
+    | Ext_wikilink of bool * string * string option
+        (** An extension: [Ext_wikilink (embed, target, alias)], both strings
+            as written. *)
     | RawInline of string * string
     | NonBreakingSpace
     | Quoted of quote_type * t node list
@@ -142,7 +143,8 @@ module Block : sig
     | FootnoteDef of string * t node list
         (** Moved into {!Doc.footnotes} by the document pass. *)
     | RefDef of string * string
-    | Keyed of Inline.t node list * t node
+    | Ext_keyed of Inline.t node list * t node
+        (** An extension: [label: content]. *)
 end
 
 (** {1 Source locations} *)
@@ -173,18 +175,61 @@ module Textloc : sig
   val pp : Format.formatter -> t -> unit
 end
 
-(** {1 Dialects} *)
+(** {1 Profiles} *)
 
-module Dialect : sig
+module Profile : sig
   type t
+  (** The syntax a parse accepts.  Start from a named profile and switch
+      constructs on or off. *)
 
   val djot : t
+  (** djot as specified.  The extensions are off. *)
 
-  val with_wikilinks : bool -> t -> t
-  (** [[[target|alias]]] and [![[target]]]; off in {!djot}. *)
+  val markdown_like : t
+  (** djot with Markdown spellings added: strong as [**], setext
+      headings, sublists without a blank line, one-line ATX headings.
+      Not CommonMark. *)
 
-  val with_keyed : bool -> t -> t
-  (** Keyed blocks ({!Block.Keyed}); off in {!djot}. *)
+  (** {2 djot constructs}  All on in {!djot}. *)
+
+  val with_footnotes : bool -> t -> t
+  (** References [[^a]] and definitions [[^a]: ...] together. *)
+
+  val with_smart_typography : bool -> t -> t
+  (** Dashes and ellipses. *)
+
+  val with_raw_inline : bool -> t -> t
+  (** [`x`{=html}]. *)
+
+  val with_math : bool -> t -> t
+  (** [$`x`] and [$$`x`]. *)
+
+  val with_inline_attrs : bool -> t -> t
+  (** [{...}] after an inline, and spans [[text]{...}]. *)
+
+  val with_tables : bool -> t -> t
+  val with_divs : bool -> t -> t
+  val with_tasks : bool -> t -> t
+
+  val with_raw_blocks : bool -> t -> t
+  (** Code blocks with an [=format] info string. *)
+
+  val with_deflists : bool -> t -> t
+
+  val with_block_attrs : bool -> t -> t
+  (** An attribute line [{...}] before a block. *)
+
+  val with_heading_continuation : bool -> t -> t
+  (** A heading's text continues onto the following lines; off in
+      {!markdown_like}. *)
+
+  (** {2 Extensions}  All off in {!djot}. *)
+
+  val with_ext_wikilinks : bool -> t -> t
+  (** [[[target|alias]]] and [![[target]]] ({!Inline.Ext_wikilink}). *)
+
+  val with_ext_keyed : bool -> t -> t
+  (** [label: content] ({!Block.Ext_keyed}). *)
 end
 
 (** {1 Documents} *)
@@ -192,7 +237,7 @@ end
 module Doc : sig
   type t
 
-  val of_string : ?dialect:Dialect.t -> ?locs:bool -> string -> t
+  val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
   (** Parse, then run the document pass: headings get identifiers and
       open sections, footnote and reference definitions move into side
       tables.  [locs] (default [false]) records source positions. *)
@@ -243,7 +288,7 @@ module Mapper : sig
   val map_inline : t -> Inline.t node -> Inline.t node filter_map
 
   val map_block : t -> Block.t node -> Block.t node filter_map
-  (** A {!Block.Keyed} whose block is deleted is deleted. *)
+  (** A {!Block.Ext_keyed} whose block is deleted is deleted. *)
 
   val map_doc : t -> Doc.t -> Doc.t
   (** The blocks, then each footnote's blocks.  The side tables and the

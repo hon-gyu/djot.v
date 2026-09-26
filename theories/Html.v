@@ -297,7 +297,7 @@ Local Fixpoint plain_text (il : inline) : string :=
   match il with
   | Str s | Verbatim s | Math _ s | RawInline _ s => s
   | UrlLink s | EmailLink s => s
-  | Wikilink _ t al => wiki_display t al
+  | Ext_wikilink _ t al => wiki_display t al
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Span ns | Quoted _ ns
   | Link ns _ | Image ns _ => go ns
@@ -395,9 +395,9 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   (* A wikilink renders as the link it desugars to; `render_wikilink`
      states it.  Spelled out rather than a call, which would not be
      structural. *)
-  | Wikilink false t al =>
+  | Ext_wikilink false t al =>
       [HElem "a" 0 (("href", t) :: a) [HText (wiki_display t al)]]
-  | Wikilink true t al =>
+  | Ext_wikilink true t al =>
       [HVoid "img" false (("alt", wiki_display t al) :: ("src", t) :: a)]
   (* Raw content in a format the renderer does not speak contributes
      nothing at all, attributes included: the text is emitted only for
@@ -425,7 +425,7 @@ Local Definition render_inlines (ils : inlines) : list helt :=
 (* Section 5 of the wikilink spec: a wikilink renders as the ordinary
    link it desugars to, attributes included. *)
 Local Lemma render_wikilink : forall embed t al a,
-  render_inline (Wikilink embed t al) a = render_inline (wiki_desugar embed t al) a.
+  render_inline (Ext_wikilink embed t al) a = render_inline (wiki_desugar embed t al) a.
 Proof. intros [|] t al a; reflexivity. Qed.
 
 (*
@@ -571,7 +571,7 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
      not.  The class keeps the construct distinct from an ordinary
      one-term definition list.  `.project/keyed-blocks.md` 9.3 records
      the choice. *)
-  | Keyed label b =>
+  | Ext_keyed label b =>
       [HElem "dl" 2 (("class", "keyed") :: a)
          [HElem "dt" 1 [] (render_inlines label);
           HElem "dd" 2 [] (render_bs [b])]]
@@ -806,7 +806,7 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   (* The label is inline content like a term's, so a note referenced
      from it is numbered here rather than dropped by the stateless
      path. *)
-  | Keyed label b =>
+  | Ext_keyed label b =>
       let '(st1, s1) := render_inlines_foot st label in
       let '(st2, s2) := render_bs_at st1 tight [b] in
       (st2, [HElem "dl" 2 (("class", "keyed") :: a)
@@ -1990,7 +1990,7 @@ Proof. vm_compute. reflexivity. Qed.
    records why the label is a term rather than an attribute or heading. *)
 Example render_keyed_description_list :
   serialize (render_blocks []
-    [mk (Keyed [mk (Str "foo")] (mk (Para [mk (Str "bar")])))])
+    [mk (Ext_keyed [mk (Str "foo")] (mk (Para [mk (Str "bar")])))])
   = "<dl class=""keyed"">
 <dt>foo</dt>
 <dd>
@@ -2005,7 +2005,7 @@ Proof. vm_compute. reflexivity. Qed.
    dropped both. *)
 Example render_keyed_numbers_both_notes :
   foot_next (fst (render_blocks_foot [] foot_initial
-    [mk (Keyed [mk (FootnoteReference "a")]
+    [mk (Ext_keyed [mk (FootnoteReference "a")]
            (mk (Para [mk (FootnoteReference "b")])))])) = 3.
 Proof. vm_compute. reflexivity. Qed.
 

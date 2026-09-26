@@ -37,6 +37,30 @@ let no_interrupt _ _ _ _ =
 let no_underline _ _ =
   None
 
+(** val prose_safe_markers :
+    lstyle list -> string -> task_marker option -> string -> bool **)
+
+let prose_safe_markers _ core _ _ =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun _ _ -> (=) core "1")
+    core
+
+(** val setext_underline : char -> int -> int option **)
+
+let setext_underline c n =
+  if (=) c '='
+  then Some 0
+  else if (=) c '-'
+       then if ( <= ) (Stdlib.succ (Stdlib.succ 0)) n
+            then Some (Stdlib.succ 0)
+            else None
+       else None
+
 (** val djot_bconfig : bconfig **)
 
 let djot_bconfig =
@@ -44,6 +68,93 @@ let djot_bconfig =
     true; bheading_continues = true; bdivs = true; btasks = true;
     braw_blocks = true; bdeflists = true; battrs = true; bfootnotes = true;
     bkeyed = false }
+
+(** val with_marker_interrupts :
+    (lstyle list -> string -> task_marker option -> string -> bool) ->
+    bconfig -> bconfig **)
+
+let with_marker_interrupts f k =
+  { bmarker_interrupts = f; bunderline = k.bunderline; btables = k.btables;
+    bheading_continues = k.bheading_continues; bdivs = k.bdivs; btasks =
+    k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists; battrs =
+    k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+
+(** val with_underline : (char -> int -> int option) -> bconfig -> bconfig **)
+
+let with_underline f k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = f; btables =
+    k.btables; bheading_continues = k.bheading_continues; bdivs = k.bdivs;
+    btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
+    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+
+(** val with_tables : bool -> bconfig -> bconfig **)
+
+let with_tables enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = enabled; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed }
+
+(** val with_heading_continuation : bool -> bconfig -> bconfig **)
+
+let with_heading_continuation enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = enabled; bdivs = k.bdivs;
+    btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
+    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+
+(** val with_divs : bool -> bconfig -> bconfig **)
+
+let with_divs enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    enabled; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed }
+
+(** val with_tasks : bool -> bconfig -> bconfig **)
+
+let with_tasks enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = enabled; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed }
+
+(** val with_raw_blocks : bool -> bconfig -> bconfig **)
+
+let with_raw_blocks enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = enabled; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed }
+
+(** val with_deflists : bool -> bconfig -> bconfig **)
+
+let with_deflists enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    enabled; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+
+(** val with_block_attrs : bool -> bconfig -> bconfig **)
+
+let with_block_attrs enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = enabled; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed }
+
+(** val with_block_footnotes : bool -> bconfig -> bconfig **)
+
+let with_block_footnotes enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = enabled; bkeyed = k.bkeyed }
 
 (** val with_keyed : bool -> bconfig -> bconfig **)
 
@@ -58,6 +169,13 @@ let with_keyed enabled k =
 
 let keyed_bconfig =
   with_keyed true djot_bconfig
+
+(** val markdown_like_bconfig : bconfig **)
+
+let markdown_like_bconfig =
+  with_heading_continuation false
+    (with_underline setext_underline
+      (with_marker_interrupts prose_safe_markers djot_bconfig))
 
 (** val configured_list_styles :
     bconfig -> lstyle list -> task_marker option -> lstyle list **)
@@ -661,7 +779,7 @@ let foot_block lbl bs =
 
 let key_close t lbl src = function
 | [] -> (mk (Para (para_inlines t (src :: [])))) :: []
-| b :: rest -> (mk (Keyed ((para_inlines t (lbl :: [])), b))) :: rest
+| b :: rest -> (mk (Ext_keyed ((para_inlines t (lbl :: [])), b))) :: rest
 
 (** val ref_cont : string -> string option **)
 

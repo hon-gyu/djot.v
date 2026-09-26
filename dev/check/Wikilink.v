@@ -23,9 +23,9 @@ Definition wiki_table : dtable :=
 Local Notation W := (@parse_inline_line wiki_table).
 Local Notation WBlocks := (@parse_blocks wiki_table djot_bconfig).
 
-Definition wiki (t : string) : node inline := mk (Wikilink false t None).
+Definition wiki (t : string) : node inline := mk (Ext_wikilink false t None).
 Definition wiki_alias (t a : string) : node inline :=
-  mk (Wikilink false t (Some a)).
+  mk (Ext_wikilink false t (Some a)).
 
 (*
 The worked examples (section 7)
@@ -101,7 +101,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example w_row6_verbatim : W "`[[a]]`" = [mk (Verbatim "[[a]]")].
 Proof. vm_compute. reflexivity. Qed.
 
-Example w_row7_embed : W "![[a]]" = [mk (Wikilink true "a" None)].
+Example w_row7_embed : W "![[a]]" = [mk (Ext_wikilink true "a" None)].
 Proof. vm_compute. reflexivity. Qed.
 
 Example w_row8_cell :

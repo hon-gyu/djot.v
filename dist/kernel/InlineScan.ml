@@ -1260,7 +1260,8 @@ let iwiki_close x h h0 image region open0 o =
      let (txt, o') = bwiki_lit false true image (x.tval region) o in
      IText (false, (x.tpush (x.tof txt) (one rbrack)), (Some rbrack), o'))
      (fun _ _ -> IText (false, x.tnil, (Some rbrack),
-     (oemit (imk h open0.span_start h0.cursor_stop (Wikilink (image, t, al)))
+     (oemit
+       (imk h open0.span_start h0.cursor_stop (Ext_wikilink (image, t, al)))
        o)))
      t)
 

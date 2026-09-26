@@ -2006,7 +2006,7 @@ Local Lemma iscan_wiki_text :
     iscan_str (wiki_text embed t al ++ tail) (IText false txt prev o)
     = iscan_str tail
         (IText false EmptyString (Some rbrack)
-          (oemit (mk (Wikilink embed t al)) (flush_text txt o))).
+          (oemit (mk (Ext_wikilink embed t al)) (flush_text txt o))).
 Proof.
   intros embed t al tail txt prev o Hok Hw.
   rewrite ci_ok_wiki in Hok.
@@ -3181,7 +3181,7 @@ Proof.
       pose proof (flush_text_flat txt out) as Eflat. rewrite Eflush in Eflat.
       injection Eflat as Eout Estk Eword. subst out' stk' word'.
       cbn [oemit os_out os_stk os_word_start].
-      change (mk (Wikilink we wt wal)) with (ci_ast (CIWiki we wt wal)).
+      change (mk (Ext_wikilink we wt wal)) with (ci_ast (CIWiki we wt wal)).
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (Some rbrack) EmptyString
         (ci_ast (CIWiki we wt wal) :: flush_out txt out)).

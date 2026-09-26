@@ -478,7 +478,7 @@ Inductive inline : Type :=
   (* Extension, not djot (`.project/wikilinks.md`): `[[target|alias]]`,
      and `![[...]]` with `embed` set.  Both halves are source as written;
      what a target denotes is the consumer's. *)
-  | Wikilink (embed : bool) (target : string) (alias : option string)
+  | Ext_wikilink (embed : bool) (target : string) (alias : option string)
   | RawInline (format : string) (s : string)
   | NonBreakingSpace
   | Quoted (qt : quote_type) (ils : list (node inline))
@@ -508,7 +508,7 @@ Definition inline_ind2
   (hfoot : forall label, P (FootnoteReference label))
   (hurl : forall url, P (UrlLink url))
   (hmail : forall email, P (EmailLink email))
-  (hwiki : forall embed target alias, P (Wikilink embed target alias))
+  (hwiki : forall embed target alias, P (Ext_wikilink embed target alias))
   (hraw : forall format s, P (RawInline format s))
   (hnbsp : P NonBreakingSpace)
   (hquoted : forall qt ils, Q ils -> P (Quoted qt ils))
@@ -542,7 +542,7 @@ Definition inline_ind2
     | FootnoteReference label => hfoot label
     | UrlLink url => hurl url
     | EmailLink email => hmail email
-    | Wikilink embed target alias => hwiki embed target alias
+    | Ext_wikilink embed target alias => hwiki embed target alias
     | RawInline format s => hraw format s
     | NonBreakingSpace => hnbsp
     | Quoted qt ils => hquoted qt ils (golist ils)
@@ -624,7 +624,7 @@ Inductive block : Type :=
      scope is forced by the type.  The label is inlines because the
      parser builds it with `para_inlines`; that it is one element is the
      canonical view's condition. *)
-  | Keyed (label : inlines) (b : node block).
+  | Ext_keyed (label : inlines) (b : node block).
 
 Definition blocks : Type := list (node block).
 
@@ -654,7 +654,7 @@ Definition block_ind2
   (hrefdef : forall label dest, P (RefDef label dest))
   (* Its one block reaches the caller as a singleton list, so a key needs
      no hypothesis of its own. *)
-  (hkeyed : forall label b, Q [b] -> P (Keyed label b))
+  (hkeyed : forall label b, Q [b] -> P (Ext_keyed label b))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
@@ -707,7 +707,7 @@ Definition block_ind2
     | RawBlock format contents => hraw format contents
     | FootnoteDef label bs => hfoot label bs (golist bs)
     | RefDef label dest => hrefdef label dest
-    | Keyed label b => hkeyed label b (golist [b])
+    | Ext_keyed label b => hkeyed label b (golist [b])
     end.
 
 (*
@@ -912,8 +912,8 @@ Fixpoint of_block (b : block) : block :=
   | Table caption rows =>
       Table (option_map of_inlines caption) (map row rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
-  | Keyed label (Node _ a x) =>
-      Keyed label (Node NoPos a (of_block x))
+  | Ext_keyed label (Node _ a x) =>
+      Ext_keyed label (Node NoPos a (of_block x))
   | x => x
   end.
 

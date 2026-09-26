@@ -43,7 +43,7 @@ The setting is a mode
    paragraph rather than an error. *)
 Example keys_change_a_valid_document :
   Djot "foo: bar" = [para "foo: bar"]
-  /\ Key "foo: bar" = [mk (Keyed [mk (Str "foo")] (para "bar"))].
+  /\ Key "foo: bar" = [mk (Ext_keyed [mk (Str "foo")] (para "bar"))].
 Proof. split; vm_compute; reflexivity. Qed.
 
 (*
@@ -57,7 +57,7 @@ Example key_takes_a_list :
   Key "foo:
 - bar
 - baz"
-  = [mk (Keyed [mk (Str "foo")]
+  = [mk (Ext_keyed [mk (Str "foo")]
            (mk (BulletList Tight [[para "bar"]; [para "baz"]])))].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -71,7 +71,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example key_value_is_a_paragraph :
   Key "foo: bar
 baz"
-  = [mk (Keyed [mk (Str "foo")]
+  = [mk (Ext_keyed [mk (Str "foo")]
            (mk (Para [mk (Str "bar"); mk SoftBreak; mk (Str "baz")])))].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -89,7 +89,7 @@ Example key_in_a_tight_item :
   bar
   ```"
   = [mk (BulletList Tight
-           [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))]])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -104,21 +104,21 @@ Example keys_nest_by_line :
   Key "foo:
 bar:
 baz"
-  = [mk (Keyed [mk (Str "foo")]
-           (mk (Keyed [mk (Str "bar")] (para "baz"))))].
+  = [mk (Ext_keyed [mk (Str "foo")]
+           (mk (Ext_keyed [mk (Str "bar")] (para "baz"))))].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And the one-line form is not sugar for the two-line one (3.3): a line
    is split at most once, so the second colon is the value's text. *)
 Example one_key_per_line :
   Key "foo: bar: baz"
-  = [mk (Keyed [mk (Str "foo")] (para "bar: baz"))].
+  = [mk (Ext_keyed [mk (Str "foo")] (para "bar: baz"))].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The value is inline content, never block syntax.  A list marker after
    the colon is text; the same marker on the next line is a list. *)
 Example value_is_never_block_syntax :
-  Key "foo: - bar" = [mk (Keyed [mk (Str "foo")] (para "- bar"))].
+  Key "foo: - bar" = [mk (Ext_keyed [mk (Str "foo")] (para "- bar"))].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
@@ -158,7 +158,7 @@ Example an_attribute_line_names_the_node :
   Key "{#my-foo}
 foo: bar"
   = [Node NoPos [("id", "my-foo")]
-       (Keyed [mk (Str "foo")] (para "bar"))].
+       (Ext_keyed [mk (Str "foo")] (para "bar"))].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
@@ -200,7 +200,7 @@ Example a_lists_blank_is_not_the_keys :
 - a
 
 - b"
-  = [mk (Keyed [mk (Str "foo")]
+  = [mk (Ext_keyed [mk (Str "foo")]
            (mk (BulletList Loose [[para "a"]; [para "b"]])))].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -212,7 +212,7 @@ Example an_open_spec_holds_the_key_across_a_blank :
 {#i}
 
 bar"
-  = [mk (Keyed [mk (Str "foo")] (para "bar"))].
+  = [mk (Ext_keyed [mk (Str "foo")] (para "bar"))].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The same corner at end of input goes the other way: a lone attribute
@@ -283,7 +283,7 @@ Example escaped_colon_label :
   let label := ci_line [CIStr "Note: this"] in
   key_split (label ++ ":") = Some (label, "")
   /\ Key (label ++ ":" ++ nl ++ ci_line [CIStr "value: text"])
-    = [mk (Keyed [mk (Str "Note: this")] (para "value: text"))].
+    = [mk (Ext_keyed [mk (Str "Note: this")] (para "value: text"))].
 Proof. split; vm_compute; reflexivity. Qed.
 
 (* Canonical keys retain both wrapper orders, nest, and leave the
@@ -405,7 +405,7 @@ bar
 ```
 - baz"
   = [mk (BulletList Tight
-           [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
@@ -424,7 +424,7 @@ bar
   = [mk (BulletList Tight
            [[para "tt";
              mk (BulletList Tight
-                   [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+                   [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
                     [para "baz"]])]])].
 Proof. vm_compute. reflexivity. Qed.
@@ -452,7 +452,7 @@ Example thematic_out_of_column_is_claimed :
 * * * *
 - baz"
   = [mk (BulletList Tight
-           [[mk (Keyed [mk (Str "foo")] (mk ThematicBreak))];
+           [[mk (Ext_keyed [mk (Str "foo")] (mk ThematicBreak))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -472,7 +472,7 @@ Example quote_prefix_survives_the_override :
 > bar
 > ```"
   = [mk (BlockQuote
-           [mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -485,7 +485,7 @@ bar
 ```
 :::"
   = [mk (Div [mk (BulletList Tight
-                    [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+                    [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))]])])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -514,7 +514,7 @@ Example out_of_column_tree_is_reachable :
   ```
 - baz"
   = [mk (BulletList Tight
-           [[mk (Keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
@@ -531,7 +531,7 @@ next
 :::
 - baz"
   = [mk (BulletList Loose
-           [[mk (Keyed [mk (Str "foo")] (mk (Div [para "next"])))];
+           [[mk (Ext_keyed [mk (Str "foo")] (mk (Div [para "next"])))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 

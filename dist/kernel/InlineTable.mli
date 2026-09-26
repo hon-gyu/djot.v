@@ -102,7 +102,26 @@ val denabled : dconfig -> dstyle -> bool
 
 val dstyle_at_fast : dconfig -> char -> dstyle option
 
+type dentry = { de_char : char; de_width : int; de_syntax : dsyntax;
+                de_decay : ddecay }
+
+val update_drow : dstyle -> dentry -> dconfig -> dconfig
+
+val with_smart_typography : bool -> dconfig -> dconfig
+
+val with_raw_inline : bool -> dconfig -> dconfig
+
+val with_math : bool -> dconfig -> dconfig
+
+val with_inline_attrs : bool -> dconfig -> dconfig
+
+val with_inline_footnotes : bool -> dconfig -> dconfig
+
 val with_wikilinks : bool -> dconfig -> dconfig
+
+val markdown_strong_entry : dentry
+
+val markdown_like_config : dconfig
 
 val bnode : bool -> inlines -> target -> inline
 

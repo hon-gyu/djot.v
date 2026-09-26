@@ -584,7 +584,7 @@ let rec ci_ast ci =
    | CINote label -> mk (FootnoteReference label)
    | CIAuto s -> mk (auto_node s)
    | CIRaw (fmt, s) -> mk (RawInline (fmt, s))
-   | CIWiki (embed, t, al) -> mk (Wikilink (embed, t, al)))
+   | CIWiki (embed, t, al) -> mk (Ext_wikilink (embed, t, al)))
 
 (** val ci_inlines : cinline list -> inlines **)
 
@@ -744,7 +744,7 @@ let rec inline_text t il =
    | FootnoteReference label -> note_text label
    | UrlLink s -> auto_text s
    | EmailLink s -> auto_text s
-   | Wikilink (embed, t0, al) -> wiki_text embed t0 al
+   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
    | RawInline (fmt, s) -> raw_text fmt s
    | Quoted (qt, ns) ->
      (match qt with

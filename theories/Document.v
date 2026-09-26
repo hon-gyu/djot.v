@@ -76,7 +76,7 @@ Fixpoint inline_text (il : inline) : string :=
      an image `alt` *)
   | UrlLink s | EmailLink s => s
   (* the text a wikilink displays, as its desugared link would push it *)
-  | Wikilink _ t al => wiki_display t al
+  | Ext_wikilink _ t al => wiki_display t al
   | Symbol _ | NonBreakingSpace => ""
   end.
 
@@ -462,9 +462,9 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (st : id_state)
       (st', Node p a (FootnoteDef label bs'))
   (* Its one block is a node, not a list, so the recursion is on the
      payload directly and no list wrapper is needed. *)
-  | Keyed label (Node p' a' x) =>
+  | Ext_keyed label (Node p' a' x) =>
       let (st', n') := of_block x p' a' (register_id a st) in
-      (st', Node p a (Keyed label n'))
+      (st', Node p a (Ext_keyed label n'))
   | BulletList sp items =>
       let (st', items') :=
         (fix goit (its : list blocks) (s : id_state) {struct its}
@@ -1016,7 +1016,7 @@ Local Fixpoint of_block (b : block) (p : pos) (a : attr) (m : reference_map)
       end in
   match b with
   | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
-  | Keyed _ (Node p' a' x) => of_block x p' a' m
+  | Ext_keyed _ (Node p' a' x) => of_block x p' a' m
   | BulletList _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
       (fix god (its : list (inlines * blocks)) (acc : reference_map)
@@ -1169,10 +1169,10 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (m : note_map)
       let (m', bs') := go bs m in (m', Some (Node p a (Div bs')))
   (* A key whose one block is a definition has nothing left to name, so
      it goes with it.  Every other container keeps its (shorter) list. *)
-  | Keyed label (Node p' a' x) =>
+  | Ext_keyed label (Node p' a' x) =>
       let (m', o) := of_block x p' a' m in
       (m', match o with
-           | Some n' => Some (Node p a (Keyed label n'))
+           | Some n' => Some (Node p a (Ext_keyed label n'))
            | None => None
            end)
   | BulletList sp items =>
@@ -1563,8 +1563,8 @@ Local Fixpoint pass_block (b : block) (p : pos) (a : attr) {struct b}
   (* `Section` is the one block whose undo is not a single node, and
      `sectionize` builds none below the top level, so the default is
      unreachable and the payload comes back as itself. *)
-  | Keyed label (Node p' a' x) =>
-      [Node p a (Keyed label
+  | Ext_keyed label (Node p' a' x) =>
+      [Node p a (Ext_keyed label
          (hd (Node p' a' x) (pass_block x p' a')))]
   | BulletList sp items => [Node p a (BulletList sp (goit items))]
   | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
@@ -1833,7 +1833,7 @@ Local Fixpoint of_block (b : block) (a : attr) {struct b} : bool :=
       match alist_lookup "id" a with Some _ => false | None => true end
   | FootnoteDef _ _ => false
   | BlockQuote inner | Div inner => go inner
-  | Keyed _ (Node _ a' x) => of_block x a'
+  | Ext_keyed _ (Node _ a' x) => of_block x a'
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
@@ -2069,7 +2069,7 @@ Local Fixpoint notes_free_block (b : block) {struct b} : bool :=
   match b with
   | FootnoteDef _ _ => false
   | BlockQuote bs | Div bs | Section bs => go bs
-  | Keyed _ (Node _ _ x) => notes_free_block x
+  | Ext_keyed _ (Node _ _ x) => notes_free_block x
   | BulletList _ items | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
       (fix god (its : list (inlines * blocks)) : bool :=
@@ -2279,7 +2279,7 @@ Proof.
     rewrite IHb by exact H. reflexivity.
   - (* FootnoteDef: collection removes it, so `Pristine.of_list` excludes it. *)
     discriminate.
-  - (* Keyed: its one block, through Q at the singleton. *)
+  - (* Ext_keyed: its one block, through Q at the singleton. *)
     destruct b as [p' a' x].
     cbn [Pristine.of_block] in H.
     specialize (IHb (register_id a st)).
@@ -2387,7 +2387,7 @@ Proof.
   - rewrite notes_free_deflist in H.
     rewrite Notes.deflist, IHb by exact H. reflexivity.
   - discriminate.
-  - (* Keyed: `Q` at the singleton says the block survives collection,
+  - (* Ext_keyed: `Q` at the singleton says the block survives collection,
        and a key with a surviving block survives with it. *)
     destruct b as [p' a' x]. cbn [notes_free_block] in H.
     specialize (IHb m). cbn [notes_free] in IHb.
@@ -2442,7 +2442,7 @@ Proof.
   - rewrite Pristine.deflist in H. rewrite notes_free_deflist.
     apply IHb. exact H.
   - discriminate.
-  - (* Keyed: both predicates read straight through to the one block. *)
+  - (* Ext_keyed: both predicates read straight through to the one block. *)
     destruct b as [p' a' x]. cbn [Pristine.of_block notes_free_block] in *.
     cbn [Pristine.of_list notes_free] in IHb. rewrite H in IHb.
     specialize (IHb eq_refl). rewrite andb_true_r in IHb. exact IHb.
@@ -2514,7 +2514,7 @@ Proof.
     cbn [snd node_contents]. rewrite notes_free_deflist.
     change items' with (snd (st', items')). rewrite <- E. apply IHb. exact H.
   - discriminate.
-  - (* Keyed: the payload is one node, so `Q` at the singleton is the
+  - (* Ext_keyed: the payload is one node, so `Q` at the singleton is the
        statement about it with a `&& true` on the end. *)
     destruct b as [p' a' x]. cbn [notes_free_block] in H.
     specialize (IHb (register_id a st)). cbn [notes_free] in IHb.
@@ -3101,7 +3101,7 @@ Proof.
     split; [exact Hf|].
     cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
     rewrite He. reflexivity.
-  - (* Keyed *)
+  - (* Ext_keyed *)
     destruct b as [p' a' x]. cbn [Erase.of_block Ids.of_block].
     destruct (Ids.of_block x p' a' (register_id a st)) as [st1 n1] eqn:E1.
     destruct (Ids.of_block (Erase.of_block x) NoPos a' (register_id a st)) as [st2 n2] eqn:E2.
@@ -3343,7 +3343,7 @@ Proof.
     pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
     injection Hq as Hm Hb. subst m2 bs2.
     rewrite <- erase_note_map_alist_set. reflexivity.
-  - (* Keyed *)
+  - (* Ext_keyed *)
     destruct b as [p' a' x]. cbn [Erase.of_block Notes.of_block].
     destruct (Notes.of_block x p' a' m) as [m1 o1] eqn:E1.
     destruct (Notes.of_block (Erase.of_block x) NoPos a' (erase_note_map m)) as [m2 o2] eqn:E2.

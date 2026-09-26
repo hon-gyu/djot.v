@@ -1155,7 +1155,7 @@ Definition foot_block (lbl : string) (bs : blocks) : node block :=
 Definition key_close (lbl src : string) (bs : blocks) : blocks :=
   match bs with
   | [] => [mk (Para (para_inlines [src]))]
-  | b :: rest => (mk (Keyed (para_inlines [lbl]) b) :: rest)%list
+  | b :: rest => (mk (Ext_keyed (para_inlines [lbl]) b) :: rest)%list
   end.
 
 (* A continuation line's contribution: one whitespace-free run,

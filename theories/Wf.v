@@ -175,7 +175,7 @@ Local Fixpoint wf_block (b : block) : bool :=
      but the reason it is excluded is that it does not render back, which
      is the canonical view's business.  Nonemptiness is the same
      condition one notch weaker, and is left out for the same reason. *)
-  | Keyed label b => wf_inlines label && wf_bs [b]
+  | Ext_keyed label b => wf_inlines label && wf_bs [b]
   end.
 
 Definition wf_blocks (bs : blocks) : bool :=
@@ -192,7 +192,7 @@ Qed.
 
 Local Lemma wf_block_keyed :
   forall label b,
-    wf_block (Keyed label b)
+    wf_block (Ext_keyed label b)
     = (wf_inlines label && wf_blocks [b])%bool.
 Proof. intros label [p a x]. reflexivity. Qed.
 
@@ -3300,7 +3300,7 @@ Local Fixpoint supported (b : block) : bool :=
   | FootnoteDef _ bs => sup_bs bs
   | BlockQuote bs | Div bs => sup_bs bs
   (* A label holds inlines, so only the block is recursed into. *)
-  | Keyed _ b => sup_bs [b]
+  | Ext_keyed _ b => sup_bs [b]
   | BulletList _ items => sup_items items
   | OrderedList _ _ items => sup_items items
   (* A term holds inlines, so only the definition is recursed into. *)
@@ -3348,7 +3348,7 @@ Local Lemma supported_blocks_rev :
 Proof. intros bs. unfold supported_blocks. apply forallb_rev. Qed.
 
 Local Lemma supported_keyed :
-  forall label b, supported (Keyed label b) = supported (node_contents b).
+  forall label b, supported (Ext_keyed label b) = supported (node_contents b).
 Proof. intros label [q a x]. cbn [supported]. apply andb_true_r. Qed.
 
 Local Lemma supported_quote :
@@ -3548,7 +3548,7 @@ Local Fixpoint state_supported (st : pstate) : bool :=
   | PAttr _ _ _ _ _ _ | PRef _ _ _ _ | PTable _ _ _ => true
   | PFoot _ _ _ done inner => supported_blocks done && state_supported inner
   | PPend _ _ inner => state_supported inner
-  (* A key emits either a paragraph or a `Keyed` over what is under it. *)
+  (* A key emits either a paragraph or an `Ext_keyed` over what is under it. *)
   | PKey _ _ _ inner => state_supported inner
   end.
 
@@ -4060,7 +4060,7 @@ Proof.
       cbn [fst snd] in Hb, Hs;
       destruct bs; cbn [pend_result fst snd state_supported]; nopos;
       (split; [rewrite ?supported_blocks_decorate_head; exact Hb | exact Hs]).
-  - (* an open key: a paragraph, or a `Keyed` over a block that already
+  - (* an open key: a paragraph, or an `Ext_keyed` over a block that already
        carried the invariant *)
     cbn [state_supported] in H.
     destruct (is_blank l && is_idle kinner)%bool; [split; reflexivity|].
@@ -4235,7 +4235,7 @@ Proof.
     apply andb_true_iff in H as [Hlbl Hbs].
     apply andb_true_iff. split; [exact Hlbl|].
     change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact Hbs.
-  - (* Keyed: the label is untouched and the block is `Q` at a
+  - (* Ext_keyed: the label is untouched and the block is `Q` at a
        singleton. *)
     rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
     destruct b as [p' a' x].
@@ -4547,7 +4547,7 @@ Proof.
     specialize (IHb m Hbs H0). rewrite E in IHb. cbn [fst snd] in IHb |- *.
     destruct IHb as [Hm Hbs']. split; [|exact I].
     apply wf_note_map_set; assumption.
-  - (* Keyed: a key whose block is collected away goes with it, which is
+  - (* Ext_keyed: a key whose block is collected away goes with it, which is
        the `None` case, and otherwise it keeps a well-formed block. *)
     unfold r. rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
     specialize (IHb m Hb H0).

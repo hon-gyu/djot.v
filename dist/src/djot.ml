@@ -4,8 +4,8 @@
    SPDX-License-Identifier: MIT AND ISC
   ---------------------------------------------------------------------------*)
 
-(* The module types are modeled on cmarkit's; see LICENSE-cmarkit.  The
-   implementation is not derived from cmarkit: it calls the extracted
+(* The module types are modeled on cmarkit's; see LICENSE-cmarkit. The
+   implementation is not derived from cmarkit: it calls the Rocq-extracted
    kernel. *)
 
 module Kernel = Djot_kernel
@@ -57,7 +57,7 @@ module Inline = struct
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
-    | Wikilink of bool * string * string option
+    | Ext_wikilink of bool * string * string option
     | RawInline of string * string
     | NonBreakingSpace
     | Quoted of quote_type * t node list
@@ -117,7 +117,7 @@ module Block = struct
     | RawBlock of string * string
     | FootnoteDef of string * t node list
     | RefDef of string * string
-    | Keyed of Inline.t node list * t node
+    | Ext_keyed of Inline.t node list * t node
 end
 
 module Textloc = struct
@@ -176,19 +176,37 @@ module Textloc = struct
     | _ -> none
 end
 
-module Dialect = struct
-  type t = { table : K.InlineTable.dtable; bconfig : K.Step.bconfig }
+module Profile = struct
+  type t = K.Profile.profile
 
-  let djot = { table = K.Inline.djot_table; bconfig = K.Step.djot_bconfig }
-  let with_wikilinks b d = { d with table = K.InlineTable.with_wikilinks b d.table }
-  let with_keyed b d = { d with bconfig = K.Step.with_keyed b d.bconfig }
+  let djot = K.Profile.djot_profile
+  let markdown_like = K.Profile.markdown_like_profile
+  let with_footnotes = K.Profile.with_footnotes
+
+  (* The inline switches are the ones proved to keep a table admissible
+     (InlineTable.v, `*_preserves_admissible`). *)
+  let inline f b (p : t) = { p with profile_inline = f b p.profile_inline }
+  let block f b (p : t) = { p with profile_block = f b p.profile_block }
+  let with_smart_typography = inline K.InlineTable.with_smart_typography
+  let with_raw_inline = inline K.InlineTable.with_raw_inline
+  let with_math = inline K.InlineTable.with_math
+  let with_inline_attrs = inline K.InlineTable.with_inline_attrs
+  let with_ext_wikilinks = inline K.InlineTable.with_wikilinks
+  let with_tables = block K.Step.with_tables
+  let with_divs = block K.Step.with_divs
+  let with_tasks = block K.Step.with_tasks
+  let with_raw_blocks = block K.Step.with_raw_blocks
+  let with_deflists = block K.Step.with_deflists
+  let with_block_attrs = block K.Step.with_block_attrs
+  let with_heading_continuation = block K.Step.with_heading_continuation
+  let with_ext_keyed = block K.Step.with_keyed
 end
 
 module Doc = struct
   type t = { kernel : K.Ast.doc; lines : K.Strings.source_line array option }
 
-  let of_string ?(dialect = Dialect.djot) ?(locs = false) s =
-    let { Dialect.table; bconfig } = dialect in
+  let of_string ?(profile = Profile.djot) ?(locs = false) s =
+    let { K.Profile.profile_inline = table; profile_block = bconfig } = profile in
     if locs then
       {
         kernel = K.Document.parse_doc_located table bconfig s;
@@ -255,7 +273,7 @@ module Mapper = struct
       | Span l -> Span (k l)
       | Quoted (q, l) -> Quoted (q, k l)
       | ( Str _ | Verbatim _ | Symbol _ | Math _ | FootnoteReference _ | UrlLink _
-        | EmailLink _ | Wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
+        | EmailLink _ | Ext_wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
         | HardBreak ) as x ->
           x
     in
@@ -285,7 +303,7 @@ module Mapper = struct
       | Table (cap, rows) ->
           Some (Table (Option.map il cap, List.map (List.map cell) rows))
       | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
-      | Keyed (l, b) -> Option.map (fun b -> Block.Keyed (il l, b)) (map_block m b)
+      | Ext_keyed (l, b) -> Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
       | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _) as x -> Some x
     in
     Option.map (fun x -> Node (p, a, x)) x
@@ -329,7 +347,7 @@ module Folder = struct
         | Subscript l | Link (l, _) | Image (l, _) | Span l | Quoted (_, l) ->
             k l
         | Str _ | Verbatim _ | Symbol _ | Math _ | FootnoteReference _ | UrlLink _
-        | EmailLink _ | Wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
+        | EmailLink _ | Ext_wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
         | HardBreak ->
             acc)
 
@@ -350,7 +368,7 @@ module Folder = struct
             let cell acc (Block.Cell (_, _, l)) = il acc l in
             let acc = List.fold_left (List.fold_left cell) acc rows in
             Option.fold ~none:acc ~some:(il acc) cap
-        | Keyed (l, b) -> fold_block f (il acc l) b
+        | Ext_keyed (l, b) -> fold_block f (il acc l) b
         | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
 
   let fold_doc f acc d =

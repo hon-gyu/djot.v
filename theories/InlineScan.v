@@ -1761,7 +1761,7 @@ Definition iwiki_close `{PosPolicy} `{InlineCursor}
       IText false (tpush (tof txt) (one rbrack)) (Some rbrack) o'
   | (t, al) =>
       IText false tnil (Some rbrack)
-        (oemit (imk (span_start open) cursor_stop (Wikilink image t al)) o)
+        (oemit (imk (span_start open) cursor_stop (Ext_wikilink image t al)) o)
   end.
 
 (* One byte of a wikilink region.  A pending `]` becomes content unless

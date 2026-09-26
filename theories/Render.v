@@ -339,7 +339,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table None (ctable_cells [] rows))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
-  | CKey label inner => mk (Keyed [ci_ast label] (cb_ast inner))
+  | CKey label inner => mk (Ext_keyed [ci_ast label] (cb_ast inner))
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -1220,7 +1220,7 @@ Fixpoint render_block_lines (b : block) : list string :=
   | TaskList sp items =>
       list_lines sp (map task_litem_lines (taskitemss items))
   | RefDef label dest => [ref_line label dest]
-  | Keyed label inner =>
+  | Ext_keyed label inner =>
       (String.concat "" (map (fun n => inline_text (node_contents n)) label) ++ ":")
       :: (id_spec_lines inner ++ render_block_lines (node_contents inner))%list
   | Table cap rows =>

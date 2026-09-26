@@ -108,7 +108,7 @@ let located_failures src =
             | Djot.Ast.Para ils | Djot.Ast.Heading (_, ils) -> inlines own ils
             | Djot.Ast.Section bs' | Djot.Ast.BlockQuote bs'
             | Djot.Ast.Div bs' | Djot.Ast.FootnoteDef (_, bs') -> blocks own bs'
-            | Djot.Ast.Keyed (_, kid) -> blocks own [kid]
+            | Djot.Ast.Ext_keyed (_, kid) -> blocks own [kid]
             | Djot.Ast.OrderedList (_, _, items)
             | Djot.Ast.BulletList (_, items) -> List.iter (blocks own) items
             | Djot.Ast.TaskList (_, items) ->

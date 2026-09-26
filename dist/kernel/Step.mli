@@ -28,11 +28,40 @@ val no_interrupt :
 
 val no_underline : char -> int -> int option
 
+val prose_safe_markers :
+  lstyle list -> string -> task_marker option -> string -> bool
+
+val setext_underline : char -> int -> int option
+
 val djot_bconfig : bconfig
+
+val with_marker_interrupts :
+  (lstyle list -> string -> task_marker option -> string -> bool) -> bconfig
+  -> bconfig
+
+val with_underline : (char -> int -> int option) -> bconfig -> bconfig
+
+val with_tables : bool -> bconfig -> bconfig
+
+val with_heading_continuation : bool -> bconfig -> bconfig
+
+val with_divs : bool -> bconfig -> bconfig
+
+val with_tasks : bool -> bconfig -> bconfig
+
+val with_raw_blocks : bool -> bconfig -> bconfig
+
+val with_deflists : bool -> bconfig -> bconfig
+
+val with_block_attrs : bool -> bconfig -> bconfig
+
+val with_block_footnotes : bool -> bconfig -> bconfig
 
 val with_keyed : bool -> bconfig -> bconfig
 
 val keyed_bconfig : bconfig
+
+val markdown_like_bconfig : bconfig
 
 val configured_list_styles :
   bconfig -> lstyle list -> task_marker option -> lstyle list
