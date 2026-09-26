@@ -14,8 +14,8 @@ let cursor_in k rem origin =
     { spot_line = k; spot_rem = (pred rem) }; cursor_origin = origin }
 
 (** val iscan_str_located :
-    dtable -> coq_PosPolicy -> bool -> int -> spot -> int -> string -> iscan
-    -> iscan **)
+    dtable -> coq_PosPolicy -> bool -> int -> spot -> int -> string -> string
+    iscan_g -> string iscan_g **)
 
 let rec iscan_str_located = (fun t h allow k origin rem s st ->
      let plain c =
@@ -26,7 +26,7 @@ let rec iscan_str_located = (fun t h allow k origin rem s st ->
        cursor_start = { spot_line = k; spot_rem = r };
        cursor_stop = { spot_line = k; spot_rem = max 0 (r - 1) };
        cursor_origin = origin } in
-     let i = ref 0 and pos = ref rem and state = ref st
+     let i = ref 0 and pos = ref rem and state = ref (lift chunks_text st)
      and n = String.length s in
      while !i < n do
        match !state with
@@ -38,16 +38,16 @@ let rec iscan_str_located = (fun t h allow k origin rem s st ->
              p := max 0 (!p - 1);
              incr j
            done;
-           state := IText (false, txt ^ String.sub s !i (!j - !i),
+           state := IText (false, chunks_push txt (String.sub s !i (!j - !i)),
                            Some s.[!j - 1], !scope);
            i := !j;
            pos := !p
        | _ ->
-           state := istep_at t h (cursor !pos) allow s.[!i] !state;
+           state := istep_at t chunks_text h (cursor !pos) allow s.[!i] !state;
            pos := max 0 (!pos - 1);
            incr i
      done;
-     !state)
+     map_text chunks_text !state)
 
 (** val lines_start : (int * string) list -> spot **)
 
@@ -76,8 +76,8 @@ let allow_attrs t off =
     off
 
 (** val iscan_lines_located :
-    dtable -> coq_PosPolicy -> int -> spot -> (int * string) list -> iscan ->
-    iscan **)
+    dtable -> coq_PosPolicy -> int -> spot -> (int * string) list -> string
+    iscan_g -> string iscan_g **)
 
 let rec iscan_lines_located t h off origin l st =
   match l with
@@ -90,18 +90,22 @@ let rec iscan_lines_located t h off origin l st =
          (strip_trailing_ws x) st
      | _ :: _ ->
        iscan_lines_located t h (pred off) origin rest
-         (ibreak_at t h { cursor_start = { spot_line = k; spot_rem = 0 };
-           cursor_stop = (lines_start rest); cursor_origin = { spot_line = k;
-           spot_rem = (String.length x) } } (allow_attrs t off)
+         (ibreak_at t { tnil = ""; tpush = (^); tof = (fun s -> s); tval =
+           (fun t0 -> t0); tnonempty = nonempty_str } h { cursor_start =
+           { spot_line = k; spot_rem = 0 }; cursor_stop = (lines_start rest);
+           cursor_origin = { spot_line = k; spot_rem = (String.length x) } }
+           (allow_attrs t off)
            (iscan_str_located t h (allow_attrs t off) k origin
              (String.length x) x st)))
 
 (** val ifinish_located :
-    dtable -> coq_PosPolicy -> (int * string) list -> iscan -> inlines **)
+    dtable -> coq_PosPolicy -> (int * string) list -> string iscan_g ->
+    inlines **)
 
 let ifinish_located t h l st =
-  ifinish t h { cursor_start = (lines_stop l); cursor_stop = (lines_stop l);
-    cursor_origin = (lines_start l) } st
+  ifinish t { tnil = ""; tpush = (^); tof = (fun s -> s); tval = (fun t0 ->
+    t0); tnonempty = nonempty_str } h { cursor_start = (lines_stop l);
+    cursor_stop = (lines_stop l); cursor_origin = (lines_start l) } st
 
 (** val para_inlines_located :
     dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines **)
@@ -122,7 +126,8 @@ let para_inlines_at t h off l =
 
 let parse_inline_line_located t h k rem s =
   let stop = { spot_line = k; spot_rem = (sub rem (String.length s)) } in
-  ifinish t h { cursor_start = stop; cursor_stop = stop; cursor_origin =
-    { spot_line = k; spot_rem = rem } }
+  ifinish t { tnil = ""; tpush = (^); tof = (fun s0 -> s0); tval = (fun t0 ->
+    t0); tnonempty = nonempty_str } h { cursor_start = stop; cursor_stop =
+    stop; cursor_origin = { spot_line = k; spot_rem = rem } }
     (iscan_str_located t h (inline_attrs_enabled t) k { spot_line = k;
       spot_rem = rem } rem s istart)

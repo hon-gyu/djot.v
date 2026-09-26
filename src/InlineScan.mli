@@ -9,6 +9,18 @@ open Nat0
 open PeanoNat
 open Strings
 
+type 'buf coq_TextOps = { tnil : 'buf; tpush : ('buf -> string -> 'buf);
+                          tof : (string -> 'buf); tval : ('buf -> string);
+                          tnonempty : ('buf -> bool) }
+
+type chunks = string list
+
+val chunks_push : chunks -> string -> chunks
+
+val chunks_value : chunks -> string
+
+val chunks_text : chunks coq_TextOps
+
 val strip_pad : string -> string
 
 val trim_verb : string -> string
@@ -140,30 +152,30 @@ val bunpush : ostate -> ((bool * span) * ostate) option
 val opop_str : ostate -> string * ostate
 
 val bflat :
-  coq_PosPolicy -> coq_InlineCursor -> inlines -> string -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> 'a1 ->
+  ostate -> 'a1 * ostate
 
 val bsplit_nl :
-  coq_PosPolicy -> coq_InlineCursor -> string -> string -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  ostate -> 'a1 * ostate
 
 val bclosed_lit :
-  coq_PosPolicy -> coq_InlineCursor -> inlines -> bool -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+  ostate -> 'a1 * ostate
 
 val bspan_lit :
-  coq_PosPolicy -> coq_InlineCursor -> inlines -> bool -> string -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+  string -> ostate -> 'a1 * ostate
 
 val battr_lit :
-  coq_PosPolicy -> coq_InlineCursor -> string -> string -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  ostate -> 'a1 * ostate
 
 val blit_prev : string -> char option
 
 val bref_lit :
-  coq_PosPolicy -> coq_InlineCursor -> inlines -> bool -> string -> ostate ->
-  string * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+  string -> ostate -> 'a1 * ostate
 
 val drop_nl : string -> string
 
@@ -184,37 +196,37 @@ val vnode : vkind -> string -> inline
 
 val vkind_verb : vkind -> bool
 
-type iscan =
-| IText of bool * string * char option * ostate
-| IEscWs of string * string * char option * ostate
-| IBrace of string * char option * ostate
-| IDelim of dstyle * int * string * char option * bool * ostate
+type 'buf iscan_g =
+| IText of bool * 'buf * char option * ostate
+| IEscWs of string * 'buf * char option * ostate
+| IBrace of 'buf * char option * ostate
+| IDelim of dstyle * int * 'buf * char option * bool * ostate
 | IOpen of int * vkind * ostate
 | IVerb of int * int * string * vkind * ostate
-| IDollar of bool * string * char option * ostate
-| IPeriod of bool * string * char option * ostate
-| IDash of int * string * char option * ostate
-| IBang of string * char option * ostate
-| IClosed of string * ostate
+| IDollar of bool * 'buf * char option * ostate
+| IPeriod of bool * 'buf * char option * ostate
+| IDash of int * 'buf * char option * ostate
+| IBang of 'buf * char option * ostate
+| IClosed of 'buf * ostate
 | ISpan of inlines * bool * span * aparser * string * ostate
-| IAttr of aparser * string * string * char option * iscan * ostate
+| IAttr of aparser * string * 'buf * char option * 'buf iscan_g * ostate
 | IReference of inlines * bool * span * string * ostate
 | INote of bool * bool * string * span * ostate
 | IWiki of bool * bool * bool * string * span * ostate
-| IDest of inlines * bool * span * bool * int * string * iscan * ostate
-| IAuto of string * string * ostate
-| ISymbol of string * string * iscan * ostate
+| IDest of inlines * bool * span * bool * int * string * 'buf iscan_g * ostate
+| IAuto of string * 'buf * ostate
+| ISymbol of string * 'buf * 'buf iscan_g * ostate
 | IRaw of string * string * ostate
 
-val note_pos : string -> char option -> bool
+val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
 
 val ilead :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> char
-  option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> char option -> ostate -> 'a1 iscan_g
 
 val idest_open :
-  coq_PosPolicy -> coq_InlineCursor -> inlines -> bool -> span -> ostate ->
-  iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+  span -> ostate -> 'a1 iscan_g
 
 val null : 'a1 list -> bool
 
@@ -238,57 +250,58 @@ val typography_dashes : dtable -> int -> string
 
 val dollars : bool -> string
 
-val auto_lit : string -> string -> string
+val auto_lit : 'a1 coq_TextOps -> string -> 'a1 -> 'a1
 
-val islice_end : dtable -> iscan -> iscan
+val islice_end : dtable -> 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iattr_mark :
-  coq_PosPolicy -> coq_InlineCursor -> string -> attr -> string -> ostate ->
-  iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> attr ->
+  'a1 -> ostate -> 'a1 iscan_g
 
 val iattr_feed :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> aparser -> string ->
-  string -> char option -> iscan -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  aparser -> string -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1
+  iscan_g
 
-val idelim_marked : dstyle -> int -> string -> ostate -> iscan
+val idelim_marked : dstyle -> int -> 'a1 -> ostate -> 'a1 iscan_g
 
 val oopen_marked :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> string ->
-  ostate -> ostate
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  bool -> 'a1 -> ostate -> ostate
 
 val idelim_open_marked :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> string ->
-  ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  bool -> 'a1 -> ostate -> 'a1 iscan_g
 
 val idelim_run : dtable -> dstyle -> int -> bool -> string
 
 val ibrace_step_at :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> bool -> char -> string ->
-  char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  char -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
 val ospan_bang : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
 val ispan_feed :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines -> bool ->
-  span -> aparser -> string -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  inlines -> bool -> span -> aparser -> string -> ostate -> 'a1 iscan_g
 
 val inote_step :
-  coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool -> string -> span
-  -> ostate -> iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
+  bool -> string -> span -> ostate -> 'a1 iscan_g
 
 val iauto_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> string ->
-  ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  string -> 'a1 -> ostate -> 'a1 iscan_g
 
 val isymbol_step :
-  coq_PosPolicy -> coq_InlineCursor -> char -> string -> string -> ostate ->
-  iscan -> iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> string ->
+  'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iraw_lit : string -> string
 
 val iraw_step_at :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> bool -> char -> string ->
-  string -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  char -> string -> string -> ostate -> 'a1 iscan_g
 
 val bnote_lit :
   coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
@@ -301,92 +314,113 @@ val wiki_lit : bool -> bool -> bool -> string -> string
 val bwiki_lit : bool -> bool -> bool -> string -> ostate -> string * ostate
 
 val iwiki_close :
-  coq_PosPolicy -> coq_InlineCursor -> bool -> string -> span -> ostate ->
-  iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool -> string ->
+  span -> ostate -> 'a1 iscan_g
 
 val iwiki_step :
-  coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool -> bool -> string
-  -> span -> ostate -> iscan
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
+  bool -> bool -> string -> span -> ostate -> 'a1 iscan_g
 
 val ibang_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> string -> char
-  option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val idelim_lit : dtable -> dstyle -> string -> bool -> string
+val idelim_lit : dtable -> 'a1 coq_TextOps -> dstyle -> 'a1 -> bool -> 'a1
 
 val idelim_lit_prev : dtable -> dstyle -> bool -> char option
 
 val idelim_done :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> string -> char
-  option -> bool -> char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  'a1 -> char option -> bool -> char option -> ostate -> 'a1 iscan_g
 
 val idelim_resolve :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> string -> char
-  option -> bool -> char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  'a1 -> char option -> bool -> char option -> ostate -> 'a1 iscan_g
 
 val idollar_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> string ->
-  char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  bool -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
 val iperiod_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> string ->
-  char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  bool -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
 val idash_step :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> int -> string ->
-  char option -> ostate -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  int -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val iresolve : dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> iscan
+val iresolve :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> 'a1 iscan_g
 
 val iescws_resolve :
-  coq_PosPolicy -> coq_InlineCursor -> string -> string -> char option ->
-  ostate -> (string * char option) * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  char option -> ostate -> ('a1 * char option) * ostate
 
 val iesc_hard :
-  coq_PosPolicy -> coq_InlineCursor -> string -> string -> ostate -> ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  ostate -> ostate
 
 val istep_at :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> bool -> char -> iscan ->
-  iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  char -> 'a1 iscan_g -> 'a1 iscan_g
 
 val istep :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> iscan -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 iscan_g -> 'a1 iscan_g
 
-val ifinish_ostate_flat : coq_PosPolicy -> coq_InlineCursor -> iscan -> ostate
+val ifinish_ostate_flat :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 iscan_g ->
+  ostate
 
 val ifinish_ostate :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> ostate
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> ostate
 
 val ifinish_rev :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> inlines
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> inlines
 
-val ifinish : dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> inlines
+val ifinish :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> inlines
 
 val ibreak_flat :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> 'a1 iscan_g
 
 val ibreak_at :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> bool -> iscan -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  'a1 iscan_g -> 'a1 iscan_g
 
-val ibreak : dtable -> coq_PosPolicy -> coq_InlineCursor -> iscan -> iscan
+val ibreak :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+  iscan_g -> 'a1 iscan_g
 
-val iclosed_at : iscan -> bool
+val iclosed_at : 'a1 iscan_g -> bool
 
 val iresolve_next :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> iscan -> iscan
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 iscan_g -> 'a1 iscan_g
 
 val iscan_settled :
-  dtable -> coq_PosPolicy -> coq_InlineCursor -> char -> iscan -> bool
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 iscan_g -> bool
 
-val iscan_str : dtable -> string -> iscan -> iscan
+val map_text : 'a1 coq_TextOps -> 'a1 iscan_g -> string iscan_g
 
-val iscan_lines : dtable -> string list -> iscan -> iscan
+val lift : 'a1 coq_TextOps -> string iscan_g -> 'a1 iscan_g
 
-val iscan_str_off : dtable -> string -> iscan -> iscan
+val iscan_str : dtable -> string -> string iscan_g -> string iscan_g
 
-val iscan_lines_off : dtable -> int -> string list -> iscan -> iscan
+val iscan_lines : dtable -> string list -> string iscan_g -> string iscan_g
 
-val istart : iscan
+val iscan_str_off : dtable -> string -> string iscan_g -> string iscan_g
+
+val iscan_lines_off :
+  dtable -> int -> string list -> string iscan_g -> string iscan_g
+
+val istart : string iscan_g
 
 val parse_inline_line : dtable -> string -> inlines
 
@@ -399,8 +433,8 @@ val key_before : char option -> bool
 val key_after : string -> bool
 
 val key_scan :
-  dtable -> string -> string -> char option -> iscan -> (string * string)
-  option
+  dtable -> string -> string -> char option -> string iscan_g ->
+  (string * string) option
 
 val key_point : dtable -> string -> (string * string) option
 
