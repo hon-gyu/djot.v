@@ -90,9 +90,8 @@ Any further `Extract Constant` joins this list and gets the same check.
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
 Apple Silicon. Input is djot.js's `bench/readme.dj` (12.6 KB) joined k
-times with newlines. The cmarkit column is oymarkit (the fork vendored in
-oyster) with its djot settings on. Times are parse only; HTML adds
-15-20%.
+times with newlines. The cmarkit column is oymarkit (a fork that has djot extensions) 
+with its djot settings on. Times are parse only; HTML adds 15-20%.
 
 | k | bytes | before | after | cmarkit | djot.js parse+html |
 | --- | --- | --- | --- | --- | --- |
