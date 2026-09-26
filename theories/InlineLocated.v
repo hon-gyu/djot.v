@@ -869,7 +869,7 @@ Local Lemma of_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
     (of_ostate o) = (t, pv, of_ostate o').
 Proof.
   intros P C [|c rest] txt prev o; [reflexivity|].
-  cbn [iescws_resolve]. destruct (Ascii.eqb c " "%char); [|reflexivity].
+  cbn [iescws_resolve tval]. destruct (Ascii.eqb c " "%char); [|reflexivity].
   rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
 Qed.
 
@@ -887,7 +887,7 @@ Local Lemma of_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   @ispan_feed T _ _ semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
     null_span p src (of_ostate o).
 Proof.
-  intros P C c kids image open p src o. unfold ispan_feed.
+  intros P C c kids image open p src o. unfold ispan_feed. tred.
   destruct (ap_failed (astep p c)).
   - rewrite of_bspan_lit.
     destruct (@bspan_lit _ _ P C kids image src o) as [txt o']; cbn [fst snd].
@@ -927,7 +927,7 @@ Local Lemma of_iwiki_close : forall `{P : PosPolicy} `{C : InlineCursor}
   @iwiki_close _ _ semantic_pos semantic_inline_cursor image region null_span
     (of_ostate o).
 Proof.
-  intros P C image region open o. unfold iwiki_close.
+  intros P C image region open o. unfold iwiki_close. tred.
   destruct (wiki_split region) as [[|x t] al].
   - rewrite of_bwiki_lit.
     destruct (bwiki_lit false true image region o) as [txt o']; reflexivity.
@@ -952,7 +952,7 @@ Local Lemma of_iauto_step : forall `{P : PosPolicy} `{C : InlineCursor}
   of_iscan (@iauto_step T _ _ P C c src txt o) =
   @iauto_step T _ _ semantic_pos semantic_inline_cursor c src txt (of_ostate o).
 Proof.
-  intros P C c src txt o. unfold iauto_step.
+  intros P C c src txt o. unfold iauto_step. tred.
   destruct (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool.
   - cbn [of_iscan]. rewrite of_oemit, of_imk, of_auto_node,
       of_flush_text_to_at. reflexivity.
@@ -966,19 +966,16 @@ Local Lemma of_iraw_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
   @iraw_step_at T _ _ semantic_pos semantic_inline_cursor allow c spec txt
     (of_ostate o).
 Proof.
-  intros P C allow c spec txt o. unfold iraw_step_at.
+  intros P C allow c spec txt o. unfold iraw_step_at. tred.
   destruct (Ascii.eqb c rbrace && raw_spec_ok spec)%bool.
   - destruct raw_inline_enabled.
     + cbn [of_iscan]. rewrite of_oemit, of_imk. reflexivity.
     + rewrite of_ilead, of_oemit, of_imk. reflexivity.
-  - destruct (match spec with
-              | EmptyString => negb (Ascii.eqb c eqchar)
-              | _ => (Ascii.eqb c rbrace || raw_stop c)%bool
-              end);
-      [|reflexivity].
-    destruct spec as [|d spec];
-      [rewrite of_ibrace_step_at|rewrite of_ilead];
-      rewrite of_oemit, of_imk; reflexivity.
+  - destruct spec as [|d spec]; cbn [nonempty_str].
+    + destruct (negb (Ascii.eqb c eqchar));
+        [rewrite of_ibrace_step_at, of_oemit, of_imk |]; reflexivity.
+    + destruct (Ascii.eqb c rbrace || raw_stop c)%bool;
+        [rewrite of_ilead, of_oemit, of_imk |]; reflexivity.
 Qed.
 
 Local Lemma of_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -987,7 +984,7 @@ Local Lemma of_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
   @isymbol_step _ _ semantic_pos semantic_inline_cursor c alias txt
     (of_ostate o) (of_iscan sh).
 Proof.
-  intros P C c alias txt o sh. unfold isymbol_step.
+  intros P C c alias txt o sh. unfold isymbol_step. tred.
   destruct (symbol_char c); [reflexivity|].
   destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool;
     [|reflexivity].
@@ -1132,19 +1129,19 @@ Proof.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
   - rewrite of_bspan_lit.
-    destruct (@bspan_lit _ _ P C kids image src o) as [t o']; cbn [fst snd].
+    destruct (@bspan_lit _ _ P C kids image (tval src) o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_battr_lit.
-    destruct (@battr_lit _ _ P C src txt o) as [t o']; cbn [fst snd].
+    destruct (@battr_lit _ _ P C (tval src) txt o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bref_lit.
-    destruct (@bref_lit _ _ P C kids image label o) as [t o']; cbn [fst snd].
+    destruct (@bref_lit _ _ P C kids image (tval label) o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bnote_lit.
-    destruct (@bnote_lit P C esc image label o) as [t o']; cbn [fst snd].
+    destruct (@bnote_lit P C esc image (tval label) o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bwiki_lit.
-    destruct (bwiki_lit esc rb image region o) as [t o']; cbn [fst snd].
+    destruct (bwiki_lit esc rb image (tval region) o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - apply of_flush_text_at.
   - rewrite of_flush_text_at, of_oemit, of_imk. reflexivity.
@@ -1229,7 +1226,7 @@ Proof.
   - apply of_ispan_feed.
   - rewrite of_iattr_feed. reflexivity.
   - rewrite of_bwiki_lit.
-    destruct (bwiki_lit esc rb image region o) as [t o']; cbn [fst snd of_iscan].
+    destruct (bwiki_lit esc rb image (tval region) o) as [t o']; cbn [fst snd of_iscan].
     rewrite of_oword_reset, of_oemit, of_imk_here,
       of_flush_text_at. reflexivity.
   - cbn [of_iscan]. rewrite of_oword_reset, of_oemit, of_imk_here,

@@ -198,25 +198,25 @@ val vkind_verb : vkind -> bool
 
 type 'buf iscan_g =
 | IText of bool * 'buf * char option * ostate
-| IEscWs of string * 'buf * char option * ostate
+| IEscWs of 'buf * 'buf * char option * ostate
 | IBrace of 'buf * char option * ostate
 | IDelim of dstyle * int * 'buf * char option * bool * ostate
 | IOpen of int * vkind * ostate
-| IVerb of int * int * string * vkind * ostate
+| IVerb of int * int * 'buf * vkind * ostate
 | IDollar of bool * 'buf * char option * ostate
 | IPeriod of bool * 'buf * char option * ostate
 | IDash of int * 'buf * char option * ostate
 | IBang of 'buf * char option * ostate
 | IClosed of 'buf * ostate
-| ISpan of inlines * bool * span * aparser * string * ostate
-| IAttr of aparser * string * 'buf * char option * 'buf iscan_g * ostate
-| IReference of inlines * bool * span * string * ostate
-| INote of bool * bool * string * span * ostate
-| IWiki of bool * bool * bool * string * span * ostate
-| IDest of inlines * bool * span * bool * int * string * 'buf iscan_g * ostate
-| IAuto of string * 'buf * ostate
-| ISymbol of string * 'buf * 'buf iscan_g * ostate
-| IRaw of string * string * ostate
+| ISpan of inlines * bool * span * aparser * 'buf * ostate
+| IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
+| IReference of inlines * bool * span * 'buf * ostate
+| INote of bool * bool * 'buf * span * ostate
+| IWiki of bool * bool * bool * 'buf * span * ostate
+| IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
+| IAuto of 'buf * 'buf * ostate
+| ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
+| IRaw of 'buf * string * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
 
@@ -255,13 +255,12 @@ val auto_lit : 'a1 coq_TextOps -> string -> 'a1 -> 'a1
 val islice_end : dtable -> 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iattr_mark :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> attr ->
-  'a1 -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr -> 'a1
+  -> ostate -> 'a1 iscan_g
 
 val iattr_feed :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  aparser -> string -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1
-  iscan_g
+  aparser -> 'a1 -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
 
 val idelim_marked : dstyle -> int -> 'a1 -> ostate -> 'a1 iscan_g
 
@@ -283,25 +282,25 @@ val ospan_bang : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
 val ispan_feed :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  inlines -> bool -> span -> aparser -> string -> ostate -> 'a1 iscan_g
+  inlines -> bool -> span -> aparser -> 'a1 -> ostate -> 'a1 iscan_g
 
 val inote_step :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> string -> span -> ostate -> 'a1 iscan_g
+  bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val iauto_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  string -> 'a1 -> ostate -> 'a1 iscan_g
+  'a1 -> 'a1 -> ostate -> 'a1 iscan_g
 
 val isymbol_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> string ->
-  'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> 'a1 -> 'a1
+  -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iraw_lit : string -> string
 
 val iraw_step_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
-  char -> string -> string -> ostate -> 'a1 iscan_g
+  char -> 'a1 -> string -> ostate -> 'a1 iscan_g
 
 val bnote_lit :
   coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
@@ -314,12 +313,12 @@ val wiki_lit : bool -> bool -> bool -> string -> string
 val bwiki_lit : bool -> bool -> bool -> string -> ostate -> string * ostate
 
 val iwiki_close :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool -> string ->
-  span -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool -> 'a1 -> span
+  -> ostate -> 'a1 iscan_g
 
 val iwiki_step :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> bool -> string -> span -> ostate -> 'a1 iscan_g
+  bool -> bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val ibang_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -354,11 +353,11 @@ val iresolve :
   iscan_g -> 'a1 iscan_g
 
 val iescws_resolve :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
-  char option -> ostate -> ('a1 * char option) * ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 -> char
+  option -> ostate -> ('a1 * char option) * ostate
 
 val iesc_hard :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 ->
   ostate -> ostate
 
 val istep_at :

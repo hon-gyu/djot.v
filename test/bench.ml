@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Scaling benchmark: generated input shapes at growing sizes, timed
    through the block and document parse and through `Html.convert`.
@@ -38,6 +38,28 @@ let shapes = [
     (fun n -> rep "<a " (n / 3));
   "verbatim", "code spans, wrapped",
     (fun n -> wrap (rep "`a" (n / 2)));
+  "verbatim-line", "one long code span",
+    (fun n -> "`" ^ String.make n 'a' ^ "`");
+  "destination", "one long link destination",
+    (fun n -> "[x](" ^ String.make n 'a' ^ ")");
+  "reference", "one long reference label",
+    (fun n -> "[x][" ^ String.make n 'a' ^ "]");
+  "note", "one long footnote label",
+    (fun n -> "[^" ^ String.make n 'a' ^ "]");
+  "wiki", "one long wikilink target",
+    (fun n -> "[[" ^ String.make n 'a' ^ "]]");
+  "autolink", "one long autolink body",
+    (fun n -> "<https://" ^ String.make n 'a' ^ ">");
+  "symbol", "one long symbol alias",
+    (fun n -> ":" ^ String.make n 'a' ^ ":");
+  "raw-spec", "one long raw format spec",
+    (fun n -> "`x`{=" ^ String.make n 'a' ^ "}");
+  "attribute", "one long attribute source",
+    (fun n -> "x{#" ^ String.make n 'a' ^ "}");
+  "span", "one long span attribute source",
+    (fun n -> "[x]{#" ^ String.make n 'a' ^ "}");
+  "escaped-ws", "one long escaped whitespace run",
+    (fun n -> "\\" ^ String.make n ' ' ^ "x");
   "brackets", "unclosed [, wrapped",
     (fun n -> wrap (rep "[a" (n / 2)));
   "emphasis", "unclosed _, wrapped",

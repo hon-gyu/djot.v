@@ -1649,7 +1649,7 @@ Local Lemma iescws_resolve_wf :
     let '(_, _, o') := iescws_resolve ws txt prev o in
     oscope_ok o' = true /\ starts_str (ocur o') = false.
 Proof.
-  intros [|c ws] txt prev o Ho Hs; cbn [iescws_resolve]; [split; assumption|].
+  intros [|c ws] txt prev o Ho Hs; cbn [iescws_resolve tval]; [split; assumption|].
   destruct (Ascii.eqb c " "%char); [|split; assumption].
   pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
   split; [apply oscope_ok_emit; [exact Hf|reflexivity|apply andb_false_l]|].
@@ -1801,7 +1801,7 @@ Local Lemma ispan_feed_wf :
     oscope_ok o = true -> wf_inlines kids = true ->
     iscan_wf (ispan_feed c kids image open p src o) = true.
 Proof.
-  intros c kids image open p src o Ho Hk. unfold ispan_feed.
+  intros c kids image open p src o Ho Hk. unfold ispan_feed. tred.
   destruct (ap_failed (astep p c)).
   - destruct (bspan_lit_ok kids image src o Ho Hk) as [H1 H2].
     destruct (bspan_lit kids image src o) as [txt o']; cbn [snd] in H1, H2.
@@ -1951,7 +1951,7 @@ Proof.
     cbn [iscan_wf] in H. unfold iwiki_step.
     destruct wesc; [cbn [iscan_wf]; exact H|].
     destruct (wrb && Ascii.eqb c rbrack)%bool.
-    + unfold iwiki_close. destruct (wiki_split wreg) as [[|x t] al].
+    + unfold iwiki_close. tred. destruct (wiki_split wreg) as [[|x t] al].
       * unfold bwiki_lit. destruct (opop_str_ok wob H) as [H1 H2].
         destruct (opop_str wob) as [pre o1]; cbn [snd] in H1, H2.
         apply iscan_wf_text; assumption.
@@ -1983,7 +1983,7 @@ Proof.
       [rewrite wf_ils_forallb; exact Hall | exact Hadj].
   (* a candidate either emits its link node over the flushed text, or
      hands the text back to `ilead` with the `<` on the end *)
-  - unfold iauto_step.
+  - unfold iauto_step. tred.
     destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool.
     { apply iscan_wf_text;
         [apply oscope_ok_emit;
@@ -1995,7 +1995,7 @@ Proof.
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_wf; assumption
       |cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity].
-  - unfold isymbol_step.
+  - unfold isymbol_step. tred.
     cbn [iscan_wf] in H. apply andb_true_iff in H as [Hp Hsh].
     apply andb_true_iff in Hp as [Ho Hs].
     apply negb_true_iff in Hs. rewrite hd_str_is_starts_str in Hs.
@@ -2010,7 +2010,7 @@ Proof.
       * apply IHsob, Hsh.
   (* the node the spec decides is not a `Str` either way, so the scope it
      lands in carries the head condition its own emission establishes *)
-  - cbn [iscan_wf] in H. unfold iraw_step_at.
+  - cbn [iscan_wf] in H. unfold iraw_step_at. tred.
     assert (Hv : oscope_ok (oemit (mk (Verbatim rtxt)) rob) = true /\
                  starts_str (ocur (oemit (mk (Verbatim rtxt)) rob)) = false).
     { split;
@@ -2023,7 +2023,7 @@ Proof.
           [apply oscope_ok_emit; [exact H | reflexivity | apply andb_false_l]
           |rewrite ocur_emit; reflexivity].
       - apply ilead_wf; assumption. }
-    destruct rspec as [|x rspec'].
+    destruct rspec as [|x rspec']; cbn [tnonempty nonempty_str].
     + destruct (negb (Ascii.eqb c eqchar)); [|cbn [iscan_wf]; exact H].
       unfold ibrace_step_at. destruct (dstyle_of c);
         [apply idelim_marked_wf; assumption|].
@@ -2131,18 +2131,18 @@ Proof.
       [exact Hr | apply wf_inline_vnode
       | rewrite plain_str_vnode; apply andb_false_l].
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
-    destruct (bspan_lit_ok kids img ssrc sob Ho Hk) as [H1 H2].
-    destruct (bspan_lit kids img ssrc sob) as [txt o']; cbn [snd] in H1, H2.
+    destruct (bspan_lit_ok kids img (tval ssrc) sob Ho Hk) as [H1 H2].
+    destruct (bspan_lit kids img (tval ssrc) sob) as [txt o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Hb _].
     apply andb_true_iff in Hb as [Ho Hs].
     apply negb_true_iff in Hs. rewrite hd_str_is_starts_str in Hs.
-    destruct (battr_lit_ok asrc atxt aob Ho Hs) as [H1 H2].
-    destruct (battr_lit asrc atxt aob) as [t o']; cbn [snd] in H1, H2.
+    destruct (battr_lit_ok (tval asrc) atxt aob Ho Hs) as [H1 H2].
+    destruct (battr_lit (tval asrc) atxt aob) as [t o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
-    destruct (bref_lit_ok kids img label ob Ho Hk) as [H1 H2].
-    destruct (bref_lit kids img label ob) as [txt o']; cbn [snd] in H1, H2.
+    destruct (bref_lit_ok kids img (tval label) ob Ho Hk) as [H1 H2].
+    destruct (bref_lit kids img (tval label) ob) as [txt o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr.
     destruct (opop_str_ok nob Hr) as [H1 H2].

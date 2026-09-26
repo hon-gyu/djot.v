@@ -11,14 +11,14 @@ Import ListNotations.
 Local Open Scope string_scope.
 
 (*
-Pending text
-============
+Inline text buffers
+===================
 
-The text a scan holds before emitting it, as an abstract buffer.  The
-scanner is written once against these operations.  At `string` it is
-the specification: `tpush` is `++` and `tval` is the identity.  An
-instance that appends without copying (`InlineBuffer.v`) runs it, and
-`map_text` relates the two.
+Pending text and source kept by an open construct use one abstract
+buffer. The scanner is written once against these operations. At
+`string` it is the specification: `tpush` is `++` and `tval` is the
+identity. An instance that appends without copying (`InlineBuffer.v`)
+runs it, and `map_text` relates the two.
 *)
 #[projections(primitive)]
 Class TextOps (Buf : Type) : Type := {
@@ -62,9 +62,9 @@ Ltac tred :=
 Chunks
 ======
 
-Pending text as the pieces appended so far, newest first.  Appending
-conses one piece; the value is joined once, when a rule needs it.  No
-piece is empty, so `existsb` answers at the head.
+Text or source as the pieces appended so far, newest first. Appending
+conses one piece; the value is joined when a rule needs it. No piece is
+empty, so `existsb` answers at the head.
 *)
 Definition chunks := list string.
 
@@ -1170,7 +1170,7 @@ Inductive iscan_g : Type :=
      the decision needs a byte the buffer has not seen yet -- and the run
      is kept rather than counted because only its *first* byte decides,
      while the rest is ordinary text. *)
-  | IEscWs (ws : string) (txt : Buf) (prev : option ascii) (o : ostate)
+  | IEscWs (ws : Buf) (txt : Buf) (prev : option ascii) (o : ostate)
   (* a `{` whose role the next byte decides: open marker, or text *)
   | IBrace (txt : Buf) (prev : option ascii) (o : ostate)
   (* a delimiter being spelled; `before` is the byte to its left, which
@@ -1197,7 +1197,7 @@ Inductive iscan_g : Type :=
      math is a mode of verbatim rather than a construct of its own. *)
   | IOpen (n : nat) (vk : vkind) (o : ostate)
   (* inside a width-`n` verbatim, with `run` unresolved trailing ticks *)
-  | IVerb (n run : nat) (txt : string) (vk : vkind) (o : ostate)
+  | IVerb (n run : nat) (txt : Buf) (vk : vkind) (o : ostate)
   (* one or two dollars whose role the next byte decides: a backtick run
      makes them a math prefix, anything else makes them text.  A state
      rather than a look-back into the buffer, because an *escaped* `$`
@@ -1235,32 +1235,32 @@ Inductive iscan_g : Type :=
      that reconstruction: a span ignores it, so `![x]{.a}` is a `!`
      followed by a span. *)
   | ISpan (kids : inlines) (image : bool) (open : span)
-          (p : aparser) (src : string)
+          (p : aparser) (src : Buf)
           (o : ostate)
   (* an attribute spec, which attaches to whatever precedes it.  `txt` is
      the text pending when the `{` arrived and, on success, what the spec
      attaches to.  `sh` is the ordinary reading of the same source,
      advanced with attribute recognition off and selected if the
      candidate never closes. *)
-  | IAttr (p : aparser) (src : string) (txt : Buf) (prev : option ascii)
+  | IAttr (p : aparser) (src : Buf) (txt : Buf) (prev : option ascii)
           (sh : iscan_g) (o : ostate)
   (* inside the second bracket of `[text][label]`.  The label is source
      text, not inline content. *)
   | IReference (kids : inlines) (image : bool) (open : span)
-          (label : string) (o : ostate)
+          (label : Buf) (o : ostate)
   (* inside a `[^`.  The label is raw source, not inline content: nothing
      inside the brackets is classified.  `esc` is a pending backslash,
      which protects a `]` without being decoded: `[^a\]b]` labels `a\]b`.
      `image` is what the bracket this took back was opened with, kept
      only to spell the literal fallback. *)
-  | INote (esc image : bool) (label : string) (open : span) (o : ostate)
+  | INote (esc image : bool) (label : Buf) (open : span) (o : ostate)
   (* inside a `[[`, recognised at the second `[` the way `[^` is at the
      `^`.  The region is source kept with its escapes: `esc` is a pending
      backslash and `rb` a pending `]`, the first half of a possible
      closer, neither yet in `region`.  `image` is what the bracket this
      took back was opened with: the embed bit on success, the `!` of the
      literal fallback otherwise. *)
-  | IWiki (esc rb image : bool) (region : string) (open : span) (o : ostate)
+  | IWiki (esc rb image : bool) (region : Buf) (open : span) (o : ostate)
   (* inside a `](`.  `depth` counts unclosed inner parentheses, `dst`
      accumulates the destination with its escapes decoded, and `esc` is a
      pending backslash, as in text mode.  A destination survives a line
@@ -1274,7 +1274,7 @@ Inductive iscan_g : Type :=
      Neither replays the other: both advance on each byte, and the byte
      that ends the state picks one. *)
   | IDest (kids : inlines) (image : bool) (open : span)
-          (esc : bool) (depth : nat) (dst : string)
+          (esc : bool) (depth : nat) (dst : Buf)
           (sh : iscan_g) (o : ostate)
   (* inside a `<`, holding the region read so far.  The region is raw
      source, so a backtick or a delimiter inside a successful autolink is
@@ -1285,16 +1285,16 @@ Inductive iscan_g : Type :=
      candidate as ordinary inline content; an ordinary-reading shadow, as
      `IDest` carries, would do that without replay
      (`.project/no-backtracking.md`). *)
-  | IAuto (src : string) (txt : Buf) (o : ostate)
+  | IAuto (src : Buf) (txt : Buf) (o : ostate)
   (* A colon and the symbol alias read so far.  The ordinary-inline
      shadow advances over the same bytes; a failed or unfinished
      candidate selects it without replaying source. *)
-  | ISymbol (alias : string) (txt : Buf) (sh : iscan_g) (o : ostate)
+  | ISymbol (alias : Buf) (txt : Buf) (sh : iscan_g) (o : ostate)
   (* a verbatim span that closed onto a `{`, holding its content and the
      spec source read since.  The node is not emitted yet: whether it is
      `Verbatim` or `RawInline` is what the spec decides.  Only a verbatim
      reaches here, never math. *)
-  | IRaw (spec txt : string) (o : ostate).
+  | IRaw (spec : Buf) (txt : string) (o : ostate).
 Local Notation iscan := iscan_g.
 
 (* The one position in which the table does not get the byte: right
@@ -1331,9 +1331,9 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      lookahead: it accumulates the region and decides at the `>`.  The
      pending text stays pending, since a candidate that fails hands it
      back with the `<` on the end. *)
-  else if Ascii.eqb c lt then IAuto EmptyString txt o
+  else if Ascii.eqb c lt then IAuto tnil txt o
   else if Ascii.eqb c ":"%char
-       then ISymbol EmptyString txt
+       then ISymbol tnil txt
               (IText false (tpush txt (one c)) (Some c)
                 (remember_word_start c o)) o
   (* A `[` right inside a bracket that has just opened is the second
@@ -1342,7 +1342,7 @@ Definition ilead `{PosPolicy} `{InlineCursor}
   else if Ascii.eqb c lbrack
   then match (if (note_pos txt prev && wikilinks_enabled)%bool
               then bunpush o else None) with
-       | Some (image, open, o') => IWiki false false image EmptyString open o'
+       | Some (image, open, o') => IWiki false false image tnil open o'
        | None =>
            IText false tnil (Some lbrack)
              (bpush false (flush_text_at (tval txt) o))
@@ -1354,7 +1354,7 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      table, where it is the superscript row. *)
   else match (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
               then bunpush o else None) with
-       | Some (image, open, o') => INote false image EmptyString open o'
+       | Some (image, open, o') => INote false image tnil open o'
        | None =>
            match dstyle_of c with
            | Some k => IDelim k 0 txt prev false o
@@ -1468,7 +1468,7 @@ Fixpoint islice_end (st : iscan) : iscan :=
       IText false (tpush txt (typography_dashes n)) (Some hyphen) o
   | IClosed txt o => IText false (tpush txt (one rbrack)) (Some rbrack) o
   | IAuto src txt o =>
-      IText false (auto_lit src txt) (blit_prev (String lt src)) o
+      IText false (auto_lit (tval src) txt) (blit_prev (String lt (tval src))) o
   | ISymbol _ _ sh _ => islice_end sh
   | _ => st
   end.
@@ -1478,8 +1478,8 @@ Fixpoint islice_end (st : iscan) : iscan :=
    is the item immediately below.  `oresolve` settles it (see
    `oattach_list`). *)
 Definition iattr_mark `{PosPolicy} `{InlineCursor}
-  (src : string) (a : attr) (txt : Buf) (o : ostate) : iscan :=
-  let spec_start := spot_before cursor_start (String lbrace src) in
+  (src : Buf) (a : attr) (txt : Buf) (o : ostate) : iscan :=
+  let spec_start := spot_before cursor_start (String lbrace (tval src)) in
   let spec := pspan (SrcSpan spec_start cursor_stop) in
   IText false tnil (Some rbrace)
     (omark a spec (flush_text_to_at spec_start (tval txt) o)).
@@ -1490,14 +1490,14 @@ Definition iattr_mark `{PosPolicy} `{InlineCursor}
    readings remain live -- and the one kept is stored at a slice
    boundary, since the byte it has just read is where its slice ends. *)
 Definition iattr_feed `{PosPolicy} `{InlineCursor}
-  (c : ascii) (p : aparser) (src : string) (txt : Buf)
+  (c : ascii) (p : aparser) (src txt : Buf)
   (prev : option ascii) (sh : iscan_g) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
   then sh
   else if ap_done p'
   then iattr_mark src (ap_attrs p') txt o
-  else IAttr p' (src ++ one c)%string txt prev (islice_end sh) o.
+  else IAttr p' (tpush src (one c)) txt prev (islice_end sh) o.
 
 (* A marked open with `S extra` characters of its token in hand.  Its
    role is not in doubt (a marked delimiter can open and cannot close),
@@ -1541,7 +1541,7 @@ Definition ibrace_step_at `{PosPolicy} `{InlineCursor}
   | Some k => idelim_marked k 0 txt o
   | None =>
       if attrs_enabled
-      then iattr_feed c ap_init EmptyString txt prev
+      then iattr_feed c ap_init tnil txt prev
              (ilead c (tpush txt (one lbrace)) (Some lbrace) o) o
       (* The spec's own immediate-failure path, taken before the first
          byte is read: `{` goes back into the text and this byte is
@@ -1574,13 +1574,13 @@ Definition ospan_bang `{PosPolicy} `{InlineCursor}
    `y`. *)
 Definition ispan_feed `{PosPolicy} `{InlineCursor}
   (c : ascii) (kids : inlines) (image : bool) (open : span)
-  (p : aparser) (src : string) (o : ostate) : iscan :=
+  (p : aparser) (src : Buf) (o : ostate) : iscan :=
   let p' := astep p c in
   if ap_failed p'
-  then let '(txt, o') := bspan_lit kids image src o in
-       ilead c txt (blit_prev (String lbrace src)) o'
+  then let '(txt, o') := bspan_lit kids image (tval src) o in
+       ilead c txt (blit_prev (String lbrace (tval src))) o'
   else if ap_done p'
-  then let spec_start := spot_before cursor_start (String lbrace src) in
+  then let spec_start := spot_before cursor_start (String lbrace (tval src)) in
        let spec := SrcSpan spec_start cursor_stop in
        IText false tnil (Some rbrace)
          (oemit
@@ -1588,22 +1588,22 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
              (Node (mkpos (inline_prov (span_start open) spec_start))
                (ap_attrs p') (Span kids)))
            (ospan_bang image o))
-  else ISpan kids image open p' (src ++ one c)%string o.
+  else ISpan kids image open p' (tpush src (one c)) o.
 
 (* One byte of a footnote label.  The `]` is the only byte with a role,
    and a backslash defers it once without being decoded, since the label
    is source: `[^a\]b]` keeps the backslash. *)
 Definition inote_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (esc image : bool) (label : string) (open : span)
+  (c : ascii) (esc image : bool) (label : Buf) (open : span)
   (o : ostate) : iscan :=
-  if esc then INote false image (label ++ one bslash ++ one c)%string open o
+  if esc then INote false image (tpush label (one bslash ++ one c)) open o
   else if is_bslash c then INote true image label open o
   else if Ascii.eqb c rbrack
   then IText false tnil (Some rbrack)
          (oemit (imk (span_start open) cursor_stop
-                    (FootnoteReference (normalize_label label)))
+                    (FootnoteReference (normalize_label (tval label))))
             (ospan_bang image o))
-  else INote false image (label ++ one c)%string open o.
+  else INote false image (tpush label (one c)) open o.
 
 (* One byte of an autolink candidate.  Three bytes end it: the `>` that
    may resolve it, and the whitespace or second `<` that the region may
@@ -1619,24 +1619,24 @@ Definition inote_step `{PosPolicy} `{InlineCursor}
    It is spelled in full so that the test *is* `ci_ok`'s, which is what
    makes the scan inversion a rewrite rather than an argument. *)
 Definition iauto_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (src : string) (txt : Buf) (o : ostate) : iscan :=
-  if (Ascii.eqb c gt && auto_body_ok src && auto_kind_ok src)%bool
-  then let start := spot_before cursor_start (String lt src) in
+  (c : ascii) (src txt : Buf) (o : ostate) : iscan :=
+  if (Ascii.eqb c gt && auto_body_ok (tval src) && auto_kind_ok (tval src))%bool
+  then let start := spot_before cursor_start (String lt (tval src)) in
        IText false tnil (Some gt)
-         (oemit (imk start cursor_stop (auto_node src))
+         (oemit (imk start cursor_stop (auto_node (tval src)))
            (flush_text_to_at start (tval txt) o))
   else if (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool
-  then ilead c (auto_lit src txt) (blit_prev (String lt src)) o
-  else IAuto (src ++ one c)%string txt o.
+  then ilead c (auto_lit (tval src) txt) (blit_prev (String lt (tval src))) o
+  else IAuto (tpush src (one c)) txt o.
 
 Definition isymbol_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (alias : string) (txt : Buf)
+  (c : ascii) (alias txt : Buf)
   (o : ostate) (sh' : iscan) : iscan :=
-  if symbol_char c then ISymbol (alias ++ one c)%string txt sh' o
-  else if (Ascii.eqb c ":"%char && nonempty_str alias)%bool
-  then let start := spot_before cursor_start (one ":"%char ++ alias)%string in
+  if symbol_char c then ISymbol (tpush alias (one c)) txt sh' o
+  else if (Ascii.eqb c ":"%char && tnonempty alias)%bool
+  then let start := spot_before cursor_start (one ":"%char ++ tval alias)%string in
        IText false tnil (Some c)
-         (oemit (imk start cursor_stop (Symbol alias))
+         (oemit (imk start cursor_stop (Symbol (tval alias)))
            (flush_text_to_at start (tval txt) o))
   else sh'.
 
@@ -1651,33 +1651,30 @@ Local Definition iraw_lit (spec : string) : string :=
   (String lbrace spec)%string.
 
 Definition iraw_step_at `{PosPolicy} `{InlineCursor}
-  (attrs_enabled : bool) (c : ascii) (spec txt : string)
+  (attrs_enabled : bool) (c : ascii) (spec : Buf) (txt : string)
   (o : ostate) : iscan :=
-  let vstop := spot_before cursor_start (String lbrace spec) in
-  if (Ascii.eqb c rbrace && raw_spec_ok spec)%bool
+  if (Ascii.eqb c rbrace && raw_spec_ok (tval spec))%bool
   then if raw_inline_enabled
        then IText false tnil (Some rbrace)
               (oemit (imk (text_start o) cursor_stop
-                        (RawInline (raw_format spec) txt)) o)
-       else ilead c (tof (iraw_lit spec)) (blit_prev (iraw_lit spec))
-              (oemit (imk (text_start o) vstop (Verbatim txt)) o)
-  else if (match spec with
-           (* the `=` is the pattern's second character, so anything else
-              here is not a candidate and takes the ordinary `{` path;
-              every canonical delimiter is spelled `{`-first *)
-           | EmptyString => negb (Ascii.eqb c eqchar)
-           | _ => (Ascii.eqb c rbrace || raw_stop c)%bool
-           end)
-  then let closed := oemit (imk (text_start o) vstop (Verbatim txt)) o in
-       match spec with
-       | EmptyString =>
-           ibrace_step_at attrs_enabled c tnil (Some tick) closed
-       | _ => ilead c (tof (iraw_lit spec)) (blit_prev (iraw_lit spec)) closed
-       end
-  else IRaw (spec ++ one c)%string txt o.
+                        (RawInline (raw_format (tval spec)) txt)) o)
+       else ilead c (tof (iraw_lit (tval spec))) (blit_prev (iraw_lit (tval spec)))
+              (oemit (imk (text_start o)
+                         (spot_before cursor_start (String lbrace (tval spec)))
+                         (Verbatim txt)) o)
+  else if (if tnonempty spec then (Ascii.eqb c rbrace || raw_stop c)%bool
+           else negb (Ascii.eqb c eqchar))
+  then let closed :=
+         oemit (imk (text_start o)
+                  (spot_before cursor_start (String lbrace (tval spec)))
+                  (Verbatim txt)) o in
+       if tnonempty spec
+       then ilead c (tof (iraw_lit (tval spec))) (blit_prev (iraw_lit (tval spec))) closed
+       else ibrace_step_at attrs_enabled c tnil (Some tick) closed
+  else IRaw (tpush spec (one c)) txt o.
 
 Local Definition iraw_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (spec txt : string) (o : ostate) : iscan :=
+  (c : ascii) (spec : Buf) (txt : string) (o : ostate) : iscan :=
   iraw_step_at inline_attrs_enabled c spec txt o.
 
 (* A label that never closed is its own source: the bracket it took back,
@@ -1725,10 +1722,10 @@ Definition bwiki_lit (esc rb image : bool) (region : string) (o : ostate)
    candidate is text, closer included, and pends as text so that no later
    `]` can close a scope with it. *)
 Definition iwiki_close `{PosPolicy} `{InlineCursor}
-  (image : bool) (region : string) (open : span) (o : ostate) : iscan :=
-  match wiki_split region with
+  (image : bool) (region : Buf) (open : span) (o : ostate) : iscan :=
+  match wiki_split (tval region) with
   | (EmptyString, _) =>
-      let '(txt, o') := bwiki_lit false true image region o in
+      let '(txt, o') := bwiki_lit false true image (tval region) o in
       IText false (tpush (tof txt) (one rbrack)) (Some rbrack) o'
   | (t, al) =>
       IText false tnil (Some rbrack)
@@ -1739,15 +1736,15 @@ Definition iwiki_close `{PosPolicy} `{InlineCursor}
    this byte completes the closer; a backslash protects the next byte
    without being decoded. *)
 Definition iwiki_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (esc rb image : bool) (region : string) (open : span)
+  (c : ascii) (esc rb image : bool) (region : Buf) (open : span)
   (o : ostate) : iscan :=
-  if esc then IWiki false false image (region ++ one bslash ++ one c)%string open o
+  if esc then IWiki false false image (tpush region (one bslash ++ one c)) open o
   else if (rb && Ascii.eqb c rbrack)%bool then iwiki_close image region open o
   else
-    let region' := if rb then (region ++ one rbrack)%string else region in
+    let region' := if rb then tpush region (one rbrack) else region in
     if is_bslash c then IWiki true false image region' open o
     else if Ascii.eqb c rbrack then IWiki false true image region' open o
-    else IWiki false false image (region' ++ one c)%string open o.
+    else IWiki false false image (tpush region' (one c)) open o.
 
 (* Resolving a `!`: an image opener if a `[` follows, text otherwise.
    The `!` is not flushed with the text before it: it is the opener's own
@@ -1894,18 +1891,18 @@ Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
    the decision consumes only the first byte of the run, and the rest is
    ordinary text. *)
 Definition iescws_resolve `{PosPolicy} `{InlineCursor}
-  (ws : string) (txt : Buf) (prev : option ascii)
+  (ws txt : Buf) (prev : option ascii)
   (o : ostate) : Buf * option ascii * ostate :=
-  match ws with
+  match tval ws with
   | String c rest =>
       if Ascii.eqb c " "%char
       then (tof rest, str_last rest (Some c),
             oemit
-              (imk (spot_before cursor_start ws)
+              (imk (spot_before cursor_start (tval ws))
                  (spot_before cursor_start rest) NonBreakingSpace)
               (flush_text_to_at
-                 (spot_before cursor_start (one bslash ++ ws)%string) (tval txt) o))
-      else ((tpush txt (one bslash ++ ws)), str_last ws prev, o)
+                 (spot_before cursor_start (one bslash ++ tval ws)%string) (tval txt) o))
+      else ((tpush txt (one bslash ++ tval ws)), str_last (tval ws) prev, o)
   (* unreachable: `IEscWs` is only ever built with a byte in hand.  Spelt
      as the bare backslash anyway, so the state's own source survives on
      every path out of it. *)
@@ -1915,13 +1912,13 @@ Definition iescws_resolve `{PosPolicy} `{InlineCursor}
 (* The line ended after the backslash: a hard break.  The whitespace
    before the backslash is trimmed off the pending text. *)
 Definition iesc_hard `{PosPolicy} `{InlineCursor}
-  (ws : string) (txt : Buf) (o : ostate) : ostate :=
+  (ws txt : Buf) (o : ostate) : ostate :=
   let kept := strip_trailing_ws (tval txt) in
   (* the source between the text and the line end: the whitespace the
      trim dropped, the backslash, and the run after it.  Two lengths per
      hard break, which is per line at worst; no `String.length` runs per
      scanned byte. *)
-  let over := S (String.length ws
+  let over := S (String.length (tval ws)
                  + (String.length (tval txt) - String.length kept)) in
   oemit (imk_here HardBreak)
     (flush_text_to_at (spot_plus over cursor_start) kept o).
@@ -1932,11 +1929,11 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
   (attrs_enabled : bool) (c : ascii) (st : iscan) : iscan :=
   match st with
   | IText true txt prev o =>
-      if is_ws c then IEscWs (one c) txt prev o
+      if is_ws c then IEscWs (tof (one c)) txt prev o
       else IText false (tpush txt (if is_punct c then one c
                                    else String "\"%char (one c))) (Some c) o
   | IEscWs ws txt prev o =>
-      if is_ws c then IEscWs (ws ++ one c)%string txt prev o
+      if is_ws c then IEscWs (tpush ws (one c)) txt prev o
       else let '(txt', prev', o') := iescws_resolve ws txt prev o in
            ilead c txt' prev' o'
   | IText false txt prev o => ilead c txt prev o
@@ -1973,7 +1970,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
   | IPeriod two txt prev o => iperiod_step c two txt prev o
   | IDash n txt prev o => idash_step c n txt prev o
   | IOpen n vk o =>
-      if is_tick c then IOpen (S n) vk o else IVerb n 0 (one c) vk o
+      if is_tick c then IOpen (S n) vk o else IVerb n 0 (tof (one c)) vk o
   | IVerb n run txt vk o =>
       if is_tick c then IVerb n (S run) txt vk o
       else if Nat.eqb run n
@@ -1981,11 +1978,11 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
          follows, and only for a verbatim: math takes the ordinary
          path *)
       then (if (Ascii.eqb c lbrace && vkind_verb vk)%bool
-            then IRaw EmptyString (trim_verb txt) o
+            then IRaw tnil (trim_verb (tval txt)) o
             else ilead c tnil (Some tick)
                    (oemit (imk (text_start o) cursor_start
-                             (vnode vk (trim_verb txt))) o))
-      else IVerb n 0 (txt ++ ticks run ++ one c)%string vk o
+                             (vnode vk (trim_verb (tval txt)))) o))
+      else IVerb n 0 (tpush txt (ticks run ++ one c)) vk o
   (* The three bytes that make a construct of the bracket close it; every
      other one leaves the scope alone and the `]` in the buffer, which is
      why `bclose` runs here rather than at the `]`.  Its `None` is the
@@ -1997,11 +1994,11 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
              else None) with
       | Some (kids, image, open, o') =>
           if Ascii.eqb c lparen
-          then IDest kids image open false 0 EmptyString
+          then IDest kids image open false 0 tnil
                  (idest_open kids image open o') o'
           else if Ascii.eqb c lbrack
-               then IReference kids image open EmptyString o'
-               else ISpan kids image open ap_init EmptyString o'
+               then IReference kids image open tnil o'
+               else ISpan kids image open ap_init tnil o'
       | None => ilead c (tpush txt (one rbrack)) (Some rbrack) o
       end
   | ISpan kids image open p src o =>
@@ -2023,23 +2020,23 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
   | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
   | IReference kids image open label o =>
       if Ascii.eqb c rbrack
-      then let key := match label with
+      then let key := match tval label with
                       | EmptyString => reference_inlines_text kids
-                      | _ => label
+                      | _ => tval label
                       end in
            IText false tnil (Some rbrack)
              (oemit (imk (span_start open) cursor_stop
                        (bnode image kids (Reference (normalize_label key)))) o)
-      else IReference kids image open (label ++ one c)%string o
+      else IReference kids image open (tpush label (one c)) o
   | IDest kids image open true depth dst sh o =>
       IDest kids image open false depth
-        (dst ++ (if is_punct c then one c
-                 else String bslash (one c)))%string (istep_at attrs_enabled c sh) o
+        (tpush dst (if is_punct c then one c
+                 else String bslash (one c))) (istep_at attrs_enabled c sh) o
   | IDest kids image open false depth dst sh o =>
       if is_bslash c then IDest kids image open true depth dst
                              (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c lparen
-      then IDest kids image open false (S depth) (dst ++ one lparen)%string
+      then IDest kids image open false (S depth) (tpush dst (one lparen))
              (istep_at attrs_enabled c sh) o
       else if Ascii.eqb c rparen
       then match depth with
@@ -2048,11 +2045,11 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
                   and the one that discards the ordinary reading *)
                IText false tnil (Some rparen)
                  (oemit (imk (span_start open) cursor_stop
-                           (bnode image kids (Direct (drop_nl dst)))) o)
-           | S d => IDest kids image open false d (dst ++ one rparen)%string
+                           (bnode image kids (Direct (drop_nl (tval dst))))) o)
+           | S d => IDest kids image open false d (tpush dst (one rparen))
                       (istep_at attrs_enabled c sh) o
            end
-      else IDest kids image open false depth (dst ++ one c)%string
+      else IDest kids image open false depth (tpush dst (one c))
              (istep_at attrs_enabled c sh) o
   end.
 
@@ -2068,7 +2065,7 @@ Definition istep `{PosPolicy} `{InlineCursor}
 Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (st : iscan) : ostate :=
   match st with
-  | IText true txt _ o => iesc_hard EmptyString txt o
+  | IText true txt _ o => iesc_hard tnil txt o
   | IEscWs ws txt _ o => iesc_hard ws txt o
   | IText false txt _ o => flush_text_at (tval txt) o
   | IOpen n vk o =>
@@ -2076,36 +2073,36 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   | IVerb n run txt vk o =>
       oemit (imk (text_start o) cursor_start
                (vnode vk (trim_verb
-                  (if Nat.eqb run n then txt else txt ++ ticks run)%string))) o
+                  (tval (if Nat.eqb run n then txt else tpush txt (ticks run)))))) o
   (* unreachable: `ifinish_ostate` takes a destination's shadow before it
      gets here, and `iresolve` builds no `IDest` *)
   | IDest _ _ _ _ _ _ _ o => o
   | INote esc image label _ o =>
-      let '(txt, o') := bnote_lit esc image label o in flush_text_at txt o'
+      let '(txt, o') := bnote_lit esc image (tval label) o in flush_text_at txt o'
   (* a wikilink candidate the line ended inside is literal, brackets and
      all *)
   | IWiki esc rb image region _ o =>
-      let '(txt, o') := bwiki_lit esc rb image region o in flush_text_at txt o'
+      let '(txt, o') := bwiki_lit esc rb image (tval region) o in flush_text_at txt o'
   (* a candidate the line ended inside is literal: the region may not
      contain a break, so the `>` it wanted can never arrive *)
-  | IAuto src txt o => flush_text_at (tval (auto_lit src txt)) o
+  | IAuto src txt o => flush_text_at (tval (auto_lit (tval src) txt)) o
   | ISymbol _ _ _ o => o
   (* a spec the line ended inside never closed: the verbatim stands and
      the spec source is text after it *)
   | IRaw spec txt o =>
-      let spec_start := spot_before cursor_start (String lbrace spec) in
-      flush_text_at (iraw_lit spec)
+      let spec_start := spot_before cursor_start (String lbrace (tval spec)) in
+      flush_text_at (iraw_lit (tval spec))
         (oemit (imk (text_start o) spec_start (Verbatim txt)) o)
   | IReference kids image _ label o =>
-      let '(txt, o') := bref_lit kids image label o in flush_text_at (tval txt) o'
+      let '(txt, o') := bref_lit kids image (tval label) o in flush_text_at (tval txt) o'
   (* an unclosed span is literal too: there is no next line for its spec
      to close on, and the breaks it did cross are in the source *)
   | ISpan kids image _ _ src o =>
-      let '(txt, o') := bspan_lit kids image src o in flush_text_at (tval txt) o'
+      let '(txt, o') := bspan_lit kids image (tval src) o in flush_text_at (tval txt) o'
   (* a spec the paragraph ended inside never closed, and its source is
      text: the brace, then what the machine has read since *)
   | IAttr _ src txt _ _ o =>
-      let '(t, o') := battr_lit src txt o in flush_text_at (tval t) o'
+      let '(t, o') := battr_lit (tval src) txt o in flush_text_at (tval t) o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDollar`,
      `IPeriod`, `IDash`, `IDelim` or `IClosed` *)
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
@@ -2150,7 +2147,7 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   match st with
   (* A hard break replaces the soft one: it is the break, rendered. *)
   | IText true txt _ o =>
-      IText false tnil None (oword_reset (iesc_hard EmptyString txt o))
+      IText false tnil None (oword_reset (iesc_hard tnil txt o))
   | IEscWs ws txt _ o =>
       IText false tnil None (oword_reset (iesc_hard ws txt o))
   | IText false txt _ o =>
@@ -2158,28 +2155,28 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
         (oword_reset
           (oemit (imk_here SoftBreak)
             (flush_text_at (tval txt) o)))
-  | IOpen n vk o => IVerb n 0 nl vk o
+  | IOpen n vk o => IVerb n 0 (tof nl) vk o
   | IVerb n run txt vk o =>
       if Nat.eqb run n
       then IText false tnil None
              (oword_reset
                 (oemit (imk_here SoftBreak)
                   (oemit (imk (text_start o) cursor_start
-                            (vnode vk (trim_verb txt))) o)))
-      else IVerb n 0 (txt ++ ticks run ++ nl)%string vk o
+                            (vnode vk (trim_verb (tval txt)))) o)))
+      else IVerb n 0 (tpush txt (ticks run ++ nl)) vk o
   (* unreachable, as in `ifinish_ostate_flat` *)
   | IDest _ _ _ _ _ _ _ _ as st' => st'
   (* A label crosses a break and the newline is whitespace to
      `normalize_label`, so `[^a` / `b]` is one reference to `a b`. *)
   | INote esc image label open o =>
       INote false image
-        (label ++ (if esc then one bslash else EmptyString) ++ nl)%string open o
+        (tpush label ((if esc then one bslash else EmptyString) ++ nl)) open o
   | IReference kids image open label o =>
-      IReference kids image open (label ++ nl)%string o
+      IReference kids image open (tpush label nl) o
   (* A wikilink candidate does not cross a break: it decays here, as an
      autolink candidate does just below. *)
   | IWiki esc rb image region _ o =>
-      let '(txt, o') := bwiki_lit esc rb image region o in
+      let '(txt, o') := bwiki_lit esc rb image (tval region) o in
       IText false tnil None
         (oword_reset (oemit (imk_here SoftBreak) (flush_text_at (tval txt) o')))
   (* and the break itself is the soft one, exactly as it is for the text
@@ -2188,16 +2185,16 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
       IText false tnil None
         (oword_reset
           (oemit (imk_here SoftBreak)
-            (flush_text_at (tval (auto_lit src txt)) o)))
+            (flush_text_at (tval (auto_lit (tval src) txt)) o)))
   | ISymbol _ _ sh _ => ibreak_flat sh
   (* nor does a raw spec: the pattern excludes whitespace, so a break
      ends the candidate exactly as `ifinish` does *)
   | IRaw spec txt o =>
-      let spec_start := spot_before cursor_start (String lbrace spec) in
+      let spec_start := spot_before cursor_start (String lbrace (tval spec)) in
       IText false tnil None
         (oword_reset
           (oemit (imk_here SoftBreak)
-             (flush_text_at (iraw_lit spec)
+             (flush_text_at (iraw_lit (tval spec))
                (oemit (imk (text_start o) spec_start (Verbatim txt)) o))))
   (* A span's spec crosses the break too, and the newline is whitespace to
      the machine: `[s]{.a` / `.b}` is one span whose classes merge.  It is
@@ -2228,7 +2225,7 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (ibreak_at false sh) o
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open false depth
-        (dst ++ (if esc then one bslash else EmptyString) ++ nl)%string
+        (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
         (ibreak_at attrs_enabled sh) o
   | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
   | _ => ibreak_flat (iresolve st)
@@ -2336,7 +2333,7 @@ Proof.
 Qed.
 
 (* A buffer's scan state read as the specification's: every pending-text
-   field through `tval`, and back through `tof`.  `InlineBuffer.v`
+   and source field through `tval`, and back through `tof`. `InlineBuffer.v`
    proves the scan commutes with `map_text`. *)
 Section Read.
 Context {Buf : Type} {X : TextOps Buf}.
@@ -2344,51 +2341,51 @@ Context {Buf : Type} {X : TextOps Buf}.
 Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
   match st with
   | IText esc t prev o => IText esc (tval t) prev o
-  | IEscWs ws t prev o => IEscWs ws (tval t) prev o
+  | IEscWs ws t prev o => IEscWs (tval ws) (tval t) prev o
   | IBrace t prev o => IBrace (tval t) prev o
   | IDelim k extra t before marked o => IDelim k extra (tval t) before marked o
   | IOpen n vk o => IOpen n vk o
-  | IVerb n run v vk o => IVerb n run v vk o
+  | IVerb n run v vk o => IVerb n run (tval v) vk o
   | IDollar two t prev o => IDollar two (tval t) prev o
   | IPeriod two t prev o => IPeriod two (tval t) prev o
   | IDash n t prev o => IDash n (tval t) prev o
   | IBang t prev o => IBang (tval t) prev o
   | IClosed t o => IClosed (tval t) o
-  | ISpan kids image open p src o => ISpan kids image open p src o
-  | IAttr p src t prev sh o => IAttr p src (tval t) prev (map_text sh) o
-  | IReference kids image open label o => IReference kids image open label o
-  | INote esc image label open o => INote esc image label open o
-  | IWiki esc rb image region open o => IWiki esc rb image region open o
+  | ISpan kids image open p src o => ISpan kids image open p (tval src) o
+  | IAttr p src t prev sh o => IAttr p (tval src) (tval t) prev (map_text sh) o
+  | IReference kids image open label o => IReference kids image open (tval label) o
+  | INote esc image label open o => INote esc image (tval label) open o
+  | IWiki esc rb image region open o => IWiki esc rb image (tval region) open o
   | IDest kids image open esc depth dst sh o =>
-      IDest kids image open esc depth dst (map_text sh) o
-  | IAuto src t o => IAuto src (tval t) o
-  | ISymbol alias t sh o => ISymbol alias (tval t) (map_text sh) o
-  | IRaw spec v o => IRaw spec v o
+      IDest kids image open esc depth (tval dst) (map_text sh) o
+  | IAuto src t o => IAuto (tval src) (tval t) o
+  | ISymbol alias t sh o => ISymbol (tval alias) (tval t) (map_text sh) o
+  | IRaw spec v o => IRaw (tval spec) v o
   end.
 
 Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
   match st with
   | IText esc t prev o => IText esc (tof t) prev o
-  | IEscWs ws t prev o => IEscWs ws (tof t) prev o
+  | IEscWs ws t prev o => IEscWs (tof ws) (tof t) prev o
   | IBrace t prev o => IBrace (tof t) prev o
   | IDelim k extra t before marked o => IDelim k extra (tof t) before marked o
   | IOpen n vk o => IOpen n vk o
-  | IVerb n run v vk o => IVerb n run v vk o
+  | IVerb n run v vk o => IVerb n run (tof v) vk o
   | IDollar two t prev o => IDollar two (tof t) prev o
   | IPeriod two t prev o => IPeriod two (tof t) prev o
   | IDash n t prev o => IDash n (tof t) prev o
   | IBang t prev o => IBang (tof t) prev o
   | IClosed t o => IClosed (tof t) o
-  | ISpan kids image open p src o => ISpan kids image open p src o
-  | IAttr p src t prev sh o => IAttr p src (tof t) prev (lift sh) o
-  | IReference kids image open label o => IReference kids image open label o
-  | INote esc image label open o => INote esc image label open o
-  | IWiki esc rb image region open o => IWiki esc rb image region open o
+  | ISpan kids image open p src o => ISpan kids image open p (tof src) o
+  | IAttr p src t prev sh o => IAttr p (tof src) (tof t) prev (lift sh) o
+  | IReference kids image open label o => IReference kids image open (tof label) o
+  | INote esc image label open o => INote esc image (tof label) open o
+  | IWiki esc rb image region open o => IWiki esc rb image (tof region) open o
   | IDest kids image open esc depth dst sh o =>
-      IDest kids image open esc depth dst (lift sh) o
-  | IAuto src t o => IAuto src (tof t) o
-  | ISymbol alias t sh o => ISymbol alias (tof t) (lift sh) o
-  | IRaw spec v o => IRaw spec v o
+      IDest kids image open esc depth (tof dst) (lift sh) o
+  | IAuto src t o => IAuto (tof src) (tof t) o
+  | ISymbol alias t sh o => ISymbol (tof alias) (tof t) (lift sh) o
+  | IRaw spec v o => IRaw (tof spec) v o
   end.
 
 End Read.

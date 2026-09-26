@@ -85,7 +85,7 @@ Local Lemma iscan_verb_safe_nonempty :
 Proof.
   induction s as [|c rest IH]; intros n run txt vk out Hne Hend Hsafe;
     [discriminate|].
-  cbn [iscan_str verb_safe_from] in Hsafe |- *.
+  cbn [iscan_str verb_safe_from] in Hsafe |- *. tred.
   destruct (is_tick c) eqn:Hc.
   - cbn [istep istep_at]. rewrite Hc. destruct rest as [|d rest'].
     + unfold ends_tick, starts_tick, rev_string in Hend.
@@ -95,7 +95,7 @@ Proof.
       apply Ascii.eqb_eq in Hc. subst c. f_equal.
       rewrite ticks_succ_r, !append_assoc. reflexivity.
   - apply andb_true_iff in Hsafe as [Hrun Hsafe].
-    apply negb_true_iff in Hrun. cbn [istep istep_at]. rewrite Hc, Hrun.
+    apply negb_true_iff in Hrun. cbn [istep istep_at]. tred. rewrite Hc, Hrun.
     destruct rest as [|d rest'].
     + cbn [iscan_str]. f_equal.
     + rewrite ends_tick_cons_nonempty in Hend.
@@ -421,7 +421,7 @@ Local Lemma iescws_resolve_app :
     iescws_resolve ws txt prev (oout_app base o)
     = let '(t, p, o') := iescws_resolve ws txt prev o in (t, p, oout_app base o').
 Proof.
-  intros [|c ws] txt prev o base Hb; cbn [iescws_resolve]; [reflexivity|].
+  intros [|c ws] txt prev o base Hb; cbn [iescws_resolve tval]; [reflexivity|].
   destruct (Ascii.eqb c " "%char); [|reflexivity].
   rewrite flush_text_app, oemit_app. reflexivity.
 Qed.
@@ -506,7 +506,7 @@ Local Lemma ispan_feed_app :
     ispan_feed c kids image open p src (oout_app base o)
     = iout_app base (ispan_feed c kids image open p src o).
 Proof.
-  intros c kids image open p src o base Hb. unfold ispan_feed.
+  intros c kids image open p src o base Hb. unfold ispan_feed. tred.
   destruct (ap_failed (astep p c)).
   - rewrite (bspan_lit_app kids image src o base Hb).
     destruct (bspan_lit kids image src o) as [txt o']. apply ilead_app.
@@ -648,9 +648,9 @@ Proof.
     destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
     rewrite oemit_app. reflexivity.
-  - unfold iwiki_step. destruct wesc; [reflexivity|].
+  - unfold iwiki_step. tred. destruct wesc; [reflexivity|].
     destruct (wrb && Ascii.eqb c rbrack)%bool.
-    + unfold iwiki_close. destruct (wiki_split wreg) as [[|x t] al].
+    + unfold iwiki_close. tred. destruct (wiki_split wreg) as [[|x t] al].
       * rewrite (bwiki_lit_app false true wimg wreg wob base Hb).
         destruct (bwiki_lit false true wimg wreg wob) as [t' o']. reflexivity.
       * cbn [iout_app]. rewrite oemit_app. reflexivity.
@@ -665,23 +665,23 @@ Proof.
     destruct depth;
       [cbn [iout_app]; rewrite oemit_app; reflexivity
       |cbn [iout_app]; rewrite IHsh by exact Hb; reflexivity].
-  - unfold iauto_step.
+  - unfold iauto_step. tred.
     destruct (Ascii.eqb c gt && auto_body_ok asrc && auto_kind_ok asrc)%bool;
       [cbn [iout_app]; rewrite flush_text_app, oemit_app; reflexivity|].
     destruct (Ascii.eqb c gt || is_ws c || Ascii.eqb c lt)%bool;
       [apply ilead_app | reflexivity].
-  - unfold isymbol_step.
+  - unfold isymbol_step. tred.
     rewrite IHsob by exact Hb.
     destruct (symbol_char c); [reflexivity|].
     destruct (Ascii.eqb c ":"%char && nonempty_str salias)%bool.
     + cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
     + reflexivity.
-  - unfold iraw_step_at. rewrite ?imk_semantic.
+  - unfold iraw_step_at. tred. rewrite ?imk_semantic.
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
     + destruct raw_inline_enabled.
       * cbn [iout_app]. rewrite oemit_app. reflexivity.
       * rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
-    + destruct rspec as [|x rspec'].
+    + destruct rspec as [|x rspec']; cbn [tnonempty nonempty_str].
       * destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
         rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
         unfold ibrace_step_at; destruct (dstyle_of c);
@@ -724,7 +724,8 @@ Proof.
     rewrite !oemit_app. reflexivity.
   - apply ispan_feed_app, Hb.
   - apply iattr_feed_app, Hb.
-  - rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
+  - tred.
+    rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
     destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o'].
     cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
   - apply IHsob, Hb.
@@ -932,26 +933,26 @@ Local Lemma ifinish_ostate_flat_app :
     = oout_app base (ifinish_ostate_flat st).
 Proof.
   intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob] Hb;
-    cbn [iout_app ifinish_ostate_flat].
+    cbn [iout_app ifinish_ostate_flat]. tred.
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
   1,2: reflexivity.
   1,2: rewrite oemit_app; reflexivity.
   all: try reflexivity.
-  - rewrite (bspan_lit_app kids img ssrc sob base Hb).
-    destruct (bspan_lit kids img ssrc sob) as [t o']; cbn [fst snd].
+  - rewrite (bspan_lit_app kids img (tval ssrc) sob base Hb).
+    destruct (bspan_lit kids img (tval ssrc) sob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
   - rewrite battr_lit_app.
-    destruct (battr_lit asrc atxt aob) as [t o']; cbn [fst snd].
+    destruct (battr_lit (tval asrc) atxt aob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
-  - rewrite (bref_lit_app kids img label ob base Hb).
-    destruct (bref_lit kids img label ob) as [t o']; cbn [fst snd].
+  - rewrite (bref_lit_app kids img (tval label) ob base Hb).
+    destruct (bref_lit kids img (tval label) ob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
-  - rewrite (bnote_lit_app nesc nimg nlab nob base Hb).
-    destruct (bnote_lit nesc nimg nlab nob) as [t o']; cbn [fst snd].
+  - rewrite (bnote_lit_app nesc nimg (tval nlab) nob base Hb).
+    destruct (bnote_lit nesc nimg (tval nlab) nob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
-  - rewrite (bwiki_lit_app wesc wrb wimg wreg wob base Hb).
-    destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o']; cbn [fst snd].
+  - rewrite (bwiki_lit_app wesc wrb wimg (tval wreg) wob base Hb).
+    destruct (bwiki_lit wesc wrb wimg (tval wreg) wob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
   - rewrite flush_text_app. reflexivity.
   - rewrite oemit_app, flush_text_app. reflexivity.
@@ -1769,6 +1770,7 @@ Proof.
   change (is_bslash rparen) with false.
   change (Ascii.eqb rparen lparen) with false.
   change (Ascii.eqb rparen rparen) with true.
+  tred.
   rewrite (drop_nl_no_nl dst Hnl). reflexivity.
 Qed.
 
@@ -1898,25 +1900,25 @@ Local Lemma iscan_note_label :
 Proof.
   induction label as [|c label IH]; intros tail esc image acc open o Hsafe.
   - cbn [note_label_safe_from] in Hsafe. destruct esc; [discriminate|].
-    cbn [append iscan_str istep istep_at inote_step].
+    cbn [append iscan_str istep istep_at inote_step]. tred.
     change (is_bslash rbrack) with false.
     change (Ascii.eqb rbrack rbrack) with true.
     rewrite !append_empty_r. reflexivity.
   - cbn [note_label_safe_from] in Hsafe.
-    cbn [append iscan_str istep istep_at inote_step].
+    cbn [append iscan_str istep istep_at inote_step]. tred.
     destruct esc.
-    + cbn [inote_step].
+    + cbn [inote_step]. tred.
       rewrite (IH tail false image (acc ++ one bslash ++ one c)%string open o
                  Hsafe).
       rewrite !append_assoc. reflexivity.
     + destruct (Ascii.eqb c rbrack) eqn:Hclose; [discriminate|].
       destruct (is_bslash c) eqn:Hslash.
       * unfold is_bslash in Hslash. apply Ascii.eqb_eq in Hslash. subst c.
-        cbn [inote_step].
+        cbn [inote_step]. tred.
         rewrite is_bslash_bslash.
         rewrite (IH tail true image acc open o Hsafe).
         cbn [append]. reflexivity.
-      * cbn [inote_step]. rewrite Hslash, Hclose.
+      * cbn [inote_step]. tred. rewrite Hslash, Hclose.
         rewrite (IH tail false image (acc ++ one c)%string open o Hsafe).
         rewrite !append_assoc. reflexivity.
 Qed.
@@ -1956,6 +1958,7 @@ Proof.
     with true.
   rewrite Hnotes. cbn [andb].
   rewrite bunpush_bpush.
+  tred.
   rewrite (iscan_note_label label tail false false EmptyString
              null_span (flush_text txt o) Hsafe).
   reflexivity.
@@ -2052,7 +2055,7 @@ Proof.
   cbn iota beta.
   cbn [istep_at iwiki_step andb]. change (Ascii.eqb rbrack rbrack) with true.
   cbn iota beta.
-  unfold iwiki_close, apart. rewrite (wiki_split_canonical t al Htv Htb).
+  unfold iwiki_close, apart. tred. rewrite (wiki_split_canonical t al Htv Htb).
   destruct t as [|c t']; [discriminate Hne|]. rewrite imk_semantic. reflexivity.
 Qed.
 
@@ -2073,7 +2076,7 @@ Proof.
     apply andb_true_iff in Hlt as [Hltc Hlt].
     apply andb_true_iff in Hgt as [Hgtc Hgt].
     apply negb_true_iff in Hwsc, Hltc, Hgtc.
-    cbn [iscan_str istep istep_at]. unfold iauto_step.
+    cbn [iscan_str istep istep_at]. unfold iauto_step. tred.
     rewrite Hgtc. cbn [andb orb].
     unfold is_ws_nl in Hwsc. apply orb_false_iff in Hwsc as [Hwsc _].
     rewrite Hwsc, Hltc. cbn [orb].
@@ -2103,9 +2106,9 @@ Proof.
     apply andb_true_iff in Htk as [Htkc Htk].
     apply negb_true_iff in Hwsc. apply negb_true_iff in Hlbc.
     apply negb_true_iff in Hrbc. apply negb_true_iff in Htkc.
-    cbn [iscan_str istep istep_at]. unfold iraw_step_at.
+    cbn [iscan_str istep istep_at]. unfold iraw_step_at. tred.
     rewrite Hrbc. cbn [andb].
-    destruct acc as [|x acc']; [discriminate|].
+    destruct acc as [|x acc']; [discriminate|]. cbn [tnonempty nonempty_str].
     unfold raw_stop. rewrite Hlbc.
     replace (is_ws c) with false
       by (unfold is_ws_nl in Hwsc; apply orb_false_iff in Hwsc as [H1 _];
@@ -2139,10 +2142,11 @@ Proof.
   change (Ascii.eqb lt lbrace) with false.
   change (Ascii.eqb lt bang) with false.
   change (Ascii.eqb lt lt) with true.
+  tred.
   rewrite append_assoc, iscan_str_app.
   rewrite (iscan_auto_region s EmptyString txt o Hregion).
   replace ((EmptyString ++ s)%string) with s by reflexivity.
-  cbn [one append iscan_str istep istep_at]. unfold iauto_step.
+  cbn [one append iscan_str istep istep_at]. unfold iauto_step. tred.
   change (Ascii.eqb gt gt) with true.
   rewrite Hbody, Hkind. reflexivity.
 Qed.
@@ -2174,17 +2178,19 @@ Proof.
   rewrite nat_eqb_refl. cbn [vkind_verb andb].
   change (Ascii.eqb lbrace lbrace) with true. cbn [andb].
   change (is_tick lbrace) with false. cbn [andb].
+  tred.
   rewrite trim_verb_pad by exact Hvok.
   (* ...the `=` makes it a candidate, the format accumulates... *)
-  unfold istep_at at 1. unfold iraw_step_at.
+  unfold istep_at at 1. unfold iraw_step_at. tred.
   change (Ascii.eqb "="%char rbrace) with false. cbn [andb].
   change (negb (Ascii.eqb "="%char eqchar)) with false.
+  cbn [nonempty_str].
   rewrite append_assoc, iscan_str_app.
   change ((EmptyString ++ one "="%char)%string) with (one eqchar).
   rewrite (iscan_raw_format fmt (one eqchar) v (flush_text txt o))
     by (first [rewrite Hws, Hlb, Hrb, Htk; reflexivity | reflexivity]).
   (* ...and the `}` decides the node. *)
-  cbn [one iscan_str istep istep_at append]. unfold iraw_step_at.
+  cbn [one iscan_str istep istep_at append]. unfold iraw_step_at. tred.
   change (Ascii.eqb rbrace rbrace) with true.
   unfold raw_spec_ok. cbn [append].
   rewrite Ascii.eqb_refl, Hfne. cbn [andb].
@@ -2975,6 +2981,7 @@ Proof.
         cbn [iscan_str].
         unfold ifinish, ifinish_rev;
         cbn [ifinish_ostate ifinish_ostate_flat iresolve].
+        tred.
         rewrite nat_eqb_refl, trim_verb_pad by exact Hvok. cbn [vnode].
         unfold oemit, ofinish. rewrite oitems_of_spec.
         cbn [os_stk os_out oflatten oapp].

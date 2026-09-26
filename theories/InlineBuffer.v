@@ -1,8 +1,9 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* The scanner run on a buffer computes what the specification scanner
    computes: `chunks` obeys the string laws, and reading pending text
-   through `map_text` commutes with every step, line break, and finish. *)
+   and open-construct source through `map_text` commutes with every step,
+   line break, and finish. *)
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Ast Attributes InlineTable InlineView InlineScan
@@ -69,7 +70,7 @@ Simulation
 ==========
 
 Any lawful buffer runs the specification: reading every pending-text
-field through `tval` commutes with each step of the scan.
+and source field through `tval` commutes with each step of the scan.
 *)
 Section WithTable.
 Context {T : dtable}.
@@ -187,14 +188,14 @@ Proof.
 Qed.
 
 Lemma iattr_mark_map : forall src a t o,
-  map_text (iattr_mark src a t o) = iattr_mark src a (tval t) o.
+  map_text (iattr_mark src a t o) = iattr_mark (tval src) a (tval t) o.
 Proof. intros. unfold iattr_mark. crush. Qed.
 
 Hint Rewrite islice_end_map iattr_mark_map : map_text.
 
 Lemma iattr_feed_map : forall c p src t prev sh o,
   map_text (iattr_feed c p src t prev sh o)
-  = iattr_feed c p src (tval t) prev (map_text sh) o.
+  = iattr_feed c p (tval src) (tval t) prev (map_text sh) o.
 Proof. intros. unfold iattr_feed. crush. Qed.
 
 Lemma oopen_marked_map : forall k cm t o,
@@ -217,43 +218,44 @@ Proof.
 Qed.
 
 Lemma ispan_feed_map : forall c kids image open p src o,
-  map_text (ispan_feed c kids image open p src o) = ispan_feed c kids image open p src o.
+  map_text (ispan_feed c kids image open p src o) = ispan_feed c kids image open p (tval src) o.
 Proof.
-  intros. unfold ispan_feed.
+  intros. unfold ispan_feed. tred.
   destruct (ap_failed (astep p c)); [|crush].
-  rewrite <- bspan_lit_map. destruct (bspan_lit kids image src o) as [t o'].
+  rewrite <- bspan_lit_map. destruct (bspan_lit kids image (tval src) o) as [t o'].
   unfold map_fst; cbn [fst snd]. crush.
 Qed.
 
 Lemma inote_step_map : forall c esc image label open o,
-  map_text (inote_step c esc image label open o) = inote_step c esc image label open o.
+  map_text (inote_step c esc image label open o) = inote_step c esc image (tval label) open o.
 Proof. intros. unfold inote_step. crush. Qed.
 
 Lemma iauto_step_map : forall c src t o,
-  map_text (iauto_step c src t o) = iauto_step c src (tval t) o.
+  map_text (iauto_step c src t o) = iauto_step c (tval src) (tval t) o.
 Proof. intros. unfold iauto_step. crush; rewrite ?auto_lit_map; crush. Qed.
 
 Lemma isymbol_step_map : forall c alias t o sh,
-  map_text (isymbol_step c alias t o sh) = isymbol_step c alias (tval t) o (map_text sh).
+  map_text (isymbol_step c alias t o sh) = isymbol_step c (tval alias) (tval t) o (map_text sh).
 Proof. intros. unfold isymbol_step. crush. Qed.
 
 Hint Rewrite ibrace_step_at_map : map_text.
 
 Lemma iraw_step_at_map : forall attrs c spec v o,
-  map_text (iraw_step_at attrs c spec v o) = iraw_step_at attrs c spec v o.
-Proof. intros. unfold iraw_step_at. destruct spec; crush. Qed.
+  map_text (iraw_step_at attrs c spec v o) = iraw_step_at attrs c (tval spec) v o.
+Proof. intros. unfold iraw_step_at. crush. Qed.
 
 Lemma iwiki_close_map : forall image region open o,
-  map_text (iwiki_close image region open o) = iwiki_close image region open o.
+  map_text (iwiki_close image region open o) = iwiki_close image (tval region) open o.
 Proof.
-  intros. unfold iwiki_close. destruct (wiki_split region) as [[|c t] al]; [|crush].
-  destruct (bwiki_lit false true image region o). crush.
+  intros. unfold iwiki_close. tred.
+  destruct (wiki_split (tval region)) as [[|c t] al]; [|crush].
+  destruct (bwiki_lit false true image (tval region) o). crush.
 Qed.
 
 Hint Rewrite iwiki_close_map : map_text.
 
 Lemma iwiki_step_map : forall c esc rb image region open o,
-  map_text (iwiki_step c esc rb image region open o) = iwiki_step c esc rb image region open o.
+  map_text (iwiki_step c esc rb image region open o) = iwiki_step c esc rb image (tval region) open o.
 Proof. intros. unfold iwiki_step. crush. Qed.
 
 Lemma ibang_step_map : forall c t prev o,
@@ -290,10 +292,10 @@ Proof. intros []; cbn [iresolve map_text]; crush. Qed.
 
 Lemma iescws_resolve_map : forall ws t prev o,
   let '(t', p', o') := iescws_resolve ws t prev o in
-  (tval t', p', o') = iescws_resolve ws (tval t) prev o.
-Proof. intros. unfold iescws_resolve. destruct ws; crush. Qed.
+  (tval t', p', o') = iescws_resolve (tval ws) (tval t) prev o.
+Proof. intros. unfold iescws_resolve. tred. destruct (tval ws); crush. Qed.
 
-Lemma iesc_hard_map : forall ws t o, iesc_hard ws t o = iesc_hard ws (tval t) o.
+Lemma iesc_hard_map : forall ws t o, iesc_hard ws t o = iesc_hard (tval ws) (tval t) o.
 Proof. intros. unfold iesc_hard. crush. Qed.
 
 Hint Rewrite ispan_feed_map inote_step_map iauto_step_map isymbol_step_map
@@ -348,9 +350,10 @@ Ltac through lem :=
 Lemma ifinish_ostate_flat_map : forall st,
   ifinish_ostate_flat st = ifinish_ostate_flat (map_text st).
 Proof.
-  intros []; cbn [ifinish_ostate_flat map_text]; try destruct esc;
-    try solve [crush; rewrite ?iesc_hard_map, ?auto_lit_map; reflexivity];
-    first [through bref_lit_map | through bspan_lit_map | through battr_lit_map];
+  intros []; cbn [ifinish_ostate_flat map_text]; tred; try destruct esc;
+    try rewrite iesc_hard_map; try rewrite tval_nil;
+    try solve [crush; rewrite ?auto_lit_map; reflexivity];
+    try first [through bref_lit_map | through bspan_lit_map | through battr_lit_map];
     crush.
 Qed.
 
@@ -366,11 +369,12 @@ Proof. intros st. unfold ifinish, ifinish_rev. rewrite ifinish_ostate_map. refle
 Lemma ibreak_flat_map : forall st,
   map_text (ibreak_flat st) = ibreak_flat (map_text st).
 Proof.
-  induction st; cbn [ibreak_flat map_text]; try destruct esc;
-    try solve [crush; rewrite ?iesc_hard_map, ?auto_lit_map; reflexivity];
+  induction st; cbn [ibreak_flat map_text]; tred; try destruct esc;
+    try rewrite iesc_hard_map; try rewrite tval_nil;
+    try solve [crush; rewrite ?auto_lit_map; reflexivity];
     try assumption;
-    first [ apply ispan_feed_map | apply iattr_feed_map
-          | destruct (bwiki_lit _ _ _ _ _); crush ].
+    try first [ apply ispan_feed_map | apply iattr_feed_map
+          | destruct (bwiki_lit _ _ _ _ _); crush ]; crush.
 Qed.
 
 Theorem ibreak_at_map : forall attrs st,

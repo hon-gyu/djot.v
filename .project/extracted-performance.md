@@ -1,5 +1,5 @@
 ---
-ai-disclosure: ai-generated
+ai-disclosure: autonomous
 ---
 # Performance of the extracted parser
 
@@ -267,6 +267,76 @@ and 7.4 ms at 16 KB.  Checked as above against `dist/src` at `7884839`:
 1046652 comparisons, adding failed candidates across line breaks, no
 difference; the suites and `dist/` as before.
 
+Buffered inline source (2026-09-26, baseline `16e4b24`).  The scanner
+now uses its existing `TextOps` buffer for escaped whitespace, verbatim
+content, destination, raw-format spec, attribute and span source,
+reference and note labels, wiki region, autolink source, and symbol
+alias.  At `string` it remains the specification.  At `chunks`, each
+append conses the new piece; `map_text` reads the source when a rule
+needs it.  `InlineBuffer.v`'s simulation and driver equations cover
+these fields as well as pending text.  No admits or axioms were added.
+
+Two close-path costs were addressed with the buffer change.  The raw
+spec step used to compute `spot_before` over its growing source on
+every byte; it now computes the position only when the candidate ends.
+`drop_nl` remains the Gallina destination specification, and its
+extraction is a linear OCaml `Buffer` loop, a new trusted realization.
+Before the change, an 80 KB destination close spent about 2.45 s in
+`drop_nl`, against 155 ms appending and 9 ms advancing its ordinary
+shadow (separately timed, so these are diagnostic rather than additive).
+
+Old and new extractions were linked in one throwaway executable.  A
+planted difference was detected; then semantic and attribute-off scan
+states, located paragraph inlines, semantic and located block parses,
+and `Html.convert` matched on every string through length 4 over a
+20-character scanner alphabet, 6000 random strings through 200 bytes,
+and 18 targeted long lines: 1,046,634 comparisons, no difference.
+The new `drop_nl` separately matched the old extraction on every byte
+and 10,001 random byte strings through 500 bytes: 10,257 inputs.
+The test suite matched 287/287 and generated exact HTML 6167/6167;
+depth-3 roundtrip 43857/43857, located bounds 44150/44150, keyed
+roundtrip 6628/6628, and wikilink roundtrip 3725/3725.  The
+regenerated standalone `dist/` built, passed its tests, and matched
+`check-dist`.
+
+`parse_doc`, dev profile, best of up to three, old and new extraction
+in the same process.  The first table uses one long construct; all
+figures are milliseconds:
+
+| shape | 20 KB old -> new | 40 KB old -> new | 80 KB old -> new |
+| --- | ---: | ---: | ---: |
+| verbatim | 16.1 -> 1.8 | 47.5 -> 3.3 | 155.8 -> 6.7 |
+| destination | 89.0 -> 3.1 | 439.0 -> 6.8 | 2130.6 -> 14.4 |
+
+The raw-format spec, at 2/4/8 KB, took 52.2/693.1/8207.0 ms before
+and 0.11/0.26/0.53 ms after.  The moved position computation accounts
+for most of that gain.  The native drivers still step one byte at a
+time in verbatim and destination mode; both now grow near linearly at
+20 to 80 KB, so batching them would add trusted code for little gain.
+
+Other source shapes at 4 and 16 KB, before -> after in milliseconds:
+
+| shape | 4 KB | 16 KB |
+| --- | ---: | ---: |
+| reference label | 1.8 -> 1.3 | 26.6 -> 18.5 |
+| note label | 4.4 -> 3.9 | 100.4 -> 92.3 |
+| wiki target | 1.5 -> 1.5 | 37.5 -> 37.9 |
+| autolink body | 3.9 -> 4.9 | 69.2 -> 110.9 |
+| symbol alias | 1.9 -> 1.5 | 36.3 -> 23.9 |
+| attribute source | 3.7 -> 3.3 | 70.7 -> 61.6 |
+| span source | 2.0 -> 1.9 | 35.3 -> 35.5 |
+| escaped whitespace | 3.1 -> 3.6 | 67.2 -> 86.1 |
+
+The remaining close-time structural scans dominate several of these
+shapes; the buffer's join adds overhead where it does not remove the
+dominant cost.  At 20/80 KB, ordinary `line` stayed 1.2/3.9 ->
+1.0/3.9 ms, short-line `paragraph` 1.3/5.9 -> 1.4/6.4,
+`brackets` 4.2/16.8 -> 4.1/15.5, `emphasis` 3.6/15.6 ->
+3.7/16.2, and `links` 2.4/10.3 -> 2.5/10.9.  The bench now has a
+shape for each source accumulator.  `isnoc` and `osnoc` remain flat
+AST-string seam merges; wrapped brackets and emphasis do not show a
+growth regression warranting an AST representation change here.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -381,12 +451,13 @@ and its proof are recorded in Fixed above.
 ### 1. Remaining long-line work
 
 Structural string matches still copy tails in `Line`, `Strings`,
-`Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending text
-no longer copies (Fixed above).  Verbatim, destination, label, and
-attribute-source accumulators still append to strings, and `isnoc` and
-`osnoc` merge adjacent `Str` nodes with `t ++ s`.  Measured 2026-09-26,
-dev profile, one line: a code span of 20, 40, 80 KB parses in 13.5,
-46.5, 153.9 ms; a link destination in 91.9, 436.5, 2135.2 ms.
+`Attributes`, `Marker`, and helper paths in `InlineScan`.  Pending and
+source accumulators no longer copy their prefixes (Fixed above), but
+`spot_before`/`source_shape`, `wiki_split`, and label normalization
+still walk flat native strings structurally at a construct's close.
+`isnoc` and `osnoc` still merge adjacent flat `Str` nodes with
+`t ++ s`.  The old 2026-09-26 code-span and destination measurements
+are superseded by the buffered-source entry above.
 
 Source positions no longer block this.  The located scan
 (`InlineLocated.v`) still matches `String c rest` and carries a counted

@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (* Extraction prelude.  `Separate Extraction` emits one OCaml module per
    Coq module rather than one flat file, so the extracted parser can be
@@ -110,6 +110,15 @@ Extract Constant DjotV.Strings.split_lines =>
   "(fun s -> match List.rev (String.split_on_char '\n' s) with
      | """" :: rest -> List.rev rest
      | parts -> List.rev parts)".
+
+(* Destination newlines are removed once the candidate closes.  The
+   Gallina structural scan remains the specification; matching native
+   strings by [String c rest] would copy every suffix. *)
+Extract Constant DjotV.InlineScan.drop_nl =>
+  "(fun s ->
+     let b = Buffer.create (String.length s) in
+     String.iter (fun c -> if c <> '\n' then Buffer.add_char b c) s;
+     Buffer.contents b)".
 
 (* The Gallina inline drivers recurse through [String c rest].  With native
    OCaml strings that copies the whole remaining line at every byte.  These
