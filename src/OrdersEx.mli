@@ -1,15 +1,14 @@
+open Ascii
+open BinNat
 open BinNums
-open BinPos
-open Bool0
 open Datatypes
 open Decimal
 open Hexadecimal
 open Number
-open PosDef
 
 type __ = Obj.t
 
-module N :
+module N_as_OT :
  sig
   val succ_double : coq_N -> coq_N
 
@@ -263,4 +262,20 @@ module N :
   val ones : coq_N -> coq_N
 
   val lnot : coq_N -> coq_N -> coq_N
+ end
+
+module Ascii_as_OT :
+ sig
+  val compare : char -> char -> comparison
+ end
+
+module String_as_OT :
+ sig
+  type t = string
+
+  val eqb : string -> string -> bool
+
+  val eq_dec : string -> string -> bool
+
+  val compare : string -> string -> comparison
  end

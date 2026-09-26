@@ -11,6 +11,12 @@ type uint =
 | D7 of uint
 | D8 of uint
 | D9 of uint
+| Da of uint
+| Db of uint
+| Dc of uint
+| Dd of uint
+| De of uint
+| Df of uint
 
 type signed_int =
 | Pos of uint
@@ -28,8 +34,6 @@ val rev : uint -> uint
 
 module Little :
  sig
-  val succ : uint -> uint
-
   val double : uint -> uint
 
   val succ_double : uint -> uint
