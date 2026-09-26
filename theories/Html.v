@@ -133,6 +133,118 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
+(* Induction that reaches the children, in the shape `Render.cblock_ind2`
+   established: the inner `fix` is what carries `P` through `list helt`. *)
+Local Definition helt_ind2
+  (P : helt -> Prop) (Q : list helt -> Prop)
+  (htext : forall s, P (HText s))
+  (hraw : forall s, P (HRaw s))
+  (hvoid : forall tag self a, P (HVoid tag self a))
+  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
+  (hnil : Q [])
+  (hcons : forall e es, P e -> Q es -> Q (e :: es))
+  : forall e, P e :=
+  fix go (e : helt) : P e :=
+    let golist :=
+      fix golist (es : list helt) : Q es :=
+        match es with
+        | [] => hnil
+        | e' :: rest => hcons e' rest (go e') (golist rest)
+        end in
+    match e with
+    | HText s => htext s
+    | HRaw s => hraw s
+    | HVoid tag self a => hvoid tag self a
+    | HElem tag nls a kids => helem tag nls a kids (golist kids)
+    end.
+
+Local Definition helts_ind2
+  (P : helt -> Prop) (Q : list helt -> Prop)
+  (htext : forall s, P (HText s))
+  (hraw : forall s, P (HRaw s))
+  (hvoid : forall tag self a, P (HVoid tag self a))
+  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
+  (hnil : Q [])
+  (hcons : forall e es, P e -> Q es -> Q (e :: es))
+  : forall es, Q es :=
+  fix golist (es : list helt) : Q es :=
+    match es with
+    | [] => hnil
+    | e :: rest =>
+        hcons e rest
+          (helt_ind2 P Q htext hraw hvoid helem hnil hcons e) (golist rest)
+    end.
+
+(*
+Serializing in one pass
+-----------------------
+
+`serialize` is the specification: every lemma about the output is
+stated against it.  Run as written it copies the output once per level
+of `++`, which is quadratic in the document.  `serialize_flat` lists the
+pieces in output order, prepending to an accumulator, and joins them
+once; `serialize_flat_serialize` says it is the same string.
+*)
+
+Local Fixpoint pieces_elt (e : helt) (acc : list string) : list string :=
+  let go :=
+    fix go (es : list helt) (acc : list string) : list string :=
+      match es with
+      | [] => acc
+      | e' :: rest => pieces_elt e' (go rest acc)
+      end in
+  match e with
+  | HText s => escape s :: acc
+  | HRaw s => s :: acc
+  | HVoid tag self a => open_tag tag self a :: acc
+  | HElem tag nls a kids =>
+      open_tag tag false a :: (if Nat.leb 2 nls then nl else "")
+      :: go kids ("</" :: tag :: ">" :: (if Nat.leb 1 nls then nl else "") :: acc)
+  end.
+
+Local Fixpoint pieces (es : list helt) (acc : list string) : list string :=
+  match es with
+  | [] => acc
+  | e :: rest => pieces_elt e (pieces rest acc)
+  end.
+
+Definition serialize_flat (es : list helt) : string :=
+  String.concat "" (pieces es []).
+
+Local Lemma concat_empty_cons : forall x l,
+  String.concat "" (x :: l) = x ++ String.concat "" l.
+Proof.
+  intros x [|y l]; cbn [String.concat]; [|reflexivity].
+  symmetry. apply append_empty_r.
+Qed.
+
+Local Lemma pieces_elt_elem : forall tag nls a kids acc,
+  pieces_elt (HElem tag nls a kids) acc
+  = open_tag tag false a :: (if Nat.leb 2 nls then nl else "")
+    :: pieces kids ("</" :: tag :: ">" :: (if Nat.leb 1 nls then nl else "") :: acc).
+Proof. reflexivity. Qed.
+
+Lemma serialize_flat_serialize : forall es, serialize_flat es = serialize es.
+Proof.
+  assert (H : forall es acc,
+    String.concat "" (pieces es acc) = serialize es ++ String.concat "" acc).
+  { apply (helts_ind2
+      (fun e => forall acc,
+         String.concat "" (pieces_elt e acc) = serialize_elt e ++ String.concat "" acc)
+      (fun es => forall acc,
+         String.concat "" (pieces es acc) = serialize es ++ String.concat "" acc)).
+    - intros s acc. apply concat_empty_cons.
+    - intros s acc. apply concat_empty_cons.
+    - intros tag self a acc. apply concat_empty_cons.
+    - intros tag nls a kids IH acc.
+      rewrite pieces_elt_elem, serialize_elt_elem, !concat_empty_cons, IH,
+        !concat_empty_cons, !append_assoc. reflexivity.
+    - intros acc. reflexivity.
+    - intros e es IHe IHes acc. cbn [pieces serialize].
+      rewrite IHe, IHes, append_assoc. reflexivity. }
+  intros es. unfold serialize_flat. rewrite H. apply append_empty_r.
+Qed.
+
 (* A task item's checkbox. *)
 Local Definition checkbox_elt (chk : task_status) : helt :=
   HVoid "input" true
@@ -553,15 +665,19 @@ Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | _ => (st, render_inline il a)
   end.
 
+(* Right recursion, each node's output put in front of the rest's: an
+   accumulator appended at the back would copy the output so far once per
+   node. *)
 Local Definition render_inlines_foot (st : foot_state) (ils : inlines)
   : foot_state * list helt :=
-  fold_left
-    (fun acc n =>
-       let '(st0, out) := acc in
-       let '(st1, s) :=
-         match n with Node _ a x => render_inline_foot st0 x a end in
-       (st1, (out ++ s)%list))
-    ils (st, []).
+  (fix go (st0 : foot_state) (ns : inlines) : foot_state * list helt :=
+     match ns with
+     | [] => (st0, [])
+     | Node _ a x :: rest =>
+         let '(st1, s1) := render_inline_foot st0 x a in
+         let '(st2, s2) := go st1 rest in
+         (st2, (s1 ++ s2)%list)
+     end) st ils.
 
 (* The table renderers again, threading the footnote counter: a cell may
    carry a footnote reference, and it is numbered in source order like
@@ -698,15 +814,17 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | _ => (st, render_block tight b a)
   end.
 
+(* Right recursion, as `render_inlines_foot`. *)
 Definition render_blocks_foot (st : foot_state) (bs : blocks)
   : foot_state * list helt :=
-  fold_left
-    (fun acc n =>
-       let '(st0, out) := acc in
-       let '(st1, s) :=
-         match n with Node _ a b => render_block_foot st0 false b a end in
-       (st1, (out ++ s)%list))
-    bs (st, []).
+  (fix go (st0 : foot_state) (ns : blocks) : foot_state * list helt :=
+     match ns with
+     | [] => (st0, [])
+     | Node _ a b :: rest =>
+         let '(st1, s1) := render_block_foot st0 false b a in
+         let '(st2, s2) := go st1 rest in
+         (st2, (s1 ++ s2)%list)
+     end) st bs.
 
 Local Definition note_backlink (n : nat) : helt :=
   HElem "a" 0
@@ -843,25 +961,13 @@ Proof.
   rewrite Hshape. reflexivity.
 Qed.
 
-(* The recursion used for children of a footnote-aware inline. *)
-Local Definition render_ils_foot (refs : reference_map) (st : foot_state)
-  (ils : inlines) : foot_state * list helt :=
-  (fix go (st0 : foot_state) (ns : inlines) : foot_state * list helt :=
-     match ns with
-     | [] => (st0, [])
-     | Node _ a x :: rest =>
-         let '(st1, s1) := render_inline_foot refs st0 x a in
-         let '(st2, s2) := go st1 rest in
-         (st2, (s1 ++ s2)%list)
-     end) st ils.
-
 Theorem render_inline_foot_reference_shape :
   forall il st a refs refs',
     foot_shape (render_inline_foot refs st il a)
                (render_inline_foot refs' st il a).
 Proof.
   pose (Q := fun (ils : inlines) => forall st refs refs',
-    foot_shape (render_ils_foot refs st ils) (render_ils_foot refs' st ils)).
+    foot_shape (render_inlines_foot refs st ils) (render_inlines_foot refs' st ils)).
   apply (inline_ind2
     (fun il => forall st a refs refs',
       foot_shape (render_inline_foot refs st il a)
@@ -878,38 +984,38 @@ Proof.
     split; [reflexivity|apply render_inline_reference_shape].
   - destruct qt.
     + change (foot_shape
-        (let '(u,v) := render_ils_foot refs st ils in
+        (let '(u,v) := render_inlines_foot refs st ils in
          (u, ([HText lsquo] ++ v ++ [HText rsquo])%list))
-        (let '(u,v) := render_ils_foot refs' st ils in
+        (let '(u,v) := render_inlines_foot refs' st ils in
          (u, ([HText lsquo] ++ v ++ [HText rsquo])%list))).
-      destruct (render_ils_foot refs st ils) as [s1 o1] eqn:E1.
-      destruct (render_ils_foot refs' st ils) as [s2 o2] eqn:E2.
+      destruct (render_inlines_foot refs st ils) as [s1 o1] eqn:E1.
+      destruct (render_inlines_foot refs' st ils) as [s2 o2] eqn:E2.
       specialize (H st refs refs'). unfold Q, foot_shape in H.
       rewrite E1, E2 in H. cbn [fst snd] in H.
       destruct H as [Hs Ho]. unfold foot_shape. cbn [fst snd].
       split; [exact Hs|]. repeat rewrite map_app. rewrite Ho. reflexivity.
     + change (foot_shape
-        (let '(u,v) := render_ils_foot refs st ils in
+        (let '(u,v) := render_inlines_foot refs st ils in
          (u, ([HText ldquo] ++ v ++ [HText rdquo])%list))
-        (let '(u,v) := render_ils_foot refs' st ils in
+        (let '(u,v) := render_inlines_foot refs' st ils in
          (u, ([HText ldquo] ++ v ++ [HText rdquo])%list))).
-      destruct (render_ils_foot refs st ils) as [s1 o1] eqn:E1.
-      destruct (render_ils_foot refs' st ils) as [s2 o2] eqn:E2.
+      destruct (render_inlines_foot refs st ils) as [s1 o1] eqn:E1.
+      destruct (render_inlines_foot refs' st ils) as [s2 o2] eqn:E2.
       specialize (H st refs refs'). unfold Q, foot_shape in H.
       rewrite E1, E2 in H. cbn [fst snd] in H.
       destruct H as [Hs Ho]. unfold foot_shape. cbn [fst snd].
       split; [exact Hs|]. repeat rewrite map_app. rewrite Ho. reflexivity.
-  - unfold Q. intros st refs refs'. cbn [render_ils_foot].
+  - unfold Q. intros st refs refs'. cbn [render_inlines_foot].
     destruct (render_inline_foot refs st x a) as [s1 o1] eqn:E1.
     destruct (render_inline_foot refs' st x a) as [s2 o2] eqn:E2.
     pose proof (H st a refs refs') as Hhead.
     unfold foot_shape in Hhead. rewrite E1, E2 in Hhead.
     cbn [fst snd] in Hhead. destruct Hhead as [Hs Ho]. subst s2.
     change (foot_shape
-      (let '(u,v) := render_ils_foot refs s1 rest in (u, (o1 ++ v)%list))
-      (let '(u,v) := render_ils_foot refs' s1 rest in (u, (o2 ++ v)%list))).
-    destruct (render_ils_foot refs s1 rest) as [s3 o3] eqn:E3.
-    destruct (render_ils_foot refs' s1 rest) as [s4 o4] eqn:E4.
+      (let '(u,v) := render_inlines_foot refs s1 rest in (u, (o1 ++ v)%list))
+      (let '(u,v) := render_inlines_foot refs' s1 rest in (u, (o2 ++ v)%list))).
+    destruct (render_inlines_foot refs s1 rest) as [s3 o3] eqn:E3.
+    destruct (render_inlines_foot refs' s1 rest) as [s4 o4] eqn:E4.
     pose proof (H0 s1 refs refs') as Htail.
     unfold Q, foot_shape in Htail. rewrite E3, E4 in Htail.
     cbn [fst snd] in Htail. destruct Htail as [Hs HoTail].
@@ -917,38 +1023,33 @@ Proof.
     split; [exact Hs|]. rewrite !map_app, Ho, HoTail. reflexivity.
 Qed.
 
+Local Lemma render_inlines_foot_cons : forall refs st p a x rest,
+  render_inlines_foot refs st (Node p a x :: rest)
+  = let '(st1, s1) := render_inline_foot refs st x a in
+    let '(st2, s2) := render_inlines_foot refs st1 rest in
+    (st2, (s1 ++ s2)%list).
+Proof. reflexivity. Qed.
+
 Theorem render_inlines_foot_reference_shape :
   forall ils st refs refs',
     foot_shape (render_inlines_foot refs st ils)
                (render_inlines_foot refs' st ils).
 Proof.
-  pose (step := fun (refs : reference_map)
-                    (acc : foot_state * list helt) (n : node inline) =>
-    let '(st0, out) := acc in
-    let '(st1, s) := match n with Node _ a x => render_inline_foot refs st0 x a end in
-    (st1, (out ++ s)%list)).
-  assert (Hfold : forall ils refs refs' acc acc',
-    foot_shape acc acc' ->
-    foot_shape (fold_left (step refs) ils acc)
-               (fold_left (step refs') ils acc')).
-  { induction ils as [|[p a x] rest IH];
-      intros refs refs' [s out] [s' out'] Hacc;
-      [exact Hacc|].
-    cbn [fold_left]. unfold foot_shape in Hacc.
-    cbn [fst snd] in Hacc. destruct Hacc as [Hs Hout]. subst s'.
-    unfold step. cbn [fst snd].
-    destruct (render_inline_foot refs s x a) as [s1 o1] eqn:E1.
-    destruct (render_inline_foot refs' s x a) as [s2 o2] eqn:E2.
-    apply IH.
-    pose proof (render_inline_foot_reference_shape x s a refs refs') as Hx.
-    unfold foot_shape in Hx. rewrite E1, E2 in Hx.
-    cbn [fst snd] in Hx. destruct Hx as [Hstate Hshape].
-    unfold foot_shape. cbn [fst snd]. split; [exact Hstate|].
-    rewrite !map_app, Hout, Hshape. reflexivity. }
-  intros ils st refs refs'.
-  change (foot_shape (fold_left (step refs) ils (st, []))
-                     (fold_left (step refs') ils (st, []))).
-  apply Hfold. unfold foot_shape. cbn [fst snd]. split; reflexivity.
+  induction ils as [|[p a x] rest IH]; intros st refs refs';
+    [split; reflexivity|].
+  rewrite !render_inlines_foot_cons.
+  destruct (render_inline_foot refs st x a) as [s1 o1] eqn:E1.
+  destruct (render_inline_foot refs' st x a) as [s2 o2] eqn:E2.
+  pose proof (render_inline_foot_reference_shape x st a refs refs') as Hx.
+  unfold foot_shape in Hx. rewrite E1, E2 in Hx.
+  cbn [fst snd] in Hx. destruct Hx as [Hs Ho]. subst s2.
+  destruct (render_inlines_foot refs s1 rest) as [s3 o3] eqn:E3.
+  destruct (render_inlines_foot refs' s1 rest) as [s4 o4] eqn:E4.
+  pose proof (IH s1 refs refs') as Hr.
+  unfold foot_shape in Hr. rewrite E3, E4 in Hr.
+  cbn [fst snd] in Hr. destruct Hr as [Hs Hr].
+  unfold foot_shape. cbn [fst snd].
+  split; [exact Hs|]. rewrite !map_app, Ho, Hr. reflexivity.
 Qed.
 
 Local Lemma render_caption_foot_reference_shape :
@@ -1120,33 +1221,26 @@ Proof.
     cbn [map erase_helt_attrs]; rewrite ?map_app; congruence.
 Qed.
 
+Local Lemma render_blocks_foot_cons : forall refs st p a b rest,
+  render_blocks_foot refs st (Node p a b :: rest)
+  = let '(st1, s1) := render_block_foot refs st false b a in
+    let '(st2, s2) := render_blocks_foot refs st1 rest in
+    (st2, (s1 ++ s2)%list).
+Proof. reflexivity. Qed.
+
 Theorem render_blocks_foot_reference_shape :
   forall bs st refs refs',
     foot_shape (render_blocks_foot refs st bs)
                (render_blocks_foot refs' st bs).
 Proof.
-  pose (step := fun (refs : reference_map)
-                    (acc : foot_state * list helt) (n : node block) =>
-    let '(st0, out) := acc in
-    let '(st1, s) :=
-      match n with Node _ a b => render_block_foot refs st0 false b a end in
-    (st1, (out ++ s)%list)).
-  assert (Hfold : forall bs refs refs' acc acc',
-    foot_shape acc acc' ->
-    foot_shape (fold_left (step refs) bs acc)
-               (fold_left (step refs') bs acc')).
-  { induction bs as [|[p a b] rest IH];
-      intros refs refs' [s out] [s' out'] [Hs Hout]; [split; assumption|].
-    cbn [fst snd] in Hs, Hout. subst s'. cbn [fold_left]. apply IH.
-    unfold step.
-    eapply foot_shape_bind;
-      [apply render_block_foot_reference_shape|intros st1 o o' Ho].
-    unfold foot_shape. cbn [fst snd].
-    split; [reflexivity|]. rewrite !map_app, Hout, Ho. reflexivity. }
-  intros bs st refs refs'.
-  change (foot_shape (fold_left (step refs) bs (st, []))
-                     (fold_left (step refs') bs (st, []))).
-  apply Hfold. split; reflexivity.
+  induction bs as [|[p a b] rest IH]; intros st refs refs';
+    [split; reflexivity|].
+  rewrite !render_blocks_foot_cons.
+  eapply foot_shape_bind;
+    [apply render_block_foot_reference_shape|intros st1 o o' Ho].
+  eapply foot_shape_bind; [apply IH|intros st2 r r' Hr].
+  unfold foot_shape. cbn [fst snd].
+  split; [reflexivity|]. rewrite !map_app, Ho, Hr. reflexivity.
 Qed.
 
 (* Note bodies are keyed by label; only the bodies' attributes may differ. *)
@@ -1395,7 +1489,7 @@ Proof.
   apply render_document_foot_reference_shape.
 Qed.
 
-Definition render_html (d : doc) : string := serialize (html_tree d).
+Definition render_html (d : doc) : string := serialize_flat (html_tree d).
 
 (* The document renderer: djot in, HTML out. *)
 Definition convert (s : string) : string := render_html (parse_doc s).
@@ -1973,13 +2067,6 @@ Local Definition no_lt (s : string) : bool := Nat.eqb (count_char lt_char s) 0.
 
 Local Definition attr_ok (a : attr) : bool := forallb (fun kv => no_lt (fst kv)) a.
 
-Local Lemma concat_empty_cons : forall x l,
-  String.concat "" (x :: l) = x ++ String.concat "" l.
-Proof.
-  intros x l. destruct l as [|y l'];
-    [cbn [String.concat]; symmetry; apply append_empty_r | reflexivity].
-Qed.
-
 Local Lemma count_char_concat : forall c l,
   count_char c (String.concat "" l)
   = fold_right (fun s n => count_char c s + n) 0 l.
@@ -2073,48 +2160,6 @@ Proof.
     cbn [helts_tags]. rewrite <- IH. reflexivity. }
   rewrite H. reflexivity.
 Qed.
-
-(* Induction that reaches the children, in the shape `Render.cblock_ind2`
-   established: the inner `fix` is what carries `P` through `list helt`. *)
-Local Definition helt_ind2
-  (P : helt -> Prop) (Q : list helt -> Prop)
-  (htext : forall s, P (HText s))
-  (hraw : forall s, P (HRaw s))
-  (hvoid : forall tag self a, P (HVoid tag self a))
-  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
-  (hnil : Q [])
-  (hcons : forall e es, P e -> Q es -> Q (e :: es))
-  : forall e, P e :=
-  fix go (e : helt) : P e :=
-    let golist :=
-      fix golist (es : list helt) : Q es :=
-        match es with
-        | [] => hnil
-        | e' :: rest => hcons e' rest (go e') (golist rest)
-        end in
-    match e with
-    | HText s => htext s
-    | HRaw s => hraw s
-    | HVoid tag self a => hvoid tag self a
-    | HElem tag nls a kids => helem tag nls a kids (golist kids)
-    end.
-
-Local Definition helts_ind2
-  (P : helt -> Prop) (Q : list helt -> Prop)
-  (htext : forall s, P (HText s))
-  (hraw : forall s, P (HRaw s))
-  (hvoid : forall tag self a, P (HVoid tag self a))
-  (helem : forall tag nls a kids, Q kids -> P (HElem tag nls a kids))
-  (hnil : Q [])
-  (hcons : forall e es, P e -> Q es -> Q (e :: es))
-  : forall es, Q es :=
-  fix golist (es : list helt) : Q es :=
-    match es with
-    | [] => hnil
-    | e :: rest =>
-        hcons e rest
-          (helt_ind2 P Q htext hraw hvoid helem hnil hcons e) (golist rest)
-    end.
 
 Local Lemma open_tag_lt : forall tag self a,
   no_lt tag = true -> attr_ok a = true ->

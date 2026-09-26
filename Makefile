@@ -1,6 +1,6 @@
 .PHONY: help build doc build-djotjs diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks \
-        check-spans probe-lemmas dist check-dist copy-parser
+        check-spans bench probe-lemmas dist check-dist copy-parser
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -70,6 +70,9 @@ roundtrip-wikilinks: build  ## Wikilink extension
 
 check-spans: build  ## Located parse: every span lies inside its document and parent
 	dune exec test/spans.exe -- $(VERBOSE) 3
+
+bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
+	dune exec test/bench.exe -- $(SHAPES)
 
 # Kept out of dune build so that a new pstate constructor breaks this
 # recipe rather than the build.  See dev/check/Probe.v.

@@ -9,151 +9,28 @@ open Nat0
 open Step
 open Strings
 
-(** val escape_char : char -> string **)
-
-let escape_char c =
-  (* If this appears, you're using Ascii internals. Please don't *)
- (fun f c ->
-  let n = Char.code c in
-  let h i = (n land (1 lsl i)) <> 0 in
-  f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
-    (fun b b0 b1 b2 b3 b4 b5 b6 ->
-    if b
-    then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, "")
-    else if b0
-         then if b1
-              then if b2
-                   then if b3
-                        then if b4
-                             then if b5
-                                  then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                         (c, "")
-                                  else if b6
-                                       then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                              (c, "")
-                                       else "&gt;"
-                             else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                    (c, "")
-                        else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                               (c, "")
-                   else if b3
-                        then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                               (c, "")
-                        else if b4
-                             then if b5
-                                  then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                         (c, "")
-                                  else if b6
-                                       then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                              (c, "")
-                                       else "&amp;"
-                             else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                    (c, "")
-              else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                     (c, "")
-         else if b1
-              then if b2
-                   then if b3
-                        then if b4
-                             then if b5
-                                  then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                         (c, "")
-                                  else if b6
-                                       then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                              (c, "")
-                                       else "&lt;"
-                             else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                                    (c, "")
-                        else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                               (c, "")
-                   else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                          (c, "")
-              else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                     (c, ""))
-    c
-
 (** val escape : string -> string **)
 
-let rec escape s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c s' -> (^) (escape_char c) (escape s'))
-    s
-
-(** val escape_attr_char : char -> string **)
-
-let escape_attr_char c =
-  (* If this appears, you're using Ascii internals. Please don't *)
- (fun f c ->
-  let n = Char.code c in
-  let h i = (n land (1 lsl i)) <> 0 in
-  f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
-    (fun b b0 b1 b2 b3 b4 b5 b6 ->
-    if b
-    then escape_char c
-    else if b0
-         then if b1
-              then escape_char c
-              else if b2
-                   then escape_char c
-                   else if b3
-                        then escape_char c
-                        else if b4
-                             then if b5
-                                  then escape_char c
-                                  else if b6 then escape_char c else "&quot;"
-                             else escape_char c
-         else escape_char c)
-    c
+let rec escape = (fun s ->
+     let b = Buffer.create (String.length s) in
+     String.iter (function
+       | '&' -> Buffer.add_string b "&amp;"
+       | '<' -> Buffer.add_string b "&lt;"
+       | '>' -> Buffer.add_string b "&gt;"
+       | c -> Buffer.add_char b c) s;
+     Buffer.contents b)
 
 (** val escape_attr : string -> string **)
 
-let rec escape_attr s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c s' -> (^) (escape_attr_char c) (escape_attr s'))
-    s
+let rec escape_attr = (fun s ->
+     let b = Buffer.create (String.length s) in
+     String.iter (function
+       | '&' -> Buffer.add_string b "&amp;"
+       | '<' -> Buffer.add_string b "&lt;"
+       | '>' -> Buffer.add_string b "&gt;"
+       | '"' -> Buffer.add_string b "&quot;"
+       | c -> Buffer.add_char b c) s;
+     Buffer.contents b)
 
 (** val render_attrs : attr -> string **)
 
@@ -173,32 +50,40 @@ type helt =
 let open_tag tag self a =
   (^) "<" ((^) tag ((^) (render_attrs a) (if self then "/>" else ">")))
 
-(** val serialize_elt : helt -> string **)
+(** val pieces_elt : helt -> string list -> string list **)
 
-let rec serialize_elt e =
+let rec pieces_elt e acc =
   let go =
-    let rec go = function
-    | [] -> ""
-    | e' :: rest -> (^) (serialize_elt e') (go rest)
+    let rec go es acc0 =
+      match es with
+      | [] -> acc0
+      | e' :: rest -> pieces_elt e' (go rest acc0)
     in go
   in
   (match e with
-   | HText s -> escape s
-   | HRaw s -> s
-   | HVoid (tag, self, a) -> open_tag tag self a
+   | HText s -> (escape s) :: acc
+   | HRaw s -> s :: acc
+   | HVoid (tag, self, a) -> (open_tag tag self a) :: acc
    | HElem (tag, nls, a, kids) ->
-     (^) (open_tag tag false a)
-       ((^) (if ( <= ) (Stdlib.succ (Stdlib.succ 0)) nls then nl else "")
-         ((^) (go kids)
-           ((^) "</"
-             ((^) tag
-               ((^) ">" (if ( <= ) (Stdlib.succ 0) nls then nl else "")))))))
+     (open_tag tag false a) :: ((if ( <= ) (Stdlib.succ (Stdlib.succ 0)) nls
+                                 then nl
+                                 else "") :: (go kids
+                                               ("</" :: (tag :: (">" :: ((
+                                               if ( <= ) (Stdlib.succ 0) nls
+                                               then nl
+                                               else "") :: acc)))))))
 
-(** val serialize : helt list -> string **)
+(** val pieces : helt list -> string list -> string list **)
 
-let rec serialize = function
-| [] -> ""
-| e :: rest -> (^) (serialize_elt e) (serialize rest)
+let rec pieces es acc =
+  match es with
+  | [] -> acc
+  | e :: rest -> pieces_elt e (pieces rest acc)
+
+(** val serialize_flat : helt list -> string **)
+
+let serialize_flat es =
+  String.concat "" (pieces es [])
 
 (** val checkbox_elt : task_status -> helt **)
 
@@ -569,12 +454,12 @@ let rec render_inline_foot refs st il a =
 (** val render_inlines_foot :
     reference_map -> foot_state -> inlines -> foot_state * helt list **)
 
-let render_inlines_foot refs st ils =
-  fold_left (fun acc n ->
-    let (st0, out) = acc in
-    let (st1, s) = let Node (_, a, x) = n in render_inline_foot refs st0 x a
-    in
-    (st1, (app out s))) ils (st, [])
+let rec render_inlines_foot refs st = function
+| [] -> (st, [])
+| n :: rest ->
+  let Node (_, a, x) = n in
+  let (st1, s1) = render_inline_foot refs st x a in
+  let (st2, s2) = render_inlines_foot refs st1 rest in (st2, (app s1 s2))
 
 (** val render_cell_foot :
     reference_map -> foot_state -> cell -> foot_state * helt **)
@@ -716,13 +601,12 @@ let rec render_block_foot refs st tight b a =
 (** val render_blocks_foot :
     reference_map -> foot_state -> blocks -> foot_state * helt list **)
 
-let render_blocks_foot refs st bs =
-  fold_left (fun acc n ->
-    let (st0, out) = acc in
-    let (st1, s) =
-      let Node (_, a, b) = n in render_block_foot refs st0 false b a
-    in
-    (st1, (app out s))) bs (st, [])
+let rec render_blocks_foot refs st = function
+| [] -> (st, [])
+| n :: rest ->
+  let Node (_, a, b) = n in
+  let (st1, s1) = render_block_foot refs st false b a in
+  let (st2, s2) = render_blocks_foot refs st1 rest in (st2, (app s1 s2))
 
 (** val note_backlink : int -> helt **)
 
@@ -820,7 +704,7 @@ let html_tree d =
 (** val render_html : doc -> string **)
 
 let render_html d =
-  serialize (html_tree d)
+  serialize_flat (html_tree d)
 
 (** val convert : string -> string **)
 

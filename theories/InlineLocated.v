@@ -38,10 +38,8 @@ The same transition, driven so that each byte arrives with its own
 every use of the cursor is behind `pos_records`, so this is `iscan_lines`
 with an argument the scanner ignores.
 
-Coordinates are counted, never measured.  Extracted `String.length`
-allocates a unary `nat` per byte, so calling it per byte would make a
-line quadratic; `rem` starts at one length per line and a predecessor
-carries it down.  That count is the distance to the end of the *source*
+Coordinates are counted, never measured: `rem` starts at one length per
+line and a predecessor carries it down.  That count is the distance to the end of the *source*
 line because a stored line is a suffix of its line with nothing trimmed
 from the end (`.project/260916.plan.source-locations.md`, F2).
 *)

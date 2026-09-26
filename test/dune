@@ -7,6 +7,6 @@
  (libraries djot unix))
 
 (executables
- (names diff roundtrip spans convert)
- (modules diff roundtrip spans convert)
+ (names diff roundtrip spans convert bench)
+ (modules diff roundtrip spans convert bench)
  (libraries djot djot_fixtures djot_test unix))

@@ -10,9 +10,10 @@ re-measure before quoting them.
 Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 `rev_string`, `List.rev`).  `nat` is extracted to OCaml `int`, which
 removed unary arithmetic and character classification through unary
-`nat` and roughly halved ordinary-prose parse time.  Structural matches
-still make long lines quadratic.  The last comparison against cmarkit
-predates the `int` change; re-measure before quoting it.
+`nat` and roughly halved ordinary-prose parse time.  The HTML renderer
+is linear.  Not production ready: four input shapes are superlinear in
+the parser (ranked below).  The last comparison
+against cmarkit predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
 beside the existing semantic parser.  `line_table` and `resolve_span`
@@ -114,6 +115,29 @@ How the substitution was checked (2026-09-26), old extraction against new:
 - test suite 287/287 and generated 6167/6167 exact HTML; depth-3
   roundtrip 43857/43857; located bounds 44150/44150.
 
+The HTML renderer (2026-09-26).  Three quadratics, now linear:
+
+- `render_inlines_foot` and `render_blocks_foot` folded with `out ++ s`,
+  copying the output so far once per node.  They are now right
+  recursions, like the inner renderers; `render_inlines_foot` replaced
+  the proof-only `render_ils_foot`, which had the same definition.
+- `serialize` joins with right-nested `++`.  It stays the specification;
+  `render_html` uses `serialize_flat`, which prepends pieces to an
+  accumulator and joins once with `String.concat` (native under
+  `ExtrOcamlNativeString`), and `serialize_flat_serialize` proves the two
+  equal.
+- `Html.escape` and `Html.escape_attr` are realized by a `Buffer` loop.
+  Trusted, like the substitutions above.
+
+Checked (2026-09-26): both escapers against the previous extraction on
+every byte, every string over `{&, <, >, ", a, '}` up to length 6, and
+200 random byte strings at each length 2 to 300 (116043 checks, no
+difference); `Html.convert` on the 1539343-input differential above, no
+difference; test suite, generated, roundtrip and located bounds as
+before.  A 5 MB file of short paragraphs converts in 2.35 s (dev
+profile, including process start), where it did not finish in ten
+minutes; djot.js takes 323 ms on it.
+
 Any further `Extract Constant` joins this list and gets the same check.
 
 ## Measurements
@@ -212,29 +236,74 @@ into one executable.
 
 ## Open, ranked by what they cost a real document
 
-### 1. Tail copies inside a line
+Measured 2026-09-26 at `537dba9`, release profile, parse (`parse_doc`)
+against full conversion (`Html.convert`).  djot.js figures are its
+`parse` plus `renderHTML` on the same generated inputs.
+
+### 1. Unclosed openers are quadratic in a paragraph
+
+| input, wrapped at 78 columns | 40 KB | 160 KB | djot.js 160 KB |
+| --- | --- | --- | --- |
+| `[a` repeated | 121 ms | 1951 ms | 12 ms |
+| `_a ` repeated | 87 ms | 1324 ms | 15 ms |
+
+`InlineScan.oapp` appends a failed frame's content to its parent's
+output, so k unclosed openers cost O(k^2).  Algorithmic, in the scanner
+the inline proofs are about.
+
+### 2. Repeated heading text is cubic
+
+1000 copies of `# heading` take 1652 ms in the document pass; 1000
+distinct headings take 14 ms.  `unique_id` tries `base-1`, `base-2`, ...
+and each candidate is checked against every identifier used so far.  A
+next-index counter per base removes both factors.  The same refactor can
+prove freshness of the assigned identifier, which `Document.v` currently
+argues in a comment.  djot.js is quadratic here too (7.1 s for 160 KB of
+the same heading).
+
+### 3. Tail copies inside a line
 
 Per-character recursion with a tail copy: `Line` 60 occurrences,
 `Inline` 27, `Strings` 11, `Attributes` 6, `Marker` 3, `Html` 3. With
-lines split natively this is O(line^2) per line, which is small on
-prose and the reason a pathological long line stays slow even with native
-`String.length`. `Inline` also has 92 string concatenations, a candidate
-for paragraph cost remaining after native `List.rev`.
+lines split natively this is O(line^2) per line: one 160 KB line of
+`word ` parses in 899 ms, against 89 ms at 40 KB.  Small on prose, and
+a denial-of-service shape for any input with long lines.
 
-Fix: scan by offset, `(s, i)` with `String.get`, in the theories. Every
-lemma by induction on `String c s'` has to be restated for offsets, so
-this is the expensive item. It is the same change that source positions
-need (`Ast.pos` exists but nothing produces `SomePos`), so do it together
-with positions, not separately.
+Source positions no longer block this.  The located scan
+(`InlineLocated.v`) still matches `String c rest` and carries a counted
+distance to the end of the line beside it, so positions landed without
+offset scanning.
 
-### 2. Delimiter lookup per character
+Fix, either:
+
+- scan by offset, `(s, i)` with `String.get`, in the theories; every
+  lemma by induction on `String c s'` is restated for offsets;
+- or extract `string` to a slice (a string and a start offset), so a
+  match on `String c s'` is O(1).  No proof changes, a larger trusted
+  realization, and `String c acc` construction stays a copy.
+
+### 4. Delimiter lookup per character
 
 `Inline.dstyle_at` is `find` over `dstyles` with two closure calls per
 row (`denabled`, `dc_char`). In the `readme.dj` x64 profile,
 `List0.find` 145, `djot_dsyntax` 133 and `denabled` 99 samples. A
 constant factor; a precomputed character-to-style table would remove it.
 
+### 5. Inline links
+
+80 KB of `[a](b) ` wrapped at 78 columns parses in 34.6 ms, against
+3.7 ms at 20 KB (dev profile): 9.4x per 4x, superlinear, cause not yet
+located.
+
+Linear already: nested lists and deep list nesting (160 KB in 22 ms and
+45 ms), and conversion of every shape above beyond its parse.
+
 ## Order
 
-Offset scanning waits for positions.  Delimiter lookup is the remaining
-local constant-factor target.
+The two algorithmic items first, in the inline scanner and the
+identifier pass; then long lines, then constant factors.
+
+`make bench` runs generated shapes at 20 KB and 80 KB (or `--sizes`)
+through the document parse and `Html.convert` and prints the growth per
+size step; a row past 8x is marked.  Run it before and after a change
+that touches a scan or the renderer.

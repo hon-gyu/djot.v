@@ -9,11 +9,7 @@ open Nat0
 open Step
 open Strings
 
-val escape_char : char -> string
-
 val escape : string -> string
-
-val escape_attr_char : char -> string
 
 val escape_attr : string -> string
 
@@ -27,9 +23,11 @@ type helt =
 
 val open_tag : string -> bool -> attr -> string
 
-val serialize_elt : helt -> string
+val pieces_elt : helt -> string list -> string list
 
-val serialize : helt list -> string
+val pieces : helt list -> string list -> string list
+
+val serialize_flat : helt list -> string
 
 val checkbox_elt : task_status -> helt
 

@@ -67,6 +67,29 @@ Extract Constant PeanoNat.Nat.modulo =>
 Extract Inlined Constant Ascii.nat_of_ascii => "Char.code".
 Extract Constant Ascii.ascii_of_nat => "fun n -> Char.chr (n land 255)".
 Extract Constant DjotV.Strings.nat_str => "Stdlib.string_of_int".
+(* The HTML escapers are per-character recursions with a tail copy and an
+   append per character, quadratic in the length of a text node.
+   ([String.concat], which `Html.serialize_flat` joins the document with,
+   is already OCaml's under `ExtrOcamlNativeString`.) *)
+Extract Constant DjotV.Html.escape =>
+  "(fun s ->
+     let b = Buffer.create (String.length s) in
+     String.iter (function
+       | '&' -> Buffer.add_string b ""&amp;""
+       | '<' -> Buffer.add_string b ""&lt;""
+       | '>' -> Buffer.add_string b ""&gt;""
+       | c -> Buffer.add_char b c) s;
+     Buffer.contents b)".
+Extract Constant DjotV.Html.escape_attr =>
+  "(fun s ->
+     let b = Buffer.create (String.length s) in
+     String.iter (function
+       | '&' -> Buffer.add_string b ""&amp;""
+       | '<' -> Buffer.add_string b ""&lt;""
+       | '>' -> Buffer.add_string b ""&gt;""
+       | '""' -> Buffer.add_string b ""&quot;""
+       | c -> Buffer.add_char b c) s;
+     Buffer.contents b)".
 Extract Constant DjotV.Strings.rev_string =>
   "(fun s -> let n = String.length s in
      String.init n (fun i -> String.get s (n - 1 - i)))".
