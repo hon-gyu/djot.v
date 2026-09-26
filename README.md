@@ -2,18 +2,22 @@
 
 djot.v is a [djot](https://djot.net) parser written and verified in Rocq, with an extracted OCaml parser, an AST-to-djot renderer and an AST-to-HTML renderer.
 
-It is _verified_ in the sense that the goals behind djot's design are stated as theorems about the parser and proved. The main ones:
+It is _verified_ in the sense that the goals behind djot's design[^1] are stated as theorems about the parser and proved. The main ones:
 
-- **No backtracking.** Blocks are parsed line by line, and a later line never changes an earlier block. Inline text is scanned once, byte by byte. This is what makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.
-- **Container uniformity.** Text placed in a block quote or a list item parses as it would on its own, so moving content in or out of a container does not change its meaning.
-- **Local interpretation.** Whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.
-- **Safe rewrapping.** A line inside a paragraph never starts a list, heading or quote, whatever it begins with. Rewrapping a paragraph cannot create one by accident.
+- **No backtracking**: Blocks are parsed line by line, and a later line never changes an earlier block. Inline text is scanned once, byte by byte. This is what makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.
+- **Container uniformity**: Text placed in a block quote or a list item parses as it would on its own, so moving content in or out of a container does not change its meaning.
+- **Local interpretation**: Whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.
+- **Safe rewrapping**: A line inside a paragraph never starts a list, heading or quote, whatever it begins with. Rewrapping a paragraph cannot create one by accident.
 
-See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from. [Properties](#djot-properties) lists everything proved, what each proof assumes, and what is still to be done.
+[Properties](#djot-properties) section lists everything proved, what each proof assumes, and what is still to be done.
 
-It is _generalized_ in the sense that djot is one setting of a configurable parser. The theorems are proved for every combination of the settings below, or state which settings break them, so each setting comes with an answer to which of the properties above it keeps. For example, a Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
+It is _generalized_ in the sense that djot is one setting of a configurable parser. 
+- The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. 
+- For example, we provide a Markdown-like profile which writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
 
 > Gen-AI disclosure: most of the proofs were done by a Gen-AI tool
+
+[^1]: See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from.
 
 ## Djot Properties
 
@@ -82,11 +86,9 @@ To run the comparison, build djot.js once with `make build-djotjs`, then
 
 ## Extracted Programs
 
-Rocq supports extraction to OCaml, Haskell and Scheme. We tested extraction to OCaml only.
+Rocq supports extraction to OCaml, Haskell and Scheme. We carry out performance measurements and optimizations only for the OCaml extraction. 
 
 With [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml), a JavaScript or WebAssembly parser can be built in theory.
-
-Performance: long lines are still quadratic. There's ongoing work to improve this.
 
 ## Development Requirements
 
