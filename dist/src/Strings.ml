@@ -62,8 +62,11 @@ let rec indent_of = (fun s ->
 
 (** val strip_trailing_ws : string -> string **)
 
-let strip_trailing_ws s =
-  rev_string (drop_leading_ws (rev_string s))
+let strip_trailing_ws = (fun s ->
+     let ws c = c = ' ' || c = '\t' || c = '\r' in
+     let n = String.length s in
+     let rec go i = if i > 0 && ws s.[i - 1] then go (i - 1) else i in
+     let i = go n in if i = n then s else String.sub s 0 i)
 
 (** val drop_ws_upto : int -> string -> string **)
 
