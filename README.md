@@ -79,7 +79,7 @@ Some additional properties for the generalized parser:
 
 ## Conformance
 
-The parser is compared with [djot.js](https://github.com/jgm/djot.js): it matches the expected HTML on all 287 cases of djot.js's test suite at (8a529fe00b52adf0ba14708195c42e0b6712520f).
+The parser is compared with [djot.js](https://github.com/jgm/djot.js): it matches the expected HTML on all 287 HTML cases of djot.js's test suite (8a529fe00b52adf0ba14708195c42e0b6712520f).
 
 To run the comparison, build djot.js once with `make build-djotjs`, then
 `make diff`. 
