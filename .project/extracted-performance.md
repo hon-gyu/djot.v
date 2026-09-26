@@ -506,6 +506,17 @@ milliseconds:
 copying (per-line substrings, `rev_string` in trailing-whitespace
 removal, pending-text chunks), spread over many sites.
 
+Trailing whitespace (2026-09-26, baseline `90b7ecb`).  `strip_trailing_ws`
+is specified as `rev_string (drop_leading_ws (rev_string s))`, two full
+copies per call; it runs on every line of an open paragraph (the
+underline test), on table rows, on a paragraph's last line, and on the
+pending text at a line break.  It is realized by one backward scan.
+Checked against `dist/src` at `90b7ecb` as above, with the function also
+compared directly: 173279316 comparisons, no difference; the suites and
+`dist/` as before.  Same process, old -> new: `readme.dj` x64
+`parse_doc` 34.8 -> 32.6 ms; one paragraph of short lines at 320 KB
+7.8 -> 6.6 ms; the other prose shapes moved by under 10%.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
