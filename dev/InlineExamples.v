@@ -206,7 +206,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* Doubling is nesting, not a second construct.  This is the fact that
    makes `__` for strong a *different table*, not an extension of this
-   one (`.project/260811.inline-parser.md` §0.1). *)
+   one (`.project/archived/260811.inline-parser.md` §0.1). *)
 Example doubled_is_nested :
   parse_inline_line "__a__" = [mk (Emph [mk (Emph [mk (Str "a")])])].
 Proof. vm_compute. reflexivity. Qed.
@@ -1140,7 +1140,7 @@ Inline attributes
 =================
 
 A spec attaches to the run of text before it.  The table in
-.project/260811.inline-parser.md is the measured source for these.
+.project/archived/260811.inline-parser.md is the measured source for these.
 *)
 
 Example attr_on_word :

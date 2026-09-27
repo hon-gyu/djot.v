@@ -1635,7 +1635,7 @@ Proof. reflexivity. Qed.
 Task lists
 ==========
 
-Read off djot.js (`.project/260822.task-lists.md`).
+Read off djot.js (`.project/archived/260822.task-lists.md`).
 *)
 
 Example convert_tasklist :
@@ -1715,7 +1715,7 @@ Proof. reflexivity. Qed.
 Definition lists
 ================
 
-Read off djot.js (`.project/260822.definition-lists.md`).
+Read off djot.js (`.project/archived/260822.definition-lists.md`).
 *)
 
 (* The term is the item's first paragraph, and the blank line is what

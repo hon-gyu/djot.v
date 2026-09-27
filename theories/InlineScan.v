@@ -193,7 +193,7 @@ The scope stack
 
 A stack of open scopes, each carrying its own accumulated inlines.
 djot.js instead rewrites a flat event list; the two agree
-(`.project/260811.inline-parser.md`), and the stack is what the proofs
+(`.project/archived/260811.inline-parser.md`), and the stack is what the proofs
 can induct on.
 
 Closing pops a scope and emits its node.  Abandoning replaces a scope by

@@ -12,7 +12,7 @@ never, which is the rule "a sublist must be preceded by a blank line";
 Every line here was measured.  The knob is a parameter, so these
 examples name the other instance and the ordinary build checks them.
 The argument for the shape of this knob, and the measurements behind the
-restriction, are in `.project/260823.phase4-block-knob.md`.
+restriction, are in `.project/archived/260823.phase4-block-knob.md`.
 *)
 
 From Stdlib Require Import String List Ascii.
