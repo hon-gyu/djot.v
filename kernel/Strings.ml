@@ -159,6 +159,11 @@ let rec no_nl = (fun s -> not (String.contains s '\n'))
 
 let rec no_char = (fun c s -> not (String.contains s c))
 
+(** val is_ws_nl : char -> bool **)
+
+let is_ws_nl c =
+  (||) (is_ws c) ((=) c '\n')
+
 (** val no_ws : string -> bool **)
 
 let rec no_ws = (fun s -> not (String.exists (fun c ->
