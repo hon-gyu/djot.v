@@ -42,6 +42,59 @@ Definition thematic_line : string := "* * * *".
    whitespace run followed by an empty token. *)
 Definition ref_line (label dest : string) : string :=
   "[" ++ label ++ "]: " ++ dest.
+(* A key's lines.  A key over a paragraph goes on one line, the
+   paragraph's first line as its value, when that line still reads as the
+   same key with the same value; otherwise the label has a line of its
+   own and the block starts on the next. *)
+Definition key_line (label value : string) : string := label ++ ": " ++ value.
+
+Definition key_inline_ok (label value : string) : bool :=
+  let l := key_line label value in
+  line_ok l && is_text l
+  && match key_split l with
+     | Some (lbl, v) => String.eqb lbl label && String.eqb v value
+     | None => false
+     end.
+
+Definition key_lines (label : string) (para : bool) (ls : list string)
+  : list string :=
+  match ls with
+  | l0 :: rest =>
+      if para && key_inline_ok label l0
+      then key_line label l0 :: rest
+      else (label ++ ":") :: ls
+  | [] => [label ++ ":"]
+  end.
+
+Lemma key_lines_cases :
+  forall label para ls,
+    key_lines label para ls = (label ++ ":") :: ls
+    \/ exists l0 rest,
+         ls = l0 :: rest /\ para = true /\ key_inline_ok label l0 = true
+         /\ key_lines label para ls = key_line label l0 :: rest.
+Proof.
+  intros label para [|l0 rest]; [left; reflexivity|].
+  cbn [key_lines]. destruct (para && key_inline_ok label l0)%bool eqn:E.
+  - right. apply andb_true_iff in E as [Hp Hk]. exists l0, rest. auto.
+  - left. reflexivity.
+Qed.
+
+Lemma key_inline_ok_parts :
+  forall label value, key_inline_ok label value = true ->
+    line_ok (key_line label value) = true
+    /\ classify (key_line label value) = KText
+    /\ key_split (key_line label value) = Some (label, value).
+Proof.
+  intros label value H. unfold key_inline_ok in H.
+  apply andb_true_iff in H as [H Hsplit].
+  apply andb_true_iff in H as [Hline Htext].
+  apply is_text_classify in Htext.
+  destruct (key_split (key_line label value)) as [[lbl v]|] eqn:E;
+    [|discriminate Hsplit].
+  apply andb_true_iff in Hsplit as [Hl Hv].
+  apply String.eqb_eq in Hl, Hv. subst lbl v. auto.
+Qed.
+
 Definition code_close : string := "```".
 Definition code_open (info : string) : string := "```" ++ info.
 
@@ -290,7 +343,8 @@ Inductive cblock : Type :=
      attributes is canonical here; the wrapper preserves whether the id
      was explicit, which the document pass's AST cannot recover. *)
   | CId (id : string) (inner : cblock)
-  (* One inline label, then a child at the same column on the next line. *)
+  (* One inline label, then a child at the same column on the next line,
+     or a paragraph's first line after the colon (`key_lines`). *)
   | CKey (label : cinline) (inner : cblock).
 
 (* The two projections a cblock sits between: its source lines... *)
@@ -324,7 +378,9 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CRef label dest => [ref_line label dest]
   | CTable rows => flat_map ctrow_lines rows
   | CId id inner => ("{#" ++ id ++ "}") :: cb_lines inner
-  | CKey label inner => (ci_line [label] ++ ":") :: cb_lines inner
+  | CKey label inner =>
+      key_lines (ci_line [label])
+        (match inner with CPara _ => true | _ => false end) (cb_lines inner)
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -1328,8 +1384,10 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
        :: map note_indent
             (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
    | Ext_keyed label inner =>
-       (String.concat "" (map (fun n => inline_text (node_contents n)) label) ++ ":")%string
-       :: render_lines (node_attrs inner) (node_contents inner)
+       key_lines
+         (String.concat "" (map (fun n => inline_text (node_contents n)) label))
+         (match inner with Node _ [] (Para _) => true | _ => false end)
+         (render_lines (node_attrs inner) (node_contents inner))
    | Table cap rows =>
        (table_lines rows ++ match cap with
                             | Some ils => caption_lines ils

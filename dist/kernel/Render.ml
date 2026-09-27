@@ -25,6 +25,29 @@ let thematic_line =
 let ref_line label dest =
   (^) "[" ((^) label ((^) "]: " dest))
 
+(** val key_line : string -> string -> string **)
+
+let key_line label value =
+  (^) label ((^) ": " value)
+
+(** val key_inline_ok : dtable -> string -> string -> bool **)
+
+let key_inline_ok t label value =
+  let l = key_line label value in
+  (&&) ((&&) (line_ok l) (is_text l))
+    (match key_split t l with
+     | Some p -> let (lbl, v) = p in (&&) ((=) lbl label) ((=) v value)
+     | None -> false)
+
+(** val key_lines : dtable -> string -> bool -> string list -> string list **)
+
+let key_lines t label para ls = match ls with
+| [] -> ((^) label ":") :: []
+| l0 :: rest ->
+  if (&&) para (key_inline_ok t label l0)
+  then (key_line label l0) :: rest
+  else ((^) label ":") :: ls
+
 (** val code_close : string **)
 
 let code_close =
@@ -159,7 +182,11 @@ let rec cb_lines t cb =
    | CTable rows -> flat_map (ctrow_lines t) rows
    | CId (id, inner) -> ((^) "{#" ((^) id "}")) :: (cb_lines t inner)
    | CKey (label, inner) ->
-     ((^) (ci_line t (label :: [])) ":") :: (cb_lines t inner))
+     key_lines t (ci_line t (label :: []))
+       (match inner with
+        | CPara _ -> true
+        | _ -> false)
+       (cb_lines t inner))
 
 (** val cb_ast : cblock -> block node **)
 
@@ -751,10 +778,16 @@ let rec render_lines t k a b =
                                             bs)))
      | RefDef (label, dest) -> (ref_line label dest) :: []
      | Ext_keyed (label, inner) ->
-       ((^)
+       key_lines t
          (String.concat ""
            (map (fun n -> inline_text t (node_contents n)) label))
-         ":") :: (render_lines t k (node_attrs inner) (node_contents inner))
+         (let Node (_, a0, x) = inner in
+          (match a0 with
+           | [] -> (match x with
+                    | Para _ -> true
+                    | _ -> false)
+           | _ :: _ -> false))
+         (render_lines t k (node_attrs inner) (node_contents inner))
      | Ext_callout (kind, fold, title, bs) ->
        (quote_line
          (callout_header_line kind fold

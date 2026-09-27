@@ -24,8 +24,9 @@ stated against `keyed_sublist_bconfig`, since it needs the sublist
 setting as well as keys. `out_of_column_needs_the_setting` in that
 file is what the parser does with keys off, and
 `out_of_column_is_claimed` is the same document with them on. `Render.CKey` gives keys a canonical
-two-line spelling and the existing `roundtrip_blocks` theorem covers
-them. `test/roundtrip.exe --keyed` runs the extracted roundtrip over a separate keyed
+spelling, on one line over a paragraph when that line reads back as the
+same key and on two lines otherwise, and the existing `roundtrip_blocks`
+theorem covers both. `test/roundtrip.exe --keyed` runs the extracted roundtrip over a separate keyed
 pool; no external parser covers that pool.
 This file stands on its own: it is the
 definition of the construct, not a staging area, and it stays here once

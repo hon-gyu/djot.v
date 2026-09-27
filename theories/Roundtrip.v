@@ -833,10 +833,20 @@ Proof.
     specialize (IH Hi). unfold lines_ok in IH |- *.
     apply andb_true_iff in IH as [IH Hlast].
     apply andb_true_iff in IH as [Hne Hlines].
-    cbn [cb_lines nonempty forallb].
-    rewrite (line_ok_no_nl _ Hline), Hlines.
-    destruct (cb_lines inner) as [|a rest]; [discriminate Hne|].
-    destruct rest; cbn [last] in Hlast |- *; rewrite Hlast; reflexivity.
+    cbn [cb_lines].
+    destruct (key_lines_cases (ci_line [label])
+                (match inner with CPara _ => true | _ => false end) (cb_lines inner))
+      as [E | (l0 & rest & Els & _ & Hk & E)]; rewrite E.
+    + cbn [nonempty forallb].
+      rewrite (line_ok_no_nl _ Hline), Hlines.
+      destruct (cb_lines inner) as [|a rest]; [discriminate Hne|].
+      destruct rest; cbn [last] in Hlast |- *; rewrite Hlast; reflexivity.
+    + destruct (key_inline_ok_parts _ _ Hk) as (Hkl & _ & _).
+      rewrite Els in Hlines, Hlast. cbn [nonempty forallb] in Hlines |- *.
+      apply andb_true_iff in Hlines as [_ Hrest].
+      rewrite (line_ok_no_nl _ Hkl), Hrest.
+      destruct rest as [|r rest]; cbn [last] in Hlast |- *; [|exact Hlast].
+      unfold key_line. destruct (ci_line [label]); reflexivity.
   - reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -888,6 +898,25 @@ Proof.
   intros l H. unfold nonblank. apply negb_true_iff.
   destruct (is_blank l) eqn:Hblank; [|reflexivity].
   exfalso. apply H. apply classify_blank. exact Hblank.
+Qed.
+
+(* A key's first line is a text line, in either spelling. *)
+Local Lemma ckey_first_line :
+  forall label inner, cb_ok (CKey label inner) = true ->
+    exists a rest,
+      cb_lines (CKey label inner) = a :: rest
+      /\ line_ok a = true /\ classify a = KText.
+Proof.
+  intros label inner H.
+  destruct (cb_ok_key_parts label inner H) as (_ & Hl & _).
+  destruct (ckey_label_ok_parts label Hl) as (_ & Hline & Hcl & _).
+  cbn [cb_lines].
+  destruct (key_lines_cases (ci_line [label])
+              (match inner with CPara _ => true | _ => false end) (cb_lines inner))
+    as [E | (l0 & rest & _ & _ & Hk & E)]; rewrite E.
+  - exists (ci_line [label] ++ ":"), (cb_lines inner). auto.
+  - destruct (key_inline_ok_parts _ _ Hk) as (Hkl & Hkc & _).
+    exists (key_line (ci_line [label]) l0), rest. auto.
 Qed.
 
 Local Lemma nonlist_cblock_first :
@@ -979,10 +1008,9 @@ Proof.
     destruct (foot_open ("{#" ++ id ++ "}")) as [[fl fr]|]; [discriminate|].
     destruct (ref_open ("{#" ++ id ++ "}")) as [[rl rv]|]; [discriminate|].
     destruct (table_row ("{#" ++ id ++ "}")); discriminate.
-  - destruct (cb_ok_key_parts label keyed Hok) as (_ & Hl & _).
-    destruct (ckey_label_ok_parts label Hl) as (_ & _ & Hcl & _).
-    exists (ci_line [label] ++ ":"), (cb_lines keyed). split; [reflexivity|].
-    intros m mc chk item E. rewrite Hcl in E. discriminate.
+  - destruct (ckey_first_line label keyed Hok) as (a & rest & E & _ & Hcl).
+    exists a, rest. split; [exact E|].
+    intros m mc chk item E'. rewrite Hcl in E'. discriminate.
 Qed.
 
 Local Lemma drop_leading_ws_indent_zero :
@@ -1088,9 +1116,8 @@ Proof.
       cbn [no_nl]. rewrite no_nl_append, (id_chars_ok_no_nl _ Hchars).
       reflexivity.
     + apply String.eqb_eq. reflexivity.
-  - destruct (cb_ok_key_parts label keyed Hok) as (_ & Hl & _).
-    destruct (ckey_label_ok_parts label Hl) as (_ & Hline & _).
-    cbn [cb_lines] in Hlines. injection Hlines as <- <-. exact Hline.
+  - destruct (ckey_first_line label keyed Hok) as (a' & rest' & E & Hline & _).
+    rewrite E in Hlines. injection Hlines as <- <-. exact Hline.
 Qed.
 
 (* The one symbolic fact the CId roundtrip needs from the attribute
@@ -1275,11 +1302,9 @@ Proof.
     destruct r as [cs|als cs]; cbn [ctrow_cells] in Hcl;
       cbn [flat_map ctrow_lines app] in Hlines;
       injection Hlines as <- _; unfold pend_ready; rewrite Hcl; reflexivity.
-  - destruct (cb_ok_key_parts label keyed Hok) as (_ & Hl & _).
-    destruct (ckey_label_ok_parts label Hl) as (_ & _ & Hcl & _).
-    change ((ci_line [label] ++ ":") :: cb_lines keyed = a :: rest) in Hlines.
-    injection Hlines as <- _. unfold pend_ready.
-    cbn [ci_line ci_text] in Hcl. rewrite Hcl. reflexivity.
+  - destruct (ckey_first_line label keyed Hok) as (a' & rest' & E & _ & Hcl).
+    rewrite E in Hlines. injection Hlines as <- _. unfold pend_ready.
+    rewrite Hcl. reflexivity.
 Qed.
 
 (* Attaching the pending id to the block the parser emits is what
@@ -1399,12 +1424,61 @@ Proof.
   rewrite (line_ok_no_leading_ws _ Hline), Hkeys, Hsplit. reflexivity.
 Qed.
 
+(* The one-line spelling: the value opens the key's paragraph directly. *)
+Local Lemma parse_ckey_value :
+  forall label l0 ls, bkeyed = true -> key_inline_ok (ci_line [label]) l0 = true ->
+    line_ok l0 = true ->
+    parse_lines (key_line (ci_line [label]) l0 :: ls) (PPara [])
+    = parse_lines ls
+        (PKey (open_extent (key_line (ci_line [label]) l0) 0)
+           (ci_line [label]) (key_line (ci_line [label]) l0)
+           (PPara [remember_line l0])).
+Proof.
+  intros label l0 ls Hkeys Hk Hl0.
+  destruct (key_inline_ok_parts _ _ Hk) as (Hline & Htext & Hsplit).
+  cbn [parse_lines]. rewrite (step_idle _ _ Htext eq_refl).
+  cbn [open_kind]. unfold open_text.
+  rewrite (line_ok_no_leading_ws _ Hline), Hkeys, Hsplit.
+  unfold push_text. rewrite (line_ok_no_leading_ws _ Hl0).
+  unfold line_ok in Hl0. apply andb_true_iff in Hl0 as [Hl0 _].
+  apply andb_true_iff in Hl0 as [Hnb _]. unfold nonblank in Hnb.
+  apply negb_true_iff in Hnb. rewrite Hnb. reflexivity.
+Qed.
+
+(* What the one-line spelling needs of the paragraph under the key: its
+   first line opens it as the key's value would, and the rest of its
+   lines keep the key open. *)
+Local Lemma ckey_para_parts :
+  forall inner l0 rest,
+    cb_ok inner = true -> match inner with CPara _ => true | _ => false end = true ->
+    cb_lines inner = l0 :: rest ->
+    key_content_ok (cb_lines inner) (PPara []) = true ->
+    line_ok l0 = true
+    /\ (forall ls, parse_lines (l0 :: ls) (PPara []) = parse_lines ls (PPara [remember_line l0]))
+    /\ key_content_ok rest (PPara [remember_line l0]) = true.
+Proof.
+  intros inner l0 rest Hi Hpara Els Hcontent.
+  assert (Hpok : para_ok (cb_lines inner) = true).
+  { destruct inner; try discriminate Hpara.
+    rewrite cb_ok_para in Hi. apply andb_true_iff in Hi as [Hi _]. exact Hi. }
+  rewrite Els in Hpok, Hcontent.
+  destruct (para_ok_parts l0 rest Hpok) as (Htext & Hlok & _ & _ & Hkl).
+  cbn [forallb] in Hlok. apply andb_true_iff in Hlok as [Hl0 _].
+  assert (Hstep : step l0 (PPara []) = ([], PPara [remember_line l0])).
+  { rewrite (step_idle _ _ Htext eq_refl). cbn [open_kind].
+    rewrite (open_text_keyless _ Hkl), (line_ok_no_leading_ws _ Hl0). reflexivity. }
+  cbn [key_content_ok] in Hcontent. apply andb_true_iff in Hcontent as [_ Hcontent].
+  rewrite Hstep in Hcontent.
+  split; [exact Hl0|]. split; [|exact Hcontent].
+  intros ls. cbn [parse_lines]. rewrite Hstep. reflexivity.
+Qed.
+
 Local Lemma key_close_canonical :
-  forall start label b bs, ckey_label_ok label = true ->
-    key_close start (ci_line [label]) (ci_line [label] ++ ":") (b :: bs)
+  forall start label src b bs, ckey_label_ok label = true ->
+    key_close start (ci_line [label]) src (b :: bs)
     = mk (Ext_keyed [ci_ast label] b) :: bs.
 Proof.
-  intros start label b bs H.
+  intros start label src b bs H.
   destruct (ckey_label_ok_parts label H) as (Hcis & _ & _ & Hstrip & _).
   cbn [key_close key_label pos_records semantic_pos]. rewrite para_inlines_one, Hstrip.
   rewrite (parse_inline_line_ci _ Hcis). reflexivity.
@@ -1782,16 +1856,38 @@ Proof.
     intros label inner [IHtail IHend]. split.
     + intros next tail Hpair Hnext H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
-      cbn [cb_lines app]. rewrite (parse_ckey_open _ _ Hkeys Hl).
-      rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent).
-      rewrite (IHtail next tail Hpair Hnext Hi).
-      apply key_close_canonical, Hl.
+      cbn [cb_lines].
+      destruct (key_lines_cases (ci_line [label])
+                  (match inner with CPara _ => true | _ => false end) (cb_lines inner))
+        as [E | (l0 & rest & Els & Hpara & Hk & E)]; rewrite E; cbn [app].
+      * rewrite (parse_ckey_open _ _ Hkeys Hl).
+        rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent).
+        rewrite (IHtail next tail Hpair Hnext Hi).
+        apply key_close_canonical, Hl.
+      * destruct (ckey_para_parts inner l0 rest Hi Hpara Els Hcontent)
+          as (Hl0 & Hfirst & Hc).
+        rewrite (parse_ckey_value _ _ _ Hkeys Hk Hl0).
+        rewrite (parse_lines_key_content _ _ _ _ _ _ Hc), <- Hfirst.
+        change (l0 :: rest ++ "" :: cb_lines next ++ tail)%list
+          with ((l0 :: rest) ++ "" :: cb_lines next ++ tail)%list.
+        rewrite <- Els, (IHtail next tail Hpair Hnext Hi).
+        apply key_close_canonical, Hl.
     + intros H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
-      cbn [cb_lines]. rewrite (parse_ckey_open _ _ Hkeys Hl).
-      rewrite <- (app_nil_r (cb_lines inner)).
-      rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent), app_nil_r, (IHend Hi).
-      apply key_close_canonical, Hl.
+      cbn [cb_lines].
+      destruct (key_lines_cases (ci_line [label])
+                  (match inner with CPara _ => true | _ => false end) (cb_lines inner))
+        as [E | (l0 & rest & Els & Hpara & Hk & E)]; rewrite E.
+      * rewrite (parse_ckey_open _ _ Hkeys Hl).
+        rewrite <- (app_nil_r (cb_lines inner)).
+        rewrite (parse_lines_key_content _ _ _ _ _ _ Hcontent), app_nil_r, (IHend Hi).
+        apply key_close_canonical, Hl.
+      * destruct (ckey_para_parts inner l0 rest Hi Hpara Els Hcontent)
+          as (Hl0 & Hfirst & Hc).
+        rewrite (parse_ckey_value _ _ _ Hkeys Hk Hl0), <- (app_nil_r rest).
+        rewrite (parse_lines_key_content _ _ _ _ _ _ Hc), <- Hfirst, app_nil_r.
+        rewrite <- Els, (IHend Hi).
+        apply key_close_canonical, Hl.
   - (* the list side: nothing to parse *)
     intros _ _. reflexivity.
   - (* the list side: one block, then the rest after a blank line *)
@@ -1872,6 +1968,21 @@ The renderer emits exactly the canonical lines
 
 (* The renderer emits exactly a cblock's canonical lines.  The third
    induction predicate handles a list's list of item lists. *)
+(* The renderer's test for the one-line key spelling, on a canonical
+   block: only a paragraph's image is an unattributed paragraph. *)
+Local Lemma cb_ast_para_flag :
+  forall cb, cb_ok cb = true ->
+    match cb_ast cb with Node _ [] (Para _) => true | _ => false end
+    = match cb with CPara _ => true | _ => false end.
+Proof.
+  intros cb H. destruct cb; try reflexivity.
+  - cbn [cb_ast]. destruct k; reflexivity.
+  - rewrite cb_ok_id in H. apply andb_true_iff in H as [H _].
+    apply andb_true_iff in H as [_ Hnid]. apply negb_true_iff in Hnid.
+    destruct (cb_ast_mk cb Hnid) as [x Ex].
+    cbn [cb_ast]. rewrite Ex, add_attr_mk. reflexivity.
+Qed.
+
 Local Lemma render_cb_lines :
   forall cb, cb_ok cb = true ->
   render_node_lines (cb_ast cb) = cb_lines cb.
@@ -2007,9 +2118,14 @@ Proof.
     rewrite Hidok. reflexivity.
   - intros label inner IH H.
     destruct (cb_ok_key_parts label inner H) as (_ & _ & Hi & _).
-    change ((String.concat "" [InlineView.inline_text (node_contents (ci_ast label))] ++ ":")
-              :: render_node_lines (cb_ast inner) = (ci_line [label] ++ ":") :: cb_lines inner).
-    rewrite inline_text_ci_ast, (IH Hi). cbn [String.concat ci_line ci_text].
+    change (key_lines
+              (String.concat "" [InlineView.inline_text (node_contents (ci_ast label))])
+              (match cb_ast inner with Node _ [] (Para _) => true | _ => false end)
+              (render_node_lines (cb_ast inner))
+            = key_lines (ci_line [label])
+                (match inner with CPara _ => true | _ => false end) (cb_lines inner)).
+    rewrite inline_text_ci_ast, (IH Hi), (cb_ast_para_flag inner Hi).
+    cbn [String.concat ci_line ci_text].
     rewrite !append_empty_r. reflexivity.
   - intros _. reflexivity.
   - intros c rest Hc Hrest H.

@@ -259,3 +259,9 @@ let () =
   match Doc.footnotes d with
   | [ ("a", [ Node (_, _, Block.Para [ Node (_, _, Inline.Str "two") ]) ]) ] -> ()
   | _ -> failwith "unexpected note map"
+
+(* A key over a paragraph renders on one line. *)
+let () =
+  let profile = Profile.with_ext_keyed true Profile.djot in
+  let d = Doc.of_string ~profile "key: value\nmore\n\nkey:\n- a\n" in
+  assert (Source.of_doc d = "key: value\nmore\n\nkey:\n- a")
