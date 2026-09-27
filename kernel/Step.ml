@@ -1019,6 +1019,12 @@ let open_quote lI l = function
 | (bs, inner) ->
   ([], (PQuote ((open_extent lI l (indent_of l)), None, (rev bs), inner)))
 
+(** val quote_header :
+    bconfig -> string -> ((string * callout_fold option) * string) option **)
+
+let quote_header k rest =
+  if k.bcallouts then callout_header rest else None
+
 (** val open_callout :
     coq_LineIx -> string -> string -> callout_fold option -> string ->
     blocks * pstate **)
@@ -1200,7 +1206,7 @@ let consumed l rest =
 let open_line t k lI p descend ind l k0 = match k0 with
 | KFence f -> open_fence lI l ind f
 | KQuote rest ->
-  (match if k.bcallouts then callout_header rest else None with
+  (match quote_header k rest with
    | Some p0 ->
      let (p1, title) = p0 in
      let (kind, fold) = p1 in open_callout lI l kind fold title

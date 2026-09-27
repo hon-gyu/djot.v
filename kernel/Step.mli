@@ -248,6 +248,9 @@ val key_result :
 
 val open_quote : coq_LineIx -> string -> (blocks * pstate) -> blocks * pstate
 
+val quote_header :
+  bconfig -> string -> ((string * callout_fold option) * string) option
+
 val open_callout :
   coq_LineIx -> string -> string -> callout_fold option -> string ->
   blocks * pstate

@@ -32,17 +32,12 @@ let rec escape_attr = (fun s ->
        | c -> Buffer.add_char b c) s;
      Buffer.contents b)
 
-(** val render_attrs : string -> attr -> string **)
+(** val render_attrs : attr -> string **)
 
-let render_attrs tag a =
+let render_attrs a =
   String.concat ""
     (map (fun kv ->
-      if (&&) ((&&) ((=) tag "details") ((=) (fst kv) "open"))
-           ((=) (snd kv) "")
-      then " open"
-      else (^) " "
-             ((^) (fst kv) ((^) "=\"" ((^) (escape_attr (snd kv)) "\""))))
-      a)
+      (^) " " ((^) (fst kv) ((^) "=\"" ((^) (escape_attr (snd kv)) "\"")))) a)
 
 type helt =
 | HText of string
@@ -53,7 +48,7 @@ type helt =
 (** val open_tag : string -> bool -> attr -> string **)
 
 let open_tag tag self a =
-  (^) "<" ((^) tag ((^) (render_attrs tag a) (if self then "/>" else ">")))
+  (^) "<" ((^) tag ((^) (render_attrs a) (if self then "/>" else ">")))
 
 (** val pieces_elt : helt -> string list -> string list **)
 
