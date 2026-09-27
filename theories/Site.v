@@ -446,6 +446,8 @@ Fixpoint cb_dests (cb : cblock) : list string :=
   | CPara ls => css_dests ls
   | CHeading _ ls => css_dests ls
   | CQuote inner => flat_map cb_dests inner
+  | CCallout _ _ title inner =>
+      (cis_dests title ++ flat_map cb_dests inner)%list
   | CDiv inner => flat_map cb_dests inner
   | CList _ _ items => flat_map (flat_map cb_dests) items
   | CRef _ dest => [dest]
@@ -460,6 +462,8 @@ Fixpoint cb_map_dest (f : string -> string) (cb : cblock) : cblock :=
   | CPara ls => CPara (css_map_dest f ls)
   | CHeading lvl ls => CHeading lvl (css_map_dest f ls)
   | CQuote inner => CQuote (map (cb_map_dest f) inner)
+  | CCallout kind fold title inner =>
+      CCallout kind fold (cis_map_dest f title) (map (cb_map_dest f) inner)
   | CDiv inner => CDiv (map (cb_map_dest f) inner)
   | CList k sp items => CList k sp (map (map (cb_map_dest f)) items)
   | CRef label dest => CRef label (f dest)
@@ -507,11 +511,14 @@ Proof.
             (fun items => flat_map (flat_map cb_dests)
                             (map (map (cb_map_dest f)) items)
                           = map f (flat_map (flat_map cb_dests) items))
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     try reflexivity.
   - intros ls. apply css_dests_map.
   - intros lvl ls. apply css_dests_map.
   - intros inner IH. exact IH.
+  - intros kind fold title inner IH.
+    cbn [cb_dests cb_map_dest].
+    rewrite map_app, cis_dests_map, IH. reflexivity.
   - intros inner IH. exact IH.
   - intros k sp items IH. exact IH.
   - intros rows. cbn [cb_dests cb_map_dest].
@@ -833,10 +840,15 @@ Proof.
                 -> map (cb_map_dest f) cbs = cbs)
     (fun items => (forall s, In s (flat_map (flat_map cb_dests) items) -> f s = s)
                   -> map (map (cb_map_dest f)) items = items)
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
   - intros ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros lvl ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros kind fold title inner IH H.
+    cbn [cb_map_dest cb_dests] in *.
+    rewrite cis_map_dest_id, IH; [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
   - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros k sp items IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros label dest H. cbn [cb_map_dest]. rewrite H; [reflexivity|left; reflexivity].

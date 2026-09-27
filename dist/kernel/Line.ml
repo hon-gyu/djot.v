@@ -569,6 +569,549 @@ let is_upper c =
 let is_alnum c =
   (||) ((||) (is_digit c) (is_lower c)) (is_upper c)
 
+(** val callout_kind_char : char -> bool **)
+
+let callout_kind_char c =
+  (||) ((||) (is_alnum c) ((=) c '-')) ((=) c '_')
+
+(** val callout_sep : char -> bool **)
+
+let callout_sep c =
+  (||) ((=) c ' ') ((=) c '\t')
+
+(** val callout_header :
+    string -> ((string * callout_fold option) * string) option **)
+
+let callout_header s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun a s0 ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ -> None)
+      (fun b rest ->
+      if (&&) ((=) a '[') ((=) b '!')
+      then let (kind, rest0) = take_while callout_kind_char rest in
+           ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+              (fun _ -> None)
+              (fun _ _ ->
+              (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                (fun _ -> None)
+                (fun a1 tail ->
+                (* If this appears, you're using Ascii internals. Please don't *)
+ (fun f c ->
+  let n = Char.code c in
+  let h i = (n land (1 lsl i)) <> 0 in
+  f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
+                  (fun b0 b1 b2 b3 b4 b5 b6 b7 ->
+                  if b0
+                  then if b1
+                       then None
+                       else if b2
+                            then if b3
+                                 then if b4
+                                      then if b5
+                                           then None
+                                           else if b6
+                                                then if b7
+                                                     then None
+                                                     else ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                             (fun _ ->
+                                                             let fold = None
+                                                             in
+                                                             let tail0 = "" in
+                                                             ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                (fun _ ->
+                                                                Some ((kind,
+                                                                fold),
+                                                                ""))
+                                                                (fun c title ->
+                                                                if callout_sep
+                                                                    c
+                                                                then
+                                                                  Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                else None)
+                                                                tail0))
+                                                             (fun a0 more ->
+                                                             (* If this appears, you're using Ascii internals. Please don't *)
+ (fun f c ->
+  let n = Char.code c in
+  let h i = (n land (1 lsl i)) <> 0 in
+  f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
+                                                               (fun b8 b9 b10 b11 b12 b13 b14 b15 ->
+                                                               if b8
+                                                               then if b9
+                                                                    then
+                                                                    if b10
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b11
+                                                                    then
+                                                                    if b12
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b13
+                                                                    then
+                                                                    if b14
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b15
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    let fold =
+                                                                    Some
+                                                                    FoldExpanded
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    more)
+                                                                    else
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b10
+                                                                    then
+                                                                    if b11
+                                                                    then
+                                                                    if b12
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b13
+                                                                    then
+                                                                    if b14
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    if b15
+                                                                    then
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    let fold =
+                                                                    Some
+                                                                    FoldCollapsed
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    more)
+                                                                    else
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                                    else
+                                                                    let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail)
+                                                               else let fold =
+                                                                    None
+                                                                    in
+                                                                    (
+                                                                    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                                                                    (fun _ ->
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    ""))
+                                                                    (fun c title ->
+                                                                    if
+                                                                    callout_sep
+                                                                    c
+                                                                    then
+                                                                    Some
+                                                                    ((kind,
+                                                                    fold),
+                                                                    (drop_leading_ws
+                                                                    title))
+                                                                    else None)
+                                                                    tail))
+                                                               a0)
+                                                             tail)
+                                                else None
+                                      else None
+                                 else None
+                            else None
+                  else None)
+                  a1)
+                rest0)
+              kind)
+      else None)
+      s0)
+    s
+
 (** val is_roman_lo : char -> bool **)
 
 let is_roman_lo c =

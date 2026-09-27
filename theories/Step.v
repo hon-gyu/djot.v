@@ -74,7 +74,9 @@ Class bconfig : Type := BConfig {
        turning it on changes documents that parse today.  That is why it
        is off in `djot_bconfig` where every other block setting is on.
        See `.project/keyed-blocks.md`. *)
-  bkeyed : bool
+  bkeyed : bool;
+  (* Does a newly opened quote recognize an Obsidian-style callout header? *)
+  bcallouts : bool
 }.
 
 (* The source line currently being folded.  It is an observation only:
@@ -121,7 +123,7 @@ Local Definition setext_underline (c : ascii) (n : nat) : option nat :=
 
 #[export] Instance djot_bconfig : bconfig :=
   BConfig no_interrupt no_underline true true true true true true true
-    true false.
+    true false false.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -131,48 +133,48 @@ Definition with_marker_interrupts
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
     (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K)
-    (@battrs K) (@bfootnotes K) (@bkeyed K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled
-    (@battrs K) (@bfootnotes K) (@bkeyed K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) enabled (@bfootnotes K) (@bkeyed K).
+    (@bdeflists K) enabled (@bfootnotes K) (@bkeyed K) (@bcallouts K).
 
 (* Exported, but the profile-level `with_footnotes` is what a caller
    should reach for: a reference the document cannot define, or a
@@ -180,13 +182,18 @@ Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
 Definition with_block_footnotes (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) enabled (@bkeyed K).
+    (@bdeflists K) (@battrs K) enabled (@bkeyed K) (@bcallouts K).
 
 (* Keys are a mode, not a default: see `bkeyed`. *)
 Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) enabled.
+    (@bdeflists K) (@battrs K) (@bfootnotes K) enabled (@bcallouts K).
+
+Definition with_callouts (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where
    wanted (`dev/check/Sublist.v`, `dev/check/Setext.v`), so that
@@ -681,7 +688,9 @@ Inductive pstate : Type :=
      input ended inside. *)
   | PFence (f : fence) (ind : nat) (range : extent)
       (open_line_span : span) (acc : list stored_line)
-  | PQuote (range : extent) (done : blocks) (inner : pstate)
+  | PQuote (range : extent)
+      (header : option (string * option callout_fold * stored_line))
+      (done : blocks) (inner : pstate)
   (* An open fenced div: the fence length it must be closed by, its
      class, and the contents so far.  Unlike a quote it removes no
      prefix and shifts no column -- its whole continuation rule is the
@@ -874,8 +883,10 @@ Local Fixpoint state (st : pstate) : pstate :=
       PHeading lvl (of_extent range) (of_lines cur)
   | PFence f ind range opener acc =>
       PFence f ind (of_extent range) (of_span opener) (of_lines acc)
-  | PQuote range done inner =>
-      PQuote (of_extent range) (Erase.of_blocks done) (state inner)
+  | PQuote range header done inner =>
+      PQuote (of_extent range)
+        (option_map (fun '(kind, fold, title) => (kind, fold, of_line title)) header)
+        (Erase.of_blocks done) (state inner)
   | PDiv len cls range opener done inner =>
       PDiv len cls (of_extent range) (of_span opener)
         (Erase.of_blocks done) (state inner)
@@ -915,7 +926,7 @@ Context {P : PosPolicy}.
 Fixpoint pstate_depth (st : pstate) : nat :=
   match st with
   | PPara _ | PParaOff _ _ | PHeading _ _ _ | PFence _ _ _ _ _ => 0
-  | PQuote _ _ inner => S (pstate_depth inner)
+  | PQuote _ _ _ inner => S (pstate_depth inner)
   | PDiv _ _ _ _ _ inner => S (pstate_depth inner)
   | PList _ _ inner => S (pstate_depth inner)
   (* PAttr resolves to `PPend _ (PPara [])`, depth 1, on the same line, so
@@ -947,6 +958,24 @@ Definition heading_block (lvl : nat) (cur : list stored_line) : node block :=
    lines keep the reading they had as a paragraph. *)
 Definition heading_block_off (k lvl : nat) (cur : list stored_line) : node block :=
   mk (Heading lvl (para_inlines_at k (rev cur))).
+
+(* The title stays a source suffix until this point.  Its trimmed value
+   uses the original suffix length to locate each inline correctly. *)
+Definition callout_title `{PosPolicy} (sl : stored_line) : inlines :=
+  let '(line, source) := sl in
+  let title := strip_trailing_ws source in
+  if pos_records
+  then parse_inline_line_located line (String.length source) title
+  else parse_inline_line title.
+
+Definition quote_block `{PosPolicy}
+  (header : option (string * option callout_fold * stored_line))
+  (bs : blocks) : block :=
+  match header with
+  | None => BlockQuote bs
+  | Some (kind, fold, source) =>
+      Ext_callout kind fold (callout_title source) bs
+  end.
 
 (* The lines a failed block attribute spec ate, handed to the paragraph
    that inherits them.  All of them are frozen, so the count is their
@@ -1199,9 +1228,10 @@ Fixpoint finish (st : pstate) : blocks :=
   | PTable range rows cap =>
       [set_pos (Provenance (extent_span range) [] (table_parts cap))
          (table_block (rev rows) cap)]
-  | PQuote range done inner =>
+  | PQuote range header done inner =>
+      let bs := (rev done ++ finish inner)%list in
       [set_pos (prov_at (extent_span range))
-         (mk (BlockQuote (rev done ++ finish inner)%list))]
+         (mk (quote_block header bs))]
   | PDiv _ cls range opener done inner =>
       [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (div_block cls (rev done ++ finish inner)%list)]
@@ -1302,7 +1332,7 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PParaOff _ _ => true       (* a recovered paragraph is still one *)
   | PHeading _ _ _ => true
   | PFence _ _ _ _ _ => false
-  | PQuote _ _ inner => lazy_ok inner
+  | PQuote _ _ _ inner => lazy_ok inner
   | PDiv _ _ _ _ _ inner => lazy_ok inner
   | PList _ _ inner => lazy_ok inner
   | PAttr _ _ _ _ _ _ => false (* a spec is not a paragraph, however it ends *)
@@ -1324,7 +1354,7 @@ Fixpoint in_fence (st : pstate) : bool :=
   | PFence _ _ _ _ _ => true
   (* A key is see-through here, or a `:::` line inside a code block
      inside a key would close an enclosing div. *)
-  | PQuote _ _ inner | PDiv _ _ _ _ _ inner | PList _ _ inner
+  | PQuote _ _ _ inner | PDiv _ _ _ _ _ inner | PList _ _ inner
   | PFoot _ _ _ _ inner | PPend _ _ inner | PKey _ _ _ inner => in_fence inner
   | PPara _ | PParaOff _ _ | PHeading _ _ _ | PAttr _ _ _ _ _ _
   | PRef _ _ _ _ | PTable _ _ _ => false
@@ -1346,8 +1376,8 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
       PHeading lvl (touch_extent range) (remember_line (drop_leading_ws l) :: cur)
   | PFence f ind range opener acc =>
       PFence f ind range opener acc   (* excluded by lazy_ok *)
-  | PQuote range done inner =>
-      PQuote (touch_extent range) done (feed_lazy l inner)
+  | PQuote range header done inner =>
+      PQuote (touch_extent range) header done (feed_lazy l inner)
   | PDiv len cls range opener done inner =>
       PDiv len cls (touch_extent range) opener done (feed_lazy l inner)
   | PList ls done inner => PList (list_touch ls) done (feed_lazy l inner)
@@ -1514,7 +1544,12 @@ Definition key_result (range : extent) (lbl src : string) (r : blocks * pstate)
 Definition open_quote (l : string) (descended : blocks * pstate)
   : blocks * pstate :=
   let (bs, inner) := descended in
-  ([], PQuote (open_extent l (indent_of l)) (rev bs) inner).
+  ([], PQuote (open_extent l (indent_of l)) None (rev bs) inner).
+
+Definition open_callout (l kind : string) (fold : option callout_fold)
+  (title : string) : blocks * pstate :=
+  ([], PQuote (open_extent l (indent_of l))
+    (Some (kind, fold, remember_line title)) [] (PPara [])).
 
 (* An attribute spec opens its container at the column its brace sits
    at.  Like a list's `ls_indent` this is an absolute column, `off +
@@ -1811,7 +1846,11 @@ Definition direct_open (k : line_kind) : bool :=
 Definition open_line (descend : string -> blocks * pstate)
   (ind : nat) (l : string) (k : line_kind) : blocks * pstate :=
   match k with
-  | KQuote rest => open_quote l (descend rest)
+  | KQuote rest =>
+      match if bcallouts then callout_header rest else None with
+      | Some (kind, fold, title) => open_callout l kind fold title
+      | None => open_quote l (descend rest)
+      end
   | KList sty core chk rest =>
       open_list l ind
         (with_starts (configured_list_styles sty chk) core)
@@ -1925,17 +1964,17 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               close_reopen (PHeading lvl range cur)
                 (open_line descend (off + indent_of l) l k)
           end
-      | PQuote range done inner =>
+      | PQuote range header done inner =>
           match classify l with
           | KQuote rest =>
               (* continue: descend into the quote already open, keeping
                  what it has closed so far *)
               let (bs, inner') := step_fuel n' (off + consumed l rest) rest inner in
-              ([], PQuote (touch_extent range) (rev bs ++ done)%list inner')
+              ([], PQuote (touch_extent range) header (rev bs ++ done)%list inner')
           | k =>
               if is_lazy k inner
-              then ([], PQuote (touch_extent range) done (feed_lazy l inner))
-              else close_reopen (PQuote range done inner)
+              then ([], PQuote (touch_extent range) header done (feed_lazy l inner))
+              else close_reopen (PQuote range header done inner)
                      (open_line descend (off + indent_of l) l k)
           end
       | PDiv len cls range opener done inner =>
@@ -2220,7 +2259,7 @@ Proof.
   induction bound as [|bound IH]; intros n off l st Hb Hn; [lia|].
   destruct n as [|n']; [lia|].
   cbn [step_fuel open_line].
-  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng qhead done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   - (* idle, or an open paragraph *)
     cbn [pstate_depth] in Hn |- *.
     destruct cur as [|c cur'].
@@ -2495,7 +2534,8 @@ Local Definition ls_pad (n : nat) (ls : list_state) : list_state :=
 Fixpoint pad_state (n : nat) (st : pstate) : pstate :=
   match st with
   | PFence f ind range opener acc => PFence f (n + ind) range opener acc
-  | PQuote range done inner => PQuote range done (pad_state n inner)
+  | PQuote range header done inner =>
+      PQuote range header done (pad_state n inner)
   | PDiv len cls range opener done inner =>
       PDiv len cls range opener done (pad_state n inner)
   | PList ls done inner => PList (ls_pad n ls) done (pad_state n inner)
@@ -2528,14 +2568,14 @@ Local Lemma pad_state_in_fence :
   forall n st, in_fence (pad_state n st) = in_fence st.
 Proof.
   intros n st.
-  induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state in_fence]; try reflexivity; exact IH.
 Qed.
 
 Local Lemma pad_state_depth :
   forall n st, pstate_depth (pad_state n st) = pstate_depth st.
 Proof.
-  intros n st. induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  intros n st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state pstate_depth]; rewrite IH; reflexivity.
 Qed.
 
@@ -2543,14 +2583,14 @@ Qed.
 Lemma pad_state_finish :
   forall n st, finish (pad_state n st) = finish st.
 Proof.
-  intros n st. induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  intros n st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
 Qed.
 
 Local Lemma pad_state_lazy_ok :
   forall n st, lazy_ok (pad_state n st) = lazy_ok st.
 Proof.
-  intros n st. induction st as [cur| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  intros n st. induction st as [cur| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state lazy_ok]; exact IH.
 Qed.
 
@@ -2558,7 +2598,7 @@ Local Lemma pad_state_feed_lazy :
   forall n l st, feed_lazy l (pad_state n st) = pad_state n (feed_lazy l st).
 Proof.
   intros n l st.
-  induction st as [cur|lvl cur| |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  induction st as [cur|lvl cur| |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state feed_lazy]; try reflexivity; rewrite IH; reflexivity.
 Qed.
 
@@ -2582,7 +2622,7 @@ Lemma div_closer_ws_prefix :
   forall p l st, is_blank p = true -> div_closer (p ++ l) st = div_closer l st.
 Proof.
   intros p l st Hp.
-  induction st as [cur|lvl cur| |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  induction st as [cur|lvl cur| |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [div_closer]; try reflexivity.
   - rewrite (div_close_ws_prefix p dlen l Hp). reflexivity.
   - exact IH.
@@ -2593,7 +2633,7 @@ Lemma pad_state_div_closer :
   forall n l st, div_closer l (pad_state n st) = div_closer l st.
 Proof.
   intros n l st.
-  induction st as [cur|lvl cur| |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  induction st as [cur|lvl cur| |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state div_closer]; try reflexivity.
   - rewrite pad_state_in_fence. reflexivity.
   - exact IH.
@@ -2604,7 +2644,7 @@ Lemma pad_state_blank_absorbed :
   forall n st, blank_absorbed (pad_state n st) = blank_absorbed st.
 Proof.
   intros n st.
-  induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state blank_absorbed]; exact IH.
@@ -2622,7 +2662,7 @@ Local Lemma pad_state_key_claims :
   forall n l st, key_claims l (pad_state n st) = key_claims l st.
 Proof.
   intros n l st.
-  induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state key_claims]; try exact IH.
@@ -2636,7 +2676,7 @@ Local Lemma key_claims_ws_prefix :
     key_claims (p ++ l) st = key_claims l st.
 Proof.
   intros p l st Hp.
-  induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [key_claims]; try exact IH.
@@ -2699,11 +2739,12 @@ Proof.
 Qed.
 
 Local Lemma finish_pad_quote :
-  forall n range done inner,
-    finish (PQuote range done (pad_state n inner))
-    = finish (PQuote range done inner).
+  forall n range header done inner,
+    finish (PQuote range header done (pad_state n inner))
+    = finish (PQuote range header done inner).
 Proof.
-  intros n range done inner. cbn [finish]. rewrite (pad_state_finish n inner).
+  intros n range header done inner. cbn [finish].
+  rewrite (pad_state_finish n inner).
   reflexivity.
 Qed.
 
@@ -2727,7 +2768,7 @@ Lemma step_fuel_shift :
     = (fst (step_fuel n off l st), pad_state k (snd (step_fuel n off l st))).
 Proof.
   induction n as [|n IH]; intros k off l st; [reflexivity|].
-  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng qhead done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   (* idle, or an open paragraph *)
   { cbn [pad_state step_fuel open_line].
     destruct cur as [|c cur'].
@@ -2741,7 +2782,9 @@ Proof.
           cbn [pad_state] in H; rewrite H.
         destruct (step_fuel n (off + consumed l rest) rest (PPara []))
           as [bs inner'] eqn:Ed.
-        cbn [open_quote fst snd pad_state]. reflexivity. }
+        destruct (if bcallouts then callout_header rest else None)
+          as [[[kind fold] title]|];
+          cbn [open_callout open_quote fst snd pad_state]; reflexivity. }
       { rewrite <- !Nat.add_assoc.
         pose proof (IH k (off + consumed l (configured_list_rest chk mr))
                       (configured_list_rest chk mr) (PPara [])) as H;
@@ -2789,7 +2832,10 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l rest) rest (PPara []))
         as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_quote fst snd pad_state]. reflexivity. }
+      destruct (if bcallouts then callout_header rest else None)
+        as [[[kind fold] title]|];
+        cbn [close_reopen open_callout open_quote fst snd pad_state];
+        reflexivity. }
     { destruct bheading_continues; [destruct (klvl =? hlvl)%nat|]; reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l (configured_list_rest chk mr))
@@ -2925,8 +2971,10 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l rest) rest (PPara []))
         as [bs inner'] eqn:Ed.
-      cbn [close_reopen open_quote fst snd pad_state].
-      rewrite finish_pad_list. reflexivity. }
+      destruct (if bcallouts then callout_header rest else None)
+        as [[[kind fold] title]|];
+        cbn [close_reopen open_callout open_quote fst snd pad_state];
+        rewrite finish_pad_list; reflexivity. }
     (* heading *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
@@ -3224,12 +3272,14 @@ discharges via classify_quote_length. *)
 Lemma step_quote_open :
   forall l rest bs inner,
     classify l = KQuote rest ->
+    (if bcallouts then callout_header rest else None) = None ->
     step rest (PPara []) = (bs, inner) ->
     step l (PPara [])
-    = ([], PQuote (open_extent l (indent_of l)) (rev bs)
+    = ([], PQuote (open_extent l (indent_of l)) None (rev bs)
              (pad_state (consumed l rest) inner)).
 Proof.
-  intros l rest bs inner H Hr. unfold step at 1. cbn [step_fuel open_line]. rewrite H. cbn [open_line].
+  intros l rest bs inner H Hheader Hr. unfold step at 1.
+  cbn [step_fuel open_line]. rewrite H. cbn [open_line]. rewrite Hheader.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
     with (step_fuel n (consumed l rest) rest (PPara [])).
   rewrite (step_fuel_enough_off _ (consumed l rest) rest (PPara []))
@@ -3240,14 +3290,41 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
+Lemma step_callout_open :
+  forall l rest kind fold title,
+    classify l = KQuote rest ->
+    (if bcallouts then callout_header rest else None) =
+      Some (kind, fold, title) ->
+    step l (PPara []) =
+      ([], PQuote (open_extent l (indent_of l))
+        (Some (kind, fold, remember_line title)) [] (PPara [])).
+Proof.
+  intros l rest kind fold title H Hheader.
+  unfold step. cbn [step_fuel open_line]. rewrite H.
+  cbn [open_line]. rewrite Hheader. reflexivity.
+Qed.
+
+Lemma step_quote_open_no_blocks :
+  forall l rest, classify l = KQuote rest -> fst (step l (PPara [])) = [].
+Proof.
+  intros l rest H. unfold step. cbn [step_fuel open_line].
+  rewrite H. cbn [open_line].
+  destruct (if bcallouts then callout_header rest else None)
+    as [[[kind fold] title]|]; cbn [open_callout open_quote fst];
+    try reflexivity.
+  destruct (step_fuel (String.length l + pstate_depth (PPara []))
+    (0 + consumed l rest) rest (PPara []));
+    cbn [open_quote fst]; reflexivity.
+Qed.
+
 Lemma step_quote_cont :
-  forall l rest range done inner bs inner',
+  forall l rest range header done inner bs inner',
     classify l = KQuote rest ->
     step_at (consumed l rest) rest inner = (bs, inner') ->
-    step l (PQuote range done inner)
-    = ([], PQuote (touch_extent range) (rev bs ++ done)%list inner').
+    step l (PQuote range header done inner)
+    = ([], PQuote (touch_extent range) header (rev bs ++ done)%list inner').
 Proof.
-  intros l rest range done inner bs inner' H Hr. unfold step at 1.
+  intros l rest range header done inner bs inner' H Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H.
   change (step_fuel ?n (0 + consumed l rest) rest inner)
     with (step_fuel n (consumed l rest) rest inner).
@@ -3261,26 +3338,27 @@ Qed.
 
 (* A prefix-less text line still continues the innermost paragraph. *)
 Local Lemma step_quote_lazy :
-  forall l range done inner,
+  forall l range header done inner,
     classify l = KText -> lazy_ok inner = true ->
-    step l (PQuote range done inner)
-    = ([], PQuote (touch_extent range) done (feed_lazy l inner)).
+    step l (PQuote range header done inner)
+    = ([], PQuote (touch_extent range) header done (feed_lazy l inner)).
 Proof.
-  intros l range done inner H Hl. unfold step. cbn [step_fuel open_line]. rewrite H.
+  intros l range header done inner H Hl.
+  unfold step. cbn [step_fuel open_line]. rewrite H.
   cbn [is_lazy]. rewrite Hl. reflexivity.
 Qed.
 
 (* Anything else closes the quote, and the line is then reprocessed
    outside it, by the same `open_kind` the idle state uses. *)
 Lemma step_quote_close :
-  forall l k range done inner bs st',
+  forall l k range header done inner bs st',
     classify l = k -> direct_open k = true -> is_lazy k inner = false ->
     open_kind l k = (bs, st') ->
-    step l (PQuote range done inner) =
-    (set_pos (prov_at (extent_span range))
-       (mk (BlockQuote (rev done ++ finish inner)%list)) :: bs, st').
+    step l (PQuote range header done inner) =
+    (finish (PQuote range header done inner) ++ bs, st')%list.
 Proof.
-  intros l k range done inner bs st' H Hk Hlz Ho. unfold step. cbn [step_fuel open_line].
+  intros l k range header done inner bs st' H Hk Hlz Ho.
+  unfold step. cbn [step_fuel open_line].
   rewrite H.
   destruct k; try discriminate; rewrite Hlz; rewrite Ho; reflexivity.
 Qed.
@@ -3726,14 +3804,15 @@ Qed.
 Lemma step_list_quote_close :
   forall l rest ls done inner bs inner',
     classify l = KQuote rest ->
+    (if bcallouts then callout_header rest else None) = None ->
     list_takes ls 0 l inner = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
       (finish (PList ls done inner),
-       PQuote (open_extent l (indent_of l)) (rev bs)
+       PQuote (open_extent l (indent_of l)) None (rev bs)
          (pad_state (consumed l rest) inner')).
 Proof.
-  intros l rest ls done inner bs inner' H Hind Hr.
+  intros l rest ls done inner bs inner' H Hheader Hind Hr.
   unfold step at 1. cbn [step_fuel open_line pstate_depth].
   rewrite H, ?Nat.add_0_l, Hind.
   change (step_fuel ?n (0 + consumed l rest) rest (PPara []))
@@ -3743,8 +3822,29 @@ Proof.
   change (step_fuel (S (String.length rest + pstate_depth (PPara [])))
             (consumed l rest) rest (PPara []))
     with (step_at (consumed l rest) rest (PPara [])).
-  rewrite step_at_idle, Hr. cbn [close_reopen open_quote].
-  rewrite app_nil_r. reflexivity.
+  rewrite step_at_idle, Hr. cbn [close_reopen]. rewrite Hheader.
+  cbn [open_quote].
+  reflexivity.
+Qed.
+
+Lemma step_list_quote_close_any :
+  forall l rest ls done inner,
+    classify l = KQuote rest ->
+    list_takes ls 0 l inner = false ->
+    step l (PList ls done inner) =
+      (finish (PList ls done inner), snd (step l (PPara []))).
+Proof.
+  intros l rest ls done inner H Hind.
+  destruct (if bcallouts then callout_header rest else None)
+    as [[[kind fold] title]|] eqn:E.
+  - unfold step. cbn [step_fuel open_line pstate_depth].
+    rewrite H, ?Nat.add_0_l, Hind, E.
+    unfold close_reopen. cbn [is_lazy open_line open_callout fst snd].
+    rewrite E.
+    reflexivity.
+  - destruct (step rest (PPara [])) as [bs inner'] eqn:Er.
+    rewrite (step_list_quote_close _ _ _ _ _ _ _ H E Hind Er).
+    rewrite (step_quote_open _ _ _ _ H E Er). reflexivity.
 Qed.
 
 (* A code fence at or left of the marker closes the list and opens at its
@@ -3851,7 +3951,7 @@ Local Lemma feed_lazy_ws_prefix :
     is_blank p = true -> feed_lazy (p ++ l) st = feed_lazy l st.
 Proof.
   intros p l st Hp.
-  induction st as [cur|lvl cur| |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  induction st as [cur|lvl cur| |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [feed_lazy];
     try (rewrite (drop_leading_ws_ws_prefix p l Hp); reflexivity);
     try (rewrite IH; reflexivity).
@@ -3914,7 +4014,7 @@ Lemma key_claims_not_claimable :
     key_claims l st = false.
 Proof.
   intros l st Hcl.
-  induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [blank_safe key_claims]; try reflexivity; try discriminate;
@@ -3974,6 +4074,14 @@ Proof.
   rewrite (open_extent_ws_prefix p l Hp). reflexivity.
 Qed.
 
+Local Lemma open_callout_ws_prefix :
+  forall p l kind fold title, is_blank p = true ->
+    open_callout (p ++ l) kind fold title = open_callout l kind fold title.
+Proof.
+  intros p l kind fold title Hp. unfold open_callout.
+  rewrite (open_extent_ws_prefix p l Hp). reflexivity.
+Qed.
+
 Local Lemma open_list_ws_prefix :
   forall p l ind sty chk d, is_blank p = true ->
   open_list (p ++ l) ind sty chk d = open_list l ind sty chk d.
@@ -4017,7 +4125,9 @@ Proof.
 Qed.
 
 Ltac ws_openers p l Hp :=
-  rewrite ?(open_quote_ws_prefix p l _ Hp), ?(open_list_ws_prefix p l _ _ _ _ Hp),
+  rewrite ?(open_quote_ws_prefix p l _ Hp),
+    ?(open_callout_ws_prefix p l _ _ _ Hp),
+    ?(open_list_ws_prefix p l _ _ _ _ Hp),
     ?(open_fence_ws_prefix p l _ _ Hp), ?(open_ref_ws_prefix p l _ _ _ Hp),
     ?(list_next_ws_prefix p l _ _ _ _ Hp), ?(open_foot_ws_prefix p l _ _ _ Hp),
     ?(table_row_part_ws_prefix p l _ Hp).
@@ -4035,7 +4145,7 @@ Proof.
   assert (Hc : forall rest, String.length rest <= String.length l ->
                  consumed (p ++ l) rest = String.length p + consumed l rest).
   { intros rest Hle. unfold consumed. rewrite length_append. lia. }
-  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
+  destruct st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng qhead done inner|dlen dcls drng dop ddone dinner|ls done inner|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner|trng trows tcap|ppend pspecs pinner|krng klbl ksrc kinner].
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
     destruct cur as [|c cur'].
     { destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
@@ -4049,7 +4159,10 @@ Proof.
       { cbn [open_kind]. rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
         destruct (@bdivs K); reflexivity. }
       { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
-                Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+                Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        destruct (if bcallouts then callout_header rest else None)
+          as [[[kind fold] title]|];
+          rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
       { (* heading: opens at its marker *)
         cbn [open_kind]. rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
       { rewrite (Hc (configured_list_rest chk mr)
@@ -4098,7 +4211,10 @@ Proof.
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
-              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+              Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        destruct (if bcallouts then callout_header rest else None)
+          as [[[kind fold] title]|];
+          rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
       cbn [close_reopen open_kind].
       rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
@@ -4144,7 +4260,10 @@ Proof.
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
-              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+              Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        destruct (if bcallouts then callout_header rest else None)
+          as [[[kind fold] title]|];
+          rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
       cbn [close_reopen open_kind].
       rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
@@ -4195,7 +4314,10 @@ Proof.
       rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp).
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
-              Nat.add_assoc, (Nat.add_comm off (String.length p)). reflexivity. }
+              Nat.add_assoc, (Nat.add_comm off (String.length p)).
+        destruct (if bcallouts then callout_header rest else None)
+          as [[[kind fold] title]|];
+          rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
       cbn [is_lazy open_kind close_reopen].
       rewrite (open_extent_ws_prefix p l Hp). reflexivity. }
@@ -4446,8 +4568,13 @@ Proof.
   - destruct (@fence_block K f (line_texts (rev acc))) as [q a b] eqn:Ef.
     pose proof (@fence_block_erase K f (line_texts (rev acc)) []) as Hf.
     rewrite Ef in Hf. cbn [Erase.of_blocks] in Hf. exact Hf.
-  - cbn [mk Erase.of_block]. fold Erase.of_blocks.
-    rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
+  - destruct header as [[[kind fold] [line source]]|];
+      cbn [option_map StateErase.of_line mk Erase.of_block quote_block callout_title
+        located_pos semantic_pos pos_records];
+      fold Erase.of_blocks;
+      rewrite Erase.blocks_app, Erase.blocks_rev, IHst;
+      try rewrite erase_parse_inline_line_located;
+      reflexivity.
   - unfold div_block. destruct (String.eqb cls EmptyString) eqn:E;
       cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk];
       fold Erase.of_blocks;
@@ -4616,7 +4743,12 @@ Proof.
     try reflexivity.
   - unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct bdivs; reflexivity.
-  - specialize (H rest). destruct (dl rest) as [bs st].
+  - destruct (if bcallouts then callout_header rest else None)
+      as [[[kind fold] title]|] eqn:E.
+    { unfold StateErase.result, open_callout.
+      cbn [fst snd StateErase.state StateErase.of_line option_map].
+      rewrite erase_remember_line. reflexivity. }
+    specialize (H rest). destruct (dl rest) as [bs st].
     destruct (ds rest) as [bs' st']. cbn [StateErase.result fst snd] in H.
     injection H as Hbs Hst. subst bs' st'.
     unfold StateErase.result, open_quote. cbn [StateErase.state fst snd].

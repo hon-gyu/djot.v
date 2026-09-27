@@ -32,12 +32,17 @@ let rec escape_attr = (fun s ->
        | c -> Buffer.add_char b c) s;
      Buffer.contents b)
 
-(** val render_attrs : attr -> string **)
+(** val render_attrs : string -> attr -> string **)
 
-let render_attrs a =
+let render_attrs tag a =
   String.concat ""
     (map (fun kv ->
-      (^) " " ((^) (fst kv) ((^) "=\"" ((^) (escape_attr (snd kv)) "\"")))) a)
+      if (&&) ((&&) ((=) tag "details") ((=) (fst kv) "open"))
+           ((=) (snd kv) "")
+      then " open"
+      else (^) " "
+             ((^) (fst kv) ((^) "=\"" ((^) (escape_attr (snd kv)) "\""))))
+      a)
 
 type helt =
 | HText of string
@@ -48,7 +53,7 @@ type helt =
 (** val open_tag : string -> bool -> attr -> string **)
 
 let open_tag tag self a =
-  (^) "<" ((^) tag ((^) (render_attrs a) (if self then "/>" else ">")))
+  (^) "<" ((^) tag ((^) (render_attrs tag a) (if self then "/>" else ">")))
 
 (** val pieces_elt : helt -> string list -> string list **)
 
@@ -364,6 +369,29 @@ let rec render_block refs tight b a =
        ((HElem ("dt", (Stdlib.succ 0), [],
        (render_inlines refs label))) :: ((HElem ("dd", (Stdlib.succ
        (Stdlib.succ 0)), [], (render_bs (b0 :: [])))) :: [])))) :: []
+   | Ext_callout (kind, fold, title, bs) ->
+     let attrs = Attr.set "data-callout" kind (Attr.add_class "callout" a) in
+     let body = HElem ("div", (Stdlib.succ (Stdlib.succ 0)), (("class",
+       "callout-content") :: []), (render_bs bs))
+     in
+     (match fold with
+      | Some f ->
+        (HElem ("details", (Stdlib.succ (Stdlib.succ 0)),
+          (match f with
+           | FoldExpanded -> Attr.set "open" "" attrs
+           | FoldCollapsed -> attrs),
+          ((HElem ("summary", (Stdlib.succ 0), (("class",
+          "callout-title") :: []),
+          (render_inlines refs title))) :: (body :: [])))) :: []
+      | None ->
+        (HElem ("div", (Stdlib.succ (Stdlib.succ 0)), attrs,
+          (app
+            (match title with
+             | [] -> []
+             | _ :: _ ->
+               (HElem ("div", (Stdlib.succ 0), (("class",
+                 "callout-title") :: []), (render_inlines refs title))) :: [])
+            (body :: [])))) :: [])
    | _ -> [])
 
 type foot_state = { foot_numbers : (string * int) list; foot_next : int }
@@ -596,6 +624,30 @@ let rec render_block_foot refs st tight b a =
      (st2, ((HElem ("dl", (Stdlib.succ (Stdlib.succ 0)), (("class",
      "keyed") :: a), ((HElem ("dt", (Stdlib.succ 0), [], s1)) :: ((HElem
      ("dd", (Stdlib.succ (Stdlib.succ 0)), [], s2)) :: [])))) :: []))
+   | Ext_callout (kind, fold, title, bs) ->
+     let (st1, s1) = render_inlines_foot refs st title in
+     let (st2, s2) = render_bs_at st1 tight bs in
+     let attrs = Attr.set "data-callout" kind (Attr.add_class "callout" a) in
+     let body = HElem ("div", (Stdlib.succ (Stdlib.succ 0)), (("class",
+       "callout-content") :: []), s2)
+     in
+     (match fold with
+      | Some f ->
+        (st2, ((HElem ("details", (Stdlib.succ (Stdlib.succ 0)),
+          (match f with
+           | FoldExpanded -> Attr.set "open" "" attrs
+           | FoldCollapsed -> attrs),
+          ((HElem ("summary", (Stdlib.succ 0), (("class",
+          "callout-title") :: []), s1)) :: (body :: [])))) :: []))
+      | None ->
+        (st2, ((HElem ("div", (Stdlib.succ (Stdlib.succ 0)), attrs,
+          (app
+            (match title with
+             | [] -> []
+             | _ :: _ ->
+               (HElem ("div", (Stdlib.succ 0), (("class",
+                 "callout-title") :: []), s1)) :: [])
+            (body :: [])))) :: [])))
    | _ -> (st, (render_block refs tight b a)))
 
 (** val render_blocks_foot :

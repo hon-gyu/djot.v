@@ -266,6 +266,8 @@ Inductive cblock : Type :=
   | CRaw (format : string) (content : list string)
   | CHeading (level : nat) (lss : list (list cinline))
   | CQuote (inner : list cblock)
+  | CCallout (kind : string) (fold : option callout_fold)
+      (title : list cinline) (inner : list cblock)
   (* A canonical div: bare `:::` at both ends, no class.  The fence
      length is fixed for the same reason `CCode`'s is: content that would
      close it early is excluded by `cb_ok` rather than escaped by growing
@@ -307,6 +309,13 @@ Fixpoint cb_lines (cb : cblock) : list string :=
       (code_open (String "="%char format) :: content ++ [code_close])%list
   | CHeading lvl lss => map (heading_line lvl) (map ci_line lss)
   | CQuote inner => map quote_line (sep_lines (map cb_lines inner))
+  | CCallout kind fold title inner =>
+      quote_line ("[!" ++ kind ++ "]" ++
+        (match fold with
+         | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
+         end) ++
+        (match title with [] => "" | _ => " " ++ ci_line title end))
+      :: map quote_line (sep_lines (map cb_lines inner))
   | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
   (* Each item's own lines, then the markers its kind supplies and the
      layout its spacing supplies: `Parser.ck_items` and
@@ -335,6 +344,8 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CRaw format content => mk (RawBlock format (join_nl content))
   | CHeading lvl lss => mk (Heading lvl (ci_para lss))
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
+  | CCallout kind fold title inner =>
+      mk (Ext_callout kind fold (ci_inlines title) (map cb_ast inner))
   | CDiv inner => mk (Div (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
@@ -384,6 +395,8 @@ Definition cblock_ind2
   (hraw : forall format content, P (CRaw format content))
   (hhead : forall lvl ls, P (CHeading lvl ls))
   (hquote : forall inner, Q inner -> P (CQuote inner))
+  (hcallout : forall kind fold title inner,
+      Q inner -> P (CCallout kind fold title inner))
   (hdiv : forall inner, Q inner -> P (CDiv inner))
   (hlist : forall k sp items, R items -> P (CList k sp items))
   (href : forall label dest, P (CRef label dest))
@@ -409,6 +422,8 @@ Definition cblock_ind2
     | CRaw format content => hraw format content
     | CHeading lvl ls => hhead lvl ls
     | CQuote inner => hquote inner (golist inner)
+    | CCallout kind fold title inner =>
+        hcallout kind fold title inner (golist inner)
     | CDiv inner => hdiv inner (golist inner)
     | CList k sp items =>
         hlist k sp items
@@ -502,6 +517,42 @@ Definition heading_ok (lvl : nat) (ls : list string) : bool :=
   && forallb line_ok ls
   && (bheading_continues || Nat.eqb (List.length ls) 1)%bool
   && String.eqb (strip_trailing_ws (last ls EmptyString)) (last ls EmptyString).
+
+(* A quote opener must stay an ordinary quote when callouts are enabled. *)
+Definition quote_header_safe (inner : list cblock) : bool :=
+  match sep_lines (map cb_lines inner) with
+  | [] => true
+  | l :: _ =>
+      match (if bcallouts then callout_header l else None) with
+      | None => true | Some _ => false
+      end
+  end.
+
+Definition callout_fold_eqb (a b : option callout_fold) : bool :=
+  match a, b with
+  | None, None | Some FoldExpanded, Some FoldExpanded
+  | Some FoldCollapsed, Some FoldCollapsed => true
+  | _, _ => false
+  end.
+
+Definition callout_header_source
+    (kind : string) (fold : option callout_fold) (title : list cinline)
+    : string :=
+  "[!" ++ kind ++ "]" ++
+    (match fold with
+     | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
+     end) ++
+    (match title with [] => "" | _ => " " ++ ci_line title end).
+
+Definition callout_header_ok
+    (kind : string) (fold : option callout_fold) (title : list cinline)
+    : bool :=
+  match callout_header (callout_header_source kind fold title) with
+  | Some (kind', fold', source) =>
+      String.eqb kind kind' && callout_fold_eqb fold fold'
+      && String.eqb source (ci_line title)
+  | None => false
+  end.
 
 (* Tight/loose, on the item's lines rather than on its block tree.
 
@@ -858,7 +909,16 @@ Fixpoint cb_ok (cb : cblock) : bool :=
          end
   | CRaw format content => braw_blocks && raw_ok format content
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
-  | CQuote inner => inner_ok inner && cb_pairs_ok inner
+  | CQuote inner => inner_ok inner && cb_pairs_ok inner && quote_header_safe inner
+  | CCallout kind fold title inner =>
+      bcallouts && callout_header_ok kind fold title
+      && no_nl (callout_header_source kind fold title)
+      && (match title with
+          | [] => true
+          | _ => heading_ok 1 [ci_line title]
+          end)
+      && cis_ok title
+      && divs_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
      contentless div in djot.js), so this is the one container
      without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
@@ -950,7 +1010,8 @@ Proof. reflexivity. Qed.
 Lemma cb_ok_quote :
   forall inner,
     cb_ok (CQuote inner)
-    = (nonempty inner && forallb cb_ok inner && cb_pairs_ok inner)%bool.
+    = (nonempty inner && forallb cb_ok inner && cb_pairs_ok inner
+       && quote_header_safe inner)%bool.
 Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
 
 (* The div analogues.  `divs_ok` collapses to a plain `forallb` because
@@ -964,6 +1025,15 @@ Local Lemma divs_ok_eq :
        end) cs
     = forallb cb_ok cs.
 Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+
+Lemma cb_ok_callout :
+  forall kind fold title inner,
+    cb_ok (CCallout kind fold title inner) =
+      (bcallouts && callout_header_ok kind fold title
+       && no_nl (callout_header_source kind fold title)
+       && (match title with [] => true | _ => heading_ok 1 [ci_line title] end)
+       && cis_ok title && forallb cb_ok inner && cb_pairs_ok inner)%bool.
+Proof. intros. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
 Lemma cb_ok_div :
   forall inner,
@@ -1245,6 +1315,16 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
    | BlockQuote bs =>
        map quote_line
          (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
+   | Ext_callout kind fold title bs =>
+       let title_text := String.concat "" (text_lines title) in
+       let marker :=
+         match fold with
+         | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
+         end in
+       (quote_line ("[!" ++ kind ++ "]" ++ marker ++
+         (if String.eqb title_text "" then "" else " " ++ title_text))
+        :: map quote_line
+          (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)))%list
    | Div bs =>
        let body := sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
        (div_open_line (div_fence_for body) cls :: body ++ [div_fence_for body])%list
@@ -1677,6 +1757,8 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
                 end in
       Node p a' (Section (go bs))
   | BlockQuote bs => Node p a (BlockQuote (go bs))
+  | Ext_callout kind fold title bs =>
+      Node p a (Ext_callout kind fold title (go bs))
   | Div bs => Node p a (Div (go bs))
   | FootnoteDef l bs => Node p a (FootnoteDef l (go bs))
   | BulletList sp its => Node p a (BulletList sp (goits its))

@@ -88,6 +88,13 @@ val is_upper : char -> bool
 
 val is_alnum : char -> bool
 
+val callout_kind_char : char -> bool
+
+val callout_sep : char -> bool
+
+val callout_header :
+  string -> ((string * callout_fold option) * string) option
+
 val is_roman_lo : char -> bool
 
 val is_roman_up : char -> bool

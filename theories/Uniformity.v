@@ -679,20 +679,20 @@ Proof.
   rewrite !length_append. cbn [String.length]. lia.
 Qed.
 
-Local Lemma parse_lines_quote_cont_pad :
+Local Lemma parse_lines_quote_cont_header_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
-  forall lines tail range done inner,
+  forall lines tail range header done inner,
     parse_lines (map (fun l => pad ++ "> " ++ l)%string lines ++ sep :: tail)%list
-                (PQuote range done (pad_state (String.length pad + quote_pad) inner))
-    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+                (PQuote range header done (pad_state (String.length pad + quote_pad) inner))
+    = mk (quote_block header (rev done ++ parse_lines lines inner)%list)
       :: parse_lines tail (PPara []).
 Proof.
-  intros pad Hpad sep Hsep. induction lines as [|l lines IH]; intros tail range done inner.
+  intros pad Hpad sep Hsep. induction lines as [|l lines IH]; intros tail range header done inner.
   - cbn [map app].
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_close _ KBlank _ _ _ _ _ Hsep eq_refl eq_refl eq_refl)).
-    rewrite pad_state_finish. reflexivity.
+               (step_quote_close _ KBlank _ header _ _ _ _ Hsep eq_refl eq_refl eq_refl)).
+    cbn [finish]. rewrite pad_state_finish. reflexivity.
   - cbn [map app].
     destruct (step l inner) as [bs inner'] eqn:Es.
     assert (Esh : step_at (consumed (pad ++ "> " ++ l) l) l
@@ -702,7 +702,7 @@ Proof.
       rewrite <- (Nat.add_0_r (String.length pad + quote_pad)) at 1.
       rewrite step_at_shift, step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ _
+               (step_quote_cont _ _ _ header _ _ _ _
                   (classify_canonical_quote_pad pad l Hpad) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
@@ -710,14 +710,14 @@ Proof.
     reflexivity.
 Qed.
 
-Local Lemma parse_lines_quote_cont_eof_pad :
+Local Lemma parse_lines_quote_cont_eof_header_pad :
   forall pad, is_blank pad = true ->
-  forall lines range done inner,
+  forall lines range header done inner,
     parse_lines (map (fun l => pad ++ "> " ++ l)%string lines)
-                (PQuote range done (pad_state (String.length pad + quote_pad) inner))
-    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
+                (PQuote range header done (pad_state (String.length pad + quote_pad) inner))
+    = [mk (quote_block header (rev done ++ parse_lines lines inner)%list)].
 Proof.
-  intros pad Hpad. induction lines as [|l lines IH]; intros range done inner.
+  intros pad Hpad. induction lines as [|l lines IH]; intros range header done inner.
   - cbn [map parse_lines finish]. rewrite pad_state_finish. reflexivity.
   - cbn [map].
     destruct (step l inner) as [bs inner'] eqn:Es.
@@ -728,7 +728,7 @@ Proof.
       rewrite <- (Nat.add_0_r (String.length pad + quote_pad)) at 1.
       rewrite step_at_shift, step_at_zero, Es. reflexivity. }
     rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_cont _ _ _ _ _ _ _
+               (step_quote_cont _ _ _ header _ _ _ _
                   (classify_canonical_quote_pad pad l Hpad) Esh)).
     cbn [app]. rewrite IH.
     rewrite (parse_lines_step _ _ _ _ _ Es).
@@ -736,20 +736,46 @@ Proof.
     reflexivity.
 Qed.
 
+Local Lemma parse_lines_quote_cont_pad :
+  forall pad, is_blank pad = true ->
+  forall sep, classify sep = KBlank ->
+  forall lines tail range done inner,
+    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines ++ sep :: tail)%list
+                (PQuote range None done (pad_state (String.length pad + quote_pad) inner))
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines tail (PPara []).
+Proof.
+  intros pad Hpad sep Hsep lines tail range done inner.
+  exact (parse_lines_quote_cont_header_pad pad Hpad sep Hsep lines tail range None done inner).
+Qed.
+
+Local Lemma parse_lines_quote_cont_eof_pad :
+  forall pad, is_blank pad = true ->
+  forall lines range done inner,
+    parse_lines (map (fun l => pad ++ "> " ++ l)%string lines)
+                (PQuote range None done (pad_state (String.length pad + quote_pad) inner))
+    = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
+Proof.
+  intros pad Hpad lines range done inner.
+  exact (parse_lines_quote_cont_eof_header_pad pad Hpad lines range None done inner).
+Qed.
+
 Local Lemma parse_lines_quote_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
   forall l lines tail,
+    (if bcallouts then callout_header l else None) = None ->
     parse_lines
       (map (fun x => pad ++ "> " ++ x)%string (l :: lines) ++ sep :: tail)%list
       (PPara [])
     = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
       :: parse_lines tail (PPara []).
 Proof.
-  intros pad Hpad sep Hsep l lines tail. cbn [map app].
+  intros pad Hpad sep Hsep l lines tail Hheader. cbn [map app].
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
-             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad)
+               Hheader Es)).
   cbn [app]. rewrite consumed_quote_prefix_pad.
   rewrite (parse_lines_quote_cont_pad pad Hpad sep Hsep), rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
@@ -759,13 +785,15 @@ Qed.
 Theorem quote_uniformity_pad :
   forall pad, is_blank pad = true ->
   forall l lines,
+    (if bcallouts then callout_header l else None) = None ->
     parse_lines (map (fun x => pad ++ "> " ++ x)%string (l :: lines)) (PPara [])
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
 Proof.
-  intros pad Hpad l lines. cbn [map].
+  intros pad Hpad l lines Hheader. cbn [map].
   destruct (step l (PPara [])) as [bs inner] eqn:Es.
   rewrite (parse_lines_step _ _ _ _ _
-             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad) Es)).
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad pad l Hpad)
+               Hheader Es)).
   cbn [app]. rewrite consumed_quote_prefix_pad.
   rewrite (parse_lines_quote_cont_eof_pad pad Hpad), rev_involutive.
   rewrite (parse_lines_step _ _ _ _ _ Es).
@@ -777,7 +805,7 @@ Qed.
 Local Lemma parse_lines_quote_cont :
   forall lines tail range done inner,
     parse_lines (map (fun l => ("> " ++ l)%string) lines ++ EmptyString :: tail)%list
-                (PQuote range done (pad_state quote_pad inner))
+                (PQuote range None done (pad_state quote_pad inner))
     = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
       :: parse_lines tail (PPara []).
 Proof.
@@ -790,7 +818,7 @@ Qed.
 Local Lemma parse_lines_quote_cont_eof :
   forall lines range done inner,
     parse_lines (map (fun l => ("> " ++ l)%string) lines)
-                (PQuote range done (pad_state quote_pad inner))
+                (PQuote range None done (pad_state quote_pad inner))
     = [mk (BlockQuote (rev done ++ parse_lines lines inner)%list)].
 Proof.
   intros lines range done inner.
@@ -800,25 +828,75 @@ Qed.
 
 Lemma parse_lines_quote :
   forall l lines tail,
+    (if bcallouts then callout_header l else None) = None ->
     parse_lines
       (map (fun x => ("> " ++ x)%string) (l :: lines) ++ EmptyString :: tail)%list
       (PPara [])
     = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
       :: parse_lines tail (PPara []).
 Proof.
-  intros l lines tail.
+  intros l lines tail Hheader.
   exact (parse_lines_quote_pad EmptyString eq_refl EmptyString
-           (classify_blank EmptyString eq_refl) l lines tail).
+           (classify_blank EmptyString eq_refl) l lines tail Hheader).
 Qed.
 
  (** Uniformity for block quotes: a quote's contents parse exactly as
     they would at top level.  One proof, every construct. *)
 Theorem quote_uniformity :
   forall l lines,
+    (if bcallouts then callout_header l else None) = None ->
     parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
 Proof.
-  intros l lines. exact (quote_uniformity_pad EmptyString eq_refl l lines).
+  intros l lines Hheader.
+  exact (quote_uniformity_pad EmptyString eq_refl l lines Hheader).
+Qed.
+
+Lemma parse_lines_callout :
+  forall header lines tail kind fold title,
+    (if bcallouts then callout_header header else None) =
+      Some (kind, fold, title) ->
+    parse_lines
+      (map quote_line (header :: lines) ++ EmptyString :: tail)%list (PPara [])
+    = mk (Ext_callout kind fold (callout_title (remember_line title))
+        (parse_lines lines (PPara [])))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros header lines tail kind fold title Hheader.
+  cbn [map app].
+  rewrite (parse_lines_step _ _ _ _ _
+    (step_callout_open _ _ _ _ _ (classify_canonical_quote header) Hheader)).
+  cbn [app].
+  change (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
+    (Some (kind, fold, remember_line title)) [] (PPara []))
+    with (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
+      (Some (kind, fold, remember_line title)) [] (pad_state quote_pad (PPara []))).
+  exact (parse_lines_quote_cont_header_pad EmptyString eq_refl EmptyString
+    (classify_blank EmptyString eq_refl) lines tail
+    (open_extent (quote_line header) (indent_of (quote_line header)))
+    (Some (kind, fold, remember_line title)) [] (PPara [])).
+Qed.
+
+Theorem callout_uniformity :
+  forall header lines kind fold title,
+    (if bcallouts then callout_header header else None) =
+      Some (kind, fold, title) ->
+    parse_lines (map quote_line (header :: lines)) (PPara []) =
+      [mk (Ext_callout kind fold (callout_title (remember_line title))
+        (parse_lines lines (PPara [])))].
+Proof.
+  intros header lines kind fold title Hheader.
+  cbn [map].
+  rewrite (parse_lines_step _ _ _ _ _
+    (step_callout_open _ _ _ _ _ (classify_canonical_quote header) Hheader)).
+  cbn [app].
+  change (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
+    (Some (kind, fold, remember_line title)) [] (PPara []))
+    with (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
+      (Some (kind, fold, remember_line title)) [] (pad_state quote_pad (PPara []))).
+  exact (parse_lines_quote_cont_eof_header_pad EmptyString eq_refl lines
+    (open_extent (quote_line header) (indent_of (quote_line header)))
+    (Some (kind, fold, remember_line title)) [] (PPara [])).
 Qed.
 
 (*

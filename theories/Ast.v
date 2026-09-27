@@ -571,6 +571,10 @@ Record ordered_list_attributes : Type := OLAttrs
 
 Inductive task_status : Type := Complete | Incomplete.
 
+(* A callout's fold marker: `+` shows it expanded, `-` collapsed.  No
+   marker is `None` where the fold is held. *)
+Inductive callout_fold : Type := FoldExpanded | FoldCollapsed.
+
 Inductive align : Type := AlignLeft | AlignRight | AlignCenter | AlignDefault.
 
 Inductive cell_type : Type := HeadCell | BodyCell.
@@ -624,7 +628,11 @@ Inductive block : Type :=
      scope is forced by the type.  The label is inlines because the
      parser builds it with `para_inlines`; that it is one element is the
      canonical view's condition. *)
-  | Ext_keyed (label : inlines) (b : node block).
+  | Ext_keyed (label : inlines) (b : node block)
+  (* An Obsidian-style quote header, kept distinct so source rendering
+     can recover the marker and every inline traversal visits its title. *)
+  | Ext_callout (kind : string) (fold : option callout_fold)
+      (title : inlines) (body : list (node block)).
 
 Definition blocks : Type := list (node block).
 
@@ -655,6 +663,8 @@ Definition block_ind2
   (* Its one block reaches the caller as a singleton list, so a key needs
      no hypothesis of its own. *)
   (hkeyed : forall label b, Q [b] -> P (Ext_keyed label b))
+  (hcallout : forall kind fold title bs, Q bs ->
+      P (Ext_callout kind fold title bs))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
@@ -708,6 +718,8 @@ Definition block_ind2
     | FootnoteDef label bs => hfoot label bs (golist bs)
     | RefDef label dest => hrefdef label dest
     | Ext_keyed label b => hkeyed label b (golist [b])
+    | Ext_callout kind fold title bs =>
+        hcallout kind fold title bs (golist bs)
     end.
 
 (*
@@ -914,6 +926,8 @@ Fixpoint of_block (b : block) : block :=
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node _ a x) =>
       Ext_keyed label (Node NoPos a (of_block x))
+  | Ext_callout kind fold title bs =>
+      Ext_callout kind fold (of_inlines title) (go bs)
   | x => x
   end.
 

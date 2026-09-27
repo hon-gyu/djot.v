@@ -3,11 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Callouts
 
-Status: **specified, not implemented** (2026-09-23; refined for
-handover 2026-09-26). Nothing below is pinned yet. Section 8 is the
-estimate, 8.1 the order of work, and section 9 what is still undecided;
-all are written to be checked against the tree once the construct is
-built, as [[wikilinks]] section 8.1 was.
+Status: **implemented** (2026-09-27). The recognizer, parser setting,
+distinct node, located title, HTML and source renderers, canonical view,
+roundtrip proof, generated checks, extraction, and public facade are built.
+Section 8 records the original predictions and section 8.1 records what
+the implementation established or changed.
 
 The first consumer is oyster, which is replacing its cmarkit fork with
 this parser and already relies on callouts; section 8 lists what it
@@ -52,8 +52,8 @@ exist.
 
 Not decisions. Pinned from djot.js v0.3.2 on 2026-09-23, and checked
 against our extracted parser with the djot profile on 2026-09-26: every
-row agrees. Pinning them as `Example`s is still the first step of
-section 8.1, since that check was a one-off.
+row agrees. `dev/check/Callout.v` now pins every row as a default-profile
+`Example`.
 
 | input                                  | djot today                                               |
 | -------------------------------------- | -------------------------------------------------------- |
@@ -131,7 +131,7 @@ The opening line's content, after the quote prefix, is a header when it
 is:
 
 1. `[!`;
-2. a **kind**: one or more letters, digits, `-` or `_`;
+2. a **kind**: one or more ASCII letters, digits, `-` or `_`;
 3. `]`;
 4. optionally a **fold marker**, `+` or `-`;
 5. then either the end of the line, or a space or tab followed by the
@@ -262,14 +262,11 @@ The conditions on a canonical callout:
   no leading or trailing whitespace;
 - the body satisfies what a canonical quote's contents satisfy.
 
-**No condition on anything else.** The claim of section 2 is that no
-canonical quote renders to a first line that 3.2 reads as a header, and
-the claim is what lets the roundtrip theorem take no new hypothesis. It
-rests on the escape set, and [[project-engineering-lessons#Probe a
-theorem's shape before proposing it]] says to check it before relying on
-it: the extracted roundtrip over a pool of quotes whose first child
-starts with every inline that renders a leading `[`, with the setting
-on.
+**No condition on anything else for a callout.** An ordinary canonical
+quote additionally checks that its first rendered line is not a callout
+header when this setting is on. The finite escape probe found no such
+collision, but it did not prove the universal escape claim. The explicit
+check keeps `roundtrip_blocks` valid without adding a theorem hypothesis.
 
 ## 7. Worked examples
 
@@ -323,9 +320,12 @@ is `Profile.with_ext_callouts`, beside `with_ext_keyed`.
 plumbing (`bkeyed` has 26 mentions across `theories/`, 17 of them in
 `Step.v`'s `with_*` definitions).
 
-**A header recognizer in `Line.v`.** A function from the content after
-the quote prefix to an optional header, plus the lemma that it answers
-`None` on every string beginning with anything but `[!`.
+**A header recognizer in `Line.v`.** `callout_header` takes the content
+after the quote prefix and returns an optional kind, fold marker
+(`Ast.callout_fold`, `FoldExpanded` for `+` and `FoldCollapsed` for `-`)
+and raw title suffix. It retains trailing whitespace for located parsing; the
+title value is trimmed at close. `callout_header_other_prefix` proves it
+answers `None` on every string beginning with anything but `[!`.
 
 **No new parser state.** `PQuote` gains a header field. The only
 transition that reads it is the quote opener: where `open_quote` today
@@ -368,9 +368,10 @@ an arm, since the facade's source renderer will be built on it.
 
 **Predicted obligations, stated so their failure names something.**
 
-- `roundtrip_blocks` gains no hypothesis, for section 6's reason.
-  `cb_ok` gains a clause for the new constructor and no existing clause
-  changes.
+- `roundtrip_blocks` gains no hypothesis. `cb_ok` gains a callout clause;
+  the quote clause also gains the first-line header check described in
+  section 6. The original prediction that its clause would be unchanged
+  was not discharged by a universal escape proof.
 - `quote_uniformity`, `quote_uniformity_pad` and the lemmas under them
   in `Uniformity.v` (`parse_lines_quote_pad` and its continuation forms)
   **become false** with
@@ -384,7 +385,11 @@ an arm, since the facade's source renderer will be built on it.
 **The located parse.** The node's span runs from the quote prefix of the
 header to the last body line, the extent `PQuote` already records. The
 title's inlines are located at their own columns because the title is a
-stored line. The erasure refinement takes one case.
+stored source suffix. The recognizer must keep trailing whitespace in
+that suffix until inline parsing: stripping it in `Line.v` loses the
+end-anchored column used by `parse_inline_line_located`. Strip it for
+the title's value when the quote closes. The erasure refinement takes
+one case.
 
 **djot.js stops covering this**, as it does for keys and wikilinks.
 The baseline rows of section 1 are what djot.js still checks: with the
@@ -445,6 +450,21 @@ Each step ends with the tree building and the existing checks passing.
 
 After step 8, go back over section 8 and record which predictions held,
 as [[wikilinks]] section 8.1 does.
+
+Checkpoint (2026-09-27): all eight stages are implemented. The existing
+default-profile examples and enabled examples in `dev/check/Callout.v`
+compile; the latter cover nested and lazy bodies, invalid suffixes,
+blank closure, inline titles, list and keyed nesting, block attributes,
+folded HTML with a bare `open` attribute, and an empty title. The
+state transition and uniformity theorems compile, and
+`callout_uniformity` and `roundtrip_blocks` have no additional
+assumptions. `dune build`, `make check-dist`, the standalone `dist`
+build and tests, and the extracted callout roundtrip pool at depths
+1–3 pass (321, 3720, and 43882 accepted documents, no mismatches).
+The djot.js corpus is absent from this checkout, so `make diff` and
+`make check-spans` cannot run here. The quote escape claim remains a
+finite probe plus the explicit `cb_ok` check, rather than a universal
+lemma derived from the inline renderer.
 
 ## 9. Open questions
 

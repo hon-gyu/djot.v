@@ -49,7 +49,8 @@ Local Fixpoint all_explicit_ids (cb : cblock) : list string :=
   match cb with
   | CId i inner => i :: all_explicit_ids inner
   | CKey _ inner => all_explicit_ids inner
-  | CQuote inner | CDiv inner => flat_map all_explicit_ids inner
+  | CQuote inner | CCallout _ _ _ inner | CDiv inner =>
+      flat_map all_explicit_ids inner
   | CList _ _ items => flat_map (flat_map all_explicit_ids) items
   | _ => []
   end.

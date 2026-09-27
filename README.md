@@ -70,6 +70,7 @@ Current supported extensions and parser configs are:
 - Setext (underlined) headings: breaks safe rewrapping
 - Wikilinks (Obsidian-style `[[target\|alias]]`): breaks none
 - Keyed blocks (`label: content`, pairing an inline label with a block): breaks safe rewrapping; also changes the tree structure of existing documents
+- Callouts (`> [!kind]` on a quote opener): breaks block quote container uniformity for matching headers; also changes the tree structure of those quotes
 - ... more to come
 
 Some additional properties for the generalized parser:

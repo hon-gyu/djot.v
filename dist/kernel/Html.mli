@@ -13,7 +13,7 @@ val escape : string -> string
 
 val escape_attr : string -> string
 
-val render_attrs : attr -> string
+val render_attrs : string -> attr -> string
 
 type helt =
 | HText of string

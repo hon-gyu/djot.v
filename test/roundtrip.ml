@@ -4,14 +4,16 @@
    accepts, in the extracted parser.  No other parser is consulted.
 
    Usage:
-     roundtrip [--keyed | --wiki] [DEPTH] [--report FILE] [--verbose]
+     roundtrip [--keyed | --wiki | --callouts] [DEPTH] [--report FILE] [--verbose]
 
    The plain pool is what `Generate.gen_roundtrip_1` and `gen_roundtrip_2`
    prove in the kernel at depths 1 and 2; its default depth is 3, which
    takes seconds here and about twenty minutes as `dev/check/Deep.v`.
    `--keyed` reads the pool with keyed blocks on (default depth 1), and
    `--wiki` the ordinary pool with wikilinks on plus each wikilink leaf in
-   the containers (default depth 2); djot.js has neither construct.
+   the containers (default depth 2), and `--callouts` the callout pool with
+   callouts and wikilinks on (default depth 1); djot.js has none of these
+   extensions.
 
    The pinned counts are the coverage witness: the fragment must grow when
    a construct lands, and a shrinking count is a regression that zero
@@ -23,6 +25,7 @@ open Djot_test
 let plain_counts = [ (1, 296); (2, 3695); (3, 43857) ]
 let keyed_counts = [ (1, 6628); (2, 81536) ]
 let wiki_counts = [ (1, 326); (2, 3725); (3, 43887) ]
+let callout_counts = [ (1, 321); (2, 3720); (3, 43882) ]
 
 let run ~pool depth r verbose =
   let t0 = Unix.gettimeofday () in
@@ -32,6 +35,7 @@ let run ~pool depth r verbose =
     | `Plain -> "", G.accepted, G.rt_lhs, plain_counts
     | `Keyed -> "keyed ", G.keyed_accepted, G.keyed_rt_lhs, keyed_counts
     | `Wiki -> "wiki ", G.wiki_accepted, G.wiki_rt_lhs, wiki_counts
+    | `Callouts -> "callout ", G.callout_accepted, G.callout_rt_lhs, callout_counts
   in
   let docs = accepted depth in
   let t1 = Unix.gettimeofday () in
@@ -70,6 +74,7 @@ let () =
     | [] -> ()
     | "--keyed" :: rest -> pool := `Keyed; args rest
     | "--wiki" :: rest -> pool := `Wiki; args rest
+    | "--callouts" :: rest -> pool := `Callouts; args rest
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
     | d :: rest when int_of_string_opt d <> None ->
@@ -83,6 +88,7 @@ let () =
     | None, `Plain -> 3
     | None, `Keyed -> 1
     | None, `Wiki -> 2
+    | None, `Callouts -> 1
   in
   let r = Report.create !report in
   let ok = run ~pool:!pool depth r !verbose in

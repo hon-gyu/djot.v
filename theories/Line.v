@@ -432,6 +432,58 @@ Definition is_upper (c : ascii) : bool := in_range 65 90 c.
 Definition is_alnum (c : ascii) : bool :=
   (is_digit c || is_lower c || is_upper c)%bool.
 
+(* A callout header is recognized on the content of a newly opened quote,
+   before that content is parsed as djot markup.  The separator after the
+   closing bracket protects links, spans and reference definitions.  Its
+   title is a source suffix, retaining trailing whitespace so the located
+   inline parser can recover the original columns. *)
+Definition callout_kind_char (c : ascii) : bool :=
+  (is_alnum c || Ascii.eqb c "-" || Ascii.eqb c "_")%bool.
+
+Definition callout_sep (c : ascii) : bool :=
+  (Ascii.eqb c " " || Ascii.eqb c "009")%bool.
+
+Definition callout_header (s : string)
+  : option (string * option callout_fold * string) :=
+  match s with
+  | String a (String b rest) =>
+      if (Ascii.eqb a "[" && Ascii.eqb b "!")%bool then
+      let '(kind, rest) := take_while callout_kind_char rest in
+      match kind, rest with
+      | EmptyString, _ => None
+      | _, String "]" tail =>
+          let '(fold, tail) :=
+            match tail with
+            | String "+" more => (Some FoldExpanded, more)
+            | String "-" more => (Some FoldCollapsed, more)
+            | String _ _ => (None, tail)
+            | EmptyString => (None, EmptyString)
+            end in
+          match tail with
+          | EmptyString => Some (kind, fold, EmptyString)
+          | String c title =>
+              if callout_sep c then
+                Some (kind, fold, drop_leading_ws title)
+              else None
+          end
+      | _, _ => None
+      end
+      else None
+  | _ => None
+  end.
+
+Lemma callout_header_other_prefix :
+  forall s, (forall rest, s <> "[!" ++ rest) -> callout_header s = None.
+Proof.
+  intros s H. destruct s as [|a s]; [reflexivity|].
+  destruct s as [|b s]; [reflexivity|].
+  cbn [callout_header].
+  destruct (Ascii.eqb a "[") eqn:Ha;
+    destruct (Ascii.eqb b "!") eqn:Hb; cbn [andb]; try reflexivity.
+  - apply Ascii.eqb_eq in Ha. apply Ascii.eqb_eq in Hb. subst.
+    exfalso. apply (H s). reflexivity.
+Qed.
+
 (* The roman digits. *)
 Definition is_roman_lo (c : ascii) : bool :=
   (Ascii.eqb c "i" || Ascii.eqb c "v" || Ascii.eqb c "x" || Ascii.eqb c "l"

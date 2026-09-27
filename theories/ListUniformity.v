@@ -436,14 +436,14 @@ record where the blanks sit relative to the markers.
 Local Lemma pad_safe_pad_state :
   forall k st, pad_safe (pad_state k st) = pad_safe st.
 Proof.
-  intros k st. induction st as [| | |qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  intros k st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state pad_safe]; try reflexivity; exact IH.
 Qed.
 
 Local Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
-  intros k st. induction st as [| |f ind crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+  intros k st. induction st as [| |f ind crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     cbn [pad_state blank_safe]; try reflexivity; try exact IH.
   - rewrite IH, pad_state_is_idle. reflexivity.
   - rewrite IH, pad_state_announces_end. reflexivity.
@@ -845,7 +845,7 @@ Local Lemma step_blank_finish :
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
 Proof.
   intros l st Hl.
-  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
                   |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe.
@@ -855,7 +855,7 @@ Proof.
     + rewrite (step_para_flush l c cur' Hl). reflexivity.
   - rewrite (step_heading_close l lvl hrng cur Hl). reflexivity.
   - discriminate Hsafe.
-  - rewrite (step_quote_close l KBlank qrng done inner _ _ Hl eq_refl eq_refl
+  - rewrite (step_quote_close l KBlank qrng qhead done inner _ _ Hl eq_refl eq_refl
                (surjective_pairing _)).
     cbn [fst snd open_kind finish app]. reflexivity.
   - (* a blank never closes a div, so it goes straight to the contents *)
@@ -953,7 +953,7 @@ Local Lemma step_blank_inner_settled :
      /\ announces_end (snd (step l st)) = false).
 Proof.
   intros l st Hblank. induction st as
-    [cur|lvl cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+    [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe Hannounce Hidle Hempty;
     try discriminate Hsafe; try discriminate Hannounce.
@@ -961,7 +961,7 @@ Proof.
             rewrite (step_para_flush l c cur' Hblank) in Hempty; discriminate Hempty).
   all: try (rewrite (step_para_off_flush l okoff ocur Hblank) in Hempty;
             discriminate Hempty).
-  all: try (rewrite (step_quote_close l KBlank qrng done inner [] (PPara [])
+  all: try (rewrite (step_quote_close l KBlank qrng qhead done inner [] (PPara [])
               Hblank eq_refl eq_refl eq_refl) in Hempty; discriminate Hempty).
   all: try (destruct (step l dinner) as [bs i] eqn:Hs;
             rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs i
@@ -1009,7 +1009,7 @@ Local Lemma step_blank_key_claims :
     forall next, key_claims next (snd (step l st)) = false.
 Proof.
   intros l st Hblank. induction st as
-    [cur|lvl cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+    [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe next; try discriminate Hsafe.
   - destruct cur as [|c cur'].
@@ -1017,7 +1017,7 @@ Proof.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
   - unfold step. cbn [step_fuel open_line]. destruct bheading_continues;
       rewrite Hblank; reflexivity.
-  - rewrite (step_quote_close l KBlank qrng done inner [] (PPara [])
+  - rewrite (step_quote_close l KBlank qrng qhead done inner [] (PPara [])
       Hblank eq_refl eq_refl eq_refl). reflexivity.
   - cbn [blank_safe] in Hsafe. specialize (IH Hsafe next).
     destruct (step l dinner) as [bs i] eqn:Hs.
@@ -1077,7 +1077,7 @@ Local Lemma step_blank_lazy_false :
     lazy_ok (snd (step l st)) = false.
 Proof.
   intros l st Hblank. induction st as
-    [cur|lvl cur|f fnd crng cop acc|qrng done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+    [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe; try discriminate Hsafe.
   - destruct cur as [|c cur'].
@@ -1085,7 +1085,7 @@ Proof.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
   - unfold step. cbn [step_fuel open_line]. destruct bheading_continues;
       rewrite Hblank; reflexivity.
-  - rewrite (step_quote_close l KBlank qrng done inner [] (PPara [])
+  - rewrite (step_quote_close l KBlank qrng qhead done inner [] (PPara [])
       Hblank eq_refl eq_refl eq_refl). reflexivity.
   - destruct (step l dinner) as [bs inner'] eqn:Hstep.
     rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs inner'
@@ -1776,11 +1776,13 @@ Proof.
     rewrite Hfin. reflexivity.
   - apply (Hdirect (KDiv dl dc) eq_refl eq_refl ltac:(discriminate) eq_refl).
   - rewrite (parse_lines_step _ _ _ _ _
-               (step_list_quote_close next q ls' (rev bs ++ done)%list
-                  inner' _ _ Hclass Hind' (surjective_pairing _))).
-    rewrite (parse_lines_step _ _ _ _ _
-               (step_quote_open next q _ _ Hclass (surjective_pairing _))).
-    rewrite Hfin. reflexivity.
+               (step_list_quote_close_any next q ls' (rev bs ++ done)%list
+                  inner' Hclass Hind')).
+    destruct (step next (PPara [])) as [opened st'] eqn:Es.
+    pose proof (step_quote_open_no_blocks next q Hclass) as Hopened.
+    rewrite Es in Hopened. cbn [fst] in Hopened. subst opened.
+    cbn [snd app].
+    rewrite (parse_lines_step _ _ _ _ _ Es), Hfin. reflexivity.
   - apply (Hdirect (KHeading lvl txt) eq_refl eq_refl ltac:(discriminate) eq_refl).
   - exfalso. apply (Hnl m mc chk listrest). reflexivity.
   - rewrite (parse_lines_step _ _ _ _ _

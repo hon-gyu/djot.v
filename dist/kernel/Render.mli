@@ -54,6 +54,7 @@ type cblock =
 | CRaw of string * string list
 | CHeading of int * cinline list list
 | CQuote of cblock list
+| CCallout of string * callout_fold option * cinline list * cblock list
 | CDiv of cblock list
 | CList of list_kind * list_spacing * cblock list list
 | CRef of string * string
@@ -82,6 +83,16 @@ val code_ok : string -> string list -> bool
 val raw_ok : string -> string list -> bool
 
 val heading_ok : bconfig -> int -> string list -> bool
+
+val quote_header_safe : dtable -> bconfig -> cblock list -> bool
+
+val callout_fold_eqb : callout_fold option -> callout_fold option -> bool
+
+val callout_header_source :
+  dtable -> string -> callout_fold option -> cinline list -> string
+
+val callout_header_ok :
+  dtable -> string -> callout_fold option -> cinline list -> bool
 
 val item_forces_loose : dtable -> bconfig -> cblock list -> bool
 

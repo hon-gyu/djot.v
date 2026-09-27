@@ -454,6 +454,9 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (st : id_state)
   | BlockQuote bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (BlockQuote bs'))
+  | Ext_callout kind fold title bs =>
+      let (st', bs') := go bs (register_id a st) in
+      (st', Node p a (Ext_callout kind fold title bs'))
   | Div bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (Div bs'))
@@ -596,6 +599,16 @@ Lemma quote :
       (st', Node p a (BlockQuote bs')).
 Proof.
   intros p a bs st. cbn [of_block].
+  rewrite inner_go. reflexivity.
+Qed.
+
+Lemma callout :
+  forall kind fold title p a bs st,
+    of_block (Ext_callout kind fold title bs) p a st
+    = let (st', bs') := of_list bs (register_id a st) in
+      (st', Node p a (Ext_callout kind fold title bs')).
+Proof.
+  intros kind fold title p a bs st. cbn [of_block].
   rewrite inner_go. reflexivity.
 Qed.
 
@@ -790,7 +803,7 @@ Proof.
   all: try solve [cbn [of_block fst]; apply register_id_inv; assumption].
   all: try solve [cbn [of_block]; apply assign_heading_id_inv; assumption].
   all: try solve [
-    first [rewrite quote|rewrite div|rewrite foot|rewrite olist|rewrite blist
+    first [rewrite quote|rewrite callout|rewrite div|rewrite foot|rewrite olist|rewrite blist
           |rewrite tasklist|rewrite deflist];
     match goal with
     | |- id_inv (fst (let (_, _) := ?e in _)) => destruct e as [s' x'] eqn:E
@@ -1015,7 +1028,8 @@ Local Fixpoint of_block (b : block) (p : pos) (a : attr) (m : reference_map)
                         end) it acc)
       end in
   match b with
-  | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs => go bs m
+  | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs
+  | Ext_callout _ _ _ bs => go bs m
   | Ext_keyed _ (Node p' a' x) => of_block x p' a' m
   | BulletList _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
@@ -1165,6 +1179,9 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (m : note_map)
       (alist_set (normalize_label label) bs' m', None)
   | BlockQuote bs =>
       let (m', bs') := go bs m in (m', Some (Node p a (BlockQuote bs')))
+  | Ext_callout kind fold title bs =>
+      let (m', bs') := go bs m in
+      (m', Some (Node p a (Ext_callout kind fold title bs')))
   | Div bs =>
       let (m', bs') := go bs m in (m', Some (Node p a (Div bs')))
   (* A key whose one block is a definition has nothing left to name, so
@@ -1318,6 +1335,16 @@ Lemma quote :
       (m', Some (Node p a (BlockQuote bs'))).
 Proof.
   intros p a bs m. cbn [of_block]. rewrite inner_go.
+  reflexivity.
+Qed.
+
+Lemma callout :
+  forall kind fold title p a bs m,
+    of_block (Ext_callout kind fold title bs) p a m
+    = let (m', bs') := of_list bs m in
+      (m', Some (Node p a (Ext_callout kind fold title bs'))).
+Proof.
+  intros kind fold title p a bs m. cbn [of_block]. rewrite inner_go.
   reflexivity.
 Qed.
 
@@ -1558,6 +1585,8 @@ Local Fixpoint pass_block (b : block) (p : pos) (a : attr) {struct b}
   | Section inner => set_first (strip_id a) (go inner)
   | Heading lvl ils => [Node p (strip_id a) (Heading lvl ils)]
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
+  | Ext_callout kind fold title inner =>
+      [Node p a (Ext_callout kind fold title (go inner))]
   | Div inner => [Node p a (Div (go inner))]
   | FootnoteDef label inner => [Node p a (FootnoteDef label (go inner))]
   (* `Section` is the one block whose undo is not a single node, and
@@ -1675,6 +1704,23 @@ Proof.
                     (pass_block x p' a' ++ go rest)%list
                 end) inner))].
   rewrite H. reflexivity.
+Qed.
+
+Local Lemma pass_callout :
+  forall kind fold title inner p a,
+    pass_block (Ext_callout kind fold title inner) p a
+    = [Node p a (Ext_callout kind fold title (pass inner))].
+Proof.
+  intros kind fold title inner p a.
+  change (pass_block (Ext_callout kind fold title inner) p a)
+    with [Node p a (Ext_callout kind fold title
+      ((fix go (l : blocks) : blocks :=
+          match l with
+          | [] => []
+          | Node p' a' x :: rest =>
+              (pass_block x p' a' ++ go rest)%list
+          end) inner))].
+  reflexivity.
 Qed.
 
 Local Lemma pass_inner_goit :
@@ -1832,7 +1878,7 @@ Local Fixpoint of_block (b : block) (a : attr) {struct b} : bool :=
   | Heading _ _ =>
       match alist_lookup "id" a with Some _ => false | None => true end
   | FootnoteDef _ _ => false
-  | BlockQuote inner | Div inner => go inner
+  | BlockQuote inner | Div inner | Ext_callout _ _ _ inner => go inner
   | Ext_keyed _ (Node _ a' x) => of_block x a'
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
@@ -1935,6 +1981,13 @@ Proof.
              | Node _ a' x :: rest => (of_block x a' && go rest)%bool
              end) inner).
   rewrite inner_go. reflexivity.
+Qed.
+
+Local Lemma callout :
+  forall kind fold title inner a,
+    of_block (Ext_callout kind fold title inner) a = of_list inner.
+Proof.
+  intros kind fold title inner a. cbn [of_block]. apply inner_go.
 Qed.
 
 Local Lemma div :
@@ -2068,7 +2121,7 @@ Local Fixpoint notes_free_block (b : block) {struct b} : bool :=
       end in
   match b with
   | FootnoteDef _ _ => false
-  | BlockQuote bs | Div bs | Section bs => go bs
+  | BlockQuote bs | Div bs | Section bs | Ext_callout _ _ _ bs => go bs
   | Ext_keyed _ (Node _ _ x) => notes_free_block x
   | BulletList _ items | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
@@ -2143,6 +2196,11 @@ Qed.
 Local Lemma notes_free_quote :
   forall bs, notes_free_block (BlockQuote bs) = notes_free bs.
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+
+Local Lemma notes_free_callout :
+  forall kind fold title bs,
+    notes_free_block (Ext_callout kind fold title bs) = notes_free bs.
+Proof. intros kind fold title bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
 Local Lemma notes_free_section :
   forall bs, notes_free_block (Section bs) = notes_free bs.
@@ -2292,6 +2350,13 @@ Proof.
     destruct n1 as [q b1 y].
     cbn [Undo.pass Undo.pass_node] in Hu. rewrite app_nil_r in Hu.
     cbn [Undo.pass_node Undo.pass_block]. rewrite Hu. reflexivity.
+  - (* Ext_callout: the title is unchanged and the body follows Q. *)
+    rewrite Pristine.callout in H.
+    rewrite Ids.callout.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd Undo.pass_node]. rewrite Undo.pass_callout.
+    change bs' with (snd (st', bs')). rewrite <- E.
+    rewrite IHb by exact H. reflexivity.
   - (* Node p a b :: rest ([] is closed by reflexivity above) *)
     rewrite Pristine.cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [Ids.of_list Ids.of_node].
@@ -2397,6 +2462,8 @@ Proof.
     + injection (IHb eq_refl) as <- ->.
       cbn [Notes.of_block]. rewrite E1. reflexivity.
     + discriminate (f_equal snd (IHb eq_refl)).
+  - rewrite notes_free_callout in H. rewrite Notes.callout, IHb by exact H.
+    reflexivity.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [Notes.of_list]. rewrite IHb by exact Hb.
     rewrite IHb0 by exact Hrest. reflexivity.
@@ -2446,6 +2513,8 @@ Proof.
     destruct b as [p' a' x]. cbn [Pristine.of_block notes_free_block] in *.
     cbn [Pristine.of_list notes_free] in IHb. rewrite H in IHb.
     specialize (IHb eq_refl). rewrite andb_true_r in IHb. exact IHb.
+  - rewrite Pristine.callout in H. rewrite notes_free_callout.
+    apply IHb. exact H.
   - rewrite Pristine.cons in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [notes_free]. rewrite (IHb _ Hb), (IHb0 Hrest). reflexivity.
   - cbn [Pristine.of_items] in H. apply andb_true_iff in H as [Hit Hrest].
@@ -2524,6 +2593,10 @@ Proof.
     cbn [snd notes_free node_contents] in *.
     destruct n1 as [q b1 y]. cbn [notes_free_block] in *.
     rewrite andb_true_r in IHb. exact IHb.
+  - rewrite notes_free_callout in H. rewrite Ids.callout.
+    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
+    cbn [snd node_contents]. rewrite notes_free_callout.
+    change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact H.
   - cbn [notes_free] in H. apply andb_true_iff in H as [Hb Hrest].
     cbn [Ids.of_list Ids.of_node].
     destruct (Ids.of_block b p a st) as [st1 n1] eqn:E1.
@@ -3112,6 +3185,16 @@ Proof.
     destruct n1 as [np na nb].
     cbn [Erase.of_blocks Erase.of_block] in He. injection He as Hn2.
     split; [exact Hf|]. subst n2. reflexivity.
+  - (* Ext_callout *)
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Ids.callout.
+    destruct (Ids.of_list (Erase.of_blocks bs) (register_id a st)) as [st2 bs2] eqn:E2.
+    destruct (Ids.of_list bs (register_id a st)) as [st1 bs1] eqn:E1.
+    destruct (IHb (register_id a st)) as [Hf He].
+    rewrite E1, E2 in Hf. cbn [fst snd] in Hf.
+    rewrite E1, E2 in He. cbn [fst snd] in He.
+    split; [exact Hf|].
+    cbn [snd fst]. cbn [Erase.of_blocks Erase.of_block]. fold Erase.of_blocks.
+    rewrite He. reflexivity.
   - (* Q cons *)
     cbn [Erase.of_blocks Ids.of_list Ids.of_node].
     destruct (Ids.of_block b p a st) as [st1 n1] eqn:E1.
@@ -3357,6 +3440,13 @@ Proof.
       discriminate Hq.
     + discriminate Hq.
     + injection Hq as Hm. subst m2. reflexivity.
+  - (* Ext_callout *)
+    cbn [Erase.of_block]. fold Erase.of_blocks. rewrite !Notes.callout.
+    destruct (Notes.of_list (Erase.of_blocks bs) (erase_note_map m)) as [m2 bs2] eqn:E2.
+    destruct (Notes.of_list bs m) as [m1 bs1] eqn:E1.
+    pose proof (IHb m) as Hq. rewrite E1, E2 in Hq.
+    injection Hq as Hm Hb. subst m2 bs2.
+    cbn [Erase.of_block]. reflexivity.
   - (* Q cons *)
     cbn [Erase.of_blocks Notes.of_list].
     destruct (Notes.of_block b p a m) as [m1 n1] eqn:E1.

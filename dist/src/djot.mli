@@ -121,6 +121,8 @@ module Block : sig
   type cell = Kernel.Ast.cell =
     | Cell of cell_type * align * Inline.t node list
 
+  type callout_fold = Kernel.Ast.callout_fold = FoldExpanded | FoldCollapsed
+
   type t = Kernel.Ast.block =
     | Para of Inline.t node list
     | Section of t node list
@@ -145,6 +147,8 @@ module Block : sig
     | RefDef of string * string
     | Ext_keyed of Inline.t node list * t node
         (** An extension: [label: content]. *)
+    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
+        (** Kind, fold marker, inline title, and body. *)
 end
 
 (** {1 Source locations} *)
@@ -241,6 +245,9 @@ module Profile : sig
 
   val with_ext_keyed : bool -> t -> t
   (** [label: content] ({!Block.Ext_keyed}). *)
+
+  val with_ext_callouts : bool -> t -> t
+  (** Callouts with a header on the first line of a block quote. Off by default. *)
 end
 
 (** {1 Documents} *)

@@ -198,3 +198,31 @@ let () =
   assert (List.mem "{#main k=\"a b\"}" lines);
   assert (List.mem "{#Intro-1}" lines);
   assert (not (List.mem "{#Intro}" lines))
+
+(* The callout switch exposes a distinct block, a fold marker, and an
+   inline title.  The source renderer preserves the construct. *)
+let () =
+  let profile = Profile.with_ext_callouts true Profile.djot in
+  let src = "> [!warning]- Do not rename\n> body\n" in
+  (match Doc.blocks (Doc.of_string src) with
+   | [ Node (_, _, Block.BlockQuote _) ] -> ()
+   | _ -> failwith "callouts should be off by default");
+  (match Doc.blocks (Doc.of_string ~profile:Profile.markdown_like src) with
+   | [ Node (_, _, Block.BlockQuote _) ] -> ()
+   | _ -> failwith "callouts should be off in markdown_like");
+  let d = Doc.of_string ~profile ~locs:true src in
+  (match Doc.blocks d with
+   | [ Node (_, _, Block.Ext_callout
+       ("warning", Some Block.FoldCollapsed,
+        [ (Node (_, _, Inline.Str "Do not rename") as title) ],
+        [ Node (_, _, Block.Para _) ])) ] ->
+       assert (bytes (Doc.textloc d title) = (14, 26))
+   | _ -> failwith "unexpected callout");
+  let d' = Doc.of_string ~profile (Source.of_doc d) in
+  assert (Doc.kernel d' = Doc.kernel (Doc.of_string ~profile src));
+  let spaced = Doc.of_string ~profile ~locs:true "> [!note] T  \n" in
+  match Doc.blocks spaced with
+  | [ Node (_, _, Block.Ext_callout
+      ("note", None, [ (Node (_, _, Inline.Str "T") as title) ], [])) ] ->
+      assert (bytes (Doc.textloc spaced title) = (10, 10))
+  | _ -> failwith "unexpected spaced callout title"

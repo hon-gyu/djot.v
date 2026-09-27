@@ -47,9 +47,13 @@ Local Fixpoint escape_attr (s : string) : string :=
 
 (* Rendered in source order, each as ` key="value"`, so that the empty
    attribute set contributes nothing to a tag. *)
-Local Definition render_attrs (a : attr) : string :=
+Local Definition render_attrs (tag : string) (a : attr) : string :=
   String.concat ""
-    (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
+    (map (fun kv =>
+      if (String.eqb tag "details" && String.eqb (fst kv) "open"
+          && String.eqb (snd kv) "")%bool
+      then " open"
+      else " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
 (*
 The output tree
@@ -83,7 +87,7 @@ Inductive helt : Type :=
   | HElem (tag : string) (nls : nat) (attrs : attr) (kids : list helt).
 
 Local Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
-  "<" ++ tag ++ render_attrs a ++ (if self then "/>" else ">").
+  "<" ++ tag ++ render_attrs tag a ++ (if self then "/>" else ">").
 
 (* Recursion on the element with the children walked by an inner `fix`,
    which is what the guard checker accepts through `list helt` -- a plain
@@ -575,6 +579,26 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       [HElem "dl" 2 (("class", "keyed") :: a)
          [HElem "dt" 1 [] (render_inlines label);
           HElem "dd" 2 [] (render_bs [b])]]
+  | Ext_callout kind fold title bs =>
+      let attrs := Attr.set "data-callout" kind (Attr.add_class "callout" a) in
+      let body := HElem "div" 2 [("class", "callout-content")] (render_bs bs) in
+      match fold with
+      | None =>
+          [HElem "div" 2 attrs
+            ((match title with
+              | [] => []
+              | _ => [HElem "div" 1 [("class", "callout-title")]
+                        (render_inlines title)]
+              end) ++ [body])%list]
+      | Some f =>
+          [HElem "details" 2
+            (match f with
+             | FoldExpanded => Attr.set "open" "" attrs
+             | FoldCollapsed => attrs
+             end)
+            [HElem "summary" 1 [("class", "callout-title")]
+               (render_inlines title); body]]
+      end
   end.
 
 Local Definition render_node (n : node block) : list helt :=
@@ -811,6 +835,26 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
       let '(st2, s2) := render_bs_at st1 tight [b] in
       (st2, [HElem "dl" 2 (("class", "keyed") :: a)
                [HElem "dt" 1 [] s1; HElem "dd" 2 [] s2]])
+  | Ext_callout kind fold title bs =>
+      let '(st1, s1) := render_inlines_foot st title in
+      let '(st2, s2) := render_bs_at st1 tight bs in
+      let attrs := Attr.set "data-callout" kind (Attr.add_class "callout" a) in
+      let body := HElem "div" 2 [("class", "callout-content")] s2 in
+      match fold with
+      | None =>
+          (st2, [HElem "div" 2 attrs
+            ((match title with
+              | [] => []
+              | _ => [HElem "div" 1 [("class", "callout-title")] s1]
+              end) ++ [body])%list])
+      | Some f =>
+          (st2, [HElem "details" 2
+            (match f with
+             | FoldExpanded => Attr.set "open" "" attrs
+             | FoldCollapsed => attrs
+             end)
+            [HElem "summary" 1 [("class", "callout-title")] s1; body]])
+      end
   | _ => (st, render_block tight b a)
   end.
 
@@ -1218,7 +1262,10 @@ Proof.
       intros ? ? ? ?);
     try destruct tight;
     unfold foot_shape; cbn [fst snd]; split; try reflexivity;
-    cbn [map erase_helt_attrs]; rewrite ?map_app; congruence.
+    cbn [map erase_helt_attrs]; rewrite ?map_app; try congruence.
+  all: destruct fold as [[|]|]; destruct title;
+    cbn [fst snd map erase_helt_attrs]; rewrite ?map_app;
+    cbn [map erase_helt_attrs]; rewrite ?H, ?H0; reflexivity.
 Qed.
 
 Local Lemma render_blocks_foot_cons : forall refs st p a b rest,
@@ -1454,6 +1501,14 @@ Proof.
       rewrite !app_nil_r in *. f_equal. f_equal. f_equal. f_equal. f_equal.
       specialize (IHb tight refs refs').
       cbn [flat_map map] in IHb. rewrite !app_nil_r in IHb. exact IHb.
+    - pose proof (render_inlines_reference_shape title refs refs') as Htitle.
+      pose proof (IHb tight refs refs') as Hbody.
+      rewrite <- !render_bs_at_flat_map in Hbody.
+      unfold render_bs_at in Hbody.
+      destruct fold as [[|]|]; destruct title; cbn [render_block];
+        cbn [map erase_helt_attrs]; rewrite ?map_app;
+        cbn [map erase_helt_attrs];
+        rewrite ?Htitle; setoid_rewrite Hbody; reflexivity.
     - unfold Q. intros. reflexivity.
     - unfold Q in *. intros tight refs refs'. cbn [flat_map].
       rewrite !map_app. f_equal; [apply IHb|apply IHb0].
@@ -2075,14 +2130,17 @@ Proof.
   rewrite concat_empty_cons, count_char_app, IH. reflexivity.
 Qed.
 
-Local Lemma render_attrs_no_lt : forall a,
-  attr_ok a = true -> count_char lt_char (render_attrs a) = 0.
+Local Lemma render_attrs_no_lt : forall tag a,
+  attr_ok a = true -> count_char lt_char (render_attrs tag a) = 0.
 Proof.
-  intros a. unfold render_attrs, attr_ok. rewrite count_char_concat.
+  intros tag a. unfold render_attrs, attr_ok. rewrite count_char_concat.
   induction a as [|kv a' IH]; intros H; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hk Ha].
   unfold no_lt in Hk. apply Nat.eqb_eq in Hk.
   cbn [map fold_right]. rewrite IH by exact Ha.
+  destruct (String.eqb tag "details" && String.eqb (fst kv) "open"
+    && String.eqb (snd kv) "")%bool;
+    [reflexivity|].
   rewrite !count_char_app, escape_attr_no_lt, Hk. reflexivity.
 Qed.
 
@@ -2168,7 +2226,7 @@ Proof.
   intros tag self a Ht Ha. unfold open_tag, no_lt in *.
   apply Nat.eqb_eq in Ht.
   cbn [count_char Ascii.eqb].
-  rewrite !count_char_app, Ht, (render_attrs_no_lt _ Ha).
+  rewrite !count_char_app, Ht, (render_attrs_no_lt _ _ Ha).
   destruct self; reflexivity.
 Qed.
 

@@ -170,6 +170,36 @@ Definition wiki_rt_lhs (c : cblock) : blocks :=
   @parse_blocks wiki_table _ _ _
     (@render_djot wiki_table _ (blocks_of_cblocks [c])).
 
+(* Callouts exercise both title syntax and nesting under the enabled block
+   setting.  Ordinary quotes beginning with literal header text are retained
+   in the pool to check that canonical escaping keeps them ordinary quotes. *)
+Definition callout_bconfig : bconfig := with_callouts true djot_bconfig.
+
+Definition callout_pool (d : nat) : list cblock :=
+  (enum_cblock d ++
+   flat_map (fun body =>
+     [ CCallout "note" None [] body
+     ; CCallout "warning" (Some FoldCollapsed) [CIStr "Do not rename"] body
+     ; CCallout "TIP_2" (Some FoldExpanded)
+         [CIDelim DEmph [CIStr "Title"]] body ])
+     (seqs [cpara ["body"]; CQuote [cpara ["[!note] text"]]]) ++
+   [ CQuote [cpara ["[!note] ordinary quote"]]
+   ; CQuote [CRef "!note" "u"]
+   ; CQuote [CPara [[CILink false [CIStr "!note"] "u"]]]
+   ; CQuote [CPara [[CIRef false [CIStr "!note"] "r"]]]
+   ; CQuote [CPara [[CIWiki false "note" None]]]
+   ; CCallout "note" None [CIWiki false "target" None]
+       [cpara ["body"]]
+   ; CCallout "outer" None [CIStr "Outer"]
+       [CCallout "inner" None [CIStr "Inner"] [cpara ["body"]]] ])%list.
+
+Definition callout_accepted (d : nat) : list cblock :=
+  filter (@cb_ok wiki_table callout_bconfig) (callout_pool d).
+
+Definition callout_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks wiki_table callout_bconfig _ _
+    (@render_djot wiki_table callout_bconfig (blocks_of_cblocks [c])).
+
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.
 

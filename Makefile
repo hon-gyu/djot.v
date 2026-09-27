@@ -1,5 +1,5 @@
 .PHONY: help build doc build-djotjs diff diff-shape \
-        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts \
         check-spans bench probe-lemmas dist check-dist copy-parser
 
 # Inputs the test/ executables run over:
@@ -64,6 +64,9 @@ roundtrip-keyed: build  ## Keyed-block extension (keyed_bconfig)
 
 roundtrip-wikilinks: build  ## Wikilink extension
 	dune exec test/roundtrip.exe -- $(VERBOSE) --wiki 2
+
+roundtrip-callouts: build  ## Callout extension
+	dune exec test/roundtrip.exe -- $(VERBOSE) --callouts 1
 
 # Other checks
 # ------------
