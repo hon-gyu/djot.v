@@ -368,17 +368,22 @@ Local Definition marker_core (pre : string) : bool :=
       || Nat.eqb (String.length pre) 1 && str_forallb is_alnum pre
       || str_forallb is_roman_lo pre || str_forallb is_roman_up pre).
 
-(* A character `needs_escape` claims may go bare inside a text run when
-   the byte after it cannot complete a construct with it: a period that
-   starts no ellipsis and ends no list number, a `!` whose `[` would be
-   escaped anyway, a hyphen that starts no dash.  The run's first and
-   last characters are always escaped, since what surrounds the run is
-   not known here: a line start, where `- ` is a list marker, or the next
-   inline's source.  `pre` is what the run has written so far,
-   reversed. *)
-Definition bare_ok (pre : string) (c : ascii) (rest : string) : bool :=
+(* A character `needs_escape` claims may go bare when the byte after it
+   cannot complete a construct with it: a period that starts no ellipsis
+   and ends no list number, a `!` whose `[` would be escaped anyway, a
+   hyphen that starts no dash.  The line's end completes nothing either,
+   so a run that ends its line (`at_end`) may leave its last character
+   bare too, unless that period could end a list number.  A run's first
+   character is always escaped, since it may start a line, where `- ` is
+   a list marker.  `pre` is what the run has written so far, reversed. *)
+Definition bare_ok (at_end : bool) (pre : string) (c : ascii) (rest : string)
+  : bool :=
   match pre, rest with
-  | EmptyString, _ | _, EmptyString => false
+  | EmptyString, _ => false
+  | _, EmptyString =>
+      at_end
+      && ((Ascii.eqb c period && negb (marker_core pre))
+          || Ascii.eqb c bang || Ascii.eqb c hyphen)
   | _, String d _ =>
       (Ascii.eqb c period && negb (Ascii.eqb d period)
        && negb (marker_core pre && Ascii.eqb d " "%char))
@@ -386,16 +391,18 @@ Definition bare_ok (pre : string) (c : ascii) (rest : string) : bool :=
       || (Ascii.eqb c hyphen && negb (Ascii.eqb d hyphen))
   end.
 
-Fixpoint escape_from (pre s : string) : string :=
+Fixpoint escape_from (at_end : bool) (pre s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c rest =>
-      if needs_escape c && negb (bare_ok pre c rest)
-      then String "\"%char (String c (escape_from (String c pre) rest))
-      else String c (escape_from (String c pre) rest)
+      if needs_escape c && negb (bare_ok at_end pre c rest)
+      then String "\"%char (String c (escape_from at_end (String c pre) rest))
+      else String c (escape_from at_end (String c pre) rest)
   end.
 
-Definition escape_str (s : string) : string := escape_from EmptyString s.
+(* A run followed by more of its line, and one that ends it. *)
+Definition escape_str (s : string) : string := escape_from false EmptyString s.
+Definition escape_end (s : string) : string := escape_from true EmptyString s.
 
 Fixpoint escape_dest (s : string) : string :=
   match s with
@@ -854,7 +861,35 @@ Fixpoint ci_text (cis : list cinline) : string :=
   | ci :: rest => (ci_src ci ++ ci_text rest)%string
   end.
 
-Definition ci_line (cis : list cinline) : string := ci_text cis.
+(* A list's text where the list ends its line or not: a trailing run
+   that ends the line may leave its last character bare. *)
+Fixpoint ci_text_at (at_end : bool) (cis : list cinline) : string :=
+  match cis with
+  | [] => EmptyString
+  | [CIStr s] => escape_from at_end EmptyString s
+  | ci :: rest => (ci_src ci ++ ci_text_at at_end rest)%string
+  end.
+
+Definition ci_line (cis : list cinline) : string := ci_text_at true cis.
+
+Lemma ci_text_at_cons2 :
+  forall b c c' rest,
+    ci_text_at b (c :: c' :: rest) = (ci_src c ++ ci_text_at b (c' :: rest))%string.
+Proof. intros b [] c' rest; reflexivity. Qed.
+
+Lemma ci_text_at_last :
+  forall b c, ci_text_at b [c]
+    = match c with CIStr s => escape_from b EmptyString s | _ => ci_src c end.
+Proof. intros b []; cbn [ci_text_at]; try apply append_empty_r; reflexivity. Qed.
+
+Lemma ci_text_at_false : forall cis, ci_text_at false cis = ci_text cis.
+Proof.
+  induction cis as [|c rest IH]; [reflexivity|].
+  destruct rest as [|c' rest'].
+  - rewrite ci_text_at_last. cbn [ci_text]. rewrite append_empty_r.
+    destruct c; reflexivity.
+  - rewrite ci_text_at_cons2, IH. reflexivity.
+Qed.
 
 (* The traversal inside [ci_src] is [ci_text]. *)
 Local Lemma ci_src_children : forall xs,
@@ -957,8 +992,8 @@ Qed.
 Local Lemma ci_line_nil : ci_line [] = EmptyString.
 Proof. reflexivity. Qed.
 
-Local Lemma ci_line_str : forall s, ci_line [CIStr s] = escape_str s.
-Proof. intros s. unfold ci_line. cbn [ci_text]. apply append_empty_r. Qed.
+Local Lemma ci_line_str : forall s, ci_line [CIStr s] = escape_end s.
+Proof. reflexivity. Qed.
 
 (*
 Renderability
@@ -1293,6 +1328,15 @@ Proof.
        cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity).
 Qed.
 
+(* Does the line end here?  A hard break writes a backslash after the
+   text, so it does not count. *)
+Definition line_ends (ils : inlines) : bool :=
+  match ils with
+  | [] => true
+  | Node _ _ SoftBreak :: _ => true
+  | _ => false
+  end.
+
 (* Recover the lines of a paragraph from its inlines: `Str` extends the
    current line, `SoftBreak` ends it, and `HardBreak` ends it with a
    backslash. *)
@@ -1302,6 +1346,8 @@ Fixpoint inline_lines (ils : inlines) (cur : string) : list string :=
   | Node _ _ SoftBreak :: rest => cur :: inline_lines rest EmptyString
   | Node _ _ HardBreak :: rest =>
       (cur ++ one bslash)%string :: inline_lines rest EmptyString
+  | Node _ [] (Str s) :: rest =>
+      inline_lines rest (cur ++ escape_from (line_ends rest) EmptyString s)
   | Node _ [] il :: rest => inline_lines rest (cur ++ inline_text il)
   | Node _ a il :: rest => inline_lines rest (cur ++ (inline_text il ++ attr_spec a))
   end.
@@ -1311,14 +1357,30 @@ Local Lemma inline_lines_softbreak :
     inline_lines (mk SoftBreak :: rest) cur = cur :: inline_lines rest EmptyString.
 Proof. reflexivity. Qed.
 
+Local Lemma line_ends_ci_ast :
+  forall ci rest, line_ends (ci_ast ci :: rest) = false.
+Proof.
+  intros ci rest.
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
+    try reflexivity.
+  - rewrite ci_ast_delim. destruct k; reflexivity.
+  - rewrite ci_ast_link. destruct img; reflexivity.
+  - rewrite ci_ast_ref. destruct rimg; reflexivity.
+  - cbn [ci_ast]. unfold auto_node. destruct (auto_email a); reflexivity.
+Qed.
+
+(* A run's text depends on whether the line ends after it; nothing
+   else's does. *)
 Local Lemma inline_lines_ci_ast :
   forall ci rest cur,
+    match ci with CIStr _ => line_ends rest = false | _ => True end ->
     inline_lines (ci_ast ci :: rest) cur
     = inline_lines rest (cur ++ ci_src ci).
 Proof.
-  intros ci rest cur.
+  intros ci rest cur Hrest.
   destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
-    [reflexivity|reflexivity| | | |reflexivity
+    [cbn [ci_ast ci_src mk inline_lines]; rewrite Hrest; reflexivity
+    |reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
      destruct (auto_email a); reflexivity
     |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity
@@ -1335,15 +1397,24 @@ Qed.
     nothing else, which is what makes the paragraph case an induction. *)
 Lemma inline_lines_ci_inlines :
   forall cis cur rest,
+    line_ends rest = true ->
     inline_lines (ci_inlines cis ++ rest)%list cur
     = inline_lines rest (cur ++ ci_line cis).
 Proof.
-  intros cis cur rest.
+  intros cis cur rest Hrest.
   induction cis as [|c cs IH] in cur |- *.
-  - cbn [ci_inlines ci_line ci_text app inline_lines].
+  - cbn [ci_inlines ci_line ci_text_at app map].
     rewrite append_empty_r. reflexivity.
-  - cbn [ci_inlines map app]. rewrite inline_lines_ci_ast, IH.
-    cbn [ci_line ci_text]. rewrite append_assoc. reflexivity.
+  - unfold ci_line in *. destruct cs as [|c' cs'].
+    + rewrite ci_text_at_last. cbn [ci_inlines map app].
+      destruct c; [cbn [ci_ast mk inline_lines]; rewrite Hrest; reflexivity|..];
+        rewrite inline_lines_ci_ast by exact I; reflexivity.
+    + rewrite ci_text_at_cons2. cbn [ci_inlines map app].
+      rewrite inline_lines_ci_ast
+        by (destruct c; try exact I; apply line_ends_ci_ast).
+      change (ci_ast c' :: map ci_ast cs' ++ rest)%list
+        with (ci_inlines (c' :: cs') ++ rest)%list.
+      rewrite IH, append_assoc. reflexivity.
 Qed.
 
 Local Lemma inline_lines_ci_para :
@@ -1359,10 +1430,10 @@ Proof.
     apply andb_true_iff in Hne as [Hn Hnr].
   - rewrite ci_para_one. cbn [map].
     rewrite <- (app_nil_r (ci_inlines cis)).
-    rewrite inline_lines_ci_inlines.
+    rewrite inline_lines_ci_inlines by reflexivity.
     reflexivity.
   - rewrite ci_para_cons2.
-    rewrite inline_lines_ci_inlines.
+    rewrite inline_lines_ci_inlines by reflexivity.
     rewrite inline_lines_softbreak.
     rewrite IH by assumption.
     reflexivity.

@@ -834,7 +834,7 @@ Proof.
     apply andb_true_iff in IH as [IH Hlast].
     apply andb_true_iff in IH as [Hne Hlines].
     cbn [cb_lines].
-    destruct (key_lines_cases (ci_line [label])
+    destruct (key_lines_cases (ci_text [label])
                 (match inner with CPara _ => true | _ => false end) (cb_lines inner))
       as [E | (l0 & rest & Els & _ & Hk & E)]; rewrite E.
     + cbn [nonempty forallb].
@@ -846,7 +846,7 @@ Proof.
       apply andb_true_iff in Hlines as [_ Hrest].
       rewrite (line_ok_no_nl _ Hkl), Hrest.
       destruct rest as [|r rest]; cbn [last] in Hlast |- *; [|exact Hlast].
-      unfold key_line. destruct (ci_line [label]); reflexivity.
+      unfold key_line. destruct (ci_text [label]); reflexivity.
   - reflexivity.
   - intros c rest Hc Hrest H.
     cbn [forallb] in H. apply andb_true_iff in H as [H1 H2].
@@ -911,12 +911,12 @@ Proof.
   destruct (cb_ok_key_parts label inner H) as (_ & Hl & _).
   destruct (ckey_label_ok_parts label Hl) as (_ & Hline & Hcl & _).
   cbn [cb_lines].
-  destruct (key_lines_cases (ci_line [label])
+  destruct (key_lines_cases (ci_text [label])
               (match inner with CPara _ => true | _ => false end) (cb_lines inner))
     as [E | (l0 & rest & _ & _ & Hk & E)]; rewrite E.
-  - exists (ci_line [label] ++ ":"), (cb_lines inner). auto.
+  - exists (ci_text [label] ++ ":"), (cb_lines inner). auto.
   - destruct (key_inline_ok_parts _ _ Hk) as (Hkl & Hkc & _).
-    exists (key_line (ci_line [label]) l0), rest. auto.
+    exists (key_line (ci_text [label]) l0), rest. auto.
 Qed.
 
 Local Lemma nonlist_cblock_first :
@@ -1412,10 +1412,10 @@ Blocks and block sequences
    blocks together, because a quote's contents are the latter. *)
 Local Lemma parse_ckey_open :
   forall label ls, bkeyed = true -> ckey_label_ok label = true ->
-    parse_lines ((ci_line [label] ++ ":") :: ls) (PPara [])
+    parse_lines ((ci_text [label] ++ ":") :: ls) (PPara [])
     = parse_lines ls
-        (PKey (open_extent (ci_line [label] ++ ":") 0)
-           (ci_line [label]) (ci_line [label] ++ ":") (PPara [])).
+        (PKey (open_extent (ci_text [label] ++ ":") 0)
+           (ci_text [label]) (ci_text [label] ++ ":") (PPara [])).
 Proof.
   intros label ls Hkeys Hlabel.
   destruct (ckey_label_ok_parts label Hlabel) as (_ & Hline & Htext & _ & Hsplit).
@@ -1426,12 +1426,12 @@ Qed.
 
 (* The one-line spelling: the value opens the key's paragraph directly. *)
 Local Lemma parse_ckey_value :
-  forall label l0 ls, bkeyed = true -> key_inline_ok (ci_line [label]) l0 = true ->
+  forall label l0 ls, bkeyed = true -> key_inline_ok (ci_text [label]) l0 = true ->
     line_ok l0 = true ->
-    parse_lines (key_line (ci_line [label]) l0 :: ls) (PPara [])
+    parse_lines (key_line (ci_text [label]) l0 :: ls) (PPara [])
     = parse_lines ls
-        (PKey (open_extent (key_line (ci_line [label]) l0) 0)
-           (ci_line [label]) (key_line (ci_line [label]) l0)
+        (PKey (open_extent (key_line (ci_text [label]) l0) 0)
+           (ci_text [label]) (key_line (ci_text [label]) l0)
            (PPara [remember_line l0])).
 Proof.
   intros label l0 ls Hkeys Hk Hl0.
@@ -1475,13 +1475,13 @@ Qed.
 
 Local Lemma key_close_canonical :
   forall start label src b bs, ckey_label_ok label = true ->
-    key_close start (ci_line [label]) src (b :: bs)
+    key_close start (ci_text [label]) src (b :: bs)
     = mk (Ext_keyed [ci_ast label] b) :: bs.
 Proof.
   intros start label src b bs H.
   destruct (ckey_label_ok_parts label H) as (Hcis & _ & _ & Hstrip & _).
   cbn [key_close key_label pos_records semantic_pos]. rewrite para_inlines_one, Hstrip.
-  rewrite (parse_inline_line_ci _ Hcis). reflexivity.
+  rewrite (parse_inline_text_ci _ Hcis). reflexivity.
 Qed.
 
 Local Lemma canonical_callout_parts :
@@ -1857,7 +1857,7 @@ Proof.
     + intros next tail Hpair Hnext H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
       cbn [cb_lines].
-      destruct (key_lines_cases (ci_line [label])
+      destruct (key_lines_cases (ci_text [label])
                   (match inner with CPara _ => true | _ => false end) (cb_lines inner))
         as [E | (l0 & rest & Els & Hpara & Hk & E)]; rewrite E; cbn [app].
       * rewrite (parse_ckey_open _ _ Hkeys Hl).
@@ -1875,7 +1875,7 @@ Proof.
     + intros H.
       destruct (cb_ok_key_parts label inner H) as (Hkeys & Hl & Hi & Hcontent).
       cbn [cb_lines].
-      destruct (key_lines_cases (ci_line [label])
+      destruct (key_lines_cases (ci_text [label])
                   (match inner with CPara _ => true | _ => false end) (cb_lines inner))
         as [E | (l0 & rest & Els & Hpara & Hk & E)]; rewrite E.
       * rewrite (parse_ckey_open _ _ Hkeys Hl).
@@ -2052,7 +2052,8 @@ Proof.
       as (_ & _ & Hnl & _ & _ & _ & Hinner & _).
     assert (Htext : String.concat " " (text_lines (ci_inlines title)) = ci_line title).
     { unfold text_lines.
-      rewrite <- (app_nil_r (ci_inlines title)), inline_lines_ci_inlines.
+      rewrite <- (app_nil_r (ci_inlines title)), inline_lines_ci_inlines
+        by reflexivity.
       cbn [inline_lines].
       change (String.concat " " (split_lines (join_nl [ci_line title]))
         = ci_line title).
@@ -2122,7 +2123,7 @@ Proof.
               (String.concat "" [InlineView.inline_text (node_contents (ci_ast label))])
               (match cb_ast inner with Node _ [] (Para _) => true | _ => false end)
               (render_node_lines (cb_ast inner))
-            = key_lines (ci_line [label])
+            = key_lines (ci_text [label])
                 (match inner with CPara _ => true | _ => false end) (cb_lines inner)).
     rewrite inline_text_ci_ast, (IH Hi), (cb_ast_para_flag inner Hi).
     cbn [String.concat ci_line ci_text].

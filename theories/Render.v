@@ -379,7 +379,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CTable rows => flat_map ctrow_lines rows
   | CId id inner => ("{#" ++ id ++ "}") :: cb_lines inner
   | CKey label inner =>
-      key_lines (ci_line [label])
+      key_lines (ci_text [label])
         (match inner with CPara _ => true | _ => false end) (cb_lines inner)
   end.
 
@@ -501,10 +501,10 @@ Definition cheading (lvl : nat) (ls : list string) : cblock :=
   CHeading lvl (map cline ls).
 
 Local Lemma map_ci_line_cline :
-  forall ls, map ci_line (map cline ls) = map escape_str ls.
+  forall ls, map ci_line (map cline ls) = map escape_end ls.
 Proof.
   induction ls as [|s ls IH]; [reflexivity|].
-  cbn [map cline ci_line ci_text]. rewrite IH, append_empty_r. reflexivity.
+  cbn [map cline]. rewrite IH. reflexivity.
 Qed.
 
 (* `cpara` is faithful: it names the paragraph whose content is `ls`,
@@ -515,7 +515,7 @@ Qed.
    Nothing consumes this: it is what a reader of a `cpara`-spelled example
    would otherwise take on trust, and the first thing to break if
    `cline`, `ci_line` or `needs_escape` drifts. *)
-Local Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_str ls.
+Local Lemma cb_lines_cpara : forall ls, cb_lines (cpara ls) = map escape_end ls.
 Proof. intros ls. cbn [cb_lines cpara]. apply map_ci_line_cline. Qed.
 
 (*
@@ -879,7 +879,7 @@ Qed.
    and decode without losing trailing whitespace.  Testing the split
    also excludes labels whose inline syntax has precedence as a block. *)
 Definition ckey_label_ok (label : cinline) : bool :=
-  let src := ci_line [label] in
+  let src := ci_text [label] in
   let l := src ++ ":" in
   cis_ok [label] && line_ok l && is_text l
   && String.eqb (strip_trailing_ws src) src
@@ -890,10 +890,10 @@ Definition ckey_label_ok (label : cinline) : bool :=
 
 Lemma ckey_label_ok_parts :
   forall label, ckey_label_ok label = true ->
-    cis_ok [label] = true /\ line_ok (ci_line [label] ++ ":") = true
-    /\ classify (ci_line [label] ++ ":") = KText
-    /\ strip_trailing_ws (ci_line [label]) = ci_line [label]
-    /\ key_split (ci_line [label] ++ ":") = Some (ci_line [label], "").
+    cis_ok [label] = true /\ line_ok (ci_text [label] ++ ":") = true
+    /\ classify (ci_text [label] ++ ":") = KText
+    /\ strip_trailing_ws (ci_text [label]) = ci_text [label]
+    /\ key_split (ci_text [label] ++ ":") = Some (ci_text [label], "").
 Proof.
   intros label H. unfold ckey_label_ok in H.
   apply andb_true_iff in H as [H Hsplit].
@@ -901,7 +901,7 @@ Proof.
   apply andb_true_iff in H as [H Htext].
   apply andb_true_iff in H as [Hcis Hline].
   apply String.eqb_eq in Hstrip. apply is_text_classify in Htext.
-  destruct (key_split (ci_line [label] ++ ":")) as [[lbl value]|] eqn:E;
+  destruct (key_split (ci_text [label] ++ ":")) as [[lbl value]|] eqn:E;
     [|discriminate Hsplit].
   apply andb_true_iff in Hsplit as [Hl Hv].
   apply String.eqb_eq in Hl, Hv. subst lbl value.
@@ -1640,7 +1640,7 @@ Qed.
 Local Lemma cell_text_ci : forall ct al c, cell_text (Cell ct al (ci_inlines c)) = ci_line c.
 Proof.
   intros ct al c. unfold cell_text.
-  rewrite <- (app_nil_r (ci_inlines c)), inline_lines_ci_inlines.
+  rewrite <- (app_nil_r (ci_inlines c)), inline_lines_ci_inlines by reflexivity.
   reflexivity.
 Qed.
 

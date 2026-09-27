@@ -54,9 +54,9 @@ val needs_escape_dest : dtable -> char -> bool
 
 val marker_core : string -> bool
 
-val bare_ok : string -> char -> string -> bool
+val bare_ok : bool -> string -> char -> string -> bool
 
-val escape_from : dtable -> string -> string -> string
+val escape_from : dtable -> bool -> string -> string -> string
 
 val escape_str : dtable -> string -> string
 
@@ -145,6 +145,8 @@ val ci_src : dtable -> cinline -> string
 
 val ci_text : dtable -> cinline list -> string
 
+val ci_text_at : dtable -> bool -> cinline list -> string
+
 val ci_line : dtable -> cinline list -> string
 
 val ci_ast : cinline -> inline node
@@ -170,5 +172,7 @@ val cis_ok : dtable -> cinline list -> bool
 val ci_para : cinline list list -> inlines
 
 val inline_text : dtable -> inline -> string
+
+val line_ends : inlines -> bool
 
 val inline_lines : dtable -> inlines -> string -> string list

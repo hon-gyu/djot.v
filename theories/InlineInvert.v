@@ -1045,23 +1045,37 @@ Proof.
   unfold is_delim in Hdl. rewrite Hd in Hdl. discriminate.
 Qed.
 
+(* An escaped character is that character pushed as text. *)
+Local Lemma iscan_escaped :
+  forall c t txt prev o, needs_escape c = true ->
+    iscan_str (String "\"%char (String c t)) (IText false txt prev o)
+    = iscan_str t (IText false (txt ++ one c)%string (Some c) o).
+Proof.
+  intros c t txt prev o Hc.
+  cbn [iscan_str istep istep_at]. unfold ilead.
+  change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
+  rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
+          (needs_escape_punct c Hc).
+  reflexivity.
+Qed.
+
 (* A character left bare by `bare_ok` waits on the byte after it, and
    that byte never completes a construct with it, so the two bytes read
    as the character pushed as text and then the next one. *)
 Local Lemma bare_step :
-  forall c pre d r txt prev o,
-    needs_escape c = true -> bare_ok pre c (String d r) = true ->
-    iscan_str (escape_from (String c pre) (String d r)) (ilead c txt prev o)
-    = iscan_str (escape_from (String c pre) (String d r))
+  forall b c pre d r txt prev o,
+    needs_escape c = true -> bare_ok b pre c (String d r) = true ->
+    iscan_str (escape_from b (String c pre) (String d r)) (ilead c txt prev o)
+    = iscan_str (escape_from b (String c pre) (String d r))
         (IText false (txt ++ one c)%string (Some c) o).
 Proof.
-  intros c pre d r txt prev o Hc Hb.
+  intros b c pre d r txt prev o Hc Hb.
   destruct pre as [|p pre']; [discriminate Hb|].
   cbn [bare_ok] in Hb.
   assert (Hd1 : typography_dashes 1 = one hyphen)
     by (unfold typography_dashes; destruct smart_typography; reflexivity).
   cbn [escape_from].
-  destruct (needs_escape d && negb (bare_ok (String c (String p pre')) d r))%bool
+  destruct (needs_escape d && negb (bare_ok b (String c (String p pre')) d r))%bool
     eqn:Hd; cbn [iscan_str]; f_equal.
   - (* the next byte is a backslash, which claims nothing the waiting
        state could complete *)
@@ -1080,11 +1094,11 @@ Proof.
     assert (Hlb : Ascii.eqb d lbrack = false).
     { destruct (Ascii.eqb d lbrack) eqn:E; [|reflexivity].
       apply Ascii.eqb_eq in E. subst d.
-      destruct r; cbn in Hd; discriminate Hd. }
+      destruct r, b; cbn in Hd; discriminate Hd. }
     assert (Hrb : Ascii.eqb d rbrace = false).
     { destruct (Ascii.eqb d rbrace) eqn:E; [|reflexivity].
       apply Ascii.eqb_eq in E. subst d.
-      destruct r; cbn in Hd; discriminate Hd. }
+      destruct r, b; cbn in Hd; discriminate Hd. }
     apply orb_true_iff in Hb as [Hb|Hh]; [apply orb_true_iff in Hb as [Hp|Hbang]|].
     + apply andb_true_iff in Hp as [Hp _]. apply andb_true_iff in Hp as [Hp Hdp].
       apply negb_true_iff in Hdp.
@@ -1106,13 +1120,13 @@ Qed.
    table row costs an escape, not a proof. *)
 Local Lemma iscan_escape_from :
   forall s pre txt prev o,
-    iscan_str (escape_from pre s) (IText false txt prev o)
+    iscan_str (escape_from false pre s) (IText false txt prev o)
     = IText false (txt ++ s)%string (str_last s prev) o.
 Proof.
   induction s as [|c rest IH]; intros pre txt prev o.
   - cbn [escape_from iscan_str]. rewrite append_empty_r. reflexivity.
   - cbn [escape_from].
-    destruct (needs_escape c && negb (bare_ok pre c rest))%bool eqn:Hesc.
+    destruct (needs_escape c && negb (bare_ok false pre c rest))%bool eqn:Hesc.
     + apply andb_true_iff in Hesc as [Hc _].
       cbn [iscan_str istep istep_at]. unfold ilead.
       change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
@@ -1123,10 +1137,76 @@ Proof.
       * cbn [andb negb] in Hesc. apply negb_false_iff in Hesc.
         destruct rest as [|d r]; [destruct pre; discriminate Hesc|].
         cbn [iscan_str istep istep_at].
-        rewrite (bare_step c pre d r txt prev o Hc Hesc).
+        rewrite (bare_step false c pre d r txt prev o Hc Hesc).
         rewrite IH, append_assoc. reflexivity.
       * cbn [iscan_str istep istep_at]. rewrite (ilead_plain c txt prev o Hc).
         rewrite IH, append_assoc. reflexivity.
+Qed.
+
+(* A run that ends its line may leave its last character bare, and then
+   the scan ends waiting on it; the end of the line settles it as text,
+   which is where the escaped spelling ends already. *)
+Local Lemma escape_end_state :
+  forall s pre txt prev o,
+    let st := iscan_str (escape_from true pre s) (IText false txt prev o) in
+    st = IText false (txt ++ s)%string (str_last s prev) o
+    \/ ((exists t p, st = IPeriod false t p o \/ st = IBang t p o \/ st = IDash 1 t p o)
+        /\ iresolve st = IText false (txt ++ s)%string (str_last s prev) o).
+Proof.
+  induction s as [|c rest IH]; intros pre txt prev o; cbn zeta.
+  - left. cbn [escape_from iscan_str]. rewrite append_empty_r. reflexivity.
+  - cbn [escape_from].
+    specialize (IH (String c pre) (txt ++ one c)%string (Some c) o). cbn zeta in IH.
+    rewrite append_assoc in IH. cbn [append one] in IH.
+    change (str_last (String c rest) prev) with (str_last rest (Some c)).
+    destruct (needs_escape c && negb (bare_ok true pre c rest))%bool eqn:Hesc.
+    + apply andb_true_iff in Hesc as [Hc _].
+      rewrite (iscan_escaped c _ txt prev o Hc). exact IH.
+    + destruct (needs_escape c) eqn:Hc.
+      * cbn [andb negb] in Hesc. apply negb_false_iff in Hesc.
+        destruct rest as [|d r].
+        -- (* the bare last character: the scan ends waiting on it *)
+           clear IH. destruct pre as [|p pre']; [discriminate Hesc|].
+           cbn [bare_ok andb] in Hesc.
+           cbn [escape_from iscan_str istep istep_at str_last].
+           right.
+           assert (Hd1 : typography_dashes 1 = one hyphen)
+             by (unfold typography_dashes; destruct smart_typography; reflexivity).
+           apply orb_true_iff in Hesc as [Hesc|Hh];
+             [apply orb_true_iff in Hesc as [Hp|Hb]|].
+           ++ apply andb_true_iff in Hp as [Hp _]. apply Ascii.eqb_eq in Hp. subst c.
+              unfold ilead. cbn - [tpush]. split; [eauto|reflexivity].
+           ++ apply Ascii.eqb_eq in Hb. subst c.
+              unfold ilead. cbn - [tpush]. split; [eauto|reflexivity].
+           ++ apply Ascii.eqb_eq in Hh. subst c.
+              unfold ilead. cbn - [tpush typography_dashes]. split; [eauto|].
+              rewrite Hd1. reflexivity.
+        -- cbn [iscan_str istep istep_at].
+           rewrite (bare_step true c pre d r txt prev o Hc Hesc). exact IH.
+      * cbn [iscan_str istep istep_at]. rewrite (ilead_plain c txt prev o Hc). exact IH.
+Qed.
+
+Local Lemma ifinish_escape_end :
+  forall s pre txt prev o,
+    ifinish (iscan_str (escape_from true pre s) (IText false txt prev o))
+    = ifinish (IText false (txt ++ s)%string (str_last s prev) o).
+Proof.
+  intros s pre txt prev o.
+  destruct (escape_end_state s pre txt prev o)
+    as [E | [[t [p [E|[E|E]]]] Hr]]; rewrite E; [reflexivity| | |];
+    rewrite E in Hr; unfold ifinish, ifinish_rev; cbn [ifinish_ostate];
+    rewrite Hr; reflexivity.
+Qed.
+
+Local Lemma iscan_closed_escape_end :
+  forall s pre txt prev o,
+    iscan_closed (iscan_str (escape_from true pre s) (IText false txt prev o))
+    = iscan_closed (IText false (txt ++ s)%string (str_last s prev) o).
+Proof.
+  intros s pre txt prev o.
+  destruct (escape_end_state s pre txt prev o)
+    as [E | [[t [p [E|[E|E]]]] Hr]]; rewrite E; [reflexivity| | |];
+    rewrite E in Hr; unfold iscan_closed; rewrite Hr; reflexivity.
 Qed.
 
 Local Lemma iscan_escape :
@@ -3014,18 +3094,81 @@ Proof.
   destruct (nonempty_str txt); reflexivity.
 Qed.
 
+(*
+A line's text
+-------------
+
+`ci_line` is `ci_text_at true`: the same text as `ci_text` except that a
+run ending the line may leave its last character bare.  The lemmas that
+read a whole line are stated at either flag.
+*)
+
+Local Lemma ci_text_at_cons_nonstr :
+  forall b c rest, match c with CIStr _ => False | _ => True end ->
+    ci_text_at b (c :: rest) = (ci_src c ++ ci_text_at b rest)%string.
+Proof.
+  intros b c [|c' rest] H; [|apply ci_text_at_cons2].
+  rewrite ci_text_at_last. cbn [ci_text_at]. rewrite append_empty_r.
+  destruct c; [contradiction|..]; reflexivity.
+Qed.
+
+(* What the byte after a verbatim is asked about: the two texts start
+   alike, since a run's first character is escaped at either flag. *)
+Local Lemma ci_text_at_head :
+  forall b cis,
+    nonempty_str (ci_text_at b cis) = nonempty_str (ci_text cis)
+    /\ starts_tick (ci_text_at b cis) = starts_tick (ci_text cis)
+    /\ after_verb_next (ci_text_at b cis) = after_verb_next (ci_text cis).
+Proof.
+  intros b cis. induction cis as [|c rest IH]; [repeat split; reflexivity|].
+  rewrite <- !ci_text_at_false in *.
+  destruct rest as [|c' rest'].
+  - rewrite !ci_text_at_last. destruct c; try (repeat split; reflexivity).
+    destruct s as [|x s']; [repeat split; reflexivity|].
+    cbn [escape_from bare_ok negb]. rewrite !andb_true_r.
+    destruct (needs_escape x) eqn:Hx; [repeat split; reflexivity|].
+    cbn [nonempty_str starts_tick after_verb_next].
+    destruct (Ascii.eqb x lbrace) eqn:Hb; [|repeat split; reflexivity].
+    apply Ascii.eqb_eq in Hb. subst x. rewrite needs_escape_lbrace in Hx. discriminate.
+  - (* a shared head decides all three, unless it is a lone brace, which
+       no constituent's source is *)
+    rewrite !ci_text_at_cons2.
+    destruct (ci_src c) as [|x y] eqn:Ec; [exact IH|].
+    cbn [append nonempty_str starts_tick after_verb_next].
+    split; [reflexivity|split; [reflexivity|]].
+    destruct (Ascii.eqb x lbrace) eqn:Hb; [|reflexivity].
+    destruct y as [|d y']; [exfalso|reflexivity].
+    apply Ascii.eqb_eq in Hb. subst x.
+    destruct c; cbn [ci_src] in Ec; try discriminate Ec.
+    + destruct s as [|x s']; [discriminate Ec|].
+      unfold escape_str in Ec. cbn [escape_from bare_ok negb] in Ec.
+      rewrite andb_true_r in Ec.
+      destruct (needs_escape x) eqn:Hx; injection Ec as Ex Es; [discriminate Ex|].
+      subst x. rewrite needs_escape_lbrace in Hx. discriminate.
+    + unfold verb_text in Ec. pose proof (verb_ticks_nonzero s) as Hn.
+      destruct (verb_ticks s) as [|k]; [contradiction|]. cbn in Ec. discriminate Ec.
+    + unfold marked_open in Ec. pose proof (dtoken_nonempty k) as Hk.
+      destruct (dtoken k) as [|t tk]; [discriminate Hk|].
+      cbn in Ec. injection Ec as Ec. discriminate Ec.
+    + unfold bracket_open in Ec. destruct img; cbn in Ec; discriminate Ec.
+    + unfold bracket_open in Ec. destruct img; cbn in Ec; discriminate Ec.
+    + unfold raw_text, verb_text in Ec. pose proof (verb_ticks_nonzero s) as Hn.
+      destruct (verb_ticks s) as [|k]; [contradiction|]. cbn in Ec. discriminate Ec.
+    + unfold wiki_text, bracket_open in Ec. destruct embed; cbn in Ec; discriminate Ec.
+Qed.
+
 Local Lemma iscan_cis :
-  forall cis prev' txt out,
+  forall b cis prev' txt out,
     cis_ok cis = true -> text_sep_ok txt cis = true ->
-    ifinish (iscan_str (ci_text cis)
+    ifinish (iscan_str (ci_text_at b cis)
                (IText false txt prev' (OState (List.map OIn out) [] None)))
     = (List.rev (flush_out txt out) ++ ci_inlines cis)%list.
 Proof.
-  intro cis. pattern cis.
+  intros b cis. pattern cis.
   apply (well_founded_induction (well_founded_ltof _ cis_size)).
   clear cis. intros cis IH prev' txt out Hok Hsep.
   destruct cis as [|c rest].
-  - cbn [ci_text ci_inlines iscan_str]. rewrite app_nil_r.
+  - cbn [ci_text_at ci_inlines iscan_str]. rewrite app_nil_r.
     rewrite ifinish_text, flush_text_flat; cbn [os_out].
     rewrite oresolve_map. reflexivity.
   - assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
@@ -3034,7 +3177,32 @@ Proof.
     + destruct txt as [|x txt']; [|discriminate].
       pose proof (cis_ok_head (CIStr s) rest Hok) as Hsok.
       cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
-      cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
+      assert (Hstr :
+        iscan_str (ci_text_at b (CIStr s :: rest))
+          (IText false EmptyString prev' (OState (List.map OIn out) [] None))
+        = iscan_str (ci_text_at b rest)
+            (IText false s (str_last s prev') (OState (List.map OIn out) [] None))
+        \/ rest = [] /\ b = true).
+      { destruct rest as [|r rest'].
+        - destruct b; [right; split; reflexivity|left].
+          rewrite ci_text_at_last. apply iscan_escape.
+        - left. rewrite ci_text_at_cons2. cbn [ci_src].
+          rewrite iscan_str_app, iscan_escape. reflexivity. }
+      destruct Hstr as [Hstr|[-> ->]].
+      2:{ rewrite ci_text_at_last, ifinish_escape_end. cbn [append].
+          change (IText false s (str_last s prev') (OState (List.map OIn out) [] None))
+            with (iscan_str (ci_text_at true [])
+                    (IText false s (str_last s prev') (OState (List.map OIn out) [] None))).
+          cbn [ci_inlines map].
+          rewrite <- ?List.map_cons;
+          rewrite (IH [] ltac:(unfold ltof; cbn [cis_size ci_size]; lia)
+                     (str_last s prev') s out).
+          - unfold flush_out at 1. rewrite Hs.
+            cbn [List.rev nonempty_str ci_ast map].
+            rewrite <- List.app_assoc. reflexivity.
+          - reflexivity.
+          - destruct s; [discriminate Hs|reflexivity]. }
+      rewrite Hstr.
       cbn [ci_inlines map append].
       rewrite <- ?List.map_cons;
       rewrite (IH rest Hrestlt (str_last s prev') s out).
@@ -3045,11 +3213,11 @@ Proof.
       * apply ci_str_tail_sep; assumption.
     + pose proof (ci_verb_nonempty v rest Hok) as Hvne.
       pose proof (ci_verb_content_ok v rest Hok) as Hvok.
-      cbn [ci_text ci_src]. rewrite iscan_str_app.
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_src]. rewrite iscan_str_app.
       rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
       rewrite flush_text_flat.
       destruct rest as [|r rest'].
-      * cbn [ci_text ci_inlines map append].
+      * cbn [ci_text_at ci_inlines map append].
         cbn [iscan_str].
         unfold ifinish, ifinish_rev;
         cbn [ifinish_ostate ifinish_ostate_flat iresolve].
@@ -3059,6 +3227,8 @@ Proof.
         cbn [os_stk os_out oflatten oapp].
         rewrite <- ?List.map_cons, oresolve_map. cbn [List.rev ci_ast]. reflexivity.
       * destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
+        destruct (ci_text_at_head b (r :: rest')) as (E1 & E2 & E3).
+        rewrite <- E1 in Hne. rewrite <- E2 in Htick. rewrite <- E3 in Hnx.
         rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).
         rewrite trim_verb_pad by exact Hvok. cbn [vnode].
         cbn [oemit os_stk os_out os_word_start].
@@ -3073,11 +3243,11 @@ Proof.
       rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
       apply andb_true_iff in Hdk as [Hden Hkidsne].
       destruct (iscan_marked_open_app d
-                  (ci_text kids ++ marked_close d (ci_text rest))
+                  (ci_text kids ++ marked_close d (ci_text_at b rest))
                   txt prev' (OState (List.map OIn out) [] None) Hden
                   (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
         as [cm [op Eopen]].
-      pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
+      pose proof (iscan_cis_marked kids d cm (ci_text_at b rest) EmptyString
         (Some (dchar d)) [] op
         (flush_text txt (OState (List.map OIn out) [] None))
         Hden Hkidsok eq_refl) as IHkids.
@@ -3086,12 +3256,12 @@ Proof.
         nonempty kids = true).
       { cbn. exact Hkidsne. }
       destruct (IHkids Hkn) as [pk Ekids].
-      cbn [ci_text ci_inlines map]. rewrite ci_src_delim.
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map]. rewrite ci_src_delim.
       assert (Hsrc :
         ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
-           ++ ci_text rest)%string
+           ++ ci_text_at b rest)%string
         = (marked_open d ++
-            (ci_text kids ++ marked_close d (ci_text rest)))%string).
+            (ci_text kids ++ marked_close d (ci_text_at b rest)))%string).
       { rewrite !append_assoc, marked_close_app. reflexivity. }
       rewrite Hsrc, Eopen.
       cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
@@ -3115,15 +3285,15 @@ Proof.
     + pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
       rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
     apply andb_true_iff in Hdk as [Hnl Hkidsok].
-      destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
+      destruct (iscan_cis_bracket kids dst (ci_text_at b rest) EmptyString
         (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
         Hkidsok eq_refl Hbk) as [pk Ekids].
-      cbn [ci_text ci_inlines map]. rewrite ci_src_link.
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map]. rewrite ci_src_link.
       assert (Hsrc :
         ((bracket_open img ++ (ci_text kids ++ link_close dst EmptyString)) ++
-          ci_text rest)%string
+          ci_text_at b rest)%string
         = (bracket_open img ++
-            (ci_text kids ++ link_close dst (ci_text rest)))%string).
+            (ci_text kids ++ link_close dst (ci_text_at b rest)))%string).
       { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_bracket_open
         by (rewrite wiki_opens_top; apply orb_true_r).
@@ -3148,15 +3318,15 @@ Proof.
       apply andb_true_iff in Hlab as [Hlab Hnorm].
       apply andb_true_iff in Hlab as [Hne' Hbr].
       apply String.eqb_eq in Hnorm.
-      destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
+      destruct (iscan_cis_ref rkids rlabel (ci_text_at b rest) EmptyString
         (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
         Hkidsok eq_refl Hbk) as [pk Ekids].
-      cbn [ci_text ci_inlines map]. rewrite ci_src_ref.
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map]. rewrite ci_src_ref.
       assert (Hsrc :
         ((bracket_open rimg ++ (ci_text rkids ++ ref_close rlabel EmptyString)) ++
-          ci_text rest)%string
+          ci_text_at b rest)%string
         = (bracket_open rimg ++
-            (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
+            (ci_text rkids ++ ref_close rlabel (ci_text_at b rest)))%string).
       { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
       rewrite Hsrc, iscan_str_app, iscan_bracket_open
         by (rewrite wiki_opens_top; apply orb_true_r).
@@ -3181,9 +3351,9 @@ Proof.
       apply andb_true_iff in Hnote as [Hnote Hnorm].
       apply andb_true_iff in Hnote as [Hnotes Hsafe].
       apply String.eqb_eq in Hnorm.
-      cbn [ci_text ci_inlines map].
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map].
       change (ci_src (CINote label)) with (note_text label).
-      rewrite (iscan_note_text label (ci_text rest) txt prev'
+      rewrite (iscan_note_text label (ci_text_at b rest) txt prev'
                  (OState (List.map OIn out) [] None) Hnotes Hsafe
                  (wiki_opens_top _ _ _ _)), Hnorm.
       destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -3202,9 +3372,9 @@ Proof.
     + pose proof (cis_ok_head (CIAuto a) rest Hok) as Hauto.
       rewrite ci_ok_auto in Hauto.
       apply andb_true_iff in Hauto as [Hbody Hkind].
-      cbn [ci_text ci_inlines map].
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map].
       change (ci_src (CIAuto a)) with (auto_text a).
-      rewrite (iscan_auto_text a (ci_text rest) txt prev'
+      rewrite (iscan_auto_text a (ci_text_at b rest) txt prev'
                  (OState (List.map OIn out) [] None) Hbody Hkind).
       destruct (flush_text txt (OState (List.map OIn out) [] None))
         as [out' stk' word'] eqn:Eflush.
@@ -3224,9 +3394,9 @@ Proof.
       apply andb_true_iff in Hraw as [Hraw Hfmt].
       apply andb_true_iff in Hraw as [Hraw Hrok].
       apply andb_true_iff in Hraw as [Hcap Hrne].
-      cbn [ci_text ci_inlines map].
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map].
       change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
-      rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
+      rewrite (iscan_raw_text rf rv (ci_text_at b rest) txt prev'
                  (OState (List.map OIn out) [] None) Hcap Hrne Hrok Hfmt).
       destruct (flush_text txt (OState (List.map OIn out) [] None))
         as [out' stk' word'] eqn:Eflush.
@@ -3242,9 +3412,9 @@ Proof.
       * exact (cis_ok_tail _ _ Hok).
       * reflexivity.
     + pose proof (cis_ok_head (CIWiki we wt wal) rest Hok) as Hwk.
-      cbn [ci_text ci_inlines map].
+      rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_inlines map].
       change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
-      rewrite (iscan_wiki_text we wt wal (ci_text rest) txt prev'
+      rewrite (iscan_wiki_text we wt wal (ci_text_at b rest) txt prev'
                  (OState (List.map OIn out) [] None) Hwk)
         by (rewrite wiki_opens_top; apply orb_true_r).
       destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -3268,30 +3438,39 @@ Qed.
    the line ends (a verbatim).  An empty verbatim would not: two adjacent
    runs leave `IOpen`, which is why `ci_ok` excludes it. *)
 Local Lemma iscan_cis_closed :
-  forall cis prev' txt out,
+  forall b cis prev' txt out,
     cis_ok cis = true ->
-    iscan_closed (iscan_str (ci_text cis)
+    iscan_closed (iscan_str (ci_text_at b cis)
                     (IText false txt prev' (OState (List.map OIn out) [] None)))
     = true.
 Proof.
-  intro cis. pattern cis.
+  intros b cis. pattern cis.
   apply (well_founded_induction (well_founded_ltof _ cis_size)).
   clear cis. intros cis IH prev' txt out Hok.
   destruct cis as [|c rest]; [reflexivity|].
   assert (Hrestlt : ltof (list cinline) cis_size rest (c :: rest)).
   { unfold ltof. cbn [cis_size]. pose proof (ci_size_pos c). lia. }
   destruct c as [s|v|d kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal].
-  - cbn [ci_text ci_src]. rewrite iscan_str_app, iscan_escape.
-    apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
+  - destruct rest as [|r rest'].
+    + rewrite ci_text_at_last. destruct b.
+      * rewrite iscan_closed_escape_end.
+        exact (IH [] Hrestlt _ _ out (cis_ok_tail _ _ Hok)).
+      * change (escape_from false EmptyString s) with (escape_str s).
+        rewrite iscan_escape.
+        exact (IH [] Hrestlt _ _ out (cis_ok_tail _ _ Hok)).
+    + rewrite ci_text_at_cons2. cbn [ci_src]. rewrite iscan_str_app, iscan_escape.
+      apply (IH (r :: rest') Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (ci_verb_nonempty v rest Hok) as Hvne.
     pose proof (ci_verb_content_ok v rest Hok) as Hvok.
-    cbn [ci_text ci_src]. rewrite iscan_str_app.
+    rewrite ci_text_at_cons_nonstr by exact I. cbn [ci_src]. rewrite iscan_str_app.
     rewrite iscan_verb_text_nonempty by auto using verb_content_safe.
     rewrite flush_text_flat.
     destruct rest as [|r rest'].
-    + cbn [ci_text iscan_str iscan_closed iclosed_at iresolve os_stk null].
+    + cbn [ci_text_at iscan_str iscan_closed iclosed_at iresolve os_stk null].
       rewrite nat_eqb_refl. reflexivity.
     + destruct (after_verb_rest_nontick v r rest' Hok) as [Hne [Htick Hnx]].
+      destruct (ci_text_at_head b (r :: rest')) as (E1 & E2 & E3).
+      rewrite <- E1 in Hne. rewrite <- E2 in Htick. rewrite <- E3 in Hnx.
       rewrite (iscan_after_verb_nontick _ _ _ _ _ Hne Htick Hnx).
       rewrite trim_verb_pad by exact Hvok. cbn [vnode].
       cbn [oemit os_out os_stk os_word_start].
@@ -3301,11 +3480,11 @@ Proof.
     rewrite ci_ok_delim in Hdk. apply andb_true_iff in Hdk as [Hdk Hkidsok].
     apply andb_true_iff in Hdk as [Hden Hkidsne].
     destruct (iscan_marked_open_app d
-                (ci_text kids ++ marked_close d (ci_text rest))
+                (ci_text kids ++ marked_close d (ci_text_at b rest))
                 txt prev' (OState (List.map OIn out) [] None) Hden
                 (nonempty_str_app_l _ _ (marked_close_nonempty _ _)))
       as [cm [op Eopen]].
-    pose proof (iscan_cis_marked kids d cm (ci_text rest) EmptyString
+    pose proof (iscan_cis_marked kids d cm (ci_text_at b rest) EmptyString
       (Some (dchar d)) [] op
       (flush_text txt (OState (List.map OIn out) [] None))
       Hden Hkidsok eq_refl) as IHkids.
@@ -3314,12 +3493,12 @@ Proof.
       nonempty kids = true).
     { cbn. exact Hkidsne. }
     destruct (IHkids Hkn) as [pk Ekids].
-    cbn [ci_text]. rewrite ci_src_delim.
+    rewrite ci_text_at_cons_nonstr by exact I. rewrite ci_src_delim.
     assert (Hsrc :
       ((marked_open d ++ (ci_text kids ++ marked_close d EmptyString))
-         ++ ci_text rest)%string
+         ++ ci_text_at b rest)%string
       = (marked_open d ++
-          (ci_text kids ++ marked_close d (ci_text rest)))%string).
+          (ci_text kids ++ marked_close d (ci_text_at b rest)))%string).
     { rewrite !append_assoc, marked_close_app. reflexivity. }
     rewrite Hsrc, Eopen.
     cbn [flush_text flush_text_at nonempty_str oemit_all] in Ekids. rewrite Ekids.
@@ -3335,15 +3514,15 @@ Proof.
   - pose proof (cis_ok_head (CILink img kids dst) rest Hok) as Hdk.
     rewrite ci_ok_link in Hdk. apply andb_true_iff in Hdk as [Hdk Hbk].
     apply andb_true_iff in Hdk as [Hnl Hkidsok].
-    destruct (iscan_cis_bracket kids dst (ci_text rest) EmptyString
+    destruct (iscan_cis_bracket kids dst (ci_text_at b rest) EmptyString
       (Some lbrack) img [] (flush_text txt (OState (List.map OIn out) [] None))
       Hkidsok eq_refl Hbk) as [pk Ekids].
-    cbn [ci_text]. rewrite ci_src_link.
+    rewrite ci_text_at_cons_nonstr by exact I. rewrite ci_src_link.
     assert (Hsrc :
       ((bracket_open img ++ (ci_text kids ++ link_close dst EmptyString)) ++
-        ci_text rest)%string
+        ci_text_at b rest)%string
       = (bracket_open img ++
-          (ci_text kids ++ link_close dst (ci_text rest)))%string).
+          (ci_text kids ++ link_close dst (ci_text_at b rest)))%string).
     { rewrite append_assoc, append_assoc, link_close_app. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_bracket_open
         by (rewrite wiki_opens_top; apply orb_true_r).
@@ -3360,15 +3539,15 @@ Proof.
     apply andb_true_iff in Hdk as [Hlab Hkidsok].
     apply andb_true_iff in Hlab as [Hlab Hnorm].
     apply andb_true_iff in Hlab as [Hne' Hbr].
-    destruct (iscan_cis_ref rkids rlabel (ci_text rest) EmptyString
+    destruct (iscan_cis_ref rkids rlabel (ci_text_at b rest) EmptyString
       (Some lbrack) rimg [] (flush_text txt (OState (List.map OIn out) [] None))
       Hkidsok eq_refl Hbk) as [pk Ekids].
-    cbn [ci_text]. rewrite ci_src_ref.
+    rewrite ci_text_at_cons_nonstr by exact I. rewrite ci_src_ref.
     assert (Hsrc :
       ((bracket_open rimg ++ (ci_text rkids ++ ref_close rlabel EmptyString)) ++
-        ci_text rest)%string
+        ci_text_at b rest)%string
       = (bracket_open rimg ++
-          (ci_text rkids ++ ref_close rlabel (ci_text rest)))%string).
+          (ci_text rkids ++ ref_close rlabel (ci_text_at b rest)))%string).
     { rewrite append_assoc, append_assoc, ref_close_app. reflexivity. }
     rewrite Hsrc, iscan_str_app, iscan_bracket_open
         by (rewrite wiki_opens_top; apply orb_true_r).
@@ -3384,8 +3563,8 @@ Proof.
     rewrite ci_ok_note in Hnote.
     apply andb_true_iff in Hnote as [Hnote Hnorm].
     apply andb_true_iff in Hnote as [Hnotes Hsafe].
-    cbn [ci_text]. change (ci_src (CINote label)) with (note_text label).
-    rewrite (iscan_note_text label (ci_text rest) txt prev'
+    rewrite ci_text_at_cons_nonstr by exact I. change (ci_src (CINote label)) with (note_text label).
+    rewrite (iscan_note_text label (ci_text_at b rest) txt prev'
                (OState (List.map OIn out) [] None) Hnotes Hsafe
                  (wiki_opens_top _ _ _ _)).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -3397,8 +3576,8 @@ Proof.
   - pose proof (cis_ok_head (CIAuto a) rest Hok) as Hauto.
     rewrite ci_ok_auto in Hauto.
     apply andb_true_iff in Hauto as [Hbody Hkind].
-    cbn [ci_text]. change (ci_src (CIAuto a)) with (auto_text a).
-    rewrite (iscan_auto_text a (ci_text rest) txt prev'
+    rewrite ci_text_at_cons_nonstr by exact I. change (ci_src (CIAuto a)) with (auto_text a).
+    rewrite (iscan_auto_text a (ci_text_at b rest) txt prev'
                (OState (List.map OIn out) [] None) Hbody Hkind).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
       as [out' stk' word'] eqn:Eflush.
@@ -3411,8 +3590,8 @@ Proof.
     apply andb_true_iff in Hraw as [Hraw Hfmt].
     apply andb_true_iff in Hraw as [Hraw Hrok].
     apply andb_true_iff in Hraw as [Hcap Hrne].
-    cbn [ci_text]. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
-    rewrite (iscan_raw_text rf rv (ci_text rest) txt prev'
+    rewrite ci_text_at_cons_nonstr by exact I. change (ci_src (CIRaw rf rv)) with (raw_text rf rv).
+    rewrite (iscan_raw_text rf rv (ci_text_at b rest) txt prev'
                (OState (List.map OIn out) [] None) Hcap Hrne Hrok Hfmt).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
       as [out' stk' word'] eqn:Eflush.
@@ -3421,8 +3600,8 @@ Proof.
     cbn [oemit os_out os_stk os_word_start]. rewrite <- ?List.map_cons.
     apply (IH rest Hrestlt), (cis_ok_tail _ _ Hok).
   - pose proof (cis_ok_head (CIWiki we wt wal) rest Hok) as Hwk.
-    cbn [ci_text]. change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
-    rewrite (iscan_wiki_text we wt wal (ci_text rest) txt prev'
+    rewrite ci_text_at_cons_nonstr by exact I. change (ci_src (CIWiki we wt wal)) with (wiki_text we wt wal).
+    rewrite (iscan_wiki_text we wt wal (ci_text_at b rest) txt prev'
                (OState (List.map OIn out) [] None) Hwk)
       by (rewrite wiki_opens_top; apply orb_true_r).
     destruct (flush_text txt (OState (List.map OIn out) [] None))
@@ -3523,7 +3702,22 @@ Proof.
   intros cis Hok.
   unfold parse_inline_line, istart, ostart, ci_line.
   change (@nil oitem) with (List.map OIn (@nil (node inline))).
-  rewrite (iscan_cis cis None EmptyString []).
+  rewrite (iscan_cis true cis None EmptyString []).
+  - reflexivity.
+  - exact Hok.
+  - reflexivity.
+Qed.
+
+(** The same for text that does not end its line, such as a key's label,
+    which the colon follows. *)
+Lemma parse_inline_text_ci :
+  forall cis, cis_ok cis = true ->
+  parse_inline_line (ci_text cis) = ci_inlines cis.
+Proof.
+  intros cis Hok.
+  unfold parse_inline_line, istart, ostart. rewrite <- ci_text_at_false.
+  change (@nil oitem) with (List.map OIn (@nil (node inline))).
+  rewrite (iscan_cis false cis None EmptyString []).
   - reflexivity.
   - exact Hok.
   - reflexivity.
@@ -3553,7 +3747,7 @@ Proof.
     rewrite para_inlines_cons2_closed
       by (unfold ci_line, istart, ostart;
           change (@nil oitem) with (List.map OIn (@nil (node inline)));
-          apply iscan_cis_closed, Hc).
+          apply (iscan_cis_closed true), Hc).
     rewrite ci_para_cons2, (parse_inline_line_ci cis Hc).
     f_equal. f_equal.
     apply IH; [exact Hr | exact Hnr |].

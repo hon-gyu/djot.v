@@ -250,7 +250,7 @@ documents cannot silently leave the canonical fragment.
 
 Example literal_colon_source :
   cb_lines (cpara ["Note: this matters."; "ends:"])
-    = ["Note\: this matters\."; "ends\:"].
+    = ["Note\: this matters."; "ends\:"].
 Proof. reflexivity. Qed.
 
 Definition literal_colon_documents : list (list cblock) :=

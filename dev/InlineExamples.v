@@ -268,6 +268,14 @@ Example period_and_bang_in_str :
   = ("1\. a. b\..c! d\!", [mk (Str "1. a. b..c! d!")]).
 Proof. vm_compute. reflexivity. Qed.
 
+(* A run that ends its line may leave its last character bare, unless
+   the line would then read as a list number. *)
+Example line_end_in_str :
+  (ci_line [CIStr "Another."], parse_inline_line (ci_line [CIStr "Another."]),
+   ci_line [CIStr "B."], ci_src (CIStr "Another."))
+  = ("Another.", [mk (Str "Another.")], "B\.", "Another\.").
+Proof. vm_compute. reflexivity. Qed.
+
 (* An empty span is not a span: a closer immediately after its opener
    does not close it. *)
 Example empty_span_is_text :
