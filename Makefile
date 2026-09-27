@@ -1,6 +1,7 @@
 .PHONY: help build doc build-djotjs diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts \
-        check-spans bench probe-lemmas dist check-dist dist-branch copy-parser
+        check-span-containment bench probe-lemmas \
+        ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -16,7 +17,7 @@ help:  ## Show this help
 		if (helpMessage) { \
 			recipe = $$1; \
 			sub(/:/, "", recipe); \
-			printf "  \033[36m%-20s\033[0m %s\n", recipe, substr($$0, RSTART + 3, RLENGTH); \
+			printf "  \033[36m%-24s\033[0m %s\n", recipe, substr($$0, RSTART + 3, RLENGTH); \
 		} \
 	}' $(MAKEFILE_LIST)
 
@@ -71,7 +72,7 @@ roundtrip-callouts: build  ## Callout extension
 # Other checks
 # ------------
 
-check-spans: build  ## Located parse: every span lies inside its document and parent
+check-span-containment: build  ## Located parse: every span lies inside its document and parent
 	dune exec test/spans.exe -- $(VERBOSE) 3
 
 bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
@@ -90,35 +91,34 @@ probe-lemmas: build  ## Search for counterexamples to candidate lemmas in dev/ch
 
 EXTRACTED = _build/default/extraction/ocaml
 
-# dist/ is committed so consumers build it without Rocq (cd dist && dune build).
-dist: build  ## Regenerate dist/kernel from the extraction
-	@$(MAKE) -s copy-parser DEST=dist/kernel
+# Copy the extracted modules, minus the test-only Fixtures and Generate,
+# into directory $(1).
+define copy-extracted-modules
+mkdir -p $(1) && rm -f $(1)/*.ml $(1)/*.mli && \
+for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
+  case $${f##*/} in Fixtures.*|Generate.*) ;; \
+    *) sed 's/[[:blank:]]*$$//' "$$f" > "$(1)/$${f##*/}"; \
+       chmod 644 "$(1)/$${f##*/}" ;; esac; \
+done
+endef
+
+ocaml-pkg-regen: build  ## Regenerate dist/kernel from the extraction and promtote to worktree
+	@$(call copy-extracted-modules,dist/kernel)
 	@echo "dist/kernel regenerated from $(EXTRACTED)"
 
-check-dist: build  ## Fail if dist/kernel is behind the extraction
-	@tmp=`mktemp -d`; $(MAKE) -s copy-parser DEST=$$tmp; \
+ocaml-pkg-check-current: build  ## Fail if dist/kernel is behind the extraction
+	@tmp=`mktemp -d`; $(call copy-extracted-modules,$$tmp); \
 	if diff -r --exclude=dune dist/kernel $$tmp >/dev/null; then \
 	  rm -rf $$tmp; echo "dist/kernel is current"; \
 	else \
 	  diff -r --exclude=dune dist/kernel $$tmp | head -20; rm -rf $$tmp; \
-	  echo "dist/kernel is stale: run make dist"; exit 1; \
+	  echo "dist/kernel is stale: run make ocaml-pkg-regen"; exit 1; \
 	fi
 
 # The ocaml branch holds dist/ at its root, for consumers that vendor the
 # package as a git submodule.
 # do `git push origin ocaml` to update the remote branch.
-dist-branch:  ## Update the ocaml branch from dist/ at HEAD
+ocaml-pkg-split-branch:  ## Update the ocaml branch from dist/ at HEAD
 	@git subtree split --prefix=dist --branch=ocaml -q >/dev/null
 	@echo "local ocaml branch:  `git rev-parse --short ocaml`"
 	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify origin/ocaml || echo none`"
-
-# Helper for dist and check-dist: copy the extracted modules, minus the
-# test-only Fixtures and Generate, into directory DEST.
-copy-parser:
-	@mkdir -p $(DEST)
-	@rm -f $(DEST)/*.ml $(DEST)/*.mli
-	@for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
-	  case $${f##*/} in Fixtures.*|Generate.*) ;; \
-	    *) sed 's/[[:blank:]]*$$//' "$$f" > "$(DEST)/$${f##*/}"; \
-	       chmod 644 "$(DEST)/$${f##*/}" ;; esac; \
-	done
