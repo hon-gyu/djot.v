@@ -2,7 +2,8 @@
 
 (* Haskell extraction of [convert], twice: with [string] as [String],
    then as a strict [ByteString].  [nat] is [Int] and [comparison] is
-   [Ordering].  None of the realizations in ../Extract.v are copied.
+   [Ordering].  None of the realizations in ../ocaml/Extract.v are
+   copied.
 
    Paths are relative to the repository root, where scripts/haskell.sh
    runs this file.  Extraction cannot emit imports, so the script adds
@@ -19,7 +20,7 @@ Extraction Language Haskell.
 Numbers and order
 =================
 
-As in ../Extract.v: [sub] truncates at zero, and division by zero
+As in ../ocaml/Extract.v: [sub] truncates at zero, and division by zero
 returns what Gallina's does. *)
 
 Extract Constant List.rev => "Prelude.reverse".

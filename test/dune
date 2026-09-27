@@ -1,4 +1,4 @@
-; Checks and tools over the extracted parser (../extraction).  The
+; Checks and tools over the extracted parser (../extraction/ocaml).  The
 ; parser itself is not here; this is the OCaml that runs it.
 
 (library

@@ -88,7 +88,7 @@ probe-lemmas: build  ## Search for counterexamples to candidate lemmas in dev/ch
 # Extracted parser package
 # ------------------------
 
-EXTRACTED = _build/default/extraction
+EXTRACTED = _build/default/extraction/ocaml
 
 # dist/ is committed so consumers build it without Rocq (cd dist && dune build).
 dist: build  ## Regenerate dist/kernel from the extraction
