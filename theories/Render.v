@@ -1194,6 +1194,24 @@ Local Definition task_litem_lines (it : task_status * list string) : list string
        :: map (fun l => (blanks 6 ++ l)%string) more)%list
   end.
 
+(* Any other item's source lines.  An empty item is its marker alone,
+   without the separator space, as for a task. *)
+Local Definition item_or_marker_lines (it : litem) : list string :=
+  match snd it with
+  | [] => [strip_trailing_ws (mk_open (fst it))]
+  | _ => litem_lines it
+  end.
+
+Local Lemma map_item_or_marker_lines :
+  forall k lss, forallb nonempty lss = true ->
+    map item_or_marker_lines (ck_items k lss) = map litem_lines (ck_items k lss).
+Proof.
+  intros k lss H. rewrite <- (ck_items_lines k lss) in H.
+  induction (ck_items k lss) as [|[m L] rest IH]; [reflexivity|].
+  cbn [map forallb snd] in *. apply andb_true_iff in H as [HL Hrest].
+  rewrite (IH Hrest). destruct L; [discriminate HL|reflexivity].
+Qed.
+
 (* A node's attributes, as the line before its block.  A div's class goes
    on its fence instead when it is one word and comes first: an attribute
    line's class replaces the fence's, so two words have to go on the line,
@@ -1297,11 +1315,11 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
    | Section bs =>
        sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
    | BulletList sp items =>
-       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+       list_lines sp (map item_or_marker_lines (ck_items LKBullet (itemss items)))
    | DefinitionList sp its =>
-       list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
+       list_lines sp (map item_or_marker_lines (ck_items LKDef (defitemss its)))
    | OrderedList oa sp items =>
-       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+       list_lines sp (map item_or_marker_lines (ck_items (lk_of_ol oa) (itemss items)))
    | TaskList sp items =>
        list_lines sp (map task_litem_lines (taskitemss items))
    | RefDef label dest => [ref_line label dest]
@@ -1394,15 +1412,14 @@ Local Definition def_head_ok (bs : blocks) : bool :=
   | [] => true
   end.
 
+(* Every item renders to a line, so no item comes out as a bare marker. *)
 Definition ck_render_ok (k : list_kind) (items : list blocks) : bool :=
-  match k with
-  | LKDef => forallb def_head_ok items
-  | LKTask checks =>
-      (Nat.eqb (length checks) (length items)
-       && forallb
-            (fun it => nonempty (sep_lines (render_blocks_lines it))) items)%bool
-  | _ => true
-  end.
+  (forallb (fun it => nonempty (sep_lines (render_blocks_lines it))) items
+   && match k with
+      | LKDef => forallb def_head_ok items
+      | LKTask checks => Nat.eqb (length checks) (length items)
+      | _ => true
+      end)%bool.
 
 Local Lemma render_forallb_map :
   forall {A B : Type} (f : B -> bool) (g : A -> B) xs,
@@ -1479,10 +1496,13 @@ Proof.
     cbn [ck_block render_lines fence_class drop_class attr_lines String.eqb app
          lk_of_ol roman_sty alpha_sty
          ol_style ol_delim ol_start];
-    try solve [rewrite H; reflexivity].
-  - cbn [ck_render_ok] in Hrok. rewrite (Hdef items Hrok). reflexivity.
-  - cbn [ck_render_ok] in Hrok. apply andb_true_iff in Hrok as [Hlen Hne].
-    apply Nat.eqb_eq in Hlen.
+    unfold ck_render_ok in Hrok; apply andb_true_iff in Hrok as [Hne Hrok];
+    assert (Hne' : forallb nonempty
+                     (map (fun it => sep_lines (render_blocks_lines it)) items) = true)
+      by (rewrite render_forallb_map; exact Hne);
+    try solve [rewrite H, (map_item_or_marker_lines _ _ Hne'); reflexivity].
+  - rewrite (Hdef items Hrok), (map_item_or_marker_lines _ _ Hne'). reflexivity.
+  - clear Hne'. apply Nat.eqb_eq in Hrok. rename Hrok into Hlen.
     f_equal.
     revert checks Hlen Hne. induction items as [|it items IH];
       intros [|chk checks] Hlen Hne; try discriminate; [reflexivity|].
@@ -1525,9 +1545,15 @@ Lemma ck_render_ok_cb :
     ck_content_ok k items = true ->
     ck_render_ok k (map (map cb_ast) items) = true.
 Proof.
-  intros [| |checks|d start|up d start|up d start] items H Hck Hitem Hrender Hcont;
-    try reflexivity.
-  - cbn [ck_render_ok]. cbn [ck_content_ok] in Hcont.
+  intros k items H Hck Hitem Hrender Hcont.
+  unfold ck_render_ok. apply andb_true_iff. split.
+  { pose proof (forallb_item_ok_nonempty _ _ Hitem) as Hnonempty.
+    rewrite <- render_forallb_map in Hnonempty.
+    rewrite <- Hrender in Hnonempty.
+    rewrite render_forallb_map in Hnonempty.
+    rewrite render_forallb_map. exact Hnonempty. }
+  destruct k as [| |checks|d start|up d start|up d start]; try reflexivity.
+  - cbn [ck_content_ok] in Hcont.
     clear Hck Hitem Hrender.
     induction items as [|it rest IH]; [reflexivity|].
     cbn [map forallb] in H, Hcont |- *. apply andb_true_iff in H as [Hit Hrest].
@@ -1541,15 +1567,9 @@ Proof.
     + cbn [cb_ok] in Hc. apply andb_true_iff in Hc as [Hp _].
       rewrite (ci_para_nonempty _ Hp). reflexivity.
     + destruct k; reflexivity.
-  - cbn [ck_render_ok]. apply andb_true_iff. split.
-    + apply Nat.eqb_eq. cbn [ck_ok] in Hck.
-      apply andb_true_iff in Hck as [_ Hck]. apply Nat.eqb_eq in Hck.
-      rewrite length_map. exact Hck.
-    + pose proof (forallb_item_ok_nonempty _ _ Hitem) as Hnonempty.
-      rewrite <- render_forallb_map in Hnonempty.
-      rewrite <- Hrender in Hnonempty.
-      rewrite render_forallb_map in Hnonempty.
-      rewrite render_forallb_map. exact Hnonempty.
+  - apply Nat.eqb_eq. cbn [ck_ok] in Hck.
+    apply andb_true_iff in Hck as [_ Hck]. apply Nat.eqb_eq in Hck.
+    rewrite length_map. exact Hck.
 Qed.
 
 (* The table equation `render_cb_lines` has to be matched against.  Each
