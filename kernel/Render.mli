@@ -146,6 +146,8 @@ val task_empty : task_status -> string
 
 val task_litem_lines : (task_status * string list) -> string list
 
+val item_or_marker_lines : litem -> string list
+
 val attr_lines : attr -> string list
 
 val fence_class : attr -> block -> string

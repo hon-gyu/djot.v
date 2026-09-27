@@ -226,3 +226,10 @@ let () =
       ("note", None, [ (Node (_, _, Inline.Str "T") as title) ], [])) ] ->
       assert (bytes (Doc.textloc spaced title) = (10, 10))
   | _ -> failwith "unexpected spaced callout title"
+
+(* An empty list item renders as its marker alone. *)
+let () =
+  let src = "- a\n-\n- b\n\nB.\n" in
+  let d = Doc.of_string src in
+  assert (Source.of_doc d = "- a\n-\n- b\n\nB.");
+  assert (Doc.kernel (Doc.of_string (Source.of_doc d)) = Doc.kernel d)

@@ -599,6 +599,13 @@ let task_litem_lines = function
                                      l1)
                                    more))
 
+(** val item_or_marker_lines : litem -> string list **)
+
+let item_or_marker_lines it =
+  match snd it with
+  | [] -> (strip_trailing_ws (mk_open (fst it))) :: []
+  | _ :: _ -> litem_lines it
+
 (** val attr_lines : attr -> string list **)
 
 let attr_lines a = match a with
@@ -716,13 +723,16 @@ let rec render_lines t k a b =
                                                          ((div_fence_for t k
                                                             body) :: []))
      | OrderedList (oa, sp, items) ->
-       list_lines sp (map litem_lines (ck_items (lk_of_ol oa) (itemss items)))
+       list_lines sp
+         (map item_or_marker_lines (ck_items (lk_of_ol oa) (itemss items)))
      | BulletList (sp, items) ->
-       list_lines sp (map litem_lines (ck_items LKBullet (itemss items)))
+       list_lines sp
+         (map item_or_marker_lines (ck_items LKBullet (itemss items)))
      | TaskList (sp, items) ->
        list_lines sp (map task_litem_lines (taskitemss items))
      | DefinitionList (sp, its) ->
-       list_lines sp (map litem_lines (ck_items LKDef (defitemss its)))
+       list_lines sp
+         (map item_or_marker_lines (ck_items LKDef (defitemss its)))
      | ThematicBreak -> thematic_line :: []
      | Table (cap, rows) ->
        app (table_lines t rows)
