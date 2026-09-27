@@ -13,7 +13,7 @@ open Strings
 
 type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                                       option -> string -> bool);
-                 bunderline : (char -> int -> int option); btables : 
+                 bunderline : (char -> int -> int option); btables :
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
                  battrs : bool; bfootnotes : bool; bkeyed : bool }

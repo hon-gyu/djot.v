@@ -308,8 +308,8 @@ type ddecay =
 
 type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> int);
                  dc_syntax : (dstyle -> dsyntax);
-                 dc_decay : (dstyle -> ddecay); dc_smart_typography : 
-                 bool; dc_raw_inline : bool; dc_math : bool; dc_attrs : 
+                 dc_decay : (dstyle -> ddecay); dc_smart_typography :
+                 bool; dc_raw_inline : bool; dc_math : bool; dc_attrs :
                  bool; dc_footnotes : bool; dc_wikilinks : bool }
 
 (** val djot_dchar : dstyle -> char **)

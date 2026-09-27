@@ -107,5 +107,7 @@ copy-parser:
 	@mkdir -p $(DEST)
 	@rm -f $(DEST)/*.ml $(DEST)/*.mli
 	@for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
-	  case `basename $$f` in Fixtures.*|Generate.*) ;; *) install -m 644 $$f $(DEST)/ ;; esac; \
+	  case $${f##*/} in Fixtures.*|Generate.*) ;; \
+	    *) sed 's/[[:blank:]]*$$//' "$$f" > "$(DEST)/$${f##*/}"; \
+	       chmod 644 "$(DEST)/$${f##*/}" ;; esac; \
 	done
