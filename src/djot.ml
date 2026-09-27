@@ -215,25 +215,48 @@ end
 module Doc = struct
   type t = {
     kernel : K.Ast.doc;
+    footnote_defs : Block.t node list;
     lines : K.Strings.source_line array option;
     profile : Profile.t;
   }
 
+  (* The definitions the document pass takes out of the tree, in source
+     order. *)
+  let rec collect_footnote_defs acc (Node (_, _, b) as n) =
+    let bl acc l = List.fold_left collect_footnote_defs acc l in
+    match (b : Block.t) with
+    | FootnoteDef (_, l) -> bl (n :: acc) l
+    | Section l | BlockQuote l | Div l | Ext_callout (_, _, _, l) -> bl acc l
+    | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
+    | TaskList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
+    | DefinitionList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
+    | Ext_keyed (_, b) -> collect_footnote_defs acc b
+    | Para _ | Heading _ | CodeBlock _ | ThematicBreak | Table _ | RawBlock _ | RefDef _ ->
+        acc
+
+  let make ~profile ~lines pos bs =
+    {
+      kernel = K.Document.doc_pass pos bs;
+      footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs);
+      lines;
+      profile;
+    }
+
   let of_string ?(profile = Profile.djot) ?(locs = false) s =
     let { K.Profile.profile_inline = table; profile_block = bconfig } = profile in
     if locs then
-      {
-        kernel = K.Document.parse_doc_located table bconfig s;
-        lines = Some (Array.of_list (K.Strings.line_table s));
-        profile;
-      }
+      make ~profile
+        ~lines:(Some (Array.of_list (K.Strings.line_table s)))
+        K.Ast.located_pos
+        (K.Step.parse_blocks_located table bconfig s)
     else
-      { kernel = K.Document.parse_doc table bconfig K.Ast.semantic_pos s; lines = None; profile }
+      make ~profile ~lines:None K.Ast.semantic_pos
+        (K.Step.parse_blocks table bconfig K.Step.semantic_line_ix K.Ast.semantic_pos s)
 
-  let of_blocks ?(profile = Profile.djot) bs =
-    { kernel = K.Document.doc_pass K.Ast.semantic_pos bs; lines = None; profile }
+  let of_blocks ?(profile = Profile.djot) bs = make ~profile ~lines:None K.Ast.semantic_pos bs
   let blocks d = d.kernel.doc_blocks
   let footnotes d = d.kernel.doc_footnotes
+  let footnote_defs d = d.footnote_defs
   let footnote d l = K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
   let references d = d.kernel.doc_references
 
@@ -244,6 +267,18 @@ module Doc = struct
     match (d.lines, p) with
     | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
     | _ -> Textloc.none
+
+  (* A definition's range starts at its [[^]. *)
+  let footnote_label_loc d n =
+    match n with
+    | Node (_, _, Block.FootnoteDef (label, _)) ->
+        let l = textloc d n in
+        if Textloc.is_none l then Textloc.none
+        else
+          let first_byte = l.first_byte + 2 in
+          Textloc.v ~first_byte ~last_byte:(first_byte + String.length label - 1)
+            ~first_line:l.first_line ~last_line:l.first_line
+    | Node _ -> Textloc.none
 
   type syntax = K.Ast.syntax_role = RAttrSpec | ROpenFence | RCloseFence
 

@@ -267,7 +267,13 @@ module Doc : sig
   val blocks : t -> Block.t node list
 
   val footnotes : t -> (string * Block.t node list) list
-  (** Definitions in source order, keyed by label as written. *)
+  (** One entry per normalized label, holding the blocks of the last
+      definition with that label, as djot.js resolves references. *)
+
+  val footnote_defs : t -> Block.t node list
+  (** Every {!Block.FootnoteDef} of the parse in source order, repeated
+      labels included, with its label as written and its blocks.  Taken
+      from the parse, so {!Mapper.map_doc} leaves them as they were. *)
 
   val footnote : t -> string -> Block.t node list option
 
@@ -281,6 +287,11 @@ module Doc : sig
   val textloc : t -> 'a node -> Textloc.t
   (** {!Textloc.none} unless the document was parsed with [~locs:true] and
       the node came from that parse. *)
+
+  val footnote_label_loc : t -> Block.t node -> Textloc.t
+  (** The label of a {!Block.FootnoteDef}, between [[^] and [\]].
+      {!Textloc.none} for any other node and under the same conditions
+      as {!textloc}. *)
 
   type syntax = Kernel.Ast.syntax_role =
     | RAttrSpec  (** An attribute spec [{...}]. *)
