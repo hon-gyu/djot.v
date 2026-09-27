@@ -277,7 +277,7 @@ Hint Rewrite idelim_resolve_map : map_text.
 
 Lemma idollar_step_map : forall c two t prev o,
   map_text (idollar_step c two t prev o) = idollar_step c two (tval t) prev o.
-Proof. intros. unfold idollar_step. crush. Qed.
+Proof. intros. unfold idollar_step. crush; laws; reflexivity. Qed.
 
 Lemma iperiod_step_map : forall c two t prev o,
   map_text (iperiod_step c two t prev o) = iperiod_step c two (tval t) prev o.
@@ -319,11 +319,13 @@ Proof.
     destruct marked; [crush; rewrite oopen_marked_map; reflexivity|].
     destruct (Ascii.eqb c rbrace); [crush|].
     rewrite <- idelim_resolve_map.
-    destruct (idelim_resolve k txt before false (Some c) o) as [[] | | | | | | | | | | | | | | | | | | |];
+    destruct (idelim_resolve k txt before false (Some c) o) as [[] | | | | | | | | | | | | | | | | | | | | |];
       cbn [map_text]; crush.
   - crush.
+  - destruct vk; crush; laws; reflexivity.
   - crush.
-  - crush.
+  - rewrite <- !IHst. crush.
+  - rewrite <- !IHst. crush.
   - crush.
   - crush.
   - crush.
@@ -360,6 +362,10 @@ Qed.
 Lemma ifinish_ostate_map : forall st, ifinish_ostate st = ifinish_ostate (map_text st).
 Proof.
   induction st; cbn [ifinish_ostate map_text]; try assumption;
+    try (destruct two;
+         [destruct last; [assumption|crush]|];
+         destruct (match last with Some p => negb (is_ws_nl p)
+                   | None => false end); [crush|assumption]);
     rewrite ifinish_ostate_flat_map, iresolve_map; reflexivity.
 Qed.
 
@@ -383,6 +389,21 @@ Proof.
   intros attrs st. revert attrs.
   induction st; intros attrs; cbn [ibreak_at map_text];
     try solve [rewrite ibreak_flat_map, iresolve_map; reflexivity].
+  - destruct (two && dollar_math_enabled &&
+      negb (match prev with Some p => Ascii.eqb p dollar
+            | None => false end))%bool.
+    + cbn [map_text]. rewrite ibreak_flat_map.
+      cbn [map_text]. laws. reflexivity.
+    + rewrite ibreak_flat_map, iresolve_map. reflexivity.
+  - rewrite IHst. crush.
+  - destruct two;
+      [destruct last as [p|];
+       [cbn [map_text]; rewrite IHst; laws; reflexivity
+       |rewrite ibreak_flat_map; cbn [map_text]; laws; reflexivity]|].
+    destruct (match last with Some p => negb (is_ws_nl p)
+              | None => false end);
+      [rewrite ibreak_flat_map; cbn [map_text]; laws; reflexivity
+      |apply IHst].
   - rewrite iattr_feed_map, IHst. reflexivity.
   - rewrite IHst. crush.
   - apply IHst.

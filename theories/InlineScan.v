@@ -1169,15 +1169,20 @@ Definition ofinish `{PosPolicy} (o : ostate) : inlines :=
 
 (* What a backtick run closes into, decided at the opening run: the `$`
    prefix has already been read by then. *)
-Inductive vkind : Type := VVerb | VMath (style : math_style).
+Inductive vkind : Type :=
+  | VVerb | VMath (style : math_style)
+  | VMaybeDollarMath (prefix : string).
 
 Definition vnode (vk : vkind) (s : string) : inline :=
-  match vk with VVerb => Verbatim s | VMath st => Math st s end.
+  match vk with
+  | VVerb | VMaybeDollarMath _ => Verbatim s
+  | VMath st => Math st s
+  end.
 
 (* Only a verbatim may take a raw format: `` $`x`{=html} `` is math
    followed by literal text. *)
 Definition vkind_verb (vk : vkind) : bool :=
-  match vk with VVerb => true | VMath _ => false end.
+  match vk with VVerb | VMaybeDollarMath _ => true | VMath _ => false end.
 
 (* Every state below that carries pending text carries `prev`: the last
    byte of source read so far, `None` at the start of a paragraph or of a
@@ -1236,6 +1241,13 @@ Inductive iscan_g : Type :=
      must not count and the buffer cannot tell the two apart -- the same
      reason `!` has `IBang`. *)
   | IDollar (two : bool) (txt : Buf) (prev : option ascii) (o : ostate)
+  (* A dollar-delimited math candidate and the ordinary reading of the
+     same bytes.  The latter is selected if no valid closer arrives. *)
+  | IDollarMath (two escaped : bool) (src txt : Buf)
+                (last : option ascii) (sh : iscan_g) (o : ostate)
+  (* One possible closing dollar, awaiting the next byte. *)
+  | IDollarMathClose (two : bool) (src txt : Buf)
+                     (last : option ascii) (sh : iscan_g) (o : ostate)
   (* one or two periods whose role the next byte decides: a third makes
      the three an ellipsis, anything else makes them text.  `IDollar`'s
      shape exactly, and for `IDollar`'s reason -- an escaped `\.` must not
@@ -1884,11 +1896,20 @@ Definition idollar_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (two : bool) (txt : Buf)
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c dollar
-  then (if two then IDollar true (tpush txt (one dollar)) prev o
+  then (if two then IDollar true (tpush txt (one dollar)) (Some dollar) o
         else IDollar true txt prev o)
   else if (is_tick c && math_enabled)%bool
   then IOpen 1 (VMath (if two then DisplayMath else InlineMath))
          (flush_text_to_at (spot_before cursor_start (dollars two)) (tval txt) o)
+  else if (is_tick c && dollar_math_enabled && negb two)%bool
+  then IOpen 1 (VMaybeDollarMath (tval txt))
+         (flush_text_to_at cursor_start (tval txt ++ one dollar) o)
+  else if (dollar_math_enabled
+           && (negb two ||
+               negb (match prev with Some p => Ascii.eqb p dollar | None => false end))
+           && (two || (negb (is_ws_nl c) && negb (is_tick c))))%bool
+  then IDollarMath two (is_bslash c) (tof (one c)) txt (Some c)
+         (ilead c (tpush txt (dollars two)) (Some dollar) o) o
   else ilead c (tpush txt (dollars two)) (Some dollar) o.
 
 (* Three periods are one ellipsis and any other run is literal, so the
@@ -2043,6 +2064,51 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
            | other => other
            end
   | IDollar two txt prev o => idollar_step c two txt prev o
+  | IDollarMath two escaped src txt last sh o =>
+      let sh' := istep_at attrs_enabled c sh in
+      if escaped
+      then IDollarMath two false (tpush src (one c)) txt (Some c) sh' o
+      else if Ascii.eqb c dollar
+      then IDollarMathClose two src txt
+             (if two then Some nl_char else last) sh' o
+      else IDollarMath two (is_bslash c) (tpush src (one c)) txt
+             (Some c) sh' o
+  | IDollarMathClose two src txt last sh o =>
+      let sh' := istep_at attrs_enabled c sh in
+      if two
+      then match last with
+           | Some p =>
+               if Ascii.eqb p nl_char
+               then if Ascii.eqb c dollar
+                    then IDollarMathClose true src txt None sh' o
+                    else IDollarMath true (is_bslash c)
+                           (tpush src (String dollar (one c))) txt (Some c) sh' o
+               else if Ascii.eqb c dollar
+                    then IDollarMathClose true (tpush src (one c)) txt
+                           (Some dollar) sh' o
+                    else IDollarMath true (is_bslash c)
+                           (tpush src (one c)) txt (Some c) sh' o
+           | None =>
+               if Ascii.eqb c dollar
+               then IDollarMathClose true (tpush src "$$$") txt
+                      (Some dollar) sh' o
+               else let start := spot_before cursor_start
+                              (dollars true ++ tval src ++ dollars true) in
+                    ilead c tnil (Some dollar)
+                      (oemit (imk start cursor_start
+                                 (Math DisplayMath (tval src)))
+                        (flush_text_to_at start (tval txt) o))
+           end
+      else if (match last with Some p => negb (is_ws_nl p)
+               | None => false end
+               && negb ((Nat.leb 48 (nat_of_ascii c))
+                        && (Nat.leb (nat_of_ascii c) 57)))%bool
+           then let start := spot_before cursor_start
+                     (one dollar ++ tval src ++ one dollar) in
+                ilead c tnil (Some dollar)
+                  (oemit (imk start cursor_start (Math InlineMath (tval src)))
+                    (flush_text_to_at start (tval txt) o))
+           else sh'
   | IPeriod two txt prev o => iperiod_step c two txt prev o
   | IDash n txt prev o => idash_step c n txt prev o
   | IOpen n vk o =>
@@ -2053,11 +2119,36 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       (* the byte after the closing run decides whether a raw spec
          follows, and only for a verbatim: math takes the ordinary
          path *)
-      then (if (Ascii.eqb c lbrace && vkind_verb vk)%bool
-            then IRaw tnil (trim_verb (tval txt)) o
-            else ilead c tnil (Some tick)
-                   (oemit (imk (text_start o) cursor_start
-                             (vnode vk (trim_verb (tval txt)))) o))
+      then (match vk with
+            | VMaybeDollarMath prefix =>
+                if Ascii.eqb c dollar
+                then let '(_, o') := opop_str o in
+                     let start := spot_before cursor_stop
+                       (one dollar ++ ticks n ++ tval txt ++ ticks n ++ one dollar) in
+                     IText false tnil (Some dollar)
+                       (oemit (imk start cursor_stop
+                                  (Math InlineMath (trim_verb (tval txt))))
+                         (flush_text_to_at start prefix o'))
+                else if Ascii.eqb c lbrace
+                     then IRaw tnil (trim_verb (tval txt)) o
+                     else ilead c tnil (Some tick)
+                            (oemit (imk (text_start o) cursor_start
+                                      (Verbatim (trim_verb (tval txt)))) o)
+            | VMath InlineMath =>
+                if (Ascii.eqb c dollar && dollar_math_enabled)%bool
+                then IText false tnil (Some dollar)
+                       (oemit (imk (text_start o) cursor_stop
+                                  (Math InlineMath (trim_verb (tval txt)))) o)
+                else ilead c tnil (Some tick)
+                       (oemit (imk (text_start o) cursor_start
+                                  (Math InlineMath (trim_verb (tval txt)))) o)
+            | _ =>
+                if (Ascii.eqb c lbrace && vkind_verb vk)%bool
+                then IRaw tnil (trim_verb (tval txt)) o
+                else ilead c tnil (Some tick)
+                       (oemit (imk (text_start o) cursor_start
+                                 (vnode vk (trim_verb (tval txt)))) o)
+            end)
       else IVerb n 0 (tpush txt (ticks run ++ one c)) vk o
   (* The three bytes that make a construct of the bracket close it; every
      other one leaves the scope alone and the `]` in the buffer, which is
@@ -2181,6 +2272,7 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
       let '(t, o') := battr_lit (tval src) txt o in flush_text_at (tval t) o'
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDollar`,
      `IPeriod`, `IDash`, `IDelim` or `IClosed` *)
+  | IDollarMath _ _ _ _ _ _ o | IDollarMathClose _ _ _ _ _ o
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
   | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ o => o
@@ -2192,6 +2284,20 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
    the `FKDest` frame. *)
 Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   match st with
+  | IDollarMath _ _ _ _ _ sh _ => ifinish_ostate sh
+  | IDollarMathClose false src txt last sh o =>
+      if match last with Some p => negb (is_ws_nl p) | None => false end
+      then let start := spot_before cursor_start
+                       (one dollar ++ tval src ++ one dollar) in
+           oemit (imk start cursor_start (Math InlineMath (tval src)))
+             (flush_text_to_at start (tval txt) o)
+      else ifinish_ostate sh
+  | IDollarMathClose true src txt None _ o =>
+      let start := spot_before cursor_start
+                     (dollars true ++ tval src ++ dollars true) in
+      oemit (imk start cursor_start (Math DisplayMath (tval src)))
+        (flush_text_to_at start (tval txt) o)
+  | IDollarMathClose true _ _ _ sh _ => ifinish_ostate sh
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | ISymbol _ _ sh _ => ifinish_ostate sh
@@ -2285,7 +2391,8 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
       (* unreachable: `ibreak_at` advances the ordinary reading too *)
       iattr_feed nl_char p src txt prev sh o
   (* unreachable, as in `ifinish_ostate` *)
-  | (IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | (IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
+    | IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _) as st' => st'
   end.
@@ -2296,6 +2403,43 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
 Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
   (attrs_enabled : bool) (st : iscan) : iscan :=
   match st with
+  | IDollar two txt prev o =>
+      if (two && dollar_math_enabled &&
+          negb (match prev with Some p => Ascii.eqb p dollar
+                | None => false end))%bool
+      then IDollarMath true false (tof nl) txt (Some nl_char)
+             (ibreak_flat
+                (IText false (tpush txt (dollars true))
+                   (Some dollar) o)) o
+      else ibreak_flat (iresolve st)
+  | IDollarMath two escaped src txt last sh o =>
+      IDollarMath two false
+        (tpush src nl)
+        txt (Some nl_char) (ibreak_at attrs_enabled sh) o
+  | IDollarMathClose two src txt last sh o =>
+      if two then
+        match last with
+        | None =>
+            let start := spot_before cursor_start
+                           (dollars true ++ tval src ++ dollars true) in
+            ibreak_flat
+              (IText false tnil (Some dollar)
+                (oemit (imk start cursor_start (Math DisplayMath (tval src)))
+                  (flush_text_to_at start (tval txt) o)))
+        | Some p =>
+            IDollarMath true false
+              (tpush src (if Ascii.eqb p nl_char then one dollar ++ nl else nl))
+              txt (Some nl_char) (ibreak_at attrs_enabled sh) o
+        end
+      else if match last with Some p => negb (is_ws_nl p)
+              | None => false end
+           then let start := spot_before cursor_start
+                       (one dollar ++ tval src ++ one dollar) in
+                ibreak_flat
+                  (IText false tnil (Some dollar)
+                    (oemit (imk start cursor_start (Math InlineMath (tval src)))
+                      (flush_text_to_at start (tval txt) o)))
+           else ibreak_at attrs_enabled sh
   | IAttr p src txt prev sh o =>
       iattr_feed nl_char p src txt prev
         (ibreak_at false sh) o
@@ -2328,6 +2472,7 @@ Definition iclosed_at (st : iscan) : bool :=
      `IClosed` cannot appear, since `iresolve` has just turned it into
      text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
+  | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _
   | INote _ _ _ _ _ | IReference _ _ _ _ _
@@ -2341,7 +2486,14 @@ Definition iclosed_at (st : iscan) : bool :=
   end.
 
 Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
-  iclosed_at (iresolve st).
+  match st with
+  | IDollar two _ prev _ =>
+      if (two && dollar_math_enabled &&
+          negb (match prev with Some p => Ascii.eqb p dollar
+                | None => false end))%bool
+      then false else iclosed_at (iresolve st)
+  | _ => iclosed_at (iresolve st)
+  end.
 
 (* `iresolve` is the end-of-line disposition.  When a byte is known to
    follow, only `IDelim` answers differently, and only about opening:
@@ -2376,6 +2528,11 @@ Definition iscan_settled `{PosPolicy} `{InlineCursor}
    exclude the first. *)
 Definition is_compound (st : iscan) : bool :=
   match st with
+  | IDollar two _ prev _ =>
+      (two && dollar_math_enabled &&
+       negb (match prev with Some p => Ascii.eqb p dollar
+             | None => false end))%bool
+  | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
   | ISymbol _ _ _ _ => true
   | _ => false
@@ -2423,6 +2580,10 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
   | IOpen n vk o => IOpen n vk o
   | IVerb n run v vk o => IVerb n run (tval v) vk o
   | IDollar two t prev o => IDollar two (tval t) prev o
+  | IDollarMath two escaped src t last sh o =>
+      IDollarMath two escaped (tval src) (tval t) last (map_text sh) o
+  | IDollarMathClose two src t last sh o =>
+      IDollarMathClose two (tval src) (tval t) last (map_text sh) o
   | IPeriod two t prev o => IPeriod two (tval t) prev o
   | IDash n t prev o => IDash n (tval t) prev o
   | IBang t prev o => IBang (tval t) prev o
@@ -2448,6 +2609,10 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
   | IOpen n vk o => IOpen n vk o
   | IVerb n run v vk o => IVerb n run (tof v) vk o
   | IDollar two t prev o => IDollar two (tof t) prev o
+  | IDollarMath two escaped src t last sh o =>
+      IDollarMath two escaped (tof src) (tof t) last (lift sh) o
+  | IDollarMathClose two src t last sh o =>
+      IDollarMathClose two (tof src) (tof t) last (lift sh) o
   | IPeriod two t prev o => IPeriod two (tof t) prev o
   | IDash n t prev o => IDash n (tof t) prev o
   | IBang t prev o => IBang (tof t) prev o
@@ -2469,12 +2634,21 @@ End Read.
 Lemma ibreak_flat_state :
   forall `{PosPolicy} `{InlineCursor} st,
     is_compound st = false -> ibreak st = ibreak_flat (iresolve st).
-Proof. intros P C st H. destruct st; try reflexivity; discriminate H. Qed.
+Proof.
+  intros P C st H. destruct st; try reflexivity; try discriminate H.
+  cbn [is_compound ibreak ibreak_at] in H |- *.
+  destruct (two && dollar_math_enabled &&
+    negb (match prev with Some p => Ascii.eqb p dollar
+          | None => false end))%bool; [discriminate H|reflexivity].
+Qed.
 
 Lemma ibreak_at_flat_state :
   forall `{PosPolicy} `{InlineCursor} attrs_enabled st,
     is_compound st = false -> ibreak_at attrs_enabled st = ibreak st.
-Proof. intros P C attrs_enabled st H. destruct st; try reflexivity; discriminate H. Qed.
+Proof.
+  intros P C attrs_enabled st H. destruct st; try reflexivity;
+    try discriminate H.
+Qed.
 
 Lemma ifinish_ostate_flat_state :
   forall `{PosPolicy} `{InlineCursor} st,
@@ -2492,13 +2666,25 @@ Lemma ibreak_closed :
 Proof.
   intros P C st H.
   assert (Hd : is_compound st = false)
-    by (destruct st; try reflexivity; cbn in H; discriminate H).
+    by (destruct st; try reflexivity;
+        try (cbn in H; discriminate H);
+        cbn [is_compound iscan_closed] in H |- *;
+        destruct (two && dollar_math_enabled &&
+          negb (match prev with Some p => Ascii.eqb p dollar
+                | None => false end))%bool;
+        [discriminate H|reflexivity]).
+  assert (Hclosed : iclosed_at (iresolve st) = true).
+  { destruct st; cbn [iscan_closed] in H; try exact H.
+    destruct (two && dollar_math_enabled &&
+      negb (match prev with Some p => Ascii.eqb p dollar
+            | None => false end))%bool; [discriminate H|exact H]. }
+  clear H. rename Hclosed into H.
   rewrite (ibreak_flat_state st Hd).
   unfold ifinish_items. rewrite oitems_of_spec.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
   cbn [tval tnonempty tpush tof tnil] in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|? ? ? ? ? ? ?|? ? ? ? ? ?|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob];
     try discriminate.
   - destruct o as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].

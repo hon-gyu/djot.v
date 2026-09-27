@@ -405,6 +405,11 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
       (0 < run -> byte_at W (sleft 1 cur) = Some tick)
   | IDollar _ txt _ o =>
       held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some dollar
+  | IDollarMath _ _ _ txt _ sh o =>
+      held W o (nonempty_str txt) cur /\ st_inv W cur sh
+  | IDollarMathClose _ _ txt _ sh o =>
+      held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some dollar /\
+      st_inv W cur sh
   | IPeriod _ txt _ o =>
       held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some period
   | IDash n txt _ o =>
@@ -1759,11 +1764,17 @@ Proof.
   - apply Ascii.eqb_eq in E.
     destruct two; cbn [st_inv]; (split; [eapply held_step; [exact Ho|exact nx_lt]|]);
       rewrite Hback, <- E; exact (byte_at_sfx _ _ _ _ Hcur).
-  - destruct (is_tick c && math_enabled)%bool.
+  - assert (Hl : forall t, st_inv W next (ilead c t (Some dollar) o))
+      by (intros t; apply ilead_held; [exact Ht|unfold prev_ok; rewrite Hb; reflexivity]).
+    destruct (is_tick c && math_enabled)%bool.
     + cbn [st_inv]. split; [|lia]. destruct Ho as (h & Hlt & Hh).
       eapply held_intro; [eapply spot_lt_trans; [exact Hlt|exact nx_lt]|].
       tred. apply flush_text_to_at_ok, Hh.
-    + apply ilead_held; [exact Ht|unfold prev_ok; rewrite Hb; reflexivity].
+    + destruct (is_tick c && dollar_math_enabled && negb two)%bool.
+      { cbn [st_inv]. split; [|lia]. eapply held_intro; [exact nx_lt|].
+        tred. apply flush_text_to_at_ok, oinv_any, Ht. }
+      destruct (dollar_math_enabled && _ && _)%bool; [|apply Hl].
+      cbn [st_inv]. split; [eapply held_step; [exact Ho|exact nx_lt]|apply Hl].
 Qed.
 
 Lemma iperiod_ok : forall two txt prev o,
@@ -2066,16 +2077,78 @@ Proof.
       intros _. unfold is_tick in Et. apply Ascii.eqb_eq in Et. rewrite <- Et. exact (byte_back _ _ _ _ Hcur).
     + destruct (Nat.eqb run n) eqn:Er.
       * apply Nat.eqb_eq in Er.
-        destruct (Ascii.eqb c lbrace && vkind_verb vk)%bool eqn:Eb.
-        -- apply andb_true_iff in Eb as [Eb _]. apply Ascii.eqb_eq in Eb.
-           cbn [st_inv]. tred. split.
-           ++ rewrite <- Eb. exact (ends_here _ _ _ _ Hcur).
-           ++ cbn [String.length]. rewrite nx_back. exact Ho.
-        -- apply ilead_held.
-           ++ apply oemit_ok; [apply dn_vnode|exact (held_oinv _ _ _ _ Ho)].
-           ++ unfold prev_ok. rewrite (Hr ltac:(lia)). reflexivity.
+        assert (Hraw : Ascii.eqb c lbrace = true ->
+                       st_inv W next (IRaw EmptyString (trim_verb txt) o)).
+        { intros Eb. apply Ascii.eqb_eq in Eb.
+          cbn [st_inv]. tred. split.
+          - rewrite <- Eb. exact (ends_here _ _ _ _ Hcur).
+          - cbn [String.length]. rewrite nx_back. exact Ho. }
+        assert (Hlead : forall x, dkind x = None -> children x = [] ->
+                  st_inv W next (ilead c EmptyString (Some tick)
+                    (oemit (imk (text_start o) cur x) o))).
+        { intros x Hk Hc. apply ilead_held.
+          - apply oemit_ok; [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
+            exact (held_oinv _ _ _ _ Ho).
+          - unfold prev_ok. rewrite (Hr ltac:(lia)). reflexivity. }
+        (* math closed by the `$` just read: text follows it *)
+        assert (Hmath : forall start x o',
+                  oinv W o' true cur -> dkind x = None -> children x = [] ->
+                  Ascii.eqb c dollar = true ->
+                  st_inv W next (IText false EmptyString (Some dollar)
+                    (oemit (imk start next x) o'))).
+        { intros start x o' Ho' Hk Hc Ed. apply Ascii.eqb_eq in Ed.
+          cbn [st_inv orb nonempty_str].
+          split; [|split; [rewrite <- Ed; exact nx_prev|discriminate]].
+          apply oinv_any, oemit_ok; [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
+          eapply oinv_strict; [exact nx_lt|exact Ho']. }
+        rewrite Hs, Hn.
+        destruct vk as [|[]|prefix]; cbn [vkind_verb vnode tval tnil];
+          rewrite ?andb_true_r, ?andb_false_r.
+        all: try (destruct (Ascii.eqb c lbrace) eqn:Eb;
+                  [apply Hraw; reflexivity|apply Hlead; reflexivity]).
+        all: try (apply Hlead; reflexivity).
+        -- destruct (Ascii.eqb c dollar && _)%bool eqn:Ed.
+           ++ apply andb_true_iff in Ed as [Ed _].
+              apply Hmath; [exact (held_oinv _ _ _ _ Ho)|reflexivity|reflexivity|exact Ed].
+           ++ apply Hlead; reflexivity.
+        -- destruct (Ascii.eqb c dollar) eqn:Ed.
+           ++ pose proof (opop_str_ok W o cur (held_oinv _ _ _ _ Ho)) as Hp.
+              destruct (opop_str o) as [pre o']. cbn [snd] in Hp.
+              apply Hmath; [|reflexivity|reflexivity|reflexivity].
+              apply flush_text_to_at_touched, Hp.
+           ++ destruct (Ascii.eqb c lbrace) eqn:Eb;
+                [apply Hraw; reflexivity|apply Hlead; reflexivity].
       * cbn [st_inv]. split; [eapply held_step; [exact Ho|exact nx_lt]|split; [exact Hn1|lia]].
   - (* IDollar *) destruct H as (Ho & Hb). cbn [istep_at]. apply idollar_ok; assumption.
+  - (* IDollarMath *) destruct H as (Ho & Hsh). cbn [istep_at].
+    pose proof (IHst allow Hsh) as Hsh'.
+    pose proof (held_step W o _ (nonempty_str txt) cur next Ho nx_lt) as Ho'.
+    destruct escaped; [cbn [st_inv]; split; assumption|].
+    destruct (Ascii.eqb c dollar) eqn:Ed; cbn [st_inv]; [|split; assumption].
+    apply Ascii.eqb_eq in Ed. split; [exact Ho'|split; [|exact Hsh']].
+    rewrite nx_back, <- Ed. exact (byte_at_sfx _ _ _ _ Hcur).
+  - (* IDollarMathClose *) destruct H as (Ho & Hb & Hsh). cbn [istep_at].
+    pose proof (IHst allow Hsh) as Hsh'.
+    pose proof (held_step W o _ (nonempty_str txt) cur next Ho nx_lt) as Ho'.
+    assert (Hd : Ascii.eqb c dollar = true -> byte_at W (sleft 1 next) = Some dollar).
+    { intros Ed. apply Ascii.eqb_eq in Ed. rewrite nx_back, <- Ed.
+      exact (byte_at_sfx _ _ _ _ Hcur). }
+    (* the candidate closes: the math node, then the byte read as usual *)
+    assert (Hclose : forall start x, dkind x = None -> children x = [] ->
+              st_inv W next (ilead c EmptyString (Some dollar)
+                (oemit (imk start cursor_start x) (flush_text_to_at start txt o)))).
+    { intros start x Hk Hc. apply ilead_held; [|unfold prev_ok; rewrite Hb; reflexivity].
+      apply oemit_ok; [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
+      apply flush_text_to_at_touched, (held_oinv _ _ _ _ Ho). }
+    destruct two.
+    + destruct last as [p|].
+      * destruct (Ascii.eqb p nl_char);
+          (destruct (Ascii.eqb c dollar) eqn:Ed; cbn [st_inv];
+           [split; [exact Ho'|split; [apply Hd; first [exact Ed|reflexivity]|exact Hsh']]|split; assumption]).
+      * destruct (Ascii.eqb c dollar) eqn:Ed.
+        -- cbn [st_inv]. split; [exact Ho'|split; [apply Hd; first [exact Ed|reflexivity]|exact Hsh']].
+        -- apply Hclose; reflexivity.
+    + destruct (_ && _)%bool; [apply Hclose; reflexivity|exact Hsh'].
   - (* IPeriod *) destruct H as (Ho & Hb). cbn [istep_at]. apply iperiod_ok; assumption.
   - (* IDash *) destruct H as (He & Hn1 & Ho). cbn [istep_at]. apply idash_ok; assumption.
   - (* IBang *) destruct H as (Ho & Hb). cbn [istep_at]. apply ibang_ok; assumption.
@@ -2175,6 +2248,7 @@ Definition settled (st : iscan) : Prop :=
   match st with
   | IBrace _ _ _ | IDollar _ _ _ _ | IPeriod _ _ _ _ | IDash _ _ _ _
   | IBang _ _ _ | IDelim _ _ _ _ _ _ | IClosed _ _
+  | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _ => False
   | _ => True
   end.
@@ -2275,6 +2349,31 @@ Proof.
   induction st; intros allow H; cbn [ibreak_at];
     try (apply ibreak_flat_ok;
          [apply iresolve_settled; reflexivity|apply (iresolve_ok W CU cur); assumption]).
+  - (* IDollar *)
+    destruct (two && dollar_math_enabled && _)%bool eqn:Ec.
+    + destruct H as (Ho & Hb). cbn [st_inv].
+      split; [eapply held_step; [exact Ho|exact Hlt]|].
+      apply ibreak_flat_ok; [exact I|]. cbn [st_inv orb].
+      split; [apply oinv_any, (held_oinv _ _ _ _ Ho)|].
+      split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate].
+    + apply ibreak_flat_ok;
+        [apply iresolve_settled; exact Ec|apply (iresolve_ok W CU cur); assumption].
+  - (* IDollarMath *) destruct H as (Ho & Hsh). cbn [st_inv].
+    split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
+  - (* IDollarMathClose *) destruct H as (Ho & Hb & Hsh).
+    (* the candidate closes at the line's end *)
+    assert (Hclose : forall start x, dkind x = None -> children x = [] ->
+              st_inv W next (ibreak_flat (IText false EmptyString (Some dollar)
+                (oemit (imk start cursor_start x) (flush_text_to_at start txt o))))).
+    { intros start x Hk Hc. apply ibreak_flat_ok; [exact I|]. cbn [st_inv orb nonempty_str].
+      split; [|split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate]].
+      apply oinv_any, oemit_ok; [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
+      apply flush_text_to_at_touched, (held_oinv _ _ _ _ Ho). }
+    destruct two.
+    + destruct last as [p|]; [|apply Hclose; reflexivity].
+      cbn [st_inv]. split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
+    + destruct (match last with Some p => _ | None => false end);
+        [apply Hclose; reflexivity|apply IHst, Hsh].
   - (* IAttr *) destruct H as (Ho & Hd & Hsh).
     eapply iattr_feed_ok; [apply spot_lt_le, Hlt|discriminate|exact Ho|exact Hd|].
     apply IHst, Hsh.
@@ -2349,6 +2448,19 @@ Proof.
   intros W CU cur st Hs. induction st; intros H; cbn [ifinish_ostate];
     try (eapply finish_flat_ok;
          [apply iresolve_settled; reflexivity|apply (iresolve_ok W CU cur); assumption]).
+  - (* IDollar *)
+    eapply finish_flat_ok; [exact I|apply (iresolve_ok W CU cur); assumption].
+  - (* IDollarMath *) destruct H as (_ & Hsh). apply IHst, Hsh.
+  - (* IDollarMathClose *) destruct H as (Ho & _ & Hsh).
+    assert (Hclose : forall start x, dkind x = None -> children x = [] ->
+              held_any W (oemit (imk start cursor_start x) (flush_text_to_at start txt o))).
+    { intros start x Hk Hc. eapply held_any_of, oemit_ok;
+        [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
+      apply flush_text_to_at_touched, (held_far _ _ _ _ Ho). }
+    destruct two.
+    + destruct last; [apply IHst, Hsh|apply Hclose; reflexivity].
+    + destruct (match last with Some p => _ | None => false end);
+        [apply Hclose; reflexivity|apply IHst, Hsh].
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
