@@ -13,6 +13,9 @@ let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
 let html = Djot.Html.of_doc doc
 ```
 
+The package is not on opam (yet).  The repository's `ocaml` branch holds this
+directory at its root.
+
 The API follows [cmarkit](https://erratique.ch/software/cmarkit)'s shape
 (`Doc`, `Block`, `Inline`, `Textloc`, `Mapper`, `Folder`, `Html`).  cmarkit
 is under the ISC license; its notice is in `LICENSE-cmarkit.md`.  The
