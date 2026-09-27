@@ -161,6 +161,10 @@ type task_status =
 | Complete
 | Incomplete
 
+type callout_fold =
+| FoldExpanded
+| FoldCollapsed
+
 type align =
 | AlignLeft
 | AlignRight
@@ -193,6 +197,7 @@ type block =
 | FootnoteDef of string * block node list
 | RefDef of string * string
 | Ext_keyed of inlines * block node
+| Ext_callout of string * callout_fold option * inlines * block node list
 
 type blocks = block node list
 

@@ -21,7 +21,8 @@ differences:
 - The tree types are the extracted ones, re-exported with their
   constructors.  Every element is a `'a node = Node of pos * attrs * 'a`.
 - The types are closed.  Syntax extensions are constructors defined in
-  Rocq and named `Ext_*` (`Inline.Ext_wikilink`, `Block.Ext_keyed`); there are no extension
+  Rocq and named `Ext_*` (`Inline.Ext_wikilink`, `Block.Ext_keyed`,
+  `Block.Ext_callout`); there are no extension
   hooks.
 - There is no layout information.  The locations of fences, attribute
   specs, list items and table cells are available instead, through
@@ -38,7 +39,8 @@ differences:
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
 `Profile.with_footnotes` and so on.  The extensions are off in both and
-switch on with `Profile.with_ext_wikilinks` and `Profile.with_ext_keyed`.
+switch on with `Profile.with_ext_wikilinks`, `Profile.with_ext_keyed`, and
+`Profile.with_ext_callouts`.
 
 The extracted modules are the `djot.kernel` library (`Djot.Kernel`).
 They mirror the Rocq ones and speak the extracted representation, with

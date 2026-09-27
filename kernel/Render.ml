@@ -118,6 +118,7 @@ type cblock =
 | CRaw of string * string list
 | CHeading of int * cinline list list
 | CQuote of cblock list
+| CCallout of string * callout_fold option * cinline list * cblock list
 | CDiv of cblock list
 | CList of list_kind * list_spacing * cblock list list
 | CRef of string * string
@@ -147,6 +148,26 @@ let rec cb_lines t cb =
        ('=', format))) :: (app content (code_close :: []))
    | CHeading (lvl, lss) -> map (heading_line lvl) (map (ci_line t) lss)
    | CQuote inner -> map quote_line (sep_lines (map (cb_lines t) inner))
+   | CCallout (kind, fold, title, inner) ->
+     (quote_line
+       ((^) "[!"
+         ((^) kind
+           ((^) "]"
+             ((^)
+               (match fold with
+                | Some c ->
+                  (match c with
+                   | FoldExpanded -> "+"
+                   | FoldCollapsed -> "-")
+                | None -> "")
+               (match title with
+                | [] -> ""
+                | _ :: _ -> (^) " " (ci_line t title))))))) :: (map
+                                                                 quote_line
+                                                                 (sep_lines
+                                                                   (map
+                                                                    (cb_lines
+                                                                    t) inner)))
    | CDiv inner ->
      div_fence :: (app (sep_lines (map (cb_lines t) inner)) (div_fence :: []))
    | CList (k, sp, items) ->
@@ -173,6 +194,8 @@ let rec cb_ast cb =
    | CRaw (format, content) -> mk (RawBlock (format, (join_nl content)))
    | CHeading (lvl, lss) -> mk (Heading (lvl, (ci_para lss)))
    | CQuote inner -> mk (BlockQuote (map cb_ast inner))
+   | CCallout (kind, fold, title, inner) ->
+     mk (Ext_callout (kind, fold, (ci_inlines title), (map cb_ast inner)))
    | CDiv inner -> mk (Div (map cb_ast inner))
    | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
    | CRef (label, dest) -> mk (RefDef (label, dest))
@@ -245,6 +268,71 @@ let heading_ok k lvl ls =
         (forallb line_ok ls))
       ((||) k.bheading_continues (( = ) (length ls) (Stdlib.succ 0))))
     ((=) (strip_trailing_ws (last ls "")) (last ls ""))
+
+(** val quote_header_safe : dtable -> bconfig -> cblock list -> bool **)
+
+let quote_header_safe t k inner =
+  match sep_lines (map (cb_lines t) inner) with
+  | [] -> true
+  | l :: _ ->
+    (match if k.bcallouts then callout_header l else None with
+     | Some _ -> false
+     | None -> true)
+
+(** val callout_fold_eqb :
+    callout_fold option -> callout_fold option -> bool **)
+
+let callout_fold_eqb a b =
+  match a with
+  | Some c ->
+    (match c with
+     | FoldExpanded ->
+       (match b with
+        | Some c0 ->
+          (match c0 with
+           | FoldExpanded -> true
+           | FoldCollapsed -> false)
+        | None -> false)
+     | FoldCollapsed ->
+       (match b with
+        | Some c0 ->
+          (match c0 with
+           | FoldExpanded -> false
+           | FoldCollapsed -> true)
+        | None -> false))
+  | None -> (match b with
+             | Some _ -> false
+             | None -> true)
+
+(** val callout_header_source :
+    dtable -> string -> callout_fold option -> cinline list -> string **)
+
+let callout_header_source t kind fold title =
+  (^) "[!"
+    ((^) kind
+      ((^) "]"
+        ((^)
+          (match fold with
+           | Some c ->
+             (match c with
+              | FoldExpanded -> "+"
+              | FoldCollapsed -> "-")
+           | None -> "")
+          (match title with
+           | [] -> ""
+           | _ :: _ -> (^) " " (ci_line t title)))))
+
+(** val callout_header_ok :
+    dtable -> string -> callout_fold option -> cinline list -> bool **)
+
+let callout_header_ok t kind fold title =
+  match callout_header (callout_header_source t kind fold title) with
+  | Some p ->
+    let (p0, source) = p in
+    let (kind', fold') = p0 in
+    (&&) ((&&) ((=) kind kind') (callout_fold_eqb fold fold'))
+      ((=) source (ci_line t title))
+  | None -> false
 
 (** val item_forces_loose : dtable -> bconfig -> cblock list -> bool **)
 
@@ -444,7 +532,23 @@ let rec cb_ok t k cb =
    | CRaw (format, content) -> (&&) k.braw_blocks (raw_ok format content)
    | CHeading (lvl, lss) ->
      (&&) (heading_ok k lvl (map (ci_line t) lss)) (forallb (cis_ok t) lss)
-   | CQuote inner -> (&&) (inner_ok inner) (cb_pairs_ok t inner)
+   | CQuote inner ->
+     (&&) ((&&) (inner_ok inner) (cb_pairs_ok t inner))
+       (quote_header_safe t k inner)
+   | CCallout (kind, fold, title, inner) ->
+     (&&)
+       ((&&)
+         ((&&)
+           ((&&)
+             ((&&) ((&&) k.bcallouts (callout_header_ok t kind fold title))
+               (no_nl (callout_header_source t kind fold title)))
+             (match title with
+              | [] -> true
+              | _ :: _ ->
+                heading_ok k (Stdlib.succ 0) ((ci_line t title) :: [])))
+           (cis_ok t title))
+         (divs_ok inner))
+       (cb_pairs_ok t inner)
    | CDiv inner ->
      (&&) ((&&) ((&&) k.bdivs (divs_ok inner)) (cb_pairs_ok t inner))
        (div_content_ok t k (sep_lines (map (cb_lines t) inner)))
@@ -710,7 +814,26 @@ let rec render_lines t k a b =
        ((^)
          (String.concat ""
            (map (fun n -> inline_text t (node_contents n)) label))
-         ":") :: (render_lines t k (node_attrs inner) (node_contents inner)))
+         ":") :: (render_lines t k (node_attrs inner) (node_contents inner))
+     | Ext_callout (kind, fold, title, bs) ->
+       let title_text = String.concat "" (text_lines t title) in
+       let marker =
+         match fold with
+         | Some c -> (match c with
+                      | FoldExpanded -> "+"
+                      | FoldCollapsed -> "-")
+         | None -> ""
+       in
+       (quote_line
+         ((^) "[!"
+           ((^) kind
+             ((^) "]"
+               ((^) marker
+                 (if (=) title_text "" then "" else (^) " " title_text)))))) ::
+       (map quote_line
+         (sep_lines
+           (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
+             bs))))
 
 (** val render_node_lines : dtable -> bconfig -> block node -> string list **)
 
@@ -793,6 +916,8 @@ let rec drop_auto_ids b p a =
    | Ext_keyed (label, b0) ->
      let Node (p', a', x) = b0 in
      Node (p, a, (Ext_keyed (label, (drop_auto_ids x p' a'))))
+   | Ext_callout (kind, fold, title, bs) ->
+     Node (p, a, (Ext_callout (kind, fold, title, (go bs))))
    | _ -> Node (p, a, b))
 
 (** val doc_source_blocks : doc -> blocks **)

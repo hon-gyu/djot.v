@@ -16,7 +16,8 @@ type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                  bunderline : (char -> int -> int option); btables :
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
-                 battrs : bool; bfootnotes : bool; bkeyed : bool }
+                 battrs : bool; bfootnotes : bool; bkeyed : bool;
+                 bcallouts : bool }
 
 type coq_LineIx = int
   (* singleton inductive, whose constructor was LineIxAt *)
@@ -67,7 +68,7 @@ let djot_bconfig =
   { bmarker_interrupts = no_interrupt; bunderline = no_underline; btables =
     true; bheading_continues = true; bdivs = true; btasks = true;
     braw_blocks = true; bdeflists = true; battrs = true; bfootnotes = true;
-    bkeyed = false }
+    bkeyed = false; bcallouts = false }
 
 (** val with_marker_interrupts :
     (lstyle list -> string -> task_marker option -> string -> bool) ->
@@ -77,7 +78,8 @@ let with_marker_interrupts f k =
   { bmarker_interrupts = f; bunderline = k.bunderline; btables = k.btables;
     bheading_continues = k.bheading_continues; bdivs = k.bdivs; btasks =
     k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists; battrs =
-    k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+    k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed; bcallouts =
+    k.bcallouts }
 
 (** val with_underline : (char -> int -> int option) -> bconfig -> bconfig **)
 
@@ -85,7 +87,8 @@ let with_underline f k =
   { bmarker_interrupts = k.bmarker_interrupts; bunderline = f; btables =
     k.btables; bheading_continues = k.bheading_continues; bdivs = k.bdivs;
     btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
-    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
+    bcallouts = k.bcallouts }
 
 (** val with_tables : bool -> bconfig -> bconfig **)
 
@@ -94,7 +97,7 @@ let with_tables enabled k =
     btables = enabled; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed }
+    k.bkeyed; bcallouts = k.bcallouts }
 
 (** val with_heading_continuation : bool -> bconfig -> bconfig **)
 
@@ -102,7 +105,8 @@ let with_heading_continuation enabled k =
   { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
     btables = k.btables; bheading_continues = enabled; bdivs = k.bdivs;
     btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
-    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
+    bcallouts = k.bcallouts }
 
 (** val with_divs : bool -> bconfig -> bconfig **)
 
@@ -111,7 +115,7 @@ let with_divs enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     enabled; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed }
+    k.bkeyed; bcallouts = k.bcallouts }
 
 (** val with_tasks : bool -> bconfig -> bconfig **)
 
@@ -120,7 +124,7 @@ let with_tasks enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = enabled; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed }
+    k.bkeyed; bcallouts = k.bcallouts }
 
 (** val with_raw_blocks : bool -> bconfig -> bconfig **)
 
@@ -129,7 +133,7 @@ let with_raw_blocks enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = enabled; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed }
+    k.bkeyed; bcallouts = k.bcallouts }
 
 (** val with_deflists : bool -> bconfig -> bconfig **)
 
@@ -137,7 +141,8 @@ let with_deflists enabled k =
   { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
-    enabled; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed }
+    enabled; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
+    bcallouts = k.bcallouts }
 
 (** val with_block_attrs : bool -> bconfig -> bconfig **)
 
@@ -146,7 +151,7 @@ let with_block_attrs enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = enabled; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed }
+    k.bkeyed; bcallouts = k.bcallouts }
 
 (** val with_block_footnotes : bool -> bconfig -> bconfig **)
 
@@ -154,7 +159,8 @@ let with_block_footnotes enabled k =
   { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
-    k.bdeflists; battrs = k.battrs; bfootnotes = enabled; bkeyed = k.bkeyed }
+    k.bdeflists; battrs = k.battrs; bfootnotes = enabled; bkeyed = k.bkeyed;
+    bcallouts = k.bcallouts }
 
 (** val with_keyed : bool -> bconfig -> bconfig **)
 
@@ -163,7 +169,16 @@ let with_keyed enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    enabled }
+    enabled; bcallouts = k.bcallouts }
+
+(** val with_callouts : bool -> bconfig -> bconfig **)
+
+let with_callouts enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed; bcallouts = enabled }
 
 (** val keyed_bconfig : bconfig **)
 
@@ -602,7 +617,8 @@ type pstate =
 | PPara of stored_line list
 | PHeading of int * extent * stored_line list
 | PFence of fence * int * extent * span * stored_line list
-| PQuote of extent * blocks * pstate
+| PQuote of extent * ((string * callout_fold option) * stored_line) option
+   * blocks * pstate
 | PDiv of int * string * extent * span * blocks * pstate
 | PList of list_state * blocks * pstate
 | PAttr of attr * span list * extent * int * aparser * stored_line list
@@ -616,7 +632,7 @@ type pstate =
 (** val pstate_depth : pstate -> int **)
 
 let rec pstate_depth = function
-| PQuote (_, _, inner) -> Stdlib.succ (pstate_depth inner)
+| PQuote (_, _, _, inner) -> Stdlib.succ (pstate_depth inner)
 | PDiv (_, _, _, _, _, inner) -> Stdlib.succ (pstate_depth inner)
 | PList (_, _, inner) -> Stdlib.succ (pstate_depth inner)
 | PAttr (_, _, _, _, _, _) -> Stdlib.succ (Stdlib.succ 0)
@@ -646,6 +662,27 @@ let heading_block t p lvl cur =
 
 let heading_block_off t p k lvl cur =
   mk (Heading (lvl, (para_inlines_at t p k (rev cur))))
+
+(** val callout_title : dtable -> coq_PosPolicy -> stored_line -> inlines **)
+
+let callout_title t h = function
+| (line, source) ->
+  let title = strip_trailing_ws source in
+  if h.pos_records
+  then parse_inline_line_located t h line (String.length source) title
+  else parse_inline_line t title
+
+(** val quote_block :
+    dtable -> coq_PosPolicy -> ((string * callout_fold option) * stored_line)
+    option -> blocks -> block **)
+
+let quote_block t h header bs =
+  match header with
+  | Some p ->
+    let (p0, source) = p in
+    let (kind, fold) = p0 in
+    Ext_callout (kind, fold, (callout_title t h source), bs)
+  | None -> BlockQuote bs
 
 (** val para_recover : int -> stored_line list -> pstate **)
 
@@ -801,9 +838,9 @@ let rec finish t k p = function
 | PFence (f, _, range, opener, acc) ->
   (set_pos p (prov_with (extent_span range) ((ROpenFence, opener) :: []))
     (fence_block k f (line_texts (rev acc)))) :: []
-| PQuote (range, done0, inner) ->
-  (set_pos p (prov_at (extent_span range))
-    (mk (BlockQuote (app (rev done0) (finish t k p inner))))) :: []
+| PQuote (range, header, done0, inner) ->
+  let bs = app (rev done0) (finish t k p inner) in
+  (set_pos p (prov_at (extent_span range)) (mk (quote_block t p header bs))) :: []
 | PDiv (_, cls, range, opener, done0, inner) ->
   (set_pos p (prov_with (extent_span range) ((ROpenFence, opener) :: []))
     (div_block cls (app (rev done0) (finish t k p inner)))) :: []
@@ -841,7 +878,7 @@ let rec lazy_ok = function
                 | [] -> false
                 | _ :: _ -> true)
 | PHeading (_, _, _) -> true
-| PQuote (_, _, inner) -> lazy_ok inner
+| PQuote (_, _, _, inner) -> lazy_ok inner
 | PDiv (_, _, _, _, _, inner) -> lazy_ok inner
 | PList (_, _, inner) -> lazy_ok inner
 | PParaOff (_, _) -> true
@@ -854,7 +891,7 @@ let rec lazy_ok = function
 
 let rec in_fence = function
 | PFence (_, _, _, _, _) -> true
-| PQuote (_, _, inner) -> in_fence inner
+| PQuote (_, _, _, inner) -> in_fence inner
 | PDiv (_, _, _, _, _, inner) -> in_fence inner
 | PList (_, _, inner) -> in_fence inner
 | PFoot (_, _, _, _, inner) -> in_fence inner
@@ -877,8 +914,8 @@ let rec feed_lazy lI l st = match st with
   PHeading (lvl, (touch_extent lI range),
     ((remember_line lI (drop_leading_ws l)) :: cur))
 | PFence (f, ind, range, opener, acc) -> PFence (f, ind, range, opener, acc)
-| PQuote (range, done0, inner) ->
-  PQuote ((touch_extent lI range), done0, (feed_lazy lI l inner))
+| PQuote (range, header, done0, inner) ->
+  PQuote ((touch_extent lI range), header, done0, (feed_lazy lI l inner))
 | PDiv (len, cls, range, opener, done0, inner) ->
   PDiv (len, cls, (touch_extent lI range), opener, done0,
     (feed_lazy lI l inner))
@@ -980,7 +1017,15 @@ let key_result t p range lbl src = function
 
 let open_quote lI l = function
 | (bs, inner) ->
-  ([], (PQuote ((open_extent lI l (indent_of l)), (rev bs), inner)))
+  ([], (PQuote ((open_extent lI l (indent_of l)), None, (rev bs), inner)))
+
+(** val open_callout :
+    coq_LineIx -> string -> string -> callout_fold option -> string ->
+    blocks * pstate **)
+
+let open_callout lI l kind fold title =
+  ([], (PQuote ((open_extent lI l (indent_of l)), (Some ((kind, fold),
+    (remember_line lI title))), [], (PPara []))))
 
 (** val open_attr :
     bconfig -> coq_LineIx -> attr -> span list -> int -> aparser -> string ->
@@ -1154,7 +1199,12 @@ let consumed l rest =
 
 let open_line t k lI p descend ind l k0 = match k0 with
 | KFence f -> open_fence lI l ind f
-| KQuote rest -> open_quote lI l (descend rest)
+| KQuote rest ->
+  (match if k.bcallouts then callout_header rest else None with
+   | Some p0 ->
+     let (p1, title) = p0 in
+     let (kind, fold) = p1 in open_callout lI l kind fold title
+   | None -> open_quote lI l (descend rest))
 | KList (sty, core, chk, rest) ->
   open_list lI l ind (with_starts (configured_list_styles k sty chk) core)
     (configured_list_check k chk) (descend (configured_list_rest k chk rest))
@@ -1228,19 +1278,19 @@ let rec step_fuel t k lI p n off l st =
               (PPara []))
        else ([], (PFence (f, ind, (touch_extent lI range), opener,
               ((remember_line lI (drop_ws_upto (sub ind off) l)) :: acc))))
-     | PQuote (range, done0, inner) ->
+     | PQuote (range, header, done0, inner) ->
        (match classify l with
         | KQuote rest ->
           let (bs, inner') =
             step_fuel t k lI p n' (( + ) off (consumed l rest)) rest inner
           in
-          ([], (PQuote ((touch_extent lI range), (app (rev bs) done0),
-          inner')))
+          ([], (PQuote ((touch_extent lI range), header,
+          (app (rev bs) done0), inner')))
         | x ->
           if is_lazy x inner
-          then ([], (PQuote ((touch_extent lI range), done0,
+          then ([], (PQuote ((touch_extent lI range), header, done0,
                  (feed_lazy lI l inner))))
-          else close_reopen t k p (PQuote (range, done0, inner))
+          else close_reopen t k p (PQuote (range, header, done0, inner))
                  (open_line t k lI p descend (( + ) off (indent_of l)) l x))
      | PDiv (len, cls, range, opener, done0, inner) ->
        if (&&) (negb (in_fence inner)) (div_close len l)

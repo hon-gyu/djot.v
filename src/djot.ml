@@ -101,6 +101,8 @@ module Block = struct
 
   type cell = K.Ast.cell = Cell of cell_type * align * Inline.t node list
 
+  type callout_fold = K.Ast.callout_fold = FoldExpanded | FoldCollapsed
+
   type t = K.Ast.block =
     | Para of Inline.t node list
     | Section of t node list
@@ -118,6 +120,7 @@ module Block = struct
     | FootnoteDef of string * t node list
     | RefDef of string * string
     | Ext_keyed of Inline.t node list * t node
+    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
 end
 
 module Textloc = struct
@@ -206,6 +209,7 @@ module Profile = struct
   let with_block_attrs = block K.Step.with_block_attrs
   let with_heading_continuation = block K.Step.with_heading_continuation
   let with_ext_keyed = block K.Step.with_keyed
+  let with_ext_callouts = block K.Step.with_callouts
 end
 
 module Doc = struct
@@ -351,6 +355,8 @@ module Mapper = struct
           Some (Table (Option.map il cap, List.map (List.map cell) rows))
       | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
       | Ext_keyed (l, b) -> Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
+      | Ext_callout (kind, fold, title, body) ->
+          Some (Ext_callout (kind, fold, il title, bl body))
       | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _) as x -> Some x
     in
     Option.map (fun x -> Node (p, a, x)) x
@@ -416,6 +422,7 @@ module Folder = struct
             let acc = List.fold_left (List.fold_left cell) acc rows in
             Option.fold ~none:acc ~some:(il acc) cap
         | Ext_keyed (l, b) -> fold_block f (il acc l) b
+        | Ext_callout (_, _, title, body) -> bl (il acc title) body
         | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
 
   let fold_doc f acc d =

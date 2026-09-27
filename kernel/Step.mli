@@ -16,7 +16,8 @@ type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                  bunderline : (char -> int -> int option); btables :
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
-                 battrs : bool; bfootnotes : bool; bkeyed : bool }
+                 battrs : bool; bfootnotes : bool; bkeyed : bool;
+                 bcallouts : bool }
 
 type coq_LineIx = int
   (* singleton inductive, whose constructor was LineIxAt *)
@@ -58,6 +59,8 @@ val with_block_attrs : bool -> bconfig -> bconfig
 val with_block_footnotes : bool -> bconfig -> bconfig
 
 val with_keyed : bool -> bconfig -> bconfig
+
+val with_callouts : bool -> bconfig -> bconfig
 
 val keyed_bconfig : bconfig
 
@@ -152,7 +155,8 @@ type pstate =
 | PPara of stored_line list
 | PHeading of int * extent * stored_line list
 | PFence of fence * int * extent * span * stored_line list
-| PQuote of extent * blocks * pstate
+| PQuote of extent * ((string * callout_fold option) * stored_line) option
+   * blocks * pstate
 | PDiv of int * string * extent * span * blocks * pstate
 | PList of list_state * blocks * pstate
 | PAttr of attr * span list * extent * int * aparser * stored_line list
@@ -172,6 +176,12 @@ val heading_block :
 
 val heading_block_off :
   dtable -> coq_PosPolicy -> int -> int -> stored_line list -> block node
+
+val callout_title : dtable -> coq_PosPolicy -> stored_line -> inlines
+
+val quote_block :
+  dtable -> coq_PosPolicy -> ((string * callout_fold option) * stored_line)
+  option -> blocks -> block
 
 val para_recover : int -> stored_line list -> pstate
 
@@ -237,6 +247,10 @@ val key_result :
   -> blocks * pstate
 
 val open_quote : coq_LineIx -> string -> (blocks * pstate) -> blocks * pstate
+
+val open_callout :
+  coq_LineIx -> string -> string -> callout_fold option -> string ->
+  blocks * pstate
 
 val open_attr :
   bconfig -> coq_LineIx -> attr -> span list -> int -> aparser -> string ->

@@ -290,6 +290,9 @@ module Ids =
        let Node (p', a', x) = b0 in
        let (st', n') = of_block x p' a' (register_id a st) in
        (st', (Node (p, a, (Ext_keyed (label, n')))))
+     | Ext_callout (kind, fold0, title, bs) ->
+       let (st', bs') = go bs (register_id a st) in
+       (st', (Node (p, a, (Ext_callout (kind, fold0, title, bs')))))
      | _ -> ((register_id a st), (Node (p, a, b))))
 
   (** val of_node : block node -> id_state -> id_state * block node **)
@@ -453,6 +456,7 @@ module Refs =
        in god items m
      | FootnoteDef (_, bs) -> go bs m
      | Ext_keyed (_, b0) -> let Node (p', a', x) = b0 in of_block x p' a' m
+     | Ext_callout (_, _, _, bs) -> go bs m
      | _ -> add_ref p a b m)
 
   (** val of_list : blocks -> reference_map -> reference_map **)
@@ -538,6 +542,9 @@ module Notes =
        (match o with
         | Some n' -> Some (Node (p, a, (Ext_keyed (label, n'))))
         | None -> None))
+     | Ext_callout (kind, fold0, title, bs) ->
+       let (m', bs') = go bs m in
+       (m', (Some (Node (p, a, (Ext_callout (kind, fold0, title, bs'))))))
      | _ -> (m, (Some (Node (p, a, b)))))
 
   (** val of_list : blocks -> note_map -> note_map * blocks **)
