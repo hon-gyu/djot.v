@@ -19,6 +19,12 @@ val thematic_line : string
 
 val ref_line : string -> string -> string
 
+val key_line : string -> string -> string
+
+val key_inline_ok : dtable -> string -> string -> bool
+
+val key_lines : dtable -> string -> bool -> string list -> string list
+
 val code_close : string
 
 val code_open : string -> string
