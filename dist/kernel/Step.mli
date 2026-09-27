@@ -211,7 +211,10 @@ val ref_block : string -> string -> block node
 
 val foot_block : string -> blocks -> block node
 
-val key_close : dtable -> string -> string -> blocks -> blocks
+val key_label : dtable -> coq_PosPolicy -> spot -> string -> inlines
+
+val key_close :
+  dtable -> coq_PosPolicy -> spot -> string -> string -> blocks -> blocks
 
 val ref_cont : string -> string option
 

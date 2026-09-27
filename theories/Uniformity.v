@@ -1572,14 +1572,14 @@ Qed.
 
 Local Lemma parse_lines_key_carriable :
   forall ls range lbl src st, key_carriable st = true ->
-    parse_lines ls (PKey range lbl src st) = key_close lbl src (parse_lines ls st).
+    parse_lines ls (PKey range lbl src st) = key_close (extent_start range) lbl src (parse_lines ls st).
 Proof.
   induction ls as [|l rest IH]; intros range lbl src st H; [reflexivity|].
   cbn [parse_lines].
   rewrite (step_key_pass l range lbl src st (key_carriable_pass st l H)).
   destruct (step l st) as [bs st'] eqn:E. cbn [key_result].
   destruct bs as [|b bs].
-  - cbn [app]. apply IH.
+  - cbn [app]. apply (IH (touch_extent range)).
     pose proof (step_empty_key_carriable l st H) as Hc.
     rewrite E in Hc. exact (Hc eq_refl).
   - reflexivity.
@@ -1601,7 +1601,7 @@ Fixpoint key_content_ok (ls : list string) (st : pstate) : bool :=
 Lemma parse_lines_key_content :
   forall ls tail range lbl src st, key_content_ok ls st = true ->
     parse_lines (ls ++ tail) (PKey range lbl src st)
-    = key_close lbl src (parse_lines (ls ++ tail) st).
+    = key_close (extent_start range) lbl src (parse_lines (ls ++ tail) st).
 Proof.
   induction ls as [|l rest IH]; intros tail range lbl src st H.
   - apply parse_lines_key_carriable, H.
@@ -1609,7 +1609,7 @@ Proof.
     apply negb_true_iff in Hr. cbn [app parse_lines].
     rewrite (step_key_pass l range lbl src st Hr).
     destruct (step l st) as [bs st'] eqn:E. cbn [key_result] in *.
-    destruct bs as [|b bs]; [cbn [app]; apply IH, H|reflexivity].
+    destruct bs as [|b bs]; [cbn [app]; apply (IH _ (touch_extent range)), H|reflexivity].
 Qed.
 
 End WithTable.

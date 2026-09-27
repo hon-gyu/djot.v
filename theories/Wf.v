@@ -2398,12 +2398,12 @@ Proof.
 Qed.
 
 Local Lemma key_close_wf :
-  forall lbl src bs,
-    wf_blocks bs = true -> wf_blocks (key_close lbl src bs) = true.
+  forall start lbl src bs,
+    wf_blocks bs = true -> wf_blocks (key_close start lbl src bs) = true.
 Proof.
-  intros lbl src bs Hbs. destruct bs as [|b rest].
+  intros start lbl src bs Hbs. destruct bs as [|b rest].
   - exact (flush_para_wf [src] [] eq_refl).
-  - cbn [key_close]. rewrite wf_blocks_cons in Hbs |- *.
+  - cbn [key_close key_label pos_records semantic_pos]. rewrite wf_blocks_cons in Hbs |- *.
     apply andb_true_iff in Hbs as [Hb Hrest].
     cbn [node_contents mk]. rewrite wf_block_keyed, para_inlines_wf, Hrest.
     rewrite wf_blocks_cons, Hb. reflexivity.
@@ -2625,7 +2625,7 @@ Proof.
   - cbn [state_wf] in H. cbn [finish]; nopos.
     rewrite wf_blocks_decorate_head. exact (IH H).
   - cbn [state_wf] in H.
-    rewrite finish_key; nopos. exact (key_close_wf _ _ _ (IH H)).
+    rewrite finish_key; nopos. exact (key_close_wf _ _ _ _ (IH H)).
 Qed.
 
 (* A lazy line joins the innermost paragraph, which asks nothing of it. *)
@@ -3274,7 +3274,7 @@ Proof.
     cbn [fst snd] in Hb, Hs.
     destruct bs as [|b bs']; cbn [key_result fst snd state_wf].
     + split; [reflexivity | exact Hs].
-    + split; [exact (key_close_wf _ _ _ Hb) | exact Hs].
+    + split; [exact (key_close_wf _ _ _ _ Hb) | exact Hs].
 Qed.
 
 Local Lemma step_wf :

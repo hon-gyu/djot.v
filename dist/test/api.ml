@@ -233,3 +233,14 @@ let () =
   let d = Doc.of_string src in
   assert (Source.of_doc d = "- a\n-\n- b\n\nB.");
   assert (Doc.kernel (Doc.of_string (Source.of_doc d)) = Doc.kernel d)
+
+(* A key's label is located like any other inline. *)
+let () =
+  let profile = Profile.with_ext_keyed true Profile.djot in
+  let d = Doc.of_string ~profile ~locs:true "> key: value\n" in
+  match Doc.blocks d with
+  | [ Node (_, _, Block.BlockQuote
+      [ Node (_, _, Block.Ext_keyed ([ label ], value)) ]) ] ->
+      assert (bytes (Doc.textloc d label) = (2, 4));
+      assert (bytes (Doc.textloc d value) = (7, 11))
+  | _ -> failwith "unexpected key"

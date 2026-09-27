@@ -925,7 +925,7 @@ Fixpoint of_block (b : block) : block :=
       Table (option_map of_inlines caption) (map row rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node _ a x) =>
-      Ext_keyed label (Node NoPos a (of_block x))
+      Ext_keyed (of_inlines label) (Node NoPos a (of_block x))
   | Ext_callout kind fold title bs =>
       Ext_callout kind fold (of_inlines title) (go bs)
   | x => x

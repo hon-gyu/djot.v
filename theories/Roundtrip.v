@@ -1400,13 +1400,13 @@ Proof.
 Qed.
 
 Local Lemma key_close_canonical :
-  forall label b bs, ckey_label_ok label = true ->
-    key_close (ci_line [label]) (ci_line [label] ++ ":") (b :: bs)
+  forall start label b bs, ckey_label_ok label = true ->
+    key_close start (ci_line [label]) (ci_line [label] ++ ":") (b :: bs)
     = mk (Ext_keyed [ci_ast label] b) :: bs.
 Proof.
-  intros label b bs H.
+  intros start label b bs H.
   destruct (ckey_label_ok_parts label H) as (Hcis & _ & _ & Hstrip & _).
-  cbn [key_close]. rewrite para_inlines_one, Hstrip.
+  cbn [key_close key_label pos_records semantic_pos]. rewrite para_inlines_one, Hstrip.
   rewrite (parse_inline_line_ci _ Hcis). reflexivity.
 Qed.
 

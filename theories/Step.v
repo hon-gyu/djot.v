@@ -1180,11 +1180,18 @@ Definition foot_block (lbl : string) (bs : blocks) : node block :=
 
    The label's inlines are built here rather than at classification, as a
    paragraph's are built when it closes: the scan that found the split
-   kept a byte offset and nothing else. *)
-Definition key_close (lbl src : string) (bs : blocks) : blocks :=
+   kept a byte offset and nothing else.  `start` is where the key line
+   began, which is where its label begins. *)
+Definition key_label (start : spot) (lbl : string) : inlines :=
+  if pos_records
+  then parse_inline_line_located (spot_line start) (spot_rem start)
+         (strip_trailing_ws lbl)
+  else para_inlines [lbl].
+
+Definition key_close (start : spot) (lbl src : string) (bs : blocks) : blocks :=
   match bs with
   | [] => [mk (Para (para_inlines [src]))]
-  | b :: rest => (mk (Ext_keyed (para_inlines [lbl]) b) :: rest)%list
+  | b :: rest => (mk (Ext_keyed (key_label start lbl) b) :: rest)%list
   end.
 
 (* A continuation line's contribution: one whitespace-free run,
@@ -1260,7 +1267,7 @@ Fixpoint finish (st : pstate) : blocks :=
       add_roles_head (attr_roles specs) (decorate_head pend (finish inner))
   | PKey range lbl src inner =>
       pos_head (prov_at (extent_span range))
-        (key_close lbl src (finish inner))
+        (key_close (extent_start range) lbl src (finish inner))
   end.
 
 (* `list_block`'s match, resolved for a bullet.  The uniformity chain
@@ -1536,7 +1543,8 @@ Definition key_result (range : extent) (lbl src : string) (r : blocks * pstate)
   let (bs, st') := r in
   match bs with
   | [] => ([], PKey range lbl src st')
-  | _ => (pos_head (prov_at (extent_span range)) (key_close lbl src bs), st')
+  | _ => (pos_head (prov_at (extent_span range))
+            (key_close (extent_start range) lbl src bs), st')
   end.
 
 (* A quote prefix opens a fresh quote around whatever its enclosed line
@@ -3683,7 +3691,8 @@ Qed.
 Lemma finish_key :
   forall range lbl src inner,
     finish (PKey range lbl src inner)
-    = pos_head (prov_at (extent_span range)) (key_close lbl src (finish inner)).
+    = pos_head (prov_at (extent_span range))
+        (key_close (extent_start range) lbl src (finish inner)).
 Proof. reflexivity. Qed.
 
 (*
@@ -4548,6 +4557,15 @@ Proof.
     (@erase_caption_of T c). reflexivity.
 Qed.
 
+(* A located label erases to the label the semantic parse reads, wherever
+   either one says the key line began. *)
+Local Lemma key_label_erase : forall `{T : dtable} s s' lbl,
+  Erase.of_inlines (@key_label T located_pos s lbl) = @key_label T semantic_pos s' lbl.
+Proof.
+  intros T s s' lbl. unfold key_label. cbn [pos_records located_pos semantic_pos].
+  rewrite erase_parse_inline_line_located. symmetry. apply para_inlines_one.
+Qed.
+
 (* Closing a located state adds only provenance.  The recursive cases are
    the reason erasure is structural: blocks retained below quotes, lists,
    divs, footnotes and keys must be stripped along with the outer node. *)
@@ -4626,6 +4644,7 @@ Proof.
       injection IHst as Hq Ha Hb Hrest. subst q a' b' rest'.
       cbn [key_close pos_head posnode mkpos located_pos semantic_pos
         Erase.of_blocks Erase.of_block mk].
+      rewrite (key_label_erase _ (extent_start (StateErase.of_extent range))).
       fold Erase.of_blocks. reflexivity.
 Qed.
 
@@ -4733,6 +4752,8 @@ Proof.
   destruct bs as [|[p a b] rest]; [reflexivity|].
   cbn [key_result StateErase.result Erase.of_blocks key_close pos_head set_pos mkpos
     located_pos semantic_pos Erase.of_block mk posnode].
+  unfold StateErase.result. cbn [fst snd Erase.of_blocks Erase.of_block key_close mk].
+  rewrite (key_label_erase _ (extent_start (StateErase.of_extent range))).
   fold Erase.of_blocks. reflexivity.
 Qed.
 
