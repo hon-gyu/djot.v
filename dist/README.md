@@ -3,7 +3,7 @@
 A djot parser and HTML renderer extracted from
 [djot.v](https://github.com/hon-gyu/djot.v), a djot parser written and
 verified in Rocq. The goals behind djot's design (no backtracking,
-container uniformity, local interpretation, safe rewrapping) are proved
+container uniformity, local interpretation, safe hard-wrapping) are proved
 there as theorems about the parser; this directory
 carries only the OCaml the extraction produces, plus a thin hand-written
 API over it, so building it needs no Rocq installation.

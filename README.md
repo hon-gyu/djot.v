@@ -1,27 +1,33 @@
 # djot.v
 
-djot.v is a [djot](https://djot.net) verified and generalized implementation in Rocq, with a tuned extraction to OCaml.
+djot.v is a verified and generalized [djot](https://djot.net) implementation in Rocq, with a tuned extraction to OCaml.
 
-It is _verified_ in the sense that the goals behind djot's design[^1] are stated as theorems about the parser and proved. The main ones:
+It is _verified_ in the sense that the goals behind djot's design[^design-rationale] are stated as theorems about the parser and proved. The main ones:
 
-- **No backtracking**: Blocks are parsed line by line, and a later line never changes an earlier block. Inline text is scanned once, byte by byte. This is what makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.
-- **Container uniformity**: Text placed in a block quote or a list item parses as it would on its own, so moving content in or out of a container does not change its meaning.
-- **Local interpretation**: Whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.
-- **Safe rewrapping**: A line inside a paragraph never starts a list, heading or quote, whatever it begins with. Rewrapping a paragraph cannot create one by accident.
+- **No backtracking**: blocks are parsed line by line, and a later line never changes an earlier block. Inline text is scanned once, byte by byte. This is what makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.[^no-backtracking]
+- **Container uniformity**: if a chunk of text has a certain meaning, it will continue to have the same meaning when put into a container block (such as a list item or blockquote).[^container-uniformity]
+- **Local interpretation**: whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.[^local-interpretation]
+- **Safe hard-wrapping**: hard-wrapping a paragraph should not lead to different interpretations.[^safe-hard-wrapping]
 
-It is _generalized_ in the sense that djot is one setting of a configurable parser. 
-- The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. 
-- For example, we provide a Markdown-like profile which writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe rewrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
+It is _generalized_ in the sense that djot is one setting of a configurable parser family. 
+- The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. In such framing, extensions and dialects can be developed in a safe way.
+- For example, the Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe hard-wrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
 
-> Gen-AI disclosure: most of the proofs were done by a Gen-AI tool
+> ai-disclosure: most of the Rocq proofs were done by a Gen-AI tool. "ai-disclosure" tags are attached in this repository wherever possible.
 
-[^1]: See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for where these goals come from.
+[^design-rationale]: See [djot's rationale](https://github.com/jgm/djot#rationale) and [Beyond Markdown](https://johnmacfarlane.net/beyond-markdown.html) for the main reference of djot's design.
+[^no-backtracking]: Goal 1 of [djot's rationale](https://github.com/jgm/djot#rationale)
+[^local-interpretation]: Goal 2 of [djot's rationale](https://github.com/jgm/djot#rationale)
+[^container-uniformity]: <https://spec.commonmark.org/0.31.2/#principle-of-uniformity>
+[^safe-hard-wrapping]: Goal 7 of [djot's rationale](https://github.com/jgm/djot#rationale)
 
 ## Djot Properties
 
 This section lists everything proved, what each proof assumes, and what is still to be done.
 
 The theorems are checked by Rocq, with no axioms and no admitted proofs.
+
+> ai-disclosure: this section is ai-generated
 
 ### No backtracking
 
@@ -46,14 +52,14 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 | Property | Implication | Status |
 | --- | --- | --- |
 | Whether `[foo][bar]` is a link does not depend on whether `bar` is defined. | Inline syntax can be read from the paragraph alone, without the rest of the document. | proved, and true by construction, since link recognition never sees the definitions: `classify_inlines_locality` |
-| Adding, removing or changing a reference definition changes only link and image attributes in the HTML, such as the URL,, never its structure or text. | Resolving references never restructures the document. | proved: `render_inline_reference_shape`, `render_inlines_reference_shape`, `html_tree_reference_shape`, `render_document_foot_reference_shape`, `render_blocks_reference_shape` |
+| Adding, removing or changing a reference definition changes only link and image attributes in the HTML, such as the URL, never its structure or text. | Resolving references never restructures the document. | proved: `render_inline_reference_shape`, `render_inlines_reference_shape`, `html_tree_reference_shape`, `render_document_foot_reference_shape`, `render_blocks_reference_shape` |
 
-### Safe rewrapping
+### Safe hard-wrapping
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| A line inside a paragraph never starts a new block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Rewrapping a paragraph cannot accidentally create a list, heading or quote. It can still change inline content when a line break moves into verbatim, after a backslash, or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
-| A heading continues on the following lines, with or without a repeated `#` marker, until a blank line. | Rewrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
+| A line inside a paragraph never starts a new block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Hard-wrapping a paragraph cannot accidentally create a list, heading or quote. It can still change inline content when a line break moves into verbatim, after a backslash (where it becomes a hard line break), or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
+| A heading continues on the following lines, with or without a repeated `#` marker, until a blank line. | Hard-wrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 
 ### Roundtrip
 
@@ -66,10 +72,10 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 Current supported extensions and parser configs are:
 - Character and width of each inline delimiter (emphasis, strong, superscript, ...): breaks none
 - Opt out of smart typography, raw inline, math, inline attributes, tables, fenced divs, task lists, raw blocks, definition lists, block attributes, footnotes, heading continuation: breaks none
-- List interruption (a list marker can end a paragraph): breaks safe rewrapping
-- Setext (underlined) headings: breaks safe rewrapping
+- List interruption (a list marker can end a paragraph): breaks safe hard-wrapping
+- Setext (underlined) headings: breaks safe hard-wrapping
 - Wikilinks (Obsidian-style `[[target\|alias]]`): breaks none
-- Keyed blocks (`label: content`, pairing an inline label with a block): breaks safe rewrapping; also changes the tree structure of existing documents
+- Keyed blocks (`label: content`, pairing an inline label with a block): breaks safe hard-wrapping; also changes the tree structure of existing documents
 - Callouts (`> [!kind]` on a quote opener): breaks block quote container uniformity for matching headers; also changes the tree structure of those quotes
 - ... more to come
 
@@ -87,11 +93,13 @@ To run the comparison, build djot.js once with `make build-djotjs`, then
 
 ## Extracted Programs
 
-Rocq supports extraction to OCaml, Haskell and Scheme. We carry out performance measurements and optimizations only for the OCaml extraction. 
+The OCaml extraction is packaged in [`dist/`](dist) as the `djot` library, which builds without Rocq. It parses a document, lets you walk or rewrite the tree, and renders it to HTML or back to djot. Its API is modeled on [cmarkit](https://github.com/dbuenzli/cmarkit)'s; see [dist/README.md](dist/README.md).
 
-With [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml), a JavaScript or WebAssembly parser can be built in theory.
+The extraction itself is trusted, not proved: the theorems are about the Rocq definitions, and the OCaml is what Rocq's extraction produces from them.
 
-The OCaml extraction is packaged in [`dist/`](dist) as the `djot` library, which builds without Rocq. Its API is modeled on [cmarkit](https://github.com/dbuenzli/cmarkit)'s: parse a document, walk it with a mapper or folder, render it to HTML. See [dist/README.md](dist/README.md).
+On ordinary documents the library is about 2x slower than `djot.js` and about 3x slower than `cmarkit` (measured on `djot.js`'s `bench/readme.dj`; `cmarkit` parses it as CommonMark). Parse time is linear in document size. A few unusual inputs are still superlinear, such as very deep nesting on one line or thousands of reference definitions.
+
+Rocq can also extract to Haskell and Scheme. Those targets are untested and have no performance work.
 
 ## Development Requirements
 
@@ -108,4 +116,4 @@ The OCaml extraction is packaged in [`dist/`](dist) as the `djot` library, which
 
 MIT, see [LICENSE](LICENSE).
 
-The module types of the `djot` package in `dist/` are modeled on cmarkit's, which is under the ISC license; its notice is in [dist/LICENSE-cmarkit.md](dist/LICENSE-cmarkit.md). The package is licensed MIT AND ISC.
+The module types of the `djot` package in `dist/` are modeled on cmarkit's, which is under the ISC license; its notice is in [dist/LICENSE-cmarkit](dist/LICENSE-cmarkit). The package is licensed MIT AND ISC.
