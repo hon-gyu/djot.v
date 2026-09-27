@@ -90,14 +90,17 @@ let gallina =
     run = (fun s -> Ok (Djot.Html.convert s));
     run_batch = None }
 
-let djotjs =
-  let script = root / "test" / "djotjs" / "djotjs.mjs" in
-  { name = "djotjs";
-    run = (fun s -> run_process [| "node"; script |] s);
+(* A converter run as a subprocess that speaks the framed batch protocol:
+   `djotjs.mjs --batch`, `convert --batch`, and the Haskell extraction's
+   driver. *)
+let batch_process name argv =
+  { name;
+    run = (fun s -> run_process argv s);
     run_batch =
       Some
         (fun docs ->
-          match run_process [| "node"; script; "--batch" |] (frame docs) with
+          let batch_argv = Array.append argv [| "--batch" |] in
+          match run_process batch_argv (frame docs) with
           | Error e -> List.map (fun _ -> Error e) docs
           | Ok out ->
             let outs = unframe out in
@@ -109,6 +112,9 @@ let djotjs =
                        (List.length outs) (List.length docs)))
                 docs
             else List.map (fun o -> Ok o) outs) }
+
+let djotjs =
+  batch_process "djotjs" [| "node"; root / "test" / "djotjs" / "djotjs.mjs" |]
 
 let run_all p docs =
   match p.run_batch with

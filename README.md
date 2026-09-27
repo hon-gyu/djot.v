@@ -99,7 +99,9 @@ The extraction itself is trusted, not proved: the theorems are about the Rocq de
 
 On ordinary documents the library is about 2x slower than `djot.js` and about 3x slower than `cmarkit` (measured on `djot.js`'s `bench/readme.dj`; `cmarkit` parses it as CommonMark). Parse time is linear in document size. A few unusual inputs are still superlinear, such as very deep nesting on one line or thousands of reference definitions.
 
-Rocq can also extract to Haskell and Scheme. Those targets are untested and have no performance work.
+A Haskell extraction exists in [extraction/haskell](extraction/haskell). It has none of the OCaml extraction's performance work and is not packaged. With strings as Haskell `String` it is about 7x slower than [djoths](https://github.com/jgm/djoths) on large documents; with `ByteString`, about 3x, but quadratic on long lines. 
+
+Rocq can also extract to Scheme, which is untested.
 
 ## Development Requirements
 

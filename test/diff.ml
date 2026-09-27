@@ -4,10 +4,13 @@
    expected HTML, or with djot.js's own on generated documents.
 
    Usage:
-     diff [--generated] [--shape] [--report FILE] [--verbose] [TEST_FILES...]
+     diff [--generated] [--shape] [--subject CMD] [--report FILE] [--verbose]
+          [TEST_FILES...]
 
-   With no files, runs the whole djot.js test suite.  Exit status is
-   nonzero only when a parser errored: a mismatch is data, not failure. *)
+   With no files, runs the whole djot.js test suite.  `--subject` tests
+   the program CMD, run as `CMD --batch`, in place of the extracted
+   parser linked in here.  Exit status is nonzero only when a parser
+   errored: a mismatch is data, not failure. *)
 
 open Djot_test
 open Parsers
@@ -78,21 +81,21 @@ Test suite
 
 (* Only our parser runs: djot.js on its own test suite would show
    nothing. *)
-let run_suite ~shape files r verbose =
+let run_suite ~shape subject files r verbose =
   let cases, skipped =
     List.concat_map Corpus.parse_file files
     |> List.partition (fun (c : Corpus.case) -> c.options = "")
   in
-  let outs = run_all gallina (List.map (fun (c : Corpus.case) -> c.input) cases) in
+  let outs = run_all subject (List.map (fun (c : Corpus.case) -> c.input) cases) in
   let m = ref 0 and mm = ref 0 and er = ref 0 in
   List.iter2
     (fun (c : Corpus.case) o ->
       let bad =
         match o with
-        | Error e -> incr er; Some (Printf.sprintf "%s: ERROR %s\n" gallina.name e)
+        | Error e -> incr er; Some (Printf.sprintf "%s: ERROR %s\n" subject.name e)
         | Ok html when project ~shape html = project ~shape c.expected ->
           incr m; None
-        | Ok html -> incr mm; Some (Printf.sprintf "%s:\n%s" gallina.name html)
+        | Ok html -> incr mm; Some (Printf.sprintf "%s:\n%s" subject.name html)
       in
       match bad with
       | Some msg when verbose ->
@@ -104,7 +107,7 @@ let run_suite ~shape files r verbose =
     cases outs;
   Report.out r "\n== summary: %d cases run, %d skipped (options) ==\n"
     (List.length cases) (List.length skipped);
-  Report.out r "%-8s  match %4d   mismatch %4d   error %4d\n" gallina.name !m
+  Report.out r "%-8s  match %4d   mismatch %4d   error %4d\n" subject.name !m
     !mm !er;
   !er = 0
 
@@ -124,8 +127,8 @@ admits is checked here against something we did not write.
 Exact HTML by default, not `--shape`, which would drop the field under
 test. *)
 
-let run_generated ~shape docs r verbose =
-  let reference = djotjs and subject = gallina in
+let run_generated ~shape subject docs r verbose =
+  let reference = djotjs in
   let ref_out = Array.of_list (run_all reference docs) in
   let docs_a = Array.of_list docs in
   let m = ref 0 and mm = ref 0 and er = ref 0 in
@@ -160,11 +163,14 @@ let run_generated ~shape docs r verbose =
 
 let () =
   let generated = ref false and shape = ref false in
+  let subject = ref gallina in
   let report = ref "" and verbose = ref false and files = ref [] in
   let rec args = function
     | [] -> ()
     | "--generated" :: rest -> generated := true; args rest
     | "--shape" :: rest -> shape := true; args rest
+    | "--subject" :: cmd :: rest ->
+      subject := batch_process (Filename.basename cmd) [| cmd |]; args rest
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
     | f :: rest -> files := f :: !files; args rest
@@ -173,10 +179,10 @@ let () =
   let r = Report.create !report in
   let ok =
     if !generated then
-      run_generated ~shape:!shape Djot_fixtures.Fixtures.generated r !verbose
+      run_generated ~shape:!shape !subject Djot_fixtures.Fixtures.generated r !verbose
     else
       let files = if !files = [] then Corpus.default_files () else List.rev !files in
-      run_suite ~shape:!shape files r !verbose
+      run_suite ~shape:!shape !subject files r !verbose
   in
   Report.save r;
   exit (if ok then 0 else 1)
