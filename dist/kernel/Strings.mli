@@ -52,6 +52,8 @@ val no_nl : string -> bool
 
 val no_char : char -> string -> bool
 
+val is_ws_nl : char -> bool
+
 val no_ws : string -> bool
 
 val line_ok : string -> bool

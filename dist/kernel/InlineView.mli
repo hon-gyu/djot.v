@@ -20,6 +20,8 @@ val raw_inline_enabled : dtable -> bool
 
 val math_enabled : dtable -> bool
 
+val dollar_math_enabled : dtable -> bool
+
 val inline_attrs_enabled : dtable -> bool
 
 val notes_enabled : dtable -> bool
