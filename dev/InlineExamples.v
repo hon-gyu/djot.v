@@ -244,18 +244,28 @@ Example delete_nests :
 Proof. vm_compute. reflexivity. Qed.
 
 (* And the row round-trips through the canonical view like the others.
-   `-` is a delimiter character, so a canonical `Str` holding one spells
-   it escaped, which keeps `{-a-}` from reappearing out of text that only
-   looked like it. *)
+   `-` is a delimiter character, so a canonical `Str` spells it escaped
+   wherever the next byte could make it a dash or a closer, and at either
+   end of the run, which keeps `{-a-}` from reappearing out of text that
+   only looked like it. *)
 Example delete_ci_roundtrip :
   (ci_src (CIDelim DDelete [CIStr "a"]),
    parse_inline_line (ci_src (CIDelim DDelete [CIStr "a"])))
   = ("{-a-}", [ci_ast (CIDelim DDelete [CIStr "a"])]).
 Proof. vm_compute. reflexivity. Qed.
 
-Example hyphen_in_str_is_escaped :
-  (ci_src (CIStr "a-b"), parse_inline_line (ci_src (CIStr "a-b")))
-  = ("a\-b", [mk (Str "a-b")]).
+Example hyphen_in_str :
+  (ci_src (CIStr "a-b"), parse_inline_line (ci_src (CIStr "a-b")),
+   ci_src (CIStr "-a--b-"), parse_inline_line (ci_src (CIStr "-a--b-")))
+  = ("a-b", [mk (Str "a-b")], "\-a\--b\-", [mk (Str "-a--b-")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A period is escaped where it could start an ellipsis or end a list
+   number, and a `!` only at the ends of the run. *)
+Example period_and_bang_in_str :
+  (ci_src (CIStr "1. a. b..c! d!"),
+   parse_inline_line (ci_src (CIStr "1. a. b..c! d!")))
+  = ("1\. a. b\..c! d\!", [mk (Str "1. a. b..c! d!")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* An empty span is not a span: a closer immediately after its opener

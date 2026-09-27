@@ -3,6 +3,7 @@ open Ast
 open Attributes
 open Datatypes
 open InlineTable
+open Line
 open List0
 open ListDef
 open Strings
@@ -50,6 +51,12 @@ val marked_close : dtable -> dstyle -> string -> string
 val needs_escape : dtable -> char -> bool
 
 val needs_escape_dest : dtable -> char -> bool
+
+val marker_core : string -> bool
+
+val bare_ok : string -> char -> string -> bool
+
+val escape_from : dtable -> string -> string -> string
 
 val escape_str : dtable -> string -> string
 

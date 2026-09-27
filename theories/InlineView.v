@@ -5,7 +5,7 @@
    (`ci_ok`), the canonical paragraph (`ci_para`), and the renderer. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Wf_nat Arith.
-From DjotV Require Import Config Strings Ast Attributes InlineTable.
+From DjotV Require Import Config Strings Ast Attributes InlineTable Line.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -359,14 +359,43 @@ Proof.
   - apply Ascii.eqb_eq in H. subst c. reflexivity.
 Qed.
 
-Fixpoint escape_str (s : string) : string :=
+(* Could `pre` be an ordered list's number, so that a period after it
+   followed by a space opens a list at the start of a line?  Decimal,
+   one letter, or roman, as `Marker.v` reads them. *)
+Local Definition marker_core (pre : string) : bool :=
+  nonempty_str pre
+  && (str_forallb is_digit pre
+      || Nat.eqb (String.length pre) 1 && str_forallb is_alnum pre
+      || str_forallb is_roman_lo pre || str_forallb is_roman_up pre).
+
+(* A character `needs_escape` claims may go bare inside a text run when
+   the byte after it cannot complete a construct with it: a period that
+   starts no ellipsis and ends no list number, a `!` whose `[` would be
+   escaped anyway, a hyphen that starts no dash.  The run's first and
+   last characters are always escaped, since what surrounds the run is
+   not known here: a line start, where `- ` is a list marker, or the next
+   inline's source.  `pre` is what the run has written so far,
+   reversed. *)
+Definition bare_ok (pre : string) (c : ascii) (rest : string) : bool :=
+  match pre, rest with
+  | EmptyString, _ | _, EmptyString => false
+  | _, String d _ =>
+      (Ascii.eqb c period && negb (Ascii.eqb d period)
+       && negb (marker_core pre && Ascii.eqb d " "%char))
+      || Ascii.eqb c bang
+      || (Ascii.eqb c hyphen && negb (Ascii.eqb d hyphen))
+  end.
+
+Fixpoint escape_from (pre s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c rest =>
-      if needs_escape c
-      then String "\"%char (String c (escape_str rest))
-      else String c (escape_str rest)
+      if needs_escape c && negb (bare_ok pre c rest)
+      then String "\"%char (String c (escape_from (String c pre) rest))
+      else String c (escape_from (String c pre) rest)
   end.
+
+Definition escape_str (s : string) : string := escape_from EmptyString s.
 
 Fixpoint escape_dest (s : string) : string :=
   match s with
