@@ -126,9 +126,8 @@ module Block : sig
   type t = Kernel.Ast.block =
     | Para of Inline.t node list
     | Section of t node list
-        (** Built by the document pass, never by the parser: a heading
-            (the first child) and the blocks up to the next heading of
-            the same or a higher level.  The heading's id is on the
+        (** a heading (the first child) and the blocks up to the next heading of
+            the same or a higher level. The heading's id is on the
             section node. *)
     | Heading of int * Inline.t node list
     | BlockQuote of t node list
