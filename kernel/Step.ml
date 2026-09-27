@@ -812,11 +812,20 @@ let ref_block lbl val0 =
 let foot_block lbl bs =
   mk (FootnoteDef (lbl, bs))
 
-(** val key_close : dtable -> string -> string -> blocks -> blocks **)
+(** val key_label : dtable -> coq_PosPolicy -> spot -> string -> inlines **)
 
-let key_close t lbl src = function
+let key_label t p start lbl =
+  if p.pos_records
+  then parse_inline_line_located t p start.spot_line start.spot_rem
+         (strip_trailing_ws lbl)
+  else para_inlines t (lbl :: [])
+
+(** val key_close :
+    dtable -> coq_PosPolicy -> spot -> string -> string -> blocks -> blocks **)
+
+let key_close t p start lbl src = function
 | [] -> (mk (Para (para_inlines t (src :: [])))) :: []
-| b :: rest -> (mk (Ext_keyed ((para_inlines t (lbl :: [])), b))) :: rest
+| b :: rest -> (mk (Ext_keyed ((key_label t p start lbl), b))) :: rest
 
 (** val ref_cont : string -> string option **)
 
@@ -869,7 +878,7 @@ let rec finish t k p = function
     (decorate_head pend (finish t k p inner))
 | PKey (range, lbl, src, inner) ->
   pos_head p (prov_at (extent_span range))
-    (key_close t lbl src (finish t k p inner))
+    (key_close t p range.extent_start lbl src (finish t k p inner))
 
 (** val lazy_ok : pstate -> bool **)
 
@@ -1009,7 +1018,8 @@ let key_result t p range lbl src = function
   (match bs with
    | [] -> ([], (PKey (range, lbl, src, st')))
    | _ :: _ ->
-     ((pos_head p (prov_at (extent_span range)) (key_close t lbl src bs)),
+     ((pos_head p (prov_at (extent_span range))
+        (key_close t p range.extent_start lbl src bs)),
        st'))
 
 (** val open_quote :
