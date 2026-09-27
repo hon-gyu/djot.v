@@ -172,6 +172,10 @@ Fixpoint of_iscan (st : iscan) : iscan :=
   | IOpen n vk o => IOpen n vk (of_ostate o)
   | IVerb n run txt vk o => IVerb n run txt vk (of_ostate o)
   | IDollar two txt prev o => IDollar two txt prev (of_ostate o)
+  | IDollarMath two escaped src txt last sh o =>
+      IDollarMath two escaped src txt last (of_iscan sh) (of_ostate o)
+  | IDollarMathClose two src txt last sh o =>
+      IDollarMathClose two src txt last (of_iscan sh) (of_ostate o)
   | IPeriod two txt prev o => IPeriod two txt prev (of_ostate o)
   | IDash n txt prev o => IDash n txt prev (of_ostate o)
   | IBang txt prev o => IBang txt prev (of_ostate o)
@@ -482,7 +486,7 @@ Local Lemma of_auto_node : forall s, Erase.of_inline (auto_node s) = auto_node s
 Proof. intros s. unfold auto_node. destruct (auto_email s); reflexivity. Qed.
 
 Local Lemma of_vnode : forall vk s, Erase.of_inline (vnode vk s) = vnode vk s.
-Proof. intros [|st] s; reflexivity. Qed.
+Proof. intros [|st|prefix] s; reflexivity. Qed.
 
 Local Lemma of_oclose : forall `{P : PosPolicy} k m stop o,
   sclose k m (of_ostate o) =
@@ -824,7 +828,14 @@ Local Lemma of_idollar_step : forall `{P : PosPolicy} `{C : InlineCursor}
 Proof.
   intros P C c two txt prev o. unfold idollar_step.
   destruct (Ascii.eqb c dollar); [destruct two; reflexivity|].
-  destruct (is_tick c && math_enabled)%bool; [|apply of_ilead].
+  destruct (is_tick c && math_enabled)%bool; [|].
+  2: destruct (is_tick c && dollar_math_enabled && negb two)%bool;
+      [cbn [of_iscan]; rewrite of_flush_text_to_at; reflexivity|].
+  2: destruct (dollar_math_enabled &&
+      (negb two ||
+       negb (match prev with Some p => Ascii.eqb p dollar | None => false end))
+      && (two || (negb (is_ws_nl c) && negb (is_tick c))))%bool;
+      [cbn [of_iscan]; rewrite of_ilead; reflexivity|apply of_ilead].
   cbn [of_iscan]. rewrite of_flush_text_to_at. reflexivity.
 Qed.
 
@@ -855,7 +866,7 @@ Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   of_iscan (@iresolve T _ _ P C st) =
   @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | |];
     try reflexivity.
   cbn [of_iscan iresolve].
   destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
@@ -1023,7 +1034,9 @@ Proof.
   induction st as
     [esc txt prev o | ws txt prev o | txt prev o
     | k extra txt before marked o | n vk o | n run txt vk o
-    | two txt prev o | two txt prev o | n txt prev o | txt prev o
+    | two txt prev o
+    | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
+    | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh IHsh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
@@ -1052,7 +1065,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
     destruct (@idelim_resolve T _ _ P C k txt before false (Some c) o)
-      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | |];
+      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply of_ilead].
   - (* IOpen *)
@@ -1060,9 +1073,47 @@ Proof.
   - (* IVerb *)
     cbn [of_iscan istep_at]. destruct (is_tick c); [reflexivity|].
     destruct (Nat.eqb run n); [|reflexivity].
-    destruct (Ascii.eqb c lbrace && vkind_verb vk)%bool; [reflexivity|].
-    rewrite of_ilead, of_oemit, of_imk, of_vnode. reflexivity.
+    destruct vk as [|sty|prefix].
+    + destruct (Ascii.eqb c lbrace); [reflexivity|].
+      cbn [andb vkind_verb].
+      rewrite of_ilead, of_oemit, of_imk, of_vnode. reflexivity.
+    + destruct sty.
+      * cbn [vkind_verb andb]. rewrite andb_false_r.
+        rewrite of_ilead, of_oemit, of_imk, of_vnode. reflexivity.
+      * destruct (Ascii.eqb c dollar && dollar_math_enabled)%bool;
+          cbn [of_iscan].
+        -- rewrite of_oemit, of_imk. reflexivity.
+        -- rewrite of_ilead, of_oemit, of_imk. reflexivity.
+    + destruct (Ascii.eqb c dollar).
+      * rewrite of_opop_str.
+        destruct (opop_str o) as [pre o']; cbn [fst snd of_iscan].
+        rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
+      * destruct (Ascii.eqb c lbrace); [reflexivity|].
+        cbn [of_iscan]. rewrite of_ilead, of_oemit, of_imk. reflexivity.
   - (* IDollar *) apply of_idollar_step.
+  - (* IDollarMath *)
+    cbn [istep_at]. destruct me.
+    + cbn [of_iscan istep_at]. rewrite IHmsh. reflexivity.
+    + cbn [of_iscan istep_at].
+      destruct (Ascii.eqb c dollar); cbn [of_iscan];
+        rewrite IHmsh; reflexivity.
+  - (* IDollarMathClose *)
+    cbn [of_iscan istep_at].
+    destruct mct.
+    + destruct mcl as [p|];
+        [destruct (Ascii.eqb p nl_char); destruct (Ascii.eqb c dollar)
+        |destruct (Ascii.eqb c dollar)]; cbn [of_iscan istep_at];
+        try (rewrite IHmcsh; reflexivity).
+      rewrite of_ilead, of_oemit, of_imk, of_flush_text_to_at.
+      reflexivity.
+    + destruct (match mcl with Some p => negb (is_ws_nl p)
+                | None => false end
+        && negb ((Nat.leb 48 (nat_of_ascii c))
+                 && Nat.leb (nat_of_ascii c) 57))%bool;
+        cbn [of_iscan istep_at].
+      * rewrite of_ilead, of_oemit, of_imk, of_flush_text_to_at.
+        reflexivity.
+      * rewrite IHmcsh. reflexivity.
   - (* IPeriod *) apply of_iperiod_step.
   - (* IDash *) apply of_idash_step.
   - (* IBang *) apply of_ibang_step.
@@ -1117,7 +1168,9 @@ Proof.
   intros P C
     [esc txt prev o | ws txt prev o | txt prev o
     | k extra txt before marked o | n vk o | n run txt vk o
-    | two txt prev o | two txt prev o | n txt prev o | txt prev o
+    | two txt prev o
+    | mt me ms mx ml msh mo | mct mcs mcx mcl mcsh mco
+    | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
@@ -1155,6 +1208,14 @@ Proof.
   intros P C st. induction st;
     try (cbn [ifinish_ostate];
          rewrite of_ifinish_ostate_flat, of_iresolve; reflexivity).
+  - cbn [ifinish_ostate of_iscan]. assumption.
+  - cbn [ifinish_ostate of_iscan]. destruct two;
+      [destruct last as [p|];
+       [assumption|rewrite of_oemit, of_imk, of_flush_text_to_at;
+        reflexivity]|].
+    destruct (match last with Some p => negb (is_ws_nl p)
+              | None => false end); [|assumption].
+    rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
   - rewrite iscan_attr. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_dest. cbn [ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
@@ -1208,7 +1269,9 @@ Proof.
   intros P C. induction st as
     [esc txt prev o | ws txt prev o | txt prev o
     | k extra txt before marked o | n vk o | n run txt vk o
-    | two txt prev o | two txt prev o | n txt prev o | txt prev o
+    | two txt prev o
+    | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
+    | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
@@ -1244,6 +1307,24 @@ Proof.
   intros P C allow st. revert allow. induction st; intros allow;
     try (cbn [ibreak_at];
          rewrite of_ibreak_flat, of_iresolve; reflexivity).
+  - cbn [of_iscan ibreak_at].
+    destruct (two && dollar_math_enabled &&
+      negb (match prev with Some p => Ascii.eqb p dollar
+            | None => false end))%bool.
+    + cbn [of_iscan]. rewrite of_ibreak_flat. reflexivity.
+    + rewrite of_ibreak_flat, of_iresolve. reflexivity.
+  - cbn [ibreak_at of_iscan]. rewrite IHst. reflexivity.
+  - cbn [ibreak_at]. destruct two;
+      [destruct last as [p|];
+       [cbn [of_iscan]; rewrite IHst; reflexivity
+       |rewrite of_ibreak_flat; cbn [of_iscan];
+        rewrite of_oemit, of_imk, of_flush_text_to_at; reflexivity]|].
+    destruct (match last with Some p => negb (is_ws_nl p)
+              | None => false end) eqn:E;
+      cbn [of_iscan ibreak_at]; rewrite E; [|apply IHst].
+    rewrite of_ibreak_flat. cbn [of_iscan].
+    rewrite of_oemit, of_imk, of_flush_text_to_at.
+    reflexivity.
   - rewrite iscan_attr. cbn [ibreak_at].
     rewrite of_iattr_feed, IHst. reflexivity.
   - rewrite iscan_dest. cbn [ibreak_at].

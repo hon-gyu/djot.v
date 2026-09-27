@@ -1994,10 +1994,12 @@ Proof.
 Qed.
 
 (* A state resolved as at the end of a line, through the destination
-   readings. *)
+   readings.  A pending `$` is kept: a break may open display math from
+   it, which its resolved text cannot. *)
 Fixpoint rres (st : iscan) : iscan :=
   match st with
   | IDest k i o e d dst sh o' => IDest k i o e d dst (rres sh) o'
+  | IDollar _ _ _ _ => st
   | _ => iresolve st
   end.
 

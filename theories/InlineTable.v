@@ -180,6 +180,9 @@ Record dconfig : Type := DConfig {
   (* Does a `$` or `$$` before a verbatim make the span math?  When false the
      dollars are ordinary text and the verbatim is ordinary code. *)
   dc_math : bool;
+  (* Accept Markdown-style dollar-delimited math independently of Djot's
+     backtick-prefixed math. *)
+  dc_dollar_math : bool;
   (* Do `{...}` specs attach attributes, and does `]{`  open a span?  When
      false both are literal text.  The braced delimiter rows are a separate
      decision: they are reached from the same `{` but are rows in this very
@@ -235,7 +238,7 @@ Definition djot_ddecay (k : dstyle) : ddecay :=
 Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
-  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true true
+  DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true false true
     true false.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
@@ -362,14 +365,14 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_width e else dc_width C k)
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
     (dc_footnotes C) (dc_wikilinks C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
-    (dc_raw_inline C) (dc_math C) (dc_attrs C) (dc_footnotes C)
+    (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C) (dc_footnotes C)
     (dc_wikilinks C).
 
 Theorem with_smart_typography_preserves_admissible :
@@ -378,7 +381,7 @@ Proof. intros enabled C H. exact H. Qed.
 
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) enabled (dc_math C) (dc_attrs C)
+    (dc_smart_typography C) enabled (dc_math C) (dc_dollar_math C) (dc_attrs C)
     (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_raw_inline_preserves_admissible :
@@ -389,18 +392,27 @@ Proof. intros enabled C H. exact H. Qed.
    character, which no table may claim, and its own scanner state. *)
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) enabled (dc_attrs C)
+    (dc_smart_typography C) (dc_raw_inline C) enabled (dc_dollar_math C) (dc_attrs C)
     (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
+Definition with_dollar_math (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
+    (dc_attrs C) (dc_footnotes C) (dc_wikilinks C).
+
+Theorem with_dollar_math_preserves_admissible :
+  forall enabled, preserves (with_dollar_math enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
 (* Inline attributes and spans.  The rows keep their own switches: a table
    whose delete row is on still reads `{-` as a delete opener here. *)
 Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) enabled
     (dc_footnotes C) (dc_wikilinks C).
 
 Theorem with_inline_attrs_preserves_admissible :
@@ -411,7 +423,7 @@ Proof. intros enabled C H. exact H. Qed.
    for: this half alone leaves definitions nothing can reference. *)
 Definition with_inline_footnotes (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
     enabled (dc_wikilinks C).
 
 Theorem with_inline_footnotes_preserves_admissible :
@@ -422,7 +434,7 @@ Proof. intros enabled C H. exact H. Qed.
 (* Wikilinks are an inline capability only: no block construct takes part. *)
 Definition with_wikilinks (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
-    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_attrs C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
     (dc_footnotes C) enabled.
 
 Theorem with_wikilinks_preserves_admissible :
@@ -591,11 +603,10 @@ Qed.
 Definition markdown_strong_entry : dentry :=
   DEntry "*"%char 2 DBare DDSelf.
 
-(* The Markdown-like table is djot's with that one row changed.  Every
-   other capability stays on: the profile extends djot rather than
-   removing from it, and each capability remains a knob of its own. *)
+(* The Markdown-like table changes the strong row and enables dollar math.
+   Every djot capability stays on, and each remains a knob of its own. *)
 Definition markdown_like_config : dconfig :=
-  update_drow DStrong markdown_strong_entry djot_config.
+  update_drow DStrong markdown_strong_entry (with_dollar_math true djot_config).
 
 (* Executable witnesses for each part of the compatibility boundary. *)
 Example markdown_strong_compatible :
@@ -799,7 +810,7 @@ Example clashing_config_not_ok :
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
                       djot_dwidth djot_dsyntax djot_ddecay true true true
-                      true true false)
+                      false true true false)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -813,7 +824,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true true true false) = true.
+                      djot_ddecay true true true false true true false) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
