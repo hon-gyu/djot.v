@@ -244,3 +244,18 @@ let () =
       assert (bytes (Doc.textloc d label) = (2, 4));
       assert (bytes (Doc.textloc d value) = (7, 11))
   | _ -> failwith "unexpected key"
+
+(* Every footnote definition is kept, with its label's location; the
+   note map keeps the last one per label. *)
+let () =
+  let d = Doc.of_string ~locs:true "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
+  (match Doc.footnote_defs d with
+   | [ (Node (_, _, Block.FootnoteDef ("a", _)) as one);
+       (Node (_, _, Block.FootnoteDef ("a", _)) as two) ] ->
+       assert (bytes (Doc.footnote_label_loc d one) = (8, 8));
+       assert (bytes (Doc.footnote_label_loc d two) = (21, 21));
+       assert (lines (Doc.footnote_label_loc d two) = ((5, 17), (5, 17)))
+   | _ -> failwith "unexpected footnote definitions");
+  match Doc.footnotes d with
+  | [ ("a", [ Node (_, _, Block.Para [ Node (_, _, Inline.Str "two") ]) ]) ] -> ()
+  | _ -> failwith "unexpected note map"
