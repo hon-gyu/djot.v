@@ -715,19 +715,20 @@ let ofinish t h o =
 type vkind =
 | VVerb
 | VMath of math_style
+| VMaybeDollarMath of string
 
 (** val vnode : vkind -> string -> inline **)
 
 let vnode vk s =
   match vk with
-  | VVerb -> Verbatim s
   | VMath st -> Math (st, s)
+  | _ -> Verbatim s
 
 (** val vkind_verb : vkind -> bool **)
 
 let vkind_verb = function
-| VVerb -> true
 | VMath _ -> false
+| _ -> true
 
 type 'buf iscan_g =
 | IText of bool * 'buf * char option * ostate
@@ -737,6 +738,9 @@ type 'buf iscan_g =
 | IOpen of int * vkind * ostate
 | IVerb of int * int * 'buf * vkind * ostate
 | IDollar of bool * 'buf * char option * ostate
+| IDollarMath of bool * bool * 'buf * 'buf * char option * 'buf iscan_g
+   * ostate
+| IDollarMathClose of bool * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IPeriod of bool * 'buf * char option * ostate
 | IDash of int * 'buf * char option * ostate
 | IBang of 'buf * char option * ostate
@@ -1349,14 +1353,32 @@ let idelim_resolve t x h h0 k txt before marker next o =
 let idollar_step t x h h0 c two txt prev o =
   if (=) c dollar
   then if two
-       then IDollar (true, (x.tpush txt (one dollar)), prev, o)
+       then IDollar (true, (x.tpush txt (one dollar)), (Some dollar), o)
        else IDollar (true, txt, prev, o)
   else if (&&) (is_tick c) (math_enabled t)
        then IOpen ((Stdlib.succ 0), (VMath
               (if two then DisplayMath else InlineMath)),
               (flush_text_to_at h h0
                 (spot_before h0.cursor_start (dollars two)) (x.tval txt) o))
-       else ilead t x h h0 c (x.tpush txt (dollars two)) (Some dollar) o
+       else if (&&) ((&&) (is_tick c) (dollar_math_enabled t)) (negb two)
+            then IOpen ((Stdlib.succ 0), (VMaybeDollarMath (x.tval txt)),
+                   (flush_text_to_at h h0 h0.cursor_start
+                     ((^) (x.tval txt) (one dollar)) o))
+            else if (&&)
+                      ((&&) (dollar_math_enabled t)
+                        ((||) (negb two)
+                          (negb
+                            (match prev with
+                             | Some p -> (=) p dollar
+                             | None -> false))))
+                      ((||) two ((&&) (negb (is_ws_nl c)) (negb (is_tick c))))
+                 then IDollarMath (two, (is_bslash c), (x.tof (one c)), txt,
+                        (Some c),
+                        (ilead t x h h0 c (x.tpush txt (dollars two)) (Some
+                          dollar) o),
+                        o)
+                 else ilead t x h h0 c (x.tpush txt (dollars two)) (Some
+                        dollar) o
 
 (** val iperiod_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1508,15 +1530,147 @@ let rec istep_at t x h h0 attrs_enabled c = function
   if is_tick c
   then IVerb (n, (Stdlib.succ run), txt, vk, o)
   else if ( = ) run n
-       then if (&&) ((=) c lbrace) (vkind_verb vk)
-            then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
-            else ilead t x h h0 c x.tnil (Some tick)
-                   (oemit
-                     (imk h (text_start h0 o) h0.cursor_start
-                       (vnode vk (trim_verb (x.tval txt))))
-                     o)
+       then (match vk with
+             | VVerb ->
+               if (&&) ((=) c lbrace) (vkind_verb vk)
+               then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+               else ilead t x h h0 c x.tnil (Some tick)
+                      (oemit
+                        (imk h (text_start h0 o) h0.cursor_start
+                          (vnode vk (trim_verb (x.tval txt))))
+                        o)
+             | VMath style ->
+               (match style with
+                | DisplayMath ->
+                  if (&&) ((=) c lbrace) (vkind_verb vk)
+                  then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+                  else ilead t x h h0 c x.tnil (Some tick)
+                         (oemit
+                           (imk h (text_start h0 o) h0.cursor_start
+                             (vnode vk (trim_verb (x.tval txt))))
+                           o)
+                | InlineMath ->
+                  if (&&) ((=) c dollar) (dollar_math_enabled t)
+                  then IText (false, x.tnil, (Some dollar),
+                         (oemit
+                           (imk h (text_start h0 o) h0.cursor_stop (Math
+                             (InlineMath, (trim_verb (x.tval txt)))))
+                           o))
+                  else ilead t x h h0 c x.tnil (Some tick)
+                         (oemit
+                           (imk h (text_start h0 o) h0.cursor_start (Math
+                             (InlineMath, (trim_verb (x.tval txt)))))
+                           o))
+             | VMaybeDollarMath prefix ->
+               if (=) c dollar
+               then let (_, o') = opop_str o in
+                    let start =
+                      spot_before h0.cursor_stop
+                        ((^) (one dollar)
+                          ((^) (ticks n)
+                            ((^) (x.tval txt) ((^) (ticks n) (one dollar)))))
+                    in
+                    IText (false, x.tnil, (Some dollar),
+                    (oemit
+                      (imk h start h0.cursor_stop (Math (InlineMath,
+                        (trim_verb (x.tval txt)))))
+                      (flush_text_to_at h h0 start prefix o')))
+               else if (=) c lbrace
+                    then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+                    else ilead t x h h0 c x.tnil (Some tick)
+                           (oemit
+                             (imk h (text_start h0 o) h0.cursor_start
+                               (Verbatim (trim_verb (x.tval txt))))
+                             o))
        else IVerb (n, 0, (x.tpush txt ((^) (ticks run) (one c))), vk, o)
 | IDollar (two, txt, prev, o) -> idollar_step t x h h0 c two txt prev o
+| IDollarMath (two, escaped, src, txt, last, sh, o) ->
+  let sh' = istep_at t x h h0 attrs_enabled c sh in
+  if escaped
+  then IDollarMath (two, false, (x.tpush src (one c)), txt, (Some c), sh', o)
+  else if (=) c dollar
+       then IDollarMathClose (two, src, txt,
+              (if two then Some nl_char else last), sh', o)
+       else IDollarMath (two, (is_bslash c), (x.tpush src (one c)), txt,
+              (Some c), sh', o)
+| IDollarMathClose (two, src, txt, last, sh, o) ->
+  let sh' = istep_at t x h h0 attrs_enabled c sh in
+  if two
+  then (match last with
+        | Some p ->
+          if (=) p nl_char
+          then if (=) c dollar
+               then IDollarMathClose (true, src, txt, None, sh', o)
+               else IDollarMath (true, (is_bslash c),
+                      (x.tpush src
+                        ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                        (dollar, (one c)))),
+                      txt, (Some c), sh', o)
+          else if (=) c dollar
+               then IDollarMathClose (true, (x.tpush src (one c)), txt, (Some
+                      dollar), sh', o)
+               else IDollarMath (true, (is_bslash c), (x.tpush src (one c)),
+                      txt, (Some c), sh', o)
+        | None ->
+          if (=) c dollar
+          then IDollarMathClose (true, (x.tpush src "$$$"), txt, (Some
+                 dollar), sh', o)
+          else let start =
+                 spot_before h0.cursor_start
+                   ((^) (dollars true) ((^) (x.tval src) (dollars true)))
+               in
+               ilead t x h h0 c x.tnil (Some dollar)
+                 (oemit
+                   (imk h start h0.cursor_start (Math (DisplayMath,
+                     (x.tval src))))
+                   (flush_text_to_at h h0 start (x.tval txt) o)))
+  else if (&&) (match last with
+                | Some p -> negb (is_ws_nl p)
+                | None -> false)
+            (negb
+              ((&&)
+                (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  0))))))))))))))))))))))))))))))))))))))))))))))))
+                  (Char.code c))
+                (( <= ) (Char.code c) (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                  (Stdlib.succ (Stdlib.succ
+                  0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+       then let start =
+              spot_before h0.cursor_start
+                ((^) (one dollar) ((^) (x.tval src) (one dollar)))
+            in
+            ilead t x h h0 c x.tnil (Some dollar)
+              (oemit
+                (imk h start h0.cursor_start (Math (InlineMath,
+                  (x.tval src))))
+                (flush_text_to_at h h0 start (x.tval txt) o))
+       else sh'
 | IPeriod (two, txt, prev, o) -> iperiod_step t x h h0 c two txt prev o
 | IDash (n, txt, prev, o) -> idash_step t x h h0 c n txt prev o
 | IBang (txt, prev, o) -> ibang_step t x h h0 c txt prev o
@@ -1633,6 +1787,8 @@ let ifinish_ostate_flat x h h0 = function
           (x.tval (if ( = ) run n then txt else x.tpush txt (ticks run))))))
     o
 | IDollar (_, _, _, o) -> o
+| IDollarMath (_, _, _, _, _, _, o) -> o
+| IDollarMathClose (_, _, _, _, _, o) -> o
 | IPeriod (_, _, _, o) -> o
 | IDash (_, _, _, o) -> o
 | IBang (_, _, o) -> o
@@ -1672,6 +1828,30 @@ let ifinish_ostate_flat x h h0 = function
     iscan_g -> ostate **)
 
 let rec ifinish_ostate t x h h0 st = match st with
+| IDollarMath (_, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
+| IDollarMathClose (two, src, txt, last, sh, o) ->
+  if two
+  then (match last with
+        | Some _ -> ifinish_ostate t x h h0 sh
+        | None ->
+          let start =
+            spot_before h0.cursor_start
+              ((^) (dollars true) ((^) (x.tval src) (dollars true)))
+          in
+          oemit
+            (imk h start h0.cursor_start (Math (DisplayMath, (x.tval src))))
+            (flush_text_to_at h h0 start (x.tval txt) o))
+  else if match last with
+          | Some p -> negb (is_ws_nl p)
+          | None -> false
+       then let start =
+              spot_before h0.cursor_start
+                ((^) (one dollar) ((^) (x.tval src) (one dollar)))
+            in
+            oemit
+              (imk h start h0.cursor_start (Math (InlineMath, (x.tval src))))
+              (flush_text_to_at h h0 start (x.tval txt) o)
+       else ifinish_ostate t x h h0 sh
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | ISymbol (_, _, sh, _) -> ifinish_ostate t x h h0 sh
@@ -1756,6 +1936,48 @@ let rec ibreak_flat t x h h0 st = match st with
     'a1 iscan_g -> 'a1 iscan_g **)
 
 let rec ibreak_at t x h h0 attrs_enabled st = match st with
+| IDollar (two, txt, prev, o) ->
+  if (&&) ((&&) two (dollar_math_enabled t))
+       (negb (match prev with
+              | Some p -> (=) p dollar
+              | None -> false))
+  then IDollarMath (true, false, (x.tof nl), txt, (Some nl_char),
+         (ibreak_flat t x h h0 (IText (false, (x.tpush txt (dollars true)),
+           (Some dollar), o))),
+         o)
+  else ibreak_flat t x h h0 (iresolve t x h h0 st)
+| IDollarMath (two, _, src, txt, _, sh, o) ->
+  IDollarMath (two, false, (x.tpush src nl), txt, (Some nl_char),
+    (ibreak_at t x h h0 attrs_enabled sh), o)
+| IDollarMathClose (two, src, txt, last, sh, o) ->
+  if two
+  then (match last with
+        | Some p ->
+          IDollarMath (true, false,
+            (x.tpush src (if (=) p nl_char then (^) (one dollar) nl else nl)),
+            txt, (Some nl_char), (ibreak_at t x h h0 attrs_enabled sh), o)
+        | None ->
+          let start =
+            spot_before h0.cursor_start
+              ((^) (dollars true) ((^) (x.tval src) (dollars true)))
+          in
+          ibreak_flat t x h h0 (IText (false, x.tnil, (Some dollar),
+            (oemit
+              (imk h start h0.cursor_start (Math (DisplayMath, (x.tval src))))
+              (flush_text_to_at h h0 start (x.tval txt) o)))))
+  else if match last with
+          | Some p -> negb (is_ws_nl p)
+          | None -> false
+       then let start =
+              spot_before h0.cursor_start
+                ((^) (one dollar) ((^) (x.tval src) (one dollar)))
+            in
+            ibreak_flat t x h h0 (IText (false, x.tnil, (Some dollar),
+              (oemit
+                (imk h start h0.cursor_start (Math (InlineMath,
+                  (x.tval src))))
+                (flush_text_to_at h h0 start (x.tval txt) o))))
+       else ibreak_at t x h h0 attrs_enabled sh
 | IAttr (p, src, txt, prev, sh, o) ->
   iattr_feed t x h h0 nl_char p src txt prev (ibreak_at t x h h0 false sh) o
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
@@ -1814,6 +2036,11 @@ let rec map_text x = function
 | IOpen (n, vk, o) -> IOpen (n, vk, o)
 | IVerb (n, run, v, vk, o) -> IVerb (n, run, (x.tval v), vk, o)
 | IDollar (two, t, prev, o) -> IDollar (two, (x.tval t), prev, o)
+| IDollarMath (two, escaped, src, t, last, sh, o) ->
+  IDollarMath (two, escaped, (x.tval src), (x.tval t), last, (map_text x sh),
+    o)
+| IDollarMathClose (two, src, t, last, sh, o) ->
+  IDollarMathClose (two, (x.tval src), (x.tval t), last, (map_text x sh), o)
 | IPeriod (two, t, prev, o) -> IPeriod (two, (x.tval t), prev, o)
 | IDash (n, t, prev, o) -> IDash (n, (x.tval t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tval t), prev, o)
@@ -1846,6 +2073,10 @@ let rec lift x = function
 | IOpen (n, vk, o) -> IOpen (n, vk, o)
 | IVerb (n, run, v, vk, o) -> IVerb (n, run, (x.tof v), vk, o)
 | IDollar (two, t, prev, o) -> IDollar (two, (x.tof t), prev, o)
+| IDollarMath (two, escaped, src, t, last, sh, o) ->
+  IDollarMath (two, escaped, (x.tof src), (x.tof t), last, (lift x sh), o)
+| IDollarMathClose (two, src, t, last, sh, o) ->
+  IDollarMathClose (two, (x.tof src), (x.tof t), last, (lift x sh), o)
 | IPeriod (two, t, prev, o) -> IPeriod (two, (x.tof t), prev, o)
 | IDash (n, t, prev, o) -> IDash (n, (x.tof t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tof t), prev, o)
