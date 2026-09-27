@@ -1,4 +1,4 @@
-.PHONY: help build doc build-djotjs diff diff-shape \
+.PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch
@@ -36,6 +36,9 @@ doc: build  ## Generate the Rocqdoc HTML site
 
 build-djotjs:  ## Build the djot.js submodule
 	cd djot.js && npm install --no-audit --no-fund && npm run build
+
+build-haskell-extraction:  ## Build the Haskell extraction into _build/haskell (needs ghc)
+	scripts/haskell.sh build
 
 # Differential runs
 # -----------------

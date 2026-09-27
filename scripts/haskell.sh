@@ -4,6 +4,8 @@
 # The Haskell extraction (extraction/haskell), built into _build/haskell
 # with strings as String and as ByteString.
 #
+#   scripts/haskell.sh build   _build/haskell/djotv-string and
+#                              _build/haskell/djotv-bytestring
 #   scripts/haskell.sh diff    both variants against the test suite and
 #                              the generated documents, as `make diff`
 #   scripts/haskell.sh bench   wall time of both variants, the OCaml
@@ -34,6 +36,8 @@ build() {
 }
 
 case "${1:-}" in
+  build)
+    build ;;
   diff)
     build
     for v in string bytestring; do
@@ -51,6 +55,6 @@ case "${1:-}" in
       "djoths=$djoths" \
       "djotjs=node $PWD/test/djotjs/djotjs.mjs" ;;
   *)
-    echo "usage: scripts/haskell.sh diff|bench" >&2
+    echo "usage: scripts/haskell.sh build|diff|bench" >&2
     exit 2 ;;
 esac
