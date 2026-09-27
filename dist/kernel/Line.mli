@@ -176,4 +176,10 @@ val bullet : marker
 
 val colon : marker
 
+val callout_kind_ok : string -> bool
+
+val callout_fold_marker : callout_fold option -> string
+
+val callout_header_line : string -> callout_fold option -> string -> string
+
 val task_start : string -> bool

@@ -47,13 +47,9 @@ Local Fixpoint escape_attr (s : string) : string :=
 
 (* Rendered in source order, each as ` key="value"`, so that the empty
    attribute set contributes nothing to a tag. *)
-Local Definition render_attrs (tag : string) (a : attr) : string :=
+Local Definition render_attrs (a : attr) : string :=
   String.concat ""
-    (map (fun kv =>
-      if (String.eqb tag "details" && String.eqb (fst kv) "open"
-          && String.eqb (snd kv) "")%bool
-      then " open"
-      else " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
+    (map (fun kv => " " ++ fst kv ++ "=""" ++ escape_attr (snd kv) ++ """") a).
 
 (*
 The output tree
@@ -87,7 +83,7 @@ Inductive helt : Type :=
   | HElem (tag : string) (nls : nat) (attrs : attr) (kids : list helt).
 
 Local Definition open_tag (tag : string) (self : bool) (a : attr) : string :=
-  "<" ++ tag ++ render_attrs tag a ++ (if self then "/>" else ">").
+  "<" ++ tag ++ render_attrs a ++ (if self then "/>" else ">").
 
 (* Recursion on the element with the children walked by an inner `fix`,
    which is what the guard checker accepts through `list helt` -- a plain
@@ -2130,17 +2126,14 @@ Proof.
   rewrite concat_empty_cons, count_char_app, IH. reflexivity.
 Qed.
 
-Local Lemma render_attrs_no_lt : forall tag a,
-  attr_ok a = true -> count_char lt_char (render_attrs tag a) = 0.
+Local Lemma render_attrs_no_lt : forall a,
+  attr_ok a = true -> count_char lt_char (render_attrs a) = 0.
 Proof.
-  intros tag a. unfold render_attrs, attr_ok. rewrite count_char_concat.
+  intros a. unfold render_attrs, attr_ok. rewrite count_char_concat.
   induction a as [|kv a' IH]; intros H; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hk Ha].
   unfold no_lt in Hk. apply Nat.eqb_eq in Hk.
   cbn [map fold_right]. rewrite IH by exact Ha.
-  destruct (String.eqb tag "details" && String.eqb (fst kv) "open"
-    && String.eqb (snd kv) "")%bool;
-    [reflexivity|].
   rewrite !count_char_app, escape_attr_no_lt, Hk. reflexivity.
 Qed.
 
@@ -2226,7 +2219,7 @@ Proof.
   intros tag self a Ht Ha. unfold open_tag, no_lt in *.
   apply Nat.eqb_eq in Ht.
   cbn [count_char Ascii.eqb].
-  rewrite !count_char_app, Ht, (render_attrs_no_lt _ _ Ha).
+  rewrite !count_char_app, Ht, (render_attrs_no_lt _ Ha).
   destruct self; reflexivity.
 Qed.
 

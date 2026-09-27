@@ -764,7 +764,7 @@ Local Lemma parse_lines_quote_pad :
   forall pad, is_blank pad = true ->
   forall sep, classify sep = KBlank ->
   forall l lines tail,
-    (if bcallouts then callout_header l else None) = None ->
+    (quote_header l) = None ->
     parse_lines
       (map (fun x => pad ++ "> " ++ x)%string (l :: lines) ++ sep :: tail)%list
       (PPara [])
@@ -785,7 +785,7 @@ Qed.
 Theorem quote_uniformity_pad :
   forall pad, is_blank pad = true ->
   forall l lines,
-    (if bcallouts then callout_header l else None) = None ->
+    (quote_header l) = None ->
     parse_lines (map (fun x => pad ++ "> " ++ x)%string (l :: lines)) (PPara [])
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
 Proof.
@@ -828,7 +828,7 @@ Qed.
 
 Lemma parse_lines_quote :
   forall l lines tail,
-    (if bcallouts then callout_header l else None) = None ->
+    (quote_header l) = None ->
     parse_lines
       (map (fun x => ("> " ++ x)%string) (l :: lines) ++ EmptyString :: tail)%list
       (PPara [])
@@ -844,7 +844,7 @@ Qed.
     they would at top level.  One proof, every construct. *)
 Theorem quote_uniformity :
   forall l lines,
-    (if bcallouts then callout_header l else None) = None ->
+    (quote_header l) = None ->
     parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
 Proof.
@@ -854,7 +854,7 @@ Qed.
 
 Lemma parse_lines_callout :
   forall header lines tail kind fold title,
-    (if bcallouts then callout_header header else None) =
+    (quote_header header) =
       Some (kind, fold, title) ->
     parse_lines
       (map quote_line (header :: lines) ++ EmptyString :: tail)%list (PPara [])
@@ -879,7 +879,7 @@ Qed.
 
 Theorem callout_uniformity :
   forall header lines kind fold title,
-    (if bcallouts then callout_header header else None) =
+    (quote_header header) =
       Some (kind, fold, title) ->
     parse_lines (map quote_line (header :: lines)) (PPara []) =
       [mk (Ext_callout kind fold (callout_title (remember_line title))

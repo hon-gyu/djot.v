@@ -1546,6 +1546,12 @@ Definition open_quote (l : string) (descended : blocks * pstate)
   let (bs, inner) := descended in
   ([], PQuote (open_extent l (indent_of l)) None (rev bs) inner).
 
+(* The callout header a quote opener's content carries, when callouts are
+   on. *)
+Definition quote_header (rest : string)
+  : option (string * option callout_fold * string) :=
+  if bcallouts then callout_header rest else None.
+
 Definition open_callout (l kind : string) (fold : option callout_fold)
   (title : string) : blocks * pstate :=
   ([], PQuote (open_extent l (indent_of l))
@@ -1847,7 +1853,7 @@ Definition open_line (descend : string -> blocks * pstate)
   (ind : nat) (l : string) (k : line_kind) : blocks * pstate :=
   match k with
   | KQuote rest =>
-      match if bcallouts then callout_header rest else None with
+      match quote_header rest with
       | Some (kind, fold, title) => open_callout l kind fold title
       | None => open_quote l (descend rest)
       end
@@ -2782,7 +2788,7 @@ Proof.
           cbn [pad_state] in H; rewrite H.
         destruct (step_fuel n (off + consumed l rest) rest (PPara []))
           as [bs inner'] eqn:Ed.
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|];
           cbn [open_callout open_quote fst snd pad_state]; reflexivity. }
       { rewrite <- !Nat.add_assoc.
@@ -2832,7 +2838,7 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l rest) rest (PPara []))
         as [bs inner'] eqn:Ed.
-      destruct (if bcallouts then callout_header rest else None)
+      destruct (quote_header rest)
         as [[[kind fold] title]|];
         cbn [close_reopen open_callout open_quote fst snd pad_state];
         reflexivity. }
@@ -2971,7 +2977,7 @@ Proof.
         cbn [pad_state] in H; rewrite H.
       destruct (step_fuel n (off + consumed l rest) rest (PPara []))
         as [bs inner'] eqn:Ed.
-      destruct (if bcallouts then callout_header rest else None)
+      destruct (quote_header rest)
         as [[[kind fold] title]|];
         cbn [close_reopen open_callout open_quote fst snd pad_state];
         rewrite finish_pad_list; reflexivity. }
@@ -3272,7 +3278,7 @@ discharges via classify_quote_length. *)
 Lemma step_quote_open :
   forall l rest bs inner,
     classify l = KQuote rest ->
-    (if bcallouts then callout_header rest else None) = None ->
+    (quote_header rest) = None ->
     step rest (PPara []) = (bs, inner) ->
     step l (PPara [])
     = ([], PQuote (open_extent l (indent_of l)) None (rev bs)
@@ -3293,7 +3299,7 @@ Qed.
 Lemma step_callout_open :
   forall l rest kind fold title,
     classify l = KQuote rest ->
-    (if bcallouts then callout_header rest else None) =
+    (quote_header rest) =
       Some (kind, fold, title) ->
     step l (PPara []) =
       ([], PQuote (open_extent l (indent_of l))
@@ -3309,7 +3315,7 @@ Lemma step_quote_open_no_blocks :
 Proof.
   intros l rest H. unfold step. cbn [step_fuel open_line].
   rewrite H. cbn [open_line].
-  destruct (if bcallouts then callout_header rest else None)
+  destruct (quote_header rest)
     as [[[kind fold] title]|]; cbn [open_callout open_quote fst];
     try reflexivity.
   destruct (step_fuel (String.length l + pstate_depth (PPara []))
@@ -3804,7 +3810,7 @@ Qed.
 Lemma step_list_quote_close :
   forall l rest ls done inner bs inner',
     classify l = KQuote rest ->
-    (if bcallouts then callout_header rest else None) = None ->
+    (quote_header rest) = None ->
     list_takes ls 0 l inner = false ->
     step rest (PPara []) = (bs, inner') ->
     step l (PList ls done inner) =
@@ -3835,7 +3841,7 @@ Lemma step_list_quote_close_any :
       (finish (PList ls done inner), snd (step l (PPara []))).
 Proof.
   intros l rest ls done inner H Hind.
-  destruct (if bcallouts then callout_header rest else None)
+  destruct (quote_header rest)
     as [[[kind fold] title]|] eqn:E.
   - unfold step. cbn [step_fuel open_line pstate_depth].
     rewrite H, ?Nat.add_0_l, Hind, E.
@@ -4160,7 +4166,7 @@ Proof.
         destruct (@bdivs K); reflexivity. }
       { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
                 Nat.add_assoc, (Nat.add_comm off (String.length p)).
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|];
           rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
       { (* heading: opens at its marker *)
@@ -4212,7 +4218,7 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)).
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|];
           rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
@@ -4261,7 +4267,7 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)).
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|];
           rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
@@ -4315,7 +4321,7 @@ Proof.
       destruct (@bdivs K); reflexivity. }
     { rewrite (Hc rest ltac:(pose proof (classify_quote_length _ _ E); lia)),
               Nat.add_assoc, (Nat.add_comm off (String.length p)).
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|];
           rewrite ?(open_callout_ws_prefix p l _ _ _ Hp); reflexivity. }
     { (* heading: opens at its marker *)
@@ -4743,7 +4749,7 @@ Proof.
     try reflexivity.
   - unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct bdivs; reflexivity.
-  - destruct (if bcallouts then callout_header rest else None)
+  - destruct (quote_header rest)
       as [[[kind fold] title]|] eqn:E.
     { unfold StateErase.result, open_callout.
       cbn [fst snd StateErase.state StateErase.of_line option_map].

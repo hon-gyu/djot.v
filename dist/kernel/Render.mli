@@ -86,13 +86,7 @@ val heading_ok : bconfig -> int -> string list -> bool
 
 val quote_header_safe : dtable -> bconfig -> cblock list -> bool
 
-val callout_fold_eqb : callout_fold option -> callout_fold option -> bool
-
-val callout_header_source :
-  dtable -> string -> callout_fold option -> cinline list -> string
-
-val callout_header_ok :
-  dtable -> string -> callout_fold option -> cinline list -> bool
+val callout_title_ok : dtable -> cinline list -> bool
 
 val item_forces_loose : dtable -> bconfig -> cblock list -> bool
 

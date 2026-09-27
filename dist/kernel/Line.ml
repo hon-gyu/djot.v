@@ -1785,6 +1785,36 @@ let bullet =
 let colon =
   MBullet ':'
 
+(** val callout_kind_ok : string -> bool **)
+
+let callout_kind_ok kind =
+  (&&) (nonempty_str kind) (str_forallb callout_kind_char kind)
+
+(** val callout_fold_marker : callout_fold option -> string **)
+
+let callout_fold_marker = function
+| Some c -> (match c with
+             | FoldExpanded -> "+"
+             | FoldCollapsed -> "-")
+| None -> ""
+
+(** val callout_header_line :
+    string -> callout_fold option -> string -> string **)
+
+let callout_header_line kind fold title =
+  (^) "[!"
+    ((^) kind
+      ((^) "]"
+        ((^) (callout_fold_marker fold)
+          ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+             (fun _ -> "")
+             (fun _ _ -> (^) " " title)
+             title))))
+
 (** val task_start : string -> bool **)
 
 let task_start l =

@@ -310,11 +310,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CHeading lvl lss => map (heading_line lvl) (map ci_line lss)
   | CQuote inner => map quote_line (sep_lines (map cb_lines inner))
   | CCallout kind fold title inner =>
-      quote_line ("[!" ++ kind ++ "]" ++
-        (match fold with
-         | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
-         end) ++
-        (match title with [] => "" | _ => " " ++ ci_line title end))
+      quote_line (callout_header_line kind fold (ci_line title))
       :: map quote_line (sep_lines (map cb_lines inner))
   | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
   (* Each item's own lines, then the markers its kind supplies and the
@@ -523,35 +519,18 @@ Definition quote_header_safe (inner : list cblock) : bool :=
   match sep_lines (map cb_lines inner) with
   | [] => true
   | l :: _ =>
-      match (if bcallouts then callout_header l else None) with
+      match quote_header l with
       | None => true | Some _ => false
       end
   end.
 
-Definition callout_fold_eqb (a b : option callout_fold) : bool :=
-  match a, b with
-  | None, None | Some FoldExpanded, Some FoldExpanded
-  | Some FoldCollapsed, Some FoldCollapsed => true
-  | _, _ => false
-  end.
-
-Definition callout_header_source
-    (kind : string) (fold : option callout_fold) (title : list cinline)
-    : string :=
-  "[!" ++ kind ++ "]" ++
-    (match fold with
-     | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
-     end) ++
-    (match title with [] => "" | _ => " " ++ ci_line title end).
-
-Definition callout_header_ok
-    (kind : string) (fold : option callout_fold) (title : list cinline)
-    : bool :=
-  match callout_header (callout_header_source kind fold title) with
-  | Some (kind', fold', source) =>
-      String.eqb kind kind' && callout_fold_eqb fold fold'
-      && String.eqb source (ci_line title)
-  | None => false
+(* A callout title is what a one-line heading's content may be. *)
+Definition callout_title_ok (title : list cinline) : bool :=
+  match title with
+  | [] => true
+  | _ =>
+      line_ok (ci_line title)
+      && String.eqb (strip_trailing_ws (ci_line title)) (ci_line title)
   end.
 
 (* Tight/loose, on the item's lines rather than on its block tree.
@@ -911,14 +890,8 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
   | CQuote inner => inner_ok inner && cb_pairs_ok inner && quote_header_safe inner
   | CCallout kind fold title inner =>
-      bcallouts && callout_header_ok kind fold title
-      && no_nl (callout_header_source kind fold title)
-      && (match title with
-          | [] => true
-          | _ => heading_ok 1 [ci_line title]
-          end)
-      && cis_ok title
-      && divs_ok inner && cb_pairs_ok inner
+      bcallouts && callout_kind_ok kind && callout_title_ok title
+      && cis_ok title && divs_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
      contentless div in djot.js), so this is the one container
      without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
@@ -1029,9 +1002,7 @@ Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivit
 Lemma cb_ok_callout :
   forall kind fold title inner,
     cb_ok (CCallout kind fold title inner) =
-      (bcallouts && callout_header_ok kind fold title
-       && no_nl (callout_header_source kind fold title)
-       && (match title with [] => true | _ => heading_ok 1 [ci_line title] end)
+      (bcallouts && callout_kind_ok kind && callout_title_ok title
        && cis_ok title && forallb cb_ok inner && cb_pairs_ok inner)%bool.
 Proof. intros. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
@@ -1316,13 +1287,8 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
        map quote_line
          (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
    | Ext_callout kind fold title bs =>
-       let title_text := String.concat "" (text_lines title) in
-       let marker :=
-         match fold with
-         | None => "" | Some FoldExpanded => "+" | Some FoldCollapsed => "-"
-         end in
-       (quote_line ("[!" ++ kind ++ "]" ++ marker ++
-         (if String.eqb title_text "" then "" else " " ++ title_text))
+       (quote_line
+          (callout_header_line kind fold (String.concat " " (text_lines title)))
         :: map quote_line
           (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)))%list
    | Div bs =>

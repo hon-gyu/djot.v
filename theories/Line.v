@@ -2183,21 +2183,75 @@ Proof.
   cbn in H. discriminate.
 Qed.
 
-(* An alphanumeric run followed by something that is not: exactly what
-   `marker_shape` scans, so an ordered marker's core comes off whole and
-   the rest of the line survives untouched. *)
-Local Lemma take_while_alnum_app :
-  forall core rest,
-    str_forallb is_alnum core = true ->
-    match rest with String c _ => is_alnum c = false | EmptyString => True end ->
-    take_while is_alnum (core ++ rest) = (core, rest).
+(* A run of `p` characters followed by one that is not comes off whole,
+   leaving the rest untouched: an ordered marker's core in `marker_shape`,
+   a callout's kind in `callout_header`. *)
+Local Lemma take_while_all_app :
+  forall p s rest,
+    str_forallb p s = true ->
+    match rest with String c _ => p c = false | EmptyString => True end ->
+    take_while p (s ++ rest) = (s, rest).
 Proof.
-  induction core as [|c core IH]; intros rest Hcore Hrest.
+  intros p. induction s as [|c s IH]; intros rest Hs Hrest.
   - destruct rest as [|c r]; [reflexivity|].
     cbn [take_while append]. rewrite Hrest. reflexivity.
-  - cbn [str_forallb] in Hcore. apply andb_true_iff in Hcore as [Hc Hcore].
-    change ((String c core) ++ rest)%string with (String c (core ++ rest))%string.
-    cbn [take_while]. rewrite Hc, (IH rest Hcore Hrest). reflexivity.
+  - cbn [str_forallb] in Hs. apply andb_true_iff in Hs as [Hc Hs].
+    change ((String c s) ++ rest)%string with (String c (s ++ rest))%string.
+    cbn [take_while]. rewrite Hc, (IH rest Hs Hrest). reflexivity.
+Qed.
+
+(* The canonical callout header: the fold marker directly after `]`, then
+   one space before a nonempty title. *)
+Definition callout_kind_ok (kind : string) : bool :=
+  (nonempty_str kind && str_forallb callout_kind_char kind)%bool.
+
+Definition callout_fold_marker (fold : option callout_fold) : string :=
+  match fold with
+  | None => ""
+  | Some FoldExpanded => "+"
+  | Some FoldCollapsed => "-"
+  end.
+
+Definition callout_header_line
+  (kind : string) (fold : option callout_fold) (title : string) : string :=
+  "[!" ++ kind ++ "]" ++ callout_fold_marker fold
+  ++ match title with EmptyString => "" | _ => " " ++ title end.
+
+Lemma callout_header_line_inv :
+  forall kind fold title,
+    callout_kind_ok kind = true -> drop_leading_ws title = title ->
+    callout_header (callout_header_line kind fold title)
+    = Some (kind, fold, title).
+Proof.
+  intros kind fold title Hk Ht.
+  unfold callout_kind_ok in Hk. apply andb_true_iff in Hk as [Hne Hk].
+  unfold callout_header_line, callout_header. cbn [append Ascii.eqb Bool.eqb andb].
+  rewrite (take_while_all_app callout_kind_char kind (String "]" _) Hk eq_refl).
+  destruct kind as [|c k]; [discriminate Hne|].
+  destruct fold as [[|]|]; cbn [callout_fold_marker append];
+    destruct title as [|t title]; cbn [callout_sep Ascii.eqb Bool.eqb orb];
+    rewrite ?Ht; reflexivity.
+Qed.
+
+Lemma callout_header_line_no_nl :
+  forall kind fold title,
+    callout_kind_ok kind = true -> no_nl title = true ->
+    no_nl (callout_header_line kind fold title) = true.
+Proof.
+  intros kind fold title Hk Ht.
+  unfold callout_kind_ok in Hk. apply andb_true_iff in Hk as [_ Hk].
+  assert (Hkind : no_nl kind = true).
+  { induction kind as [|c k IH]; [reflexivity|].
+    cbn [str_forallb] in Hk. apply andb_true_iff in Hk as [Hc Hk].
+    cbn [no_nl]. rewrite (IH Hk), andb_true_r.
+    destruct (Ascii.eqb c "010") eqn:E; [|reflexivity].
+    apply Ascii.eqb_eq in E. subst c. discriminate Hc. }
+  unfold callout_header_line.
+  rewrite !no_nl_append. cbn [no_nl Ascii.eqb Bool.eqb negb andb].
+  rewrite Hkind.
+  destruct fold as [[|]|]; destruct title as [|t title];
+    cbn [callout_fold_marker no_nl append Ascii.eqb Bool.eqb negb andb];
+    try reflexivity; exact Ht.
 Qed.
 
 (* An alphanumeric character is none of the characters the recognizers
@@ -2382,7 +2436,7 @@ Proof.
     cbn [mk_sty mk_core mk_open].
     (* The two suffix forms share a script: expose the core's first
        character so `marker_shape` takes its non-paren branch, then let
-       `take_while_alnum_app` hand the core back whole.  The enclosed
+       `take_while_all_app` hand the core back whole.  The enclosed
        form starts with "(" and takes the other branch, where the core is
        already positioned for the same lemma. *)
     destruct d; rewrite append_assoc.
@@ -2394,7 +2448,7 @@ Proof.
       cbn [marker_shape]. rewrite (is_alnum_not_paren c0 Hc0).
       change (String c0 (core' ++ ". " ++ l))%string
         with ((String c0 core') ++ (String "." (String " " l)))%string.
-      rewrite (take_while_alnum_app (String c0 core') (String "." (String " " l))
+      rewrite (take_while_all_app is_alnum (String c0 core') (String "." (String " " l))
                  (ltac:(cbn [str_forallb]; rewrite Hc0, Hal'; reflexivity)) eq_refl).
       cbn beta iota. rewrite ?Ascii.eqb_refl. cbn beta iota match.
       destruct (styles_of_core (String c0 core') RightPeriod) eqn:Es;
@@ -2408,7 +2462,7 @@ Proof.
       cbn [marker_shape]. rewrite (is_alnum_not_paren c0 Hc0).
       change (String c0 (core' ++ ") " ++ l))%string
         with ((String c0 core') ++ (String ")" (String " " l)))%string.
-      rewrite (take_while_alnum_app (String c0 core') (String ")" (String " " l))
+      rewrite (take_while_all_app is_alnum (String c0 core') (String ")" (String " " l))
                  (ltac:(cbn [str_forallb]; rewrite Hc0, Hal'; reflexivity)) eq_refl).
       cbn beta iota.
       change ((")" =? ".")%char) with false. rewrite ?Ascii.eqb_refl.
@@ -2425,7 +2479,7 @@ Proof.
       cbn [marker_shape].
       change (("(" =? "(")%char) with true.
       cbn beta iota match.
-      rewrite (take_while_alnum_app core (String ")" (String " " l)) Hal eq_refl).
+      rewrite (take_while_all_app is_alnum core (String ")" (String " " l)) Hal eq_refl).
       cbn beta iota.
       change ((")" =? ")")%char) with true.
       cbn beta iota match.

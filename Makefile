@@ -66,7 +66,7 @@ roundtrip-wikilinks: build  ## Wikilink extension
 	dune exec test/roundtrip.exe -- $(VERBOSE) --wiki 2
 
 roundtrip-callouts: build  ## Callout extension
-	dune exec test/roundtrip.exe -- $(VERBOSE) --callouts 1
+	dune exec test/roundtrip.exe -- $(VERBOSE) --callouts 3
 
 # Other checks
 # ------------

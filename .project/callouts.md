@@ -97,15 +97,17 @@ exactly the first eight rows of section 1 and their variations, which is
 narrower than [[wikilinks]] section 2 could claim, since a callout has
 to be the first thing on the first line of a quote.
 
-**The canonical renderer needs no change to make this safe.** A
-canonical `Str` already escapes `[`, `!` and `]`, so a quote whose first
-paragraph is the text `[!note] T` renders as `> \[\!note\] T` (checked
-2026-09-23) and comes back as a paragraph with either setting. The other
-constructs whose spelling begins with `[` are covered by section 3.2 and
-3.3: a link, span or reference link whose text begins with an image
-spells `[![`, a wikilink `[[`, a footnote reference `[^`, and none of
-those is `[!` followed by a kind character. Section 6 states this as a
-claim to check, not as a fact.
+**The canonical view excludes the collision rather than proving it
+absent.** A canonical `Str` already escapes `[`, `!` and `]`, so a quote
+whose first paragraph is the text `[!note] T` renders as
+`> \[\!note\] T` (checked 2026-09-23) and comes back as a paragraph
+with either setting. The other constructs whose spelling begins with `[`
+are covered by section 3.2 and 3.3: a link, span or reference link
+whose text begins with an image spells `[![`, a wikilink `[[`, a
+footnote reference `[^`, and none of those is `[!` followed by a kind
+character. That argument is checked by a finite probe, not proved, so a
+canonical quote also requires that its first rendered line is not a
+header (section 6).
 
 ## 3. The syntax
 
@@ -239,7 +241,7 @@ marker. Without one:
 ```
 
 With `+` the outer element is `<details class="callout"
-data-callout="note" open>` and the title element is `<summary
+data-callout="note" open="">` and the title element is `<summary
 class="callout-title">`; with `-` the same without `open`.
 
 `data-callout` is the kind as written. An empty title renders no title
@@ -257,9 +259,9 @@ quote's body is written. There is one spelling, so the choice is forced.
 
 The conditions on a canonical callout:
 
-- the kind is nonempty and within 3.2's alphabet;
+- the kind is nonempty and within 3.2's alphabet (`callout_kind_ok`);
 - the title is what a one-line heading's content may be: no line break,
-  no leading or trailing whitespace;
+  no leading or trailing whitespace (`callout_title_ok`);
 - the body satisfies what a canonical quote's contents satisfy.
 
 **No condition on anything else for a callout.** An ordinary canonical
@@ -326,6 +328,10 @@ after the quote prefix and returns an optional kind, fold marker
 and raw title suffix. It retains trailing whitespace for located parsing; the
 title value is trimmed at close. `callout_header_other_prefix` proves it
 answers `None` on every string beginning with anything but `[!`.
+`callout_header_line` is the canonical spelling, shared by the canonical
+view and the source renderer, and `callout_header_line_inv` proves the
+recognizer reads it back. `Step.quote_header` applies the recognizer
+only when the setting is on.
 
 **No new parser state.** `PQuote` gains a header field. The only
 transition that reads it is the quote opener: where `open_quote` today
@@ -455,7 +461,7 @@ Checkpoint (2026-09-27): all eight stages are implemented. The existing
 default-profile examples and enabled examples in `dev/check/Callout.v`
 compile; the latter cover nested and lazy bodies, invalid suffixes,
 blank closure, inline titles, list and keyed nesting, block attributes,
-folded HTML with a bare `open` attribute, and an empty title. The
+folded HTML with an `open` attribute, and an empty title. The
 state transition and uniformity theorems compile, and
 `callout_uniformity` and `roundtrip_blocks` have no additional
 assumptions. `dune build`, `make check-dist`, the standalone `dist`

@@ -239,10 +239,10 @@ Definition callout_doc (source : string) : doc :=
   @parse_doc (DTable djot_config eq_refl)
     (with_callouts true djot_bconfig) semantic_pos source.
 
-Example folded_html_has_bare_open :
+Example expanded_html_is_open :
   render_html (callout_doc "> [!note]+ T
 > body") =
-    "<details class=""callout"" data-callout=""note"" open>
+    "<details class=""callout"" data-callout=""note"" open="""">
 <summary class=""callout-title"">T</summary>
 <div class=""callout-content"">
 <p>body</p>

@@ -2775,7 +2775,7 @@ Proof.
       * (* KQuote: descend into the enclosed line *)
         destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|].
         -- cbn [open_callout fst snd state_wf]. split; reflexivity.
         -- cbn [open_quote fst snd] in Hb, Hs |- *.
@@ -2850,7 +2850,7 @@ Proof.
     4: { (* quote: close the heading, then descend *)
       destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
-      destruct (if bcallouts then callout_header rest else None)
+      destruct (quote_header rest)
         as [[[kind fold] title]|].
       - cbn [close_reopen open_callout finish app fst snd]; nopos.
         split; [exact Hhb|reflexivity].
@@ -3121,7 +3121,7 @@ Proof.
       - destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner'].
         cbn [fst snd] in Hb, Hs.
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|].
         + cbn [close_reopen open_callout fst snd]. split.
           * rewrite app_nil_r. apply finish_wf. exact H.
@@ -3716,7 +3716,7 @@ Proof.
           split; reflexivity.
       * destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
-        destruct (if bcallouts then callout_header rest else None)
+        destruct (quote_header rest)
           as [[[kind fold] title]|].
         -- cbn [open_callout fst snd state_supported]. split; reflexivity.
         -- cbn [close_reopen open_quote finish app fst snd] in Hb, Hs |- *; nopos.
@@ -3780,7 +3780,7 @@ Proof.
          rewrite Hob. split; [reflexivity | exact Hos]. }
     4: { destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
          destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner].
-         destruct (if bcallouts then callout_header rest else None)
+         destruct (quote_header rest)
            as [[[kind fold] title]|].
          - cbn [close_reopen open_callout finish app fst snd]; nopos.
            split; reflexivity.
@@ -4015,7 +4015,7 @@ Proof.
          - destruct (IH (off + consumed l rest) rest (PPara []) eq_refl) as [Hb Hs].
            destruct (step_fuel n (off + consumed l rest) rest (PPara [])) as [bs inner'].
            cbn [fst snd] in Hb, Hs.
-           destruct (if bcallouts then callout_header rest else None)
+           destruct (quote_header rest)
              as [[[kind fold] title]|].
            + cbn [close_reopen open_callout fst snd]. split.
              * rewrite app_nil_r. apply finish_supported. exact H.
