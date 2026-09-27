@@ -152,9 +152,9 @@ let marker_core pre =
         (str_forallb is_roman_lo pre))
       (str_forallb is_roman_up pre))
 
-(** val bare_ok : string -> char -> string -> bool **)
+(** val bare_ok : bool -> string -> char -> string -> bool **)
 
-let bare_ok pre c rest =
+let bare_ok at_end pre c rest =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -167,7 +167,11 @@ let bare_ok pre c rest =
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-      (fun _ -> false)
+      (fun _ ->
+      (&&) at_end
+        ((||)
+          ((||) ((&&) ((=) c period) (negb (marker_core pre))) ((=) c bang))
+          ((=) c hyphen)))
       (fun d _ ->
       (||)
         ((||)
@@ -178,9 +182,9 @@ let bare_ok pre c rest =
       rest)
     pre
 
-(** val escape_from : dtable -> string -> string -> string **)
+(** val escape_from : dtable -> bool -> string -> string -> string **)
 
-let rec escape_from t pre s =
+let rec escape_from t at_end pre s =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -188,7 +192,7 @@ let rec escape_from t pre s =
 
     (fun _ -> "")
     (fun c rest ->
-    if (&&) (needs_escape t c) (negb (bare_ok pre c rest))
+    if (&&) (needs_escape t c) (negb (bare_ok at_end pre c rest))
     then (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -197,7 +201,7 @@ let rec escape_from t pre s =
   (fun (c, s) -> String.make 1 c ^ s)
 
            (c,
-           (escape_from t
+           (escape_from t at_end
              ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -206,7 +210,7 @@ let rec escape_from t pre s =
   (fun (c, s) -> String.make 1 c ^ s)
 
            (c,
-           (escape_from t
+           (escape_from t at_end
              ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -216,7 +220,7 @@ let rec escape_from t pre s =
 (** val escape_str : dtable -> string -> string **)
 
 let escape_str t s =
-  escape_from t "" s
+  escape_from t false "" s
 
 (** val escape_dest : dtable -> string -> string **)
 
@@ -615,10 +619,22 @@ let rec ci_text t = function
 | [] -> ""
 | ci :: rest -> (^) (ci_src t ci) (ci_text t rest)
 
+(** val ci_text_at : dtable -> bool -> cinline list -> string **)
+
+let rec ci_text_at t at_end = function
+| [] -> ""
+| ci :: rest ->
+  (match ci with
+   | CIStr s ->
+     (match rest with
+      | [] -> escape_from t at_end "" s
+      | _ :: _ -> (^) (ci_src t ci) (ci_text_at t at_end rest))
+   | _ -> (^) (ci_src t ci) (ci_text_at t at_end rest))
+
 (** val ci_line : dtable -> cinline list -> string **)
 
-let ci_line =
-  ci_text
+let ci_line t cis =
+  ci_text_at t true cis
 
 (** val ci_ast : cinline -> inline node **)
 
@@ -825,6 +841,15 @@ let rec inline_text t il =
 
        (bslash, (one '\n')))
 
+(** val line_ends : inlines -> bool **)
+
+let line_ends = function
+| [] -> true
+| n :: _ ->
+  let Node (_, _, x) = n in (match x with
+                             | SoftBreak -> true
+                             | _ -> false)
+
 (** val inline_lines : dtable -> inlines -> string -> string list **)
 
 let rec inline_lines t ils cur =
@@ -835,6 +860,8 @@ let rec inline_lines t ils cur =
     (match a with
      | [] ->
        (match il with
+        | Str s ->
+          inline_lines t rest ((^) cur (escape_from t (line_ends rest) "" s))
         | SoftBreak -> cur :: (inline_lines t rest "")
         | HardBreak -> ((^) cur (one bslash)) :: (inline_lines t rest "")
         | _ -> inline_lines t rest ((^) cur (inline_text t il)))

@@ -182,7 +182,7 @@ let rec cb_lines t cb =
    | CTable rows -> flat_map (ctrow_lines t) rows
    | CId (id, inner) -> ((^) "{#" ((^) id "}")) :: (cb_lines t inner)
    | CKey (label, inner) ->
-     key_lines t (ci_line t (label :: []))
+     key_lines t (ci_text t (label :: []))
        (match inner with
         | CPara _ -> true
         | _ -> false)
@@ -420,7 +420,7 @@ let ctrow_ok t r =
 (** val ckey_label_ok : dtable -> cinline -> bool **)
 
 let ckey_label_ok t label =
-  let src = ci_line t (label :: []) in
+  let src = ci_text t (label :: []) in
   let l = (^) src ":" in
   (&&)
     ((&&) ((&&) ((&&) (cis_ok t (label :: [])) (line_ok l)) (is_text l))
