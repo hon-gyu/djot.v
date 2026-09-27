@@ -1,6 +1,6 @@
 .PHONY: help build doc build-djotjs diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts \
-        check-spans bench probe-lemmas dist check-dist copy-parser
+        check-spans bench probe-lemmas dist check-dist dist-branch copy-parser
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -103,6 +103,14 @@ check-dist: build  ## Fail if dist/kernel is behind the extraction
 	  diff -r --exclude=dune dist/kernel $$tmp | head -20; rm -rf $$tmp; \
 	  echo "dist/kernel is stale: run make dist"; exit 1; \
 	fi
+
+# The ocaml branch holds dist/ at its root, for consumers that vendor the
+# package as a git submodule.
+# do `git push origin ocaml` to update the remote branch.
+dist-branch:  ## Update the ocaml branch from dist/ at HEAD
+	@git subtree split --prefix=dist --branch=ocaml -q >/dev/null
+	@echo "local ocaml branch:  `git rev-parse --short ocaml`"
+	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify origin/ocaml || echo none`"
 
 # Helper for dist and check-dist: copy the extracted modules, minus the
 # test-only Fixtures and Generate, into directory DEST.
