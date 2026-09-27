@@ -307,7 +307,7 @@ type ordered_list_delim =
 | LeftRightParen
 
 type ordered_list_attributes = { ol_style : ordered_list_style;
-                                 ol_delim : ordered_list_delim; ol_start : 
+                                 ol_delim : ordered_list_delim; ol_start :
                                  int }
 
 type task_status =

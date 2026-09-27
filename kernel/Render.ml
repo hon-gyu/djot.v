@@ -629,7 +629,7 @@ let rec render_lines t k a b =
     | [] -> []
     | it :: rest ->
       (sep_lines
-        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it)) :: 
+        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it)) ::
         (goitems rest)
     in goitems
   in
@@ -640,7 +640,7 @@ let rec render_lines t k a b =
       let (chk, it) = p in
       (chk,
       (sep_lines
-        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it))) :: 
+        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it))) ::
       (gotasks rest)
     in gotasks
   in
