@@ -3,6 +3,7 @@ open Ast
 open Attributes
 open Datatypes
 open InlineTable
+open Line
 open List0
 open ListDef
 open Strings
@@ -139,9 +140,47 @@ let needs_escape t c =
 let needs_escape_dest t c =
   (||) ((||) (needs_escape t c) ((=) c lparen)) ((=) c rparen)
 
-(** val escape_str : dtable -> string -> string **)
+(** val marker_core : string -> bool **)
 
-let rec escape_str t s =
+let marker_core pre =
+  (&&) (nonempty_str pre)
+    ((||)
+      ((||)
+        ((||) (str_forallb is_digit pre)
+          ((&&) (( = ) (String.length pre) (Stdlib.succ 0))
+            (str_forallb is_alnum pre)))
+        (str_forallb is_roman_lo pre))
+      (str_forallb is_roman_up pre))
+
+(** val bare_ok : string -> char -> string -> bool **)
+
+let bare_ok pre c rest =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> false)
+    (fun _ _ ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ -> false)
+      (fun d _ ->
+      (||)
+        ((||)
+          ((&&) ((&&) ((=) c period) (negb ((=) d period)))
+            (negb ((&&) (marker_core pre) ((=) d ' '))))
+          ((=) c bang))
+        ((&&) ((=) c hyphen) (negb ((=) d hyphen))))
+      rest)
+    pre
+
+(** val escape_from : dtable -> string -> string -> string **)
+
+let rec escape_from t pre s =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -149,7 +188,7 @@ let rec escape_str t s =
 
     (fun _ -> "")
     (fun c rest ->
-    if needs_escape t c
+    if (&&) (needs_escape t c) (negb (bare_ok pre c rest))
     then (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -157,12 +196,27 @@ let rec escape_str t s =
            ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, (escape_str t rest))))
+           (c,
+           (escape_from t
+             ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+             (c, pre)) rest))))
     else (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, (escape_str t rest)))
+           (c,
+           (escape_from t
+             ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+             (c, pre)) rest)))
     s
+
+(** val escape_str : dtable -> string -> string **)
+
+let escape_str t s =
+  escape_from t "" s
 
 (** val escape_dest : dtable -> string -> string **)
 
