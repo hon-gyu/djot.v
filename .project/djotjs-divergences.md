@@ -1936,3 +1936,29 @@ the rule's row stays at its examples until this is decided.
 **Verdict: open.** Either `djotjs-bug` (the reference is the intent and
 the arming is an artifact of where djot.js tests for a blank line), or a
 `SPEC-GAP` to report upstream. Not decided here.
+
+## 2026-09-28 -- djotjs-bug: a blank before a nested list or an empty last item does not loosen
+
+| Input | djot.js and ours | The reference |
+| --- | --- | --- |
+| `- a` / blank / `- - b` | tight | loose: the blank is between items, not at the start or end of a list |
+| `- a` / blank / `-` | tight | loose, as above |
+| `- a` / blank / `-` / `- b` | loose | loose |
+
+Both are reported upstream as jgm/djot.js#45, where jgm calls them a bug
+and notes that djot.lua gives the loose reading.
+
+The first row reverses "a blank before an item that opens a list"
+(2026-08-10), which matched djot.js on purpose by adding `starts_list`
+to `list_next` (Step.v) and to `seps_loosen` and `list_loose_of`
+(ListUniformity.v). The 2026-08-09 corpus entry had argued the loose
+reading from the reference and the rationale; the fix a day later
+overrode it.
+
+The second row is a different cause and not yet traced. The blank does
+loosen when another item follows the empty one (third row), so the
+blank before an empty last item seems to be read as a blank at the end
+of the list.
+
+**Verdict: `djotjs-bug`, ours to fix.** Neither shape is in the
+reference's examples; the coverage file's LS4 row records them.
