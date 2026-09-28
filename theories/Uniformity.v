@@ -840,13 +840,18 @@ Proof.
            (classify_blank EmptyString eq_refl) l lines tail Hheader).
 Qed.
 
- (** Uniformity for block quotes: a quote's contents parse exactly as
+(** Uniformity for block quotes: a quote's contents parse exactly as
     they would at top level.  One proof, every construct. *)
 Theorem quote_uniformity :
-  forall (l : string) (lines : list string),
-    (quote_header l) = None ->
+    forall (l : string) (lines : list string),
+    (* for non-empty list of lines (l :: lines) *)
+    (quote_header l) = None 
+    (* exclude callouts when callouts are on *)
+    ->
     parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
+    (* LHS: add [> ] prefix to every line, then parse the result as a document *)
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+    (* RHS: parse the lines as a document, then wrap in a BlockQuote *)
 Proof.
   intros l lines Hheader.
   exact (quote_uniformity_pad EmptyString eq_refl l lines Hheader).

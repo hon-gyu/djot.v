@@ -1569,7 +1569,7 @@ Definition open_quote (l : string) (descended : blocks * pstate)
   let (bs, inner) := descended in
   ([], PQuote (open_extent l (indent_of l)) None (rev bs) inner).
 
-(* The callout header a quote opener's content carries, when callouts are
+(** The callout header a quote opener's content carries, when callouts are
    on. *)
 Definition quote_header (rest : string)
   : option (string * option callout_fold * string) :=
