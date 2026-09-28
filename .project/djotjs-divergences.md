@@ -1916,3 +1916,23 @@ reference does not say which reading wins then. Both engines take roman.
 
 **Verdict: `SPEC-GAP`, ours stands.** Pinned by `ordered_v_paren` in
 `dev/check/Reference.v`.
+
+## 2026-09-28 -- open: a div's closing fence loosens a list, against the reference
+
+| Input | djot.js and ours | The reference |
+| --- | --- | --- |
+| `- :::` / `  a` / `  :::` / `- c` | loose (`<p>c</p>`) | tight: "A list is classed as *tight* if it does not contain blank lines between items, or between blocks inside an item" |
+
+No line of the input is blank. djot.js decides blankness after the
+container closers have consumed the line (`block.ts:1051`), so a `:::`
+that closes a div counts as a blank line; this was matched on purpose in
+"Fixed: a div's closing line arms the enclosing list" (2026-08-09
+section above), which compared against djot.js only.
+
+Found while auditing the reference's tightness rule. A theorem stating
+that rule as written would be false of our parser for this shape, so
+the rule's row stays at its examples until this is decided.
+
+**Verdict: open.** Either `djotjs-bug` (the reference is the intent and
+the arming is an artifact of where djot.js tests for a blank line), or a
+`SPEC-GAP` to report upstream. Not decided here.

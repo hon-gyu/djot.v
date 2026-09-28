@@ -152,7 +152,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`; `list_style_change` | Only the first half: same-type items make one list.  That a change splits it has only the example. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule. |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule.  A div's closing fence also loosens the list, against the reference: open entry, 2026-09-28. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
 Heading, block quote, list item, list: T 11, T~ 7, E 1, n/a 1.
@@ -245,11 +245,11 @@ Container and continuation rules:
 
 List and table structure:
 
-5. **LS4 tightness**, stated from the reference's wording (blank lines
-   between items or between an item's blocks; leading and trailing blanks
-   do not count) and proved equal to `list_spacing_of`.  The 2026-08-09
-   entries on nested-list trailing blanks are where the wording is
-   delicate.
+5. Blocked: **LS4 tightness**.  The reference's wording is false of our
+   parser and of djot.js: a div's closing fence counts as a blank line,
+   so `- :::` / `  a` / `  :::` / `- c` is loose with no blank line in it
+   (open entry, 2026-09-28, in `djotjs-divergences.md`).  Which behaviour
+   is intended has to be decided before the rule can be stated.
 6. **LS1 the split half**: two adjacent items of different types never
    share a list.
 7. **PT3 header regime**: a separator makes the previous row a header,
