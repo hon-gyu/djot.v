@@ -3384,6 +3384,47 @@ Proof.
   destruct k; try discriminate; rewrite Hlz; rewrite Ho; reflexivity.
 Qed.
 
+(* The same for every kind but a quote line: the line closes the quote
+   and then does what it does at idle. *)
+Lemma step_quote_close_any :
+  forall l range header done inner,
+    (forall r, classify l <> KQuote r) ->
+    is_lazy (classify l) inner = false ->
+    step l (PQuote range header done inner) =
+    ((finish (PQuote range header done inner) ++ fst (step l (PPara [])))%list,
+     snd (step l (PPara []))).
+Proof.
+  intros l range header done inner Hq Hlz.
+  unfold step. cbn [step_fuel pstate_depth]. rewrite Nat.add_0_r.
+  destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|]
+    eqn:E; cbn [is_lazy] in Hlz |- *; try rewrite Hlz.
+  all: try (exfalso; eapply Hq; reflexivity).
+  all: unfold close_reopen.
+  all: try (rewrite !open_line_direct by reflexivity;
+            destruct (open_kind l _); reflexivity).
+  all: cbn [open_line]; rewrite ?Nat.add_0_l.
+  all: try (match goal with |- context [open_fence ?a ?b ?c] =>
+              destruct (open_fence a b c); reflexivity end).
+  all: try (match goal with |- context [open_attr ?a ?b ?c ?d ?e] =>
+              destruct (open_attr a b c d e); reflexivity end).
+  all: try (match goal with |- context [open_ref ?a ?b ?c ?d] =>
+              destruct (open_ref a b c d); reflexivity end).
+  (* the two that descend: the residue is shorter than the line, so the
+     quote's fuel and the idle state's are both enough *)
+  - pose proof (configured_list_rest_length _ _ _ _ _ E) as Hlen.
+    rewrite (step_fuel_enough_off (String.length l + S (pstate_depth inner)))
+      by (cbn [pstate_depth]; lia).
+    rewrite (step_fuel_enough_off (String.length l)) by (cbn [pstate_depth]; lia).
+    match goal with |- context [open_list ?a ?b ?c ?d ?e] =>
+      destruct (open_list a b c d e); reflexivity end.
+  - pose proof (classify_foot_length _ _ _ E) as Hlen.
+    rewrite (step_fuel_enough_off (String.length l + S (pstate_depth inner)))
+      by (cbn [pstate_depth]; lia).
+    rewrite (step_fuel_enough_off (String.length l)) by (cbn [pstate_depth]; lia).
+    match goal with |- context [open_foot ?a ?b ?c ?d] =>
+      destruct (open_foot a b c d); reflexivity end.
+Qed.
+
 (*
 An open div
 -----------
@@ -3953,6 +3994,69 @@ Proof.
   destruct (Nat.leb off ind) eqn:E.
   - apply Nat.leb_le. apply Nat.leb_le in E. lia.
   - apply Nat.leb_gt. apply Nat.leb_gt in E. lia.
+Qed.
+
+(* The empty line reads a column only to compare it with one the state
+   records, and `pad_state k` puts every such column at `k` or further
+   right, past both offsets: a bare `>` and `> ` hand the line down to
+   the same effect. *)
+Lemma step_fuel_empty_off :
+  forall n k off off' st, off <= k -> off' <= k ->
+    step_fuel n off "" (pad_state k st) = step_fuel n off' "" (pad_state k st).
+Proof.
+  induction n as [|n IH]; intros k off off' st H H'; [reflexivity|].
+  destruct st; cbn [step_fuel pad_state].
+  all: replace (classify "") with KBlank by reflexivity.
+  all: try replace (bunderline_of "") with (@None nat)
+         by (unfold bunderline_of; destruct (@bunderline K); reflexivity).
+  all: rewrite ?(IH k off off' _ H H'); try reflexivity.
+  - (* a fence keeps the line, and there is nothing in it to drop *)
+    destruct (fence_close f ""); [reflexivity|].
+    destruct (k + ind - off), (k + ind - off'); reflexivity.
+  - (* an attribute spec: neither offset reaches its column *)
+    replace (indent_of "") with 0 by reflexivity.
+    replace (k + ind <? off + 0)%nat with false
+      by (symmetry; apply Nat.ltb_ge; lia).
+    replace (k + ind <? off' + 0)%nat with false
+      by (symmetry; apply Nat.ltb_ge; lia).
+    destruct (ap_done ap); [|reflexivity].
+    change (PPend (Attr.merge (ap_attrs ap) pend) (specs ++ [extent_span range])
+              (PPara []))
+      with (pad_state k (PPend (Attr.merge (ap_attrs ap) pend)
+                           (specs ++ [extent_span range]) (PPara []))).
+    apply IH; assumption.
+  - (* a reference definition: likewise *)
+    replace (indent_of "") with 0 by reflexivity.
+    replace (k + ind <? off + 0)%nat with false
+      by (symmetry; apply Nat.ltb_ge; lia).
+    replace (k + ind <? off' + 0)%nat with false
+      by (symmetry; apply Nat.ltb_ge; lia).
+    change (PPara []) with (pad_state k (PPara [])).
+    rewrite (IH k off off' (PPara []) H H'). reflexivity.
+Qed.
+
+(* A quote line with nothing after its `>` reads the same with or without
+   the space. *)
+Lemma step_quote_bare :
+  forall range header done inner,
+    step ">" (PQuote range header done (pad_state quote_pad inner))
+    = step "> " (PQuote range header done (pad_state quote_pad inner)).
+Proof.
+  intros range header done inner.
+  unfold step. cbn [step_fuel String.length].
+  replace (classify ">") with (KQuote "") by reflexivity.
+  replace (classify "> ") with (KQuote "") by reflexivity.
+  replace (consumed ">" "") with 1 by reflexivity.
+  replace (consumed "> " "") with 2 by reflexivity.
+  rewrite (step_fuel_enough_off
+             (1 + pstate_depth (PQuote range header done (pad_state quote_pad inner))))
+    by (cbn [String.length pstate_depth]; lia).
+  rewrite (step_fuel_enough_off
+             (2 + pstate_depth (PQuote range header done (pad_state quote_pad inner))))
+    by (cbn [String.length pstate_depth]; lia).
+  rewrite (step_fuel_empty_off _ quote_pad (0 + 1) (0 + 2) inner
+             ltac:(cbv; lia) ltac:(cbv; lia)).
+  reflexivity.
 Qed.
 
 (* A lazy line's pad is dropped wherever the line comes to rest -- the

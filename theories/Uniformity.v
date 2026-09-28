@@ -979,6 +979,128 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
+(* How a line `x` of a quote's contents may be written: `> x`, or a bare
+   `>` when `x` is empty, as in the reference's `>` between two
+   paragraphs of a quote. *)
+Inductive quote_spelling : string -> string -> Prop :=
+  | QSpace : forall x, quote_spelling x ("> " ++ x)
+  | QBare : quote_spelling "" ">".
+
+Local Lemma parse_lines_quote_bare :
+  forall lines qs range header done inner,
+    Forall2 quote_spelling lines qs ->
+    parse_lines qs (PQuote range header done (pad_state quote_pad inner))
+    = parse_lines (map (fun x => ("> " ++ x)%string) lines)
+        (PQuote range header done (pad_state quote_pad inner)).
+Proof.
+  intros lines qs range header done inner H. revert range header done inner.
+  induction H as [|x q lines qs Hx Hrest IH]; intros range header done inner;
+    [reflexivity|].
+  destruct (step x inner) as [bs inner'] eqn:Es.
+  assert (Esh : step_at (consumed ("" ++ "> " ++ x) x) x
+                  (pad_state (String.length "" + quote_pad) inner)
+                = (bs, pad_state (String.length "" + quote_pad) inner')).
+  { rewrite consumed_quote_prefix_pad.
+    rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
+    rewrite step_at_shift, step_at_zero, Es. reflexivity. }
+  pose proof (step_quote_cont _ _ range header done _ _ _
+                (classify_canonical_quote_pad "" x eq_refl) Esh) as Hc.
+  cbn [map].
+  assert (Hq : step q (PQuote range header done (pad_state quote_pad inner))
+               = step ("> " ++ x) (PQuote range header done (pad_state quote_pad inner))).
+  { destruct Hx; [reflexivity|].
+    apply step_quote_bare. }
+  rewrite (parse_lines_step _ _ _ _ _ (eq_trans Hq Hc)),
+    (parse_lines_step _ _ _ _ _ Hc).
+  cbn [app]. rewrite IH. reflexivity.
+Qed.
+
+(** Uniformity for block quotes whose empty lines are written `>`.  The
+    first line keeps its space: a bare `>` there opens the same quote but
+    records a different source range. *)
+Theorem quote_uniformity_bare :
+  forall l lines qs,
+    quote_header l = None ->
+    Forall2 quote_spelling lines qs ->
+    parse_lines (("> " ++ l)%string :: qs) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros l lines qs Hheader H.
+  rewrite <- (quote_uniformity l lines Hheader). cbn [map].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  pose proof (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                Hheader Es) as Ho.
+  rewrite (consumed_quote_prefix_pad "") in Ho.
+  rewrite !(parse_lines_step _ _ _ _ _ Ho). cbn [app].
+  exact (parse_lines_quote_bare lines qs _ _ _ inner H).
+Qed.
+
+(* Inside an open quote, a line that is neither a quote line nor lazy
+   closes it and is read at top level. *)
+Local Lemma parse_lines_quote_cont_close :
+  forall lines next tail range done inner,
+    (forall r, classify next <> KQuote r) ->
+    is_lazy (classify next) (snd (run_lines lines inner)) = false ->
+    parse_lines (map (fun l => ("> " ++ l)%string) lines ++ next :: tail)%list
+                (PQuote range None done (pad_state quote_pad inner))
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  induction lines as [|l lines IH]; intros next tail range done inner Hq Hlz.
+  - cbn [map app run_lines snd] in Hlz |- *.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_close_any next range None done
+                  (pad_state quote_pad inner) Hq
+                  ltac:(unfold is_lazy in *; rewrite Step.pad_state_lazy_ok;
+                        exact Hlz))).
+    destruct (step next (PPara [])) as [bs st'] eqn:Es. cbn [fst snd finish].
+    rewrite pad_state_finish, (parse_lines_step _ _ _ _ _ Es). reflexivity.
+  - cbn [map app].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    cbn [run_lines] in Hlz. rewrite Es in Hlz.
+    assert (Hlz' : is_lazy (classify next) (snd (run_lines lines inner')) = false)
+      by (destruct (run_lines lines inner'); exact Hlz).
+    assert (Esh : step_at (consumed ("" ++ "> " ++ l) l) l
+                    (pad_state (String.length "" + quote_pad) inner)
+                  = (bs, pad_state (String.length "" + quote_pad) inner')).
+    { rewrite consumed_quote_prefix_pad.
+      rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
+      rewrite step_at_shift, step_at_zero, Es. reflexivity. }
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ None _ _ _ _
+                  (classify_canonical_quote_pad "" l eq_refl) Esh)).
+    cbn [app]. rewrite (IH next tail _ _ _ Hq Hlz').
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+(** The same with more of the document after the quote.  The line that
+    ends it is anything but a quote line or a lazy continuation of the
+    quote's open paragraph; a blank line is the common case
+    (`parse_lines_quote`). *)
+Theorem quote_uniformity_tail :
+  forall l lines next tail,
+    quote_header l = None ->
+    (forall r, classify next <> KQuote r) ->
+    is_lazy (classify next) (snd (run_lines (l :: lines) (PPara []))) = false ->
+    parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines) ++ next :: tail)%list
+                (PPara [])
+    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros l lines next tail Hheader Hq Hlz. cbn [map app].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                Hheader Es)).
+  cbn [app]. rewrite (consumed_quote_prefix_pad "").
+  cbn [run_lines] in Hlz. rewrite Es in Hlz.
+  rewrite (parse_lines_quote_cont_close lines next tail _ _ inner Hq
+             ltac:(destruct (run_lines lines inner); exact Hlz)), rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es). reflexivity.
+Qed.
+
 (*
 Uniformity of fenced divs
 -------------------------

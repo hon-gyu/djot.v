@@ -38,8 +38,8 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 1 | 2 | 49 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
-| Block: heading, quote, list item, list | 10 | 8 | 1 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 1 | 4 | 11 | 0 | 0 | 2 |
+| Block: heading, quote, list item, list | 11 | 7 | 1 | 0 | 0 | 1 |
+| Block: leaf blocks and tables | 1 | 5 | 10 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -137,8 +137,8 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | HE1 | Heading | "one or more `#` characters, followed by whitespace.  The number of `#` characters defines the heading level" | T~ | `classify_canonical_heading`, `classify_heading_level`; `heading`, `heading_needs_space` | Shape: one line, spelled `heading_line lvl l`. |
 | HE2 | Heading | "The heading text may spill over onto following lines, which may also be preceded by the same number of `#` characters (but these can also be left off)" | T | `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest`; `heading_marked_continuation`, `heading_lazy_continuation` | Stated from an open heading state. |
 | HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T~ | the two theorems above; `heading_other_marker_count`, `heading_ends_with_container` | Shape: ended by a blank line.  A `#` line of another level also ends it, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28. |
-| BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: one line, the `> ` case. |
-| BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T~ | `quote_uniformity`, `quote_uniformity_pad` | Shape: every line prefixed `> `, the quote ending the input.  Bare `>` lines and a quote followed by more text are not stated. |
+| BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`, `step_quote_bare`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: `> ` on any line, and a bare `>` on an empty line after the first. |
+| BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T | `quote_uniformity`, `quote_uniformity_pad`, `quote_uniformity_bare`, `quote_uniformity_tail`, `parse_lines_quote` | A bare `>` first line opens the same quote but is not stated (it records a different source range). |
 | BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `quote_lazy_line`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
 | LI1 | List item | "a list marker followed by a space (or a newline) followed by one or more lines, indented relative to the list marker" | T | `list_item_owns`; `list_uniformity`, `list_uniformity_tail`, `ck_uniformity`; `list_item`, `list_marker_then_newline` | `list_item_owns`: every line indented past the marker's column, and every blank, goes to the open item.  The uniformity theorems add what the item means when its lines are indented by exactly the marker's width; at other widths the contents read the extra or missing indentation (`- - a` then `    - b`), so uniformity is not the rule there. |
 | LI2 | List item | "Indentation may be 'lazily' omitted on paragraph lines following the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `list_lazy_line`; `list_item_lazy` | `step_lazy_spelling` takes any indentation past the marker. |
@@ -155,14 +155,14 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
-Heading, block quote, list item, list: T 10, T~ 8, E 1, n/a 1.
+Heading, block quote, list item, list: T 11, T~ 7, E 1, n/a 1.
 
 ### Leaf blocks and tables
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
 | CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T~ | `classify_backtick_fence`; `code_block_info_only`, `code_block_info_spaces` | Shape: one line, three backticks.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
-| CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | E | `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | |
+| CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T~ | `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | Shape: the enclosing-block half, for every container, since each theorem parses the contents as a document that ends with the container.  The fence-length half has only the examples. |
 | CB3 | Code block | "Its contents are interpreted as verbatim text" | T~ | `roundtrip_blocks` | Shape: canonical code blocks, whose fence the renderer picks longer than any backtick run inside. |
 | TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T~ | `classify_ws_prefix`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Shape: indentation only.  `classify_canonical_thematic` is one string. |
 | TB2 | Thematic break | "(`<hr>` in HTML)" | n/a | | Rendering. |
@@ -180,7 +180,7 @@ Heading, block quote, list item, list: T 10, T~ 8, E 1, n/a 1.
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 1, T~ 4, E 11, n/a 2.
+Leaf blocks and tables: T 1, T~ 5, E 10, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
@@ -232,11 +232,11 @@ Container and continuation rules:
    continuation lines at 1 to width-1 spaces parse differently from the
    same lines at the marker's width (code block contents, nested
    markers).
-3. **BQ2, CB2, DV2, HE3 "or enclosing container"**: a quote followed by
-   more text.  Divs, lists and footnotes have `_tail` theorems; quotes do
-   not, so "a code block ... implicitly closed when its parent container
-   is closed" (`code_block_closed_by_parent`) has only the example.  Also
-   bare `>` lines, which `quote_uniformity` does not accept.
+3. Done: **BQ2, CB2 "or enclosing container"**.  `quote_uniformity_tail`
+   (a quote ended by any line that is neither a quote line nor lazy) and
+   `quote_uniformity_bare` (empty lines written `>`).  The reference's
+   `code_block_closed_by_parent` was already `parse_lines_quote`, a quote
+   followed by a blank line.
 4. **BI3 over documents**: indenting every line of a document with no
    list or footnote leaves its parse unchanged.  `classify_ws_prefix` is
    the one-line version.  Needs care at code block contents, which keep
