@@ -4,8 +4,11 @@
    expected HTML, or with djot.js's own on generated documents.
 
    Usage:
-     diff [--generated] [--shape] [--subject CMD] [--report FILE] [--verbose]
-          [TEST_FILES...]
+     diff [--generated | --lazy] [--shape] [--subject CMD] [--report FILE]
+          [--verbose] [TEST_FILES...]
+
+   `--lazy` runs the generated documents with container prefixes dropped
+   from paragraph continuation lines (`Fixtures.lazy_generated`).
 
    With no files, runs the whole djot.js test suite.  `--subject` tests
    the program CMD, run as `CMD --batch`, in place of the extracted
@@ -127,7 +130,7 @@ admits is checked here against something we did not write.
 Exact HTML by default, not `--shape`, which would drop the field under
 test. *)
 
-let run_generated ~shape subject docs r verbose =
+let run_generated ~shape ~title subject docs r verbose =
   let reference = djotjs in
   let ref_out = Array.of_list (run_all reference docs) in
   let docs_a = Array.of_list docs in
@@ -154,20 +157,21 @@ let run_generated ~shape subject docs r verbose =
           end
         end)
     (run_all subject docs);
-  Report.out r "\n== generated: %d documents, reference %s%s ==\n"
-    (Array.length docs_a) reference.name
+  Report.out r "\n== %s: %d documents, reference %s%s ==\n"
+    title (Array.length docs_a) reference.name
     (if shape then ", block shape only" else ", exact HTML");
   Report.out r "%-8s  match %4d   mismatch %4d   error %4d\n" subject.name !m
     !mm !er;
   !er = 0
 
 let () =
-  let generated = ref false and shape = ref false in
+  let generated = ref false and lazy_lines = ref false and shape = ref false in
   let subject = ref gallina in
   let report = ref "" and verbose = ref false and files = ref [] in
   let rec args = function
     | [] -> ()
     | "--generated" :: rest -> generated := true; args rest
+    | "--lazy" :: rest -> lazy_lines := true; args rest
     | "--shape" :: rest -> shape := true; args rest
     | "--subject" :: cmd :: rest ->
       subject := batch_process (Filename.basename cmd) [| cmd |]; args rest
@@ -179,7 +183,11 @@ let () =
   let r = Report.create !report in
   let ok =
     if !generated then
-      run_generated ~shape:!shape !subject Djot_fixtures.Fixtures.generated r !verbose
+      run_generated ~shape:!shape ~title:"generated" !subject
+        Djot_fixtures.Fixtures.generated r !verbose
+    else if !lazy_lines then
+      run_generated ~shape:!shape ~title:"generated, lazy lines" !subject
+        Djot_fixtures.Fixtures.lazy_generated r !verbose
     else
       let files = if !files = [] then Corpus.default_files () else List.rev !files in
       run_suite ~shape:!shape !subject files r !verbose
