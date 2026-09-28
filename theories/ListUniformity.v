@@ -2321,6 +2321,63 @@ Proof.
 Qed.
 
 (*
+The lines an item owns
+----------------------
+
+The syntax reference: a list item is a marker "followed by one or more
+lines, indented relative to the list marker".  Every such line, and
+every blank line, goes to the open item: it reaches the item's state
+exactly as it would reach that state alone, and the list around it
+changes only its spacing flags and source ranges.  This is ownership
+and not uniformity: an owned line keeps its indentation, which the
+contents may read (`- - a` then `    - b` puts `- b` in the inner item's
+paragraph).
+*)
+
+Theorem list_item_owns :
+  forall lines ls done inner,
+    forallb (fun l => (is_blank l || Nat.ltb (ls_indent ls) (indent_of l))%bool)
+      lines = true ->
+    exists ls',
+      ls_indent ls' = ls_indent ls /\ ls_styles ls' = ls_styles ls /\
+      ls_items ls' = ls_items ls /\
+      ls_check ls' = ls_check ls /\ ls_checks ls' = ls_checks ls /\
+      run_lines lines (PList ls done inner)
+      = ([], PList ls' (rev (fst (run_lines lines inner)) ++ done)%list
+                       (snd (run_lines lines inner))).
+Proof.
+  intros lines. induction lines as [|l rest IH]; intros ls done inner Hown.
+  - exists ls. repeat split.
+  - cbn [forallb] in Hown. apply andb_true_iff in Hown as [Hl Hrest].
+    destruct (step l inner) as [bs inner1] eqn:Hs.
+    assert (Hstep : exists ls1,
+      ls_indent ls1 = ls_indent ls /\ ls_styles ls1 = ls_styles ls /\
+      ls_items ls1 = ls_items ls /\ ls_check ls1 = ls_check ls /\
+      ls_checks ls1 = ls_checks ls /\
+      step l (PList ls done inner) = ([], PList ls1 (rev bs ++ done)%list inner1)).
+    { destruct (is_blank l) eqn:Hb.
+      - eexists.
+        rewrite (step_list_blank l ls done inner bs inner1 (classify_blank l Hb) Hs).
+        split; [|split; [|split; [|split; [|split; [|reflexivity]]]]];
+          destruct (blank_absorbed inner); reflexivity.
+      - cbn [orb] in Hl.
+        assert (Hk : classify l <> KBlank)
+          by (intros E; rewrite (classify_kblank_blank l E) in Hb; discriminate).
+        eexists.
+        rewrite (step_list_indented l (classify l) ls done inner bs inner1
+                   eq_refl Hk Hl Hs).
+        split; [|split; [|split; [|split; [|split; [|reflexivity]]]]];
+          destruct (div_closer l inner); reflexivity. }
+    destruct Hstep as (ls1 & Hi & Hsty & Hit & Hc & Hcs & Hstep).
+    destruct (IH ls1 (rev bs ++ done)%list inner1 ltac:(rewrite Hi; exact Hrest))
+      as (ls2 & Hi2 & Hsty2 & Hit2 & Hc2 & Hcs2 & Hrun).
+    exists ls2. rewrite Hi2, Hsty2, Hit2, Hc2, Hcs2, Hi, Hsty, Hit, Hc, Hcs.
+    repeat split. cbn [run_lines]. rewrite Hstep, Hs, Hrun.
+    destruct (run_lines rest inner1) as [more fin]. cbn [fst snd app].
+    rewrite rev_app_distr, <- app_assoc. reflexivity.
+Qed.
+
+(*
 A lazy line in a list item
 --------------------------
 

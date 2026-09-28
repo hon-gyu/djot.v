@@ -38,7 +38,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 1 | 2 | 49 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
-| Block: heading, quote, list item, list | 9 | 9 | 1 | 0 | 0 | 1 |
+| Block: heading, quote, list item, list | 10 | 8 | 1 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 1 | 4 | 11 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
@@ -140,7 +140,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: one line, the `> ` case. |
 | BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T~ | `quote_uniformity`, `quote_uniformity_pad` | Shape: every line prefixed `> `, the quote ending the input.  Bare `>` lines and a quote followed by more text are not stated. |
 | BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `quote_lazy_line`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
-| LI1 | List item | "a list marker followed by a space (or a newline) followed by one or more lines, indented relative to the list marker" | T~ | `list_uniformity`, `list_uniformity_tail`, `ck_uniformity`; `list_item`, `list_marker_then_newline` | Shape: continuation lines indented by exactly the marker's width (`list_lines`). |
+| LI1 | List item | "a list marker followed by a space (or a newline) followed by one or more lines, indented relative to the list marker" | T | `list_item_owns`; `list_uniformity`, `list_uniformity_tail`, `ck_uniformity`; `list_item`, `list_marker_then_newline` | `list_item_owns`: every line indented past the marker's column, and every blank, goes to the open item.  The uniformity theorems add what the item means when its lines are indented by exactly the marker's width; at other widths the contents read the extra or missing indentation (`- - a` then `    - b`), so uniformity is not the rule there. |
 | LI2 | List item | "Indentation may be 'lazily' omitted on paragraph lines following the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `list_lazy_line`; `list_item_lazy` | `step_lazy_spelling` takes any indentation past the marker. |
 | LI3 | List item | "an indented list marker on the line directly after paragraph text does not begin a sublist; it is taken as lazy continuation of the paragraph" | T | `list_uniformity` with `hard_wrap_one_para`; `list_item_no_sublist` | By composition: the item's lines parse as a top-level document, where BI5 holds. |
 | LI4 | List item | "A blank line ends the paragraph, after which the indented marker begins a sublist" | T | `list_uniformity` twice; `list_item_sublist_after_blank` | By composition, as LI3. |
@@ -155,7 +155,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
-Heading, block quote, list item, list: T 9, T~ 9, E 1, n/a 1.
+Heading, block quote, list item, list: T 10, T~ 8, E 1, n/a 1.
 
 ### Leaf blocks and tables
 
@@ -226,10 +226,12 @@ Container and continuation rules:
 
 1. Done: **BQ3, LI2, FN2 joined with BQ2, LI1, FN1**.  `quote_lazy_line`,
    `list_lazy_line`, `footnote_lazy_line` (`260928.plan.lazy-lines.md`).
-2. **LI1 at any indentation**: `list_uniformity` fixes continuation
-   lines at the marker's width; the reference allows any column past the
-   marker.  For a lazy paragraph line `step_lazy_spelling` already takes
-   any such column (`spine_spelling`); the item's other lines do not.
+2. Done: **LI1 at any indentation**, as ownership (`list_item_owns`).
+   Uniformity at other widths is false: a differential run over the
+   reference's examples as item contents found 110 of 1400 cases where
+   continuation lines at 1 to width-1 spaces parse differently from the
+   same lines at the marker's width (code block contents, nested
+   markers).
 3. **BQ2, CB2, DV2, HE3 "or enclosing container"**: a quote followed by
    more text.  Divs, lists and footnotes have `_tail` theorems; quotes do
    not, so "a code block ... implicitly closed when its parent container
