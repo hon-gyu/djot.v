@@ -300,6 +300,9 @@ spacings once `item_forces_loose` changes).
 
 ### Fixed: a div's closing line arms the enclosing list
 
+Reversed 2026-09-29, to follow the syntax reference: see "Closed
+2026-09-29 -- djotjs-bug: a div's closing fence loosens a list".
+
 The **42** that remained were the complementary shape, and unlike the
 family above they need no blank line at all:
 
@@ -624,6 +627,10 @@ Pinned as `Parser.parse_attr_blank_continues_spec` and
 `Parser.parse_attr_failed_after_blank_drops_it`.
 
 ## Adjudicated 2026-08-10 — a blank before an item that opens a list
+
+Reversed 2026-09-29, to follow the syntax reference: see "Closed
+2026-09-29 -- djotjs-bug: a blank before a nested list or an empty last
+item does not loosen".
 
 Ours, found by the generated corpus and invisible to the 287-case one.
 
@@ -1917,7 +1924,7 @@ reference does not say which reading wins then. Both engines take roman.
 **Verdict: `SPEC-GAP`, ours stands.** Pinned by `ordered_v_paren` in
 `dev/check/Reference.v`.
 
-## 2026-09-28 -- open: a div's closing fence loosens a list, against the reference
+## Closed 2026-09-29 -- djotjs-bug: a div's closing fence loosens a list, against the reference
 
 | Input | djot.js and ours | The reference |
 | --- | --- | --- |
@@ -1929,15 +1936,20 @@ that closes a div counts as a blank line; this was matched on purpose in
 "Fixed: a div's closing line arms the enclosing list" (2026-08-09
 section above), which compared against djot.js only.
 
-Found while auditing the reference's tightness rule. A theorem stating
-that rule as written would be false of our parser for this shape, so
-the rule's row stays at its examples until this is decided.
+Found while auditing the reference's tightness rule.
 
-**Verdict: open.** Either `djotjs-bug` (the reference is the intent and
-the arming is an artifact of where djot.js tests for a blank line), or a
-`SPEC-GAP` to report upstream. Not decided here.
+**Verdict: `djotjs-bug`, fixed 2026-09-29.** We follow the reference: the
+arming is an artifact of where djot.js tests for a blank line.  Reported
+upstream as jgm/djot.js#157.  The fix reverses "Fixed: a div's closing
+line arms the enclosing list" (2026-08-22): `div_closer` is gone from
+`step`, and with it `lines_gap`, `item_gap` and `item_ok`'s gap conjunct
+in ListUniformity.v, since an item that ends on a nonblank line again
+leaves no blank armed.  The two shapes that section's "Still ours"
+residue kept out of the canonical view are back in
+(`Roundtrip.div_ending_item_roundtrip`).  Pinned by
+`list_div_closer_not_blank` in `dev/check/Reference.v`.
 
-## 2026-09-28 -- djotjs-bug: a blank before a nested list or an empty last item does not loosen
+## Closed 2026-09-29 -- djotjs-bug: a blank before a nested list or an empty last item does not loosen
 
 | Input | djot.js and ours | The reference |
 | --- | --- | --- |
@@ -1955,10 +1967,22 @@ to `list_next` (Step.v) and to `seps_loosen` and `list_loose_of`
 reading from the reference and the rationale; the fix a day later
 overrode it.
 
-The second row is a different cause and not yet traced. The blank does
-loosen when another item follows the empty one (third row), so the
-blank before an empty last item seems to be read as a blank at the end
-of the list.
+The second row had a different cause: `list_next` kept the blank armed
+when the marker had nothing after it, so it loosened only if another
+item followed (third row).
 
-**Verdict: `djotjs-bug`, ours to fix.** Neither shape is in the
-reference's examples; the coverage file's LS4 row records them.
+**Verdict: `djotjs-bug`, fixed 2026-09-29.** `list_next` now spends an
+armed blank into looseness at every sibling marker, whatever follows the
+marker on its line; `starts_list` is gone from Step.v and
+ListUniformity.v.  A blank before a nested list *inside* an item still
+does not loosen (`list_content`), as the reference's `- two` / blank /
+`  - sub` example requires.  Pinned by
+`list_blank_before_nested_list_item` and
+`list_blank_before_empty_last_item` in `dev/check/Reference.v`.
+
+Generated documents against djot.js went from 0 mismatches to 531 (and
+0 to 184 with lazy lines).  Every one differs from djot.js only in `<p>`
+wrapping, and each is one of the three shapes: ours looser in 480 and
+172, tighter (the div closer) in 51 and 12.  The accepted roundtrip pool
+at depth 3 grew from 43857 to 57857, from the `Loose` spellings the old
+rule made unreachable and the div-ending items.

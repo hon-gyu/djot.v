@@ -520,9 +520,8 @@ Example out_of_column_tree_is_reachable :
 Proof. vm_compute. reflexivity. Qed.
 
 (* A div survives a blank and keeps the claim until its own closing
-   fence.  The blank belongs to the div, while the closing fence arms
-   the enclosing list's loose flag before the following marker resumes
-   that same list. *)
+   fence.  The blank belongs to the div and the closing fence is not a
+   blank, so the list stays tight when the following marker resumes it. *)
 Example div_out_of_column_is_claimed :
   Key "- foo:
   :::
@@ -530,7 +529,7 @@ Example div_out_of_column_is_claimed :
 next
 :::
 - baz"
-  = [mk (BulletList Loose
+  = [mk (BulletList Tight
            [[mk (Ext_keyed [mk (Str "foo")] (mk (Div [para "next"])))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
