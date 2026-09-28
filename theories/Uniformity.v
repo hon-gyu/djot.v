@@ -1390,6 +1390,23 @@ Lazy lines
 ----------
 *)
 
+(** The same for every spelling of the prefixes the containers accept
+    (`spine_spelling`): after `- a`, the lines `b`, ` b` and `   b` all
+    continue the item's paragraph. *)
+Theorem lazy_line_spelling :
+  forall pre p l post st,
+    spine_spelling 0 (snd (run_lines pre st)) p ->
+    lazy_ok (snd (run_lines pre st)) = true ->
+    classify l = KText -> bunderline_of l = None ->
+    parse_lines (pre ++ (p ++ l)%string :: post)%list st
+    = parse_lines (pre ++ l :: post)%list st.
+Proof.
+  intros pre p l post st Hp Hlazy Htext Hu. rewrite !parse_lines_app_run.
+  destruct (run_lines pre st) as [bs st'] eqn:E. cbn [snd] in *.
+  cbn [parse_lines]. rewrite (step_lazy_spelling p l st' Hp Hlazy Htext Hu).
+  reflexivity.
+Qed.
+
 (** Writing out a lazy line's prefixes does not change the parse.  After
     the lines `pre`, a paragraph is open, possibly inside block quotes,
     list items and footnotes.  If the next line `l` is plain text, putting
@@ -1405,10 +1422,7 @@ Theorem lazy_line_restore :
     parse_lines (pre ++ (spine_prefix 0 (snd (run_lines pre st)) ++ l)%string :: post)%list st
     = parse_lines (pre ++ l :: post)%list st.
 Proof.
-  intros pre l post st Hlazy Htext Hu. rewrite !parse_lines_app_run.
-  destruct (run_lines pre st) as [bs st'] eqn:E. cbn [snd] in *.
-  cbn [parse_lines]. rewrite (step_lazy_restore l st' Hlazy Htext Hu).
-  reflexivity.
+  intros pre l post st. apply lazy_line_spelling, spine_prefix_spelling.
 Qed.
 
 (* The containers whose paragraph lines the djot syntax reference lets
@@ -1441,6 +1455,80 @@ Theorem lazy_stack_line :
 Proof.
   intros l st Hs Htext Hu. pose proof (lazy_stack_ok st Hs) as Hok.
   split; [apply step_lazy | apply step_lazy_restore]; assumption.
+Qed.
+
+(*
+What a lazy line means
+----------------------
+
+The lazy-line theorems above turn a lazy line into a prefixed one, and
+the uniformity theorems read a fully prefixed container.  Chained, they
+say what a document with a lazy line means.  One theorem per container
+the reference names, each with one lazy line `b` after a paragraph line
+`a`; nesting and further lazy lines chain the same way.
+*)
+
+Theorem quote_lazy_line :
+  forall a b,
+    classify a = KText -> keyless a = true -> quote_header a = None ->
+    classify b = KText -> bunderline_of b = None ->
+    parse_lines [("> " ++ a)%string; b] (PPara [])
+    = [mk (BlockQuote (parse_lines [a; b] (PPara [])))].
+Proof.
+  intros a b Ha Hk Hh Hb Hu.
+  assert (Hstep : step ("> " ++ a) (PPara []) =
+    ([], PQuote (open_extent ("> " ++ a) (indent_of ("> " ++ a))) None []
+           (PPara [remember_line (drop_leading_ws a)]))).
+  { rewrite (step_quote_open ("> " ++ a) a []
+               (PPara [remember_line (drop_leading_ws a)])
+               (classify_quote_space a) Hh
+               ltac:(rewrite (step_idle a KText Ha eq_refl);
+                     apply open_text_keyless; exact Hk)).
+    reflexivity. }
+  pose proof (lazy_line_spelling [("> " ++ a)%string] "> " b [] (PPara [])) as L.
+  cbn [run_lines] in L. rewrite Hstep in L. cbn [snd app] in L.
+  rewrite <- L;
+    [| exact (SpQuote 0 0 _ _ _ _ _
+                (SpLeaf 2 (PPara [remember_line (drop_leading_ws a)]) 0 eq_refl))
+     | reflexivity | exact Hb | exact Hu].
+  exact (quote_uniformity a [b] Hh).
+Qed.
+
+(* The opener is any line that opens a footnote with `a` after its colon,
+   as in `footnote_text_uniformity`. *)
+Theorem footnote_lazy_line :
+  forall opener lbl a b,
+    bfootnotes = true ->
+    classify opener = KFoot lbl a ->
+    classify a = KText -> keyless a = true ->
+    classify b = KText -> bunderline_of b = None ->
+    parse_lines [opener; b] (PPara [])
+    = [foot_block lbl (parse_lines [a; b] (PPara []))].
+Proof.
+  intros opener lbl a b Hf Ho Ha Hk Hb Hu.
+  (* the lazy line with the indentation `footnote_text_uniformity` asks *)
+  set (p := blanks (S (indent_of opener))).
+  assert (Ha0 : step a (PPara []) = ([], PPara [remember_line (drop_leading_ws a)])).
+  { rewrite (step_idle a KText Ha eq_refl). apply open_text_keyless. exact Hk. }
+  assert (Hin : Nat.ltb (indent_of opener) (indent_of (p ++ b)) = true).
+  { apply Nat.ltb_lt. unfold p.
+    rewrite (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length. lia. }
+  pose proof (footnote_text_uniformity opener lbl a [(p ++ b)%string] Hf Ho Ha Hk
+                ltac:(cbn [forallb]; rewrite Hin, orb_true_r; reflexivity)) as U.
+  (* inside the note, the indentation is the paragraph's to ignore *)
+  pose proof (lazy_line_spelling [a] p b [] (PPara [])) as L1.
+  cbn [run_lines] in L1. rewrite Ha0 in L1. cbn [snd app] in L1.
+  rewrite L1 in U; [| apply SpLeaf; reflexivity | reflexivity | exact Hb | exact Hu].
+  (* and outside it, the lazy line is the indented one *)
+  rewrite <- U. symmetry.
+  pose proof (lazy_line_spelling [opener] p b [] (PPara [])) as L2.
+  cbn [run_lines app] in L2.
+  rewrite (step_foot_open opener lbl a [] _ Ho Ha0) in L2.
+  unfold open_foot in L2. rewrite Hf in L2. cbn [snd rev] in L2.
+  apply L2; [| reflexivity | exact Hb | exact Hu].
+  unfold p. rewrite <- (append_empty_r (blanks (S (indent_of opener)))).
+  change EmptyString with (blanks 0).
+  apply SpFoot; [lia | cbn [pad_state]; apply SpLeaf; reflexivity].
 Qed.
 
 (*

@@ -139,9 +139,9 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T~ | the two theorems above; `heading_other_marker_count`, `heading_ends_with_container` | Shape: ended by a blank line.  A `#` line of another level also ends it, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28. |
 | BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: one line, the `> ` case. |
 | BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T~ | `quote_uniformity`, `quote_uniformity_pad` | Shape: every line prefixed `> `, the quote ending the input.  Bare `>` lines and a quote followed by more text are not stated. |
-| BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `lazy_line_restore`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
+| BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `quote_lazy_line`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
 | LI1 | List item | "a list marker followed by a space (or a newline) followed by one or more lines, indented relative to the list marker" | T~ | `list_uniformity`, `list_uniformity_tail`, `ck_uniformity`; `list_item`, `list_marker_then_newline` | Shape: continuation lines indented by exactly the marker's width (`list_lines`). |
-| LI2 | List item | "Indentation may be 'lazily' omitted on paragraph lines following the first line of a paragraph" | T | `lazy_stack_line`, `lazy_line_restore`; `list_item_lazy` | Joining this with LI1 is `260928.plan.lazy-lines.md`. |
+| LI2 | List item | "Indentation may be 'lazily' omitted on paragraph lines following the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `list_lazy_line`; `list_item_lazy` | `step_lazy_spelling` takes any indentation past the marker. |
 | LI3 | List item | "an indented list marker on the line directly after paragraph text does not begin a sublist; it is taken as lazy continuation of the paragraph" | T | `list_uniformity` with `hard_wrap_one_para`; `list_item_no_sublist` | By composition: the item's lines parse as a top-level document, where BI5 holds. |
 | LI4 | List item | "A blank line ends the paragraph, after which the indented marker begins a sublist" | T | `list_uniformity` twice; `list_item_sublist_after_blank` | By composition, as LI3. |
 | LI5 | List item | the marker table: `-` `+` `*` bullets; `1.` `1)` `(1)` and the alpha and roman variants ordered; `:` definition; `- [ ]` task | T~ | `ck_uniformity`, `star_uniformity`, `plus_uniformity`, `definition_list_uniformity`, `nsc_uniformity` | Shape: canonical marker spellings, every flavour in `list_kind`. |
@@ -191,7 +191,7 @@ Leaf blocks and tables: T 1, T~ 4, E 11, n/a 2.
 | RD3 | Reference link definition | "No case normalization is done on reference labels" | E | `reference_case_sensitive` | |
 | RD4 | Reference link definition | "Attributes on reference definitions get transferred to the link ... the attribute on the link overrides the one on the reference definition" | E | `reference_attributes`, `reference_attributes_link_overrides` | `html_tree_reference_shape` bounds what a definition can change (attributes only), not this rule. |
 | FN1 | Footnote | "a footnote reference followed by a colon followed by the contents of the note, indented to any column beyond the column in which the reference starts.  The contents ... are parsed as block-level content" | T | `footnote_content_uniformity`, `footnote_open_uniformity_tail`, `footnote_text_uniformity`, `footnote_blank_uniformity`, `footnote_unshifted_uniformity` (and `_tail`s); `footnote`, `footnote_indent_past_reference`, `footnote_indent_not_past` | Except a note whose first line opens a list: `footnote_list_shift_counterexample`. |
-| FN2 | Footnote | "subsequent lines in paragraphs can 'lazily' omit the indentation" | T | `lazy_stack_line`, `lazy_line_restore`; `footnote_lazy` | Joining with FN1: `260928.plan.lazy-lines.md`. |
+| FN2 | Footnote | "subsequent lines in paragraphs can 'lazily' omit the indentation" | T | `lazy_stack_line`, `step_lazy_spelling`, `footnote_lazy_line`; `footnote_lazy` | |
 | FN3 | Footnote | a new paragraph "must be indented, at least in the first line" | T | `footnote_content_uniformity_tail` | A nonblank line neither indented past the opener nor lazy ends the note. |
 | BA1 | Block attributes | "put the attributes on the line immediately before the block" | T | `attr_uniformity`; `block_attributes` | |
 | BA2 | Block attributes | "if they don't fit on one line, subsequent lines must be indented" | E | `block_attributes_multiline`, `block_attributes_multiline_unindented` | Unit: ParserExamples.v, "Block attributes". |
@@ -224,13 +224,12 @@ a `dev/check/Probe.v` run over reachable states before the proof.
 
 Container and continuation rules:
 
-1. **BQ3, LI2, FN2 joined with BQ2, LI1, FN1**: a document with lazy
-   lines means its fully prefixed form.  Already planned:
-   `260928.plan.lazy-lines.md`.
+1. Done: **BQ3, LI2, FN2 joined with BQ2, LI1, FN1**.  `quote_lazy_line`,
+   `list_lazy_line`, `footnote_lazy_line` (`260928.plan.lazy-lines.md`).
 2. **LI1 at any indentation**: `list_uniformity` fixes continuation
    lines at the marker's width; the reference allows any column past the
-   marker.  Step 1 of the lazy-lines plan generalizes the spine prefix
-   the same way, and the two should share the relation.
+   marker.  For a lazy paragraph line `step_lazy_spelling` already takes
+   any such column (`spine_spelling`); the item's other lines do not.
 3. **BQ2, CB2, DV2, HE3 "or enclosing container"**: a quote followed by
    more text.  Divs, lists and footnotes have `_tail` theorems; quotes do
    not, so "a code block ... implicitly closed when its parent container

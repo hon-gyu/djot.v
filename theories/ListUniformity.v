@@ -2320,4 +2320,64 @@ Proof.
   unfold same_marker. rewrite !map_map. cbn [fst snd]. reflexivity.
 Qed.
 
+(*
+A lazy line in a list item
+--------------------------
+
+`Uniformity.quote_lazy_line` for a bullet item.  The two exclusions are
+where `- ` in front of `a` means something other than an item holding
+`a`: `- --` is a thematic break, and `- [ ] x` a task item.
+*)
+
+Theorem list_lazy_line :
+  forall a b,
+    classify a = KText -> keyless a = true ->
+    is_thematic ("- " ++ a) = false -> task_start a = false ->
+    classify b = KText -> bunderline_of b = None ->
+    parse_lines [("- " ++ a)%string; b] (PPara [])
+    = [marker_list_checked bullet Tight [mk_check bullet]
+         [parse_lines [a; b] (PPara [])]].
+Proof.
+  intros a b Ha Hk Hth Hts Hb Hu.
+  assert (Hnb : forall x, classify x = KText -> nonblank x = true).
+  { intros x Hx. unfold nonblank. unfold classify in Hx.
+    destruct (is_blank x); [discriminate|reflexivity]. }
+  assert (Ha0 : step a (PPara []) = ([], PPara [remember_line (drop_leading_ws a)])).
+  { rewrite (step_idle a KText Ha eq_refl). apply open_text_keyless. exact Hk. }
+  assert (Hb0 : forall c,
+    step b (PPara [c]) = ([], PPara [remember_line (drop_leading_ws b); c])).
+  { intros c. apply step_para_cont; [rewrite Hb; discriminate|].
+    unfold bcuts. rewrite Hu, Hb. reflexivity. }
+  (* The item with its continuation line indented: `list_uniformity_same`. *)
+  assert (Hok : item_ok bullet [a; b] = true).
+  { unfold item_ok. change bullet_open with "- ". rewrite Hth, Hts.
+    cbn [run_safe]. rewrite Ha0. cbn [snd]. rewrite Hb0. cbn [snd last].
+    rewrite (Hnb a Ha), (Hnb b Hb). unfold item_gap. cbn [lines_gap].
+    rewrite Ha, Ha0, Hb. reflexivity. }
+  assert (Hsp : list_spacing_of Tight [[a; b]] = Tight).
+  { unfold list_spacing_of, item_loose. cbn [existsb lines_loose].
+    rewrite Ha, Ha0, Hb. reflexivity. }
+  pose proof (list_uniformity_same bullet Tight [[a; b]] eq_refl eq_refl
+                ltac:(discriminate)
+                ltac:(cbn [forallb]; rewrite Hok; reflexivity)) as U.
+  cbn [map list_lines indent_lines] in U. rewrite Hsp in U.
+  change bullet_open with "- " in U. change bullet_cont with (blanks 2) in U.
+  (* The lazy line is that indented line. *)
+  pose proof (classify_marker_open bullet a eq_refl Hth
+                (task_start_shadow bullet a Hts)) as Hc.
+  change (mk_open bullet) with "- " in Hc.
+  cbn [mk_sty mk_core mk_task_marker bullet] in Hc.
+  assert (Hr : configured_list_rest None a = a)
+    by (unfold configured_list_rest; destruct btasks; reflexivity).
+  pose proof (step_list_open ("- " ++ a) [SBullet "-"%char] "" None a [] _ Hc
+                ltac:(rewrite Hr; exact Ha0)) as Hopen.
+  pose proof (lazy_line_spelling [("- " ++ a)%string] (blanks 2) b [] (PPara []))
+    as L.
+  cbn [run_lines] in L. rewrite Hopen in L. cbn [snd app rev] in L.
+  rewrite <- L; [exact U | | reflexivity | exact Hb | exact Hu].
+  change (blanks 2) with (blanks 2 ++ blanks 0)%string.
+  apply SpList; [| cbn [pad_state]; apply SpLeaf; reflexivity].
+  cbn. lia.
+Qed.
+
 End WithTable.

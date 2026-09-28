@@ -4465,6 +4465,56 @@ Fixpoint spine_prefix (col : nat) (st : pstate) : string :=
   | _ => ""
   end.
 
+(* A state with no container open, where a prefix ends. *)
+Definition spine_leaf (st : pstate) : bool :=
+  match st with
+  | PQuote _ _ _ _ | PList _ _ _ | PFoot _ _ _ _ _
+  | PDiv _ _ _ _ _ _ | PPend _ _ _ | PKey _ _ _ _ => false
+  | _ => true
+  end.
+
+(* Every prefix the open containers accept in front of a line whose first
+   character sits at column `col`, of which `spine_prefix` is one: `> `
+   for a quote, after any blanks, and for a list item or a footnote any
+   run of blanks that reaches past its column.  A div, pending attributes
+   and a key take no prefix of their own, and the innermost block any
+   indentation. *)
+Inductive spine_spelling : nat -> pstate -> string -> Prop :=
+  | SpLeaf : forall col st k, spine_leaf st = true -> spine_spelling col st (blanks k)
+  | SpQuote : forall col j range header done inner p,
+      spine_spelling (col + j + 2) inner p ->
+      spine_spelling col (PQuote range header done inner) (blanks j ++ "> " ++ p)
+  | SpList : forall col k ls done inner p,
+      ls_indent ls < col + k ->
+      spine_spelling (col + k) inner p ->
+      spine_spelling col (PList ls done inner) (blanks k ++ p)
+  | SpFoot : forall col k range ind lbl done inner p,
+      ind < col + k ->
+      spine_spelling (col + k) inner p ->
+      spine_spelling col (PFoot range ind lbl done inner) (blanks k ++ p)
+  | SpDiv : forall col len cls range opener done inner p,
+      spine_spelling col inner p ->
+      spine_spelling col (PDiv len cls range opener done inner) p
+  | SpPend : forall col pend specs inner p,
+      spine_spelling col inner p ->
+      spine_spelling col (PPend pend specs inner) p
+  | SpKey : forall col range lbl src inner p,
+      spine_spelling col inner p ->
+      spine_spelling col (PKey range lbl src inner) p.
+
+Lemma spine_prefix_spelling :
+  forall st col, spine_spelling col st (spine_prefix col st).
+Proof.
+  induction st; intros col; cbn [spine_prefix];
+    first [ apply (SpLeaf col _ 0); reflexivity
+          | apply (SpQuote col 0); rewrite Nat.add_0_r; apply IHst
+          | apply SpList; [lia | apply IHst]
+          | apply SpFoot; [lia | apply IHst]
+          | apply SpDiv; apply IHst
+          | apply SpPend; apply IHst
+          | apply SpKey; apply IHst ].
+Qed.
+
 Local Lemma lazy_ok_pad_safe : forall st, lazy_ok st = true -> pad_safe st = true.
 Proof. induction st; cbn [lazy_ok pad_safe]; intros H; auto; discriminate. Qed.
 
@@ -4472,30 +4522,7 @@ Local Lemma lazy_ok_fence_cols :
   forall c st, lazy_ok st = true -> fence_cols_ok c st = true.
 Proof. intros c. induction st; cbn [lazy_ok fence_cols_ok]; intros H; auto; discriminate. Qed.
 
-Local Lemma spine_div_close :
-  forall len col st l, classify l = KText ->
-    div_close len (spine_prefix col st ++ l) = false.
-Proof.
-  intros len col st l Hl. revert col.
-  induction st; intros col; cbn [spine_prefix]; try rewrite append_assoc; auto.
-  all: try (apply classify_text_div_close; exact Hl).
-  - apply div_close_quote_space.
-  - rewrite (div_close_ws_prefix _ _ _ (blanks_blank _)). apply IHst.
-  - rewrite (div_close_ws_prefix _ _ _ (blanks_blank _)). apply IHst.
-Qed.
 
-(* Behind its prefix the line is still text, or a quote line. *)
-Local Lemma spine_classify :
-  forall col st l, classify l = KText ->
-    classify (spine_prefix col st ++ l) = KText \/
-    exists r, classify (spine_prefix col st ++ l) = KQuote r.
-Proof.
-  intros col st l Hl. revert col.
-  induction st; intros col; cbn [spine_prefix]; try rewrite append_assoc; auto.
-  - right. eexists. apply classify_quote_space.
-  - rewrite (classify_ws_prefix _ _ (blanks_blank _)). apply IHst.
-  - rewrite (classify_ws_prefix _ _ (blanks_blank _)). apply IHst.
-Qed.
 
 Local Lemma div_closer_false :
   forall x st, (forall len, div_close len x = false) -> div_closer x st = false.
@@ -4552,62 +4579,104 @@ Proof.
     reflexivity.
 Qed.
 
-Local Lemma step_fuel_spine :
-  forall st n off l,
+
+Local Lemma spelling_classify :
+  forall col st p l, spine_spelling col st p -> classify l = KText ->
+    classify (p ++ l) = KText \/ exists r, classify (p ++ l) = KQuote r.
+Proof.
+  intros col st p l H Hl. induction H; cbn [append]; auto;
+    rewrite ?append_assoc;
+    try rewrite (classify_ws_prefix _ _ (blanks_blank _)); auto.
+  right. eexists. apply classify_quote_space.
+Qed.
+
+Local Lemma spelling_div_close :
+  forall len col st p l, spine_spelling col st p -> classify l = KText ->
+    div_close len (p ++ l) = false.
+Proof.
+  intros len col st p l H Hl. induction H; cbn [append];
+    rewrite ?append_assoc;
+    try rewrite (div_close_ws_prefix _ _ _ (blanks_blank _)); auto.
+  - apply classify_text_div_close. exact Hl.
+  - apply div_close_quote_space.
+Qed.
+
+Local Lemma step_fuel_spelling :
+  forall col st p, spine_spelling col st p ->
+  forall n l,
     pstate_depth st < n -> lazy_ok st = true ->
     classify l = KText -> bunderline_of l = None ->
-    step_fuel n off (spine_prefix off st ++ l) st = ([], feed_lazy l st).
+    step_fuel n col (p ++ l) st = ([], feed_lazy l st).
 Proof.
-  intros st. induction st as [cur|hlvl hrng hcur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    intros n off l Hn Hlazy Htext Hu;
-    try (cbn [spine_prefix append]; apply step_fuel_lazy; assumption);
-    match goal with |- step_fuel _ _ _ ?s = _ =>
-      pose proof (spine_classify off s l Htext) as Hc;
-      pose proof (fun len => spine_div_close len off s l Htext) as Hd end;
-    cbn [spine_prefix] in Hc, Hd |- *;
-    (destruct n as [|n]; [lia|]);
-    cbn [lazy_ok pstate_depth] in Hlazy, Hn; try discriminate;
-    try rewrite append_assoc in Hc, Hd |- *;
-    pose proof (classify_text_quote_nonblank _ Hc) as Hnb;
-    cbn [step_fuel feed_lazy].
-  - (* quote: the prefix is consumed, and the rest descends *)
-    rewrite classify_quote_space.
-    replace (consumed ("> " ++ spine_prefix (off + 2) inner ++ l)
-                      (spine_prefix (off + 2) inner ++ l)) with 2
-      by (unfold consumed; cbn [String.length append]; lia).
-    rewrite (IH n (off + 2) l ltac:(lia) Hlazy Htext Hu). reflexivity.
-  - (* div *)
-    rewrite Hd, andb_false_r.
-    rewrite (IH n off l ltac:(lia) Hlazy Htext Hu). reflexivity.
-  - (* list: the indent puts the line in the current item *)
-    assert (Ht : forall x,
-      list_takes ls off (blanks (S (ls_indent ls) - off) ++ x) inner = true).
+  intros col st p H.
+  induction H as [col st k Hleaf|col j range header done inner p Hsp IH
+    |col k ls done inner p Hk Hsp IH|col k range ind lbl done inner p Hk Hsp IH
+    |col len cls range opener done inner p Hsp IH|col pend specs inner p Hsp IH
+    |col range lbl src inner p Hsp IH];
+    intros n l Hn Hlazy Htext Hu.
+  - rewrite (step_fuel_lazy st n col (blanks k ++ l) Hn Hlazy
+               ltac:(rewrite (classify_ws_prefix _ _ (blanks_blank _)); exact Htext)
+               ltac:(rewrite (bunderline_of_ws_prefix _ _ (blanks_blank _)); exact Hu)).
+    rewrite (feed_lazy_ws_prefix _ _ _ (blanks_blank _)). reflexivity.
+  - (* quote: the blanks and `> ` are consumed, and the rest descends *)
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
+    rewrite !append_assoc, (classify_ws_prefix _ _ (blanks_blank _)),
+      classify_quote_space.
+    replace (consumed (blanks j ++ "> " ++ p ++ l) (p ++ l)) with (j + 2)
+      by (unfold consumed; rewrite length_append, blanks_length;
+          cbn [String.length append]; lia).
+    rewrite Nat.add_assoc, (IH n l ltac:(lia) Hlazy Htext Hu). reflexivity.
+  - (* list: the blanks reach past the item's column, so it takes the line *)
+    pose proof (spelling_classify _ _ _ l (SpList col k ls done inner p Hk Hsp) Htext)
+      as Hc.
+    pose proof (fun len => spelling_div_close len _ _ _ l
+                  (SpList col k ls done inner p Hk Hsp) Htext) as Hd.
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
+    rewrite append_assoc in Hc, Hd |- *.
+    assert (Ht : forall x, list_takes ls col (blanks k ++ x) inner = true).
     { intros x. unfold list_takes.
       rewrite (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length.
       apply orb_true_iff. right. apply Nat.ltb_lt. lia. }
     destruct Hc as [Hc|[r Hc]]; rewrite Hc, Ht;
-      rewrite (step_fuel_pad n _ off _ inner (blanks_blank _)
+      rewrite (step_fuel_pad n _ col _ inner (blanks_blank _)
                  (lazy_ok_pad_safe _ Hlazy) (lazy_ok_fence_cols _ _ Hlazy)),
         blanks_length;
-      replace (S (ls_indent ls) - off + off) with (off + (S (ls_indent ls) - off))
-        by lia;
-      rewrite (IH n _ l ltac:(lia) Hlazy Htext Hu), (div_closer_false _ inner Hd);
+      rewrite (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu),
+        (div_closer_false _ inner Hd);
       reflexivity.
   - (* footnote: likewise *)
+    pose proof (spelling_classify _ _ _ l
+                  (SpFoot col k range ind lbl done inner p Hk Hsp) Htext) as Hc.
+    pose proof (classify_text_quote_nonblank _ Hc) as Hnb.
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
+    rewrite append_assoc in Hnb |- *.
     rewrite Hnb, (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length.
-    replace (find <? off + (S find - off
-               + indent_of (spine_prefix (off + (S find - off)) finner ++ l)))%nat
-      with true by (symmetry; apply Nat.ltb_lt; lia).
-    rewrite (step_fuel_pad n _ off _ finner (blanks_blank _)
+    replace (ind <? col + (k + indent_of (p ++ l)))%nat with true
+      by (symmetry; apply Nat.ltb_lt; lia).
+    rewrite (step_fuel_pad n _ col _ inner (blanks_blank _)
                (lazy_ok_pad_safe _ Hlazy) (lazy_ok_fence_cols _ _ Hlazy)),
-      blanks_length.
-    replace (S find - off + off) with (off + (S find - off)) by lia.
-    rewrite (IH n _ l ltac:(lia) Hlazy Htext Hu). reflexivity.
+      blanks_length, (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu).
+    reflexivity.
+  - (* div *)
+    pose proof (fun len => spelling_div_close len _ _ _ l Hsp Htext) as Hd.
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
+    rewrite Hd, andb_false_r, (IH n l ltac:(lia) Hlazy Htext Hu). reflexivity.
   - (* pending attributes *)
+    pose proof (spelling_classify _ _ _ l Hsp Htext) as Hc.
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
     destruct Hc as [Hc|[r Hc]]; rewrite Hc;
-      rewrite (IH n off l ltac:(lia) Hlazy Htext Hu); reflexivity.
+      rewrite (IH n l ltac:(lia) Hlazy Htext Hu); reflexivity.
   - (* key *)
-    rewrite Hnb. cbn [andb]. rewrite (IH n off l ltac:(lia) Hlazy Htext Hu).
+    pose proof (classify_text_quote_nonblank _ (spelling_classify _ _ _ l Hsp Htext))
+      as Hnb.
+    destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
+    cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
+    rewrite Hnb. cbn [andb]. rewrite (IH n l ltac:(lia) Hlazy Htext Hu).
     reflexivity.
 Qed.
 
@@ -4623,14 +4692,24 @@ Proof.
 Qed.
 
 (** A lazy line parses as the same line with the open containers'
-    prefixes written out. *)
+    prefixes written out, in any spelling they accept. *)
+Theorem step_lazy_spelling :
+  forall p l st,
+    spine_spelling 0 st p ->
+    lazy_ok st = true -> classify l = KText -> bunderline_of l = None ->
+    step (p ++ l) st = step l st.
+Proof.
+  intros p l st Hp Hlazy Htext Hu. rewrite (step_lazy l st Hlazy Htext Hu).
+  unfold step. apply (step_fuel_spelling 0 st p Hp); [lia|assumption..].
+Qed.
+
+(** The spelling `spine_prefix` writes is one of them. *)
 Theorem step_lazy_restore :
   forall l st,
     lazy_ok st = true -> classify l = KText -> bunderline_of l = None ->
     step (spine_prefix 0 st ++ l) st = step l st.
 Proof.
-  intros l st Hlazy Htext Hu. rewrite (step_lazy l st Hlazy Htext Hu).
-  unfold step. apply step_fuel_spine; [lia|assumption..].
+  intros l st. apply step_lazy_spelling, spine_prefix_spelling.
 Qed.
 
 End WithTable.
