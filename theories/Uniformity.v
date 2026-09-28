@@ -1390,10 +1390,14 @@ Lazy lines
 ----------
 *)
 
-(** The uniformity theorems above take every line of the contents with
-    its container prefix.  This covers the lines written without one: a
-    text line continuing an open paragraph means the same with or without
-    the prefixes of the containers around that paragraph. *)
+(** Writing out a lazy line's prefixes does not change the parse.  After
+    the lines `pre`, a paragraph is open, possibly inside block quotes,
+    list items and footnotes.  If the next line `l` is plain text, putting
+    `spine_prefix` in front of it (the `> ` and indentation those
+    containers expect) gives the same blocks: `> a` / `b` parses as
+    `> a` / `> b`.  The uniformity theorems above cover only documents in
+    which every line has its prefix; this turns a document with lazy
+    lines into one of those. *)
 Theorem lazy_line_restore :
   forall pre l post st,
     lazy_ok (snd (run_lines pre st)) = true ->
@@ -1423,9 +1427,12 @@ Inductive lazy_stack : pstate -> Prop :=
 Lemma lazy_stack_ok : forall st, lazy_stack st -> lazy_ok st = true.
 Proof. induction 1; cbn [lazy_ok]; auto. Qed.
 
-(** Inside any nesting of block quotes, list items and footnotes, a text
-    line that does not underline the open paragraph continues it and
-    closes nothing, whether or not it carries the containers' prefixes. *)
+(** A lazy line continues the open paragraph.  When a paragraph is open
+    inside block quotes, list items and footnotes (`lazy_stack st`) and
+    the next line `l` is plain text, then `l` closes nothing and is added
+    to that paragraph (`feed_lazy`), and `l` with `spine_prefix` in front
+    gives the same result: after `> a`, both `b` and `> b` make the
+    paragraph `a b`. *)
 Theorem lazy_stack_line :
   forall l st,
     lazy_stack st -> classify l = KText -> bunderline_of l = None ->
