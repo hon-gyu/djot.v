@@ -1957,6 +1957,67 @@ Example convert_footnote_undefined :
 ".
 Proof. reflexivity. Qed.
 
+(* An unindented text line continues the note's open paragraph lazily. *)
+Example convert_footnote_lazy_line :
+  convert "[^n]: a
+b
+
+[^n]" = "<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>a
+b<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
+(* After a blank line there is no open paragraph to continue, so the same
+   line ends the note. *)
+Example convert_footnote_blank_then_unindented :
+  convert "[^n]: a
+
+b
+
+[^n]" = "<p>b</p>
+<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>a<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
+(* Only a text line is lazy: an unindented line that opens a block ends
+   the note. *)
+Example convert_footnote_unindented_block :
+  convert "[^n]: a
+- b
+
+[^n]" = "<ul>
+<li>
+b
+</li>
+</ul>
+<p><a id=""fnref1"" href=""#fn1"" role=""doc-noteref""><sup>1</sup></a></p>
+<section role=""doc-endnotes"">
+<hr>
+<ol>
+<li id=""fn1"">
+<p>a<a href=""#fnref1"" role=""doc-backlink"">↩︎</a></p>
+</li>
+</ol>
+</section>
+".
+Proof. reflexivity. Qed.
+
 (* Rendering note bodies can discover and number further notes. *)
 Example convert_footnote_reference_in_note :
   convert "[^a]

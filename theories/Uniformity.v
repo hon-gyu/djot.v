@@ -843,7 +843,7 @@ Qed.
  (** Uniformity for block quotes: a quote's contents parse exactly as
     they would at top level.  One proof, every construct. *)
 Theorem quote_uniformity :
-  forall l lines,
+  forall (l : string) (lines : list string),
     (quote_header l) = None ->
     parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines)) (PPara [])
     = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
@@ -1105,6 +1105,15 @@ Proof.
   reflexivity.
 Qed.
 
+Local Lemma run_lines_cons_snd :
+  forall x lines st bs st',
+    step x st = (bs, st') ->
+    snd (run_lines (x :: lines) st) = snd (run_lines lines st').
+Proof.
+  intros x lines st bs st' Hs. cbn [run_lines]. rewrite Hs.
+  destruct (run_lines lines st'). reflexivity.
+Qed.
+
 (* A footnote keeps a blank line or a line indented past its opener in
    its body.  The body transition is the same one top-level parsing takes;
    the footnote only collects blocks that transition commits. *)
@@ -1130,13 +1139,14 @@ Lemma step_foot_close :
   forall l range ind lbl done inner bs st',
     is_blank l = false ->
     Nat.ltb ind (indent_of l) = false ->
+    is_lazy (classify l) inner = false ->
     step l (PPara []) = (bs, st') ->
     step l (PFoot range ind lbl done inner) =
       (foot_block lbl (rev done ++ finish inner)%list :: bs, st').
 Proof.
-  intros l range ind lbl done inner bs st' Hblank Hind Hr.
+  intros l range ind lbl done inner bs st' Hblank Hind Hlazy Hr.
   unfold step at 1. cbn [step_fuel open_line pstate_depth].
-  rewrite Hblank, Nat.add_0_l, Hind.
+  rewrite Hblank, Nat.add_0_l, Hind, Hlazy.
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
   rewrite Hr. nopos. reflexivity.
 Qed.
@@ -1168,17 +1178,18 @@ Theorem footnote_content_uniformity_tail :
       lines = true ->
     is_blank l = false ->
     Nat.ltb ind (indent_of l) = false ->
+    is_lazy (classify l) (snd (run_lines lines inner)) = false ->
     parse_lines (lines ++ l :: tail)%list
       (PFoot range ind lbl done inner) =
       foot_block lbl (rev done ++ parse_lines lines inner)%list
         :: parse_lines (l :: tail) (PPara []).
 Proof.
   intros lines. induction lines as [|x lines IH];
-    intros l tail range ind lbl done inner Howned Hb Hind.
+    intros l tail range ind lbl done inner Howned Hb Hind Hlazy.
   - cbn [app].
     destruct (step l (PPara [])) as [bs st'] eqn:Hs.
     rewrite (parse_lines_step _ _ _ _ _
-      (step_foot_close _ _ _ _ _ _ _ _ Hb Hind Hs)).
+      (step_foot_close _ _ _ _ _ _ _ _ Hb Hind Hlazy Hs)).
     rewrite (parse_lines_step _ _ _ _ _ Hs).
     cbn [parse_lines app]. reflexivity.
   - cbn [forallb] in Howned.
@@ -1188,7 +1199,8 @@ Proof.
     rewrite (parse_lines_step _ _ _ _ _
       (step_foot_cont _ _ _ _ _ _ _ _ Hx Hs)).
     rewrite (parse_lines_step _ _ _ _ _ Hs).
-    cbn [app]. rewrite (IH _ _ _ _ _ _ _ Hlines Hb Hind).
+    rewrite (run_lines_cons_snd _ _ _ _ _ Hs) in Hlazy.
+    cbn [app]. rewrite (IH _ _ _ _ _ _ _ Hlines Hb Hind Hlazy).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
     reflexivity.
 Qed.
@@ -1206,6 +1218,8 @@ Theorem footnote_open_uniformity_tail :
       lines = true ->
     is_blank l = false ->
     Nat.ltb (indent_of opener) (indent_of l) = false ->
+    is_lazy (classify l)
+      (snd (run_lines lines (pad_state (consumed opener first) inner))) = false ->
     parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
       foot_block lbl
         (bs ++ parse_lines lines
@@ -1213,12 +1227,12 @@ Theorem footnote_open_uniformity_tail :
         :: parse_lines (l :: tail) (PPara []).
 Proof.
   intros opener lbl first lines l tail bs inner
-    Hfoot Hclass Hfirst Hlines Hb Hind.
+    Hfoot Hclass Hfirst Hlines Hb Hind Hlazy.
   cbn [parse_lines].
   rewrite (step_foot_open opener lbl first bs inner Hclass Hfirst).
   unfold open_foot. rewrite Hfoot. cbn [fst snd app].
   rewrite (footnote_content_uniformity_tail
-    lines l tail _ _ _ _ _ Hlines Hb Hind).
+    lines l tail _ _ _ _ _ Hlines Hb Hind Hlazy).
   rewrite rev_involutive. reflexivity.
 Qed.
 
@@ -1236,14 +1250,16 @@ Theorem footnote_unshifted_uniformity_tail :
       lines = true ->
     is_blank l = false ->
     Nat.ltb (indent_of opener) (indent_of l) = false ->
+    is_lazy (classify l) (snd (run_lines (first :: lines) (PPara []))) = false ->
     parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
       foot_block lbl (parse_lines (first :: lines) (PPara []))
         :: parse_lines (l :: tail) (PPara []).
 Proof.
   intros opener lbl first lines l tail bs inner
-    Hfoot Hopen Hfirst Hstable Hlines Hb Hind.
+    Hfoot Hopen Hfirst Hstable Hlines Hb Hind Hlazy.
+  rewrite (run_lines_cons_snd _ _ _ _ _ Hfirst), <- Hstable in Hlazy.
   rewrite (footnote_open_uniformity_tail opener lbl first lines l tail
-    bs inner Hfoot Hopen Hfirst Hlines Hb Hind).
+    bs inner Hfoot Hopen Hfirst Hlines Hb Hind Hlazy).
   rewrite Hstable.
   rewrite (parse_lines_step _ _ _ _ _ Hfirst).
   reflexivity.
@@ -1285,19 +1301,20 @@ Theorem footnote_text_uniformity_tail :
       lines = true ->
     is_blank l = false ->
     Nat.ltb (indent_of opener) (indent_of l) = false ->
+    is_lazy (classify l) (snd (run_lines (first :: lines) (PPara []))) = false ->
     parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
       foot_block lbl (parse_lines (first :: lines) (PPara []))
         :: parse_lines (l :: tail) (PPara []).
 Proof.
   intros opener lbl first lines l tail
-    Hfoot Hopen Htext Hkey Hlines Hb Hind.
+    Hfoot Hopen Htext Hkey Hlines Hb Hind Hlazy.
   assert (Hfirst : step first (PPara []) =
     ([], PPara [remember_line (drop_leading_ws first)])).
   { rewrite (step_idle first KText Htext eq_refl).
     apply open_text_keyless. exact Hkey. }
   exact (footnote_unshifted_uniformity_tail opener lbl first lines l tail
     [] (PPara [remember_line (drop_leading_ws first)])
-    Hfoot Hopen Hfirst eq_refl Hlines Hb Hind).
+    Hfoot Hopen Hfirst eq_refl Hlines Hb Hind Hlazy).
 Qed.
 
 Theorem footnote_text_uniformity :
@@ -1332,16 +1349,17 @@ Theorem footnote_blank_uniformity_tail :
       lines = true ->
     is_blank l = false ->
     Nat.ltb (indent_of opener) (indent_of l) = false ->
+    is_lazy (classify l) (snd (run_lines (first :: lines) (PPara []))) = false ->
     parse_lines (opener :: lines ++ l :: tail)%list (PPara []) =
       foot_block lbl (parse_lines (first :: lines) (PPara []))
         :: parse_lines (l :: tail) (PPara []).
 Proof.
   intros opener lbl first lines l tail
-    Hfoot Hopen Hblank Hlines Hb Hind.
+    Hfoot Hopen Hblank Hlines Hb Hind Hlazy.
   assert (Hfirst : step first (PPara []) = ([], PPara [])).
   { rewrite (step_idle first KBlank Hblank eq_refl). reflexivity. }
   exact (footnote_unshifted_uniformity_tail opener lbl first lines l tail
-    [] (PPara []) Hfoot Hopen Hfirst eq_refl Hlines Hb Hind).
+    [] (PPara []) Hfoot Hopen Hfirst eq_refl Hlines Hb Hind Hlazy).
 Qed.
 
 Theorem footnote_blank_uniformity :

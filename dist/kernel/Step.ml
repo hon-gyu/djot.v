@@ -1413,10 +1413,15 @@ let rec step_fuel t k lI p n off l st =
             then let (bs, inner') = step_fuel t k lI p n' off l inner in
                  ([], (PFoot ((touch_extent lI range), ind, lbl,
                  (app (rev bs) done0), inner')))
-            else let (bs, st') = step_fuel t k lI p n' off l (PPara []) in
-                 (((set_pos p (prov_at (extent_span range))
-                     (foot_block lbl (app (rev done0) (finish t k p inner)))) :: bs),
-                 st')
+            else if is_lazy (classify l) inner
+                 then ([], (PFoot ((touch_extent lI range), ind, lbl, done0,
+                        (feed_lazy lI l inner))))
+                 else let (bs, st') = step_fuel t k lI p n' off l (PPara [])
+                      in
+                      (((set_pos p (prov_at (extent_span range))
+                          (foot_block lbl
+                            (app (rev done0) (finish t k p inner)))) :: bs),
+                      st')
      | PTable (range, rows, cap) ->
        (match cap with
         | TCaption (parts0, start, ls) ->

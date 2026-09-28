@@ -2183,6 +2183,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           then let (bs, inner') := step_fuel n' off l inner in
                ([], PFoot (touch_extent range) ind lbl
                         (rev bs ++ done)%list inner')
+          else if is_lazy (classify l) inner
+          then ([], PFoot (touch_extent range) ind lbl done (feed_lazy l inner))
           else
             let (bs, st') := step_fuel n' off l (PPara []) in
             ((set_pos (prov_at (extent_span range))
@@ -3130,7 +3132,10 @@ Proof.
       { rewrite (IH k off l finner).
         destruct (step_fuel n off l finner) as [bs inner'] eqn:Ed.
         cbn [fst snd pad_state]. reflexivity. }
-      { pose proof (IH k off l (PPara [])) as H;
+      { unfold is_lazy. rewrite pad_state_lazy_ok.
+        destruct (match classify l with KText => lazy_ok finner | _ => false end).
+        { cbn [fst snd pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
+        pose proof (IH k off l (PPara [])) as H;
           cbn [pad_state] in H; rewrite H.
         destruct (step_fuel n off l (PPara [])) as [bs st'] eqn:Ed.
         cbn [fst snd pad_state]. rewrite (pad_state_finish k finner). reflexivity. } } }
@@ -4391,7 +4396,10 @@ Proof.
               (Nat.add_comm off (String.length p)).
       destruct (Nat.ltb find (String.length p + off + indent_of l)).
       { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
-      { rewrite (IH p off l (PPara []) Hp eq_refl eq_refl). reflexivity. } } }
+      rewrite (classify_ws_prefix p l Hp).
+      destruct (is_lazy (classify l) finner);
+        [rewrite (feed_lazy_ws_prefix p l _ Hp); reflexivity|].
+      rewrite (IH p off l (PPara []) Hp eq_refl eq_refl). reflexivity. } }
   (* table: the pad is invisible to the row scanner and to the caption
      opener alike, and the line that ends the table is reprocessed from
      idle *)
@@ -5015,7 +5023,11 @@ Proof.
       destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'].
       unfold StateErase.result; cbn [fst snd StateErase.state].
       rewrite Erase.blocks_app, Erase.blocks_rev. reflexivity.
-    + rewrite <- Hp.
+    + unfold is_lazy. rewrite lazy_ok_erase.
+      destruct (match classify l with KText => lazy_ok st | _ => false end).
+      { unfold StateErase.result; cbn [fst snd StateErase.state].
+        rewrite feed_lazy_erase. reflexivity. }
+      rewrite <- Hp.
       destruct (@step_fuel T K LI located_pos n off l (PPara [])) as [bs st'].
       unfold StateErase.result; cbn [fst snd]. rewrite Erase.blocks_set_pos.
       cbn [Erase.of_blocks Erase.of_block foot_block mk]. fold Erase.of_blocks.

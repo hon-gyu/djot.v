@@ -3218,7 +3218,11 @@ Proof.
         cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
         cbn [state_wf]. rewrite Hlbl, wf_blocks_app, wf_blocks_rev, Hb, Hdone, Hs.
         reflexivity.
-      * destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
+      * destruct (is_lazy (classify l) finner).
+        { cbn [fst snd]. split; [reflexivity|].
+          cbn [state_wf]. rewrite Hlbl, Hdone, (feed_lazy_wf l finner Hinner).
+          reflexivity. }
+        destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n off l (PPara [])) as [bs st'].
         cbn [fst snd] in Hb, Hs |- *; nopos. split; [|exact Hs].
         rewrite wf_blocks_cons. cbn [foot_block node_contents mk].
@@ -4094,7 +4098,11 @@ Proof.
         cbn [state_supported].
         rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd, Hs.
         reflexivity.
-      * destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
+      * destruct (is_lazy (classify l) finner).
+        { cbn [fst snd]. split; [reflexivity|].
+          cbn [state_supported]. rewrite Hd, (feed_lazy_supported l finner Hi).
+          reflexivity. }
+        destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n off l (PPara [])) as [bs st'].
         cbn [fst snd] in Hb, Hs |- *; nopos. split; [|exact Hs].
         rewrite supported_blocks_cons. cbn [foot_block node_contents mk].
