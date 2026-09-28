@@ -36,10 +36,10 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 1 | 2 | 49 | 0 | 0 | 5 |
+| Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
-| Block: heading, quote, list item, list | 11 | 7 | 1 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 1 | 5 | 10 | 0 | 0 | 2 |
+| Block: heading, quote, list item, list | 12 | 6 | 1 | 0 | 0 | 1 |
+| Block: leaf blocks and tables | 2 | 4 | 10 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -60,7 +60,7 @@ link locality, which holds by construction.
 | P5 | Precedence | "When there are multiple openers ... the closest one is used" | E | `precedence_closest_opener` | |
 | P6 | Precedence | "Verbatim syntax ... doesn't allow nested markup" | E | `precedence_verbatim` | |
 | O1 | Ordinary text | "Anything that isn't given a special meaning is parsed as literal text" | n/a | | The default case of every other row. |
-| O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | E | `escape_punctuation` | Unit: InlineExamples.v, "Escapes". |
+| O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | T~ | `escape_every_punct` (InlineExamples.v); `escape_punctuation` | Shape: the escape alone on a line, every one of the 256 bytes checked.  Unit: InlineExamples.v, "Escapes". |
 | O3 | Ordinary text | "Backslashes before characters other than ASCII punctuation ... are just treated as literal backslashes" | E | `escape_other_is_literal` | |
 | O4 | Ordinary text | "Backslash before a newline (or before spaces or tabs followed by a newline) is parsed as a hard line break.  Spaces and tab characters before the backslash are ignored" | E | `escape_newline_hard_break`, `escape_newline_after_spaces`, `line_break` | |
 | O5 | Ordinary text | "Backslash before a space is parsed as a nonbreaking space" | E | `escape_space_nbsp` | |
@@ -90,7 +90,7 @@ link locality, which holds by construction.
 | Q2 | Smart punctuation | "using curly braces to mark a quote as an opener `{"` or a closer `"}`" | E | `smart_quotes_braces` | |
 | Q3 | Smart punctuation | "If you want a straight quote, use a backslash-escape" | E | `smart_quotes_escaped` | |
 | Q4 | Smart punctuation | three periods: ellipsis; three hyphens: em dash; two: en dash | E | `smart_dashes_ellipsis` | |
-| Q5 | Smart punctuation | longer hyphen runs divided "uniformly, if possible, and preferring em-dashes" | E | `smart_dash_runs` | Unit: `dashes_1` ... `dashes_13` in InlineScan.v. |
+| Q5 | Smart punctuation | longer hyphen runs divided "uniformly, if possible, and preferring em-dashes" | T~ | `dashes_divide`; `smart_dash_runs` | Shape: the function the scanner applies to a run of hyphens, for every length; that the scanner hands it the whole run is only in examples (`dashes_1` ... `dashes_13`, InlineScan.v). |
 | MA1 | Math | verbatim prefixed with `$` (inline) or `$$` (display) | E | `math`, `math_display` | Unit: InlineExamples.v, "Math". |
 | F1 | Footnote reference | "`^` + the reference label in square brackets" | E | `footnote_reference` | Unit: InlineExamples.v, "Footnote references". |
 | B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | E | `line_break` | |
@@ -111,7 +111,7 @@ link locality, which holds by construction.
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 1, T~ 2, E 49, n/a 5.
+Inline: T 1, T~ 4, E 47, n/a 5.
 
 ## Block syntax
 
@@ -134,7 +134,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| HE1 | Heading | "one or more `#` characters, followed by whitespace.  The number of `#` characters defines the heading level" | T~ | `classify_canonical_heading`, `classify_heading_level`; `heading`, `heading_needs_space` | Shape: one line, spelled `heading_line lvl l`. |
+| HE1 | Heading | "one or more `#` characters, followed by whitespace.  The number of `#` characters defines the heading level" | T | `classify_heading_ws`, `classify_heading_level`; `heading`, `heading_needs_space` | Line level: any indentation, any whitespace character.  A bare `#` is an empty heading in both engines although the rule asks for whitespace after it. |
 | HE2 | Heading | "The heading text may spill over onto following lines, which may also be preceded by the same number of `#` characters (but these can also be left off)" | T | `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest`; `heading_marked_continuation`, `heading_lazy_continuation` | Stated from an open heading state. |
 | HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T~ | the two theorems above; `heading_other_marker_count`, `heading_ends_with_container` | Shape: ended by a blank line.  A `#` line of another level also ends it, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28. |
 | BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`, `step_quote_bare`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: `> ` on any line, and a bare `>` on an empty line after the first. |
@@ -155,7 +155,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule.  A div's closing fence also loosens the list, against the reference: open entry, 2026-09-28. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
-Heading, block quote, list item, list: T 11, T~ 7, E 1, n/a 1.
+Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 
 ### Leaf blocks and tables
 
@@ -164,7 +164,7 @@ Heading, block quote, list item, list: T 11, T~ 7, E 1, n/a 1.
 | CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T~ | `classify_backtick_fence`; `code_block_info_only`, `code_block_info_spaces` | Shape: one line, three backticks.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
 | CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T~ | `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | Shape: the enclosing-block half, for every container, since each theorem parses the contents as a document that ends with the container.  The fence-length half has only the examples. |
 | CB3 | Code block | "Its contents are interpreted as verbatim text" | T~ | `roundtrip_blocks` | Shape: canonical code blocks, whose fence the renderer picks longer than any backtick run inside. |
-| TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T~ | `classify_ws_prefix`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Shape: indentation only.  `classify_canonical_thematic` is one string. |
+| TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T | `classify_thematic`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Line level.  `*` and `-` may be mixed on one line, in both engines. |
 | TB2 | Thematic break | "(`<hr>` in HTML)" | n/a | | Rendering. |
 | RB1 | Raw block | "A code block with `=FORMAT` where the language specification would normally go is interpreted as raw content" | E | `raw_block` | |
 | RB2 | Raw block | "passed through verbatim to output in that format" | n/a | | Rendering. |
@@ -180,7 +180,7 @@ Heading, block quote, list item, list: T 11, T~ 7, E 1, n/a 1.
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 1, T~ 5, E 10, n/a 2.
+Leaf blocks and tables: T 2, T~ 4, E 10, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
@@ -268,12 +268,10 @@ Inline structure:
 
 Single constructs, each a small theorem over a finite or simple domain:
 
-11. **Q5** `dashes n` for every `n`: all em dashes when `3 | n`, else all
-    en dashes when `2 | n`, else the most em dashes that leave an even
-    remainder.
-12. **O2** every ASCII punctuation character escapes to itself.
-13. **HE1, CB1, TB1, RD1** at the line level over all spellings rather
-    than the canonical one.
+11. Done: **Q5** `dashes_divide`.
+12. Done: **O2** `escape_every_punct`.
+13. **HE1, CB1, TB1, RD1** at the line level over all spellings.  Done
+    for HE1 (`classify_heading_ws`) and TB1 (`classify_thematic`).
 14. **LH2** `id_base` characterized clause by clause.
 
 ### An example is enough

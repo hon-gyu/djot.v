@@ -21,6 +21,16 @@ against djot.js.
 Example escaped_punct_literal : parse_inline_line "\*" = [mk (Str "*")].
 Proof. reflexivity. Qed.
 
+(* The syntax reference: "All ASCII punctuation characters (even those
+   that have no special meaning in djot) may be backslash-escaped."
+   Every one of them, checked over all 256 bytes. *)
+Lemma escape_every_punct :
+  forall c, is_punct c = true ->
+    parse_inline_line (String "\" (String c "")) = [mk (Str (String c ""))].
+Proof.
+  intros [[] [] [] [] [] [] [] []]; vm_compute; first [reflexivity | discriminate].
+Qed.
+
 (* ...and leaves a backslash before anything else alone. *)
 Example escaped_nonpunct_literal : parse_inline_line "\a" = [mk (Str "\a")].
 Proof. reflexivity. Qed.

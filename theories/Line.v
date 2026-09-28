@@ -2037,6 +2037,68 @@ Proof.
   apply classify_canonical_heading, Hlvl.
 Qed.
 
+(** The syntax reference: "A line containing three or more `*` or `-`
+    characters, and nothing else (except spaces or tabs) is treated is a
+    thematic break", at any indentation.  That is `is_thematic`, and no
+    recognizer `classify` tries first claims such a line. *)
+Lemma classify_thematic :
+  forall l, is_thematic l = true -> classify l = KThematic.
+Proof.
+  intros l. unfold is_thematic.
+  induction l as [|c l IH]; intros H; [discriminate|].
+  cbn [thematic_count] in H.
+  destruct (is_marker c) eqn:Em.
+  - (* the first marker: nothing before `is_thematic` starts with one *)
+    unfold is_marker in Em.
+    apply orb_true_iff in Em as [E|E]; apply Ascii.eqb_eq in E; subst c;
+      unfold classify;
+      cbn [is_blank drop_leading_ws is_ws quote_prefix heading_open fence_open
+           div_open count_run Ascii.eqb Bool.eqb andb orb].
+    all: cbn [Nat.leb]; unfold is_thematic; cbn [thematic_count];
+      replace (is_marker _) with true by reflexivity; rewrite H; reflexivity.
+  - (* leading whitespace *)
+    destruct (is_ws c) eqn:Ew; [|discriminate].
+    change (String c l) with (String c "" ++ l)%string.
+    rewrite classify_ws_prefix by (cbn [is_blank]; rewrite Ew; reflexivity).
+    apply IH, H.
+Qed.
+
+(** The syntax reference: "A heading starts with a sequence of one or
+    more `#` characters, followed by whitespace.  The number of `#`
+    characters defines the heading level."  At any indentation, and
+    whatever the whitespace is. *)
+Lemma classify_heading_ws :
+  forall pad lvl c rest,
+    is_blank pad = true -> 1 <= lvl -> is_ws c = true ->
+    classify (pad ++ hashes lvl ++ String c rest) = KHeading lvl rest.
+Proof.
+  intros pad lvl c rest Hpad Hlvl Hc. rewrite classify_ws_prefix by exact Hpad.
+  (* the run stops at the whitespace *)
+  assert (Hcr : forall n,
+    count_run "#" (hashes n ++ String c rest) = (n, String c rest)).
+  { induction n as [|n IH].
+    - cbn [hashes append count_run].
+      destruct (Ascii.eqb "#" c) eqn:E;
+        [apply Ascii.eqb_eq in E; subst c; discriminate|reflexivity].
+    - cbn [hashes]. rewrite append_assoc.
+      change ("#" ++ (hashes n ++ String c rest))%string
+        with (String "#" (hashes n ++ String c rest))%string.
+      cbn [count_run]. rewrite IH. reflexivity. }
+  destruct lvl as [|n]; [lia|].
+  assert (Hs : (hashes (S n) ++ String c rest)%string
+               = String "#" (hashes n ++ String c rest)).
+  { cbn [hashes]. rewrite append_assoc. reflexivity. }
+  assert (Hd : drop_leading_ws (String "#" (hashes n ++ String c rest))
+               = String "#" (hashes n ++ String c rest))
+    by (apply drop_head_nonws; reflexivity).
+  unfold classify. rewrite Hs.
+  cbn [is_blank]. replace (is_ws "#") with false by reflexivity. cbn [andb].
+  unfold quote_prefix. rewrite Hd. cbn [Ascii.eqb Bool.eqb].
+  unfold heading_open. rewrite Hd. cbn [count_run].
+  replace (Ascii.eqb "#" "#") with true by reflexivity.
+  rewrite Hcr. cbn [Nat.leb]. rewrite Hc. reflexivity.
+Qed.
+
 (*
 Canonical bullet lists
 =======================
