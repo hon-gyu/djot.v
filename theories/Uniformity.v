@@ -1381,6 +1381,28 @@ Proof.
 Qed.
 
 (*
+Lazy lines
+----------
+*)
+
+(** The uniformity theorems above take every line of the contents with
+    its container prefix.  This covers the lines written without one: a
+    text line continuing an open paragraph means the same with or without
+    the prefixes of the containers around that paragraph. *)
+Theorem lazy_line_restore :
+  forall pre l post st,
+    lazy_ok (snd (run_lines pre st)) = true ->
+    classify l = KText -> bunderline_of l = None ->
+    parse_lines (pre ++ (spine_prefix 0 (snd (run_lines pre st)) ++ l)%string :: post)%list st
+    = parse_lines (pre ++ l :: post)%list st.
+Proof.
+  intros pre l post st Hlazy Htext Hu. rewrite !parse_lines_app_run.
+  destruct (run_lines pre st) as [bs st'] eqn:E. cbn [snd] in *.
+  cbn [parse_lines]. rewrite (step_lazy_restore l st' Hlazy Htext Hu).
+  reflexivity.
+Qed.
+
+(*
 Block attributes
 ----------------
 *)

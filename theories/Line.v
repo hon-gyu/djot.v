@@ -1999,6 +1999,35 @@ Proof.
   rewrite (drop_leading_ws_ws_prefix p l Hp). reflexivity.
 Qed.
 
+(* A line of colons classifies as a div opener, so no text line closes a
+   div. *)
+Lemma classify_text_div_close :
+  forall len l, classify l = KText -> div_close len l = false.
+Proof.
+  intros len l H. unfold div_close.
+  destruct (count_run ":" (drop_leading_ws l)) as [n r] eqn:Ec.
+  destruct (Nat.leb len n && Nat.leb 3 n && is_blank r)%bool eqn:Eb; [|reflexivity].
+  exfalso. apply andb_true_iff in Eb as [Eb Hr]. apply andb_true_iff in Eb as [_ Hn].
+  apply Nat.leb_le in Hn.
+  unfold classify, quote_prefix, heading_open, fence_open, div_open in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (drop_leading_ws l) as [|c s] eqn:Ed; [cbn in Ec; injection Ec as <- _; lia|].
+  cbn [count_run] in Ec. destruct (Ascii.eqb ":" c) eqn:Ecol; [|injection Ec as <- _; lia].
+  apply Ascii.eqb_eq in Ecol. subst c.
+  cbn [count_run Ascii.eqb Ascii.ascii_dec Bool.eqb andb orb] in H.
+  destruct (count_run ":" s) as [m r0] eqn:Em. injection Ec as <- <-.
+  rewrite (drop_leading_ws_blank r0 Hr) in H.
+  replace (3 <=? S m)%nat with true in H by (symmetry; apply Nat.leb_le; lia).
+  cbn in H. discriminate H.
+Qed.
+
+(* A quote prefix, as a container writes it. *)
+Lemma classify_quote_space : forall x, classify ("> " ++ x) = KQuote x.
+Proof. intros x. reflexivity. Qed.
+
+Lemma div_close_quote_space : forall len x, div_close len ("> " ++ x) = false.
+Proof. intros len x. unfold div_close. cbn. rewrite andb_false_r. reflexivity. Qed.
+
 (* classify_canonical_heading through an all-whitespace pad. *)
 Lemma classify_canonical_heading_pad :
   forall pad lvl l, is_blank pad = true -> 1 <= lvl ->
@@ -2022,10 +2051,10 @@ starting on a continuation line classifies as it would unindented. *)
 Fixpoint blanks (n : nat) : string :=
   match n with O => EmptyString | S k => String " " (blanks k) end.
 
-Local Lemma blanks_blank : forall n, is_blank (blanks n) = true.
+Lemma blanks_blank : forall n, is_blank (blanks n) = true.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks is_blank]. exact IH. Qed.
 
-Local Lemma blanks_length : forall n, String.length (blanks n) = n.
+Lemma blanks_length : forall n, String.length (blanks n) = n.
 Proof. induction n as [|n IH]; [reflexivity|]. cbn [blanks String.length]. rewrite IH. reflexivity. Qed.
 
 (* A list marker as the renderer writes it.  Shaped after `list_marker`'s
