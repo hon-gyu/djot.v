@@ -220,11 +220,11 @@ val ref_cont : string -> string option
 
 val finish : dtable -> bconfig -> coq_PosPolicy -> pstate -> blocks
 
-val lazy_ok : pstate -> bool
+val lazy_ok : bconfig -> pstate -> bool
 
 val in_fence : pstate -> bool
 
-val is_lazy : line_kind -> pstate -> bool
+val is_lazy : bconfig -> line_kind -> pstate -> bool
 
 val feed_lazy : coq_LineIx -> string -> pstate -> pstate
 

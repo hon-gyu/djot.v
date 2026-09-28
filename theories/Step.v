@@ -1337,7 +1337,8 @@ Fixpoint lazy_ok (st : pstate) : bool :=
   | PPara [] => false
   | PPara (_ :: _) => true
   | PParaOff _ _ => true       (* a recovered paragraph is still one *)
-  | PHeading _ _ _ => true
+  (* where headings are one line, a lazy line has nothing to continue *)
+  | PHeading _ _ _ => bheading_continues
   | PFence _ _ _ _ _ => false
   | PQuote _ _ _ inner => lazy_ok inner
   | PDiv _ _ _ _ _ inner => lazy_ok inner
@@ -4684,7 +4685,8 @@ Proof.
   destruct (classify rest); reflexivity.
 Qed.
 
-Local Lemma lazy_ok_erase : forall st, lazy_ok (StateErase.state st) = lazy_ok st.
+Local Lemma lazy_ok_erase : forall `{K : bconfig} st,
+  lazy_ok (StateErase.state st) = lazy_ok st.
 Proof.
   induction st; cbn [StateErase.state lazy_ok] in *; auto.
   destruct cur; reflexivity.

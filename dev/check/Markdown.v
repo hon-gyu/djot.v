@@ -247,6 +247,14 @@ b"
   = [mk (Heading 1 [mk (Str "a")]); mk (Para [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
+(* Nor does a lazy line continue it: with nothing open to continue, the
+   line ends the quote. *)
+Example md_lazy_line_after_quoted_heading :
+  MdBlocks "> # a
+b"
+  = [mk (BlockQuote [mk (Heading 1 [mk (Str "a")])]); mk (Para [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
 Example markdown_multiline_canonical_heading_is_disabled :
   @cb_ok markdown_like_table markdown_like_bconfig
     (CHeading 1 [[CIStr "a"]; [CIStr "b"]]) = false.
