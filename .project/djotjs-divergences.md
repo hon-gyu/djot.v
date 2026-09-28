@@ -1880,3 +1880,39 @@ a `^ b` line, the caption-without-a-table entry of 2026-08-22.
 line parses as the same line with the containers' prefixes written
 out. Pinned by `convert_footnote_lazy_line` and its two neighbours in
 `Html.v`.
+
+## 2026-09-28 -- SPEC-GAP: how a heading ends
+
+Two cases found while pinning the syntax reference's prose
+(`dev/check/Reference.v`). djot.js and ours agree on both; the
+reference does not say what either does.
+
+| Input | djot.js and ours | What the reference says |
+| --- | --- | --- |
+| `## a` / `# b` | two headings, `a` at level 2 and `b` at level 1 | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered", and continuation lines "may also be preceded by the same number of `#` characters". Nothing about a different number. |
+| `> # a` / `b` | one heading `a b` inside the quote | Lazy lines are allowed on "regular paragraph lines" of a block quote, list item or footnote. A heading is not a paragraph. |
+
+The first contradicts the reference's sentence on how a heading ends,
+unless a line of a different level counts as the start of a new block.
+The second is `lazy_ok`'s `PHeading` case, which is deliberate: a lazy
+line continues "the innermost open inline container (a paragraph or a
+heading)". `lazy_stack_line` states only the paragraph case, as the
+reference does.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js on both).
+Pinned by `heading_other_marker_count` and `heading_ends_with_container`
+in `dev/check/Reference.v`.
+
+## 2026-09-28 -- SPEC-GAP: an ambiguous marker with nothing after it
+
+| Input | djot.js and ours |
+| --- | --- |
+| `v) a` | `<ol start="5" type="i">`, lower roman |
+
+The reference says `v)` is both a lower-roman and a lower-alpha marker,
+and that an ambiguity "will be resolved in such a way as to continue the
+list, if possible". A one-item list has nothing to continue, and the
+reference does not say which reading wins then. Both engines take roman.
+
+**Verdict: `SPEC-GAP`, ours stands.** Pinned by `ordered_v_paren` in
+`dev/check/Reference.v`.
