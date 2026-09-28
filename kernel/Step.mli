@@ -149,8 +149,6 @@ type list_state = { ls_indent : int; ls_extent : extent;
                     ls_blanks : bool; ls_items : blocks list;
                     ls_check : task_status; ls_checks : task_status list }
 
-val list_touch : coq_LineIx -> list_state -> list_state
-
 type pstate =
 | PPara of stored_line list
 | PHeading of int * extent * stored_line list
@@ -295,11 +293,8 @@ val list_takes : list_state -> int -> string -> pstate -> bool
 
 val blank_absorbed : pstate -> bool
 
-val div_closer : string -> pstate -> bool
-
 val list_next :
-  coq_LineIx -> list_state -> blocks -> task_status -> string -> string ->
-  list_state
+  coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state
 
 val consumed : string -> string -> int
 
