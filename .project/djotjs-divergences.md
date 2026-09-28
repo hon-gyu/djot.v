@@ -1857,3 +1857,26 @@ every start below 10^18 and inside the OCaml `int` the extracted parser
 represents numbers by (`Marker.dec_start_bound`).  Up to 15 digits the
 two agree; from 16 to 18, ours prints the number written.  Pinned by
 `decimal_too_long_is_text` in `OrderedList.v`.
+
+## Closed 2026-09-28 -- a footnote's paragraph continues on a lazy line
+
+| Input | djot.js | ours, before |
+| --- | --- | --- |
+| `[^n]: a` / `b` / blank / `[^n]` | note holds `a b` | note holds `a`; `<p>b</p>` in the main document |
+
+Reported in jgm/djot discussion #414. The syntax reference lets a
+footnote's paragraph lines omit the indentation, as in a block quote or
+list item. `PFoot`'s continuation test took only blank lines and lines
+indented past the opener, and closed on anything else without asking
+`is_lazy`, which the quote and list branches do. It asks now.
+
+Checked against djot.js for every line kind after an open paragraph in
+a quote, a list item and a footnote: only a text line is lazy there,
+and a line that opens a block ends the container, which is the rule
+`is_lazy` already encodes. The one other difference that check shows is
+a `^ b` line, the caption-without-a-table entry of 2026-08-22.
+
+`step_lazy_restore` now states the rule for every container: a lazy
+line parses as the same line with the containers' prefixes written
+out. Pinned by `convert_footnote_lazy_line` and its two neighbours in
+`Html.v`.
