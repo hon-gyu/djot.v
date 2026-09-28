@@ -140,7 +140,7 @@ Fixpoint show_pstate (st : pstate) : string :=
   | PFence f ind range opener acc =>
       "Fence" ++ s_fence f ++ s_nat ind ++ s_extent range ++ s_span opener
       ++ s_list s_str (map snd acc)
-  | PQuote range done inner =>
+  | PQuote range _ done inner =>
       "Quote" ++ s_extent range ++ s_blocks done
       ++ "(" ++ show_pstate inner ++ ")"
   | PDiv len cls range opener done inner =>
@@ -405,7 +405,7 @@ Fixpoint holds_key (st : pstate) : bool :=
   match st with
   | PKey _ _ _ _ => true
   | PList _ _ i | PDiv _ _ _ _ _ i | PFoot _ _ _ _ i | PPend _ _ i
-  | PQuote _ _ i =>
+  | PQuote _ _ _ i =>
       holds_key i
   | _ => false
   end.
@@ -455,7 +455,7 @@ Fixpoint state_line_texts (st : pstate) : list string :=
   | PFence _ _ _ _ acc => map snd acc
   | PAttr _ _ _ _ _ slices => map snd slices
   | PTable _ _ (TCaption _ _ ls) => map snd ls
-  | PQuote _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
+  | PQuote _ _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
   | PPend _ _ i | PKey _ _ _ i => state_line_texts i
   | _ => []
   end.
@@ -464,7 +464,7 @@ Fixpoint cell_texts (st : pstate) : list string :=
   match st with
   | PTable _ rows _ =>
       flat_map (fun r => match r with TCells cs => cs | TSep _ => [] end) rows
-  | PQuote _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
+  | PQuote _ _ _ i | PDiv _ _ _ _ _ i | PList _ _ i | PFoot _ _ _ _ i
   | PPend _ _ i | PKey _ _ _ i => cell_texts i
   | _ => []
   end.
