@@ -247,11 +247,14 @@ Container and continuation rules:
 List and table structure:
 
 5. **LS4 tightness**.  The three shapes where the parser broke the rule
-   are fixed (entries 2026-09-29 in `djotjs-divergences.md`), so the
-   rule can now be stated as written: a list is loose exactly when a
-   blank line sits between two items, or between two blocks of one item
-   other than before a nested list, the exception the reference's own
-   `- two` / blank / `  - sub` example makes.
+   are fixed, and the cases the reference leaves open are adjudicated
+   (entries 2026-09-29 in `djotjs-divergences.md`).  The rule to state:
+   a list is loose exactly when a blank line sits between two of its
+   items, or between two of one item's own blocks, except a blank
+   directly before a nested list inside an item (the reference's
+   `- two` / blank / `  - sub`) and a blank directly after a nested list
+   ends (jgm's tests).  A blank inside a nested block counts only for
+   that block.
 6. **LS1 the split half**: two adjacent items of different types never
    share a list.
 7. **PT3 header regime**: a separator makes the previous row a header,
