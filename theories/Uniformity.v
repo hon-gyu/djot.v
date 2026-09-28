@@ -1402,6 +1402,35 @@ Proof.
   reflexivity.
 Qed.
 
+(* The containers whose paragraph lines the djot syntax reference lets
+   omit the prefix: block quotes, list items and footnotes, any nesting
+   of them around an open paragraph.  Written from the reference rather
+   than from `lazy_ok`, so the theorem below holds the parser to it. *)
+Inductive lazy_stack : pstate -> Prop :=
+  | LSPara : forall c cur, lazy_stack (PPara (c :: cur))
+  | LSQuote : forall range header done inner,
+      lazy_stack inner -> lazy_stack (PQuote range header done inner)
+  | LSList : forall ls done inner,
+      lazy_stack inner -> lazy_stack (PList ls done inner)
+  | LSFoot : forall range ind lbl done inner,
+      lazy_stack inner -> lazy_stack (PFoot range ind lbl done inner).
+
+Lemma lazy_stack_ok : forall st, lazy_stack st -> lazy_ok st = true.
+Proof. induction 1; cbn [lazy_ok]; auto. Qed.
+
+(** Inside any nesting of block quotes, list items and footnotes, a text
+    line that does not underline the open paragraph continues it and
+    closes nothing, whether or not it carries the containers' prefixes. *)
+Theorem lazy_stack_line :
+  forall l st,
+    lazy_stack st -> classify l = KText -> bunderline_of l = None ->
+    step l st = ([], feed_lazy l st) /\
+    step (spine_prefix 0 st ++ l) st = step l st.
+Proof.
+  intros l st Hs Htext Hu. pose proof (lazy_stack_ok st Hs) as Hok.
+  split; [apply step_lazy | apply step_lazy_restore]; assumption.
+Qed.
+
 (*
 Block attributes
 ----------------
