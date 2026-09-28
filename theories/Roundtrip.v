@@ -2438,32 +2438,18 @@ Example canonical_task_list_roundtrip :
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 
-(* A div's closing line arms the enclosing list, so an item that ends
-   with one hands a gap to the next marker and the list comes back loose.
-   `- ::: / a / ::: / - t` is the shape, and `Tight` is unspellable for
-   it, correctly, since the parser cannot produce it.
+(* A div's closing fence is not a blank line, so an item that ends with
+   one leaves the list tight (`.project/djotjs-divergences.md`, "a div's
+   closing fence loosens a list"). *)
+Example div_ending_item_roundtrip :
+  let cbs := [CList LKBullet Tight [[CDiv [cpara ["a"]]]; [cpara ["t"]]]] in
+  cblocks_ok cbs = true
+  /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
+Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 
-   The second half is the coverage this costs (the residue named in
-   `.project/djotjs-divergences.md`): `item_ok` asks the gap of every
-   item, including the last, where nothing follows to spend it.  So the
-   two below are rejected although their renderings do round-trip.
-   Lifting it means carrying the gap through `list_loose_of` as a fold
-   rather than an `existsb`; this example is the boundary, and its
-   deletion is the confirmation that the fix was real. *)
-Example div_ending_item_excluded :
-  let tight_last := [CList LKBullet Tight [[CDiv [cpara ["a"]]]]] in
-  let loose_mid :=
-    [CList LKBullet Loose [[CDiv [cpara ["a"]]]; [cpara ["t"]]]] in
-  (cblocks_ok tight_last, cblocks_ok loose_mid) = (false, false)
-  /\ parse_blocks (render_djot (blocks_of_cblocks tight_last))
-     = blocks_of_cblocks tight_last.
-Proof. split; reflexivity. Qed.
-
-(* And the one it excludes for cause: as `Tight` this AST is unreachable,
-   because the closer arms the list before the next marker arrives. *)
-Example div_then_item_is_loose :
+Example div_then_item_is_tight :
   parse_blocks ("- :::" ++ nl ++ "  a" ++ nl ++ "  :::" ++ nl ++ "- t")
-  = [mk (BulletList Loose
+  = [mk (BulletList Tight
            [[mk (Div [mk (Para [mk (Str "a")])])]; [mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 

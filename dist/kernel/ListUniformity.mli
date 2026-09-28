@@ -17,11 +17,7 @@ val run_safe : dtable -> bconfig -> string list -> pstate -> bool
 val lines_loose :
   dtable -> bconfig -> bool -> bool -> pstate -> string list -> bool
 
-val lines_gap : dtable -> bconfig -> bool -> pstate -> string list -> bool
-
 val item_loose : dtable -> bconfig -> string list -> bool
-
-val item_gap : dtable -> bconfig -> string list -> bool
 
 type litem = marker * string list
 
@@ -30,8 +26,6 @@ val litem_lines : litem -> string list
 val item_ok : dtable -> bconfig -> marker -> string list -> bool
 
 val ends_open_container : dtable -> bconfig -> string list -> bool
-
-val starts_list : string list -> bool
 
 val seps_loosen : dtable -> bconfig -> string list list -> bool
 

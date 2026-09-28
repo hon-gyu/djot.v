@@ -47,33 +47,13 @@ let rec lines_loose t k loose gap st = function
   (match classify l with
    | KBlank ->
      lines_loose t k loose (if blank_absorbed st then gap else true) st' rest
-   | KList (_, _, _, _) -> lines_loose t k loose (div_closer l st) st' rest
-   | _ ->
-     if div_closer l st
-     then lines_loose t k loose true st' rest
-     else lines_loose t k ((||) loose gap) false st' rest)
-
-(** val lines_gap :
-    dtable -> bconfig -> bool -> pstate -> string list -> bool **)
-
-let rec lines_gap t k gap st = function
-| [] -> gap
-| l :: rest ->
-  let st' = snd (step t k semantic_line_ix semantic_pos l st) in
-  (match classify l with
-   | KBlank ->
-     lines_gap t k (if blank_absorbed st then gap else true) st' rest
-   | _ -> lines_gap t k (div_closer l st) st' rest)
+   | KList (_, _, _, _) -> lines_loose t k loose false st' rest
+   | _ -> lines_loose t k ((||) loose gap) false st' rest)
 
 (** val item_loose : dtable -> bconfig -> string list -> bool **)
 
 let item_loose t k l =
   lines_loose t k false false (PPara []) l
-
-(** val item_gap : dtable -> bconfig -> string list -> bool **)
-
-let item_gap t k l =
-  lines_gap t k false (PPara []) l
 
 type litem = marker * string list
 
@@ -84,35 +64,25 @@ let litem_lines it =
 
 (** val item_ok : dtable -> bconfig -> marker -> string list -> bool **)
 
-let item_ok t k m l = match l with
+let item_ok t k m = function
 | [] -> false
 | l0 :: more ->
   (&&)
     ((&&)
       ((&&)
-        ((&&)
-          ((&&) (negb (is_thematic ((^) (mk_open m) l0)))
-            (negb (task_start l0)))
-          (nonblank l0))
-        (run_safe t k more
-          (snd (step t k semantic_line_ix semantic_pos l0 (PPara [])))))
-      (match more with
-       | [] -> true
-       | _ :: _ -> nonblank (last more "")))
-    (negb (item_gap t k l))
+        ((&&) (negb (is_thematic ((^) (mk_open m) l0)))
+          (negb (task_start l0)))
+        (nonblank l0))
+      (run_safe t k more
+        (snd (step t k semantic_line_ix semantic_pos l0 (PPara [])))))
+    (match more with
+     | [] -> true
+     | _ :: _ -> nonblank (last more ""))
 
 (** val ends_open_container : dtable -> bconfig -> string list -> bool **)
 
 let ends_open_container t k l =
   blank_absorbed (snd (run_lines t k l (PPara [])))
-
-(** val starts_list : string list -> bool **)
-
-let starts_list = function
-| [] -> false
-| l0 :: _ -> (match classify l0 with
-              | KList (_, _, _, _) -> true
-              | _ -> false)
 
 (** val seps_loosen : dtable -> bconfig -> string list list -> bool **)
 
@@ -121,9 +91,7 @@ let rec seps_loosen t k = function
 | l :: rest ->
   (match rest with
    | [] -> false
-   | l2 :: _ ->
-     (||) ((&&) (negb (ends_open_container t k l)) (negb (starts_list l2)))
-       (seps_loosen t k rest))
+   | _ :: _ -> (||) (negb (ends_open_container t k l)) (seps_loosen t k rest))
 
 (** val same_marker : marker -> string list list -> litem list **)
 

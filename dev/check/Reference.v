@@ -17,7 +17,8 @@ explicit.  They are single documents: what each rule says over all
 inputs is the business of the theorems, and
 `.project/syntax-reference-coverage.md` says which rule has one.
 
-One example differs from djot.js: `table_caption_alone`, see there.
+Four examples differ from djot.js: `table_caption_alone`, and the three
+tightness cases in the prose part's "List" section, see there.
 *)
 
 From Stdlib Require Import String.
@@ -1119,7 +1120,7 @@ Cases the prose states
 
 Outcomes the reference states in its prose, a quoted snippet or a
 sentence, rather than in a code block.  Same form as above: our HTML,
-which is djot.js's for every case here.
+which is djot.js's for every case here except the three in "List".
 *)
 
 (*
@@ -1553,6 +1554,70 @@ b</dt>
 <p>c</p>
 </dd>
 </dl>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+List
+----
+
+"A list is classed as *tight* if it does not contain blank lines between
+items, or between blocks inside an item."  djot.js gets all three wrong:
+it calls the first two tight (jgm/djot.js#45) and the third loose
+(jgm/djot.js#157).
+*)
+
+Example list_blank_before_nested_list_item :
+  convert "- a
+
+- - b
+"
+  = "<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+<ul>
+<li>
+b
+</li>
+</ul>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_empty_last_item :
+  convert "- a
+
+-
+"
+  = "<ul>
+<li>
+<p>a</p>
+</li>
+<li>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_div_closer_not_blank :
+  convert "- :::
+  a
+  :::
+- c
+"
+  = "<ul>
+<li>
+<div>
+a
+</div>
+</li>
+<li>
+c
+</li>
+</ul>
 ".
 Proof. vm_compute. reflexivity. Qed.
 

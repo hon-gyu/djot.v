@@ -22,10 +22,10 @@
 
 open Djot_test
 
-let plain_counts = [ (1, 296); (2, 3695); (3, 43857) ]
-let keyed_counts = [ (1, 6628); (2, 81536) ]
-let wiki_counts = [ (1, 326); (2, 3725); (3, 43887) ]
-let callout_counts = [ (1, 321); (2, 3720); (3, 43882) ]
+let plain_counts = [ (1, 312); (2, 4385); (3, 57857) ]
+let keyed_counts = [ (1, 7216); (2, 98980) ]
+let wiki_counts = [ (1, 342); (2, 4415); (3, 57887) ]
+let callout_counts = [ (1, 337); (2, 4410); (3, 57882) ]
 
 let run ~pool depth r verbose =
   let t0 = Unix.gettimeofday () in
