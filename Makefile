@@ -46,6 +46,7 @@ build-haskell-extraction:  ## Build the Haskell extraction into _build/haskell (
 diff: build  ## Parser vs expected HTML on the test suite, then vs djot.js on generated
 	dune exec test/diff.exe -- $(VERBOSE)
 	dune exec test/diff.exe -- $(VERBOSE) --generated
+	dune exec test/diff.exe -- $(VERBOSE) --lazy
 
 diff-shape: build  ## As diff on the test suite, comparing block structure only
 	dune exec test/diff.exe -- $(VERBOSE) --shape

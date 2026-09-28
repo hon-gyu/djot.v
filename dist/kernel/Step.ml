@@ -880,20 +880,20 @@ let rec finish t k p = function
   pos_head p (prov_at (extent_span range))
     (key_close t p range.extent_start lbl src (finish t k p inner))
 
-(** val lazy_ok : pstate -> bool **)
+(** val lazy_ok : bconfig -> pstate -> bool **)
 
-let rec lazy_ok = function
+let rec lazy_ok k = function
 | PPara cur -> (match cur with
                 | [] -> false
                 | _ :: _ -> true)
-| PHeading (_, _, _) -> true
-| PQuote (_, _, _, inner) -> lazy_ok inner
-| PDiv (_, _, _, _, _, inner) -> lazy_ok inner
-| PList (_, _, inner) -> lazy_ok inner
+| PHeading (_, _, _) -> k.bheading_continues
+| PQuote (_, _, _, inner) -> lazy_ok k inner
+| PDiv (_, _, _, _, _, inner) -> lazy_ok k inner
+| PList (_, _, inner) -> lazy_ok k inner
 | PParaOff (_, _) -> true
-| PFoot (_, _, _, _, inner) -> lazy_ok inner
-| PPend (_, _, inner) -> lazy_ok inner
-| PKey (_, _, _, inner) -> lazy_ok inner
+| PFoot (_, _, _, _, inner) -> lazy_ok k inner
+| PPend (_, _, inner) -> lazy_ok k inner
+| PKey (_, _, _, inner) -> lazy_ok k inner
 | _ -> false
 
 (** val in_fence : pstate -> bool **)
@@ -908,12 +908,26 @@ let rec in_fence = function
 | PKey (_, _, _, inner) -> in_fence inner
 | _ -> false
 
-(** val is_lazy : line_kind -> pstate -> bool **)
+(** val is_lazy : bconfig -> line_kind -> pstate -> bool **)
 
-let is_lazy k inner =
-  match k with
-  | KText -> lazy_ok inner
+let is_lazy k k0 inner =
+  match k0 with
+  | KText -> lazy_ok k inner
   | _ -> false
+
+(** val list_content : coq_LineIx -> list_state -> line_kind -> list_state **)
+
+let list_content lI ls k =
+  let loose =
+    match k with
+    | KList (_, _, _, _) -> ls.ls_loose
+    | _ -> (||) ls.ls_loose ls.ls_blanks
+  in
+  { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
+  ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
+  ls.ls_item_extents; ls_styles = ls.ls_styles; ls_loose = loose; ls_blanks =
+  false; ls_items = ls.ls_items; ls_check = ls.ls_check; ls_checks =
+  ls.ls_checks }
 
 (** val feed_lazy : coq_LineIx -> string -> pstate -> pstate **)
 
@@ -929,7 +943,7 @@ let rec feed_lazy lI l st = match st with
   PDiv (len, cls, (touch_extent lI range), opener, done0,
     (feed_lazy lI l inner))
 | PList (ls, done0, inner) ->
-  PList ((list_touch lI ls), done0, (feed_lazy lI l inner))
+  PList ((list_content lI ls KText), done0, (feed_lazy lI l inner))
 | PParaOff (k, cur) ->
   PParaOff (k, ((remember_line lI (drop_leading_ws l)) :: cur))
 | PFoot (range, ind, lbl, done0, inner) ->
@@ -1164,20 +1178,6 @@ let rec div_closer l = function
 | PKey (_, _, _, inner) -> div_closer l inner
 | _ -> false
 
-(** val list_content : coq_LineIx -> list_state -> line_kind -> list_state **)
-
-let list_content lI ls k =
-  let loose =
-    match k with
-    | KList (_, _, _, _) -> ls.ls_loose
-    | _ -> (||) ls.ls_loose ls.ls_blanks
-  in
-  { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
-  ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
-  ls.ls_item_extents; ls_styles = ls.ls_styles; ls_loose = loose; ls_blanks =
-  false; ls_items = ls.ls_items; ls_check = ls.ls_check; ls_checks =
-  ls.ls_checks }
-
 (** val list_next :
     coq_LineIx -> list_state -> blocks -> task_status -> string -> string ->
     list_state **)
@@ -1303,7 +1303,7 @@ let rec step_fuel t k lI p n off l st =
           ([], (PQuote ((touch_extent lI range), header,
           (app (rev bs) done0), inner')))
         | x ->
-          if is_lazy x inner
+          if is_lazy k x inner
           then ([], (PQuote ((touch_extent lI range), header, done0,
                  (feed_lazy lI l inner))))
           else close_reopen t k p (PQuote (range, header, done0, inner))
@@ -1356,8 +1356,8 @@ let rec step_fuel t k lI p n off l st =
                         (configured_list_rest k chk rest)),
                      (rev bs), inner'))))
                 | _ ->
-                  if is_lazy x inner
-                  then ([], (PList ((list_touch lI ls), done0,
+                  if is_lazy k x inner
+                  then ([], (PList ((list_content lI ls x), done0,
                          (feed_lazy lI l inner))))
                   else close_reopen t k p (PList (ls, done0, inner))
                          (open_line t k lI p descend
@@ -1413,10 +1413,15 @@ let rec step_fuel t k lI p n off l st =
             then let (bs, inner') = step_fuel t k lI p n' off l inner in
                  ([], (PFoot ((touch_extent lI range), ind, lbl,
                  (app (rev bs) done0), inner')))
-            else let (bs, st') = step_fuel t k lI p n' off l (PPara []) in
-                 (((set_pos p (prov_at (extent_span range))
-                     (foot_block lbl (app (rev done0) (finish t k p inner)))) :: bs),
-                 st')
+            else if is_lazy k (classify l) inner
+                 then ([], (PFoot ((touch_extent lI range), ind, lbl, done0,
+                        (feed_lazy lI l inner))))
+                 else let (bs, st') = step_fuel t k lI p n' off l (PPara [])
+                      in
+                      (((set_pos p (prov_at (extent_span range))
+                          (foot_block lbl
+                            (app (rev done0) (finish t k p inner)))) :: bs),
+                      st')
      | PTable (range, rows, cap) ->
        (match cap with
         | TCaption (parts0, start, ls) ->

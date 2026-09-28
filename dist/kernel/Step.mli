@@ -220,11 +220,13 @@ val ref_cont : string -> string option
 
 val finish : dtable -> bconfig -> coq_PosPolicy -> pstate -> blocks
 
-val lazy_ok : pstate -> bool
+val lazy_ok : bconfig -> pstate -> bool
 
 val in_fence : pstate -> bool
 
-val is_lazy : line_kind -> pstate -> bool
+val is_lazy : bconfig -> line_kind -> pstate -> bool
+
+val list_content : coq_LineIx -> list_state -> line_kind -> list_state
 
 val feed_lazy : coq_LineIx -> string -> pstate -> pstate
 
@@ -294,8 +296,6 @@ val list_takes : list_state -> int -> string -> pstate -> bool
 val blank_absorbed : pstate -> bool
 
 val div_closer : string -> pstate -> bool
-
-val list_content : coq_LineIx -> list_state -> line_kind -> list_state
 
 val list_next :
   coq_LineIx -> list_state -> blocks -> task_status -> string -> string ->

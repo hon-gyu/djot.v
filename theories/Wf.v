@@ -2643,7 +2643,7 @@ Proof.
     rewrite Hd, (IH Hi). reflexivity.
   - cbn [feed_lazy state_wf] in *. apply andb_true_iff in H as [Hd Hi].
     rewrite Hd, (IH Hi). reflexivity.
-  - cbn [feed_lazy state_wf list_touch ls_items] in *.
+  - cbn [feed_lazy state_wf list_content ls_items] in *.
     apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
     rewrite Hitems, Hd, (IH Hi). reflexivity.
@@ -3101,7 +3101,7 @@ Proof.
           rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs.
       - cbn [is_lazy]. destruct (lazy_ok inner) eqn:El; cbn [fst snd].
         + split; [reflexivity|].
-          cbn [state_wf list_touch ls_items]. rewrite Hitems, Hd. cbn [andb].
+          cbn [state_wf list_content ls_items]. rewrite Hitems, Hd. cbn [andb].
           apply feed_lazy_wf, Hi.
         + destruct (open_kind_wf l _ E) as [Hob Hos].
           destruct (open_kind l _) as [obs ost] eqn:Eo.
@@ -3218,7 +3218,11 @@ Proof.
         cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
         cbn [state_wf]. rewrite Hlbl, wf_blocks_app, wf_blocks_rev, Hb, Hdone, Hs.
         reflexivity.
-      * destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
+      * destruct (is_lazy (classify l) finner).
+        { cbn [fst snd]. split; [reflexivity|].
+          cbn [state_wf]. rewrite Hlbl, Hdone, (feed_lazy_wf l finner Hinner).
+          reflexivity. }
+        destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n off l (PPara [])) as [bs st'].
         cbn [fst snd] in Hb, Hs |- *; nopos. split; [|exact Hs].
         rewrite wf_blocks_cons. cbn [foot_block node_contents mk].
@@ -3666,7 +3670,7 @@ Proof.
     apply andb_true_iff in H as [Hd Hi]. rewrite Hd, (IH Hi). reflexivity.
   - cbn [feed_lazy state_supported] in *.
     apply andb_true_iff in H as [Hd Hi]. rewrite Hd, (IH Hi). reflexivity.
-  - cbn [feed_lazy state_supported list_touch ls_items] in *.
+  - cbn [feed_lazy state_supported list_content ls_items] in *.
     apply andb_true_iff in H as [H1 Hi]. apply andb_true_iff in H1 as [Ht Hd].
     rewrite Ht, Hd, (IH Hi). reflexivity.
   - cbn [feed_lazy state_supported] in *.
@@ -3994,7 +3998,7 @@ Proof.
              exact Hs.
          - cbn [is_lazy]. destruct (lazy_ok inner); cbn [fst snd].
            + split; [reflexivity|].
-             cbn [state_supported list_touch ls_items]. rewrite Hitems, Hd. cbn [andb].
+             cbn [state_supported list_content ls_items]. rewrite Hitems, Hd. cbn [andb].
              apply feed_lazy_supported. exact Hi.
            + cbn [open_kind]. unfold open_text.
              destruct (if @bkeyed K then key_split (drop_leading_ws l) else None)
@@ -4094,7 +4098,11 @@ Proof.
         cbn [state_supported].
         rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd, Hs.
         reflexivity.
-      * destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
+      * destruct (is_lazy (classify l) finner).
+        { cbn [fst snd]. split; [reflexivity|].
+          cbn [state_supported]. rewrite Hd, (feed_lazy_supported l finner Hi).
+          reflexivity. }
+        destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
         destruct (step_fuel n off l (PPara [])) as [bs st'].
         cbn [fst snd] in Hb, Hs |- *; nopos. split; [|exact Hs].
         rewrite supported_blocks_cons. cbn [foot_block node_contents mk].
