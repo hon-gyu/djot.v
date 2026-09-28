@@ -121,7 +121,7 @@ Inline: T 1, T~ 2, E 49, n/a 5.
 | --- | --- | --- | --- | --- | --- |
 | BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | none | | True of the architecture (the inline scan runs on a finished paragraph's lines), but no theorem says the block tree is independent of inline syntax.  Keyed blocks break it on purpose (`key_split_contract`). |
 | BI2 | Block syntax | "blocks can be parsed line by line with no backtracking.  The contribution a line makes to block-level structure never depends on a future line" | T | `prefix_determinism`, `no_future_line_dependence`, `prefix_state_suffices` | |
-| BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `classify_ws_prefix`, `quote_uniformity_pad` | Shape: one line's kind, and a quote whose lines share a blank pad.  Nothing states it over documents. |
+| BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `indent_uniformity`, `classify_ws_prefix`, `quote_uniformity_pad` | Shape: every line indented by the same blanks, with no block attribute spec open between lines (`specs_closed`); then the parse is unchanged, lists and footnotes included.  Indentation that differs from line to line is read by code blocks and by nesting, so no statement covers it. |
 | BI4 | Block syntax | "a thematic break or fenced code block can be directly followed by a paragraph" | E | `code_block_longer_closer` | |
 | BI5 | Block syntax | "Paragraphs can never be interrupted by other block-level elements" | T | `hard_wrap_one_para` (with `djot_wrap_neutral`) | Inside containers, by composition with the uniformity theorems. |
 | BI6 | Block syntax | paragraphs "must always end with a blank line (or the end of the document or containing element)" | T | `hard_wrap_para_then_rest`, `hard_wrap_one_para`; `quote_uniformity`, `div_uniformity` for the containing element | |
@@ -237,10 +237,11 @@ Container and continuation rules:
    `quote_uniformity_bare` (empty lines written `>`).  The reference's
    `code_block_closed_by_parent` was already `parse_lines_quote`, a quote
    followed by a blank line.
-4. **BI3 over documents**: indenting every line of a document with no
-   list or footnote leaves its parse unchanged.  `classify_ws_prefix` is
-   the one-line version.  Needs care at code block contents, which keep
-   their indentation.
+4. Done in part: **BI3 over documents**, `indent_uniformity`.  Its side
+   condition, no attribute spec open between lines, is not in the
+   reference: a differential run found no document where it matters, but
+   the padded run is not a shift of the plain one there (a spec keeps its
+   lines' text), so dropping it needs a different proof.
 
 List and table structure:
 

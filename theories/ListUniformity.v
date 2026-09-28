@@ -2378,6 +2378,57 @@ Proof.
 Qed.
 
 (*
+Indentation
+-----------
+
+The syntax reference: "Indentation is only significant for list item or
+footnote nesting."  What can be stated for every document is the
+uniform case: indenting every line by the same blanks changes nothing,
+lists and footnotes included, since they read columns relative to each
+other.  The side condition is that no block attribute spec is open when
+a line arrives: a spec keeps its lines' text for the paragraph it falls
+back to, so there the padded run is not a shift of the plain one, though
+djot.js and we agree on the result.
+*)
+
+(* No attribute spec is open when any of the lines arrives. *)
+Fixpoint specs_closed (lines : list string) (st : pstate) : bool :=
+  match lines with
+  | [] => true
+  | l :: rest => (pad_safe st && specs_closed rest (snd (step l st)))%bool
+  end.
+
+Local Lemma run_lines_pad_shift_closed :
+  forall p lines st,
+    is_blank p = true ->
+    specs_closed lines st = true ->
+    run_lines (map (fun l => (p ++ l)%string) lines) (pad_state (String.length p) st)
+    = (fst (run_lines lines st), pad_state (String.length p) (snd (run_lines lines st))).
+Proof.
+  intros p lines. induction lines as [|l rest IH]; intros st Hp Hsafe.
+  - reflexivity.
+  - cbn [map run_lines specs_closed] in *.
+    apply andb_prop in Hsafe as [Hnow Hlater].
+    rewrite (step_pad_shift p l st Hp Hnow).
+    destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
+    rewrite (IH st' Hp Hlater).
+    destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
+Qed.
+
+Theorem indent_uniformity :
+  forall p lines,
+    is_blank p = true ->
+    specs_closed lines (PPara []) = true ->
+    parse_lines (map (fun l => (p ++ l)%string) lines) (PPara [])
+    = parse_lines lines (PPara []).
+Proof.
+  intros p lines Hp Hsafe.
+  pose proof (run_lines_pad_shift_closed p lines (PPara []) Hp Hsafe) as R.
+  cbn [pad_state] in R. rewrite (parse_lines_run _ _ _ _ R), pad_state_finish.
+  symmetry. apply parse_lines_run, surjective_pairing.
+Qed.
+
+(*
 A lazy line in a list item
 --------------------------
 
