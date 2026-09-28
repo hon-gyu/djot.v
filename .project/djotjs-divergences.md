@@ -1986,3 +1986,35 @@ wrapping, and each is one of the three shapes: ours looser in 480 and
 172, tighter (the div closer) in 51 and 12.  The accepted roundtrip pool
 at depth 3 grew from 43857 to 57857, from the `Loose` spellings the old
 rule made unreachable and the div-ending items.
+
+## 2026-09-29 -- SPEC-GAP: which list a blank inside a nested block counts against
+
+Found while stating the reference's tightness rule.  djot.js and ours
+agree on all five; the reference does not decide them.
+
+| # | Input | djot.js and ours |
+| --- | --- | --- |
+| a | `- - b` / blank / `- c` | outer tight |
+| b | `- a` / blank / `  - b` / blank / `- c` | outer tight |
+| c | `- - a` / blank / `  b` | outer tight |
+| d | `- :::` / `  x` / blank / `  y` / `  :::` | tight |
+| e | `- :::` / `  d` / blank / `- c` (div left open) | tight |
+
+In (a) to (c) the blank ends a nested list and also separates two items,
+or two blocks of one item, of the outer list.  "Blank lines at the start
+or end of a list do not count against tightness" does not say whether
+the exemption also covers the outer list.  jgm's own djot.js tests say
+it does: `lists.test` lines 242 and 308 (commit 0ec53d5f, 2022-12-24)
+expect `- a` / blank / `  - b` / `  - c` / blank / `- d` and its
+neighbour tight.  At the start of a nested list he ruled the other way
+when the blank is between outer items (jgm/djot.js#45, entry above), so
+the two edges are not symmetric.
+
+In (d) and (e) the blank is part of the div's contents.  We read "blocks
+inside an item" as the item's own blocks, as for a blank inside a code
+block.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js and jgm's tests
+on all five).  The alternative for (a) to (c), where the blank loosens
+the outer list, is on branch `hy/blank-after-nested-list`: it passes
+every check of ours and fails the two djot.js tests.
