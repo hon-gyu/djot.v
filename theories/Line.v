@@ -1112,6 +1112,152 @@ Local Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
 Local Definition sep_cells (s : string) : option (list align) :=
   sep_cells_fuel (S (String.length s)) s.
 
+(* A canonical separator cell, with at least one dash.  The suffix starts
+   after this cell's closing bar, so the statement below applies at any
+   column of a separator row. *)
+Fixpoint separator_dashes (n : nat) : string :=
+  match n with O => EmptyString | S n' => String "-" (separator_dashes n') end.
+
+Definition separator_colon (present : bool) (s : string) : string :=
+  if present then String ":" s else s.
+
+Definition separator_cell_text (left right : bool) (n : nat) (rest : string)
+  : string :=
+  separator_colon left
+    (separator_dashes n ++ separator_colon right (String "|" rest)).
+
+Local Lemma count_separator_dashes : forall n right rest,
+  count_run "-" (separator_dashes n ++
+    separator_colon right (String "|" rest)) =
+  (n, separator_colon right (String "|" rest)).
+Proof.
+  induction n as [|n IH]; intros right rest.
+  - destruct right; reflexivity.
+  - cbn [separator_dashes append count_run]. rewrite IH. reflexivity.
+Qed.
+
+(** The four alignment cases, for every positive dash width and every
+    position in a separator row.  The returned suffix is what the scan
+    passes to the next cell. *)
+Theorem separator_cell_alignment : forall left right n rest,
+  sep_cell (separator_cell_text left right (S n) rest) =
+    Some ((match left, right with
+           | true, true => AlignCenter
+           | true, false => AlignLeft
+           | false, true => AlignRight
+           | false, false => AlignDefault
+           end), drop_leading_ws rest).
+Proof.
+  intros left right n rest.
+  destruct left, right; unfold separator_cell_text, separator_colon, sep_cell;
+    cbn [append]; simpl.
+  all: try (pose proof (count_separator_dashes n true rest) as H;
+            cbn [separator_colon] in H; rewrite H);
+       try (pose proof (count_separator_dashes n false rest) as H;
+            cbn [separator_colon] in H; rewrite H);
+       simpl; reflexivity.
+Qed.
+
+Local Lemma separator_cell_text_nonempty : forall left right n rest,
+  separator_cell_text left right (S n) rest <> EmptyString.
+Proof.
+  intros [] right n rest; unfold separator_cell_text, separator_colon;
+    cbn [separator_dashes append]; discriminate.
+Qed.
+
+Local Lemma sep_cells_fuel_step : forall fuel c s a rest aligns,
+  sep_cell (String c s) = Some (a, rest) ->
+  sep_cells_fuel fuel rest = Some aligns ->
+  sep_cells_fuel (S fuel) (String c s) = Some (a :: aligns).
+Proof.
+  intros fuel c s a rest aligns Hcell Hrest.
+  cbn [sep_cells_fuel]. rewrite Hcell, Hrest. reflexivity.
+Qed.
+
+(* Each width is stored as its predecessor, so every generated cell has
+   a positive dash run.  The list can contain any mix of alignments. *)
+Fixpoint separator_text (cells : list (bool * bool * nat)) : string :=
+  match cells with
+  | [] => EmptyString
+  | ((a, b), n) :: rest =>
+      separator_cell_text a b (S n) (separator_text rest)
+  end.
+
+Definition separator_alignment (left right : bool) : align :=
+  match left, right with
+  | true, true => AlignCenter
+  | true, false => AlignLeft
+  | false, true => AlignRight
+  | false, false => AlignDefault
+  end.
+
+Lemma separator_text_no_leading_ws : forall cells,
+  drop_leading_ws (separator_text cells) = separator_text cells.
+Proof.
+  intros [|[[a b] n] rest]; [reflexivity|].
+  destruct a; unfold separator_text, separator_cell_text, separator_colon;
+    cbn [separator_dashes append drop_leading_ws is_ws]; reflexivity.
+Qed.
+
+Lemma separator_cells_fuel : forall cells,
+  sep_cells_fuel (S (length cells)) (separator_text cells) =
+  Some (map (fun '((a, b), _) => separator_alignment a b) cells).
+Proof.
+  induction cells as [|[[a b] n] rest IH]; [reflexivity|].
+  cbn [length separator_text map].
+  destruct (separator_cell_text a b (S n) (separator_text rest))
+    as [|c s] eqn:E.
+  - exfalso. apply (separator_cell_text_nonempty a b n (separator_text rest)).
+    exact E.
+  - eapply sep_cells_fuel_step.
+    + pose proof (separator_cell_alignment a b n (separator_text rest)) as H.
+      rewrite E in H. rewrite separator_text_no_leading_ws in H. exact H.
+    + exact IH.
+Qed.
+
+Local Lemma sep_cells_fuel_more : forall fuel extra s aligns,
+  sep_cells_fuel fuel s = Some aligns ->
+  sep_cells_fuel (fuel + extra) s = Some aligns.
+Proof.
+  induction fuel as [|fuel IH]; intros extra s aligns H; [discriminate|].
+  destruct s as [|c s].
+  - destruct aligns; inversion H; subst. destruct extra; reflexivity.
+  - cbn [sep_cells_fuel] in H.
+    destruct (sep_cell (String c s)) as [[a rest]|] eqn:E;
+      [|discriminate].
+    destruct (sep_cells_fuel fuel rest) as [xs|] eqn:Er;
+      [|discriminate].
+    inversion H; subst aligns.
+    replace (S fuel + extra) with (S (fuel + extra)) by lia.
+    cbn [sep_cells_fuel]. rewrite E.
+    rewrite (IH extra rest xs Er). reflexivity.
+Qed.
+
+Local Lemma separator_dashes_length : forall n,
+  String.length (separator_dashes n) = n.
+Proof. induction n; cbn; congruence. Qed.
+
+Local Lemma separator_text_length : forall cells,
+  length cells <= String.length (separator_text cells).
+Proof.
+  induction cells as [|[[a b] n] rest IH]; [reflexivity|].
+  cbn [length separator_text]. unfold separator_cell_text, separator_colon.
+  destruct a, b; cbn [String.length];
+    rewrite length_append, separator_dashes_length; cbn [String.length]; lia.
+Qed.
+
+Theorem separator_row_alignments : forall cells,
+  sep_cells (separator_text cells) =
+    Some (map (fun '((a, b), _) => separator_alignment a b) cells).
+Proof.
+  intros cells. unfold sep_cells.
+  replace (S (String.length (separator_text cells)))
+    with (S (length cells) +
+          (String.length (separator_text cells) - length cells)) by
+    (pose proof (separator_text_length cells); lia).
+  apply sep_cells_fuel_more, separator_cells_fuel.
+Qed.
+
 (* Cell text is trimmed on both sides, except that an escaped whitespace
    character stops the right trim and everything after it is kept:
    `| a\ |` renders `a&nbsp;`.  Escapes are consumed in pairs, so this is

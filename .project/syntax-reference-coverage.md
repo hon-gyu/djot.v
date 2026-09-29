@@ -39,7 +39,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
 | Block: heading, quote, list item, list | 12 | 7 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 3 | 4 | 9 | 0 | 0 | 2 |
+| Block: leaf blocks and tables | 4 | 4 | 8 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -175,13 +175,13 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | PT1 | Pipe table | "Each row starts and ends with a pipe character (`\|`) and contains one or more *cells* separated by pipe characters" | E | `table_row`, `table_row_needs_closing_pipe` | Unit: `row_*` in Line.v, ParserExamples.v "Tables". |
 | PT2 | Pipe table | a separator line: "every cell consists of a sequence of one of more `-` characters, optionally prefixed and/or suffixed by a `:`" | E | `table_header` | Unit: `row_sep_*`.  Cell trimming: `SPEC-GAP`, 2026-08-02. |
 | PT3 | Pipe table | "the previous row is treated as a header, and alignments on that row and any subsequent rows are determined by the separator line (until a new header is found).  The separator line itself does not contribute a row" | T | `table_separator_regime`; `table_header`, `table_alignment_changes`, `table_header_resets` | Arbitrary earlier rows and prior alignments; every body row through the next separator.  Located table output erases to this fold (`of_table_fold_located`). |
-| PT4 | Pipe table | the four alignment cases from leading and trailing `:` | E | `table_alignment_changes` | All four cases occur in it.  Unit: `row_sep_default_right`. |
+| PT4 | Pipe table | the four alignment cases from leading and trailing `:` | T | `separator_cell_alignment`, `separator_row_alignments`; `table_alignment_changes` | Every positive dash width and every mix of colon patterns across separator cells; `table_separator_regime` carries the resulting alignments to table rows.  Unit: `row_sep_default_right`. |
 | PT5 | Pipe table | "A table need not have a header: just omit any separator lines, or ... *begin* with a separator line" | E | `table_no_header`, `table_separator_first` | |
 | PT6 | Pipe table | "Contents of table cells are parsed as inlines" | E | `table_header` | |
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 3, T~ 4, E 9, n/a 2.
+Leaf blocks and tables: T 4, T~ 4, E 8, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
@@ -251,8 +251,9 @@ List and table structure:
    blank the rule counts.  The converse, that every such blank loosens,
    is open (`260929.plan.list-tightness.md`, step 3).
 6. Done: **LS1 the split half**, `list_different_types_split`.
-7. Done: **PT3 header regime**, `table_separator_regime`.  PT4's four
-   colon cases over every separator cell remain open.
+7. Done: **PT3 header regime**, `table_separator_regime`, and **PT4
+   alignment cases**, `separator_cell_alignment` and
+   `separator_row_alignments`.
 
 Inline structure:
 
