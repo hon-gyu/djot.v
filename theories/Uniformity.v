@@ -98,6 +98,45 @@ Lemma parse_lines_step :
     parse_lines (l :: rest) st = (bs ++ parse_lines rest st')%list.
 Proof. intros l rest st bs st' H. cbn [parse_lines]. rewrite H. reflexivity. Qed.
 
+(** When the incoming marker has no style in common with the open list,
+    the old list is emitted before the new item's list is opened.  The
+    remaining lines therefore parse from that new list state, so no
+    future continuation can join the two items into one list. *)
+Lemma narrow_disjoint : forall old new,
+  (forall p s, In p old -> In s new -> fst p <> s) ->
+  narrow old new = [].
+Proof.
+  intros old new Hdisjoint. unfold narrow.
+  induction old as [|p old IH]; [reflexivity|].
+  cbn [filter].
+  destruct (existsb (lstyle_eqb (fst p)) new) eqn:E.
+  - apply existsb_exists in E as [s [Hin Heq]].
+    apply lstyle_eqb_eq in Heq.
+    exfalso. eapply (Hdisjoint p s); [left; reflexivity|exact Hin|exact Heq].
+  - apply IH. intros q s Hq Hs. apply (Hdisjoint q s); [right; exact Hq|exact Hs].
+Qed.
+
+Theorem list_different_types_split :
+  forall l sty core chk content ls done inner bs inner' tail,
+    classify l = KList sty core chk content ->
+    (forall p s, In p (ls_styles ls) ->
+       In s (configured_list_styles sty chk) -> fst p <> s) ->
+    list_takes ls 0 l inner = false ->
+    step (configured_list_rest chk content) (PPara []) = (bs, inner') ->
+    parse_lines (l :: tail) (PList ls done inner) =
+      (finish (PList ls done inner) ++
+       parse_lines tail
+         (PList (list_opened l (indent_of l)
+                   (with_starts (configured_list_styles sty chk) core)
+                   (configured_list_check chk)) (rev bs)
+           (pad_state (consumed l (configured_list_rest chk content)) inner')))%list.
+Proof.
+  intros l sty core chk content ls done inner bs inner' tail
+    Hkind Hstyle Hcolumn Hcontent.
+  apply parse_lines_step.
+  eapply step_list_diffstyle; eauto using narrow_disjoint.
+Qed.
+
 Lemma parse_lines_nil_cons :
   forall c cur',
     parse_lines [] (PPara (c :: cur')) =

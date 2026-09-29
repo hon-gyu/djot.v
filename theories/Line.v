@@ -2625,7 +2625,7 @@ Proof.
       [discriminate Hsty|]. exists s, ss. reflexivity.
 Qed.
 
-Local Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
+Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
 Proof.
   intros [c|c|n d] [c'|c'|n' d'] H; cbn [lstyle_eqb] in H; try discriminate.
   - apply Ascii.eqb_eq in H. subst c'. reflexivity.
