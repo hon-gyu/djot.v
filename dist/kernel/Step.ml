@@ -906,13 +906,14 @@ let is_lazy k k0 inner =
   | KText -> lazy_ok k inner
   | _ -> false
 
-(** val list_content : coq_LineIx -> list_state -> line_kind -> list_state **)
+(** val list_content :
+    coq_LineIx -> list_state -> line_kind -> bool -> list_state **)
 
-let list_content lI ls k =
+let list_content lI ls k foot =
   let loose =
     match k with
     | KList (_, _, _, _) -> ls.ls_loose
-    | _ -> (||) ls.ls_loose ls.ls_blanks
+    | _ -> if foot then ls.ls_loose else (||) ls.ls_loose ls.ls_blanks
   in
   { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
   ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
@@ -934,7 +935,7 @@ let rec feed_lazy lI l st = match st with
   PDiv (len, cls, (touch_extent lI range), opener, done0,
     (feed_lazy lI l inner))
 | PList (ls, done0, inner) ->
-  PList ((list_content lI ls KText), done0, (feed_lazy lI l inner))
+  PList ((list_content lI ls KText false), done0, (feed_lazy lI l inner))
 | PParaOff (k, cur) ->
   PParaOff (k, ((remember_line lI (drop_leading_ws l)) :: cur))
 | PFoot (range, ind, lbl, done0, inner) ->
@@ -1155,9 +1156,18 @@ let rec blank_absorbed = function
 | PDiv (_, _, _, _, _, _) -> true
 | PList (_, _, _) -> true
 | PAttr (_, _, _, _, _, _) -> true
-| PFoot (_, _, _, _, _) -> true
+| PFoot (_, _, _, _, inner) -> blank_absorbed inner
 | PPend (_, _, inner) -> blank_absorbed inner
 | PKey (_, _, _, inner) -> blank_absorbed inner
+| _ -> false
+
+(** val foot_takes : bconfig -> int -> string -> pstate -> bool **)
+
+let rec foot_takes k off l = function
+| PFoot (_, ind, _, _, inner) ->
+  (&&) (negb (lazy_ok k inner)) (( < ) ind (( + ) off (indent_of l)))
+| PPend (_, _, inner) -> foot_takes k off l inner
+| PKey (_, _, _, inner) -> foot_takes k off l inner
 | _ -> false
 
 (** val list_next :
@@ -1295,8 +1305,9 @@ let rec step_fuel t k lI p n off l st =
         | x ->
           if list_takes ls off l inner
           then let (bs, inner') = step_fuel t k lI p n' off l inner in
-               ([], (PList ((list_content lI ls x), (app (rev bs) done0),
-               inner')))
+               ([], (PList
+               ((list_content lI ls x (foot_takes k off l inner)),
+               (app (rev bs) done0), inner')))
           else (match x with
                 | KList (sty, core, chk, rest) ->
                   (match narrow ls.ls_styles
@@ -1319,7 +1330,7 @@ let rec step_fuel t k lI p n off l st =
                      (rev bs), inner'))))
                 | _ ->
                   if is_lazy k x inner
-                  then ([], (PList ((list_content lI ls x), done0,
+                  then ([], (PList ((list_content lI ls x false), done0,
                          (feed_lazy lI l inner))))
                   else close_reopen t k p (PList (ls, done0, inner))
                          (open_line t k lI p descend

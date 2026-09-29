@@ -48,7 +48,9 @@ let rec lines_loose t k loose gap st = function
    | KBlank ->
      lines_loose t k loose (if blank_absorbed st then gap else true) st' rest
    | KList (_, _, _, _) -> lines_loose t k loose false st' rest
-   | _ -> lines_loose t k ((||) loose gap) false st' rest)
+   | _ ->
+     lines_loose t k (if foot_takes k 0 l st then loose else (||) loose gap)
+       false st' rest)
 
 (** val item_loose : dtable -> bconfig -> string list -> bool **)
 

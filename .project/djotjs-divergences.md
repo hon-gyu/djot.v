@@ -2000,6 +2000,41 @@ agree on all five; the reference does not decide them.
 | d | `- :::` / `  x` / blank / `  y` / `  :::` | tight |
 | e | `- :::` / `  d` / blank / `- c` (div left open) | tight |
 
+::: a
+- - b
+
+- c
+:::
+
+::: b
+- a
+
+  - b
+
+- c
+:::
+
+::: c
+- - a
+
+  b
+:::
+
+:::: d
+- :::
+  x
+
+  y
+  :::
+::::
+
+:::: e
+- :::
+  d
+
+- c
+::::
+
 In (a) to (c) the blank ends a nested list and also separates two items,
 or two blocks of one item, of the outer list.  "Blank lines at the start
 or end of a list do not count against tightness" does not say whether
@@ -2018,3 +2053,42 @@ block.
 on all five).  The alternative for (a) to (c), where the blank loosens
 the outer list, is on branch `hy/blank-after-nested-list`: it passes
 every check of ours and fails the two djot.js tests.
+
+## Closed 2026-09-29 -- djotjs-bug: a blank after a footnote in an item does not loosen
+
+| Input | djot.js | Ours and the reference |
+| --- | --- | --- |
+| `- [^n]: a` / blank / `  b` | tight | loose: the blank is between two blocks of the item |
+| `- [^n]: a` / blank / `- c` | tight | loose: the blank is between items |
+| `- [^n]: a` / blank / `      b` / `- c` | tight | tight: the blank is inside the footnote |
+
+A reference definition in the same place loosens in both engines
+(`- [r]: u` / blank / `  b`).  The reference does not treat the two
+differently; its exemption for "blank lines at the start or end of a
+list" names lists only.
+
+djot.js records a blank against a list only when the list is the
+innermost open container or the one below it (`blankline` in
+`src/parse.ts`).  A footnote in an item is a third level, list > item >
+footnote, so the blank is dropped before the next line closes the
+footnote.  A reference definition closes at the blank, so the list is
+the second level again.  The same two-level lookup is behind
+jgm/djot.js#157.  No test in djot.js covers a footnote in a list item.
+
+Ours matched djot.js because `blank_absorbed` counted an open footnote
+as absorbing, like a nested list.  Whether the blank is the footnote's
+is known only at the next line: a line the footnote takes (indented
+past its `[`) continues it, and anything else ends it.
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.**  A footnote no longer
+absorbs a blank in `blank_absorbed` (it reads through to what the
+footnote has open, so a blank inside a nested list or code block in the
+footnote is still theirs), and a content line the footnote takes clears
+the armed flag without loosening (`foot_takes`, `list_content` in
+Step.v; the mirrors `lines_loose` and `scan_list_content` in
+ListUniformity.v).  Not reported upstream yet.  Pinned by
+`list_blank_after_footnote_in_item`,
+`list_blank_after_footnote_between_items` and
+`list_blank_inside_footnote` in `dev/check/Reference.v`.  The generated
+and file corpora do not change against djot.js (generated 531 and 184
+mismatches, file 0), and the depth-3 roundtrip still accepts all 57857.
