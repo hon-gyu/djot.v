@@ -1897,6 +1897,85 @@ Proof.
   reflexivity.
 Qed.
 
+(* What may follow a definition's colon, in the reference's words:
+   whitespace and the URL, or the end of the line (the URL is on the
+   next).  The URL chunk has no whitespace, and nothing follows it. *)
+Local Lemma ref_value_gap : forall gap dest,
+  is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  ref_value (gap ++ dest) = Some dest.
+Proof.
+  intros gap dest Hblank Hdest Hbare.
+  destruct gap as [|c gap]; [rewrite (Hbare eq_refl); reflexivity|].
+  cbn [is_blank] in Hblank. apply andb_true_iff in Hblank as [Hc Hgap].
+  unfold ref_value. cbn [append]. rewrite Hc.
+  change (String c (gap ++ dest)) with (String c gap ++ dest).
+  rewrite (drop_leading_ws_ws_prefix (String c gap) dest)
+    by (cbn [is_blank]; rewrite Hc, Hgap; reflexivity).
+  rewrite (no_ws_drop_leading_ws dest Hdest), Hdest. reflexivity.
+Qed.
+
+Local Lemma ref_open_gap : forall label gap dest,
+  no_char "]"%char label = true ->
+  is_footnote_label label = false ->
+  is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  ref_open ("[" ++ label ++ "]:" ++ gap ++ dest) = Some (label, dest).
+Proof.
+  intros label gap dest Hlabel Hfoot Hblank Hdest Hbare.
+  assert (Hlab : forall tail,
+    ref_label (label ++ String "]" tail) = Some (label, tail)).
+  { clear Hfoot Hblank Hdest Hbare.
+    induction label as [|c label IH]; [reflexivity|].
+    cbn [no_char] in Hlabel. apply andb_true_iff in Hlabel as [Hc Hl].
+    cbn [append ref_label]. apply negb_true_iff in Hc.
+    intros tail. rewrite Hc, (IH Hl tail). reflexivity. }
+  unfold ref_open. cbn [append drop_leading_ws is_ws Ascii.eqb orb].
+  change (is_ws "[") with false.
+  cbn [drop_leading_ws Ascii.eqb negb]. simpl.
+  rewrite (Hlab (String ":" (gap ++ dest))). simpl. rewrite Hfoot.
+  rewrite (ref_value_gap gap dest Hblank Hdest Hbare). reflexivity.
+Qed.
+
+(** RD1 at the line level: any indentation, the label, the colon, then
+    whitespace and a whitespace-free URL chunk, or nothing (the URL
+    starts on the next line). *)
+Theorem classify_ref_whitespace : forall pre label gap dest,
+  no_char "]"%char label = true ->
+  is_footnote_label label = false ->
+  is_blank pre = true -> is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  classify (pre ++ "[" ++ label ++ "]:" ++ gap ++ dest) = KRef label dest.
+Proof.
+  intros pre label gap dest Hlabel Hfoot Hpre Hblank Hdest Hbare.
+  rewrite classify_ws_prefix by exact Hpre.
+  set (s := "[" ++ label ++ "]:" ++ gap ++ dest).
+  assert (Hdrop : drop_leading_ws s = s).
+  { unfold s. cbn [append drop_leading_ws].
+    change (is_ws "[") with false. reflexivity. }
+  assert (Hfo : foot_open s = None).
+  { unfold foot_open. rewrite Hdrop. unfold s. cbn [append].
+    destruct label as [|c [|d rest]].
+    - reflexivity.
+    - cbn [append ref_label nonempty_str Ascii.eqb negb].
+      destruct (Ascii.eqb c "^"); reflexivity.
+    - cbn [is_footnote_label] in Hfoot.
+      destruct (Ascii.eqb c "^") eqn:Ec.
+      + apply Ascii.eqb_eq in Ec. subst c. discriminate.
+      + cbn [append ref_label nonempty_str Ascii.eqb negb].
+        rewrite Ec. reflexivity. }
+  assert (Hro : ref_open s = Some (label, dest)).
+  { unfold s. apply ref_open_gap; assumption. }
+  unfold classify.
+  change (is_blank s) with false.
+  unfold quote_prefix, heading_open, fence_open, div_open, list_marker,
+    attr_open, is_thematic.
+  rewrite !Hdrop, Hfo, Hro. unfold s. cbn [append].
+  cbn [count_run thematic_count is_marker is_ws is_bullet marker_shape
+       Ascii.eqb orb andb Nat.leb eqb negb].
+  reflexivity.
+Qed.
+
 (* Boolean form of `classify l = KText`, so it can sit inside cb_ok. *)
 Definition is_text (l : string) : bool :=
   match classify l with KText => true | _ => false end.
@@ -1996,6 +2075,83 @@ Proof.
   change (quote_prefix ("```" ++ info)) with (@None string).
   change (heading_open ("```" ++ info)) with (@None (nat * string)).
   rewrite (fence_open_backtick info H). reflexivity.
+Qed.
+
+(* A backtick fence as the syntax reference spells it: any indentation,
+   three or more backticks, optional whitespace, an optional info string,
+   and trailing whitespace. *)
+Fixpoint backtick_run (n : nat) : string :=
+  match n with O => EmptyString | S n' => String "`" (backtick_run n') end.
+
+Local Lemma take_info_app :
+  forall info post, all_info_chars info = true -> is_blank post = true ->
+  take_while is_info_char (info ++ post) = (info, post).
+Proof.
+  induction info as [|c info IH]; intros post Hinfo Hpost.
+  - destruct post as [|w post]; [reflexivity|].
+    cbn [is_blank] in Hpost. apply andb_true_iff in Hpost as [Hw _].
+    cbn [append take_while]. unfold is_info_char. rewrite Hw. reflexivity.
+  - cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc Hinfo].
+    cbn [append take_while]. rewrite Hc, (IH post Hinfo Hpost). reflexivity.
+Qed.
+
+Local Lemma count_backtick_run : forall n rest,
+  count_run "`" rest = (O, rest) ->
+  count_run "`" (backtick_run n ++ rest) = (n, rest).
+Proof.
+  induction n as [|n IH]; intros rest Hrest; [exact Hrest|].
+  cbn [backtick_run append count_run]. rewrite IH by exact Hrest.
+  reflexivity.
+Qed.
+
+Local Lemma fence_open_backticks : forall n gap info post,
+  is_blank gap = true -> all_info_chars info = true -> is_blank post = true ->
+  fence_open (backtick_run (3 + n) ++ gap ++ info ++ post) =
+    Some (Fence "`" (3 + n) info).
+Proof.
+  intros n gap info post Hgap Hinfo Hpost.
+  (* the run ends where the backticks do: whatever follows is whitespace,
+     an info character, or nothing *)
+  assert (Hrun : count_run "`" (gap ++ info ++ post) = (O, gap ++ info ++ post)).
+  { destruct gap as [|w gap].
+    - destruct info as [|c info].
+      + destruct post as [|w post]; [reflexivity|].
+        cbn [is_blank] in Hpost. apply andb_true_iff in Hpost as [Hw _].
+        cbn [append count_run]. destruct (Ascii.eqb "`" w) eqn:E; [|reflexivity].
+        apply Ascii.eqb_eq in E. subst w. discriminate.
+      + cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc _].
+        apply info_char_parts in Hc as (_ & Hb & _).
+        cbn [append count_run]. rewrite Ascii.eqb_sym, Hb. reflexivity.
+    - cbn [is_blank] in Hgap. apply andb_true_iff in Hgap as [Hw _].
+      cbn [append count_run]. destruct (Ascii.eqb "`" w) eqn:E; [|reflexivity].
+      apply Ascii.eqb_eq in E. subst w. discriminate. }
+  unfold fence_open.
+  cbn [backtick_run append drop_leading_ws is_ws Ascii.eqb orb]. simpl.
+  rewrite (count_backtick_run n _ Hrun), (drop_leading_ws_ws_prefix gap _ Hgap).
+  destruct info as [|c info'].
+  - cbn [append]. rewrite (drop_leading_ws_blank post Hpost). reflexivity.
+  - assert (Hc : is_ws c = false).
+    { cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc _].
+      apply info_char_parts in Hc as (Hw & _ & _). exact Hw. }
+    cbn [append drop_leading_ws]. rewrite Hc.
+    change (String c (info' ++ post)) with (String c info' ++ post).
+    rewrite (take_info_app _ post Hinfo Hpost), Hpost. reflexivity.
+Qed.
+
+Theorem classify_backtick_fences : forall pre n gap info post,
+  is_blank pre = true -> is_blank gap = true ->
+  all_info_chars info = true -> is_blank post = true ->
+  classify (pre ++ backtick_run (3 + n) ++ gap ++ info ++ post) =
+    KFence (Fence "`" (3 + n) info).
+Proof.
+  intros pre n gap info post Hpre Hgap Hinfo Hpost.
+  rewrite classify_ws_prefix by exact Hpre. unfold classify.
+  change (is_blank (backtick_run (3 + n) ++ gap ++ info ++ post)) with false.
+  change (quote_prefix (backtick_run (3 + n) ++ gap ++ info ++ post))
+    with (@None string).
+  change (heading_open (backtick_run (3 + n) ++ gap ++ info ++ post))
+    with (@None (nat * string)).
+  rewrite (fence_open_backticks n gap info post Hgap Hinfo Hpost). reflexivity.
 Qed.
 
 (* Canonical block-quote prefixing: "> " in front of every line, blank
