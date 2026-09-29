@@ -84,6 +84,7 @@ Current supported extensions and parser configs are:
 Some additional properties for the generalized parser:
 - Changing one inline delimiter's character is valid when the new character differs from every other delimiter's. ==> Only the changed delimiter needs checking.
 - Respelling a delimiter (strong as `+` instead of `*`, say) parses every document to the same tree once the two characters are swapped in the source. ==> A profile can respell a delimiter without changing what documents mean.
+- Changing the inline delimiters, or turning inline constructs on or off, never changes block structure: the same blocks, nested the same way, with the same list items and table cells. The one exception is a table caption, which disappears when its inline content comes out empty. Keyed blocks must be off. ==> Blocks can be found before inline syntax is read, as the syntax reference requires.
 - [ ] Turning a construct off does not change the parse of a document that never uses it.
 
 ## Conformance

@@ -37,10 +37,10 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
-| Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
+| Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 12 | 7 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 4 | 4 | 8 | 0 | 0 | 2 |
-| Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
+| Block: leaf blocks and tables | 5 | 3 | 8 | 0 | 0 | 2 |
+| Block: references, footnotes, attributes, ids | 5 | 2 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
@@ -120,7 +120,7 @@ Inline: T 1, T~ 4, E 47, n/a 5.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | none | | True of the architecture (the inline scan runs on a finished paragraph's lines), but no theorem says the block tree is independent of inline syntax.  Keyed blocks break it on purpose (`key_split_contract`). |
+| BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | T | `block_shape_independent` (BlockShape.v) | The block tree with every inline erased is the same under any two inline delimiter tables.  Table captions are erased too: a caption whose inline content comes out empty is no caption, as in djot.js, so an unattached `{.x}` caption exists under one table and not the other (`inline_attrs_affect_caption_presence`, Invariants.v).  Keyed blocks, an extension, are off: finding a key's label asks the inline scanner, which breaks the rule on purpose (`key_split_contract`). |
 | BI2 | Block syntax | "blocks can be parsed line by line with no backtracking.  The contribution a line makes to block-level structure never depends on a future line" | T | `prefix_determinism`, `no_future_line_dependence`, `prefix_state_suffices` | |
 | BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `indent_uniformity`, `classify_ws_prefix`, `quote_uniformity_pad` | Shape: every line indented by the same blanks, with no block attribute spec open between lines (`specs_closed`); then the parse is unchanged, lists and footnotes included.  Indentation that differs from line to line is read by code blocks and by nesting, so no statement covers it. |
 | BI4 | Block syntax | "a thematic break or fenced code block can be directly followed by a paragraph" | E | `code_block_longer_closer` | |
@@ -129,7 +129,7 @@ Inline: T 1, T~ 4, E 47, n/a 5.
 | BI7 | Block syntax | "we recommend *always* separating block-level elements by blank lines" | n/a | | Advice. |
 | PA1 | Paragraph | "a sequence of nonblank lines that does not meet the condition for being one of the other block-level elements ... parsed as a sequence of inline elements.  Newlines are treated as soft breaks" | T | `hard_wrap_one_para` | |
 
-Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
+Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 
 ### Heading, block quote, list item, list
 
@@ -162,7 +162,7 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T~ | `classify_backtick_fence`; `code_block_info_only`, `code_block_info_spaces` | Shape: one line, three backticks.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
+| CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T | `classify_backtick_fences`; `code_block_info_only`, `code_block_info_spaces` | Line level: any indentation, any run of three or more, whitespace or none before the info string, trailing whitespace.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
 | CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T~ | `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | Shape: the enclosing-block half, for every container, since each theorem parses the contents as a document that ends with the container.  The fence-length half has only the examples. |
 | CB3 | Code block | "Its contents are interpreted as verbatim text" | T~ | `roundtrip_blocks` | Shape: canonical code blocks, whose fence the renderer picks longer than any backtick run inside. |
 | TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T | `classify_thematic`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Line level.  `*` and `-` may be mixed on one line, in both engines. |
@@ -181,13 +181,13 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 4, T~ 4, E 8, n/a 2.
+Leaf blocks and tables: T 5, T~ 3, E 8, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RD1 | Reference link definition | "the reference label in square brackets, followed by a colon, followed by whitespace (or a newline) and the URL" | T~ | `classify_canonical_ref`; `reference_definition` | Shape: one line, `[label]: dest`. |
+| RD1 | Reference link definition | "the reference label in square brackets, followed by a colon, followed by whitespace (or a newline) and the URL" | T | `classify_ref_whitespace`; `reference_definition` | Line level: any indentation, then after the colon either whitespace and a whitespace-free URL chunk, or nothing (the URL starts on the next line, RD2).  Whitespace after the URL makes the line text, in both engines. |
 | RD2 | Reference link definition | "The URL may be split over multiple lines (... concatenated, with any leading or trailing space removed).  None of the chunks of the URL may contain internal whitespace" | T~ | `ref_open_value_no_ws`; `reference_definition`, `reference_url_lines` | Shape: the first chunk.  Unit: ParserExamples.v, "Reference definitions". |
 | RD3 | Reference link definition | "No case normalization is done on reference labels" | E | `reference_case_sensitive` | |
 | RD4 | Reference link definition | "Attributes on reference definitions get transferred to the link ... the attribute on the link overrides the one on the reference definition" | E | `reference_attributes`, `reference_attributes_link_overrides` | `html_tree_reference_shape` bounds what a definition can change (attributes only), not this rule. |
@@ -203,7 +203,7 @@ Leaf blocks and tables: T 4, T~ 4, E 8, n/a 2.
 | LH4 | Links to headings | `# Introduction[^1]` "generates the identifier `Introduction`, not `Introduction1`" | E | `heading_identifier_footnote` | |
 | — | Reference link definition | "The reference label should be defined somewhere in the document" | T~ | see L5 | Advice to the author; what happens when it is not defined is L5. |
 
-References, footnotes, attributes, identifiers: T 4, T~ 3, E 7 (the
+References, footnotes, attributes, identifiers: T 5, T~ 2, E 7 (the
 last row is counted under L5).
 
 ### Nesting limits and security
@@ -262,15 +262,17 @@ Inline structure:
    state against; it deserves its own plan.
 9. **M2, M3 flanking**: an opener before whitespace or a closer after
    whitespace never delimits, over all inputs.
-10. **BI1**: the block tree (inlines erased) does not depend on the
-    inline delimiter table, for configurations without keyed blocks.
+10. Done: **BI1** `block_shape_independent`: the block tree, inlines
+    and captions erased, does not depend on the inline delimiter table,
+    for configurations without keyed blocks.
 
 Single constructs, each a small theorem over a finite or simple domain:
 
 11. Done: **Q5** `dashes_divide`.
 12. Done: **O2** `escape_every_punct`.
-13. **HE1, CB1, TB1, RD1** at the line level over all spellings.  Done
-    for HE1 (`classify_heading_ws`) and TB1 (`classify_thematic`).
+13. Done: **HE1, CB1, TB1, RD1** at the line level over all spellings:
+    `classify_heading_ws`, `classify_backtick_fences`,
+    `classify_thematic`, `classify_ref_whitespace`.
 14. **LH2** `id_base` characterized clause by clause.
 
 ### An example is enough
