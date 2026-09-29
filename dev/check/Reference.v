@@ -1567,7 +1567,10 @@ wrong: it calls the first two tight (jgm/djot.js#45), the third loose
 (jgm/djot.js#157), and the fourth and fifth tight, because it counts a
 blank only against a list among the two innermost open containers and a
 footnote in an item is a third.  In the sixth the blank is the
-footnote's own, since the footnote continues past it.
+footnote's own, since the footnote continues past it.  The same holds
+of a table and its caption ("there can be an intervening blank line"),
+which djot.js calls loose; a paragraph after the table is a second
+block, and loosens.
 *)
 
 Example list_blank_before_nested_list_item :
@@ -1663,6 +1666,50 @@ Example list_blank_inside_footnote :
 </li>
 <li>
 c
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_caption :
+  convert "- | a |
+
+  ^ cap
+- c
+"
+  = "<ul>
+<li>
+<table>
+<caption>cap</caption>
+<tr>
+<td>a</td>
+</tr>
+</table>
+</li>
+<li>
+c
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_table :
+  convert "- | a |
+
+  b
+- c
+"
+  = "<ul>
+<li>
+<table>
+<tr>
+<td>a</td>
+</tr>
+</table>
+<p>b</p>
+</li>
+<li>
+<p>c</p>
 </li>
 </ul>
 ".

@@ -103,7 +103,7 @@ Local Fixpoint scan_list_content (ls : list_state) (inner : pstate)
       let ls' :=
         match classify l with
         | KBlank => if blank_absorbed inner then ls else list_blank ls
-        | k => list_content ls k (foot_takes 0 (mk_cont mrk ++ l) inner)
+        | k => list_content ls k (keeps_line 0 (mk_cont mrk ++ l) inner)
         end in
       scan_list_content ls' inner' rest
   end.
@@ -275,7 +275,7 @@ Proof.
     [reflexivity|].
   cbn [scan_list_content].
   destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
     apply IH.
 Qed.
 
@@ -302,32 +302,32 @@ Proof.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
   - revert inner ls. induction lines as [|l lines IH]; intros inner ls; [reflexivity|].
     cbn [scan_list_content].
     destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
       rewrite IH; destruct ls; reflexivity.
 Qed.
 
@@ -345,7 +345,7 @@ Proof.
     [reflexivity|].
   cbn [scan_list_content].
   destruct (classify l); [destruct (blank_absorbed inner)|..];
-    try destruct (foot_takes 0 (mk_cont mrk ++ l) inner);
+    try destruct (keeps_line 0 (mk_cont mrk ++ l) inner);
     cbn [list_blank list_content]; apply IH.
 Qed.
 
@@ -449,7 +449,7 @@ Qed.
    ends in meets a blank line, the item separator, so it must also be
    `blank_safe`: a run may contain a code block, but must not end inside
    one. *)
-Local Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
+Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
   match lines with
   | [] => blank_safe st
   | l :: rest => (pad_safe st && run_safe rest (snd (step l st)))%bool
@@ -531,7 +531,7 @@ Proof.
 Qed.
 
 (** The tight/loose verdict, read off the lines.  A blank arms the flag;
-    a line that opens a list, or that an open footnote takes, spends it
+    a line that opens a list, or that an open footnote or table keeps, spends it
     without loosening; anything else spends it and loosens.
 
     The scan also carries the lines' own parse state, because a blank
@@ -549,7 +549,7 @@ Fixpoint lines_loose (loose gap : bool) (st : pstate) (ls : list string) : bool 
       | KBlank => lines_loose loose (if blank_absorbed st then gap else true) st' rest
       | KList _ _ _ _ => lines_loose loose false st' rest
       | _ =>
-          lines_loose (if foot_takes 0 l st then loose else loose || gap)%bool
+          lines_loose (if keeps_line 0 l st then loose else loose || gap)%bool
             false st' rest
       end
   end.
@@ -586,13 +586,13 @@ Proof.
   cbn [scan_list_content lines_loose].
   pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk) Hp) as Hsh.
   rewrite mk_cont_length in Hsh.
-  pose proof (foot_takes_pad_prefix (mk_cont mrk) l st (marker_cont_blank mrk))
+  pose proof (keeps_line_pad_prefix (mk_cont mrk) l st (marker_cont_blank mrk))
     as Hft.
   rewrite mk_cont_length in Hft.
   rewrite Hsh, pad_state_blank_absorbed, Hft.
   destruct (classify l) eqn:E; cbn [snd];
     [ destruct (blank_absorbed st) | ..]; rewrite IH by exact Hrest;
-    try destruct (foot_takes 0 l st); destruct ls; reflexivity.
+    try destruct (keeps_line 0 l st); destruct ls; reflexivity.
 Qed.
 
 (* An item that ends on a nonblank line leaves no blank armed: that line
@@ -780,7 +780,7 @@ Proof.
   induction L as [|l rest IH]; intros st lo g.
   - cbn [lines_loose]. rewrite orb_false_r. reflexivity.
   - cbn [lines_loose]. destruct (classify l); try apply IH.
-    all: destruct (foot_takes 0 l st); [apply IH|].
+    all: destruct (keeps_line 0 l st); [apply IH|].
     all: cbn [orb]; rewrite (IH _ (lo || g)%bool false), (IH _ g false);
          destruct lo, g; reflexivity.
 Qed.
@@ -790,7 +790,7 @@ Qed.
    equation holds one level down instead, which is the induction.  A
    fence and an open spec are the two states where it fails, and
    `blank_safe` excludes both. *)
-Local Lemma step_blank_finish :
+Lemma step_blank_finish :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
 Proof.
@@ -896,7 +896,7 @@ Qed.
    nothing and so the key is still open.  A state that emitted nothing
    kept its container, so it is not idle; when it did not already hold
    an announced-end block, a blank cannot create one. *)
-Local Lemma step_blank_inner_settled :
+Lemma step_blank_inner_settled :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     announces_end st = false -> is_idle st = false -> fst (step l st) = [] ->
     (is_idle (snd (step l st)) = false
@@ -2369,7 +2369,7 @@ Proof.
   assert (Hsp : list_spacing_of Tight [[a; b]] = Tight).
   { unfold list_spacing_of, item_loose. cbn [existsb lines_loose].
     rewrite Ha, Hb.
-    destruct (foot_takes 0 a (PPara [])), (foot_takes 0 b (snd (step a (PPara []))));
+    destruct (keeps_line 0 a (PPara [])), (keeps_line 0 b (snd (step a (PPara []))));
       reflexivity. }
   pose proof (list_uniformity_same bullet Tight [[a; b]] eq_refl eq_refl
                 ltac:(discriminate)

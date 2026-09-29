@@ -38,14 +38,14 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
-| Block: heading, quote, list item, list | 12 | 6 | 1 | 0 | 0 | 1 |
+| Block: heading, quote, list item, list | 12 | 7 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 2 | 4 | 10 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
 60 prose cases in `Reference.v` all match djot.js except
-`table_caption_alone` (adjudicated 2026-08-22, see the log) and the three
+`table_caption_alone` (adjudicated 2026-08-22, see the log) and the
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29).  The T rows
 are the container rules and block-level determinism; inline syntax has one theorem,
 link locality, which holds by construction.
@@ -153,7 +153,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`; `list_style_change` | Only the first half: same-type items make one list.  That a change splits it has only the example. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | E | `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote` | `list_uniformity` gives the spacing as `list_spacing_of`, which runs `step` over the item's lines: the parser's own scan, not the rule.  Four shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); and so does a blank that ends a footnote in an item. |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
 Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
@@ -246,15 +246,10 @@ Container and continuation rules:
 
 List and table structure:
 
-5. **LS4 tightness**.  The three shapes where the parser broke the rule
-   are fixed, and the cases the reference leaves open are adjudicated
-   (entries 2026-09-29 in `djotjs-divergences.md`).  The rule to state:
-   a list is loose exactly when a blank line sits between two of its
-   items, or between two of one item's own blocks, except a blank
-   directly before a nested list inside an item (the reference's
-   `- two` / blank / `  - sub`) and a blank directly after a nested list
-   ends (jgm's tests).  A blank inside a nested block counts only for
-   that block.
+5. Done in part: **LS4 tightness**, `item_loose_separates` and
+   `separator_separates` (Tightness.v): a loose verdict always has a
+   blank the rule counts.  The converse, that every such blank loosens,
+   is open (`260929.plan.list-tightness.md`, step 3).
 6. **LS1 the split half**: two adjacent items of different types never
    share a list.
 7. **PT3 header regime**: a separator makes the previous row a header,
