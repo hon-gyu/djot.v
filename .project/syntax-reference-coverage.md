@@ -39,7 +39,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 4 | 1 | 1 | 0 | 1 | 1 |
 | Block: heading, quote, list item, list | 12 | 7 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 2 | 4 | 10 | 0 | 0 | 2 |
+| Block: leaf blocks and tables | 3 | 4 | 9 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 4 | 3 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -150,7 +150,7 @@ Introduction and paragraph: T 4, T~ 1, E 1, none 1, n/a 1.
 | LI7 | List item | "`v)` is *also* a valid lower-alpha-enumerated marker" | T | `alpha_from_nine_uniformity`, `list_uniformity_narrow`; `ordered_v_paren` | A lone ambiguous marker reads as roman: `SPEC-GAP`, 2026-09-28. |
 | TK1 | Task list item | "A bullet list item that begins with `[ ]`, `[X]`, or `[x]` followed by a space is a task list item" | T~ | `ck_uniformity` (`LKTask`); `task_items` | Shape: canonical task markers.  Unit: `marker_task_*` in Line.v. |
 | DL1 | Definition list item | "the first line or lines after the `:` marker is parsed as inline content and taken to be the *term*.  Any further blocks ... are ... the *definition*" | T~ | `definition_list_uniformity`; `definition_list_item`, `definition_term_lines` | The term split is `def_items`, Ast.v's own function, not a statement of the rule. |
-| LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`; `list_style_change` | Only the first half: same-type items make one list.  That a change splits it has only the example. |
+| LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`, `list_different_types_split`; `list_style_change` | Same-type joining has the canonical repeated-marker shape.  The split theorem covers an open list and a next marker at the list's column whose candidate styles are disjoint from the list's surviving styles; the old list is emitted before the new list opens. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
 | LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not. |
@@ -174,14 +174,14 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | DV3 | Div | "The contents of a div are interpreted as block-level content" | T | `div_uniformity`, `div_uniformity_tail` | For contents that leave the div open (`div_content_ok`), which is every content the rule applies to. |
 | PT1 | Pipe table | "Each row starts and ends with a pipe character (`\|`) and contains one or more *cells* separated by pipe characters" | E | `table_row`, `table_row_needs_closing_pipe` | Unit: `row_*` in Line.v, ParserExamples.v "Tables". |
 | PT2 | Pipe table | a separator line: "every cell consists of a sequence of one of more `-` characters, optionally prefixed and/or suffixed by a `:`" | E | `table_header` | Unit: `row_sep_*`.  Cell trimming: `SPEC-GAP`, 2026-08-02. |
-| PT3 | Pipe table | "the previous row is treated as a header, and alignments on that row and any subsequent rows are determined by the separator line (until a new header is found).  The separator line itself does not contribute a row" | E | `table_header`, `table_alignment_changes`, `table_header_resets` | |
+| PT3 | Pipe table | "the previous row is treated as a header, and alignments on that row and any subsequent rows are determined by the separator line (until a new header is found).  The separator line itself does not contribute a row" | T | `table_separator_regime`; `table_header`, `table_alignment_changes`, `table_header_resets` | Arbitrary earlier rows and prior alignments; every body row through the next separator.  Located table output erases to this fold (`of_table_fold_located`). |
 | PT4 | Pipe table | the four alignment cases from leading and trailing `:` | E | `table_alignment_changes` | All four cases occur in it.  Unit: `row_sep_default_right`. |
 | PT5 | Pipe table | "A table need not have a header: just omit any separator lines, or ... *begin* with a separator line" | E | `table_no_header`, `table_separator_first` | |
 | PT6 | Pipe table | "Contents of table cells are parsed as inlines" | E | `table_header` | |
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 2, T~ 4, E 10, n/a 2.
+Leaf blocks and tables: T 3, T~ 4, E 9, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
@@ -250,11 +250,9 @@ List and table structure:
    `separator_separates` (Tightness.v): a loose verdict always has a
    blank the rule counts.  The converse, that every such blank loosens,
    is open (`260929.plan.list-tightness.md`, step 3).
-6. **LS1 the split half**: two adjacent items of different types never
-   share a list.
-7. **PT3 header regime**: a separator makes the previous row a header,
-   adds no row, and its alignments hold until the next separator.  PT4
-   (the four colon cases over every separator cell) comes with it.
+6. Done: **LS1 the split half**, `list_different_types_split`.
+7. Done: **PT3 header regime**, `table_separator_regime`.  PT4's four
+   colon cases over every separator cell remain open.
 
 Inline structure:
 

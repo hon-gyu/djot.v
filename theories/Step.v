@@ -488,6 +488,37 @@ Fixpoint table_fold (rows : list trow) (aligns : list align)
       table_fold rest aligns (cells_of BodyCell aligns cs :: acc)
   end.
 
+(** A separator promotes the preceding row, contributes no row of its
+    own, and sets the alignments for every body row up to the next
+    separator.  The reversed accumulator may contain earlier rows. *)
+Lemma head_of_body : forall new old cs,
+  head_of new (cells_of BodyCell old cs) = cells_of HeadCell new cs.
+Proof.
+  intros new old cs. revert new old.
+  induction cs as [|c cs IH]; intros new old; [reflexivity|].
+  destruct new as [|a new], old as [|b old]; cbn; rewrite IH; reflexivity.
+Qed.
+
+Lemma table_fold_body_rows : forall css aligns acc,
+  table_fold (map TCells css) aligns acc =
+    (rev acc ++ map (cells_of BodyCell aligns) css)%list.
+Proof.
+  induction css as [|cs css IH]; intros aligns acc; [now rewrite app_nil_r|].
+  cbn [map table_fold]. rewrite IH. cbn [rev].
+  rewrite <- app_assoc. reflexivity.
+Qed.
+
+Theorem table_separator_regime : forall prev earlier old aligns following,
+  table_fold (TSep aligns :: map TCells following) old
+    (cells_of BodyCell old prev :: earlier) =
+  (rev earlier ++ [cells_of HeadCell aligns prev] ++
+   map (cells_of BodyCell aligns) following)%list.
+Proof.
+  intros prev earlier old aligns following.
+  cbn [table_fold]. rewrite head_of_body, table_fold_body_rows.
+  cbn [rev]. rewrite <- app_assoc. reflexivity.
+Qed.
+
 (* What a table has seen after its rows.  `TOpen` still takes rows;
    `TAfterBlank` has seen a blank, which ends the rows but not the table,
    since a caption may still follow across any number of blanks; and
@@ -3562,7 +3593,7 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-Local Lemma step_list_diffstyle :
+Lemma step_list_diffstyle :
   forall l sty core chk rest ls done inner bs inner',
     classify l = KList sty core chk rest ->
     narrow (ls_styles ls) (configured_list_styles sty chk) = [] ->
