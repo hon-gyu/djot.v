@@ -1562,9 +1562,12 @@ List
 ----
 
 "A list is classed as *tight* if it does not contain blank lines between
-items, or between blocks inside an item."  djot.js gets all three wrong:
-it calls the first two tight (jgm/djot.js#45) and the third loose
-(jgm/djot.js#157).
+items, or between blocks inside an item."  djot.js gets the first five
+wrong: it calls the first two tight (jgm/djot.js#45), the third loose
+(jgm/djot.js#157), and the fourth and fifth tight, because it counts a
+blank only against a list among the two innermost open containers and a
+footnote in an item is a third.  In the sixth the blank is the
+footnote's own, since the footnote continues past it.
 *)
 
 Example list_blank_before_nested_list_item :
@@ -1613,6 +1616,50 @@ Example list_div_closer_not_blank :
 <div>
 a
 </div>
+</li>
+<li>
+c
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_footnote_in_item :
+  convert "- [^n]: a
+
+  b
+"
+  = "<ul>
+<li>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_footnote_between_items :
+  convert "- [^n]: a
+
+- c
+"
+  = "<ul>
+<li>
+</li>
+<li>
+<p>c</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_inside_footnote :
+  convert "- [^n]: a
+
+      b
+- c
+"
+  = "<ul>
+<li>
 </li>
 <li>
 c
