@@ -293,7 +293,7 @@ val list_takes : list_state -> int -> string -> pstate -> bool
 
 val blank_absorbed : pstate -> bool
 
-val foot_takes : bconfig -> int -> string -> pstate -> bool
+val keeps_line : bconfig -> int -> string -> pstate -> bool
 
 val list_next :
   coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state

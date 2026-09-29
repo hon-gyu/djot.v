@@ -2084,7 +2084,7 @@ past its `[`) continues it, and anything else ends it.
 absorbs a blank in `blank_absorbed` (it reads through to what the
 footnote has open, so a blank inside a nested list or code block in the
 footnote is still theirs), and a content line the footnote takes clears
-the armed flag without loosening (`foot_takes`, `list_content` in
+the armed flag without loosening (`foot_takes`, since renamed `keeps_line`, `list_content` in
 Step.v; the mirrors `lines_loose` and `scan_list_content` in
 ListUniformity.v).  Not reported upstream yet.  Pinned by
 `list_blank_after_footnote_in_item`,
@@ -2092,3 +2092,30 @@ ListUniformity.v).  Not reported upstream yet.  Pinned by
 `list_blank_inside_footnote` in `dev/check/Reference.v`.  The generated
 and file corpora do not change against djot.js (generated 531 and 184
 mismatches, file 0), and the depth-3 roundtrip still accepts all 57857.
+
+## Closed 2026-09-29 -- djotjs-bug: a blank before a table's caption loosens the list
+
+| Input | djot.js | Ours and the reference |
+| --- | --- | --- |
+| `- \| a \|` / blank / `  ^ cap` / `- c` | loose | tight: the caption is part of the table |
+| `- \| a \|` / blank / `  b` / `- c` | loose | loose: the table and the paragraph are two blocks |
+
+The reference on captions: "The caption can come directly after the
+table, or there can be an intervening blank line."  The blank is inside
+the table, as a blank inside a footnote is inside the footnote.  djot.js
+counts it because the caption is a separate container that opens after
+the blank has been recorded.
+
+Found by a throwaway probe while stating the reference's tightness rule
+(`Tightness.v`): over about 268,000 hand-built item shapes, the caption
+was the only case where the parser loosened and no blank separated two
+blocks.
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.**  `keeps_line` (Step.v),
+which was `foot_takes`, now also answers for a table that a caption line
+continues, so the caption clears the armed flag without loosening.  Not
+reported upstream yet.  Pinned by `list_blank_before_caption` and
+`list_blank_after_table` in `dev/check/Reference.v`.  The generated and
+file corpora do not change against djot.js, and the roundtrip pools
+keep their counts.
+

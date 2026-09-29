@@ -640,7 +640,7 @@ The line fold
    Tight/loose is decided on the line sequence rather than on the
    finished tree: a blank line arms `ls_blanks`, and the next sibling
    marker, or the next content line that neither opens a nested list nor
-   continues an open footnote, makes the list loose.  So `- a`, blank,
+   continues an open footnote or table, makes the list loose.  So `- a`, blank,
    `  - b` stays tight although a blank separates the item's two
    children, as the syntax reference's `- two` / blank / `  - sub`
    example requires.  The list is emitted only
@@ -1367,15 +1367,15 @@ Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
   match k with KText => lazy_ok inner | _ => false end.
 
 (* Content within the current item.  A line that opens a nested list does
-   not loosen, nor does one an open footnote takes (`foot`); anything
+   not loosen, nor does one an open footnote or table keeps (`kept`); anything
    else loosens the list if a blank line is armed.  Either way the flag
    is spent. *)
-Definition list_content (ls : list_state) (k : line_kind) (foot : bool)
+Definition list_content (ls : list_state) (k : line_kind) (kept : bool)
   : list_state :=
   let loose :=
     match k with
     | KList _ _ _ _ => ls_loose ls
-    | _ => if foot then ls_loose ls else (ls_loose ls || ls_blanks ls)%bool
+    | _ => if kept then ls_loose ls else (ls_loose ls || ls_blanks ls)%bool
     end in
   LSt (ls_indent ls) (touch_extent (ls_extent ls))
       (touch_extent (ls_item_extent ls)) (ls_item_extents ls)
@@ -1774,27 +1774,30 @@ Fixpoint blank_absorbed (st : pstate) : bool :=
      blank retracts it, which closes rather than continues, so an
      enclosing list is armed exactly as `- foo:` / blank / `- bar`
      needs (6.1).  A footnote arms the list too, since whether the blank
-     is its own is known only at the next line (`foot_takes`). *)
+     is its own is known only at the next line (`keeps_line`). *)
   | PPend _ _ inner | PKey _ _ _ inner | PFoot _ _ _ _ inner =>
       blank_absorbed inner
   | _ => false
   end.
 
-(* Whether a footnote the item has open takes `l` as its own line.  A
-   blank before such a line lay inside the footnote, so the line clears
-   the armed flag without loosening the list; a line the footnote does
-   not take ends it, and the blank separated it from what follows.  Reads
-   through the states `blank_absorbed` reads through.
+(* Whether a block the item has open, of the two a blank leaves open,
+   keeps `l` as its own line: a footnote takes a line indented past its
+   `[`, and a table takes a caption.  A blank before such a line lay
+   inside that block, so the line clears the armed flag without
+   loosening the list; a line the block does not keep ends it, and the
+   blank separated it from what follows.  Reads through the states
+   `blank_absorbed` reads through.
 
    A footnote with a paragraph open has seen no blank since, so nothing
    is armed and the answer does not matter; it is `false` there so that a
    line the item takes and a lazy line give the list the same state
    (`step_fuel_lazy`). *)
-Fixpoint foot_takes (off : nat) (l : string) (st : pstate) : bool :=
+Fixpoint keeps_line (off : nat) (l : string) (st : pstate) : bool :=
   match st with
   | PFoot _ ind _ _ inner =>
       (negb (lazy_ok inner) && Nat.ltb ind (off + indent_of l))%bool
-  | PPend _ _ inner | PKey _ _ _ inner => foot_takes off l inner
+  | PTable _ _ _ => match caption_open l with Some _ => true | None => false end
+  | PPend _ _ inner | PKey _ _ _ inner => keeps_line off l inner
   | _ => false
   end.
 
@@ -2023,7 +2026,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    is inline and verbatim text, the same open indentation
                    gap quotes and headings have. *)
                 let (bs, inner') := step_fuel n' off l inner in
-                ([], PList (list_content ls k (foot_takes off l inner))
+                ([], PList (list_content ls k (keeps_line off l inner))
                        (rev bs ++ done)%list inner')
               else
                 match k with
@@ -2659,19 +2662,20 @@ Proof.
 Qed.
 
 (* A pad moves the line's indent and the offset together. *)
-Lemma foot_takes_ws_prefix :
+Lemma keeps_line_ws_prefix :
   forall p off l st, is_blank p = true ->
-    foot_takes off (p ++ l) st = foot_takes (String.length p + off) l st.
+    keeps_line off (p ++ l) st = keeps_line (String.length p + off) l st.
 Proof.
   intros p off l st Hp.
   induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [foot_takes]; try exact IH.
-  rewrite (indent_of_ws_prefix p l Hp).
-  replace (off + (String.length p + indent_of l))
-    with (String.length p + off + indent_of l) by lia.
-  reflexivity.
+    try reflexivity; cbn [keeps_line]; try exact IH.
+  - rewrite (indent_of_ws_prefix p l Hp).
+    replace (off + (String.length p + indent_of l))
+      with (String.length p + off + indent_of l) by lia.
+    reflexivity.
+  - rewrite (caption_open_ws_prefix p l Hp). reflexivity.
 Qed.
 
 Local Lemma pad_state_list_takes :
@@ -2693,25 +2697,25 @@ Proof. intros n ls k foot. destruct ls; destruct k; reflexivity. Qed.
 
 (* The footnote's column moves with the line, as the list's does in
    `pad_state_list_takes`. *)
-Local Lemma pad_state_foot_takes :
+Local Lemma pad_state_keeps_line :
   forall n off l st,
-    foot_takes (n + off) l (pad_state n st) = foot_takes off l st.
+    keeps_line (n + off) l (pad_state n st) = keeps_line off l st.
 Proof.
   intros n off l st.
   induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [pad_state foot_takes]; try exact IH.
+    try reflexivity; cbn [pad_state keeps_line]; try exact IH.
   rewrite pad_state_lazy_ok, <- Nat.add_assoc, ltb_add_mono_l. reflexivity.
 Qed.
 
 (* A line indented by `p` into a state padded by as much. *)
-Lemma foot_takes_pad_prefix :
+Lemma keeps_line_pad_prefix :
   forall p l st, is_blank p = true ->
-    foot_takes 0 (p ++ l) (pad_state (String.length p) st) = foot_takes 0 l st.
+    keeps_line 0 (p ++ l) (pad_state (String.length p) st) = keeps_line 0 l st.
 Proof.
-  intros p l st Hp. rewrite (foot_takes_ws_prefix p 0 l _ Hp).
-  exact (pad_state_foot_takes (String.length p) 0 l st).
+  intros p l st Hp. rewrite (keeps_line_ws_prefix p 0 l _ Hp).
+  exact (pad_state_keeps_line (String.length p) 0 l st).
 Qed.
 
 Local Lemma pad_list_narrow :
@@ -2944,26 +2948,26 @@ Proof.
     (* thematic *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* fence *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [close_reopen open_fence fst snd pad_state].
       rewrite finish_pad_list, Nat.add_assoc. reflexivity. }
     (* div *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
       rewrite finish_pad_list; reflexivity. }
     (* quote *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { rewrite <- Nat.add_assoc.
       pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -2976,13 +2980,13 @@ Proof.
     (* heading *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* list marker *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { change (ls_styles (ls_pad k ls)) with (ls_styles ls).
       destruct (narrow (ls_styles ls) (configured_list_styles m chk))
         as [|s0 ss] eqn:Em.
@@ -3007,14 +3011,14 @@ Proof.
     (* attribute spec *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { unfold open_attr. destruct (@battrs K);
         cbn [close_reopen fst snd pad_state];
         rewrite ?Nat.add_assoc, finish_pad_list; reflexivity. }
     (* footnote definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -3025,20 +3029,20 @@ Proof.
     (* reference definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
     (* table row *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@btables K); cbn [close_reopen fst snd pad_state];
         rewrite finish_pad_list; reflexivity. }
     (* text *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_foot_takes, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
@@ -3513,7 +3517,7 @@ Lemma step_list_indented :
     Nat.ltb (ls_indent ls) (indent_of l) = true ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_content ls k (foot_takes 0 l inner)) (rev bs ++ done)%list inner').
+    ([], PList (list_content ls k (keeps_line 0 l inner)) (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l.
@@ -4372,7 +4376,7 @@ Proof.
     { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
     all: ws_openers p l Hp.
     all: unfold list_takes; rewrite (key_claims_ws_prefix p l inner Hp),
-                                     ?(foot_takes_ws_prefix p off l inner Hp).
+                                     ?(keeps_line_ws_prefix p off l inner Hp).
     all: rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
     all: destruct (key_claims l inner
@@ -4595,11 +4599,11 @@ Proof.
   destruct H as [H|[r H]]; discriminate.
 Qed.
 
-Local Lemma foot_takes_lazy :
-  forall off l st, lazy_ok st = true -> foot_takes off l st = false.
+Local Lemma keeps_line_lazy :
+  forall off l st, lazy_ok st = true -> keeps_line off l st = false.
 Proof.
-  intros off l st. induction st; cbn [lazy_ok foot_takes]; intros H;
-    auto; rewrite H; reflexivity.
+  intros off l st. induction st; cbn [lazy_ok keeps_line]; intros H;
+    auto; try discriminate H; rewrite H; reflexivity.
 Qed.
 
 Local Lemma step_fuel_lazy :
@@ -4626,7 +4630,7 @@ Proof.
   - (* list: taken by the item or lazy, the flags come out the same *)
     rewrite Htext. destruct (list_takes ls off l inner).
     + rewrite (IH n off l ltac:(lia) Hlazy Htext Hu).
-      rewrite (foot_takes_lazy off l inner Hlazy). reflexivity.
+      rewrite (keeps_line_lazy off l inner Hlazy). reflexivity.
     + cbn [is_lazy]. rewrite Hlazy. reflexivity.
   - (* the recovery's paragraph *)
     rewrite Hu, Htext. reflexivity.
@@ -4704,7 +4708,7 @@ Proof.
                  (lazy_ok_pad_safe _ Hlazy) (lazy_ok_fence_cols _ _ Hlazy)),
         blanks_length;
       rewrite (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu),
-        foot_takes_lazy by exact Hlazy;
+        keeps_line_lazy by exact Hlazy;
       reflexivity.
   - (* footnote: likewise *)
     pose proof (spelling_classify _ _ _ l
@@ -5014,10 +5018,10 @@ Local Lemma blank_absorbed_erase : forall st,
   blank_absorbed (StateErase.state st) = blank_absorbed st.
 Proof. induction st; cbn [StateErase.state blank_absorbed] in *; auto. Qed.
 
-Local Lemma foot_takes_erase : forall `{K : bconfig} off l st,
-  foot_takes off l (StateErase.state st) = foot_takes off l st.
+Local Lemma keeps_line_erase : forall `{K : bconfig} off l st,
+  keeps_line off l (StateErase.state st) = keeps_line off l st.
 Proof.
-  induction st; cbn [StateErase.state foot_takes] in *; auto.
+  induction st; cbn [StateErase.state keeps_line] in *; auto.
   rewrite lazy_ok_erase. reflexivity.
 Qed.
 
@@ -5262,7 +5266,7 @@ Proof.
          destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'];
          unfold StateErase.result; cbn [fst snd StateErase.state];
          rewrite Erase.blocks_app, Erase.blocks_rev, list_content_erase,
-           foot_takes_erase;
+           keeps_line_erase;
          reflexivity).
     all: try (cbn [is_lazy]; apply close_reopen_line_erase; exact Hd).
     + rewrite blank_absorbed_erase. rewrite <- (IH off l st).
