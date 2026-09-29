@@ -909,11 +909,11 @@ let is_lazy k k0 inner =
 (** val list_content :
     coq_LineIx -> list_state -> line_kind -> bool -> list_state **)
 
-let list_content lI ls k foot =
+let list_content lI ls k kept =
   let loose =
     match k with
     | KList (_, _, _, _) -> ls.ls_loose
-    | _ -> if foot then ls.ls_loose else (||) ls.ls_loose ls.ls_blanks
+    | _ -> if kept then ls.ls_loose else (||) ls.ls_loose ls.ls_blanks
   in
   { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
   ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
@@ -1161,13 +1161,17 @@ let rec blank_absorbed = function
 | PKey (_, _, _, inner) -> blank_absorbed inner
 | _ -> false
 
-(** val foot_takes : bconfig -> int -> string -> pstate -> bool **)
+(** val keeps_line : bconfig -> int -> string -> pstate -> bool **)
 
-let rec foot_takes k off l = function
+let rec keeps_line k off l = function
 | PFoot (_, ind, _, _, inner) ->
   (&&) (negb (lazy_ok k inner)) (( < ) ind (( + ) off (indent_of l)))
-| PPend (_, _, inner) -> foot_takes k off l inner
-| PKey (_, _, _, inner) -> foot_takes k off l inner
+| PTable (_, _, _) ->
+  (match caption_open l with
+   | Some _ -> true
+   | None -> false)
+| PPend (_, _, inner) -> keeps_line k off l inner
+| PKey (_, _, _, inner) -> keeps_line k off l inner
 | _ -> false
 
 (** val list_next :
@@ -1306,7 +1310,7 @@ let rec step_fuel t k lI p n off l st =
           if list_takes ls off l inner
           then let (bs, inner') = step_fuel t k lI p n' off l inner in
                ([], (PList
-               ((list_content lI ls x (foot_takes k off l inner)),
+               ((list_content lI ls x (keeps_line k off l inner)),
                (app (rev bs) done0), inner')))
           else (match x with
                 | KList (sty, core, chk, rest) ->
