@@ -1944,11 +1944,74 @@ Proof.
   rewrite (step_attr_done l pend specs range ind ap slices H). reflexivity.
 Qed.
 
+(* A finished spec followed by another spec line: the pending set takes
+   the first spec's attributes, and the second spec opens over it. *)
+Local Lemma step_attr_merge :
+  forall l ap' pend specs range ind ap slices,
+    battrs = true -> ap_done ap = true -> classify l = KAttr ap' ->
+    step l (PAttr pend specs range ind ap slices)
+    = ([], PAttr (Attr.merge (ap_attrs ap) pend) (specs ++ [extent_span range])%list
+             (open_extent l (indent_of l)) (indent_of l) ap'
+             [remember_line (drop_leading_ws l)]).
+Proof.
+  intros l ap' pend specs range ind ap slices Hattrs Hdone Hl.
+  rewrite step_attr_done by exact Hdone.
+  unfold step. cbn [step_fuel pstate_depth]. rewrite Hl. cbn [is_idle].
+  unfold open_attr. rewrite Hattrs. reflexivity.
+Qed.
+
+(* A line holding a complete spec and nothing else. *)
+Definition attr_line (l : string) (ap : aparser) : Prop :=
+  classify l = KAttr ap /\ ap_done ap = true.
+
+Local Lemma parse_lines_attr_run :
+  forall lines aps ls pend specs range ind ap slices,
+    battrs = true -> ap_done ap = true ->
+    Forall2 attr_line lines aps ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (lines ++ ls)%list (PAttr pend specs range ind ap slices)
+    = decorate_head
+        (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
+           (Attr.merge (ap_attrs ap) pend))
+        (parse_lines ls (PPara [])).
+Proof.
+  intros lines aps ls pend specs range ind ap slices Hattrs Hdone H.
+  revert pend specs range ind ap slices Hdone.
+  induction H as [|l a lines aps [Hl Ha] Hrest IH];
+    intros pend specs range ind ap slices Hdone Hready.
+  - cbn [app fold_left].
+    rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hdone).
+    apply parse_lines_pend, Hready.
+  - cbn [app fold_left].
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_attr_merge l a pend specs range ind ap slices Hattrs Hdone Hl)).
+    cbn [app]. apply IH; assumption.
+Qed.
+
+(** BA3: a run of complete specs, one per line, puts their attributes on
+    the block after them, merged in order (`Attr.merge`: classes
+    accumulate, a later value for a key replaces an earlier one).  The
+    side condition is the one line the run can still claim for itself: a
+    blank drops it, and a further spec would extend it. *)
+Theorem attr_accumulate :
+  forall l ap lines aps ls,
+    battrs = true -> attr_line l ap -> Forall2 attr_line lines aps ->
+    match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
+    parse_lines (l :: lines ++ ls)%list (PPara [])
+    = decorate_head
+        (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
+           (Attr.merge (ap_attrs ap) []))
+        (parse_lines ls (PPara [])).
+Proof.
+  intros l ap lines aps ls Hattrs [Hcl Hdone] H Hready.
+  cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).
+  unfold open_attr. rewrite Hattrs. cbn [fst snd app].
+  exact (parse_lines_attr_run _ _ _ _ _ _ _ _ _ Hattrs Hdone H Hready).
+Qed.
+
 (** Uniformity for a block attribute line: a document preceded by a
     complete spec parses as that document with the spec's attributes on
-    its first block.  The side condition is the one line the spec can
-    still claim for itself -- a blank drops it, and a second spec merges
-    into it. *)
+    its first block.  The one-spec case of `attr_accumulate`. *)
 Theorem attr_uniformity :
   forall l ap ls,
     battrs = true -> classify l = KAttr ap -> ap_done ap = true ->
@@ -1957,10 +2020,109 @@ Theorem attr_uniformity :
     = decorate_head (Attr.merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
 Proof.
   intros l ap ls Hattrs Hcl Hdone Hready.
-  cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).
+  exact (attr_accumulate l ap [] [] ls Hattrs (conj Hcl Hdone) (Forall2_nil _) Hready).
+Qed.
+
+(* An unfinished spec takes a line indented past its opener, and stays
+   open while the line leaves it neither done nor failed. *)
+Local Lemma step_attr_cont :
+  forall l pend specs range ind ap slices,
+    ap_done ap = false -> ind < indent_of l -> ap_failed (attr_feed l ap) = false ->
+    step l (PAttr pend specs range ind ap slices)
+    = ([], PAttr pend specs (touch_extent range) ind (attr_feed l ap)
+             (push_text l slices)).
+Proof.
+  intros l pend specs range ind ap slices Hd Hi Hf. unfold step.
+  cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
+  replace (Nat.ltb ind (indent_of l)) with true by (symmetry; apply Nat.ltb_lt, Hi).
+  rewrite Hf. reflexivity.
+Qed.
+
+Local Lemma parse_lines_attr_cont :
+  forall ls2 ls pend specs range ind ap slices,
+    spec_runs ap ls2 = true -> Forall (fun l => ind < indent_of l) ls2 ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (ls2 ++ ls)%list (PAttr pend specs range ind ap slices)
+    = decorate_head (Attr.merge (ap_attrs (feed_lines ls2 ap)) pend)
+        (parse_lines ls (PPara [])).
+Proof.
+  induction ls2 as [|l ls2 IH]; intros ls pend specs range ind ap slices Hr Hi Hready.
+  - cbn [spec_runs] in Hr. cbn [app feed_lines fold_left].
+    rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hr).
+    apply parse_lines_pend, Hready.
+  - cbn [spec_runs] in Hr. apply andb_true_iff in Hr as [Hr Hrest].
+    apply andb_true_iff in Hr as [Hd Hf]. apply negb_true_iff in Hd, Hf.
+    inversion Hi as [|? ? Hl Hi']; subst.
+    cbn [app]. rewrite (parse_lines_step _ _ _ _ _
+                          (step_attr_cont l pend specs range ind ap slices Hd Hl Hf)).
+    cbn [app]. rewrite (IH ls pend specs _ ind _ _ Hrest Hi' Hready). reflexivity.
+Qed.
+
+(* A spec's lines joined onto its first, a space for each line break. *)
+Definition attr_join (l : string) (ls : list string) : string := l ++ join_tail ls.
+
+(** BA2: a spec that does not fit on one line continues on lines
+    indented past its opener, and parses as the same spec written on one
+    line.  Each continuation line has content (`blank_to_eol` is the
+    machine's own blank test); a blank one would let a spec that closed
+    on the line before it drop its attributes. *)
+Theorem attr_continuation :
+  forall l1 ap1 ls2 apJ ls,
+    battrs = true -> classify l1 = KAttr ap1 ->
+    Forall (fun l => indent_of l1 < indent_of l /\
+                     blank_to_eol (drop_leading_ws l) = false) ls2 ->
+    attr_line (attr_join l1 ls2) apJ ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (l1 :: ls2 ++ ls)%list (PPara [])
+    = parse_lines (attr_join l1 ls2 :: ls) (PPara []).
+Proof.
+  intros l1 ap1 ls2 apJ ls Hattrs H1 Hls [HJ HdJ] Hready.
+  destruct (attr_open_inv l1 ap1 (classify_attr_open l1 ap1 H1))
+    as (b1 & r1 & Ed1 & Ef1 & Hf1 & _).
+  destruct (attr_open_inv _ apJ (classify_attr_open _ apJ HJ))
+    as (bJ & rJ & EdJ & EfJ & _ & HbJ).
+  unfold attr_join in EdJ.
+  rewrite drop_leading_ws_app_nonblank, Ed1 in EdJ by (rewrite Ed1; discriminate).
+  cbn [append] in EdJ. injection EdJ as <-.
+  destruct (joined_spec_runs b1 ls2 ap1 r1 apJ rJ
+              (Forall_impl _ (fun l H => proj2 H) Hls) Ef1 Hf1 EfJ HdJ (HbJ HdJ))
+    as [Hruns Hattrs'].
+  rewrite (attr_uniformity _ apJ ls Hattrs HJ HdJ Hready).
+  cbn [parse_lines]. rewrite (step_attr_open l1 ap1 H1).
   unfold open_attr. rewrite Hattrs. cbn [fst snd app].
-  rewrite (parse_lines_attr_done _ [] [] _ (indent_of l) ap _ Hdone).
-  apply parse_lines_pend, Hready.
+  rewrite (parse_lines_attr_cont ls2 ls [] [] _ _ ap1 _ Hruns
+             (Forall_impl _ (fun l H => proj1 H) Hls) Hready).
+  rewrite Hattrs'. reflexivity.
+Qed.
+
+(** BA2, the "must": a line not indented past the opener ends an
+    unfinished spec, which becomes a paragraph of its lines, read with
+    attributes off. *)
+Theorem attr_unindented :
+  forall l1 ap l2,
+    battrs = true -> classify l1 = KAttr ap -> ap_done ap = false ->
+    is_blank l2 = false -> indent_of l2 <= indent_of l1 ->
+    bunderline_of l2 = None -> binterrupt (classify l2) = false ->
+    parse_lines [l1; l2] (PPara [])
+    = [mk (Para (para_inlines_off 1 [drop_leading_ws l1; drop_leading_ws l2]))].
+Proof.
+  intros l1 ap l2 Hattrs H1 Hd Hb Hi Hu Hint.
+  cbn [parse_lines]. rewrite (step_attr_open l1 ap H1).
+  unfold open_attr. rewrite Hattrs. cbn [fst snd app].
+  unfold step at 1. cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
+  replace (Nat.ltb (indent_of l1) (indent_of l2)) with false
+    by (symmetry; apply Nat.ltb_ge, Hi).
+  rewrite Hb, step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
+  unfold para_recover. cbn [List.length Nat.add].
+  assert (Hs : step l2 (PParaOff 1 [remember_line (drop_leading_ws l1)])
+               = ([], PParaOff 1 [remember_line (drop_leading_ws l2);
+                                  remember_line (drop_leading_ws l1)])).
+  { unfold step. cbn [step_fuel]. rewrite Hu.
+    destruct (classify l2) eqn:Ek;
+      try (rewrite (classify_kblank_blank l2 Ek) in Hb; discriminate);
+      cbn [binterrupt] in Hint |- *; rewrite ?Hint; reflexivity. }
+  rewrite Hs. cbn [pend_result app parse_lines finish]. nopos. sem_para.
+  reflexivity.
 Qed.
 
 (* A key passes every line that pending attributes can pass.  Reusing

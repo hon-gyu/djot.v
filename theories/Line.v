@@ -2431,6 +2431,24 @@ Qed.
 Lemma classify_canonical_thematic : classify "* * * *" = KThematic.
 Proof. reflexivity. Qed.
 
+(* A spec line is one `attr_open` accepts. *)
+Lemma classify_attr_open : forall l ap, classify l = KAttr ap -> attr_open l = Some ap.
+Proof.
+  intros l ap H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[? ?]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[? ?]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[[? ?] ?] ?]|]; [discriminate|].
+  destruct (attr_open l); [congruence|].
+  repeat match type of H with
+         | context [match ?x with _ => _ end] => destruct x
+         | context [if ?x then _ else _] => destruct x
+         end; discriminate.
+Qed.
+
 (* An all-whitespace prefix is invisible to the classifier: every
    recognizer reads through drop_leading_ws, and is_thematic skips
    whitespace anywhere.  So a list item's continuation indent can be
