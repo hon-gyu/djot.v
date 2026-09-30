@@ -2191,3 +2191,44 @@ so does `div_open`.
 
 **Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
 `classify_div_fences` in `Line.v`, whose `gap` may be empty.
+
+## 2026-10-01 -- open: whether a table has a caption is decided by its inlines
+
+| Input | djot.js AST | ours | HTML (both) |
+| --- | --- | --- | --- |
+| `\| a \|` / `^ {.x}` | `caption` with no children | no caption (`None`) | no `<caption>` |
+| `\| a \|` / `^ x` | `caption` holding `x` | `Some [x]` | `<caption>x</caption>` |
+| `\| a \|` alone | `caption` with no children | `None` | no `<caption>` |
+
+The HTML is the same; the trees are not.  djot.js's AST gives every table
+a caption node, empty when there is none, and its HTML renderer skips an
+empty one (`src/html.ts:291`, "AST always has at least a dummy caption").
+Whether a caption shows is decided at rendering.  Ours decides it in the
+parser: `caption_of` (Step.v) runs the inline parser on the caption's
+lines and returns `None` when the inlines come out empty.  That is the
+choice the 2026-09-08 entry made, to keep `Some []` from being a second
+spelling of `None`; djot.js has no second spelling because it has no
+`None`.
+
+The cost is the one exception to "block structure can be discerned
+prior to inline parsing": `^ {.x}` has content, but djot's inline parser
+leaves nothing of it, so whether the table has a caption depends on the
+inline parse.  `block_shape_independent` erases captions for this reason,
+and `inline_attrs_affect_caption_presence` (Invariants.v) exhibits the
+dependence by comparing djot's inline syntax with one that has inline
+attributes off.
+
+Two ways to remove the exception, neither changing the HTML:
+
+1. Decide by the lines: a `^` line with content is a caption even when
+   its inlines are empty, and `^ ` alone is none.  `Some []` and `None`
+   then both occur, and `wf_block` and `cblocks_ok` need a clause
+   choosing one.
+2. Follow djot.js: a table's caption is `inlines`, empty meaning none.
+   One spelling, and the exception goes away with the option.  Touches
+   the `Table` constructor everywhere: Step, Html, Roundtrip, Wf, and
+   the `dist/` API, where the caption stops being optional.
+
+**Verdict: open.**  Option 2 preferred.  Either way
+`inline_attrs_affect_caption_presence` becomes false and is deleted, and
+`block_shape_independent` erases only inlines.
