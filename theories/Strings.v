@@ -280,6 +280,14 @@ Proof.
   - exists EmptyString. split; reflexivity.
 Qed.
 
+(* Past the first non-whitespace character nothing more is dropped. *)
+Lemma drop_leading_ws_app_nonblank : forall a b,
+  drop_leading_ws a <> EmptyString -> drop_leading_ws (a ++ b) = drop_leading_ws a ++ b.
+Proof.
+  induction a as [|c a IH]; intros b H; [contradiction|].
+  cbn [append drop_leading_ws] in *. destruct (is_ws c); [apply IH, H|reflexivity].
+Qed.
+
 (* An all-whitespace prefix is invisible to drop_leading_ws, is_blank and
    indent_of: they scan through it into `l`. *)
 Lemma drop_leading_ws_ws_prefix :

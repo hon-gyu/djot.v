@@ -40,7 +40,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
-| Block: references, footnotes, attributes, ids | 5 | 2 | 7 | 0 | 0 | 0 |
+| Block: references, footnotes, attributes, ids | 7 | 2 | 5 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
@@ -196,8 +196,8 @@ Leaf blocks and tables: T 5, T~ 3, E 8, n/a 2.
 | FN2 | Footnote | "subsequent lines in paragraphs can 'lazily' omit the indentation" | T | `lazy_stack_line`, `step_lazy_spelling`, `footnote_lazy_line`; `footnote_lazy` | |
 | FN3 | Footnote | a new paragraph "must be indented, at least in the first line" | T | `footnote_content_uniformity_tail` | A nonblank line neither indented past the opener nor lazy ends the note. |
 | BA1 | Block attributes | "put the attributes on the line immediately before the block" | T | `attr_uniformity`; `block_attributes` | |
-| BA2 | Block attributes | "if they don't fit on one line, subsequent lines must be indented" | E | `block_attributes_multiline`, `block_attributes_multiline_unindented` | Unit: ParserExamples.v, "Block attributes". |
-| BA3 | Block attributes | "Repeated attribute specifiers can be used, and the attributes will accumulate" | E | `block_attributes` | `attr_uniformity` leaves a second spec to its side condition. |
+| BA2 | Block attributes | "if they don't fit on one line, subsequent lines must be indented" | T | `attr_continuation`, `attr_unindented`; `block_attributes_multiline`, `block_attributes_multiline_unindented` | A spec over lines indented past its opener parses as the same spec on one line, for continuation lines with content.  The "must": an unindented second line makes the two lines a paragraph (two-line case).  Unit: ParserExamples.v, "Block attributes". |
+| BA3 | Block attributes | "Repeated attribute specifiers can be used, and the attributes will accumulate" | T | `attr_accumulate`; `block_attributes` | Any run of complete specs, one per line, merged in order by `Attr.merge`.  `attr_uniformity` is the one-spec case. |
 | LH1 | Links to headings | "Identifiers are added automatically to any headings that do not have explicit identifiers" | T~ | `assign_heading_id_spec`; `heading_identifier` | Stated through `id_base` and `unique_id`, the pass's own functions.  Unit: `section_*`, `explicit_id_displaces_auto_id` in Document.v. |
 | LH2 | Links to headings | the identifier: plain text "excluding non-textual elements such as footnote references and symbols, removing punctuation (other than `_` and `-`), replacing spaces with `-`, and ... a numerical suffix" | E | `heading_identifier`, `heading_identifier_footnote`, `heading_identifier_symbol`, `heading_identifier_unique` | |
 | LH3 | Links to headings | "implicit link references are created for all headings" | E | `heading_implicit_reference` | Unit: `implicit_heading_reference` in Document.v. |
@@ -286,7 +286,8 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
 16. Done: **PT1, PT2, PT7**, `table_row_shape`, `table_row_cells`,
     `table_row_separator`, `table_row_escaped_bar`,
     `table_row_verbatim_bar` (`260930.plan.pipe-table-rows.md`).
-17. **BA2, BA3** (`260930.plan.block-attributes.md`).
+17. Done: **BA2, BA3**, `attr_continuation`, `attr_unindented`,
+    `attr_accumulate` (`260930.plan.block-attributes.md`).
 18. Done: **BQ1 over every spelling**, `classify_quote_marker`
     (`260930.plan.quote-marker.md`).
 
