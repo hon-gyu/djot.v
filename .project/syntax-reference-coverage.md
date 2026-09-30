@@ -38,7 +38,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
-| Block: heading, quote, list item, list | 12 | 7 | 0 | 0 | 0 | 1 |
+| Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 5 | 3 | 8 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 5 | 2 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
@@ -139,7 +139,7 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | HE1 | Heading | "one or more `#` characters, followed by whitespace.  The number of `#` characters defines the heading level" | T | `classify_heading_ws`, `classify_heading_level`; `heading`, `heading_needs_space` | Line level: any indentation, any whitespace character.  A bare `#` is an empty heading in both engines although the rule asks for whitespace after it. |
 | HE2 | Heading | "The heading text may spill over onto following lines, which may also be preceded by the same number of `#` characters (but these can also be left off)" | T | `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest`; `heading_marked_continuation`, `heading_lazy_continuation` | Stated from an open heading state. |
 | HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T~ | the two theorems above; `heading_other_marker_count`, `heading_ends_with_container` | Shape: ended by a blank line.  A `#` line of another level also ends it, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28. |
-| BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T~ | `classify_canonical_quote`, `step_quote_bare`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Shape: `> ` on any line, and a bare `>` on an empty line after the first. |
+| BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T | `classify_quote_marker`, `step_quote_bare`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Line level, both directions: any indentation, `>` then the end of the line or one whitespace character.  Tab and CR after `>`: `SPEC-GAP`, 2026-09-30. |
 | BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T | `quote_uniformity`, `quote_uniformity_pad`, `quote_uniformity_bare`, `quote_uniformity_tail`, `parse_lines_quote` | A bare `>` first line opens the same quote but is not stated (it records a different source range). |
 | BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `quote_lazy_line`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
 | LI1 | List item | "a list marker followed by a space (or a newline) followed by one or more lines, indented relative to the list marker" | T | `list_item_owns`; `list_uniformity`, `list_uniformity_tail`, `ck_uniformity`; `list_item`, `list_marker_then_newline` | `list_item_owns`: every line indented past the marker's column, and every blank, goes to the open item.  The uniformity theorems add what the item means when its lines are indented by exactly the marker's width; at other widths the contents read the extra or missing indentation (`- - a` then `    - b`), so uniformity is not the rule there. |
@@ -283,7 +283,8 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
     (`260930.plan.fences.md`).
 16. **PT1, PT2, PT7** (`260930.plan.pipe-table-rows.md`).
 17. **BA2, BA3** (`260930.plan.block-attributes.md`).
-18. **BQ1 over every spelling** (`260930.plan.quote-marker.md`).
+18. Done: **BQ1 over every spelling**, `classify_quote_marker`
+    (`260930.plan.quote-marker.md`).
 
 ### An example is enough
 
@@ -305,5 +306,6 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 - LI7: a lone ambiguous marker reads as roman (2026-09-28).
 - LS4: a div left open at the end of an item ends before the blank
   after it (2026-09-30).
+- BQ1: a tab or CR after `>` counts as the space (2026-09-30).
 - CB1: tilde fences (2026-08-02).
 - PT2: separator cells are not trimmed (2026-08-02).

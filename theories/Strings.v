@@ -268,6 +268,18 @@ Proof.
   cbn [drop_leading_ws]. rewrite E. reflexivity.
 Qed.
 
+(* The converse: what drop_leading_ws dropped is an all-whitespace prefix. *)
+Lemma drop_leading_ws_split :
+  forall l, exists pre, is_blank pre = true /\ l = pre ++ drop_leading_ws l.
+Proof.
+  induction l as [|c l IH]; [exists EmptyString; split; reflexivity|].
+  cbn [drop_leading_ws]. destruct (is_ws c) eqn:Ec.
+  - destruct IH as (pre & Hpre & Hl). exists (String c pre).
+    split; [rewrite is_blank_cons, Ec; exact Hpre|].
+    cbn [append]. rewrite <- Hl. reflexivity.
+  - exists EmptyString. split; reflexivity.
+Qed.
+
 (* An all-whitespace prefix is invisible to drop_leading_ws, is_blank and
    indent_of: they scan through it into `l`. *)
 Lemma drop_leading_ws_ws_prefix :

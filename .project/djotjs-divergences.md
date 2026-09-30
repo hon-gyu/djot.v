@@ -2162,3 +2162,17 @@ in place of `closes_at`.  Pinned by `list_blank_after_open_div` and
 `list_blank_in_open_code` in `dev/check/Reference.v`.  The generated and
 file corpora and the depth-3 roundtrip do not change.  Provisional, to be
 revisited.
+
+## 2026-09-30 -- SPEC-GAP: which whitespace may follow a quote's `>`
+
+| Input | djot.js and ours |
+| --- | --- |
+| `>` then a tab, then `a` | a block quote holding `a` |
+
+The reference says a quote line begins with `>` "followed either by a
+space or by the end of the line".  djot.js's marker pattern is
+`[>][ \t\r\n]`, so a tab or CR also counts, and `quote_prefix` accepts
+any `is_ws` character, the same set.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
+`classify_quote_marker` in `Line.v`, which names `is_ws`.
