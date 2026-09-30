@@ -2188,6 +2188,42 @@ Proof.
   apply classify_canonical_quote.
 Qed.
 
+(* BQ1 over every spelling: a quote line is an all-whitespace indent, a
+   `>`, then the end of the line or one whitespace character.  Nothing
+   else is one (`>x` is not).  The reference says "a space"; a tab or CR
+   also counts, as in djot.js. *)
+Theorem classify_quote_marker : forall l r,
+  classify l = KQuote r <->
+  exists pre, is_blank pre = true /\
+    (l = pre ++ ">" /\ r = EmptyString
+     \/ exists c, is_ws c = true /\ l = pre ++ String ">" (String c r)).
+Proof.
+  intros l r. split.
+  - unfold classify. intros H.
+    destruct (is_blank l); [discriminate|].
+    destruct (quote_prefix l) as [r'|] eqn:Eq;
+      [|repeat match type of H with
+               | context [match ?x with _ => _ end] => destruct x
+               end; discriminate].
+    injection H as <-.
+    unfold quote_prefix in Eq.
+    destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    exists pre. split; [exact Hpre|].
+    destruct (drop_leading_ws l) as [|c rest]; [discriminate|].
+    destruct (Ascii.eqb c ">") eqn:Ec; [|discriminate].
+    apply Ascii.eqb_eq in Ec. subst c.
+    destruct rest as [|c' rest'].
+    + injection Eq as <-. left. split; [exact Hl|reflexivity].
+    + destruct (is_ws c') eqn:Ew; [|discriminate].
+      injection Eq as <-. right. exists c'. split; [exact Ew|exact Hl].
+  - intros (pre & Hpre & [[-> ->] | (c & Hc & ->)]);
+      rewrite classify_ws_prefix by exact Hpre; unfold classify.
+    + reflexivity.
+    + change (is_blank (String ">" (String c r))) with false.
+      unfold quote_prefix. cbn [drop_leading_ws].
+      change (is_ws ">") with false. cbn - [is_ws]. rewrite Hc. reflexivity.
+Qed.
+
 (*
 Canonical headings
 ==================
