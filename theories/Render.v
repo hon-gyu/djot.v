@@ -122,12 +122,6 @@ Local Fixpoint sep_body (als : list align) : string :=
 
 Definition sep_line (als : list align) : string := ("|" ++ sep_body als)%string.
 
-Local Fixpoint cells_body (cs : list string) : string :=
-  match cs with
-  | [] => EmptyString
-  | c :: rest => (" " ++ c ++ " |" ++ cells_body rest)%string
-  end.
-
 Definition cells_line (cs : list string) : string := ("|" ++ cells_body cs)%string.
 
 (* The canonical fence sits at column zero, so it strips nothing from its

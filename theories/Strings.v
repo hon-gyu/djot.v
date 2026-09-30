@@ -325,6 +325,56 @@ Proof.
   destruct (drop_leading_ws (rev_string s)); [reflexivity | discriminate].
 Qed.
 
+(* A string drop_leading_ws leaves alone does not start with whitespace. *)
+Lemma drop_leading_ws_fixed : forall h t,
+  drop_leading_ws (String h t) = String h t -> is_ws h = false.
+Proof.
+  intros h t H. cbn [drop_leading_ws] in H. destruct (is_ws h) eqn:E; [|reflexivity].
+  exfalso. pose proof (drop_leading_ws_length t) as Hl. rewrite H in Hl.
+  cbn in Hl. lia.
+Qed.
+
+(* A string strip_trailing_ws leaves alone is empty or ends in a
+   non-whitespace character. *)
+Lemma strip_trailing_last : forall s,
+  strip_trailing_ws s = s ->
+  s = EmptyString \/ exists x z, s = x ++ String z EmptyString /\ is_ws z = false.
+Proof.
+  intros s H. unfold strip_trailing_ws in H.
+  apply (f_equal rev_string) in H. rewrite rev_string_involutive in H.
+  destruct (rev_string s) as [|z t] eqn:E.
+  - left. rewrite <- (rev_string_involutive s), E. reflexivity.
+  - right. exists (rev_string t), z. split.
+    + rewrite <- (rev_string_involutive s), E, rev_string_cons. reflexivity.
+    + exact (drop_leading_ws_fixed z t H).
+Qed.
+
+(* What strip_trailing_ws dropped is an all-whitespace suffix. *)
+Lemma strip_trailing_split : forall s,
+  exists w, is_blank w = true /\ s = strip_trailing_ws s ++ w.
+Proof.
+  intros s. destruct (drop_leading_ws_split (rev_string s)) as (p & Hp & E).
+  exists (rev_string p). split; [rewrite rev_blank; exact Hp|].
+  unfold strip_trailing_ws. rewrite <- rev_string_app, <- E, rev_string_involutive.
+  reflexivity.
+Qed.
+
+Lemma strip_trailing_ws_app_blank : forall s w,
+  is_blank w = true -> strip_trailing_ws (s ++ w) = strip_trailing_ws s.
+Proof.
+  intros s w Hw. unfold strip_trailing_ws. rewrite rev_string_app.
+  rewrite (drop_leading_ws_ws_prefix (rev_string w) _ (eq_trans (rev_blank w) Hw)).
+  reflexivity.
+Qed.
+
+(* Only a blank string drops to nothing. *)
+Lemma drop_leading_ws_empty : forall r,
+  drop_leading_ws r = EmptyString -> is_blank r = true.
+Proof.
+  intros r H. destruct (drop_leading_ws_split r) as (p & Hp & E).
+  rewrite H, append_empty_r in E. subst r. exact Hp.
+Qed.
+
 (*
 Lines: splitting and joining
 ============================

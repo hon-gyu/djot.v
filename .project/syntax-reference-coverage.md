@@ -39,7 +39,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 9 | 1 | 6 | 0 | 0 | 2 |
+| Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 5 | 2 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -171,15 +171,15 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | RB1 | Raw block | "A code block with `=FORMAT` where the language specification would normally go is interpreted as raw content" | T | `raw_block_closed`; `raw_block` | |
 | RB2 | Raw block | "passed through verbatim to output in that format" | n/a | | Rendering. |
 | DV1 | Div | "a line of three or more consecutive colons, optionally followed by white space and a class name (but nothing else)" | T | `classify_div_fences`; `div`, `div_class_only` | Both directions.  Class token: 2026-08-09 entry.  No whitespace before the class (`:::foo`): `SPEC-GAP`, 2026-09-30. |
-| DV2 | Div | "ends with a line of consecutive colons at least as long as the opening fence, or with the end of the document or containing block" | T | `div_close_colons`, `fenced_div_closed`, `fenced_div_unclosed`, `div_uniformity_tail`; `div_longer_closer`, `div_unclosed` | Any opener and closer, for contents that leave the div open (`run_div_open`).  A closer also needs three colons, which only matters for no opener. |
+| DV2 | Div | "ends with a line of consecutive colons at least as long as the opening fence, or with the end of the document or containing block" | T | `div_close_colons`, `fenced_div_closed`, `fenced_div_unclosed`, `div_uniformity_tail`; `div_longer_closer`, `div_unclosed` | Any opener and closer, for contents that leave the div open (`run_div_open`).  The closer's `3 <= m` follows from `len <= m`, since every opener has three. |
 | DV3 | Div | "The contents of a div are interpreted as block-level content" | T | `div_uniformity`, `div_uniformity_tail` | For contents that leave the div open (`div_content_ok`), which is every content the rule applies to. |
-| PT1 | Pipe table | "Each row starts and ends with a pipe character (`\|`) and contains one or more *cells* separated by pipe characters" | E | `table_row`, `table_row_needs_closing_pipe` | Unit: `row_*` in Line.v, ParserExamples.v "Tables". |
-| PT2 | Pipe table | a separator line: "every cell consists of a sequence of one of more `-` characters, optionally prefixed and/or suffixed by a `:`" | E | `table_header` | Unit: `row_sep_*`.  Cell trimming: `SPEC-GAP`, 2026-08-02. |
+| PT1 | Pipe table | "Each row starts and ends with a pipe character (`\|`) and contains one or more *cells* separated by pipe characters" | T | `table_row_shape`, `table_row_cells`; `table_row`, `table_row_needs_closing_pipe` | Only if: every row has a bar at each end, after any indentation and before any trailing whitespace, and at least one cell.  If: for plain cells (no bar, backslash or backtick; no whitespace at either end), written as the renderer writes them.  Unit: `row_*` in Line.v, ParserExamples.v "Tables". |
+| PT2 | Pipe table | a separator line: "every cell consists of a sequence of one of more `-` characters, optionally prefixed and/or suffixed by a `:`" | T | `table_row_separator`; `table_header` | Both directions, with the whitespace the scan admits: before each bar, and between cells but not before the first.  Unit: `row_sep_*`.  Cell trimming: `SPEC-GAP`, 2026-08-02. |
 | PT3 | Pipe table | "the previous row is treated as a header, and alignments on that row and any subsequent rows are determined by the separator line (until a new header is found).  The separator line itself does not contribute a row" | T | `table_separator_regime`; `table_header`, `table_alignment_changes`, `table_header_resets` | Arbitrary earlier rows and prior alignments; every body row through the next separator.  Located table output erases to this fold (`of_table_fold_located`). |
 | PT4 | Pipe table | the four alignment cases from leading and trailing `:` | T | `separator_cell_alignment`, `separator_row_alignments`; `table_alignment_changes` | Every positive dash width and every mix of colon patterns across separator cells; `table_separator_regime` carries the resulting alignments to table rows.  Unit: `row_sep_default_right`. |
 | PT5 | Pipe table | "A table need not have a header: just omit any separator lines, or ... *begin* with a separator line" | E | `table_no_header`, `table_separator_first` | |
 | PT6 | Pipe table | "Contents of table cells are parsed as inlines" | E | `table_header` | |
-| PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | E | `table_escaped_pipes` | Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
+| PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | T | `table_row_escaped_bar`, `table_row_verbatim_bar`; `table_escaped_pipes` | One cell holding `\|` between plain text, and one holding a single-backtick span with any bar-bearing, backtick-free content.  Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
 Leaf blocks and tables: T 5, T~ 3, E 8, n/a 2.
@@ -283,7 +283,9 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
     `fence_close_backticks`, `fenced_code_closed`, `raw_block_closed`,
     `classify_div_fences`, `div_close_colons`, `fenced_div_closed`
     (`260930.plan.fences.md`).
-16. **PT1, PT2, PT7** (`260930.plan.pipe-table-rows.md`).
+16. Done: **PT1, PT2, PT7**, `table_row_shape`, `table_row_cells`,
+    `table_row_separator`, `table_row_escaped_bar`,
+    `table_row_verbatim_bar` (`260930.plan.pipe-table-rows.md`).
 17. **BA2, BA3** (`260930.plan.block-attributes.md`).
 18. Done: **BQ1 over every spelling**, `classify_quote_marker`
     (`260930.plan.quote-marker.md`).
