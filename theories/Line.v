@@ -267,6 +267,48 @@ Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   | EmptyString => (O, s)
   end.
 
+(* The run count_run measures: `n` copies of `c`.  Fence lines are
+   stated with it. *)
+Fixpoint char_run (c : ascii) (n : nat) : string :=
+  match n with O => EmptyString | S n' => String c (char_run c n') end.
+
+Local Lemma count_char_run : forall c n rest,
+  count_run c rest = (O, rest) ->
+  count_run c (char_run c n ++ rest) = (n, rest).
+Proof.
+  intros c n rest Hrest. induction n as [|n IH]; [exact Hrest|].
+  cbn [char_run append count_run]. rewrite Ascii.eqb_refl, IH. reflexivity.
+Qed.
+
+Local Lemma count_run_split : forall c s n r,
+  count_run c s = (n, r) -> s = char_run c n ++ r.
+Proof.
+  intros c s. induction s as [|c' s IH]; intros n r H.
+  - injection H as <- <-. reflexivity.
+  - cbn [count_run] in H. destruct (Ascii.eqb c c') eqn:E.
+    + apply Ascii.eqb_eq in E. subst c'.
+      destruct (count_run c s) as [m r'] eqn:Es. injection H as <- <-.
+      rewrite (IH m r' eq_refl). reflexivity.
+    + injection H as <- <-. reflexivity.
+Qed.
+
+(* A blank string has no run of a non-whitespace character. *)
+Local Lemma count_run_blank : forall c s,
+  is_ws c = false -> is_blank s = true -> count_run c s = (O, s).
+Proof.
+  intros c [|w s] Hc Hs; [reflexivity|].
+  cbn [is_blank] in Hs. apply andb_true_iff in Hs as [Hw _].
+  cbn [count_run]. destruct (Ascii.eqb c w) eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst w. rewrite Hc in Hw. discriminate.
+Qed.
+
+Local Lemma drop_leading_ws_run : forall c n s,
+  is_ws c = false -> 0 < n -> drop_leading_ws (char_run c n ++ s) = char_run c n ++ s.
+Proof.
+  intros c [|n] s Hc Hn; [lia|]. cbn [char_run append drop_leading_ws]. rewrite Hc.
+  reflexivity.
+Qed.
+
 (* Characters admissible in a fence info string. *)
 Definition is_info_char (c : ascii) : bool :=
   negb (is_ws c || Ascii.eqb c "`" || Ascii.eqb c "010").
@@ -313,7 +355,7 @@ Qed.
 (* The class token is `[\w_-]*`, narrower than a fence's info string.
    `:::a!` opens no div at all, because the pattern must match to end of
    line. *)
-Local Definition is_class_char (c : ascii) : bool :=
+Definition is_class_char (c : ascii) : bool :=
   let n := nat_of_ascii c in
   (Nat.leb 48 n && Nat.leb n 57)      (* 0-9 *)
   || (Nat.leb 65 n && Nat.leb n 90)   (* A-Z *)
@@ -2080,8 +2122,6 @@ Qed.
 (* A backtick fence as the syntax reference spells it: any indentation,
    three or more backticks, optional whitespace, an optional info string,
    and trailing whitespace. *)
-Fixpoint backtick_run (n : nat) : string :=
-  match n with O => EmptyString | S n' => String "`" (backtick_run n') end.
 
 Local Lemma take_info_app :
   forall info post, all_info_chars info = true -> is_blank post = true ->
@@ -2095,18 +2135,9 @@ Proof.
     cbn [append take_while]. rewrite Hc, (IH post Hinfo Hpost). reflexivity.
 Qed.
 
-Local Lemma count_backtick_run : forall n rest,
-  count_run "`" rest = (O, rest) ->
-  count_run "`" (backtick_run n ++ rest) = (n, rest).
-Proof.
-  induction n as [|n IH]; intros rest Hrest; [exact Hrest|].
-  cbn [backtick_run append count_run]. rewrite IH by exact Hrest.
-  reflexivity.
-Qed.
-
 Local Lemma fence_open_backticks : forall n gap info post,
   is_blank gap = true -> all_info_chars info = true -> is_blank post = true ->
-  fence_open (backtick_run (3 + n) ++ gap ++ info ++ post) =
+  fence_open (char_run "`" (3 + n) ++ gap ++ info ++ post) =
     Some (Fence "`" (3 + n) info).
 Proof.
   intros n gap info post Hgap Hinfo Hpost.
@@ -2126,8 +2157,8 @@ Proof.
       cbn [append count_run]. destruct (Ascii.eqb "`" w) eqn:E; [|reflexivity].
       apply Ascii.eqb_eq in E. subst w. discriminate. }
   unfold fence_open.
-  cbn [backtick_run append drop_leading_ws is_ws Ascii.eqb orb]. simpl.
-  rewrite (count_backtick_run n _ Hrun), (drop_leading_ws_ws_prefix gap _ Hgap).
+  cbn [char_run append drop_leading_ws is_ws Ascii.eqb orb]. simpl.
+  rewrite (count_char_run "`" n _ Hrun), (drop_leading_ws_ws_prefix gap _ Hgap).
   destruct info as [|c info'].
   - cbn [append]. rewrite (drop_leading_ws_blank post Hpost). reflexivity.
   - assert (Hc : is_ws c = false).
@@ -2141,17 +2172,201 @@ Qed.
 Theorem classify_backtick_fences : forall pre n gap info post,
   is_blank pre = true -> is_blank gap = true ->
   all_info_chars info = true -> is_blank post = true ->
-  classify (pre ++ backtick_run (3 + n) ++ gap ++ info ++ post) =
+  classify (pre ++ char_run "`" (3 + n) ++ gap ++ info ++ post) =
     KFence (Fence "`" (3 + n) info).
 Proof.
   intros pre n gap info post Hpre Hgap Hinfo Hpost.
   rewrite classify_ws_prefix by exact Hpre. unfold classify.
-  change (is_blank (backtick_run (3 + n) ++ gap ++ info ++ post)) with false.
-  change (quote_prefix (backtick_run (3 + n) ++ gap ++ info ++ post))
+  change (is_blank (char_run "`" (3 + n) ++ gap ++ info ++ post)) with false.
+  change (quote_prefix (char_run "`" (3 + n) ++ gap ++ info ++ post))
     with (@None string).
-  change (heading_open (backtick_run (3 + n) ++ gap ++ info ++ post))
+  change (heading_open (char_run "`" (3 + n) ++ gap ++ info ++ post))
     with (@None (nat * string)).
   rewrite (fence_open_backticks n gap info post Hgap Hinfo Hpost). reflexivity.
+Qed.
+
+(* CB2 at the line level: a line closes a backtick fence exactly when it
+   is a run of backticks at least as long as the opener's, with nothing
+   but whitespace around it. *)
+Theorem fence_close_backticks : forall n info l,
+  fence_close (Fence "`" n info) l = true <->
+  exists pre m post, is_blank pre = true /\ is_blank post = true /\ n <= m /\
+    l = pre ++ char_run "`" m ++ post.
+Proof.
+  intros n info l. unfold fence_close. cbn [f_ch f_len]. split.
+  - destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (count_run "`" (drop_leading_ws l)) as [m r] eqn:E.
+    intros H. apply andb_true_iff in H as [Hn Hr]. apply Nat.leb_le in Hn.
+    apply count_run_split in E.
+    exists pre, m, r. rewrite <- E. auto.
+  - intros (pre & m & post & Hpre & Hpost & Hn & ->).
+    rewrite (drop_leading_ws_ws_prefix pre _ Hpre).
+    destruct m as [|m].
+    + cbn [char_run append]. rewrite (drop_leading_ws_blank post Hpost).
+      assert (n = 0) as -> by lia. reflexivity.
+    + rewrite drop_leading_ws_run by (reflexivity || lia).
+      rewrite count_char_run by (apply count_run_blank; reflexivity || exact Hpost).
+      rewrite Hpost, andb_true_r. apply Nat.leb_le, Hn.
+Qed.
+
+(*
+Div fences over every spelling
+------------------------------
+*)
+
+Local Lemma take_while_app : forall p a b,
+  str_forallb p a = true ->
+  (b = EmptyString \/ exists c b', b = String c b' /\ p c = false) ->
+  take_while p (a ++ b) = (a, b).
+Proof.
+  intros p a b Ha Hb. induction a as [|c a IH].
+  - destruct Hb as [->|(c & b' & -> & Hc)]; cbn; [reflexivity|rewrite Hc; reflexivity].
+  - cbn [str_forallb] in Ha. apply andb_true_iff in Ha as [Hc Ha].
+    cbn [append take_while]. rewrite Hc, (IH Ha). reflexivity.
+Qed.
+
+Local Lemma take_while_split : forall p s a b,
+  take_while p s = (a, b) -> s = a ++ b /\ str_forallb p a = true.
+Proof.
+  intros p s. induction s as [|c s IH]; intros a b H.
+  - injection H as <- <-. split; reflexivity.
+  - cbn [take_while] in H. destruct (p c) eqn:Ec.
+    + destruct (take_while p s) as [a' b'] eqn:E. injection H as <- <-.
+      destruct (IH a' b' eq_refl) as [-> Ha]. split; [reflexivity|].
+      cbn [str_forallb]. rewrite Ec, Ha. reflexivity.
+    + injection H as <- <-. split; reflexivity.
+Qed.
+
+Local Lemma class_char_not_ws : forall c, is_class_char c = true -> is_ws c = false.
+Proof.
+  intros c H. destruct (is_ws c) eqn:E; [|reflexivity].
+  unfold is_ws in E. repeat (apply orb_true_iff in E as [E|E]);
+    apply Ascii.eqb_eq in E; subst c; discriminate.
+Qed.
+
+Local Lemma class_char_not_colon :
+  forall c, is_class_char c = true -> Ascii.eqb ":" c = false.
+Proof.
+  intros c H. destruct (Ascii.eqb ":" c) eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. discriminate.
+Qed.
+
+(* Where the class token stops: a blank rest starts with no class
+   character. *)
+Local Lemma blank_head : forall s, is_blank s = true ->
+  s = EmptyString \/ exists c s', s = String c s' /\ is_class_char c = false.
+Proof.
+  intros [|c s] H; [left; reflexivity|right]. exists c, s. split; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc _].
+  destruct (is_class_char c) eqn:E; [|reflexivity].
+  rewrite (class_char_not_ws c E) in Hc. discriminate.
+Qed.
+
+Local Lemma div_open_colons : forall n gap cls post,
+  is_blank gap = true -> str_forallb is_class_char cls = true ->
+  is_blank post = true ->
+  div_open (char_run ":" (3 + n) ++ gap ++ cls ++ post) = Some (3 + n, cls).
+Proof.
+  intros n gap cls post Hgap Hcls Hpost.
+  (* the run ends where the colons do *)
+  assert (Hrun : count_run ":" (gap ++ cls ++ post) = (O, gap ++ cls ++ post)).
+  { destruct gap as [|w gap].
+    - destruct cls as [|c cls].
+      + apply count_run_blank; [reflexivity|exact Hpost].
+      + cbn [str_forallb] in Hcls. apply andb_true_iff in Hcls as [Hc _].
+        cbn [append count_run]. rewrite (class_char_not_colon c Hc). reflexivity.
+    - cbn [is_blank] in Hgap. apply andb_true_iff in Hgap as [Hw _].
+      cbn [append count_run]. destruct (Ascii.eqb ":" w) eqn:E; [|reflexivity].
+      apply Ascii.eqb_eq in E. subst w. discriminate. }
+  unfold div_open. rewrite drop_leading_ws_run by (reflexivity || lia).
+  change (char_run ":" (3 + n)) with (String ":" (char_run ":" (2 + n))).
+  cbn [append Ascii.eqb Ascii.ascii_dec]. simpl.
+  change (String ":" (char_run ":" (2 + n) ++ gap ++ cls ++ post))
+    with (char_run ":" (3 + n) ++ gap ++ cls ++ post).
+  rewrite (count_char_run _ _ _ Hrun).
+  rewrite (drop_leading_ws_ws_prefix gap _ Hgap).
+  destruct cls as [|c cls'].
+  - cbn [append]. rewrite (drop_leading_ws_blank post Hpost). reflexivity.
+  - assert (Hc : is_ws c = false).
+    { cbn [str_forallb] in Hcls. apply andb_true_iff in Hcls as [Hc _].
+      exact (class_char_not_ws c Hc). }
+    cbn [append drop_leading_ws]. rewrite Hc.
+    change (String c (cls' ++ post)) with (String c cls' ++ post).
+    rewrite (take_while_app _ _ _ Hcls (blank_head post Hpost)), Hpost. reflexivity.
+Qed.
+
+(* DV1: a div opener is an indent, three or more colons, optional
+   whitespace, a class token of `is_class_char`, and trailing whitespace;
+   nothing else classifies as one.  The whitespace before the class may
+   be empty: `:::foo` opens a div, as in djot.js. *)
+Theorem classify_div_fences : forall l n cls,
+  classify l = KDiv n cls <->
+  exists pre gap post,
+    is_blank pre = true /\ is_blank gap = true /\ is_blank post = true /\
+    3 <= n /\ str_forallb is_class_char cls = true /\
+    l = pre ++ char_run ":" n ++ gap ++ cls ++ post.
+Proof.
+  intros l n cls. split.
+  - intros H.
+    assert (Hd : div_open l = Some (n, cls)).
+    { unfold classify in H. destruct (is_blank l); [discriminate|].
+      destruct (quote_prefix l); [discriminate|].
+      destruct (heading_open l) as [[? ?]|]; [discriminate|].
+      destruct (fence_open l); [discriminate|].
+      destruct (div_open l) as [[? ?]|]; [congruence|].
+      repeat match type of H with
+             | context [match ?x with _ => _ end] => destruct x
+             | context [if ?x then _ else _] => destruct x
+             end; discriminate. }
+    clear H. unfold div_open in Hd.
+    destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (drop_leading_ws l) as [|c s] eqn:Ed; [discriminate|].
+    destruct (Ascii.eqb c ":") eqn:Ec; [|discriminate].
+    destruct (count_run ":" (String c s)) as [m r] eqn:Er.
+    destruct (Nat.leb 3 m) eqn:Em; [|discriminate].
+    destruct (drop_leading_ws_split r) as (gap & Hgap & Hr).
+    destruct (take_while is_class_char (drop_leading_ws r)) as [a b] eqn:Et.
+    destruct (is_blank b) eqn:Eb; [|discriminate].
+    injection Hd as <- <-.
+    apply count_run_split in Er.
+    apply take_while_split in Et as [Et Ha].
+    exists pre, gap, b. repeat split; try assumption.
+    + apply Nat.leb_le, Em.
+    + rewrite Hl, Er, Hr, Et. reflexivity.
+  - intros (pre & gap & post & Hpre & Hgap & Hpost & Hn & Hcls & ->).
+    rewrite classify_ws_prefix by exact Hpre.
+    replace n with (3 + (n - 3)) by lia.
+    unfold classify.
+    change (is_blank (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post)) with false.
+    change (quote_prefix (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None string).
+    change (heading_open (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None (nat * string)).
+    change (fence_open (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None fence).
+    rewrite (div_open_colons _ _ _ _ Hgap Hcls Hpost). reflexivity.
+Qed.
+
+(* DV2 at the line level: a div opened with `len` colons is closed by a
+   run of at least `len` (and at least three) colons with only
+   whitespace around it.  No class: `::: foo` never closes. *)
+Theorem div_close_colons : forall len l,
+  div_close len l = true <->
+  exists pre m post, is_blank pre = true /\ is_blank post = true /\
+    len <= m /\ 3 <= m /\ l = pre ++ char_run ":" m ++ post.
+Proof.
+  intros len l. unfold div_close. split.
+  - destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (count_run ":" (drop_leading_ws l)) as [m r] eqn:E.
+    intros H. apply andb_true_iff in H as [H Hr]. apply andb_true_iff in H as [Hn H3].
+    apply Nat.leb_le in Hn, H3.
+    apply count_run_split in E.
+    exists pre, m, r. rewrite <- E. auto.
+  - intros (pre & m & post & Hpre & Hpost & Hn & H3 & ->).
+    rewrite (drop_leading_ws_ws_prefix pre _ Hpre).
+    rewrite drop_leading_ws_run by (reflexivity || lia).
+    rewrite count_char_run by (apply count_run_blank; reflexivity || exact Hpost).
+    rewrite Hpost, andb_true_r. apply andb_true_iff; split; apply Nat.leb_le; assumption.
 Qed.
 
 (* Canonical block-quote prefixing: "> " in front of every line, blank

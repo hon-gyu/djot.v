@@ -39,7 +39,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Inline | 1 | 4 | 47 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 5 | 3 | 8 | 0 | 0 | 2 |
+| Block: leaf blocks and tables | 9 | 1 | 6 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 5 | 2 | 7 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
@@ -164,14 +164,14 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
 | CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T | `classify_backtick_fences`; `code_block_info_only`, `code_block_info_spaces` | Line level: any indentation, any run of three or more, whitespace or none before the info string, trailing whitespace.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
-| CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T~ | `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | Shape: the enclosing-block half, for every container, since each theorem parses the contents as a document that ends with the container.  The fence-length half has only the examples. |
+| CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T | `fence_close_backticks`, `fenced_code_closed`, `fenced_code_unclosed`, `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | `fence_close_backticks` says which lines close a backtick fence of any length; `fenced_code_closed` and `fenced_code_unclosed` say the block runs to the first of them or the end of the document.  The enclosing-block half: each container theorem parses the contents as a document that ends with the container. |
 | CB3 | Code block | "Its contents are interpreted as verbatim text" | T~ | `roundtrip_blocks` | Shape: canonical code blocks, whose fence the renderer picks longer than any backtick run inside. |
 | TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T | `classify_thematic`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Line level.  `*` and `-` may be mixed on one line, in both engines. |
 | TB2 | Thematic break | "(`<hr>` in HTML)" | n/a | | Rendering. |
-| RB1 | Raw block | "A code block with `=FORMAT` where the language specification would normally go is interpreted as raw content" | E | `raw_block` | |
+| RB1 | Raw block | "A code block with `=FORMAT` where the language specification would normally go is interpreted as raw content" | T | `raw_block_closed`; `raw_block` | |
 | RB2 | Raw block | "passed through verbatim to output in that format" | n/a | | Rendering. |
-| DV1 | Div | "a line of three or more consecutive colons, optionally followed by white space and a class name (but nothing else)" | E | `div`, `div_class_only` | Class token: 2026-08-09 entry. |
-| DV2 | Div | "ends with a line of consecutive colons at least as long as the opening fence, or with the end of the document or containing block" | T~ | `div_uniformity`, `div_uniformity_tail`; `div_longer_closer`, `div_unclosed` | Shape: a `:::` fence closed by `:::`. |
+| DV1 | Div | "a line of three or more consecutive colons, optionally followed by white space and a class name (but nothing else)" | T | `classify_div_fences`; `div`, `div_class_only` | Both directions.  Class token: 2026-08-09 entry.  No whitespace before the class (`:::foo`): `SPEC-GAP`, 2026-09-30. |
+| DV2 | Div | "ends with a line of consecutive colons at least as long as the opening fence, or with the end of the document or containing block" | T | `div_close_colons`, `fenced_div_closed`, `fenced_div_unclosed`, `div_uniformity_tail`; `div_longer_closer`, `div_unclosed` | Any opener and closer, for contents that leave the div open (`run_div_open`).  A closer also needs three colons, which only matters for no opener. |
 | DV3 | Div | "The contents of a div are interpreted as block-level content" | T | `div_uniformity`, `div_uniformity_tail` | For contents that leave the div open (`div_content_ok`), which is every content the rule applies to. |
 | PT1 | Pipe table | "Each row starts and ends with a pipe character (`\|`) and contains one or more *cells* separated by pipe characters" | E | `table_row`, `table_row_needs_closing_pipe` | Unit: `row_*` in Line.v, ParserExamples.v "Tables". |
 | PT2 | Pipe table | a separator line: "every cell consists of a sequence of one of more `-` characters, optionally prefixed and/or suffixed by a `:`" | E | `table_header` | Unit: `row_sep_*`.  Cell trimming: `SPEC-GAP`, 2026-08-02. |
@@ -279,7 +279,9 @@ Single constructs, each a small theorem over a finite or simple domain:
 
 Moved here from "An example is enough" on 2026-09-30, each with a plan:
 
-15. **CB2 the fence-length half, RB1, DV1, DV2**
+15. Done: **CB2 the fence-length half, RB1, DV1, DV2**,
+    `fence_close_backticks`, `fenced_code_closed`, `raw_block_closed`,
+    `classify_div_fences`, `div_close_colons`, `fenced_div_closed`
     (`260930.plan.fences.md`).
 16. **PT1, PT2, PT7** (`260930.plan.pipe-table-rows.md`).
 17. **BA2, BA3** (`260930.plan.block-attributes.md`).
@@ -308,4 +310,5 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
   after it (2026-09-30).
 - BQ1: a tab or CR after `>` counts as the space (2026-09-30).
 - CB1: tilde fences (2026-08-02).
+- DV1: no whitespace needed before a div's class (2026-09-30).
 - PT2: separator cells are not trimmed (2026-08-02).
