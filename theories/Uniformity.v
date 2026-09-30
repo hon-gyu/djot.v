@@ -462,6 +462,74 @@ Proof.
 Qed.
 
 (*
+Code blocks
+-----------
+*)
+
+Local Lemma parse_lines_fence_run : forall l f content rest,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  parse_lines (l :: content ++ rest)%list (PPara []) =
+  parse_lines rest
+    (PFence f (indent_of l) (open_extent l (indent_of l))
+       (line_span_from l (indent_of l))
+       (remember_lines (rev (map (drop_ws_upto (indent_of l)) content)))).
+Proof.
+  intros l f content rest Hl Hc.
+  rewrite (parse_lines_fence_open _ _ _ Hl).
+  rewrite parse_lines_fence_seed by (reflexivity || exact Hc).
+  rewrite app_nil_r. reflexivity.
+Qed.
+
+(** CB2: a code block runs from its opener to the first line that closes
+    it, and holds the lines between, each less the opener's indentation.
+    `fence_close_backticks` says which lines close a backtick fence. *)
+Theorem fenced_code_closed : forall l f content c rest,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  fence_close f c = true ->
+  parse_lines (l :: content ++ c :: rest)%list (PPara []) =
+  fence_block f (map (drop_ws_upto (indent_of l)) content)
+  :: parse_lines rest (PPara []).
+Proof.
+  intros l f content c rest Hl Hc Hclose.
+  rewrite (parse_lines_fence_run l f content (c :: rest) Hl Hc).
+  rewrite parse_lines_fence_close by exact Hclose.
+  rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
+Qed.
+
+(** CB2, "or the end of the document". *)
+Theorem fenced_code_unclosed : forall l f content,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  parse_lines (l :: content) (PPara []) =
+  [fence_block f (map (drop_ws_upto (indent_of l)) content)].
+Proof.
+  intros l f content Hl Hc.
+  rewrite <- (app_nil_r content).
+  rewrite (parse_lines_fence_run l f content [] Hl Hc).
+  cbn [parse_lines finish]. rewrite app_nil_r.
+  rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
+Qed.
+
+(** RB1: with `=FORMAT` for the info string, the same block is raw
+    content in that format. *)
+Theorem raw_block_closed : forall l ch n fmt content c rest,
+  braw_blocks = true ->
+  classify l = KFence (Fence ch n (String "="%char fmt)) ->
+  forallb (fun x => negb (fence_close (Fence ch n (String "="%char fmt)) x))
+    content = true ->
+  fence_close (Fence ch n (String "="%char fmt)) c = true ->
+  parse_lines (l :: content ++ c :: rest)%list (PPara []) =
+  mk (RawBlock fmt (join_nl (map (drop_ws_upto (indent_of l)) content)))
+  :: parse_lines rest (PPara []).
+Proof.
+  intros l ch n fmt content c rest Hraw Hl Hc Hclose.
+  rewrite (fenced_code_closed _ _ _ _ _ Hl Hc Hclose).
+  unfold fence_block. cbn [f_info]. rewrite Hraw. reflexivity.
+Qed.
+
+(*
 Heading equations
 -----------------
 *)
@@ -1178,22 +1246,22 @@ Definition div_content_ok (lines : list string) : bool :=
   && negb (in_fence (snd (run_lines lines (PPara [])))).
 
 (* Inside an open div, contents that never close it drive the inner state,
-   and the fence that follows closes the div and is consumed. *)
+   and a line that closes it is consumed. *)
 Local Lemma parse_lines_div_cont :
-  forall content tail range opener done inner,
-    run_div_open 3 content inner = true ->
+  forall len cls c content tail range opener done inner,
+    run_div_open len content inner = true ->
     in_fence (snd (run_lines content inner)) = false ->
-    parse_lines (content ++ div_fence :: tail)%list
-                (PDiv 3 EmptyString range opener done inner)
-    = mk (Div (rev done ++ parse_lines content inner)%list)
+    div_close len c = true ->
+    parse_lines (content ++ c :: tail)%list
+                (PDiv len cls range opener done inner)
+    = div_block cls (rev done ++ parse_lines content inner)%list
       :: parse_lines tail (PPara []).
 Proof.
-  induction content as [|l content IH];
-    intros tail range opener done inner Hopen Hfence.
+  intros len cls c content. induction content as [|l content IH];
+    intros tail range opener done inner Hopen Hfence Hc.
   - cbn [run_lines snd] in Hfence. cbn [app].
     rewrite (parse_lines_step _ _ _ _ _
-               (step_div_close div_fence 3 EmptyString range opener done inner
-                  Hfence div_close_canonical)).
+               (step_div_close c len cls range opener done inner Hfence Hc)).
     reflexivity.
   - cbn [run_div_open] in Hopen. apply andb_true_iff in Hopen as [Hl Hrest].
     apply negb_true_iff in Hl.
@@ -1204,18 +1272,85 @@ Proof.
     cbn [snd] in Hfence.
     cbn [app].
     rewrite (parse_lines_step _ _ _ _ _
-               (step_div_cont l 3 EmptyString range opener done inner bs inner'
-                  Hl Es)).
+               (step_div_cont l len cls range opener done inner bs inner' Hl Es)).
     cbn [app].
     rewrite (IH tail _ opener (rev bs ++ done)%list inner' Hrest
-               ltac:(rewrite Er; exact Hfence)).
+               ltac:(rewrite Er; exact Hfence) Hc).
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
     reflexivity.
 Qed.
 
+(* The same contents at the end of the input: the div closes with it. *)
+Local Lemma parse_lines_div_eof :
+  forall len cls content range opener done inner,
+    run_div_open len content inner = true ->
+    parse_lines content (PDiv len cls range opener done inner)
+    = [div_block cls (rev done ++ parse_lines content inner)%list].
+Proof.
+  intros len cls content. induction content as [|l content IH];
+    intros range opener done inner Hopen; [reflexivity|].
+  cbn [run_div_open] in Hopen. apply andb_true_iff in Hopen as [Hl Hrest].
+  apply negb_true_iff in Hl.
+  destruct (step l inner) as [bs inner'] eqn:Es. cbn [snd] in Hrest.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_div_cont l len cls range opener done inner bs inner' Hl Es)).
+  cbn [app]. rewrite (IH _ opener (rev bs ++ done)%list inner' Hrest).
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  rewrite rev_app_distr, rev_involutive, <- app_assoc.
+  reflexivity.
+Qed.
+
+Local Lemma parse_lines_div_open :
+  forall l rest len cls,
+    bdivs = true -> classify l = KDiv len cls ->
+    parse_lines (l :: rest) (PPara [])
+    = parse_lines rest (PDiv len cls (open_extent l (indent_of l))
+                          (line_span_from l (indent_of l)) [] (PPara [])).
+Proof.
+  intros l rest len cls Hdivs Hl.
+  assert (Hs : step l (PPara []) =
+                ([], PDiv len cls (open_extent l (indent_of l))
+                       (line_span_from l (indent_of l)) [] (PPara []))).
+  { rewrite (step_idle l _ Hl eq_refl). cbn [open_kind]. rewrite Hdivs.
+    reflexivity. }
+  rewrite (parse_lines_step _ _ _ _ _ Hs). reflexivity.
+Qed.
+
+(** DV2 and DV3: a div opened by any opener (`classify_div_fences`) and
+    closed by any line that closes it (`div_close_colons`) holds its
+    contents parsed as a document, for contents that leave it open. *)
+Theorem fenced_div_closed :
+  forall l len cls content c tail,
+    bdivs = true -> classify l = KDiv len cls ->
+    run_div_open len content (PPara []) = true ->
+    in_fence (snd (run_lines content (PPara []))) = false ->
+    div_close len c = true ->
+    parse_lines (l :: content ++ c :: tail)%list (PPara [])
+    = div_block cls (parse_lines content (PPara []))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros l len cls content c tail Hdivs Hl Hopen Hfence Hc.
+  rewrite (parse_lines_div_open _ _ _ _ Hdivs Hl).
+  exact (parse_lines_div_cont _ _ _ _ _ _ _ [] _ Hopen Hfence Hc).
+Qed.
+
+(** DV2, "or with the end of the document". *)
+Theorem fenced_div_unclosed :
+  forall l len cls content,
+    bdivs = true -> classify l = KDiv len cls ->
+    run_div_open len content (PPara []) = true ->
+    parse_lines (l :: content) (PPara [])
+    = [div_block cls (parse_lines content (PPara []))].
+Proof.
+  intros l len cls content Hdivs Hl Hopen.
+  rewrite (parse_lines_div_open _ _ _ _ Hdivs Hl).
+  exact (parse_lines_div_eof _ _ _ _ _ [] _ Hopen).
+Qed.
+
 (** Uniformity for fenced divs: a div's contents parse exactly as they
-    would at top level, for any contents that leave the div open. *)
+    would at top level, for any contents that leave the div open.  The
+    canonical instance of `fenced_div_closed`. *)
 Theorem div_uniformity :
   forall content,
     bdivs = true ->
@@ -1224,20 +1359,9 @@ Theorem div_uniformity :
     = [mk (Div (parse_lines content (PPara [])))].
 Proof.
   intros content Hdivs Hok. unfold div_content_ok in Hok.
-  apply andb_true_iff in Hok as [Hopen Hf].
-  apply negb_true_iff in Hf. rename Hf into Hfence.
-  assert (Hstep : step div_fence (PPara []) =
-                    ([], PDiv 3 EmptyString
-                           (open_extent div_fence (indent_of div_fence))
-                           (line_span_from div_fence (indent_of div_fence))
-                           [] (PPara []))).
-  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
-               classify_canonical_div eq_refl).
-    cbn [open_kind]. rewrite Hdivs. reflexivity. }
-  rewrite (parse_lines_step _ _ _ _ _ Hstep).
-  cbn [fst snd app].
-  rewrite (parse_lines_div_cont content [] _ _ [] (PPara []) Hopen Hfence).
-  reflexivity.
+  apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
+  exact (fenced_div_closed _ _ _ _ _ [] Hdivs classify_canonical_div Hopen Hf
+           div_close_canonical).
 Qed.
 
 (* The same with a document after it, which is the form the roundtrip
@@ -1253,19 +1377,8 @@ Theorem div_uniformity_tail :
 Proof.
   intros content tail Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
-  assert (Hstep : step div_fence (PPara []) =
-                    ([], PDiv 3 EmptyString
-                           (open_extent div_fence (indent_of div_fence))
-                           (line_span_from div_fence (indent_of div_fence))
-                           [] (PPara []))).
-  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
-               classify_canonical_div eq_refl).
-    cbn [open_kind]. rewrite Hdivs. reflexivity. }
-  rewrite (parse_lines_step _ _ _ _ _ Hstep).
-  cbn [fst snd app].
-  rewrite (parse_lines_div_cont content (EmptyString :: tail) _ _ []
-             (PPara []) Hopen Hf).
-  cbn [rev app].
+  rewrite (fenced_div_closed _ _ _ _ _ _ Hdivs classify_canonical_div Hopen Hf
+             div_close_canonical).
   rewrite (parse_lines_blank_nil EmptyString tail
              (classify_blank EmptyString eq_refl)).
   reflexivity.

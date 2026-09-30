@@ -2176,3 +2176,18 @@ any `is_ws` character, the same set.
 
 **Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
 `classify_quote_marker` in `Line.v`, which names `is_ws`.
+
+## 2026-09-30 -- SPEC-GAP: whitespace before a div's class
+
+| Input | djot.js and ours |
+| --- | --- |
+| `:::foo` / `a` / `:::` | a div with class `foo` |
+
+The reference says a div opens with "a line of three or more consecutive
+colons, optionally followed by white space and a class name".  Read as
+"optionally followed by (white space and a class name)", `:::foo` would
+not open a div.  djot.js's `pattDivFenceEnd` allows no whitespace, and
+so does `div_open`.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
+`classify_div_fences` in `Line.v`, whose `gap` may be empty.
