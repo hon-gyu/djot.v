@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 1 | 4 | 47 | 0 | 0 | 5 |
+| Inline | 1 | 6 | 45 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
@@ -55,11 +55,11 @@ link locality, which holds by construction.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | E | `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | |
+| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one matching is valid, and the paragraph is its tree.  Shape: one line of bare delimiters of the table's `DBare` rows whose unmatched token is its own text (`_ * ^ ~` in djot's table), of any width, among bytes no other syntax claims (`over_alphabet`, Precedence.v).  No braces (P3, P4), brackets or smart quotes; the reference's bracket examples stay examples. |
 | P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | Shape: canonical inline trees (`ci`), as the inline renderer writes them. |
 | P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | E | `precedence_braces`, `emphasis_braces` | Unit: InlineExamples.v, "The delimiter family". |
 | P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | E | `marked_closer_needs_marked_opener` | |
-| P5 | Precedence | "When there are multiple openers ... the closest one is used" | E | `precedence_closest_opener` | |
+| P5 | Precedence | "When there are multiple openers ... the closest one is used" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique` (Precedence.v); `precedence_closest_opener` | `closest_live` in `valid`.  Shape as P1. |
 | P6 | Precedence | "Verbatim syntax ... doesn't allow nested markup" | E | `precedence_verbatim` | |
 | O1 | Ordinary text | "Anything that isn't given a special meaning is parsed as literal text" | n/a | | The default case of every other row. |
 | O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | T~ | `escape_every_punct` (InlineExamples.v); `escape_punctuation` | Shape: the escape alone on a line, every one of the 256 bytes checked.  Unit: InlineExamples.v, "Escapes". |
@@ -113,7 +113,7 @@ link locality, which holds by construction.
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 1, T~ 4, E 47, n/a 5.
+Inline: T 1, T~ 6, E 45, n/a 5.
 
 ## Block syntax
 
@@ -259,9 +259,10 @@ List and table structure:
 
 Inline structure:
 
-8. **P1, P5 precedence**: first-closed wins and the closest opener
-   matches.  This needs a reference-level model of delimiter matching to
-   state against (`260930.plan.inline-precedence.md`).
+8. Done in part: **P1, P5 precedence**, `para_inlines_valid`: on one
+   line of bare delimiters, the paragraph is the tree of the unique
+   matching the rules allow (`260930.plan.inline-precedence.md`).
+   Braces (with P3, P4) and brackets are its stages 3 and 4.
 9. **M2, M3 flanking**: an opener before whitespace or a closer after
    whitespace never delimits, over all inputs.
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
