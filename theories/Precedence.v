@@ -4,7 +4,7 @@
    "Precedence"), stated as a matching between openers and closers and
    independent of the scanner: the tokens of a line, the matchings the
    rules allow, the proof that exactly one exists, and the tree it
-   describes. *)
+   describes.  `InlinePrecedence.v` proves the scanner builds that tree. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
 From DjotV Require Import Strings Ast InlineTable InlineView.
@@ -291,7 +291,7 @@ Record rinv (ts : list token) (n : nat) (s : rstate) : Prop := RInv {
     forall p, closest_live ts (rs_pairs s) j k p -> S p = j
 }.
 
-Local Lemma dstyle_eq_iff : forall a b, dstyle_eq a b = true <-> a = b.
+Lemma dstyle_eq_iff : forall a b, dstyle_eq a b = true <-> a = b.
 Proof. intros [] []; split; intros H; first [reflexivity | discriminate]. Qed.
 
 Lemma pick_some : forall k lv p below,
@@ -530,17 +530,20 @@ Proof.
 Qed.
 
 
+Lemma rinv_start : forall ts, rinv ts 0 (RState [] []).
+Proof.
+  intros ts. constructor; cbn [rs_live rs_pairs].
+  - intros i j [].
+  - intros p k. split; [intros []|intros [H _]; lia].
+  - constructor.
+  - intros i j [].
+  - intros j k H. lia.
+Qed.
+
 Theorem ref_match_valid : forall ts, valid ts (ref_match ts).
 Proof.
   intros ts. unfold ref_match.
-  assert (I0 : rinv ts (length (@nil token)) (RState [] [])).
-  { constructor; cbn [rs_live rs_pairs length].
-    - intros i j [].
-    - intros p k. split; [intros []|intros [H _]; lia].
-    - constructor.
-    - intros i j [].
-    - intros j k H. lia. }
-  pose proof (rinv_run ts [] ts _ eq_refl I0) as [_ _ _ Pr Un].
+  pose proof (rinv_run ts [] ts _ eq_refl (rinv_start ts)) as [_ _ _ Pr Un].
   split; [exact Pr|].
   intros j k Hk. apply Un; [|exact Hk].
   destruct Hk as [op H]. apply nth_error_Some. rewrite H. discriminate.
@@ -588,28 +591,30 @@ Definition is_opener (m : matching) (i : nat) : bool :=
 Definition is_closer (m : matching) (j : nat) : bool :=
   existsb (fun e => Nat.eqb (snd e) j) m.
 
+Definition tstep (m : matching) (i : nat) (t : token)
+  (st : tframes * inlines) : tframes * inlines :=
+  let '(fs, top) := st in
+  match t with
+  | TDelim k _ _ =>
+      if is_opener m i then ((k, []) :: fs, top)
+      else match is_closer m i, fs with
+           | true, (k', acc) :: fs0 =>
+               temit (mk (dnode k' (List.rev acc))) fs0 top
+           | _, _ => temit_str (tok_text t) fs top
+           end
+  | TText _ => temit_str (tok_text t) fs top
+  end.
+
 Fixpoint tree_go (m : matching) (i : nat) (ts : list token)
-  (fs : tframes) (top : inlines) : inlines :=
+  (st : tframes * inlines) : tframes * inlines :=
   match ts with
-  | [] => List.rev top
-  | t :: rest =>
-      let '(fs', top') :=
-        match t, fs with
-        | TDelim k _ _, _ =>
-            if is_opener m i then ((k, []) :: fs, top)
-            else match is_closer m i, fs with
-                 | true, (k', acc) :: fs0 =>
-                     temit (mk (dnode k' (List.rev acc))) fs0 top
-                 | _, _ => temit_str (tok_text t) fs top
-                 end
-        | TText _, _ => temit_str (tok_text t) fs top
-        end in
-      tree_go m (S i) rest fs' top'
+  | [] => st
+  | t :: rest => tree_go m (S i) rest (tstep m i t st)
   end.
 
 (* A valid matching closes every pair it opens, so no frame is left at
-   the end; `tree_go` drops any that are. *)
+   the end; `tree_of` reads only the top level. *)
 Definition tree_of (ts : list token) (m : matching) : inlines :=
-  tree_go m 0 ts [] [].
+  List.rev (snd (tree_go m 0 ts ([], []))).
 
 End WithTable.
