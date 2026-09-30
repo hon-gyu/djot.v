@@ -261,7 +261,7 @@ Inline structure:
 
 8. **P1, P5 precedence**: first-closed wins and the closest opener
    matches.  This needs a reference-level model of delimiter matching to
-   state against; it deserves its own plan.
+   state against (`260930.plan.inline-precedence.md`).
 9. **M2, M3 flanking**: an opener before whitespace or a closer after
    whitespace never delimits, over all inputs.
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
