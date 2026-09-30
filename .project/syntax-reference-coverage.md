@@ -277,13 +277,20 @@ Single constructs, each a small theorem over a finite or simple domain:
     `classify_thematic`, `classify_ref_whitespace`.
 14. **LH2** `id_base` characterized clause by clause.
 
+Moved here from "An example is enough" on 2026-09-30, each with a plan:
+
+15. **CB2 the fence-length half, RB1, DV1, DV2**
+    (`260930.plan.fences.md`).
+16. **PT1, PT2, PT7** (`260930.plan.pipe-table-rows.md`).
+17. **BA2, BA3** (`260930.plan.block-attributes.md`).
+18. **BQ1 over every spelling** (`260930.plan.quote-marker.md`).
+
 ### An example is enough
 
 P3, P4, P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
 M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
-N1, AT1 to AT7, BI4, CB2 (the fence-length half), RB1, DV1, PT1, PT2,
-PT5, PT6, PT7, PT8, RD2 (continuation chunks), RD3, RD4, BA2, BA3, LH3,
-LH4, DL1, TK1.
+N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD2 (continuation chunks), RD3,
+RD4, LH3, LH4, DL1, TK1.
 
 Each is one case, or a list of cases with no quantifier worth stating,
 and its examples say what the reference says.  DL1's term split is an
