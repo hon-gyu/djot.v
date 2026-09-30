@@ -46,7 +46,8 @@ counted: `step_foot_close` was one of those and it proved the bug.
 Every rule with a parse outcome is at least E: the 76 code examples and
 60 prose cases in `Reference.v` all match djot.js except
 `table_caption_alone` (adjudicated 2026-08-22, see the log) and the
-list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29).  The T rows
+list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
+spec gap, 2026-09-30).  The T rows
 are the container rules and block-level determinism; inline syntax has one theorem,
 link locality, which holds by construction.
 
@@ -153,7 +154,7 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`, `list_different_types_split`; `list_style_change` | Same-type joining has the canonical repeated-marker shape.  The split theorem covers an open list and a next marker at the list's column whose candidate styles are disjoint from the list's surviving styles; the old list is emitted before the new list opens. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not. |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse holds between items (`separates_after_loosens`); inside an item it is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30). |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
 Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
@@ -249,7 +250,8 @@ List and table structure:
 5. Done in part: **LS4 tightness**, `item_loose_separates` and
    `separator_separates` (Tightness.v): a loose verdict always has a
    blank the rule counts.  The converse, that every such blank loosens,
-   is open (`260929.plan.list-tightness.md`, step 3).
+   holds between items (`separates_after_loosens`) and is open inside an
+   item (`260929.plan.list-tightness.md`, step 3).
 6. Done: **LS1 the split half**, `list_different_types_split`.
 7. Done: **PT3 header regime**, `table_separator_regime`, and **PT4
    alignment cases**, `separator_cell_alignment` and
@@ -294,5 +296,7 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 - HE3: a `#` line of another level ends a heading; a heading continues
   lazily inside a quote (2026-09-28).
 - LI7: a lone ambiguous marker reads as roman (2026-09-28).
+- LS4: a div left open at the end of an item ends before the blank
+  after it (2026-09-30).
 - CB1: tilde fences (2026-08-02).
 - PT2: separator cells are not trimmed (2026-08-02).

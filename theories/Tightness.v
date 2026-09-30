@@ -9,8 +9,9 @@
    `ListUniformity.item_loose` and `seps_loosen` decide tightness by
    running the parser's own scan.  This file states the rule without the
    scan, on the parses of the item's lines, and proves that the parser
-   loosens a list only for a blank the rule counts.  The converse is not
-   proved here.
+   loosens a list only for a blank the rule counts.  The converse is
+   proved for a blank between items (`separates_after_loosens`); for a
+   blank inside an item it is open.
 
    "Between two blocks" has no source positions to lean on, so it is said
    with parses: cutting the item's lines at the blank and parsing the two
@@ -19,6 +20,12 @@
    followed by a line that continues something (a footnote's indented
    paragraph, a table's caption); the second a blank inside a block that
    is still open (a div or code block whose closer comes later).
+
+   The blank after an item is between items unless it is text of the
+   item's last block (a line of an open code block) or ends a nested
+   list.  A block still open there ends with the item, before the blank,
+   so an open div does not hold it (`djotjs-divergences.md`,
+   2026-09-30).
 
    The reference's exemption for the start and end of a list is read as
    applying to a nested list: a blank directly before a nested list
@@ -86,10 +93,14 @@ Definition separates (L : list string) (i : nat) : Prop :=
   /\ ends_list (parse_lines pre (PPara [])) = false
   /\ (exists l, find nonblank post = Some l /\ opens_list l = false).
 
-(** The blank after an item separates it from the next one: the item's
-    blocks are closed at the blank, and the last is not a nested list. *)
+(** The blank after an item separates it from the next one: it leaves the
+    item's blocks as they were, so it is text of none of them, and the
+    last of them is not a nested list.  A block still open at the blank
+    ends with the item, at the line before the blank, so an unclosed div
+    does not hold the blank as `closes_at` would say. *)
 Definition separates_after (L : list string) : Prop :=
-  closes_at L /\ ends_list (parse_lines L (PPara [])) = false.
+  parse_lines (L ++ [""]) (PPara []) = parse_lines L (PPara [])
+  /\ ends_list (parse_lines L (PPara [])) = false.
 
 (*
 Proof
@@ -155,6 +166,8 @@ Fixpoint state_ok (st : pstate) : Prop :=
      them.  This is `blank_safe`'s condition on them too. *)
   | PPend _ _ inner => state_ok inner /\ is_idle inner = false
   | PKey _ _ _ inner => state_ok inner
+  (* What a div or a list item holds meets a blank that reaches it. *)
+  | PDiv _ _ _ _ _ inner | PList _ _ inner => state_ok inner
   | _ => True
   end.
 
@@ -272,8 +285,15 @@ Lemma tail_ok_key : forall E range lbl src st,
 Proof.
   intros E range lbl src st. unfold tail_ok. cbn [blank_absorbed finish]. nopos.
   rewrite ends_list_app by apply key_close_ne. rewrite ends_list_key_close.
-  destruct (finish st) as [|b bs] eqn:Ef; [reflexivity|].
-  rewrite ends_list_app by discriminate. reflexivity.
+  assert (Hr : ends_list (finish st) = ends_list ([mk (Para [])] ++ finish st)%list).
+  { destruct (finish st) as [|b bs] eqn:Ef; [reflexivity|].
+    rewrite ends_list_app by discriminate. reflexivity. }
+  rewrite Hr. split; intros H Ha.
+  - destruct (announces_end st) eqn:Hann; [|exact (H Ha)].
+    destruct st; try discriminate Hann; [discriminate Ha|].
+    cbn [finish app]. nopos. cbn [ends_list map last ends_in_list node_contents].
+    unfold div_block. destruct (String.eqb _ _); reflexivity.
+  - apply orb_false_iff in Ha as [_ Ha]. exact (H Ha).
 Qed.
 
 Lemma fresh_foot : forall bs range ind lbl done inner,
@@ -315,6 +335,7 @@ Proof.
   - cbn [key_result fst snd]. split; [exact Hs|]. split; [|intros _; reflexivity].
     intros Ha. cbn [blank_absorbed finish app] in *. nopos.
     split; [apply key_close_ne|]. rewrite ends_list_key_close.
+    apply orb_false_iff in Ha as [_ Ha].
     destruct (Hn Ha) as [_ Hend]. exact Hend.
   - cbn [key_result fst snd]. nopos. split; [exact Hs|]. split.
     + intros Ha. destruct (Hn Ha) as [Hne Hend]. split.
@@ -353,7 +374,8 @@ Proof.
   - apply fresh_emit; [discriminate|reflexivity].
   - apply fresh_absorbing; [reflexivity|exact I].
   - destruct bdivs; cbn [fst snd].
-    + apply fresh_absorbing; [reflexivity|exact I].
+    + eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|].
+      unfold div_block. destruct (String.eqb cls ""); reflexivity.
     + eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
   - destruct (quote_header rest) as [[[kind fold] title]|].
     + unfold open_callout. cbn [fst snd].
@@ -361,8 +383,10 @@ Proof.
     + unfold open_quote. destruct (descend rest) as [bs inner]. cbn [fst snd].
       eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|reflexivity].
   - eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|reflexivity].
-  - unfold open_list. destruct (descend _) as [bs inner]. cbn [fst snd].
-    apply fresh_absorbing; [reflexivity|exact I].
+  - unfold open_list.
+    destruct (Hd _ (configured_list_rest_length _ _ _ _ _ E)) as [Hs _].
+    destruct (descend _) as [bs inner]. cbn [fst snd] in *.
+    apply fresh_absorbing; [reflexivity|exact Hs].
   - unfold open_attr. destruct battrs; cbn [fst snd].
     + apply fresh_absorbing; [reflexivity|exact I].
     + eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
@@ -396,6 +420,12 @@ Proof.
   rewrite !key_close_ends by discriminate. exact H.
 Qed.
 
+Lemma feed_lazy_text : forall l st, blank_held (feed_lazy l st) = blank_held st.
+Proof.
+  intros l st. induction st; cbn [feed_lazy blank_held]; auto.
+  rewrite IHst. destruct st; reflexivity.
+Qed.
+
 (* A lazy line lands in a paragraph somewhere down the spine, so it
    changes no container and no block kind. *)
 Lemma feed_lazy_ok : forall l st,
@@ -414,9 +444,13 @@ Proof.
   - repeat split; reflexivity.
   - cbn [feed_lazy blank_absorbed finish]. nopos. repeat split; try reflexivity.
     destruct qhead as [[[kind fold] title]|]; reflexivity.
-  - cbn [feed_lazy blank_absorbed finish]. nopos. repeat split; try reflexivity.
+  - destruct (IH Hl Hs) as [Hs' _].
+    cbn [feed_lazy blank_absorbed finish state_ok]. nopos. rewrite feed_lazy_text.
+    split; [exact Hs'|]. repeat split; try reflexivity.
     unfold div_block. destruct (String.eqb dcls ""); reflexivity.
-  - cbn [feed_lazy blank_absorbed finish]. nopos. repeat split; try reflexivity.
+  - destruct (IH Hl Hs) as [Hs' _].
+    cbn [feed_lazy blank_absorbed finish state_ok]. nopos.
+    split; [exact Hs'|]. repeat split; try reflexivity.
     cbn [map]. rewrite !list_block_ends. reflexivity.
   - repeat split; reflexivity.
   - destruct Hs as [Hs Ht]. destruct (IH Hl Hs) as [Hs' [Ha [Hm _]]].
@@ -434,7 +468,9 @@ Proof.
     rewrite !finish_pend_ends. exact Hm.
   - destruct (IH Hl Hs) as [Hs' [Ha [Hm Hi]]].
     cbn [feed_lazy blank_absorbed state_ok finish]. nopos.
-    split; [exact Hs'|split; [exact Ha|split; [|reflexivity]]].
+    assert (Hann : announces_end (feed_lazy l kinner) = announces_end kinner)
+      by (destruct kinner; reflexivity).
+    split; [exact Hs'|split; [rewrite Hann, Ha; reflexivity|split; [|reflexivity]]].
     apply key_close_map. exact Hm.
 Qed.
 
@@ -475,7 +511,8 @@ Proof.
   - congruence.
   - apply fresh_emit; [discriminate|reflexivity].
   - destruct bdivs; cbn [fst snd].
-    + apply fresh_absorbing; [reflexivity|exact I].
+    + eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|].
+      unfold div_block. destruct (String.eqb cls ""); reflexivity.
     + eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
   - eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|reflexivity].
   - destruct btables; cbn [fst snd].
@@ -639,22 +676,33 @@ Proof.
     + apply fresh_step_ok, fresh_emit; [discriminate|].
       cbn [ends_list map last]. nopos. unfold div_block.
       destruct (String.eqb dcls ""); reflexivity.
-    + destruct (step_fuel n off l dinner) as [bs inner'].
-      apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I].
+    + cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
+      assert (Hin : step_ok dinner l (step_fuel n off l dinner))
+        by (apply IH; [lia|exact Hp|exact Hs]).
+      destruct (step_fuel n off l dinner) as [bs inner']. destruct Hin as [Hs' _].
+      apply fresh_step_ok. eapply fresh_single;
+        [exact Hs'|reflexivity|cbn [finish]; nopos; reflexivity|].
+      unfold div_block. destruct (String.eqb dcls ""); reflexivity.
   - (* list *)
+    cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
+    assert (Hin : state_ok (snd (step_fuel n off l inner)))
+      by (apply IH; [lia|exact Hp|exact Hs]).
     destruct (classify l) eqn:E.
     1: { destruct (step_fuel n off l inner) as [bs inner'].
-         apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I]. }
+         apply fresh_step_ok, fresh_absorbing; [reflexivity|exact Hin]. }
     all: destruct (list_takes ls off l inner);
       [destruct (step_fuel n off l inner) as [bs inner'];
-       apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I]|].
+       apply fresh_step_ok, fresh_absorbing; [reflexivity|exact Hin]|].
     6: { destruct (Marker.narrow _ _).
          - apply fresh_step_ok, close_reopen_fresh, Hol; [reflexivity|discriminate].
-         - destruct (step_fuel n _ _ (PPara [])) as [bs inner'].
-           apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I]. }
-    all: destruct (is_lazy _ inner);
-      [apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I]
-      |apply fresh_step_ok, close_reopen_fresh, Hol; [reflexivity|discriminate]].
+         - destruct (Hd _ (configured_list_rest_length _ _ _ _ _ E)) as [Hs' _].
+           destruct (step_fuel n _ _ (PPara [])) as [bs inner'].
+           apply fresh_step_ok, fresh_absorbing; [reflexivity|exact Hs']. }
+    all: destruct (is_lazy _ inner) eqn:Hlz;
+      [|apply fresh_step_ok, close_reopen_fresh, Hol; [reflexivity|discriminate]].
+    all: unfold is_lazy in Hlz; try discriminate Hlz.
+    all: apply fresh_step_ok, fresh_absorbing; [reflexivity|].
+    all: exact (proj1 (feed_lazy_ok l inner Hlz Hs)).
   - (* an attribute spec is excluded *)
     discriminate Hp.
   - (* the recovery's paragraph *)
@@ -757,8 +805,8 @@ Qed.
 After a blank
 -------------
 
-A blank that nothing absorbs closes everything but a footnote and a
-table, which can still continue, and whatever pending attributes or a
+A blank that nothing absorbs closes everything but a div, a footnote and
+a table, which can still continue, and whatever pending attributes or a
 key hold of those.  The line after it either continues one of them
 (`keeps_line`) or is parsed as if the item had just started.
 *)
@@ -767,10 +815,28 @@ Fixpoint settled (st : pstate) : Prop :=
   match st with
   | PPara [] => True
   | PTable _ _ (TAfterBlank _) => True
+  | PDiv _ _ _ _ _ inner => blank_safe inner = true /\ lazy_ok inner = false
   | PFoot _ _ _ _ inner => settled inner
-  | PPend _ _ inner | PKey _ _ _ inner => settled inner /\ is_idle inner = false
+  | PPend _ _ inner => settled inner /\ is_idle inner = false
+  | PKey _ _ _ inner =>
+      settled inner /\ is_idle inner = false /\ announces_end inner = false
   | _ => False
   end.
+
+Local Lemma state_ok_held_safe : forall st,
+  state_ok st -> blank_held st = false -> blank_safe st = true.
+Proof.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
+    |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros Hs Ha; cbn [blank_held state_ok] in Ha, Hs; try discriminate Ha; try reflexivity.
+  - apply IH; assumption.
+  - apply IH; assumption.
+  - apply IH; [exact (proj1 Hs)|exact Ha].
+  - cbn [blank_safe]. destruct Hs as [Hs Hi]. rewrite (IH Hs Ha), Hi. reflexivity.
+  - apply orb_false_iff in Ha as [Hann Ha].
+    cbn [blank_safe]. rewrite (IH Hs Ha), Hann. reflexivity.
+Qed.
 
 Lemma state_ok_blank_safe : forall st,
   state_ok st -> blank_absorbed st = false -> blank_safe st = true.
@@ -779,10 +845,11 @@ Proof.
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hs Ha; cbn [blank_absorbed state_ok] in Ha, Hs; try discriminate Ha; try reflexivity.
+  - exact (state_ok_held_safe dinner Hs Ha).
   - apply IH; [exact (proj1 Hs)|exact Ha].
   - cbn [blank_safe]. destruct Hs as [Hs Hi]. rewrite (IH Hs Ha), Hi. reflexivity.
-  - cbn [blank_safe]. rewrite (IH Hs Ha).
-    destruct kinner; try reflexivity; discriminate Ha.
+  - apply orb_false_iff in Ha as [Hann Ha].
+    cbn [blank_safe]. rewrite (IH Hs Ha), Hann. reflexivity.
 Qed.
 
 Lemma settled_absorbed : forall st, settled st -> blank_absorbed st = false.
@@ -791,9 +858,10 @@ Proof.
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H; cbn [settled] in H; try contradiction; try reflexivity.
+  - cbn [blank_absorbed]. apply blank_safe_not_held, H.
   - apply IH, H.
   - apply IH, H.
-  - apply IH, H.
+  - destruct H as [H [_ Hann]]. cbn [blank_absorbed]. rewrite Hann, (IH H). reflexivity.
 Qed.
 
 Lemma settled_blank_safe : forall st, settled st -> blank_safe st = true.
@@ -802,11 +870,10 @@ Proof.
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H; cbn [settled] in H; try contradiction; try reflexivity.
+  - exact (proj1 H).
   - apply IH, H.
   - destruct H as [H Hi]. cbn [blank_safe]. rewrite (IH H), Hi. reflexivity.
-  - destruct H as [H Hi]. cbn [blank_safe]. rewrite (IH H).
-    pose proof (settled_absorbed kinner H) as Ha.
-    destruct kinner; try reflexivity; discriminate Ha.
+  - destruct H as [H [_ Hann]]. cbn [blank_safe]. rewrite (IH H), Hann. reflexivity.
 Qed.
 
 Lemma settled_lazy : forall st, settled st -> lazy_ok st = false.
@@ -816,6 +883,7 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H; cbn [settled] in H; try contradiction; try reflexivity.
   - destruct cur; [reflexivity|contradiction].
+  - exact (proj2 H).
   - apply IH, H.
   - apply IH, H.
   - apply IH, H.
@@ -851,6 +919,13 @@ Proof.
   - rewrite (step_heading_close l lvl hrng cur Hl). exact I.
   - rewrite (step_quote_close l KBlank qrng qhead done inner _ _ Hl eq_refl eq_refl
                (surjective_pairing _)). exact I.
+  - cbn [blank_safe] in Hsafe.
+    destruct (step l dinner) as [bs inner'] eqn:Es.
+    rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs inner'
+               (div_stays_open_blank l dinner dlen Hb) Es).
+    pose proof (proj1 (step_blank_safe l dinner Hl Hsafe)) as Hs'.
+    pose proof (step_blank_lazy_false l dinner Hl Hsafe) as Hz.
+    rewrite Es in Hs', Hz. cbn [snd] in *. exact (conj Hs' Hz).
   - rewrite (step_para_off_flush l okoff ocur Hl). exact I.
   - rewrite (step_ref_blank l rrng rind rlbl rval Hl). exact I.
   - cbn [blank_safe] in Hsafe. specialize (IH Hsafe Ha).
@@ -863,16 +938,16 @@ Proof.
     destruct tcap; exact I.
   - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe Hni].
     apply negb_true_iff in Hni. specialize (IH Hsafe Ha).
+    pose proof (proj2 (step_blank_safe l pinner Hl Hsafe) Hni) as Hset.
     unfold step. cbn [step_fuel open_line]. rewrite Hl, Hni.
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-    pose proof (step_blank_inner_settled l pinner Hl Hsafe
-                  ltac:(destruct pinner; try reflexivity; discriminate Ha) Hni) as Hset.
     destruct (step l pinner) as [bs st'] eqn:Es. cbn [fst snd] in IH, Hset.
     destruct bs as [|b bs']; cbn [pend_result snd].
-    + exact (conj IH (proj1 (Hset eq_refl))).
+    + exact (conj IH (Hset eq_refl)).
     + destruct b. exact IH.
   - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe Hann].
-    apply negb_true_iff in Hann. specialize (IH Hsafe Ha).
+    apply negb_true_iff in Hann. apply orb_false_iff in Ha as [_ Ha].
+    specialize (IH Hsafe Ha).
     destruct (is_idle kinner) eqn:Hki.
     { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hki.
       destruct cur; [|discriminate Hki].
@@ -881,7 +956,7 @@ Proof.
     pose proof (step_blank_inner_settled l kinner Hl Hsafe Hann Hki) as Hset.
     destruct (step l kinner) as [bs st'] eqn:Es. cbn [fst snd] in IH, Hset.
     destruct bs as [|b bs']; cbn [key_result snd].
-    + exact (conj IH (proj1 (Hset eq_refl))).
+    + destruct (Hset eq_refl) as [Hi Ha']. exact (conj IH (conj Hi Ha')).
     + exact IH.
 Qed.
 
@@ -899,6 +974,9 @@ Proof.
       |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
       cbn [settled] in Hset; try contradiction.
     - destruct cur; [|contradiction]. rewrite (step_idle l KBlank Hl eq_refl). reflexivity.
+    - destruct (step l dinner) as [bs inner'] eqn:Es.
+      rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs inner'
+                 (div_stays_open_blank l dinner dlen Hb) Es). reflexivity.
     - unfold step. cbn [step_fuel open_line]. rewrite Hb.
       destruct (step_fuel _ 0 l finner). reflexivity.
     - destruct tcap; try contradiction.
@@ -907,7 +985,7 @@ Proof.
       unfold step. cbn [step_fuel open_line]. rewrite Hl, Hni.
       rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
       destruct (step l pinner) as [bs st']. cbn [fst] in IH. subst bs. reflexivity.
-    - destruct Hset as [Hset Hni]. specialize (IH Hset).
+    - destruct Hset as [Hset [Hni _]]. specialize (IH Hset).
       rewrite (step_key_pass l krng klbl ksrc kinner ltac:(rewrite Hni, andb_false_r; reflexivity)).
       destruct (step l kinner) as [bs st']. cbn [fst] in IH. subst bs. reflexivity. }
   split; [exact Hnil|]. split.
@@ -928,6 +1006,7 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hk; cbn [settled] in Hset; try contradiction.
   - destruct cur; [|contradiction]. destruct (step l (PPara [])). reflexivity.
+  - cbn [keeps_line] in Hk. rewrite (proj2 Hset) in Hk. discriminate Hk.
   - cbn [keeps_line] in Hk. rewrite (settled_lazy finner Hset) in Hk. cbn [negb andb] in Hk.
     rewrite (step_foot_close l frng find flbl fdone finner (fst (step l (PPara [])))
                (snd (step l (PPara []))) Hb Hk).
@@ -950,23 +1029,100 @@ Proof.
                     snd (step l (PPara [])))).
     { cbn [pend_result app]. nopos. destruct b. reflexivity. }
     destruct (classify l); exact Hr.
-  - destruct Hset as [Hset Hni]. cbn [keeps_line] in Hk. specialize (IH Hset Hk).
+  - destruct Hset as [Hset [Hni _]]. cbn [keeps_line] in Hk. specialize (IH Hset Hk).
     rewrite (step_key_pass l krng klbl ksrc kinner ltac:(rewrite Hb; reflexivity)).
     rewrite IH. pose proof (settled_finish kinner Hset Hni) as Hne.
     destruct (finish kinner) as [|b bs] eqn:Ef; [contradiction|].
     cbn [finish key_result app]. rewrite Ef. nopos. reflexivity.
 Qed.
 
-(* A paragraph line is kept by nothing. *)
-Lemma settled_keeps_x : forall st, settled st -> keeps_line 0 "x" st = false.
+(*
+A div on top
+------------
+
+A div that the blank left open keeps every line the item still has, so
+the blank lay inside it.  Whether one is open is a fact about the state
+before the blank, the same after any number of them.
+*)
+
+Fixpoint div_top (st : pstate) : bool :=
+  match st with
+  | PDiv _ _ _ _ _ _ => true
+  | PPend _ _ inner | PKey _ _ _ inner => div_top inner
+  | _ => false
+  end.
+
+Lemma blank_div_top : forall l st,
+  classify l = KBlank -> blank_safe st = true ->
+  div_top (snd (step l st)) = div_top st.
+Proof.
+  intros l st Hl.
+  pose proof (classify_kblank_blank l Hl) as Hb.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
+    |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros Hsafe; try discriminate Hsafe.
+  - destruct cur as [|c cur'].
+    + rewrite (step_idle l KBlank Hl eq_refl). reflexivity.
+    + rewrite (step_para_flush l c cur' Hl). reflexivity.
+  - rewrite (step_heading_close l lvl hrng cur Hl). reflexivity.
+  - rewrite (step_quote_close l KBlank qrng qhead done inner _ _ Hl eq_refl eq_refl
+               (surjective_pairing _)). reflexivity.
+  - destruct (step l dinner) as [bs inner'] eqn:Es.
+    rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs inner'
+               (div_stays_open_blank l dinner dlen Hb) Es). reflexivity.
+  - destruct (step l inner) as [bs inner'] eqn:Es.
+    rewrite (step_list_blank l ls done inner bs inner' Hl Es). reflexivity.
+  - rewrite (step_para_off_flush l okoff ocur Hl). reflexivity.
+  - rewrite (step_ref_blank l rrng rind rlbl rval Hl). reflexivity.
+  - unfold step. cbn [step_fuel open_line]. rewrite Hb.
+    destruct (step_fuel _ 0 l finner). reflexivity.
+  - unfold step. cbn [step_fuel open_line]. rewrite (caption_open_blank l Hb), Hb.
+    destruct tcap; reflexivity.
+  - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe Hni].
+    apply negb_true_iff in Hni. specialize (IH Hsafe).
+    unfold step. cbn [step_fuel open_line]. rewrite Hl, Hni.
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    destruct (step l pinner) as [bs st'] eqn:Es. cbn [snd] in IH.
+    destruct bs as [|b bs']; cbn [pend_result snd div_top]; [exact IH|].
+    destruct b. exact IH.
+  - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe _].
+    specialize (IH Hsafe).
+    destruct (is_idle kinner) eqn:Hki.
+    { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hki.
+      destruct cur; [|discriminate Hki].
+      rewrite (step_key_retract l krng klbl ksrc Hb). reflexivity. }
+    rewrite (step_key_pass l krng klbl ksrc kinner ltac:(rewrite Hki, andb_false_r; reflexivity)).
+    destruct (step l kinner) as [bs st'] eqn:Es. cbn [snd] in IH.
+    destruct bs as [|b bs']; cbn [key_result snd div_top]; exact IH.
+Qed.
+
+(* A settled state keeps a paragraph line exactly when a div is on top,
+   and a div on top keeps every line. *)
+Lemma settled_keeps_x : forall st, settled st -> keeps_line 0 "x" st = div_top st.
 Proof.
   induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
     |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    intros H; cbn [settled] in H; try contradiction; cbn [keeps_line]; try reflexivity.
+    intros H; cbn [settled] in H; try contradiction; cbn [keeps_line div_top]; try reflexivity.
+  - rewrite (proj2 H). reflexivity.
   - destruct (negb (lazy_ok finner)); [|reflexivity]. cbn. destruct find; reflexivity.
   - apply IH, H.
   - apply IH, H.
+Qed.
+
+Lemma settled_div_keeps : forall l st,
+  settled st -> div_top st = true -> keeps_line 0 l st = true.
+Proof.
+  intros l.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
+    |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros H Hd; cbn [settled] in H; try contradiction; cbn [div_top] in Hd;
+    try discriminate Hd; cbn [keeps_line].
+  - rewrite (proj2 H). reflexivity.
+  - apply IH; [exact (proj1 H)|exact Hd].
+  - apply IH; [exact (proj1 H)|exact Hd].
 Qed.
 
 (*
@@ -992,7 +1148,7 @@ Proof.
 Qed.
 
 (* `lines_loose` turns true at a line that neither opens a list nor is
-   kept by an open footnote or table, with a blank since the last
+   kept by an open div, footnote or table, with a blank since the last
    nonblank line that the state did not absorb.  Read off the scan: that
    line, the blanks before it, and the first of them. *)
 Lemma loose_witness : forall L st lo gap,
@@ -1063,6 +1219,18 @@ Proof.
   subst more. rewrite Hf', Hf. repeat split; assumption.
 Qed.
 
+Lemma run_blanks_div_top : forall B s,
+  forallb is_blank B = true -> settled s ->
+  div_top (snd (run_lines B s)) = div_top s.
+Proof.
+  induction B as [|x B IH]; intros s HB Hs; [reflexivity|].
+  cbn [forallb] in HB. apply andb_true_iff in HB as [Hx HB].
+  rewrite run_lines_snd_cons.
+  destruct (settled_blank x s (classify_blank x Hx) Hs) as [_ [Hs' _]].
+  rewrite (IH _ HB Hs').
+  exact (blank_div_top x s (classify_blank x Hx) (settled_blank_safe s Hs)).
+Qed.
+
 Lemma parse_blanks_idle : forall B R,
   forallb is_blank B = true ->
   parse_lines (B ++ R)%list (PPara []) = parse_lines R (PPara []).
@@ -1106,19 +1274,23 @@ Proof.
   rewrite HfB, <- Hf, !app_assoc. reflexivity.
 Qed.
 
+(* The blank closes everything when it leaves no div on top. *)
 Lemma closes_at_blank : forall A,
   blank_safe (snd (run_lines A (PPara []))) = true ->
   blank_absorbed (snd (run_lines A (PPara []))) = false ->
+  div_top (snd (run_lines A (PPara []))) = false ->
   closes_at A.
 Proof.
-  intros A Hsafe Ha. unfold closes_at.
+  intros A Hsafe Ha Hd. unfold closes_at.
   rewrite parse_lines_app_run, (parse_lines_run A (PPara []) _ _ (surjective_pairing _)).
   destruct (run_lines A (PPara [])) as [bs s] eqn:Er. cbn [fst snd] in *.
   change [""; "x"] with ("" :: [] ++ "x" :: [])%list.
   rewrite (blank_split s "" [] "x" [] Hsafe Ha eq_refl eq_refl eq_refl).
   - rewrite app_assoc. reflexivity.
-  - cbn [run_lines snd]. apply settled_keeps_x.
-    exact (blank_settles "" s eq_refl Hsafe Ha).
+  - cbn [run_lines snd].
+    rewrite (settled_keeps_x _ (blank_settles "" s eq_refl Hsafe Ha)),
+      (blank_div_top "" s eq_refl Hsafe).
+    exact Hd.
 Qed.
 
 (*
@@ -1148,7 +1320,15 @@ Proof.
   split; [exact Hb|]. split; [|split; [|split; [|split]]].
   - destruct A as [|a A']; [congruence|]. cbn [hd app] in Hhd. cbn [existsb].
     unfold nonblank at 1. rewrite Hhd. reflexivity.
-  - exact (closes_at_blank A Hbs Ha).
+  - apply (closes_at_blank A Hbs Ha).
+    rewrite run_lines_snd_app, run_lines_snd_cons in Hk.
+    set (s := snd (run_lines A (PPara []))) in *.
+    pose proof (blank_settles b s (classify_blank b Hb) Hbs Ha) as Hs1.
+    destruct (settled_run_blanks B _ Hs1 HB) as [_ [HsB _]].
+    rewrite <- (blank_div_top b s (classify_blank b Hb) Hbs),
+      <- (run_blanks_div_top B _ HB Hs1).
+    destruct (div_top (snd (run_lines B (snd (step b s))))) eqn:Hd; [|reflexivity].
+    rewrite (settled_div_keeps l _ HsB Hd) in Hk. discriminate Hk.
   - rewrite parse_lines_app_run, (parse_lines_run A (PPara []) _ _ (surjective_pairing _)).
     rewrite (parse_blanks_idle B (l :: C) HB).
     rewrite run_lines_snd_app, run_lines_snd_cons in Hk.
@@ -1169,8 +1349,55 @@ Proof.
   destruct (run_ok L [] (PPara []) [] ltac:(rewrite app_nil_r; exact Hsafe) I tail_ok_idle_nil)
     as [Hs Ht].
   split.
-  - exact (closes_at_blank L (state_ok_blank_safe _ Hs Ha) Ha).
+  - pose proof (state_ok_blank_safe _ Hs Ha) as Hbs.
+    rewrite parse_lines_app_run, (parse_lines_run L (PPara []) _ _ (surjective_pairing _)).
+    destruct (run_lines L (PPara [])) as [bs s] eqn:Er. cbn [fst snd] in *.
+    pose proof (step_blank_finish "" s eq_refl Hbs) as Hf.
+    destruct (step "" s) as [b1 s1] eqn:Es. cbn [fst snd] in Hf.
+    rewrite (parse_lines_step _ _ _ _ _ Es). cbn [parse_lines]. rewrite Hf. reflexivity.
   - rewrite (parse_lines_run L (PPara []) _ _ (surjective_pairing _)). exact (Ht Ha).
+Qed.
+
+(* A blank that the item can meet and that does not reach the list ends a
+   nested list. *)
+Lemma absorbed_ends_list : forall st,
+  blank_safe st = true -> blank_absorbed st = true ->
+  finish st <> [] /\ ends_list (finish st) = true.
+Proof.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
+    |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros Hs Ha; cbn [blank_absorbed blank_safe] in Ha, Hs;
+    try discriminate Ha; try discriminate Hs.
+  - rewrite (blank_safe_not_held dinner Hs) in Ha. discriminate Ha.
+  - cbn [finish]. nopos. split; [discriminate|].
+    cbn [ends_list map last]. apply list_block_ends.
+  - destruct (IH Hs Ha) as [Hne Hend]. cbn [finish]. nopos. split; [discriminate|].
+    unfold foot_block, mk, ends_list. cbn [map last]. rewrite ends_in_list_foot.
+    rewrite ends_list_app by exact Hne. exact Hend.
+  - apply andb_true_iff in Hs as [Hs _]. destruct (IH Hs Ha) as [Hne Hend].
+    cbn [finish]. nopos. split.
+    + destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
+    + rewrite <- Hend. apply ends_list_map. apply decorate_head_ends.
+  - apply andb_true_iff in Hs as [Hs Hann]. apply negb_true_iff in Hann.
+    rewrite Hann in Ha. destruct (IH Hs Ha) as [Hne Hend].
+    cbn [finish]. nopos. split; [apply key_close_ne|].
+    rewrite <- Hend. apply ends_list_map, key_close_ends, Hne.
+Qed.
+
+(** The converse between items: a blank the rule counts after an item
+    that is not the last reaches the list. *)
+Theorem separates_after_reaches : forall L,
+  run_safe L (PPara []) = true -> separates_after L ->
+  ends_open_container L = false.
+Proof.
+  intros L Hsafe [_ Hend]. unfold ends_open_container.
+  destruct (blank_absorbed (snd (run_lines L (PPara [])))) eqn:Ha; [|reflexivity].
+  exfalso.
+  destruct (absorbed_ends_list _ (run_safe_final L _ Hsafe) Ha) as [Hne Hl].
+  rewrite (parse_lines_run L (PPara []) _ _ (surjective_pairing _)),
+    ends_list_app in Hend by exact Hne.
+  congruence.
 Qed.
 
 Lemma seps_loosen_separates : forall itemss,
@@ -1209,6 +1436,30 @@ Proof.
     split; [reflexivity|]. apply seps_loosen_separates; [|exact Es].
     rewrite forallb_forall in Hok |- *. intros L Hin.
     specialize (Hok L Hin). apply andb_true_iff in Hok as [Hs _]. exact Hs.
+Qed.
+
+Lemma separates_seps_loosen : forall pre L M post,
+  forallb (fun L => run_safe L (PPara [])) (pre ++ L :: M :: post)%list = true ->
+  separates_after L -> seps_loosen (pre ++ L :: M :: post)%list = true.
+Proof.
+  induction pre as [|P pre IH]; intros L M post Hsafe Hsep.
+  - cbn [app forallb] in Hsafe. apply andb_true_iff in Hsafe as [HL _].
+    cbn [app seps_loosen]. rewrite (separates_after_reaches L HL Hsep). reflexivity.
+  - cbn [app forallb] in Hsafe. apply andb_true_iff in Hsafe as [_ Hsafe].
+    pose proof (IH L M post Hsafe Hsep) as Hrest.
+    cbn [app seps_loosen]. destruct (pre ++ L :: M :: post)%list eqn:E;
+      [destruct pre; discriminate E|].
+    rewrite Hrest. apply orb_true_r.
+Qed.
+
+(** A list written with blank lines between its items is loose when the
+    rule counts one of them. *)
+Corollary separates_after_loosens : forall pre L M post,
+  forallb (fun L => run_safe L (PPara [])) (pre ++ L :: M :: post)%list = true ->
+  separates_after L -> list_spacing_of Loose (pre ++ L :: M :: post)%list = Loose.
+Proof.
+  intros pre L M post Hsafe Hsep. unfold list_spacing_of.
+  rewrite (separates_seps_loosen pre L M post Hsafe Hsep), orb_true_r. reflexivity.
 Qed.
 
 End WithTable.

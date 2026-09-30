@@ -245,15 +245,26 @@ Proof. induction st; cbn [Shape.state lazy_ok]; auto. Qed.
 Local Lemma in_fence_shape : forall st, in_fence (Shape.state st) = in_fence st.
 Proof. induction st; cbn [Shape.state in_fence]; auto. Qed.
 
+Local Lemma blank_held_shape : forall st,
+  blank_held (Shape.state st) = blank_held st.
+Proof.
+  induction st; cbn [Shape.state blank_held]; auto.
+  rewrite IHst. destruct st; reflexivity.
+Qed.
+
 Local Lemma blank_absorbed_shape : forall st,
   blank_absorbed (Shape.state st) = blank_absorbed st.
-Proof. induction st; cbn [Shape.state blank_absorbed]; auto. Qed.
+Proof.
+  induction st; cbn [Shape.state blank_absorbed]; auto.
+  - apply blank_held_shape.
+  - rewrite IHst. destruct st; reflexivity.
+Qed.
 
 Local Lemma keeps_line_shape : forall off l st,
   keeps_line off l (Shape.state st) = keeps_line off l st.
 Proof.
-  intros off l st. induction st; cbn [Shape.state keeps_line]; auto.
-  rewrite lazy_ok_shape. reflexivity.
+  intros off l st. induction st; cbn [Shape.state keeps_line]; auto;
+    rewrite lazy_ok_shape; reflexivity.
 Qed.
 
 Local Lemma is_idle_shape : forall st, is_idle (Shape.state st) = is_idle st.

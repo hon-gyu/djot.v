@@ -531,7 +531,7 @@ Proof.
 Qed.
 
 (** The tight/loose verdict, read off the lines.  A blank arms the flag;
-    a line that opens a list, or that an open footnote or table keeps, spends it
+    a line that opens a list, or that an open div, footnote or table keeps, spends it
     without loosening; anything else spends it and loosens.
 
     The scan also carries the lines' own parse state, because a blank
@@ -1022,7 +1022,7 @@ Qed.
 (* `blank_safe` is what rules out an open attribute spec, whose blank
    opens the recovered paragraph rather than closing anything.  The one
    caller has the hypothesis already, for the neighbouring lemmas. *)
-Local Lemma step_blank_lazy_false :
+Lemma step_blank_lazy_false :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     lazy_ok (snd (step l st)) = false.
 Proof.
@@ -1078,7 +1078,79 @@ Proof.
     destruct bs; cbn [key_result snd lazy_ok]; exact (IH Hsafe).
 Qed.
 
-Local Lemma run_safe_final :
+(* A state that meets a blank safely meets the next one safely too, and a
+   blank that emits nothing leaves a container open. *)
+Lemma step_blank_safe :
+  forall l st, classify l = KBlank -> blank_safe st = true ->
+    blank_safe (snd (step l st)) = true
+    /\ (is_idle st = false -> fst (step l st) = [] -> is_idle (snd (step l st)) = false).
+Proof.
+  intros l st Hblank. induction st as
+    [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
+    |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros Hsafe; try discriminate Hsafe.
+  - destruct cur as [|c cur'].
+    + rewrite (step_idle l KBlank Hblank eq_refl). split; [reflexivity|discriminate].
+    + rewrite (step_para_flush l c cur' Hblank). split; [reflexivity|discriminate].
+  - unfold step. cbn [step_fuel open_line]. rewrite Hblank.
+    destruct bheading_continues; split; try reflexivity; discriminate.
+  - rewrite (step_quote_close l KBlank qrng qhead done inner [] (PPara [])
+      Hblank eq_refl eq_refl eq_refl). split; [reflexivity|discriminate].
+  - destruct (step l dinner) as [bs inner'] eqn:Hstep.
+    rewrite (step_div_cont l dlen dcls drng dop ddone dinner bs inner'
+               (div_stays_open_blank l dinner dlen (classify_kblank_blank l Hblank)) Hstep).
+    cbn [snd blank_safe] in *. split; [exact (proj1 (IH Hsafe))|reflexivity].
+  - destruct (step l inner) as [bs inner'] eqn:Hstep.
+    rewrite (step_list_blank l ls done inner bs inner' Hblank Hstep).
+    cbn [snd blank_safe] in *. split; [exact (proj1 (IH Hsafe))|reflexivity].
+  - rewrite (step_para_off_flush l okoff ocur Hblank). split; [reflexivity|discriminate].
+  - rewrite (step_ref_blank l rrng rind rlbl rval Hblank). split; [reflexivity|discriminate].
+  - unfold step. cbn [step_fuel open_line]. rewrite (classify_kblank_blank l Hblank).
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    destruct (step l finner) as [bs inner'] eqn:Hs.
+    specialize (IH Hsafe). cbn [snd fst blank_safe] in IH |- *.
+    split; [exact (proj1 IH)|reflexivity].
+  - pose proof (classify_kblank_blank l Hblank) as Hb.
+    unfold step. cbn [step_fuel open_line].
+    rewrite (caption_open_blank l Hb), Hb.
+    destruct tcap; split; try reflexivity; discriminate.
+  - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe Hni].
+    apply negb_true_iff in Hni. specialize (IH Hsafe) as [IHs IHi].
+    unfold step. cbn [step_fuel open_line]. rewrite Hblank, Hni.
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    destruct (step l pinner) as [bs st'] eqn:Hs. cbn [fst snd] in IHs, IHi.
+    destruct bs as [|b bs']; cbn [pend_result fst snd].
+    + cbn [blank_safe]. rewrite IHs, (IHi Hni eq_refl). split; reflexivity.
+    + nopos. destruct b. cbn [fst snd]. split; [exact IHs|discriminate].
+  - cbn [blank_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hsafe Hnot].
+    apply negb_true_iff in Hnot.
+    destruct (is_idle kinner) eqn:Hki.
+    { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hki.
+      destruct cur; [|discriminate Hki].
+      rewrite (step_key_retract l krng klbl ksrc (classify_kblank_blank l Hblank)).
+      split; [reflexivity|discriminate]. }
+    rewrite (step_key_pass l krng klbl ksrc kinner
+               ltac:(rewrite Hki, andb_false_r; reflexivity)).
+    pose proof (step_blank_inner_settled l kinner Hblank Hsafe Hnot Hki) as Hset.
+    specialize (IH Hsafe) as [IHs _].
+    destruct (step l kinner) as [bs st'] eqn:Hs. cbn [fst snd] in IHs, Hset.
+    destruct bs as [|b bs']; cbn [key_result fst snd].
+    + destruct (Hset eq_refl) as [_ Ha]. cbn [blank_safe]. rewrite IHs, Ha.
+      split; reflexivity.
+    + split; [exact IHs|discriminate].
+Qed.
+
+(* No blank a state can safely meet is held below. *)
+Lemma blank_safe_not_held : forall st, blank_safe st = true -> blank_held st = false.
+Proof.
+  induction st; intros H; cbn [blank_safe] in H; cbn [blank_held];
+    try discriminate H; try reflexivity; try (apply IHst; exact H).
+  - apply andb_true_iff in H as [H _]. apply IHst, H.
+  - apply andb_true_iff in H as [H Hn]. apply negb_true_iff in Hn.
+    rewrite Hn, (IHst H). reflexivity.
+Qed.
+
+Lemma run_safe_final :
   forall L st, run_safe L st = true -> blank_safe (snd (run_lines L st)) = true.
 Proof.
   induction L as [|l rest IH]; intros st H; [exact H|].
@@ -1217,10 +1289,12 @@ Definition items_ok (m0 : marker) (items : list litem) : bool :=
 
 (** Does the separator blank that follows the item come to rest inside a
     container the item still has open?  Then it belongs to that container
-    -- a nested list's trailing blank, a line of an open div or code
-    block -- and `step`'s `KBlank` branch never hands it to the enclosing
-    list, so that separator does not loosen.  A blockquote does not
-    count: the prefix-less blank closes it, and then reaches the list. *)
+    -- a nested list's trailing blank, a line of an open code block --
+    and `step`'s `KBlank` branch never hands it to the enclosing list, so
+    that separator does not loosen.  A blockquote does not count: the
+    prefix-less blank closes it, and then reaches the list.  Nor does an
+    open div, unless something inside it holds the blank: the div ends
+    with the item. *)
 Definition ends_open_container (L : list string) : bool :=
   blank_absorbed (snd (run_lines L (PPara []))).
 
