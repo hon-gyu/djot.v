@@ -264,6 +264,10 @@ item.
 
 ### Fixed: a blank inside a still-open div in a list item
 
+Narrowed 2026-09-30: a blank at the end of an item no longer stays in a
+div left open; see "Closed 2026-09-30 -- SPEC-GAP: whether a div left
+open at the end of an item holds the blank after it".
+
 The **63** generated mismatches the renderer fix left were all one shape:
 
 ```
@@ -2050,7 +2054,9 @@ inside an item" as the item's own blocks, as for a blank inside a code
 block.
 
 **Verdict: `SPEC-GAP`, ours stands** (it matches djot.js and jgm's tests
-on all five).  The alternative for (a) to (c), where the blank loosens
+on all five).  Row (e) reversed 2026-09-30: see "Closed 2026-09-30 --
+SPEC-GAP: whether a div left open at the end of an item holds the blank after
+it".  The alternative for (a) to (c), where the blank loosens
 the outer list, is on branch `hy/blank-after-nested-list`: it passes
 every check of ours and fails the two djot.js tests.
 
@@ -2119,3 +2125,40 @@ reported upstream yet.  Pinned by `list_blank_before_caption` and
 file corpora do not change against djot.js, and the roundtrip pools
 keep their counts.
 
+
+## Closed 2026-09-30 -- SPEC-GAP: whether a div left open at the end of an item holds the blank after it
+
+| Input | djot.js, djoths | djot.lua | Ours |
+| --- | --- | --- | --- |
+| `- :::` / blank / `- b` | tight | loose | loose |
+| `- [^1]: :::` / blank / `- b` | tight | loose | loose |
+| `- :::` / `  - x` / blank / `- b` | tight | loose | loose |
+| `` - ``` `` / blank / `- b` | tight | tight | tight |
+| `- :::` / `  a` / blank / `  b` / `  :::` (row d above) | tight | loose | tight |
+
+The reference says an unclosed div or code block ends "with the end of
+the document or containing block", and does not say whether the item
+ends before or after a trailing blank.  djot.js and djoths let the open
+div hold the blank, as they do a blank inside it.  The blank adds
+nothing to the div (the tree is the same without it), so the item is
+read as ending at its last nonblank line, as an item with a closed div
+does, and the blank lies between items.  A code block is different: the
+blank becomes a line of its text, in all three engines and at the end of
+a document too, so it is inside the item and the list stays tight.
+
+Found while proving the converse of LS4 (`Tightness.v`): with the
+footnote row, `separates_after` held and the list was tight, because
+`closes_at`'s paragraph line ended the footnote and with it the div.
+
+**Verdict: `SPEC-GAP`, ours changed; row (e) of the 2026-09-29 entry is
+reversed.**  A blank inside a div that continues after it is still the
+div's own (row d), where djot.lua differs.  `blank_absorbed` (Step.v)
+no longer counts an open div, unless a block inside it holds the blank
+(`blank_held`: code, an attribute spec, a key waiting for its fence);
+`keeps_line` answers for an open div, so a line the item still has
+clears the armed flag without loosening.  `separates_after` in
+Tightness.v now says the blank leaves the item's blocks unchanged,
+in place of `closes_at`.  Pinned by `list_blank_after_open_div` and
+`list_blank_in_open_code` in `dev/check/Reference.v`.  The generated and
+file corpora and the depth-3 roundtrip do not change.  Provisional, to be
+revisited.

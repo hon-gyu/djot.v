@@ -17,7 +17,7 @@ explicit.  They are single documents: what each rule says over all
 inputs is the business of the theorems, and
 `.project/syntax-reference-coverage.md` says which rule has one.
 
-Four examples differ from djot.js: `table_caption_alone`, and the three
+Some examples differ from djot.js: `table_caption_alone`, and the
 tightness cases in the prose part's "List" section, see there.
 *)
 
@@ -1570,7 +1570,10 @@ footnote in an item is a third.  In the sixth the blank is the
 footnote's own, since the footnote continues past it.  The same holds
 of a table and its caption ("there can be an intervening blank line"),
 which djot.js calls loose; a paragraph after the table is a second
-block, and loosens.
+block, and loosens.  A div left open ends with its item, at the line
+before the blank, so the blank lies between items; djot.js keeps it
+inside the div and calls the list tight.  A code block left open takes
+the blank as a line of code, and stays tight in both.
 *)
 
 Example list_blank_before_nested_list_item :
@@ -1710,6 +1713,40 @@ Example list_blank_after_table :
 </li>
 <li>
 <p>c</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_open_div :
+  convert "- :::
+
+- b
+"
+  = "<ul>
+<li>
+<div>
+</div>
+</li>
+<li>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_in_open_code :
+  convert "- ```
+
+- b
+"
+  = "<ul>
+<li>
+<pre><code>
+</code></pre>
+</li>
+<li>
+b
 </li>
 </ul>
 ".
