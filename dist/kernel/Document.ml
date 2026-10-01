@@ -8,6 +8,7 @@ open MSetAVL
 open Nat0
 open OrderedTypeEx
 open OrdersEx
+open Reparse
 open Step
 open Strings
 

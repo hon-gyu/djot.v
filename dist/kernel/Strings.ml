@@ -88,17 +88,6 @@ let split_lines = (fun s -> match List.rev (String.split_on_char '\n' s) with
      | "" :: rest -> List.rev rest
      | parts -> List.rev parts)
 
-(** val index_lines_from : int -> string list -> (int * string) list **)
-
-let rec index_lines_from i = function
-| [] -> []
-| l :: rest -> (i, l) :: (index_lines_from (Stdlib.succ i) rest)
-
-(** val split_lines_indexed : string -> (int * string) list **)
-
-let split_lines_indexed s =
-  index_lines_from 0 (split_lines s)
-
 type source_line = { source_line_start : int; source_line_length : int;
                      source_line_ending : int }
 

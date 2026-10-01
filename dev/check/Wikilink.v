@@ -12,7 +12,7 @@ the language, which is where it is not conservative.
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Strings Inline Parser Config Document Html.
+From DjotV Require Import Ast Strings Inline Parser Config Document Html Reparse.
 From DjotVDev.check Require Import Located.
 Import ListNotations.
 Open Scope string_scope.
