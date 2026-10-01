@@ -217,7 +217,8 @@ module Doc = struct
     kernel : K.Ast.doc;
     footnote_defs : Block.t node list;
     lines : K.Strings.source_line array option;
-    pieces : K.Reparse.piece list option;
+    source : (string * K.Reparse.piece list) option;
+        (* The source and its pieces, for [replace_lines]. *)
     profile : Profile.t;
   }
 
@@ -235,38 +236,71 @@ module Doc = struct
     | Para _ | Heading _ | CodeBlock _ | ThematicBreak | Table _ | RawBlock _ | RefDef _ ->
         acc
 
-  let make ~profile ~lines ~pieces pos bs =
+  let make ~profile ~lines ~source pos bs =
     {
       kernel = K.Document.doc_pass pos bs;
       footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs);
       lines;
-      pieces;
+      source;
       profile;
     }
 
-  let of_pieces ~profile ps =
-    make ~profile ~lines:None ~pieces:(Some ps) K.Ast.semantic_pos
-      (K.Reparse.pieces_tree ps)
+  (* The fold step the pieces are cut with, and its finish. *)
+  let fold_step ~locs (p : Profile.t) =
+    let { K.Profile.profile_inline = table; profile_block = bconfig } = p in
+    if locs then
+      (K.Reparse.loc_step table bconfig, K.Step.finish table bconfig K.Ast.located_pos)
+    else (K.Reparse.sem_step table bconfig, K.Step.finish table bconfig K.Ast.semantic_pos)
 
-  let of_string ?(profile = Profile.djot) ?(locs = false) s =
-    let { K.Profile.profile_inline = table; profile_block = bconfig } = profile in
+  let of_pieces ~profile ~locs src ps =
     if locs then
       make ~profile
-        ~lines:(Some (Array.of_list (K.Strings.line_table s)))
-        ~pieces:None K.Ast.located_pos
-        (K.Step.parse_blocks_located table bconfig s)
-    else of_pieces ~profile (K.Reparse.pieces table bconfig (K.Strings.split_lines s))
+        ~lines:(Some (Array.of_list (K.Strings.line_table src)))
+        ~source:(Some (src, ps)) K.Ast.located_pos (K.Reparse.assemble 0 ps)
+    else
+      make ~profile ~lines:None ~source:(Some (src, ps)) K.Ast.semantic_pos
+        (K.Reparse.pieces_tree ps)
+
+  let of_string ?(profile = Profile.djot) ?(locs = false) s =
+    let stp, fin = fold_step ~locs profile in
+    of_pieces ~profile ~locs s (K.Reparse.pieces stp fin (K.Strings.split_lines s))
 
   let of_blocks ?(profile = Profile.djot) bs =
-    make ~profile ~lines:None ~pieces:None K.Ast.semantic_pos bs
+    make ~profile ~lines:None ~source:None K.Ast.semantic_pos bs
+
+  (* The byte where zero-based line [k] starts, or the length when [k] is
+     the number of lines. *)
+  let line_start src k =
+    let rec go i k =
+      if k = 0 then i
+      else
+        match String.index_from_opt src i '\n' with
+        | Some j -> go (j + 1) (k - 1)
+        | None -> String.length src
+    in
+    go 0 k
+
+  (* [src] with zero-based lines [f] to [l] replaced by [s], newlines
+     added where [s] would otherwise join a neighbouring line. *)
+  let edit_source src f l s =
+    let a = line_start src f and b = line_start src (l + 1) in
+    let pre = String.sub src 0 a and post = String.sub src b (String.length src - b) in
+    let ends_nl x = x <> "" && x.[String.length x - 1] = '\n' in
+    let mid =
+      if s = "" then ""
+      else
+        let s = if post <> "" && not (ends_nl s) then s ^ "\n" else s in
+        if pre <> "" && not (ends_nl pre) then "\n" ^ s else s
+    in
+    pre ^ mid ^ post
 
   (* The edit widens to the pieces holding lines [first] to [last]; the
      lines of those pieces outside the range go back in around [s]. *)
   let replace_lines d ~first ~last s =
-    let ps =
-      match d.pieces with
-      | Some ps -> ps
-      | None -> invalid_arg "Doc.replace_lines: not parsed by of_string without locs"
+    let src, ps =
+      match d.source with
+      | Some x -> x
+      | None -> invalid_arg "Doc.replace_lines: not made by of_string"
     in
     let n = List.length ps in
     let pa = Array.of_list ps in
@@ -290,10 +324,11 @@ module Doc = struct
         List.filteri (fun k _ -> starts.(j - 1) + k > l) pa.(j - 1).K.Reparse.piece_lines
       else []
     in
-    let { K.Profile.profile_inline = table; profile_block = bconfig } = d.profile in
-    of_pieces ~profile:d.profile
-      (K.Reparse.splice table bconfig ps i j
-         (before @ K.Strings.split_lines s @ behind))
+    let locs = Option.is_some d.lines in
+    let stp, fin = fold_step ~locs d.profile in
+    of_pieces ~profile:d.profile ~locs (edit_source src f l s)
+      (K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind))
+
   let blocks d = d.kernel.doc_blocks
   let footnotes d = d.kernel.doc_footnotes
   let footnote_defs d = d.footnote_defs

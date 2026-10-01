@@ -422,6 +422,145 @@ let rec task_items chks = function
    | [] -> (Incomplete, it) :: (task_items [] rest)
    | c :: cs -> (c, it) :: (task_items cs rest))
 
+module Shift =
+ struct
+  (** val of_spot : int -> spot -> spot **)
+
+  let of_spot d s =
+    { spot_line = (( + ) d s.spot_line); spot_rem = s.spot_rem }
+
+  (** val of_span : int -> span -> span **)
+
+  let of_span d r =
+    { span_start = (of_spot d r.span_start); span_stop =
+      (of_spot d r.span_stop) }
+
+  (** val of_parts : int -> parts -> parts **)
+
+  let of_parts d = function
+  | PNone -> PNone
+  | PItems items -> PItems (map (of_span d) items)
+  | PDefItems items ->
+    PDefItems
+      (map (fun pat ->
+        let (y, b) = pat in
+        let (i, t) = y in (((of_span d i), (of_span d t)), (of_span d b)))
+        items)
+  | PTable (cap, rows) ->
+    PTable ((option_map (of_span d) cap),
+      (map (fun pat ->
+        let (r, cs) = pat in ((of_span d r), (map (of_span d) cs))) rows))
+
+  (** val of_pos : int -> pos -> pos **)
+
+  let of_pos d = function
+  | NoPos -> NoPos
+  | SomePos pr ->
+    SomePos { node_span = (of_span d pr.node_span); syntax_spans =
+      (map (fun pat -> let (role, r) = pat in (role, (of_span d r)))
+        pr.syntax_spans);
+      part_spans = (of_parts d pr.part_spans) }
+
+  (** val of_inline : int -> inline -> inline **)
+
+  let rec of_inline d i =
+    let go =
+      let rec go = function
+      | [] -> []
+      | n :: rest ->
+        let Node (p, a, x) = n in
+        (Node ((of_pos d p), a, (of_inline d x))) :: (go rest)
+      in go
+    in
+    (match i with
+     | Emph ils -> Emph (go ils)
+     | Strong ils -> Strong (go ils)
+     | Highlight ils -> Highlight (go ils)
+     | Insert ils -> Insert (go ils)
+     | Delete ils -> Delete (go ils)
+     | Superscript ils -> Superscript (go ils)
+     | Subscript ils -> Subscript (go ils)
+     | Link (ils, tgt) -> Link ((go ils), tgt)
+     | Image (ils, tgt) -> Image ((go ils), tgt)
+     | Span ils -> Span (go ils)
+     | Quoted (qt, ils) -> Quoted (qt, (go ils))
+     | _ -> i)
+
+  (** val of_inlines : int -> inlines -> inlines **)
+
+  let rec of_inlines d = function
+  | [] -> []
+  | n :: rest ->
+    let Node (p, a, x) = n in
+    (Node ((of_pos d p), a, (of_inline d x))) :: (of_inlines d rest)
+
+  (** val of_cell : int -> cell -> cell **)
+
+  let of_cell d = function
+  | Cell (ct, al, ils) -> Cell (ct, al, (of_inlines d ils))
+
+  (** val of_block : int -> block -> block **)
+
+  let rec of_block d b =
+    let go =
+      let rec go = function
+      | [] -> []
+      | n :: rest ->
+        let Node (p, a, x) = n in
+        (Node ((of_pos d p), a, (of_block d x))) :: (go rest)
+      in go
+    in
+    let goitems =
+      let rec goitems = function
+      | [] -> []
+      | item :: rest -> (go item) :: (goitems rest)
+      in goitems
+    in
+    (match b with
+     | Para ils -> Para (of_inlines d ils)
+     | Section bs -> Section (go bs)
+     | Heading (lvl, ils) -> Heading (lvl, (of_inlines d ils))
+     | BlockQuote bs -> BlockQuote (go bs)
+     | Div bs -> Div (go bs)
+     | OrderedList (attrs, sp, items) ->
+       OrderedList (attrs, sp, (goitems items))
+     | BulletList (sp, items) -> BulletList (sp, (goitems items))
+     | TaskList (sp, items) ->
+       TaskList (sp,
+         (let rec gotasks = function
+          | [] -> []
+          | p :: rest ->
+            let (status, item) = p in (status, (go item)) :: (gotasks rest)
+          in gotasks items))
+     | DefinitionList (sp, items) ->
+       DefinitionList (sp,
+         (let rec godefs = function
+          | [] -> []
+          | p :: rest ->
+            let (term, item) = p in
+            ((of_inlines d term), (go item)) :: (godefs rest)
+          in godefs items))
+     | Table (caption, rows) ->
+       Table ((option_map (of_inlines d) caption),
+         (map (map (of_cell d)) rows))
+     | FootnoteDef (label, bs) -> FootnoteDef (label, (go bs))
+     | Ext_keyed (label, b0) ->
+       let Node (p, a, x) = b0 in
+       Ext_keyed ((of_inlines d label), (Node ((of_pos d p), a,
+       (of_block d x))))
+     | Ext_callout (kind, fold, title, bs) ->
+       Ext_callout (kind, fold, (of_inlines d title), (go bs))
+     | _ -> b)
+
+  (** val of_blocks : int -> blocks -> blocks **)
+
+  let rec of_blocks d = function
+  | [] -> []
+  | n :: rest ->
+    let Node (p, a, b) = n in
+    (Node ((of_pos d p), a, (of_block d b))) :: (of_blocks d rest)
+ end
+
 (** val rev_chars : char list -> string **)
 
 let rec rev_chars = (fun cs ->

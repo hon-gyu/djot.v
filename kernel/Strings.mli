@@ -29,10 +29,6 @@ val nl : string
 
 val split_lines : string -> string list
 
-val index_lines_from : int -> string list -> (int * string) list
-
-val split_lines_indexed : string -> (int * string) list
-
 type source_line = { source_line_start : int; source_line_length : int;
                      source_line_ending : int }
 
