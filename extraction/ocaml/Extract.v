@@ -519,7 +519,8 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs
   parse_blocks_located parse_doc_located
-  DjotV.Reparse.pieces DjotV.Reparse.pieces_tree DjotV.Reparse.splice
+  DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
+  DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
   line_table resolve_span DjotV.InlineLocated.cursor_in
   DjotV.InlineScan.chunks_text DjotV.InlineScan.map_text DjotV.InlineScan.lift
   DjotV.Profile.djot_profile DjotV.Profile.markdown_like_profile

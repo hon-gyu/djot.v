@@ -16,7 +16,7 @@ against the source text alone (plan F1, section 9).
 *)
 
 From Stdlib Require Import String List Ascii.
-From DjotV Require Import Ast Strings Line Inline Step Parser Config Render Document Html.
+From DjotV Require Import Ast Strings Line Inline Step Parser Config Render Document Html Reparse.
 From DjotVDev Require Import Generate.
 Import ListNotations.
 Open Scope string_scope.
@@ -476,7 +476,7 @@ Proof. vm_compute. reflexivity. Qed.
    the located parse as through the semantic one.  Depth 2 (3695
    documents) was run the same way and is clean; it is out of the build
    because it takes 29s against 0.9s here.  The theorem is
-   `Step.parse_blocks_located_erase`. *)
+   `Reparse.parse_blocks_located_erase`. *)
 Definition html_of (bs : blocks) : string := render_html (doc_pass bs).
 
 Definition agrees (c : cblock) : bool :=

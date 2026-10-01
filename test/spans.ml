@@ -124,7 +124,7 @@ let located_failures src =
       bs
   in
   blocks None
-    (Djot.Step.parse_blocks_located Djot.Inline.djot_table
+    (Djot.Reparse.parse_blocks_located Djot.Inline.djot_table
        Djot.Step.djot_bconfig src);
   List.rev !bad
 

@@ -4,6 +4,7 @@ open InlineTable
 open List0
 open ListDef
 open Step
+open Strings
 
 type piece = { piece_lines : string list; piece_blocks : blocks }
 
@@ -12,20 +13,38 @@ val pieces_text : piece list -> string list
 val pieces_tree : piece list -> blocks
 
 type pending = { pend_lines : string list; pend_blocks : blocks;
-                 pend_state : pstate }
+                 pend_state : pstate; pend_count : int }
 
 val fresh : pending
 
-val cut : dtable -> bconfig -> string list -> pending -> piece list * pending
+val cut :
+  (int -> string -> pstate -> blocks * pstate) -> string list -> pending ->
+  piece list * pending
 
-val close : dtable -> bconfig -> pending -> piece list
+val close : (pstate -> blocks) -> pending -> piece list
 
-val pieces : dtable -> bconfig -> string list -> piece list
+val pieces :
+  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) ->
+  string list -> piece list
 
-val settle : dtable -> bconfig -> pending -> piece list -> piece list
+val settle :
+  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) ->
+  pending -> piece list -> piece list
 
 val replace :
-  dtable -> bconfig -> piece list -> string list -> piece list -> piece list
+  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) -> piece
+  list -> string list -> piece list -> piece list
 
 val splice :
-  dtable -> bconfig -> piece list -> int -> int -> string list -> piece list
+  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) -> piece
+  list -> int -> int -> string list -> piece list
+
+val sem_step : dtable -> bconfig -> int -> string -> pstate -> blocks * pstate
+
+val loc_step : dtable -> bconfig -> int -> string -> pstate -> blocks * pstate
+
+val loc_pieces : dtable -> bconfig -> string list -> piece list
+
+val assemble : int -> piece list -> blocks
+
+val parse_blocks_located : dtable -> bconfig -> string -> blocks

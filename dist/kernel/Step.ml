@@ -1527,29 +1527,3 @@ let rec blank_safe = function
 | PKey (_, _, _, inner) ->
   (&&) (blank_safe inner) (negb (announces_end inner))
 | _ -> true
-
-(** val run_lines_tagged :
-    dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
-    blocks * pstate **)
-
-let rec run_lines_tagged t k p lines st =
-  match lines with
-  | [] -> ([], st)
-  | p0 :: rest ->
-    let (i, l) = p0 in
-    let (bs, st') = step t k i p l st in
-    let (more, final) = run_lines_tagged t k p rest st' in
-    ((app bs more), final)
-
-(** val finish_lines_tagged :
-    dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
-    blocks **)
-
-let finish_lines_tagged t k p lines st =
-  let (bs, final) = run_lines_tagged t k p lines st in
-  app bs (finish t k p final)
-
-(** val parse_blocks_located : dtable -> bconfig -> string -> blocks **)
-
-let parse_blocks_located t k s =
-  finish_lines_tagged t k located_pos (split_lines_indexed s) (PPara [])

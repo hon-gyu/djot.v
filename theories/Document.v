@@ -25,7 +25,7 @@
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
 From Stdlib Require MSetAVL FMapAVL OrdersEx OrderedTypeEx.
-From DjotV Require Import Strings Ast Parser.
+From DjotV Require Import Strings Ast Parser Reparse.
 Import ListNotations.
 
 (* Balanced trees over strings, for the identifier pass: the identifiers
@@ -3783,6 +3783,48 @@ Proof.
 Qed.
 
 (*
+Replacing lines
+===============
+
+The document pass runs over the whole spliced block list.  The examples
+at the end of this file show what it changes outside an edit.
+*)
+
+Theorem parse_doc_pieces :
+  forall s, @parse_doc T K semantic_pos s
+            = doc_pass (pieces_tree (sem_pieces (split_lines s))).
+Proof.
+  intros s. unfold parse_doc, parse_blocks. rewrite pieces_parse. reflexivity.
+Qed.
+
+Corollary parse_doc_splice :
+  forall ls i j new s,
+    let cs := sem_pieces ls in
+    i <= j -> j <= length cs ->
+    split_lines s
+      = (pieces_text (firstn i cs) ++ new ++ pieces_text (skipn j cs))%list ->
+    @parse_doc T K semantic_pos s
+    = doc_pass (pieces_tree (splice sem_step finish cs i j new)).
+Proof.
+  intros ls i j new s cs Hij Hj Hs. unfold parse_doc, parse_blocks.
+  rewrite Hs. f_equal. apply splice_parse; assumption.
+Qed.
+
+Corollary parse_doc_located_splice :
+  forall ls i j new s,
+    let cs := loc_pieces ls in
+    i <= j -> j <= length cs ->
+    split_lines s
+      = (pieces_text (firstn i cs) ++ new ++ pieces_text (skipn j cs))%list ->
+    parse_doc_located s
+    = @doc_pass located_pos
+        (assemble 0 (splice loc_step (@finish T K located_pos) cs i j new)).
+Proof.
+  intros ls i j new s cs Hij Hj Hs. unfold parse_doc_located.
+  rewrite (splice_located ls i j new s Hij Hj Hs). reflexivity.
+Qed.
+
+(*
 Examples
 ========
 
@@ -3959,3 +4001,73 @@ Example section_close_multiple :
     ; Node NoPos [("id", "c")]
         (Section [mk (Heading 1 [mk (Str "c")])]) ].
 Proof. reflexivity. Qed.
+
+(*
+What the pass changes outside an edit
+-------------------------------------
+
+Each pair below differs only in its first block.
+*)
+
+(* An id taken before a heading renumbers that heading's auto id. *)
+Example pass_renumbers_id :
+  nth_error (doc_blocks (parse_doc "x
+
+# a")) 1
+  = Some (Node NoPos [("id", "a")]
+            (Section [Node NoPos [] (Heading 1 [Node NoPos [] (Str "a")])]))
+  /\ nth_error (doc_blocks (parse_doc "{#a}
+x
+
+# a")) 1
+  = Some (Node NoPos [("id", "a-1")]
+            (Section [Node NoPos [] (Heading 1 [Node NoPos [] (Str "a")])])).
+Proof. split; vm_compute; reflexivity. Qed.
+
+(* A heading moves the blocks after it into its section. *)
+Example pass_moves_sections :
+  length (doc_blocks (parse_doc "# a
+
+x
+
+y")) = 1
+  /\ length (doc_blocks (parse_doc "# a
+
+# b
+
+y")) = 2.
+Proof. split; vm_compute; reflexivity. Qed.
+
+(* A reference definition changes the table a link elsewhere resolves
+   against, not the link. *)
+Example pass_reference_table :
+  hd_error (doc_blocks (parse_doc "[t][r]
+
+x"))
+  = hd_error (doc_blocks (parse_doc "[t][r]
+
+[r]: u"))
+  /\ doc_references (parse_doc "[t][r]
+
+x") = []
+  /\ doc_references (parse_doc "[t][r]
+
+[r]: u") = [("r", ("u", []))].
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
+(* Likewise a footnote definition and the note map. *)
+Example pass_note_map :
+  hd_error (doc_blocks (parse_doc "a[^n]
+
+x"))
+  = hd_error (doc_blocks (parse_doc "a[^n]
+
+[^n]: x"))
+  /\ doc_footnotes (parse_doc "a[^n]
+
+x") = []
+  /\ doc_footnotes (parse_doc "a[^n]
+
+[^n]: x")
+     = [("n", [Node NoPos [] (Para [Node NoPos [] (Str "x")])])].
+Proof. repeat split; vm_compute; reflexivity. Qed.
