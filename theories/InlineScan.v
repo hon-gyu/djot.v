@@ -1466,6 +1466,47 @@ Example dashes_13 :
   dashes 13 = (emdash ++ emdash ++ emdash ++ endash ++ endash)%string.
 Proof. reflexivity. Qed.
 
+(** The syntax reference's rule, for every run: "Longer sequences of
+    hyphens are divided into em-dashes, en-dashes, and hyphens;
+    uniformly, if possible, and preferring em-dashes, when uniformity can
+    be achieved either way."  Divided: the pieces' widths add up to the
+    run.  Uniformly, preferring em dashes: all em dashes when three
+    divides the run, else all en dashes when two does.  A hyphen is left
+    only when the run is one hyphen long. *)
+Theorem dashes_divide :
+  forall n, 1 <= n ->
+  exists em en lit,
+    dashes n = (srep emdash em ++ srep endash en ++ chars hyphen lit)%string /\
+    3 * em + 2 * en + lit = n /\
+    (lit = 0 \/ n = 1) /\
+    (Nat.modulo n 3 = 0 -> en = 0 /\ lit = 0) /\
+    (Nat.modulo n 3 <> 0 -> Nat.modulo n 2 = 0 -> em = 0 /\ lit = 0).
+Proof.
+  intros n Hn. unfold dashes, dash_counts.
+  pose proof (Nat.div_mod_eq n 3) as D3.
+  pose proof (Nat.mod_upper_bound n 3 ltac:(lia)) as M3.
+  pose proof (Nat.div_mod_eq n 2) as D2.
+  pose proof (Nat.mod_upper_bound n 2 ltac:(lia)) as M2.
+  pose proof (Nat.div_mod_eq n 6) as D6.
+  pose proof (Nat.mod_upper_bound n 6 ltac:(lia)) as M6.
+  destruct (Nat.eqb (n mod 3) 0) eqn:E3;
+    [apply Nat.eqb_eq in E3|apply Nat.eqb_neq in E3].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb (n mod 2) 0) eqn:E2;
+    [apply Nat.eqb_eq in E2|apply Nat.eqb_neq in E2].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb n 1) eqn:E1; [apply Nat.eqb_eq in E1|apply Nat.eqb_neq in E1].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb (n mod 6) 5) eqn:E6;
+    [apply Nat.eqb_eq in E6|apply Nat.eqb_neq in E6].
+  - pose proof (Nat.div_mod_eq (n - 2) 3) as D.
+    pose proof (Nat.mod_upper_bound (n - 2) 3 ltac:(lia)) as M.
+    eexists _, _, _. split; [reflexivity|]. lia.
+  - pose proof (Nat.div_mod_eq (n - 4) 3) as D.
+    pose proof (Nat.mod_upper_bound (n - 4) 3 ltac:(lia)) as M.
+    eexists _, _, _. split; [reflexivity|]. lia.
+Qed.
+
 (* The dollars a pending prefix is holding, when they turn out to be
    text. *)
 Local Definition dollars (two : bool) : string :=

@@ -1,17 +1,35 @@
 # djot.v
 
-djot.v is a verified and generalized [djot](https://djot.net) implementation in Rocq, with a tuned extraction to OCaml.
+djot.v is a verified and generalized [djot](https://djot.net) implementation in Rocq, with an optimized extraction to OCaml.
 
-It is _verified_ in the sense that the goals behind djot's design[^design-rationale] are stated as theorems about the parser and proved. The main ones:
+It is **verified** in the sense that the goals behind djot's design[^design-rationale] are stated as theorems about the parser and proved. The main ones:
 
-- **No backtracking**: blocks are parsed line by line, and a later line never changes an earlier block. Inline text is scanned once, byte by byte. This is what makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.[^no-backtracking]
-- **Container uniformity**: if a chunk of text has a certain meaning, it will continue to have the same meaning when put into a container block (such as a list item or blockquote).[^container-uniformity]
-- **Local interpretation**: whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document, so a highlighter can classify it without reading the rest of the document.[^local-interpretation]
-- **Safe hard-wrapping**: hard-wrapping a paragraph should not lead to different interpretations.[^safe-hard-wrapping]
+- No backtracking[^no-backtracking]: 
+    - blocks are parsed line by line, and a later line never changes an earlier block. 
+    - Inline text is scanned once, byte by byte. 
+    - This makes streaming and incremental parsing possible: after an edit, a parser can resume from a saved state instead of starting over.
+    - $\mathrm{parse}(L \mathbin{+\!\!+} R) = \mathrm{done}(L) \mathbin{+\!\!+} \mathrm{parse}_{\mathrm{state}(L)}(R)$
 
-It is _generalized_ in the sense that djot is one setting of a configurable parser family. 
-- The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. In such framing, extensions and dialects can be developed in a safe way.
-- For example, the Markdown-like profile writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe hard-wrapping. This syntax profile feels familiar to Markdown users, and most of djot's guarantees still hold.
+- Container uniformity[^container-uniformity]: 
+    - if a chunk of text has a certain meaning, it will continue to have the same meaning when put into a container block (such as a list item or blockquote).
+    - Blockquote: $\mathrm{parse}(\mathtt{>}\,L) = [\,\mathrm{Quote}(\mathrm{parse}(L))\,]$
+    - List: $\mathrm{parse}(\mathtt{-}\,L_1, \dots, \mathtt{-}\,L_n) = [\,\mathrm{List}(\mathrm{parse}(L_1), \dots, \mathrm{parse}(L_n))\,]$
+
+- Local interpretation[^local-interpretation]: 
+    - parsing of inline elements is local
+    - whether `[foo][bar]` is a link does not depend on whether `bar` is defined elsewhere in the document
+    - $\mathrm{parse}([foo][bar]) = \mathrm{parse}([foo][bar'])$
+
+- Safe hard-wrapping[^safe-hard-wrapping]: 
+    - Block-level elements can't interrupt paragraphs (or headings)
+    - hard-wrapping a paragraph should not lead to different interpretations.
+
+It is **generalized** in the sense that djot is one setting of a configurable parser family. 
+- Extensions and dialects are developed in a safe way.
+    - The theorems are proved for a given setting, or it's stated which setting breaks them. So each setting comes with an answer to which of the properties above it keeps. In such framing, 
+- Possibility of Markdown-like syntax that still keeps most of djot's guarantees.
+    - we have a Markdown-like profile that writes strong emphasis as `**` rather than `*`, allows sublists without a blank line, and allows setext (underlined) headings. 
+    - The proofs show that it keeps no backtracking and uniformity, and that sublists without a blank line and setext headings are what cost it safe hard-wrapping. 
 
 > ai-disclosure: most of the Rocq proofs were done by a Gen-AI tool. "ai-disclosure" tags are attached in this repository wherever possible.
 
@@ -46,7 +64,9 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 | --- | --- | --- |
 | Text inside a block quote, list item, fenced div or definition-list item parses as it would at top level. For list items, the text must be indented the way the formatter writes it; for divs, it must not contain the div's own closing fence. | Moving text into or out of a container does not change its meaning. | proved: `quote_uniformity`, `list_uniformity`, `ordered_uniformity`, `div_uniformity`, `div_uniformity_tail`, `definition_list_uniformity` |
 | Lines indented under a footnote belong to it and cannot affect anything outside it. They parse as they would at top level, unless the footnote's first line starts a list. | Moving text into a footnote does not change its meaning, with one exception: in `[^a]: - x` followed by `  - y`, the indentation of `- y` is measured from `[^a]:`, so it becomes a second item, while the same two lines at top level make one item. | proved: `footnote_content_uniformity`, `footnote_content_uniformity_tail`, `footnote_open_uniformity_tail`, `footnote_unshifted_uniformity`, `footnote_text_uniformity`, `footnote_blank_uniformity` (and tail variants); the exception: `footnote_list_shift_counterexample` |
-| A text line that continues an open paragraph may leave out the prefixes of the block quotes, list items and footnotes around it, and it parses as it would with them written out. Where setext headings are on, a line that underlines the paragraph is the exception. | Leaving out a prefix on such a line does not change what the document means. | proved: `lazy_stack_line` (the three containers, as the syntax reference lists them), `step_lazy`, `step_lazy_restore`, `lazy_line_restore` |
+| A text line that continues an open paragraph may leave out the prefixes of the block quotes, list items and footnotes around it, and it parses as it would with them written out. Where setext headings are on, a line that underlines the paragraph is the exception. | Leaving out a prefix on such a line does not change what the document means. Together with the uniformity rows, this gives the meaning of a document with lazy lines: `> a` then `b` is a quote holding the paragraph `a b`, and likewise for a list item and a footnote. | proved: `lazy_stack_line` (the three containers, as the syntax reference lists them), `step_lazy`, `step_lazy_spelling` (any indentation the containers accept), `lazy_line_restore`; per container: `quote_lazy_line`, `list_lazy_line`, `footnote_lazy_line` |
+| A list is loose only where a blank line separates two of its items, or two blocks inside one item. A blank line directly before a nested list, or right after one ends, does not count, and neither does a blank line inside a nested block such as a div, a footnote, or a table before its caption. | Whether a list renders with space between its items follows from where its blank lines are, as the syntax reference states it. | proved in one direction: `list_spacing_separates` (a list the parser calls loose has such a blank line); the converse is planned |
+| Indenting every line of a document by the same amount does not change its parse, as long as no block attribute `{...}` spans several lines. | Indentation matters only relative to a list marker or footnote, as the syntax reference says: a document pasted at some indentation means the same thing. | proved: `indent_uniformity` |
 
 ### Local interpretation
 
@@ -61,6 +81,18 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 | --- | --- | --- |
 | A line inside a paragraph never starts a new block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Hard-wrapping a paragraph cannot accidentally create a list, heading or quote. It can still change inline content when a line break moves into verbatim, after a backslash (where it becomes a hard line break), or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
 | A heading continues on the following lines, with or without a repeated `#` marker, until a blank line. | Hard-wrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
+
+### Block structure first
+
+| Property | Implication | Status |
+| --- | --- | --- |
+| Which blocks a document has, and how they nest, is decided without reading inline syntax: the same blocks come out however emphasis, links and other inline constructs parse. The one exception is a table caption, which disappears when its inline content comes out empty. | A tool can find the blocks of a document, such as for folding or an outline, without an inline parser, and a bug in inline parsing cannot move a block boundary. | proved: `block_shape_independent` |
+
+### Inline precedence
+
+| Property | Implication | Status |
+| --- | --- | --- |
+| When emphasis delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener: `_a *b_ c*` is emphasis around `a *b`, with the `*`s as text. There is exactly one reading that follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, the one the syntax reference gives, and it can be worked out by hand. | proved for a paragraph of `_`, `*`, `^`, `~` (bare or in braces), `{= =}`, `{+ +}`, links `[..](..)` and `[..][..]`, and plain text: `para_inlines_valid`, `valid_unique`; smart quotes, spans and images are not covered |
 
 ### Roundtrip
 
@@ -83,6 +115,7 @@ Current supported extensions and parser configs are:
 Some additional properties for the generalized parser:
 - Changing one inline delimiter's character is valid when the new character differs from every other delimiter's. ==> Only the changed delimiter needs checking.
 - Respelling a delimiter (strong as `+` instead of `*`, say) parses every document to the same tree once the two characters are swapped in the source. ==> A profile can respell a delimiter without changing what documents mean.
+- Changing the inline delimiters, or turning inline constructs on or off, never changes block structure: the same blocks, nested the same way, with the same list items and table cells. The one exception is a table caption, which disappears when its inline content comes out empty. Keyed blocks must be off. ==> Blocks can be found before inline syntax is read, as the syntax reference requires.
 - [ ] Turning a construct off does not change the parse of a document that never uses it.
 
 ## Conformance

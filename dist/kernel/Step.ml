@@ -604,15 +604,6 @@ type list_state = { ls_indent : int; ls_extent : extent;
                     ls_blanks : bool; ls_items : blocks list;
                     ls_check : task_status; ls_checks : task_status list }
 
-(** val list_touch : coq_LineIx -> list_state -> list_state **)
-
-let list_touch lI ls =
-  { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
-    ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
-    ls.ls_item_extents; ls_styles = ls.ls_styles; ls_loose = ls.ls_loose;
-    ls_blanks = ls.ls_blanks; ls_items = ls.ls_items; ls_check = ls.ls_check;
-    ls_checks = ls.ls_checks }
-
 type pstate =
 | PPara of stored_line list
 | PHeading of int * extent * stored_line list
@@ -915,13 +906,14 @@ let is_lazy k k0 inner =
   | KText -> lazy_ok k inner
   | _ -> false
 
-(** val list_content : coq_LineIx -> list_state -> line_kind -> list_state **)
+(** val list_content :
+    coq_LineIx -> list_state -> line_kind -> bool -> list_state **)
 
-let list_content lI ls k =
+let list_content lI ls k kept =
   let loose =
     match k with
     | KList (_, _, _, _) -> ls.ls_loose
-    | _ -> (||) ls.ls_loose ls.ls_blanks
+    | _ -> if kept then ls.ls_loose else (||) ls.ls_loose ls.ls_blanks
   in
   { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
   ls_item_extent = (touch_extent lI ls.ls_item_extent); ls_item_extents =
@@ -943,7 +935,7 @@ let rec feed_lazy lI l st = match st with
   PDiv (len, cls, (touch_extent lI range), opener, done0,
     (feed_lazy lI l inner))
 | PList (ls, done0, inner) ->
-  PList ((list_content lI ls KText), done0, (feed_lazy lI l inner))
+  PList ((list_content lI ls KText false), done0, (feed_lazy lI l inner))
 | PParaOff (k, cur) ->
   PParaOff (k, ((remember_line lI (drop_leading_ws l)) :: cur))
 | PFoot (range, ind, lbl, done0, inner) ->
@@ -1164,45 +1156,34 @@ let rec blank_absorbed = function
 | PDiv (_, _, _, _, _, _) -> true
 | PList (_, _, _) -> true
 | PAttr (_, _, _, _, _, _) -> true
-| PFoot (_, _, _, _, _) -> true
+| PFoot (_, _, _, _, inner) -> blank_absorbed inner
 | PPend (_, _, inner) -> blank_absorbed inner
 | PKey (_, _, _, inner) -> blank_absorbed inner
 | _ -> false
 
-(** val div_closer : string -> pstate -> bool **)
+(** val keeps_line : bconfig -> int -> string -> pstate -> bool **)
 
-let rec div_closer l = function
-| PDiv (len, _, _, _, _, inner) ->
-  (&&) (negb (in_fence inner)) (div_close len l)
-| PPend (_, _, inner) -> div_closer l inner
-| PKey (_, _, _, inner) -> div_closer l inner
+let rec keeps_line k off l = function
+| PFoot (_, ind, _, _, inner) ->
+  (&&) (negb (lazy_ok k inner)) (( < ) ind (( + ) off (indent_of l)))
+| PTable (_, _, _) ->
+  (match caption_open l with
+   | Some _ -> true
+   | None -> false)
+| PPend (_, _, inner) -> keeps_line k off l inner
+| PKey (_, _, _, inner) -> keeps_line k off l inner
 | _ -> false
 
 (** val list_next :
-    coq_LineIx -> list_state -> blocks -> task_status -> string -> string ->
-    list_state **)
+    coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state **)
 
-let list_next lI ls item chk l rest =
-  let items = item :: ls.ls_items in
-  let checks = ls.ls_check :: ls.ls_checks in
-  let item_extents = ls.ls_item_extent :: ls.ls_item_extents in
-  let next_extent = open_extent lI l (indent_of l) in
-  if is_blank rest
-  then { ls_indent = ls.ls_indent; ls_extent =
-         (touch_extent lI ls.ls_extent); ls_item_extent = next_extent;
-         ls_item_extents = item_extents; ls_styles = ls.ls_styles; ls_loose =
-         ls.ls_loose; ls_blanks = ls.ls_blanks; ls_items = items; ls_check =
-         chk; ls_checks = checks }
-  else let loose =
-         match classify rest with
-         | KList (_, _, _, _) -> ls.ls_loose
-         | _ -> (||) ls.ls_loose ls.ls_blanks
-       in
-       { ls_indent = ls.ls_indent; ls_extent =
-       (touch_extent lI ls.ls_extent); ls_item_extent = next_extent;
-       ls_item_extents = item_extents; ls_styles = ls.ls_styles; ls_loose =
-       loose; ls_blanks = false; ls_items = items; ls_check = chk;
-       ls_checks = checks }
+let list_next lI ls item chk l =
+  { ls_indent = ls.ls_indent; ls_extent = (touch_extent lI ls.ls_extent);
+    ls_item_extent = (open_extent lI l (indent_of l)); ls_item_extents =
+    (ls.ls_item_extent :: ls.ls_item_extents); ls_styles = ls.ls_styles;
+    ls_loose = ((||) ls.ls_loose ls.ls_blanks); ls_blanks = false; ls_items =
+    (item :: ls.ls_items); ls_check = chk; ls_checks =
+    (ls.ls_check :: ls.ls_checks) }
 
 (** val consumed : string -> string -> int **)
 
@@ -1328,12 +1309,9 @@ let rec step_fuel t k lI p n off l st =
         | x ->
           if list_takes ls off l inner
           then let (bs, inner') = step_fuel t k lI p n' off l inner in
-               let ls' =
-                 if div_closer l inner
-                 then list_touch lI (list_blank ls)
-                 else list_content lI ls x
-               in
-               ([], (PList (ls', (app (rev bs) done0), inner')))
+               ([], (PList
+               ((list_content lI ls x (keeps_line k off l inner)),
+               (app (rev bs) done0), inner')))
           else (match x with
                 | KList (sty, core, chk, rest) ->
                   (match narrow ls.ls_styles
@@ -1352,12 +1330,11 @@ let rec step_fuel t k lI p n off l st =
                      in
                      ([], (PList
                      ((list_next lI (list_narrow ls (p0 :: l0)) item
-                        (configured_list_check k chk) l
-                        (configured_list_rest k chk rest)),
+                        (configured_list_check k chk) l),
                      (rev bs), inner'))))
                 | _ ->
                   if is_lazy k x inner
-                  then ([], (PList ((list_content lI ls x), done0,
+                  then ([], (PList ((list_content lI ls x false), done0,
                          (feed_lazy lI l inner))))
                   else close_reopen t k p (PList (ls, done0, inner))
                          (open_line t k lI p descend

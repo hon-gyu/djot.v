@@ -279,6 +279,312 @@ Proof.
 Qed.
 
 (*
+Line breaks
+===========
+
+A spec continued over indented lines is fed each line with a newline
+after it.  The machine treats a newline as it treats a space: every test
+it makes agrees on the two, and a quoted value that keeps one is
+collapsed before it is stored.  So a spec run line by line ends where the
+same spec joined onto one line does, with the same attributes
+(`joined_spec_runs`).
+*)
+
+(* A newline, read as a space. *)
+Local Definition nl_space (c : ascii) : ascii := if Ascii.eqb c "010" then " " else c.
+
+Local Fixpoint smap (f : ascii -> ascii) (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => String (f c) (smap f s')
+  end.
+
+Local Lemma nl_space_cases : forall c d, nl_space c = nl_space d ->
+  c = d \/ ((c = "010" \/ c = " ") /\ (d = "010" \/ d = " ")).
+Proof.
+  intros c d H. unfold nl_space in H.
+  destruct (Ascii.eqb c "010") eqn:Ec, (Ascii.eqb d "010") eqn:Ed;
+    apply Ascii.eqb_eq in Ec || apply Ascii.eqb_neq in Ec;
+    apply Ascii.eqb_eq in Ed || apply Ascii.eqb_neq in Ed; subst; auto.
+Qed.
+
+Local Lemma collapse_nl_space : forall b s,
+  collapse_from b s = collapse_from b (smap nl_space s).
+Proof.
+  intros b s. revert b. induction s as [|c s IH]; intros b; [reflexivity|].
+  cbn [smap collapse_from]. unfold nl_space.
+  destruct (Ascii.eqb c "010") eqn:E.
+  - apply Ascii.eqb_eq in E. subst c. cbn. rewrite <- !IH. reflexivity.
+  - destruct (collapse_char c); rewrite <- !IH; reflexivity.
+Qed.
+
+Local Lemma smap_rev_chars : forall l,
+  smap nl_space (rev_chars l) = rev_chars (map nl_space l).
+Proof.
+  induction l as [|c l IH]; [reflexivity|].
+  cbn [rev_chars map]. rewrite <- IH.
+  generalize (rev_chars l). intros s. induction s as [|d s IHs]; [reflexivity|].
+  cbn [append smap]. rewrite IHs. reflexivity.
+Qed.
+
+(* Two machine states that differ only in how a quoted value spelled its
+   line breaks. *)
+Local Definition ap_sim (p q : aparser) : Prop :=
+  ap_st p = ap_st q /\ ap_key p = ap_key q /\ ap_attrs p = ap_attrs q /\
+  (ap_tok p = ap_tok q \/
+   ((ap_st p = AQuot \/ ap_st p = AEsc) /\
+    map nl_space (ap_tok p) = map nl_space (ap_tok q))).
+
+Local Lemma norm_sim : forall t u, map nl_space t = map nl_space u ->
+  norm_value (rev_chars t) = norm_value (rev_chars u).
+Proof.
+  intros t u H. unfold norm_value, collapse_ws.
+  rewrite (collapse_nl_space false (rev_chars t)), (collapse_nl_space false (rev_chars u)).
+  rewrite !smap_rev_chars, H. reflexivity.
+Qed.
+
+Local Lemma ap_sim_eq : forall p q, ap_sim p q ->
+  ap_st p <> AQuot -> ap_st p <> AEsc -> p = q.
+Proof.
+  intros [s t k a] [s' t' k' a'] (Hs & Hk & Ha & Ht) Hq He; cbn in *.
+  destruct Ht as [Ht|[[H|H] _]]; [subst; reflexivity|contradiction|contradiction].
+Qed.
+
+Local Lemma astep_ws : forall p,
+  ap_st p <> AQuot -> ap_st p <> AEsc -> astep p "010" = astep p " ".
+Proof.
+  intros [s t k a] Hq He; cbn in Hq, He.
+  destruct s; try contradiction; reflexivity.
+Qed.
+
+Local Lemma eqb_sim : forall c d x, nl_space c = nl_space d ->
+  x <> "010" -> x <> " " -> Ascii.eqb c x = Ascii.eqb d x.
+Proof.
+  intros c d x H Hn Hs.
+  assert (A : Ascii.eqb "010" x = false) by (apply Ascii.eqb_neq; congruence).
+  assert (B : Ascii.eqb " " x = false) by (apply Ascii.eqb_neq; congruence).
+  destruct (nl_space_cases c d H) as [<-|[[-> | ->] [-> | ->]]];
+    rewrite ?A, ?B; reflexivity.
+Qed.
+
+Local Lemma tok_sim : forall p q, ap_sim p q ->
+  map nl_space (ap_tok p) = map nl_space (ap_tok q).
+Proof. intros p q (_ & _ & _ & [->|[_ H]]); [reflexivity|exact H]. Qed.
+
+Local Lemma astep_sim : forall p q c d,
+  ap_sim p q -> nl_space c = nl_space d -> ap_sim (astep p c) (astep q d).
+Proof.
+  intros p q c d Hpq Hcd.
+  assert (Hrefl : forall r, ap_sim r r) by (intros r; repeat split; left; reflexivity).
+  destruct (ap_st p) eqn:Es;
+    try (assert (p = q) as <- by (apply ap_sim_eq; [exact Hpq| |]; rewrite Es; discriminate);
+         destruct (nl_space_cases c d Hcd) as [<-|[[-> | ->] [-> | ->]]];
+         first [ apply Hrefl
+               | rewrite (astep_ws p) by (rewrite Es; discriminate); apply Hrefl
+               | rewrite <- (astep_ws p) by (rewrite Es; discriminate); apply Hrefl ]).
+  - (* AQuot *)
+    destruct p as [s t k a], q as [s' t' k' a'].
+    pose proof (tok_sim _ _ Hpq) as Ht. destruct Hpq as (Hs & Hk & Ha & _).
+    cbn in Es, Hs, Hk, Ha, Ht. subst s s' k' a'. unfold astep. cbn [ap_st].
+    rewrite (eqb_sim c d dquote Hcd ltac:(discriminate) ltac:(discriminate)).
+    rewrite (eqb_sim c d bslash Hcd ltac:(discriminate) ltac:(discriminate)).
+    destruct (Ascii.eqb d dquote); [|destruct (Ascii.eqb d bslash)].
+    + unfold ap_commit_value, ap_token. cbn [ap_tok ap_key ap_attrs].
+      rewrite (norm_sim t t' Ht). apply Hrefl.
+    + repeat split; right; split; [right; reflexivity|cbn; rewrite Hcd, Ht; reflexivity].
+    + repeat split; right; split; [left; reflexivity|cbn; rewrite Hcd, Ht; reflexivity].
+  - (* AEsc *)
+    destruct p as [s t k a], q as [s' t' k' a'].
+    pose proof (tok_sim _ _ Hpq) as Ht. destruct Hpq as (Hs & Hk & Ha & _).
+    cbn in Es, Hs, Hk, Ha, Ht. subst s s' k' a'. unfold astep. cbn [ap_st].
+    repeat split; right; split; [left; reflexivity|cbn; rewrite Hcd, Ht; reflexivity].
+Qed.
+
+Local Lemma afeed_sim : forall s t p q,
+  smap nl_space s = smap nl_space t -> ap_sim p q ->
+  ap_sim (fst (afeed s p)) (fst (afeed t q)) /\
+  smap nl_space (snd (afeed s p)) = smap nl_space (snd (afeed t q)).
+Proof.
+  induction s as [|c s IH]; intros [|d t] p q Hst Hpq; try discriminate.
+  - split; [exact Hpq|reflexivity].
+  - cbn [smap] in Hst. injection Hst as Hcd Hst.
+    cbn [afeed]. rewrite <- (proj1 Hpq).
+    destruct (ap_st p);
+      first [ split; [exact Hpq|cbn [snd smap]; rewrite Hcd, Hst; reflexivity]
+            | apply IH; [exact Hst|apply astep_sim; assumption] ].
+Qed.
+
+Local Lemma blank_to_eol_nl_space : forall s,
+  blank_to_eol (smap nl_space s) = blank_to_eol s.
+Proof.
+  induction s as [|c s IH]; [reflexivity|]. cbn [smap blank_to_eol]. rewrite IH.
+  unfold nl_space. destruct (Ascii.eqb c "010") eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. reflexivity.
+Qed.
+
+Local Lemma blank_to_eol_app : forall a b,
+  blank_to_eol (a ++ b) = (blank_to_eol a && blank_to_eol b)%bool.
+Proof.
+  induction a as [|c a IH]; intros b; [reflexivity|].
+  cbn [append blank_to_eol]. rewrite IH, andb_assoc. reflexivity.
+Qed.
+
+Local Lemma smap_app : forall f a b, smap f (a ++ b) = smap f a ++ smap f b.
+Proof. intros f a b. induction a as [|c a IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+
+Local Definition ap_live (p : aparser) : bool :=
+  match ap_st p with ADone | AFail => false | _ => true end.
+
+(* Feeding stops at the first terminal state and hands back the rest. *)
+Local Lemma afeed_app : forall a b p,
+  afeed (a ++ b) p =
+  if ap_live (fst (afeed a p)) then afeed b (fst (afeed a p))
+  else (fst (afeed a p), snd (afeed a p) ++ b).
+Proof.
+  induction a as [|c a IH]; intros b p.
+  - cbn [append afeed fst snd]. unfold ap_live.
+    destruct b as [|d b]; destruct (ap_st p) eqn:E; cbn [afeed]; rewrite ?E; reflexivity.
+  - cbn [append afeed]. unfold ap_live.
+    destruct (ap_st p) eqn:E; try apply IH; cbn [fst snd append]; rewrite E; reflexivity.
+Qed.
+
+Local Lemma fst_afeed_app : forall a b p,
+  fst (afeed (a ++ b) p) = fst (afeed b (fst (afeed a p))).
+Proof.
+  intros a b p. rewrite afeed_app. unfold ap_live.
+  destruct (ap_st (fst (afeed a p))) eqn:E; try reflexivity;
+    destruct b; cbn [afeed]; rewrite ?E; reflexivity.
+Qed.
+
+Local Lemma afeed_stopped : forall s p, ap_live p = false -> afeed s p = (p, s).
+Proof.
+  intros [|c s] p H; [reflexivity|]. cbn [afeed]. unfold ap_live in H.
+  destruct (ap_st p); try discriminate; reflexivity.
+Qed.
+
+(* What a run of continuation lines feeds the machine. *)
+Local Fixpoint lines_text (ls : list string) : string :=
+  match ls with
+  | [] => EmptyString
+  | l :: ls' => (drop_leading_ws l ++ attr_nl) ++ lines_text ls'
+  end.
+
+(* The same lines joined onto the opener's, a space for each line
+   break. *)
+Fixpoint join_tail (ls : list string) : string :=
+  match ls with
+  | [] => EmptyString
+  | l :: ls' => " " ++ drop_leading_ws l ++ join_tail ls'
+  end.
+
+(* The machine after a run of continuation lines. *)
+Definition feed_lines (ls : list string) (p : aparser) : aparser :=
+  fold_left (fun q l => attr_feed l q) ls p.
+
+(* Whether a spec stays open and unfailed through every line of a run
+   but the last, and is done after it: the run `PAttr` takes whole. *)
+Fixpoint spec_runs (p : aparser) (ls : list string) : bool :=
+  match ls with
+  | [] => ap_done p
+  | l :: ls' =>
+      negb (ap_done p) && negb (ap_failed (attr_feed l p))
+      && spec_runs (attr_feed l p) ls'
+  end.
+
+Local Lemma feed_lines_afeed : forall ls p,
+  feed_lines ls p = fst (afeed (lines_text ls) p).
+Proof.
+  induction ls as [|l ls IH]; intros p; [reflexivity|].
+  cbn [feed_lines fold_left lines_text]. fold (feed_lines ls (attr_feed l p)).
+  rewrite IH, fst_afeed_app. reflexivity.
+Qed.
+
+Local Lemma join_tail_nl_space : forall ls,
+  smap nl_space (join_tail ls ++ attr_nl) = smap nl_space (attr_nl ++ lines_text ls).
+Proof.
+  induction ls as [|l ls IH]; [reflexivity|].
+  cbn [join_tail lines_text]. rewrite !append_assoc, !smap_app.
+  rewrite <- (smap_app _ (join_tail ls) attr_nl), IH, smap_app. reflexivity.
+Qed.
+
+Local Lemma spec_runs_of_afeed : forall ls p,
+  Forall (fun l => blank_to_eol (drop_leading_ws l) = false) ls ->
+  ap_done (fst (afeed (lines_text ls) p)) = true ->
+  blank_to_eol (snd (afeed (lines_text ls) p)) = true ->
+  spec_runs p ls = true.
+Proof.
+  induction ls as [|l ls IH]; intros p Hls Hd Hb; [exact Hd|].
+  inversion Hls as [|? ? Hl Hls']; subst.
+  cbn [spec_runs lines_text] in *.
+  destruct (ap_live p) eqn:Hp.
+  2: { exfalso. rewrite (afeed_stopped _ _ Hp) in Hb. cbn [snd] in Hb.
+       rewrite !blank_to_eol_app, Hl in Hb. discriminate. }
+  assert (Hnd : ap_done p = false)
+    by (unfold ap_live in Hp; unfold ap_done; destruct (ap_st p); congruence).
+  rewrite Hnd. cbn [negb andb].
+  rewrite afeed_app in Hd, Hb. fold (attr_feed l p) in Hd, Hb |- *.
+  destruct (ap_live (attr_feed l p)) eqn:Hp1.
+  - assert (Hnf : ap_failed (attr_feed l p) = false)
+      by (unfold ap_live in Hp1; unfold ap_failed; destruct (ap_st (attr_feed l p)); congruence).
+    rewrite Hnf. apply IH; assumption.
+  - cbn [fst snd] in Hd, Hb.
+    assert (Hnf : ap_failed (attr_feed l p) = false)
+      by (unfold ap_done in Hd; unfold ap_failed; destruct (ap_st (attr_feed l p)); congruence).
+    rewrite Hnf. apply IH; [exact Hls'| |];
+      rewrite (afeed_stopped _ _ Hp1); cbn [fst snd]; [exact Hd|].
+    rewrite blank_to_eol_app in Hb. apply andb_true_iff in Hb as [_ Hb]. exact Hb.
+Qed.
+
+Local Lemma ap_sim_refl : forall p, ap_sim p p.
+Proof. intros p. repeat split. left. reflexivity. Qed.
+
+(* A spec split over lines runs as the joined spec does: it is live until
+   its last line, done at the end of it, with the same attributes. *)
+Lemma joined_spec_runs : forall b1 ls ap1 r1 apJ rJ,
+  Forall (fun l => blank_to_eol (drop_leading_ws l) = false) ls ->
+  afeed (b1 ++ attr_nl) ap_init = (ap1, r1) -> ap_failed ap1 = false ->
+  afeed ((b1 ++ join_tail ls) ++ attr_nl) ap_init = (apJ, rJ) ->
+  ap_done apJ = true -> blank_to_eol rJ = true ->
+  spec_runs ap1 ls = true /\ ap_attrs (feed_lines ls ap1) = ap_attrs apJ.
+Proof.
+  intros b1 ls ap1 r1 apJ rJ Hls H1 Hf1 HJ HdJ HbJ.
+  assert (Hsm : smap nl_space ((b1 ++ attr_nl) ++ lines_text ls) =
+                smap nl_space ((b1 ++ join_tail ls) ++ attr_nl)).
+  { rewrite (append_assoc b1 attr_nl), (append_assoc b1 (join_tail ls)).
+    rewrite (smap_app _ b1), (smap_app _ b1), join_tail_nl_space. reflexivity. }
+  destruct (afeed_sim _ _ _ _ Hsm (ap_sim_refl ap_init)) as [Hs Hr].
+  rewrite HJ in Hs, Hr. cbn [fst snd] in Hs, Hr.
+  rewrite fst_afeed_app, H1 in Hs. cbn [fst] in Hs.
+  rewrite feed_lines_afeed. split; [|exact (proj1 (proj2 (proj2 Hs)))].
+  apply spec_runs_of_afeed; [exact Hls| |].
+  - unfold ap_done. rewrite (proj1 Hs). exact HdJ.
+  - rewrite afeed_app, H1 in Hr. cbn [fst snd] in Hr.
+    destruct (ap_live ap1) eqn:Hl;
+      rewrite <- blank_to_eol_nl_space, <- Hr, blank_to_eol_nl_space in HbJ;
+      [exact HbJ|].
+    rewrite (afeed_stopped _ _ Hl). cbn [snd].
+    cbn [snd] in HbJ. rewrite blank_to_eol_app in HbJ. apply andb_true_iff in HbJ as [_ H]. exact H.
+Qed.
+
+(* What `attr_open` fed the machine, and what it checked. *)
+Lemma attr_open_inv : forall l ap, attr_open l = Some ap ->
+  exists b r, drop_leading_ws l = String "{" b /\
+    afeed (b ++ attr_nl) ap_init = (ap, r) /\ ap_failed ap = false /\
+    (ap_done ap = true -> blank_to_eol r = true).
+Proof.
+  intros l ap H. unfold attr_open in H.
+  destruct (drop_leading_ws l) as [|c b] eqn:E; [discriminate|].
+  destruct (Ascii.eqb c "{") eqn:Ec.
+  2: { destruct c as [[] [] [] [] [] [] [] []]; discriminate. }
+  apply Ascii.eqb_eq in Ec. subst c.
+  destruct (afeed (b ++ attr_nl) ap_init) as [p r] eqn:Ef.
+  destruct (ap_failed p) eqn:Hf; [discriminate|].
+  destruct (ap_done p && negb (blank_to_eol r))%bool eqn:Hd; [discriminate|].
+  injection H as <-. exists b, r. repeat split; try assumption.
+  intros Hdone. rewrite Hdone in Hd. destruct (blank_to_eol r); [reflexivity|discriminate].
+Qed.
+
+(*
 Printing
 ========
 

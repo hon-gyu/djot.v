@@ -129,7 +129,7 @@ Proof.
 Qed.
 
 (* Its character is punctuation, so a backslash escapes it... *)
-Local Lemma dchar_punct : forall k, is_punct (dchar k) = true.
+Lemma dchar_punct : forall k, is_punct (dchar k) = true.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].
@@ -195,7 +195,7 @@ Qed.
 
 (* The lookup is by character, so a row it finds is spelled with the
    character that found it. *)
-Local Lemma dstyle_of_char :
+Lemma dstyle_of_char :
   forall c k, dstyle_of c = Some k -> dchar k = c.
 Proof.
   intros c k H. unfold dstyle_of in H. rewrite dstyle_at_fast_eq in H.
@@ -205,7 +205,7 @@ Proof.
 Qed.
 
 (* And it only ever finds a row that is switched on. *)
-Local Lemma dstyle_of_enabled :
+Lemma dstyle_of_enabled :
   forall c k, dstyle_of c = Some k -> denabled_of k = true.
 Proof.
   intros c k H. unfold dstyle_of in H. rewrite dstyle_at_fast_eq in H.

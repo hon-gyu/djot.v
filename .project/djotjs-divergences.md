@@ -264,6 +264,10 @@ item.
 
 ### Fixed: a blank inside a still-open div in a list item
 
+Narrowed 2026-09-30: a blank at the end of an item no longer stays in a
+div left open; see "Closed 2026-09-30 -- SPEC-GAP: whether a div left
+open at the end of an item holds the blank after it".
+
 The **63** generated mismatches the renderer fix left were all one shape:
 
 ```
@@ -299,6 +303,9 @@ predicate was written, and `list_open` is now dead. Generated corpus
 spacings once `item_forces_loose` changes).
 
 ### Fixed: a div's closing line arms the enclosing list
+
+Reversed 2026-09-29, to follow the syntax reference: see "Closed
+2026-09-29 -- djotjs-bug: a div's closing fence loosens a list".
 
 The **42** that remained were the complementary shape, and unlike the
 family above they need no blank line at all:
@@ -624,6 +631,10 @@ Pinned as `Parser.parse_attr_blank_continues_spec` and
 `Parser.parse_attr_failed_after_blank_drops_it`.
 
 ## Adjudicated 2026-08-10 — a blank before an item that opens a list
+
+Reversed 2026-09-29, to follow the syntax reference: see "Closed
+2026-09-29 -- djotjs-bug: a blank before a nested list or an empty last
+item does not loosen".
 
 Ours, found by the generated corpus and invisible to the 287-case one.
 
@@ -1880,3 +1891,344 @@ a `^ b` line, the caption-without-a-table entry of 2026-08-22.
 line parses as the same line with the containers' prefixes written
 out. Pinned by `convert_footnote_lazy_line` and its two neighbours in
 `Html.v`.
+
+## 2026-09-28 -- SPEC-GAP: how a heading ends
+
+Two cases found while pinning the syntax reference's prose
+(`dev/check/Reference.v`). djot.js and ours agree on both; the
+reference does not say what either does.
+
+| Input | djot.js and ours | What the reference says |
+| --- | --- | --- |
+| `## a` / `# b` | two headings, `a` at level 2 and `b` at level 1 | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered", and continuation lines "may also be preceded by the same number of `#` characters". Nothing about a different number. |
+| `> # a` / `b` | one heading `a b` inside the quote | Lazy lines are allowed on "regular paragraph lines" of a block quote, list item or footnote. A heading is not a paragraph. |
+
+The first contradicts the reference's sentence on how a heading ends,
+unless a line of a different level counts as the start of a new block.
+The second is `lazy_ok`'s `PHeading` case, which is deliberate: a lazy
+line continues "the innermost open inline container (a paragraph or a
+heading)". `lazy_stack_line` states only the paragraph case, as the
+reference does.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js on both).
+Pinned by `heading_other_marker_count` and `heading_ends_with_container`
+in `dev/check/Reference.v`.
+
+## 2026-09-28 -- SPEC-GAP: an ambiguous marker with nothing after it
+
+| Input | djot.js and ours |
+| --- | --- |
+| `v) a` | `<ol start="5" type="i">`, lower roman |
+
+The reference says `v)` is both a lower-roman and a lower-alpha marker,
+and that an ambiguity "will be resolved in such a way as to continue the
+list, if possible". A one-item list has nothing to continue, and the
+reference does not say which reading wins then. Both engines take roman.
+
+**Verdict: `SPEC-GAP`, ours stands.** Pinned by `ordered_v_paren` in
+`dev/check/Reference.v`.
+
+## Closed 2026-09-29 -- djotjs-bug: a div's closing fence loosens a list, against the reference
+
+| Input | djot.js and ours | The reference |
+| --- | --- | --- |
+| `- :::` / `  a` / `  :::` / `- c` | loose (`<p>c</p>`) | tight: "A list is classed as *tight* if it does not contain blank lines between items, or between blocks inside an item" |
+
+No line of the input is blank. djot.js decides blankness after the
+container closers have consumed the line (`block.ts:1051`), so a `:::`
+that closes a div counts as a blank line; this was matched on purpose in
+"Fixed: a div's closing line arms the enclosing list" (2026-08-09
+section above), which compared against djot.js only.
+
+Found while auditing the reference's tightness rule.
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.** We follow the reference: the
+arming is an artifact of where djot.js tests for a blank line.  Reported
+upstream as jgm/djot.js#157.  The fix reverses "Fixed: a div's closing
+line arms the enclosing list" (2026-08-22): `div_closer` is gone from
+`step`, and with it `lines_gap`, `item_gap` and `item_ok`'s gap conjunct
+in ListUniformity.v, since an item that ends on a nonblank line again
+leaves no blank armed.  The two shapes that section's "Still ours"
+residue kept out of the canonical view are back in
+(`Roundtrip.div_ending_item_roundtrip`).  Pinned by
+`list_div_closer_not_blank` in `dev/check/Reference.v`.
+
+## Closed 2026-09-29 -- djotjs-bug: a blank before a nested list or an empty last item does not loosen
+
+| Input | djot.js and ours | The reference |
+| --- | --- | --- |
+| `- a` / blank / `- - b` | tight | loose: the blank is between items, not at the start or end of a list |
+| `- a` / blank / `-` | tight | loose, as above |
+| `- a` / blank / `-` / `- b` | loose | loose |
+
+Both are reported upstream as jgm/djot.js#45, where jgm calls them a bug
+and notes that djot.lua gives the loose reading.
+
+The first row reverses "a blank before an item that opens a list"
+(2026-08-10), which matched djot.js on purpose by adding `starts_list`
+to `list_next` (Step.v) and to `seps_loosen` and `list_loose_of`
+(ListUniformity.v). The 2026-08-09 corpus entry had argued the loose
+reading from the reference and the rationale; the fix a day later
+overrode it.
+
+The second row had a different cause: `list_next` kept the blank armed
+when the marker had nothing after it, so it loosened only if another
+item followed (third row).
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.** `list_next` now spends an
+armed blank into looseness at every sibling marker, whatever follows the
+marker on its line; `starts_list` is gone from Step.v and
+ListUniformity.v.  A blank before a nested list *inside* an item still
+does not loosen (`list_content`), as the reference's `- two` / blank /
+`  - sub` example requires.  Pinned by
+`list_blank_before_nested_list_item` and
+`list_blank_before_empty_last_item` in `dev/check/Reference.v`.
+
+Generated documents against djot.js went from 0 mismatches to 531 (and
+0 to 184 with lazy lines).  Every one differs from djot.js only in `<p>`
+wrapping, and each is one of the three shapes: ours looser in 480 and
+172, tighter (the div closer) in 51 and 12.  The accepted roundtrip pool
+at depth 3 grew from 43857 to 57857, from the `Loose` spellings the old
+rule made unreachable and the div-ending items.
+
+## 2026-09-29 -- SPEC-GAP: which list a blank inside a nested block counts against
+
+Found while stating the reference's tightness rule.  djot.js and ours
+agree on all five; the reference does not decide them.
+
+| # | Input | djot.js and ours |
+| --- | --- | --- |
+| a | `- - b` / blank / `- c` | outer tight |
+| b | `- a` / blank / `  - b` / blank / `- c` | outer tight |
+| c | `- - a` / blank / `  b` | outer tight |
+| d | `- :::` / `  x` / blank / `  y` / `  :::` | tight |
+| e | `- :::` / `  d` / blank / `- c` (div left open) | tight |
+
+::: a
+- - b
+
+- c
+:::
+
+::: b
+- a
+
+  - b
+
+- c
+:::
+
+::: c
+- - a
+
+  b
+:::
+
+:::: d
+- :::
+  x
+
+  y
+  :::
+::::
+
+:::: e
+- :::
+  d
+
+- c
+::::
+
+In (a) to (c) the blank ends a nested list and also separates two items,
+or two blocks of one item, of the outer list.  "Blank lines at the start
+or end of a list do not count against tightness" does not say whether
+the exemption also covers the outer list.  jgm's own djot.js tests say
+it does: `lists.test` lines 242 and 308 (commit 0ec53d5f, 2022-12-24)
+expect `- a` / blank / `  - b` / `  - c` / blank / `- d` and its
+neighbour tight.  At the start of a nested list he ruled the other way
+when the blank is between outer items (jgm/djot.js#45, entry above), so
+the two edges are not symmetric.
+
+In (d) and (e) the blank is part of the div's contents.  We read "blocks
+inside an item" as the item's own blocks, as for a blank inside a code
+block.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js and jgm's tests
+on all five).  Row (e) reversed 2026-09-30: see "Closed 2026-09-30 --
+SPEC-GAP: whether a div left open at the end of an item holds the blank after
+it".  The alternative for (a) to (c), where the blank loosens
+the outer list, is on branch `hy/blank-after-nested-list`: it passes
+every check of ours and fails the two djot.js tests.
+
+## Closed 2026-09-29 -- djotjs-bug: a blank after a footnote in an item does not loosen
+
+| Input | djot.js | Ours and the reference |
+| --- | --- | --- |
+| `- [^n]: a` / blank / `  b` | tight | loose: the blank is between two blocks of the item |
+| `- [^n]: a` / blank / `- c` | tight | loose: the blank is between items |
+| `- [^n]: a` / blank / `      b` / `- c` | tight | tight: the blank is inside the footnote |
+
+A reference definition in the same place loosens in both engines
+(`- [r]: u` / blank / `  b`).  The reference does not treat the two
+differently; its exemption for "blank lines at the start or end of a
+list" names lists only.
+
+djot.js records a blank against a list only when the list is the
+innermost open container or the one below it (`blankline` in
+`src/parse.ts`).  A footnote in an item is a third level, list > item >
+footnote, so the blank is dropped before the next line closes the
+footnote.  A reference definition closes at the blank, so the list is
+the second level again.  The same two-level lookup is behind
+jgm/djot.js#157.  No test in djot.js covers a footnote in a list item.
+
+Ours matched djot.js because `blank_absorbed` counted an open footnote
+as absorbing, like a nested list.  Whether the blank is the footnote's
+is known only at the next line: a line the footnote takes (indented
+past its `[`) continues it, and anything else ends it.
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.**  A footnote no longer
+absorbs a blank in `blank_absorbed` (it reads through to what the
+footnote has open, so a blank inside a nested list or code block in the
+footnote is still theirs), and a content line the footnote takes clears
+the armed flag without loosening (`foot_takes`, since renamed `keeps_line`, `list_content` in
+Step.v; the mirrors `lines_loose` and `scan_list_content` in
+ListUniformity.v).  Not reported upstream yet.  Pinned by
+`list_blank_after_footnote_in_item`,
+`list_blank_after_footnote_between_items` and
+`list_blank_inside_footnote` in `dev/check/Reference.v`.  The generated
+and file corpora do not change against djot.js (generated 531 and 184
+mismatches, file 0), and the depth-3 roundtrip still accepts all 57857.
+
+## Closed 2026-09-29 -- djotjs-bug: a blank before a table's caption loosens the list
+
+| Input | djot.js | Ours and the reference |
+| --- | --- | --- |
+| `- \| a \|` / blank / `  ^ cap` / `- c` | loose | tight: the caption is part of the table |
+| `- \| a \|` / blank / `  b` / `- c` | loose | loose: the table and the paragraph are two blocks |
+
+The reference on captions: "The caption can come directly after the
+table, or there can be an intervening blank line."  The blank is inside
+the table, as a blank inside a footnote is inside the footnote.  djot.js
+counts it because the caption is a separate container that opens after
+the blank has been recorded.
+
+Found by a throwaway probe while stating the reference's tightness rule
+(`Tightness.v`): over about 268,000 hand-built item shapes, the caption
+was the only case where the parser loosened and no blank separated two
+blocks.
+
+**Verdict: `djotjs-bug`, fixed 2026-09-29.**  `keeps_line` (Step.v),
+which was `foot_takes`, now also answers for a table that a caption line
+continues, so the caption clears the armed flag without loosening.  Not
+reported upstream yet.  Pinned by `list_blank_before_caption` and
+`list_blank_after_table` in `dev/check/Reference.v`.  The generated and
+file corpora do not change against djot.js, and the roundtrip pools
+keep their counts.
+
+
+## Closed 2026-09-30 -- SPEC-GAP: whether a div left open at the end of an item holds the blank after it
+
+| Input | djot.js, djoths | djot.lua | Ours |
+| --- | --- | --- | --- |
+| `- :::` / blank / `- b` | tight | loose | loose |
+| `- [^1]: :::` / blank / `- b` | tight | loose | loose |
+| `- :::` / `  - x` / blank / `- b` | tight | loose | loose |
+| `` - ``` `` / blank / `- b` | tight | tight | tight |
+| `- :::` / `  a` / blank / `  b` / `  :::` (row d above) | tight | loose | tight |
+
+The reference says an unclosed div or code block ends "with the end of
+the document or containing block", and does not say whether the item
+ends before or after a trailing blank.  djot.js and djoths let the open
+div hold the blank, as they do a blank inside it.  The blank adds
+nothing to the div (the tree is the same without it), so the item is
+read as ending at its last nonblank line, as an item with a closed div
+does, and the blank lies between items.  A code block is different: the
+blank becomes a line of its text, in all three engines and at the end of
+a document too, so it is inside the item and the list stays tight.
+
+Found while proving the converse of LS4 (`Tightness.v`): with the
+footnote row, `separates_after` held and the list was tight, because
+`closes_at`'s paragraph line ended the footnote and with it the div.
+
+**Verdict: `SPEC-GAP`, ours changed; row (e) of the 2026-09-29 entry is
+reversed.**  A blank inside a div that continues after it is still the
+div's own (row d), where djot.lua differs.  `blank_absorbed` (Step.v)
+no longer counts an open div, unless a block inside it holds the blank
+(`blank_held`: code, an attribute spec, a key waiting for its fence);
+`keeps_line` answers for an open div, so a line the item still has
+clears the armed flag without loosening.  `separates_after` in
+Tightness.v now says the blank leaves the item's blocks unchanged,
+in place of `closes_at`.  Pinned by `list_blank_after_open_div` and
+`list_blank_in_open_code` in `dev/check/Reference.v`.  The generated and
+file corpora and the depth-3 roundtrip do not change.  Provisional, to be
+revisited.
+
+## 2026-09-30 -- SPEC-GAP: which whitespace may follow a quote's `>`
+
+| Input | djot.js and ours |
+| --- | --- |
+| `>` then a tab, then `a` | a block quote holding `a` |
+
+The reference says a quote line begins with `>` "followed either by a
+space or by the end of the line".  djot.js's marker pattern is
+`[>][ \t\r\n]`, so a tab or CR also counts, and `quote_prefix` accepts
+any `is_ws` character, the same set.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
+`classify_quote_marker` in `Line.v`, which names `is_ws`.
+
+## 2026-09-30 -- SPEC-GAP: whitespace before a div's class
+
+| Input | djot.js and ours |
+| --- | --- |
+| `:::foo` / `a` / `:::` | a div with class `foo` |
+
+The reference says a div opens with "a line of three or more consecutive
+colons, optionally followed by white space and a class name".  Read as
+"optionally followed by (white space and a class name)", `:::foo` would
+not open a div.  djot.js's `pattDivFenceEnd` allows no whitespace, and
+so does `div_open`.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
+`classify_div_fences` in `Line.v`, whose `gap` may be empty.
+
+## 2026-10-01 -- open: whether a table has a caption is decided by its inlines
+
+| Input | djot.js AST | ours | HTML (both) |
+| --- | --- | --- | --- |
+| `\| a \|` / `^ {.x}` | `caption` with no children | no caption (`None`) | no `<caption>` |
+| `\| a \|` / `^ x` | `caption` holding `x` | `Some [x]` | `<caption>x</caption>` |
+| `\| a \|` alone | `caption` with no children | `None` | no `<caption>` |
+
+The HTML is the same; the trees are not.  djot.js's AST gives every table
+a caption node, empty when there is none, and its HTML renderer skips an
+empty one (`src/html.ts:291`, "AST always has at least a dummy caption").
+Whether a caption shows is decided at rendering.  Ours decides it in the
+parser: `caption_of` (Step.v) runs the inline parser on the caption's
+lines and returns `None` when the inlines come out empty.  That is the
+choice the 2026-09-08 entry made, to keep `Some []` from being a second
+spelling of `None`; djot.js has no second spelling because it has no
+`None`.
+
+The cost is the one exception to "block structure can be discerned
+prior to inline parsing": `^ {.x}` has content, but djot's inline parser
+leaves nothing of it, so whether the table has a caption depends on the
+inline parse.  `block_shape_independent` erases captions for this reason,
+and `inline_attrs_affect_caption_presence` (Invariants.v) exhibits the
+dependence by comparing djot's inline syntax with one that has inline
+attributes off.
+
+Two ways to remove the exception, neither changing the HTML:
+
+1. Decide by the lines: a `^` line with content is a caption even when
+   its inlines are empty, and `^ ` alone is none.  `Some []` and `None`
+   then both occur, and `wf_block` and `cblocks_ok` need a clause
+   choosing one.
+2. Follow djot.js: a table's caption is `inlines`, empty meaning none.
+   One spelling, and the exception goes away with the option.  Touches
+   the `Table` constructor everywhere: Step, Html, Roundtrip, Wf, and
+   the `dist/` API, where the caption stops being optional.
+
+**Verdict: open.**  Option 2 preferred.  Either way
+`inline_attrs_affect_caption_presence` becomes false and is deleted, and
+`block_shape_independent` erases only inlines.

@@ -1305,7 +1305,7 @@ Qed.
    it consults the table, so a row spelled with it is reached from `{` or
    from `}` instead -- see `iscan_marked_close_step`, which is where this
    hypothesis stops travelling. *)
-Local Lemma ilead_dchar :
+Lemma ilead_dchar :
   forall k txt prev o,
     denabled_of k = true ->
     Ascii.eqb (dchar k) hyphen = false ->
@@ -1345,9 +1345,9 @@ Qed.
 (* Spelling a token, one character at a time: each of the row's
    characters after the first advances the count, and the token is still
    incomplete throughout because the arithmetic says so. *)
-Local Lemma iscan_chars_delim :
+Lemma iscan_chars_delim :
   forall n k extra txt bef o,
-    S extra + n = dwidth k ->
+    S extra + n <= dwidth k ->
     iscan_str (chars (dchar k) n) (IDelim k extra txt bef false o)
     = IDelim k (extra + n) txt bef false o.
 Proof.
@@ -1363,7 +1363,7 @@ Qed.
 
 (* A row's whole token, scanned from text: it leaves the token complete
    and its role undecided, which is the state the next byte resolves. *)
-Local Lemma iscan_dtoken :
+Lemma iscan_dtoken :
   forall k txt prev o,
     denabled_of k = true ->
     Ascii.eqb (dchar k) hyphen = false ->
@@ -1523,9 +1523,9 @@ Qed.
    `iscan_chars_delim`, and it stops one byte earlier than the push does:
    a marked opener's role is settled but the side its decay takes is
    not. *)
-Local Lemma iscan_chars_marked :
+Lemma iscan_chars_marked :
   forall n k extra txt o,
-    S extra + n = dwidth k ->
+    S extra + n <= dwidth k ->
     iscan_str (chars (dchar k) n) (idelim_marked k extra txt o)
     = idelim_marked k (extra + n) txt o.
 Proof.
@@ -1540,7 +1540,7 @@ Proof.
     f_equal. lia.
 Qed.
 
-Local Lemma iscan_marked_open :
+Lemma iscan_marked_open :
   forall d txt prev o,
     denabled_of d = true ->
     iscan_str (marked_open d) (IText false txt prev o)

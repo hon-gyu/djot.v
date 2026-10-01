@@ -1772,7 +1772,6 @@ Proof.
   cbn [item_ok] in Hitem.
   apply andb_true_iff in Hitem as [Hitem _].
   apply andb_true_iff in Hitem as [Hitem _].
-  apply andb_true_iff in Hitem as [Hitem _].
   apply andb_true_iff in Hitem as [Hth _].
   apply andb_true_iff in Hth as [Hth Hts].
   apply negb_true_iff in Hth. apply negb_true_iff in Hts.
