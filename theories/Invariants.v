@@ -378,6 +378,46 @@ Proof.
   rewrite (wrap_neutral_bcuts _ Hn). reflexivity.
 Qed.
 
+(* The converse.  A line that cuts an open paragraph leaves something
+   other than one paragraph: an underline makes a heading, a marker a
+   paragraph and a list. *)
+Local Lemma cut_not_one_para :
+  forall T K l c cur' x,
+    @bcuts K l = true ->
+    @parse_lines T K _ _ [l] (PPara (c :: cur')) <> [mk (Para x)].
+Proof.
+  intros T K l c cur' x Hc. cbn [parse_lines]. unfold step.
+  cbn [step_fuel open_line]. unfold bcuts in Hc.
+  destruct (bunderline_of l).
+  - nopos. unfold heading_block. discriminate.
+  - destruct (classify l); cbn [binterrupt] in Hc |- *; try discriminate Hc.
+    rewrite Hc. unfold close_reopen, open_list.
+    destruct (step_fuel _ _ _ _) as [ibs ist]. cbn [finish app]. discriminate.
+Qed.
+
+(* So [hard_wrap_one_para] fails at any configuration with a line that
+   cuts: a paragraph run followed by that line is not one paragraph,
+   whatever its inlines.  Stated over [bcuts] and not over the fields,
+   because a field may answer "yes" only at arguments no line reaches. *)
+Theorem hard_wrap_cut_not_one_para :
+  forall T K a ls l x,
+    classify a = KText ->
+    @keyless T K a = true ->
+    forallb nonblank ls = true ->
+    forallb (fun y => negb (@bcuts K y)) (a :: ls) = true ->
+    @bcuts K l = true ->
+    @parse_lines T K _ _ ((a :: ls) ++ [l])%list (PPara []) <> [mk (Para x)].
+Proof.
+  intros T K a ls l x Ha Hkey Hls Hno Hc.
+  cbn [forallb] in Hno. apply andb_prop in Hno as [Hna Hnls].
+  apply Bool.negb_true_iff in Hna.
+  rewrite (parse_lines_para_seed a ls [l] Ha Hna Hkey Hls Hnls).
+  destruct (rev (map drop_leading_ws (a :: ls))) as [|c cur] eqn:E.
+  - apply (f_equal (@rev _)) in E. rewrite rev_involutive in E.
+    cbn in E. discriminate.
+  - apply cut_not_one_para, Hc.
+Qed.
+
 (* The two field-local settings are the only ones that can lose the
    property, and each has its own weakest precondition. *)
 Theorem with_marker_interrupts_preserves_wrap_neutral :

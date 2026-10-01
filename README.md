@@ -12,8 +12,8 @@ It is **verified** in the sense that the goals behind djot's design[^design-rati
 
 - Container uniformity[^container-uniformity]: 
     - if a chunk of text has a certain meaning, it will continue to have the same meaning when put into a container block (such as a list item or blockquote).
-    - Blockquote: $\mathrm{parse}(\mathtt{>}\,L) = [\,\mathrm{Quote}(\mathrm{parse}(L))\,]$
-    - List: $\mathrm{parse}(\mathtt{-}\,L_1, \dots, \mathtt{-}\,L_n) = [\,\mathrm{List}(\mathrm{parse}(L_1), \dots, \mathrm{parse}(L_n))\,]$
+    - Blockquote: $\mathrm{parse}(\mathtt{>}\,L) = \mathrm{Quote}(\mathrm{parse}(L))$
+    - List: $\mathrm{parse}(\mathtt{-}\,L_1, \dots, \mathtt{-}\,L_n) = \mathrm{List}(\mathrm{parse}(L_1), \dots, \mathrm{parse}(L_n))$
 
 - Local interpretation[^local-interpretation]: 
     - parsing of inline elements is local
@@ -23,6 +23,7 @@ It is **verified** in the sense that the goals behind djot's design[^design-rati
 - Safe hard-wrapping[^safe-hard-wrapping]: 
     - Block-level elements can't interrupt paragraphs (or headings)
     - hard-wrapping a paragraph should not lead to different interpretations.
+    - $\mathrm{parse}(l_1, \dots, l_n) = \mathrm{Para}(l_1, \dots, l_n)$ when $l_1$ is text and no $l_i$ is blank
 
 It is **generalized** in the sense that djot is one setting of a configurable parser family. 
 - Extensions and dialects are developed in a safe way.
@@ -105,8 +106,8 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 Current supported extensions and parser configs are:
 - Character and width of each inline delimiter (emphasis, strong, superscript, ...): breaks none
 - Opt out of smart typography, raw inline, math, inline attributes, tables, fenced divs, task lists, raw blocks, definition lists, block attributes, footnotes, heading continuation: breaks none
-- List interruption (a list marker can end a paragraph): breaks safe hard-wrapping
-- Setext (underlined) headings: breaks safe hard-wrapping
+- List interruption (a list marker can end a paragraph): breaks safe hard-wrapping (`hard_wrap_cut_not_one_para`)
+- Setext (underlined) headings: breaks safe hard-wrapping (`hard_wrap_cut_not_one_para`)
 - Wikilinks (Obsidian-style `[[target\|alias]]`): breaks none
 - Keyed blocks (`label: content`, pairing an inline label with a block): breaks safe hard-wrapping; also changes the tree structure of existing documents
 - Callouts (`> [!kind]` on a quote opener): breaks block quote container uniformity for matching headers; also changes the tree structure of those quotes
