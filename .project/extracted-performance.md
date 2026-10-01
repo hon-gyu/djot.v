@@ -637,6 +637,16 @@ is quadratic, as it was for native OCaml strings before the
 realizations above.  djoths reads a `ByteString` by offset and renders
 through a `Builder`.
 
+### Allocation
+
+2026-10-01, `40e3d39`, OCaml 5.4.1 release profile.  A parse of
+`readme.dj` x64 allocates 132 MB (about 160 bytes per input byte) in
+33 ms and promotes 12.5 MB.  `Line` accounts for 37% of it, and string
+copies in the block recognizers for 36%; `Strings.drop_leading_ws` is
+the largest single site at 10%.  Enlarging the minor heap does not
+change the time, so the collector is not the cost.  The breakdown and
+what to do about it are in [[261001.plan.line-allocation]].
+
 ## Open, ranked by what they cost a real document
 
 Measured 2026-09-26 at `537dba9`, release profile, parse (`parse_doc`)
