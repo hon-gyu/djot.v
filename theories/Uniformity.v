@@ -1028,7 +1028,7 @@ Fixpoint run_lines (lines : list string) (st : pstate) : blocks * pstate :=
       ((bs ++ more)%list, st'')
   end.
 
-Local Lemma run_lines_app :
+Lemma run_lines_app :
   forall xs ys st,
     run_lines (xs ++ ys)%list st =
       let '(bs, st') := run_lines xs st in
@@ -1045,7 +1045,7 @@ Proof.
   rewrite app_assoc. reflexivity.
 Qed.
 
-Local Lemma run_lines_continue :
+Lemma run_lines_continue :
   forall xs ys st head middle tail final,
     run_lines xs st = (head, middle) ->
     run_lines ys middle = (tail, final) ->

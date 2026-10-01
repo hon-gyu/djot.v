@@ -217,6 +217,7 @@ module Doc = struct
     kernel : K.Ast.doc;
     footnote_defs : Block.t node list;
     lines : K.Strings.source_line array option;
+    pieces : K.Reparse.piece list option;
     profile : Profile.t;
   }
 
@@ -234,26 +235,65 @@ module Doc = struct
     | Para _ | Heading _ | CodeBlock _ | ThematicBreak | Table _ | RawBlock _ | RefDef _ ->
         acc
 
-  let make ~profile ~lines pos bs =
+  let make ~profile ~lines ~pieces pos bs =
     {
       kernel = K.Document.doc_pass pos bs;
       footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs);
       lines;
+      pieces;
       profile;
     }
+
+  let of_pieces ~profile ps =
+    make ~profile ~lines:None ~pieces:(Some ps) K.Ast.semantic_pos
+      (K.Reparse.pieces_tree ps)
 
   let of_string ?(profile = Profile.djot) ?(locs = false) s =
     let { K.Profile.profile_inline = table; profile_block = bconfig } = profile in
     if locs then
       make ~profile
         ~lines:(Some (Array.of_list (K.Strings.line_table s)))
-        K.Ast.located_pos
+        ~pieces:None K.Ast.located_pos
         (K.Step.parse_blocks_located table bconfig s)
-    else
-      make ~profile ~lines:None K.Ast.semantic_pos
-        (K.Step.parse_blocks table bconfig K.Step.semantic_line_ix K.Ast.semantic_pos s)
+    else of_pieces ~profile (K.Reparse.pieces table bconfig (K.Strings.split_lines s))
 
-  let of_blocks ?(profile = Profile.djot) bs = make ~profile ~lines:None K.Ast.semantic_pos bs
+  let of_blocks ?(profile = Profile.djot) bs =
+    make ~profile ~lines:None ~pieces:None K.Ast.semantic_pos bs
+
+  (* The edit widens to the pieces holding lines [first] to [last]; the
+     lines of those pieces outside the range go back in around [s]. *)
+  let replace_lines d ~first ~last s =
+    let ps =
+      match d.pieces with
+      | Some ps -> ps
+      | None -> invalid_arg "Doc.replace_lines: not parsed by of_string without locs"
+    in
+    let n = List.length ps in
+    let pa = Array.of_list ps in
+    let starts = Array.make (n + 1) 0 in
+    Array.iteri
+      (fun k p -> starts.(k + 1) <- starts.(k) + List.length p.K.Reparse.piece_lines)
+      pa;
+    let f = first - 1 and l = last - 1 in
+    if f < 0 || l < f - 1 || l >= starts.(n) then
+      invalid_arg "Doc.replace_lines: range outside the document";
+    let rec holding k = if k < n && starts.(k + 1) <= f then holding (k + 1) else k in
+    let rec after k = if k < n && starts.(k) <= l then after (k + 1) else k in
+    let i = holding 0 in
+    let j = max i (after 0) in
+    let before =
+      if i < j then List.filteri (fun k _ -> starts.(i) + k < f) pa.(i).K.Reparse.piece_lines
+      else []
+    in
+    let behind =
+      if i < j then
+        List.filteri (fun k _ -> starts.(j - 1) + k > l) pa.(j - 1).K.Reparse.piece_lines
+      else []
+    in
+    let { K.Profile.profile_inline = table; profile_block = bconfig } = d.profile in
+    of_pieces ~profile:d.profile
+      (K.Reparse.splice table bconfig ps i j
+         (before @ K.Strings.split_lines s @ behind))
   let blocks d = d.kernel.doc_blocks
   let footnotes d = d.kernel.doc_footnotes
   let footnote_defs d = d.footnote_defs

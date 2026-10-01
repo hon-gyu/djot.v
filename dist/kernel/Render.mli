@@ -35,8 +35,6 @@ val sep_body : align list -> string
 
 val sep_line : align list -> string
 
-val cells_body : string list -> string
-
 val cells_line : string list -> string
 
 val sep_lines : string list list -> string list

@@ -77,12 +77,6 @@ let rec sep_body = function
 let sep_line als =
   (^) "|" (sep_body als)
 
-(** val cells_body : string list -> string **)
-
-let rec cells_body = function
-| [] -> ""
-| c :: rest -> (^) " " ((^) c ((^) " |" (cells_body rest)))
-
 (** val cells_line : string list -> string **)
 
 let cells_line cs =
