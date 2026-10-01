@@ -409,29 +409,6 @@ Local Fixpoint split_lines_aux (s : string) (cur : string) : list string :=
 
 Definition split_lines (s : string) : list string := split_lines_aux s EmptyString.
 
-(* [split_lines], each line paired with its index. *)
-Local Fixpoint index_lines_from (i : nat) (lines : list string)
-  : list (nat * string) :=
-  match lines with
-  | [] => []
-  | l :: rest => (i, l) :: index_lines_from (S i) rest
-  end.
-
-Definition split_lines_indexed (s : string) : list (nat * string) :=
-  index_lines_from 0 (split_lines s).
-
-Local Lemma map_snd_index_lines_from :
-  forall i lines, map snd (index_lines_from i lines) = lines.
-Proof.
-  intros i lines. revert i.
-  induction lines as [|l rest IH]; intros i; cbn; [reflexivity|].
-  rewrite IH. reflexivity.
-Qed.
-
-Lemma split_lines_indexed_values :
-  forall s, map snd (split_lines_indexed s) = split_lines s.
-Proof. intros s. apply map_snd_index_lines_from. Qed.
-
 (* One entry per line produced by [split_lines].  Starts and lengths are
    byte counts.  [source_line_ending] is 1 precisely when LF terminated
    the line; CR remains part of [source_line_length], matching the parser's

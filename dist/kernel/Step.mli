@@ -291,6 +291,8 @@ val key_claims : string -> pstate -> bool
 
 val list_takes : list_state -> int -> string -> pstate -> bool
 
+val blank_held : pstate -> bool
+
 val blank_absorbed : pstate -> bool
 
 val keeps_line : bconfig -> int -> string -> pstate -> bool
@@ -322,13 +324,3 @@ val parse_blocks :
 val pad_safe : pstate -> bool
 
 val blank_safe : pstate -> bool
-
-val run_lines_tagged :
-  dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
-  blocks * pstate
-
-val finish_lines_tagged :
-  dtable -> bconfig -> coq_PosPolicy -> (int * string) list -> pstate ->
-  blocks
-
-val parse_blocks_located : dtable -> bconfig -> string -> blocks
