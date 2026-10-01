@@ -291,6 +291,8 @@ val key_claims : string -> pstate -> bool
 
 val list_takes : list_state -> int -> string -> pstate -> bool
 
+val blank_held : pstate -> bool
+
 val blank_absorbed : pstate -> bool
 
 val keeps_line : bconfig -> int -> string -> pstate -> bool

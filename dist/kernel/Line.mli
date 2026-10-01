@@ -141,6 +141,8 @@ val row_inner : string -> string
 
 val table_row : string -> trow option
 
+val cells_body : string list -> string
+
 val caption_open : string -> string option
 
 val classify : string -> line_kind

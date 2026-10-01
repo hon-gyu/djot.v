@@ -264,6 +264,20 @@ module Doc : sig
       source, so {!textloc} is {!Textloc.none} throughout.  [profile]
       (default {!Profile.djot}) is the syntax {!Source.of_doc} writes. *)
 
+  val replace_lines : t -> first:int -> last:int -> string -> t
+  (** [replace_lines d ~first ~last s] is {!of_string} of [d]'s source
+      with lines [first] to [last] (one-based, inclusive) replaced by
+      the lines of [s], where a final newline in [s] ends its last line.
+      [last = first - 1] inserts before line [first].
+
+      The parse is kept in pieces cut where the block parser is idle.
+      Only the pieces from the edit to the next such point are parsed
+      again (Reparse.v, [parse_doc_splice]); the document pass runs over
+      the whole result.
+
+      Raises [Invalid_argument] if [d] was not made by {!of_string}
+      without [locs], or the range is not within [d]'s lines. *)
+
   val blocks : t -> Block.t node list
 
   val footnotes : t -> (string * Block.t node list) list

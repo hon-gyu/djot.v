@@ -1618,6 +1618,12 @@ let table_row l =
         | None -> None))
   | None -> None
 
+(** val cells_body : string list -> string **)
+
+let rec cells_body = function
+| [] -> ""
+| c :: rest -> (^) " " ((^) c ((^) " |" (cells_body rest)))
+
 (** val caption_open : string -> string option **)
 
 let caption_open l =
