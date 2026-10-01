@@ -1149,21 +1149,34 @@ let rec key_claims l = function
 let list_takes ls off l inner =
   (||) (key_claims l inner) (( < ) ls.ls_indent (( + ) off (indent_of l)))
 
+(** val blank_held : pstate -> bool **)
+
+let rec blank_held = function
+| PFence (_, _, _, _, _) -> true
+| PDiv (_, _, _, _, _, inner) -> blank_held inner
+| PList (_, _, inner) -> blank_held inner
+| PAttr (_, _, _, _, _, _) -> true
+| PFoot (_, _, _, _, inner) -> blank_held inner
+| PPend (_, _, inner) -> blank_held inner
+| PKey (_, _, _, inner) -> (||) (announces_end inner) (blank_held inner)
+| _ -> false
+
 (** val blank_absorbed : pstate -> bool **)
 
 let rec blank_absorbed = function
 | PFence (_, _, _, _, _) -> true
-| PDiv (_, _, _, _, _, _) -> true
+| PDiv (_, _, _, _, _, inner) -> blank_held inner
 | PList (_, _, _) -> true
 | PAttr (_, _, _, _, _, _) -> true
 | PFoot (_, _, _, _, inner) -> blank_absorbed inner
 | PPend (_, _, inner) -> blank_absorbed inner
-| PKey (_, _, _, inner) -> blank_absorbed inner
+| PKey (_, _, _, inner) -> (||) (announces_end inner) (blank_absorbed inner)
 | _ -> false
 
 (** val keeps_line : bconfig -> int -> string -> pstate -> bool **)
 
 let rec keeps_line k off l = function
+| PDiv (_, _, _, _, _, inner) -> negb (lazy_ok k inner)
 | PFoot (_, ind, _, _, inner) ->
   (&&) (negb (lazy_ok k inner)) (( < ) ind (( + ) off (indent_of l)))
 | PTable (_, _, _) ->
