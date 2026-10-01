@@ -92,7 +92,7 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| When emphasis delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener: `_a *b_ c*` is emphasis around `a *b`, with the `*`s as text. There is exactly one reading that follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, the one the syntax reference gives, and it can be worked out by hand. | proved for one line of `_`, `*`, `^`, `~` and plain text: `para_inlines_valid`, `valid_unique`; braces, brackets and smart quotes are planned |
+| When emphasis delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener: `_a *b_ c*` is emphasis around `a *b`, with the `*`s as text. There is exactly one reading that follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, the one the syntax reference gives, and it can be worked out by hand. | proved for one line of `_`, `*`, `^`, `~` (bare or in braces), `{= =}`, `{+ +}` and plain text: `para_inlines_valid`, `valid_unique`; brackets and smart quotes are planned |
 
 ### Roundtrip
 

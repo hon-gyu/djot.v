@@ -129,7 +129,7 @@ Proof.
 Qed.
 
 (* Its character is punctuation, so a backslash escapes it... *)
-Local Lemma dchar_punct : forall k, is_punct (dchar k) = true.
+Lemma dchar_punct : forall k, is_punct (dchar k) = true.
 Proof.
   intros k. pose proof (drow_ok_of k) as H.
   unfold drow_ok in H. apply andb_true_iff in H as [H _].

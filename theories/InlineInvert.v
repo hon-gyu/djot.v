@@ -1523,9 +1523,9 @@ Qed.
    `iscan_chars_delim`, and it stops one byte earlier than the push does:
    a marked opener's role is settled but the side its decay takes is
    not. *)
-Local Lemma iscan_chars_marked :
+Lemma iscan_chars_marked :
   forall n k extra txt o,
-    S extra + n = dwidth k ->
+    S extra + n <= dwidth k ->
     iscan_str (chars (dchar k) n) (idelim_marked k extra txt o)
     = idelim_marked k (extra + n) txt o.
 Proof.
@@ -1540,7 +1540,7 @@ Proof.
     f_equal. lia.
 Qed.
 
-Local Lemma iscan_marked_open :
+Lemma iscan_marked_open :
   forall d txt prev o,
     denabled_of d = true ->
     iscan_str (marked_open d) (IText false txt prev o)

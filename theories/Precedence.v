@@ -2,9 +2,10 @@
 
 (* The reference's precedence rules for delimiters (syntax reference,
    "Precedence"), stated as a matching between openers and closers and
-   independent of the scanner: the tokens of a line, the matchings the
-   rules allow, the proof that exactly one exists, and the tree it
-   describes.  `InlinePrecedence.v` proves the scanner builds that tree. *)
+   independent of the scanner: the tokens of a line, bare or marked with
+   braces, the matchings the rules allow, the proof that exactly one
+   exists, and the tree it describes.  `InlinePrecedence.v` proves the
+   scanner builds that tree. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
 From DjotV Require Import Strings Ast InlineTable InlineView.
@@ -19,37 +20,59 @@ Context {T : dtable}.
 Tokens
 ======
 
-The rows covered here are the bare ones whose unmatched token is its own
-text (`_ * ^ ~` in djot's table).  The quotes are bare too, but an
-unmatched quote is a curly quote and whether one may open depends on the
-byte before it; the braced rows are reached only through `{`. *)
+The rows covered here are the ones whose unmatched token is its own
+text: `_ * ^ ~`, written bare or in braces, and `= +`, written only in
+braces, in djot's table.  The quotes are left out: an unmatched quote is
+a curly quote, and whether one may open depends on the byte before it.
+The hyphen is left out too: a run of dashes claims it first. *)
 
-Definition bare_row (k : dstyle) : bool :=
+Definition self_row (k : dstyle) : bool :=
   match dsyntax_of k, dc_decay cfg k with
-  | DBare, DDSelf => true
+  | (DBare | DBraced), DDSelf => true
   | _, _ => false
   end.
 
-(* The bytes a line is drawn from: the characters of those rows, and
-   bytes that no row and no other syntax claims.  The hyphen is claimed
-   for dashes and the newline ends the line. *)
+(* Whether a row's token may open without braces. *)
+Definition bare_opens (k : dstyle) : bool :=
+  match dsyntax_of k with DBare => true | _ => false end.
+
+(* The bytes a line is drawn from: the characters of those rows, the
+   braces, and bytes that no row and no other syntax claims.  The newline
+   ends the line. *)
 Definition in_alphabet (c : ascii) : bool :=
-  (negb (Ascii.eqb c nl_char) && negb (dreserved c)
+  (negb (Ascii.eqb c nl_char)
+   && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || negb (dreserved c))
    && negb (Ascii.eqb c hyphen)
-   && match dstyle_of c with Some k => bare_row k | None => true end)%bool.
+   && match dstyle_of c with Some k => self_row k | None => true end)%bool.
 
-Definition over_alphabet (s : string) : Prop :=
-  forall c, In c (list_ascii_of_string s) -> in_alphabet c = true.
+Definition starts_row (s : string) : bool :=
+  match s with String d _ => is_delim d | EmptyString => false end.
 
-(* A text token is one byte, so that every token is nonempty. *)
+(* A line over the alphabet whose every `{` marks the token after it.  A
+   `{` before anything else would begin an attribute spec. *)
+Fixpoint over_alphabet (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c rest =>
+      (in_alphabet c && (negb (Ascii.eqb c lbrace) || starts_row rest)
+       && over_alphabet rest)%bool
+  end.
+
+(* A text token is one byte, so that every token is nonempty.  A marked
+   token is an opener `{_` or a closer `_}`, never both. *)
 Inductive token : Type :=
   | TText (c : ascii)
-  | TDelim (k : dstyle) (opens closes : bool).
+  | TDelim (k : dstyle) (marked opens closes : bool).
+
+Definition at_rbrace (p : option ascii) : bool :=
+  match p with Some b => Ascii.eqb b rbrace | None => false end.
 
 (* A run of a row's character is cut, left to right, into tokens of the
-   row's width, and a remainder shorter than that is text.  A token may
-   open when the byte after it is not whitespace, and may close when the
-   byte before it is not (M2).  `prev` is the byte before `s`, and
+   row's width, and a remainder shorter than that is text.  A token with
+   `{` before it is a marked opener, and one with `}` after it a marked
+   closer (P3).  A bare token may open when its row may be written bare
+   and the byte after it is not whitespace, and may close when the byte
+   before it is not whitespace (M2).  `prev` is the byte before `s`, and
    `skip` counts the bytes of a token already emitted that are still to
    be read. *)
 Fixpoint lex (prev : option ascii) (skip : nat) (s : string) : list token :=
@@ -59,11 +82,26 @@ Fixpoint lex (prev : option ascii) (skip : nat) (s : string) : list token :=
       match skip with
       | S n => lex (Some c) n rest
       | O =>
-          match dstyle_of c with
+          if Ascii.eqb c lbrace then
+            match (match rest with
+                   | String d _ => dstyle_of d
+                   | EmptyString => None
+                   end) with
+            | Some k =>
+                if prefix (dtoken k) rest
+                then TDelim k true true false :: lex (Some c) (dwidth k) rest
+                else TText c :: lex (Some c) 0 rest
+            | None => TText c :: lex (Some c) 0 rest
+            end
+          else match dstyle_of c with
           | Some k =>
               if prefix (dtoken k) s
-              then TDelim k (nonspace_at (get (dwidth k) s)) (nonspace_at prev)
-                     :: lex (Some c) (pred (dwidth k)) rest
+              then if at_rbrace (get (dwidth k) s)
+                   then TDelim k true false true :: lex (Some c) (dwidth k) rest
+                   else TDelim k false
+                          (bare_opens k && nonspace_at (get (dwidth k) s))
+                          (nonspace_at prev)
+                        :: lex (Some c) (pred (dwidth k)) rest
               else TText c :: lex (Some c) 0 rest
           | None => TText c :: lex (Some c) 0 rest
           end
@@ -77,7 +115,10 @@ Matchings
 =========
 
 A matching is a list of pairs of token positions: `(i, j)` pairs the
-opener at `i` with the closer at `j`.
+opener at `i` with the closer at `j`.  An opener and a closer can pair
+when they have the same style and the same marking: "explicitly marked
+closers can only match explicitly marked openers, and non-marked closers
+can only match non-marked openers" (P4).
 
 An opener is *live* at `j` when it may still be closed there: it has not
 been used as a closer, it has not been closed before `j`, and it is not
@@ -88,16 +129,22 @@ is "the first opener that gets closed takes precedence". *)
 
 Definition matching : Type := list (nat * nat).
 
-Definition may_open (ts : list token) (i : nat) (k : dstyle) : Prop :=
-  exists cl, nth_error ts i = Some (TDelim k true cl).
+(* A style and a marking. *)
+Definition dkey : Type := (dstyle * bool)%type.
 
-Definition may_close (ts : list token) (j : nat) (k : dstyle) : Prop :=
-  exists op, nth_error ts j = Some (TDelim k op true).
+Definition dkey_eq (a b : dkey) : bool :=
+  (dstyle_eq (fst a) (fst b) && Bool.eqb (snd a) (snd b))%bool.
+
+Definition may_open (ts : list token) (i : nat) (k : dkey) : Prop :=
+  exists cl, nth_error ts i = Some (TDelim (fst k) (snd k) true cl).
+
+Definition may_close (ts : list token) (j : nat) (k : dkey) : Prop :=
+  exists op, nth_error ts j = Some (TDelim (fst k) (snd k) op true).
 
 Definition closes (m : matching) (j : nat) : Prop :=
   exists i, In (i, j) m.
 
-Definition live (ts : list token) (m : matching) (j p : nat) (k : dstyle)
+Definition live (ts : list token) (m : matching) (j p : nat) (k : dkey)
   : Prop :=
   p < j /\ may_open ts p k /\ ~ closes m p
   /\ ~ (exists j', j' < j /\ In (p, j') m)
@@ -106,13 +153,13 @@ Definition live (ts : list token) (m : matching) (j p : nat) (k : dstyle)
 (* "When there are multiple openers that might be matched with a given
    closer, the closest one is used." *)
 Definition closest_live (ts : list token) (m : matching) (j : nat)
-  (k : dstyle) (p : nat) : Prop :=
+  (k : dkey) (p : nat) : Prop :=
   live ts m j p k /\ forall q, live ts m j q k -> q <= p.
 
 (* The matchings the rules allow.  A pair is a closer and the closest
-   live opener of its style, with something between them (M3).  A closer
-   left unmatched has no live opener of its style but one right before
-   it, with nothing to enclose: `__a` pairs nothing, and the second `_`
+   live opener of its style and marking, with something between them
+   (M3).  A closer left unmatched has no live opener of its style and
+   marking but one right before it, with nothing to enclose: `__a` pairs nothing, and the second `_`
    opens in its turn. *)
 Definition valid (ts : list token) (m : matching) : Prop :=
   (forall i j, In (i, j) m ->
@@ -125,35 +172,36 @@ The matching, computed
 ----------------------
 
 Left to right, with the live openers innermost first.  A closer takes
-the closest live opener of its style if something lies between them, and
+the closest live opener of its style and marking if something lies
+between them, and
 the openers above it become text; otherwise the token opens, if it may. *)
 
-Fixpoint pick (k : dstyle) (lv : list (nat * dstyle))
-  : option (nat * list (nat * dstyle)) :=
+Fixpoint pick (k : dkey) (lv : list (nat * dkey))
+  : option (nat * list (nat * dkey)) :=
   match lv with
   | [] => None
-  | (p, k') :: rest => if dstyle_eq k k' then Some (p, rest) else pick k rest
+  | (p, k') :: rest => if dkey_eq k k' then Some (p, rest) else pick k rest
   end.
 
 Record rstate : Type := RState {
-  rs_live : list (nat * dstyle);
+  rs_live : list (nat * dkey);
   rs_pairs : matching
 }.
 
-Definition ropen (i : nat) (k : dstyle) (op : bool) (lv : list (nat * dstyle))
-  : list (nat * dstyle) :=
+Definition ropen (i : nat) (k : dkey) (op : bool) (lv : list (nat * dkey))
+  : list (nat * dkey) :=
   if op then (i, k) :: lv else lv.
 
 Definition rstep (i : nat) (t : token) (s : rstate) : rstate :=
   match t with
   | TText _ => s
-  | TDelim k op cl =>
-      match (if cl then pick k (rs_live s) else None) with
+  | TDelim k mr op cl =>
+      match (if cl then pick (k, mr) (rs_live s) else None) with
       | Some (p, below) =>
           if Nat.ltb (S p) i
           then RState below ((p, i) :: rs_pairs s)
-          else RState (ropen i k op (rs_live s)) (rs_pairs s)
-      | None => RState (ropen i k op (rs_live s)) (rs_pairs s)
+          else RState (ropen i (k, mr) op (rs_live s)) (rs_pairs s)
+      | None => RState (ropen i (k, mr) op (rs_live s)) (rs_pairs s)
       end
   end.
 
@@ -178,8 +226,8 @@ pairs that closed before `j`. *)
 Lemma may_close_fun : forall ts j k k',
   may_close ts j k -> may_close ts j k' -> k = k'.
 Proof.
-  intros ts j k k' [o1 H1] [o2 H2]. rewrite H1 in H2.
-  injection H2 as E _. exact E.
+  intros ts j [k m] [k' m'] [o1 H1] [o2 H2]. rewrite H1 in H2.
+  cbn [fst snd] in H2. injection H2 as -> -> _. reflexivity.
 Qed.
 
 Lemma closest_live_fun : forall ts m j k p q,
@@ -276,7 +324,7 @@ at `n`, innermost first, and every pair and every closer so far obeys the
 rules.  A new pair `(p, n)` leaves live at `n + 1` the openers below `p`,
 which are the ones `pick` leaves below it. *)
 
-Definition desc (lv : list (nat * dstyle)) : Prop :=
+Definition desc (lv : list (nat * dkey)) : Prop :=
   StronglySorted (fun a b => fst b < fst a) lv.
 
 Record rinv (ts : list token) (n : nat) (s : rstate) : Prop := RInv {
@@ -294,6 +342,14 @@ Record rinv (ts : list token) (n : nat) (s : rstate) : Prop := RInv {
 Lemma dstyle_eq_iff : forall a b, dstyle_eq a b = true <-> a = b.
 Proof. intros [] []; split; intros H; first [reflexivity | discriminate]. Qed.
 
+Lemma dkey_eq_iff : forall a b, dkey_eq a b = true <-> a = b.
+Proof.
+  intros [a x] [b y]. unfold dkey_eq; cbn [fst snd].
+  rewrite andb_true_iff, dstyle_eq_iff, Bool.eqb_true_iff. split.
+  - intros [-> ->]. reflexivity.
+  - intros E. injection E as -> ->. split; reflexivity.
+Qed.
+
 Lemma pick_some : forall k lv p below,
   desc lv -> pick k lv = Some (p, below) ->
   In (p, k) lv
@@ -305,8 +361,8 @@ Proof.
     [discriminate|].
   apply StronglySorted_inv in D as [D F].
   rewrite Forall_forall in F. cbn [pick] in H.
-  destruct (dstyle_eq k k') eqn:E.
-  - injection H as <- <-. apply dstyle_eq_iff in E. subst k'.
+  destruct (dkey_eq k k') eqn:E.
+  - injection H as <- <-. apply dkey_eq_iff in E. subst k'.
     split; [left; reflexivity|]. split; [|split; [|exact D]].
     + intros q' [Hq|Hq]; [inversion Hq; lia|].
       specialize (F _ Hq). cbn in F. lia.
@@ -318,7 +374,7 @@ Proof.
     split; [right; exact Hin|]. split; [|split; [|exact Dbelow]].
     + intros q' [Hq|Hq]; [|apply Hmax, Hq].
       inversion Hq; subst.
-      assert (dstyle_eq k k = true) by (apply dstyle_eq_iff; reflexivity).
+      assert (dkey_eq k k = true) by (apply dkey_eq_iff; reflexivity).
       congruence.
     + intros q' k''. rewrite Hbelow. split.
       * intros [Hq Hlt]. split; [right; exact Hq|exact Hlt].
@@ -330,10 +386,10 @@ Lemma pick_none : forall k lv, pick k lv = None -> forall q, ~ In (q, k) lv.
 Proof.
   intros k lv. induction lv as [|[q k'] lv IH]; intros H q' Hin;
     [exact Hin|].
-  cbn [pick] in H. destruct (dstyle_eq k k') eqn:E; [discriminate|].
+  cbn [pick] in H. destruct (dkey_eq k k') eqn:E; [discriminate|].
   destruct Hin as [Hq|Hq]; [|exact (IH H q' Hq)].
   assert (k' = k) as -> by congruence.
-  assert (dstyle_eq k k = true) by (apply dstyle_eq_iff; reflexivity).
+  assert (dkey_eq k k = true) by (apply dkey_eq_iff; reflexivity).
   congruence.
 Qed.
 
@@ -471,29 +527,31 @@ Proof.
   pose proof I as [Bd Lv Ds Pr Un]. cbn [rs_live rs_pairs] in *.
   assert (Lt : forall p k, In (p, k) lv -> p < n).
   { intros p k H. apply Lv in H. destruct H as [H _]. exact H. }
-  destruct t as [c|k op cl]; cbn [rstep rs_live rs_pairs].
+  destruct t as [c|k0 mr op cl]; cbn [rstep rs_live rs_pairs].
   - apply (rinv_keep ts n lv m lv I).
     + intros p k. split; [intros H; left; exact H|].
       intros [H|[-> [cl H]]]; [exact H|]. rewrite Hn in H. discriminate.
     + exact Ds.
     + intros k [op H]. rewrite Hn in H. discriminate.
-  - assert (Ro : forall p k', In (p, k') (ropen n k op lv)
+  - set (k := (k0, mr)).
+    assert (Ro : forall p k', In (p, k') (ropen n k op lv)
                   <-> In (p, k') lv \/ (p = n /\ may_open ts n k')).
-    { intros p k'. unfold ropen, may_open. rewrite Hn. destruct op; cbn.
+    { intros p [k1 m1]. unfold ropen, may_open, k. rewrite Hn.
+      cbn [fst snd]. destruct op; cbn.
       - split.
         + intros [E|H]; [|left; exact H].
-          right. injection E as -> ->.
+          right. injection E as -> -> ->.
           split; [reflexivity|exists cl; reflexivity].
         + intros [H|[-> [cl' E]]]; [right; exact H|].
-          left. injection E as -> _. reflexivity.
+          left. injection E as -> -> _. reflexivity.
       - split; [intros H; left; exact H|].
         intros [H|[-> [cl' E]]]; [exact H|discriminate]. }
     assert (Dr : desc (ropen n k op lv)).
     { unfold ropen. destruct op; [|exact Ds]. constructor; [exact Ds|].
       apply Forall_forall. intros [p k'] H. cbn. exact (Lt p k' H). }
     assert (Mc : forall k', may_close ts n k' -> cl = true /\ k' = k).
-    { intros k' [op' H]. rewrite Hn in H. injection H as -> _ ->.
-      split; reflexivity. }
+    { intros [k1 m1] [op' H]. rewrite Hn in H. cbn [fst snd] in H.
+      injection H as -> -> _ ->. split; reflexivity. }
     destruct cl; [destruct (pick k lv) as [[p below]|] eqn:P|].
     + destruct (pick_some k lv p below Ds P) as (Hin & Hmax & Hbelow & Db).
       assert (Hcl : closest_live ts m n k p).
@@ -565,7 +623,12 @@ Definition str_snoc (s : string) (out : inlines) : inlines :=
   end.
 
 Definition tok_text (t : token) : string :=
-  match t with TText c => one c | TDelim k _ _ => dtoken k end.
+  match t with
+  | TText c => one c
+  | TDelim k false _ _ => dtoken k
+  | TDelim k true true _ => (one lbrace ++ dtoken k)%string
+  | TDelim k true false _ => (dtoken k ++ one rbrace)%string
+  end.
 
 (* The frames of the open pairs, innermost first, each with its style and
    its content reversed, above the reversed top level. *)
@@ -595,7 +658,7 @@ Definition tstep (m : matching) (i : nat) (t : token)
   (st : tframes * inlines) : tframes * inlines :=
   let '(fs, top) := st in
   match t with
-  | TDelim k _ _ =>
+  | TDelim k _ _ _ =>
       if is_opener m i then ((k, []) :: fs, top)
       else match is_closer m i, fs with
            | true, (k', acc) :: fs0 =>

@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 1 | 6 | 45 | 0 | 0 | 5 |
+| Inline | 1 | 8 | 43 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
@@ -55,10 +55,10 @@ link locality, which holds by construction.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one matching is valid, and the paragraph is its tree.  Shape: one line of bare delimiters of the table's `DBare` rows whose unmatched token is its own text (`_ * ^ ~` in djot's table), of any width, among bytes no other syntax claims (`over_alphabet`, Precedence.v).  No braces (P3, P4), brackets or smart quotes; the reference's bracket examples stay examples. |
+| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one matching is valid, and the paragraph is its tree.  Shape: one line of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, among bytes no other syntax claims, with `{` only as a marker (`over_alphabet`, Precedence.v).  No brackets or smart quotes; the reference's bracket examples stay examples. |
 | P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | Shape: canonical inline trees (`ci`), as the inline renderer writes them. |
-| P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | E | `precedence_braces`, `emphasis_braces` | Unit: InlineExamples.v, "The delimiter family". |
-| P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | E | `marked_closer_needs_marked_opener` | |
+| P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | T~ | `para_inlines_valid`; `precedence_braces`, `emphasis_braces` | `lex` (Precedence.v) makes `{_` an opener that cannot close and `_}` a closer that cannot open.  Shape as P1.  Unit: InlineExamples.v, "The delimiter family". |
+| P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | T~ | `para_inlines_valid`; `marked_closer_needs_marked_opener` | `valid` pairs tokens of the same style and marking (`dkey`).  Shape as P1. |
 | P5 | Precedence | "When there are multiple openers ... the closest one is used" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique` (Precedence.v); `precedence_closest_opener` | `closest_live` in `valid`.  Shape as P1. |
 | P6 | Precedence | "Verbatim syntax ... doesn't allow nested markup" | E | `precedence_verbatim` | |
 | O1 | Ordinary text | "Anything that isn't given a special meaning is parsed as literal text" | n/a | | The default case of every other row. |
@@ -113,7 +113,7 @@ link locality, which holds by construction.
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 1, T~ 6, E 45, n/a 5.
+Inline: T 1, T~ 8, E 43, n/a 5.
 
 ## Block syntax
 
@@ -259,10 +259,10 @@ List and table structure:
 
 Inline structure:
 
-8. Done in part: **P1, P5 precedence**, `para_inlines_valid`: on one
-   line of bare delimiters, the paragraph is the tree of the unique
-   matching the rules allow (`260930.plan.inline-precedence.md`).
-   Braces (with P3, P4) and brackets are its stages 3 and 4.
+8. Done in part: **P1, P3, P4, P5 precedence**, `para_inlines_valid`:
+   on one line of delimiters, bare or marked with braces, the paragraph
+   is the tree of the unique matching the rules allow
+   (`260930.plan.inline-precedence.md`).  Brackets are its stage 4.
 9. **M2, M3 flanking**: an opener before whitespace or a closer after
    whitespace never delimits, over all inputs.
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
@@ -294,7 +294,7 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
 
 ### An example is enough
 
-P3, P4, P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
+P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
 M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
 N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD2 (continuation chunks), RD3,
 RD4, LH3, LH4, DL1, TK1.
