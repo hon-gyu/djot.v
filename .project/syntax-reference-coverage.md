@@ -55,7 +55,7 @@ link locality, which holds by construction.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one matching is valid, and the paragraph is its tree.  Shape: one line of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, among bytes no other syntax claims, with `{` only as a marker (`over_alphabet`, Precedence.v).  No brackets or smart quotes; the reference's bracket examples stay examples. |
+| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one reading is valid, and the paragraph is its tree.  Shape: a paragraph of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, brackets with a destination `](...)` or a reference label `][...]`, and bytes no other syntax claims (`over_alphabet`, Precedence.v).  So the reference's two bracket examples are instances.  Left out: `{` except as a marker, `[^`, `[[`, `]{`, images, backslashes and smart quotes. |
 | P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | Shape: canonical inline trees (`ci`), as the inline renderer writes them. |
 | P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | T~ | `para_inlines_valid`; `precedence_braces`, `emphasis_braces` | `lex` (Precedence.v) makes `{_` an opener that cannot close and `_}` a closer that cannot open.  Shape as P1.  Unit: InlineExamples.v, "The delimiter family". |
 | P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | T~ | `para_inlines_valid`; `marked_closer_needs_marked_opener` | `valid` pairs tokens of the same style and marking (`dkey`).  Shape as P1. |
@@ -259,10 +259,12 @@ List and table structure:
 
 Inline structure:
 
-8. Done in part: **P1, P3, P4, P5 precedence**, `para_inlines_valid`:
-   on one line of delimiters, bare or marked with braces, the paragraph
-   is the tree of the unique matching the rules allow
-   (`260930.plan.inline-precedence.md`).  Brackets are its stage 4.
+8. Done: **P1, P3, P4, P5 precedence**, `para_inlines_valid`: on a
+   paragraph of delimiters, bare or marked with braces, and brackets
+   with destinations or reference labels, the paragraph is the tree of
+   the unique reading the rules allow
+   (`260930.plan.inline-precedence.md`).  Smart quotes, spans and images
+   are outside its alphabet.
 9. **M2, M3 flanking**: an opener before whitespace or a closer after
    whitespace never delimits, over all inputs.
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
