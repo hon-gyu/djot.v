@@ -48,8 +48,11 @@ Every rule with a parse outcome is at least E: the 76 code examples and
 `table_caption_alone` (adjudicated 2026-08-22, see the log) and the
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
-are the container rules and block-level determinism; inline syntax has one theorem,
-link locality, which holds by construction.
+are the container rules, the line-level spellings and block-level
+determinism.  Inline syntax has one T, link locality, which holds by
+construction, and eight T~: precedence over a restricted alphabet (P1
+to P5), escapes (O2), canonical verbatim (V1) and dash runs (Q5).  The
+other 43 inline rules are at E.
 
 ## Inline syntax
 
@@ -299,11 +302,17 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
 P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
 M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
 N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD2 (continuation chunks), RD3,
-RD4, LH3, LH4, DL1, TK1.
+RD4, LH3, LH4, and what the T~ theorems leave of DL1 and TK1.
 
 Each is one case, or a list of cases with no quantifier worth stating,
-and its examples say what the reference says.  DL1's term split is an
-AST function stated once (`def_split`); proving it would restate it.
+and its examples say what the reference says.  DL1 and TK1 are T~ for
+canonical markers (`definition_list_uniformity`, `ck_uniformity`); the
+rest stays at examples.  DL1's term split is an AST function stated
+once (`def_split`); proving it would restate it.
+
+This list is why inline syntax is mostly E.  It records a choice, not a
+limit: a formal statement of inline syntax beyond precedence would
+reopen it.
 
 ### Spec gaps
 
