@@ -157,7 +157,7 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse holds between items (`separates_after_loosens`); inside an item it is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30). |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
-Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
+Heading, block quote, list item, list: T 13, T~ 6, n/a 1.
 
 ### Leaf blocks and tables
 
@@ -182,7 +182,7 @@ Heading, block quote, list item, list: T 12, T~ 6, E 1, n/a 1.
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | T | `table_row_escaped_bar`, `table_row_verbatim_bar`; `table_escaped_pipes` | One cell holding `\|` between plain text, and one holding a single-backtick span with any bar-bearing, backtick-free content.  Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 5, T~ 3, E 8, n/a 2.
+Leaf blocks and tables: T 12, T~ 1, E 3, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
@@ -204,7 +204,7 @@ Leaf blocks and tables: T 5, T~ 3, E 8, n/a 2.
 | LH4 | Links to headings | `# Introduction[^1]` "generates the identifier `Introduction`, not `Introduction1`" | E | `heading_identifier_footnote` | |
 | — | Reference link definition | "The reference label should be defined somewhere in the document" | T~ | see L5 | Advice to the author; what happens when it is not defined is L5. |
 
-References, footnotes, attributes, identifiers: T 5, T~ 2, E 7 (the
+References, footnotes, attributes, identifiers: T 7, T~ 2, E 5 (the
 last row is counted under L5).
 
 ### Nesting limits and security
