@@ -59,9 +59,12 @@ Fixpoint over_alphabet (s : string) : bool :=
   end.
 
 (* A text token is one byte, so that every token is nonempty.  A marked
-   token is an opener `{_` or a closer `_}`, never both. *)
+   token is an opener `{_` or a closer `_}`, never both.  A break is the
+   end of a paragraph's line: a soft break in the tree, and whitespace to
+   the delimiters on either side of it. *)
 Inductive token : Type :=
   | TText (c : ascii)
+  | TBreak
   | TDelim (k : dstyle) (marked opens closes : bool).
 
 Definition at_rbrace (p : option ascii) : bool :=
@@ -109,6 +112,17 @@ Fixpoint lex (prev : option ascii) (skip : nat) (s : string) : list token :=
   end.
 
 Definition tokens (s : string) : list token := lex None 0 s.
+
+(* A paragraph's lines, with a break between two of them.  Each line is
+   lexed alone, so a token at a line's end has nothing after it and one
+   at a line's start nothing before it; the last line is read without
+   its trailing whitespace, as the paragraph's inlines are. *)
+Fixpoint para_tokens (ls : list string) : list token :=
+  match ls with
+  | [] => []
+  | [x] => tokens (strip_trailing_ws x)
+  | x :: rest => (tokens x ++ TBreak :: para_tokens rest)%list
+  end.
 
 (*
 Matchings
@@ -194,7 +208,7 @@ Definition ropen (i : nat) (k : dkey) (op : bool) (lv : list (nat * dkey))
 
 Definition rstep (i : nat) (t : token) (s : rstate) : rstate :=
   match t with
-  | TText _ => s
+  | TText _ | TBreak => s
   | TDelim k mr op cl =>
       match (if cl then pick (k, mr) (rs_live s) else None) with
       | Some (p, below) =>
@@ -527,12 +541,12 @@ Proof.
   pose proof I as [Bd Lv Ds Pr Un]. cbn [rs_live rs_pairs] in *.
   assert (Lt : forall p k, In (p, k) lv -> p < n).
   { intros p k H. apply Lv in H. destruct H as [H _]. exact H. }
-  destruct t as [c|k0 mr op cl]; cbn [rstep rs_live rs_pairs].
-  - apply (rinv_keep ts n lv m lv I).
-    + intros p k. split; [intros H; left; exact H|].
-      intros [H|[-> [cl H]]]; [exact H|]. rewrite Hn in H. discriminate.
-    + exact Ds.
-    + intros k [op H]. rewrite Hn in H. discriminate.
+  destruct t as [c| |k0 mr op cl]; cbn [rstep rs_live rs_pairs].
+  1,2: apply (rinv_keep ts n lv m lv I);
+    [ intros p k; split; [intros H; left; exact H|];
+      intros [H|[-> [cl H]]]; [exact H|]; rewrite Hn in H; discriminate
+    | exact Ds
+    | intros k [op H]; rewrite Hn in H; discriminate ].
   - set (k := (k0, mr)).
     assert (Ro : forall p k', In (p, k') (ropen n k op lv)
                   <-> In (p, k') lv \/ (p = n /\ may_open ts n k')).
@@ -625,6 +639,7 @@ Definition str_snoc (s : string) (out : inlines) : inlines :=
 Definition tok_text (t : token) : string :=
   match t with
   | TText c => one c
+  | TBreak => one nl_char
   | TDelim k false _ _ => dtoken k
   | TDelim k true true _ => (one lbrace ++ dtoken k)%string
   | TDelim k true false _ => (dtoken k ++ one rbrace)%string
@@ -666,6 +681,7 @@ Definition tstep (m : matching) (i : nat) (t : token)
            | _, _ => temit_str (tok_text t) fs top
            end
   | TText _ => temit_str (tok_text t) fs top
+  | TBreak => temit (mk SoftBreak) fs top
   end.
 
 Fixpoint tree_go (m : matching) (i : nat) (ts : list token)
