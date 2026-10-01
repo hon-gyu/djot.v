@@ -30,7 +30,7 @@ let time n input =
     Djot.Step.parse_blocks Djot.Inline.djot_table Djot.Step.djot_bconfig
       Djot.Step.semantic_line_ix Djot.Ast.semantic_pos s);
   time "parse_blocks_located" (fun s ->
-    Djot.Step.parse_blocks_located Djot.Inline.djot_table
+    Djot.Reparse.parse_blocks_located Djot.Inline.djot_table
       Djot.Step.djot_bconfig s)
 
 let () =

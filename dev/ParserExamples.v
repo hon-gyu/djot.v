@@ -9,7 +9,7 @@
    build-time note in `.project/project-engineering-lessons.md`. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Attributes Parser.
+From DjotV Require Import Strings Line Ast Attributes Parser Reparse.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -19,10 +19,9 @@ Sanity checks
 =============
 *)
 
-Example tagged_lines_keep_their_source_index :
-  run_lines_tagged (split_lines_indexed "a
-b") (PPara [])
-  = ([], PPara [(1, "b"); (0, "a")]).
+Example located_lines_keep_their_piece_index :
+  pend_state (snd (cut loc_step ["a"; "b"] fresh))
+  = PPara [(1, "b"); (0, "a")].
 Proof. reflexivity. Qed.
 
 Example parse_two_paras :

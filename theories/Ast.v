@@ -1019,6 +1019,228 @@ Qed.
 
 End Erase.
 
+Module Shift.
+
+(*
+Shifting
+========
+
+Move every recorded position `d` lines down, keeping the rest of the
+tree.  A tree parsed from lines numbered from 0 becomes the tree of the
+same lines numbered from `d`.
+*)
+
+Definition of_spot (d : nat) (s : spot) : spot :=
+  Spot (d + spot_line s) (spot_rem s).
+
+Definition of_span (d : nat) (r : span) : span :=
+  SrcSpan (of_spot d (span_start r)) (of_spot d (span_stop r)).
+
+Definition of_parts (d : nat) (ps : parts) : parts :=
+  match ps with
+  | PNone => PNone
+  | PItems items => PItems (map (of_span d) items)
+  | PDefItems items =>
+      PDefItems (map (fun '(i, t, b) => (of_span d i, of_span d t, of_span d b)) items)
+  | PTable cap rows =>
+      PTable (option_map (of_span d) cap)
+        (map (fun '(r, cs) => (of_span d r, map (of_span d) cs)) rows)
+  end.
+
+Definition of_pos (d : nat) (p : pos) : pos :=
+  match p with
+  | NoPos => NoPos
+  | SomePos pr =>
+      SomePos (Provenance (of_span d (node_span pr))
+                 (map (fun '(role, r) => (role, of_span d r)) (syntax_spans pr))
+                 (of_parts d (part_spans pr)))
+  end.
+
+Fixpoint of_inline (d : nat) (i : inline) : inline :=
+  let go :=
+    fix go (ils : inlines) : inlines :=
+      match ils with
+      | [] => []
+      | Node p a x :: rest => Node (of_pos d p) a (of_inline d x) :: go rest
+      end in
+  match i with
+  | Emph ils => Emph (go ils)
+  | Strong ils => Strong (go ils)
+  | Highlight ils => Highlight (go ils)
+  | Insert ils => Insert (go ils)
+  | Delete ils => Delete (go ils)
+  | Superscript ils => Superscript (go ils)
+  | Subscript ils => Subscript (go ils)
+  | Link ils tgt => Link (go ils) tgt
+  | Image ils tgt => Image (go ils) tgt
+  | Span ils => Span (go ils)
+  | Quoted qt ils => Quoted qt (go ils)
+  | x => x
+  end.
+
+Fixpoint of_inlines (d : nat) (ils : inlines) : inlines :=
+  match ils with
+  | [] => []
+  | Node p a x :: rest => Node (of_pos d p) a (of_inline d x) :: of_inlines d rest
+  end.
+
+Lemma inline_children : forall d (ils : inlines),
+  (fix go (ils : inlines) : inlines :=
+     match ils with
+     | [] => []
+     | Node p a x :: rest => Node (of_pos d p) a (of_inline d x) :: go rest
+     end) ils = of_inlines d ils.
+Proof.
+  intros d. induction ils as [|[p a x] ils IH]; [reflexivity|].
+  cbn [of_inlines]. rewrite IH. reflexivity.
+Qed.
+
+Definition of_cell (d : nat) (c : cell) : cell :=
+  match c with Cell ct al ils => Cell ct al (of_inlines d ils) end.
+
+Fixpoint of_block (d : nat) (b : block) : block :=
+  let go :=
+    fix go (bs : blocks) : blocks :=
+      match bs with
+      | [] => []
+      | Node p a x :: rest => Node (of_pos d p) a (of_block d x) :: go rest
+      end in
+  let goitems :=
+    fix goitems (items : list blocks) : list blocks :=
+      match items with
+      | [] => []
+      | item :: rest => go item :: goitems rest
+      end in
+  match b with
+  | Para ils => Para (of_inlines d ils)
+  | Section bs => Section (go bs)
+  | Heading lvl ils => Heading lvl (of_inlines d ils)
+  | BlockQuote bs => BlockQuote (go bs)
+  | Div bs => Div (go bs)
+  | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
+  | BulletList sp items => BulletList sp (goitems items)
+  | TaskList sp items =>
+      TaskList sp
+        ((fix gotasks (items : list (task_status * blocks)) :=
+            match items with
+            | [] => []
+            | (status, item) :: rest => (status, go item) :: gotasks rest
+            end) items)
+  | DefinitionList sp items =>
+      DefinitionList sp
+        ((fix godefs (items : list (inlines * blocks)) :=
+            match items with
+            | [] => []
+            | (term, item) :: rest => (of_inlines d term, go item) :: godefs rest
+            end) items)
+  | Table caption rows =>
+      Table (option_map (of_inlines d) caption) (map (map (of_cell d)) rows)
+  | FootnoteDef label bs => FootnoteDef label (go bs)
+  | Ext_keyed label (Node p a x) =>
+      Ext_keyed (of_inlines d label) (Node (of_pos d p) a (of_block d x))
+  | Ext_callout kind fold title bs =>
+      Ext_callout kind fold (of_inlines d title) (go bs)
+  | x => x
+  end.
+
+Fixpoint of_blocks (d : nat) (bs : blocks) : blocks :=
+  match bs with
+  | [] => []
+  | Node p a b :: rest => Node (of_pos d p) a (of_block d b) :: of_blocks d rest
+  end.
+
+Lemma blocks_app : forall d (xs ys : blocks),
+  of_blocks d (xs ++ ys)%list = (of_blocks d xs ++ of_blocks d ys)%list.
+Proof.
+  intros d. induction xs as [|[p a b] xs IH]; intros ys; cbn; rewrite ?IH; reflexivity.
+Qed.
+
+Lemma erase_inlines : forall d ils,
+  Erase.of_inlines (of_inlines d ils) = Erase.of_inlines ils.
+Proof.
+  intros d ils.
+  set (P := fun i => Erase.of_inline (of_inline d i) = Erase.of_inline i).
+  set (Q := fun ils => Erase.of_inlines (of_inlines d ils) = Erase.of_inlines ils).
+  assert (Hq : forall i, P i) .
+  { apply (inline_ind2 P Q); unfold P, Q; intros;
+      cbn [of_inline Erase.of_inline of_inlines Erase.of_inlines Erase.inode];
+      rewrite ?inline_children, ?Erase.inline_children; congruence. }
+  induction ils as [|[p a x] ils IH]; [reflexivity|].
+  cbn [of_inlines Erase.of_inlines Erase.inode]. rewrite IH, (Hq x). reflexivity.
+Qed.
+
+(* A shift moves only positions, so erasure does not see it. *)
+Lemma erase_blocks : forall d bs,
+  Erase.of_blocks (of_blocks d bs) = Erase.of_blocks bs.
+Proof.
+  intros d.
+  assert (Hgo : forall bs,
+    (fix go (bs : blocks) : blocks :=
+       match bs with
+       | [] => []
+       | Node p a x :: rest => Node (of_pos d p) a (of_block d x) :: go rest
+       end) bs = of_blocks d bs)
+    by (induction bs as [|[p a x] bs IH]; [reflexivity|cbn [of_blocks]; rewrite IH; reflexivity]).
+  assert (Ego : forall bs,
+    (fix go (bs : blocks) : blocks :=
+       match bs with
+       | [] => []
+       | Node _ a x :: rest => Node NoPos a (Erase.of_block x) :: go rest
+       end) bs = Erase.of_blocks bs)
+    by (induction bs as [|[p a x] bs IH];
+        [reflexivity|cbn [Erase.of_blocks]; rewrite IH; reflexivity]).
+  set (P := fun b => Erase.of_block (of_block d b) = Erase.of_block b).
+  set (Q := fun bs => Erase.of_blocks (of_blocks d bs) = Erase.of_blocks bs).
+  set (R := fun its => map Erase.of_blocks (map (of_blocks d) its) = map Erase.of_blocks its).
+  set (D := fun its : list (inlines * blocks) =>
+    map (fun '(t, it) => (Erase.of_inlines t, Erase.of_blocks it))
+      (map (fun '(t, it) => (of_inlines d t, of_blocks d it)) its)
+    = map (fun '(t, it) => (Erase.of_inlines t, Erase.of_blocks it)) its).
+  set (KK := fun its : list (task_status * blocks) =>
+    map (fun '(c, it) => (c, Erase.of_blocks it))
+      (map (fun '(c, it) => (c, of_blocks d it)) its)
+    = map (fun '(c, it) => (c, Erase.of_blocks it)) its).
+  assert (HP : forall b, P b).
+  { apply (block_ind2 P Q R D KK); unfold P, Q, R, D, KK; intros;
+      cbn [of_block Erase.of_block];
+      rewrite ?Hgo, ?Ego, ?erase_inlines; try congruence;
+      try (cbn [Erase.of_blocks of_blocks]; congruence);
+      try (cbn [map]; rewrite ?erase_inlines; f_equal; assumption).
+    (* lists: item by item *)
+    all: try (f_equal; clear - H Hgo Ego;
+              induction items as [|it rest IHi]; [reflexivity|];
+              cbn [map] in H; injection H as H1 H2; cbn; rewrite Hgo, Ego, H1;
+              f_equal; apply IHi; exact H2).
+    all: try (f_equal; clear - H Hgo Ego;
+              induction items as [|[c it] rest IHi]; [reflexivity|];
+              cbn [map] in H; injection H as H1 H2; cbn;
+              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it), H1;
+              f_equal; apply IHi; exact H2).
+    all: try (f_equal; clear - H Hgo Ego;
+              induction items as [|[t it] rest IHi]; [reflexivity|];
+              cbn [map] in H; injection H as Hb H2 H3; cbn;
+              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it), H2, Hb;
+              f_equal; apply IHi; exact H3).
+    - (* table *)
+      f_equal.
+      + destruct caption; cbn; rewrite ?erase_inlines; reflexivity.
+      + unfold Erase.row. rewrite !map_map. apply map_ext. intros r.
+        rewrite map_map. apply map_ext. intros [ct al ils]. cbn.
+        rewrite erase_inlines. reflexivity.
+    - (* key *)
+      destruct b as [p a x]. cbn [of_blocks Erase.of_blocks] in H.
+      injection H as Hx. cbn [Erase.of_block]. rewrite erase_inlines, Hx.
+      reflexivity.
+    - (* definition item *)
+      cbn [map]. rewrite H, erase_inlines. f_equal. exact H0.
+    - (* task item *)
+      cbn [map]. rewrite H. f_equal. exact H0. }
+  intros bs. induction bs as [|[p a x] bs IH]; [reflexivity|].
+  cbn [of_blocks Erase.of_blocks]. rewrite IH, (HP x). reflexivity.
+Qed.
+
+End Shift.
+
 (*
 Documents
 =========

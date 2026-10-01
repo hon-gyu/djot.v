@@ -214,6 +214,27 @@ val def_items : blocks list -> (inlines * blocks) list
 val task_items :
   task_status list -> blocks list -> (task_status * blocks) list
 
+module Shift :
+ sig
+  val of_spot : int -> spot -> spot
+
+  val of_span : int -> span -> span
+
+  val of_parts : int -> parts -> parts
+
+  val of_pos : int -> pos -> pos
+
+  val of_inline : int -> inline -> inline
+
+  val of_inlines : int -> inlines -> inlines
+
+  val of_cell : int -> cell -> cell
+
+  val of_block : int -> block -> block
+
+  val of_blocks : int -> blocks -> blocks
+ end
+
 val rev_chars : char list -> string
 
 val words : (char -> bool) -> string -> string list

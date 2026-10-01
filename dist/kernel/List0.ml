@@ -32,6 +32,12 @@ let rec last l d =
 
 let rec rev = List.rev
 
+(** val concat : 'a1 list list -> 'a1 list **)
+
+let rec concat = function
+| [] -> []
+| x :: l0 -> app x (concat l0)
+
 (** val flat_map : ('a1 -> 'a2 list) -> 'a1 list -> 'a2 list **)
 
 let rec flat_map f = function

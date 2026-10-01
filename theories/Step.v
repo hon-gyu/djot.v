@@ -4971,7 +4971,7 @@ Qed.
 (* Closing a located state adds only provenance.  The recursive cases are
    the reason erasure is structural: blocks retained below quotes, lists,
    divs, footnotes and keys must be stripped along with the outer node. *)
-Local Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
+Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
   Erase.of_blocks (@finish T K located_pos st) =
   @finish T K semantic_pos (StateErase.state st).
 Proof.
@@ -5087,7 +5087,7 @@ Proof.
     rewrite lazy_ok_erase; reflexivity.
 Qed.
 
-Local Lemma is_idle_erase : forall st, is_idle (StateErase.state st) = is_idle st.
+Lemma is_idle_erase : forall st, is_idle (StateErase.state st) = is_idle st.
 Proof. intros []; (reflexivity || (destruct cur; reflexivity)). Qed.
 
 Local Lemma announces_end_erase : forall st,
@@ -5476,51 +5476,12 @@ Proof.
     rewrite key_result_erase, IH. reflexivity.
 Qed.
 
-(* The fold with the actual line index installed at each step: the
-   provenance-bearing state fold the located block assembly uses. *)
-Fixpoint run_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
-  (lines : list (nat * string)) (st : pstate) : blocks * pstate :=
-  match lines with
-  | [] => ([], st)
-  | (i, l) :: rest =>
-      let (bs, st') := @step T K (LineIxAt i) P l st in
-      let (more, final) := run_lines_tagged rest st' in
-      ((bs ++ more)%list, final)
-  end.
-
-Local Definition finish_lines_tagged {T : dtable} {K : bconfig} {P : PosPolicy}
-  (lines : list (nat * string)) (st : pstate) : blocks :=
-  let (bs, final) := run_lines_tagged lines st in
-  (bs ++ @finish T K P final)%list.
-
-(* The located parse: the same fold, each line stepped at its own index
-   and under the policy that keeps what the states record.  Erasing it
-   gives the semantic parse (`parse_blocks_located_erase`). *)
-Definition parse_blocks_located {T : dtable} {K : bconfig} (s : string)
-  : blocks :=
-  @finish_lines_tagged T K located_pos (split_lines_indexed s) (PPara []).
-
-(* Each line's blocks are complete when the next line is read, so the
-   fold is the ordinary one with the per-line index installed. *)
-Local Lemma finish_lines_tagged_cons :
-  forall `{T : dtable} `{K : bconfig} `{P : PosPolicy} i l rest st,
-  @finish_lines_tagged T K P ((i, l) :: rest)%list st =
-  (fst (@step T K (LineIxAt i) P l st)
-   ++ @finish_lines_tagged T K P rest
-        (snd (@step T K (LineIxAt i) P l st)))%list.
-Proof.
-  intros T K P i l rest st. unfold finish_lines_tagged.
-  cbn [run_lines_tagged].
-  destruct (@step T K (LineIxAt i) P l st) as [bs st']. cbn [fst snd].
-  destruct (@run_lines_tagged T K P rest st') as [more final].
-  rewrite <- app_assoc. reflexivity.
-Qed.
-
 Local Lemma pstate_depth_erase : forall st,
   pstate_depth (StateErase.state st) = pstate_depth st.
 Proof. induction st; cbn [StateErase.state pstate_depth]; auto. Qed.
 
-Local Lemma step_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx} l st,
+(* The located step erases to the semantic one, at any line index. *)
+Lemma step_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx} l st,
   StateErase.result (@step T K LI located_pos l st) =
   @step T K semantic_line_ix semantic_pos l (StateErase.state st).
 Proof.
@@ -5528,34 +5489,3 @@ Proof.
   apply step_fuel_erase.
 Qed.
 
-Local Lemma finish_lines_tagged_erase : forall `{T : dtable} `{K : bconfig} lines st,
-  Erase.of_blocks (@finish_lines_tagged T K located_pos lines st) =
-  @parse_lines T K semantic_line_ix semantic_pos (map snd lines)
-    (StateErase.state st).
-Proof.
-  intros T K lines. induction lines as [|[i l] rest IH]; intros st.
-  - unfold finish_lines_tagged. cbn [run_lines_tagged fst snd app].
-    apply finish_erase.
-  - rewrite finish_lines_tagged_cons. cbn [map snd parse_lines].
-    pose proof (@step_erase T K (LineIxAt i) l st) as Hs.
-    unfold StateErase.result in Hs.
-    destruct (@step T K (LineIxAt i) located_pos l st) as [bs st'].
-    destruct (@step T K semantic_line_ix semantic_pos l (StateErase.state st))
-      as [bs' st''].
-    cbn [fst snd] in Hs |- *. injection Hs as Hbs Hst. subst bs' st''.
-    rewrite Erase.blocks_app, IH. reflexivity.
-Qed.
-
-(* The semantic boundary the located parser is defined against: reading
-   positions costs the parse nothing, because erasing them gives back the
-   parse that never recorded any.  Both halves matter -- the provenance
-   on the blocks, and the line indices the states accumulated, which the
-   ambient instance writes as zero. *)
-Theorem parse_blocks_located_erase : forall `{T : dtable} `{K : bconfig} s,
-  Erase.of_blocks (@parse_blocks_located T K s) =
-  @parse_blocks T K semantic_line_ix semantic_pos s.
-Proof.
-  intros T K s. unfold parse_blocks_located, parse_blocks.
-  rewrite finish_lines_tagged_erase, split_lines_indexed_values.
-  reflexivity.
-Qed.
