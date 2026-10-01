@@ -732,3 +732,25 @@ Example heading_continuation_has_an_effect :
 # b
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
+
+(* Even with keyed blocks disabled, inline settings can change whether a
+   table has a caption: an unattached attribute spec disappears when inline
+   attributes are enabled, and becomes literal caption text when disabled.
+   A caption with no inline content is no caption (`Step.caption_of`), so
+   `BlockShape.block_shape_independent` erases captions with the inlines. *)
+Definition no_inline_attrs_table : dtable :=
+  DTable (with_inline_attrs false djot_config) eq_refl.
+
+Definition has_table_caption (bs : blocks) : bool :=
+  match bs with
+  | Node _ _ (Table (Some _) _) :: _ => true
+  | _ => false
+  end.
+
+Example inline_attrs_affect_caption_presence :
+  (has_table_caption (@parse_blocks djot_table djot_bconfig _ _ "| a |
+^ {.x}"),
+   has_table_caption (@parse_blocks no_inline_attrs_table djot_bconfig _ _
+                        "| a |
+^ {.x}")) = (false, true).
+Proof. vm_compute. reflexivity. Qed.

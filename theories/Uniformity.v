@@ -98,6 +98,45 @@ Lemma parse_lines_step :
     parse_lines (l :: rest) st = (bs ++ parse_lines rest st')%list.
 Proof. intros l rest st bs st' H. cbn [parse_lines]. rewrite H. reflexivity. Qed.
 
+(** When the incoming marker has no style in common with the open list,
+    the old list is emitted before the new item's list is opened.  The
+    remaining lines therefore parse from that new list state, so no
+    future continuation can join the two items into one list. *)
+Lemma narrow_disjoint : forall old new,
+  (forall p s, In p old -> In s new -> fst p <> s) ->
+  narrow old new = [].
+Proof.
+  intros old new Hdisjoint. unfold narrow.
+  induction old as [|p old IH]; [reflexivity|].
+  cbn [filter].
+  destruct (existsb (lstyle_eqb (fst p)) new) eqn:E.
+  - apply existsb_exists in E as [s [Hin Heq]].
+    apply lstyle_eqb_eq in Heq.
+    exfalso. eapply (Hdisjoint p s); [left; reflexivity|exact Hin|exact Heq].
+  - apply IH. intros q s Hq Hs. apply (Hdisjoint q s); [right; exact Hq|exact Hs].
+Qed.
+
+Theorem list_different_types_split :
+  forall l sty core chk content ls done inner bs inner' tail,
+    classify l = KList sty core chk content ->
+    (forall p s, In p (ls_styles ls) ->
+       In s (configured_list_styles sty chk) -> fst p <> s) ->
+    list_takes ls 0 l inner = false ->
+    step (configured_list_rest chk content) (PPara []) = (bs, inner') ->
+    parse_lines (l :: tail) (PList ls done inner) =
+      (finish (PList ls done inner) ++
+       parse_lines tail
+         (PList (list_opened l (indent_of l)
+                   (with_starts (configured_list_styles sty chk) core)
+                   (configured_list_check chk)) (rev bs)
+           (pad_state (consumed l (configured_list_rest chk content)) inner')))%list.
+Proof.
+  intros l sty core chk content ls done inner bs inner' tail
+    Hkind Hstyle Hcolumn Hcontent.
+  apply parse_lines_step.
+  eapply step_list_diffstyle; eauto using narrow_disjoint.
+Qed.
+
 Lemma parse_lines_nil_cons :
   forall c cur',
     parse_lines [] (PPara (c :: cur')) =
@@ -420,6 +459,74 @@ Proof.
     rewrite Ht, IH by assumption.
     simpl rev. unfold remember_lines. rewrite map_app. cbn [map].
     rewrite <- app_assoc. reflexivity.
+Qed.
+
+(*
+Code blocks
+-----------
+*)
+
+Local Lemma parse_lines_fence_run : forall l f content rest,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  parse_lines (l :: content ++ rest)%list (PPara []) =
+  parse_lines rest
+    (PFence f (indent_of l) (open_extent l (indent_of l))
+       (line_span_from l (indent_of l))
+       (remember_lines (rev (map (drop_ws_upto (indent_of l)) content)))).
+Proof.
+  intros l f content rest Hl Hc.
+  rewrite (parse_lines_fence_open _ _ _ Hl).
+  rewrite parse_lines_fence_seed by (reflexivity || exact Hc).
+  rewrite app_nil_r. reflexivity.
+Qed.
+
+(** CB2: a code block runs from its opener to the first line that closes
+    it, and holds the lines between, each less the opener's indentation.
+    `fence_close_backticks` says which lines close a backtick fence. *)
+Theorem fenced_code_closed : forall l f content c rest,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  fence_close f c = true ->
+  parse_lines (l :: content ++ c :: rest)%list (PPara []) =
+  fence_block f (map (drop_ws_upto (indent_of l)) content)
+  :: parse_lines rest (PPara []).
+Proof.
+  intros l f content c rest Hl Hc Hclose.
+  rewrite (parse_lines_fence_run l f content (c :: rest) Hl Hc).
+  rewrite parse_lines_fence_close by exact Hclose.
+  rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
+Qed.
+
+(** CB2, "or the end of the document". *)
+Theorem fenced_code_unclosed : forall l f content,
+  classify l = KFence f ->
+  forallb (fun x => negb (fence_close f x)) content = true ->
+  parse_lines (l :: content) (PPara []) =
+  [fence_block f (map (drop_ws_upto (indent_of l)) content)].
+Proof.
+  intros l f content Hl Hc.
+  rewrite <- (app_nil_r content).
+  rewrite (parse_lines_fence_run l f content [] Hl Hc).
+  cbn [parse_lines finish]. rewrite app_nil_r.
+  rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
+Qed.
+
+(** RB1: with `=FORMAT` for the info string, the same block is raw
+    content in that format. *)
+Theorem raw_block_closed : forall l ch n fmt content c rest,
+  braw_blocks = true ->
+  classify l = KFence (Fence ch n (String "="%char fmt)) ->
+  forallb (fun x => negb (fence_close (Fence ch n (String "="%char fmt)) x))
+    content = true ->
+  fence_close (Fence ch n (String "="%char fmt)) c = true ->
+  parse_lines (l :: content ++ c :: rest)%list (PPara []) =
+  mk (RawBlock fmt (join_nl (map (drop_ws_upto (indent_of l)) content)))
+  :: parse_lines rest (PPara []).
+Proof.
+  intros l ch n fmt content c rest Hraw Hl Hc Hclose.
+  rewrite (fenced_code_closed _ _ _ _ _ Hl Hc Hclose).
+  unfold fence_block. cbn [f_info]. rewrite Hraw. reflexivity.
 Qed.
 
 (*
@@ -979,6 +1086,128 @@ Proof.
     rewrite app_assoc. reflexivity.
 Qed.
 
+(* How a line `x` of a quote's contents may be written: `> x`, or a bare
+   `>` when `x` is empty, as in the reference's `>` between two
+   paragraphs of a quote. *)
+Inductive quote_spelling : string -> string -> Prop :=
+  | QSpace : forall x, quote_spelling x ("> " ++ x)
+  | QBare : quote_spelling "" ">".
+
+Local Lemma parse_lines_quote_bare :
+  forall lines qs range header done inner,
+    Forall2 quote_spelling lines qs ->
+    parse_lines qs (PQuote range header done (pad_state quote_pad inner))
+    = parse_lines (map (fun x => ("> " ++ x)%string) lines)
+        (PQuote range header done (pad_state quote_pad inner)).
+Proof.
+  intros lines qs range header done inner H. revert range header done inner.
+  induction H as [|x q lines qs Hx Hrest IH]; intros range header done inner;
+    [reflexivity|].
+  destruct (step x inner) as [bs inner'] eqn:Es.
+  assert (Esh : step_at (consumed ("" ++ "> " ++ x) x) x
+                  (pad_state (String.length "" + quote_pad) inner)
+                = (bs, pad_state (String.length "" + quote_pad) inner')).
+  { rewrite consumed_quote_prefix_pad.
+    rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
+    rewrite step_at_shift, step_at_zero, Es. reflexivity. }
+  pose proof (step_quote_cont _ _ range header done _ _ _
+                (classify_canonical_quote_pad "" x eq_refl) Esh) as Hc.
+  cbn [map].
+  assert (Hq : step q (PQuote range header done (pad_state quote_pad inner))
+               = step ("> " ++ x) (PQuote range header done (pad_state quote_pad inner))).
+  { destruct Hx; [reflexivity|].
+    apply step_quote_bare. }
+  rewrite (parse_lines_step _ _ _ _ _ (eq_trans Hq Hc)),
+    (parse_lines_step _ _ _ _ _ Hc).
+  cbn [app]. rewrite IH. reflexivity.
+Qed.
+
+(** Uniformity for block quotes whose empty lines are written `>`.  The
+    first line keeps its space: a bare `>` there opens the same quote but
+    records a different source range. *)
+Theorem quote_uniformity_bare :
+  forall l lines qs,
+    quote_header l = None ->
+    Forall2 quote_spelling lines qs ->
+    parse_lines (("> " ++ l)%string :: qs) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros l lines qs Hheader H.
+  rewrite <- (quote_uniformity l lines Hheader). cbn [map].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  pose proof (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                Hheader Es) as Ho.
+  rewrite (consumed_quote_prefix_pad "") in Ho.
+  rewrite !(parse_lines_step _ _ _ _ _ Ho). cbn [app].
+  exact (parse_lines_quote_bare lines qs _ _ _ inner H).
+Qed.
+
+(* Inside an open quote, a line that is neither a quote line nor lazy
+   closes it and is read at top level. *)
+Local Lemma parse_lines_quote_cont_close :
+  forall lines next tail range done inner,
+    (forall r, classify next <> KQuote r) ->
+    is_lazy (classify next) (snd (run_lines lines inner)) = false ->
+    parse_lines (map (fun l => ("> " ++ l)%string) lines ++ next :: tail)%list
+                (PQuote range None done (pad_state quote_pad inner))
+    = mk (BlockQuote (rev done ++ parse_lines lines inner)%list)
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  induction lines as [|l lines IH]; intros next tail range done inner Hq Hlz.
+  - cbn [map app run_lines snd] in Hlz |- *.
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_close_any next range None done
+                  (pad_state quote_pad inner) Hq
+                  ltac:(unfold is_lazy in *; rewrite Step.pad_state_lazy_ok;
+                        exact Hlz))).
+    destruct (step next (PPara [])) as [bs st'] eqn:Es. cbn [fst snd finish].
+    rewrite pad_state_finish, (parse_lines_step _ _ _ _ _ Es). reflexivity.
+  - cbn [map app].
+    destruct (step l inner) as [bs inner'] eqn:Es.
+    cbn [run_lines] in Hlz. rewrite Es in Hlz.
+    assert (Hlz' : is_lazy (classify next) (snd (run_lines lines inner')) = false)
+      by (destruct (run_lines lines inner'); exact Hlz).
+    assert (Esh : step_at (consumed ("" ++ "> " ++ l) l) l
+                    (pad_state (String.length "" + quote_pad) inner)
+                  = (bs, pad_state (String.length "" + quote_pad) inner')).
+    { rewrite consumed_quote_prefix_pad.
+      rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
+      rewrite step_at_shift, step_at_zero, Es. reflexivity. }
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_quote_cont _ _ _ None _ _ _ _
+                  (classify_canonical_quote_pad "" l eq_refl) Esh)).
+    cbn [app]. rewrite (IH next tail _ _ _ Hq Hlz').
+    rewrite (parse_lines_step _ _ _ _ _ Es).
+    rewrite rev_app_distr, rev_involutive, <- app_assoc.
+    reflexivity.
+Qed.
+
+(** The same with more of the document after the quote.  The line that
+    ends it is anything but a quote line or a lazy continuation of the
+    quote's open paragraph; a blank line is the common case
+    (`parse_lines_quote`). *)
+Theorem quote_uniformity_tail :
+  forall l lines next tail,
+    quote_header l = None ->
+    (forall r, classify next <> KQuote r) ->
+    is_lazy (classify next) (snd (run_lines (l :: lines) (PPara []))) = false ->
+    parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines) ++ next :: tail)%list
+                (PPara [])
+    = mk (BlockQuote (parse_lines (l :: lines) (PPara [])))
+      :: parse_lines (next :: tail) (PPara []).
+Proof.
+  intros l lines next tail Hheader Hq Hlz. cbn [map app].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                Hheader Es)).
+  cbn [app]. rewrite (consumed_quote_prefix_pad "").
+  cbn [run_lines] in Hlz. rewrite Es in Hlz.
+  rewrite (parse_lines_quote_cont_close lines next tail _ _ inner Hq
+             ltac:(destruct (run_lines lines inner); exact Hlz)), rev_involutive.
+  rewrite (parse_lines_step _ _ _ _ _ Es). reflexivity.
+Qed.
+
 (*
 Uniformity of fenced divs
 -------------------------
@@ -1017,22 +1246,22 @@ Definition div_content_ok (lines : list string) : bool :=
   && negb (in_fence (snd (run_lines lines (PPara [])))).
 
 (* Inside an open div, contents that never close it drive the inner state,
-   and the fence that follows closes the div and is consumed. *)
+   and a line that closes it is consumed. *)
 Local Lemma parse_lines_div_cont :
-  forall content tail range opener done inner,
-    run_div_open 3 content inner = true ->
+  forall len cls c content tail range opener done inner,
+    run_div_open len content inner = true ->
     in_fence (snd (run_lines content inner)) = false ->
-    parse_lines (content ++ div_fence :: tail)%list
-                (PDiv 3 EmptyString range opener done inner)
-    = mk (Div (rev done ++ parse_lines content inner)%list)
+    div_close len c = true ->
+    parse_lines (content ++ c :: tail)%list
+                (PDiv len cls range opener done inner)
+    = div_block cls (rev done ++ parse_lines content inner)%list
       :: parse_lines tail (PPara []).
 Proof.
-  induction content as [|l content IH];
-    intros tail range opener done inner Hopen Hfence.
+  intros len cls c content. induction content as [|l content IH];
+    intros tail range opener done inner Hopen Hfence Hc.
   - cbn [run_lines snd] in Hfence. cbn [app].
     rewrite (parse_lines_step _ _ _ _ _
-               (step_div_close div_fence 3 EmptyString range opener done inner
-                  Hfence div_close_canonical)).
+               (step_div_close c len cls range opener done inner Hfence Hc)).
     reflexivity.
   - cbn [run_div_open] in Hopen. apply andb_true_iff in Hopen as [Hl Hrest].
     apply negb_true_iff in Hl.
@@ -1043,18 +1272,85 @@ Proof.
     cbn [snd] in Hfence.
     cbn [app].
     rewrite (parse_lines_step _ _ _ _ _
-               (step_div_cont l 3 EmptyString range opener done inner bs inner'
-                  Hl Es)).
+               (step_div_cont l len cls range opener done inner bs inner' Hl Es)).
     cbn [app].
     rewrite (IH tail _ opener (rev bs ++ done)%list inner' Hrest
-               ltac:(rewrite Er; exact Hfence)).
+               ltac:(rewrite Er; exact Hfence) Hc).
     rewrite (parse_lines_step _ _ _ _ _ Es).
     rewrite rev_app_distr, rev_involutive, <- app_assoc.
     reflexivity.
 Qed.
 
+(* The same contents at the end of the input: the div closes with it. *)
+Local Lemma parse_lines_div_eof :
+  forall len cls content range opener done inner,
+    run_div_open len content inner = true ->
+    parse_lines content (PDiv len cls range opener done inner)
+    = [div_block cls (rev done ++ parse_lines content inner)%list].
+Proof.
+  intros len cls content. induction content as [|l content IH];
+    intros range opener done inner Hopen; [reflexivity|].
+  cbn [run_div_open] in Hopen. apply andb_true_iff in Hopen as [Hl Hrest].
+  apply negb_true_iff in Hl.
+  destruct (step l inner) as [bs inner'] eqn:Es. cbn [snd] in Hrest.
+  rewrite (parse_lines_step _ _ _ _ _
+             (step_div_cont l len cls range opener done inner bs inner' Hl Es)).
+  cbn [app]. rewrite (IH _ opener (rev bs ++ done)%list inner' Hrest).
+  rewrite (parse_lines_step _ _ _ _ _ Es).
+  rewrite rev_app_distr, rev_involutive, <- app_assoc.
+  reflexivity.
+Qed.
+
+Local Lemma parse_lines_div_open :
+  forall l rest len cls,
+    bdivs = true -> classify l = KDiv len cls ->
+    parse_lines (l :: rest) (PPara [])
+    = parse_lines rest (PDiv len cls (open_extent l (indent_of l))
+                          (line_span_from l (indent_of l)) [] (PPara [])).
+Proof.
+  intros l rest len cls Hdivs Hl.
+  assert (Hs : step l (PPara []) =
+                ([], PDiv len cls (open_extent l (indent_of l))
+                       (line_span_from l (indent_of l)) [] (PPara []))).
+  { rewrite (step_idle l _ Hl eq_refl). cbn [open_kind]. rewrite Hdivs.
+    reflexivity. }
+  rewrite (parse_lines_step _ _ _ _ _ Hs). reflexivity.
+Qed.
+
+(** DV2 and DV3: a div opened by any opener (`classify_div_fences`) and
+    closed by any line that closes it (`div_close_colons`) holds its
+    contents parsed as a document, for contents that leave it open. *)
+Theorem fenced_div_closed :
+  forall l len cls content c tail,
+    bdivs = true -> classify l = KDiv len cls ->
+    run_div_open len content (PPara []) = true ->
+    in_fence (snd (run_lines content (PPara []))) = false ->
+    div_close len c = true ->
+    parse_lines (l :: content ++ c :: tail)%list (PPara [])
+    = div_block cls (parse_lines content (PPara []))
+      :: parse_lines tail (PPara []).
+Proof.
+  intros l len cls content c tail Hdivs Hl Hopen Hfence Hc.
+  rewrite (parse_lines_div_open _ _ _ _ Hdivs Hl).
+  exact (parse_lines_div_cont _ _ _ _ _ _ _ [] _ Hopen Hfence Hc).
+Qed.
+
+(** DV2, "or with the end of the document". *)
+Theorem fenced_div_unclosed :
+  forall l len cls content,
+    bdivs = true -> classify l = KDiv len cls ->
+    run_div_open len content (PPara []) = true ->
+    parse_lines (l :: content) (PPara [])
+    = [div_block cls (parse_lines content (PPara []))].
+Proof.
+  intros l len cls content Hdivs Hl Hopen.
+  rewrite (parse_lines_div_open _ _ _ _ Hdivs Hl).
+  exact (parse_lines_div_eof _ _ _ _ _ [] _ Hopen).
+Qed.
+
 (** Uniformity for fenced divs: a div's contents parse exactly as they
-    would at top level, for any contents that leave the div open. *)
+    would at top level, for any contents that leave the div open.  The
+    canonical instance of `fenced_div_closed`. *)
 Theorem div_uniformity :
   forall content,
     bdivs = true ->
@@ -1063,20 +1359,9 @@ Theorem div_uniformity :
     = [mk (Div (parse_lines content (PPara [])))].
 Proof.
   intros content Hdivs Hok. unfold div_content_ok in Hok.
-  apply andb_true_iff in Hok as [Hopen Hf].
-  apply negb_true_iff in Hf. rename Hf into Hfence.
-  assert (Hstep : step div_fence (PPara []) =
-                    ([], PDiv 3 EmptyString
-                           (open_extent div_fence (indent_of div_fence))
-                           (line_span_from div_fence (indent_of div_fence))
-                           [] (PPara []))).
-  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
-               classify_canonical_div eq_refl).
-    cbn [open_kind]. rewrite Hdivs. reflexivity. }
-  rewrite (parse_lines_step _ _ _ _ _ Hstep).
-  cbn [fst snd app].
-  rewrite (parse_lines_div_cont content [] _ _ [] (PPara []) Hopen Hfence).
-  reflexivity.
+  apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
+  exact (fenced_div_closed _ _ _ _ _ [] Hdivs classify_canonical_div Hopen Hf
+           div_close_canonical).
 Qed.
 
 (* The same with a document after it, which is the form the roundtrip
@@ -1092,19 +1377,8 @@ Theorem div_uniformity_tail :
 Proof.
   intros content tail Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
-  assert (Hstep : step div_fence (PPara []) =
-                    ([], PDiv 3 EmptyString
-                           (open_extent div_fence (indent_of div_fence))
-                           (line_span_from div_fence (indent_of div_fence))
-                           [] (PPara []))).
-  { rewrite (step_idle div_fence (KDiv 3 EmptyString)
-               classify_canonical_div eq_refl).
-    cbn [open_kind]. rewrite Hdivs. reflexivity. }
-  rewrite (parse_lines_step _ _ _ _ _ Hstep).
-  cbn [fst snd app].
-  rewrite (parse_lines_div_cont content (EmptyString :: tail) _ _ []
-             (PPara []) Hopen Hf).
-  cbn [rev app].
+  rewrite (fenced_div_closed _ _ _ _ _ _ Hdivs classify_canonical_div Hopen Hf
+             div_close_canonical).
   rewrite (parse_lines_blank_nil EmptyString tail
              (classify_blank EmptyString eq_refl)).
   reflexivity.
@@ -1390,6 +1664,23 @@ Lazy lines
 ----------
 *)
 
+(** The same for every spelling of the prefixes the containers accept
+    (`spine_spelling`): after `- a`, the lines `b`, ` b` and `   b` all
+    continue the item's paragraph. *)
+Theorem lazy_line_spelling :
+  forall pre p l post st,
+    spine_spelling 0 (snd (run_lines pre st)) p ->
+    lazy_ok (snd (run_lines pre st)) = true ->
+    classify l = KText -> bunderline_of l = None ->
+    parse_lines (pre ++ (p ++ l)%string :: post)%list st
+    = parse_lines (pre ++ l :: post)%list st.
+Proof.
+  intros pre p l post st Hp Hlazy Htext Hu. rewrite !parse_lines_app_run.
+  destruct (run_lines pre st) as [bs st'] eqn:E. cbn [snd] in *.
+  cbn [parse_lines]. rewrite (step_lazy_spelling p l st' Hp Hlazy Htext Hu).
+  reflexivity.
+Qed.
+
 (** Writing out a lazy line's prefixes does not change the parse.  After
     the lines `pre`, a paragraph is open, possibly inside block quotes,
     list items and footnotes.  If the next line `l` is plain text, putting
@@ -1405,10 +1696,7 @@ Theorem lazy_line_restore :
     parse_lines (pre ++ (spine_prefix 0 (snd (run_lines pre st)) ++ l)%string :: post)%list st
     = parse_lines (pre ++ l :: post)%list st.
 Proof.
-  intros pre l post st Hlazy Htext Hu. rewrite !parse_lines_app_run.
-  destruct (run_lines pre st) as [bs st'] eqn:E. cbn [snd] in *.
-  cbn [parse_lines]. rewrite (step_lazy_restore l st' Hlazy Htext Hu).
-  reflexivity.
+  intros pre l post st. apply lazy_line_spelling, spine_prefix_spelling.
 Qed.
 
 (* The containers whose paragraph lines the djot syntax reference lets
@@ -1441,6 +1729,80 @@ Theorem lazy_stack_line :
 Proof.
   intros l st Hs Htext Hu. pose proof (lazy_stack_ok st Hs) as Hok.
   split; [apply step_lazy | apply step_lazy_restore]; assumption.
+Qed.
+
+(*
+What a lazy line means
+----------------------
+
+The lazy-line theorems above turn a lazy line into a prefixed one, and
+the uniformity theorems read a fully prefixed container.  Chained, they
+say what a document with a lazy line means.  One theorem per container
+the reference names, each with one lazy line `b` after a paragraph line
+`a`; nesting and further lazy lines chain the same way.
+*)
+
+Theorem quote_lazy_line :
+  forall a b,
+    classify a = KText -> keyless a = true -> quote_header a = None ->
+    classify b = KText -> bunderline_of b = None ->
+    parse_lines [("> " ++ a)%string; b] (PPara [])
+    = [mk (BlockQuote (parse_lines [a; b] (PPara [])))].
+Proof.
+  intros a b Ha Hk Hh Hb Hu.
+  assert (Hstep : step ("> " ++ a) (PPara []) =
+    ([], PQuote (open_extent ("> " ++ a) (indent_of ("> " ++ a))) None []
+           (PPara [remember_line (drop_leading_ws a)]))).
+  { rewrite (step_quote_open ("> " ++ a) a []
+               (PPara [remember_line (drop_leading_ws a)])
+               (classify_quote_space a) Hh
+               ltac:(rewrite (step_idle a KText Ha eq_refl);
+                     apply open_text_keyless; exact Hk)).
+    reflexivity. }
+  pose proof (lazy_line_spelling [("> " ++ a)%string] "> " b [] (PPara [])) as L.
+  cbn [run_lines] in L. rewrite Hstep in L. cbn [snd app] in L.
+  rewrite <- L;
+    [| exact (SpQuote 0 0 _ _ _ _ _
+                (SpLeaf 2 (PPara [remember_line (drop_leading_ws a)]) 0 eq_refl))
+     | reflexivity | exact Hb | exact Hu].
+  exact (quote_uniformity a [b] Hh).
+Qed.
+
+(* The opener is any line that opens a footnote with `a` after its colon,
+   as in `footnote_text_uniformity`. *)
+Theorem footnote_lazy_line :
+  forall opener lbl a b,
+    bfootnotes = true ->
+    classify opener = KFoot lbl a ->
+    classify a = KText -> keyless a = true ->
+    classify b = KText -> bunderline_of b = None ->
+    parse_lines [opener; b] (PPara [])
+    = [foot_block lbl (parse_lines [a; b] (PPara []))].
+Proof.
+  intros opener lbl a b Hf Ho Ha Hk Hb Hu.
+  (* the lazy line with the indentation `footnote_text_uniformity` asks *)
+  set (p := blanks (S (indent_of opener))).
+  assert (Ha0 : step a (PPara []) = ([], PPara [remember_line (drop_leading_ws a)])).
+  { rewrite (step_idle a KText Ha eq_refl). apply open_text_keyless. exact Hk. }
+  assert (Hin : Nat.ltb (indent_of opener) (indent_of (p ++ b)) = true).
+  { apply Nat.ltb_lt. unfold p.
+    rewrite (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length. lia. }
+  pose proof (footnote_text_uniformity opener lbl a [(p ++ b)%string] Hf Ho Ha Hk
+                ltac:(cbn [forallb]; rewrite Hin, orb_true_r; reflexivity)) as U.
+  (* inside the note, the indentation is the paragraph's to ignore *)
+  pose proof (lazy_line_spelling [a] p b [] (PPara [])) as L1.
+  cbn [run_lines] in L1. rewrite Ha0 in L1. cbn [snd app] in L1.
+  rewrite L1 in U; [| apply SpLeaf; reflexivity | reflexivity | exact Hb | exact Hu].
+  (* and outside it, the lazy line is the indented one *)
+  rewrite <- U. symmetry.
+  pose proof (lazy_line_spelling [opener] p b [] (PPara [])) as L2.
+  cbn [run_lines app] in L2.
+  rewrite (step_foot_open opener lbl a [] _ Ho Ha0) in L2.
+  unfold open_foot in L2. rewrite Hf in L2. cbn [snd rev] in L2.
+  apply L2; [| reflexivity | exact Hb | exact Hu].
+  unfold p. rewrite <- (append_empty_r (blanks (S (indent_of opener)))).
+  change EmptyString with (blanks 0).
+  apply SpFoot; [lia | cbn [pad_state]; apply SpLeaf; reflexivity].
 Qed.
 
 (*
@@ -1582,11 +1944,74 @@ Proof.
   rewrite (step_attr_done l pend specs range ind ap slices H). reflexivity.
 Qed.
 
+(* A finished spec followed by another spec line: the pending set takes
+   the first spec's attributes, and the second spec opens over it. *)
+Local Lemma step_attr_merge :
+  forall l ap' pend specs range ind ap slices,
+    battrs = true -> ap_done ap = true -> classify l = KAttr ap' ->
+    step l (PAttr pend specs range ind ap slices)
+    = ([], PAttr (Attr.merge (ap_attrs ap) pend) (specs ++ [extent_span range])%list
+             (open_extent l (indent_of l)) (indent_of l) ap'
+             [remember_line (drop_leading_ws l)]).
+Proof.
+  intros l ap' pend specs range ind ap slices Hattrs Hdone Hl.
+  rewrite step_attr_done by exact Hdone.
+  unfold step. cbn [step_fuel pstate_depth]. rewrite Hl. cbn [is_idle].
+  unfold open_attr. rewrite Hattrs. reflexivity.
+Qed.
+
+(* A line holding a complete spec and nothing else. *)
+Definition attr_line (l : string) (ap : aparser) : Prop :=
+  classify l = KAttr ap /\ ap_done ap = true.
+
+Local Lemma parse_lines_attr_run :
+  forall lines aps ls pend specs range ind ap slices,
+    battrs = true -> ap_done ap = true ->
+    Forall2 attr_line lines aps ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (lines ++ ls)%list (PAttr pend specs range ind ap slices)
+    = decorate_head
+        (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
+           (Attr.merge (ap_attrs ap) pend))
+        (parse_lines ls (PPara [])).
+Proof.
+  intros lines aps ls pend specs range ind ap slices Hattrs Hdone H.
+  revert pend specs range ind ap slices Hdone.
+  induction H as [|l a lines aps [Hl Ha] Hrest IH];
+    intros pend specs range ind ap slices Hdone Hready.
+  - cbn [app fold_left].
+    rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hdone).
+    apply parse_lines_pend, Hready.
+  - cbn [app fold_left].
+    rewrite (parse_lines_step _ _ _ _ _
+               (step_attr_merge l a pend specs range ind ap slices Hattrs Hdone Hl)).
+    cbn [app]. apply IH; assumption.
+Qed.
+
+(** BA3: a run of complete specs, one per line, puts their attributes on
+    the block after them, merged in order (`Attr.merge`: classes
+    accumulate, a later value for a key replaces an earlier one).  The
+    side condition is the one line the run can still claim for itself: a
+    blank drops it, and a further spec would extend it. *)
+Theorem attr_accumulate :
+  forall l ap lines aps ls,
+    battrs = true -> attr_line l ap -> Forall2 attr_line lines aps ->
+    match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
+    parse_lines (l :: lines ++ ls)%list (PPara [])
+    = decorate_head
+        (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
+           (Attr.merge (ap_attrs ap) []))
+        (parse_lines ls (PPara [])).
+Proof.
+  intros l ap lines aps ls Hattrs [Hcl Hdone] H Hready.
+  cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).
+  unfold open_attr. rewrite Hattrs. cbn [fst snd app].
+  exact (parse_lines_attr_run _ _ _ _ _ _ _ _ _ Hattrs Hdone H Hready).
+Qed.
+
 (** Uniformity for a block attribute line: a document preceded by a
     complete spec parses as that document with the spec's attributes on
-    its first block.  The side condition is the one line the spec can
-    still claim for itself -- a blank drops it, and a second spec merges
-    into it. *)
+    its first block.  The one-spec case of `attr_accumulate`. *)
 Theorem attr_uniformity :
   forall l ap ls,
     battrs = true -> classify l = KAttr ap -> ap_done ap = true ->
@@ -1595,10 +2020,109 @@ Theorem attr_uniformity :
     = decorate_head (Attr.merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
 Proof.
   intros l ap ls Hattrs Hcl Hdone Hready.
-  cbn [parse_lines]. rewrite (step_attr_open l ap Hcl).
+  exact (attr_accumulate l ap [] [] ls Hattrs (conj Hcl Hdone) (Forall2_nil _) Hready).
+Qed.
+
+(* An unfinished spec takes a line indented past its opener, and stays
+   open while the line leaves it neither done nor failed. *)
+Local Lemma step_attr_cont :
+  forall l pend specs range ind ap slices,
+    ap_done ap = false -> ind < indent_of l -> ap_failed (attr_feed l ap) = false ->
+    step l (PAttr pend specs range ind ap slices)
+    = ([], PAttr pend specs (touch_extent range) ind (attr_feed l ap)
+             (push_text l slices)).
+Proof.
+  intros l pend specs range ind ap slices Hd Hi Hf. unfold step.
+  cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
+  replace (Nat.ltb ind (indent_of l)) with true by (symmetry; apply Nat.ltb_lt, Hi).
+  rewrite Hf. reflexivity.
+Qed.
+
+Local Lemma parse_lines_attr_cont :
+  forall ls2 ls pend specs range ind ap slices,
+    spec_runs ap ls2 = true -> Forall (fun l => ind < indent_of l) ls2 ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (ls2 ++ ls)%list (PAttr pend specs range ind ap slices)
+    = decorate_head (Attr.merge (ap_attrs (feed_lines ls2 ap)) pend)
+        (parse_lines ls (PPara [])).
+Proof.
+  induction ls2 as [|l ls2 IH]; intros ls pend specs range ind ap slices Hr Hi Hready.
+  - cbn [spec_runs] in Hr. cbn [app feed_lines fold_left].
+    rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hr).
+    apply parse_lines_pend, Hready.
+  - cbn [spec_runs] in Hr. apply andb_true_iff in Hr as [Hr Hrest].
+    apply andb_true_iff in Hr as [Hd Hf]. apply negb_true_iff in Hd, Hf.
+    inversion Hi as [|? ? Hl Hi']; subst.
+    cbn [app]. rewrite (parse_lines_step _ _ _ _ _
+                          (step_attr_cont l pend specs range ind ap slices Hd Hl Hf)).
+    cbn [app]. rewrite (IH ls pend specs _ ind _ _ Hrest Hi' Hready). reflexivity.
+Qed.
+
+(* A spec's lines joined onto its first, a space for each line break. *)
+Definition attr_join (l : string) (ls : list string) : string := l ++ join_tail ls.
+
+(** BA2: a spec that does not fit on one line continues on lines
+    indented past its opener, and parses as the same spec written on one
+    line.  Each continuation line has content (`blank_to_eol` is the
+    machine's own blank test); a blank one would let a spec that closed
+    on the line before it drop its attributes. *)
+Theorem attr_continuation :
+  forall l1 ap1 ls2 apJ ls,
+    battrs = true -> classify l1 = KAttr ap1 ->
+    Forall (fun l => indent_of l1 < indent_of l /\
+                     blank_to_eol (drop_leading_ws l) = false) ls2 ->
+    attr_line (attr_join l1 ls2) apJ ->
+    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    parse_lines (l1 :: ls2 ++ ls)%list (PPara [])
+    = parse_lines (attr_join l1 ls2 :: ls) (PPara []).
+Proof.
+  intros l1 ap1 ls2 apJ ls Hattrs H1 Hls [HJ HdJ] Hready.
+  destruct (attr_open_inv l1 ap1 (classify_attr_open l1 ap1 H1))
+    as (b1 & r1 & Ed1 & Ef1 & Hf1 & _).
+  destruct (attr_open_inv _ apJ (classify_attr_open _ apJ HJ))
+    as (bJ & rJ & EdJ & EfJ & _ & HbJ).
+  unfold attr_join in EdJ.
+  rewrite drop_leading_ws_app_nonblank, Ed1 in EdJ by (rewrite Ed1; discriminate).
+  cbn [append] in EdJ. injection EdJ as <-.
+  destruct (joined_spec_runs b1 ls2 ap1 r1 apJ rJ
+              (Forall_impl _ (fun l H => proj2 H) Hls) Ef1 Hf1 EfJ HdJ (HbJ HdJ))
+    as [Hruns Hattrs'].
+  rewrite (attr_uniformity _ apJ ls Hattrs HJ HdJ Hready).
+  cbn [parse_lines]. rewrite (step_attr_open l1 ap1 H1).
   unfold open_attr. rewrite Hattrs. cbn [fst snd app].
-  rewrite (parse_lines_attr_done _ [] [] _ (indent_of l) ap _ Hdone).
-  apply parse_lines_pend, Hready.
+  rewrite (parse_lines_attr_cont ls2 ls [] [] _ _ ap1 _ Hruns
+             (Forall_impl _ (fun l H => proj1 H) Hls) Hready).
+  rewrite Hattrs'. reflexivity.
+Qed.
+
+(** BA2, the "must": a line not indented past the opener ends an
+    unfinished spec, which becomes a paragraph of its lines, read with
+    attributes off. *)
+Theorem attr_unindented :
+  forall l1 ap l2,
+    battrs = true -> classify l1 = KAttr ap -> ap_done ap = false ->
+    is_blank l2 = false -> indent_of l2 <= indent_of l1 ->
+    bunderline_of l2 = None -> binterrupt (classify l2) = false ->
+    parse_lines [l1; l2] (PPara [])
+    = [mk (Para (para_inlines_off 1 [drop_leading_ws l1; drop_leading_ws l2]))].
+Proof.
+  intros l1 ap l2 Hattrs H1 Hd Hb Hi Hu Hint.
+  cbn [parse_lines]. rewrite (step_attr_open l1 ap H1).
+  unfold open_attr. rewrite Hattrs. cbn [fst snd app].
+  unfold step at 1. cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
+  replace (Nat.ltb (indent_of l1) (indent_of l2)) with false
+    by (symmetry; apply Nat.ltb_ge, Hi).
+  rewrite Hb, step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
+  unfold para_recover. cbn [List.length Nat.add].
+  assert (Hs : step l2 (PParaOff 1 [remember_line (drop_leading_ws l1)])
+               = ([], PParaOff 1 [remember_line (drop_leading_ws l2);
+                                  remember_line (drop_leading_ws l1)])).
+  { unfold step. cbn [step_fuel]. rewrite Hu.
+    destruct (classify l2) eqn:Ek;
+      try (rewrite (classify_kblank_blank l2 Ek) in Hb; discriminate);
+      cbn [binterrupt] in Hint |- *; rewrite ?Hint; reflexivity. }
+  rewrite Hs. cbn [pend_result app parse_lines finish]. nopos. sem_para.
+  reflexivity.
 Qed.
 
 (* A key passes every line that pending attributes can pass.  Reusing

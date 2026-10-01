@@ -267,6 +267,48 @@ Fixpoint count_run (c : ascii) (s : string) : nat * string :=
   | EmptyString => (O, s)
   end.
 
+(* The run count_run measures: `n` copies of `c`.  Fence lines are
+   stated with it. *)
+Fixpoint char_run (c : ascii) (n : nat) : string :=
+  match n with O => EmptyString | S n' => String c (char_run c n') end.
+
+Local Lemma count_char_run : forall c n rest,
+  count_run c rest = (O, rest) ->
+  count_run c (char_run c n ++ rest) = (n, rest).
+Proof.
+  intros c n rest Hrest. induction n as [|n IH]; [exact Hrest|].
+  cbn [char_run append count_run]. rewrite Ascii.eqb_refl, IH. reflexivity.
+Qed.
+
+Local Lemma count_run_split : forall c s n r,
+  count_run c s = (n, r) -> s = char_run c n ++ r.
+Proof.
+  intros c s. induction s as [|c' s IH]; intros n r H.
+  - injection H as <- <-. reflexivity.
+  - cbn [count_run] in H. destruct (Ascii.eqb c c') eqn:E.
+    + apply Ascii.eqb_eq in E. subst c'.
+      destruct (count_run c s) as [m r'] eqn:Es. injection H as <- <-.
+      rewrite (IH m r' eq_refl). reflexivity.
+    + injection H as <- <-. reflexivity.
+Qed.
+
+(* A blank string has no run of a non-whitespace character. *)
+Local Lemma count_run_blank : forall c s,
+  is_ws c = false -> is_blank s = true -> count_run c s = (O, s).
+Proof.
+  intros c [|w s] Hc Hs; [reflexivity|].
+  cbn [is_blank] in Hs. apply andb_true_iff in Hs as [Hw _].
+  cbn [count_run]. destruct (Ascii.eqb c w) eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst w. rewrite Hc in Hw. discriminate.
+Qed.
+
+Local Lemma drop_leading_ws_run : forall c n s,
+  is_ws c = false -> 0 < n -> drop_leading_ws (char_run c n ++ s) = char_run c n ++ s.
+Proof.
+  intros c [|n] s Hc Hn; [lia|]. cbn [char_run append drop_leading_ws]. rewrite Hc.
+  reflexivity.
+Qed.
+
 (* Characters admissible in a fence info string. *)
 Definition is_info_char (c : ascii) : bool :=
   negb (is_ws c || Ascii.eqb c "`" || Ascii.eqb c "010").
@@ -313,7 +355,7 @@ Qed.
 (* The class token is `[\w_-]*`, narrower than a fence's info string.
    `:::a!` opens no div at all, because the pattern must match to end of
    line. *)
-Local Definition is_class_char (c : ascii) : bool :=
+Definition is_class_char (c : ascii) : bool :=
   let n := nat_of_ascii c in
   (Nat.leb 48 n && Nat.leb n 57)      (* 0-9 *)
   || (Nat.leb 65 n && Nat.leb n 90)   (* A-Z *)
@@ -1055,7 +1097,7 @@ the columns' alignment, or a row of cells; the separator is tried first.
    cell's match, which is why `| :- |` is not a separator while
    `|:-| -: |` is: the first cell has no previous match to eat its
    space. *)
-Local Definition sep_align (left right : bool) : align :=
+Definition separator_alignment (left right : bool) : align :=
   match left, right with
   | true, true => AlignCenter
   | true, false => AlignLeft
@@ -1082,7 +1124,7 @@ Local Definition sep_cell (s : string) : option (align * string) :=
       match drop_leading_ws s3 with
       | String c r =>
           if Ascii.eqb c "|"
-          then Some (sep_align left right, drop_leading_ws r)
+          then Some (separator_alignment left right, drop_leading_ws r)
           else None
       | EmptyString => None
       end
@@ -1111,6 +1153,184 @@ Local Fixpoint sep_cells_fuel (n : nat) (s : string) : option (list align) :=
 
 Local Definition sep_cells (s : string) : option (list align) :=
   sep_cells_fuel (S (String.length s)) s.
+
+(* A separator cell as `sep_cell` reads it: an optional `:`, `n` dashes,
+   an optional `:`, whitespace `w`, and the bar that ends it. *)
+Definition separator_colon (present : bool) (s : string) : string :=
+  if present then String ":" s else s.
+
+Definition separator_cell_text (left right : bool) (n : nat) (w : string)
+  : string :=
+  separator_colon left (char_run "-" n ++ separator_colon right (w ++ "|")).
+
+Local Lemma separator_cell_text_app : forall left right n w rest,
+  separator_cell_text left right n w ++ rest =
+  separator_colon left (char_run "-" n ++ separator_colon right (w ++ "|" ++ rest)).
+Proof.
+  intros [] [] n w rest; unfold separator_cell_text; cbn [separator_colon append];
+    rewrite ?append_assoc; cbn [append]; rewrite ?append_assoc; reflexivity.
+Qed.
+
+(* A string that starts with whitespace has no colon or dash first. *)
+Local Lemma separator_ws_head : forall right w rest,
+  is_blank w = true ->
+  match separator_colon right (w ++ "|" ++ rest) with
+  | String c r => if Ascii.eqb c ":" then (true, r)
+                  else (false, separator_colon right (w ++ "|" ++ rest))
+  | EmptyString => (false, separator_colon right (w ++ "|" ++ rest))
+  end = (right, w ++ "|" ++ rest)
+  /\ count_run "-" (separator_colon right (w ++ "|" ++ rest))
+     = (O, separator_colon right (w ++ "|" ++ rest)).
+Proof.
+  intros right w rest Hw. destruct right; [split; reflexivity|].
+  destruct w as [|c w]; [split; reflexivity|].
+  cbn [is_blank] in Hw. apply andb_true_iff in Hw as [Hc _].
+  cbn [separator_colon append count_run].
+  split; [destruct (Ascii.eqb c ":") eqn:E|destruct (Ascii.eqb "-" c) eqn:E];
+    try reflexivity; apply Ascii.eqb_eq in E; subst c; discriminate.
+Qed.
+
+(** The four alignment cases, for every positive dash width, any
+    whitespace before the closing bar, and every position in a separator
+    row.  The returned suffix is what the scan passes to the next cell. *)
+Theorem separator_cell_alignment : forall left right n w rest,
+  is_blank w = true ->
+  sep_cell (separator_cell_text left right (S n) w ++ rest) =
+    Some (separator_alignment left right, drop_leading_ws rest).
+Proof.
+  intros left right n w rest Hw.
+  destruct (separator_ws_head right w rest Hw) as [Hr Hd].
+  rewrite separator_cell_text_app. unfold sep_cell.
+  replace (match separator_colon left (char_run "-" (S n) ++
+                                       separator_colon right (w ++ "|" ++ rest)) with
+           | String c r => if Ascii.eqb c ":" then (true, r) else (false, _)
+           | EmptyString => (false, _)
+           end)
+    with (left, char_run "-" (S n) ++ separator_colon right (w ++ "|" ++ rest))
+    by (destruct left; reflexivity).
+  rewrite (count_char_run "-" (S n) _ Hd), Hr.
+  rewrite (drop_leading_ws_ws_prefix w _ Hw). reflexivity.
+Qed.
+
+Local Lemma separator_cell_text_head : forall a b n w rest,
+  exists c s, separator_cell_text a b (S n) w ++ rest = String c s /\
+              is_ws c = false.
+Proof.
+  intros [] b n w rest; unfold separator_cell_text, separator_colon;
+    cbn [char_run append]; eexists _, _; split; reflexivity.
+Qed.
+
+Local Lemma drop_leading_ws_separator_cell : forall a b n w rest,
+  drop_leading_ws (separator_cell_text a b (S n) w ++ rest) =
+  separator_cell_text a b (S n) w ++ rest.
+Proof.
+  intros a b n w rest.
+  destruct (separator_cell_text_head a b n w rest) as (c & s & E & Hc).
+  rewrite E. cbn [drop_leading_ws]. rewrite Hc. reflexivity.
+Qed.
+
+(* The cells after the first, each with the whitespace before it.  Each
+   width is stored as its predecessor, so every cell has a positive dash
+   run. *)
+Fixpoint separator_text (cells : list (string * bool * bool * nat * string))
+  : string :=
+  match cells with
+  | [] => EmptyString
+  | (w0, a, b, n, w) :: rest =>
+      w0 ++ separator_cell_text a b (S n) w ++ separator_text rest
+  end.
+
+Definition separator_alignments (cells : list (string * bool * bool * nat * string))
+  : list align :=
+  map (fun '(_, a, b, _, _) => separator_alignment a b) cells.
+
+Definition separator_ws_ok (cell : string * bool * bool * nat * string) : Prop :=
+  let '(w0, _, _, _, w) := cell in is_blank w0 = true /\ is_blank w = true.
+
+Local Lemma sep_cells_fuel_step : forall fuel c s a rest aligns,
+  sep_cell (String c s) = Some (a, rest) ->
+  sep_cells_fuel fuel rest = Some aligns ->
+  sep_cells_fuel (S fuel) (String c s) = Some (a :: aligns).
+Proof.
+  intros fuel c s a rest aligns Hcell Hrest.
+  cbn [sep_cells_fuel]. rewrite Hcell, Hrest. reflexivity.
+Qed.
+
+Local Lemma separator_cells_fuel : forall cells a b n w,
+  is_blank w = true -> Forall separator_ws_ok cells ->
+  sep_cells_fuel (S (S (length cells)))
+    (separator_cell_text a b (S n) w ++ separator_text cells) =
+  Some (separator_alignment a b :: separator_alignments cells).
+Proof.
+  induction cells as [|[[[[w0 a'] b'] n'] w'] cells IH]; intros a b n w Hw Hc.
+  - destruct (separator_cell_text_head a b n w EmptyString) as (c & s & E & _).
+    cbn [separator_text]. rewrite E.
+    apply (sep_cells_fuel_step _ _ _ _ EmptyString); [|reflexivity].
+    rewrite <- E, (separator_cell_alignment a b n w EmptyString Hw). reflexivity.
+  - inversion Hc as [|? ? Hx Hcs]; subst. destruct Hx as [Hw0 Hw'].
+    destruct (separator_cell_text_head a b n w
+                (separator_text ((w0, a', b', n', w') :: cells)))
+      as (c & s & E & _).
+    rewrite E.
+    apply (sep_cells_fuel_step _ _ _ _
+             (separator_cell_text a' b' (S n') w' ++ separator_text cells)).
+    + rewrite <- E, (separator_cell_alignment a b n w _ Hw). cbn [separator_text].
+      rewrite (drop_leading_ws_ws_prefix w0 _ Hw0), drop_leading_ws_separator_cell.
+      reflexivity.
+    + exact (IH a' b' n' w' Hw' Hcs).
+Qed.
+
+Local Lemma sep_cells_fuel_more : forall fuel extra s aligns,
+  sep_cells_fuel fuel s = Some aligns ->
+  sep_cells_fuel (fuel + extra) s = Some aligns.
+Proof.
+  induction fuel as [|fuel IH]; intros extra s aligns H; [discriminate|].
+  destruct s as [|c s].
+  - destruct aligns; inversion H; subst. destruct extra; reflexivity.
+  - cbn [sep_cells_fuel] in H.
+    destruct (sep_cell (String c s)) as [[a rest]|] eqn:E;
+      [|discriminate].
+    destruct (sep_cells_fuel fuel rest) as [xs|] eqn:Er;
+      [|discriminate].
+    inversion H; subst aligns.
+    replace (S fuel + extra) with (S (fuel + extra)) by lia.
+    cbn [sep_cells_fuel]. rewrite E.
+    rewrite (IH extra rest xs Er). reflexivity.
+Qed.
+
+Local Lemma separator_cell_text_length : forall a b n w,
+  2 <= String.length (separator_cell_text a b (S n) w).
+Proof.
+  intros [] [] n w; unfold separator_cell_text, separator_colon;
+    cbn [char_run append String.length];
+    rewrite ?length_append; cbn [String.length]; lia.
+Qed.
+
+Local Lemma separator_text_length : forall cells,
+  length cells <= String.length (separator_text cells).
+Proof.
+  induction cells as [|[[[[w0 a] b] n] w] cells IH]; [cbn; lia|].
+  cbn [separator_text length]. rewrite !length_append.
+  pose proof (separator_cell_text_length a b n w). lia.
+Qed.
+
+Theorem separator_row_alignments : forall a b n w cells,
+  is_blank w = true -> Forall separator_ws_ok cells ->
+  sep_cells (separator_cell_text a b (S n) w ++ separator_text cells) =
+    Some (separator_alignment a b :: separator_alignments cells).
+Proof.
+  intros a b n w cells Hw Hc. unfold sep_cells.
+  pose proof (separator_cell_text_length a b n w).
+  pose proof (separator_text_length cells).
+  rewrite length_append.
+  replace (S (String.length (separator_cell_text a b (S n) w) +
+              String.length (separator_text cells)))
+    with (S (S (length cells)) +
+          (String.length (separator_cell_text a b (S n) w) +
+           String.length (separator_text cells) - S (length cells)))
+    by lia.
+  apply sep_cells_fuel_more, separator_cells_fuel; assumption.
+Qed.
 
 (* Cell text is trimmed on both sides, except that an escaped whitespace
    character stops the right trim and everything after it is kept:
@@ -1358,6 +1578,583 @@ Example row_escaped_space_run : table_row "| a\   |" = Some (TCells ["a\ "]).
 Proof. reflexivity. Qed.
 
 Local Open Scope char_scope.
+
+(*
+Rows over every spelling
+------------------------
+
+PT1, PT2 and PT7 of the syntax reference as theorems about `table_row`.
+The cell scan is followed through a few steps (`trace_*`), each stated
+from outside verbatim with no pending backslash.
+*)
+
+(* A byte the cell scan passes over: not a bar, a backslash or a
+   backtick. *)
+Definition plain_cell_char (c : ascii) : bool :=
+  negb (Ascii.eqb c "|" || Ascii.eqb c "\" || Ascii.eqb c "`").
+
+Local Lemma plain_parts : forall c, plain_cell_char c = true ->
+  Ascii.eqb c "|" = false /\ Ascii.eqb c "\" = false /\ Ascii.eqb c "`" = false.
+Proof.
+  intros c H. unfold plain_cell_char in H. apply negb_true_iff in H.
+  apply orb_false_iff in H as [H Hb]. apply orb_false_iff in H as [Hp Hs]. auto.
+Qed.
+
+Local Lemma trace_plain : forall s rest cur acc pos start,
+  str_forallb plain_cell_char s = true ->
+  row_cells_trace (s ++ rest) 0 0 false cur acc pos start =
+  row_cells_trace rest 0 0 false (rev_string s ++ cur) acc (String.length s + pos) start.
+Proof.
+  induction s as [|c s IH]; intros rest cur acc pos start H; [reflexivity|].
+  cbn [str_forallb] in H. apply andb_true_iff in H as [Hc H].
+  apply plain_parts in Hc as (Hp & Hs & Hb).
+  cbn [append row_cells_trace]. rewrite Hb. cbn [vb_step Nat.eqb andb].
+  rewrite Hs, Hp. cbn [andb]. rewrite IH by exact H.
+  rewrite rev_string_cons, append_assoc. cbn [append String.length].
+  f_equal. lia.
+Qed.
+
+Local Lemma trace_bar : forall rest cur acc pos start,
+  row_cells_trace (String "|" rest) 0 0 false cur acc pos start =
+  row_cells_trace rest 0 0 false EmptyString
+    (row_cell_entry cur start (S pos) :: acc) (S pos) pos.
+Proof. reflexivity. Qed.
+
+Local Lemma trace_escape : forall c rest cur acc pos start,
+  row_cells_trace (String "\" (String c rest)) 0 0 false cur acc pos start =
+  row_cells_trace rest 0 0 (Ascii.eqb c "\") (String c (String "\" cur))
+    acc (S (S pos)) start.
+Proof. reflexivity. Qed.
+
+(* Inside a verbatim span opened by one backtick, every byte up to the
+   next backtick is content, bars and backslashes included. *)
+Local Lemma trace_verbatim_body : forall x rest cur acc pos start bs,
+  str_forallb (fun c => negb (Ascii.eqb c "`")) x = true ->
+  row_cells_trace (x ++ String "`" rest) 1 0 bs cur acc pos start =
+  row_cells_trace rest 1 1 false (String "`" (rev_string x ++ cur)) acc
+    (S (String.length x + pos)) start.
+Proof.
+  induction x as [|c x IH]; intros rest cur acc pos start bs H; [reflexivity|].
+  cbn [str_forallb] in H. apply andb_true_iff in H as [Hc H].
+  apply negb_true_iff in Hc.
+  cbn [append row_cells_trace]. rewrite Hc. cbn [vb_step Nat.eqb andb].
+  rewrite IH by exact H. rewrite andb_false_r. cbn [andb].
+  rewrite rev_string_cons, append_assoc. cbn [append String.length].
+  f_equal. lia.
+Qed.
+
+(* A span with one backtick on each side.  The closing run is left
+   pending; the next byte that is not a backtick resolves it
+   (`trace_resume`). *)
+Local Lemma trace_verbatim : forall v rest cur acc pos start,
+  v <> EmptyString ->
+  str_forallb (fun c => negb (Ascii.eqb c "`")) v = true ->
+  row_cells_trace (String "`" (v ++ String "`" rest)) 0 0 false
+    cur acc pos start =
+  row_cells_trace rest 1 1 false
+    (rev_string (String "`" (v ++ "`")) ++ cur) acc
+    (2 + String.length v + pos) start.
+Proof.
+  intros [|c x] rest cur acc pos start Hne Hv; [contradiction|].
+  cbn [str_forallb] in Hv. apply andb_true_iff in Hv as [Hc Hx].
+  apply negb_true_iff in Hc.
+  change (row_cells_trace (String "`" (String c x ++ String "`" rest)) 0 0 false
+            cur acc pos start)
+    with (row_cells_trace (String c x ++ String "`" rest) 0 1 false
+            (String "`" cur) acc (S pos) start).
+  cbn [append row_cells_trace]. rewrite Hc. cbn [vb_step Nat.eqb andb].
+  rewrite andb_false_r. cbn [andb].
+  rewrite trace_verbatim_body by exact Hx.
+  rewrite !rev_string_cons, rev_string_app, !append_assoc.
+  cbn [append rev_string rev_string_aux String.length].
+  f_equal. lia.
+Qed.
+
+Local Lemma trace_resume : forall c rest cur acc pos start,
+  Ascii.eqb c "`" = false ->
+  row_cells_trace (String c rest) 1 1 false cur acc pos start =
+  row_cells_trace (String c rest) 0 0 false cur acc pos start.
+Proof.
+  intros c rest cur acc pos start Hc. cbn [row_cells_trace]. rewrite Hc.
+  reflexivity.
+Qed.
+
+Local Lemma cell_trim_r_blank : forall w, is_blank w = true -> cell_trim_r w = EmptyString.
+Proof.
+  induction w as [|c w IH]; intros H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc H].
+  cbn [cell_trim_r]. rewrite Hc, (IH H).
+  destruct (Ascii.eqb c "\") eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. discriminate.
+Qed.
+
+(* The right trim keeps everything up to a last byte that is neither
+   whitespace nor a backslash, whatever the escapes before it. *)
+Local Lemma cell_trim_r_last : forall n s z w,
+  String.length s <= n ->
+  is_ws z = false -> Ascii.eqb z "\" = false -> is_blank w = true ->
+  cell_trim_r (s ++ String z w) = s ++ String z EmptyString.
+Proof.
+  induction n as [|n IH]; intros s z w Hn Hz Hzb Hw.
+  - destruct s; [|cbn in Hn; lia].
+    cbn [append cell_trim_r]. rewrite Hzb, Hz, (cell_trim_r_blank w Hw).
+    reflexivity.
+  - destruct s as [|c s].
+    + cbn [append cell_trim_r]. rewrite Hzb, Hz, (cell_trim_r_blank w Hw).
+      reflexivity.
+    + cbn [String.length] in Hn. cbn [append cell_trim_r].
+      destruct (Ascii.eqb c "\") eqn:Eb.
+      * destruct s as [|c2 s].
+        -- cbn [append]. rewrite (cell_trim_r_blank w Hw). reflexivity.
+        -- cbn [append]. rewrite (IH s z w) by (cbn in Hn; lia || assumption).
+           reflexivity.
+      * rewrite (IH s z w) by (lia || assumption).
+        destruct (is_ws c); [|reflexivity].
+        destruct s; reflexivity.
+Qed.
+
+(* A cell's text survives the trim when it starts and ends with neither
+   whitespace nor, at the end, a backslash. *)
+Local Lemma cell_trim_padded : forall c,
+  drop_leading_ws c = c ->
+  (c = EmptyString \/ exists x z, c = x ++ String z EmptyString /\
+                                  is_ws z = false /\ Ascii.eqb z "\" = false) ->
+  cell_trim (" " ++ c ++ " ") = c.
+Proof.
+  intros c Hl Hr. unfold cell_trim.
+  destruct Hr as [->|(x & z & -> & Hz & Hzb)]; [reflexivity|].
+  cbn [append drop_leading_ws]. change (is_ws " ") with true. cbn iota.
+  destruct x as [|h t].
+  - cbn [append drop_leading_ws]. rewrite Hz.
+    exact (cell_trim_r_last 0 EmptyString z " " (le_n 0) Hz Hzb eq_refl).
+  - cbn [append] in Hl |- *. apply drop_leading_ws_fixed in Hl.
+    cbn [drop_leading_ws]. rewrite Hl.
+    rewrite append_assoc. cbn [append].
+    exact (cell_trim_r_last _ (String h t) z " " (le_n _) Hz Hzb eq_refl).
+Qed.
+
+(* A row of cells as the renderer writes it, after the opening bar: each
+   cell between a space and the bar that ends it. *)
+Fixpoint cells_body (cs : list string) : string :=
+  match cs with
+  | [] => EmptyString
+  | c :: rest => (" " ++ c ++ " |" ++ cells_body rest)%string
+  end.
+
+(* `cells_body` without its final bar, which is what the scan reads. *)
+Local Fixpoint cells_inner (c : string) (cs : list string) : string :=
+  " " ++ c ++ " " ++
+  match cs with
+  | [] => EmptyString
+  | c' :: cs' => String "|" (cells_inner c' cs')
+  end.
+
+Local Lemma cells_body_inner : forall cs c,
+  cells_body (c :: cs) = cells_inner c cs ++ "|".
+Proof.
+  induction cs as [|c' cs IH]; intros c.
+  - cbn [cells_body cells_inner]. rewrite !append_assoc. reflexivity.
+  - cbn [cells_body cells_inner] in *. rewrite IH, !append_assoc. reflexivity.
+Qed.
+
+Local Lemma rev_bar : forall x,
+  rev_string (x ++ "|") = String "|" (rev_string x).
+Proof. intros x. rewrite rev_string_app. reflexivity. Qed.
+
+Local Lemma strip_trailing_bar : forall x,
+  strip_trailing_ws (x ++ "|") = x ++ "|".
+Proof.
+  intros x. unfold strip_trailing_ws. rewrite rev_bar.
+  cbn [drop_leading_ws]. change (is_ws "|") with false. cbn iota.
+  rewrite rev_string_cons, rev_string_involutive. reflexivity.
+Qed.
+
+Local Lemma row_inner_bar : forall x, row_inner (x ++ "|") = x.
+Proof.
+  intros x. unfold row_inner. rewrite rev_bar, rev_string_involutive. reflexivity.
+Qed.
+
+Local Lemma row_body_bars : forall x,
+  row_body (String "|" (x ++ "|")) = Some (x ++ "|").
+Proof.
+  intros x. unfold row_body. cbn [drop_leading_ws]. change (is_ws "|") with false.
+  cbn iota. change (negb (Ascii.eqb "|" "|")) with false. cbn iota.
+  rewrite strip_trailing_bar, rev_bar. reflexivity.
+Qed.
+
+(* A cell with no bar, backslash or backtick, and no whitespace at
+   either end. *)
+Definition plain_cell (c : string) : Prop :=
+  str_forallb plain_cell_char c = true /\
+  drop_leading_ws c = c /\ strip_trailing_ws c = c.
+
+Local Lemma plain_cell_trim : forall c, plain_cell c ->
+  cell_trim (" " ++ c ++ " ") = c.
+Proof.
+  intros c (Hp & Hl & Hr). apply cell_trim_padded; [exact Hl|].
+  destruct (strip_trailing_last c Hr) as [->|(x & z & -> & Hz)]; [left; reflexivity|].
+  right. exists x, z. repeat split; [exact Hz|].
+  clear Hl Hr. induction x as [|h x IH].
+  - cbn in Hp. apply andb_true_iff in Hp as [Hp _]. apply plain_parts in Hp as (_ & H & _).
+    exact H.
+  - cbn [append str_forallb] in Hp. apply andb_true_iff in Hp as [_ Hp]. exact (IH Hp).
+Qed.
+
+Local Lemma str_forallb_app : forall p a b,
+  str_forallb p (a ++ b) = (str_forallb p a && str_forallb p b)%bool.
+Proof.
+  intros p a b. induction a as [|c a IH]; [reflexivity|].
+  cbn [append str_forallb]. rewrite IH, andb_assoc. reflexivity.
+Qed.
+
+Local Lemma plain_padded : forall c, plain_cell c ->
+  str_forallb plain_cell_char (" " ++ c ++ " ") = true.
+Proof.
+  intros c (Hp & _). rewrite !str_forallb_app, Hp. reflexivity.
+Qed.
+
+Local Lemma trace_cells : forall cs c acc pos start,
+  Forall plain_cell (c :: cs) ->
+  option_map (map (fun x => let '(c, _, _, _) := x in c))
+    (row_cells_trace (cells_inner c cs) 0 0 false EmptyString acc pos start)
+  = Some (rev (map (fun x => let '(c, _, _, _) := x in c) acc) ++ (c :: cs))%list.
+Proof.
+  induction cs as [|c' cs IH]; intros c acc pos start H;
+    inversion H as [|? ? Hc Hcs]; subst.
+  - cbn [cells_inner]. rewrite append_empty_r.
+    rewrite <- (append_empty_r (" " ++ c ++ " ")).
+    rewrite (trace_plain _ _ _ _ _ _ (plain_padded c Hc)).
+    cbn [row_cells_trace vb_step option_map]. rewrite map_rev. cbn [map].
+    unfold row_cell_entry. rewrite append_empty_r, rev_string_involutive.
+    rewrite (plain_cell_trim c Hc). reflexivity.
+  - cbn [cells_inner]. fold (cells_inner c' cs).
+    replace (" " ++ c ++ " " ++ String "|" (cells_inner c' cs))
+      with ((" " ++ c ++ " ") ++ String "|" (cells_inner c' cs))
+      by (rewrite !append_assoc; reflexivity).
+    rewrite (trace_plain _ _ _ _ _ _ (plain_padded c Hc)), trace_bar, IH by exact Hcs.
+    cbn [map rev]. unfold row_cell_entry at 1.
+    rewrite append_empty_r, rev_string_involutive, (plain_cell_trim c Hc).
+    rewrite <- app_assoc. reflexivity.
+Qed.
+
+(** PT1, if: a row of plain cells, each written between a space and the
+    bar that ends it, is a row of exactly those cells. *)
+Theorem table_row_cells : forall c cs,
+  Forall plain_cell (c :: cs) ->
+  table_row ("|" ++ cells_body (c :: cs)) = Some (TCells (c :: cs)).
+Proof.
+  intros c cs H. unfold table_row.
+  rewrite cells_body_inner. change ("|" ++ ?x) with (String "|" x).
+  rewrite row_body_bars.
+  assert (Hsep : sep_cells (cells_inner c cs ++ "|") = None)
+    by (destruct cs; reflexivity).
+  rewrite Hsep. unfold row_cells. rewrite row_inner_bar.
+  cbn [map]. rewrite (trace_cells cs c [] 1 0 H). reflexivity.
+Qed.
+
+Local Lemma drop_leading_ws_app_nonws : forall a h t,
+  drop_leading_ws a = a -> is_ws h = false ->
+  drop_leading_ws (a ++ String h t) = a ++ String h t.
+Proof.
+  intros [|a0 a] h t Ha Hh.
+  - cbn [append drop_leading_ws]. rewrite Hh. reflexivity.
+  - apply drop_leading_ws_fixed in Ha. cbn [append drop_leading_ws]. rewrite Ha.
+    reflexivity.
+Qed.
+
+(* The last character of `x ++ String h t`, when `t` is trimmed. *)
+Local Lemma last_nonws : forall x h t,
+  is_ws h = false -> Ascii.eqb h "\" = false ->
+  strip_trailing_ws t = t -> str_forallb plain_cell_char t = true ->
+  exists x' z, x ++ String h t = x' ++ String z EmptyString /\
+               is_ws z = false /\ Ascii.eqb z "\" = false.
+Proof.
+  intros x h t Hh Hhb Ht Hp.
+  destruct (strip_trailing_last t Ht) as [->|(y & z & -> & Hz)].
+  - exists x, h. auto.
+  - exists (x ++ String h y), z. split; [|split; [exact Hz|]].
+    + rewrite !append_assoc. reflexivity.
+    + rewrite str_forallb_app in Hp. apply andb_true_iff in Hp as [_ Hp].
+      cbn [str_forallb] in Hp. apply andb_true_iff in Hp as [Hp _].
+      apply plain_parts in Hp as (_ & H & _). exact H.
+Qed.
+
+(** PT7, the escape: `\|` inside a cell does not end it. *)
+Theorem table_row_escaped_bar : forall a b,
+  str_forallb plain_cell_char a = true -> str_forallb plain_cell_char b = true ->
+  drop_leading_ws a = a -> strip_trailing_ws b = b ->
+  table_row ("| " ++ a ++ "\|" ++ b ++ " |") = Some (TCells [a ++ "\|" ++ b]).
+Proof.
+  intros a b Ha Hb Hla Hrb. unfold table_row.
+  replace ("| " ++ a ++ "\|" ++ b ++ " |")
+    with (String "|" ((" " ++ a ++ "\|" ++ b ++ " ") ++ "|"))
+    by (rewrite !append_assoc; reflexivity).
+  rewrite row_body_bars.
+  assert (Hsep : sep_cells ((" " ++ a ++ "\|" ++ b ++ " ") ++ "|") = None)
+    by reflexivity.
+  rewrite Hsep. unfold row_cells. rewrite row_inner_bar. cbn [map].
+  replace (" " ++ a ++ "\|" ++ b ++ " ")
+    with ((" " ++ a) ++ String "\" (String "|" (b ++ " ")))
+    by (rewrite !append_assoc; reflexivity).
+  rewrite trace_plain by (rewrite str_forallb_app, Ha; reflexivity).
+  rewrite trace_escape. change (Ascii.eqb "|" "\") with false.
+  rewrite <- (append_empty_r (b ++ " ")).
+  rewrite trace_plain by (rewrite !str_forallb_app, Hb; reflexivity).
+  cbn [row_cells_trace vb_step option_map rev map app].
+  unfold row_cell_entry.
+  rewrite rev_string_app, rev_string_involutive, append_empty_r.
+  rewrite !rev_string_cons, rev_string_involutive.
+  replace ((((" " ++ a) ++ String "\" EmptyString) ++ String "|" EmptyString) ++ b ++ " ")
+    with (" " ++ (a ++ "\|" ++ b) ++ " ")
+    by (rewrite !append_assoc; reflexivity).
+  rewrite cell_trim_padded; [reflexivity| |].
+  - apply drop_leading_ws_app_nonws; [exact Hla|reflexivity].
+  - right. change ("\|" ++ b) with (String "\" (String "|" b)).
+    destruct (last_nonws (a ++ "\") "|" b eq_refl eq_refl Hrb Hb) as (x & z & E & Hz).
+    exists x, z. rewrite <- E, !append_assoc. split; [reflexivity|exact Hz].
+Qed.
+
+(** PT7, verbatim: a bar inside a verbatim span does not end the cell. *)
+Theorem table_row_verbatim_bar : forall x y,
+  str_forallb (fun c => negb (Ascii.eqb c "`")) x = true ->
+  str_forallb (fun c => negb (Ascii.eqb c "`")) y = true ->
+  table_row ("| `" ++ x ++ "|" ++ y ++ "` |") =
+    Some (TCells ["`" ++ x ++ "|" ++ y ++ "`"]).
+Proof.
+  intros x y Hx Hy. unfold table_row.
+  replace ("| `" ++ x ++ "|" ++ y ++ "` |")
+    with (String "|" ((" " ++ ("`" ++ x ++ "|" ++ y ++ "`") ++ " ") ++ "|"))
+    by (rewrite !append_assoc; reflexivity).
+  rewrite row_body_bars.
+  assert (Hsep : sep_cells ((" " ++ ("`" ++ x ++ "|" ++ y ++ "`") ++ " ") ++ "|")
+                 = None) by reflexivity.
+  rewrite Hsep. unfold row_cells. rewrite row_inner_bar. cbn [map].
+  replace (" " ++ ("`" ++ x ++ "|" ++ y ++ "`") ++ " ")
+    with (" " ++ String "`" ((x ++ "|" ++ y) ++ String "`" " "))
+    by (rewrite !append_assoc; reflexivity).
+  rewrite (trace_plain " ") by reflexivity.
+  rewrite trace_verbatim.
+  2: { destruct x; discriminate. }
+  2: { rewrite !str_forallb_app, Hx, Hy. reflexivity. }
+  rewrite trace_resume by reflexivity.
+  rewrite <- (append_empty_r " "). rewrite (trace_plain " ") by reflexivity.
+  cbn [row_cells_trace vb_step option_map rev map app].
+  unfold row_cell_entry.
+  rewrite !rev_string_app, !rev_string_involutive, !append_empty_r.
+  replace (((rev_string EmptyString ++ " ") ++ String "`" ((x ++ "|" ++ y) ++ "`")) ++ " ")
+    with (" " ++ ("`" ++ x ++ "|" ++ y ++ "`") ++ " ")
+    by (cbn [rev_string rev_string_aux append]; rewrite !append_assoc;
+        cbn [append]; rewrite !append_assoc; reflexivity).
+  rewrite cell_trim_padded; [reflexivity|reflexivity|].
+  right. exists (String "`" (x ++ "|" ++ y)), "`". split; [|split; reflexivity].
+  cbn [append]. rewrite ?append_assoc. reflexivity.
+Qed.
+
+Local Lemma row_body_shape : forall l body,
+  row_body l = Some body ->
+  exists pre x post, is_blank pre = true /\ is_blank post = true /\
+    body = x ++ "|" /\ l = pre ++ "|" ++ x ++ "|" ++ post.
+Proof.
+  intros l body H. unfold row_body in H.
+  destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+  destruct (drop_leading_ws l) as [|c rest]; [discriminate|].
+  destruct (Ascii.eqb c "|") eqn:Ec; [|discriminate]. cbn [negb] in H.
+  apply Ascii.eqb_eq in Ec. subst c.
+  destruct (strip_trailing_split rest) as (w & Hw & Er).
+  destruct (rev_string (strip_trailing_ws rest)) as [|c' y] eqn:Ey; [discriminate|].
+  destruct (Ascii.eqb c' "|") eqn:Ec'; [|discriminate].
+  apply Ascii.eqb_eq in Ec'. subst c'. injection H as <-.
+  assert (Eb : strip_trailing_ws rest = rev_string y ++ "|").
+  { rewrite <- (rev_string_involutive (strip_trailing_ws rest)), Ey, rev_string_cons.
+    reflexivity. }
+  exists pre, (rev_string y), w. repeat split; try assumption.
+  rewrite Hl, Er, Eb, !append_assoc. reflexivity.
+Qed.
+
+Local Lemma row_cells_trace_nonempty : forall n s vb run bs cur acc pos start xs,
+  String.length s <= n ->
+  row_cells_trace s vb run bs cur acc pos start = Some xs -> xs <> [].
+Proof.
+  induction n as [|n IH]; intros s vb run bs cur acc pos start xs Hn H.
+  - destruct s; [|cbn in Hn; lia]. cbn [row_cells_trace] in H.
+    destruct bs; [discriminate|]. destruct (vb_step vb run); [|discriminate].
+    injection H as <-. intros E. destruct (rev acc); discriminate.
+  - destruct s as [|c s].
+    + apply (IH EmptyString vb run bs cur acc pos start); [cbn; lia|exact H].
+    + cbn [String.length] in Hn. cbn [row_cells_trace] in H.
+      destruct (Ascii.eqb c "`"); [eapply IH; [|exact H]; lia|].
+      destruct (Nat.eqb (vb_step vb run) 0 && Ascii.eqb c "\")%bool.
+      * destruct s as [|c' s'']; [discriminate|].
+        eapply IH; [|exact H]. cbn in Hn. lia.
+      * destruct (Ascii.eqb c "|" && Nat.eqb (vb_step vb run) 0 && negb bs)%bool;
+          (eapply IH; [|exact H]; lia).
+Qed.
+
+(** PT1, only if: every row line starts and ends with a bar, after any
+    indentation and before any trailing whitespace, and has at least one
+    cell. *)
+Theorem table_row_shape : forall l r,
+  table_row l = Some r ->
+  (exists pre x post, is_blank pre = true /\ is_blank post = true /\
+     l = pre ++ "|" ++ x ++ "|" ++ post) /\
+  match r with TSep als => als <> [] | TCells cs => cs <> [] end.
+Proof.
+  intros l r H. unfold table_row in H.
+  destruct (row_body l) as [body|] eqn:Eb; [|discriminate].
+  destruct (row_body_shape l body Eb) as (pre & x & post & Hpre & Hpost & _ & El).
+  split; [exists pre, x, post; auto|].
+  destruct (sep_cells body) as [[|a als]|].
+  3: { unfold row_cells in H.
+       destruct (row_cells_trace _ _ _ _ _ _ _ _) as [xs|] eqn:Et; [|discriminate].
+       injection H as <-. intros E. apply map_eq_nil in E. subst xs.
+       exact (row_cells_trace_nonempty _ _ _ _ _ _ _ _ _ [] (le_n _) Et eq_refl). }
+  2: { injection H as <-. discriminate. }
+  unfold row_cells in H.
+  destruct (row_cells_trace _ _ _ _ _ _ _ _) as [xs|] eqn:Et; [|discriminate].
+  injection H as <-. intros E. apply map_eq_nil in E. subst xs.
+  exact (row_cells_trace_nonempty _ _ _ _ _ _ _ _ _ [] (le_n _) Et eq_refl).
+Qed.
+
+Local Lemma sct_ends_bar : forall a b n w cells,
+  exists x, separator_cell_text a b n w ++ separator_text cells = x ++ "|".
+Proof.
+  intros a b n w cells. revert a b n w.
+  induction cells as [|[[[[w0 a'] b'] n'] w'] cells IH]; intros a b n w.
+  - exists (separator_colon a (char_run "-" n ++ separator_colon b w)).
+    unfold separator_cell_text. cbn [separator_text]. rewrite append_empty_r.
+    destruct a, b; cbn [separator_colon append]; rewrite ?append_assoc; reflexivity.
+  - destruct (IH a' b' (S n') w') as (x & E).
+    exists (separator_cell_text a b n w ++ w0 ++ x). cbn [separator_text]. rewrite E, !append_assoc. reflexivity.
+Qed.
+
+Local Lemma colon_split : forall s left s1,
+  match s with
+  | String c r => if Ascii.eqb c ":" then (true, r) else (false, s)
+  | EmptyString => (false, s)
+  end = (left, s1) -> s = separator_colon left s1.
+Proof.
+  intros [|c r] left s1 H; [injection H as <- <-; reflexivity|].
+  destruct (Ascii.eqb c ":") eqn:E; injection H as <- <-; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. reflexivity.
+Qed.
+
+Local Lemma sep_cell_inv : forall s al rest,
+  sep_cell s = Some (al, rest) ->
+  exists a b n w r, is_blank w = true /\ s = separator_cell_text a b (S n) w ++ r /\
+    rest = drop_leading_ws r /\ al = separator_alignment a b.
+Proof.
+  intros s al rest H. unfold sep_cell in H.
+  match type of H with
+  | context [match ?m with (_, _) => _ end] => destruct m as [left s1] eqn:E1
+  end.
+  apply colon_split in E1.
+  destruct (count_run "-" s1) as [[|n] s2] eqn:E2; [discriminate|].
+  apply count_run_split in E2.
+  match type of H with
+  | context [match ?m with (_, _) => _ end] => destruct m as [right s3] eqn:E3
+  end.
+  apply colon_split in E3.
+  destruct (drop_leading_ws_split s3) as (w & Hw & E4).
+  destruct (drop_leading_ws s3) as [|c r]; [discriminate|].
+  destruct (Ascii.eqb c "|") eqn:Ec; [|discriminate].
+  apply Ascii.eqb_eq in Ec. subst c. injection H as <- <-.
+  exists left, right, n, w, r. split; [exact Hw|]. split; [|split; [reflexivity|]].
+  - rewrite separator_cell_text_app, E1, E2, E3, E4. reflexivity.
+  - destruct left, right; reflexivity.
+Qed.
+
+Local Lemma sep_fuel_inv : forall fuel s als,
+  sep_cells_fuel fuel s = Some als -> s <> EmptyString ->
+  exists a b n w cells t, is_blank w = true /\ Forall separator_ws_ok cells /\
+    is_blank t = true /\ s = separator_cell_text a b (S n) w ++ separator_text cells ++ t /\
+    als = separator_alignment a b :: separator_alignments cells.
+Proof.
+  induction fuel as [|fuel IH]; intros s als H Hs; [discriminate|].
+  destruct s as [|c s']; [contradiction|].
+  cbn [sep_cells_fuel] in H.
+  destruct (sep_cell (String c s')) as [[al rest]|] eqn:Ec; [|discriminate].
+  destruct (sep_cells_fuel fuel rest) as [als'|] eqn:Er; [|discriminate].
+  injection H as <-.
+  destruct (sep_cell_inv _ _ _ Ec) as (a & b & n & w & r & Hw & Es & Erest & Eal).
+  destruct rest as [|c' rest'].
+  - destruct fuel; [discriminate|]. injection Er as <-.
+    exists a, b, n, w, [], r.
+    split; [exact Hw|]. split; [constructor|].
+    split; [apply drop_leading_ws_empty; symmetry; exact Erest|].
+    split; [rewrite Es; reflexivity|rewrite Eal; reflexivity].
+  - destruct (IH _ _ Er ltac:(discriminate))
+      as (a' & b' & n' & w' & cells & t & Hw' & Hcs & Ht & E' & Eals).
+    destruct (drop_leading_ws_split r) as (w0 & Hw0 & Er0).
+    exists a, b, n, w, ((w0, a', b', n', w') :: cells), t.
+    split; [exact Hw|]. split; [constructor; [split; assumption|exact Hcs]|].
+    split; [exact Ht|]. split.
+    + rewrite Es, Er0, <- Erest, E'. cbn [separator_text]. rewrite !append_assoc. reflexivity.
+    + rewrite Eal, Eals. reflexivity.
+Qed.
+
+Local Lemma bar_blank_end : forall y t x,
+  y ++ t = x ++ "|" -> is_blank t = true -> t = EmptyString.
+Proof.
+  intros y t x E Ht. apply (f_equal rev_string) in E.
+  rewrite rev_string_app, rev_bar in E.
+  destruct (rev_string t) as [|d u] eqn:Et.
+  - rewrite <- (rev_string_involutive t), Et. reflexivity.
+  - exfalso. cbn [append] in E. injection E as Ed _. subst d.
+    rewrite <- rev_blank, Et in Ht. discriminate.
+Qed.
+
+Local Lemma row_body_padded : forall pre x post,
+  is_blank pre = true -> is_blank post = true ->
+  row_body (pre ++ String "|" (x ++ "|" ++ post)) = Some (x ++ "|").
+Proof.
+  intros pre x post Hpre Hpost. unfold row_body.
+  rewrite (drop_leading_ws_ws_prefix pre _ Hpre). cbn [drop_leading_ws].
+  change (is_ws "|") with false. cbn iota.
+  change (negb (Ascii.eqb "|" "|")) with false. cbn iota.
+  rewrite <- append_assoc, strip_trailing_ws_app_blank by exact Hpost.
+  rewrite strip_trailing_bar, rev_bar. reflexivity.
+Qed.
+
+(** PT2: a line is a separator exactly when it is `|` followed by
+    separator cells -- an optional `:`, one or more dashes, an optional
+    `:`, whitespace, and a bar -- with whitespace between them but none
+    before the first.  The alignments are read off the colons. *)
+Theorem table_row_separator : forall l als,
+  table_row l = Some (TSep als) <->
+  exists pre a b n w cells post,
+    is_blank pre = true /\ is_blank post = true /\ is_blank w = true /\
+    Forall separator_ws_ok cells /\
+    l = pre ++ "|" ++ separator_cell_text a b (S n) w ++ separator_text cells ++ post /\
+    als = separator_alignment a b :: separator_alignments cells.
+Proof.
+  intros l als. split.
+  - intros H. unfold table_row in H.
+    destruct (row_body l) as [body|] eqn:Eb; [|discriminate].
+    destruct (row_body_shape l body Eb) as (pre & x & post & Hpre & Hpost & Ebody & El).
+    destruct (sep_cells body) as [[|a0 als0]|] eqn:Es.
+    2: { injection H as <-. unfold sep_cells in Es.
+         destruct (sep_fuel_inv _ _ _ Es)
+           as (a & b & n & w & cells & t & Hw & Hcs & Ht & E & Eals).
+         { rewrite Ebody. destruct x; discriminate. }
+         assert (t = EmptyString) as ->.
+         { apply (bar_blank_end (separator_cell_text a b (S n) w ++ separator_text cells) t x); [|exact Ht].
+           rewrite append_assoc, <- E, Ebody. reflexivity. }
+         exists pre, a, b, n, w, cells, post.
+         split; [exact Hpre|]. split; [exact Hpost|]. split; [exact Hw|].
+         split; [exact Hcs|]. split; [|exact Eals].
+         rewrite El. rewrite append_empty_r in E.
+         replace (x ++ "|" ++ post) with ((x ++ "|") ++ post) by apply append_assoc.
+         rewrite <- Ebody, E, !append_assoc. reflexivity. }
+    all: destruct (row_cells _ _ _ _ _ _); discriminate.
+  - intros (pre & a & b & n & w & cells & post & Hpre & Hpost & Hw & Hcs & El & Eals).
+    subst l als. unfold table_row.
+    destruct (sct_ends_bar a b (S n) w cells) as (x & Ex).
+    replace (pre ++ "|" ++ separator_cell_text a b (S n) w ++ separator_text cells ++ post)
+      with (pre ++ String "|" (x ++ "|" ++ post))
+      by (rewrite <- (append_assoc x "|" post), <- Ex, !append_assoc; reflexivity).
+    rewrite (row_body_padded pre x post Hpre Hpost), <- Ex.
+    rewrite (separator_row_alignments a b n w cells Hw Hcs). reflexivity.
+Qed.
 
 (* A table caption: `^` and at least one space or tab, then the first
    line of the caption's inline content.
@@ -1634,6 +2431,24 @@ Qed.
 Lemma classify_canonical_thematic : classify "* * * *" = KThematic.
 Proof. reflexivity. Qed.
 
+(* A spec line is one `attr_open` accepts. *)
+Lemma classify_attr_open : forall l ap, classify l = KAttr ap -> attr_open l = Some ap.
+Proof.
+  intros l ap H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[? ?]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[? ?]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[[? ?] ?] ?]|]; [discriminate|].
+  destruct (attr_open l); [congruence|].
+  repeat match type of H with
+         | context [match ?x with _ => _ end] => destruct x
+         | context [if ?x then _ else _] => destruct x
+         end; discriminate.
+Qed.
+
 (* An all-whitespace prefix is invisible to the classifier: every
    recognizer reads through drop_leading_ws, and is_thematic skips
    whitespace anywhere.  So a list item's continuation indent can be
@@ -1751,6 +2566,85 @@ Proof.
   reflexivity.
 Qed.
 
+(* What may follow a definition's colon, in the reference's words:
+   whitespace and the URL, or the end of the line (the URL is on the
+   next).  The URL chunk has no whitespace, and nothing follows it. *)
+Local Lemma ref_value_gap : forall gap dest,
+  is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  ref_value (gap ++ dest) = Some dest.
+Proof.
+  intros gap dest Hblank Hdest Hbare.
+  destruct gap as [|c gap]; [rewrite (Hbare eq_refl); reflexivity|].
+  cbn [is_blank] in Hblank. apply andb_true_iff in Hblank as [Hc Hgap].
+  unfold ref_value. cbn [append]. rewrite Hc.
+  change (String c (gap ++ dest)) with (String c gap ++ dest).
+  rewrite (drop_leading_ws_ws_prefix (String c gap) dest)
+    by (cbn [is_blank]; rewrite Hc, Hgap; reflexivity).
+  rewrite (no_ws_drop_leading_ws dest Hdest), Hdest. reflexivity.
+Qed.
+
+Local Lemma ref_open_gap : forall label gap dest,
+  no_char "]"%char label = true ->
+  is_footnote_label label = false ->
+  is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  ref_open ("[" ++ label ++ "]:" ++ gap ++ dest) = Some (label, dest).
+Proof.
+  intros label gap dest Hlabel Hfoot Hblank Hdest Hbare.
+  assert (Hlab : forall tail,
+    ref_label (label ++ String "]" tail) = Some (label, tail)).
+  { clear Hfoot Hblank Hdest Hbare.
+    induction label as [|c label IH]; [reflexivity|].
+    cbn [no_char] in Hlabel. apply andb_true_iff in Hlabel as [Hc Hl].
+    cbn [append ref_label]. apply negb_true_iff in Hc.
+    intros tail. rewrite Hc, (IH Hl tail). reflexivity. }
+  unfold ref_open. cbn [append drop_leading_ws is_ws Ascii.eqb orb].
+  change (is_ws "[") with false.
+  cbn [drop_leading_ws Ascii.eqb negb]. simpl.
+  rewrite (Hlab (String ":" (gap ++ dest))). simpl. rewrite Hfoot.
+  rewrite (ref_value_gap gap dest Hblank Hdest Hbare). reflexivity.
+Qed.
+
+(** RD1 at the line level: any indentation, the label, the colon, then
+    whitespace and a whitespace-free URL chunk, or nothing (the URL
+    starts on the next line). *)
+Theorem classify_ref_whitespace : forall pre label gap dest,
+  no_char "]"%char label = true ->
+  is_footnote_label label = false ->
+  is_blank pre = true -> is_blank gap = true -> no_ws dest = true ->
+  (gap = EmptyString -> dest = EmptyString) ->
+  classify (pre ++ "[" ++ label ++ "]:" ++ gap ++ dest) = KRef label dest.
+Proof.
+  intros pre label gap dest Hlabel Hfoot Hpre Hblank Hdest Hbare.
+  rewrite classify_ws_prefix by exact Hpre.
+  set (s := "[" ++ label ++ "]:" ++ gap ++ dest).
+  assert (Hdrop : drop_leading_ws s = s).
+  { unfold s. cbn [append drop_leading_ws].
+    change (is_ws "[") with false. reflexivity. }
+  assert (Hfo : foot_open s = None).
+  { unfold foot_open. rewrite Hdrop. unfold s. cbn [append].
+    destruct label as [|c [|d rest]].
+    - reflexivity.
+    - cbn [append ref_label nonempty_str Ascii.eqb negb].
+      destruct (Ascii.eqb c "^"); reflexivity.
+    - cbn [is_footnote_label] in Hfoot.
+      destruct (Ascii.eqb c "^") eqn:Ec.
+      + apply Ascii.eqb_eq in Ec. subst c. discriminate.
+      + cbn [append ref_label nonempty_str Ascii.eqb negb].
+        rewrite Ec. reflexivity. }
+  assert (Hro : ref_open s = Some (label, dest)).
+  { unfold s. apply ref_open_gap; assumption. }
+  unfold classify.
+  change (is_blank s) with false.
+  unfold quote_prefix, heading_open, fence_open, div_open, list_marker,
+    attr_open, is_thematic.
+  rewrite !Hdrop, Hfo, Hro. unfold s. cbn [append].
+  cbn [count_run thematic_count is_marker is_ws is_bullet marker_shape
+       Ascii.eqb orb andb Nat.leb eqb negb].
+  reflexivity.
+Qed.
+
 (* Boolean form of `classify l = KText`, so it can sit inside cb_ok. *)
 Definition is_text (l : string) : bool :=
   match classify l with KText => true | _ => false end.
@@ -1852,6 +2746,256 @@ Proof.
   rewrite (fence_open_backtick info H). reflexivity.
 Qed.
 
+(* A backtick fence as the syntax reference spells it: any indentation,
+   three or more backticks, optional whitespace, an optional info string,
+   and trailing whitespace. *)
+
+Local Lemma take_info_app :
+  forall info post, all_info_chars info = true -> is_blank post = true ->
+  take_while is_info_char (info ++ post) = (info, post).
+Proof.
+  induction info as [|c info IH]; intros post Hinfo Hpost.
+  - destruct post as [|w post]; [reflexivity|].
+    cbn [is_blank] in Hpost. apply andb_true_iff in Hpost as [Hw _].
+    cbn [append take_while]. unfold is_info_char. rewrite Hw. reflexivity.
+  - cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc Hinfo].
+    cbn [append take_while]. rewrite Hc, (IH post Hinfo Hpost). reflexivity.
+Qed.
+
+Local Lemma fence_open_backticks : forall n gap info post,
+  is_blank gap = true -> all_info_chars info = true -> is_blank post = true ->
+  fence_open (char_run "`" (3 + n) ++ gap ++ info ++ post) =
+    Some (Fence "`" (3 + n) info).
+Proof.
+  intros n gap info post Hgap Hinfo Hpost.
+  (* the run ends where the backticks do: whatever follows is whitespace,
+     an info character, or nothing *)
+  assert (Hrun : count_run "`" (gap ++ info ++ post) = (O, gap ++ info ++ post)).
+  { destruct gap as [|w gap].
+    - destruct info as [|c info].
+      + destruct post as [|w post]; [reflexivity|].
+        cbn [is_blank] in Hpost. apply andb_true_iff in Hpost as [Hw _].
+        cbn [append count_run]. destruct (Ascii.eqb "`" w) eqn:E; [|reflexivity].
+        apply Ascii.eqb_eq in E. subst w. discriminate.
+      + cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc _].
+        apply info_char_parts in Hc as (_ & Hb & _).
+        cbn [append count_run]. rewrite Ascii.eqb_sym, Hb. reflexivity.
+    - cbn [is_blank] in Hgap. apply andb_true_iff in Hgap as [Hw _].
+      cbn [append count_run]. destruct (Ascii.eqb "`" w) eqn:E; [|reflexivity].
+      apply Ascii.eqb_eq in E. subst w. discriminate. }
+  unfold fence_open.
+  cbn [char_run append drop_leading_ws is_ws Ascii.eqb orb]. simpl.
+  rewrite (count_char_run "`" n _ Hrun), (drop_leading_ws_ws_prefix gap _ Hgap).
+  destruct info as [|c info'].
+  - cbn [append]. rewrite (drop_leading_ws_blank post Hpost). reflexivity.
+  - assert (Hc : is_ws c = false).
+    { cbn [all_info_chars] in Hinfo. apply andb_true_iff in Hinfo as [Hc _].
+      apply info_char_parts in Hc as (Hw & _ & _). exact Hw. }
+    cbn [append drop_leading_ws]. rewrite Hc.
+    change (String c (info' ++ post)) with (String c info' ++ post).
+    rewrite (take_info_app _ post Hinfo Hpost), Hpost. reflexivity.
+Qed.
+
+Theorem classify_backtick_fences : forall pre n gap info post,
+  is_blank pre = true -> is_blank gap = true ->
+  all_info_chars info = true -> is_blank post = true ->
+  classify (pre ++ char_run "`" (3 + n) ++ gap ++ info ++ post) =
+    KFence (Fence "`" (3 + n) info).
+Proof.
+  intros pre n gap info post Hpre Hgap Hinfo Hpost.
+  rewrite classify_ws_prefix by exact Hpre. unfold classify.
+  change (is_blank (char_run "`" (3 + n) ++ gap ++ info ++ post)) with false.
+  change (quote_prefix (char_run "`" (3 + n) ++ gap ++ info ++ post))
+    with (@None string).
+  change (heading_open (char_run "`" (3 + n) ++ gap ++ info ++ post))
+    with (@None (nat * string)).
+  rewrite (fence_open_backticks n gap info post Hgap Hinfo Hpost). reflexivity.
+Qed.
+
+(* CB2 at the line level: a line closes a backtick fence exactly when it
+   is a run of backticks at least as long as the opener's, with nothing
+   but whitespace around it. *)
+Theorem fence_close_backticks : forall n info l,
+  fence_close (Fence "`" n info) l = true <->
+  exists pre m post, is_blank pre = true /\ is_blank post = true /\ n <= m /\
+    l = pre ++ char_run "`" m ++ post.
+Proof.
+  intros n info l. unfold fence_close. cbn [f_ch f_len]. split.
+  - destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (count_run "`" (drop_leading_ws l)) as [m r] eqn:E.
+    intros H. apply andb_true_iff in H as [Hn Hr]. apply Nat.leb_le in Hn.
+    apply count_run_split in E.
+    exists pre, m, r. rewrite <- E. auto.
+  - intros (pre & m & post & Hpre & Hpost & Hn & ->).
+    rewrite (drop_leading_ws_ws_prefix pre _ Hpre).
+    destruct m as [|m].
+    + cbn [char_run append]. rewrite (drop_leading_ws_blank post Hpost).
+      assert (n = 0) as -> by lia. reflexivity.
+    + rewrite drop_leading_ws_run by (reflexivity || lia).
+      rewrite count_char_run by (apply count_run_blank; reflexivity || exact Hpost).
+      rewrite Hpost, andb_true_r. apply Nat.leb_le, Hn.
+Qed.
+
+(*
+Div fences over every spelling
+------------------------------
+*)
+
+Local Lemma take_while_app : forall p a b,
+  str_forallb p a = true ->
+  (b = EmptyString \/ exists c b', b = String c b' /\ p c = false) ->
+  take_while p (a ++ b) = (a, b).
+Proof.
+  intros p a b Ha Hb. induction a as [|c a IH].
+  - destruct Hb as [->|(c & b' & -> & Hc)]; cbn; [reflexivity|rewrite Hc; reflexivity].
+  - cbn [str_forallb] in Ha. apply andb_true_iff in Ha as [Hc Ha].
+    cbn [append take_while]. rewrite Hc, (IH Ha). reflexivity.
+Qed.
+
+Local Lemma take_while_split : forall p s a b,
+  take_while p s = (a, b) -> s = a ++ b /\ str_forallb p a = true.
+Proof.
+  intros p s. induction s as [|c s IH]; intros a b H.
+  - injection H as <- <-. split; reflexivity.
+  - cbn [take_while] in H. destruct (p c) eqn:Ec.
+    + destruct (take_while p s) as [a' b'] eqn:E. injection H as <- <-.
+      destruct (IH a' b' eq_refl) as [-> Ha]. split; [reflexivity|].
+      cbn [str_forallb]. rewrite Ec, Ha. reflexivity.
+    + injection H as <- <-. split; reflexivity.
+Qed.
+
+Local Lemma class_char_not_ws : forall c, is_class_char c = true -> is_ws c = false.
+Proof.
+  intros c H. destruct (is_ws c) eqn:E; [|reflexivity].
+  unfold is_ws in E. repeat (apply orb_true_iff in E as [E|E]);
+    apply Ascii.eqb_eq in E; subst c; discriminate.
+Qed.
+
+Local Lemma class_char_not_colon :
+  forall c, is_class_char c = true -> Ascii.eqb ":" c = false.
+Proof.
+  intros c H. destruct (Ascii.eqb ":" c) eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. discriminate.
+Qed.
+
+(* Where the class token stops: a blank rest starts with no class
+   character. *)
+Local Lemma blank_head : forall s, is_blank s = true ->
+  s = EmptyString \/ exists c s', s = String c s' /\ is_class_char c = false.
+Proof.
+  intros [|c s] H; [left; reflexivity|right]. exists c, s. split; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc _].
+  destruct (is_class_char c) eqn:E; [|reflexivity].
+  rewrite (class_char_not_ws c E) in Hc. discriminate.
+Qed.
+
+Local Lemma div_open_colons : forall n gap cls post,
+  is_blank gap = true -> str_forallb is_class_char cls = true ->
+  is_blank post = true ->
+  div_open (char_run ":" (3 + n) ++ gap ++ cls ++ post) = Some (3 + n, cls).
+Proof.
+  intros n gap cls post Hgap Hcls Hpost.
+  (* the run ends where the colons do *)
+  assert (Hrun : count_run ":" (gap ++ cls ++ post) = (O, gap ++ cls ++ post)).
+  { destruct gap as [|w gap].
+    - destruct cls as [|c cls].
+      + apply count_run_blank; [reflexivity|exact Hpost].
+      + cbn [str_forallb] in Hcls. apply andb_true_iff in Hcls as [Hc _].
+        cbn [append count_run]. rewrite (class_char_not_colon c Hc). reflexivity.
+    - cbn [is_blank] in Hgap. apply andb_true_iff in Hgap as [Hw _].
+      cbn [append count_run]. destruct (Ascii.eqb ":" w) eqn:E; [|reflexivity].
+      apply Ascii.eqb_eq in E. subst w. discriminate. }
+  unfold div_open. rewrite drop_leading_ws_run by (reflexivity || lia).
+  change (char_run ":" (3 + n)) with (String ":" (char_run ":" (2 + n))).
+  cbn [append Ascii.eqb Ascii.ascii_dec]. simpl.
+  change (String ":" (char_run ":" (2 + n) ++ gap ++ cls ++ post))
+    with (char_run ":" (3 + n) ++ gap ++ cls ++ post).
+  rewrite (count_char_run _ _ _ Hrun).
+  rewrite (drop_leading_ws_ws_prefix gap _ Hgap).
+  destruct cls as [|c cls'].
+  - cbn [append]. rewrite (drop_leading_ws_blank post Hpost). reflexivity.
+  - assert (Hc : is_ws c = false).
+    { cbn [str_forallb] in Hcls. apply andb_true_iff in Hcls as [Hc _].
+      exact (class_char_not_ws c Hc). }
+    cbn [append drop_leading_ws]. rewrite Hc.
+    change (String c (cls' ++ post)) with (String c cls' ++ post).
+    rewrite (take_while_app _ _ _ Hcls (blank_head post Hpost)), Hpost. reflexivity.
+Qed.
+
+(* DV1: a div opener is an indent, three or more colons, optional
+   whitespace, a class token of `is_class_char`, and trailing whitespace;
+   nothing else classifies as one.  The whitespace before the class may
+   be empty: `:::foo` opens a div, as in djot.js. *)
+Theorem classify_div_fences : forall l n cls,
+  classify l = KDiv n cls <->
+  exists pre gap post,
+    is_blank pre = true /\ is_blank gap = true /\ is_blank post = true /\
+    3 <= n /\ str_forallb is_class_char cls = true /\
+    l = pre ++ char_run ":" n ++ gap ++ cls ++ post.
+Proof.
+  intros l n cls. split.
+  - intros H.
+    assert (Hd : div_open l = Some (n, cls)).
+    { unfold classify in H. destruct (is_blank l); [discriminate|].
+      destruct (quote_prefix l); [discriminate|].
+      destruct (heading_open l) as [[? ?]|]; [discriminate|].
+      destruct (fence_open l); [discriminate|].
+      destruct (div_open l) as [[? ?]|]; [congruence|].
+      repeat match type of H with
+             | context [match ?x with _ => _ end] => destruct x
+             | context [if ?x then _ else _] => destruct x
+             end; discriminate. }
+    clear H. unfold div_open in Hd.
+    destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (drop_leading_ws l) as [|c s] eqn:Ed; [discriminate|].
+    destruct (Ascii.eqb c ":") eqn:Ec; [|discriminate].
+    destruct (count_run ":" (String c s)) as [m r] eqn:Er.
+    destruct (Nat.leb 3 m) eqn:Em; [|discriminate].
+    destruct (drop_leading_ws_split r) as (gap & Hgap & Hr).
+    destruct (take_while is_class_char (drop_leading_ws r)) as [a b] eqn:Et.
+    destruct (is_blank b) eqn:Eb; [|discriminate].
+    injection Hd as <- <-.
+    apply count_run_split in Er.
+    apply take_while_split in Et as [Et Ha].
+    exists pre, gap, b. repeat split; try assumption.
+    + apply Nat.leb_le, Em.
+    + rewrite Hl, Er, Hr, Et. reflexivity.
+  - intros (pre & gap & post & Hpre & Hgap & Hpost & Hn & Hcls & ->).
+    rewrite classify_ws_prefix by exact Hpre.
+    replace n with (3 + (n - 3)) by lia.
+    unfold classify.
+    change (is_blank (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post)) with false.
+    change (quote_prefix (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None string).
+    change (heading_open (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None (nat * string)).
+    change (fence_open (char_run ":" (3 + (n - 3)) ++ gap ++ cls ++ post))
+      with (@None fence).
+    rewrite (div_open_colons _ _ _ _ Hgap Hcls Hpost). reflexivity.
+Qed.
+
+(* DV2 at the line level: a div opened with `len` colons is closed by a
+   run of at least `len` (and at least three) colons with only
+   whitespace around it.  No class: `::: foo` never closes. *)
+Theorem div_close_colons : forall len l,
+  div_close len l = true <->
+  exists pre m post, is_blank pre = true /\ is_blank post = true /\
+    len <= m /\ 3 <= m /\ l = pre ++ char_run ":" m ++ post.
+Proof.
+  intros len l. unfold div_close. split.
+  - destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    destruct (count_run ":" (drop_leading_ws l)) as [m r] eqn:E.
+    intros H. apply andb_true_iff in H as [H Hr]. apply andb_true_iff in H as [Hn H3].
+    apply Nat.leb_le in Hn, H3.
+    apply count_run_split in E.
+    exists pre, m, r. rewrite <- E. auto.
+  - intros (pre & m & post & Hpre & Hpost & Hn & H3 & ->).
+    rewrite (drop_leading_ws_ws_prefix pre _ Hpre).
+    rewrite drop_leading_ws_run by (reflexivity || lia).
+    rewrite count_char_run by (apply count_run_blank; reflexivity || exact Hpost).
+    rewrite Hpost, andb_true_r. apply andb_true_iff; split; apply Nat.leb_le; assumption.
+Qed.
+
 (* Canonical block-quote prefixing: "> " in front of every line, blank
    ones included.  Defined here rather than in Render so that the parser
    can name its width: both containers descend by two columns, and
@@ -1884,6 +3028,42 @@ Lemma classify_canonical_quote_pad :
 Proof.
   intros pad l Hpad. rewrite classify_ws_prefix by exact Hpad.
   apply classify_canonical_quote.
+Qed.
+
+(* BQ1 over every spelling: a quote line is an all-whitespace indent, a
+   `>`, then the end of the line or one whitespace character.  Nothing
+   else is one (`>x` is not).  The reference says "a space"; a tab or CR
+   also counts, as in djot.js. *)
+Theorem classify_quote_marker : forall l r,
+  classify l = KQuote r <->
+  exists pre, is_blank pre = true /\
+    (l = pre ++ ">" /\ r = EmptyString
+     \/ exists c, is_ws c = true /\ l = pre ++ String ">" (String c r)).
+Proof.
+  intros l r. split.
+  - unfold classify. intros H.
+    destruct (is_blank l); [discriminate|].
+    destruct (quote_prefix l) as [r'|] eqn:Eq;
+      [|repeat match type of H with
+               | context [match ?x with _ => _ end] => destruct x
+               end; discriminate].
+    injection H as <-.
+    unfold quote_prefix in Eq.
+    destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    exists pre. split; [exact Hpre|].
+    destruct (drop_leading_ws l) as [|c rest]; [discriminate|].
+    destruct (Ascii.eqb c ">") eqn:Ec; [|discriminate].
+    apply Ascii.eqb_eq in Ec. subst c.
+    destruct rest as [|c' rest'].
+    + injection Eq as <-. left. split; [exact Hl|reflexivity].
+    + destruct (is_ws c') eqn:Ew; [|discriminate].
+      injection Eq as <-. right. exists c'. split; [exact Ew|exact Hl].
+  - intros (pre & Hpre & [[-> ->] | (c & Hc & ->)]);
+      rewrite classify_ws_prefix by exact Hpre; unfold classify.
+    + reflexivity.
+    + change (is_blank (String ">" (String c r))) with false.
+      unfold quote_prefix. cbn [drop_leading_ws].
+      change (is_ws ">") with false. cbn - [is_ws]. rewrite Hc. reflexivity.
 Qed.
 
 (*
@@ -2035,6 +3215,68 @@ Lemma classify_canonical_heading_pad :
 Proof.
   intros pad lvl l Hpad Hlvl. rewrite classify_ws_prefix by exact Hpad.
   apply classify_canonical_heading, Hlvl.
+Qed.
+
+(** The syntax reference: "A line containing three or more `*` or `-`
+    characters, and nothing else (except spaces or tabs) is treated is a
+    thematic break", at any indentation.  That is `is_thematic`, and no
+    recognizer `classify` tries first claims such a line. *)
+Lemma classify_thematic :
+  forall l, is_thematic l = true -> classify l = KThematic.
+Proof.
+  intros l. unfold is_thematic.
+  induction l as [|c l IH]; intros H; [discriminate|].
+  cbn [thematic_count] in H.
+  destruct (is_marker c) eqn:Em.
+  - (* the first marker: nothing before `is_thematic` starts with one *)
+    unfold is_marker in Em.
+    apply orb_true_iff in Em as [E|E]; apply Ascii.eqb_eq in E; subst c;
+      unfold classify;
+      cbn [is_blank drop_leading_ws is_ws quote_prefix heading_open fence_open
+           div_open count_run Ascii.eqb Bool.eqb andb orb].
+    all: cbn [Nat.leb]; unfold is_thematic; cbn [thematic_count];
+      replace (is_marker _) with true by reflexivity; rewrite H; reflexivity.
+  - (* leading whitespace *)
+    destruct (is_ws c) eqn:Ew; [|discriminate].
+    change (String c l) with (String c "" ++ l)%string.
+    rewrite classify_ws_prefix by (cbn [is_blank]; rewrite Ew; reflexivity).
+    apply IH, H.
+Qed.
+
+(** The syntax reference: "A heading starts with a sequence of one or
+    more `#` characters, followed by whitespace.  The number of `#`
+    characters defines the heading level."  At any indentation, and
+    whatever the whitespace is. *)
+Lemma classify_heading_ws :
+  forall pad lvl c rest,
+    is_blank pad = true -> 1 <= lvl -> is_ws c = true ->
+    classify (pad ++ hashes lvl ++ String c rest) = KHeading lvl rest.
+Proof.
+  intros pad lvl c rest Hpad Hlvl Hc. rewrite classify_ws_prefix by exact Hpad.
+  (* the run stops at the whitespace *)
+  assert (Hcr : forall n,
+    count_run "#" (hashes n ++ String c rest) = (n, String c rest)).
+  { induction n as [|n IH].
+    - cbn [hashes append count_run].
+      destruct (Ascii.eqb "#" c) eqn:E;
+        [apply Ascii.eqb_eq in E; subst c; discriminate|reflexivity].
+    - cbn [hashes]. rewrite append_assoc.
+      change ("#" ++ (hashes n ++ String c rest))%string
+        with (String "#" (hashes n ++ String c rest))%string.
+      cbn [count_run]. rewrite IH. reflexivity. }
+  destruct lvl as [|n]; [lia|].
+  assert (Hs : (hashes (S n) ++ String c rest)%string
+               = String "#" (hashes n ++ String c rest)).
+  { cbn [hashes]. rewrite append_assoc. reflexivity. }
+  assert (Hd : drop_leading_ws (String "#" (hashes n ++ String c rest))
+               = String "#" (hashes n ++ String c rest))
+    by (apply drop_head_nonws; reflexivity).
+  unfold classify. rewrite Hs.
+  cbn [is_blank]. replace (is_ws "#") with false by reflexivity. cbn [andb].
+  unfold quote_prefix. rewrite Hd. cbn [Ascii.eqb Bool.eqb].
+  unfold heading_open. rewrite Hd. cbn [count_run].
+  replace (Ascii.eqb "#" "#") with true by reflexivity.
+  rewrite Hcr. cbn [Nat.leb]. rewrite Hc. reflexivity.
 Qed.
 
 (*
@@ -2563,7 +3805,7 @@ Proof.
       [discriminate Hsty|]. exists s, ss. reflexivity.
 Qed.
 
-Local Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
+Lemma lstyle_eqb_eq : forall a b, lstyle_eqb a b = true -> a = b.
 Proof.
   intros [c|c|n d] [c'|c'|n' d'] H; cbn [lstyle_eqb] in H; try discriminate.
   - apply Ascii.eqb_eq in H. subst c'. reflexivity.
