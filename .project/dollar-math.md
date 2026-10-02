@@ -3,7 +3,12 @@ ai-disclosure: ai-generated
 ---
 # Dollar math
 
-Status: **proposed** (2026-09-27), v1. Nothing is built.
+Status: **implemented** (2026-09-27), v1. Rebased onto main on
+2026-10-02. The setting, scanner states, proofs, extraction and the
+Markdown-like profile's use of it are built. `dev/check/DollarMath.v`
+pins every row of section 4 and the source ranges. Section 7 is the
+estimate made before the code; section 7.1 records what the
+implementation established or changed.
 
 Prose first. Sections 0 to 6 define the syntax without naming a single
 identifier in the development; everything that touches the code is
@@ -145,7 +150,7 @@ With the setting on and djot's math syntax off.
 | `[a $b](u) c$` | `[a [b](u) c]` |
 | `` `a $b` c$ `` | code `a $b`, then ` c$` |
 | `` $a `b$ `` | ``[a `b]`` |
-| `$a *b* c` | `$a`, emphasis `b`, ` c` |
+| `$a *b* c` | `$a `, strong `b`, ` c` |
 | ``$`x`$`` | `[x]` |
 | ``$``a`b``$`` | ``[a`b]`` |
 | ``$`x` y`` | `$`, code `x`, ` y` |
@@ -206,6 +211,38 @@ built construct.
   that case on scanner states: well-formedness, the no-reread theorem,
   locations, and the inversion lemmas. The proof sites that handle
   `IAttr` are the size estimate.
+
+### 7.1 What the implementation established
+
+- The setting is `dc_dollar_math` in `InlineTable.v`, with
+  `with_dollar_math` and `dollar_math_enabled` (`InlineView.v`).
+  `dev/check/Capabilities.v` pins it off in djot, independent of
+  `dc_math`, and restored by `with_dollar_math true`.
+- The candidate is two scanner states, `IDollarMath` (inside the content)
+  and `IDollarMathClose` (a `$` read, the next byte decides). Each carries
+  the ordinary reading of the same bytes as a nested state, the way
+  `IAttr` does. The two-candidate bound in section 7 was not needed and
+  is not proved.
+- Across lines: a candidate of either kind survives a soft break, which
+  stays in its content (`$a` then `b$` is `[a⏎b]`), and a `$$` that ends
+  a line opens a display candidate at the break. A `$` that ends a line
+  closes inline math there when the byte before it is not whitespace.
+- Rule 5 in practice: a `$$` followed by a third `$` does not close, so
+  `$$x$$$` is text and `$$x$$$y$$` is `[[x$$$y]]`. `$$$$` is text, since
+  the content would be empty.
+- Rule 7 is a new backtick-span kind, `VMaybeDollarMath`, not a state
+  after the span. The leading `$` is flushed as pending text and taken
+  back (`opop_str`) when a `$` follows the closing run. Rule 8 is one
+  arm on djot's inline math span: with the setting on, a `$` after the
+  closing run is consumed.
+- Proofs: well-formedness (`Wf.v`), the inversion lemmas behind the
+  roundtrip (`InlineInvert.v`), locations (`InlineLocated.v`), and the
+  emphasis flanking and nonempty-content theorems (`InlineSpans.v`) all
+  hold with the setting on. `InlinePrecedence.v` covers text without
+  `$`, so it only needed its line-end resolution to leave a pending `$`
+  alone, since a break may now open display math from it.
+- Main's renderer leaves some punctuation bare, but not `$`, so the
+  rendering claim in section 6 still holds.
 
 ## 8. Undecided
 
