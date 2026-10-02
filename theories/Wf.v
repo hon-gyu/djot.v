@@ -80,7 +80,7 @@ Local Fixpoint wf_inline (il : inline) : bool :=
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Quoted _ ns =>
       wf_container ns
-  | Link ns _ | Image ns _ | Span ns =>
+  | Link ns _ | Image ns _ | Span _ ns =>
       (* a bracketed construct may be empty: `[](url)` and `[]{.a}` are
          both valid djot, and djot.js builds the empty node for each *)
       wf_ils ns && no_adjacent_str ns
@@ -139,7 +139,7 @@ Local Fixpoint wf_block (b : block) : bool :=
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
      empty for the same reason and on the same evidence: `:::` then `:::`
      renders as `<div>\n</div>` in djot.js. *)
-  | BlockQuote bs | Div bs => wf_bs bs
+  | BlockQuote bs | Div _ bs => wf_bs bs
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
   | OrderedList _ _ items => nonempty items && wf_items items
@@ -245,12 +245,13 @@ Qed.
 
 (* Divs share BlockQuote's clause, so they share its lemma's shape. *)
 Local Lemma wf_block_div :
-  forall bs, wf_block (Div bs) = wf_blocks bs.
+  forall name bs, wf_block (Div name bs) = wf_blocks bs.
 Proof.
+  intros name.
   induction bs as [|n bs IH]; [reflexivity|].
   destruct n as [p a x].
-  change (wf_block (Div (Node p a x :: bs)))
-    with (wf_block x && wf_block (Div bs))%bool.
+  change (wf_block (Div name (Node p a x :: bs)))
+    with (wf_block x && wf_block (Div name bs))%bool.
   rewrite IH. reflexivity.
 Qed.
 
@@ -3473,7 +3474,7 @@ Local Fixpoint supported (b : block) : bool :=
      nothing. *)
   | Table _ _ => true
   | FootnoteDef _ bs => sup_bs bs
-  | BlockQuote bs | Div bs | Ext_callout _ _ _ bs => sup_bs bs
+  | BlockQuote bs | Div _ bs | Ext_callout _ _ _ bs => sup_bs bs
   (* A label holds inlines, so only the block is recursed into. *)
   | Ext_keyed _ b => sup_bs [b]
   | BulletList _ items => sup_items items
@@ -3547,12 +3548,13 @@ Proof.
 Qed.
 
 Local Lemma supported_div :
-  forall bs, supported (Div bs) = supported_blocks bs.
+  forall name bs, supported (Div name bs) = supported_blocks bs.
 Proof.
+  intros name.
   induction bs as [|n bs IH]; [reflexivity|].
   destruct n as [p a x].
-  change (supported (Div (Node p a x :: bs)))
-    with (supported x && supported (Div bs))%bool.
+  change (supported (Div name (Node p a x :: bs)))
+    with (supported x && supported (Div name bs))%bool.
   rewrite IH. reflexivity.
 Qed.
 

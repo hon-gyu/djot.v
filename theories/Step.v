@@ -1025,8 +1025,8 @@ Definition finish_para_recover (slices : list stored_line) : blocks :=
    and proofs compute through it. *)
 Definition div_block (cls : string) (bs : blocks) : node block :=
   if String.eqb cls EmptyString
-  then mk (Div bs)
-  else Node NoPos [("class", cls)] (Div bs).
+  then mk (Div EmptyString bs)
+  else Node NoPos [("class", cls)] (Div EmptyString bs).
 
 (* The block a list closes to, read off the candidate set its state
    carries.  Stated on the set rather than on a marker because siblings

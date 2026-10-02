@@ -42,7 +42,7 @@ Fixpoint of_block (b : block) : block :=
   | Section bs => Section (go bs)
   | Heading lvl _ => Heading lvl []
   | BlockQuote bs => BlockQuote (go bs)
-  | Div bs => Div (go bs)
+  | Div name bs => Div name (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (map go items)
   | BulletList sp items => BulletList sp (map go items)
   | TaskList sp items => TaskList sp (map (fun it => (fst it, go (snd it))) items)

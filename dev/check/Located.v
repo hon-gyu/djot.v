@@ -49,7 +49,7 @@ Fixpoint walk (d : nat) (lines : list source_line) (bs : blocks)
             end in
           let kids :=
             match node_contents n with
-            | BlockQuote bs' | Div bs' | FootnoteDef _ bs' => walk d' lines bs'
+            | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => walk d' lines bs'
             | BulletList _ items => flat_map (walk d' lines) items
             | OrderedList _ _ items => flat_map (walk d' lines) items
             | TaskList _ items =>
@@ -325,7 +325,7 @@ Fixpoint tables (d : nat) (bs : blocks) : list (node block) :=
             end in
           let kids :=
             match node_contents n with
-            | BlockQuote bs' | Div bs' | FootnoteDef _ bs' | Section bs' =>
+            | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' | Section bs' =>
                 tables d' bs'
             | BulletList _ items | OrderedList _ _ items =>
                 flat_map (tables d') items
@@ -397,7 +397,7 @@ Fixpoint doc_walk (d : nat) (lines : list source_line) (bs : blocks)
             end in
           let kids :=
             match node_contents n with
-            | Section bs' | BlockQuote bs' | Div bs' => doc_walk d' lines bs'
+            | Section bs' | BlockQuote bs' | Div _ bs' => doc_walk d' lines bs'
             | _ => []
             end in
           (here :: kids ++ doc_walk d' lines rest)%list
@@ -513,7 +513,7 @@ Fixpoint inline_walk (d : nat) (lines : list source_line) (ils : inlines)
           let kids :=
             match node_contents n with
             | Emph k | Strong k | Highlight k | Insert k | Delete k
-            | Superscript k | Subscript k | Span k | Quoted _ k
+            | Superscript k | Subscript k | Span _ k | Quoted _ k
             | Link k _ | Image k _ => inline_walk d' lines k
             | _ => []
             end in
@@ -533,7 +533,7 @@ Fixpoint first_para (d : nat) (bs : blocks) : inlines :=
       | n :: rest =>
           match node_contents n with
           | Para ils | Heading _ ils => ils
-          | BlockQuote bs' | Div bs' | FootnoteDef _ bs' => first_para d' bs'
+          | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => first_para d' bs'
           | BulletList _ (item :: _) => first_para d' item
           | OrderedList _ _ (item :: _) => first_para d' item
           | _ => first_para d' rest

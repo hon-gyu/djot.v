@@ -70,7 +70,7 @@ Fixpoint inline_text (il : inline) : string :=
   | SoftBreak | HardBreak => nl
   | FootnoteReference _ => ""
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
-  | Superscript ils | Subscript ils | Span ils
+  | Superscript ils | Subscript ils | Span _ ils
   | Link ils _ | Image ils _ | Quoted _ ils => go ils
   (* an autolink contributes its region, so it reaches a heading id and
      an image `alt` *)
@@ -457,9 +457,9 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (st : id_state)
   | Ext_callout kind fold title bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (Ext_callout kind fold title bs'))
-  | Div bs =>
+  | Div name bs =>
       let (st', bs') := go bs (register_id a st) in
-      (st', Node p a (Div bs'))
+      (st', Node p a (Div name bs'))
   | FootnoteDef label bs =>
       let (st', bs') := go bs (register_id a st) in
       (st', Node p a (FootnoteDef label bs'))
@@ -613,12 +613,12 @@ Proof.
 Qed.
 
 Lemma div :
-  forall p a bs st,
-    of_block (Div bs) p a st
+  forall p a name bs st,
+    of_block (Div name bs) p a st
     = let (st', bs') := of_list bs (register_id a st) in
-      (st', Node p a (Div bs')).
+      (st', Node p a (Div name bs')).
 Proof.
-  intros p a bs st. cbn [of_block].
+  intros p a name bs st. cbn [of_block].
   rewrite inner_go. reflexivity.
 Qed.
 
@@ -1028,7 +1028,7 @@ Local Fixpoint of_block (b : block) (p : pos) (a : attr) (m : reference_map)
                         end) it acc)
       end in
   match b with
-  | BlockQuote bs | Div bs | Section bs | FootnoteDef _ bs
+  | BlockQuote bs | Div _ bs | Section bs | FootnoteDef _ bs
   | Ext_callout _ _ _ bs => go bs m
   | Ext_keyed _ (Node p' a' x) => of_block x p' a' m
   | BulletList _ items | OrderedList _ _ items => goit items m
@@ -1182,8 +1182,8 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (m : note_map)
   | Ext_callout kind fold title bs =>
       let (m', bs') := go bs m in
       (m', Some (Node p a (Ext_callout kind fold title bs')))
-  | Div bs =>
-      let (m', bs') := go bs m in (m', Some (Node p a (Div bs')))
+  | Div name bs =>
+      let (m', bs') := go bs m in (m', Some (Node p a (Div name bs')))
   (* A key whose one block is a definition has nothing left to name, so
      it goes with it.  Every other container keeps its (shorter) list. *)
   | Ext_keyed label (Node p' a' x) =>
@@ -1349,12 +1349,12 @@ Proof.
 Qed.
 
 Lemma div :
-  forall p a bs m,
-    of_block (Div bs) p a m
+  forall p a name bs m,
+    of_block (Div name bs) p a m
     = let (m', bs') := of_list bs m in
-      (m', Some (Node p a (Div bs'))).
+      (m', Some (Node p a (Div name bs'))).
 Proof.
-  intros p a bs m. cbn [of_block]. rewrite inner_go.
+  intros p a name bs m. cbn [of_block]. rewrite inner_go.
   reflexivity.
 Qed.
 
@@ -1587,7 +1587,7 @@ Local Fixpoint pass_block (b : block) (p : pos) (a : attr) {struct b}
   | BlockQuote inner => [Node p a (BlockQuote (go inner))]
   | Ext_callout kind fold title inner =>
       [Node p a (Ext_callout kind fold title (go inner))]
-  | Div inner => [Node p a (Div (go inner))]
+  | Div name inner => [Node p a (Div name (go inner))]
   | FootnoteDef label inner => [Node p a (FootnoteDef label (go inner))]
   (* `Section` is the one block whose undo is not a single node, and
      `sectionize` builds none below the top level, so the default is
@@ -1741,12 +1741,12 @@ Proof.
 Qed.
 
 Local Lemma pass_div :
-  forall inner p a,
-    pass_block (Div inner) p a = [Node p a (Div (pass inner))].
+  forall name inner p a,
+    pass_block (Div name inner) p a = [Node p a (Div name (pass inner))].
 Proof.
-  intros inner p a.
-  change (pass_block (Div inner) p a)
-    with [Node p a (Div
+  intros name inner p a.
+  change (pass_block (Div name inner) p a)
+    with [Node p a (Div name
             ((fix go (l : blocks) : blocks :=
                 match l with
                 | [] => []
@@ -1878,7 +1878,7 @@ Local Fixpoint of_block (b : block) (a : attr) {struct b} : bool :=
   | Heading _ _ =>
       match alist_lookup "id" a with Some _ => false | None => true end
   | FootnoteDef _ _ => false
-  | BlockQuote inner | Div inner | Ext_callout _ _ _ inner => go inner
+  | BlockQuote inner | Div _ inner | Ext_callout _ _ _ inner => go inner
   | Ext_keyed _ (Node _ a' x) => of_block x a'
   | BulletList _ items => goit items
   | OrderedList _ _ items => goit items
@@ -1991,10 +1991,10 @@ Proof.
 Qed.
 
 Local Lemma div :
-  forall inner a, of_block (Div inner) a = of_list inner.
+  forall name inner a, of_block (Div name inner) a = of_list inner.
 Proof.
-  intros inner a.
-  change (of_block (Div inner) a)
+  intros name inner a.
+  change (of_block (Div name inner) a)
     with ((fix go (l : blocks) : bool :=
              match l with
              | [] => true
@@ -2121,7 +2121,7 @@ Local Fixpoint notes_free_block (b : block) {struct b} : bool :=
       end in
   match b with
   | FootnoteDef _ _ => false
-  | BlockQuote bs | Div bs | Section bs | Ext_callout _ _ _ bs => go bs
+  | BlockQuote bs | Div _ bs | Section bs | Ext_callout _ _ _ bs => go bs
   | Ext_keyed _ (Node _ _ x) => notes_free_block x
   | BulletList _ items | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
@@ -2207,8 +2207,8 @@ Local Lemma notes_free_section :
 Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
 Local Lemma notes_free_div :
-  forall bs, notes_free_block (Div bs) = notes_free bs.
-Proof. intros bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
+  forall name bs, notes_free_block (Div name bs) = notes_free bs.
+Proof. intros name bs. cbn [notes_free_block]. apply notes_free_inner_go. Qed.
 
 Local Lemma notes_free_deflist :
   forall sp items,

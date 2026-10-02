@@ -392,7 +392,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
   | CCallout kind fold title inner =>
       mk (Ext_callout kind fold (ci_inlines title) (map cb_ast inner))
-  | CDiv inner => mk (Div (map cb_ast inner))
+  | CDiv inner => mk (Div EmptyString (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table [] (ctable_cells [] rows))
@@ -1064,7 +1064,7 @@ Lemma cb_ok_div :
 Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
 Lemma cb_ast_div :
-  forall inner, cb_ast (CDiv inner) = mk (Div (map cb_ast inner)).
+  forall inner, cb_ast (CDiv inner) = mk (Div EmptyString (map cb_ast inner)).
 Proof. reflexivity. Qed.
 
 Lemma cb_lines_div :
@@ -1262,16 +1262,17 @@ Proof.
   rewrite (IH Hrest). destruct L; [discriminate HL|reflexivity].
 Qed.
 
-(* A node's attributes, as the line before its block.  A div's class goes
-   on its fence instead when it is one word and comes first: an attribute
-   line's class replaces the fence's, so two words have to go on the line,
-   and a fence's class reads back ahead of the line's attributes. *)
+(* A node's attributes, as the line before its block.  An unnamed div's
+   class goes on its fence instead when it is one word and comes first:
+   an attribute line's class replaces the fence's, so two words have to
+   go on the line, and a fence's class reads back ahead of the line's
+   attributes.  A named div's fence holds its name. *)
 Definition attr_lines (a : attr) : list string :=
   match a with [] => [] | _ => [attr_spec a] end.
 
 Definition fence_class (a : attr) (b : block) : string :=
   match b with
-  | Div _ =>
+  | Div EmptyString _ =>
       match a with
       | (k, c) :: _ =>
           if String.eqb k "class" && class_word_ok c then c else EmptyString
@@ -1359,9 +1360,10 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
           (callout_header_line kind fold (String.concat " " (text_lines title)))
         :: map quote_line
           (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)))%list
-   | Div bs =>
+   | Div name bs =>
        let body := sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
-       (div_open_line (div_fence_for body) cls :: body ++ [div_fence_for body])%list
+       let word := match name with EmptyString => cls | _ => name end in
+       (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
        sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
    | BulletList sp items =>
@@ -1417,20 +1419,22 @@ Lemma render_lines_noclass :
     render_lines a x = (attr_lines a ++ render_block_lines x)%list.
 Proof.
   intros a x H.
-  assert (Hc : forall bs, fence_class a (Div bs) = EmptyString).
-  { intros bs. destruct a as [|[k v] a']; [reflexivity|].
+  assert (Hc : forall name bs, fence_class a (Div name bs) = EmptyString).
+  { intros name bs. destruct name; [|reflexivity]. destruct a as [|[k v] a']; [reflexivity|].
     cbn [alist_lookup] in H. cbn [fence_class].
     destruct (String.eqb "class" k) eqn:E; [discriminate H|].
     rewrite String.eqb_sym, E. reflexivity. }
+  assert (Hc0 : forall name bs, fence_class [] (Div name bs) = EmptyString).
+  { intros [|] bs; reflexivity. }
   unfold render_block_lines.
   destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
-    try (rewrite Hc; reflexivity); reflexivity.
+    try (rewrite Hc, Hc0; reflexivity); reflexivity.
 Qed.
 
 Lemma render_block_div :
   forall bs,
     div_content_ok (sep_lines (render_blocks_lines bs)) = true ->
-    render_block_lines (Div bs)
+    render_block_lines (Div EmptyString bs)
     = (div_fence :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
 Proof.
   intros bs H. unfold render_block_lines. cbn [render_lines fence_class drop_class
@@ -1797,7 +1801,7 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
   | BlockQuote bs => Node p a (BlockQuote (go bs))
   | Ext_callout kind fold title bs =>
       Node p a (Ext_callout kind fold title (go bs))
-  | Div bs => Node p a (Div (go bs))
+  | Div name bs => Node p a (Div name (go bs))
   | FootnoteDef l bs => Node p a (FootnoteDef l (go bs))
   | BulletList sp its => Node p a (BulletList sp (goits its))
   | OrderedList oa sp its => Node p a (OrderedList oa sp (goits its))

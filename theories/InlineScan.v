@@ -1671,7 +1671,7 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
          (oemit
            (add_inline_role RAttrSpec spec
              (Node (mkpos (inline_prov (span_start open) spec_start))
-               (ap_attrs p') (Span kids)))
+               (ap_attrs p') (Span EmptyString kids)))
            (ospan_bang image o))
   else ISpan kids image open p' (tpush src (one c)) o.
 

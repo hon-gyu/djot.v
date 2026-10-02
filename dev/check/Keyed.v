@@ -190,7 +190,7 @@ Example a_closing_div_retracts :
   Key ":::
 foo:
 :::"
-  = [mk (Div [para "foo:"])].
+  = [mk (Div "" [para "foo:"])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And the two rows that say the test cannot be "a blank retracts": a
@@ -484,7 +484,7 @@ Example div_closer_survives_the_override :
 bar
 ```
 :::"
-  = [mk (Div [mk (BulletList Tight
+  = [mk (Div "" [mk (BulletList Tight
                     [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))]])])].
 Proof. vm_compute. reflexivity. Qed.
@@ -530,7 +530,7 @@ next
 :::
 - baz"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk (Div [para "next"])))];
+           [[mk (Ext_keyed [mk (Str "foo")] (mk (Div "" [para "next"])))];
             [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 

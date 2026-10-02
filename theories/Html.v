@@ -299,7 +299,7 @@ Local Fixpoint plain_text (il : inline) : string :=
   | UrlLink s | EmailLink s => s
   | Ext_wikilink _ t al => wiki_display t al
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
-  | Superscript ns | Subscript ns | Span ns | Quoted _ ns
+  | Superscript ns | Subscript ns | Span _ ns | Quoted _ ns
   | Link ns _ | Image ns _ => go ns
   | SoftBreak | HardBreak => nl
   | NonBreakingSpace => " "
@@ -383,7 +383,7 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
               :: ref_extra a0 a ++ a)%list]
       | None => [HVoid "img" false (("alt", plain_texts ils) :: a)]
       end
-  | Span ils => [HElem "span" 0 a (render_ils ils)]
+  | Span _ ils => [HElem "span" 0 a (render_ils ils)]
   | FootnoteReference _ => [] (* numbered on the `_foot` path *)
   (* An autolink renders as its own text under an `href`, which is an
      extra attribute and so precedes the node's own.  The two kinds
@@ -546,7 +546,7 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
              | EmptyString => []
              | _ => [("class", "language-" ++ lang)]
              end) [HText code]]]
-  | Div bs => [HElem "div" 2 a (render_bs bs)]
+  | Div _ bs => [HElem "div" 2 a (render_bs bs)]
   | OrderedList oa sp items =>
       [HElem "ol" 2 (ol_attrs oa ++ a)%list (render_items sp items)]
   | BulletList sp items => [HElem "ul" 2 a (render_items sp items)]
@@ -651,7 +651,7 @@ Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
       let '(st', s) := render_ils st ils in (st', [HElem "sup" 0 a s])
   | Subscript ils =>
       let '(st', s) := render_ils st ils in (st', [HElem "sub" 0 a s])
-  | Span ils =>
+  | Span _ ils =>
       let '(st', s) := render_ils st ils in (st', [HElem "span" 0 a s])
   | Quoted q ils =>
       let '(st', s) := render_ils st ils in
@@ -801,7 +801,7 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | BlockQuote bs =>
       let '(st', s) := render_bs_at st tight bs in
       (st', [HElem "blockquote" 2 a s])
-  | Div bs =>
+  | Div _ bs =>
       let '(st', s) := render_bs_at st tight bs in
       (st', [HElem "div" 2 a s])
   | OrderedList oa sp items =>

@@ -786,7 +786,7 @@ Fixpoint reference_text (il : inline) : string :=
   | Str s | Verbatim s | Math _ s | RawInline _ s => s
   | SoftBreak | HardBreak => nl
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
-  | Superscript ns | Subscript ns | Span ns | Link ns _ | Image ns _
+  | Superscript ns | Subscript ns | Span _ ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
   | Ext_wikilink _ t al => wiki_display t al
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _

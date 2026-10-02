@@ -562,6 +562,14 @@ Canonical inlines
 Definition bracket_open (image : bool) : string :=
   if image then String bang (one lbrack) else one lbrack.
 
+(* A span's opening bracket, with its name after a colon when it has
+   one (`.project/custom-tags.md`). *)
+Definition tag_open (name : string) : string :=
+  match name with
+  | EmptyString => one lbrack
+  | _ => String ":"%char (name ++ one lbrack)
+  end.
+
 (* A link's closing half: the `](`, the escaped destination, and the `)`,
    with whatever follows.  Written with a tail for the same reason
    `marked_close` is -- the scanner inversion needs to speak of the
@@ -1283,9 +1291,10 @@ Fixpoint inline_text (il : inline) : string :=
   | Ext_wikilink embed t al => wiki_text embed t al
   | Math InlineMath s => (one "$"%char ++ verb_text s)%string
   | Math DisplayMath s => (one "$"%char ++ one "$"%char ++ verb_text s)%string
-  (* a span is its text in brackets; the attributes that make it one are
-     the node's, which `go` appends *)
-  | Span ns => (one "["%char ++ go ns ++ one "]"%char)%string
+  (* a span is its text in brackets, after its name if it has one; the
+     attributes that make an unnamed one a span are the node's, which
+     `go` appends *)
+  | Span name ns => (tag_open name ++ go ns ++ one "]"%char)%string
   | NonBreakingSpace => String bslash (one " "%char)
   (* a break inside a container: `inline_lines` owns the breaks between
      top-level inlines, and a paragraph splits these off as well *)

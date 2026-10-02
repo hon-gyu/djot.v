@@ -452,10 +452,10 @@ Proof.
     rewrite Erase.inline_children; reflexivity.
 Qed.
 
-Local Lemma span_node : forall ns,
-  Erase.of_inline (Span ns) = Span (Erase.of_inlines ns).
+Local Lemma span_node : forall name ns,
+  Erase.of_inline (Span name ns) = Span name (Erase.of_inlines ns).
 Proof.
-  intros ns. cbn [Erase.of_inline]. rewrite Erase.inline_children. reflexivity.
+  intros name ns. cbn [Erase.of_inline]. rewrite Erase.inline_children. reflexivity.
 Qed.
 
 (* An empty reference's label is the string content of its first

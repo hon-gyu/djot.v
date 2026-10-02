@@ -294,7 +294,7 @@ Inductive inl_all (I : inlines -> Prop) : node block -> Prop :=
   | ia_heading p a lvl ils : I ils -> inl_all I (Node p a (Heading lvl ils))
   | ia_quote p a bs : Forall (inl_all I) bs -> inl_all I (Node p a (BlockQuote bs))
   | ia_code p a lang code : inl_all I (Node p a (CodeBlock lang code))
-  | ia_div p a bs : Forall (inl_all I) bs -> inl_all I (Node p a (Div bs))
+  | ia_div p a name bs : Forall (inl_all I) bs -> inl_all I (Node p a (Div name bs))
   | ia_olist p a oa sp items : Forall (Forall (inl_all I)) items ->
       inl_all I (Node p a (OrderedList oa sp items))
   | ia_blist p a sp items : Forall (Forall (inl_all I)) items ->

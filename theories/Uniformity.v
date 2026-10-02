@@ -1356,7 +1356,7 @@ Theorem div_uniformity :
     bdivs = true ->
     div_content_ok content = true ->
     parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-    = [mk (Div (parse_lines content (PPara [])))].
+    = [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof.
   intros content Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
@@ -1373,7 +1373,7 @@ Theorem div_uniformity_tail :
     div_content_ok content = true ->
     parse_lines (div_fence :: content ++ div_fence :: EmptyString :: tail)%list
                 (PPara [])
-    = mk (Div (parse_lines content (PPara []))) :: parse_lines tail (PPara []).
+    = mk (Div EmptyString (parse_lines content (PPara []))) :: parse_lines tail (PPara []).
 Proof.
   intros content tail Hdivs Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
@@ -2226,7 +2226,7 @@ End WithTable.
 Example div_indented_close_differs :
   let content := ["- a"; "  :::"; "  b"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  <> [mk (Div (parse_lines content (PPara [])))].
+  <> [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. vm_compute. discriminate. Qed.
 
 Example div_indented_close_rejected :
@@ -2239,7 +2239,7 @@ Proof. reflexivity. Qed.
 Example div_code_fence_uniform :
   let content := ["```"; ":::"; "```"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  = [mk (Div (parse_lines content (PPara [])))].
+  = [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. reflexivity. Qed.
 
 Example div_code_fence_accepted :
@@ -2251,7 +2251,7 @@ Proof. reflexivity. Qed.
 Example div_unclosed_fence_differs :
   let content := ["```"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  <> [mk (Div (parse_lines content (PPara [])))].
+  <> [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. vm_compute. discriminate. Qed.
 
 (*

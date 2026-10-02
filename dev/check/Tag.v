@@ -25,22 +25,22 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_inline_then_bracket :
   (Djot ":kbd[a]{.x}", Djot ":kbd[a](u)", Djot "a:kbd[b]{.x}")
-  = ([P [S ":kbd"; Node NoPos [("class", "x")] (Span [S "a"])]],
+  = ([P [S ":kbd"; Node NoPos [("class", "x")] (Span "" [S "a"])]],
      [P [S ":kbd"; mk (Link [S "a"] (Direct "u"))]],
-     [P [S "a:kbd"; Node NoPos [("class", "x")] (Span [S "b"])]]).
+     [P [S "a:kbd"; Node NoPos [("class", "x")] (Span "" [S "b"])]]).
 Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_inline_not_a_name :
   (Djot ":kbd:[a]{.x}", Djot ":[a]{.x}", Djot ":kbd`x`")
-  = ([P [mk (Symbol "kbd"); Node NoPos [("class", "x")] (Span [S "a"])]],
-     [P [S ":"; Node NoPos [("class", "x")] (Span [S "a"])]],
+  = ([P [mk (Symbol "kbd"); Node NoPos [("class", "x")] (Span "" [S "a"])]],
+     [P [S ":"; Node NoPos [("class", "x")] (Span "" [S "a"])]],
      [P [S ":kbd"; mk (Verbatim "x")]]).
 Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_div_word_is_a_class :
   Djot "::: details
 x
-:::" = [Node NoPos [("class", "details")] (Div [P [S "x"]])].
+:::" = [Node NoPos [("class", "details")] (Div "" [P [S "x"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_two_words_is_not_an_opener :

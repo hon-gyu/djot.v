@@ -2450,7 +2450,7 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 Example div_then_item_is_tight :
   parse_blocks ("- :::" ++ nl ++ "  a" ++ nl ++ "  :::" ++ nl ++ "- t")
   = [mk (BulletList Tight
-           [[mk (Div [mk (Para [mk (Str "a")])])]; [mk (Para [mk (Str "t")])]])].
+           [[mk (Div "" [mk (Para [mk (Str "a")])])]; [mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 
 (* A nested list after a paragraph in the same item: the blank the inner

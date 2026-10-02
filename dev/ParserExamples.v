@@ -569,7 +569,7 @@ Example parse_blank_absorbed_by_div :
   t
   :::"
   = [mk (BulletList Tight
-           [[mk (Div [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
+           [[mk (Div "" [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
 Proof. reflexivity. Qed.
 
 (* A block quote does not: the prefix-less blank closes it, so the blank

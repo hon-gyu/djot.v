@@ -143,7 +143,7 @@ Fixpoint dn_inline (W : list window) (p : pos) (x : inline) : Prop :=
   dpos_ok W p x /\
   match x with
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
-  | Superscript ils | Subscript ils | Span ils | Quoted _ ils
+  | Superscript ils | Subscript ils | Span _ ils | Quoted _ ils
   | Link ils _ | Image ils _ => go ils
   | _ => True
   end.
@@ -452,7 +452,7 @@ Every lemma from here on is about the located scan.
 Definition children (x : inline) : inlines :=
   match x with
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
-  | Superscript ils | Subscript ils | Span ils | Quoted _ ils
+  | Superscript ils | Subscript ils | Span _ ils | Quoted _ ils
   | Link ils _ | Image ils _ => ils
   | _ => []
   end.
