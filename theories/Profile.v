@@ -38,6 +38,16 @@ Definition with_footnotes (enabled : bool) (P : profile) : profile :=
        (with_inline_footnotes_preserves_admissible enabled (@cfg T) (@cfg_ok T)))
     (with_block_footnotes enabled (profile_block P)).
 
+(* Custom tag names (`.project/custom-tags.md`): `::: name` names a div
+   and `:name[...]` a span.  One capability over both layers, so the two
+   spellings move together, as footnotes do. *)
+Definition with_tags (enabled : bool) (P : profile) : profile :=
+  let T := profile_inline P in
+  Profile
+    (DTable (with_inline_tags enabled (@cfg T))
+       (with_inline_tags_preserves_admissible enabled (@cfg T) (@cfg_ok T)))
+    (with_div_names enabled (profile_block P)).
+
 Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
