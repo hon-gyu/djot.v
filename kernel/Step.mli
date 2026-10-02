@@ -17,7 +17,7 @@ type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
                  battrs : bool; bfootnotes : bool; bkeyed : bool;
-                 bcallouts : bool }
+                 bcallouts : bool; bdiv_names : bool }
 
 type coq_LineIx = int
   (* singleton inductive, whose constructor was LineIxAt *)
@@ -61,6 +61,8 @@ val with_block_footnotes : bool -> bconfig -> bconfig
 val with_keyed : bool -> bconfig -> bconfig
 
 val with_callouts : bool -> bconfig -> bconfig
+
+val with_div_names : bool -> bconfig -> bconfig
 
 val keyed_bconfig : bconfig
 
@@ -186,7 +188,7 @@ val para_recover : int -> stored_line list -> pstate
 val finish_para_recover :
   dtable -> coq_PosPolicy -> stored_line list -> blocks
 
-val div_block : string -> blocks -> block node
+val div_block : bconfig -> string -> blocks -> block node
 
 val styles_list :
   bconfig -> (lstyle * int) list -> list_spacing -> blocks list -> block node

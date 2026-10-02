@@ -124,7 +124,7 @@ type inline =
 | Math of math_style * string
 | Link of inline node list * target
 | Image of inline node list * target
-| Span of inline node list
+| Span of string * inline node list
 | FootnoteReference of string
 | UrlLink of string
 | EmailLink of string
@@ -186,7 +186,7 @@ type block =
 | Heading of int * inlines
 | BlockQuote of block node list
 | CodeBlock of string * string
-| Div of block node list
+| Div of string * block node list
 | OrderedList of ordered_list_attributes * list_spacing * block node list list
 | BulletList of list_spacing * block node list list
 | TaskList of list_spacing * (task_status * block node list) list

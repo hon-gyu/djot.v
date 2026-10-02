@@ -58,6 +58,11 @@ let notes_enabled t =
 let wikilinks_enabled t =
   t.dc_wikilinks
 
+(** val tags_enabled : dtable -> bool **)
+
+let tags_enabled t =
+  t.dc_tags
+
 (** val denabled_of : dtable -> dstyle -> bool **)
 
 let denabled_of =
@@ -388,6 +393,22 @@ let bracket_open = function
     (bang, (one lbrack))
 | false -> one lbrack
 
+(** val tag_open : string -> string **)
+
+let tag_open name =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> one lbrack)
+    (fun _ _ ->
+    (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (':', ((^) name (one lbrack))))
+    name
+
 (** val link_close : dtable -> string -> string -> string **)
 
 let link_close t dst tail =
@@ -589,6 +610,7 @@ type cinline =
 | CIAuto of string
 | CIRaw of string * string
 | CIWiki of bool * string * string option
+| CITag of string * cinline list
 
 (** val str_last : string -> char option -> char option **)
 
@@ -616,7 +638,8 @@ let rec ci_src t ci =
    | CINote label -> note_text label
    | CIAuto s -> auto_text s
    | CIRaw (fmt, s) -> raw_text fmt s
-   | CIWiki (embed, t0, al) -> wiki_text embed t0 al)
+   | CIWiki (embed, t0, al) -> wiki_text embed t0 al
+   | CITag (name, kids) -> (^) (tag_open name) ((^) (go kids) (one rbrack)))
 
 (** val ci_text : dtable -> cinline list -> string **)
 
@@ -659,7 +682,8 @@ let rec ci_ast ci =
    | CINote label -> mk (FootnoteReference label)
    | CIAuto s -> mk (auto_node s)
    | CIRaw (fmt, s) -> mk (RawInline (fmt, s))
-   | CIWiki (embed, t, al) -> mk (Ext_wikilink (embed, t, al)))
+   | CIWiki (embed, t, al) -> mk (Ext_wikilink (embed, t, al))
+   | CITag (name, kids) -> mk (Span (name, (go kids))))
 
 (** val ci_inlines : cinline list -> inlines **)
 
@@ -706,6 +730,11 @@ let bracket_kids_ok t kids =
 let wiki_part_ok s =
   (&&) ((&&) ((&&) (no_char rbrack s) (no_char vbar s)) (no_char bslash s))
     (no_nl s)
+
+(** val tag_name_ok : string -> bool **)
+
+let tag_name_ok name =
+  (&&) (nonempty_str name) (str_forallb symbol_char name)
 
 (** val ci_ok : dtable -> cinline -> bool **)
 
@@ -756,7 +785,10 @@ let rec ci_ok t ci =
        ((&&) ((&&) (wikilinks_enabled t) (nonempty_str t0)) (wiki_part_ok t0))
        (match al with
         | Some a -> wiki_part_ok a
-        | None -> true))
+        | None -> true)
+   | CITag (name, kids) ->
+     (&&) ((&&) ((&&) (tags_enabled t) (tag_name_ok name)) (go kids))
+       (sep kids))
 
 (** val ci_sep_ok : dtable -> cinline list -> bool **)
 
@@ -824,7 +856,7 @@ let rec inline_text t il =
         (^) (bracket_open true) ((^) (go ns) (link_close t dst ""))
       | Reference label ->
         (^) (bracket_open true) ((^) (go ns) (ref_close label "")))
-   | Span ns -> (^) (one '[') ((^) (go ns) (one ']'))
+   | Span (name, ns) -> (^) (tag_open name) ((^) (go ns) (one ']'))
    | FootnoteReference label -> note_text label
    | UrlLink s -> auto_text s
    | EmailLink s -> auto_text s

@@ -35,6 +35,7 @@ type frame_kind =
 | FKDelim of dstyle * bool
 | FKBracket of bool
 | FKDest of bool
+| FKTag of string
 
 type frame = { fr_kind : frame_kind; fr_marked : bool; fr_open : span;
                fr_out : oitems }
@@ -117,6 +118,9 @@ val bpush : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
 val dpush : bool -> span -> ostate -> ostate
 
+val tag_push :
+  coq_PosPolicy -> coq_InlineCursor -> string -> spot -> ostate -> ostate
+
 val last_ws_split : string -> string * string
 
 val split_text_pos : pos -> spot option -> pos * pos
@@ -147,6 +151,14 @@ val bclose_go :
 
 val bclose :
   dtable -> coq_PosPolicy -> ostate -> (((inlines * bool) * span) * ostate)
+  option
+
+val tag_close_go :
+  dtable -> coq_PosPolicy -> oitems -> frame list ->
+  (((oitems * string) * span) * frame list) option
+
+val tag_close :
+  dtable -> coq_PosPolicy -> ostate -> (((inlines * string) * span) * ostate)
   option
 
 val bunpush : ostate -> ((bool * span) * ostate) option
@@ -299,8 +311,8 @@ val iauto_step :
   'a1 -> 'a1 -> ostate -> 'a1 iscan_g
 
 val isymbol_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> 'a1 -> 'a1
-  -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> 'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iraw_lit : string -> string
 

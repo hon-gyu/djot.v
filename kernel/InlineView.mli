@@ -28,6 +28,8 @@ val notes_enabled : dtable -> bool
 
 val wikilinks_enabled : dtable -> bool
 
+val tags_enabled : dtable -> bool
+
 val denabled_of : dtable -> dstyle -> bool
 
 val dstyle_of : dtable -> char -> dstyle option
@@ -92,6 +94,8 @@ val verb_content_ok : string -> bool
 
 val bracket_open : bool -> string
 
+val tag_open : string -> string
+
 val link_close : dtable -> string -> string -> string
 
 val ref_close : string -> string -> string
@@ -140,6 +144,7 @@ type cinline =
 | CIAuto of string
 | CIRaw of string * string
 | CIWiki of bool * string * string option
+| CITag of string * cinline list
 
 val str_last : string -> char option -> char option
 
@@ -164,6 +169,8 @@ val cis_lbrack_head : cinline list -> bool
 val bracket_kids_ok : dtable -> cinline list -> bool
 
 val wiki_part_ok : string -> bool
+
+val tag_name_ok : string -> bool
 
 val ci_ok : dtable -> cinline -> bool
 

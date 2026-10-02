@@ -277,7 +277,7 @@ type inline =
 | Math of math_style * string
 | Link of inline node list * target
 | Image of inline node list * target
-| Span of inline node list
+| Span of string * inline node list
 | FootnoteReference of string
 | UrlLink of string
 | EmailLink of string
@@ -354,7 +354,7 @@ type block =
 | Heading of int * inlines
 | BlockQuote of block node list
 | CodeBlock of string * string
-| Div of block node list
+| Div of string * block node list
 | OrderedList of ordered_list_attributes * list_spacing * block node list list
 | BulletList of list_spacing * block node list list
 | TaskList of list_spacing * (task_status * block node list) list
@@ -482,7 +482,7 @@ module Shift =
      | Subscript ils -> Subscript (go ils)
      | Link (ils, tgt) -> Link ((go ils), tgt)
      | Image (ils, tgt) -> Image ((go ils), tgt)
-     | Span ils -> Span (go ils)
+     | Span (name, ils) -> Span (name, (go ils))
      | Quoted (qt, ils) -> Quoted (qt, (go ils))
      | _ -> i)
 
@@ -521,7 +521,7 @@ module Shift =
      | Section bs -> Section (go bs)
      | Heading (lvl, ils) -> Heading (lvl, (of_inlines d ils))
      | BlockQuote bs -> BlockQuote (go bs)
-     | Div bs -> Div (go bs)
+     | Div (name, bs) -> Div (name, (go bs))
      | OrderedList (attrs, sp, items) ->
        OrderedList (attrs, sp, (goitems items))
      | BulletList (sp, items) -> BulletList (sp, (goitems items))
