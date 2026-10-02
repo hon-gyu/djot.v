@@ -239,6 +239,42 @@ Proof.
   destruct (is_ws c); [lia | simpl; lia].
 Qed.
 
+(* `t` is what is left of `l` after some prefix.  The block layer only
+   ever cuts a line from the left, so every text it stores is one of
+   these, and a position counted from the end of `t` is one in `l`. *)
+Definition is_sfx (t l : string) : Prop := exists p, l = (p ++ t)%string.
+
+Lemma is_sfx_refl : forall l, is_sfx l l.
+Proof. intros l. exists EmptyString. reflexivity. Qed.
+
+Lemma is_sfx_trans : forall a b c, is_sfx a b -> is_sfx b c -> is_sfx a c.
+Proof.
+  intros a b c [p ->] [q ->]. exists (q ++ p)%string.
+  symmetry. apply append_assoc.
+Qed.
+
+Lemma is_sfx_cons : forall t c s, is_sfx t s -> is_sfx t (String c s).
+Proof. intros t c s [p ->]. exists (String c p). reflexivity. Qed.
+
+Lemma is_sfx_tail : forall c s, is_sfx s (String c s).
+Proof. intros c s. apply is_sfx_cons, is_sfx_refl. Qed.
+
+Lemma is_sfx_empty : forall l, is_sfx EmptyString l.
+Proof. intros l. exists l. symmetry. apply append_empty_r. Qed.
+
+Lemma drop_leading_ws_sfx : forall s, is_sfx (drop_leading_ws s) s.
+Proof.
+  induction s as [|c s IH]; [apply is_sfx_refl|].
+  cbn [drop_leading_ws]. destruct (is_ws c); [apply is_sfx_cons, IH|apply is_sfx_refl].
+Qed.
+
+Lemma drop_ws_upto_sfx : forall n s, is_sfx (drop_ws_upto n s) s.
+Proof.
+  induction n as [|n IH]; intros s; [destruct s; apply is_sfx_refl|].
+  destruct s as [|c s]; [apply is_sfx_refl|].
+  cbn [drop_ws_upto]. destruct (is_ws c); [apply is_sfx_cons, IH|apply is_sfx_refl].
+Qed.
+
 Local Lemma drop_leading_ws_nonempty :
   forall s, is_blank s = false -> drop_leading_ws s <> EmptyString.
 Proof.

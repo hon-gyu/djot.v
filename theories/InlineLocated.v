@@ -41,7 +41,7 @@ with an argument the scanner ignores.
 Coordinates are counted, never measured: `rem` starts at one length per
 line and a predecessor carries it down.  That count is the distance to the end of the *source*
 line because a stored line is a suffix of its line with nothing trimmed
-from the end (`.project/260916.plan.source-locations.md`, F2).
+from the end (`StoredLines.v`).
 *)
 
 (* The origin is a spot rather than a column because a text run can

@@ -17,8 +17,7 @@
    `cell_inlines_spans` for a table cell.
 
    The statement is about the inline content the block layer hands over.
-   That a stored line is a suffix of its source line, which would carry
-   it to the document, is not proved here. *)
+   `StoredLines.parse_blocks_located_spans` carries it to the document. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
 From DjotV Require Import Config Strings Ast Attributes InlineTable InlineView
