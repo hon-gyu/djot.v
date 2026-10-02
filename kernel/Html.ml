@@ -264,12 +264,13 @@ let render_cell refs = function
 let render_row refs r =
   HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], (map (render_cell refs) r))
 
-(** val render_caption : reference_map -> inlines option -> helt list **)
+(** val render_caption : reference_map -> inlines -> helt list **)
 
-let render_caption refs = function
-| Some ils ->
-  (HElem ("caption", (Stdlib.succ 0), [], (render_inlines refs ils))) :: []
-| None -> []
+let render_caption refs caption = match caption with
+| [] -> []
+| _ :: _ ->
+  (HElem ("caption", (Stdlib.succ 0), [],
+    (render_inlines refs caption))) :: []
 
 (** val render_block : reference_map -> bool -> block -> attr -> helt list **)
 
@@ -515,13 +516,13 @@ let rec render_rows_foot refs st = function
   (st2, ((HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], cells)) :: es))
 
 (** val render_caption_foot :
-    reference_map -> foot_state -> inlines option -> foot_state * helt list **)
+    reference_map -> foot_state -> inlines -> foot_state * helt list **)
 
-let render_caption_foot refs st = function
-| Some ils ->
-  let (st', s) = render_inlines_foot refs st ils in
+let render_caption_foot refs st caption = match caption with
+| [] -> (st, [])
+| _ :: _ ->
+  let (st', s) = render_inlines_foot refs st caption in
   (st', ((HElem ("caption", (Stdlib.succ 0), [], s)) :: []))
-| None -> (st, [])
 
 (** val render_block_foot :
     reference_map -> foot_state -> bool -> block -> attr -> foot_state * helt

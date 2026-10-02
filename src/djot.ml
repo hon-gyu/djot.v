@@ -115,7 +115,7 @@ module Block = struct
     | TaskList of list_spacing * (task_status * t node list) list
     | DefinitionList of list_spacing * (Inline.t node list * t node list) list
     | ThematicBreak
-    | Table of Inline.t node list option * cell list list
+    | Table of Inline.t node list * cell list list
     | RawBlock of string * string
     | FootnoteDef of string * t node list
     | RefDef of string * string
@@ -462,7 +462,7 @@ module Mapper = struct
       | DefinitionList (sp, its) ->
           Some (DefinitionList (sp, List.map (fun (t, it) -> (il t, bl it)) its))
       | Table (cap, rows) ->
-          Some (Table (Option.map il cap, List.map (List.map cell) rows))
+          Some (Table (il cap, List.map (List.map cell) rows))
       | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
       | Ext_keyed (l, b) -> Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
       | Ext_callout (kind, fold, title, body) ->
@@ -530,7 +530,7 @@ module Folder = struct
         | Table (cap, rows) ->
             let cell acc (Block.Cell (_, _, l)) = il acc l in
             let acc = List.fold_left (List.fold_left cell) acc rows in
-            Option.fold ~none:acc ~some:(il acc) cap
+            il acc cap
         | Ext_keyed (l, b) -> fold_block f (il acc l) b
         | Ext_callout (_, _, title, body) -> bl (il acc title) body
         | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
