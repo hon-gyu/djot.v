@@ -68,7 +68,9 @@ module Inline : sig
     | Math of math_style * string
     | Link of t node list * target
     | Image of t node list * target
-    | Span of t node list
+    | Span of string * t node list
+        (** The string is a name, written [:name[...]], an extension
+            ({!Profile.with_ext_tags}); empty means unnamed. *)
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
@@ -132,7 +134,10 @@ module Block : sig
     | Heading of int * Inline.t node list
     | BlockQuote of t node list
     | CodeBlock of string * string
-    | Div of t node list
+    | Div of string * t node list
+        (** The string is a name, written [::: name] where djot reads a
+            class, an extension ({!Profile.with_ext_tags}); empty means
+            unnamed. *)
     | OrderedList of ordered_list_attributes * list_spacing * t node list list
     | BulletList of list_spacing * t node list list
     | TaskList of list_spacing * (task_status * t node list) list
@@ -251,6 +256,10 @@ module Profile : sig
 
   val with_ext_callouts : bool -> t -> t
   (** Callouts with a header on the first line of a block quote. Off by default. *)
+
+  val with_ext_tags : bool -> t -> t
+  (** Custom tag names: [::: name] names a {!Block.Div} and [:name[...]]
+      a {!Inline.Span}.  Both spellings move together. *)
 end
 
 (** {1 Documents} *)
