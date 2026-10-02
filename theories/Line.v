@@ -1990,6 +1990,128 @@ Proof.
           (eapply IH; [|exact H]; lia).
 Qed.
 
+(*
+Where a cell's text is
+----------------------
+
+The scan records, for each cell, where its content starts after leading
+whitespace.  The trimmed cell is a prefix of that content, so it sits in
+the row at the recorded start.  The located parse reads a cell from
+there.
+*)
+
+Local Lemma cell_trim_r_prefix : forall n s, String.length s <= n ->
+  exists more, s = (cell_trim_r s ++ more)%string.
+Proof.
+  induction n as [|n IH]; intros s Hn.
+  - destruct s; [exists EmptyString; reflexivity|cbn in Hn; lia].
+  - destruct s as [|c1 s1]; [exists EmptyString; reflexivity|].
+    cbn [String.length] in Hn. cbn [cell_trim_r].
+    destruct (Ascii.eqb c1 "\").
+    + destruct s1 as [|c2 s2]; [exists EmptyString; reflexivity|].
+      cbn [String.length] in Hn. destruct (IH s2 ltac:(lia)) as (m & Hm).
+      exists m. rewrite Hm at 1. reflexivity.
+    + destruct (IH s1 ltac:(lia)) as (m & Hm).
+      destruct (is_ws c1).
+      * destruct (cell_trim_r s1) as [|c r] eqn:E.
+        -- exists (String c1 s1). reflexivity.
+        -- exists m. rewrite Hm at 1. reflexivity.
+      * exists m. rewrite Hm at 1. reflexivity.
+Qed.
+
+(* The cell's text `c` is at byte `ts` of `D`. *)
+Local Definition cell_at (D : string) (x : string * nat * nat * nat) : Prop :=
+  let '(c, _, _, ts) := x in
+  exists pre more, D = (pre ++ c ++ more)%string /\ String.length pre = ts.
+
+Local Lemma row_cell_entry_at : forall D Y cur R start stop,
+  D = (Y ++ rev_string cur ++ R)%string -> String.length Y = S start ->
+  cell_at D (row_cell_entry cur start stop).
+Proof.
+  intros D Y cur R start stop HD HY. unfold row_cell_entry, cell_at, cell_trim.
+  destruct (drop_leading_ws_split (rev_string cur)) as (w & _ & Hw).
+  set (content := drop_leading_ws (rev_string cur)) in *.
+  destruct (cell_trim_r_prefix (String.length content) content (le_n _)) as (m & Hm).
+  exists (Y ++ w)%string, (m ++ R)%string. split.
+  - rewrite HD, Hw at 1. rewrite Hm at 1. rewrite !append_assoc. reflexivity.
+  - rewrite Hw, !length_append. lia.
+Qed.
+
+Local Lemma trace_at : forall n s vb run bs cur acc pos start cells D Y tail,
+  String.length s <= n ->
+  D = (Y ++ rev_string cur ++ s ++ tail)%string ->
+  String.length Y = S start -> pos = S start + String.length cur ->
+  Forall (cell_at D) acc ->
+  row_cells_trace s vb run bs cur acc pos start = Some cells ->
+  Forall (cell_at D) cells.
+Proof.
+  induction n as [|n IH];
+    intros s vb run bs cur acc pos start cells D Y tail Hn HD HY Hp Hacc H.
+  - destruct s; [|cbn in Hn; lia]. cbn [row_cells_trace] in H.
+    destruct bs; [discriminate|]. destruct (vb_step vb run); [|discriminate].
+    injection H as <-. apply Forall_app.
+    split; [apply Forall_rev, Hacc|constructor; [|constructor]].
+    exact (row_cell_entry_at D Y cur _ start (S pos) HD HY).
+  - destruct s as [|c s'].
+    + exact (IH EmptyString vb run bs cur acc pos start cells D Y tail
+               ltac:(cbn; lia) HD HY Hp Hacc H).
+    + cbn [String.length] in Hn. cbn [row_cells_trace] in H.
+      (* One more byte of the open cell. *)
+      assert (Hone : D = (Y ++ rev_string (String c cur) ++ s' ++ tail)%string)
+        by (rewrite HD, rev_string_cons, !append_assoc; reflexivity).
+      assert (Hone_p : S pos = S start + String.length (String c cur))
+        by (cbn [String.length]; lia).
+      destruct (Ascii.eqb c "`").
+      { exact (IH s' _ _ _ _ _ _ _ cells D Y tail ltac:(lia) Hone HY Hone_p Hacc H). }
+      destruct (Nat.eqb (vb_step vb run) 0 && Ascii.eqb c "\")%bool.
+      { destruct s' as [|c' s'']; [discriminate|].
+        refine (IH s'' _ _ _ _ _ _ _ cells D Y tail ltac:(cbn in Hn; lia) _ HY _ Hacc H).
+        - rewrite Hone, !rev_string_cons, !append_assoc. reflexivity.
+        - cbn [String.length]. lia. }
+      destruct (Ascii.eqb c "|" && Nat.eqb (vb_step vb run) 0 && negb bs)%bool eqn:Ebar.
+      { apply andb_true_iff in Ebar as [Ebar _]. apply andb_true_iff in Ebar as [Ebar _].
+        apply Ascii.eqb_eq in Ebar. subst c.
+        refine (IH s' _ _ _ _ _ _ _ cells D (Y ++ rev_string cur ++ "|")%string tail
+                  ltac:(lia) _ _ _ _ H).
+        - rewrite HD, !append_assoc. reflexivity.
+        - rewrite !length_append, Strings.rev_length. cbn [String.length]. lia.
+        - cbn [String.length]. lia.
+        - constructor; [|exact Hacc].
+          exact (row_cell_entry_at D Y cur _ start (S pos) HD HY). }
+      exact (IH s' _ _ _ _ _ _ _ cells D Y tail ltac:(lia) Hone HY Hone_p Hacc H).
+Qed.
+
+(** Every cell of a row line is at the byte the scan records for it,
+    counted from the row's opening bar. *)
+Lemma table_row_trace : forall l cs, table_row l = Some (TCells cs) ->
+  exists body cells,
+    row_body l = Some body /\
+    row_cells_trace (row_inner body) O O false EmptyString [] 1 0 = Some cells /\
+    cs = map (fun x => let '(c, _, _, _) := x in c) cells /\
+    Forall (fun x => let '(c, _, _, ts) := x in
+      exists pre more, drop_leading_ws l = (pre ++ c ++ more)%string /\
+                       String.length pre = ts) cells.
+Proof.
+  intros l cs H. unfold table_row in H.
+  destruct (row_body l) as [body|] eqn:Eb; [|discriminate].
+  destruct (sep_cells body) as [[|a als]|];
+    try (injection H as H; discriminate H);
+    (unfold row_cells in H; cbn [map] in H;
+     destruct (row_cells_trace (row_inner body) 0 0 false "" [] 1 0) as [cells|] eqn:Et;
+     [|discriminate]; cbn [option_map] in H; injection H as <-;
+     exists body, cells; split; [reflexivity|split; [exact Et|split; [reflexivity|]]]).
+  all: destruct (row_body_shape l body Eb) as (pre & x & post & Hpre & _ & Hbody & Hl);
+    subst body; rewrite row_inner_bar in Et;
+    assert (HD : drop_leading_ws l = ("|" ++ x ++ "|" ++ post)%string)
+      by (rewrite Hl, (drop_leading_ws_ws_prefix pre _ Hpre); reflexivity);
+    rewrite HD;
+    exact (Forall_impl _ (fun y Hy => match y as y0 return cell_at _ y0 -> _ with
+                                        (c, _, _, ts) => fun h => h end Hy)
+             (trace_at (String.length x) x 0 0 false EmptyString [] 1 0 cells
+                ("|" ++ x ++ "|" ++ post)%string "|" ("|" ++ post)%string
+                (le_n _) eq_refl eq_refl eq_refl (Forall_nil _) Et)).
+Qed.
+
 (** PT1, only if: every row line starts and ends with a bar, after any
     indentation and before any trailing whitespace, and has at least one
     cell. *)
@@ -2404,6 +2526,234 @@ Proof.
       destruct (ref_open l) as [[rl rv]|]; [discriminate|];
       destruct (table_row l); discriminate].
   injection H as <- <- <- <-. reflexivity.
+Qed.
+
+(*
+Suffixes
+--------
+
+Every residue the classifier hands on is what is left of the line after
+a prefix: the parser cuts lines from the left only.  The located parse
+counts positions from the end of a line, and this is why that count is
+the same in the residue and in the line.
+*)
+
+Local Lemma take_while_sfx : forall p s, is_sfx (snd (take_while p s)) s.
+Proof.
+  intros p s. induction s as [|c s IH]; [apply is_sfx_refl|].
+  cbn [take_while]. destruct (p c); [|apply is_sfx_refl].
+  destruct (take_while p s) as [a b]. apply is_sfx_cons, IH.
+Qed.
+
+Local Lemma count_run_sfx : forall c s, is_sfx (snd (count_run c s)) s.
+Proof.
+  intros c s. induction s as [|c' s IH]; [apply is_sfx_refl|].
+  cbn [count_run]. destruct (Ascii.eqb c c'); [|apply is_sfx_refl].
+  destruct (count_run c s) as [n r]. apply is_sfx_cons, IH.
+Qed.
+
+Local Lemma marker_shape_sfx :
+  forall s core d r, marker_shape s = Some (core, d, r) -> is_sfx r s.
+Proof.
+  intros s core d r H. unfold marker_shape in H.
+  destruct s as [|c s']; [discriminate|].
+  destruct (Ascii.eqb c "(").
+  - pose proof (take_while_sfx is_alnum s') as Hs.
+    destruct (take_while is_alnum s') as [a b]. cbn [snd] in Hs.
+    destruct b as [|c' b']; [discriminate|].
+    destruct (Ascii.eqb c' ")"); [|discriminate].
+    injection H as _ _ <-. apply is_sfx_cons. exact (is_sfx_trans _ _ _ (is_sfx_tail c' b') Hs).
+  - pose proof (take_while_sfx is_alnum (String c s')) as Hs.
+    destruct (take_while is_alnum (String c s')) as [a b]. cbn [snd] in Hs.
+    destruct b as [|c' b']; [discriminate|].
+    assert (Ht : is_sfx b' (String c s')) by exact (is_sfx_trans _ _ _ (is_sfx_tail c' b') Hs).
+    destruct (Ascii.eqb c' "."); [injection H as _ _ <-; exact Ht|].
+    destruct (Ascii.eqb c' ")"); [injection H as _ _ <-; exact Ht|discriminate].
+Qed.
+
+Local Lemma list_marker_sfx :
+  forall l sty core chk rest,
+    list_marker l = Some (sty, core, chk, rest) ->
+    is_sfx (task_literal_rest chk rest) l.
+Proof.
+  intros l sty core chk rest H. unfold list_marker in H.
+  pose proof (drop_leading_ws_sfx l) as Hd.
+  destruct (drop_leading_ws l) as [|c r] eqn:E; [discriminate|].
+  apply (fun h => is_sfx_trans _ _ _ h Hd).
+  destruct (is_bullet c).
+  - destruct r as [|c' r'].
+    + injection H as _ _ <- <-. apply is_sfx_empty.
+    + destruct (is_ws c'); [|discriminate].
+      apply is_sfx_cons, is_sfx_cons.
+      destruct (if is_task_bullet c then task_check r' else None)
+        as [[m tr]|] eqn:Et.
+      * injection H as _ _ <- <-. unfold task_literal_rest.
+        destruct (is_task_bullet c); [|discriminate Et].
+        rewrite <- (task_check_source _ _ _ Et). apply is_sfx_refl.
+      * injection H as _ _ <- <-. apply is_sfx_refl.
+  - pose proof (marker_shape_sfx (String c r)) as Hms.
+    destruct (marker_shape (String c r)) as [[[core' d] r0]|] eqn:Em;
+      [|discriminate].
+    specialize (Hms _ _ _ eq_refl).
+    destruct (styles_of_core core' d) as [|s0 ss]; [discriminate|].
+    destruct r0 as [|c' r0'].
+    + injection H as _ _ <- <-. apply is_sfx_empty.
+    + destruct (is_ws c'); [|discriminate].
+      injection H as _ _ <- <-.
+      exact (is_sfx_trans _ _ _ (is_sfx_tail c' r0') Hms).
+Qed.
+
+Local Lemma ref_label_sfx :
+  forall s lbl tail, ref_label s = Some (lbl, tail) -> is_sfx tail s.
+Proof.
+  induction s as [|c s IH]; intros lbl tail H; [discriminate|].
+  cbn [ref_label] in H. destruct (Ascii.eqb c "]").
+  - injection H as _ <-. apply is_sfx_tail.
+  - destruct (ref_label s) as [[l t]|] eqn:E; [|discriminate].
+    injection H as _ <-. exact (is_sfx_cons _ _ _ (IH l t eq_refl)).
+Qed.
+
+Local Lemma foot_open_sfx :
+  forall l lbl rest, foot_open l = Some (lbl, rest) -> is_sfx rest l.
+Proof.
+  intros l lbl rest H. unfold foot_open in H.
+  pose proof (drop_leading_ws_sfx l) as Hd.
+  destruct (drop_leading_ws l) as [|c [|h r]]; try discriminate.
+  apply (fun x => is_sfx_trans _ _ _ x Hd). apply is_sfx_cons, is_sfx_cons.
+  destruct (negb (Ascii.eqb c "[")); [discriminate|].
+  destruct (negb (Ascii.eqb h "^")); [discriminate|].
+  destruct (ref_label r) as [[lb [|col after]]|] eqn:Er; try discriminate.
+  apply ref_label_sfx in Er.
+  destruct (negb (Ascii.eqb col ":")); [discriminate|].
+  destruct (negb (nonempty_str lb)); [discriminate|].
+  destruct after as [|w body].
+  - injection H as _ <-. apply is_sfx_empty.
+  - destruct (is_ws w); [|discriminate]. injection H as _ <-.
+    refine (is_sfx_trans _ _ _ _ Er). apply is_sfx_cons, is_sfx_tail.
+Qed.
+
+Lemma quote_prefix_sfx : forall l rest, quote_prefix l = Some rest -> is_sfx rest l.
+Proof.
+  intros l rest H. unfold quote_prefix in H.
+  pose proof (drop_leading_ws_sfx l) as Hd.
+  destruct (drop_leading_ws l) as [|c r]; [discriminate|].
+  apply (fun x => is_sfx_trans _ _ _ x Hd).
+  destruct (Ascii.eqb c ">"); [|discriminate].
+  destruct r as [|c' r'].
+  - injection H as <-. apply is_sfx_empty.
+  - destruct (is_ws c'); [|discriminate]. injection H as <-.
+    apply is_sfx_cons, is_sfx_tail.
+Qed.
+
+Local Lemma heading_open_sfx :
+  forall l lvl rest, heading_open l = Some (lvl, rest) -> is_sfx rest l.
+Proof.
+  intros l lvl rest H. unfold heading_open in H.
+  pose proof (drop_leading_ws_sfx l) as Hd.
+  pose proof (count_run_sfx "#" (drop_leading_ws l)) as Hc.
+  destruct (count_run "#" (drop_leading_ws l)) as [n r]. cbn [snd] in Hc.
+  apply (fun x => is_sfx_trans _ _ _ x (is_sfx_trans _ _ _ Hc Hd)).
+  destruct (Nat.leb 1 n); [|discriminate].
+  destruct r as [|c r'].
+  - injection H as _ <-. apply is_sfx_empty.
+  - destruct (is_ws c); [|discriminate]. injection H as _ <-. apply is_sfx_tail.
+Qed.
+
+(** What the classifier hands on is a suffix of the line: the residue a
+    quote, a heading, a footnote or a list marker leaves, the last with
+    its task box put back. *)
+Lemma classify_sfx :
+  forall l,
+    match classify l with
+    | KQuote rest | KHeading _ rest | KFoot _ rest => is_sfx rest l
+    | KList _ _ chk rest => is_sfx (task_literal_rest chk rest) l
+    | _ => True
+    end.
+Proof.
+  intros l. unfold classify.
+  destruct (is_blank l); [exact I|].
+  destruct (quote_prefix l) as [r|] eqn:Eq; [exact (quote_prefix_sfx _ _ Eq)|].
+  destruct (heading_open l) as [[lvl r]|] eqn:Eh; [exact (heading_open_sfx _ _ _ Eh)|].
+  destruct (fence_open l); [exact I|].
+  destruct (div_open l) as [[dn dc]|]; [exact I|].
+  destruct (is_thematic l); [exact I|].
+  destruct (list_marker l) as [[[[s c] k] r]|] eqn:El; [exact (list_marker_sfx _ _ _ _ _ El)|].
+  destruct (attr_open l); [exact I|].
+  destruct (foot_open l) as [[fl fr]|] eqn:Ef; [exact (foot_open_sfx _ _ _ Ef)|].
+  destruct (ref_open l) as [[rl rv]|]; [exact I|].
+  destruct (table_row l); exact I.
+Qed.
+
+(* A row line is one `table_row` reads as that row. *)
+Lemma classify_row : forall l r, classify l = KRow r -> table_row l = Some r.
+Proof.
+  intros l r H. unfold classify in H.
+  destruct (is_blank l); [discriminate|].
+  destruct (quote_prefix l); [discriminate|].
+  destruct (heading_open l) as [[lvl r2]|]; [discriminate|].
+  destruct (fence_open l); [discriminate|].
+  destruct (div_open l) as [[dn dc]|]; [discriminate|].
+  destruct (is_thematic l); [discriminate|].
+  destruct (list_marker l) as [[[[s0 c0] k0] r0]|]; [discriminate|].
+  destruct (attr_open l); [discriminate|].
+  destruct (foot_open l) as [[fl fr]|]; [discriminate|].
+  destruct (ref_open l) as [[rl rv]|]; [discriminate|].
+  destruct (table_row l); [injection H as <-; reflexivity|discriminate].
+Qed.
+
+Lemma task_literal_rest_sfx : forall chk rest, is_sfx rest (task_literal_rest chk rest).
+Proof.
+  intros [m|] rest; [exists (task_marker_source m); reflexivity|apply is_sfx_refl].
+Qed.
+
+Lemma caption_open_sfx : forall l rest, caption_open l = Some rest -> is_sfx rest l.
+Proof.
+  intros l rest H. unfold caption_open in H.
+  pose proof (drop_leading_ws_sfx l) as Hd.
+  destruct (drop_leading_ws l) as [|c r]; [discriminate|].
+  apply (fun x => is_sfx_trans _ _ _ x Hd).
+  destruct (negb (Ascii.eqb c "^")); [discriminate|].
+  destruct r as [|c' r']; [discriminate|].
+  destruct (is_ws c'); [|discriminate]. injection H as <-.
+  apply is_sfx_cons, drop_leading_ws_sfx.
+Qed.
+
+Lemma callout_header_sfx :
+  forall s kind fold title,
+    callout_header s = Some (kind, fold, title) -> is_sfx title s.
+Proof.
+  intros s kind fold title H. unfold callout_header in H.
+  destruct s as [|a [|b rest]]; try discriminate.
+  destruct (Ascii.eqb a "[" && Ascii.eqb b "!")%bool; [|discriminate].
+  apply is_sfx_cons, is_sfx_cons.
+  pose proof (take_while_sfx callout_kind_char rest) as Hs.
+  destruct (take_while callout_kind_char rest) as [k r]. cbn [snd] in Hs.
+  refine (is_sfx_trans _ _ _ _ Hs).
+  destruct k as [|k0 k']; [discriminate|].
+  destruct r as [|ch tail]; [discriminate|].
+  apply is_sfx_cons.
+  (* The fold marker, when there is one, is one byte. *)
+  assert (Hf : forall t, is_sfx (snd (match t with
+              | String "+" more => (Some FoldExpanded, more)
+              | String "-" more => (Some FoldCollapsed, more)
+              | String _ _ => (None, t)
+              | EmptyString => (None, EmptyString)
+              end)) t).
+  { intros [|x more]; [apply is_sfx_refl|].
+    destruct x as [[] [] [] [] [] [] [] []]; cbn [snd];
+      first [apply is_sfx_tail|apply is_sfx_refl]. }
+  destruct ch as [[] [] [] [] [] [] [] []]; try discriminate H.
+  specialize (Hf tail).
+  destruct (match tail with
+              | String "+" more => (Some FoldExpanded, more)
+              | String "-" more => (Some FoldCollapsed, more)
+              | String _ _ => (None, tail)
+              | EmptyString => (None, EmptyString)
+              end) as [fo t2]. cbn [snd] in Hf.
+  refine (is_sfx_trans _ _ _ _ Hf).
+  destruct t2 as [|c t3]; [injection H as _ _ <-; apply is_sfx_empty|].
+  destruct (callout_sep c); [|discriminate].
+  injection H as _ _ <-. apply is_sfx_cons, drop_leading_ws_sfx.
 Qed.
 
 Local Lemma classify_not_kblank_nonblank :
