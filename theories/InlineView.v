@@ -780,7 +780,9 @@ Inductive cinline : Type :=
   | CIRaw (fmt s : string)
   (* a wikilink: two raw strings and the embed bit, a leaf for the
      footnote label's reason. *)
-  | CIWiki (embed : bool) (target : string) (alias : option string).
+  | CIWiki (embed : bool) (target : string) (alias : option string)
+  (* a named span, `:name[kids]` (`.project/custom-tags.md`) *)
+  | CITag (name : string) (kids : list cinline).
 
 Fixpoint ci_size (ci : cinline) : nat :=
   let go :=
@@ -791,7 +793,7 @@ Fixpoint ci_size (ci : cinline) : nat :=
       end in
   match ci with
   | CIStr _ | CIVerb _ | CINote _ | CIAuto _ | CIRaw _ _ | CIWiki _ _ _ => 1
-  | CIDelim _ kids | CILink _ kids _ | CIRef _ kids _ => S (go kids)
+  | CIDelim _ kids | CILink _ kids _ | CIRef _ kids _ | CITag _ kids => S (go kids)
   end.
 
 Fixpoint cis_size (cis : list cinline) : nat :=
@@ -824,9 +826,15 @@ Proof.
   intros img kids label. exact (ci_size_delim DEmph kids).
 Qed.
 
+Lemma ci_size_tag :
+  forall name kids, ci_size (CITag name kids) = S (cis_size kids).
+Proof.
+  intros name kids. exact (ci_size_delim DEmph kids).
+Qed.
+
 Lemma ci_size_pos : forall ci, 0 < ci_size ci.
 Proof.
-  intros [s|s|k kids|img kids dst|img kids label|label|s|f s|e t al];
+  intros [s|s|k kids|img kids dst|img kids label|label|s|f s|e t al|n kids];
     cbn [ci_size]; lia.
 Qed.
 
@@ -865,6 +873,7 @@ Fixpoint ci_src (ci : cinline) : string :=
   | CIAuto s => auto_text s
   | CIRaw fmt s => raw_text fmt s
   | CIWiki embed t al => wiki_text embed t al
+  | CITag name kids => (tag_open name ++ (go kids ++ one rbrack))%string
   end.
 
 Fixpoint ci_text (cis : list cinline) : string :=
@@ -933,6 +942,15 @@ Proof.
   cbn [ci_src]. rewrite ci_src_children. reflexivity.
 Qed.
 
+Lemma ci_src_tag :
+  forall name kids,
+    ci_src (CITag name kids)
+    = (tag_open name ++ (ci_text kids ++ one rbrack))%string.
+Proof.
+  intros name kids.
+  cbn [ci_src]. rewrite ci_src_children. reflexivity.
+Qed.
+
 Lemma ci_src_ref :
   forall img kids label,
     ci_src (CIRef img kids label)
@@ -960,6 +978,7 @@ Fixpoint ci_ast (ci : cinline) : node inline :=
   | CIAuto s => mk (auto_node s)
   | CIRaw fmt s => mk (RawInline fmt s)
   | CIWiki embed t al => mk (Ext_wikilink embed t al)
+  | CITag name kids => mk (Span name (go kids))
   end.
 
 Definition ci_inlines (cis : list cinline) : inlines := map ci_ast cis.
@@ -989,6 +1008,13 @@ Lemma ci_ast_link :
     = mk (bnode img (ci_inlines kids) (Direct dst)).
 Proof.
   intros img kids dst.
+  cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
+Qed.
+
+Lemma ci_ast_tag :
+  forall name kids, ci_ast (CITag name kids) = mk (Span name (ci_inlines kids)).
+Proof.
+  intros name kids.
   cbn [ci_ast]. rewrite ci_ast_children. reflexivity.
 Qed.
 
@@ -1049,6 +1075,10 @@ Definition bracket_kids_ok (kids : list cinline) : bool :=
    role, and no line break. *)
 Definition wiki_part_ok (s : string) : bool :=
   (no_char rbrack s && no_char vbar s && no_char bslash s && no_nl s)%bool.
+
+(* A name the symbol state reads whole. *)
+Definition tag_name_ok (name : string) : bool :=
+  (nonempty_str name && str_forallb symbol_char name)%bool.
 
 (* The canonical view's conditions on one inline.  A `Str` is nonempty and
    newline-free.  An empty verbatim is excluded although the parser can
@@ -1111,6 +1141,10 @@ Fixpoint ci_ok (ci : cinline) : bool :=
   | CIWiki _ t al =>
       (wikilinks_enabled && nonempty_str t && wiki_part_ok t
        && match al with Some a => wiki_part_ok a | None => true end)%bool
+  (* A named bracket may be empty, as a link's text may: its `]` closes
+     it whatever it holds. *)
+  | CITag name kids =>
+      (tags_enabled && tag_name_ok name && go kids && sep kids)%bool
   end.
 
 Lemma ci_ok_raw :
@@ -1189,6 +1223,16 @@ Lemma ci_ok_link :
     = (no_nl dst && cis_ok kids && bracket_kids_ok kids)%bool.
 Proof.
   intros img kids dst.
+  cbn [ci_ok]. rewrite ci_ok_children, ci_sep_children. unfold cis_ok.
+  repeat rewrite andb_assoc. reflexivity.
+Qed.
+
+Lemma ci_ok_tag :
+  forall name kids,
+    ci_ok (CITag name kids)
+    = (tags_enabled && tag_name_ok name && cis_ok kids)%bool.
+Proof.
+  intros name kids.
   cbn [ci_ok]. rewrite ci_ok_children, ci_sep_children. unfold cis_ok.
   repeat rewrite andb_assoc. reflexivity.
 Qed.
@@ -1310,12 +1354,12 @@ Proof. destruct ci; reflexivity. Qed.
 Lemma inline_text_ci_ast : forall ci, inline_text (node_contents (ci_ast ci)) = ci_src ci.
 Proof.
   fix IH 1. intro ci.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal|tn tkids];
     [reflexivity|reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
      destruct (auto_email a); reflexivity
     |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity
-    |reflexivity].
+    |reflexivity|].
   - destruct k; cbn [ci_ast ci_src dnode node_contents inline_text].
     all: cbn [inline_text node_contents mk]; f_equal; f_equal; f_equal;
       induction kids as [|c rest IHkids]; [reflexivity|]; cbn;
@@ -1339,6 +1383,12 @@ Proof.
       pose proof (ci_ast_attrs c) as Ha; rewrite E in Ha; cbn [node_attrs] in Ha; subst a;
        pose proof (IH c) as Hc; rewrite E in Hc;
        cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity).
+  - cbn [ci_ast ci_src node_contents inline_text mk]. f_equal. f_equal.
+    induction tkids as [|c rest IHkids]; [reflexivity|]; cbn;
+    destruct (ci_ast c) as [p a x] eqn:E;
+    pose proof (ci_ast_attrs c) as Ha; rewrite E in Ha; cbn [node_attrs] in Ha; subst a;
+    pose proof (IH c) as Hc; rewrite E in Hc;
+    cbn [node_contents] in Hc; rewrite Hc, IHkids; reflexivity.
 Qed.
 
 (* Does the line end here?  A hard break writes a backslash after the
@@ -1374,7 +1424,7 @@ Local Lemma line_ends_ci_ast :
   forall ci rest, line_ends (ci_ast ci :: rest) = false.
 Proof.
   intros ci rest.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal|tn tkids];
     try reflexivity.
   - rewrite ci_ast_delim. destruct k; reflexivity.
   - rewrite ci_ast_link. destruct img; reflexivity.
@@ -1391,13 +1441,14 @@ Local Lemma inline_lines_ci_ast :
     = inline_lines rest (cur ++ ci_src ci).
 Proof.
   intros ci rest cur Hrest.
-  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal];
+  destruct ci as [s|s|k kids|img kids dst|rimg rkids rlabel|label|a|rf rv|we wt wal|tn tkids];
     [cbn [ci_ast ci_src mk inline_lines]; rewrite Hrest; reflexivity
     |reflexivity| | | |reflexivity
     |cbn [ci_ast ci_src]; unfold auto_node;
      destruct (auto_email a); reflexivity
     |cbn [ci_ast ci_src node_contents mk inline_text]; reflexivity
-    |reflexivity].
+    |reflexivity
+    |rewrite ci_ast_tag, <- inline_text_ci_ast, ci_ast_tag; reflexivity].
   - rewrite ci_ast_delim, <- inline_text_ci_ast.
     destruct k; reflexivity.
   - rewrite ci_ast_link, <- inline_text_ci_ast, ci_ast_link.

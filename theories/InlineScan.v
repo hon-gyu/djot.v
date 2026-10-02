@@ -1046,6 +1046,17 @@ Proof.
   destruct image; reflexivity.
 Qed.
 
+Lemma tag_close_oemit_all :
+  forall ns name start base,
+    tag_close (oemit_all ns (tag_push name start base)) =
+      Some (ns, name, null_span, base).
+Proof.
+  intros ns name start [out stk word]. unfold tag_push. rewrite oemit_all_frame.
+  unfold tag_close. cbn [os_stk os_out tag_close_go fr_out fr_kind oapp].
+  rewrite app_nil_r, oresolve_map_rev, List.rev_involutive.
+  reflexivity.
+Qed.
+
 (*
 Putting a bracket back as text
 ------------------------------
