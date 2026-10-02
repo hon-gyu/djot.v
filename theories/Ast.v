@@ -612,8 +612,9 @@ Inductive block : Type :=
   | ThematicBreak
   (* A caption is inline content, as djot.js parses it (djoths has
      blocks).  Keeping it inline also keeps `Table` a leaf for
-     `block_ind2`. *)
-  | Table (caption : option inlines) (rows : list (list cell))
+     `block_ind2`.  An empty caption is no caption, as in djot.js's AST,
+     so whether a table has one is not a block-level fact. *)
+  | Table (caption : inlines) (rows : list (list cell))
   | RawBlock (format : string) (contents : string)
   (* The source form of a footnote definition.  The document pass moves
      its children into `doc_footnotes`; the block stays so that the source
@@ -922,7 +923,7 @@ Fixpoint of_block (b : block) : block :=
                 (of_inlines term, go item) :: godefs rest
             end) items)
   | Table caption rows =>
-      Table (option_map of_inlines caption) (map row rows)
+      Table (of_inlines caption) (map row rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node _ a x) =>
       Ext_keyed (of_inlines label) (Node NoPos a (of_block x))
@@ -1134,7 +1135,7 @@ Fixpoint of_block (d : nat) (b : block) : block :=
             | (term, item) :: rest => (of_inlines d term, go item) :: godefs rest
             end) items)
   | Table caption rows =>
-      Table (option_map (of_inlines d) caption) (map (map (of_cell d)) rows)
+      Table (of_inlines d caption) (map (map (of_cell d)) rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node p a x) =>
       Ext_keyed (of_inlines d label) (Node (of_pos d p) a (of_block d x))
@@ -1223,10 +1224,9 @@ Proof.
               f_equal; apply IHi; exact H3).
     - (* table *)
       f_equal.
-      + destruct caption; cbn; rewrite ?erase_inlines; reflexivity.
-      + unfold Erase.row. rewrite !map_map. apply map_ext. intros r.
-        rewrite map_map. apply map_ext. intros [ct al ils]. cbn.
-        rewrite erase_inlines. reflexivity.
+      unfold Erase.row. rewrite !map_map. apply map_ext. intros r.
+      rewrite map_map. apply map_ext. intros [ct al ils]. cbn.
+      rewrite erase_inlines. reflexivity.
     - (* key *)
       destruct b as [p a x]. cbn [of_blocks Erase.of_blocks] in H.
       injection H as Hx. cbn [Erase.of_block]. rewrite erase_inlines, Hx.

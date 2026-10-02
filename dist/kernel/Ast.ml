@@ -360,7 +360,7 @@ type block =
 | TaskList of list_spacing * (task_status * block node list) list
 | DefinitionList of list_spacing * (inlines * block node list) list
 | ThematicBreak
-| Table of inlines option * cell list list
+| Table of inlines * cell list list
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string
@@ -541,8 +541,7 @@ module Shift =
             ((of_inlines d term), (go item)) :: (godefs rest)
           in godefs items))
      | Table (caption, rows) ->
-       Table ((option_map (of_inlines d) caption),
-         (map (map (of_cell d)) rows))
+       Table ((of_inlines d caption), (map (map (of_cell d)) rows))
      | FootnoteDef (label, bs) -> FootnoteDef (label, (go bs))
      | Ext_keyed (label, b0) ->
        let Node (p, a, x) = b0 in

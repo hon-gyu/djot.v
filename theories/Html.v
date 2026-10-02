@@ -454,10 +454,10 @@ Local Definition render_cell (c : cell) : helt :=
 Definition render_row (r : list cell) : helt :=
   HElem "tr" 2 [] (map render_cell r).
 
-Local Definition render_caption (caption : option inlines) : list helt :=
+Local Definition render_caption (caption : inlines) : list helt :=
   match caption with
-  | None => []
-  | Some ils => [HElem "caption" 1 [] (render_inlines ils)]
+  | [] => []
+  | _ => [HElem "caption" 1 [] (render_inlines caption)]
   end.
 
 (*
@@ -731,12 +731,12 @@ Local Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
       (st2, HElem "tr" 2 [] cells :: es)
   end.
 
-Local Definition render_caption_foot (st : foot_state) (caption : option inlines)
+Local Definition render_caption_foot (st : foot_state) (caption : inlines)
   : foot_state * list helt :=
   match caption with
-  | None => (st, [])
-  | Some ils =>
-      let '(st', s) := render_inlines_foot st ils in
+  | [] => (st, [])
+  | _ =>
+      let '(st', s) := render_inlines_foot st caption in
       (st', [HElem "caption" 1 [] s])
   end.
 
@@ -1097,7 +1097,7 @@ Local Lemma render_caption_foot_reference_shape :
     foot_shape (render_caption_foot refs st caption)
                (render_caption_foot refs' st caption).
 Proof.
-  intros [ils|] st refs refs'; [|unfold foot_shape; split; reflexivity].
+  intros [|i ils] st refs refs'; [unfold foot_shape; split; reflexivity|].
   cbn [render_caption_foot].
   apply foot_shape_elem, render_inlines_foot_reference_shape.
 Qed.
@@ -1481,8 +1481,8 @@ Proof.
       exact IH.
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
       rewrite !map_app. f_equal.
-      + destruct caption as [ils|]; cbn [render_caption map erase_helt_attrs];
-          [rewrite (render_inlines_reference_shape ils refs refs')|]; reflexivity.
+      + destruct caption as [|i ils]; cbn [render_caption map erase_helt_attrs];
+          [|rewrite (render_inlines_reference_shape (i :: ils) refs refs')]; reflexivity.
       + induction rows as [|row rest IH]; [reflexivity|].
         cbn [map]. f_equal.
         * cbn [render_row erase_helt_attrs]. f_equal.

@@ -2192,9 +2192,9 @@ so does `div_open`.
 **Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Stated by
 `classify_div_fences` in `Line.v`, whose `gap` may be empty.
 
-## 2026-10-01 -- open: whether a table has a caption is decided by its inlines
+## Closed 2026-10-02 -- ours: whether a table has a caption is decided by its inlines
 
-| Input | djot.js AST | ours | HTML (both) |
+| Input | djot.js AST | ours until 2026-10-02 | HTML (both) |
 | --- | --- | --- | --- |
 | `\| a \|` / `^ {.x}` | `caption` with no children | no caption (`None`) | no `<caption>` |
 | `\| a \|` / `^ x` | `caption` holding `x` | `Some [x]` | `<caption>x</caption>` |
@@ -2229,6 +2229,12 @@ Two ways to remove the exception, neither changing the HTML:
    the `Table` constructor everywhere: Step, Html, Roundtrip, Wf, and
    the `dist/` API, where the caption stops being optional.
 
-**Verdict: open.**  Option 2 preferred.  Either way
-`inline_attrs_affect_caption_presence` becomes false and is deleted, and
-`block_shape_independent` erases only inlines.
+**Verdict: ours, closed 2026-10-02 by option 2.**  `Table`'s caption is
+`inlines` and `caption_of` returns the caption's inlines as parsed, so
+the three inputs above give `[]`, `[x]` and `[]`, the shape of djot.js's
+AST.  `inline_attrs_affect_caption_presence` is deleted and
+`block_shape_independent` erases only inlines.  The caption's located
+range (`PTable`) is now present whenever a `^` line was read, whatever
+its inlines.  The `dist/` API changes with it: `Block.Table` carries
+`Inline.t node list`, not an option.  The test suite, the generated
+corpus against djot.js and the roundtrip pools keep their counts.

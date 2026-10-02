@@ -203,7 +203,7 @@ let rec cb_ast cb =
    | CDiv inner -> mk (Div (map cb_ast inner))
    | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
    | CRef (label, dest) -> mk (RefDef (label, dest))
-   | CTable rows -> mk (Table (None, (ctable_cells [] rows)))
+   | CTable rows -> mk (Table ([], (ctable_cells [] rows)))
    | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
    | CKey (label, inner) ->
      mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner))))
@@ -758,8 +758,8 @@ let rec render_lines t k a b =
      | Table (cap, rows) ->
        app (table_lines t rows)
          (match cap with
-          | Some ils -> caption_lines t ils
-          | None -> [])
+          | [] -> []
+          | _ :: _ -> caption_lines t cap)
      | RawBlock (fmt, text) ->
        (code_open ((^) "=" fmt)) :: (app (split_lines text)
                                       (code_close :: []))

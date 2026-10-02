@@ -665,7 +665,7 @@ Qed.
 Local Lemma table_block_ctable :
   forall rows cap,
     forallb ctrow_ok rows = true ->
-    caption_of cap = None ->
+    caption_of cap = [] ->
     table_block (rev (rev (flat_map ctrow_trows rows))) cap = cb_ast (CTable rows).
 Proof.
   intros rows cap Hok Hcap. rewrite rev_involutive.
@@ -1804,13 +1804,13 @@ Proof.
       rewrite (parse_lines_table_blank EmptyString _ _ _ _ (eq_refl true)).
       cbn [app].
       rewrite (parse_lines_table_close _ _ _ _ _ Hcap Hblank).
-      rewrite (table_block_ctable rows (TAfterBlank []) Hrows (eq_refl None)).
+      rewrite (table_block_ctable rows (TAfterBlank []) Hrows (eq_refl [])).
       reflexivity.
     + intros H. destruct (Hparts H) as [Htables [Hne Hrows]].
       rewrite cb_lines_table, <- (app_nil_r (flat_map ctrow_lines rows)).
       destruct (parse_ctable rows [] Htables Hne Hrows) as [range Hpc].
       rewrite Hpc, parse_lines_table_eof.
-      rewrite (table_block_ctable rows (TOpen []) Hrows (eq_refl None)). reflexivity.
+      rewrite (table_block_ctable rows (TOpen []) Hrows (eq_refl [])). reflexivity.
   - (* explicit id: the spec is complete on its own line, so it resolves
        against the wrapped block's first line and rides on whatever that
        block emits (`Parser.attr_uniformity`).  Nothing else about the
@@ -2094,7 +2094,7 @@ Proof.
   - (* reference definition: one line, and the renderer spells it the same
        way `cb_lines` does *)
     intros label dest _. reflexivity.
-  - (* table: `table_lines_ctable` is the case.  The caption is `None`, so
+  - (* table: `table_lines_ctable` is the case.  The caption is empty, so
        the renderer's caption line is the empty append. *)
     intros rows H. rewrite cb_ok_table in H.
     apply andb_true_iff in H as [_ Hrows].

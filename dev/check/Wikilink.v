@@ -106,7 +106,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example w_row8_cell :
   WBlocks "| [[a|b]] |"
-  = [mk (Table None [[Cell BodyCell AlignDefault [mk (Str "[[a")];
+  = [mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "[[a")];
                       Cell BodyCell AlignDefault [mk (Str "b]]")]]])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -120,7 +120,7 @@ Proof. vm_compute. reflexivity. Qed.
    the region keeps the backslash. *)
 Example w_cell_escaped_bar :
   WBlocks "| [[a\|b]] |"
-  = [mk (Table None [[Cell BodyCell AlignDefault [wiki "a\|b"]]])].
+  = [mk (Table [] [[Cell BodyCell AlignDefault [wiki "a\|b"]]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

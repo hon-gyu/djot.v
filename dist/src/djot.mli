@@ -138,8 +138,8 @@ module Block : sig
     | TaskList of list_spacing * (task_status * t node list) list
     | DefinitionList of list_spacing * (Inline.t node list * t node list) list
     | ThematicBreak
-    | Table of Inline.t node list option * cell list list
-        (** Caption, then rows. *)
+    | Table of Inline.t node list * cell list list
+        (** Caption, then rows.  An empty caption is no caption. *)
     | RawBlock of string * string
     | FootnoteDef of string * t node list
         (** Moved into {!Doc.footnotes} by the document pass. *)

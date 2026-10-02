@@ -125,7 +125,7 @@ Inline: T 1, T~ 10, E 41, n/a 5.
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | T | `block_shape_independent` (BlockShape.v) | The block tree with every inline erased is the same under any two inline delimiter tables.  Table captions are erased too: `caption_of` makes a caption whose inline content comes out empty no caption, so `^ {.x}` gives a table with no caption under djot's inline syntax and one with a caption when inline attributes are off (`inline_attrs_affect_caption_presence`, Invariants.v).  This exception is ours, not the reference's: djot.js's AST always has a caption node and only its HTML renderer skips an empty one (divergences, 2026-10-01, open).  Keyed blocks, an extension, are off: finding a key's label asks the inline scanner, which breaks the rule on purpose (`key_split_contract`). |
+| BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | T | `block_shape_independent` (BlockShape.v) | The block tree with every inline erased, table captions included, is the same under any two inline delimiter tables.  A caption is inlines, empty meaning none, as in djot.js's AST, so whether a table has one is not a block-level fact (divergences, closed 2026-10-02).  Keyed blocks, an extension, are off: finding a key's label asks the inline scanner, which breaks the rule on purpose (`key_split_contract`). |
 | BI2 | Block syntax | "blocks can be parsed line by line with no backtracking.  The contribution a line makes to block-level structure never depends on a future line" | T | `prefix_determinism`, `no_future_line_dependence`, `prefix_state_suffices` | |
 | BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `indent_uniformity`, `classify_ws_prefix`, `quote_uniformity_pad` | Shape: every line indented by the same blanks, with no block attribute spec open between lines (`specs_closed`); then the parse is unchanged, lists and footnotes included.  Indentation that differs from line to line is read by code blocks and by nesting, so no statement covers it. |
 | BI4 | Block syntax | "a thematic break or fenced code block can be directly followed by a paragraph" | E | `code_block_longer_closer` | |
@@ -273,8 +273,8 @@ Inline structure:
    whitespace never delimits, over all inputs.
    On the located parse's spans: `261002.plan.inline-flanking.md`.
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
-    and captions erased, does not depend on the inline delimiter table,
-    for configurations without keyed blocks.
+    erased, does not depend on the inline delimiter table, for
+    configurations without keyed blocks.
 
 Single constructs, each a small theorem over a finite or simple domain:
 

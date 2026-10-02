@@ -395,7 +395,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CDiv inner => mk (Div (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
-  | CTable rows => mk (Table None (ctable_cells [] rows))
+  | CTable rows => mk (Table [] (ctable_cells [] rows))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
   | CKey label inner => mk (Ext_keyed [ci_ast label] (cb_ast inner))
   end.
@@ -1153,7 +1153,7 @@ Lemma cb_lines_table :
 Proof. reflexivity. Qed.
 
 Lemma cb_ast_table :
-  forall rows, cb_ast (CTable rows) = mk (Table None (ctable_cells [] rows)).
+  forall rows, cb_ast (CTable rows) = mk (Table [] (ctable_cells [] rows)).
 Proof. reflexivity. Qed.
 
 (*
@@ -1384,8 +1384,8 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
          (render_lines (node_attrs inner) (node_contents inner))
    | Table cap rows =>
        (table_lines rows ++ match cap with
-                            | Some ils => caption_lines ils
-                            | None => []
+                            | [] => []
+                            | _ => caption_lines cap
                             end)%list
    end)%list.
 

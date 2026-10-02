@@ -737,7 +737,7 @@ Definition caption_ranges (s : string) : list (nat * nat) :=
   match first_table s with
   | Some n =>
       match node_contents n with
-      | Table (Some ils) _ => inline_walk 40 lines ils
+      | Table ils _ => inline_walk 40 lines ils
       | _ => []
       end
   | None => []
