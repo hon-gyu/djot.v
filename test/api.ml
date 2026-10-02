@@ -33,7 +33,7 @@ let () =
    | _ -> failwith "unexpected document");
   let d = Doc.of_string ~locs:true "{#i}\n::: warn\ninside\n:::\n" in
   (match Doc.blocks d with
-   | [ (Node (_, _, Block.Div [ para ]) as div) ] ->
+   | [ (Node (_, _, Block.Div (_, [ para ])) as div) ] ->
        assert (bytes (Doc.textloc d div) = (5, 23));
        assert (bytes (Doc.textloc d para) = (14, 19))
    | _ -> failwith "unexpected document");
@@ -97,7 +97,7 @@ let () =
       (fun n ->
         let kids =
           match Node.contents n with
-          | Inline.Link (l, _) | Inline.Image (l, _) | Inline.Span l -> ranges d l
+          | Inline.Link (l, _) | Inline.Image (l, _) | Inline.Span (_, l) -> ranges d l
           | _ -> []
         in
         bytes (Doc.textloc d n) :: kids)
@@ -117,7 +117,9 @@ let () =
   check ~profile:(Profile.with_ext_wikilinks true Profile.djot) "p [[a|b]] ![[c]] q"
     [ (0, 1); (2, 8); (9, 9); (10, 15); (16, 17) ];
   check ~profile:(Profile.with_ext_dollar_math true Profile.djot) "a $x$ b"
-    [ (0, 1); (2, 4); (5, 6) ]
+    [ (0, 1); (2, 4); (5, 6) ];
+  check ~profile:(Profile.with_ext_tags true Profile.djot) "p :kbd[a] q"
+    [ (0, 1); (2, 8); (7, 7); (9, 10) ]
 
 (* The HTML tree serializes to the rendered document. *)
 let () =
