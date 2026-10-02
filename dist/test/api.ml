@@ -115,7 +115,9 @@ let () =
   check "i ![alt](i.png) j" [ (0, 1); (2, 14); (4, 6); (15, 16) ];
   check "s [txt]{.c} t" [ (0, 1); (2, 6); (3, 5); (11, 12) ];
   check ~profile:(Profile.with_ext_wikilinks true Profile.djot) "p [[a|b]] ![[c]] q"
-    [ (0, 1); (2, 8); (9, 9); (10, 15); (16, 17) ]
+    [ (0, 1); (2, 8); (9, 9); (10, 15); (16, 17) ];
+  check ~profile:(Profile.with_ext_dollar_math true Profile.djot) "a $x$ b"
+    [ (0, 1); (2, 4); (5, 6) ]
 
 (* The HTML tree serializes to the rendered document. *)
 let () =
