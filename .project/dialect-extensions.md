@@ -56,7 +56,7 @@ variants) are left out of the count.
 | `fenced_code_blocks`, `backtick_code_blocks` | have | |
 | `fancy_lists` | have, mostly | letters, roman, `.`/`)`/`(x)` exist. `#.` as a marker and the two-space rule after a capital letter are classifier changes |
 | `startnum`, `task_lists`, `footnotes` | have | |
-| `fenced_divs` | have | djot's `::: class`. Pandoc's `::: {#id .c} :::` opener spelling is an opener-recognizer change |
+| `fenced_divs` | have | djot's `::: class`. Pandoc's `::: {#id .c} :::` opener spelling is an opener-recognizer change. With custom tag names on (`custom-tags.md`) the word is the div's name, not a class |
 | `header_attributes` | widen | trailing `{#id}` on the heading line. Djot drops an attribute after a space, so this is non-conservative. A rule at heading finish; input-only, since the renderer writes attributes on the preceding line and escapes `{` in heading text |
 | `mmd_header_identifiers` | widen | same place, `[id]` spelling |
 | `fenced_code_attributes` | widen | `{.lang #id}` after the fence; the attribute parser exists, the info-string reader does not call it |

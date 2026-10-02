@@ -640,3 +640,35 @@ classifier erases `[x]` versus `[X]`, source that is required when task syntax
 falls back to literal bullet content, and their per-item statuses remain the
 one deferred canonical-roundtrip case. GFM tables similarly wait for a
 distinct recognizer before `btables` becomes a dialect mode.
+
+## Pinned, not yet reviewed: custom tag names
+
+**Ask.** <https://github.com/jgm/djot/issues/240>: a div and a span each gain a name, `::: details`
+and `:kbd[...]`. Specified in [[custom-tags]]; the reasoning for each
+decision is [[261001.plan.custom-tags]]'s, which an agent wrote and no
+human has reviewed yet. The entries below are pinned by examples in
+`dev/check/Tag.v` and stay "not yet reviewed" until that review.
+
+**Baseline.** `baseline_inline_alone`, `baseline_inline_then_bracket`,
+`baseline_inline_not_a_name`, `baseline_div_word_is_a_class`,
+`baseline_two_words_is_not_an_opener`, all checked against djot.js.
+
+**Non-conservative.** Both halves: every `::: word` and every
+`:symbol-chars[` changes meaning. The setting is off in both named
+profiles (`names_off_in_named_profiles`).
+
+| | decision | pinned by |
+| --- | --- | --- |
+| D1 | the name is a string field on `Div` and `Span`, empty meaning unnamed | `div_named_div_is_not_unnamed`, `tagged_nesting` |
+| D2 | the inline spelling is `:name[...]`, decided at the `[` from the symbol state | `tagged_inline_rows`, `tagged_not_a_name` |
+| D3 | `]` closes a named bracket at once | `tagged_close_is_immediate` |
+| D4 | names are recorded as written; an empty inline name is not a name | `tagged_not_a_name`, `div_word_is_a_name` |
+| D5 | `::: div` is named `div` | `div_named_div_is_not_unnamed` |
+| D6 | HTML uses the name only for elements with ordinary content, else `data-tag` | `html_names`, `html_fallbacks`, `Html.named_elem_cases` |
+
+**Consequences pinned alongside.** A name sits beside a pending class
+(`div_name_beside_a_class`); unclosed or captured named brackets decay
+(`tagged_decay`); a named bracket interacts with delimiters as a bracket
+does (`tagged_with_delimiters`) and is never taken back for a note
+(`tagged_not_a_note`). The roundtrip holds at the profile
+(`tag_roundtrip_blocks`).

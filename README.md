@@ -112,6 +112,7 @@ Current supported extensions and parser configs are:
 - Dollar math (`$x$`, `$$x$$` and GitHub's ``$`x`$``): breaks none
 - Keyed blocks (`label: content`, pairing an inline label with a block): breaks safe hard-wrapping; also changes the tree structure of existing documents
 - Callouts (`> [!kind]` on a quote opener): breaks block quote container uniformity for matching headers; also changes the tree structure of those quotes
+- Custom tag names (`::: details` names a div, `:kbd[Ctrl+C]` names a span): breaks none; changes how existing documents with `::: word` or `:word[` parse
 - ... more to come
 
 Some additional properties for the generalized parser:
