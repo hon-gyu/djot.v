@@ -638,7 +638,7 @@ Qed.
 
 Lemma div_block_ok : forall cls bs, Forall bgood bs -> bgood (div_block cls bs).
 Proof.
-  intros cls bs H. unfold div_block. destruct (String.eqb cls EmptyString); constructor; exact H.
+  intros cls bs H. unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString)]; constructor; exact H.
 Qed.
 
 Lemma fence_block_ok : forall f c, bgood (fence_block f c).

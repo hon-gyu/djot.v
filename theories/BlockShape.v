@@ -421,7 +421,7 @@ Proof.
       rewrite !Shape.blocks_cons; Shape.unfold_block;
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Shape.blocks_idem, IHst;
       reflexivity.
-  - unfold div_block. destruct (String.eqb cls EmptyString); unfold mk;
+  - unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString)]; unfold mk;
       rewrite !Shape.blocks_cons; Shape.unfold_block;
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Shape.blocks_idem, IHst;
       reflexivity.
@@ -606,7 +606,7 @@ Proof.
     rewrite in_fence_shape.
     destruct (negb (in_fence st) && div_close len l)%bool.
     + unfold Shape.result; cbn [fst snd]. rewrite !Shape.blocks_set_pos.
-      unfold div_block. destruct (String.eqb cls EmptyString); unfold mk;
+      unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString)]; unfold mk;
         rewrite !Shape.blocks_cons; Shape.unfold_block;
         rewrite !Shape.blocks_app, !Shape.blocks_rev, Shape.blocks_idem,
           (finish_shape T T');

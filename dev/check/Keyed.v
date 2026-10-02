@@ -294,8 +294,8 @@ Definition canonical_key_documents : list (list cblock) :=
   let l := CList LKBullet Tight [[p]] in
   let t := CTable [CTBody [[CIStr "cell"]]] in
   [[key p]; [key (CId "child" p)]; [CId "key" (key p)];
-   [key (key p)]; [key (CCode "" ["code"])]; [key (CDiv [])];
-   [CQuote [key p]]; [CDiv [key p]]; [CList LKBullet Tight [[key p]]];
+   [key (key p)]; [key (CCode "" ["code"])]; [key (CDiv "" [])];
+   [CQuote [key p]]; [CDiv "" [key p]]; [CList LKBullet Tight [[key p]]];
    [key l; p]; [key l; key l]; [key t; p]; [key p; key p];
    [CKey (CIVerb "code") p];
    [CKey (CIDelim DStrong [CIStr "strong"]) p];

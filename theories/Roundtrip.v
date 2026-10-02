@@ -760,12 +760,14 @@ Proof.
   - (* div: the fences carry both conditions by themselves.  The last
        line is `:::` whatever the contents are, so unlike the quote case
        there is nothing to prove about nonemptiness *)
-    intros inner IH H.
+    intros name inner IH H.
     rewrite cb_ok_div in H. apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [H Hinner].
-    apply andb_true_iff in H as [_ Hok].
+    apply andb_true_iff in H as [H Hok].
+    apply andb_true_iff in H as [_ Hname].
     rewrite cb_lines_div. unfold lines_ok.
     cbn [nonempty forallb]. rewrite last_cons_app, forallb_app. cbn [forallb].
+    rewrite (div_open_line_no_nl _ (div_name_ok_word _ Hname)).
     rewrite (sep_lines_no_nl _ (IH Hok)). reflexivity.
   - (* list: each item lays out as a document would, then gets its
        marker/pad prefix (ck_items_lines_ok); list_lines_ok closes the
@@ -930,7 +932,7 @@ Proof.
   pose proof (cb_ok_lines_ok cb Hok) as Hlines.
   apply lines_ok_parts in Hlines as (Hne & _ & _).
   destruct cb as [ls| |info content|format content|lvl ls|inner
-                 |kind fold title cinner|dinner|k sp items|rl rd|rows|id named|label keyed].
+                 |kind fold title cinner|dname dinner|k sp items|rl rd|rows|id named|label keyed].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hne |- *.
     remember (map ci_line ls) as ls' eqn:E. clear E.
@@ -975,9 +977,15 @@ Proof.
     intros m mc chk item E. rewrite classify_canonical_quote in E. discriminate.
   - (* div: the opening fence is the first line, whatever the contents *)
     rewrite cb_lines_div.
-    exists div_fence, (sep_lines (map cb_lines dinner) ++ [div_fence])%list.
+    exists (div_open_line div_fence dname),
+      (sep_lines (map cb_lines dinner) ++ [div_fence])%list.
     split; [reflexivity|].
-    intros m mc chk item E. rewrite classify_canonical_div in E. discriminate.
+    intros m mc chk item E.
+    rewrite cb_ok_div in Hok. apply andb_true_iff in Hok as [Hok _].
+    do 2 apply andb_true_iff in Hok as [Hok _].
+    apply andb_true_iff in Hok as [_ Hname].
+    rewrite (classify_canonical_div_open _ (div_name_ok_word _ Hname)) in E.
+    discriminate.
   - discriminate Hnonlist.
   - (* reference definition: one line, and it classifies as one *)
     exists (ref_line rl rd), []. split; [reflexivity|].
@@ -1032,7 +1040,7 @@ Local Lemma cb_lines_first_line_ok :
 Proof.
   intros cb first rest Hnonlist Hok Hlines.
   destruct cb as [ls| |info content|format content|lvl ls|inner
-                 |kind fold title cinner|dinner|k sp items|rl rd|rows|id named|label keyed].
+                 |kind fold title cinner|dname dinner|k sp items|rl rd|rows|id named|label keyed].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hlines.
     remember (map ci_line ls) as ls0 eqn:E. clear E.
@@ -1093,7 +1101,11 @@ Proof.
     cbn [is_blank is_ws drop_leading_ws].
     apply String.eqb_refl.
   - rewrite cb_lines_div in Hlines. cbn [app] in Hlines.
-    injection Hlines as <- <-. reflexivity.
+    injection Hlines as <- <-.
+    rewrite cb_ok_div in Hok. apply andb_true_iff in Hok as [Hok _].
+    do 2 apply andb_true_iff in Hok as [Hok _].
+    apply andb_true_iff in Hok as [_ Hname].
+    exact (div_open_line_ok _ (div_name_ok_word _ Hname)).
   - discriminate Hnonlist.
   - cbn [cb_lines] in Hlines. injection Hlines as <- <-.
     apply (ref_line_ok rl rd Hok).
@@ -1250,7 +1262,7 @@ Local Lemma cb_lines_first_ready :
 Proof.
   intros cb a rest Hnotid Hok Hlines.
   destruct cb as [ls| |info content|format content|lvl ls|inner
-                 |kind fold title cinner|dinner|k sp items|rl rd|rows|id named|label keyed];
+                 |kind fold title cinner|dname dinner|k sp items|rl rd|rows|id named|label keyed];
     [| | | | | | | | | | |discriminate Hnotid|].
   - rewrite cb_ok_para in Hok. apply andb_true_iff in Hok as [Hok _].
     cbn [cb_lines] in Hlines.
@@ -1286,7 +1298,12 @@ Proof.
   - cbn [cb_lines] in Hlines. injection Hlines as <- _.
     unfold pend_ready. rewrite classify_canonical_quote. reflexivity.
   - rewrite cb_lines_div in Hlines. injection Hlines as <- _.
-    unfold pend_ready. rewrite classify_canonical_div. reflexivity.
+    rewrite cb_ok_div in Hok. apply andb_true_iff in Hok as [Hok _].
+    do 2 apply andb_true_iff in Hok as [Hok _].
+    apply andb_true_iff in Hok as [_ Hname].
+    unfold pend_ready.
+    rewrite (classify_canonical_div_open _ (div_name_ok_word _ Hname)).
+    reflexivity.
   - destruct (cb_ok_list_parts k sp items Hok) as (_ & Hckok & Hitemok & _).
     rewrite cb_lines_list in Hlines.
     exact (ck_lines_first_ready k sp (map item_lines items) a rest
@@ -1733,26 +1750,33 @@ Proof.
        make the rendering nonempty on their own, so there is no
        `Hsplit`), and it needs no `cb_pairs_ok` for its own sake, only
        to drive the contents' induction hypothesis. *)
-    intros inner IH.
-    assert (Hparts : cb_ok (CDiv inner) = true ->
+    intros name inner IH.
+    assert (Hparts : cb_ok (CDiv name inner) = true ->
                      bdivs = true
+                     /\ div_name_ok name = true
                      /\ parse_lines (sep_lines (map cb_lines inner)) (PPara [])
                      = map cb_ast inner
                      /\ div_content_ok (sep_lines (map cb_lines inner)) = true).
     { intros H. rewrite cb_ok_div in H.
       apply andb_true_iff in H as [H Hcontent].
       apply andb_true_iff in H as [H Hadj].
-      apply andb_true_iff in H as [Hdivs Hok].
-      repeat split; [exact Hdivs | exact (IH Hadj Hok) | exact Hcontent]. }
+      apply andb_true_iff in H as [H Hok].
+      apply andb_true_iff in H as [Hdivs Hname].
+      repeat split;
+        [exact Hdivs | exact Hname | exact (IH Hadj Hok) | exact Hcontent]. }
     split.
     + intros next tail _ _ H.
-      destruct (Hparts H) as [Hdivs [IHinner Hcontent]].
+      destruct (Hparts H) as [Hdivs [Hname [IHinner Hcontent]]].
       rewrite cb_lines_div, cb_ast_div. cbn [app]. rewrite <- app_assoc.
       cbn [app].
-      rewrite (div_uniformity_tail _ _ Hdivs Hcontent), IHinner. reflexivity.
-    + intros H. destruct (Hparts H) as [Hdivs [IHinner Hcontent]].
+      rewrite (div_uniformity_tail _ _ _ Hdivs (div_name_ok_word _ Hname) Hcontent),
+        IHinner, div_name_ok_block by exact Hname.
+      reflexivity.
+    + intros H. destruct (Hparts H) as [Hdivs [Hname [IHinner Hcontent]]].
       rewrite cb_lines_div, cb_ast_div.
-      rewrite (div_uniformity _ Hdivs Hcontent), IHinner. reflexivity.
+      rewrite (div_uniformity _ _ Hdivs (div_name_ok_word _ Hname) Hcontent),
+        IHinner, div_name_ok_block by exact Hname.
+      reflexivity.
   - (* list: every item's contents come from the induction hypothesis,
        and Parser.ck_uniformity assembles them *)
     intros k sp items IH.
@@ -2067,7 +2091,7 @@ Proof.
       (map cb_ast inner)) with (render_blocks_lines (map cb_ast inner)).
     rewrite (IH Hinner). reflexivity.
   - (* div: same shape as the quote, with fences instead of a prefix *)
-    intros inner IH H.
+    intros name inner IH H.
     rewrite cb_ok_div in H. apply andb_true_iff in H as [H Hcontent].
     apply andb_true_iff in H as [H _].
     apply andb_true_iff in H as [_ Hok].
@@ -2274,7 +2298,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* Divs roundtrip, and so do the containers inside them: the whole
    content of Parser.div_uniformity, seen end to end. *)
 Example div_roundtrip :
-  let cbs := [CDiv [cpara ["a"]; cpara ["b"]]] in
+  let cbs := [CDiv "" [cpara ["a"]; cpara ["b"]]] in
   render_djot (blocks_of_cblocks cbs)
     = (":::" ++ nl ++ "a" ++ nl ++ nl ++ "b" ++ nl ++ ":::")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -2283,7 +2307,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* An empty div is renderable: `cb_ok` has no nonempty obligation for
    `CDiv`, because djot.js accepts `:::` / `:::`. *)
 Example empty_div_roundtrip :
-  let cbs := [CDiv []] in
+  let cbs := [CDiv "" []] in
   render_djot (blocks_of_cblocks cbs) = (":::" ++ nl ++ ":::")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
@@ -2291,7 +2315,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* A quote inside a div: the two containers' rules do not interact, which
    is the uniformity claim at its narrowest. *)
 Example quote_in_div_roundtrip :
-  let cbs := [CDiv [CQuote [cpara ["q"]]]] in
+  let cbs := [CDiv "" [CQuote [cpara ["q"]]]] in
   render_djot (blocks_of_cblocks cbs)
     = (":::" ++ nl ++ "> q" ++ nl ++ ":::")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
@@ -2300,7 +2324,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 (* Literal colons are escaped, so text that resembles a div fence no
    longer closes the container and belongs to the canonical fragment. *)
 Example div_containing_literal_fence_roundtrip :
-  let cbs := [CDiv [cpara [":::"]]] in
+  let cbs := [CDiv "" [cpara [":::"]]] in
   cblocks_ok cbs = true
   /\ render_djot (blocks_of_cblocks cbs)
     = (":::" ++ nl ++ "\:\:\:" ++ nl ++ ":::")%string
@@ -2442,7 +2466,7 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
    one leaves the list tight (`.project/djotjs-divergences.md`, "a div's
    closing fence loosens a list"). *)
 Example div_ending_item_roundtrip :
-  let cbs := [CList LKBullet Tight [[CDiv [cpara ["a"]]]; [cpara ["t"]]]] in
+  let cbs := [CList LKBullet Tight [[CDiv "" [cpara ["a"]]]; [cpara ["t"]]]] in
   cblocks_ok cbs = true
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.

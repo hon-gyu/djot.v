@@ -4,7 +4,7 @@
    djot's reading, checked against djot.js on 2026-10-03; they must keep
    passing in the djot profile, where names are off. *)
 From Stdlib Require Import String List.
-From DjotV Require Import Ast Strings Line Parser InlineTable.
+From DjotV Require Import Ast Strings Line Parser InlineTable Step.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -45,6 +45,44 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_two_words_is_not_an_opener :
   Djot "::: a b
+x
+:::" = [P [S "::: a b"; mk SoftBreak; S "x"; mk SoftBreak; S ":::"]].
+Proof. vm_compute. reflexivity. Qed.
+
+(*
+Block names
+===========
+*)
+
+Local Notation Named := (@parse_blocks _ (with_div_names true djot_bconfig) _ _).
+
+Example div_word_is_a_name :
+  Named "::: details
+x
+:::" = [mk (Div "details" [P [S "x"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* `div` is a name like any other, not a second spelling of `:::`. *)
+Example div_named_div_is_not_unnamed :
+  (Named "::: div
+x
+:::", Named ":::
+x
+:::")
+  = ([mk (Div "div" [P [S "x"]])], [mk (Div "" [P [S "x"]])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A pending class and the name are separate fields, so neither
+   replaces the other. *)
+Example div_name_beside_a_class :
+  Named "{.a}
+::: b
+y
+:::" = [Node NoPos [("class", "a")] (Div "b" [P [S "y"]])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example div_name_still_one_word :
+  Named "::: a b
 x
 :::" = [P [S "::: a b"; mk SoftBreak; S "x"; mk SoftBreak; S ":::"]].
 Proof. vm_compute. reflexivity. Qed.

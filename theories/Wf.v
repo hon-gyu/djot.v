@@ -262,7 +262,7 @@ Local Lemma div_block_wf :
     wf_blocks bs = true -> wf_blocks [div_block cls bs] = true.
 Proof.
   intros cls bs H. unfold div_block.
-  destruct (String.eqb cls EmptyString);
+  destruct bdiv_names; [|destruct (String.eqb cls EmptyString)];
     rewrite wf_blocks_cons; cbn [node_contents mk];
     rewrite wf_block_div, H; reflexivity.
 Qed.
@@ -3563,7 +3563,7 @@ Local Lemma div_block_supported :
     supported_blocks bs = true -> supported_blocks [div_block cls bs] = true.
 Proof.
   intros cls bs H. unfold div_block.
-  destruct (String.eqb cls EmptyString);
+  destruct bdiv_names; [|destruct (String.eqb cls EmptyString)];
     rewrite supported_blocks_cons; cbn [node_contents mk];
     rewrite supported_div, H; reflexivity.
 Qed.

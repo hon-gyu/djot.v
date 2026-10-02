@@ -49,7 +49,7 @@ Local Fixpoint all_explicit_ids (cb : cblock) : list string :=
   match cb with
   | CId i inner => i :: all_explicit_ids inner
   | CKey _ inner => all_explicit_ids inner
-  | CQuote inner | CCallout _ _ _ inner | CDiv inner =>
+  | CQuote inner | CCallout _ _ _ inner | CDiv _ inner =>
       flat_map all_explicit_ids inner
   | CList _ _ items => flat_map (flat_map all_explicit_ids) items
   | _ => []
@@ -490,7 +490,7 @@ Definition refresh_twice {V : Type} (D : derived V) (cbs : list cblock)
    from moved because the block was installed.  `refresh_stable`'s
    hypothesis is exactly what this document fails. *)
 Local Definition toc_make (v : list string) : cblock :=
-  CDiv (CHeading 1 [[CIStr "H"]] :: map (fun s => cpara [s]) v).
+  CDiv "" (CHeading 1 [[CIStr "H"]] :: map (fun s => cpara [s]) v).
 
 Definition toc : derived (list string) := Derived "toc" auto_ids toc_make.
 
@@ -513,7 +513,7 @@ Proof. vm_compute. discriminate. Qed.
    step, and `refresh_stable` is what says so: the only obligation is the
    view equality, which the build can run. *)
 Local Definition ids_make (v : list string) : cblock :=
-  CDiv (map (fun s => cpara [s]) v).
+  CDiv "" (map (fun s => cpara [s]) v).
 
 Definition ids_block : derived (list string) := Derived "toc" auto_ids ids_make.
 

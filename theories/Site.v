@@ -448,7 +448,7 @@ Fixpoint cb_dests (cb : cblock) : list string :=
   | CQuote inner => flat_map cb_dests inner
   | CCallout _ _ title inner =>
       (cis_dests title ++ flat_map cb_dests inner)%list
-  | CDiv inner => flat_map cb_dests inner
+  | CDiv _ inner => flat_map cb_dests inner
   | CList _ _ items => flat_map (flat_map cb_dests) items
   | CRef _ dest => [dest]
   | CTable rows => flat_map ctrow_dests rows
@@ -464,7 +464,7 @@ Fixpoint cb_map_dest (f : string -> string) (cb : cblock) : cblock :=
   | CQuote inner => CQuote (map (cb_map_dest f) inner)
   | CCallout kind fold title inner =>
       CCallout kind fold (cis_map_dest f title) (map (cb_map_dest f) inner)
-  | CDiv inner => CDiv (map (cb_map_dest f) inner)
+  | CDiv name inner => CDiv name (map (cb_map_dest f) inner)
   | CList k sp items => CList k sp (map (map (cb_map_dest f)) items)
   | CRef label dest => CRef label (f dest)
   | CTable rows => CTable (map (ctrow_map_dest f) rows)
@@ -519,7 +519,7 @@ Proof.
   - intros kind fold title inner IH.
     cbn [cb_dests cb_map_dest].
     rewrite map_app, cis_dests_map, IH. reflexivity.
-  - intros inner IH. exact IH.
+  - intros name inner IH. exact IH.
   - intros k sp items IH. exact IH.
   - intros rows. cbn [cb_dests cb_map_dest].
     induction rows as [|r rows IH]; [reflexivity|].
@@ -849,7 +849,7 @@ Proof.
     rewrite cis_map_dest_id, IH; [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros name inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros k sp items IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros label dest H. cbn [cb_map_dest]. rewrite H; [reflexivity|left; reflexivity].
   - intros rows H. cbn [cb_map_dest] in *. f_equal.

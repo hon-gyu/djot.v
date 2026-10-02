@@ -228,7 +228,7 @@ a
 Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_div_is_disabled :
-  @cb_ok djot_table (with_divs false djot_bconfig) (CDiv [CPara [[CIStr "a"]]])
+  @cb_ok djot_table (with_divs false djot_bconfig) (CDiv "" [CPara [[CIStr "a"]]])
   = false.
 Proof. vm_compute. reflexivity. Qed.
 

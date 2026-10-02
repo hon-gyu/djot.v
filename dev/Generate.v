@@ -91,7 +91,7 @@ Definition itemlists (items : list (list cblock)) : list (list (list cblock)) :=
    too. *)
 Definition containers (pool : list cblock) : list cblock :=
   (map CQuote (seqs pool)
-   ++ map CDiv (seqs pool)
+   ++ map (CDiv "") (seqs pool)
    ++ map (CId "i") pool
    ++ flat_map (fun its => [CList LKBullet Tight its; CList LKBullet Loose its])
         (itemlists (seqs pool)))%list.
@@ -126,7 +126,7 @@ Definition keyed_pool (d : nat) : list cblock :=
   flat_map (fun label =>
     flat_map (fun child =>
       let key := CKey label child in
-      [key; CKey (CIStr "outer") key; CQuote [key]; CDiv [key];
+      [key; CKey (CIStr "outer") key; CQuote [key]; CDiv "" [key];
        CList LKBullet Tight [[key]]; CId "key" key])
       (enum_cblock d))
     [CIStr "Note: this"; CIVerb "code";
@@ -149,7 +149,7 @@ Definition wiki_table : dtable :=
 Definition wiki_pool (d : nat) : list cblock :=
   (enum_cblock d
    ++ flat_map (fun w =>
-        [w; CQuote [w]; CDiv [w]; CList LKBullet Tight [[w]]; CId "wiki" w])
+        [w; CQuote [w]; CDiv "" [w]; CList LKBullet Tight [[w]]; CId "wiki" w])
       [ CPara [[CIWiki false "Backlinks" None]]
       ; CPara [[CIStr "see "; CIWiki false "a" (Some "the other"); CIStr " b"]]
       ; CPara [[CIWiki true "a" None]]

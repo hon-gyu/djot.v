@@ -126,6 +126,10 @@ Theorem with_raw_blocks_preserves_incremental :
   forall T enabled, preserves (with_raw_blocks enabled) (block_incremental T).
 Proof. intros T enabled K _. apply block_incremental_holds. Qed.
 
+Theorem with_div_names_preserves_incremental :
+  forall T enabled, preserves (with_div_names enabled) (block_incremental T).
+Proof. intros T enabled K _. apply block_incremental_holds. Qed.
+
 (** ** Compatibility of block-prefix choices
 
    The only line that can answer both block decisions is a lone dash: it is
@@ -209,6 +213,10 @@ Qed.
 
 Theorem with_raw_blocks_preserves_prefix_admissible :
   forall enabled, preserves (with_raw_blocks enabled) block_prefix_admissible.
+Proof. intros enabled K H. exact H. Qed.
+
+Theorem with_div_names_preserves_prefix_admissible :
+  forall enabled, preserves (with_div_names enabled) block_prefix_admissible.
 Proof. intros enabled K H. exact H. Qed.
 
 Example djot_prefix_admissible : block_prefix_ok djot_bconfig = true.
@@ -474,6 +482,10 @@ Theorem with_block_footnotes_preserves_wrap_neutral :
   forall enabled, preserves (with_block_footnotes enabled) wrap_neutral.
 Proof. intros enabled K H. exact H. Qed.
 
+Theorem with_div_names_preserves_wrap_neutral :
+  forall enabled, preserves (with_div_names enabled) wrap_neutral.
+Proof. intros enabled K H. exact H. Qed.
+
 Example djot_wrap_neutral : wrap_neutral djot_bconfig.
 Proof. split; [reflexivity | split; reflexivity]. Qed.
 
@@ -613,6 +625,12 @@ Theorem with_heading_continuation_opens_nothing :
     = @open_line T K _ _ descend ind l k.
 Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
 
+Theorem with_div_names_opens_nothing :
+  forall T enabled K descend ind l k,
+    @open_line T (with_div_names enabled K) _ _ descend ind l k
+    = @open_line T K _ _ descend ind l k.
+Proof. intros T enabled K descend ind l k. destruct k; reflexivity. Qed.
+
 (* Keys are read at a text line and nowhere else, which is the block-level
    content of `.project/keyed-blocks.md` 3.5: a line is tested for a
    split exactly when it would otherwise open a paragraph. *)
@@ -628,17 +646,18 @@ Qed.
 
 
 (* The other half: what a state closes to.  `finish` reads the
-   configuration only through the two block builders that have a
+   configuration only through the three block builders that have a
    configured arm. *)
 Local Lemma finish_config_ext :
   forall T K1 K2,
     (forall f content, @fence_block K1 f content = @fence_block K2 f content) ->
     (forall ls items, @list_block K1 ls items = @list_block K2 ls items) ->
+    (forall word bs, @div_block K1 word bs = @div_block K2 word bs) ->
     forall st, @finish T K1 _ st = @finish T K2 _ st.
 Proof.
-  intros T K1 K2 Hf Hl st.
+  intros T K1 K2 Hf Hl Hd st.
   induction st; cbn [finish]; nopos; try reflexivity;
-    try (rewrite IHst; try rewrite Hl; reflexivity).
+    try (rewrite IHst; try rewrite Hl; try rewrite Hd; reflexivity).
   rewrite Hf. reflexivity.
 Qed.
 
@@ -696,6 +715,16 @@ Proof.
   cbn [styles_list]. destruct (Ascii.eqb c ":"%char) eqn:Ec; cbn [andb].
   - apply Ascii.eqb_eq in Ec. subst c. exfalso. eapply H. reflexivity.
   - reflexivity.
+Qed.
+
+(* Names are read where a div closes, and only for a div that has a
+   word: a bare `:::` closes to the same block either way. *)
+Theorem with_div_names_only_at_words :
+  forall enabled K bs,
+    @div_block (with_div_names enabled K) EmptyString bs = @div_block K EmptyString bs.
+Proof.
+  intros enabled K bs. unfold div_block. cbn [bdiv_names with_div_names].
+  destruct enabled, (@bdiv_names K); reflexivity.
 Qed.
 
 (*
@@ -770,5 +799,16 @@ Example heading_continuation_has_an_effect :
 # b
 " <> @parse_blocks djot_table (djot_off with_heading_continuation) _ _ "# a
 # b
+".
+Proof. intros H. vm_compute in H. discriminate. Qed.
+
+(* Names are off in djot, so this one is the other way round. *)
+Example div_names_have_an_effect :
+  @parse_blocks djot_table (with_div_names true djot_bconfig) _ _ "::: a
+x
+:::
+" <> @parse_blocks djot_table djot_bconfig _ _ "::: a
+x
+:::
 ".
 Proof. intros H. vm_compute in H. discriminate. Qed.
