@@ -38,6 +38,11 @@ let raw_inline_enabled t =
 let math_enabled t =
   t.dc_math
 
+(** val dollar_math_enabled : dtable -> bool **)
+
+let dollar_math_enabled t =
+  t.dc_dollar_math
+
 (** val inline_attrs_enabled : dtable -> bool **)
 
 let inline_attrs_enabled t =

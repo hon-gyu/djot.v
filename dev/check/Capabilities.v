@@ -1,4 +1,4 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (*
 Capabilities, switched off
@@ -109,9 +109,40 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example with_math_preserves_other_inline_settings :
   let C := with_math false djot_config in
-  (dc_smart_typography C, dc_raw_inline C, dc_char C DStrong,
+  (dc_smart_typography C, dc_raw_inline C, dc_dollar_math C, dc_char C DStrong,
    dc_width C DStrong, dc_syntax C DStrong)
-  = (true, true, "*"%char, 1, DBare).
+  = (true, true, false, "*"%char, 1, DBare).
+Proof. reflexivity. Qed.
+
+(* Dollar-delimited math is a separate capability.  The two math spellings
+   can be enabled independently, and the Markdown-like profile enables
+   both. *)
+Definition dollar_math_table : dtable :=
+  DTable (with_dollar_math true (with_math false djot_config)) eq_refl.
+
+Example dollar_math_independent_of_djot_math :
+  (@InlineScan.parse_inline_line dollar_math_table "$x$",
+   @InlineScan.parse_inline_line dollar_math_table "$`x`")
+  = ([mk (Math InlineMath "x")],
+     [mk (Str "$"); mk (Verbatim "x")]).
+Proof. vm_compute. reflexivity. Qed.
+
+Example dollar_math_is_off_in_djot :
+  @InlineScan.parse_inline_line djot_table "$x$" = [mk (Str "$x$")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example dollar_math_restored :
+  @InlineScan.parse_inline_line
+    (DTable (with_dollar_math true (with_dollar_math false djot_config)) eq_refl)
+    "$x$"
+  = [mk (Math InlineMath "x")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example with_dollar_math_preserves_other_inline_settings :
+  let C := with_dollar_math true (with_math false djot_config) in
+  (dc_math C, dc_raw_inline C, dc_attrs C, dc_char C DStrong,
+   dc_width C DStrong, dc_syntax C DStrong)
+  = (false, true, true, "*"%char, 1, DBare).
 Proof. reflexivity. Qed.
 
 (* `dc_attrs` covers both things a `{` can do that are not a delimiter row:

@@ -309,8 +309,9 @@ type ddecay =
 type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> int);
                  dc_syntax : (dstyle -> dsyntax);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography :
-                 bool; dc_raw_inline : bool; dc_math : bool; dc_attrs :
-                 bool; dc_footnotes : bool; dc_wikilinks : bool }
+                 bool; dc_raw_inline : bool; dc_math : bool;
+                 dc_dollar_math : bool; dc_attrs : bool; dc_footnotes :
+                 bool; dc_wikilinks : bool }
 
 (** val djot_dchar : dstyle -> char **)
 
@@ -371,8 +372,8 @@ let djot_dwidth _ =
 let djot_config =
   { dc_char = djot_dchar; dc_width = djot_dwidth; dc_syntax = djot_dsyntax;
     dc_decay = djot_ddecay; dc_smart_typography = true; dc_raw_inline = true;
-    dc_math = true; dc_attrs = true; dc_footnotes = true; dc_wikilinks =
-    false }
+    dc_math = true; dc_dollar_math = false; dc_attrs = true; dc_footnotes =
+    true; dc_wikilinks = false }
 
 (** val chars : char -> int -> string **)
 
@@ -455,56 +456,72 @@ let update_drow target0 e c =
     if dstyle_eq k target0 then e.de_syntax else c.dc_syntax k); dc_decay =
     (fun k -> if dstyle_eq k target0 then e.de_decay else c.dc_decay k);
     dc_smart_typography = c.dc_smart_typography; dc_raw_inline =
-    c.dc_raw_inline; dc_math = c.dc_math; dc_attrs = c.dc_attrs;
-    dc_footnotes = c.dc_footnotes; dc_wikilinks = c.dc_wikilinks }
+    c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math = c.dc_dollar_math;
+    dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks =
+    c.dc_wikilinks }
 
 (** val with_smart_typography : bool -> dconfig -> dconfig **)
 
 let with_smart_typography enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = enabled; dc_raw_inline =
-    c.dc_raw_inline; dc_math = c.dc_math; dc_attrs = c.dc_attrs;
-    dc_footnotes = c.dc_footnotes; dc_wikilinks = c.dc_wikilinks }
+    c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math = c.dc_dollar_math;
+    dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks =
+    c.dc_wikilinks }
 
 (** val with_raw_inline : bool -> dconfig -> dconfig **)
 
 let with_raw_inline enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
-    dc_raw_inline = enabled; dc_math = c.dc_math; dc_attrs = c.dc_attrs;
-    dc_footnotes = c.dc_footnotes; dc_wikilinks = c.dc_wikilinks }
+    dc_raw_inline = enabled; dc_math = c.dc_math; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = c.dc_wikilinks }
 
 (** val with_math : bool -> dconfig -> dconfig **)
 
 let with_math enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
-    dc_raw_inline = c.dc_raw_inline; dc_math = enabled; dc_attrs =
-    c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks = c.dc_wikilinks }
+    dc_raw_inline = c.dc_raw_inline; dc_math = enabled; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = c.dc_wikilinks }
+
+(** val with_dollar_math : bool -> dconfig -> dconfig **)
+
+let with_dollar_math enabled c =
+  { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
+    dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
+    enabled; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = c.dc_wikilinks }
 
 (** val with_inline_attrs : bool -> dconfig -> dconfig **)
 
 let with_inline_attrs enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
-    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_attrs = enabled;
-    dc_footnotes = c.dc_footnotes; dc_wikilinks = c.dc_wikilinks }
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = enabled; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = c.dc_wikilinks }
 
 (** val with_inline_footnotes : bool -> dconfig -> dconfig **)
 
 let with_inline_footnotes enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
-    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_attrs =
-    c.dc_attrs; dc_footnotes = enabled; dc_wikilinks = c.dc_wikilinks }
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = enabled;
+    dc_wikilinks = c.dc_wikilinks }
 
 (** val with_wikilinks : bool -> dconfig -> dconfig **)
 
 let with_wikilinks enabled c =
   { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
-    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_attrs =
-    c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks = enabled }
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = enabled }
 
 (** val markdown_strong_entry : dentry **)
 
@@ -515,7 +532,8 @@ let markdown_strong_entry =
 (** val markdown_like_config : dconfig **)
 
 let markdown_like_config =
-  update_drow DStrong markdown_strong_entry djot_config
+  update_drow DStrong markdown_strong_entry
+    (with_dollar_math true djot_config)
 
 (** val bnode : bool -> inlines -> target -> inline **)
 

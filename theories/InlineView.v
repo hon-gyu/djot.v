@@ -25,6 +25,8 @@ Definition raw_inline_enabled : bool := dc_raw_inline cfg.
 
 Definition math_enabled : bool := dc_math cfg.
 
+Definition dollar_math_enabled : bool := dc_dollar_math cfg.
+
 Definition inline_attrs_enabled : bool := dc_attrs cfg.
 
 Definition notes_enabled : bool := dc_footnotes cfg.

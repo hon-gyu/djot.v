@@ -1,13 +1,13 @@
-(* ai-disclosure: ai-generated *)
+(* ai-disclosure: autonomous *)
 
 (*
 The Markdown-like profile, pinned
 =================================
 
 `markdown_like_profile` is djot with Markdown spellings added: `**` for
-strong, setext headings, sublists without a blank line, and one-line ATX
-headings.  Nothing djot has is taken away; each capability is still a knob,
-and `Capabilities.v` pins them switched off.
+strong, dollar-delimited math, setext headings, sublists without a blank
+line, and one-line ATX headings.  Nothing djot has is taken away; each
+capability is still a knob, and `Capabilities.v` pins them switched off.
 
 Markdown's *spelling*, djot's *semantics* -- no run-length arithmetic and no
 flanking rules, because a character belongs to one row at one width and
@@ -47,6 +47,10 @@ Example md_strong : parse_inline_line "**a**" = [mk (Strong [mk (Str "a")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example md_emph : parse_inline_line "_a_" = [mk (Emph [mk (Str "a")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example md_dollar_math :
+  parse_inline_line "$x$" = [mk (Math InlineMath "x")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example md_nested_both_ways :

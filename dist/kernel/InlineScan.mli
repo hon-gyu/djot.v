@@ -193,6 +193,7 @@ val ofinish : dtable -> coq_PosPolicy -> ostate -> inlines
 type vkind =
 | VVerb
 | VMath of math_style
+| VMaybeDollarMath of string
 
 val vnode : vkind -> string -> inline
 
@@ -206,6 +207,9 @@ type 'buf iscan_g =
 | IOpen of int * vkind * ostate
 | IVerb of int * int * 'buf * vkind * ostate
 | IDollar of bool * 'buf * char option * ostate
+| IDollarMath of bool * bool * 'buf * 'buf * char option * 'buf iscan_g
+   * ostate
+| IDollarMathClose of bool * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IPeriod of bool * 'buf * char option * ostate
 | IDash of int * 'buf * char option * ostate
 | IBang of 'buf * char option * ostate

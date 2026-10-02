@@ -42,9 +42,9 @@ Definition djot_profile : profile :=
   Profile djot_table djot_bconfig.
 
 (** Markdown-like, not CommonMark or GFM: djot with strong spelled `**`,
-   setext headings, sublists without a blank line, and one-line ATX
-   headings.  Every djot construct stays available; each setting is a
-   starting point that [with_inline_profile] and [with_block_profile]
+   dollar-delimited math, setext headings, sublists without a blank line,
+   and one-line ATX headings. Every djot construct stays available; each
+   setting is a starting point that [with_inline_profile] and [with_block_profile]
    can change. *)
 Definition markdown_like_profile : profile :=
   Profile markdown_like_table markdown_like_bconfig.
@@ -57,9 +57,9 @@ Definition commonmark_test_config : dconfig :=
     (with_wikilinks false
       (with_inline_footnotes false
         (with_inline_attrs false
-          (with_math false
+          (with_dollar_math false (with_math false
             (with_raw_inline false
-              (with_smart_typography false markdown_like_config)))))).
+              (with_smart_typography false markdown_like_config))))))).
 
 Definition commonmark_test_table : dtable :=
   DTable commonmark_test_config eq_refl.

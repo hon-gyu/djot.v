@@ -170,6 +170,33 @@ Definition wiki_rt_lhs (c : cblock) : blocks :=
   @parse_blocks wiki_table _ _ _
     (@render_djot wiki_table _ (blocks_of_cblocks [c])).
 
+(* Dollar math has no node of its own in the canonical view, so its pool
+   is the ordinary one read with the setting on, plus text that would
+   open or close dollar math if a `$` were left bare, and `$` beside a
+   backtick run, where the GitHub spelling and djot's prefix meet. *)
+Definition dollar_table : dtable :=
+  DTable (with_dollar_math true djot_config) eq_refl.
+
+Definition dollar_pool (d : nat) : list cblock :=
+  (enum_cblock d
+   ++ flat_map (fun p => [p; CQuote [p]; CList LKBullet Tight [[p]]])
+      [ CPara [[CIStr "$x$"]]
+      ; CPara [[CIStr "a $$x$$ b"]]
+      ; CPara [[CIStr "costs $5 and $10"]]
+      ; CPara [[CIStr "$a$"]]
+      ; CPara [[CIStr "$"; CIVerb "x"; CIStr "$"]]
+      ; CPara [[CIStr "$$"; CIVerb "x"]]
+      ; CPara [[CIDelim DEmph [CIStr "a $b"]; CIStr " c$"]]
+      ; CPara [[CIStr "$$"]; [CIStr "x"]; [CIStr "$$"]]
+      ; CTable [CTBody [[CIStr "$x$"]]] ])%list.
+
+Definition dollar_accepted (d : nat) : list cblock :=
+  filter (@cb_ok dollar_table _) (dollar_pool d).
+
+Definition dollar_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks dollar_table _ _ _
+    (@render_djot dollar_table _ (blocks_of_cblocks [c])).
+
 (* Callouts exercise both title syntax and nesting under the enabled block
    setting.  Ordinary quotes beginning with literal header text are retained
    in the pool to check that canonical escaping keeps them ordinary quotes. *)
