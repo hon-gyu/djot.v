@@ -59,7 +59,7 @@ type cblock =
 | CHeading of int * cinline list list
 | CQuote of cblock list
 | CCallout of string * callout_fold option * cinline list * cblock list
-| CDiv of cblock list
+| CDiv of string * cblock list
 | CList of list_kind * list_spacing * cblock list list
 | CRef of string * string
 | CTable of ctrow list
@@ -126,6 +126,8 @@ val ctrow_ok : dtable -> ctrow -> bool
 
 val ckey_label_ok : dtable -> cinline -> bool
 
+val div_name_ok : bconfig -> string -> bool
+
 val cb_ok : dtable -> bconfig -> cblock -> bool
 
 val lk_of_ol : ordered_list_attributes -> list_kind
@@ -161,8 +163,6 @@ val drop_class : string -> attr -> attr
 val closer_run : string -> int
 
 val div_fence_for : dtable -> bconfig -> string list -> string
-
-val div_open_line : string -> string -> string
 
 val note_indent : string -> string
 

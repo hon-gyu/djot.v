@@ -58,6 +58,7 @@ type frame_kind =
 | FKDelim of dstyle * bool
 | FKBracket of bool
 | FKDest of bool
+| FKTag of string
 
 type frame = { fr_kind : frame_kind; fr_marked : bool; fr_open : span;
                fr_out : oitems }
@@ -69,6 +70,7 @@ let fr_src t f =
   | FKDelim (k, cm) -> ddecay_str t k f.fr_marked cm
   | FKBracket image -> bracket_open image
   | FKDest image -> bracket_open image
+  | FKTag name -> tag_open name
 
 (** val fr_barrier : frame -> bool **)
 
@@ -364,6 +366,14 @@ let dpush image open0 o =
     false; fr_open = open0; fr_out = [] } :: o.os_stk); os_word_start =
     o.os_word_start }
 
+(** val tag_push :
+    coq_PosPolicy -> coq_InlineCursor -> string -> spot -> ostate -> ostate **)
+
+let tag_push h h0 name start o =
+  { os_out = o.os_out; os_stk = ({ fr_kind = (FKTag name); fr_marked = false;
+    fr_open = (pspan h { span_start = start; span_stop = h0.cursor_stop });
+    fr_out = [] } :: o.os_stk); os_word_start = o.os_word_start }
+
 (** val last_ws_split : string -> string * string **)
 
 let rec last_ws_split s =
@@ -527,7 +537,7 @@ let rec bclose_go t h pend = function
    | FKDelim (_, _) ->
      bclose_go t h (oapp content ((OIn (fr_lit t h f)) :: [])) rest
    | FKBracket image -> Some (((content, image), f.fr_open), rest)
-   | FKDest _ -> None)
+   | _ -> None)
 
 (** val bclose :
     dtable -> coq_PosPolicy -> ostate -> (((inlines * bool) * span) * ostate)
@@ -540,6 +550,34 @@ let bclose t h o =
     let (p1, open0) = p0 in
     let (content, image) = p1 in
     Some ((((rev (oresolve h content)), image), open0), { os_out = o.os_out;
+    os_stk = rest; os_word_start = o.os_word_start })
+  | None -> None
+
+(** val tag_close_go :
+    dtable -> coq_PosPolicy -> oitems -> frame list ->
+    (((oitems * string) * span) * frame list) option **)
+
+let rec tag_close_go t h pend = function
+| [] -> None
+| f :: rest ->
+  let content = oapp pend f.fr_out in
+  (match f.fr_kind with
+   | FKDelim (_, _) ->
+     tag_close_go t h (oapp content ((OIn (fr_lit t h f)) :: [])) rest
+   | FKTag name -> Some (((content, name), f.fr_open), rest)
+   | _ -> None)
+
+(** val tag_close :
+    dtable -> coq_PosPolicy -> ostate ->
+    (((inlines * string) * span) * ostate) option **)
+
+let tag_close t h o =
+  match tag_close_go t h [] o.os_stk with
+  | Some p ->
+    let (p0, rest) = p in
+    let (p1, open0) = p0 in
+    let (content, name) = p1 in
+    Some ((((rev (oresolve h content)), name), open0), { os_out = o.os_out;
     os_stk = rest; os_word_start = o.os_word_start })
   | None -> None
 
@@ -816,7 +854,37 @@ let ilead t x h h0 c txt prev o =
                                                              h0 (x.tval txt)
                                                              o))))
                                                else if (=) c rbrack
-                                                    then IClosed (txt, o)
+                                                    then (match if tags_enabled
+                                                                    t
+                                                                then
+                                                                  tag_close t
+                                                                    h
+                                                                    (flush_text_at
+                                                                    h h0
+                                                                    (x.tval
+                                                                    txt) o)
+                                                                else None with
+                                                          | Some p ->
+                                                            let (p0, o') = p
+                                                            in
+                                                            let (p1, open0) =
+                                                              p0
+                                                            in
+                                                            let (kids, name) =
+                                                              p1
+                                                            in
+                                                            IText (false,
+                                                            x.tnil, (Some
+                                                            rbrack),
+                                                            (oemit
+                                                              (imk h
+                                                                open0.span_start
+                                                                h0.cursor_stop
+                                                                (Span (name,
+                                                                kids)))
+                                                              o'))
+                                                          | None ->
+                                                            IClosed (txt, o))
                                                     else (match if (&&)
                                                                     ((&&)
                                                                     ((=) c
@@ -1095,7 +1163,7 @@ let ispan_feed t x h h0 c kids image open0 p src o =
             (oemit
               (add_inline_role h RAttrSpec spec (Node
                 ((h.mkpos (inline_prov open0.span_start spec_start)),
-                p'.ap_attrs, (Span kids))))
+                p'.ap_attrs, (Span ("", kids)))))
               (ospan_bang h h0 image o)))
        else ISpan (kids, image, open0, p', (x.tpush src (one c)), o)
 
@@ -1145,10 +1213,10 @@ let iauto_step t x h h0 c src txt o =
        else IAuto ((x.tpush src (one c)), txt, o)
 
 (** val isymbol_step :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> 'a1 ->
-    'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g **)
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+    'a1 -> 'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g **)
 
-let isymbol_step x h h0 c alias txt o sh' =
+let isymbol_step t x h h0 c alias txt o sh' =
   if symbol_char c
   then ISymbol ((x.tpush alias (one c)), txt, sh', o)
   else if (&&) ((=) c ':') (x.tnonempty alias)
@@ -1158,7 +1226,14 @@ let isymbol_step x h h0 c alias txt o sh' =
             IText (false, x.tnil, (Some c),
             (oemit (imk h start h0.cursor_stop (Symbol (x.tval alias)))
               (flush_text_to_at h h0 start (x.tval txt) o)))
-       else sh'
+       else if (&&) ((&&) ((=) c lbrack) (x.tnonempty alias)) (tags_enabled t)
+            then let start =
+                   spot_before h0.cursor_start ((^) (one ':') (x.tval alias))
+                 in
+                 IText (false, x.tnil, (Some c),
+                 (tag_push h h0 (x.tval alias) start
+                   (flush_text_to_at h h0 start (x.tval txt) o)))
+            else sh'
 
 (** val iraw_lit : string -> string **)
 
@@ -1755,7 +1830,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
                         (istep_at t x h h0 attrs_enabled c sh), o)
 | IAuto (src, txt, o) -> iauto_step t x h h0 c src txt o
 | ISymbol (alias, txt, sh, o) ->
-  isymbol_step x h h0 c alias txt o (istep_at t x h h0 attrs_enabled c sh)
+  isymbol_step t x h h0 c alias txt o (istep_at t x h h0 attrs_enabled c sh)
 | IRaw (spec, txt, o) -> iraw_step_at t x h h0 attrs_enabled c spec txt o
 
 (** val istep :

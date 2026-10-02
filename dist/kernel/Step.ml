@@ -17,7 +17,7 @@ type bconfig = { bmarker_interrupts : (lstyle list -> string -> task_marker
                  bool; bheading_continues : bool; bdivs : bool;
                  btasks : bool; braw_blocks : bool; bdeflists : bool;
                  battrs : bool; bfootnotes : bool; bkeyed : bool;
-                 bcallouts : bool }
+                 bcallouts : bool; bdiv_names : bool }
 
 type coq_LineIx = int
   (* singleton inductive, whose constructor was LineIxAt *)
@@ -68,7 +68,7 @@ let djot_bconfig =
   { bmarker_interrupts = no_interrupt; bunderline = no_underline; btables =
     true; bheading_continues = true; bdivs = true; btasks = true;
     braw_blocks = true; bdeflists = true; battrs = true; bfootnotes = true;
-    bkeyed = false; bcallouts = false }
+    bkeyed = false; bcallouts = false; bdiv_names = false }
 
 (** val with_marker_interrupts :
     (lstyle list -> string -> task_marker option -> string -> bool) ->
@@ -79,7 +79,7 @@ let with_marker_interrupts f k =
     bheading_continues = k.bheading_continues; bdivs = k.bdivs; btasks =
     k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists; battrs =
     k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed; bcallouts =
-    k.bcallouts }
+    k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_underline : (char -> int -> int option) -> bconfig -> bconfig **)
 
@@ -88,7 +88,7 @@ let with_underline f k =
     k.btables; bheading_continues = k.bheading_continues; bdivs = k.bdivs;
     btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
     battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts }
+    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_tables : bool -> bconfig -> bconfig **)
 
@@ -97,7 +97,7 @@ let with_tables enabled k =
     btables = enabled; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = k.bcallouts }
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_heading_continuation : bool -> bconfig -> bconfig **)
 
@@ -106,7 +106,7 @@ let with_heading_continuation enabled k =
     btables = k.btables; bheading_continues = enabled; bdivs = k.bdivs;
     btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
     battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts }
+    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_divs : bool -> bconfig -> bconfig **)
 
@@ -115,7 +115,7 @@ let with_divs enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     enabled; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = k.bcallouts }
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_tasks : bool -> bconfig -> bconfig **)
 
@@ -124,7 +124,7 @@ let with_tasks enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = enabled; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = k.bcallouts }
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_raw_blocks : bool -> bconfig -> bconfig **)
 
@@ -133,7 +133,7 @@ let with_raw_blocks enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = enabled; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = k.bcallouts }
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_deflists : bool -> bconfig -> bconfig **)
 
@@ -142,7 +142,7 @@ let with_deflists enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     enabled; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts }
+    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_block_attrs : bool -> bconfig -> bconfig **)
 
@@ -151,7 +151,7 @@ let with_block_attrs enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = enabled; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = k.bcallouts }
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_block_footnotes : bool -> bconfig -> bconfig **)
 
@@ -160,7 +160,7 @@ let with_block_footnotes enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = enabled; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts }
+    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_keyed : bool -> bconfig -> bconfig **)
 
@@ -169,7 +169,7 @@ let with_keyed enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    enabled; bcallouts = k.bcallouts }
+    enabled; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
 (** val with_callouts : bool -> bconfig -> bconfig **)
 
@@ -178,7 +178,16 @@ let with_callouts enabled k =
     btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
     k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
     k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
-    k.bkeyed; bcallouts = enabled }
+    k.bkeyed; bcallouts = enabled; bdiv_names = k.bdiv_names }
+
+(** val with_div_names : bool -> bconfig -> bconfig **)
+
+let with_div_names enabled k =
+  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
+    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
+    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
+    k.bdeflists; battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed =
+    k.bkeyed; bcallouts = k.bcallouts; bdiv_names = enabled }
 
 (** val keyed_bconfig : bconfig **)
 
@@ -683,12 +692,14 @@ let finish_para_recover t p slices = match slices with
   (set_pos p (prov_at (stored_span slices))
     (mk (Para (para_inlines_at t p (length slices) (rev slices))))) :: []
 
-(** val div_block : string -> blocks -> block node **)
+(** val div_block : bconfig -> string -> blocks -> block node **)
 
-let div_block cls bs =
-  if (=) cls ""
-  then mk (Div bs)
-  else Node (NoPos, (("class", cls) :: []), (Div bs))
+let div_block k word bs =
+  if k.bdiv_names
+  then mk (Div (word, bs))
+  else if (=) word ""
+       then mk (Div ("", bs))
+       else Node (NoPos, (("class", word) :: []), (Div ("", bs)))
 
 (** val styles_list :
     bconfig -> (lstyle * int) list -> list_spacing -> blocks list -> block
@@ -837,7 +848,7 @@ let rec finish t k p = function
   (set_pos p (prov_at (extent_span range)) (mk (quote_block t p header bs))) :: []
 | PDiv (_, cls, range, opener, done0, inner) ->
   (set_pos p (prov_with (extent_span range) ((ROpenFence, opener) :: []))
-    (div_block cls (app (rev done0) (finish t k p inner)))) :: []
+    (div_block k cls (app (rev done0) (finish t k p inner)))) :: []
 | PList (ls, done0, inner) ->
   let last0 = app (rev done0) (finish t k p inner) in
   (set_pos p { node_span = (extent_span ls.ls_extent); syntax_spans = [];
@@ -1302,7 +1313,7 @@ let rec step_fuel t k lI p n off l st =
                 (prov_with (extent_span (touch_extent lI range))
                   ((ROpenFence, opener) :: ((RCloseFence,
                   (line_span_from lI l (indent_of l))) :: [])))
-                (div_block cls (app (rev done0) (finish t k p inner)))) :: []),
+                (div_block k cls (app (rev done0) (finish t k p inner)))) :: []),
               (PPara []))
        else let (bs, inner') = step_fuel t k lI p n' off l inner in
             ([], (PDiv (len, cls, (touch_extent lI range), opener,

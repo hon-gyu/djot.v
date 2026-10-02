@@ -75,7 +75,7 @@ type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> int);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography :
                  bool; dc_raw_inline : bool; dc_math : bool;
                  dc_dollar_math : bool; dc_attrs : bool; dc_footnotes :
-                 bool; dc_wikilinks : bool }
+                 bool; dc_wikilinks : bool; dc_tags : bool }
 
 val djot_dchar : dstyle -> char
 
@@ -121,6 +121,8 @@ val with_inline_attrs : bool -> dconfig -> dconfig
 val with_inline_footnotes : bool -> dconfig -> dconfig
 
 val with_wikilinks : bool -> dconfig -> dconfig
+
+val with_inline_tags : bool -> dconfig -> dconfig
 
 val markdown_strong_entry : dentry
 

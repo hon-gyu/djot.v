@@ -1728,6 +1728,16 @@ let heading_line lvl l =
 let div_fence =
   ":::"
 
+(** val div_open_line : string -> string -> string **)
+
+let div_open_line fence0 word =
+  if (=) word "" then fence0 else (^) fence0 ((^) " " word)
+
+(** val div_word_ok : string -> bool **)
+
+let div_word_ok w =
+  str_forallb is_class_char w
+
 (** val blanks : int -> string **)
 
 let rec blanks n =

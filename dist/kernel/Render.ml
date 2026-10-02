@@ -136,7 +136,7 @@ type cblock =
 | CHeading of int * cinline list list
 | CQuote of cblock list
 | CCallout of string * callout_fold option * cinline list * cblock list
-| CDiv of cblock list
+| CDiv of string * cblock list
 | CList of list_kind * list_spacing * cblock list list
 | CRef of string * string
 | CTable of ctrow list
@@ -168,8 +168,10 @@ let rec cb_lines t cb =
    | CCallout (kind, fold, title, inner) ->
      (quote_line (callout_header_line kind fold (ci_line t title))) ::
        (map quote_line (sep_lines (map (cb_lines t) inner)))
-   | CDiv inner ->
-     div_fence :: (app (sep_lines (map (cb_lines t) inner)) (div_fence :: []))
+   | CDiv (name, inner) ->
+     (div_open_line div_fence name) :: (app
+                                         (sep_lines (map (cb_lines t) inner))
+                                         (div_fence :: []))
    | CList (k, sp, items) ->
      list_lines sp (map litem_lines (ck_items k (itemss items)))
    | CRef (label, dest) -> (ref_line label dest) :: []
@@ -200,7 +202,7 @@ let rec cb_ast cb =
    | CQuote inner -> mk (BlockQuote (map cb_ast inner))
    | CCallout (kind, fold, title, inner) ->
      mk (Ext_callout (kind, fold, (ci_inlines title), (map cb_ast inner)))
-   | CDiv inner -> mk (Div (map cb_ast inner))
+   | CDiv (name, inner) -> mk (Div (name, (map cb_ast inner)))
    | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
    | CRef (label, dest) -> mk (RefDef (label, dest))
    | CTable rows -> mk (Table ([], (ctable_cells [] rows)))
@@ -423,6 +425,11 @@ let ckey_label_ok t label =
      | Some p -> let (lbl, value) = p in (&&) ((=) lbl src) ((=) value "")
      | None -> false)
 
+(** val div_name_ok : bconfig -> string -> bool **)
+
+let div_name_ok k name =
+  (||) ((=) name "") ((&&) k.bdiv_names (div_word_ok name))
+
 (** val cb_ok : dtable -> bconfig -> cblock -> bool **)
 
 let rec cb_ok t k cb =
@@ -500,8 +507,10 @@ let rec cb_ok t k cb =
            (cis_ok t title))
          (divs_ok inner))
        (cb_pairs_ok t inner)
-   | CDiv inner ->
-     (&&) ((&&) ((&&) k.bdivs (divs_ok inner)) (cb_pairs_ok t inner))
+   | CDiv (name, inner) ->
+     (&&)
+       ((&&) ((&&) ((&&) k.bdivs (div_name_ok k name)) (divs_ok inner))
+         (cb_pairs_ok t inner))
        (div_content_ok t k (sep_lines (map (cb_lines t) inner)))
    | CList (k0, sp, items) ->
      (&&)
@@ -636,12 +645,20 @@ let attr_lines a = match a with
 (** val fence_class : attr -> block -> string **)
 
 let fence_class a = function
-| Div _ ->
-  (match a with
-   | [] -> ""
-   | p :: _ ->
-     let (k, c) = p in
-     if (&&) ((=) k "class") (class_word_ok c) then c else "")
+| Div (name, _) ->
+  ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+     (fun _ ->
+     match a with
+     | [] -> ""
+     | p :: _ ->
+       let (k, c) = p in
+       if (&&) ((=) k "class") (class_word_ok c) then c else "")
+     (fun _ _ -> "")
+     name)
 | _ -> ""
 
 (** val drop_class : string -> attr -> attr **)
@@ -665,11 +682,6 @@ let div_fence_for t k body =
   else chars ':'
          (Nat.max (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) (Stdlib.succ
            (list_max (map closer_run body))))
-
-(** val div_open_line : string -> string -> string **)
-
-let div_open_line fence cls =
-  if (=) cls "" then fence else (^) fence ((^) " " cls)
 
 (** val note_indent : string -> string **)
 
@@ -734,15 +746,25 @@ let rec render_lines t k a b =
              bs))
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
-     | Div bs ->
+     | Div (name, bs) ->
        let body =
          sep_lines
            (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
              bs)
        in
-       (div_open_line (div_fence_for t k body) cls) :: (app body
-                                                         ((div_fence_for t k
-                                                            body) :: []))
+       let word =
+         (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+           (fun _ -> cls)
+           (fun _ _ -> name)
+           name
+       in
+       (div_open_line (div_fence_for t k body) word) :: (app body
+                                                          ((div_fence_for t k
+                                                             body) :: []))
      | OrderedList (oa, sp, items) ->
        list_lines sp
          (map item_or_marker_lines (ck_items (lk_of_ol oa) (itemss items)))
@@ -856,7 +878,7 @@ let rec drop_auto_ids b p a =
    | Heading (lvl, ils) ->
      Node (p, (drop_id_if (base_id ils) a), (Heading (lvl, ils)))
    | BlockQuote bs -> Node (p, a, (BlockQuote (go bs)))
-   | Div bs -> Node (p, a, (Div (go bs)))
+   | Div (name, bs) -> Node (p, a, (Div (name, (go bs))))
    | OrderedList (oa, sp, its) ->
      Node (p, a, (OrderedList (oa, sp, (goits its))))
    | BulletList (sp, its) -> Node (p, a, (BulletList (sp, (goits its))))

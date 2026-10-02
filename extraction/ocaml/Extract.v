@@ -525,7 +525,7 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   line_table resolve_span DjotV.InlineLocated.cursor_in
   DjotV.InlineScan.chunks_text DjotV.InlineScan.map_text DjotV.InlineScan.lift
   DjotV.Profile.djot_profile DjotV.Profile.markdown_like_profile
-  DjotV.Profile.with_footnotes
+  DjotV.Profile.with_footnotes DjotV.Profile.with_tags
   DjotV.InlineTable.with_smart_typography DjotV.InlineTable.with_raw_inline
   DjotV.InlineTable.with_math DjotV.InlineTable.with_inline_attrs
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation
