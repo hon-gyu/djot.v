@@ -201,6 +201,7 @@ module Profile = struct
   let with_math = inline K.InlineTable.with_math
   let with_inline_attrs = inline K.InlineTable.with_inline_attrs
   let with_ext_wikilinks = inline K.InlineTable.with_wikilinks
+  let with_ext_dollar_math = inline K.InlineTable.with_dollar_math
   let with_tables = block K.Step.with_tables
   let with_divs = block K.Step.with_divs
   let with_tasks = block K.Step.with_tasks
