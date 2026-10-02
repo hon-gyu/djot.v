@@ -5,8 +5,11 @@ ai-disclosure: ai-generated
 
 Status: **implemented** (2026-09-27), v1. Rebased onto main on
 2026-10-02. The setting, scanner states, proofs, extraction and the
-Markdown-like profile's use of it are built. `dev/check/DollarMath.v`
-pins every row of section 4 and the source ranges. Section 7 is the
+Markdown-like profile's use of it are built, and the OCaml package
+exposes it as `Profile.with_ext_dollar_math`. `dev/check/DollarMath.v`
+pins every row of section 4 and the source ranges, and the roundtrip test
+has a dollar pool: the ordinary documents plus text full of `$`, rendered
+to djot and read back with the setting on. Section 7 is the
 estimate made before the code; section 7.1 records what the
 implementation established or changed.
 
