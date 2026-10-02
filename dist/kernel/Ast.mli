@@ -192,7 +192,7 @@ type block =
 | TaskList of list_spacing * (task_status * block node list) list
 | DefinitionList of list_spacing * (inlines * block node list) list
 | ThematicBreak
-| Table of inlines option * cell list list
+| Table of inlines * cell list list
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string

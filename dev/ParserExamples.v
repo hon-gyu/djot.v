@@ -597,7 +597,7 @@ Example parse_table_header :
   parse_blocks "| a | b |
 |---|--:|
 | c | d |"
-  = [mk (Table None
+  = [mk (Table []
            [ [ Cell HeadCell AlignDefault [mk (Str "a")]
              ; Cell HeadCell AlignRight [mk (Str "b")] ]
            ; [ Cell BodyCell AlignDefault [mk (Str "c")]
@@ -608,7 +608,7 @@ Proof. reflexivity. Qed.
 Example parse_table_separator_first :
   parse_blocks "|--:|
 | b |"
-  = [mk (Table None [[Cell BodyCell AlignRight [mk (Str "b")]]])].
+  = [mk (Table [] [[Cell BodyCell AlignRight [mk (Str "b")]]])].
 Proof. reflexivity. Qed.
 
 (* Two separators in a row both claim the same preceding row, so the
@@ -618,7 +618,7 @@ Example parse_table_two_separators :
 |---|
 |:-:|
 | b |"
-  = [mk (Table None
+  = [mk (Table []
            [ [Cell HeadCell AlignCenter [mk (Str "a")]]
            ; [Cell BodyCell AlignCenter [mk (Str "b")]] ])].
 Proof. reflexivity. Qed.
@@ -628,7 +628,7 @@ Example parse_table_ragged :
   parse_blocks "| a |
 |--:|
 | b | c |"
-  = [mk (Table None
+  = [mk (Table []
            [ [Cell HeadCell AlignRight [mk (Str "a")]]
            ; [ Cell BodyCell AlignRight [mk (Str "b")]
              ; Cell BodyCell AlignDefault [mk (Str "c")] ] ])].
@@ -636,14 +636,14 @@ Proof. reflexivity. Qed.
 
 (* Separators alone are a table with no rows at all. *)
 Example parse_table_no_rows :
-  parse_blocks "|---|" = [mk (Table None [])].
+  parse_blocks "|---|" = [mk (Table [] [])].
 Proof. reflexivity. Qed.
 
 (* A cell is inline-parsed on its own, so a delimiter never crosses a
    bar (`tables.test:13`). *)
 Example parse_table_cells_are_separate :
   parse_blocks "|*c| d* |"
-  = [mk (Table None
+  = [mk (Table []
            [[ Cell BodyCell AlignDefault [mk (Str "*c")]
             ; Cell BodyCell AlignDefault [mk (Str "d*")] ]])].
 Proof. reflexivity. Qed.
@@ -654,7 +654,7 @@ Example parse_table_closed_by_bad_row :
   parse_blocks "| a |
 | b
 | c |"
-  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
     ; mk (Para [mk (Str "| b"); mk SoftBreak; mk (Str "| c |")]) ].
 Proof. reflexivity. Qed.
 
@@ -672,7 +672,7 @@ Example parse_table_caption_after_blanks :
 
 
 ^ cap"
-  = [mk (Table (Some [mk (Str "cap")])
+  = [mk (Table [mk (Str "cap")]
            [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
 Proof. reflexivity. Qed.
 
@@ -682,8 +682,8 @@ Example parse_table_blank_splits :
   parse_blocks "| a |
 
 | b |"
-  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
-    ; mk (Table None [[Cell BodyCell AlignDefault [mk (Str "b")]]]) ].
+  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+    ; mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "b")]]]) ].
 Proof. reflexivity. Qed.
 
 (* A caption owns every nonblank line after it, row lines included, and
@@ -692,17 +692,16 @@ Example parse_table_caption_swallows :
   parse_blocks "| a |
 ^ cap
 | b |"
-  = [mk (Table (Some [mk (Str "cap"); mk SoftBreak; mk (Str "| b |")])
+  = [mk (Table [mk (Str "cap"); mk SoftBreak; mk (Str "| b |")]
            [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
 Proof. reflexivity. Qed.
 
-(* `^ ` with nothing after it is a caption with no content, which is no
-   caption: djot.js renders it as none, and `wf_block` has no second
-   spelling for it. *)
+(* `^ ` with nothing after it is the empty caption, which is no
+   caption. *)
 Example parse_table_caption_empty :
   parse_blocks "| a |
 ^ "
-  = [mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+  = [mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
 Proof. reflexivity. Qed.
 
 (* A caption with no table before it is a paragraph.  djot.js swallows
@@ -722,7 +721,7 @@ Example parse_table_caption_too_late :
 p
 
 ^ cap"
-  = [ mk (Table None [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
     ; mk (Para [mk (Str "p")])
     ; mk (Para [mk (Str "^ cap")]) ].
 Proof. reflexivity. Qed.

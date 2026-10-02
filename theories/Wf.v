@@ -6,7 +6,7 @@
 
    The conditions record what the parser can emit: canonical inline
    sequences (no two adjacent plain `Str`s), a heading's level of at
-   least 1, nonempty lists, sections and present captions, and the
+   least 1, nonempty lists and sections, and the
    classifier's guarantees on reference definitions.  This is a claim
    about the parser, not the roundtrip's hypothesis (`roundtrip_blocks`
    quantifies over `cb_ok`), and `wf_complete_false` shows it does not
@@ -154,15 +154,8 @@ Local Fixpoint wf_block (b : block) : bool :=
   | RefDef label dest =>
       no_char "]"%char label && negb (is_footnote_label label) && no_ws dest
   | FootnoteDef label bs => nonempty_str label && wf_bs bs
-  (* A caption is nonempty when present: `^ ` with nothing after it opens
-     a caption with no content, and djot.js renders that as no caption at
-     all, so `Some []` would be a second spelling of `None`.  The parser
-     owes the collapse. *)
   | Table caption rows =>
-      match caption with
-      | Some ils => nonempty ils && wf_inlines ils
-      | None => true
-      end
+      wf_inlines caption
       && forallb
            (fun row =>
               forallb (fun c => match c with Cell _ _ ils => wf_inlines ils end)
@@ -2463,8 +2456,7 @@ Local Fixpoint state_wf (st : pstate) : bool :=
       nonempty_str lbl && wf_blocks done && state_wf inner
   (* A table's rows carry no invariant: a cell's inlines come from
      `parse_inline_line`, which is well-formed for any string.  Its
-     caption carries none either -- `caption_of` answers `None` rather
-     than an empty caption, whatever its lines hold. *)
+     caption carries none either: it is a paragraph's inlines. *)
   | PTable _ _ _ => true
   (* Pending attributes add nothing of their own. *)
   | PPend _ _ inner => state_wf inner
@@ -2515,23 +2507,11 @@ Proof.
     + cbn [forallb]. rewrite cells_of_wf. exact H.
 Qed.
 
-(* A caption is well-formed when it is present at all: `caption_of`
-   answers `None` unless what its lines resolve to is nonempty, which is
-   the `nonempty` half of `wf_block`'s clause read straight off the
-   definition.  The lines' own shape says nothing -- a line with content
-   can still leave no inlines. *)
-Local Lemma caption_of_wf :
-  forall c,
-    match caption_of c with
-    | Some ils => (nonempty ils && wf_inlines ils)%bool
-    | None => true
-    end = true.
+(* A caption is a paragraph's inlines, or none. *)
+Local Lemma caption_of_wf : forall c, wf_inlines (caption_of c) = true.
 Proof.
   intros [rs|rs|rs start ls]; try reflexivity.
-  cbn [caption_of]. sem_para.
-  destruct (nonempty (para_inlines (line_texts (rev ls)))) eqn:E;
-    [|reflexivity].
-  rewrite E, para_inlines_wf. reflexivity.
+  cbn [caption_of]. sem_para. apply para_inlines_wf.
 Qed.
 
 Local Lemma table_block_wf :
@@ -2542,8 +2522,7 @@ Proof.
   rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
   rewrite table_fold_wf by reflexivity.
   rewrite andb_true_r, andb_true_r.
-  pose proof (caption_of_wf c) as Hc.
-  destruct (caption_of c); [exact Hc | reflexivity].
+  apply caption_of_wf.
 Qed.
 
 (* Closing the stack at end of input preserves the invariant. *)

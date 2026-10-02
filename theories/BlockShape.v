@@ -4,16 +4,9 @@
 
    The syntax reference: "block structure can be discerned prior to
    inline parsing and takes priority over inline structure".  Stated
-   here as a projection: erase every inline, and every table caption,
-   and what is left of the block tree is the same under every delimiter
-   table (`block_shape_independent`).
-
-   The caption goes with the inlines because whether a table has one is
-   decided by its inlines: `Step.caption_of` turns a caption with no
-   inline content into no caption, as djot.js does, and an attribute
-   spec with nothing to attach to leaves none
-   (`Invariants.inline_attrs_affect_caption_presence`).  The block
-   parser still reads the caption line the same way under every table.
+   here as a projection: erase every inline, and what is left of the
+   block tree is the same under every delimiter table
+   (`block_shape_independent`).
 
    Keyed blocks are off.  Where a key's label ends is found by the
    inline scanner (`key_split`), so that extension breaks the rule on
@@ -55,7 +48,7 @@ Fixpoint of_block (b : block) : block :=
   | TaskList sp items => TaskList sp (map (fun it => (fst it, go (snd it))) items)
   | DefinitionList sp items =>
       DefinitionList sp (map (fun it => ([] : inlines, go (snd it))) items)
-  | Table _ rows => Table None (map (map of_cell) rows)
+  | Table _ rows => Table [] (map (map of_cell) rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed _ (Node _ a x) => Ext_keyed [] (Node NoPos a (of_block x))
   | Ext_callout kind fold _ bs => Ext_callout kind fold [] (go bs)
@@ -757,7 +750,7 @@ The theorem
 ===========
 *)
 
-(** Block structure, read with every inline and caption erased, is the same
+(** Block structure, read with every inline erased, is the same
     under any two delimiter tables.  The keyed setting is the one block
     setting that asks the inline scanner a question (where a key's label
     ends), so it is off; every other block setting is free. *)

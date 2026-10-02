@@ -547,18 +547,11 @@ Inductive tcap : Type :=
 Local Definition cap_lines (c : tcap) : list stored_line :=
   match c with TCaption _ _ ls => ls | _ => [] end.
 
-(* An empty caption is no caption: `^ ` with nothing after it has no
-   content, so `Some []` would be a second spelling of `None`, which
-   `wf_block` rules out.  The test is on the inlines rather than on the
-   lines because a line can have content and still leave none: an
-   attribute spec with nothing to attach to is gone by the time the
-   caption is built. *)
-Definition caption_of (c : tcap) : option inlines :=
+(* A table with no caption lines has the empty caption. *)
+Definition caption_of (c : tcap) : inlines :=
   match c with
-  | TOpen _ | TAfterBlank _ => None
-  | TCaption _ _ ls =>
-      let ils := para_inlines_at 0 (rev ls) in
-      if nonempty ils then Some ils else None
+  | TOpen _ | TAfterBlank _ => []
+  | TCaption _ _ ls => para_inlines_at 0 (rev ls)
   end.
 
 Local Definition cap_row_parts (c : tcap) : list row_part :=
@@ -568,10 +561,10 @@ Local Definition cap_row_parts (c : tcap) : list row_part :=
 
 Definition table_parts (c : tcap) : parts :=
   let caption :=
-    match c, caption_of c with
-    | TCaption _ start ls, Some _ =>
+    match c with
+    | TCaption _ start ls =>
         Some (SrcSpan start (stored_stop (hd (0, EmptyString) ls)))
-    | _, _ => None
+    | _ => None
     end in
   Ast.PTable caption
     (map (fun r => (fst r, map cell_range (snd r)))
@@ -4936,15 +4929,13 @@ Qed.
    erasure is that paragraph's.  Outside the section because the two
    sides sit at different policies. *)
 Local Lemma erase_caption_of : forall `{T : dtable} c,
-  option_map Erase.of_inlines (@caption_of T located_pos c) =
+  Erase.of_inlines (@caption_of T located_pos c) =
   @caption_of T semantic_pos (StateErase.of_cap c).
 Proof.
   intros T [rs|rs|rs start lines]; cbn [StateErase.of_cap caption_of];
     try reflexivity.
-  rewrite <- StateErase.of_lines_rev, <- (@StateErase.of_para_inlines_at T),
-    StateErase.inlines_nonempty.
-  destruct (nonempty (@para_inlines_at T located_pos 0 (rev lines)));
-    reflexivity.
+  rewrite <- StateErase.of_lines_rev, <- (@StateErase.of_para_inlines_at T).
+  reflexivity.
 Qed.
 
 (* Stated over a whole list because both callers have one: the table a

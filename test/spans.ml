@@ -116,7 +116,7 @@ let located_failures src =
             | Djot.Ast.DefinitionList (_, items) ->
               List.iter (fun (term, item) -> inlines own term; blocks own item) items
             | Djot.Ast.Table (caption, rows) ->
-              (match caption with None -> () | Some ils -> inlines own ils);
+              inlines own caption;
               List.iter
                 (List.iter (function Djot.Ast.Cell (_, _, ils) -> inlines own ils))
                 rows

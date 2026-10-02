@@ -125,11 +125,11 @@ type tcap =
 | TAfterBlank of row_part list
 | TCaption of row_part list * spot * stored_line list
 
-val caption_of : dtable -> coq_PosPolicy -> tcap -> inlines option
+val caption_of : dtable -> coq_PosPolicy -> tcap -> inlines
 
 val cap_row_parts : tcap -> row_part list
 
-val table_parts : dtable -> coq_PosPolicy -> tcap -> parts
+val table_parts : tcap -> parts
 
 val cells_of_located :
   dtable -> coq_PosPolicy -> cell_type -> align list -> string list ->

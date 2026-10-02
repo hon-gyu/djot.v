@@ -49,7 +49,7 @@ val render_cell : reference_map -> cell -> helt
 
 val render_row : reference_map -> cell list -> helt
 
-val render_caption : reference_map -> inlines option -> helt list
+val render_caption : reference_map -> inlines -> helt list
 
 val render_block : reference_map -> bool -> block -> attr -> helt list
 
@@ -75,7 +75,7 @@ val render_rows_foot :
   reference_map -> foot_state -> cell list list -> foot_state * helt list
 
 val render_caption_foot :
-  reference_map -> foot_state -> inlines option -> foot_state * helt list
+  reference_map -> foot_state -> inlines -> foot_state * helt list
 
 val render_block_foot :
   reference_map -> foot_state -> bool -> block -> attr -> foot_state * helt

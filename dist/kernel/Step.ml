@@ -478,13 +478,11 @@ type tcap =
 | TAfterBlank of row_part list
 | TCaption of row_part list * spot * stored_line list
 
-(** val caption_of : dtable -> coq_PosPolicy -> tcap -> inlines option **)
+(** val caption_of : dtable -> coq_PosPolicy -> tcap -> inlines **)
 
 let caption_of t p = function
-| TCaption (_, _, ls) ->
-  let ils = para_inlines_at t p 0 (rev ls) in
-  if nonempty ils then Some ils else None
-| _ -> None
+| TCaption (_, _, ls) -> para_inlines_at t p 0 (rev ls)
+| _ -> []
 
 (** val cap_row_parts : tcap -> row_part list **)
 
@@ -493,19 +491,15 @@ let cap_row_parts = function
 | TAfterBlank rs -> rs
 | TCaption (rs, _, _) -> rs
 
-(** val table_parts : dtable -> coq_PosPolicy -> tcap -> parts **)
+(** val table_parts : tcap -> parts **)
 
-let table_parts t p c =
+let table_parts c =
   let caption =
     match c with
     | TOpen _ -> None
     | TAfterBlank _ -> None
-    | TCaption (row_parts, start, ls) ->
-      (match caption_of t p (TCaption (row_parts, start, ls)) with
-       | Some _ ->
-         Some { span_start = start; span_stop =
-           (stored_stop (hd (0, "") ls)) }
-       | None -> None)
+    | TCaption (_, start, ls) ->
+      Some { span_start = start; span_stop = (stored_stop (hd (0, "") ls)) }
   in
   PTable (caption,
   (map (fun r -> ((fst r), (map (fun c0 -> c0.cell_range) (snd r))))
@@ -863,7 +857,7 @@ let rec finish t k p = function
     (foot_block lbl (app (rev done0) (finish t k p inner)))) :: []
 | PTable (range, rows, cap) ->
   (set_pos p { node_span = (extent_span range); syntax_spans = [];
-    part_spans = (table_parts t p cap) } (table_block t p (rev rows) cap)) :: []
+    part_spans = (table_parts cap) } (table_block t p (rev rows) cap)) :: []
 | PPend (pend, specs, inner) ->
   add_roles_head p (attr_roles specs)
     (decorate_head pend (finish t k p inner))
@@ -1417,7 +1411,7 @@ let rec step_fuel t k lI p n off l st =
         | TCaption (parts0, start, ls) ->
           if is_blank l
           then (((set_pos p { node_span = (extent_span range); syntax_spans =
-                   []; part_spans = (table_parts t p cap) }
+                   []; part_spans = (table_parts cap) }
                    (table_block t p (rev rows) cap)) :: []),
                  (PPara []))
           else ([], (PTable ((touch_extent lI range), rows, (TCaption
@@ -1449,14 +1443,13 @@ let rec step_fuel t k lI p n off l st =
                         in
                         (((set_pos p { node_span = (extent_span range);
                             syntax_spans = []; part_spans =
-                            (table_parts t p cap) }
+                            (table_parts cap) }
                             (table_block t p (rev rows) cap)) :: bs),
                         st'))
                    | _ ->
                      let (bs, st') = step_fuel t k lI p n' off l (PPara []) in
                      (((set_pos p { node_span = (extent_span range);
-                         syntax_spans = []; part_spans =
-                         (table_parts t p cap) }
+                         syntax_spans = []; part_spans = (table_parts cap) }
                          (table_block t p (rev rows) cap)) :: bs),
                      st'))))
      | PPend (pend, specs, inner) ->
