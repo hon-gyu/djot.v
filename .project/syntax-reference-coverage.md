@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 1 | 10 | 41 | 0 | 0 | 5 |
+| Inline | 3 | 8 | 41 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
@@ -49,11 +49,11 @@ Every rule with a parse outcome is at least E: the 76 code examples and
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
 are the container rules, the line-level spellings and block-level
-determinism.  Inline syntax has one T, link locality, which holds by
-construction, and ten T~: precedence and the emphasis flanking and
-nonempty rules over a restricted alphabet (P1 to P5, M2, M3), escapes
-(O2), canonical verbatim (V1) and dash runs (Q5).  The other 41 inline
-rules are at E.
+determinism.  Inline syntax has three T: link locality, which holds by
+construction, and the emphasis flanking and nonempty rules (M2, M3) over
+every paragraph's and cell's content.  It has eight T~: precedence over
+a restricted alphabet (P1 to P5), escapes (O2), canonical verbatim (V1)
+and dash runs (Q5).  The other 41 inline rules are at E.
 
 ## Inline syntax
 
@@ -85,8 +85,8 @@ rules are at E.
 | V3 | Verbatim | "If the content starts or ends with a backtick character, a single space is removed" | E | `verbatim_space_stripped` | `trim_verb_pad` is the renderer's inverse, not this rule. |
 | V4 | Verbatim | "If the text ... ends before a closing backtick string ..., the verbatim text extends to the end" | E | `verbatim_unclosed` | |
 | M1 | Emphasis/strong | `_` delimits emphasis, `*` strong | E | `emphasis` | |
-| M2 | Emphasis/strong | "can open emphasis only if it is not directly followed by whitespace.  It can close ... only if it is not directly preceded by whitespace" | T~ | `para_inlines_valid`; `emphasis_not_opened`, `emphasis_opener_before_space`, `emphasis_closer_after_space` | `lex` (Precedence.v) lets a bare token open only before a non-space byte and close only after one.  Shape as P1. |
-| M3 | Emphasis/strong | closes "only if there are some characters besides the delimiter character between the opener and the closer" | T~ | `para_inlines_valid`; `emphasis_not_opened` (`___`) | `valid` (Precedence.v) pairs delimiters only around a nonempty inside.  Shape as P1. |
+| M2 | Emphasis/strong | "can open emphasis only if it is not directly followed by whitespace.  It can close ... only if it is not directly preceded by whitespace" | T | `para_inlines_spans`, `cell_inlines_spans` (InlineSpans.v); `emphasis_not_opened`, `emphasis_opener_before_space`, `emphasis_closer_after_space` | Every delimiter node of a paragraph's or a cell's located inlines, at any depth and for every row: a bare opener is followed by a byte of the content that is not whitespace, a bare closer preceded by one.  Whitespace is space, tab, CR and LF (`nonspace_at`); a line break counts as whitespace.  Stated on the inline content the block layer hands over; that a stored line is a suffix of its source line (plan F2) is not proved, so the lift to the document is open. |
+| M3 | Emphasis/strong | closes "only if there are some characters besides the delimiter character between the opener and the closer" | T | `para_inlines_spans`, `cell_inlines_spans`; `emphasis_not_opened` (`___`) | As M2: at least one byte or line break lies between the opener's end and the closer's start.  The wording read literally would exclude `{___}`, which is emphasis around `_` in the model, the parser and djot.js; the theorem states what all three do. |
 | M4 | Emphasis/strong | "Emphasis can be nested" | E | `emphasis_nested` | See P2. |
 | M5 | Emphasis/strong | "Curly braces may be used to force interpretation ... as an opener or as a closer" | E | `emphasis_braces` | |
 | H1 | Highlighted | `{=` ... `=}`; "the `{` and `}` are mandatory" | E | `highlighted`, `highlight_needs_braces` | |
@@ -117,7 +117,7 @@ rules are at E.
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 1, T~ 10, E 41, n/a 5.
+Inline: T 3, T~ 8, E 41, n/a 5.
 
 ## Block syntax
 
@@ -269,9 +269,12 @@ Inline structure:
    the unique reading the rules allow
    (`260930.plan.inline-precedence.md`).  Smart quotes, spans and images
    are outside its alphabet.
-9. **M2, M3 flanking**: an opener before whitespace or a closer after
-   whitespace never delimits, over all inputs.
-   On the located parse's spans: `261002.plan.inline-flanking.md`.
+9. Done at the inline level: **M2, M3 flanking**, `para_inlines_spans`
+   and `cell_inlines_spans` (InlineSpans.v): on the located parse's
+   spans, over every paragraph's and cell's content
+   (`261002.plan.inline-flanking.md`).  Open: the lift to the document,
+   which needs stored lines to be suffixes of their source lines (plan
+   F2).
 10. Done: **BI1** `block_shape_independent`: the block tree, inlines
     erased, does not depend on the inline delimiter table, for
     configurations without keyed blocks.
