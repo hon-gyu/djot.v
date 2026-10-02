@@ -361,10 +361,10 @@ Local Lemma of_nonempty : forall l, nonempty (of_oitems l) = nonempty l.
 Proof. intros [|i l]; reflexivity. Qed.
 
 Local Lemma of_dmatch : forall k m f, dmatch k m (of_frame f) = dmatch k m f.
-Proof. intros k m [[?|?|?] ? ? ?]; reflexivity. Qed.
+Proof. intros k m [[?|?|?|?] ? ? ?]; reflexivity. Qed.
 
 Local Lemma of_fr_barrier : forall f, fr_barrier (of_frame f) = fr_barrier f.
-Proof. intros [[?|?|?] ? ? ?]; reflexivity. Qed.
+Proof. intros [[?|?|?|?] ? ? ?]; reflexivity. Qed.
 
 Local Lemma of_istarts_str : forall l,
   istarts_str (Erase.of_inlines l) = istarts_str l.
@@ -518,7 +518,7 @@ Proof.
   change (fr_kind (of_frame f)) with (fr_kind f).
   change (fr_out (of_frame f)) with (of_oitems (fr_out f)).
   rewrite <- of_oapp.
-  destruct (fr_kind f) eqn:Ek; [| |reflexivity].
+  destruct (fr_kind f) eqn:Ek; [| |reflexivity|reflexivity].
   - rewrite (of_fr_lit f).
     specialize (IH (oapp (oapp pend (fr_out f)) [OIn (@fr_lit T P f)])).
     rewrite !of_oapp in IH. cbn [of_oitems of_oitem] in IH.
@@ -544,6 +544,54 @@ Proof.
   destruct o as [out stk word]; reflexivity.
 Qed.
 
+Local Lemma of_tag_push : forall `{P : PosPolicy} `{C : InlineCursor} name start o,
+  of_ostate (@tag_push P C name start o) =
+  @tag_push semantic_pos semantic_inline_cursor name start (of_ostate o).
+Proof.
+  intros P C name start [out stk word]. unfold tag_push, pspan.
+  destruct (@pos_records P); reflexivity.
+Qed.
+
+Local Lemma of_tag_close_go : forall `{P : PosPolicy} pend stk,
+  @tag_close_go T semantic_pos (of_oitems pend) (map of_frame stk) =
+  match @tag_close_go T P pend stk with
+  | None => None
+  | Some (content, name, open, rest) =>
+      Some (of_oitems content, name, null_span, map of_frame rest)
+  end.
+Proof.
+  intros P pend stk. revert pend.
+  induction stk as [|f stk IH]; intros pend; [reflexivity|].
+  cbn [map tag_close_go].
+  change (fr_kind (of_frame f)) with (fr_kind f).
+  change (fr_out (of_frame f)) with (of_oitems (fr_out f)).
+  rewrite <- of_oapp.
+  destruct (fr_kind f) eqn:Ek; [|reflexivity|reflexivity|].
+  - rewrite (of_fr_lit f).
+    specialize (IH (oapp (oapp pend (fr_out f)) [OIn (@fr_lit T P f)])).
+    rewrite !of_oapp in IH. cbn [of_oitems of_oitem] in IH.
+    rewrite <- of_oapp in IH. exact IH.
+  - cbn [of_frame fr_open]. reflexivity.
+Qed.
+
+Local Lemma of_tag_close : forall `{P : PosPolicy} o,
+  @tag_close T semantic_pos (of_ostate o) =
+  match @tag_close T P o with
+  | None => None
+  | Some (kids, name, open, o') =>
+      Some (Erase.of_inlines kids, name, null_span, of_ostate o')
+  end.
+Proof.
+  intros P o. unfold tag_close.
+  change (os_stk (of_ostate o)) with (map of_frame (os_stk o)).
+  change (@nil oitem) with (of_oitems []) at 1.
+  rewrite of_tag_close_go.
+  destruct (@tag_close_go T P [] (os_stk o)) as [[[[content name] open] rest]|];
+    [|reflexivity].
+  rewrite <- of_oresolve, <- Erase.inlines_rev.
+  destruct o as [out stk word]; reflexivity.
+Qed.
+
 Local Lemma of_bunpush : forall o,
   bunpush (of_ostate o) =
   match bunpush o with
@@ -551,7 +599,7 @@ Local Lemma of_bunpush : forall o,
   | Some (image, open, o') => Some (image, null_span, of_ostate o')
   end.
 Proof.
-  intros [out [|[[image| |] marked open [|i l]] stk] word]; reflexivity.
+  intros [out [|[[image| | |] marked open [|i l]] stk] word]; reflexivity.
 Qed.
 
 Local Lemma of_opop_str : forall o,
@@ -692,7 +740,12 @@ Proof.
       [rewrite of_bunpush; destruct (bunpush o) as [[[image open] o']|];
         [reflexivity|]|];
       cbn [of_iscan]; rewrite of_bpush, of_flush_text_at; reflexivity. }
-  destruct (Ascii.eqb c rbrack); [reflexivity|].
+  destruct (Ascii.eqb c rbrack).
+  { destruct tags_enabled; [|reflexivity].
+    rewrite <- of_flush_text_at, of_tag_close.
+    destruct (tag_close (flush_text_at (tval txt) o))
+      as [[[[kids name] open] o']|]; [|reflexivity].
+    cbn [of_iscan]. rewrite of_oemit, of_imk, span_node. reflexivity. }
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite of_bunpush; destruct (bunpush o) as [[[image open] o']|];
       [reflexivity|]|];
@@ -992,16 +1045,18 @@ Qed.
 
 Local Lemma of_isymbol_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c alias txt o sh,
-  of_iscan (@isymbol_step _ _ P C c alias txt o sh) =
-  @isymbol_step _ _ semantic_pos semantic_inline_cursor c alias txt
+  of_iscan (@isymbol_step T _ _ P C c alias txt o sh) =
+  @isymbol_step T _ _ semantic_pos semantic_inline_cursor c alias txt
     (of_ostate o) (of_iscan sh).
 Proof.
   intros P C c alias txt o sh. unfold isymbol_step. tred.
   destruct (symbol_char c); [reflexivity|].
-  destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool;
-    [|reflexivity].
-  cbn [of_iscan]. rewrite of_oemit, of_imk,
-    of_flush_text_to_at. reflexivity.
+  destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool.
+  - cbn [of_iscan]. rewrite of_oemit, of_imk,
+      of_flush_text_to_at. reflexivity.
+  - destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled)%bool;
+      [|reflexivity].
+    cbn [of_iscan]. rewrite of_tag_push, of_flush_text_to_at. reflexivity.
 Qed.
 
 Local Lemma iscan_attr : forall ap src txt prev sh o,

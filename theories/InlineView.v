@@ -33,6 +33,8 @@ Definition notes_enabled : bool := dc_footnotes cfg.
 
 Definition wikilinks_enabled : bool := dc_wikilinks cfg.
 
+Definition tags_enabled : bool := dc_tags cfg.
+
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
 

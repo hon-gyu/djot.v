@@ -1231,6 +1231,17 @@ Definition oframe (cm : nat -> bool) (f : pframe) : frame :=
 Definition oview (cm : nat -> bool) (v : pview) : ostate :=
   OState (map OIn (map mk (pv_out v))) (map (oframe cm) (pv_stk v)) None.
 
+(* The view has no named bracket: `:` is outside the alphabet. *)
+Lemma tag_close_oview : forall cm v, tag_close (oview cm v) = None.
+Proof.
+  intros cm v. unfold tag_close, oview. cbn [os_stk].
+  assert (H : forall stk pend, tag_close_go pend (map (oframe cm) stk) = None).
+  { induction stk as [|f stk IH]; intros pend; [reflexivity|].
+    destruct f as [p [k mr|] c|d c]; cbn [map oframe tag_close_go fr_kind];
+      [apply IH|reflexivity|reflexivity]. }
+  rewrite H. reflexivity.
+Qed.
+
 Definition top_of (v : pview) : list inline :=
   match pv_stk v with [] => pv_out v | f :: _ => fcontent f end.
 
@@ -2156,15 +2167,26 @@ Proof.
 Qed.
 
 (* `]` that closes nothing: the byte after it is read as usual. *)
+(* A `]` that closes no named bracket waits for the next byte. *)
+Local Lemma ilead_rbrack_closed : forall txt prev o,
+  tag_close (flush_text txt o) = None -> ilead rbrack txt prev o = IClosed txt o.
+Proof.
+  intros txt prev o Ht. unfold ilead. cbn [is_bslash is_tick Ascii.eqb Ascii.ascii_dec].
+  change (@flush_text_at semantic_pos semantic_inline_cursor (@tval string _ txt) o)
+    with (flush_text txt o).
+  rewrite Ht. destruct tags_enabled; reflexivity.
+Qed.
+
 Local Lemma tok_rbrack_text : forall txt prev o next,
+  tag_close (flush_text txt o) = None ->
   (forall c, next = Some c ->
      (Ascii.eqb c lparen || Ascii.eqb c lbrack || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool
      = true -> bclose (flush_text txt o) = None) ->
   settles (iscan_str (one rbrack) (IText false txt prev o))
           (IText false (txt ++ one rbrack) (Some rbrack) o) next.
 Proof.
-  intros txt prev o next H. cbn [iscan_str one]. unfold istep at 1. cbn [istep_at].
-  change (ilead rbrack txt prev o) with (IClosed txt o).
+  intros txt prev o next Ht H. cbn [iscan_str one]. unfold istep at 1. cbn [istep_at].
+  rewrite (ilead_rbrack_closed txt prev o Ht).
   destruct next as [c|]; cbn [settles].
   - unfold istep at 1. cbn [istep_at].
     destruct (Ascii.eqb c lparen || Ascii.eqb c lbrack || (Ascii.eqb c lbrace && inline_attrs_enabled))%bool eqn:E.
@@ -3463,6 +3485,10 @@ Proof.
     - cbn [prun]. unfold pstep. rewrite Em. apply open_bracket_sim, Hs. }
   destruct (Ascii.eqb c rbrack) eqn:Erk.
   { apply Ascii.eqb_eq in Erk. subst c.
+    assert (Htag : tag_close (flush_text txt o) = None).
+    { assert (Hfl : flush_text txt o = oview cm v)
+        by (rewrite Eo, Ev; apply flush_view, Ht).
+      rewrite Hfl. apply tag_close_oview. }
     assert (Txt : forall t, tok_text t = one rbrack ->
               lex prev 0 (String rbrack s') = t :: lex (Some rbrack) 0 s' ->
               pstep ts n t v = pv_add (Str (one rbrack)) v ->
@@ -3474,7 +3500,7 @@ Proof.
     { intros t Et El Ep Hb.
       apply (Nrm (one rbrack) s' [t] (Some rbrack) (txt ++ one rbrack) o);
         [reflexivity|discriminate|exact El|cbn; rewrite Et; reflexivity|exact Hf| | |].
-      - apply tok_rbrack_text, Hb.
+      - apply tok_rbrack_text; [exact Htag|exact Hb].
       - cbn [prun]. rewrite Ep, (proj2 (pv_add_live _ _)). exact Em.
       - cbn [prun]. rewrite Ep. apply sim_text; [exact Hs|reflexivity]. }
     assert (Hfl : flush_text txt o = oview cm v) by (rewrite Eo, Ev; apply flush_view, Ht).
@@ -3501,7 +3527,7 @@ Proof.
                 then IDest kids false null_span false 0 "" (idest_open kids false null_span o1) o1
                 else IReference kids false null_span "" o1).
     { intros c2 H2. cbn [iscan_str one]. unfold istep at 2. cbn [istep_at].
-      change (ilead rbrack txt prev o) with (IClosed txt o). rewrite Eo.
+      rewrite (ilead_rbrack_closed txt prev o Htag). rewrite Eo.
       pose proof (closed_step cm v0 txt c2 content rest' Ht) as Hcs.
       rewrite <- Ev in Hcs. exact (Hcs B Hpc H2). }
     destruct (starts_with lparen s') eqn:S1.

@@ -268,7 +268,7 @@ Local Lemma bunpush_app :
         (bunpush o).
 Proof.
   intros [out [|f stk] word] base; [reflexivity|].
-  destruct f as [[k|im|im] m open [|n l]]; reflexivity.
+  destruct f as [[k|im|im|nm] m open [|n l]]; reflexivity.
 Qed.
 
 Local Lemma bclose_app :
@@ -282,6 +282,24 @@ Proof.
   intros o base. unfold bclose. cbn [oout_app os_stk os_out].
   destruct (bclose_go [] (os_stk o))
     as [[[[content image] open] rest]|]; reflexivity.
+Qed.
+
+Local Lemma tag_push_app :
+  forall name start o base,
+    tag_push name start (oout_app base o) = oout_app base (tag_push name start o).
+Proof. intros name start o base. reflexivity. Qed.
+
+Local Lemma tag_close_app :
+  forall o base,
+    tag_close (oout_app base o)
+    = option_map
+        (fun p => let '(kids, name, open, o') := p in
+                  (kids, name, open, oout_app base o'))
+        (tag_close o).
+Proof.
+  intros o base. unfold tag_close. cbn [oout_app os_stk os_out].
+  destruct (tag_close_go [] (os_stk o))
+    as [[[[content name] open] rest]|]; reflexivity.
 Qed.
 
 (* The bracket reconstruction reads the suffix too: `opop_str` reads the
@@ -449,7 +467,12 @@ Proof.
       [rewrite bunpush_app; destruct (bunpush o) as [[[image open] o']|];
         [reflexivity|]|];
       cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity. }
-  destruct (Ascii.eqb c rbrack); [reflexivity|].
+  destruct (Ascii.eqb c rbrack).
+  { destruct tags_enabled; [|reflexivity]. tred. sem_flush.
+    rewrite flush_text_app, tag_close_app.
+    destruct (tag_close (flush_text txt o)) as [[[[kids name] open] o']|];
+      [|reflexivity].
+    cbn [option_map iout_app]. rewrite oemit_app. reflexivity. }
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite bunpush_app;
      destruct (bunpush o) as [[[image open] o']|]; [reflexivity|]|];
@@ -710,7 +733,9 @@ Proof.
     destruct (symbol_char c); [reflexivity|].
     destruct (Ascii.eqb c ":"%char && nonempty_str salias)%bool.
     + cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
-    + reflexivity.
+    + destruct (Ascii.eqb c lbrack && nonempty_str salias && tags_enabled)%bool;
+        [|reflexivity].
+      cbn [iout_app]. rewrite flush_text_app, tag_push_app. reflexivity.
   - unfold iraw_step_at. tred. rewrite ?imk_semantic.
     destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
     + destruct raw_inline_enabled.
@@ -1536,7 +1561,7 @@ Qed.
 Local Lemma bunpush_flush :
   forall txt o, bunpush o = None -> bunpush (flush_text txt o) = None.
 Proof.
-  intros txt [out [|[[k|im|im] m open [|n l]] stk] word] H;
+  intros txt [out [|[[k|im|im|nm] m open [|n l]] stk] word] H;
     unfold flush_text, flush_text_at;
     destruct (nonempty_str txt); solve [exact H | reflexivity | discriminate H].
 Qed.
@@ -1840,7 +1865,7 @@ Local Lemma wiki_opens_oemit_all :
 Proof.
   intros txt prev [|n ns] O H; [discriminate H|].
   assert (Hem : forall m o, bunpush (oemit m o) = None).
-  { intros m [out [|[[k|im|im] mk op fo] stk] word]; reflexivity. }
+  { intros m [out [|[[k|im|im|nm] mk op fo] stk] word]; reflexivity. }
   assert (Hall : forall ms o,
     bunpush o = None -> bunpush (oemit_all ms o) = None).
   { induction ms as [|m ms IH]; intros o Ho; [exact Ho|].
@@ -1936,16 +1961,28 @@ Proof.
 Qed.
 
 Local Lemma istep_rbrack_close :
-  forall txt prev o, istep rbrack (IText false txt prev o) = IClosed txt o.
+  forall txt prev o,
+    tag_close (flush_text txt o) = None ->
+    istep rbrack (IText false txt prev o) = IClosed txt o.
 Proof.
-  intros txt prev o. cbn [istep istep_at]. unfold ilead.
+  intros txt prev o H. cbn [istep istep_at]. unfold ilead.
   change (is_bslash rbrack) with false.
   change (is_tick rbrack) with false.
   change (Ascii.eqb rbrack lbrace) with false.
   change (Ascii.eqb rbrack bang) with false.
   change (Ascii.eqb rbrack lbrack) with false.
   change (Ascii.eqb rbrack rbrack) with true.
-  reflexivity.
+  cbn iota beta. tred. sem_flush. rewrite H.
+  destruct tags_enabled; reflexivity.
+Qed.
+
+(* Inside a plain bracket no `]` closes a named one. *)
+Local Lemma tag_close_bpush :
+  forall txt before image base,
+    tag_close (flush_text txt (oemit_all before (bpush image base))) = None.
+Proof.
+  intros txt before image [out stk word]. apply tag_close_flush.
+  unfold bpush. rewrite oemit_all_frame. reflexivity.
 Qed.
 
 (* ...and the byte after it is what closes the bracket. *)
@@ -1983,7 +2020,7 @@ Local Lemma iscan_link_close :
           (oemit (mk (bnode image ns (Direct dst))) base)).
 Proof.
   intros dst tail ns image base p Hnl. unfold link_close.
-  cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _).
+  cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _ (tag_close_bpush _ _ _ _)).
   rewrite (istep_lparen_dest EmptyString _ ns image
              (null_span) base
              (bclose_flush_bpush EmptyString image ns base)).
@@ -2013,7 +2050,9 @@ Proof.
   pose (ns := if nonempty_str txt
               then (before ++ [mk (Str txt)])%list else before).
   unfold link_close. cbn [iscan_str].
-  rewrite (istep_rbrack_close txt prev _), (istep_rbrack_close EmptyString _ _).
+  rewrite (istep_rbrack_close txt prev _ (tag_close_bpush _ _ _ _)).
+  rewrite (istep_rbrack_close EmptyString _ _);
+    [|apply tag_close_flush, tag_close_bpush].
   cbn [iscan_str].
   rewrite (istep_lparen_dest txt _ ns image
              (null_span) base
@@ -2067,7 +2106,7 @@ Local Lemma iscan_ref_close :
           (oemit (mk (bnode image ns (Reference (normalize_label label)))) base)).
 Proof.
   intros label tail ns image base p Hne Hbr. unfold ref_close.
-  cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _).
+  cbn [iscan_str]. rewrite (istep_rbrack_close EmptyString p _ (tag_close_bpush _ _ _ _)).
   rewrite (istep_lbrack_ref EmptyString _ ns image
              (null_span) base
              (bclose_flush_bpush EmptyString image ns base)).
@@ -2094,7 +2133,9 @@ Proof.
   pose (ns := if nonempty_str txt
               then (before ++ [mk (Str txt)])%list else before).
   unfold ref_close. cbn [iscan_str].
-  rewrite (istep_rbrack_close txt prev _), (istep_rbrack_close EmptyString _ _).
+  rewrite (istep_rbrack_close txt prev _ (tag_close_bpush _ _ _ _)).
+  rewrite (istep_rbrack_close EmptyString _ _);
+    [|apply tag_close_flush, tag_close_bpush].
   cbn [iscan_str].
   rewrite (istep_lbrack_ref txt _ ns image
              (null_span) base

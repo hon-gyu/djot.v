@@ -192,7 +192,11 @@ Record dconfig : Type := DConfig {
      capability is `Step.bfootnotes`; `Profile.with_footnotes` moves both. *)
   dc_footnotes : bool;
   (* Does `[[target|alias]]` make a wikilink?  Off in djot's own table. *)
-  dc_wikilinks : bool
+  dc_wikilinks : bool;
+  (* Does `:name[...]` make a span with that name?  Off in djot's own
+     table, and non-conservative: djot reads the same bytes as text before
+     a bracket.  See `.project/custom-tags.md`. *)
+  dc_tags : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -239,7 +243,7 @@ Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
   DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true false true
-    true false.
+    true false false.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -366,14 +370,14 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
     (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C) (dc_footnotes C)
-    (dc_wikilinks C).
+    (dc_wikilinks C) (dc_tags C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -382,7 +386,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) enabled (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
@@ -393,7 +397,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) enabled (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
@@ -402,7 +406,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_dollar_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
-    (dc_attrs C) (dc_footnotes C) (dc_wikilinks C).
+    (dc_attrs C) (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
 
 Theorem with_dollar_math_preserves_admissible :
   forall enabled, preserves (with_dollar_math enabled) delimiter_admissible.
@@ -413,7 +417,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) enabled
-    (dc_footnotes C) (dc_wikilinks C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
 
 Theorem with_inline_attrs_preserves_admissible :
   forall enabled, preserves (with_inline_attrs enabled) delimiter_admissible.
@@ -424,7 +428,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_footnotes (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    enabled (dc_wikilinks C).
+    enabled (dc_wikilinks C) (dc_tags C).
 
 Theorem with_inline_footnotes_preserves_admissible :
   forall enabled,
@@ -435,10 +439,21 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_wikilinks (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) enabled.
+    (dc_footnotes C) enabled (dc_tags C).
 
 Theorem with_wikilinks_preserves_admissible :
   forall enabled, preserves (with_wikilinks enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Named spans are the inline half of custom tags; `Profile.with_tags`
+   moves both halves. *)
+Definition with_inline_tags (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
+    (dc_footnotes C) (dc_wikilinks C) enabled.
+
+Theorem with_inline_tags_preserves_admissible :
+  forall enabled, preserves (with_inline_tags enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Local Definition drow_trigger_compatible
@@ -810,7 +825,7 @@ Example clashing_config_not_ok :
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
                       djot_dwidth djot_dsyntax djot_ddecay true true true
-                      false true true false)
+                      false true true false false)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -824,7 +839,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true false true true false) = true.
+                      djot_ddecay true true true false true true false false) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 
