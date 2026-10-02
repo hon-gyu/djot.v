@@ -200,9 +200,9 @@ module Profile : sig
   (** djot as specified.  The extensions are off. *)
 
   val markdown_like : t
-  (** djot with Markdown spellings added: strong as [**], setext
-      headings, sublists without a blank line, one-line ATX headings.
-      Not CommonMark. *)
+  (** djot with Markdown spellings added: strong as [**], dollar math,
+      setext headings, sublists without a blank line, one-line ATX
+      headings.  Not CommonMark. *)
 
   (** {2 djot constructs}  All on in {!djot}. *)
 
@@ -241,6 +241,10 @@ module Profile : sig
 
   val with_ext_wikilinks : bool -> t -> t
   (** [[[target|alias]]] and [![[target]]] ({!Inline.Ext_wikilink}). *)
+
+  val with_ext_dollar_math : bool -> t -> t
+  (** [$x$], [$$x$$] and [$`x`$], read as {!Inline.Math}; on in
+      {!markdown_like}.  Independent of {!with_math}. *)
 
   val with_ext_keyed : bool -> t -> t
   (** [label: content] ({!Block.Ext_keyed}). *)
