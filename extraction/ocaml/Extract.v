@@ -517,7 +517,7 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
 
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
-  callout_accepted callout_rt_lhs
+  callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
