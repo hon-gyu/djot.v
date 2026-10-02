@@ -1,5 +1,5 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
-        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch
 
@@ -75,6 +75,9 @@ roundtrip-callouts: build  ## Callout extension
 
 roundtrip-dollar-math: build  ## Dollar math extension
 	dune exec test/roundtrip.exe -- $(VERBOSE) --dollar 3
+
+roundtrip-tags: build  ## Custom tag names
+	dune exec test/roundtrip.exe -- $(VERBOSE) --tags 3
 
 # Other checks
 # ------------

@@ -197,6 +197,43 @@ Definition dollar_rt_lhs (c : cblock) : blocks :=
   @parse_blocks dollar_table _ _ _
     (@render_djot dollar_table _ (blocks_of_cblocks [c])).
 
+(* Custom tag names move both layers, so their pool is read with both
+   settings on: the ordinary pool, which must not move, then each named
+   span and named div in the containers.  The last three are ones the
+   canonical view excludes, so the pinned count shows each exclusion is
+   reached; so is a named div directly inside a div, whose fence the
+   canonical view does not lengthen. *)
+Definition tags_table : dtable :=
+  DTable (with_inline_tags true djot_config) eq_refl.
+
+Definition tags_bconfig : bconfig := with_div_names true djot_bconfig.
+
+Definition tags_pool (d : nat) : list cblock :=
+  (enum_cblock d
+   ++ flat_map (fun w =>
+        [w; CQuote [w]; CDiv "" [w]; CDiv "box" [w]; CList LKBullet Tight [[w]];
+         CId "tag" w])
+      [ CPara [[CITag "kbd" [CIStr "Ctrl+C"]]]
+      ; CPara [[CIStr "see "; CITag "kbd" [CIDelim DEmph [CIStr "a"]]; CIStr "(u)"]]
+      ; CPara [[CITag "kbd" []]]
+      ; CPara [[CITag "a" [CITag "b" [CIStr "c"]]]]
+      ; CPara [[CILink false [CITag "k" [CIStr "a"]] "u"]]
+      ; CPara [[CITag "k" [CILink false [CIStr "a"] "u"]]]
+      ; CPara [[CITag "k" [CINote "n"]]]
+      ; CTable [CTBody [[CITag "k" [CIStr "a"]]]]
+      ; CDiv "details" [CPara [[CIStr "x"]]]
+      (* an empty name is no name, and a space is not in one *)
+      ; CPara [[CITag "" [CIStr "a"]]]
+      ; CPara [[CITag "a b" [CIStr "a"]]]
+      ; CDiv "a b" [CPara [[CIStr "x"]]] ])%list.
+
+Definition tags_accepted (d : nat) : list cblock :=
+  filter (@cb_ok tags_table tags_bconfig) (tags_pool d).
+
+Definition tags_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks tags_table tags_bconfig _ _
+    (@render_djot tags_table tags_bconfig (blocks_of_cblocks [c])).
+
 (* Callouts exercise both title syntax and nesting under the enabled block
    setting.  Ordinary quotes beginning with literal header text are retained
    in the pool to check that canonical escaping keeps them ordinary quotes. *)
