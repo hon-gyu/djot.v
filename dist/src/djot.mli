@@ -341,14 +341,13 @@ module Doc : sig
   (** Parse, then run the document pass: headings get identifiers and open sections,
       footnote and reference definitions move into side tables.
       @param profile the syntax profile; default {!Profile.djot}
-      @param locs whether to records source positions; default [false] . *)
+      @param locs whether to record source positions; default [false]. *)
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
   (** Run the document pass over parsed blocks. The result has no source, so {!textloc} is
       {!Textloc.none} throughout.
 
-      @param profile the syntax profile; default {!Profile.djot}
-      @param profile the syntax {!Source.of_doc} writes. *)
+      @param profile the syntax {!Source.of_doc} writes; default {!Profile.djot}. *)
   val of_blocks : ?profile:Profile.t -> Block.t node list -> t
 
   (** [replace_lines d ~first ~last s] is [d] with source lines [first] to [last]
@@ -395,11 +394,12 @@ module Doc : sig
   (** {!replace_bytes}, with the lines it parsed again. *)
   val replace_bytes_changed : t -> first:int -> last:int -> string -> t * change
 
-  (** The string the document was parsed from, which {!textloc}'s byte ranges index.
-      [None] if it was made by {!of_blocks}. {!Mapper.map_doc} keeps it, so after a map it
-      is the source of the tree before the map. *)
+  (** The string the document was parsed from. {!textloc} gives byte ranges in it.
+
+      {!Mapper.map_doc} does not change it.
+
+      @return [None] if the document was made by {!of_blocks}. *)
   val source : t -> string option
-  (* CR: bad docstring *)
 
   val blocks : t -> Block.t node list
 
@@ -446,32 +446,25 @@ module Stream : sig
   (** A parse fed its input in parts. Blocks are returned as the input closes them, and
       {!finish} gives the document.
 
-      The blocks are top level and in source order. They differ from {!Doc.blocks} in two
-      ways: a heading is not wrapped in a {!Block.Section} (see {!Sections}), and each
-      {!Block.FootnoteDef} is where it was written. A heading has the identifier it has in
-      the document, as an attribute of the heading. A block that was returned is final: no
-      later input changes it (Rocq: [Invariants.incremental_no_future_line_dependence]).
-
-      {!Doc.reference} and {!Doc.footnote} have no counterpart here, since a definition
-      can come after its use; they are answered by the document {!finish} gives.
-
-      A value of type {!t} is immutable, so a stream can be continued from any earlier
-      point. *)
+      - The blocks are top level and in source order.
+      - differ from {!Doc.blocks} in two ways:
+        - a heading is not wrapped in a {!Block.Section} (see {!Sections})
+        - each {!Block.FootnoteDef} is where it was written. *)
   type t
 
-  (** [profile] and [locs] as in {!Doc.of_string}. *)
   val start : ?profile:Profile.t -> ?locs:bool -> unit -> t
 
-  (** Feed bytes: any part of the input, holding several lines or part of one. Returns the
-      blocks closed by the lines this completes. Bytes after the last newline are held
-      until their line ends. *)
+  (** Feed bytes: any part of the input, holding several lines or part of one.
+
+      @return
+        the blocks closed by the lines this completes. Bytes after the last newline are
+        held until their line ends. *)
   val feed_string : t -> string -> Block.t node list * t
 
   (** [feed_line t l] is [feed_string t (l ^ "\n")]. *)
   val feed_line : t -> string -> Block.t node list * t
 
-  (** The blocks {!feed_string} has not returned yet, as they would be if the input ended
-      here. Unlike returned blocks they can change with more input. *)
+  (** held blocks that would be returned if the input ended here. *)
   val peek : t -> Block.t node list
 
   (** The document of all the input fed, equal to {!Doc.of_string} on its concatenation.
@@ -479,10 +472,8 @@ module Stream : sig
       With [locs], {!Doc.textloc} of this document locates the returned blocks. *)
   val finish : t -> Doc.t
 
-  (** {2 Sections}
-      The sections {!Doc.blocks} nests the blocks in, as events over the returned blocks:
+  (** The sections {!Doc.blocks} nests the blocks in, as events over the returned blocks:
       a heading leaves every open section of its level or deeper and enters its own. *)
-
   module Sections : sig
     type event =
       | Enter of Attr.t
