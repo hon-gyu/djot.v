@@ -41,11 +41,11 @@ let rec inline_text il =
    | Span (_, ils) -> go ils
    | UrlLink s -> s
    | EmailLink s -> s
-   | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | RawInline (_, s) -> s
    | Quoted (_, ils) -> go ils
    | SoftBreak -> nl
    | HardBreak -> nl
+   | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | _ -> "")
 
 (** val inlines_text : inlines -> string **)

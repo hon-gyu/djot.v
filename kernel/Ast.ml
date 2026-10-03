@@ -281,12 +281,12 @@ type inline =
 | FootnoteReference of string
 | UrlLink of string
 | EmailLink of string
-| Ext_wikilink of bool * string * string option
 | RawInline of string * string
 | NonBreakingSpace
 | Quoted of quote_type * inline node list
 | SoftBreak
 | HardBreak
+| Ext_wikilink of bool * string * string option
 
 type inlines = inline node list
 
