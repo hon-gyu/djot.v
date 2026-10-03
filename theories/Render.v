@@ -1288,13 +1288,15 @@ Qed.
    class goes on its fence instead when it is one word and comes first:
    an attribute line's class replaces the fence's, so two words have to
    go on the line, and a fence's class reads back ahead of the line's
-   attributes.  A named div's fence holds its name. *)
+   attributes.  A named div's fence holds its name, and with `bdiv_names`
+   a fence's word is a name, so a class stays on the line. *)
 Definition attr_lines (a : attr) : list string :=
   match a with [] => [] | _ => [attr_spec a] end.
 
 Definition fence_class (a : attr) (b : block) : string :=
   match b with
   | Div EmptyString _ =>
+      if bdiv_names then EmptyString else
       match a with
       | (k, c) :: _ =>
           if String.eqb k "class" && class_word_ok c then c else EmptyString
@@ -1302,6 +1304,12 @@ Definition fence_class (a : attr) (b : block) : string :=
       end
   | _ => EmptyString
   end.
+
+Lemma fence_class_nil : forall b, fence_class [] b = EmptyString.
+Proof.
+  intros b. destruct b; try reflexivity. destruct name; [|reflexivity].
+  cbn [fence_class]. destruct bdiv_names; reflexivity.
+Qed.
 
 Definition drop_class (cls : string) (a : attr) : attr :=
   if String.eqb cls EmptyString then a
@@ -1439,15 +1447,14 @@ Lemma render_lines_noclass :
 Proof.
   intros a x H.
   assert (Hc : forall name bs, fence_class a (Div name bs) = EmptyString).
-  { intros name bs. destruct name; [|reflexivity]. destruct a as [|[k v] a']; [reflexivity|].
-    cbn [alist_lookup] in H. cbn [fence_class].
+  { intros name bs. destruct name; [|reflexivity]. cbn [fence_class].
+    destruct bdiv_names; [reflexivity|]. destruct a as [|[k v] a']; [reflexivity|].
+    cbn [alist_lookup] in H.
     destruct (String.eqb "class" k) eqn:E; [discriminate H|].
     rewrite String.eqb_sym, E. reflexivity. }
-  assert (Hc0 : forall name bs, fence_class [] (Div name bs) = EmptyString).
-  { intros [|] bs; reflexivity. }
   unfold render_block_lines.
   destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
-    try (rewrite Hc, Hc0; reflexivity); reflexivity.
+    try (rewrite Hc, fence_class_nil; reflexivity); reflexivity.
 Qed.
 
 Lemma render_block_div :
@@ -1458,9 +1465,7 @@ Lemma render_block_div :
          :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
 Proof.
   intros name bs H. unfold render_block_lines.
-  assert (Hw : fence_class [] (Div name bs) = EmptyString)
-    by (destruct name; reflexivity).
-  cbn [render_lines]. rewrite Hw.
+  cbn [render_lines]. rewrite fence_class_nil.
   cbn [drop_class attr_lines String.eqb app].
   change (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
     with (render_blocks_lines bs).

@@ -156,7 +156,7 @@ val item_or_marker_lines : litem -> string list
 
 val attr_lines : attr -> string list
 
-val fence_class : attr -> block -> string
+val fence_class : bconfig -> attr -> block -> string
 
 val drop_class : string -> attr -> attr
 

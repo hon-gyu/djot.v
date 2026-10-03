@@ -210,6 +210,31 @@ Example r_tag_attr : tag_ranges ":kbd[a]{.c} x" = [(0, 7); (5, 6); (11, 13)].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
+Rendering
+=========
+
+With names on, a fence's word reads back as a name, so an unnamed div's
+class stays on the attribute line.
+*)
+
+Local Notation Render :=
+  (@render_djot (profile_inline tags_profile) (profile_block tags_profile)).
+
+Example render_class_off_the_fence :
+  (Render (Named "{.warn}
+:::
+body
+:::"), Named (Render (Named "{.warn}
+:::
+body
+:::")))
+  = ("{.warn}
+:::
+body
+:::", [Node NoPos [("class", "warn")] (Div "" [P [S "body"]])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(*
 The roundtrip, at this profile
 ==============================
 *)

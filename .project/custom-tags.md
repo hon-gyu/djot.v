@@ -189,6 +189,9 @@ With the setting on:
 | `::: details` / `x` / `:::` | a div named `details` |
 | `{.a}` / `::: b` / `y` / `:::` | a div named `b` with class `a` |
 
+A renderer with the setting on writes an unnamed div's class on the
+attribute line, never as the fence's word.
+
 ## 8. In the development
 
 - The tree: `Div` and `Span` carry the name as a string, empty meaning
