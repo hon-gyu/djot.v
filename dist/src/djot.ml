@@ -611,8 +611,102 @@ module Doc = struct
   ;;
 end
 
+module Stream = struct
+  type t =
+    { profile : Profile.t
+    ; locs : bool
+    ; chunks : string list (* The input so far, last chunk first. *)
+    ; partial : string list (* The unfinished line's parts, last first. *)
+    ; pieces : K.Reparse.piece list (* The finished pieces, last first. *)
+    ; offset : int (* The lines in [pieces]. *)
+    ; pending : K.Reparse.pending
+    }
+
+  let start ?(profile = Profile.djot) ?(locs = false) () =
+    { profile
+    ; locs
+    ; chunks = []
+    ; partial = []
+    ; pieces = []
+    ; offset = 0
+    ; pending = K.Reparse.fresh
+    }
+  ;;
+
+  let rec drop n l =
+    match l with
+    | _ :: rest when n > 0 -> drop (n - 1) rest
+    | _ -> l
+  ;;
+
+  (* The blocks of the piece being read that [feed] has not returned yet,
+     placed where the piece starts. *)
+  let unreturned t bs =
+    let bs = drop (List.length t.pending.K.Reparse.pend_blocks) bs in
+    if t.locs then K.Ast.Shift.of_blocks t.offset bs else bs
+  ;;
+
+  (* One whole line. A line that leaves the fold idle ends the piece. *)
+  let line t l =
+    let stp, _ = Doc.fold_step ~locs:t.locs t.profile in
+    match K.Reparse.cut stp [ l ] t.pending with
+    | [], p -> unreturned t p.K.Reparse.pend_blocks, { t with pending = p }
+    | c :: _, p ->
+      ( unreturned t c.K.Reparse.piece_blocks
+      , { t with
+          pieces = c :: t.pieces
+        ; offset = t.offset + List.length c.K.Reparse.piece_lines
+        ; pending = p
+        } )
+  ;;
+
+  let feed_string t s =
+    let t = { t with chunks = s :: t.chunks } in
+    let rec go acc t = function
+      | [] -> acc, t
+      | [ last ] -> acc, if last = "" then t else { t with partial = last :: t.partial }
+      | part :: rest ->
+        let bs, t = line t (String.concat "" (List.rev (part :: t.partial))) in
+        go (List.rev_append bs acc) { t with partial = [] } rest
+    in
+    let acc, t = go [] t (String.split_on_char '\n' s) in
+    List.rev acc, t
+  ;;
+
+  let feed_line t l = feed_string t (l ^ "\n")
+
+  (* The pieces as if input ended here: the unfinished line, if it has
+     bytes, is the last line. *)
+  let ended t =
+    let stp, fin = Doc.fold_step ~locs:t.locs t.profile in
+    let cs, p =
+      match t.partial with
+      | [] -> [], t.pending
+      | parts -> K.Reparse.cut stp [ String.concat "" (List.rev parts) ] t.pending
+    in
+    cs @ K.Reparse.close fin p
+  ;;
+
+  let peek t = unreturned t (K.Reparse.pieces_tree (ended t))
+
+  let finish t =
+    Doc.of_pieces
+      ~profile:t.profile
+      ~locs:t.locs
+      (String.concat "" (List.rev t.chunks))
+      (List.rev_append t.pieces (ended t))
+  ;;
+end
+
 module For_testing = struct
   let kernel (d : Doc.t) = d.kernel
+
+  let parsed (d : Doc.t) =
+    match d.source, d.lines with
+    | Some (_, ps), Some _ -> K.Reparse.assemble 0 ps
+    | Some (_, ps), None -> K.Reparse.pieces_tree ps
+    | None, _ -> invalid_arg "For_testing.parsed: not made by of_string"
+  ;;
 end
 
 (* Both traversals match every constructor by name, leaves included, so a

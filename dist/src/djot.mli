@@ -407,11 +407,51 @@ module Doc : sig
   val syntax_locs : t -> 'a node -> (syntax * Textloc.t) list
 end
 
+(** {1 Streaming} *)
+
+module Stream : sig
+  (** A parse fed its input in parts. Blocks are returned as the input closes them, and
+      {!finish} gives the document.
+
+      The blocks are the parser's, before the document pass: top level, in source order,
+      headings not wrapped in a {!Block.Section} and without a derived identifier,
+      {!Block.FootnoteDef} and {!Block.RefDef} where they were written. A block that was
+      returned is final: no later input changes it (Rocq:
+      [Invariants.incremental_no_future_line_dependence]).
+
+      A value of type {!t} is immutable, so a stream can be continued from any earlier
+      point. *)
+  type t
+
+  (** [profile] and [locs] as in {!Doc.of_string}. *)
+  val start : ?profile:Profile.t -> ?locs:bool -> unit -> t
+
+  (** Feed bytes: any part of the input, holding several lines or part of one. Returns the
+      blocks closed by the lines this completes. Bytes after the last newline are held
+      until their line ends. *)
+  val feed_string : t -> string -> Block.t node list * t
+
+  (** [feed_line t l] is [feed_string t (l ^ "\n")]. *)
+  val feed_line : t -> string -> Block.t node list * t
+
+  (** The blocks {!feed_string} has not returned yet, as they would be if the input ended
+      here. Unlike returned blocks they can change with more input. *)
+  val peek : t -> Block.t node list
+
+  (** The document of all the input fed, equal to {!Doc.of_string} on its concatenation.
+      Every block returned by a feed, followed by {!peek}, is the parse it was built from.
+      With [locs], {!Doc.textloc} of this document locates the returned blocks. *)
+  val finish : t -> Doc.t
+end
+
 (** /**)
 
 module For_testing : sig
   (** The document without its source and line table, so that two parses compare with [=]. *)
   val kernel : Doc.t -> Kernel.Ast.doc
+
+  (** The blocks the document pass was run over. *)
+  val parsed : Doc.t -> Block.t node list
 end
 
 (** /**)
