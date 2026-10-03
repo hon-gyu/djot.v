@@ -307,6 +307,71 @@ module Profile = struct
   let with_ext_keyed = block K.Step.with_keyed
   let with_ext_callouts = block K.Step.with_callouts
   let with_ext_tags = K.Profile.with_tags
+
+  let with_ext_setext_headings b =
+    block K.Step.with_underline K.Step.(if b then setext_underline else no_underline)
+  ;;
+
+  let with_ext_list_interrupts b =
+    block K.Step.with_marker_interrupts K.Step.(if b then prose_safe_markers else no_interrupt)
+  ;;
+
+  (* The two block rules are functions, told apart by which kernel value
+     they are. *)
+  let pp ppf (p : t) =
+    let t = p.profile_inline
+    and k = p.profile_block in
+    let switch b = if b then "on" else "off" in
+    let rule f ~on ~off = if f == on then "on" else if f == off then "off" else "custom" in
+    let delim s =
+      let run = String.make (t.dc_width s) (t.dc_char s) in
+      match t.dc_syntax s with
+      | K.InlineTable.DOff -> "off"
+      | DBraced -> run ^ " braced"
+      | DBare -> run ^ " bare"
+      | DBareAfterBreak -> run ^ " bare after a break"
+    in
+    let fields =
+      [ "emph", delim DEmph
+      ; "strong", delim DStrong
+      ; "superscript", delim DSuper
+      ; "subscript", delim DSub
+      ; "highlight", delim DMark
+      ; "insert", delim DInsert
+      ; "delete", delim DDelete
+      ; "single_quote", delim DSQuote
+      ; "double_quote", delim DDQuote
+      ; "footnotes", switch (t.dc_footnotes && k.bfootnotes)
+      ; "smart_typography", switch t.dc_smart_typography
+      ; "raw_inline", switch t.dc_raw_inline
+      ; "math", switch t.dc_math
+      ; "inline_attrs", switch t.dc_attrs
+      ; "tables", switch k.btables
+      ; "divs", switch k.bdivs
+      ; "tasks", switch k.btasks
+      ; "raw_blocks", switch k.braw_blocks
+      ; "deflists", switch k.bdeflists
+      ; "block_attrs", switch k.battrs
+      ; "heading_continuation", switch k.bheading_continues
+      ; "ext_wikilinks", switch t.dc_wikilinks
+      ; "ext_dollar_math", switch t.dc_dollar_math
+      ; "ext_keyed", switch k.bkeyed
+      ; "ext_callouts", switch k.bcallouts
+      ; "ext_tags", switch (t.dc_tags && k.bdiv_names)
+      ; ( "ext_setext_headings"
+        , rule k.bunderline ~on:K.Step.setext_underline ~off:K.Step.no_underline )
+      ; ( "ext_list_interrupts"
+        , rule k.bmarker_interrupts ~on:K.Step.prose_safe_markers ~off:K.Step.no_interrupt )
+      ]
+    in
+    Format.pp_open_vbox ppf 0;
+    Format.pp_print_list
+      ~pp_sep:Format.pp_print_cut
+      (fun ppf (name, v) -> Format.fprintf ppf "%s: %s" name v)
+      ppf
+      fields;
+    Format.pp_close_box ppf ()
+  ;;
 end
 
 module Doc = struct
@@ -529,7 +594,10 @@ module Doc = struct
            (Option.map loc cap, List.map (fun (r, cs) -> loc r, List.map loc cs) rows))
   ;;
 
-  let kernel d = d.kernel
+end
+
+module For_testing = struct
+  let kernel (d : Doc.t) = d.kernel
 end
 
 (* Both traversals match every constructor by name, leaves included, so a

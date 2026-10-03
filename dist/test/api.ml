@@ -229,7 +229,7 @@ let () =
   let same profile =
     let d = Doc.of_string ~profile src in
     let d' = Doc.of_string ~profile (Source.of_doc d) in
-    assert (Doc.kernel d' = Doc.kernel d)
+    assert (For_testing.kernel d' = For_testing.kernel d)
   in
   same Profile.djot;
   same Profile.markdown_like;
@@ -264,7 +264,7 @@ let () =
      ] -> assert (bytes (Doc.textloc d title) = (14, 26))
    | _ -> failwith "unexpected callout");
   let d' = Doc.of_string ~profile (Source.of_doc d) in
-  assert (Doc.kernel d' = Doc.kernel (Doc.of_string ~profile src));
+  assert (For_testing.kernel d' = For_testing.kernel (Doc.of_string ~profile src));
   let spaced = Doc.of_string ~profile ~locs:true "> [!note] T  \n" in
   match Doc.blocks spaced with
   | [ Node
@@ -281,7 +281,7 @@ let () =
   let src = "- a\n-\n- b\n\nB.\n" in
   let d = Doc.of_string src in
   assert (Source.of_doc d = "- a\n-\n- b\n\nB.");
-  assert (Doc.kernel (Doc.of_string (Source.of_doc d)) = Doc.kernel d)
+  assert (For_testing.kernel (Doc.of_string (Source.of_doc d)) = For_testing.kernel d)
 ;;
 
 (* A key's label is located like any other inline. *)
@@ -368,7 +368,7 @@ let () =
                   in
                   let expected = Doc.of_string ~locs (String.concat "\n" edited ^ "\n") in
                   let got = Doc.replace_lines d ~first ~last s in
-                  assert (Doc.kernel got = Doc.kernel expected);
+                  assert (For_testing.kernel got = For_testing.kernel expected);
                   assert (Doc.footnote_defs got = Doc.footnote_defs expected);
                   assert (ranges got = ranges expected))
                 news
@@ -426,4 +426,35 @@ let () =
     assert (Source.of_blocks [ quote ] = "{.c}\n> a {*b*}\\\n> c");
     assert (Source.of_inlines ils = "a {*b*}\\\nc")
   | _ -> failwith "unexpected document"
+;;
+
+(* The two block rules as switches, and a profile printed. *)
+let () =
+  let setext p = Doc.blocks (Doc.of_string ~profile:p "a\n===\n") in
+  let is_heading = function
+    | [ Node (_, _, Block.Section [ Node (_, _, Block.Heading (1, _)) ]) ] -> true
+    | _ -> false
+  in
+  assert (is_heading (setext (Profile.with_ext_setext_headings true Profile.djot)));
+  assert (not (is_heading (setext Profile.djot)));
+  assert (not (is_heading (setext (Profile.with_ext_setext_headings false Profile.markdown_like))));
+  let interrupts p =
+    match Doc.blocks (Doc.of_string ~profile:p "a\n- b\n") with
+    | [ _; Node (_, _, Block.BulletList _) ] -> true
+    | _ -> false
+  in
+  assert (interrupts (Profile.with_ext_list_interrupts true Profile.djot));
+  assert (not (interrupts Profile.djot));
+  let printed p = Format.asprintf "%a" Profile.pp p in
+  let has s sub =
+    let n = String.length sub in
+    let rec go i = i + n <= String.length s && (String.sub s i n = sub || go (i + 1)) in
+    go 0
+  in
+  assert (has (printed Profile.djot) "strong: * bare");
+  assert (has (printed Profile.djot) "ext_setext_headings: off");
+  assert (has (printed Profile.markdown_like) "strong: ** bare");
+  assert (has (printed Profile.markdown_like) "ext_setext_headings: on");
+  assert (
+    has (printed (Profile.with_ext_list_interrupts true Profile.djot)) "ext_list_interrupts: on")
 ;;

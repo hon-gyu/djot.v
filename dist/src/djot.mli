@@ -30,7 +30,7 @@ module Attr : sig
   val classes : t -> string list
 
   (** The entries other than ["id"] and ["class"]. *)
-  val key_values : t -> (string * string) list
+  val kvs : t -> (string * string) list
 
   (** Whether a string can be a key: one or more of [a-z], [A-Z], [0-9], [-], [_], [:]. *)
   val is_key : string -> bool
@@ -312,6 +312,18 @@ module Profile : sig
   (** Custom tag names: [::: name] names a {!Block.Div} and [:name[...]] a {!Inline.Span}.
       Both spellings move together. *)
   val with_ext_tags : bool -> t -> t
+
+  (** A setext heading: a paragraph underlined with [=] (level 1) or two or more [-]
+      (level 2). On in {!markdown_like}. *)
+  val with_ext_setext_headings : bool -> t -> t
+
+  (** A bullet, or an ordered marker numbered [1], starts a list on the line after
+      paragraph text, with no blank line between. On in {!markdown_like}. *)
+  val with_ext_list_interrupts : bool -> t -> t
+
+  (** One [name: value] line per switch above, named as the switch without [with_], after
+      one line per delimiter giving its characters and how it is written. *)
+  val pp : Format.formatter -> t -> unit
 end
 
 (** {1 Documents} *)
@@ -329,19 +341,13 @@ module Doc : sig
       {!Source.of_doc} writes. *)
   val of_blocks : ?profile:Profile.t -> Block.t node list -> t
 
-  (** [replace_lines d ~first ~last s] is {!of_string}, with [d]'s profile and [locs], of
-      [d]'s source with lines [first] to [last] (one-based, inclusive) replaced by [s].
-      [last = first - 1] inserts before line [first]. A newline is added after [s] when it
-      does not end with one and lines follow it.
+  (** [replace_lines d ~first ~last s] is [d] with source lines [first] to [last]
+      (one-based, inclusive) replaced by [s], re-parsing only the part the edit can
+      affect. The result equals {!of_string} on the edited source. [last = first - 1]
+      inserts before line [first].
 
-      The parse is kept in pieces cut where the block parser is idle, each parsed with its
-      lines numbered from its first. Only the pieces from the edit to the next such point
-      are parsed again; the ones after it keep their blocks and are shifted to their new
-      first line (Reparse.v, [splice_pieces], [replace_reuses]). The document pass runs
-      over the whole result.
-
-      Raises [Invalid_argument] if [d] was made by {!of_blocks}, or the range is not
-      within [d]'s lines. *)
+      Raises [Invalid_argument] if [d] was made by {!of_blocks} or the range is outside
+      [d]'s lines. *)
   val replace_lines : t -> first:int -> last:int -> string -> t
 
   (** The string the document was parsed from, which {!textloc}'s byte ranges index.
@@ -398,9 +404,16 @@ module Doc : sig
 
   (** {!NoParts} under the same conditions as {!textloc}. *)
   val parts : t -> 'a node -> parts
-
-  val kernel : t -> Kernel.Ast.doc
 end
+
+(** /**)
+
+module For_testing : sig
+  (** The document without its source and line table, so that two parses compare with [=]. *)
+  val kernel : Doc.t -> Kernel.Ast.doc
+end
+
+(** /**)
 
 (** {1 Traversals} *)
 
