@@ -11,8 +11,8 @@
 
    *Bounds*: every span the tree carries resolves to a byte range inside
    the document, running forwards.  *Containment*: the tree nests, so a
-   child's span lies inside its parent's and a part's inside the node
-   that owns it.
+   child's span lies inside its parent's, list items, table rows, cells
+   and captions included.
 
    Syntax roles are bounds-checked and not contained, and that is by
    design rather than by omission: an `RAttrSpec` sits outside the node it
@@ -56,31 +56,14 @@ let located_failures src =
       let own = bytes what p.Djot.Ast.node_span in
       List.iter (fun (_, s) -> ignore (bytes (what ^ " role") s))
         p.Djot.Ast.syntax_spans;
-      (match p.Djot.Ast.part_spans with
-       | Djot.Ast.PNone -> ()
-       | Djot.Ast.PItems items ->
-         List.iter (fun s -> inside (what ^ " item") (bytes (what ^ " item") s) own)
-           items
-       | Djot.Ast.PDefItems items ->
-         List.iter
-           (fun ((i, t), d) ->
-              List.iter
-                (fun (n, s) -> inside (what ^ n) (bytes (what ^ n) s) own)
-                [ (" def item", i); (" def term", t); (" def body", d) ])
-           items
-       | Djot.Ast.PTable (caption, rows) ->
-         (match caption with
-          | None -> ()
-          | Some s -> inside (what ^ " caption") (bytes (what ^ " caption") s) own);
-         List.iter
-           (fun (row, cells) ->
-              let r = bytes (what ^ " row") row in
-              inside (what ^ " row") r own;
-              List.iter
-                (fun c -> inside (what ^ " cell") (bytes (what ^ " cell") c) r)
-                cells)
-           rows);
       own
+  in
+  (* A list item, a definition's term or body, a table row, cell or
+     caption: positioned like any node and inside its parent. *)
+  let part what n parent =
+    let own = prov what n in
+    inside what own parent;
+    own
   in
   let rec inlines parent ils =
     List.iter
@@ -110,15 +93,38 @@ let located_failures src =
             | Djot.Ast.Div (_, bs') | Djot.Ast.FootnoteDef (_, bs') -> blocks own bs'
             | Djot.Ast.Ext_keyed (_, kid) -> blocks own [kid]
             | Djot.Ast.OrderedList (_, _, items)
-            | Djot.Ast.BulletList (_, items) -> List.iter (blocks own) items
-            | Djot.Ast.TaskList (_, items) ->
-              List.iter (fun (_, item) -> blocks own item) items
-            | Djot.Ast.DefinitionList (_, items) ->
-              List.iter (fun (term, item) -> inlines own term; blocks own item) items
-            | Djot.Ast.Table (caption, rows) ->
-              inlines own caption;
+            | Djot.Ast.BulletList (_, items) ->
               List.iter
-                (List.iter (function Djot.Ast.Cell (_, _, ils) -> inlines own ils))
+                (fun it ->
+                   let o = part "item" it own in
+                   blocks o (Djot.Ast.node_contents it))
+                items
+            | Djot.Ast.TaskList (_, items) ->
+              List.iter
+                (fun it ->
+                   let o = part "item" it own in
+                   blocks o (snd (Djot.Ast.node_contents it)))
+                items
+            | Djot.Ast.DefinitionList (_, items) ->
+              List.iter
+                (fun it ->
+                   let o = part "def item" it own in
+                   let term, def = Djot.Ast.node_contents it in
+                   inlines (part "def term" term o) (Djot.Ast.node_contents term);
+                   blocks (part "def body" def o) (Djot.Ast.node_contents def))
+                items
+            | Djot.Ast.Table (caption, rows) ->
+              (match caption with
+               | Djot.Ast.Node (Djot.Ast.NoPos, _, []) -> ()
+               | _ -> inlines (part "caption" caption own) (Djot.Ast.node_contents caption));
+              List.iter
+                (fun row ->
+                   let r = part "row" row own in
+                   List.iter
+                     (fun cell ->
+                        match part "cell" cell r, Djot.Ast.node_contents cell with
+                        | c, Djot.Ast.Cell (_, _, ils) -> inlines c ils)
+                     (Djot.Ast.node_contents row))
                 rows
             | _ -> ()))
       bs

@@ -200,19 +200,9 @@ Inductive syntax_role : Type :=
   | ROpenFence
   | RCloseFence.
 
-(* Ranges of the source-bearing parts of the AST that are not nodes (list
-   items, definition items, table rows and cells), parallel to the
-   parent's children. *)
-Inductive parts : Type :=
-  | PNone
-  | PItems (items : list span)
-  | PDefItems (items : list (span * span * span))
-  | PTable (caption : option span) (rows : list (span * list span)).
-
 Record provenance : Type := Provenance
   { node_span : span
-  ; syntax_spans : list (syntax_role * span)
-  ; part_spans : parts }.
+  ; syntax_spans : list (syntax_role * span) }.
 
 Inductive pos : Type :=
   | NoPos
@@ -286,12 +276,12 @@ Local Lemma pspan_semantic : forall r, @pspan semantic_pos r = null_span.
 Proof. reflexivity. Qed.
 
 (* Provenance that is just a range. *)
-Definition prov_at (r : span) : provenance := Provenance r [] PNone.
+Definition prov_at (r : span) : provenance := Provenance r [].
 
 (* A range with the authored syntax that belongs to it: a fence's own
    lines, an attribute spec. *)
 Definition prov_with (r : span) (rs : list (syntax_role * span))
-  : provenance := Provenance r rs PNone.
+  : provenance := Provenance r rs.
 
 (* Attribute specs, in source order, as the roles they become. *)
 Definition attr_roles (specs : list span) : list (syntax_role * span) :=
@@ -337,8 +327,7 @@ Definition add_roles `{PosPolicy} {A : Type}
   if pos_records then
     match n with
     | Node (SomePos p) a x =>
-        Node (SomePos (Provenance (node_span p)
-                         (syntax_spans p ++ rs)%list (part_spans p))) a x
+        Node (SomePos (Provenance (node_span p) (syntax_spans p ++ rs)%list)) a x
     | _ => n
     end
   else n.
@@ -390,8 +379,7 @@ Definition hull_pos_with `{PosPolicy} {A : Type} (ns : list (node A)) : pos :=
       | [] => SomePos p
       | first :: _ =>
           match node_provenance first with
-          | Some q => SomePos (Provenance (node_span p) (syntax_spans q)
-                                 (part_spans p))
+          | Some q => SomePos (Provenance (node_span p) (syntax_spans q))
           | None => SomePos p
           end
       end
@@ -428,11 +416,6 @@ Local Lemma set_pos_semantic :
   forall A (p : provenance) (n : node A), @set_pos semantic_pos A p n = n.
 Proof. reflexivity. Qed.
 
-(* Removes the wrappers at the semantic instance.  They reduce away by
-   conversion, but `rewrite` is syntactic. *)
-Ltac nopos :=
-  rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
-    ?add_roles_head_semantic, ?hull_pos_semantic, ?hull_pos_with_semantic.
 
 Local Lemma set_pos_located :
   forall A (p : provenance) (q : pos) (a : attr) (x : A),
@@ -607,7 +590,11 @@ Inductive cell : Type :=
 
 (* Block content.  `Section` is built by the document pass
    (`Document.sectionize`); every other constructor by the block
-   parser. *)
+   parser.
+
+   A list item, a definition item with its term and definition, a table
+   row, a cell and a caption are nodes, as in djot.js, so each has a
+   position of its own.  The parser gives them no attributes. *)
 Inductive block : Type :=
   | Para (ils : inlines)
   | Section (bs : list (node block))
@@ -618,18 +605,19 @@ Inductive block : Type :=
      class; empty means unnamed.  As for `Span`. *)
   | Div (name : string) (bs : list (node block))
   | OrderedList (attrs : ordered_list_attributes) (sp : list_spacing)
-      (items : list (list (node block)))
-  | BulletList (sp : list_spacing) (items : list (list (node block)))
+      (items : list (node (list (node block))))
+  | BulletList (sp : list_spacing) (items : list (node (list (node block))))
   | TaskList (sp : list_spacing)
-      (items : list (task_status * list (node block)))
+      (items : list (node (task_status * list (node block))))
+  (* An item holds its term and its definition. *)
   | DefinitionList (sp : list_spacing)
-      (items : list (inlines * list (node block)))
+      (items : list (node (node inlines * node (list (node block)))))
   | ThematicBreak
   (* A caption is inline content, as djot.js parses it (djoths has
      blocks).  Keeping it inline also keeps `Table` a leaf for
      `block_ind2`.  An empty caption is no caption, as in djot.js's AST,
      so whether a table has one is not a block-level fact. *)
-  | Table (caption : inlines) (rows : list (list cell))
+  | Table (caption : node inlines) (rows : list (node (list (node cell))))
   | RawBlock (format : string) (contents : string)
   (* The source form of a footnote definition.  The document pass moves
      its children into `doc_footnotes`; the block stays so that the source
@@ -658,9 +646,9 @@ Definition blocks : Type := list (node block).
    D for definition items, K for task items.  `Table` holds only inlines
    and is a leaf. *)
 Definition block_ind2
-  (P : block -> Prop) (Q : blocks -> Prop) (R : list blocks -> Prop)
-  (D : list (inlines * blocks) -> Prop)
-  (K : list (task_status * blocks) -> Prop)
+  (P : block -> Prop) (Q : blocks -> Prop) (R : list (node blocks) -> Prop)
+  (D : list (node (node inlines * node blocks)) -> Prop)
+  (K : list (node (task_status * blocks)) -> Prop)
   (hpara : forall ils, P (Para ils))
   (hsection : forall bs, Q bs -> P (Section bs))
   (hheading : forall lvl ils, P (Heading lvl ils))
@@ -684,11 +672,13 @@ Definition block_ind2
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   (hinil : R [])
-  (hicons : forall it rest, Q it -> R rest -> R (it :: rest))
+  (hicons : forall p a it rest, Q it -> R rest -> R (Node p a it :: rest))
   (hdnil : D [])
-  (hdcons : forall term it rest, Q it -> D rest -> D ((term, it) :: rest))
+  (hdcons : forall p a term q b it rest, Q it -> D rest ->
+      D (Node p a (term, Node q b it) :: rest))
   (hknil : K [])
-  (hkcons : forall chk it rest, Q it -> K rest -> K ((chk, it) :: rest))
+  (hkcons : forall p a chk it rest, Q it -> K rest ->
+      K (Node p a (chk, it) :: rest))
   : forall b, P b :=
   fix go (b : block) : P b :=
     let golist :=
@@ -698,24 +688,24 @@ Definition block_ind2
         | Node p a x :: rest => hcons p a x rest (go x) (golist rest)
         end in
     let goitems :=
-      fix goitems (its : list blocks) : R its :=
+      fix goitems (its : list (node blocks)) : R its :=
         match its with
         | [] => hinil
-        | it :: rest => hicons it rest (golist it) (goitems rest)
+        | Node p a it :: rest => hicons p a it rest (golist it) (goitems rest)
         end in
     let gotasks :=
-      fix gotasks (its : list (task_status * blocks)) : K its :=
+      fix gotasks (its : list (node (task_status * blocks))) : K its :=
         match its with
         | [] => hknil
-        | (chk, it) :: rest =>
-            hkcons chk it rest (golist it) (gotasks rest)
+        | Node p a (chk, it) :: rest =>
+            hkcons p a chk it rest (golist it) (gotasks rest)
         end in
     let godefs :=
-      fix godefs (its : list (inlines * blocks)) : D its :=
+      fix godefs (its : list (node (node inlines * node blocks))) : D its :=
         match its with
         | [] => hdnil
-        | (term, it) :: rest =>
-            hdcons term it rest (golist it) (godefs rest)
+        | Node p a (term, Node q b it) :: rest =>
+            hdcons p a term q b it rest (golist it) (godefs rest)
         end in
     match b with
     | Para ils => hpara ils
@@ -801,23 +791,113 @@ Lemma def_item_none :
   forall bs, def_split bs = None -> def_item bs = ([], bs).
 Proof. intros bs H. unfold def_item. rewrite H. reflexivity. Qed.
 
-Definition def_items (its : list blocks) : list (inlines * blocks) :=
-  map def_item its.
+(* An item as the node it becomes: its term and its definition. *)
+Definition def_node (bs : blocks) : node (node inlines * node blocks) :=
+  let '(term, def) := def_item bs in mk (mk term, mk def).
+
+Definition def_items (its : list blocks)
+  : list (node (node inlines * node blocks)) :=
+  map def_node its.
 
 (* Pair a task list's statuses with its items.  Recursion is on the items,
    so a short status list pads with `Incomplete` rather than dropping
    items as `combine` would.  The parser keeps the two the same length
    (`Step.list_next`). *)
 Fixpoint task_items (chks : list task_status) (its : list blocks)
-  : list (task_status * blocks) :=
+  : list (node (task_status * blocks)) :=
   match its with
   | [] => []
   | it :: rest =>
       match chks with
-      | [] => (Incomplete, it) :: task_items [] rest
-      | c :: cs => (c, it) :: task_items cs rest
+      | [] => mk (Incomplete, it) :: task_items [] rest
+      | c :: cs => mk (c, it) :: task_items cs rest
       end
   end.
+
+(*
+Positions of parts
+------------------
+
+A list's items and a table's rows, cells and caption are built before
+their source ranges are known as a whole: the parser records the ranges
+while the list or table is open and puts them on the parts when it
+closes.
+*)
+
+(* The ranges of a list's or table's parts, in source order. *)
+Inductive parts : Type :=
+  | PItems (items : list span)
+  (* An item's range, its term's and its definition's. *)
+  | PDefItems (items : list (span * span * span))
+  | PTable (caption : option span) (rows : list (span * list span)).
+
+(* The `n`th range onto the `n`th node; nodes past the last range are
+   kept as they are. *)
+Fixpoint set_each `{PosPolicy} {A : Type} (rs : list span) (ns : list (node A))
+  : list (node A) :=
+  match rs, ns with
+  | r :: rs', n :: ns' => set_pos (prov_at r) n :: set_each rs' ns'
+  | _, _ => ns
+  end.
+
+Fixpoint set_defs `{PosPolicy} (rs : list (span * span * span))
+  (ns : list (node (node inlines * node blocks)))
+  : list (node (node inlines * node blocks)) :=
+  match rs, ns with
+  | (i, t, d) :: rs', Node p a (term, def) :: ns' =>
+      set_pos (prov_at i)
+        (Node p a (set_pos (prov_at t) term, set_pos (prov_at d) def))
+      :: set_defs rs' ns'
+  | _, _ => ns
+  end.
+
+Fixpoint set_rows `{PosPolicy} (rs : list (span * list span))
+  (ns : list (node (list (node cell)))) : list (node (list (node cell))) :=
+  match rs, ns with
+  | (r, cs) :: rs', Node p a cells :: ns' =>
+      set_pos (prov_at r) (Node p a (set_each cs cells)) :: set_rows rs' ns'
+  | _, _ => ns
+  end.
+
+Definition parts_onto `{PosPolicy} (ps : parts) (b : block) : block :=
+  match ps, b with
+  | PItems rs, OrderedList attrs sp its => OrderedList attrs sp (set_each rs its)
+  | PItems rs, BulletList sp its => BulletList sp (set_each rs its)
+  | PItems rs, TaskList sp its => TaskList sp (set_each rs its)
+  | PDefItems rs, DefinitionList sp its => DefinitionList sp (set_defs rs its)
+  | PTable cap rs, Table caption rows =>
+      Table (match cap with Some r => set_pos (prov_at r) caption | None => caption end)
+        (set_rows rs rows)
+  | _, _ => b
+  end.
+
+(* Tests the policy first, so it is the identity by conversion when
+   nothing is recorded. *)
+Definition set_parts `{PosPolicy} (ps : parts) (n : node block) : node block :=
+  if pos_records then
+    match n with Node p a x => Node p a (parts_onto ps x) end
+  else n.
+
+Local Lemma set_parts_semantic :
+  forall ps (n : node block), @set_parts semantic_pos ps n = n.
+Proof. reflexivity. Qed.
+
+(* Rows the parser builds are bare nodes of bare cells, and reading the
+   cells back out gives the rows. *)
+Lemma rows_mk_contents : forall rows : list (list cell),
+  map (fun r => map node_contents (node_contents r)) (map (fun r => mk (map mk r)) rows)
+  = rows.
+Proof.
+  intros rows. rewrite map_map. rewrite <- (map_id rows) at 2. apply map_ext.
+  intros r. cbn. rewrite map_map. apply map_id.
+Qed.
+
+(* Removes the wrappers at the semantic instance.  They reduce away by
+   conversion, but `rewrite` is syntactic. *)
+Ltac nopos :=
+  rewrite ?set_pos_semantic, ?pos_head_semantic, ?add_roles_semantic,
+    ?add_roles_head_semantic, ?hull_pos_semantic, ?hull_pos_with_semantic,
+    ?set_parts_semantic.
 
 Module Erase.
 
@@ -898,7 +978,16 @@ Proof. intros xs. rewrite !inlines_map. apply map_rev. Qed.
 Definition of_cell (c : cell) : cell :=
   match c with Cell ct al ils => Cell ct al (of_inlines ils) end.
 
+Definition cnode (n : node cell) : node cell :=
+  match n with Node _ a c => Node NoPos a (of_cell c) end.
+
 Definition row (r : list cell) : list cell := map of_cell r.
+
+Definition row_node (r : node (list (node cell))) : node (list (node cell)) :=
+  match r with Node _ a cs => Node NoPos a (map cnode cs) end.
+
+Definition inlines_node (n : node inlines) : node inlines :=
+  match n with Node _ a ils => Node NoPos a (of_inlines ils) end.
 
 Fixpoint of_block (b : block) : block :=
   let go :=
@@ -908,10 +997,10 @@ Fixpoint of_block (b : block) : block :=
       | Node _ a x :: rest => Node NoPos a (of_block x) :: go rest
       end in
   let goitems :=
-    fix goitems (items : list blocks) : list blocks :=
+    fix goitems (items : list (node blocks)) : list (node blocks) :=
       match items with
       | [] => []
-      | item :: rest => go item :: goitems rest
+      | Node _ a item :: rest => Node NoPos a (go item) :: goitems rest
       end in
   match b with
   | Para ils => Para (of_inlines ils)
@@ -923,22 +1012,21 @@ Fixpoint of_block (b : block) : block :=
   | BulletList sp items => BulletList sp (goitems items)
   | TaskList sp items =>
       TaskList sp
-        ((fix gotasks (items : list (task_status * blocks)) :=
+        ((fix gotasks (items : list (node (task_status * blocks))) :=
             match items with
             | [] => []
-            | (status, item) :: rest =>
-                (status, go item) :: gotasks rest
+            | Node _ a (status, item) :: rest =>
+                Node NoPos a (status, go item) :: gotasks rest
             end) items)
   | DefinitionList sp items =>
       DefinitionList sp
-        ((fix godefs (items : list (inlines * blocks)) :=
+        ((fix godefs (items : list (node (node inlines * node blocks))) :=
             match items with
             | [] => []
-            | (term, item) :: rest =>
-                (of_inlines term, go item) :: godefs rest
+            | Node _ a (term, Node _ b item) :: rest =>
+                Node NoPos a (inlines_node term, Node NoPos b (go item)) :: godefs rest
             end) items)
-  | Table caption rows =>
-      Table (of_inlines caption) (map row rows)
+  | Table cap rows => Table (inlines_node cap) (map row_node rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node _ a x) =>
       Ext_keyed (of_inlines label) (Node NoPos a (of_block x))
@@ -1002,28 +1090,127 @@ Proof.
   destruct (def_split bs) as [[term rest]|]; reflexivity.
 Qed.
 
-Lemma def_items_erase : forall items,
-  (fix go (items : list (inlines * blocks)) :=
+(* The item traversals of `of_block`, one item at a time. *)
+Definition item (n : node blocks) : node blocks :=
+  match n with Node _ a it => Node NoPos a (of_blocks it) end.
+
+Definition task_item (n : node (task_status * blocks)) : node (task_status * blocks) :=
+  match n with Node _ a (c, it) => Node NoPos a (c, of_blocks it) end.
+
+Definition def_entry (n : node (node inlines * node blocks))
+  : node (node inlines * node blocks) :=
+  match n with
+  | Node _ a (t, Node _ b it) => Node NoPos a (inlines_node t, Node NoPos b (of_blocks it))
+  end.
+
+Local Lemma blocks_fix : forall bs,
+  (fix go (bs : blocks) : blocks :=
+     match bs with
+     | [] => []
+     | Node _ a x :: rest => Node NoPos a (of_block x) :: go rest
+     end) bs = of_blocks bs.
+Proof. induction bs as [|[p a x] bs IH]; cbn; [reflexivity|]. rewrite IH. reflexivity. Qed.
+
+(* `of_block` on a list spelled with the named item maps. *)
+Lemma olist_items : forall attrs sp its,
+  of_block (OrderedList attrs sp its) = OrderedList attrs sp (map item its).
+Proof.
+  intros attrs sp its. cbn [of_block]. f_equal.
+  induction its as [|[p a it] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
+  reflexivity.
+Qed.
+
+Lemma blist_items : forall sp its,
+  of_block (BulletList sp its) = BulletList sp (map item its).
+Proof.
+  intros sp its. cbn [of_block]. f_equal.
+  induction its as [|[p a it] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
+  reflexivity.
+Qed.
+
+Lemma tlist_items : forall sp its,
+  of_block (TaskList sp its) = TaskList sp (map task_item its).
+Proof.
+  intros sp its. cbn [of_block]. f_equal.
+  induction its as [|[p a [c it]] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
+  reflexivity.
+Qed.
+
+Lemma dlist_items : forall sp its,
+  of_block (DefinitionList sp its) = DefinitionList sp (map def_entry its).
+Proof.
+  intros sp its. cbn [of_block]. f_equal.
+  induction its as [|[p a [t [q b it]]] its IH]; cbn; [reflexivity|].
+  rewrite blocks_fix, IH. reflexivity.
+Qed.
+
+(* Rows the parser builds are bare nodes of bare cells. *)
+Lemma rows_erase : forall rs : list (list cell),
+  map row_node (map (fun r => mk (map mk r)) rs) = map (fun r => mk (map mk r)) (map row rs).
+Proof.
+  intros rs. rewrite !map_map. apply map_ext. intros r. cbn [row_node mk].
+  unfold row. rewrite !map_map. reflexivity.
+Qed.
+
+(* Items the parser builds are bare nodes, so erasing them erases their
+   blocks. *)
+Lemma items_erase : forall its : list blocks,
+  (fix goitems (items : list (node blocks)) : list (node blocks) :=
      match items with
      | [] => []
-     | (term, item) :: rest =>
-         (of_inlines term, of_blocks item) :: go rest
+     | Node _ a item :: rest => Node NoPos a (of_blocks item) :: goitems rest
+     end) (map mk its) = map mk (map of_blocks its).
+Proof. induction its as [|it its IH]; cbn; [reflexivity|]. rewrite IH. reflexivity. Qed.
+
+Lemma def_items_erase : forall items,
+  (fix go (items : list (node (node inlines * node blocks))) :=
+     match items with
+     | [] => []
+     | Node _ a (term, Node _ b item) :: rest =>
+         Node NoPos a (inlines_node term, Node NoPos b (of_blocks item)) :: go rest
      end) (def_items items) = def_items (map of_blocks items).
 Proof.
   induction items as [|item rest IH]; [reflexivity|].
   cbn [def_items map]. fold def_items. unfold def_items in IH.
-  rewrite <- IH. pose proof (def_item_erase item) as H.
+  rewrite IH. unfold def_node. pose proof (def_item_erase item) as H.
   destruct (def_item item) as [term item'];
     destruct (def_item (of_blocks item)) as [term' item''];
     cbn in H |- *.
   injection H as -> ->. reflexivity.
 Qed.
 
+(* Copying ranges onto a list's or table's parts writes only positions,
+   so erasure does not see it. *)
+Lemma set_parts_erase : forall ps (n : node block) rest,
+  of_blocks (@set_parts located_pos ps n :: rest)%list = of_blocks (n :: rest)%list.
+Proof.
+  intros ps [p a x] rest. cbn [set_parts pos_records located_pos of_blocks].
+  do 2 f_equal.
+  destruct ps as [rs|rs|cap rs], x; cbn [parts_onto]; try reflexivity;
+    cbn [of_block]; f_equal.
+  1-3: revert items; induction rs as [|r rs IH]; intros [|[q b it] its];
+         try reflexivity; cbn; rewrite IH; reflexivity.
+  - revert items; induction rs as [|[[i t] d] rs IH];
+      intros [|[q b [[tp ta tx] [dp da dx]]] its]; try reflexivity; cbn; rewrite IH;
+      reflexivity.
+  - destruct cap; [destruct caption|]; reflexivity.
+  - revert rows; induction rs as [|[r cs] rs IH]; intros [|[q b cells] rows];
+      try reflexivity; cbn [set_rows map]; rewrite IH; f_equal; cbn; f_equal.
+    revert cells; induction cs as [|c cs IHc]; intros [|[q' b' cell] cells];
+      try reflexivity; cbn; rewrite IHc; reflexivity.
+Qed.
+
+Lemma set_pos_parts_erase : forall p ps (n : node block) rest,
+  of_blocks (@set_pos located_pos block p (@set_parts located_pos ps n) :: rest)%list =
+  of_blocks (n :: rest)%list.
+Proof. intros. rewrite blocks_set_pos. apply set_parts_erase. Qed.
+
 Lemma task_items_erase : forall checks items,
-  (fix go (items : list (task_status * blocks)) :=
+  (fix go (items : list (node (task_status * blocks))) :=
      match items with
      | [] => []
-     | (status, item) :: rest => (status, of_blocks item) :: go rest
+     | Node _ a (status, item) :: rest =>
+         Node NoPos a (status, of_blocks item) :: go rest
      end) (task_items checks items) =
   task_items checks (map of_blocks items).
 Proof.
@@ -1052,24 +1239,12 @@ Definition of_spot (d : nat) (s : spot) : spot :=
 Definition of_span (d : nat) (r : span) : span :=
   SrcSpan (of_spot d (span_start r)) (of_spot d (span_stop r)).
 
-Definition of_parts (d : nat) (ps : parts) : parts :=
-  match ps with
-  | PNone => PNone
-  | PItems items => PItems (map (of_span d) items)
-  | PDefItems items =>
-      PDefItems (map (fun '(i, t, b) => (of_span d i, of_span d t, of_span d b)) items)
-  | PTable cap rows =>
-      PTable (option_map (of_span d) cap)
-        (map (fun '(r, cs) => (of_span d r, map (of_span d) cs)) rows)
-  end.
-
 Definition of_pos (d : nat) (p : pos) : pos :=
   match p with
   | NoPos => NoPos
   | SomePos pr =>
       SomePos (Provenance (of_span d (node_span pr))
-                 (map (fun '(role, r) => (role, of_span d r)) (syntax_spans pr))
-                 (of_parts d (part_spans pr)))
+                 (map (fun '(role, r) => (role, of_span d r)) (syntax_spans pr)))
   end.
 
 Fixpoint of_inline (d : nat) (i : inline) : inline :=
@@ -1114,6 +1289,15 @@ Qed.
 Definition of_cell (d : nat) (c : cell) : cell :=
   match c with Cell ct al ils => Cell ct al (of_inlines d ils) end.
 
+Definition cnode (d : nat) (n : node cell) : node cell :=
+  match n with Node p a c => Node (of_pos d p) a (of_cell d c) end.
+
+Definition row (d : nat) (r : node (list (node cell))) : node (list (node cell)) :=
+  match r with Node p a cs => Node (of_pos d p) a (map (cnode d) cs) end.
+
+Definition inlines_node (d : nat) (n : node inlines) : node inlines :=
+  match n with Node p a ils => Node (of_pos d p) a (of_inlines d ils) end.
+
 Fixpoint of_block (d : nat) (b : block) : block :=
   let go :=
     fix go (bs : blocks) : blocks :=
@@ -1122,10 +1306,10 @@ Fixpoint of_block (d : nat) (b : block) : block :=
       | Node p a x :: rest => Node (of_pos d p) a (of_block d x) :: go rest
       end in
   let goitems :=
-    fix goitems (items : list blocks) : list blocks :=
+    fix goitems (items : list (node blocks)) : list (node blocks) :=
       match items with
       | [] => []
-      | item :: rest => go item :: goitems rest
+      | Node p a item :: rest => Node (of_pos d p) a (go item) :: goitems rest
       end in
   match b with
   | Para ils => Para (of_inlines d ils)
@@ -1137,20 +1321,22 @@ Fixpoint of_block (d : nat) (b : block) : block :=
   | BulletList sp items => BulletList sp (goitems items)
   | TaskList sp items =>
       TaskList sp
-        ((fix gotasks (items : list (task_status * blocks)) :=
+        ((fix gotasks (items : list (node (task_status * blocks))) :=
             match items with
             | [] => []
-            | (status, item) :: rest => (status, go item) :: gotasks rest
+            | Node p a (status, item) :: rest =>
+                Node (of_pos d p) a (status, go item) :: gotasks rest
             end) items)
   | DefinitionList sp items =>
       DefinitionList sp
-        ((fix godefs (items : list (inlines * blocks)) :=
+        ((fix godefs (items : list (node (node inlines * node blocks))) :=
             match items with
             | [] => []
-            | (term, item) :: rest => (of_inlines d term, go item) :: godefs rest
+            | Node p a (term, Node q b item) :: rest =>
+                Node (of_pos d p) a (inlines_node d term, Node (of_pos d q) b (go item))
+                :: godefs rest
             end) items)
-  | Table caption rows =>
-      Table (of_inlines d caption) (map (map (of_cell d)) rows)
+  | Table caption rows => Table (inlines_node d caption) (map (row d) rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed label (Node p a x) =>
       Ext_keyed (of_inlines d label) (Node (of_pos d p) a (of_block d x))
@@ -1207,49 +1393,42 @@ Proof.
         [reflexivity|cbn [Erase.of_blocks]; rewrite IH; reflexivity]).
   set (P := fun b => Erase.of_block (of_block d b) = Erase.of_block b).
   set (Q := fun bs => Erase.of_blocks (of_blocks d bs) = Erase.of_blocks bs).
-  set (R := fun its => map Erase.of_blocks (map (of_blocks d) its) = map Erase.of_blocks its).
-  set (D := fun its : list (inlines * blocks) =>
-    map (fun '(t, it) => (Erase.of_inlines t, Erase.of_blocks it))
-      (map (fun '(t, it) => (of_inlines d t, of_blocks d it)) its)
-    = map (fun '(t, it) => (Erase.of_inlines t, Erase.of_blocks it)) its).
-  set (KK := fun its : list (task_status * blocks) =>
-    map (fun '(c, it) => (c, Erase.of_blocks it))
-      (map (fun '(c, it) => (c, of_blocks d it)) its)
-    = map (fun '(c, it) => (c, Erase.of_blocks it)) its).
+  set (R := Forall (fun n : node blocks => Q (node_contents n))).
+  set (D := Forall (fun n : node (node inlines * node blocks) =>
+                      Q (node_contents (snd (node_contents n))))).
+  set (KK := Forall (fun n : node (task_status * blocks) =>
+                       Q (snd (node_contents n)))).
   assert (HP : forall b, P b).
   { apply (block_ind2 P Q R D KK); unfold P, Q, R, D, KK; intros;
+      try (constructor; assumption);
       cbn [of_block Erase.of_block];
       rewrite ?Hgo, ?Ego, ?erase_inlines; try congruence;
-      try (cbn [Erase.of_blocks of_blocks]; congruence);
-      try (cbn [map]; rewrite ?erase_inlines; f_equal; assumption).
+      try (cbn [Erase.of_blocks of_blocks]; congruence).
     (* lists: item by item *)
     all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|it rest IHi]; [reflexivity|];
-              cbn [map] in H; injection H as H1 H2; cbn; rewrite Hgo, Ego, H1;
+              induction items as [|[p a it] rest IHi]; [reflexivity|];
+              inversion H as [|? ? H1 H2]; subst; cbn;
+              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
               f_equal; apply IHi; exact H2).
     all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|[c it] rest IHi]; [reflexivity|];
-              cbn [map] in H; injection H as H1 H2; cbn;
-              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it), H1;
+              induction items as [|[p a [c it]] rest IHi]; [reflexivity|];
+              inversion H as [|? ? H1 H2]; subst; cbn;
+              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
               f_equal; apply IHi; exact H2).
     all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|[t it] rest IHi]; [reflexivity|];
-              cbn [map] in H; injection H as Hb H2 H3; cbn;
-              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it), H2, Hb;
-              f_equal; apply IHi; exact H3).
+              induction items as [|[p a [[tp ta t] [q b it]]] rest IHi]; [reflexivity|];
+              inversion H as [|? ? H1 H2]; subst; cbn;
+              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
+              rewrite erase_inlines; f_equal; apply IHi; exact H2).
     - (* table *)
-      f_equal.
-      unfold Erase.row. rewrite !map_map. apply map_ext. intros r.
-      rewrite map_map. apply map_ext. intros [ct al ils]. cbn.
+      destruct caption as [cp ca cils]. cbn. rewrite erase_inlines. f_equal.
+      rewrite !map_map. apply map_ext. intros [rp ra cs]. cbn.
+      rewrite map_map. f_equal. apply map_ext. intros [p a [ct al ils]]. cbn.
       rewrite erase_inlines. reflexivity.
     - (* key *)
       destruct b as [p a x]. cbn [of_blocks Erase.of_blocks] in H.
       injection H as Hx. cbn [Erase.of_block]. rewrite erase_inlines, Hx.
-      reflexivity.
-    - (* definition item *)
-      cbn [map]. rewrite H, erase_inlines. f_equal. exact H0.
-    - (* task item *)
-      cbn [map]. rewrite H. f_equal. exact H0. }
+      reflexivity. }
   intros bs. induction bs as [|[p a x] bs IH]; [reflexivity|].
   cbn [of_blocks Erase.of_blocks]. rewrite IH, (HP x). reflexivity.
 Qed.

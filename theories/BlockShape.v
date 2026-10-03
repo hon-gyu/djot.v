@@ -34,6 +34,12 @@ The projection
 Definition of_cell (c : cell) : cell :=
   match c with Cell ct al _ => Cell ct al [] end.
 
+(* A node's payload shaped by `f`, its position dropped. *)
+Definition shape {A : Type} (f : A -> A) (n : node A) : node A :=
+  match n with Node _ a x => Node NoPos a (f x) end.
+
+Definition clear {A : Type} (_ : list A) : list A := [].
+
 Fixpoint of_block (b : block) : block :=
   let go := map (fun n : node block =>
               match n with Node _ a x => Node NoPos a (of_block x) end) in
@@ -43,12 +49,14 @@ Fixpoint of_block (b : block) : block :=
   | Heading lvl _ => Heading lvl []
   | BlockQuote bs => BlockQuote (go bs)
   | Div name bs => Div name (go bs)
-  | OrderedList attrs sp items => OrderedList attrs sp (map go items)
-  | BulletList sp items => BulletList sp (map go items)
-  | TaskList sp items => TaskList sp (map (fun it => (fst it, go (snd it))) items)
+  | OrderedList attrs sp items => OrderedList attrs sp (map (shape go) items)
+  | BulletList sp items => BulletList sp (map (shape go) items)
+  | TaskList sp items =>
+      TaskList sp (map (shape (fun it => (fst it, go (snd it)))) items)
   | DefinitionList sp items =>
-      DefinitionList sp (map (fun it => ([] : inlines, go (snd it))) items)
-  | Table _ rows => Table [] (map (map of_cell) rows)
+      DefinitionList sp
+        (map (shape (fun it => (shape clear (fst it), shape go (snd it)))) items)
+  | Table cap rows => Table (shape clear cap) (map (shape (map (shape of_cell))) rows)
   | FootnoteDef label bs => FootnoteDef label (go bs)
   | Ext_keyed _ (Node _ a x) => Ext_keyed [] (Node NoPos a (of_block x))
   | Ext_callout kind fold _ bs => Ext_callout kind fold [] (go bs)
@@ -83,30 +91,32 @@ Proof. intros []; reflexivity. Qed.
 (* Shaping twice is shaping once. *)
 Local Lemma block_idem : forall b, of_block (of_block b) = of_block b.
 Proof.
+  set (dshape := shape (fun it : node inlines * node blocks =>
+                          (shape clear (fst it), shape of_blocks (snd it)))).
+  set (tshape := shape (fun it : task_status * blocks => (fst it, of_blocks (snd it)))).
   apply (block_ind2
     (fun b => of_block (of_block b) = of_block b)
     (fun bs => of_blocks (of_blocks bs) = of_blocks bs)
-    (fun items => map of_blocks (map of_blocks items) = map of_blocks items)
-    (fun items =>
-       map (fun it => ([] : inlines, of_blocks (snd it)))
-         (map (fun it => ([] : inlines, of_blocks (snd it))) items) =
-       map (fun it => ([] : inlines, of_blocks (snd it))) items)
-    (fun items =>
-       map (fun it => (fst it, of_blocks (snd it)))
-         (map (fun it => (fst it, of_blocks (snd it))) items) =
-       map (fun it => (fst it, of_blocks (snd it))) items));
-    intros; unfold_block; unfold_block; cbn [map fst snd] in *;
+    (fun items => map (shape of_blocks) (map (shape of_blocks) items) =
+                  map (shape of_blocks) items)
+    (fun items => map dshape (map dshape items) = map dshape items)
+    (fun items => map tshape (map tshape items) = map tshape items));
+    intros; unfold_block; unfold_block; cbn [map fst snd shape] in *;
     repeat match goal with H : _ = _ |- _ => rewrite H; clear H end;
     try reflexivity.
   1-4: f_equal; exact H.
-  - f_equal. rewrite map_map. apply map_ext. intros r. rewrite map_map.
-    apply map_ext, of_cell_idem.
+  - f_equal; [destruct caption; reflexivity|].
+    rewrite map_map. apply map_ext. intros [p a r]. cbn [shape]. rewrite map_map.
+    f_equal. apply map_ext. intros [q b c]. cbn [shape]. rewrite of_cell_idem.
+    reflexivity.
   - destruct b as [q c x]. cbn [of_blocks map of_node] in H.
     injection H as H. cbn [of_block]. rewrite H. reflexivity.
   - cbn [of_blocks map of_node].
     change (map of_node (map of_node rest)) with (of_blocks (of_blocks rest)).
     change (map of_node rest) with (of_blocks rest).
     rewrite H0, H. reflexivity.
+  - subst dshape. cbn [shape fst snd]. rewrite H. destruct term. reflexivity.
+  - subst tshape. cbn [shape fst snd]. rewrite H. reflexivity.
 Qed.
 
 Lemma blocks_idem : forall bs, of_blocks (of_blocks bs) = of_blocks bs.
@@ -141,6 +151,37 @@ Proof.
   destruct bs as [|[[|q] a x] rest]; reflexivity.
 Qed.
 
+Lemma shape_set_pos : forall `{PosPolicy} {A : Type} (f : A -> A) p (n : node A),
+  shape f (set_pos p n) = shape f n.
+Proof. intros P A f p [q a x]. unfold set_pos. destruct (mkpos p); reflexivity. Qed.
+
+Local Lemma shape_set_each : forall `{PosPolicy} {A : Type} (f : A -> A) rs (ns : list (node A)),
+  map (shape f) (set_each rs ns) = map (shape f) ns.
+Proof.
+  intros P A f rs. induction rs as [|r rs IH]; intros [|n ns]; try reflexivity.
+  cbn [set_each map]. rewrite shape_set_pos, IH. reflexivity.
+Qed.
+
+(* Copying ranges onto parts writes only positions, which the shape
+   drops. *)
+Lemma blocks_set_parts : forall `{PosPolicy} ps (n : node block) rest,
+  of_blocks (set_parts ps n :: rest) = of_blocks (n :: rest).
+Proof.
+  intros P ps [p a x] rest. unfold set_parts. destruct pos_records; [|reflexivity].
+  rewrite !blocks_cons. do 2 f_equal.
+  destruct ps as [rs|rs|cap rs], x; cbn [parts_onto]; try reflexivity;
+    cbn [of_block]; rewrite ?shape_set_each; try reflexivity.
+  - f_equal. revert items. induction rs as [|[[i t] d] rs IH];
+      intros [|[q b [term def]] its]; try reflexivity.
+    cbn [set_defs map]. rewrite shape_set_pos, IH. cbn [shape fst snd].
+    rewrite !shape_set_pos. reflexivity.
+  - f_equal; [destruct cap; [apply shape_set_pos|reflexivity]|].
+    revert rows. induction rs as [|[r cs] rs IH]; intros [|[q b cells] rows];
+      try reflexivity.
+    cbn [set_rows map]. rewrite shape_set_pos, IH. cbn [shape].
+    rewrite shape_set_each. reflexivity.
+Qed.
+
 Lemma blocks_decorate_head : forall pend bs,
   of_blocks (decorate_head pend bs) = decorate_head pend (of_blocks bs).
 Proof. intros pend [|[p a x] rest]; reflexivity. Qed.
@@ -157,25 +198,33 @@ Proof.
 Qed.
 
 Lemma def_items_shape : forall items,
-  map (fun it => ([] : inlines, of_blocks (snd it))) (def_items items) =
-  map (fun it => ([] : inlines, of_blocks (snd it)))
+  map (shape (fun it : node inlines * node blocks =>
+                (shape clear (fst it), shape of_blocks (snd it)))) (def_items items) =
+  map (shape (fun it : node inlines * node blocks =>
+                (shape clear (fst it), shape of_blocks (snd it))))
     (def_items (map of_blocks items)).
 Proof.
   intros items. unfold def_items. rewrite !map_map.
-  apply map_ext. intros it. unfold def_item. rewrite def_split_shape.
+  apply map_ext. intros it. unfold def_node, def_item. rewrite def_split_shape.
   destruct (def_split it) as [[t rest]|]; cbn; rewrite ?blocks_idem; reflexivity.
 Qed.
 
 Lemma task_items_shape : forall checks items,
-  map (fun it => (fst it, of_blocks (snd it))) (task_items checks items) =
-  map (fun it => (fst it, of_blocks (snd it)))
+  map (shape (fun it : task_status * blocks => (fst it, of_blocks (snd it))))
+    (task_items checks items) =
+  map (shape (fun it : task_status * blocks => (fst it, of_blocks (snd it))))
     (task_items checks (map of_blocks items)).
 Proof.
   intros checks items. revert checks.
   induction items as [|it items IH]; intros checks; [reflexivity|].
-  destruct checks as [|c checks]; cbn [task_items map fst snd];
+  destruct checks as [|c checks]; cbn [task_items map shape mk fst snd];
     rewrite blocks_idem, IH; reflexivity.
 Qed.
+
+(* Items the parser builds are bare nodes. *)
+Lemma items_shape : forall items : list blocks,
+  map (shape of_blocks) (map mk items) = map mk (map of_blocks items).
+Proof. intros items. rewrite !map_map. reflexivity. Qed.
 
 Local Lemma goitems_idem : forall items,
   map of_blocks (map of_blocks items) = map of_blocks items.
@@ -376,6 +425,14 @@ Local Lemma table_block_shape : forall T T' P rows c rest rest',
 Proof.
   intros T T' P rows c rest rest' H. unfold table_block, mk.
   rewrite !Shape.blocks_cons, H. cbn [Shape.of_block]. do 3 f_equal.
+  rewrite !map_map. cbn [Shape.shape].
+  assert (Hg : forall X : list (list cell),
+    map (fun x : list cell => Node NoPos [] (map (Shape.shape Shape.of_cell)
+           (map (fun x0 : cell => Node NoPos [] x0) x))) X =
+    map (fun x => Node NoPos [] (map (fun x0 : cell => Node NoPos [] x0) x))
+      (map (map Shape.of_cell) X)).
+  { intros X. rewrite map_map. apply map_ext. intros x. rewrite !map_map. reflexivity. }
+  rewrite !Hg. f_equal.
   destruct pos_records.
   - rewrite <- (rows_erase (Step.table_fold_located _ _ _ _)),
       <- (rows_erase (@Step.table_fold_located T' P _ _ _ _)).
@@ -397,9 +454,9 @@ Proof.
   rewrite <- map_rev.
   destruct styles as [|[sty start] styles]; [|destruct sty];
     cbn [styles_list mk Shape.of_blocks map Shape.of_node]; Shape.unfold_block;
-    rewrite ?Shape.goitems_idem; try reflexivity.
+    rewrite ?Shape.items_shape, ?Shape.goitems_idem; try reflexivity.
   - destruct (_ && bdeflists)%bool; cbn [mk Shape.of_node]; Shape.unfold_block;
-      rewrite ?Shape.goitems_idem; [|reflexivity].
+      rewrite ?Shape.items_shape, ?Shape.goitems_idem; [|reflexivity].
     do 3 f_equal. apply Shape.def_items_shape.
   - do 3 f_equal. apply Shape.task_items_shape.
 Qed.
@@ -414,8 +471,8 @@ Local Lemma finish_shape : forall T T' `{K : bconfig} `{P : PosPolicy} st,
   Shape.of_blocks (@finish T' K P (Shape.state st)).
 Proof.
   intros T T' K P st.
-  induction st; cbn [finish Shape.state]; rewrite ?Shape.blocks_set_pos;
-    try reflexivity.
+  induction st; cbn [finish Shape.state];
+    rewrite ?Shape.blocks_set_pos, ?Shape.blocks_set_parts; try reflexivity.
   - destruct cur; [reflexivity|]. rewrite !Shape.blocks_set_pos. reflexivity.
   - destruct header as [[[k f] t]|]; unfold quote_block, mk;
       rewrite !Shape.blocks_cons; Shape.unfold_block;
@@ -699,13 +756,14 @@ Proof.
     pose proof (IH off l (PPara [])) as H. cbn [Shape.state] in H.
     destruct cap as [parts|parts|parts start lines].
     3: { destruct (is_blank l); [|reflexivity].
-         unfold Shape.result; cbn [fst snd]. rewrite !Shape.blocks_set_pos.
+         unfold Shape.result; cbn [fst snd].
+         rewrite !Shape.blocks_set_pos, !Shape.blocks_set_parts.
          f_equal. apply table_block_shape. reflexivity. }
     all: destruct (caption_open l) as [crest|]; [reflexivity|].
     all: destruct (is_blank l); [reflexivity|].
     all: destruct (classify l); try reflexivity.
     all: split_same H; unfold Shape.result; cbn [fst snd];
-      rewrite !Shape.blocks_set_pos, Hs; f_equal;
+      rewrite !Shape.blocks_set_pos, !Shape.blocks_set_parts, Hs; f_equal;
       apply table_block_shape; exact Hbs.
   - (* PPend *)
     rewrite is_idle_shape.

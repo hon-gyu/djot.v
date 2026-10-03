@@ -58,7 +58,7 @@ Example key_takes_a_list :
 - bar
 - baz"
   = [mk (Ext_keyed [mk (Str "foo")]
-           (mk (BulletList Tight [[para "bar"]; [para "baz"]])))].
+           (mk (BulletList Tight [mk [para "bar"]; mk [para "baz"]])))].
 Proof. vm_compute. reflexivity. Qed.
 
 (*
@@ -89,7 +89,7 @@ Example key_in_a_tight_item :
   bar
   ```"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [mk [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))]])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -201,7 +201,7 @@ Example a_lists_blank_is_not_the_keys :
 
 - b"
   = [mk (Ext_keyed [mk (Str "foo")]
-           (mk (BulletList Loose [[para "a"]; [para "b"]])))].
+           (mk (BulletList Loose [mk [para "a"]; mk [para "b"]])))].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 6.2, the corner: an attribute spec starts something without producing
@@ -405,9 +405,9 @@ bar
 ```
 - baz"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [mk [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
-            [para "baz"]])].
+            mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 7.5, the same discipline two levels deep.  Line 3 passes through both
@@ -422,11 +422,11 @@ bar
 ```
   - baz"
   = [mk (BulletList Tight
-           [[para "tt";
+           [mk [para "tt";
              mk (BulletList Tight
-                   [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+                   [mk [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
-                    [para "baz"]])]])].
+                    mk [para "baz"]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* Without the second setting there is no inner list for `foo` to be an
@@ -439,10 +439,10 @@ bar
 ```
   - baz"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "tt"); mk SoftBreak; mk (Str "- foo:")])]]);
+           [mk [mk (Para [mk (Str "tt"); mk SoftBreak; mk (Str "- foo:")])]]);
      mk (CodeBlock "" "bar
 ");
-     mk (BulletList Tight [[para "baz"]])].
+     mk (BulletList Tight [mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A thematic break emits immediately, so the same claim closes the key
@@ -452,8 +452,8 @@ Example thematic_out_of_column_is_claimed :
 * * * *
 - baz"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk ThematicBreak))];
-            [para "baz"]])].
+           [mk [mk (Ext_keyed [mk (Str "foo")] (mk ThematicBreak))];
+            mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 5.2: a list is not a block whose end is announced, so it is never
@@ -462,7 +462,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example a_list_is_not_claimed :
   Key "- foo:
 - bar"
-  = [mk (BulletList Tight [[para "foo:"]; [para "bar"]])].
+  = [mk (BulletList Tight [mk [para "foo:"]; mk [para "bar"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 5.1: the override is about column only.  A quote keeps its prefix... *)
@@ -485,7 +485,7 @@ bar
 ```
 :::"
   = [mk (Div "" [mk (BulletList Tight
-                    [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+                    [mk [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))]])])].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -497,10 +497,10 @@ Example out_of_column_needs_the_setting :
 bar
 ```
 - baz"
-  = [mk (BulletList Tight [[para "foo:"]]);
+  = [mk (BulletList Tight [mk [para "foo:"]]);
      mk (CodeBlock "" "bar
 ");
-     mk (BulletList Tight [[para "baz"]])].
+     mk (BulletList Tight [mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* ...and the tree it would produce is already reachable, by indenting
@@ -514,9 +514,9 @@ Example out_of_column_tree_is_reachable :
   ```
 - baz"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+           [mk [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
 ")))];
-            [para "baz"]])].
+            mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A div survives a blank and keeps the claim until its own closing
@@ -530,8 +530,8 @@ next
 :::
 - baz"
   = [mk (BulletList Tight
-           [[mk (Ext_keyed [mk (Str "foo")] (mk (Div "" [para "next"])))];
-            [para "baz"]])].
+           [mk [mk (Ext_keyed [mk (Str "foo")] (mk (Div "" [para "next"])))];
+            mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The ordinary div remains blank-safe, but a key holding it is not:

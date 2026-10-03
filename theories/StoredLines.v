@@ -295,18 +295,23 @@ Inductive inl_all (I : inlines -> Prop) : node block -> Prop :=
   | ia_quote p a bs : Forall (inl_all I) bs -> inl_all I (Node p a (BlockQuote bs))
   | ia_code p a lang code : inl_all I (Node p a (CodeBlock lang code))
   | ia_div p a name bs : Forall (inl_all I) bs -> inl_all I (Node p a (Div name bs))
-  | ia_olist p a oa sp items : Forall (Forall (inl_all I)) items ->
+  | ia_olist p a oa sp items :
+      Forall (fun it => Forall (inl_all I) (node_contents it)) items ->
       inl_all I (Node p a (OrderedList oa sp items))
-  | ia_blist p a sp items : Forall (Forall (inl_all I)) items ->
+  | ia_blist p a sp items :
+      Forall (fun it => Forall (inl_all I) (node_contents it)) items ->
       inl_all I (Node p a (BulletList sp items))
-  | ia_tlist p a sp items : Forall (fun it => Forall (inl_all I) (snd it)) items ->
+  | ia_tlist p a sp items :
+      Forall (fun it => Forall (inl_all I) (snd (node_contents it))) items ->
       inl_all I (Node p a (TaskList sp items))
   | ia_dlist p a sp items :
-      Forall (fun it => I (fst it) /\ Forall (inl_all I) (snd it)) items ->
+      Forall (fun it => I (node_contents (fst (node_contents it))) /\
+                        Forall (inl_all I) (node_contents (snd (node_contents it)))) items ->
       inl_all I (Node p a (DefinitionList sp items))
   | ia_thematic p a : inl_all I (Node p a ThematicBreak)
-  | ia_table p a cap rows : I cap ->
-      Forall (Forall (fun c => match c with Cell _ _ ils => I ils end)) rows ->
+  | ia_table p a cap rows : I (node_contents cap) ->
+      Forall (fun r => Forall (fun c => match node_contents c with Cell _ _ ils => I ils end)
+                         (node_contents r)) rows ->
       inl_all I (Node p a (Table cap rows))
   | ia_raw p a fmt c : inl_all I (Node p a (RawBlock fmt c))
   | ia_foot p a lbl bs : Forall (inl_all I) bs -> inl_all I (Node p a (FootnoteDef lbl bs))
@@ -325,6 +330,52 @@ Lemma inl_all_set_pos : forall I pr b,
 Proof.
   intros I pr [p a x] H. unfold set_pos. cbn [mkpos located_pos].
   exact (inl_all_node I p a _ a x H).
+Qed.
+
+Local Lemma contents_set_pos : forall `{PosPolicy} {A : Type} pr (n : node A),
+  node_contents (set_pos pr n) = node_contents n.
+Proof. intros P A pr [q a x]. unfold set_pos. destruct (mkpos pr); reflexivity. Qed.
+
+Local Lemma contents_set_each : forall `{PosPolicy} {A : Type} rs (ns : list (node A)),
+  map node_contents (set_each rs ns) = map node_contents ns.
+Proof.
+  intros P A rs. induction rs as [|r rs IH]; intros [|n ns]; try reflexivity.
+  cbn [set_each map]. rewrite contents_set_pos, IH. reflexivity.
+Qed.
+
+Local Lemma Forall_contents : forall {A : Type} (Q : A -> Prop) (xs ys : list (node A)),
+  map node_contents xs = map node_contents ys ->
+  Forall (fun n => Q (node_contents n)) ys -> Forall (fun n => Q (node_contents n)) xs.
+Proof.
+  intros A Q xs ys E H. apply Forall_map in H. apply Forall_map. rewrite E. exact H.
+Qed.
+
+(* Ranges copied onto a list's or table's parts leave their contents. *)
+Lemma inl_all_set_parts : forall I ps b,
+  inl_all I b -> inl_all I (@set_parts located_pos ps b).
+Proof.
+Proof.
+  intros I ps [p a x] H. cbn [set_parts pos_records located_pos].
+  destruct ps as [rs|rs|cap rs], x; cbn [parts_onto]; try exact H;
+    inversion H; subst; constructor.
+  1-2: apply (Forall_contents (fun x => Forall (inl_all I) x) _ items);
+    [apply contents_set_each|exact H1].
+  - apply (Forall_contents (fun x => Forall (inl_all I) (snd x)) _ items);
+    [apply contents_set_each|exact H1].
+  - clear H. revert items H1. induction rs as [|[[i t] d] rs IH];
+      intros [|[q b [term def]] its] Hits; try exact Hits.
+    inversion Hits as [|? ? Hit Hrest]; subst. cbn [set_defs].
+    constructor; [|apply IH, Hrest].
+    cbn [set_pos mkpos located_pos node_contents fst snd] in *.
+    destruct term, def. exact Hit.
+  - destruct cap; [rewrite contents_set_pos|]; exact H2.
+  - clear H. revert rows H5. induction rs as [|[r cs] rs IH];
+      intros [|[q b cells] rows] Hrows; try exact Hrows.
+    inversion Hrows as [|? ? Hr Hrest]; subst. cbn [set_rows].
+    constructor; [|apply IH, Hrest].
+    cbn [set_pos mkpos located_pos node_contents] in *.
+    apply (Forall_contents (fun c => match c with Cell _ _ ils => I ils end) _ cells);
+      [apply contents_set_each|exact Hr].
 Qed.
 
 Lemma inl_all_decorate_head : forall I pend bs,
@@ -367,17 +418,20 @@ Qed.
 
 Lemma def_items_ok : forall I its, I [] ->
   Forall (Forall (inl_all I)) its ->
-  Forall (fun it => I (fst it) /\ Forall (inl_all I) (snd it)) (def_items its).
+  Forall (fun it => I (node_contents (fst (node_contents it))) /\
+                    Forall (inl_all I) (node_contents (snd (node_contents it))))
+    (def_items its).
 Proof.
   intros I its H0 H. unfold def_items. apply Forall_map.
-  refine (Forall_impl _ _ H). intros bs Hb. cbn beta. unfold def_item. destruct (def_split bs) as [[ils rest]|] eqn:E.
+  refine (Forall_impl _ _ H). intros bs Hb. cbn beta. unfold def_node, def_item.
+  destruct (def_split bs) as [[ils rest]|] eqn:E.
   - exact (def_split_ok I bs ils rest Hb E).
   - split; [exact H0|exact Hb].
 Qed.
 
 Lemma task_items_ok : forall I chks its,
   Forall (Forall (inl_all I)) its ->
-  Forall (fun it => Forall (inl_all I) (snd it)) (task_items chks its).
+  Forall (fun it => Forall (inl_all I) (snd (node_contents it))) (task_items chks its).
 Proof.
   intros I chks its. revert chks. induction its as [|it its IH]; intros chks H; [constructor|].
   inversion H as [|? ? Hi Hs]; subst.
@@ -594,8 +648,9 @@ Lemma table_block_ok : forall i rows cap,
 Proof.
   intros i rows cap H. unfold table_block. cbn [pos_records located_pos].
   constructor; [exact (caption_ok i rows cap H)|].
-  apply table_fold_located_ok; [|constructor].
-  destruct cap; cbn [Step.cap_row_parts cap_ok] in *; try exact H; apply H.
+  apply Forall_map. eapply Forall_impl; [|apply table_fold_located_ok; [|constructor]].
+  - intros r Hr. apply Forall_map. exact Hr.
+  - destruct cap; cbn [Step.cap_row_parts cap_ok] in *; try exact H; apply H.
 Qed.
 
 Lemma para_ok : forall i cur off,
@@ -631,9 +686,10 @@ Proof.
   assert (Hr : Forall (Forall bgood) (rev (last :: ls_items ls)))
     by (apply Forall_rev; constructor; assumption).
   unfold list_block, styles_list_checked.
-  destruct (ls_styles ls) as [|[sty start] rest]; [constructor; exact Hr|].
+  destruct (ls_styles ls) as [|[sty start] rest]; [constructor; apply Forall_map, Hr|].
   destruct sty; cbn [styles_list]; try (destruct (_ && _)%bool); constructor;
-    first [apply def_items_ok; [constructor|exact Hr] | exact Hr | apply task_items_ok, Hr].
+    first [apply def_items_ok; [constructor|exact Hr] | apply Forall_map, Hr
+          | apply task_items_ok, Hr].
 Qed.
 
 Lemma div_block_ok : forall cls bs, Forall bgood bs -> bgood (div_block cls bs).
@@ -670,7 +726,7 @@ Proof.
     apply inl_all_set_pos, div_block_ok.
     apply Forall_app. split; [apply Forall_rev, Hd|exact (IHst i Hs)].
   - destruct H as (Hi & Hd & Hs). constructor; [|constructor].
-    apply inl_all_set_pos, list_block_ok; [exact Hi|].
+    apply inl_all_set_pos, inl_all_set_parts, list_block_ok; [exact Hi|].
     apply Forall_app. split; [apply Forall_rev, Hd|exact (IHst i Hs)].
   - destruct (ap_done ap); [constructor|].
     apply inl_all_add_roles_head, inl_all_decorate_head, (finish_recover_ok i), H.
@@ -679,7 +735,7 @@ Proof.
   - destruct H as (Hd & Hs). constructor; [|constructor].
     apply inl_all_set_pos. constructor.
     apply Forall_app. split; [apply Forall_rev, Hd|exact (IHst i Hs)].
-  - constructor; [|constructor]. apply inl_all_set_pos, (table_block_ok i), H.
+  - constructor; [|constructor]. apply inl_all_set_pos, inl_all_set_parts, (table_block_ok i), H.
   - apply inl_all_add_roles_head, inl_all_decorate_head, (IHst i), H.
   - contradiction.
 Qed.
@@ -1008,15 +1064,15 @@ Proof.
       by (destruct cap; cbn [cap_ok Step.cap_row_parts] in *; tauto).
     assert (Hclose : ok (S lix) (@step_fuel T K LI located_pos n off l (PPara [])) ->
       ok (S lix) (let (bs, st') := @step_fuel T K LI located_pos n off l (PPara []) in
-        ((@set_pos located_pos _ (Provenance (extent_span range) [] (table_parts cap))
-            (@table_block T located_pos (rev rows) cap) :: bs)%list, st'))).
+        ((@set_pos located_pos _ (prov_at (extent_span range))
+            (@set_parts located_pos (table_parts cap) (@table_block T located_pos (rev rows) cap)) :: bs)%list, st'))).
     { intros [Hb Hs']. destruct (@step_fuel T K LI located_pos n off l (PPara [])) as [bs st'].
       split; [|exact Hs']. constructor; [|exact Hb].
-      apply inl_all_set_pos, (table_block_ok lix), Hst. }
+      apply inl_all_set_pos, inl_all_set_parts, (table_block_ok lix), Hst. }
     destruct cap as [parts|parts|parts start ls].
     3: { destruct (is_blank l).
          - split; [|exact I]. constructor; [|constructor].
-           apply inl_all_set_pos, (table_block_ok lix), Hst.
+           apply inl_all_set_pos, inl_all_set_parts, (table_block_ok lix), Hst.
          - split; [constructor|]. cbn [snd st_ok cap_ok] in *.
            destruct Hst as [Hr Ha]. split; [exact Hr|apply acc_push; [exact Hdl|exact Ha]]. }
     all: destruct (caption_open l) as [crest|] eqn:Eco;
@@ -1057,18 +1113,32 @@ Proof.
        end) bs = Shift.of_blocks d bs)
     by (induction bs as [|[p a x] bs IH];
         [reflexivity|cbn [Shift.of_blocks]; rewrite IH; reflexivity]).
+  (* The item traversals of `Shift.of_block`, as maps. *)
+  set (ishift := fun n : node blocks =>
+         match n with Node p a it => Node (Shift.of_pos d p) a (Shift.of_blocks d it) end).
+  set (tshift := fun n : node (task_status * blocks) =>
+         match n with
+         | Node p a (c, it) => Node (Shift.of_pos d p) a (c, Shift.of_blocks d it)
+         end).
+  set (dshift := fun n : node (node inlines * node blocks) =>
+         match n with
+         | Node p a (t, Node q b it) =>
+             Node (Shift.of_pos d p) a
+               (Shift.inlines_node d t, Node (Shift.of_pos d q) b (Shift.of_blocks d it))
+         end).
   intros b. apply (block_ind2
     (fun b => forall p a, inl_all G (Node p a b) ->
        inl_all G' (Node (Shift.of_pos d p) a (Shift.of_block d b)))
     (fun bs => Forall (inl_all G) bs -> Forall (inl_all G') (Shift.of_blocks d bs))
-    (fun its => Forall (Forall (inl_all G)) its ->
-       Forall (Forall (inl_all G')) (map (Shift.of_blocks d) its))
-    (fun its => Forall (fun it => G (fst it) /\ Forall (inl_all G) (snd it)) its ->
-       Forall (fun it => G' (fst it) /\ Forall (inl_all G') (snd it))
-         (map (fun '(t, it) => (Shift.of_inlines d t, Shift.of_blocks d it)) its))
-    (fun its => Forall (fun it => Forall (inl_all G) (snd it)) its ->
-       Forall (fun it => Forall (inl_all G') (snd it))
-         (map (fun '(c, it) => (c, Shift.of_blocks d it)) its)));
+    (fun its => Forall (fun it => Forall (inl_all G) (node_contents it)) its ->
+       Forall (fun it => Forall (inl_all G') (node_contents it)) (map ishift its))
+    (fun its => Forall (fun it => G (node_contents (fst (node_contents it))) /\
+                          Forall (inl_all G) (node_contents (snd (node_contents it)))) its ->
+       Forall (fun it => G' (node_contents (fst (node_contents it))) /\
+                         Forall (inl_all G') (node_contents (snd (node_contents it))))
+         (map dshift its))
+    (fun its => Forall (fun it => Forall (inl_all G) (snd (node_contents it))) its ->
+       Forall (fun it => Forall (inl_all G') (snd (node_contents it))) (map tshift its)));
     intros; cbn [Shift.of_block]; rewrite ?Hgo.
   all: try (inversion H0; subst; constructor; auto; fail).
   all: try (inversion H; subst; constructor; auto; fail).
@@ -1076,35 +1146,36 @@ Proof.
   all: try match goal with
     | |- context [OrderedList _ _ (?F ?xs)] =>
         let E := fresh "E" in
-        assert (E : forall ys, F ys = map (Shift.of_blocks d) ys)
-          by (intros ys; induction ys as [|it ys IH]; [reflexivity|];
-              cbn [map]; rewrite <- IH, <- (Hgo it); reflexivity);
+        assert (E : forall ys, F ys = map ishift ys)
+          by (intros ys; induction ys as [|[p' a' it] ys IH]; [reflexivity|];
+              cbn [map]; rewrite <- IH; unfold ishift; rewrite <- (Hgo it); reflexivity);
         rewrite E
     | |- context [BulletList _ (?F ?xs)] =>
         let E := fresh "E" in
-        assert (E : forall ys, F ys = map (Shift.of_blocks d) ys)
-          by (intros ys; induction ys as [|it ys IH]; [reflexivity|];
-              cbn [map]; rewrite <- IH, <- (Hgo it); reflexivity);
+        assert (E : forall ys, F ys = map ishift ys)
+          by (intros ys; induction ys as [|[p' a' it] ys IH]; [reflexivity|];
+              cbn [map]; rewrite <- IH; unfold ishift; rewrite <- (Hgo it); reflexivity);
         rewrite E
     | |- context [TaskList _ (?F ?xs)] =>
         let E := fresh "E" in
-        assert (E : forall ys, F ys = map (fun '(c, it) => (c, Shift.of_blocks d it)) ys)
-          by (intros ys; induction ys as [|[c it] ys IH]; [reflexivity|];
-              cbn [map]; rewrite <- IH, <- (Hgo it); reflexivity);
+        assert (E : forall ys, F ys = map tshift ys)
+          by (intros ys; induction ys as [|[p' a' [c it]] ys IH]; [reflexivity|];
+              cbn [map]; rewrite <- IH; unfold tshift; rewrite <- (Hgo it); reflexivity);
         rewrite E
     | |- context [DefinitionList _ (?F ?xs)] =>
         let E := fresh "E" in
-        assert (E : forall ys, F ys =
-                  map (fun '(t, it) => (Shift.of_inlines d t, Shift.of_blocks d it)) ys)
-          by (intros ys; induction ys as [|[t it] ys IH]; [reflexivity|];
-              cbn [map]; rewrite <- IH, <- (Hgo it); reflexivity);
+        assert (E : forall ys, F ys = map dshift ys)
+          by (intros ys; induction ys as [|[p' a' [t [q' b' it]]] ys IH]; [reflexivity|];
+              cbn [map]; rewrite <- IH; unfold dshift; rewrite <- (Hgo it); reflexivity);
         rewrite E
     end.
   all: try (inversion H0; subst; constructor; auto; fail).
   - inversion H as [| | | | | | | | | | |? ? ? ? Hcap Hrows| | | | |]; subst.
-    constructor; [apply Hg; assumption|].
-    rewrite Forall_map. refine (Forall_impl _ _ Hrows). intros r Hr.
-    rewrite Forall_map. refine (Forall_impl _ _ Hr). intros [ct al ils] Hc. exact (Hg _ Hc).
+    constructor; [destruct caption; apply Hg; assumption|].
+    rewrite Forall_map. refine (Forall_impl _ _ Hrows). intros [rp ra cs] Hr.
+    cbn [Shift.row node_contents] in *.
+    rewrite Forall_map. refine (Forall_impl _ _ Hr). intros [cp ca [ct al ils]] Hc.
+    exact (Hg _ Hc).
   - destruct b0 as [p0 a0 x]. inversion H0; subst. constructor; [apply Hg; assumption|].
     assert (Hk : Forall (inl_all G') (Shift.of_blocks d [Node p0 a0 x]))
       by (apply H; constructor; auto).
@@ -1112,7 +1183,8 @@ Proof.
   - inversion H1; subst. cbn [Shift.of_blocks]. constructor; auto.
   - inversion H1; subst. cbn [map]. constructor; auto.
   - inversion H1 as [|? ? [Ht Hi] Hr]; subst. cbn [map fst snd] in *.
-    constructor; [split; [exact (Hg _ Ht)|auto]|auto].
+    constructor; [|auto]. cbn [dshift node_contents fst snd] in *.
+    destruct term. split; [exact (Hg _ Ht)|auto].
   - inversion H1 as [|? ? Hi Hr]; subst. cbn [map snd] in *. constructor; auto.
 Qed.
 

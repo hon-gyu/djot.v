@@ -402,7 +402,7 @@ Definition merge_text_pos (left right : pos) : pos :=
   | SomePos p, SomePos q =>
       SomePos (Provenance
         (SrcSpan (span_start (node_span p)) (span_stop (node_span q)))
-        (syntax_spans p ++ syntax_spans q)%list PNone)
+        (syntax_spans p ++ syntax_spans q)%list)
   | _, _ => left
   end.
 

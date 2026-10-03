@@ -42,15 +42,15 @@ Example djot_swallows_the_marker :
   Djot "- a
   - b"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
+           [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example sublist_nests_without_a_blank :
   Sub "- a
   - b"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "a")]);
-             mk (BulletList Tight [[mk (Para [mk (Str "b")])]])]])].
+           [mk [mk (Para [mk (Str "a")]);
+             mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The same document djot needs a blank line to read this way, so the
@@ -81,7 +81,7 @@ Example sublist_interrupts_at_top_level :
      mk (OrderedList {| ol_style := Decimal;
                         ol_delim := RightPeriod;
                         ol_start := 1 |} Tight
-           [[mk (Para [mk (Str "one")])]])].
+           [mk [mk (Para [mk (Str "one")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example djot_reads_that_as_prose :
@@ -108,7 +108,7 @@ Example any_marker_invents_a_list :
      mk (OrderedList {| ol_style := Decimal;
                         ol_delim := RightPeriod;
                         ol_start := 1865 |} Tight
-           [[mk (Para [mk (Str "And this should not start a list.")])]])].
+           [mk [mk (Para [mk (Str "And this should not start a list.")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example sublist_leaves_the_year_alone :

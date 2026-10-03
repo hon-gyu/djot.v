@@ -396,7 +396,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CDiv name inner => mk (Div name (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
-  | CTable rows => mk (Table [] (ctable_cells [] rows))
+  | CTable rows => mk (Table (mk []) (map (fun r => mk (map mk r)) (ctable_cells [] rows)))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
   | CKey label inner => mk (Ext_keyed [ci_ast label] (cb_ast inner))
   end.
@@ -1175,7 +1175,8 @@ Lemma cb_lines_table :
 Proof. reflexivity. Qed.
 
 Lemma cb_ast_table :
-  forall rows, cb_ast (CTable rows) = mk (Table [] (ctable_cells [] rows)).
+  forall rows,
+    cb_ast (CTable rows) = mk (Table (mk []) (map (fun r => mk (map mk r)) (ctable_cells [] rows))).
 Proof. reflexivity. Qed.
 
 (*
@@ -1336,19 +1337,19 @@ Local Definition note_indent (l : string) : string :=
    the section is the line in front of the heading. *)
 Fixpoint render_lines (a : attr) (b : block) : list string :=
   let itemss :=
-    fix goitems (items : list blocks) : list (list string) :=
+    fix goitems (items : list (node blocks)) : list (list string) :=
       match items with
       | [] => []
-      | it :: rest =>
+      | Node _ _ it :: rest =>
           sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
           :: goitems rest
       end in
   let taskitemss :=
-    fix gotasks (items : list (task_status * blocks))
+    fix gotasks (items : list (node (task_status * blocks)))
       : list (task_status * list string) :=
       match items with
       | [] => []
-      | (chk, it) :: rest =>
+      | Node _ _ (chk, it) :: rest =>
           (chk, sep_lines
                   (map (fun n => render_lines (node_attrs n) (node_contents n)) it))
           :: gotasks rest
@@ -1357,10 +1358,10 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
      back at the head as the paragraph it was split from.  An absent term
      puts nothing back, which is what makes `: # h` render as one line. *)
   let defitemss :=
-    fix godefs (its : list (inlines * blocks)) : list (list string) :=
+    fix godefs (its : list (node (node inlines * node blocks))) : list (list string) :=
       match its with
       | [] => []
-      | (term, it) :: rest =>
+      | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
           sep_lines
             ((match term with
               | [] => []
@@ -1412,10 +1413,11 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
          (match inner with Node _ [] (Para _) => true | _ => false end)
          (render_lines (node_attrs inner) (node_contents inner))
    | Table cap rows =>
-       (table_lines rows ++ match cap with
-                            | [] => []
-                            | _ => caption_lines cap
-                            end)%list
+       (table_lines (map (fun r => map node_contents (node_contents r)) rows)
+        ++ match node_contents cap with
+           | [] => []
+           | c => caption_lines c
+           end)%list
    end)%list.
 
 Definition render_block_lines (b : block) : list string := render_lines [] b.
@@ -1534,22 +1536,23 @@ Lemma render_ck_list :
            (ck_items k (map (fun it => sep_lines (render_blocks_lines it)) items))).
 Proof.
   assert (H : forall items,
-            (fix goitems (its : list blocks) : list (list string) :=
+            (fix goitems (its : list (node blocks)) : list (list string) :=
                match its with
                | [] => []
-               | it :: rest =>
+               | Node _ _ it :: rest =>
                    sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
                    :: goitems rest
-               end) items
+               end) (map mk items)
             = map (fun it => sep_lines (render_blocks_lines it)) items).
   { induction items as [|it rest IH]; [reflexivity|].
     cbn [map]. rewrite IH. reflexivity. }
   assert (Hdef : forall items,
              forallb def_head_ok items = true ->
-             (fix godefs (its : list (inlines * blocks)) : list (list string) :=
+             (fix godefs (its : list (node (node inlines * node blocks)))
+                 : list (list string) :=
                 match its with
                 | [] => []
-                | (term, it) :: rest =>
+                | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
                     sep_lines
                       ((match term with
                         | [] => []
@@ -1565,7 +1568,7 @@ Proof.
     destruct it as [|[q b x] more]; [reflexivity|].
     destruct x; cbn [def_head_ok invisible_block negb] in Hit;
       try discriminate Hit;
-      cbn [def_item def_split invisible_block]; try reflexivity.
+      cbn [def_node def_item def_split invisible_block mk]; try reflexivity.
     (* the paragraph case: the split fires at the head, and `def_head_ok`
        says the term it takes is not empty and carries no attributes -- the split
        drops the paragraph's attributes, so a spec line here would have
@@ -1592,7 +1595,7 @@ Proof.
       intros [|chk checks] Hlen Hne; try discriminate; [reflexivity|].
     cbn [length forallb] in Hlen, Hne. injection Hlen as Hlen.
     apply andb_true_iff in Hne as [Hit Hitems].
-    cbn [task_items render_lines ck_items task_ck_items map fst snd].
+    cbn [task_items render_lines ck_items task_ck_items map fst snd mk].
     destruct (sep_lines (render_blocks_lines it)) as [|l0 more] eqn:E;
       [discriminate Hit|].
     change (fun n : node block =>
@@ -1813,10 +1816,10 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
       | Node p' a' x :: rest => drop_auto_ids x p' a' :: go rest
       end in
   let goits :=
-    fix goits (its : list blocks) : list blocks :=
+    fix goits (its : list (node blocks)) : list (node blocks) :=
       match its with
       | [] => []
-      | it :: rest => go it :: goits rest
+      | Node ip ia it :: rest => Node ip ia (go it) :: goits rest
       end in
   match b with
   | Heading lvl ils => Node p (drop_id_if (base_id ils) a) (Heading lvl ils)
@@ -1835,17 +1838,18 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
   | OrderedList oa sp its => Node p a (OrderedList oa sp (goits its))
   | TaskList sp its =>
       Node p a (TaskList sp
-        ((fix gotasks (ts : list (task_status * blocks)) :=
+        ((fix gotasks (ts : list (node (task_status * blocks))) :=
             match ts with
             | [] => []
-            | (chk, it) :: rest => (chk, go it) :: gotasks rest
+            | Node ip ia (chk, it) :: rest => Node ip ia (chk, go it) :: gotasks rest
             end) its))
   | DefinitionList sp its =>
       Node p a (DefinitionList sp
-        ((fix godefs (ds : list (inlines * blocks)) :=
+        ((fix godefs (ds : list (node (node inlines * node blocks))) :=
             match ds with
             | [] => []
-            | (term, it) :: rest => (term, go it) :: godefs rest
+            | Node ip ia (term, Node dp da it) :: rest =>
+                Node ip ia (term, Node dp da (go it)) :: godefs rest
             end) its))
   | Ext_keyed label (Node p' a' x) => Node p a (Ext_keyed label (drop_auto_ids x p' a'))
   | _ => Node p a b
