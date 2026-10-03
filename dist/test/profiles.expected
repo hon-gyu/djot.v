@@ -1,0 +1,156 @@
+
+"| a |\n|---|\n"
+-- djot
+Table
+  row
+    cell
+      Str "a"
+-- tables off
+Para
+  Str "| a |"
+  SoftBreak
+  Str "|—|"
+
+"**a**\n"
+-- djot
+Para
+  Strong
+    Strong
+      Str "a"
+-- markdown_like
+Para
+  Strong
+    Str "a"
+
+"[[a|b]]\n"
+-- djot
+Para
+  Str "[[a|b]]"
+-- wikilinks on
+Para
+  Ext_wikilink "a" "b"
+
+"> [!warning]- Do not rename\n> body\n"
+-- djot
+BlockQuote
+  Para
+    Str "[!warning]- Do not rename"
+    SoftBreak
+    Str "body"
+-- markdown_like
+BlockQuote
+  Para
+    Str "[!warning]- Do not rename"
+    SoftBreak
+    Str "body"
+-- callouts on
+Ext_callout "warning" FoldCollapsed
+  title
+    Str "Do not rename"
+  Para
+    Str "body"
+
+"a\n===\n"
+-- djot
+Para
+  Str "a"
+  SoftBreak
+  Str "==="
+-- markdown_like
+Section
+  Heading 1
+    Str "a"
+-- markdown_like, setext off
+Para
+  Str "a"
+  SoftBreak
+  Str "==="
+-- setext on
+Section
+  Heading 1
+    Str "a"
+
+"a\n- b\n"
+-- djot
+Para
+  Str "a"
+  SoftBreak
+  Str "- b"
+-- list interrupts on
+Para
+  Str "a"
+BulletList
+  item
+    Para
+      Str "b"
+
+== pp djot
+emph: _ bare
+strong: * bare
+superscript: ^ bare
+subscript: ~ bare
+highlight: = braced
+insert: + braced
+delete: - braced
+single_quote: ' bare after a break
+double_quote: " bare
+footnotes: on
+smart_typography: on
+raw_inline: on
+math: on
+inline_attrs: on
+tables: on
+divs: on
+tasks: on
+raw_blocks: on
+deflists: on
+block_attrs: on
+heading_continuation: on
+ext_wikilinks: off
+ext_dollar_math: off
+ext_keyed: off
+ext_callouts: off
+ext_tags: off
+ext_setext_headings: off
+ext_list_interrupts: off
+
+== pp markdown_like
+emph: _ bare
+strong: ** bare
+superscript: ^ bare
+subscript: ~ bare
+highlight: = braced
+insert: + braced
+delete: - braced
+single_quote: ' bare after a break
+double_quote: " bare
+footnotes: on
+smart_typography: on
+raw_inline: on
+math: on
+inline_attrs: on
+tables: on
+divs: on
+tasks: on
+raw_blocks: on
+deflists: on
+block_attrs: on
+heading_continuation: off
+ext_wikilinks: off
+ext_dollar_math: on
+ext_keyed: off
+ext_callouts: off
+ext_tags: off
+ext_setext_headings: on
+ext_list_interrupts: on
+
+== pp_delimiters markdown_like
+emph: _ bare
+strong: ** bare
+superscript: ^ bare
+subscript: ~ bare
+highlight: = braced
+insert: + braced
+delete: - braced
+single_quote: ' bare after a break
+double_quote: " bare

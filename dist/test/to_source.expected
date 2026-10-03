@@ -1,0 +1,63 @@
+
+== document
+# Intro
+
+{#main k="a b"}
+::: warn
+Text[^n] with {_soft
+break_}\.
+:::
+
+{#Intro-1}
+# Intro
+
+[^n]:
+  A note.
+
+  - x
+  - y
+
+== document, markdown_like
+# Intro
+
+{#main k="a b"}
+::: warn
+Text[^n] with {_soft
+break_}\.
+:::
+
+{#Intro-1}
+# Intro
+
+[^n]:
+  A note.
+
+  - x
+  - y
+
+== empty list item
+- a
+-
+- b
+
+B.
+
+== key over a paragraph
+key: value
+more
+
+key:
+- a
+
+== callout
+> [!warning]- Do not rename
+> body
+
+== of_blocks
+{.c}
+> a {*b*}\
+> c
+
+== of_inlines
+a {*b*}\
+c

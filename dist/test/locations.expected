@@ -1,0 +1,145 @@
+
+== blocks
+
+"# hi\n\nbody\n"
+Section 0-9 "# hi\n\nbody"
+  Heading 1 0-3 "# hi"
+    Str "hi" 2-3 "hi"
+  Para 6-9 "body"
+    Str "body" 6-9 "body"
+
+"{#id}\n{.cls}\npara\n"
+Para 13-16 "para"
+  Str "para" 13-16 "para"
+
+"{#i}\n::: warn\ninside\n:::\n"
+Div "" 5-23 "::: warn\ninside\n:::"
+  Para 14-19 "inside"
+    Str "inside" 14-19 "inside"
+
+"```py\nx = 1\n```\n"
+CodeBlock "py" "x = 1\n" 0-14 "```py\nx = 1\n```"
+
+== lines
+block 0-9 "# hi\n\nbody", lines 1 (at 0) to 3 (at 6)
+block 0-14 "```py\nx = 1\n```", lines 1 (at 0) to 3 (at 12)
+
+== inlines
+
+"a [link](dest){.c} b"
+Para 0-19 "a [link](dest){.c} b"
+  Str "a " 0-1 "a "
+  Link (Direct "dest") 2-13 "[link](dest)"
+    Str "link" 3-6 "link"
+  Str " b" 18-19 " b"
+
+"k [r][lbl] l"
+Para 0-11 "k [r][lbl] l"
+  Str "k " 0-1 "k "
+  Link (Reference "lbl") 2-9 "[r][lbl]"
+    Str "r" 3-3 "r"
+  Str " l" 10-11 " l"
+
+"p [^fn] q"
+Para 0-8 "p [^fn] q"
+  Str "p " 0-1 "p "
+  FootnoteReference "fn" 2-6 "[^fn]"
+  Str " q" 7-8 " q"
+
+"i ![alt](i.png) j"
+Para 0-16 "i ![alt](i.png) j"
+  Str "i " 0-1 "i "
+  Image (Direct "i.png") 2-14 "![alt](i.png)"
+    Str "alt" 4-6 "alt"
+  Str " j" 15-16 " j"
+
+"s [txt]{.c} t"
+Para 0-12 "s [txt]{.c} t"
+  Str "s " 0-1 "s "
+  Span "" 2-6 "[txt]"
+    Str "txt" 3-5 "txt"
+  Str " t" 11-12 " t"
+
+"p [[a|b]] ![[c]] q"
+Para 0-17 "p [[a|b]] ![[c]] q"
+  Str "p " 0-1 "p "
+  Ext_wikilink "a" "b" 2-8 "[[a|b]]"
+  Str " " 9-9 " "
+  Ext_wikilink embed "c" 10-15 "![[c]]"
+  Str " q" 16-17 " q"
+
+"a $x$ b"
+Para 0-6 "a $x$ b"
+  Str "a " 0-1 "a "
+  Math "x" 2-4 "$x$"
+  Str " b" 5-6 " b"
+
+"p :kbd[a] q"
+Para 0-10 "p :kbd[a] q"
+  Str "p " 0-1 "p "
+  Span "kbd" 2-8 ":kbd[a]"
+    Str "a" 7-7 "a"
+  Str " q" 9-10 " q"
+
+== extensions
+
+"> [!warning]- Do not rename\n> body\n"
+Ext_callout "warning" FoldCollapsed 0-33 "> [!warning]- Do not rename\n> body"
+  title
+    Str "Do not rename" 14-26 "Do not rename"
+  Para 30-33 "body"
+    Str "body" 30-33 "body"
+
+"> [!note] T  \n"
+Ext_callout "note" 0-12 "> [!note] T  "
+  title
+    Str "T" 10-10 "T"
+
+"> key: value\n"
+BlockQuote 0-11 "> key: value"
+  Ext_keyed 2-11 "key: value"
+    label
+      Str "key" 2-4 "key"
+    Para 7-11 "value"
+      Str "value" 7-11 "value"
+
+== syntax
+
+"{#i}\n::: warn\ninside\n:::\n"
+RAttrSpec 0-3 "{#i}"
+ROpenFence 5-12 "::: warn"
+RCloseFence 21-23 ":::"
+
+"```py\nx\n```\n"
+ROpenFence 0-4 "```py"
+RCloseFence 8-10 "```"
+
+"::: a\nx\n"
+ROpenFence 0-4 "::: a"
+
+== parts
+
+"- a\n- b\n"
+item 0-2 "- a"
+item 4-6 "- b"
+
+": t\n\n  d\n"
+item 0-7 ": t\n\n  d"
+  term 2-2 "t"
+  def 7-7 "d"
+
+"| a | b |\n| 1 | 2 |\n^ cap\n"
+caption 20-24 "^ cap"
+row 0-8 "| a | b |"
+  cell 0-4 "| a |"
+  cell 4-8 "| b |"
+row 10-18 "| 1 | 2 |"
+  cell 10-14 "| 1 |"
+  cell 14-18 "| 2 |"
+
+== footnote labels
+label 8-8 "a", lines 3 (at 6) to 3 (at 6)
+label 21-21 "a", lines 5 (at 17) to 5 (at 17)
+
+== reloc
+reloc 0-3 "a\n\nb", lines 1 (at 0) to 3 (at 3)
