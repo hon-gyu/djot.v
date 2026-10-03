@@ -571,12 +571,6 @@ module Doc = struct
     | ROpenFence
     | RCloseFence
 
-  type parts =
-    | NoParts
-    | Items of Textloc.t list
-    | DefItems of (Textloc.t * Textloc.t * Textloc.t) list
-    | TableRows of Textloc.t option * (Textloc.t * Textloc.t list) list
-
   let provenance d (Node (p, _, _)) =
     match d.lines, p with
     | Some lines, K.Ast.SomePos p -> Some (lines, p)
@@ -594,19 +588,79 @@ module Doc = struct
     | None -> []
   ;;
 
-  let parts d n =
+  (* The ranges a list, definition list or table records for its parts,
+     or [None] without locations. *)
+  let part_spans d n =
     match provenance d n with
-    | None -> NoParts
-    | Some (lines, p) ->
-      let loc = Textloc.of_span lines in
-      (match p.part_spans with
-       | K.Ast.PNone -> NoParts
-       | PItems items -> Items (List.map loc items)
-       | PDefItems items ->
-         DefItems (List.map (fun ((i, t), d) -> loc i, loc t, loc d) items)
-       | PTable (cap, rows) ->
-         TableRows
-           (Option.map loc cap, List.map (fun (r, cs) -> loc r, List.map loc cs) rows))
+    | Some (lines, p) -> Some (Textloc.of_span lines, p.part_spans)
+    | None -> None
+  ;;
+
+  (* [xs] paired with [locs], or with [none] when the counts differ: no
+     locations, or a mapped node whose children changed. *)
+  let zip_locs ~none locs xs =
+    if List.compare_lengths locs xs = 0
+    then List.combine locs xs
+    else List.map (fun x -> none, x) xs
+  ;;
+
+  let item_locs d n =
+    match part_spans d n with
+    | Some (loc, K.Ast.PItems l) -> List.map loc l
+    | _ -> []
+  ;;
+
+  let list_items d n =
+    match Node.content n with
+    | Block.BulletList (_, its) | OrderedList (_, _, its) ->
+      zip_locs ~none:Textloc.none (item_locs d n) its
+    | _ -> []
+  ;;
+
+  let task_items d n =
+    match Node.content n with
+    | Block.TaskList (_, its) ->
+      List.map
+        (fun (l, (st, bs)) -> l, st, bs)
+        (zip_locs ~none:Textloc.none (item_locs d n) its)
+    | _ -> []
+  ;;
+
+  let def_items d n =
+    match Node.content n with
+    | Block.DefinitionList (_, its) ->
+      let locs =
+        match part_spans d n with
+        | Some (loc, K.Ast.PDefItems l) ->
+          List.map (fun ((i, t), df) -> loc i, loc t, loc df) l
+        | _ -> []
+      in
+      let none = Textloc.(none, none, none) in
+      List.map
+        (fun ((i, t, df), (term, def)) -> i, (t, term), (df, def))
+        (zip_locs ~none locs its)
+    | _ -> []
+  ;;
+
+  let table_caption_loc d n =
+    match Node.content n, part_spans d n with
+    | Block.Table _, Some (loc, K.Ast.PTable (Some c, _)) -> loc c
+    | _ -> Textloc.none
+  ;;
+
+  let table_rows d n =
+    match Node.content n with
+    | Block.Table (_, rows) ->
+      let locs =
+        match part_spans d n with
+        | Some (loc, K.Ast.PTable (_, l)) ->
+          List.map (fun (r, cs) -> loc r, List.map loc cs) l
+        | _ -> []
+      in
+      List.map
+        (fun ((r, cs), row) -> r, zip_locs ~none:Textloc.none cs row)
+        (zip_locs ~none:(Textloc.none, []) locs rows)
+    | _ -> []
   ;;
 end
 

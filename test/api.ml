@@ -94,3 +94,22 @@ let () =
   | [ ("a", [ Node (_, _, Block.Para [ Node (_, _, Inline.Str "two") ]) ]) ] -> ()
   | _ -> failwith "unexpected note map"
 ;;
+
+(* A list's item ranges are none once a mapper changes how many items it
+   has, and the items are still returned. *)
+let () =
+  let d = Doc.of_string ~locs:true "- a\n- b\n" in
+  let block _ = function
+    | Node (p, a, Block.BulletList (sp, it :: _)) ->
+      Mapper.ret (Node (p, a, Block.BulletList (sp, [ it ])))
+    | _ -> Mapper.default
+  in
+  let mapped = Mapper.map_doc (Mapper.make ~block ()) d in
+  match Doc.blocks d, Doc.blocks mapped with
+  | [ l ], [ l' ] ->
+    assert (List.for_all (fun (t, _) -> not (Textloc.is_none t)) (Doc.list_items d l));
+    (match Doc.list_items mapped l' with
+     | [ (t, _) ] -> assert (Textloc.is_none t)
+     | _ -> failwith "unexpected items")
+  | _ -> failwith "unexpected document"
+;;

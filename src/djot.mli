@@ -396,18 +396,39 @@ module Doc : sig
       {!textloc}. *)
   val syntax_locs : t -> 'a node -> (syntax * Textloc.t) list
 
-  (** The ranges of the parts of a node that are not nodes themselves, parallel to its
-      children. *)
-  type parts =
-    | NoParts
-    | Items of Textloc.t list (** A list's items. A task list's include the checkbox. *)
-    | DefItems of (Textloc.t * Textloc.t * Textloc.t) list
-    (** A definition list's items: the item, its term, its definition. *)
-    | TableRows of Textloc.t option * (Textloc.t * Textloc.t list) list
-    (** A table's caption, then each row and its cells. *)
+  (** {2 Parts that are not nodes}
+      List items, definition-list terms and definitions, table rows, cells and the caption
+      are not nodes, so {!textloc} cannot locate them. These functions return them with
+      their ranges. A range is {!Textloc.none} under the same conditions as {!textloc},
+      and for every part of a node whose parts a {!Mapper} changed in number. A mapper
+      that rewrites a part's content without changing the count keeps the old range. *)
 
-  (** {!NoParts} under the same conditions as {!textloc}. *)
-  val parts : t -> 'a node -> parts
+  (** A bullet or ordered list's items, each from its marker to its last content. [[]] for
+      any other node. *)
+  val list_items : t -> Block.t node -> (Textloc.t * Block.t node list) list
+
+  (** A task list's items, each from its marker, checkbox included. [[]] for any other
+      node. *)
+  val task_items
+    :  t
+    -> Block.t node
+    -> (Textloc.t * Block.task_status * Block.t node list) list
+
+  (** A definition list's items: the item's range, then the term and the definition each
+      with its range. [[]] for any other node. *)
+  val def_items
+    :  t
+    -> Block.t node
+    -> (Textloc.t * (Textloc.t * Inline.t node list) * (Textloc.t * Block.t node list))
+         list
+
+  (** A table's caption, from its [^]. {!Textloc.none} for a table without one and for any
+      other node. *)
+  val table_caption_loc : t -> Block.t node -> Textloc.t
+
+  (** A table's rows, each with its cells. A row spans its line, a cell from its leading
+      [|]. [[]] for any other node. *)
+  val table_rows : t -> Block.t node -> (Textloc.t * (Textloc.t * Block.cell) list) list
 end
 
 (** /**)

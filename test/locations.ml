@@ -94,35 +94,15 @@ let () =
     [ "{#i}\n::: warn\ninside\n:::\n"; "```py\nx\n```\n"; "::: a\nx\n" ]
 ;;
 
-(* The parts of a list, a definition list and a table. *)
+(* Parts that are not nodes: list and task items, definition-list
+   items with their terms and definitions, table rows, cells and the
+   caption. *)
 let () =
   header "parts";
-  List.iter
-    (fun src ->
-      Printf.printf "\n%s\n" (Outline.quote src);
-      let d = Doc.of_string ~locs:true src in
-      let loc label t = print_range label d t in
-      List.iter
-        (fun n ->
-          match Doc.parts d n with
-          | NoParts -> print_endline "NoParts"
-          | Items l -> List.iter (loc "item") l
-          | DefItems l ->
-            List.iter
-              (fun (i, t, df) ->
-                loc "item" i;
-                loc "  term" t;
-                loc "  def" df)
-              l
-          | TableRows (cap, rows) ->
-            Option.iter (loc "caption") cap;
-            List.iter
-              (fun (r, cells) ->
-                loc "row" r;
-                List.iter (loc "  cell") cells)
-              rows)
-        (Doc.blocks d))
-    [ "- a\n- b\n"; ": t\n\n  d\n"; "| a | b |\n| 1 | 2 |\n^ cap\n" ]
+  Outline.show "- a\n- b\n";
+  Outline.show "- [ ] t\n- [x] u\n";
+  Outline.show ": t\n\n  d\n";
+  Outline.show "| a | b |\n| 1 | 2 |\n^ cap\n"
 ;;
 
 (* Every footnote definition's label is located. *)
