@@ -413,11 +413,14 @@ module Stream : sig
   (** A parse fed its input in parts. Blocks are returned as the input closes them, and
       {!finish} gives the document.
 
-      The blocks are the parser's, before the document pass: top level, in source order,
-      headings not wrapped in a {!Block.Section} and without a derived identifier,
-      {!Block.FootnoteDef} and {!Block.RefDef} where they were written. A block that was
-      returned is final: no later input changes it (Rocq:
-      [Invariants.incremental_no_future_line_dependence]).
+      The blocks are top level and in source order. They differ from {!Doc.blocks} in two
+      ways: a heading is not wrapped in a {!Block.Section} (see {!Sections}), and each
+      {!Block.FootnoteDef} is where it was written. A heading has the identifier it has in
+      the document, as an attribute of the heading. A block that was returned is final: no
+      later input changes it (Rocq: [Invariants.incremental_no_future_line_dependence]).
+
+      {!Doc.reference} and {!Doc.footnote} have no counterpart here, since a definition
+      can come after its use; they are answered by the document {!finish} gives.
 
       A value of type {!t} is immutable, so a stream can be continued from any earlier
       point. *)
@@ -442,6 +445,30 @@ module Stream : sig
       Every block returned by a feed, followed by {!peek}, is the parse it was built from.
       With [locs], {!Doc.textloc} of this document locates the returned blocks. *)
   val finish : t -> Doc.t
+
+  (** {2 Sections}
+      The sections {!Doc.blocks} nests the blocks in, as events over the returned blocks:
+      a heading leaves every open section of its level or deeper and enters its own. *)
+
+  module Sections : sig
+    type event =
+      | Enter of Attr.t
+      (** A section starts. The attributes are its heading's, identifier included; the
+          heading follows as an {!Item} without them. *)
+      | Item of Block.t node
+      | Leave (** The innermost open section ends. *)
+
+    (** The open sections. *)
+    type t
+
+    val start : t
+
+    (** The events of one block. *)
+    val step : t -> Block.t node -> event list * t
+
+    (** End of input: one {!Leave} per open section. *)
+    val finish : t -> event list
+  end
 end
 
 (** /**)

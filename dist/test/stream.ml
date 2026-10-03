@@ -28,6 +28,9 @@ let docs =
   ]
 ;;
 
+(* The parsed blocks with heading identifiers, which the stream returns. *)
+let identified d = snd Kernel.Document.(Ids.of_list (For_testing.parsed d) id_state_init)
+
 let feed_all feed t parts =
   List.fold_left
     (fun (acc, t) x ->
@@ -61,7 +64,7 @@ let () =
           let check feed parts =
             let t = Stream.start ~locs () in
             let bs, t = feed_all feed t parts in
-            assert (bs @ Stream.peek t = For_testing.parsed expected);
+            assert (bs @ Stream.peek t = identified expected);
             let d = Stream.finish t in
             assert (same d expected);
             List.iter (fun b -> assert (Doc.textloc d b = Doc.textloc expected b)) bs
@@ -80,7 +83,7 @@ let () =
    far stay a prefix of the parse of any longer input. *)
 let () =
   let src = List.nth docs 3 in
-  let whole = For_testing.parsed (Doc.of_string src) in
+  let whole = identified (Doc.of_string src) in
   let rec prefix a b =
     match a, b with
     | [], _ -> true
@@ -93,7 +96,7 @@ let () =
          let bs, t = Stream.feed_string t c in
          let acc = acc @ bs in
          assert (prefix acc whole);
-         assert (acc @ Stream.peek t = For_testing.parsed (Stream.finish t));
+         assert (acc @ Stream.peek t = identified (Stream.finish t));
          acc, t)
        ([], Stream.start ())
        (chunks 3 src))
@@ -129,4 +132,45 @@ let () =
   assert ((r, p) = (0, 1));
   let r, p, _ = n (Stream.feed_line t "c") in
   assert ((r, p) = (1, 1))
+;;
+
+(* The section events, built back into a tree, are the document's
+   blocks. Footnote definitions are taken out first, as the document pass
+   does. *)
+let () =
+  let build events =
+    let close = function
+      | (Some a, bs) :: (o, outer) :: rest ->
+        (o, Node.make ~attrs:a (Block.Section (List.rev bs)) :: outer) :: rest
+      | _ -> assert false
+    in
+    let stack =
+      List.fold_left
+        (fun stack (e : Stream.Sections.event) ->
+          match e, stack with
+          | Enter a, _ -> (Some a, []) :: stack
+          | Item b, (o, bs) :: rest -> (o, b :: bs) :: rest
+          | Leave, _ -> close stack
+          | Item _, [] -> assert false)
+        [ None, [] ]
+        events
+    in
+    match stack with
+    | [ (None, bs) ] -> List.rev bs
+    | _ -> assert false
+  in
+  List.iter
+    (fun src ->
+      let bs, t = Stream.feed_string (Stream.start ()) src in
+      let _, visible = Kernel.Document.Notes.of_list (bs @ Stream.peek t) [] in
+      let events, s =
+        List.fold_left
+          (fun (acc, s) b ->
+            let es, s = Stream.Sections.step s b in
+            acc @ es, s)
+          ([], Stream.Sections.start)
+          visible
+      in
+      assert (build (events @ Stream.Sections.finish s) = Doc.blocks (Stream.finish t)))
+    ("# a\n\n## b\n\nx\n\n### c\n\n## d\n\n# a\n\n{#k .c}\n### e\n\ny\n" :: docs)
 ;;

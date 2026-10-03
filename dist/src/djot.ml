@@ -620,6 +620,7 @@ module Stream = struct
     ; pieces : K.Reparse.piece list (* The finished pieces, last first. *)
     ; offset : int (* The lines in [pieces]. *)
     ; pending : K.Reparse.pending
+    ; ids : K.Document.id_state (* After the blocks returned. *)
     }
 
   let start ?(profile = Profile.djot) ?(locs = false) () =
@@ -630,6 +631,7 @@ module Stream = struct
     ; pieces = []
     ; offset = 0
     ; pending = K.Reparse.fresh
+    ; ids = K.Document.id_state_init
     }
   ;;
 
@@ -643,20 +645,26 @@ module Stream = struct
      placed where the piece starts. *)
   let unreturned t bs =
     let bs = drop (List.length t.pending.K.Reparse.pend_blocks) bs in
-    if t.locs then K.Ast.Shift.of_blocks t.offset bs else bs
+    K.Document.Ids.of_list
+      (if t.locs then K.Ast.Shift.of_blocks t.offset bs else bs)
+      t.ids
   ;;
 
   (* One whole line. A line that leaves the fold idle ends the piece. *)
   let line t l =
     let stp, _ = Doc.fold_step ~locs:t.locs t.profile in
     match K.Reparse.cut stp [ l ] t.pending with
-    | [], p -> unreturned t p.K.Reparse.pend_blocks, { t with pending = p }
+    | [], p ->
+      let ids, bs = unreturned t p.K.Reparse.pend_blocks in
+      bs, { t with pending = p; ids }
     | c :: _, p ->
-      ( unreturned t c.K.Reparse.piece_blocks
+      let ids, bs = unreturned t c.K.Reparse.piece_blocks in
+      ( bs
       , { t with
           pieces = c :: t.pieces
         ; offset = t.offset + List.length c.K.Reparse.piece_lines
         ; pending = p
+        ; ids
         } )
   ;;
 
@@ -687,7 +695,7 @@ module Stream = struct
     cs @ K.Reparse.close fin p
   ;;
 
-  let peek t = unreturned t (K.Reparse.pieces_tree (ended t))
+  let peek t = snd (unreturned t (K.Reparse.pieces_tree (ended t)))
 
   let finish t =
     Doc.of_pieces
@@ -696,6 +704,32 @@ module Stream = struct
       (String.concat "" (List.rev t.chunks))
       (List.rev_append t.pieces (ended t))
   ;;
+
+  module Sections = struct
+    type event =
+      | Enter of Attr.t
+      | Item of Block.t node
+      | Leave
+
+    (* The levels of the open sections, innermost first. *)
+    type t = int list
+
+    let start = []
+
+    let step t (Node (p, a, b) as n) =
+      match (b : Block.t) with
+      | Heading (lvl, _) ->
+        let rec leave acc = function
+          | l :: rest when lvl <= l -> leave (Leave :: acc) rest
+          | t -> acc, t
+        in
+        let left, t = leave [] t in
+        left @ [ Enter a; Item (Node (p, [], b)) ], lvl :: t
+      | _ -> [ Item n ], t
+    ;;
+
+    let finish t = List.map (fun _ -> Leave) t
+  end
 end
 
 module For_testing = struct
