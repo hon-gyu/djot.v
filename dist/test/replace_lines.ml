@@ -64,3 +64,89 @@ let () =
   | _ -> failwith "a document without source is not spliced"
   | exception Invalid_argument _ -> ()
 ;;
+
+(* The reported range holds the edited lines, and the lines outside it
+   are the same text before and after. *)
+let () =
+  let src = "a\n\nb\n\n- c\n\n```\nk\n```\n\nd\n" in
+  let ls = Array.of_list (Kernel.Strings.split_lines src) in
+  let n = Array.length ls in
+  let d = Doc.of_string src in
+  for first = 1 to n + 1 do
+    for last = first - 1 to n do
+      List.iter
+        (fun s ->
+          let d', (c : Doc.change) = Doc.replace_lines_changed d ~first ~last s in
+          let ls' =
+            Array.of_list (Kernel.Strings.split_lines (Option.get (Doc.source d')))
+          in
+          let n' = Array.length ls' in
+          assert (c.first <= first && last <= c.old_last);
+          assert (c.first - 1 <= c.new_last && c.old_last <= n && c.new_last <= n');
+          assert (Array.sub ls 0 (c.first - 1) = Array.sub ls' 0 (c.first - 1));
+          assert (n - c.old_last = n' - c.new_last);
+          assert (
+            Array.sub ls c.old_last (n - c.old_last)
+            = Array.sub ls' c.new_last (n' - c.new_last)))
+        [ ""; "x\n"; "```\n"; "- z\n"; "# a\n\n" ]
+    done
+  done
+;;
+
+(* An edit that leaves the parser idle is confined to its piece, and the
+   blocks around it are the old values. One that opens a fence runs on
+   until the parser is idle again at the end of an old piece. *)
+let () =
+  let d = Doc.of_string "a\n\nb\n\nc\n\n```\nk\n```\n\nd\n" in
+  let d', c = Doc.replace_lines_changed d ~first:3 ~last:3 "x" in
+  assert (c = { first = 3; old_last = 4; new_last = 4 });
+  let old = For_testing.parsed d
+  and now = For_testing.parsed d' in
+  assert (List.length old = List.length now);
+  List.iteri (fun k b -> assert (b == List.nth now k = (k <> 1))) old;
+  let _, c = Doc.replace_lines_changed d ~first:3 ~last:3 "```" in
+  assert (c = { first = 3; old_last = 10; new_last = 10 });
+  let _, c = Doc.replace_lines_changed d ~first:6 ~last:5 "new\n" in
+  assert (c = { first = 5; old_last = 6; new_last = 7 })
+;;
+
+(* Replacing bytes gives the parse of the source with those bytes
+   replaced, for every range. *)
+let () =
+  List.iter
+    (fun locs ->
+      List.iter
+        (fun src ->
+          let d = Doc.of_string ~locs src in
+          let n = String.length src in
+          for first = 0 to n do
+            for last = first - 1 to n - 1 do
+              List.iter
+                (fun s ->
+                  let edited =
+                    String.sub src 0 first ^ s ^ String.sub src (last + 1) (n - last - 1)
+                  in
+                  let expected = Doc.of_string ~locs edited in
+                  let got, (c : Doc.change) =
+                    Doc.replace_bytes_changed d ~first ~last s
+                  in
+                  assert (Doc.source got = Some edited);
+                  assert (For_testing.kernel got = For_testing.kernel expected);
+                  assert (Doc.footnote_defs got = Doc.footnote_defs expected);
+                  assert (c.first >= 1 && c.old_last >= c.first - 1))
+                [ ""; "x"; "\n"; "x\n"; "\n\n- z"; "```\n" ]
+            done
+          done)
+        [ ""
+        ; "a"
+        ; "a\nb\n\n# h\n\n- x\n\n- y\nc\n\n```\nk\n```\n"
+        ; "> q\r\n\r\n| a |\n\n- b"
+        ])
+    [ false; true ];
+  (match Doc.replace_bytes (Doc.of_string "ab") ~first:1 ~last:2 "" with
+   | _ -> failwith "a range past the end is refused"
+   | exception Invalid_argument _ -> ());
+  match Doc.replace_bytes (Doc.of_blocks []) ~first:0 ~last:(-1) "b" with
+  | _ -> failwith "a document without source is not spliced"
+  | exception Invalid_argument _ -> ()
+;;

@@ -362,6 +362,39 @@ module Doc : sig
         if [d] was made by {!of_blocks} or the range is outside [d]'s lines. *)
   val replace_lines : t -> first:int -> last:int -> string -> t
 
+  (** [replace_bytes d ~first ~last s] is [d] with source bytes [first] to [last]
+      (zero-based, inclusive, as in {!Textloc}) replaced by [s], as {!replace_lines} does
+      for the lines the bytes are on.
+
+      The result equals {!of_string} on the edited source, which is the old one with
+      exactly those bytes replaced. [last = first - 1] inserts before byte [first].
+
+      @raise Invalid_argument
+        if [d] was made by {!of_blocks} or the range is outside [d]'s source. *)
+  val replace_bytes : t -> first:int -> last:int -> string -> t
+
+  (** The lines an edit parsed again, one-based and inclusive: lines [first] to [old_last]
+      of the source before the edit, which are lines [first] to [new_last] of the source
+      after it. A last line of [first - 1] is an empty range. The range holds the edited
+      lines and can be wider.
+
+      The lines outside it were not parsed: the blocks they give are the ones of the
+      document before the edit, with the positions of those after the range moved. The
+      document pass still runs over every block, so outside the range an edit can change
+      the suffix of a repeated heading identifier, where a section ends, and what
+      {!reference} and {!footnote} answer. *)
+  type change =
+    { first : int
+    ; old_last : int
+    ; new_last : int
+    }
+
+  (** {!replace_lines}, with the lines it parsed again. *)
+  val replace_lines_changed : t -> first:int -> last:int -> string -> t * change
+
+  (** {!replace_bytes}, with the lines it parsed again. *)
+  val replace_bytes_changed : t -> first:int -> last:int -> string -> t * change
+
   (** The string the document was parsed from, which {!textloc}'s byte ranges index.
       [None] if it was made by {!of_blocks}. {!Mapper.map_doc} keeps it, so after a map it
       is the source of the tree before the map. *)

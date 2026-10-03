@@ -506,13 +506,38 @@ module Doc = struct
     pre ^ mid ^ post
   ;;
 
+  type change =
+    { first : int
+    ; old_last : int
+    ; new_last : int
+    }
+
+  (* The splice keeps the pieces it does not parse as the values they
+     were, so the pieces two lists share at each end are the kept ones.
+     The pieces shared at the start are counted up to the first [f] lines
+     only, which places an edit that changes no piece at the edit. *)
+  let change_of f old_ps new_ps =
+    let lines n p = n + List.length p.K.Reparse.piece_lines in
+    let rec shared limit n a b =
+      match a, b with
+      | x :: a, y :: b when x == y && lines n x <= limit -> shared limit (lines n x) a b
+      | _ -> n, a, b
+    in
+    let pre, a, b = shared f 0 old_ps new_ps in
+    let _, a, b = shared max_int 0 (List.rev a) (List.rev b) in
+    { first = pre + 1
+    ; old_last = List.fold_left lines pre a
+    ; new_last = List.fold_left lines pre b
+    }
+  ;;
+
   (* The edit widens to the pieces holding lines [first] to [last]; the
      lines of those pieces outside the range go back in around [s]. *)
-  let replace_lines (d : t) ~first ~last (s : string) : t =
+  let replace_lines_changed (d : t) ~first ~last (s : string) : t * change =
     let src, ps =
       match d.source with
       | Some x -> x
-      | None -> invalid_arg "Doc.replace_lines: not made by of_string"
+      | None -> invalid_arg "Doc.replace_lines: the document has no source"
     in
     let n = List.length ps in
     let pa = Array.of_list ps in
@@ -541,13 +566,55 @@ module Doc = struct
     in
     let locs = Option.is_some d.lines in
     let stp, fin = fold_step ~locs d.profile in
-    of_pieces
-      ~profile:d.profile
-      ~locs
-      (edit_source src f l s)
-      (K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind))
+    let ps' =
+      K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind)
+    in
+    of_pieces ~profile:d.profile ~locs (edit_source src f l s) ps', change_of f ps ps'
   ;;
 
+  let replace_lines d ~first ~last s = fst (replace_lines_changed d ~first ~last s)
+
+  (* The edit widens to whole lines: from the start of the line holding
+     byte [first] to the end of the line holding the byte after [last],
+     which the edit joins to what comes before it. *)
+  let replace_bytes_changed (d : t) ~first ~last (s : string) : t * change =
+    let src =
+      match d.source with
+      | Some (src, _) -> src
+      | None -> invalid_arg "Doc.replace_bytes: the document has no source"
+    in
+    let n = String.length src in
+    let a = first
+    and b = last + 1 in
+    if a < 0 || b < a || b > n
+    then invalid_arg "Doc.replace_bytes: range outside the document";
+    let la =
+      match if a = 0 then None else String.rindex_from_opt src (a - 1) '\n' with
+      | Some k -> k + 1
+      | None -> 0
+    in
+    let lb =
+      match if b = n then None else String.index_from_opt src b '\n' with
+      | Some k -> k + 1
+      | None -> n
+    in
+    let newlines i j =
+      let c = ref 0 in
+      for k = i to j - 1 do
+        if src.[k] = '\n' then incr c
+      done;
+      !c
+    in
+    let first_line = newlines 0 la + 1 in
+    let count = newlines la lb + if lb > la && src.[lb - 1] <> '\n' then 1 else 0 in
+    replace_lines_changed
+      d
+      ~first:first_line
+      ~last:(first_line + count - 1)
+      (String.sub src la (a - la) ^ s ^ String.sub src b (lb - b))
+  ;;
+
+  let replace_bytes d ~first ~last s = fst (replace_bytes_changed d ~first ~last s)
   let source (d : t) : string option = Option.map fst d.source
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
   let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
