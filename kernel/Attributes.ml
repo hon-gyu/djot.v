@@ -558,3 +558,19 @@ let attr_part = function
 let attr_spec a = match a with
 | [] -> ""
 | _ :: _ -> (^) "{" ((^) (String.concat " " (map attr_part a)) "}")
+
+(** val key_ok : string -> bool **)
+
+let key_ok =
+  class_word_ok
+
+(** val attr_ok : attr -> bool **)
+
+let rec attr_ok = function
+| [] -> true
+| p :: rest ->
+  let (k, _) = p in
+  (&&) (key_ok k)
+    (match alist_lookup k rest with
+     | Some _ -> false
+     | None -> attr_ok rest)

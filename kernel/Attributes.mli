@@ -91,3 +91,7 @@ val escape_value : string -> string
 val attr_part : (string * string) -> string
 
 val attr_spec : attr -> string
+
+val key_ok : string -> bool
+
+val attr_ok : attr -> bool

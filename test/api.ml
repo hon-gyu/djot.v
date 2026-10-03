@@ -401,6 +401,15 @@ let () =
   List.iter
     (fun s -> assert (Attr.of_string s = None))
     [ ""; "#x"; "{#x"; "{#x} "; "{a=}"; "{!}" ];
+  assert (Attr.is_valid a && Attr.is_valid Attr.empty);
+  assert (not (Attr.is_valid [ "k", "1"; "k", "2" ]));
+  assert (not (Attr.is_valid [ "a b", "v" ]));
+  assert (Attr.to_string (Attr.remove "id" a) = {|{.a .b k="v w"}|});
+  assert (Attr.remove "none" a = a);
+  assert (Option.map Attr.to_string (Attr.set_classes [ "c"; "d" ] a) = Some {|{#x .c .d k="v w"}|});
+  assert (Option.map Attr.classes (Attr.set_classes [] a) = Some []);
+  assert (Attr.set_classes [] a = Some (Attr.remove "class" a));
+  assert (Attr.set_classes [ "c"; "d e" ] a = None);
   assert (Attr.set "a b" "v" Attr.empty = None);
   assert (Attr.set "" "v" Attr.empty = None);
   assert (Attr.add_class "a b" Attr.empty = None);
