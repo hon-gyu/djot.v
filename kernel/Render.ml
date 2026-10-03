@@ -642,9 +642,9 @@ let attr_lines a = match a with
 | [] -> []
 | _ :: _ -> (attr_spec a) :: []
 
-(** val fence_class : attr -> block -> string **)
+(** val fence_class : bconfig -> attr -> block -> string **)
 
-let fence_class a = function
+let fence_class k a = function
 | Div (name, _) ->
   ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
@@ -652,11 +652,13 @@ let fence_class a = function
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
      (fun _ ->
-     match a with
-     | [] -> ""
-     | p :: _ ->
-       let (k, c) = p in
-       if (&&) ((=) k "class") (class_word_ok c) then c else "")
+     if k.bdiv_names
+     then ""
+     else (match a with
+           | [] -> ""
+           | p :: _ ->
+             let (k0, c) = p in
+             if (&&) ((=) k0 "class") (class_word_ok c) then c else ""))
      (fun _ _ -> "")
      name)
 | _ -> ""
@@ -731,7 +733,7 @@ let rec render_lines t k a b =
             it))) :: (godefs rest)
     in godefs
   in
-  let cls = fence_class a b in
+  let cls = fence_class k a b in
   app (attr_lines (drop_class cls a))
     (match b with
      | Para ils -> text_lines t ils
