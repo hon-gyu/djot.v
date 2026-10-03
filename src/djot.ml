@@ -35,17 +35,16 @@ module Attr = struct
   let is_valid : t -> bool = K.Attributes.attr_ok
   let is_key : string -> bool = K.Attributes.key_ok
   let is_class : string -> bool = K.Attributes.class_word_ok
-  
-  let is_valid_strict : t -> bool = fun a ->
-    is_valid a && List.for_all (fun c -> is_class c) (classes a)
+
+  let is_valid_strict : t -> bool =
+    fun a -> is_valid a && List.for_all (fun c -> is_class c) (classes a)
+  ;;
 
   let set (k : string) (v : string) (a : t) : t option =
     if is_key k then Some (K.Ast.Attr.set k v a) else None
   ;;
-  
-  let set_id (id : string) (a : t) : t =
-    (K.Ast.Attr.set "id" id a)
-  ;;
+
+  let set_id (id : string) (a : t) : t = K.Ast.Attr.set "id" id a
 
   let add_class (c : string) (a : t) : t option =
     if is_class c then Some (K.Ast.Attr.add_class c a) else None
@@ -313,16 +312,23 @@ module Profile = struct
   ;;
 
   let with_ext_list_interrupts b =
-    block K.Step.with_marker_interrupts K.Step.(if b then prose_safe_markers else no_interrupt)
+    block
+      K.Step.with_marker_interrupts
+      K.Step.(if b then prose_safe_markers else no_interrupt)
   ;;
 
-  (* The two block rules are functions, told apart by which kernel value
-     they are. *)
-  let pp ppf (p : t) =
-    let t = p.profile_inline
-    and k = p.profile_block in
-    let switch b = if b then "on" else "off" in
-    let rule f ~on ~off = if f == on then "on" else if f == off then "off" else "custom" in
+  let pp_fields ppf fields =
+    Format.pp_open_vbox ppf 0;
+    Format.pp_print_list
+      ~pp_sep:Format.pp_print_cut
+      (fun ppf (name, v) -> Format.fprintf ppf "%s: %s" name v)
+      ppf
+      fields;
+    Format.pp_close_box ppf ()
+  ;;
+
+  let delimiter_fields (p : t) =
+    let t = p.profile_inline in
     let delim s =
       let run = String.make (t.dc_width s) (t.dc_char s) in
       match t.dc_syntax s with
@@ -331,17 +337,31 @@ module Profile = struct
       | DBare -> run ^ " bare"
       | DBareAfterBreak -> run ^ " bare after a break"
     in
-    let fields =
-      [ "emph", delim DEmph
-      ; "strong", delim DStrong
-      ; "superscript", delim DSuper
-      ; "subscript", delim DSub
-      ; "highlight", delim DMark
-      ; "insert", delim DInsert
-      ; "delete", delim DDelete
-      ; "single_quote", delim DSQuote
-      ; "double_quote", delim DDQuote
-      ; "footnotes", switch (t.dc_footnotes && k.bfootnotes)
+    [ "emph", delim DEmph
+    ; "strong", delim DStrong
+    ; "superscript", delim DSuper
+    ; "subscript", delim DSub
+    ; "highlight", delim DMark
+    ; "insert", delim DInsert
+    ; "delete", delim DDelete
+    ; "single_quote", delim DSQuote
+    ; "double_quote", delim DDQuote
+    ]
+  ;;
+
+  let pp_delimiters ppf p = pp_fields ppf (delimiter_fields p)
+
+  (* The two block rules are functions, told apart by which kernel value
+     they are. *)
+  let pp ppf (p : t) =
+    let t = p.profile_inline
+    and k = p.profile_block in
+    let switch b = if b then "on" else "off" in
+    let rule f ~on ~off =
+      if f == on then "on" else if f == off then "off" else "custom"
+    in
+    let switches =
+      [ "footnotes", switch (t.dc_footnotes && k.bfootnotes)
       ; "smart_typography", switch t.dc_smart_typography
       ; "raw_inline", switch t.dc_raw_inline
       ; "math", switch t.dc_math
@@ -361,16 +381,11 @@ module Profile = struct
       ; ( "ext_setext_headings"
         , rule k.bunderline ~on:K.Step.setext_underline ~off:K.Step.no_underline )
       ; ( "ext_list_interrupts"
-        , rule k.bmarker_interrupts ~on:K.Step.prose_safe_markers ~off:K.Step.no_interrupt )
+        , rule k.bmarker_interrupts ~on:K.Step.prose_safe_markers ~off:K.Step.no_interrupt
+        )
       ]
     in
-    Format.pp_open_vbox ppf 0;
-    Format.pp_print_list
-      ~pp_sep:Format.pp_print_cut
-      (fun ppf (name, v) -> Format.fprintf ppf "%s: %s" name v)
-      ppf
-      fields;
-    Format.pp_close_box ppf ()
+    pp_fields ppf (delimiter_fields p @ switches)
   ;;
 end
 
@@ -593,7 +608,6 @@ module Doc = struct
          TableRows
            (Option.map loc cap, List.map (fun (r, cs) -> loc r, List.map loc cs) rows))
   ;;
-
 end
 
 module For_testing = struct

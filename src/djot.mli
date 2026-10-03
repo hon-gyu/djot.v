@@ -321,8 +321,12 @@ module Profile : sig
       paragraph text, with no blank line between. On in {!markdown_like}. *)
   val with_ext_list_interrupts : bool -> t -> t
 
-  (** One [name: value] line per switch above, named as the switch without [with_], after
-      one line per delimiter giving its characters and how it is written. *)
+  (** One [name: value] line per inline delimiter, giving its characters and how it is
+      written, e.g. [strong: ** bare] or [highlight: = braced]. *)
+  val pp_delimiters : Format.formatter -> t -> unit
+
+  (** The lines of {!pp_delimiters}, then one [name: value] line per switch above, named
+      as the switch without [with_]. *)
   val pp : Format.formatter -> t -> unit
 end
 
