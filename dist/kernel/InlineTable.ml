@@ -592,11 +592,11 @@ let rec reference_text il =
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns
    | Span (_, ns) -> go ns
-   | Ext_wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | Quoted (_, ns) -> go ns
    | SoftBreak -> nl
    | HardBreak -> nl
+   | Ext_wikilink (_, t, al) -> wiki_display t al
    | _ -> "")
 
 (** val reference_inlines_text : inlines -> string **)

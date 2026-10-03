@@ -478,15 +478,15 @@ Inductive inline : Type :=
   | FootnoteReference (label : string)
   | UrlLink (url : string)
   | EmailLink (email : string)
-  (* Extension, not djot (`.project/wikilinks.md`): `[[target|alias]]`,
-     and `![[...]]` with `embed` set.  Both halves are source as written;
-     what a target denotes is the consumer's. *)
-  | Ext_wikilink (embed : bool) (target : string) (alias : option string)
   | RawInline (format : string) (s : string)
   | NonBreakingSpace
   | Quoted (qt : quote_type) (ils : list (node inline))
   | SoftBreak
-  | HardBreak.
+  | HardBreak
+  (* Extension, not djot (`.project/wikilinks.md`): `[[target|alias]]`,
+     and `![[...]]` with `embed` set.  Both halves are source as written;
+     what a target denotes is the consumer's. *)
+  | Ext_wikilink (embed : bool) (target : string) (alias : option string).
 
 Definition inlines : Type := list (node inline).
 

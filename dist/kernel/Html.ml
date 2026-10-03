@@ -144,10 +144,10 @@ let rec plain_text il =
    | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
-   | Ext_wikilink (_, t, al) -> wiki_display t al
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
+   | Ext_wikilink (_, t, al) -> wiki_display t al
    | _ -> nl)
 
 (** val plain_texts : inline node list -> string **)
@@ -422,12 +422,6 @@ let rec render_inline refs il a =
    | EmailLink addr ->
      (HElem ("a", 0, (("href", ((^) "mailto:" addr)) :: a), ((HText
        addr) :: []))) :: []
-   | Ext_wikilink (embed, t, al) ->
-     if embed
-     then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
-            t) :: a)))) :: []
-     else (HElem ("a", 0, (("href", t) :: a), ((HText
-            (wiki_display t al)) :: []))) :: []
    | RawInline (fmt, s) -> if (=) fmt "html" then (HRaw s) :: [] else []
    | NonBreakingSpace -> (HRaw "&nbsp;") :: []
    | Quoted (qt, ils) ->
@@ -437,7 +431,13 @@ let rec render_inline refs il a =
       | DoubleQuotes ->
         app ((HText ldquo) :: []) (app (render_ils ils) ((HText rdquo) :: [])))
    | SoftBreak -> (HText nl) :: []
-   | HardBreak -> (HVoid ("br", false, [])) :: ((HText nl) :: []))
+   | HardBreak -> (HVoid ("br", false, [])) :: ((HText nl) :: [])
+   | Ext_wikilink (embed, t, al) ->
+     if embed
+     then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
+            t) :: a)))) :: []
+     else (HElem ("a", 0, (("href", t) :: a), ((HText
+            (wiki_display t al)) :: []))) :: [])
 
 (** val render_inlines : reference_map -> inlines -> helt list **)
 

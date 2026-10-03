@@ -869,7 +869,6 @@ let rec inline_text t il =
    | FootnoteReference label -> note_text label
    | UrlLink s -> auto_text s
    | EmailLink s -> auto_text s
-   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
    | RawInline (fmt, s) -> raw_text fmt s
    | NonBreakingSpace ->
      (* If this appears, you're using String internals. Please don't *)
@@ -885,7 +884,8 @@ let rec inline_text t il =
      (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-       (bslash, (one '\n')))
+       (bslash, (one '\n'))
+   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al)
 
 (** val line_ends : inlines -> bool **)
 
