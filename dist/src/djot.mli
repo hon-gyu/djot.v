@@ -30,21 +30,45 @@ module Attr : sig
 
   (** The entries other than ["id"] and ["class"]. *)
   val key_values : t -> (string * string) list
+
+  (** Nonempty, of ASCII letters, digits, [-], [_] and [:]: what an attribute spec
+      accepts as a key. *)
+  val is_key : string -> bool
+
+  (** [set k v a] replaces [k]'s value, keeping its place, or adds [k] last. [set "id"]
+      sets the identifier and [set "class"] replaces every class. [v] is unrestricted.
+      [None] unless [is_key k]: {!Html} writes keys unescaped. *)
+  val set : string -> string -> t -> t option
+
+  (** Adds one class after the existing ones. [None] if the class is empty or has a
+      character a [.class] cannot. *)
+  val add_class : string -> t -> t option
+
+  (** {!set} and {!add_class}, raising [Invalid_argument] for [None]. *)
+
+  val set_exn : string -> string -> t -> t
+  val add_class_exn : string -> t -> t
+
+  (** The spec [{#id .class key="value"}]; [""] for {!empty}. *)
+  val to_string : t -> string
+
+  (** Reads one spec, from its [{] to its [}] with nothing around it. [None] if it is not
+      one. *)
+  val of_string : string -> t option
 end
 
 (** {1 Nodes} *)
 
 type 'a node = 'a Kernel.Ast.node =
   | Node of Kernel.Ast.pos * Attr.t * 'a
-  (** A tree element: its source position (see {!Doc.textloc}), its attributes, and its
-      contents. *)
+  (** A tree element: source position (see {!Doc.textloc}), attributes, and contents. *)
 
 module Node : sig
   (** A node with no source position. *)
   val make : ?attrs:Attr.t -> 'a -> 'a node
 
   val attrs : 'a node -> Attr.t
-  val contents : 'a node -> 'a
+  val content : 'a node -> 'a
 end
 
 (** {1 Inlines} *)
@@ -82,13 +106,13 @@ module Inline : sig
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
-    | Ext_wikilink of bool * string * string option
-    (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
     | RawInline of string * string
     | NonBreakingSpace
     | Quoted of quote_type * t node list
     | SoftBreak
     | HardBreak
+    | Ext_wikilink of bool * string * string option
+    (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
 
   (** The text a heading identifier is derived from. *)
   val to_plain_text : t node list -> string
@@ -177,12 +201,6 @@ module Textloc : sig
 
   type t
 
-  val none : t
-  val is_none : t -> bool
-
-  (** [last_byte] is [first_byte - 1]. *)
-  val is_empty : t -> bool
-
   val first_byte : t -> byte_pos
 
   (** Inclusive. *)
@@ -191,14 +209,22 @@ module Textloc : sig
   val first_line : t -> line_pos
   val last_line : t -> line_pos
 
-  val v
+  val none : t
+  
+  val is_none : t -> bool
+
+  (** [last_byte] is [first_byte - 1]. *)
+  val is_empty : t -> bool
+
+
+  val make
     :  first_byte:byte_pos
     -> last_byte:byte_pos
     -> first_line:line_pos
     -> last_line:line_pos
     -> t
 
-  (** From the start of [first] to the end of [last]. *)
+  (** The range from [first]'s first byte to [last]'s last byte *)
   val reloc : first:t -> last:t -> t
 
   val pp : Format.formatter -> t -> unit
@@ -301,6 +327,11 @@ module Doc : sig
       Raises [Invalid_argument] if [d] was made by {!of_blocks}, or the range is not
       within [d]'s lines. *)
   val replace_lines : t -> first:int -> last:int -> string -> t
+
+  (** The string the document was parsed from, which {!textloc}'s byte ranges index.
+      [None] if it was made by {!of_blocks}. {!Mapper.map_doc} keeps it, so after a map it
+      is the source of the tree before the map. *)
+  val source : t -> string option
 
   val blocks : t -> Block.t node list
 
@@ -445,4 +476,13 @@ module Source : sig
       - a [|] in a table cell's text splits the cell. Roundtrip.v proves the round trip
         for a fragment of documents; beyond it this is tested, not proved. *)
   val of_doc : Doc.t -> string
+
+  (** The blocks as djot source, in [profile]'s syntax (default {!Profile.djot}), for the
+      source of one node or of a mapped tree. Unlike {!of_doc}, a heading id the document
+      pass derived is written out as an attribute. *)
+  val of_blocks : ?profile:Profile.t -> Block.t node list -> string
+
+  (** The inlines as they are written inside a paragraph, a soft or hard break ending a
+      line. *)
+  val of_inlines : ?profile:Profile.t -> Inline.t node list -> string
 end

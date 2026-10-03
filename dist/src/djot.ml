@@ -6,7 +6,11 @@
 
 (* The module types are modeled on cmarkit's; see LICENSE-cmarkit. The
    implementation is not derived from cmarkit: it calls the Rocq-extracted
-   kernel. *)
+   kernel. 
+   
+   Other deviation:
+   - No [Meta.t]. [Attr.t] is used instead.
+*)
 
 module Kernel = Djot_kernel
 module K = Kernel
@@ -27,14 +31,55 @@ module Attr = struct
   let key_values (a : t) : (string * string) list =
     List.filter (fun (k, _) -> k <> "id" && k <> "class") a
   ;;
+
+  let is_key (k : string) : bool = k <> "" && String.for_all K.Attributes.is_key_char k
+
+  let set (k : string) (v : string) (a : t) : t option =
+    if is_key k then Some (K.Ast.Attr.set k v a) else None
+  ;;
+
+  let add_class (c : string) (a : t) : t option =
+    if K.Attributes.class_word_ok c then Some (K.Ast.Attr.add_class c a) else None
+  ;;
+
+  let set_exn k v a =
+    match set k v a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.set_exn: not a key"
+  ;;
+
+  let add_class_exn c a =
+    match add_class c a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.add_class_exn: not a class name"
+  ;;
+
+  let to_string : t -> string = K.Attributes.attr_spec
+
+  (** Whitespace runs in a value collapse to one space, 
+      so [of_string (to_string a) <> a].  *)
+  let of_string (s : string) : t option =
+    let n = String.length s in
+    if n = 0 || s.[0] <> '{'
+    then None
+    else (
+      let p, rest = K.Attributes.afeed (String.sub s 1 (n - 1)) K.Attributes.ap_init in
+      if K.Attributes.ap_done p && rest = "" then Some p.ap_attrs else None)
+  ;;
 end
 
 type 'a node = 'a K.Ast.node = Node of K.Ast.pos * Attr.t * 'a
 
 module Node = struct
-  let make ?(attrs = []) x = Node (K.Ast.NoPos, attrs, x)
-  let attrs (Node (_, a, _)) = a
-  let contents (Node (_, _, x)) = x
+  let make ?(attrs : Attr.t = []) x : 'a node = Node (K.Ast.NoPos, attrs, x)
+
+  let attrs : 'a node -> Attr.t = function
+    | Node (_, a, _) -> a
+  ;;
+
+  let content : 'a node -> 'a = function
+    | Node (_, _, x) -> x
+  ;;
 end
 
 module Inline = struct
@@ -68,15 +113,15 @@ module Inline = struct
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
-    | Ext_wikilink of bool * string * string option
     | RawInline of string * string
     | NonBreakingSpace
     | Quoted of quote_type * t node list
     | SoftBreak
     | HardBreak
+    | Ext_wikilink of bool * string * string option
 
-  let to_plain_text ns =
-    String.concat "" (List.map (fun n -> K.Document.inline_text (Node.contents n)) ns)
+  let to_plain_text (ns : t node list) : string =
+    String.concat "" (List.map (fun n -> K.Document.inline_text (Node.content n)) ns)
   ;;
 end
 
@@ -154,23 +199,25 @@ module Textloc = struct
     ; last_line : line_pos
     }
 
-  let none = { first_byte = -1; last_byte = -1; first_line = -1, -1; last_line = -1, -1 }
-  let is_none t = t.first_byte < 0
-  let is_empty t = t.first_byte > t.last_byte
   let first_byte t = t.first_byte
   let last_byte t = t.last_byte
   let first_line t = t.first_line
   let last_line t = t.last_line
 
-  let v ~first_byte ~last_byte ~first_line ~last_line =
+  let make ~first_byte ~last_byte ~first_line ~last_line =
     { first_byte; last_byte; first_line; last_line }
   ;;
+
+  let none = { first_byte = -1; last_byte = -1; first_line = -1, -1; last_line = -1, -1 }
+  let is_none t = t.first_byte < 0
+  let is_empty t = t.first_byte > t.last_byte
 
   let reloc ~first ~last =
     { first with last_byte = last.last_byte; last_line = last.last_line }
   ;;
 
-  let pp ppf t =
+  let pp : Format.formatter -> t -> unit =
+    fun ppf t ->
     if is_none t
     then Format.pp_print_string ppf "<none>"
     else
@@ -385,6 +432,7 @@ module Doc = struct
       (K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind))
   ;;
 
+  let source d = Option.map fst d.source
   let blocks d = d.kernel.doc_blocks
   let footnotes d = d.kernel.doc_footnotes
   let footnote_defs d = d.footnote_defs
@@ -410,7 +458,7 @@ module Doc = struct
       then Textloc.none
       else (
         let first_byte = l.first_byte + 2 in
-        Textloc.v
+        Textloc.make
           ~first_byte
           ~last_byte:(first_byte + String.length label - 1)
           ~first_line:l.first_line
@@ -476,8 +524,8 @@ module Mapper = struct
     ]
 
   let default = `Default
-  let delete = `Map None
-  let ret x = `Map (Some x)
+  let delete : 'a result = `Map None
+  let ret (x : 'a) : 'a filter_map result = `Map (Some x)
 
   type t =
     { inline : t -> Inline.t node -> Inline.t node filter_map result
@@ -486,7 +534,11 @@ module Mapper = struct
 
   type 'a mapper = t -> 'a -> 'a filter_map result
 
-  let make ?(inline = fun _ _ -> `Default) ?(block = fun _ _ -> `Default) () =
+  let make
+    ?(inline : Inline.t node mapper = fun _ _ -> `Default)
+    ?(block : Block.t node mapper = fun _ _ -> `Default)
+    ()
+    =
     { inline; block }
   ;;
 
@@ -562,7 +614,7 @@ module Mapper = struct
     Option.map (fun x -> Node (p, a, x)) x
   ;;
 
-  let map_doc m (d : Doc.t) =
+  let map_doc (m : t) (d : Doc.t) : Doc.t =
     let k = d.kernel in
     { d with
       kernel =
@@ -590,16 +642,20 @@ module Folder = struct
 
   type ('a, 'b) folder = 'b t -> 'b -> 'a -> 'b result
 
-  let make ?(inline = fun _ _ _ -> `Default) ?(block = fun _ _ _ -> `Default) () =
+  let make
+    ?(inline : (Inline.t node, 'a) folder = fun _ _ _ -> `Default)
+    ?(block : (Block.t node, 'a) folder = fun _ _ _ -> `Default)
+    ()
+    =
     { inline; block }
   ;;
 
-  let rec fold_inline f acc n =
+  let rec fold_inline (f : 'a t) (acc : 'a) (n : Inline.t node) : 'a =
     match f.inline f acc n with
     | `Fold acc -> acc
     | `Default ->
       let k = List.fold_left (fold_inline f) acc in
-      (match Node.contents n with
+      (match Node.content n with
        | Emph l
        | Strong l
        | Highlight l
@@ -625,13 +681,13 @@ module Folder = struct
        | HardBreak -> acc)
   ;;
 
-  let rec fold_block f acc n =
+  let rec fold_block (f : 'a t) (acc : 'a) (n : Block.t node) : 'a =
     match f.block f acc n with
     | `Fold acc -> acc
     | `Default ->
       let il acc l = List.fold_left (fold_inline f) acc l in
       let bl acc l = List.fold_left (fold_block f) acc l in
-      (match Node.contents n with
+      (match Node.content n with
        | Para l | Heading (_, l) -> il acc l
        | Section l | BlockQuote l | Div (_, l) | FootnoteDef (_, l) -> bl acc l
        | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
@@ -647,7 +703,7 @@ module Folder = struct
        | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
   ;;
 
-  let fold_doc f acc d =
+  let fold_doc (f : 'a t) (acc : 'a) (d : Doc.t) : 'a =
     let bl acc l = List.fold_left (fold_block f) acc l in
     List.fold_left
       (fun acc (_, bs) -> bl acc bs)
@@ -664,11 +720,19 @@ module Html = struct
     | HElem of string * int * Attr.t * t list
 
   let tree (d : Doc.t) = K.Html.html_tree d.kernel
-  let to_string = K.Html.serialize_flat
+  let (to_string : t list -> string) = K.Html.serialize_flat
   let of_doc (d : Doc.t) = K.Html.render_html d.kernel
 end
 
 module Source = struct
+  let of_blocks ?(profile = Profile.djot) (bs : Block.t node list) =
+    K.Render.render_djot profile.K.Profile.profile_inline profile.profile_block bs
+  ;;
+
+  let of_inlines ?(profile = Profile.djot) (ils : Inline.t node list) =
+    String.concat "\n" (K.InlineView.inline_lines profile.K.Profile.profile_inline ils "")
+  ;;
+
   let of_doc (d : Doc.t) =
     K.Render.render_doc d.profile.profile_inline d.profile.profile_block d.kernel
   ;;

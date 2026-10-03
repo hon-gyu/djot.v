@@ -17,6 +17,7 @@ let () =
    | [ (Node (_, attrs, Block.Section [ heading; para ]) as section) ] ->
      assert (Attr.id attrs = Some "hi");
      assert (bytes (Doc.textloc d section) = (0, 9));
+     assert (Doc.source d = Some src);
      assert (lines (Doc.textloc d section) = ((1, 0), (3, 6)));
      assert (bytes (Doc.textloc d heading) = (0, 3));
      assert (bytes (Doc.textloc d para) = (6, 9))
@@ -93,7 +94,7 @@ let () =
     let t = Textloc.reloc ~first:(Doc.textloc d a) ~last:(Doc.textloc d b) in
     assert (bytes t = (0, 3));
     assert (lines t = ((1, 0), (3, 3)));
-    assert (t = Textloc.v ~first_byte:0 ~last_byte:3 ~first_line:(1, 0) ~last_line:(3, 3))
+    assert (t = Textloc.make ~first_byte:0 ~last_byte:3 ~first_line:(1, 0) ~last_line:(3, 3))
   | _ -> failwith "unexpected document"
 ;;
 
@@ -103,7 +104,7 @@ let () =
     List.concat_map
       (fun n ->
         let kids =
-          match Node.contents n with
+          match Node.content n with
           | Inline.Link (l, _) | Inline.Image (l, _) | Inline.Span (_, l) -> ranges d l
           | _ -> []
         in
@@ -190,7 +191,7 @@ let () =
 
 (* Profiles: a named starting point, then per-construct switches. *)
 let () =
-  let blocks p src = List.map Node.contents (Doc.blocks (Doc.of_string ~profile:p src)) in
+  let blocks p src = List.map Node.content (Doc.blocks (Doc.of_string ~profile:p src)) in
   let table = "| a |\n|---|\n" in
   assert (
     match blocks Profile.djot table with
@@ -378,4 +379,42 @@ let () =
   match Doc.replace_lines (Doc.of_blocks []) ~first:1 ~last:0 "b" with
   | _ -> failwith "a document without source is not spliced"
   | exception Invalid_argument _ -> ()
+;;
+
+(* Attributes: building, and a spec read and written. *)
+let () =
+  let a =
+    Attr.(
+      empty
+      |> set_exn "id" "x"
+      |> add_class_exn "a"
+      |> add_class_exn "b"
+      |> set_exn "k" "v w")
+  in
+  assert (Attr.id a = Some "x" && Attr.classes a = [ "a"; "b" ]);
+  assert (Attr.to_string a = {|{#x .a .b k="v w"}|});
+  assert (Attr.of_string (Attr.to_string a) = Some a);
+  assert (Option.map Attr.to_string (Attr.set "id" "y" a) = Some {|{#y .a .b k="v w"}|});
+  assert (Attr.to_string Attr.empty = "");
+  assert (Attr.of_string "{.a .b}" = Some [ "class", "a b" ]);
+  assert (Attr.of_string "{% note %}" = Some Attr.empty);
+  List.iter
+    (fun s -> assert (Attr.of_string s = None))
+    [ ""; "#x"; "{#x"; "{#x} "; "{a=}"; "{!}" ];
+  assert (Attr.set "a b" "v" Attr.empty = None);
+  assert (Attr.set "" "v" Attr.empty = None);
+  assert (Attr.add_class "a b" Attr.empty = None);
+  match Attr.set_exn "a b" "v" Attr.empty with
+  | _ -> failwith "a key with a space is refused"
+  | exception Invalid_argument _ -> ()
+;;
+
+(* Source of part of a tree. *)
+let () =
+  let d = Doc.of_string "{.c}\n> a *b*\\\n> c\n\npara\n" in
+  match Doc.blocks d with
+  | [ (Node (_, _, Block.BlockQuote [ Node (_, _, Block.Para ils) ]) as quote); _ ] ->
+    assert (Source.of_blocks [ quote ] = "{.c}\n> a {*b*}\\\n> c");
+    assert (Source.of_inlines ils = "a {*b*}\\\nc")
+  | _ -> failwith "unexpected document"
 ;;
