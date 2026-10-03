@@ -27,10 +27,10 @@ differences:
   Rocq and named `Ext_*` (`Inline.Ext_wikilink`, `Block.Ext_keyed`,
   `Block.Ext_callout`); there are no extension
   hooks.
-- There is no layout information.  The locations of fences, attribute
-  specs, list items and table cells are available instead, through
-  `Doc.syntax_locs`, `Doc.list_items`, `Doc.def_items`, `Doc.table_rows`
-  and the like.
+- There is no layout information.  The locations of fences and
+  attribute specs are available instead, through `Doc.syntax_locs`.
+- List items, definition terms and definitions, table rows, cells and
+  captions are nodes, as in djot.js, so each has a location.
 - A node's location needs its document: `Doc.textloc doc node`.  Parse
   with `~locs:true` to record locations.
 - The document pass groups each heading and the blocks under it into a
