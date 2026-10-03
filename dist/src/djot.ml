@@ -402,20 +402,32 @@ module Doc = struct
 
   (* The definitions the document pass takes out of the tree, in source
      order. *)
-  let rec collect_footnote_defs acc (Node (_, _, b) as n) =
-    let bl acc l = List.fold_left collect_footnote_defs acc l in
-    match (b : Block.t) with
-    | FootnoteDef (_, l) -> bl (n :: acc) l
-    | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
-    | OrderedList (_, _, its) | BulletList (_, its) ->
-      List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
-    | TaskList (_, its) ->
-      List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
-    | DefinitionList (_, its) ->
-      List.fold_left (fun acc it -> bl acc (Node.content (snd (Node.content it)))) acc its
-    | Ext_keyed (_, b) -> collect_footnote_defs acc b
-    | Para _ | Heading _ | CodeBlock _ | ThematicBreak | Table _ | RawBlock _ | RefDef _
-      -> acc
+  let rec collect_footnote_defs (acc : Block.t node list) (node : Block.t node)
+    : Block.t node list
+    =
+    match node with
+    | Node (_, _, b) as n ->
+      let bl acc l = List.fold_left collect_footnote_defs acc l in
+      (match (b : Block.t) with
+       | FootnoteDef (_, l) -> bl (n :: acc) l
+       | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
+       | OrderedList (_, _, its) | BulletList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
+       | TaskList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
+       | DefinitionList (_, its) ->
+         List.fold_left
+           (fun acc it -> bl acc (Node.content (snd (Node.content it))))
+           acc
+           its
+       | Ext_keyed (_, b) -> collect_footnote_defs acc b
+       | Para _
+       | Heading _
+       | CodeBlock _
+       | ThematicBreak
+       | Table _
+       | RawBlock _
+       | RefDef _ -> acc)
   ;;
 
   let make ~profile ~lines ~source pos bs =
@@ -453,18 +465,18 @@ module Doc = struct
         (K.Reparse.pieces_tree ps)
   ;;
 
-  let of_string ?(profile = Profile.djot) ?(locs = false) s =
+  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
     let stp, fin = fold_step ~locs profile in
     of_pieces ~profile ~locs s (K.Reparse.pieces stp fin (K.Strings.split_lines s))
   ;;
 
-  let of_blocks ?(profile = Profile.djot) bs =
+  let of_blocks ?(profile = Profile.djot) (bs : Block.t node list) : t =
     make ~profile ~lines:None ~source:None K.Ast.semantic_pos bs
   ;;
 
   (* The byte where zero-based line [k] starts, or the length when [k] is
      the number of lines. *)
-  let line_start src k =
+  let line_start (src : string) (k : int) : int =
     let rec go i k =
       if k = 0
       then i
@@ -478,7 +490,7 @@ module Doc = struct
 
   (* [src] with zero-based lines [f] to [l] replaced by [s], newlines
      added where [s] would otherwise join a neighbouring line. *)
-  let edit_source src f l s =
+  let edit_source (src : string) (f : int) (l : int) (s : string) : string =
     let a = line_start src f
     and b = line_start src (l + 1) in
     let pre = String.sub src 0 a
@@ -496,7 +508,7 @@ module Doc = struct
 
   (* The edit widens to the pieces holding lines [first] to [last]; the
      lines of those pieces outside the range go back in around [s]. *)
-  let replace_lines d ~first ~last s =
+  let replace_lines (d : t) ~first ~last (s : string) : t =
     let src, ps =
       match d.source with
       | Some x -> x
@@ -536,28 +548,34 @@ module Doc = struct
       (K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind))
   ;;
 
-  let source d = Option.map fst d.source
-  let blocks d = d.kernel.doc_blocks
-  let footnotes d = d.kernel.doc_footnotes
-  let footnote_defs d = d.footnote_defs
-  let footnote d l = K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
-  let references d = d.kernel.doc_references
+  let source (d : t) : string option = Option.map fst d.source
+  let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
+  let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
+  let footnote_defs (d : t) : Block.t node list = d.footnote_defs
 
-  let reference d l =
+  let footnote (d : t) (l : string) : Block.t node list option =
+    K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
+  ;;
+
+  let references (d : t) : (string * (string * Attr.t)) list = d.kernel.doc_references
+
+  let reference (d : t) (l : string) : (string * Attr.t) option =
     K.Ast.lookup_reference l (d.kernel.doc_references @ d.kernel.doc_auto_references)
   ;;
 
-  let textloc d (Node (p, _, _)) =
-    match d.lines, p with
-    | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
-    | _ -> Textloc.none
+  let textloc (d : t) (node : 'a node) : Textloc.t =
+    match node with
+    | Node (p, _, _) ->
+      (match d.lines, p with
+       | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
+       | _ -> Textloc.none)
   ;;
 
   (* A definition's range starts at its [[^]. *)
-  let footnote_label_loc d n =
-    match n with
+  let footnote_label_loc (d : t) (node : Block.t node) : Textloc.t =
+    match node with
     | Node (_, _, Block.FootnoteDef (label, _)) ->
-      let l = textloc d n in
+      let l = textloc d node in
       if Textloc.is_none l
       then Textloc.none
       else (
@@ -581,7 +599,7 @@ module Doc = struct
     | _ -> None
   ;;
 
-  let syntax_locs d n =
+  let syntax_locs (d : t) (n : 'a node) : (syntax * Textloc.t) list =
     match provenance d n with
     | Some (lines, p) ->
       (* Recorded as the parser settles them: a block's attribute spec

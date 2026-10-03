@@ -339,28 +339,34 @@ module Doc : sig
   type t
 
   (** Parse, then run the document pass: headings get identifiers and open sections,
-      footnote and reference definitions move into side tables. [locs] (default [false])
-      records source positions. *)
+      footnote and reference definitions move into side tables.
+      @param profile the syntax profile; default {!Profile.djot}
+      @param locs whether to records source positions; default [false] . *)
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
   (** Run the document pass over parsed blocks. The result has no source, so {!textloc} is
-      {!Textloc.none} throughout. [profile] (default {!Profile.djot}) is the syntax
-      {!Source.of_doc} writes. *)
+      {!Textloc.none} throughout.
+
+      @param profile the syntax profile; default {!Profile.djot}
+      @param profile the syntax {!Source.of_doc} writes. *)
   val of_blocks : ?profile:Profile.t -> Block.t node list -> t
 
   (** [replace_lines d ~first ~last s] is [d] with source lines [first] to [last]
       (one-based, inclusive) replaced by [s], re-parsing only the part the edit can
-      affect. The result equals {!of_string} on the edited source. [last = first - 1]
-      inserts before line [first].
+      affect.
 
-      Raises [Invalid_argument] if [d] was made by {!of_blocks} or the range is outside
-      [d]'s lines. *)
+      The result equals {!of_string} on the edited source. [last = first - 1] inserts
+      before line [first].
+
+      @raise Invalid_argument
+        if [d] was made by {!of_blocks} or the range is outside [d]'s lines. *)
   val replace_lines : t -> first:int -> last:int -> string -> t
 
   (** The string the document was parsed from, which {!textloc}'s byte ranges index.
       [None] if it was made by {!of_blocks}. {!Mapper.map_doc} keeps it, so after a map it
       is the source of the tree before the map. *)
   val source : t -> string option
+  (* CR: bad docstring *)
 
   val blocks : t -> Block.t node list
 
