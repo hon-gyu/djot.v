@@ -101,185 +101,6 @@ module Node = struct
   ;;
 end
 
-module Inline = struct
-  type math_style = K.Ast.math_style =
-    | DisplayMath
-    | InlineMath
-
-  type target = K.Ast.target =
-    | Direct of string
-    | Reference of string
-
-  type quote_type = K.Ast.quote_type =
-    | SingleQuotes
-    | DoubleQuotes
-
-  type t = K.Ast.inline =
-    | Str of string
-    | Emph of t node list
-    | Strong of t node list
-    | Highlight of t node list
-    | Insert of t node list
-    | Delete of t node list
-    | Superscript of t node list
-    | Subscript of t node list
-    | Verbatim of string
-    | Symbol of string
-    | Math of math_style * string
-    | Link of t node list * target
-    | Image of t node list * target
-    | Span of string * t node list
-    | FootnoteReference of string
-    | UrlLink of string
-    | EmailLink of string
-    | RawInline of string * string
-    | NonBreakingSpace
-    | Quoted of quote_type * t node list
-    | SoftBreak
-    | HardBreak
-    | Ext_wikilink of bool * string * string option
-
-  let to_plain_text (ns : t node list) : string =
-    String.concat "" (List.map (fun n -> K.Document.inline_text (Node.content n)) ns)
-  ;;
-end
-
-module Block = struct
-  type list_spacing = K.Ast.list_spacing =
-    | Tight
-    | Loose
-
-  type ordered_list_style = K.Ast.ordered_list_style =
-    | Decimal
-    | LetterUpper
-    | LetterLower
-    | RomanUpper
-    | RomanLower
-
-  type ordered_list_delim = K.Ast.ordered_list_delim =
-    | RightPeriod
-    | RightParen
-    | LeftRightParen
-
-  type ordered_list_attributes = K.Ast.ordered_list_attributes =
-    { ol_style : ordered_list_style
-    ; ol_delim : ordered_list_delim
-    ; ol_start : int
-    }
-
-  type task_status = K.Ast.task_status =
-    | Complete
-    | Incomplete
-
-  type align = K.Ast.align =
-    | AlignLeft
-    | AlignRight
-    | AlignCenter
-    | AlignDefault
-
-  type cell_type = K.Ast.cell_type =
-    | HeadCell
-    | BodyCell
-
-  type cell = K.Ast.cell = Cell of cell_type * align * Inline.t node list
-
-  type callout_fold = K.Ast.callout_fold =
-    | FoldExpanded
-    | FoldCollapsed
-
-  type t = K.Ast.block =
-    | Para of Inline.t node list
-    | Section of t node list
-    | Heading of int * Inline.t node list
-    | BlockQuote of t node list
-    | CodeBlock of string * string
-    | Div of string * t node list
-    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
-    | BulletList of list_spacing * t node list node list
-    | TaskList of list_spacing * (task_status * t node list) node list
-    | DefinitionList of
-        list_spacing * (Inline.t node list node * t node list node) node list
-    | ThematicBreak
-    | Table of Inline.t node list node * cell node list node list
-    | RawBlock of string * string
-    | FootnoteDef of string * t node list
-    | RefDef of string * string
-    | Ext_keyed of Inline.t node list * t node
-    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
-end
-
-module Textloc = struct
-  type byte_pos = int
-  type line_pos = int * byte_pos
-
-  type t =
-    { first_byte : byte_pos
-    ; last_byte : byte_pos
-    ; first_line : line_pos
-    ; last_line : line_pos
-    }
-
-  let first_byte t = t.first_byte
-  let last_byte t = t.last_byte
-  let first_line t = t.first_line
-  let last_line t = t.last_line
-
-  let make ~first_byte ~last_byte ~first_line ~last_line =
-    { first_byte; last_byte; first_line; last_line }
-  ;;
-
-  let none = { first_byte = -1; last_byte = -1; first_line = -1, -1; last_line = -1, -1 }
-  let is_none t = t.first_byte < 0
-  let is_empty t = t.first_byte > t.last_byte
-
-  let reloc ~first ~last =
-    { first with last_byte = last.last_byte; last_line = last.last_line }
-  ;;
-
-  let pp : Format.formatter -> t -> unit =
-    fun ppf t ->
-    if is_none t
-    then Format.pp_print_string ppf "<none>"
-    else
-      Format.fprintf
-        ppf
-        "%d.%d-%d.%d"
-        (fst t.first_line)
-        (t.first_byte - snd t.first_line)
-        (fst t.last_line)
-        (t.last_byte - snd t.last_line)
-  ;;
-
-  (* Strings.resolve_spot, over an array: the list lookup is linear in
-     the line index. *)
-  let resolve_spot (lines : K.Strings.source_line array) (p : K.Ast.spot) =
-    if p.spot_line >= Array.length lines
-    then None
-    else (
-      let l = lines.(p.spot_line) in
-      if p.spot_rem > l.source_line_length
-      then None
-      else (
-        let col = l.source_line_length - p.spot_rem in
-        Some (l.source_line_start + col, p.spot_line, col)))
-  ;;
-
-  let line_pos lines i = i + 1, lines.(i).K.Strings.source_line_start
-
-  (* A stop at the start of a line ends the range on the line before. *)
-  let of_span lines (s : K.Ast.span) =
-    match resolve_spot lines s.span_start, resolve_spot lines s.span_stop with
-    | Some (a, la, _), Some (b, lb, cb) ->
-      let lb = if cb = 0 && b > a && lb > la then lb - 1 else lb in
-      { first_byte = a
-      ; last_byte = b - 1
-      ; first_line = line_pos lines la
-      ; last_line = line_pos lines lb
-      }
-    | _ -> none
-  ;;
-end
-
 module Profile = struct
   type t = K.Profile.profile
 
@@ -390,13 +211,199 @@ module Profile = struct
   ;;
 end
 
+module Inline = struct
+  type math_style = K.Ast.math_style =
+    | DisplayMath
+    | InlineMath
+
+  type target = K.Ast.target =
+    | Direct of string
+    | Reference of string
+
+  type quote_type = K.Ast.quote_type =
+    | SingleQuotes
+    | DoubleQuotes
+
+  type t = K.Ast.inline =
+    | Str of string
+    | Emph of t node list
+    | Strong of t node list
+    | Highlight of t node list
+    | Insert of t node list
+    | Delete of t node list
+    | Superscript of t node list
+    | Subscript of t node list
+    | Verbatim of string
+    | Symbol of string
+    | Math of math_style * string
+    | Link of t node list * target
+    | Image of t node list * target
+    | Span of string * t node list
+    | FootnoteReference of string
+    | UrlLink of string
+    | EmailLink of string
+    | RawInline of string * string
+    | NonBreakingSpace
+    | Quoted of quote_type * t node list
+    | SoftBreak
+    | HardBreak
+    | Ext_wikilink of bool * string * string option
+
+  let to_string ?(profile = Profile.djot) (ils : t node list) : string =
+    String.concat "\n" (K.InlineView.inline_lines profile.K.Profile.profile_inline ils "")
+  ;;
+
+  let to_plain_text (ns : t node list) : string =
+    String.concat "" (List.map (fun n -> K.Document.inline_text (Node.content n)) ns)
+  ;;
+end
+
+module Block = struct
+  type list_spacing = K.Ast.list_spacing =
+    | Tight
+    | Loose
+
+  type ordered_list_style = K.Ast.ordered_list_style =
+    | Decimal
+    | LetterUpper
+    | LetterLower
+    | RomanUpper
+    | RomanLower
+
+  type ordered_list_delim = K.Ast.ordered_list_delim =
+    | RightPeriod
+    | RightParen
+    | LeftRightParen
+
+  type ordered_list_attributes = K.Ast.ordered_list_attributes =
+    { ol_style : ordered_list_style
+    ; ol_delim : ordered_list_delim
+    ; ol_start : int
+    }
+
+  type task_status = K.Ast.task_status =
+    | Complete
+    | Incomplete
+
+  type align = K.Ast.align =
+    | AlignLeft
+    | AlignRight
+    | AlignCenter
+    | AlignDefault
+
+  type cell_type = K.Ast.cell_type =
+    | HeadCell
+    | BodyCell
+
+  type cell = K.Ast.cell = Cell of cell_type * align * Inline.t node list
+
+  type callout_fold = K.Ast.callout_fold =
+    | FoldExpanded
+    | FoldCollapsed
+
+  type t = K.Ast.block =
+    | Para of Inline.t node list
+    | Section of t node list
+    | Heading of int * Inline.t node list
+    | BlockQuote of t node list
+    | CodeBlock of string * string
+    | Div of string * t node list
+    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
+    | BulletList of list_spacing * t node list node list
+    | TaskList of list_spacing * (task_status * t node list) node list
+    | DefinitionList of
+        list_spacing * (Inline.t node list node * t node list node) node list
+    | ThematicBreak
+    | Table of Inline.t node list node * cell node list node list
+    | RawBlock of string * string
+    | FootnoteDef of string * t node list
+    | RefDef of string * string
+    | Ext_keyed of Inline.t node list * t node
+    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
+
+  let to_string ?(profile = Profile.djot) (bs : t node list) : string =
+    K.Render.render_djot profile.K.Profile.profile_inline profile.profile_block bs
+  ;;
+end
+
+module Textloc = struct
+  type byte_pos = int
+  type line_pos = int * byte_pos
+
+  type t =
+    { first_byte : byte_pos
+    ; last_byte : byte_pos
+    ; first_line : line_pos
+    ; last_line : line_pos
+    }
+
+  let first_byte t = t.first_byte
+  let last_byte t = t.last_byte
+  let first_line t = t.first_line
+  let last_line t = t.last_line
+
+  let make ~first_byte ~last_byte ~first_line ~last_line =
+    { first_byte; last_byte; first_line; last_line }
+  ;;
+
+  let none = { first_byte = -1; last_byte = -1; first_line = -1, -1; last_line = -1, -1 }
+  let is_none t = t.first_byte < 0
+  let is_empty t = t.first_byte > t.last_byte
+
+  let reloc ~first ~last =
+    { first with last_byte = last.last_byte; last_line = last.last_line }
+  ;;
+
+  let pp : Format.formatter -> t -> unit =
+    fun ppf t ->
+    if is_none t
+    then Format.pp_print_string ppf "<none>"
+    else
+      Format.fprintf
+        ppf
+        "%d.%d-%d.%d"
+        (fst t.first_line)
+        (t.first_byte - snd t.first_line)
+        (fst t.last_line)
+        (t.last_byte - snd t.last_line)
+  ;;
+
+  (* Strings.resolve_spot, over an array: the list lookup is linear in
+     the line index. *)
+  let resolve_spot (lines : K.Strings.source_line array) (p : K.Ast.spot) =
+    if p.spot_line >= Array.length lines
+    then None
+    else (
+      let l = lines.(p.spot_line) in
+      if p.spot_rem > l.source_line_length
+      then None
+      else (
+        let col = l.source_line_length - p.spot_rem in
+        Some (l.source_line_start + col, p.spot_line, col)))
+  ;;
+
+  let line_pos lines i = i + 1, lines.(i).K.Strings.source_line_start
+
+  (* A stop at the start of a line ends the range on the line before. *)
+  let of_span lines (s : K.Ast.span) =
+    match resolve_spot lines s.span_start, resolve_spot lines s.span_stop with
+    | Some (a, la, _), Some (b, lb, cb) ->
+      let lb = if cb = 0 && b > a && lb > la then lb - 1 else lb in
+      { first_byte = a
+      ; last_byte = b - 1
+      ; first_line = line_pos lines la
+      ; last_line = line_pos lines lb
+      }
+    | _ -> none
+  ;;
+end
+
 module Doc = struct
   type t =
     { kernel : K.Ast.doc
+    ; parsed : Block.t node list (* What the document pass was run over. *)
     ; footnote_defs : Block.t node list
     ; lines : K.Strings.source_line array option
-    ; source : (string * K.Reparse.piece list) option
-        (* The source and its pieces, for [replace_lines]. *)
     ; profile : Profile.t
     }
 
@@ -430,11 +437,11 @@ module Doc = struct
        | RefDef _ -> acc)
   ;;
 
-  let make ~profile ~lines ~source pos bs =
+  let make ~profile ~lines pos bs =
     { kernel = K.Document.doc_pass pos bs
+    ; parsed = bs
     ; footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs)
     ; lines
-    ; source
     ; profile
     }
   ;;
@@ -453,102 +460,24 @@ module Doc = struct
       make
         ~profile
         ~lines:(Some (Array.of_list (K.Strings.line_table src)))
-        ~source:(Some (src, ps))
         K.Ast.located_pos
         (K.Reparse.assemble 0 ps)
-    else
-      make
-        ~profile
-        ~lines:None
-        ~source:(Some (src, ps))
-        K.Ast.semantic_pos
-        (K.Reparse.pieces_tree ps)
+    else make ~profile ~lines:None K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
+  ;;
+
+  let pieces_of_string ~profile ~locs (s : string) : K.Reparse.piece list =
+    let stp, fin = fold_step ~locs profile in
+    K.Reparse.pieces stp fin (K.Strings.split_lines s)
   ;;
 
   let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
-    let stp, fin = fold_step ~locs profile in
-    of_pieces ~profile ~locs s (K.Reparse.pieces stp fin (K.Strings.split_lines s))
+    of_pieces ~profile ~locs s (pieces_of_string ~profile ~locs s)
   ;;
 
-  let of_blocks ?(profile = Profile.djot) (bs : Block.t node list) : t =
-    make ~profile ~lines:None ~source:None K.Ast.semantic_pos bs
+  let to_string (d : t) : string =
+    K.Render.render_doc d.profile.profile_inline d.profile.profile_block d.kernel
   ;;
 
-  (* The byte where zero-based line [k] starts, or the length when [k] is
-     the number of lines. *)
-  let line_start (src : string) (k : int) : int =
-    let rec go i k =
-      if k = 0
-      then i
-      else (
-        match String.index_from_opt src i '\n' with
-        | Some j -> go (j + 1) (k - 1)
-        | None -> String.length src)
-    in
-    go 0 k
-  ;;
-
-  (* [src] with zero-based lines [f] to [l] replaced by [s], newlines
-     added where [s] would otherwise join a neighbouring line. *)
-  let edit_source (src : string) (f : int) (l : int) (s : string) : string =
-    let a = line_start src f
-    and b = line_start src (l + 1) in
-    let pre = String.sub src 0 a
-    and post = String.sub src b (String.length src - b) in
-    let ends_nl x = x <> "" && x.[String.length x - 1] = '\n' in
-    let mid =
-      if s = ""
-      then ""
-      else (
-        let s = if post <> "" && not (ends_nl s) then s ^ "\n" else s in
-        if pre <> "" && not (ends_nl pre) then "\n" ^ s else s)
-    in
-    pre ^ mid ^ post
-  ;;
-
-  (* The edit widens to the pieces holding lines [first] to [last]; the
-     lines of those pieces outside the range go back in around [s]. *)
-  let replace_lines (d : t) ~first ~last (s : string) : t =
-    let src, ps =
-      match d.source with
-      | Some x -> x
-      | None -> invalid_arg "Doc.replace_lines: not made by of_string"
-    in
-    let n = List.length ps in
-    let pa = Array.of_list ps in
-    let starts = Array.make (n + 1) 0 in
-    Array.iteri
-      (fun k p -> starts.(k + 1) <- starts.(k) + List.length p.K.Reparse.piece_lines)
-      pa;
-    let f = first - 1
-    and l = last - 1 in
-    if f < 0 || l < f - 1 || l >= starts.(n)
-    then invalid_arg "Doc.replace_lines: range outside the document";
-    let rec holding k = if k < n && starts.(k + 1) <= f then holding (k + 1) else k in
-    let rec after k = if k < n && starts.(k) <= l then after (k + 1) else k in
-    let i = holding 0 in
-    let j = max i (after 0) in
-    let before =
-      if i < j
-      then List.filteri (fun k _ -> starts.(i) + k < f) pa.(i).K.Reparse.piece_lines
-      else []
-    in
-    let behind =
-      if i < j
-      then
-        List.filteri (fun k _ -> starts.(j - 1) + k > l) pa.(j - 1).K.Reparse.piece_lines
-      else []
-    in
-    let locs = Option.is_some d.lines in
-    let stp, fin = fold_step ~locs d.profile in
-    of_pieces
-      ~profile:d.profile
-      ~locs
-      (edit_source src f l s)
-      (K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind))
-  ;;
-
-  let source (d : t) : string option = Option.map fst d.source
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
   let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
   let footnote_defs (d : t) : Block.t node list = d.footnote_defs
@@ -611,8 +540,286 @@ module Doc = struct
   ;;
 end
 
+module Source = struct
+  type t =
+    { text : string
+    ; pieces : K.Reparse.piece list (* The parse of [text], for the edits. *)
+    ; doc : Doc.t
+    }
+
+  let of_pieces ~profile ~locs text pieces =
+    { text; pieces; doc = Doc.of_pieces ~profile ~locs text pieces }
+  ;;
+
+  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
+    of_pieces ~profile ~locs s (Doc.pieces_of_string ~profile ~locs s)
+  ;;
+
+  let to_string (t : t) : string = t.text
+  let doc (t : t) : Doc.t = t.doc
+
+  (* The byte where zero-based line [k] starts, or the length when [k] is
+     the number of lines. *)
+  let line_start (src : string) (k : int) : int =
+    let rec go i k =
+      if k = 0
+      then i
+      else (
+        match String.index_from_opt src i '\n' with
+        | Some j -> go (j + 1) (k - 1)
+        | None -> String.length src)
+    in
+    go 0 k
+  ;;
+
+  (* [src] with zero-based lines [f] to [l] replaced by [s], newlines
+     added where [s] would otherwise join a neighbouring line. *)
+  let edit_source (src : string) (f : int) (l : int) (s : string) : string =
+    let a = line_start src f
+    and b = line_start src (l + 1) in
+    let pre = String.sub src 0 a
+    and post = String.sub src b (String.length src - b) in
+    let ends_nl x = x <> "" && x.[String.length x - 1] = '\n' in
+    let mid =
+      if s = ""
+      then ""
+      else (
+        let s = if post <> "" && not (ends_nl s) then s ^ "\n" else s in
+        if pre <> "" && not (ends_nl pre) then "\n" ^ s else s)
+    in
+    pre ^ mid ^ post
+  ;;
+
+  type change =
+    { first : int
+    ; old_last : int
+    ; new_last : int
+    }
+
+  (* The splice keeps the pieces it does not parse as the values they
+     were, so the pieces two lists share at each end are the kept ones.
+     The pieces shared at the start are counted up to the first [f] lines
+     only, which places an edit that changes no piece at the edit. *)
+  let change_of f old_ps new_ps =
+    let lines n p = n + List.length p.K.Reparse.piece_lines in
+    let rec shared limit n a b =
+      match a, b with
+      | x :: a, y :: b when x == y && lines n x <= limit -> shared limit (lines n x) a b
+      | _ -> n, a, b
+    in
+    let pre, a, b = shared f 0 old_ps new_ps in
+    let _, a, b = shared max_int 0 (List.rev a) (List.rev b) in
+    { first = pre + 1
+    ; old_last = List.fold_left lines pre a
+    ; new_last = List.fold_left lines pre b
+    }
+  ;;
+
+  (* The edit widens to the pieces holding lines [first] to [last]; the
+     lines of those pieces outside the range go back in around [s]. *)
+  let replace_lines_changed (t : t) ~first ~last (s : string) : t * change =
+    let src = t.text
+    and ps = t.pieces in
+    let n = List.length ps in
+    let pa = Array.of_list ps in
+    let starts = Array.make (n + 1) 0 in
+    Array.iteri
+      (fun k p -> starts.(k + 1) <- starts.(k) + List.length p.K.Reparse.piece_lines)
+      pa;
+    let f = first - 1
+    and l = last - 1 in
+    if f < 0 || l < f - 1 || l >= starts.(n)
+    then invalid_arg "Source.replace_lines: range outside the source";
+    let rec holding k = if k < n && starts.(k + 1) <= f then holding (k + 1) else k in
+    let rec after k = if k < n && starts.(k) <= l then after (k + 1) else k in
+    let i = holding 0 in
+    let j = max i (after 0) in
+    let before =
+      if i < j
+      then List.filteri (fun k _ -> starts.(i) + k < f) pa.(i).K.Reparse.piece_lines
+      else []
+    in
+    let behind =
+      if i < j
+      then
+        List.filteri (fun k _ -> starts.(j - 1) + k > l) pa.(j - 1).K.Reparse.piece_lines
+      else []
+    in
+    let profile = t.doc.profile
+    and locs = Option.is_some t.doc.lines in
+    let stp, fin = Doc.fold_step ~locs profile in
+    let ps' =
+      K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind)
+    in
+    of_pieces ~profile ~locs (edit_source src f l s) ps', change_of f ps ps'
+  ;;
+
+  let replace_lines t ~first ~last s = fst (replace_lines_changed t ~first ~last s)
+
+  (* The edit widens to whole lines: from the start of the line holding
+     byte [first] to the end of the line holding the byte after [last],
+     which the edit joins to what comes before it. *)
+  let replace_bytes_changed (t : t) ~first ~last (s : string) : t * change =
+    let src = t.text in
+    let n = String.length src in
+    let a = first
+    and b = last + 1 in
+    if a < 0 || b < a || b > n
+    then invalid_arg "Source.replace_bytes: range outside the source";
+    let la =
+      match if a = 0 then None else String.rindex_from_opt src (a - 1) '\n' with
+      | Some k -> k + 1
+      | None -> 0
+    in
+    let lb =
+      match if b = n then None else String.index_from_opt src b '\n' with
+      | Some k -> k + 1
+      | None -> n
+    in
+    let newlines i j =
+      let c = ref 0 in
+      for k = i to j - 1 do
+        if src.[k] = '\n' then incr c
+      done;
+      !c
+    in
+    let first_line = newlines 0 la + 1 in
+    let count = newlines la lb + if lb > la && src.[lb - 1] <> '\n' then 1 else 0 in
+    replace_lines_changed
+      t
+      ~first:first_line
+      ~last:(first_line + count - 1)
+      (String.sub src la (a - la) ^ s ^ String.sub src b (lb - b))
+  ;;
+
+  let replace_bytes t ~first ~last s = fst (replace_bytes_changed t ~first ~last s)
+end
+
+module Stream = struct
+  type t =
+    { profile : Profile.t
+    ; locs : bool
+    ; chunks : string list (* The input so far, last chunk first. *)
+    ; partial : string list (* The unfinished line's parts, last first. *)
+    ; pieces : K.Reparse.piece list (* The finished pieces, last first. *)
+    ; offset : int (* The lines in [pieces]. *)
+    ; pending : K.Reparse.pending
+    ; ids : K.Document.id_state (* After the blocks returned. *)
+    }
+
+  let start ?(profile = Profile.djot) ?(locs = false) () =
+    { profile
+    ; locs
+    ; chunks = []
+    ; partial = []
+    ; pieces = []
+    ; offset = 0
+    ; pending = K.Reparse.fresh
+    ; ids = K.Document.id_state_init
+    }
+  ;;
+
+  let rec drop n l =
+    match l with
+    | _ :: rest when n > 0 -> drop (n - 1) rest
+    | _ -> l
+  ;;
+
+  (* The blocks of the piece being read that [feed] has not returned yet,
+     placed where the piece starts. *)
+  let unreturned t bs =
+    let bs = drop (List.length t.pending.K.Reparse.pend_blocks) bs in
+    K.Document.Ids.of_list
+      (if t.locs then K.Ast.Shift.of_blocks t.offset bs else bs)
+      t.ids
+  ;;
+
+  (* One whole line. A line that leaves the fold idle ends the piece. *)
+  let line t l =
+    let stp, _ = Doc.fold_step ~locs:t.locs t.profile in
+    match K.Reparse.cut stp [ l ] t.pending with
+    | [], p ->
+      let ids, bs = unreturned t p.K.Reparse.pend_blocks in
+      bs, { t with pending = p; ids }
+    | c :: _, p ->
+      let ids, bs = unreturned t c.K.Reparse.piece_blocks in
+      ( bs
+      , { t with
+          pieces = c :: t.pieces
+        ; offset = t.offset + List.length c.K.Reparse.piece_lines
+        ; pending = p
+        ; ids
+        } )
+  ;;
+
+  let feed_string t s =
+    let t = { t with chunks = s :: t.chunks } in
+    let rec go acc t = function
+      | [] -> acc, t
+      | [ last ] -> acc, if last = "" then t else { t with partial = last :: t.partial }
+      | part :: rest ->
+        let bs, t = line t (String.concat "" (List.rev (part :: t.partial))) in
+        go (List.rev_append bs acc) { t with partial = [] } rest
+    in
+    let acc, t = go [] t (String.split_on_char '\n' s) in
+    List.rev acc, t
+  ;;
+
+  let feed_line t l = feed_string t (l ^ "\n")
+
+  (* The pieces as if input ended here: the unfinished line, if it has
+     bytes, is the last line. *)
+  let ended t =
+    let stp, fin = Doc.fold_step ~locs:t.locs t.profile in
+    let cs, p =
+      match t.partial with
+      | [] -> [], t.pending
+      | parts -> K.Reparse.cut stp [ String.concat "" (List.rev parts) ] t.pending
+    in
+    cs @ K.Reparse.close fin p
+  ;;
+
+  let peek t = snd (unreturned t (K.Reparse.pieces_tree (ended t)))
+
+  let finish t =
+    Source.of_pieces
+      ~profile:t.profile
+      ~locs:t.locs
+      (String.concat "" (List.rev t.chunks))
+      (List.rev_append t.pieces (ended t))
+  ;;
+
+  module Sections = struct
+    type event =
+      | Enter of Attr.t
+      | Item of Block.t node
+      | Leave
+
+    (* The levels of the open sections, innermost first. *)
+    type t = int list
+
+    let start = []
+
+    let step t (Node (p, a, b) as n) =
+      match (b : Block.t) with
+      | Heading (lvl, _) ->
+        let rec leave acc = function
+          | l :: rest when lvl <= l -> leave (Leave :: acc) rest
+          | t -> acc, t
+        in
+        let left, t = leave [] t in
+        left @ [ Enter a; Item (Node (p, [], b)) ], lvl :: t
+      | _ -> [ Item n ], t
+    ;;
+
+    let finish t = List.map (fun _ -> Leave) t
+  end
+end
+
 module For_testing = struct
   let kernel (d : Doc.t) = d.kernel
+
+  let parsed (d : Doc.t) = d.parsed
 end
 
 (* Both traversals match every constructor by name, leaves included, so a
@@ -840,18 +1047,8 @@ module Html = struct
   let tree (d : Doc.t) = K.Html.html_tree d.kernel
   let (to_string : t list -> string) = K.Html.serialize_flat
   let of_doc (d : Doc.t) = K.Html.render_html d.kernel
-end
 
-module Source = struct
-  let of_blocks ?(profile = Profile.djot) (bs : Block.t node list) =
-    K.Render.render_djot profile.K.Profile.profile_inline profile.profile_block bs
-  ;;
-
-  let of_inlines ?(profile = Profile.djot) (ils : Inline.t node list) =
-    String.concat "\n" (K.InlineView.inline_lines profile.K.Profile.profile_inline ils "")
-  ;;
-
-  let of_doc (d : Doc.t) =
-    K.Render.render_doc d.profile.profile_inline d.profile.profile_block d.kernel
+  let of_blocks (bs : Block.t node list) =
+    K.Html.render_html (K.Document.doc_pass K.Ast.semantic_pos bs)
   ;;
 end
