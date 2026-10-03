@@ -2,14 +2,15 @@
 
 (* A parsed tree printed one node per line, indented by depth. With
    locations, each node shows its inclusive byte range and the source it
-   covers. A lowercase line is a grouping with no node of its own. *)
+   covers. A lowercase line is a part that is not a node: a list item,
+   a table row or cell, a callout's title. *)
 
 open Djot
 
 type item =
   | I of Inline.t node
   | B of Block.t node
-  | Group of string * item list
+  | Group of string * Textloc.t * item list
 
 let inlines = List.map (fun n -> I n)
 let blocks = List.map (fun n -> B n)
@@ -62,34 +63,46 @@ let inline_label : Inline.t -> string * item list = function
     , [] )
 ;;
 
-let block_label : Block.t -> string * item list = function
+let group name l kids = Group (name, l, kids)
+
+let block_label d (n : Block.t node) : string * item list =
+  match Node.content n with
   | Para l -> "Para", inlines l
   | Section l -> "Section", blocks l
   | Heading (n, l) -> Printf.sprintf "Heading %d" n, inlines l
   | BlockQuote l -> "BlockQuote", blocks l
   | CodeBlock (lang, s) -> Printf.sprintf "CodeBlock %s %s" (quote lang) (quote s), []
   | Div (name, l) -> "Div " ^ quote name, blocks l
-  | OrderedList (_, _, its) ->
-    "OrderedList", List.map (fun l -> Group ("item", blocks l)) its
-  | BulletList (_, its) -> "BulletList", List.map (fun l -> Group ("item", blocks l)) its
-  | TaskList (_, its) -> "TaskList", List.map (fun (_, l) -> Group ("item", blocks l)) its
-  | DefinitionList (_, its) ->
+  | OrderedList _ | BulletList _ ->
+    let name =
+      match Node.content n with
+      | OrderedList _ -> "OrderedList"
+      | _ -> "BulletList"
+    in
+    name, List.map (fun (l, bs) -> group "item" l (blocks bs)) (Doc.list_items d n)
+  | TaskList _ ->
+    ( "TaskList"
+    , List.map (fun (l, _, bs) -> group "item" l (blocks bs)) (Doc.task_items d n) )
+  | DefinitionList _ ->
     ( "DefinitionList"
     , List.map
-        (fun (t, d) ->
-          Group ("item", [ Group ("term", inlines t); Group ("def", blocks d) ]))
-        its )
+        (fun (l, (tl, t), (dl, df)) ->
+          group "item" l [ group "term" tl (inlines t); group "def" dl (blocks df) ])
+        (Doc.def_items d n) )
   | ThematicBreak -> "ThematicBreak", []
-  | Table (cap, rows) ->
-    let row r =
-      Group ("row", List.map (fun (Block.Cell (_, _, l)) -> Group ("cell", inlines l)) r)
-    in
+  | Table (cap, _) ->
+    let cell (l, Block.Cell (_, _, ils)) = group "cell" l (inlines ils) in
+    let row (l, cells) = group "row" l (List.map cell cells) in
     ( "Table"
-    , (if cap = [] then [] else [ Group ("caption", inlines cap) ]) @ List.map row rows )
+    , (if cap = []
+       then []
+       else [ group "caption" (Doc.table_caption_loc d n) (inlines cap) ])
+      @ List.map row (Doc.table_rows d n) )
   | RawBlock (f, s) -> Printf.sprintf "RawBlock %s %s" (quote f) (quote s), []
   | FootnoteDef (label, l) -> "FootnoteDef " ^ quote label, blocks l
   | RefDef (label, dest) -> Printf.sprintf "RefDef %s %s" (quote label) (quote dest), []
-  | Ext_keyed (label, b) -> "Ext_keyed", [ Group ("label", inlines label); B b ]
+  | Ext_keyed (label, b) ->
+    "Ext_keyed", [ group "label" Textloc.none (inlines label); B b ]
   | Ext_callout (kind, fold, title, body) ->
     let fold =
       match fold with
@@ -98,7 +111,7 @@ let block_label : Block.t -> string * item list = function
       | Some FoldCollapsed -> " FoldCollapsed"
     in
     ( Printf.sprintf "Ext_callout %s%s" (quote kind) fold
-    , Group ("title", inlines title) :: blocks body )
+    , group "title" Textloc.none (inlines title) :: blocks body )
 ;;
 
 (* [first-last "covered source"], or nothing without locations. *)
@@ -124,10 +137,10 @@ let rec print_item d depth it =
     let label, kids = inline_label (Node.content n) in
     node label n kids
   | B n ->
-    let label, kids = block_label (Node.content n) in
+    let label, kids = block_label d n in
     node label n kids
-  | Group (name, kids) ->
-    Printf.printf "%s%s\n" pad name;
+  | Group (name, l, kids) ->
+    Printf.printf "%s%s%s\n" pad name (range d l);
     List.iter (print_item d (depth + 1)) kids
 ;;
 
