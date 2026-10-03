@@ -148,6 +148,8 @@ type cinline =
 
 val str_last : string -> char option -> char option
 
+val tag_may_follow : string -> bool
+
 val ci_src : dtable -> cinline -> string
 
 val ci_text : dtable -> cinline list -> string

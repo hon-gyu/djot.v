@@ -617,6 +617,13 @@ type cinline =
 let rec str_last = (fun s prev ->
      let n = String.length s in if n = 0 then prev else Some s.[n - 1])
 
+(** val tag_may_follow : string -> bool **)
+
+let tag_may_follow txt =
+  match str_last txt None with
+  | Some c -> negb ((||) (is_alnum c) ((=) c ':'))
+  | None -> true
+
 (** val ci_src : dtable -> cinline -> string **)
 
 let rec ci_src t ci =
@@ -694,9 +701,11 @@ let ci_inlines cis =
 
 let ci_pair_ok t a b =
   match a with
-  | CIStr _ -> (match b with
-                | CIStr _ -> false
-                | _ -> true)
+  | CIStr s ->
+    (match b with
+     | CIStr _ -> false
+     | CITag (_, _) -> tag_may_follow s
+     | _ -> true)
   | CIVerb _ ->
     (match b with
      | CIVerb _ -> false
