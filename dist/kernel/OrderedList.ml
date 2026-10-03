@@ -3,6 +3,7 @@ open Ast
 open Datatypes
 open Line
 open List0
+open ListDef
 open ListUniformity
 open Marker
 open Nat0
@@ -144,18 +145,18 @@ let ck_items k lss =
 
 let ck_block k sp items =
   match k with
-  | LKBullet -> BulletList (sp, items)
+  | LKBullet -> BulletList (sp, (map mk items))
   | LKDef -> DefinitionList (sp, (def_items items))
   | LKTask checks -> TaskList (sp, (task_items checks items))
   | LKDecimal (d, start) ->
     OrderedList ({ ol_style = Decimal; ol_delim = d; ol_start = start }, sp,
-      items)
+      (map mk items))
   | LKRoman (up, d, start) ->
     OrderedList ({ ol_style = (roman_sty up); ol_delim = d; ol_start =
-      start }, sp, items)
+      start }, sp, (map mk items))
   | LKAlpha (up, d, start) ->
     OrderedList ({ ol_style = (alpha_sty up); ol_delim = d; ol_start =
-      start }, sp, items)
+      start }, sp, (map mk items))
 
 (** val ck_ok : bconfig -> list_kind -> int -> bool **)
 

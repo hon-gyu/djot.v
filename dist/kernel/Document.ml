@@ -243,9 +243,11 @@ module Ids =
          let rec goit its s =
            match its with
            | [] -> (s, [])
-           | it :: rest ->
+           | n :: rest ->
+             let Node (ip, ia, it) = n in
              let (s1, it1) = go it s in
-             let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
+             let (s2, rest1) = goit rest s1 in
+             (s2, ((Node (ip, ia, it1)) :: rest1))
          in goit items (register_id a st)
        in
        (st', (Node (p, a, (OrderedList (oa, sp, items')))))
@@ -254,9 +256,11 @@ module Ids =
          let rec goit its s =
            match its with
            | [] -> (s, [])
-           | it :: rest ->
+           | n :: rest ->
+             let Node (ip, ia, it) = n in
              let (s1, it1) = go it s in
-             let (s2, rest1) = goit rest s1 in (s2, (it1 :: rest1))
+             let (s2, rest1) = goit rest s1 in
+             (s2, ((Node (ip, ia, it1)) :: rest1))
          in goit items (register_id a st)
        in
        (st', (Node (p, a, (BulletList (sp, items')))))
@@ -265,10 +269,12 @@ module Ids =
          let rec got its s =
            match its with
            | [] -> (s, [])
-           | p0 :: rest ->
-             let (chk, it) = p0 in
+           | n :: rest ->
+             let Node (ip, ia, x) = n in
+             let (chk, it) = x in
              let (s1, it1) = go it s in
-             let (s2, rest1) = got rest s1 in (s2, ((chk, it1) :: rest1))
+             let (s2, rest1) = got rest s1 in
+             (s2, ((Node (ip, ia, (chk, it1))) :: rest1))
          in got items (register_id a st)
        in
        (st', (Node (p, a, (TaskList (sp, items')))))
@@ -277,10 +283,13 @@ module Ids =
          let rec god its s =
            match its with
            | [] -> (s, [])
-           | p0 :: rest ->
-             let (term, it) = p0 in
+           | n :: rest ->
+             let Node (ip, ia, x) = n in
+             let (term, n0) = x in
+             let Node (dp, da, it) = n0 in
              let (s1, it1) = go it s in
-             let (s2, rest1) = god rest s1 in (s2, ((term, it1) :: rest1))
+             let (s2, rest1) = god rest s1 in
+             (s2, ((Node (ip, ia, (term, (Node (dp, da, it1))))) :: rest1))
          in god items (register_id a st)
        in
        (st', (Node (p, a, (DefinitionList (sp, items')))))
@@ -411,13 +420,14 @@ module Refs =
       let rec goit its acc =
         match its with
         | [] -> acc
-        | it :: rest ->
+        | n :: rest ->
+          let Node (_, _, it) = n in
           goit rest
             (let rec go' ns acc' =
                match ns with
                | [] -> acc'
-               | n :: more ->
-                 let Node (p', a', x) = n in go' more (of_block x p' a' acc')
+               | n0 :: more ->
+                 let Node (p', a', x) = n0 in go' more (of_block x p' a' acc')
              in go' it acc)
       in goit
     in
@@ -431,28 +441,33 @@ module Refs =
        let rec got its acc =
          match its with
          | [] -> acc
-         | p0 :: rest ->
-           let (_, it) = p0 in
+         | n :: rest ->
+           let Node (_, _, x) = n in
+           let (_, it) = x in
            got rest
              (let rec go' ns acc' =
                 match ns with
                 | [] -> acc'
-                | n :: more ->
-                  let Node (p', a', x) = n in go' more (of_block x p' a' acc')
+                | n0 :: more ->
+                  let Node (p', a', x0) = n0 in
+                  go' more (of_block x0 p' a' acc')
               in go' it acc)
        in got items m
      | DefinitionList (_, items) ->
        let rec god its acc =
          match its with
          | [] -> acc
-         | p0 :: rest ->
-           let (_, it) = p0 in
+         | n :: rest ->
+           let Node (_, _, x) = n in
+           let (_, n1) = x in
+           let Node (_, _, it) = n1 in
            god rest
              (let rec go' ns acc' =
                 match ns with
                 | [] -> acc'
-                | n :: more ->
-                  let Node (p', a', x) = n in go' more (of_block x p' a' acc')
+                | n0 :: more ->
+                  let Node (p', a', x0) = n0 in
+                  go' more (of_block x0 p' a' acc')
               in go' it acc)
        in god items m
      | FootnoteDef (_, bs) -> go bs m
@@ -491,9 +506,11 @@ module Notes =
       let rec goit its acc =
         match its with
         | [] -> (acc, [])
-        | it :: rest ->
+        | n :: rest ->
+          let Node (ip, ia, it) = n in
           let (acc1, it1) = go it acc in
-          let (acc2, rest1) = goit rest acc1 in (acc2, (it1 :: rest1))
+          let (acc2, rest1) = goit rest acc1 in
+          (acc2, ((Node (ip, ia, it1)) :: rest1))
       in goit
     in
     (match b with
@@ -513,11 +530,12 @@ module Notes =
          let rec got its acc =
            match its with
            | [] -> (acc, [])
-           | p0 :: rest ->
-             let (chk, it) = p0 in
+           | n :: rest ->
+             let Node (ip, ia, x) = n in
+             let (chk, it) = x in
              let (acc1, it1) = go it acc in
              let (acc2, rest1) = got rest acc1 in
-             (acc2, ((chk, it1) :: rest1))
+             (acc2, ((Node (ip, ia, (chk, it1))) :: rest1))
          in got items m
        in
        (m', (Some (Node (p, a, (TaskList (sp, items'))))))
@@ -526,11 +544,13 @@ module Notes =
          let rec god its acc =
            match its with
            | [] -> (acc, [])
-           | p0 :: rest ->
-             let (term, it) = p0 in
+           | n :: rest ->
+             let Node (ip, ia, x) = n in
+             let (term, n0) = x in
+             let Node (dp, da, it) = n0 in
              let (acc1, it1) = go it acc in
              let (acc2, rest1) = god rest acc1 in
-             (acc2, ((term, it1) :: rest1))
+             (acc2, ((Node (ip, ia, (term, (Node (dp, da, it1))))) :: rest1))
          in god items m
        in
        (m', (Some (Node (p, a, (DefinitionList (sp, items'))))))

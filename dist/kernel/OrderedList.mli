@@ -3,6 +3,7 @@ open Ast
 open Datatypes
 open Line
 open List0
+open ListDef
 open ListUniformity
 open Marker
 open Nat0

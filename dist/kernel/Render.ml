@@ -205,7 +205,9 @@ let rec cb_ast cb =
    | CDiv (name, inner) -> mk (Div (name, (map cb_ast inner)))
    | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
    | CRef (label, dest) -> mk (RefDef (label, dest))
-   | CTable rows -> mk (Table ([], (ctable_cells [] rows)))
+   | CTable rows ->
+     mk (Table ((mk []),
+       (map (fun r -> mk (map mk r)) (ctable_cells [] rows))))
    | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
    | CKey (label, inner) ->
      mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner))))
@@ -703,34 +705,40 @@ let rec render_lines t k a b =
   let itemss =
     let rec goitems = function
     | [] -> []
-    | it :: rest ->
+    | n :: rest ->
+      let Node (_, _, it) = n in
       (sep_lines
-        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it)) ::
-        (goitems rest)
+        (map (fun n0 -> render_lines t k (node_attrs n0) (node_contents n0))
+          it)) :: (goitems rest)
     in goitems
   in
   let taskitemss =
     let rec gotasks = function
     | [] -> []
-    | p :: rest ->
-      let (chk, it) = p in
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (chk, it) = x in
       (chk,
       (sep_lines
-        (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) it))) ::
-      (gotasks rest)
+        (map (fun n0 -> render_lines t k (node_attrs n0) (node_contents n0))
+          it))) :: (gotasks rest)
     in gotasks
   in
   let defitemss =
     let rec godefs = function
     | [] -> []
-    | p :: rest ->
-      let (term, it) = p in
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (n0, n1) = x in
+      let Node (_, _, term) = n0 in
+      let Node (_, _, it) = n1 in
       (sep_lines
         (app (match term with
               | [] -> []
               | _ :: _ -> (text_lines t term) :: [])
-          (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
-            it))) :: (godefs rest)
+          (map (fun n2 ->
+            render_lines t k (node_attrs n2) (node_contents n2)) it))) ::
+      (godefs rest)
     in godefs
   in
   let cls = fence_class k a b in
@@ -780,10 +788,12 @@ let rec render_lines t k a b =
          (map item_or_marker_lines (ck_items LKDef (defitemss its)))
      | ThematicBreak -> thematic_line :: []
      | Table (cap, rows) ->
-       app (table_lines t rows)
-         (match cap with
+       app
+         (table_lines t
+           (map (fun r -> map node_contents (node_contents r)) rows))
+         (match node_contents cap with
           | [] -> []
-          | _ :: _ -> caption_lines t cap)
+          | n :: l -> caption_lines t (n :: l))
      | RawBlock (fmt, text) ->
        (code_open ((^) "=" fmt)) :: (app (split_lines text)
                                       (code_close :: []))
@@ -862,7 +872,8 @@ let rec drop_auto_ids b p a =
   let goits =
     let rec goits = function
     | [] -> []
-    | it :: rest -> (go it) :: (goits rest)
+    | n :: rest ->
+      let Node (ip, ia, it) = n in (Node (ip, ia, (go it))) :: (goits rest)
     in goits
   in
   (match b with
@@ -888,14 +899,20 @@ let rec drop_auto_ids b p a =
      Node (p, a, (TaskList (sp,
        (let rec gotasks = function
         | [] -> []
-        | p0 :: rest -> let (chk, it) = p0 in (chk, (go it)) :: (gotasks rest)
+        | n :: rest ->
+          let Node (ip, ia, x) = n in
+          let (chk, it) = x in
+          (Node (ip, ia, (chk, (go it)))) :: (gotasks rest)
         in gotasks its))))
    | DefinitionList (sp, its) ->
      Node (p, a, (DefinitionList (sp,
        (let rec godefs = function
         | [] -> []
-        | p0 :: rest ->
-          let (term, it) = p0 in (term, (go it)) :: (godefs rest)
+        | n :: rest ->
+          let Node (ip, ia, x) = n in
+          let (term, n0) = x in
+          let Node (dp, da, it) = n0 in
+          (Node (ip, ia, (term, (Node (dp, da, (go it)))))) :: (godefs rest)
         in godefs its))))
    | FootnoteDef (l, bs) -> Node (p, a, (FootnoteDef (l, (go bs))))
    | Ext_keyed (label, b0) ->

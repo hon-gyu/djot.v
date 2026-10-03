@@ -570,10 +570,11 @@ let rec table_fold_located t p rows parts0 aligns acc =
     dtable -> coq_PosPolicy -> trow list -> tcap -> block node **)
 
 let table_block t p rows c =
-  mk (Table ((caption_of t p c),
-    (if p.pos_records
-     then table_fold_located t p rows (rev (cap_row_parts c)) [] []
-     else table_fold t rows [] [])))
+  mk (Table ((mk (caption_of t p c)),
+    (map (fun r -> mk (map mk r))
+      (if p.pos_records
+       then table_fold_located t p rows (rev (cap_row_parts c)) [] []
+       else table_fold t rows [] []))))
 
 (** val table_row_part : coq_LineIx -> string -> trow -> row_part option **)
 
@@ -707,18 +708,18 @@ let div_block k word bs =
 
 let styles_list k s sp items =
   match s with
-  | [] -> mk (BulletList (sp, items))
+  | [] -> mk (BulletList (sp, (map mk items)))
   | p :: _ ->
     let (l0, start) = p in
     (match l0 with
      | SBullet c ->
        if (&&) ((=) c ':') k.bdeflists
        then mk (DefinitionList (sp, (def_items items)))
-       else mk (BulletList (sp, items))
-     | STask _ -> mk (BulletList (sp, items))
+       else mk (BulletList (sp, (map mk items)))
+     | STask _ -> mk (BulletList (sp, (map mk items)))
      | SOrd (n, d) ->
        mk (OrderedList ({ ol_style = n; ol_delim = d; ol_start = start }, sp,
-         items)))
+         (map mk items))))
 
 (** val styles_list_checked :
     bconfig -> (lstyle * int) list -> list_spacing -> task_status list ->
@@ -851,8 +852,8 @@ let rec finish t k p = function
     (div_block k cls (app (rev done0) (finish t k p inner)))) :: []
 | PList (ls, done0, inner) ->
   let last0 = app (rev done0) (finish t k p inner) in
-  (set_pos p { node_span = (extent_span ls.ls_extent); syntax_spans = [];
-    part_spans = (list_parts k ls last0) } (list_block k ls last0)) :: []
+  (set_pos p (prov_at (extent_span ls.ls_extent))
+    (set_parts p (list_parts k ls last0) (list_block k ls last0))) :: []
 | PAttr (pend, specs, _, _, ap, slices) ->
   if ap_done ap
   then []
@@ -867,8 +868,8 @@ let rec finish t k p = function
   (set_pos p (prov_at (extent_span range))
     (foot_block lbl (app (rev done0) (finish t k p inner)))) :: []
 | PTable (range, rows, cap) ->
-  (set_pos p { node_span = (extent_span range); syntax_spans = [];
-    part_spans = (table_parts cap) } (table_block t p (rev rows) cap)) :: []
+  (set_pos p (prov_at (extent_span range))
+    (set_parts p (table_parts cap) (table_block t p (rev rows) cap))) :: []
 | PPend (pend, specs, inner) ->
   add_roles_head p (attr_roles specs)
     (decorate_head pend (finish t k p inner))
@@ -1421,9 +1422,9 @@ let rec step_fuel t k lI p n off l st =
        (match cap with
         | TCaption (parts0, start, ls) ->
           if is_blank l
-          then (((set_pos p { node_span = (extent_span range); syntax_spans =
-                   []; part_spans = (table_parts cap) }
-                   (table_block t p (rev rows) cap)) :: []),
+          then (((set_pos p (prov_at (extent_span range))
+                   (set_parts p (table_parts cap)
+                     (table_block t p (rev rows) cap))) :: []),
                  (PPara []))
           else ([], (PTable ((touch_extent lI range), rows, (TCaption
                  (parts0, start,
@@ -1452,16 +1453,15 @@ let rec step_fuel t k lI p n off l st =
                       | _ ->
                         let (bs, st') = step_fuel t k lI p n' off l (PPara [])
                         in
-                        (((set_pos p { node_span = (extent_span range);
-                            syntax_spans = []; part_spans =
-                            (table_parts cap) }
-                            (table_block t p (rev rows) cap)) :: bs),
+                        (((set_pos p (prov_at (extent_span range))
+                            (set_parts p (table_parts cap)
+                              (table_block t p (rev rows) cap))) :: bs),
                         st'))
                    | _ ->
                      let (bs, st') = step_fuel t k lI p n' off l (PPara []) in
-                     (((set_pos p { node_span = (extent_span range);
-                         syntax_spans = []; part_spans = (table_parts cap) }
-                         (table_block t p (rev rows) cap)) :: bs),
+                     (((set_pos p (prov_at (extent_span range))
+                         (set_parts p (table_parts cap)
+                           (table_block t p (rev rows) cap))) :: bs),
                      st'))))
      | PPend (pend, specs, inner) ->
        (match classify l with

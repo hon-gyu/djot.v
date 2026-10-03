@@ -43,15 +43,7 @@ type syntax_role =
 | ROpenFence
 | RCloseFence
 
-type parts =
-| PNone
-| PItems of span list
-| PDefItems of ((span * span) * span) list
-| PTable of span option * (span * span list) list
-
-type provenance = { node_span : span;
-                    syntax_spans : (syntax_role * span) list;
-                    part_spans : parts }
+type provenance = { node_span : span; syntax_spans : (syntax_role * span) list }
 
 type pos =
 | NoPos
@@ -191,12 +183,14 @@ type block =
 | BlockQuote of block node list
 | CodeBlock of string * string
 | Div of string * block node list
-| OrderedList of ordered_list_attributes * list_spacing * block node list list
-| BulletList of list_spacing * block node list list
-| TaskList of list_spacing * (task_status * block node list) list
-| DefinitionList of list_spacing * (inlines * block node list) list
+| OrderedList of ordered_list_attributes * list_spacing
+   * block node list node list
+| BulletList of list_spacing * block node list node list
+| TaskList of list_spacing * (task_status * block node list) node list
+| DefinitionList of list_spacing
+   * (inlines node * block node list node) node list
 | ThematicBreak
-| Table of inlines * cell list list
+| Table of inlines node * cell node list node list
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string
@@ -213,18 +207,37 @@ val def_split : blocks -> (inlines * blocks) option
 
 val def_item : blocks -> inlines * blocks
 
-val def_items : blocks list -> (inlines * blocks) list
+val def_node : blocks -> (inlines node * blocks node) node
+
+val def_items : blocks list -> (inlines node * blocks node) node list
 
 val task_items :
-  task_status list -> blocks list -> (task_status * blocks) list
+  task_status list -> blocks list -> (task_status * blocks) node list
+
+type parts =
+| PItems of span list
+| PDefItems of ((span * span) * span) list
+| PTable of span option * (span * span list) list
+
+val set_each : coq_PosPolicy -> span list -> 'a1 node list -> 'a1 node list
+
+val set_defs :
+  coq_PosPolicy -> ((span * span) * span) list -> (inlines node * blocks
+  node) node list -> (inlines node * blocks node) node list
+
+val set_rows :
+  coq_PosPolicy -> (span * span list) list -> cell node list node list ->
+  cell node list node list
+
+val parts_onto : coq_PosPolicy -> parts -> block -> block
+
+val set_parts : coq_PosPolicy -> parts -> block node -> block node
 
 module Shift :
  sig
   val of_spot : int -> spot -> spot
 
   val of_span : int -> span -> span
-
-  val of_parts : int -> parts -> parts
 
   val of_pos : int -> pos -> pos
 
@@ -233,6 +246,12 @@ module Shift :
   val of_inlines : int -> inlines -> inlines
 
   val of_cell : int -> cell -> cell
+
+  val cnode : int -> cell node -> cell node
+
+  val row : int -> cell node list node -> cell node list node
+
+  val inlines_node : int -> inlines node -> inlines node
 
   val of_block : int -> block -> block
 

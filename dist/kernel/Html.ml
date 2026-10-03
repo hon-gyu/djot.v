@@ -455,27 +455,31 @@ let align_attr = function
 | AlignCenter -> ("style", "text-align: center;") :: []
 | AlignDefault -> []
 
-(** val render_cell : reference_map -> cell -> helt **)
+(** val render_cell : reference_map -> cell node -> helt **)
 
 let render_cell refs = function
-| Cell (ct, al, ils) ->
+| Node (_, a, x) ->
+  let Cell (ct, al, ils) = x in
   let tag = match ct with
             | HeadCell -> "th"
             | BodyCell -> "td" in
-  HElem (tag, (Stdlib.succ 0), (align_attr al), (render_inlines refs ils))
+  HElem (tag, (Stdlib.succ 0), (app (align_attr al) a),
+  (render_inlines refs ils))
 
-(** val render_row : reference_map -> cell list -> helt **)
+(** val render_row : reference_map -> cell node list node -> helt **)
 
-let render_row refs r =
-  HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], (map (render_cell refs) r))
+let render_row refs = function
+| Node (_, a, cs) ->
+  HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), a, (map (render_cell refs) cs))
 
-(** val render_caption : reference_map -> inlines -> helt list **)
+(** val render_caption : reference_map -> inlines node -> helt list **)
 
-let render_caption refs caption = match caption with
-| [] -> []
-| _ :: _ ->
-  (HElem ("caption", (Stdlib.succ 0), [],
-    (render_inlines refs caption))) :: []
+let render_caption refs = function
+| Node (_, a, ils) ->
+  (match ils with
+   | [] -> []
+   | _ :: _ ->
+     (HElem ("caption", (Stdlib.succ 0), a, (render_inlines refs ils))) :: [])
 
 (** val render_block : reference_map -> bool -> block -> attr -> helt list **)
 
@@ -491,28 +495,33 @@ let rec render_block refs tight b a =
   let render_items =
     let rec goi sp = function
     | [] -> []
-    | it :: rest ->
-      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
-        (render_bs_at (match sp with
-                       | Tight -> true
-                       | Loose -> false) it))) :: (goi sp rest)
+    | n :: rest ->
+      let Node (_, ia, it) = n in
+      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia,
+      (render_bs_at (match sp with
+                     | Tight -> true
+                     | Loose -> false) it))) :: (goi sp rest)
     in goi
   in
   let render_def_items =
     let rec god = function
     | [] -> []
-    | p :: rest ->
-      let (term, it) = p in
-      (HElem ("dt", (Stdlib.succ 0), [],
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (n0, n1) = x in
+      let Node (_, ta, term) = n0 in
+      let Node (_, da, it) = n1 in
+      (HElem ("dt", (Stdlib.succ 0), ta,
       (render_inlines refs term))) :: ((HElem ("dd", (Stdlib.succ
-      (Stdlib.succ 0)), [], (render_bs it))) :: (god rest))
+      (Stdlib.succ 0)), da, (render_bs it))) :: (god rest))
     in god
   in
   let render_task_items =
     let rec got sp = function
     | [] -> []
-    | p :: rest ->
-      let (st, it) = p in
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (st, it) = x in
       (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
       ((checkbox_elt st) :: ((HText
       nl) :: (render_bs_at (match sp with
@@ -693,18 +702,19 @@ let rec render_inlines_foot refs st = function
   let (st2, s2) = render_inlines_foot refs st1 rest in (st2, (app s1 s2))
 
 (** val render_cell_foot :
-    reference_map -> foot_state -> cell -> foot_state * helt **)
+    reference_map -> foot_state -> cell node -> foot_state * helt **)
 
 let render_cell_foot refs st = function
-| Cell (ct, al, ils) ->
+| Node (_, a, x) ->
+  let Cell (ct, al, ils) = x in
   let tag = match ct with
             | HeadCell -> "th"
             | BodyCell -> "td" in
   let (st', s) = render_inlines_foot refs st ils in
-  (st', (HElem (tag, (Stdlib.succ 0), (align_attr al), s)))
+  (st', (HElem (tag, (Stdlib.succ 0), (app (align_attr al) a), s)))
 
 (** val render_cells_foot :
-    reference_map -> foot_state -> cell list -> foot_state * helt list **)
+    reference_map -> foot_state -> cell node list -> foot_state * helt list **)
 
 let rec render_cells_foot refs st = function
 | [] -> (st, [])
@@ -713,23 +723,27 @@ let rec render_cells_foot refs st = function
   let (st2, es) = render_cells_foot refs st1 rest in (st2, (e :: es))
 
 (** val render_rows_foot :
-    reference_map -> foot_state -> cell list list -> foot_state * helt list **)
+    reference_map -> foot_state -> cell node list node list ->
+    foot_state * helt list **)
 
 let rec render_rows_foot refs st = function
 | [] -> (st, [])
-| r :: rest ->
+| n :: rest ->
+  let Node (_, a, r) = n in
   let (st1, cells) = render_cells_foot refs st r in
   let (st2, es) = render_rows_foot refs st1 rest in
-  (st2, ((HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), [], cells)) :: es))
+  (st2, ((HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), a, cells)) :: es))
 
 (** val render_caption_foot :
-    reference_map -> foot_state -> inlines -> foot_state * helt list **)
+    reference_map -> foot_state -> inlines node -> foot_state * helt list **)
 
-let render_caption_foot refs st caption = match caption with
-| [] -> (st, [])
-| _ :: _ ->
-  let (st', s) = render_inlines_foot refs st caption in
-  (st', ((HElem ("caption", (Stdlib.succ 0), [], s)) :: []))
+let render_caption_foot refs st = function
+| Node (_, a, ils) ->
+  (match ils with
+   | [] -> (st, [])
+   | _ :: _ ->
+     let (st', s) = render_inlines_foot refs st ils in
+     (st', ((HElem ("caption", (Stdlib.succ 0), a, s)) :: [])))
 
 (** val render_block_foot :
     reference_map -> foot_state -> bool -> block -> attr -> foot_state * helt
@@ -748,20 +762,22 @@ let rec render_block_foot refs st tight b a =
   let render_items =
     let rec goi st0 sp = function
     | [] -> (st0, [])
-    | it :: rest ->
+    | n :: rest ->
+      let Node (_, ia, it) = n in
       let t = match sp with
               | Tight -> true
               | Loose -> false in
       let (st1, s1) = render_bs_at st0 t it in
       let (st2, s2) = goi st1 sp rest in
-      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [], s1)) :: s2))
+      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia, s1)) :: s2))
     in goi
   in
   let render_task_items =
     let rec got st0 sp = function
     | [] -> (st0, [])
-    | p :: rest ->
-      let (chk, it) = p in
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (chk, it) = x in
       let t = match sp with
               | Tight -> true
               | Loose -> false in
@@ -774,13 +790,16 @@ let rec render_block_foot refs st tight b a =
   let render_def_items =
     let rec god st0 = function
     | [] -> (st0, [])
-    | p :: rest ->
-      let (term, it) = p in
+    | n :: rest ->
+      let Node (_, _, x) = n in
+      let (n0, n1) = x in
+      let Node (_, ta, term) = n0 in
+      let Node (_, da, it) = n1 in
       let (st1, s1) = render_inlines_foot refs st0 term in
       let (st2, s2) = render_bs_at st1 tight it in
       let (st3, s3) = god st2 rest in
-      (st3, ((HElem ("dt", (Stdlib.succ 0), [], s1)) :: ((HElem ("dd",
-      (Stdlib.succ (Stdlib.succ 0)), [], s2)) :: s3)))
+      (st3, ((HElem ("dt", (Stdlib.succ 0), ta, s1)) :: ((HElem ("dd",
+      (Stdlib.succ (Stdlib.succ 0)), da, s2)) :: s3)))
     in god
   in
   (match b with
