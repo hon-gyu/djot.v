@@ -38,7 +38,7 @@ let () =
     (fun locs ->
       List.iter
         (fun src ->
-          let d = Doc.of_string ~locs src in
+          let d = Source.of_string ~locs src in
           let ls = lines_of src in
           let n = Array.length ls in
           for first = 1 to n + 1 do
@@ -51,7 +51,7 @@ let () =
                     @ Array.to_list (Array.sub ls last (n - last))
                   in
                   let expected = Doc.of_string ~locs (String.concat "\n" edited ^ "\n") in
-                  let got = Doc.replace_lines d ~first ~last s in
+                  let got = Source.doc (Source.replace_lines d ~first ~last s) in
                   assert (For_testing.kernel got = For_testing.kernel expected);
                   assert (Doc.footnote_defs got = Doc.footnote_defs expected);
                   assert (ranges got = ranges expected))
@@ -60,8 +60,8 @@ let () =
           done)
         docs)
     [ false; true ];
-  match Doc.replace_lines (Doc.of_blocks []) ~first:1 ~last:0 "b" with
-  | _ -> failwith "a document without source is not spliced"
+  match Source.replace_lines (Source.of_string "a\n") ~first:3 ~last:2 "b" with
+  | _ -> failwith "a range past the end is refused"
   | exception Invalid_argument _ -> ()
 ;;
 
@@ -71,15 +71,13 @@ let () =
   let src = "a\n\nb\n\n- c\n\n```\nk\n```\n\nd\n" in
   let ls = Array.of_list (Kernel.Strings.split_lines src) in
   let n = Array.length ls in
-  let d = Doc.of_string src in
+  let d = Source.of_string src in
   for first = 1 to n + 1 do
     for last = first - 1 to n do
       List.iter
         (fun s ->
-          let d', (c : Doc.change) = Doc.replace_lines_changed d ~first ~last s in
-          let ls' =
-            Array.of_list (Kernel.Strings.split_lines (Option.get (Doc.source d')))
-          in
+          let d', (c : Source.change) = Source.replace_lines_changed d ~first ~last s in
+          let ls' = Array.of_list (Kernel.Strings.split_lines (Source.to_string d')) in
           let n' = Array.length ls' in
           assert (c.first <= first && last <= c.old_last);
           assert (c.first - 1 <= c.new_last && c.old_last <= n && c.new_last <= n');
@@ -97,16 +95,16 @@ let () =
    blocks around it are the old values. One that opens a fence runs on
    until the parser is idle again at the end of an old piece. *)
 let () =
-  let d = Doc.of_string "a\n\nb\n\nc\n\n```\nk\n```\n\nd\n" in
-  let d', c = Doc.replace_lines_changed d ~first:3 ~last:3 "x" in
+  let d = Source.of_string "a\n\nb\n\nc\n\n```\nk\n```\n\nd\n" in
+  let d', (c : Source.change) = Source.replace_lines_changed d ~first:3 ~last:3 "x" in
   assert (c = { first = 3; old_last = 4; new_last = 4 });
-  let old = For_testing.parsed d
-  and now = For_testing.parsed d' in
+  let old = For_testing.parsed (Source.doc d)
+  and now = For_testing.parsed (Source.doc d') in
   assert (List.length old = List.length now);
   List.iteri (fun k b -> assert (b == List.nth now k = (k <> 1))) old;
-  let _, c = Doc.replace_lines_changed d ~first:3 ~last:3 "```" in
+  let _, (c : Source.change) = Source.replace_lines_changed d ~first:3 ~last:3 "```" in
   assert (c = { first = 3; old_last = 10; new_last = 10 });
-  let _, c = Doc.replace_lines_changed d ~first:6 ~last:5 "new\n" in
+  let _, (c : Source.change) = Source.replace_lines_changed d ~first:6 ~last:5 "new\n" in
   assert (c = { first = 5; old_last = 6; new_last = 7 })
 ;;
 
@@ -117,7 +115,7 @@ let () =
     (fun locs ->
       List.iter
         (fun src ->
-          let d = Doc.of_string ~locs src in
+          let d = Source.of_string ~locs src in
           let n = String.length src in
           for first = 0 to n do
             for last = first - 1 to n - 1 do
@@ -127,10 +125,11 @@ let () =
                     String.sub src 0 first ^ s ^ String.sub src (last + 1) (n - last - 1)
                   in
                   let expected = Doc.of_string ~locs edited in
-                  let got, (c : Doc.change) =
-                    Doc.replace_bytes_changed d ~first ~last s
+                  let got, (c : Source.change) =
+                    Source.replace_bytes_changed d ~first ~last s
                   in
-                  assert (Doc.source got = Some edited);
+                  assert (Source.to_string got = edited);
+                  let got = Source.doc got in
                   assert (For_testing.kernel got = For_testing.kernel expected);
                   assert (Doc.footnote_defs got = Doc.footnote_defs expected);
                   assert (c.first >= 1 && c.old_last >= c.first - 1))
@@ -143,10 +142,7 @@ let () =
         ; "> q\r\n\r\n| a |\n\n- b"
         ])
     [ false; true ];
-  (match Doc.replace_bytes (Doc.of_string "ab") ~first:1 ~last:2 "" with
-   | _ -> failwith "a range past the end is refused"
-   | exception Invalid_argument _ -> ());
-  match Doc.replace_bytes (Doc.of_blocks []) ~first:0 ~last:(-1) "b" with
-  | _ -> failwith "a document without source is not spliced"
+  match Source.replace_bytes (Source.of_string "ab") ~first:1 ~last:2 "" with
+  | _ -> failwith "a range past the end is refused"
   | exception Invalid_argument _ -> ()
 ;;

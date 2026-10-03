@@ -83,12 +83,11 @@ let () =
   | exception Invalid_argument _ -> ()
 ;;
 
-(* The source is kept; every footnote definition is kept, but the note
-   map keeps the last one per label. *)
+(* Every footnote definition is kept, but the note map keeps the last
+   one per label. *)
 let () =
   let src = "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
   let d = Doc.of_string ~locs:true src in
-  assert (Doc.source d = Some src);
   assert (List.length (Doc.footnote_defs d) = 2);
   match Doc.footnotes d with
   | [ ("a", [ Node (_, _, Block.Para [ Node (_, _, Inline.Str "two") ]) ]) ] -> ()
@@ -108,4 +107,34 @@ let () =
   | [ Node (_, _, Block.BulletList (_, [ it ])) ] ->
     assert (Textloc.first_byte (Doc.textloc mapped it) = 4)
   | _ -> failwith "unexpected document"
+;;
+
+(* Blocks built in code render without a document, with identifiers,
+   sections and footnotes resolved among them; so do the blocks a stream
+   returns. *)
+let () =
+  let para s = Node.make (Block.Para [ Node.make (Inline.Str s) ]) in
+  let built =
+    [ Node.make (Block.Heading (1, [ Node.make (Inline.Str "T") ]))
+    ; Node.make (Block.Para [ Node.make (Inline.FootnoteReference "n") ])
+    ; Node.make (Block.FootnoteDef ("n", [ para "note" ]))
+    ]
+  in
+  assert (Html.of_blocks built = Html.of_doc (Doc.of_string "# T\n\n[^n]\n\n[^n]: note\n"));
+  let src = "# a\n\nx[^n] [a][]\n\n# a\n\n[^n]: one\n" in
+  let bs, t = Stream.feed_string (Stream.start ()) src in
+  assert (Html.of_blocks (bs @ Stream.peek t) = Html.of_doc (Doc.of_string src))
+;;
+
+(* A source gives its text and the parse of it; an edit leaves the
+   source it was made from as it was; a mapped document is not edited. *)
+let () =
+  let s = Source.of_string "one\n\ntwo\n" in
+  assert (Source.to_string s = "one\n\ntwo\n");
+  let s' = Source.replace_lines s ~first:3 ~last:3 "three" in
+  assert (Source.to_string s = "one\n\ntwo\n");
+  assert (Source.to_string s' = "one\n\nthree");
+  assert (Source.to_string (Source.replace_lines s ~first:4 ~last:3 "end") = "one\n\ntwo\nend");
+  assert (Source.to_string (Source.replace_lines s ~first:1 ~last:0 "top") = "top\none\n\ntwo\n");
+  assert (Html.of_doc (Source.doc s') = Html.of_doc (Doc.of_string "one\n\nthree"))
 ;;

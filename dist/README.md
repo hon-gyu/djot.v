@@ -33,18 +33,24 @@ differences:
   captions are nodes, as in djot.js, so each has a location.
 - A node's location needs its document: `Doc.textloc doc node`.  Parse
   with `~locs:true` to record locations.
-- The document pass groups each heading and the blocks under it into a
+- Parsing groups each heading and the blocks under it into a
   `Block.Section`, which carries the heading's id.
 - `Html.tree` returns the output tree before serialization, for
   post-processing; `Html.to_string` serializes it.
-- `Source.of_doc` renders a document back to djot, where cmarkit has a
-  CommonMark renderer.
-- `Doc.replace_lines` and `Doc.replace_bytes` edit a parsed document,
-  parsing again only the part the edit can affect.  The `_changed`
-  variants also return the lines that were parsed again.
+- `Doc.to_string` renders a document back to djot, where cmarkit has a
+  CommonMark renderer.  `Block.to_string` and `Inline.to_string` do the
+  same for part of a tree.
+- A `Doc.t` is not built from blocks.  `Html.of_blocks` renders blocks
+  built in code; `Doc.of_string (Block.to_string blocks)` gives a
+  document for them, by way of their djot source.
+- A `Source.t` is a text together with its parse, for texts that change.
+  `Source.replace_lines` and `Source.replace_bytes` edit the text,
+  parsing again only the part the edit can affect, and `Source.doc`
+  gives the document.  The `_changed` variants also return the lines
+  that were parsed again.  A `Doc.t` does not keep its text.
 - `Stream` parses input fed in lines or in arbitrary chunks, returning
   each top-level block when the input closes it; `Stream.finish` gives
-  the document.
+  the source, and `Source.doc` its document.
 
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,

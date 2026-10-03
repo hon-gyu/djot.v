@@ -76,179 +76,6 @@ module Attr : sig
   val of_string : string -> t option
 end
 
-(** {1 Nodes} *)
-
-type 'a node = 'a Kernel.Ast.node =
-  | Node of Kernel.Ast.pos * Attr.t * 'a
-  (** A tree element: source position (see {!Doc.textloc}), attributes, and contents. *)
-
-module Node : sig
-  (** A node with no source position. *)
-  val make : ?attrs:Attr.t -> 'a -> 'a node
-
-  val attrs : 'a node -> Attr.t
-  val content : 'a node -> 'a
-end
-
-(** {1 Inlines} *)
-
-module Inline : sig
-  type math_style = Kernel.Ast.math_style =
-    | DisplayMath
-    | InlineMath
-
-  type target = Kernel.Ast.target =
-    | Direct of string
-    | Reference of string
-
-  type quote_type = Kernel.Ast.quote_type =
-    | SingleQuotes
-    | DoubleQuotes
-
-  type t = Kernel.Ast.inline =
-    | Str of string
-    | Emph of t node list
-    | Strong of t node list
-    | Highlight of t node list
-    | Insert of t node list
-    | Delete of t node list
-    | Superscript of t node list
-    | Subscript of t node list
-    | Verbatim of string
-    | Symbol of string
-    | Math of math_style * string
-    | Link of t node list * target
-    | Image of t node list * target
-    | Span of string * t node list
-    (** The string is a name, written [:name[...]], an extension
-        ({!Profile.with_ext_tags}); empty means unnamed. *)
-    | FootnoteReference of string
-    | UrlLink of string
-    | EmailLink of string
-    | RawInline of string * string
-    | NonBreakingSpace
-    | Quoted of quote_type * t node list
-    | SoftBreak
-    | HardBreak
-    | Ext_wikilink of bool * string * string option
-    (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
-
-  (** The text a heading identifier is derived from. *)
-  val to_plain_text : t node list -> string
-end
-
-(** {1 Blocks} *)
-
-module Block : sig
-  type list_spacing = Kernel.Ast.list_spacing =
-    | Tight
-    | Loose
-
-  type ordered_list_style = Kernel.Ast.ordered_list_style =
-    | Decimal
-    | LetterUpper
-    | LetterLower
-    | RomanUpper
-    | RomanLower
-
-  type ordered_list_delim = Kernel.Ast.ordered_list_delim =
-    | RightPeriod
-    | RightParen
-    | LeftRightParen
-
-  type ordered_list_attributes = Kernel.Ast.ordered_list_attributes =
-    { ol_style : ordered_list_style
-    ; ol_delim : ordered_list_delim
-    ; ol_start : int
-    }
-
-  type task_status = Kernel.Ast.task_status =
-    | Complete
-    | Incomplete
-
-  type align = Kernel.Ast.align =
-    | AlignLeft
-    | AlignRight
-    | AlignCenter
-    | AlignDefault
-
-  type cell_type = Kernel.Ast.cell_type =
-    | HeadCell
-    | BodyCell
-
-  type cell = Kernel.Ast.cell = Cell of cell_type * align * Inline.t node list
-
-  type callout_fold = Kernel.Ast.callout_fold =
-    | FoldExpanded
-    | FoldCollapsed
-
-  type t = Kernel.Ast.block =
-    | Para of Inline.t node list
-    | Section of t node list
-    (** a heading (the first child) and the blocks up to the next heading of the same or a
-        higher level. The heading's id is on the section node. *)
-    | Heading of int * Inline.t node list
-    | BlockQuote of t node list
-    | CodeBlock of string * string
-    | Div of string * t node list
-    (** The string is a name, written [::: name] where djot reads a class, an extension
-        ({!Profile.with_ext_tags}); empty means unnamed. *)
-    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
-    (** Each item is a node, with its own location. *)
-    | BulletList of list_spacing * t node list node list
-    | TaskList of list_spacing * (task_status * t node list) node list
-    | DefinitionList of
-        list_spacing * (Inline.t node list node * t node list node) node list
-    (** Each item holds its term and its definition. *)
-    | ThematicBreak
-    | Table of Inline.t node list node * cell node list node list
-    (** Caption, then rows of cells. A caption with no inlines is no caption. *)
-    | RawBlock of string * string
-    | FootnoteDef of string * t node list
-    (** Moved into {!Doc.footnotes} by the document pass. *)
-    | RefDef of string * string
-    | Ext_keyed of Inline.t node list * t node (** An extension: [label: content]. *)
-    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
-    (** Kind, fold marker, inline title, and body. *)
-end
-
-(** {1 Source locations} *)
-
-module Textloc : sig
-  (** Zero-based. *)
-  type byte_pos = int
-
-  (** A one-based line number and the byte position of the line's first byte. *)
-  type line_pos = int * byte_pos
-
-  type t
-
-  val first_byte : t -> byte_pos
-
-  (** Inclusive. *)
-  val last_byte : t -> byte_pos
-
-  val first_line : t -> line_pos
-  val last_line : t -> line_pos
-  val none : t
-  val is_none : t -> bool
-
-  (** [last_byte] is [first_byte - 1]. *)
-  val is_empty : t -> bool
-
-  val make
-    :  first_byte:byte_pos
-    -> last_byte:byte_pos
-    -> first_line:line_pos
-    -> last_line:line_pos
-    -> t
-
-  (** The range from [first]'s first byte to [last]'s last byte *)
-  val reloc : first:t -> last:t -> t
-
-  val pp : Format.formatter -> t -> unit
-end
-
 (** {1 Profiles} *)
 
 module Profile : sig
@@ -333,85 +160,239 @@ module Profile : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** {1 Nodes} *)
+
+type 'a node = 'a Kernel.Ast.node =
+  | Node of Kernel.Ast.pos * Attr.t * 'a
+  (** A tree element: source position (see {!Doc.textloc}), attributes, and contents. *)
+
+module Node : sig
+  (** A node with no source position. *)
+  val make : ?attrs:Attr.t -> 'a -> 'a node
+
+  val attrs : 'a node -> Attr.t
+  val content : 'a node -> 'a
+end
+
+(** {1 Inlines} *)
+
+module Inline : sig
+  type math_style = Kernel.Ast.math_style =
+    | DisplayMath
+    | InlineMath
+
+  type target = Kernel.Ast.target =
+    | Direct of string
+    | Reference of string
+
+  type quote_type = Kernel.Ast.quote_type =
+    | SingleQuotes
+    | DoubleQuotes
+
+  type t = Kernel.Ast.inline =
+    | Str of string
+    | Emph of t node list
+    | Strong of t node list
+    | Highlight of t node list
+    | Insert of t node list
+    | Delete of t node list
+    | Superscript of t node list
+    | Subscript of t node list
+    | Verbatim of string
+    | Symbol of string
+    | Math of math_style * string
+    | Link of t node list * target
+    | Image of t node list * target
+    | Span of string * t node list
+    (** The string is a name, written [:name[...]], an extension
+        ({!Profile.with_ext_tags}); empty means unnamed. *)
+    | FootnoteReference of string
+    | UrlLink of string
+    | EmailLink of string
+    | RawInline of string * string
+    | NonBreakingSpace
+    | Quoted of quote_type * t node list
+    | SoftBreak
+    | HardBreak
+    | Ext_wikilink of bool * string * string option
+    (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
+
+  (** The text a heading identifier is derived from. *)
+  val to_plain_text : t node list -> string
+
+  (** The inlines as djot source, as they are written inside a paragraph, a soft or hard
+      break ending a line.
+      @param profile the syntax to write; default {!Profile.djot} *)
+  val to_string : ?profile:Profile.t -> t node list -> string
+end
+
+(** {1 Blocks} *)
+
+module Block : sig
+  type list_spacing = Kernel.Ast.list_spacing =
+    | Tight
+    | Loose
+
+  type ordered_list_style = Kernel.Ast.ordered_list_style =
+    | Decimal
+    | LetterUpper
+    | LetterLower
+    | RomanUpper
+    | RomanLower
+
+  type ordered_list_delim = Kernel.Ast.ordered_list_delim =
+    | RightPeriod
+    | RightParen
+    | LeftRightParen
+
+  type ordered_list_attributes = Kernel.Ast.ordered_list_attributes =
+    { ol_style : ordered_list_style
+    ; ol_delim : ordered_list_delim
+    ; ol_start : int
+    }
+
+  type task_status = Kernel.Ast.task_status =
+    | Complete
+    | Incomplete
+
+  type align = Kernel.Ast.align =
+    | AlignLeft
+    | AlignRight
+    | AlignCenter
+    | AlignDefault
+
+  type cell_type = Kernel.Ast.cell_type =
+    | HeadCell
+    | BodyCell
+
+  type cell = Kernel.Ast.cell = Cell of cell_type * align * Inline.t node list
+
+  type callout_fold = Kernel.Ast.callout_fold =
+    | FoldExpanded
+    | FoldCollapsed
+
+  type t = Kernel.Ast.block =
+    | Para of Inline.t node list
+    | Section of t node list
+    (** a heading (the first child) and the blocks up to the next heading of the same or a
+        higher level. The heading's id is on the section node. *)
+    | Heading of int * Inline.t node list
+    | BlockQuote of t node list
+    | CodeBlock of string * string
+    | Div of string * t node list
+    (** The string is a name, written [::: name] where djot reads a class, an extension
+        ({!Profile.with_ext_tags}); empty means unnamed. *)
+    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
+    (** Each item is a node, with its own location. *)
+    | BulletList of list_spacing * t node list node list
+    | TaskList of list_spacing * (task_status * t node list) node list
+    | DefinitionList of
+        list_spacing * (Inline.t node list node * t node list node) node list
+    (** Each item holds its term and its definition. *)
+    | ThematicBreak
+    | Table of Inline.t node list node * cell node list node list
+    (** Caption, then rows of cells. A caption with no inlines is no caption. *)
+    | RawBlock of string * string
+    | FootnoteDef of string * t node list
+    (** Taken out of {!Doc.blocks} when a text is parsed; see {!Doc.footnotes}. *)
+    | RefDef of string * string
+    | Ext_keyed of Inline.t node list * t node (** An extension: [label: content]. *)
+    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
+    (** Kind, fold marker, inline title, and body. *)
+
+  (** The blocks as djot source, for the source of one node or of a mapped tree. Unlike
+      {!Doc.to_string}, a heading identifier is written out as an attribute even when the
+      parser would derive it again.
+      @param profile the syntax to write; default {!Profile.djot} *)
+  val to_string : ?profile:Profile.t -> t node list -> string
+end
+
+(** {1 Source locations} *)
+
+module Textloc : sig
+  (** Zero-based. *)
+  type byte_pos = int
+
+  (** A one-based line number and the byte position of the line's first byte. *)
+  type line_pos = int * byte_pos
+
+  type t
+
+  val first_byte : t -> byte_pos
+
+  (** Inclusive. *)
+  val last_byte : t -> byte_pos
+
+  val first_line : t -> line_pos
+  val last_line : t -> line_pos
+  val none : t
+  val is_none : t -> bool
+
+  (** [last_byte] is [first_byte - 1]. *)
+  val is_empty : t -> bool
+
+  val make
+    :  first_byte:byte_pos
+    -> last_byte:byte_pos
+    -> first_line:line_pos
+    -> last_line:line_pos
+    -> t
+
+  (** The range from [first]'s first byte to [last]'s last byte *)
+  val reloc : first:t -> last:t -> t
+
+  val pp : Format.formatter -> t -> unit
+end
+
 (** {1 Documents} *)
 
+(** A parsed document: its blocks, and the footnotes and references they define.
+
+    A document does not keep the text it was parsed from. To edit a document's text and
+    parse only what the edit affects, use {!Source}. *)
 module Doc : sig
   type t
 
-  (** Parse, then run the document pass: headings get identifiers and open sections,
-      footnote and reference definitions move into side tables.
-      @param profile the syntax profile; default {!Profile.djot}
-      @param locs whether to record source positions; default [false]. *)
+  (** Parses a djot text.
+
+      Each heading gets an identifier and is wrapped, with the blocks under it, in a
+      {!Block.Section}. Footnote and reference definitions are taken out of the blocks;
+      they are found with {!footnotes} and {!references}.
+
+      @param profile the syntax to accept; default {!Profile.djot}
+      @param locs whether to record source positions, see {!textloc}; default [false] *)
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
-  (** Run the document pass over parsed blocks. The result has no source, so {!textloc} is
-      {!Textloc.none} throughout.
+  (** The document as djot source, in the syntax of the profile it was parsed with. A
+      heading identifier the parser would derive again is left out. Parsing the result
+      with that profile gives the same tree, up to source positions, except that:
+      - footnote definitions come after the blocks;
+      - whitespace runs in attribute values collapse to one space;
+      - a span with no attributes, an empty block quote, an empty table and an empty
+        definition item read back as something else;
+      - two adjacent bullet lists read back as one, since the tree does not keep the
+        marker;
+      - a [|] in a table cell's text splits the cell.
 
-      @param profile the syntax {!Source.of_doc} writes; default {!Profile.djot}. *)
-  val of_blocks : ?profile:Profile.t -> Block.t node list -> t
-
-  (** [replace_lines d ~first ~last s] is [d] with source lines [first] to [last]
-      (one-based, inclusive) replaced by [s], re-parsing only the part the edit can
-      affect.
-
-      The result equals {!of_string} on the edited source. [last = first - 1] inserts
-      before line [first].
-
-      @raise Invalid_argument
-        if [d] was made by {!of_blocks} or the range is outside [d]'s lines. *)
-  val replace_lines : t -> first:int -> last:int -> string -> t
-
-  (** [replace_bytes d ~first ~last s] is [d] with source bytes [first] to [last]
-      (zero-based, inclusive, as in {!Textloc}) replaced by [s], as {!replace_lines} does
-      for the lines the bytes are on.
-
-      The result equals {!of_string} on the edited source, which is the old one with
-      exactly those bytes replaced. [last = first - 1] inserts before byte [first].
-
-      @raise Invalid_argument
-        if [d] was made by {!of_blocks} or the range is outside [d]'s source. *)
-  val replace_bytes : t -> first:int -> last:int -> string -> t
-
-  (** The lines an edit parsed again, one-based and inclusive: lines [first] to [old_last]
-      of the source before the edit, which are lines [first] to [new_last] of the source
-      after it. A last line of [first - 1] is an empty range. The range holds the edited
-      lines and can be wider.
-
-      The lines outside it were not parsed: the blocks they give are the ones of the
-      document before the edit, with the positions of those after the range moved. The
-      document pass still runs over every block, so outside the range an edit can change
-      the suffix of a repeated heading identifier, where a section ends, and what
-      {!reference} and {!footnote} answer. *)
-  type change =
-    { first : int
-    ; old_last : int
-    ; new_last : int
-    }
-
-  (** {!replace_lines}, with the lines it parsed again. *)
-  val replace_lines_changed : t -> first:int -> last:int -> string -> t * change
-
-  (** {!replace_bytes}, with the lines it parsed again. *)
-  val replace_bytes_changed : t -> first:int -> last:int -> string -> t * change
-
-  (** The string the document was parsed from. {!textloc} gives byte ranges in it.
-
-      {!Mapper.map_doc} does not change it.
-
-      @return [None] if the document was made by {!of_blocks}. *)
-  val source : t -> string option
+      Roundtrip.v proves the round trip for a fragment of documents; beyond it this is
+      tested, not proved. *)
+  val to_string : t -> string
 
   val blocks : t -> Block.t node list
 
-  (** One entry per normalized label, holding the blocks of the last definition with that
-      label, as djot.js resolves references. *)
+  (** The footnotes: one entry per label, with the blocks of its definition.
+
+      Two labels are the same when they are equal once each run of whitespace is replaced
+      by one space, so [[^a  b]] and [[^a b]] are one footnote and [[^a]] and [[^A]] are
+      two. When a label is defined more than once, the entry holds the last definition;
+      {!footnote_defs} has every one. *)
   val footnotes : t -> (string * Block.t node list) list
 
-  (** Every {!Block.FootnoteDef} of the parse in source order, repeated labels included,
-      with its label as written and its blocks. Taken from the parse, so {!Mapper.map_doc}
-      leaves them as they were. *)
+  (** Every {!Block.FootnoteDef} in source order, repeated labels included, each with its
+      label as written and its blocks. {!Mapper.map_doc} does not map these. *)
   val footnote_defs : t -> Block.t node list
 
+  (** The blocks of the footnote with this label, compared as in {!footnotes}. *)
   val footnote : t -> string -> Block.t node list option
 
   (** Explicit reference definitions: label, destination, attributes. *)
@@ -440,11 +421,81 @@ module Doc : sig
   val syntax_locs : t -> 'a node -> (syntax * Textloc.t) list
 end
 
+(** {1 Editable sources} *)
+
+(** A djot text together with its parse, for texts that change.
+
+    An edit gives a new source whose document equals {!Doc.of_string} on the edited text,
+    parsing again only the part of the text the edit can affect. A value of type {!t} is
+    immutable: the source before an edit stays valid.
+
+    Edit the source, not the document: {!doc} is always the parse of {!to_string}, so a
+    document changed with {!Mapper.map_doc} has to be mapped again after an edit. To make
+    a changed document the text to edit, start a new source from {!Doc.to_string}. *)
+module Source : sig
+  type t
+
+  (** [of_string s] is the source with text [s]. [profile] and [locs] are as in
+      {!Doc.of_string}, and hold for every edit of this source. *)
+  val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
+
+  (** The text. {!Doc.textloc} of {!doc} gives byte ranges in it. *)
+  val to_string : t -> string
+
+  (** The parse of the text, equal to {!Doc.of_string} on {!to_string}. *)
+  val doc : t -> Doc.t
+
+  (** [replace_lines t ~first ~last s] is [t] with lines [first] to [last] of its text
+      replaced by [s]. Lines are counted from one and both ends are included, so
+      [~first:2 ~last:3] replaces two lines.
+
+      With [last = first - 1] no line is replaced and [s] is inserted before line [first]:
+      [~first:1 ~last:0] inserts at the start, and with [n] lines in the text
+      [~first:(n + 1) ~last:n] appends. This is the empty range of {!Textloc.is_empty}.
+
+      [s] is taken as whole lines: a newline is added where [s] would otherwise join a
+      neighbouring line.
+
+      @raise Invalid_argument if the range is outside the text's lines. *)
+  val replace_lines : t -> first:int -> last:int -> string -> t
+
+  (** [replace_bytes t ~first ~last s] is [t] with bytes [first] to [last] of its text
+      replaced by exactly [s]. Bytes are counted from zero and both ends are included, as
+      in {!Textloc}. With [last = first - 1] no byte is replaced and [s] is inserted
+      before byte [first].
+
+      @raise Invalid_argument if the range is outside the text. *)
+  val replace_bytes : t -> first:int -> last:int -> string -> t
+
+  (** The lines an edit parsed again, one-based and inclusive: lines [first] to [old_last]
+      of the text before the edit, which are lines [first] to [new_last] of the text after
+      it. A last line of [first - 1] is an empty range. The range holds the edited lines
+      and can be wider.
+
+      The lines outside it were not parsed: the blocks they give are the ones of the
+      document before the edit, with the positions of those after the range moved.
+      Identifiers, sections, footnotes and references are still worked out over the whole
+      document, so outside the range an edit can change the suffix of a repeated heading
+      identifier, where a section ends, and what {!Doc.reference} and {!Doc.footnote}
+      answer. *)
+  type change =
+    { first : int
+    ; old_last : int
+    ; new_last : int
+    }
+
+  (** {!replace_lines}, with the lines it parsed again. *)
+  val replace_lines_changed : t -> first:int -> last:int -> string -> t * change
+
+  (** {!replace_bytes}, with the lines it parsed again. *)
+  val replace_bytes_changed : t -> first:int -> last:int -> string -> t * change
+end
+
 (** {1 Streaming} *)
 
 module Stream : sig
   (** A parse fed its input in parts. Blocks are returned as the input closes them, and
-      {!finish} gives the document.
+      {!finish} gives the source, and with it the document.
 
       - The blocks are top level and in source order.
       - differ from {!Doc.blocks} in two ways:
@@ -467,10 +518,11 @@ module Stream : sig
   (** held blocks that would be returned if the input ended here. *)
   val peek : t -> Block.t node list
 
-  (** The document of all the input fed, equal to {!Doc.of_string} on its concatenation.
-      Every block returned by a feed, followed by {!peek}, is the parse it was built from.
-      With [locs], {!Doc.textloc} of this document locates the returned blocks. *)
-  val finish : t -> Doc.t
+  (** The source of all the input fed, equal to {!Source.of_string} on its concatenation.
+      Every block returned by a feed, followed by {!peek}, is the parse its document was
+      built from. With [locs], {!Doc.textloc} of that document locates the returned
+      blocks. *)
+  val finish : t -> Source.t
 
   (** The sections {!Doc.blocks} nests the blocks in, as events over the returned blocks:
       a heading leaves every open section of its level or deeper and enters its own. *)
@@ -498,10 +550,11 @@ end
 (** /**)
 
 module For_testing : sig
-  (** The document without its source and line table, so that two parses compare with [=]. *)
+  (** The document without its line table, so that two parses compare with [=]. *)
   val kernel : Doc.t -> Kernel.Ast.doc
 
-  (** The blocks the document pass was run over. *)
+  (** The blocks as parsed, before headings are wrapped in sections and definitions
+      taken out. *)
   val parsed : Doc.t -> Block.t node list
 end
 
@@ -532,7 +585,11 @@ module Mapper : sig
   (** A {!Block.Ext_keyed} whose block is deleted is deleted. *)
   val map_block : t -> Block.t node -> Block.t node filter_map
 
-  (** The blocks, then each footnote's blocks. The side tables and the source are kept. *)
+  (** Maps the blocks, then each footnote's blocks. {!Doc.references},
+      {!Doc.footnote_defs} and what {!Doc.reference} answers stay as they were.
+
+      The result is not tied to any text: an edit of the {!Source} the document came from
+      gives the parse of the edited text, without the map. *)
   val map_doc : t -> Doc.t -> Doc.t
 end
 
@@ -580,30 +637,13 @@ module Html : sig
 
   val to_string : t list -> string
   val of_doc : Doc.t -> string
-end
 
-(** {1 Djot source} *)
+  (** The HTML of blocks that are not in a document, such as a tree built in code or the
+      blocks {!Stream} returns. Headings get identifiers and sections, and footnotes and
+      references are resolved among these blocks, as {!Doc.of_string} does for a text.
 
-module Source : sig
-  (** The document as djot source, in the syntax of the profile it was parsed with. A
-      heading id the parser would derive again is left out. Parsing the result with that
-      profile gives the same tree, up to source positions, except that:
-      - footnote definitions come after the blocks;
-      - whitespace runs in attribute values collapse to one space;
-      - a span with no attributes, an empty block quote, an empty table and an empty
-        definition item read back as something else;
-      - two adjacent bullet lists read back as one, since the tree does not keep the
-        marker;
-      - a [|] in a table cell's text splits the cell. Roundtrip.v proves the round trip
-        for a fragment of documents; beyond it this is tested, not proved. *)
-  val of_doc : Doc.t -> string
-
-  (** The blocks as djot source, in [profile]'s syntax (default {!Profile.djot}), for the
-      source of one node or of a mapped tree. Unlike {!of_doc}, a heading id the document
-      pass derived is written out as an attribute. *)
-  val of_blocks : ?profile:Profile.t -> Block.t node list -> string
-
-  (** The inlines as they are written inside a paragraph, a soft or hard break ending a
-      line. *)
-  val of_inlines : ?profile:Profile.t -> Inline.t node list -> string
+      The blocks must be as written, with each {!Block.FootnoteDef} in place and no
+      {!Block.Section}. For a parsed document use {!of_doc}: {!Doc.blocks} has its
+      definitions taken out, so its footnotes would come out empty here. *)
+  val of_blocks : Block.t node list -> string
 end

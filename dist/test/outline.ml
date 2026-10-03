@@ -125,22 +125,22 @@ let block_label d (n : Block.t node) : string * item list =
 ;;
 
 (* [first-last "covered source"], or nothing without locations. *)
-let range d t =
+let range src t =
   if Textloc.is_none t
   then ""
   else (
     let f = Textloc.first_byte t
     and l = Textloc.last_byte t in
-    match Doc.source d with
+    match src with
     | Some src -> Printf.sprintf " %d-%d %s" f l (quote (String.sub src f (l - f + 1)))
     | None -> Printf.sprintf " %d-%d" f l)
 ;;
 
-let rec print_item d depth it =
+let rec print_item ?src d depth it =
   let pad = String.make (2 * depth) ' ' in
   let node label n kids =
-    Printf.printf "%s%s%s\n" pad label (range d (Doc.textloc d n));
-    List.iter (print_item d (depth + 1)) kids
+    Printf.printf "%s%s%s\n" pad label (range src (Doc.textloc d n));
+    List.iter (print_item ?src d (depth + 1)) kids
   in
   match it with
   | I n ->
@@ -150,20 +150,20 @@ let rec print_item d depth it =
     let label, kids = block_label d n in
     node label n kids
   | Group (name, l, kids) ->
-    Printf.printf "%s%s%s\n" pad name (range d l);
-    List.iter (print_item d (depth + 1)) kids
+    Printf.printf "%s%s%s\n" pad name (range src l);
+    List.iter (print_item ?src d (depth + 1)) kids
 ;;
 
-let print_blocks d bs = List.iter (fun n -> print_item d 0 (B n)) bs
+let print_blocks ?src d bs = List.iter (fun n -> print_item ?src d 0 (B n)) bs
 
 (* The blocks, then the footnote definitions. *)
-let print d =
-  print_blocks d (Doc.blocks d);
-  print_blocks d (Doc.footnote_defs d)
+let print ?src d =
+  print_blocks ?src d (Doc.blocks d);
+  print_blocks ?src d (Doc.footnote_defs d)
 ;;
 
 (* The source as a header, then its parse with locations. *)
 let show ?(profile = Profile.djot) src =
   Printf.printf "\n%s\n" (quote src);
-  print (Doc.of_string ~profile ~locs:true src)
+  print ~src (Doc.of_string ~profile ~locs:true src)
 ;;

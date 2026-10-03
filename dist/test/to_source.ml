@@ -9,7 +9,7 @@ open Djot
 let render ?(profile = Profile.djot) name src =
   Printf.printf "\n== %s\n" name;
   let d = Doc.of_string ~profile src in
-  let out = Source.of_doc d in
+  let out = Doc.to_string d in
   print_endline out;
   assert (For_testing.kernel (Doc.of_string ~profile out) = For_testing.kernel d)
 ;;
@@ -48,7 +48,7 @@ let () =
   let d = Doc.of_string "{.c}\n> a *b*\\\n> c\n\npara\n" in
   match Doc.blocks d with
   | [ (Node (_, _, Block.BlockQuote [ Node (_, _, Block.Para ils) ]) as quote); _ ] ->
-    Printf.printf "\n== of_blocks\n%s\n" (Source.of_blocks [ quote ]);
-    Printf.printf "\n== of_inlines\n%s\n" (Source.of_inlines ils)
+    Printf.printf "\n== of_blocks\n%s\n" (Block.to_string [ quote ]);
+    Printf.printf "\n== of_inlines\n%s\n" (Inline.to_string ils)
   | _ -> failwith "unexpected document"
 ;;

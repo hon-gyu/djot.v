@@ -46,15 +46,18 @@ let chunks k s =
   List.init ((n + k - 1) / k) (fun i -> String.sub s (i * k) (min k (n - (i * k))))
 ;;
 
-let same a b =
-  For_testing.kernel a = For_testing.kernel b
-  && Doc.source a = Doc.source b
+(* A source against the parse of a text. *)
+let same ?(locs = false) s src =
+  let a = Source.doc s
+  and b = Doc.of_string ~locs src in
+  Source.to_string s = src
+  && For_testing.kernel a = For_testing.kernel b
   && Doc.footnote_defs a = Doc.footnote_defs b
 ;;
 
 (* However the input is cut, the returned blocks followed by [peek] are
    the parse, each returned block was already in an earlier [peek], and
-   [finish] is [Doc.of_string]. *)
+   [finish] is [Source.of_string]. *)
 let () =
   List.iter
     (fun locs ->
@@ -65,8 +68,9 @@ let () =
             let t = Stream.start ~locs () in
             let bs, t = feed_all feed t parts in
             assert (bs @ Stream.peek t = identified expected);
-            let d = Stream.finish t in
-            assert (same d expected);
+            let s = Stream.finish t in
+            assert (same ~locs s src);
+            let d = Source.doc s in
             List.iter (fun b -> assert (Doc.textloc d b = Doc.textloc expected b)) bs
           in
           for k = 1 to String.length src + 1 do
@@ -96,7 +100,7 @@ let () =
          let bs, t = Stream.feed_string t c in
          let acc = acc @ bs in
          assert (prefix acc whole);
-         assert (acc @ Stream.peek t = identified (Stream.finish t));
+         assert (acc @ Stream.peek t = identified (Source.doc (Stream.finish t)));
          acc, t)
        ([], Stream.start ())
        (chunks 3 src))
@@ -107,16 +111,16 @@ let () =
   let _, t = Stream.feed_string (Stream.start ()) "a\n\n" in
   let _, x = Stream.feed_string t "b\n" in
   let _, y = Stream.feed_string t "c\n" in
-  assert (same (Stream.finish x) (Doc.of_string "a\n\nb\n"));
-  assert (same (Stream.finish y) (Doc.of_string "a\n\nc\n"));
-  assert (same (Stream.finish t) (Doc.of_string "a\n\n"))
+  assert (same (Stream.finish x) "a\n\nb\n");
+  assert (same (Stream.finish y) "a\n\nc\n");
+  assert (same (Stream.finish t) "a\n\n")
 ;;
 
-(* The finished document can be edited. *)
+(* The finished source can be edited. *)
 let () =
   let _, t = Stream.feed_string (Stream.start ()) "a\n\nb\n" in
-  let d = Doc.replace_lines (Stream.finish t) ~first:3 ~last:3 "# c\n" in
-  assert (same d (Doc.of_string "a\n\n# c\n"))
+  let s = Source.replace_lines (Stream.finish t) ~first:3 ~last:3 "# c\n" in
+  assert (same s "a\n\n# c\n")
 ;;
 
 (* A block is returned by the line that closes it, and the open one is
@@ -171,6 +175,6 @@ let () =
           ([], Stream.Sections.start)
           visible
       in
-      assert (build (events @ Stream.Sections.finish s) = Doc.blocks (Stream.finish t)))
+      assert (build (events @ Stream.Sections.finish s) = Doc.blocks (Source.doc (Stream.finish t))))
     ("# a\n\n## b\n\nx\n\n### c\n\n## d\n\n# a\n\n{#k .c}\n### e\n\ny\n" :: docs)
 ;;

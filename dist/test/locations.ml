@@ -7,12 +7,12 @@ open Djot
 
 let header s = Printf.printf "\n== %s\n" s
 
-let print_range ?(lines = false) label d t =
+let print_range ?(lines = false) label src t =
   let line (n, start) = Printf.sprintf "%d (at %d)" n start in
   Printf.printf
     "%s%s%s\n"
     label
-    (Outline.range d t)
+    (Outline.range (Some src) t)
     (if lines
      then
        Printf.sprintf
@@ -40,7 +40,7 @@ let () =
     (fun src ->
       let d = Doc.of_string ~locs:true src in
       List.iter
-        (fun n -> print_range ~lines:true "block" d (Doc.textloc d n))
+        (fun n -> print_range ~lines:true "block" src (Doc.textloc d n))
         (Doc.blocks d))
     [ "# hi\n\nbody\n"; "```py\nx = 1\n```\n" ]
 ;;
@@ -87,7 +87,7 @@ let () =
                  | RAttrSpec -> "RAttrSpec"
                  | ROpenFence -> "ROpenFence"
                  | RCloseFence -> "RCloseFence")
-                d
+                src
                 t)
             (Doc.syntax_locs d n))
         (Doc.blocks d))
@@ -108,20 +108,22 @@ let () =
 (* Every footnote definition's label is located. *)
 let () =
   header "footnote labels";
-  let d = Doc.of_string ~locs:true "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
+  let src = "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
+  let d = Doc.of_string ~locs:true src in
   List.iter
-    (fun n -> print_range ~lines:true "label" d (Doc.footnote_label_loc d n))
+    (fun n -> print_range ~lines:true "label" src (Doc.footnote_label_loc d n))
     (Doc.footnote_defs d)
 ;;
 
 (* Building a range from two others. *)
 let () =
   header "reloc";
-  let d = Doc.of_string ~locs:true "a\n\nb\n" in
+  let src = "a\n\nb\n" in
+  let d = Doc.of_string ~locs:true src in
   match Doc.blocks d with
   | [ a; b ] ->
     let t = Textloc.reloc ~first:(Doc.textloc d a) ~last:(Doc.textloc d b) in
-    print_range ~lines:true "reloc" d t;
+    print_range ~lines:true "reloc" src t;
     assert (
       t = Textloc.make ~first_byte:0 ~last_byte:3 ~first_line:(1, 0) ~last_line:(3, 3))
   | _ -> failwith "unexpected document"
