@@ -530,4 +530,5 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.InlineTable.with_math DjotV.InlineTable.with_inline_attrs
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation
   DjotV.Step.with_divs DjotV.Step.with_tasks DjotV.Step.with_raw_blocks
-  DjotV.Step.with_deflists DjotV.Step.with_block_attrs.
+  DjotV.Step.with_deflists DjotV.Step.with_block_attrs
+  DjotV.Attributes.attr_ok DjotV.Ast.Attr.remove DjotV.Ast.Attr.set_classes.

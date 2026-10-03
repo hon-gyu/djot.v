@@ -20,7 +20,8 @@ module Kernel = Djot_kernel
 (** {1 Attributes} *)
 
 module Attr : sig
-  (** In source order. All classes live in one ["class"] entry, space-separated. *)
+  (** Key/value pairs in source order. ["id"] holds the identifier; ["class"] holds every
+      class, space-separated. *)
   type t = (string * string) list
 
   val empty : t
@@ -31,29 +32,47 @@ module Attr : sig
   (** The entries other than ["id"] and ["class"]. *)
   val key_values : t -> (string * string) list
 
-  (** Nonempty, of ASCII letters, digits, [-], [_] and [:]: what an attribute spec
-      accepts as a key. *)
+  (** Whether a string can be a key: one or more of [a-z], [A-Z], [0-9], [-], [_], [:]. *)
   val is_key : string -> bool
 
-  (** [set k v a] replaces [k]'s value, keeping its place, or adds [k] last. [set "id"]
-      sets the identifier and [set "class"] replaces every class. [v] is unrestricted.
-      [None] unless [is_key k]: {!Html} writes keys unescaped. *)
+  (** Whether a string can be one class name: one or more of [a-z], [A-Z], [0-9], [-],
+      [_], [:]. *)
+  val is_class : string -> bool
+
+  (** Whether every key satisfies {!is_key} and none repeats.
+
+      Lenient about invalid class names, [is_class] is not guaranteed
+
+      Holds for parsed attributes and the results of {!set} and {!add_class}. *)
+  val is_valid : t -> bool
+
+  (** {!is_valid} and every class satisfies {!is_class}. *)
+  val is_valid_strict : t -> bool
+
+  (** [None] if [k] is not a valid key.
+
+      Position: the value is replaced in place if [k] is already present, otherwise added
+      at the end. *)
   val set : string -> string -> t -> t option
 
-  (** Adds one class after the existing ones. [None] if the class is empty or has a
-      character a [.class] cannot. *)
+  val set_id : string -> t -> t
+
+  (** [None] if not a valid class. *)
   val add_class : string -> t -> t option
 
-  (** {!set} and {!add_class}, raising [Invalid_argument] for [None]. *)
+  val remove : string -> t -> t
+
+  (** [None] if not a valid class. *)
+  val set_classes : string list -> t -> t option
 
   val set_exn : string -> string -> t -> t
   val add_class_exn : string -> t -> t
+  val set_classes_exn : string list -> t -> t
 
-  (** The spec [{#id .class key="value"}]; [""] for {!empty}. *)
+  (** The attributes in djot syntax, [{#id .class key="value"}]; [""] for {!empty}. *)
   val to_string : t -> string
 
-  (** Reads one spec, from its [{] to its [}] with nothing around it. [None] if it is not
-      one. *)
+  (** Parses djot attribute syntax, [{...}], [None] if not a valid attribute syntax. *)
   val of_string : string -> t option
 end
 
@@ -208,14 +227,11 @@ module Textloc : sig
 
   val first_line : t -> line_pos
   val last_line : t -> line_pos
-
   val none : t
-  
   val is_none : t -> bool
 
   (** [last_byte] is [first_byte - 1]. *)
   val is_empty : t -> bool
-
 
   val make
     :  first_byte:byte_pos
@@ -362,7 +378,7 @@ module Doc : sig
   val footnote_label_loc : t -> Block.t node -> Textloc.t
 
   type syntax = Kernel.Ast.syntax_role =
-    | RAttrSpec (** An attribute spec [{...}]. *)
+    | RAttrSpec (** Attributes in braces, [{...}]. *)
     | ROpenFence (** A code block's or div's opening fence line. *)
     | RCloseFence (** Its closing fence line, absent when unclosed. *)
 

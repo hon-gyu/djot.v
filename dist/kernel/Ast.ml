@@ -52,6 +52,18 @@ module Attr =
     | Some old -> set "class" ((^) old ((^) " " v)) a
     | None -> set "class" v a
 
+  (** val remove : string -> attr -> attr **)
+
+  let remove k a =
+    filter (fun p -> negb ((=) k (fst p))) a
+
+  (** val set_classes : string list -> attr -> attr **)
+
+  let set_classes cs a =
+    match cs with
+    | [] -> remove "class" a
+    | _ :: _ -> set "class" (String.concat " " cs) a
+
   (** val put : (string * string) -> attr -> attr **)
 
   let put kv a =

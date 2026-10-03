@@ -107,6 +107,16 @@ Definition add_class (v : string) (a : attr) : attr :=
   | Some old => set "class" (old ++ " " ++ v) a
   end.
 
+Definition remove (k : string) (a : attr) : attr :=
+  filter (fun p => negb (String.eqb k (fst p))) a.
+
+(* The classes replaced by `cs`, in the entry's place; no entry for none. *)
+Definition set_classes (cs : list string) (a : attr) : attr :=
+  match cs with
+  | [] => remove "class" a
+  | _ => set "class" (String.concat " " cs) a
+  end.
+
 (* One binding into a set, with the class rule. *)
 Local Definition put (kv : string * string) (a : attr) : attr :=
   if String.eqb (fst kv) "class"

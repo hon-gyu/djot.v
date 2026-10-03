@@ -18,6 +18,10 @@ module Attr :
 
   val add_class : string -> attr -> attr
 
+  val remove : string -> attr -> attr
+
+  val set_classes : string list -> attr -> attr
+
   val put : (string * string) -> attr -> attr
 
   val merge : attr -> attr -> attr

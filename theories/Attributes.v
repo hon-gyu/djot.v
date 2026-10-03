@@ -652,3 +652,184 @@ Definition attr_spec (a : attr) : string :=
   | [] => EmptyString
   | _ => ("{" ++ String.concat " " (map attr_part a) ++ "}")%string
   end.
+
+(*
+Valid attribute sets
+====================
+
+What every set the machine commits satisfies, and what the operations
+that combine sets keep: the keys are distinct, and each is one a spec
+can spell.  Values are not constrained: `{class="a!b"}` and `{id="x y"}`
+are specs, and neither value could be written as `.class` or `#id`. *)
+
+(* Keys and class words are drawn from the same characters. *)
+Definition key_ok (k : string) : bool := class_word_ok k.
+
+Fixpoint attr_ok (a : attr) : bool :=
+  match a with
+  | [] => true
+  | (k, _) :: rest =>
+      key_ok k
+      && match alist_lookup k rest with None => attr_ok rest | Some _ => false end
+  end.
+
+Lemma attr_ok_cons : forall k v a,
+  attr_ok ((k, v) :: a) = true <->
+  key_ok k = true /\ alist_lookup k a = None /\ attr_ok a = true.
+Proof.
+  intros k v a. cbn [attr_ok]. rewrite andb_true_iff.
+  destruct (alist_lookup k a); intuition congruence.
+Qed.
+
+Local Lemma lookup_set : forall (k' k v : string) (m : attr),
+  alist_lookup k' (alist_set k v m)
+  = if String.eqb k' k then Some v else alist_lookup k' m.
+Proof.
+  intros k' k v m. induction m as [|[k0 v0] m IH]; cbn [alist_set alist_lookup].
+  - reflexivity.
+  - destruct (String.eqb k k0) eqn:E; cbn [alist_lookup].
+    + apply String.eqb_eq in E. subst k0. destruct (String.eqb k' k); reflexivity.
+    + rewrite IH. destruct (String.eqb k' k0) eqn:E0; [|reflexivity].
+      apply String.eqb_eq in E0. subst k0. rewrite String.eqb_sym, E. reflexivity.
+Qed.
+
+Lemma attr_ok_set : forall k v a,
+  key_ok k = true -> attr_ok a = true -> attr_ok (Attr.set k v a) = true.
+Proof.
+  intros k v a Hk. unfold Attr.set.
+  induction a as [|[k0 v0] a IH]; intros H.
+  - cbn. rewrite Hk. reflexivity.
+  - apply attr_ok_cons in H as (Hk0 & Hl & Ha). cbn [alist_set].
+    destruct (String.eqb k k0) eqn:E.
+    + apply String.eqb_eq in E. subst k0. apply attr_ok_cons. auto.
+    + apply attr_ok_cons. repeat split; auto.
+      rewrite lookup_set, String.eqb_sym, E. exact Hl.
+Qed.
+
+Lemma attr_ok_add_class : forall v a,
+  attr_ok a = true -> attr_ok (Attr.add_class v a) = true.
+Proof.
+  intros v a H. unfold Attr.add_class.
+  destruct (alist_lookup "class" a); apply attr_ok_set; auto.
+Qed.
+
+Local Lemma lookup_remove_none : forall k' k (a : attr),
+  alist_lookup k' a = None -> alist_lookup k' (Attr.remove k a) = None.
+Proof.
+  intros k' k a.
+  induction a as [|[k0 v0] a IH]; cbn [Attr.remove filter alist_lookup fst];
+    [reflexivity|].
+  destruct (String.eqb k' k0) eqn:E; [discriminate|]. intros H.
+  destruct (negb (String.eqb k k0)); cbn [alist_lookup]; [rewrite E|]; apply IH, H.
+Qed.
+
+Lemma attr_ok_remove : forall k a,
+  attr_ok a = true -> attr_ok (Attr.remove k a) = true.
+Proof.
+  intros k a. induction a as [|[k0 v0] a IH]; intros H; [reflexivity|].
+  apply attr_ok_cons in H as (Hk & Hl & Ha). cbn [Attr.remove filter fst].
+  destruct (negb (String.eqb k k0)); [|apply IH, Ha].
+  apply attr_ok_cons. repeat split; [exact Hk| |apply IH, Ha].
+  apply lookup_remove_none, Hl.
+Qed.
+
+Lemma attr_ok_set_classes : forall cs a,
+  attr_ok a = true -> attr_ok (Attr.set_classes cs a) = true.
+Proof.
+  intros cs a H. destruct cs; cbn [Attr.set_classes];
+    [apply attr_ok_remove|apply attr_ok_set; [reflexivity|]]; exact H.
+Qed.
+
+Lemma attr_ok_merge : forall new acc,
+  attr_ok new = true -> attr_ok acc = true -> attr_ok (Attr.merge new acc) = true.
+Proof.
+  unfold Attr.merge. induction new as [|[k v] new IH]; intros acc Hn Ha; [exact Ha|].
+  apply attr_ok_cons in Hn as (Hk & _ & Hn). cbn [fold_left]. apply IH; [exact Hn|].
+  unfold Ast.Attr.put. cbn [fst snd].
+  destruct (String.eqb k "class"); [apply attr_ok_add_class|apply attr_ok_set]; auto.
+Qed.
+
+Lemma attr_ok_apply_pending : forall pend a,
+  attr_ok pend = true -> attr_ok a = true ->
+  attr_ok (Ast.Attr.apply_pending pend a) = true.
+Proof.
+  unfold Ast.Attr.apply_pending.
+  induction pend as [|[k v] pend IH]; intros a Hp Ha; [exact Ha|].
+  apply attr_ok_cons in Hp as (Hk & _ & Hp). cbn [fold_left fst snd].
+  apply IH; [exact Hp|]. apply attr_ok_set; auto.
+Qed.
+
+Local Lemma key_ok_snoc : forall k c,
+  key_ok k = true -> is_key_char c = true ->
+  key_ok (k ++ String c EmptyString) = true.
+Proof.
+  intros k c Hk Hc. unfold key_ok, class_word_ok in *.
+  apply andb_true_iff in Hk as [Hn Hk]. apply andb_true_iff. split.
+  - destruct k; reflexivity.
+  - clear Hn. induction k as [|d k IH]; cbn in *.
+    + unfold is_attr_class_char. rewrite Hc. reflexivity.
+    + apply andb_true_iff in Hk as [Hd Hk]. rewrite Hd. cbn. apply IH, Hk.
+Qed.
+
+(* The machine's invariant: the committed set is valid, and so is the key
+   being read or the one whose value is. *)
+Definition ap_ok (p : aparser) : Prop :=
+  attr_ok (ap_attrs p) = true /\
+  match ap_st p with
+  | AKey => key_ok (ap_token p) = true
+  | AVal | ABare | AQuot | AEsc => key_ok (ap_key p) = true
+  | _ => True
+  end.
+
+Lemma ap_ok_init : ap_ok ap_init.
+Proof. split; reflexivity. Qed.
+
+Lemma astep_ok : forall p c, ap_ok p -> ap_ok (astep p c).
+Proof.
+  intros [st tok key attrs] c [Ha Hs]. cbn [ap_attrs ap_st ap_key] in *.
+  unfold astep. cbn [ap_st].
+  destruct st;
+    repeat match goal with
+    | |- ap_ok (if ?b then _ else _) => destruct b eqn:?
+    end;
+    try (split; cbn; auto; fail).
+  - split; [exact Ha|]. cbn. unfold key_ok, class_word_ok. cbn.
+    unfold is_attr_class_char. rewrite Heqb4. reflexivity.
+  - unfold ap_commit_id. cbn. split; [|exact I].
+    destruct (String.eqb _ _); [exact Ha|apply attr_ok_set; [reflexivity|exact Ha]].
+  - unfold ap_commit_id. cbn. split; [|exact I].
+    destruct (String.eqb _ _); [exact Ha|apply attr_ok_set; [reflexivity|exact Ha]].
+  - unfold ap_commit_class. cbn. split; [|exact I].
+    destruct (String.eqb _ _); [exact Ha|apply attr_ok_add_class, Ha].
+  - unfold ap_commit_class. cbn. split; [|exact I].
+    destruct (String.eqb _ _); [exact Ha|apply attr_ok_add_class, Ha].
+  - split; [exact Ha|]. cbn in Hs |- *. apply key_ok_snoc; assumption.
+  - split; [apply attr_ok_set; assumption|exact I].
+  - split; [apply attr_ok_set; assumption|exact I].
+  - split; [apply attr_ok_set; assumption|exact I].
+Qed.
+
+Lemma afeed_ok : forall s p, ap_ok p -> ap_ok (fst (afeed s p)).
+Proof.
+  induction s as [|c s IH]; intros p H; cbn [afeed]; [exact H|].
+  destruct (ap_st p); try exact H; apply IH, astep_ok, H.
+Qed.
+
+(* A block attribute spec, on the line that opens it and on each line it
+   continues over. *)
+Theorem attr_open_ok : forall l p, attr_open l = Some p -> ap_ok p.
+Proof.
+  intros l p H. unfold attr_open in H.
+  destruct (drop_leading_ws l) as [|c body]; [discriminate|].
+  destruct (Ascii.eqb c "{") eqn:E.
+  2:{ destruct c as [[] [] [] [] [] [] [] []]; discriminate. }
+  apply Ascii.eqb_eq in E. subst c.
+  pose proof (afeed_ok (body ++ attr_nl) ap_init ap_ok_init) as Hok.
+  destruct (afeed (body ++ attr_nl) ap_init) as [q rest]. cbn [fst] in Hok.
+  destruct (ap_failed q); [discriminate|].
+  destruct (ap_done q && negb (blank_to_eol rest)); [discriminate|].
+  injection H as <-. exact Hok.
+Qed.
+
+Theorem attr_feed_ok : forall l p, ap_ok p -> ap_ok (attr_feed l p).
+Proof. intros l p H. apply afeed_ok, H. Qed.

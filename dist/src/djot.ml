@@ -28,18 +28,33 @@ module Attr = struct
     | Some s -> List.filter (( <> ) "") (String.split_on_char ' ' s)
   ;;
 
-  let key_values (a : t) : (string * string) list =
+  let kvs (a : t) : (string * string) list =
     List.filter (fun (k, _) -> k <> "id" && k <> "class") a
   ;;
 
-  let is_key (k : string) : bool = k <> "" && String.for_all K.Attributes.is_key_char k
+  let is_valid : t -> bool = K.Attributes.attr_ok
+  let is_key : string -> bool = K.Attributes.key_ok
+  let is_class : string -> bool = K.Attributes.class_word_ok
+  
+  let is_valid_strict : t -> bool = fun a ->
+    is_valid a && List.for_all (fun c -> is_class c) (classes a)
 
   let set (k : string) (v : string) (a : t) : t option =
     if is_key k then Some (K.Ast.Attr.set k v a) else None
   ;;
+  
+  let set_id (id : string) (a : t) : t =
+    (K.Ast.Attr.set "id" id a)
+  ;;
 
   let add_class (c : string) (a : t) : t option =
-    if K.Attributes.class_word_ok c then Some (K.Ast.Attr.add_class c a) else None
+    if is_class c then Some (K.Ast.Attr.add_class c a) else None
+  ;;
+
+  let remove : string -> t -> t = K.Ast.Attr.remove
+
+  let set_classes (cs : string list) (a : t) : t option =
+    if List.for_all is_class cs then Some (K.Ast.Attr.set_classes cs a) else None
   ;;
 
   let set_exn k v a =
@@ -54,10 +69,15 @@ module Attr = struct
     | None -> invalid_arg "Attr.add_class_exn: not a class name"
   ;;
 
+  let set_classes_exn cs a =
+    match set_classes cs a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.set_classes_exn: not a class name"
+  ;;
+
   let to_string : t -> string = K.Attributes.attr_spec
 
-  (** Whitespace runs in a value collapse to one space, 
-      so [of_string (to_string a) <> a].  *)
+  (** Whitespace runs in a value collapse to one space, so [of_string (to_string a) <> a]. *)
   let of_string (s : string) : t option =
     let n = String.length s in
     if n = 0 || s.[0] <> '{'
