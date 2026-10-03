@@ -101,15 +101,7 @@ type syntax_role =
 | ROpenFence
 | RCloseFence
 
-type parts =
-| PNone
-| PItems of span list
-| PDefItems of ((span * span) * span) list
-| PTable of span option * (span * span list) list
-
-type provenance = { node_span : span;
-                    syntax_spans : (syntax_role * span) list;
-                    part_spans : parts }
+type provenance = { node_span : span; syntax_spans : (syntax_role * span) list }
 
 type pos =
 | NoPos
@@ -176,12 +168,12 @@ let pspan h r =
 (** val prov_at : span -> provenance **)
 
 let prov_at r =
-  { node_span = r; syntax_spans = []; part_spans = PNone }
+  { node_span = r; syntax_spans = [] }
 
 (** val prov_with : span -> (syntax_role * span) list -> provenance **)
 
 let prov_with r rs =
-  { node_span = r; syntax_spans = rs; part_spans = PNone }
+  { node_span = r; syntax_spans = rs }
 
 (** val attr_roles : span list -> (syntax_role * span) list **)
 
@@ -216,7 +208,7 @@ let add_roles h rs n =
         | NoPos -> n
         | SomePos p ->
           Node ((SomePos { node_span = p.node_span; syntax_spans =
-            (app p.syntax_spans rs); part_spans = p.part_spans }), a, x))
+            (app p.syntax_spans rs) }), a, x))
   else n
 
 (** val add_roles_head :
@@ -259,8 +251,7 @@ let hull_pos_with h ns =
      | first :: _ ->
        (match node_provenance first with
         | Some q ->
-          SomePos { node_span = p.node_span; syntax_spans = q.syntax_spans;
-            part_spans = p.part_spans }
+          SomePos { node_span = p.node_span; syntax_spans = q.syntax_spans }
         | None -> SomePos p))
 
 type math_style =
@@ -367,12 +358,14 @@ type block =
 | BlockQuote of block node list
 | CodeBlock of string * string
 | Div of string * block node list
-| OrderedList of ordered_list_attributes * list_spacing * block node list list
-| BulletList of list_spacing * block node list list
-| TaskList of list_spacing * (task_status * block node list) list
-| DefinitionList of list_spacing * (inlines * block node list) list
+| OrderedList of ordered_list_attributes * list_spacing
+   * block node list node list
+| BulletList of list_spacing * block node list node list
+| TaskList of list_spacing * (task_status * block node list) node list
+| DefinitionList of list_spacing
+   * (inlines node * block node list node) node list
 | ThematicBreak
-| Table of inlines * cell list list
+| Table of inlines node * cell node list node list
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string
@@ -419,20 +412,107 @@ let def_item bs =
   | Some r -> r
   | None -> ([], bs)
 
-(** val def_items : blocks list -> (inlines * blocks) list **)
+(** val def_node : blocks -> (inlines node * blocks node) node **)
+
+let def_node bs =
+  let (term, def) = def_item bs in mk ((mk term), (mk def))
+
+(** val def_items : blocks list -> (inlines node * blocks node) node list **)
 
 let def_items its =
-  map def_item its
+  map def_node its
 
 (** val task_items :
-    task_status list -> blocks list -> (task_status * blocks) list **)
+    task_status list -> blocks list -> (task_status * blocks) node list **)
 
 let rec task_items chks = function
 | [] -> []
 | it :: rest ->
   (match chks with
-   | [] -> (Incomplete, it) :: (task_items [] rest)
-   | c :: cs -> (c, it) :: (task_items cs rest))
+   | [] -> (mk (Incomplete, it)) :: (task_items [] rest)
+   | c :: cs -> (mk (c, it)) :: (task_items cs rest))
+
+type parts =
+| PItems of span list
+| PDefItems of ((span * span) * span) list
+| PTable of span option * (span * span list) list
+
+(** val set_each :
+    coq_PosPolicy -> span list -> 'a1 node list -> 'a1 node list **)
+
+let rec set_each h rs ns =
+  match rs with
+  | [] -> ns
+  | r :: rs' ->
+    (match ns with
+     | [] -> ns
+     | n :: ns' -> (set_pos h (prov_at r) n) :: (set_each h rs' ns'))
+
+(** val set_defs :
+    coq_PosPolicy -> ((span * span) * span) list -> (inlines node * blocks
+    node) node list -> (inlines node * blocks node) node list **)
+
+let rec set_defs h rs ns =
+  match rs with
+  | [] -> ns
+  | p0 :: rs' ->
+    let (p1, d) = p0 in
+    let (i, t) = p1 in
+    (match ns with
+     | [] -> ns
+     | n :: ns' ->
+       let Node (p, a, x) = n in
+       let (term, def) = x in
+       (set_pos h (prov_at i) (Node (p, a, ((set_pos h (prov_at t) term),
+         (set_pos h (prov_at d) def))))) :: (set_defs h rs' ns'))
+
+(** val set_rows :
+    coq_PosPolicy -> (span * span list) list -> cell node list node list ->
+    cell node list node list **)
+
+let rec set_rows h rs ns =
+  match rs with
+  | [] -> ns
+  | p0 :: rs' ->
+    let (r, cs) = p0 in
+    (match ns with
+     | [] -> ns
+     | n :: ns' ->
+       let Node (p, a, cells) = n in
+       (set_pos h (prov_at r) (Node (p, a, (set_each h cs cells)))) ::
+       (set_rows h rs' ns'))
+
+(** val parts_onto : coq_PosPolicy -> parts -> block -> block **)
+
+let parts_onto h ps b =
+  match ps with
+  | PItems rs ->
+    (match b with
+     | OrderedList (attrs, sp, its) ->
+       OrderedList (attrs, sp, (set_each h rs its))
+     | BulletList (sp, its) -> BulletList (sp, (set_each h rs its))
+     | TaskList (sp, its) -> TaskList (sp, (set_each h rs its))
+     | _ -> b)
+  | PDefItems rs ->
+    (match b with
+     | DefinitionList (sp, its) -> DefinitionList (sp, (set_defs h rs its))
+     | _ -> b)
+  | PTable (cap, rs) ->
+    (match b with
+     | Table (caption, rows) ->
+       Table
+         ((match cap with
+           | Some r -> set_pos h (prov_at r) caption
+           | None -> caption),
+         (set_rows h rs rows))
+     | _ -> b)
+
+(** val set_parts : coq_PosPolicy -> parts -> block node -> block node **)
+
+let set_parts h ps n =
+  if h.pos_records
+  then let Node (p, a, x) = n in Node (p, a, (parts_onto h ps x))
+  else n
 
 module Shift =
  struct
@@ -447,22 +527,6 @@ module Shift =
     { span_start = (of_spot d r.span_start); span_stop =
       (of_spot d r.span_stop) }
 
-  (** val of_parts : int -> parts -> parts **)
-
-  let of_parts d = function
-  | PNone -> PNone
-  | PItems items -> PItems (map (of_span d) items)
-  | PDefItems items ->
-    PDefItems
-      (map (fun pat ->
-        let (y, b) = pat in
-        let (i, t) = y in (((of_span d i), (of_span d t)), (of_span d b)))
-        items)
-  | PTable (cap, rows) ->
-    PTable ((option_map (of_span d) cap),
-      (map (fun pat ->
-        let (r, cs) = pat in ((of_span d r), (map (of_span d) cs))) rows))
-
   (** val of_pos : int -> pos -> pos **)
 
   let of_pos d = function
@@ -470,8 +534,7 @@ module Shift =
   | SomePos pr ->
     SomePos { node_span = (of_span d pr.node_span); syntax_spans =
       (map (fun pat -> let (role, r) = pat in (role, (of_span d r)))
-        pr.syntax_spans);
-      part_spans = (of_parts d pr.part_spans) }
+        pr.syntax_spans) }
 
   (** val of_inline : int -> inline -> inline **)
 
@@ -511,6 +574,21 @@ module Shift =
   let of_cell d = function
   | Cell (ct, al, ils) -> Cell (ct, al, (of_inlines d ils))
 
+  (** val cnode : int -> cell node -> cell node **)
+
+  let cnode d = function
+  | Node (p, a, c) -> Node ((of_pos d p), a, (of_cell d c))
+
+  (** val row : int -> cell node list node -> cell node list node **)
+
+  let row d = function
+  | Node (p, a, cs) -> Node ((of_pos d p), a, (map (cnode d) cs))
+
+  (** val inlines_node : int -> inlines node -> inlines node **)
+
+  let inlines_node d = function
+  | Node (p, a, ils) -> Node ((of_pos d p), a, (of_inlines d ils))
+
   (** val of_block : int -> block -> block **)
 
   let rec of_block d b =
@@ -525,7 +603,9 @@ module Shift =
     let goitems =
       let rec goitems = function
       | [] -> []
-      | item :: rest -> (go item) :: (goitems rest)
+      | n :: rest ->
+        let Node (p, a, item) = n in
+        (Node ((of_pos d p), a, (go item))) :: (goitems rest)
       in goitems
     in
     (match b with
@@ -541,19 +621,24 @@ module Shift =
        TaskList (sp,
          (let rec gotasks = function
           | [] -> []
-          | p :: rest ->
-            let (status, item) = p in (status, (go item)) :: (gotasks rest)
+          | n :: rest ->
+            let Node (p, a, x) = n in
+            let (status, item) = x in
+            (Node ((of_pos d p), a, (status, (go item)))) :: (gotasks rest)
           in gotasks items))
      | DefinitionList (sp, items) ->
        DefinitionList (sp,
          (let rec godefs = function
           | [] -> []
-          | p :: rest ->
-            let (term, item) = p in
-            ((of_inlines d term), (go item)) :: (godefs rest)
+          | n :: rest ->
+            let Node (p, a, x) = n in
+            let (term, n0) = x in
+            let Node (q, b0, item) = n0 in
+            (Node ((of_pos d p), a, ((inlines_node d term), (Node
+            ((of_pos d q), b0, (go item)))))) :: (godefs rest)
           in godefs items))
      | Table (caption, rows) ->
-       Table ((of_inlines d caption), (map (map (of_cell d)) rows))
+       Table ((inlines_node d caption), (map (row d) rows))
      | FootnoteDef (label, bs) -> FootnoteDef (label, (go bs))
      | Ext_keyed (label, b0) ->
        let Node (p, a, x) = b0 in

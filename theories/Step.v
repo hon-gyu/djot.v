@@ -631,10 +631,11 @@ Local Fixpoint table_fold_located (rows : list trow) (parts : list row_part)
 (* A table of separators alone has no rows at all, which is a table djot
    renders as `<table>\n</table>` (`tables.test:97`). *)
 Definition table_block (rows : list trow) (c : tcap) : node block :=
-  mk (Table (caption_of c)
-        (if pos_records
-         then table_fold_located rows (rev (cap_row_parts c)) [] []
-         else table_fold rows [] [])).
+  mk (Table (mk (caption_of c))
+        (map (fun r => mk (map mk r))
+           (if pos_records
+            then table_fold_located rows (rev (cap_row_parts c)) [] []
+            else table_fold rows [] []))).
 
 (* One row's authored parts.  The row classifier and this projection
    share [row_cells_trace]; the trace's coordinates are relative to its
@@ -1072,7 +1073,7 @@ Qed.
 Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
                        (items : list blocks) : node block :=
   match S with
-  | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp items)
+  | (SOrd n d, start) :: _ => mk (OrderedList (OLAttrs n d start) sp (map mk items))
   (* The colon is the definition-list style, and this is the only place
      it differs from a bullet.  Spelled as a test on the character rather
      than as a pattern, so that a proof holding an unknown bullet can case
@@ -1082,11 +1083,11 @@ Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
   | (SBullet c, _) :: _ =>
       if (Ascii.eqb c ":" && bdeflists)%bool
       then mk (DefinitionList sp (def_items items))
-      else mk (BulletList sp items)
+      else mk (BulletList sp (map mk items))
   (* The state-free form cannot build a task list, since statuses are per
      item: `styles_list_checked` below handles that style, and this arm
      keeps the function total. *)
-  | _ => mk (BulletList sp items)
+  | _ => mk (BulletList sp (map mk items))
   end.
 
 (* The state-aware form used by list uniformity.  Non-task styles ignore the
@@ -1200,8 +1201,8 @@ Proof.
   cbn [ls_styles ls_loose ls_check ls_checks ls_items StateErase.of_list_state].
   destruct styles as [|[sty start] styles].
   - cbn [styles_list Erase.of_blocks Erase.of_block mk].
-    fold Erase.of_blocks. fold (map Erase.of_blocks (rev (last :: items))).
-    rewrite map_rev. reflexivity.
+    fold Erase.of_blocks. rewrite Erase.items_erase, map_rev.
+    reflexivity.
   - destruct sty.
     + cbn [styles_list Erase.of_blocks Erase.of_block mk].
       destruct (Ascii.eqb c
@@ -1209,13 +1210,12 @@ Proof.
           && bdeflists)%bool;
         cbn [Erase.of_blocks Erase.of_block mk].
       * fold Erase.of_blocks. rewrite Erase.def_items_erase, map_rev. reflexivity.
-      * fold Erase.of_blocks. fold (map Erase.of_blocks (rev (last :: items))).
-        rewrite map_rev. reflexivity.
+      * fold Erase.of_blocks. rewrite Erase.items_erase, map_rev.
+        reflexivity.
     + cbn [styles_list Erase.of_blocks Erase.of_block mk]. fold Erase.of_blocks.
       rewrite Erase.task_items_erase, map_rev. reflexivity.
     + cbn [styles_list Erase.of_blocks Erase.of_block mk]. fold Erase.of_blocks.
-      fold (map Erase.of_blocks (rev (last :: items))).
-      rewrite map_rev. reflexivity.
+      rewrite Erase.items_erase, map_rev. reflexivity.
 Qed.
 
 (* The block a reference definition closes to.  It renders to no HTML and
@@ -1287,8 +1287,8 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
          (fence_block f (line_texts (rev acc)))]
   | PTable range rows cap =>
-      [set_pos (Provenance (extent_span range) [] (table_parts cap))
-         (table_block (rev rows) cap)]
+      [set_pos (prov_at (extent_span range))
+         (set_parts (table_parts cap) (table_block (rev rows) cap))]
   | PQuote range header done inner =>
       let bs := (rev done ++ finish inner)%list in
       [set_pos (prov_at (extent_span range))
@@ -1300,9 +1300,8 @@ Fixpoint finish (st : pstate) : blocks :=
       (* Bound once: a list nested in the item would otherwise be
          finished twice, and a line of `n` markers `2^n` times. *)
       let last := (rev done ++ finish inner)%list in
-      [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_parts ls last))
-         (list_block ls last)]
+      [set_pos (prov_at (extent_span (ls_extent ls)))
+         (set_parts (list_parts ls last) (list_block ls last))]
   (* A spec still wanting continuation lines never was one: its lines are
      a paragraph.  A finished spec with no block after it contributes
      nothing, which is `{#id}` alone in a document.  An earlier spec's
@@ -1357,11 +1356,11 @@ Local Lemma finish_list_styles :
   forall S ls done inner,
     ls_styles ls = S ->
     finish (PList ls done inner)
-    = [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_parts ls (rev done ++ finish inner)%list))
-         (styles_list_checked S (if ls_loose ls then Loose else Tight)
-            (rev (ls_check ls :: ls_checks ls))
-            (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
+    = [set_pos (prov_at (extent_span (ls_extent ls)))
+         (set_parts (list_parts ls (rev done ++ finish inner)%list)
+            (styles_list_checked S (if ls_loose ls then Loose else Tight)
+               (rev (ls_check ls :: ls_checks ls))
+               (rev ((rev done ++ finish inner)%list :: ls_items ls))))].
 Proof.
   intros S ls done inner H. cbn [finish].
   rewrite (list_block_styles S ls _ H). reflexivity.
@@ -1371,11 +1370,11 @@ Local Lemma finish_list_marker :
   forall m ls done inner,
     ls_styles ls = mk_styles m ->
     finish (PList ls done inner)
-    = [set_pos (Provenance (extent_span (ls_extent ls)) []
-                  (list_parts ls (rev done ++ finish inner)%list))
-         (marker_list_checked m (if ls_loose ls then Loose else Tight)
-            (rev (ls_check ls :: ls_checks ls))
-            (rev ((rev done ++ finish inner)%list :: ls_items ls)))].
+    = [set_pos (prov_at (extent_span (ls_extent ls)))
+         (set_parts (list_parts ls (rev done ++ finish inner)%list)
+            (marker_list_checked m (if ls_loose ls then Loose else Tight)
+               (rev (ls_check ls :: ls_checks ls))
+               (rev ((rev done ++ finish inner)%list :: ls_items ls))))].
 Proof.
   intros m ls done inner H. unfold marker_list_checked.
   apply (finish_list_styles _ _ _ _ H).
@@ -2204,8 +2203,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
               (* The caption owns every nonblank line, row lines
                  included, and a blank ends it. *)
               if is_blank l
-              then ((set_pos (Provenance (extent_span range) [] (table_parts cap))
-                       (table_block (rev rows) cap) :: nil)%list, PPara [])
+              then ((set_pos (prov_at (extent_span range))
+                       (set_parts (table_parts cap) (table_block (rev rows) cap)) :: nil)%list, PPara [])
               else ([], PTable (touch_extent range) rows
                           (TCaption parts start
                             (remember_line (drop_leading_ws l) :: ls)))
@@ -2235,8 +2234,8 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                                    end else parts)))
                     | _, _ =>
                         let (bs, st') := step_fuel n' off l (PPara []) in
-                        ((set_pos (Provenance (extent_span range) [] (table_parts cap))
-                            (table_block (rev rows) cap) :: bs)%list, st')
+                        ((set_pos (prov_at (extent_span range))
+                            (set_parts (table_parts cap) (table_block (rev rows) cap)) :: bs)%list, st')
                     end
               end
           end
@@ -3894,9 +3893,8 @@ Lemma step_table_close :
     caption_open l = None -> is_blank l = false ->
     step l (PPara []) = (bs, st') ->
     step l (PTable range rows (TAfterBlank parts))
-    = (set_pos (Provenance (extent_span range) []
-                  (table_parts (TAfterBlank parts)))
-         (table_block (rev rows) (TAfterBlank parts))
+    = (set_pos (prov_at (extent_span range))
+         (set_parts (table_parts (TAfterBlank parts)) (table_block (rev rows) (TAfterBlank parts)))
        :: bs, st')%list.
 Proof.
   intros l range rows parts bs st' Hc Hb Hs. unfold step at 1. cbn [step_fuel open_line pstate_depth].
@@ -4981,8 +4979,8 @@ Local Lemma erase_table_block : forall `{T : dtable} rows c rest,
 Proof.
   intros T rows c rest. unfold table_block.
   cbn [Erase.of_blocks Erase.of_block located_pos semantic_pos pos_records mk].
-  rewrite (@StateErase.of_table_fold_located T located_pos),
-    (@erase_caption_of T c). reflexivity.
+  rewrite Erase.rows_erase, (@StateErase.of_table_fold_located T located_pos).
+  unfold Erase.inlines_node, mk. rewrite (@erase_caption_of T c). reflexivity.
 Qed.
 
 (* A located label erases to the label the semantic parse reads, wherever
@@ -5001,8 +4999,9 @@ Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
   Erase.of_blocks (@finish T K located_pos st) =
   @finish T K semantic_pos (StateErase.state st).
 Proof.
-  intros T K st. induction st;
-    cbn [finish StateErase.state StateErase.of_list_state Erase.of_blocks set_pos mkpos
+  intros T K st. induction st; cbn [finish StateErase.state];
+    rewrite ?Erase.set_pos_parts_erase;
+    cbn [set_parts StateErase.state StateErase.of_list_state Erase.of_blocks set_pos mkpos
       located_pos semantic_pos Erase.of_block pos_records add_roles_head add_roles
       pos_head posnode];
     rewrite ?StateErase.of_lines_texts_rev, ?StateErase.of_lines_length, ?erase_table_block,
@@ -5031,16 +5030,8 @@ Proof.
       cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk];
       fold Erase.of_blocks;
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst; reflexivity.
-  - remember (@list_block K ls
-      (rev done ++ @finish T K located_pos st)%list) as lb eqn:E.
-    destruct lb as [p a b]. symmetry in E.
-    pose proof (@list_block_erase K ls
-      (rev done ++ @finish T K located_pos st)%list) as H.
-    cbn [Erase.of_blocks] in H.
-    replace (@list_block K ls
-        (rev done ++ @finish T K located_pos st)%list)
-      with (Node p a b) in H by (symmetry; exact E).
-    cbn in H. rewrite H. f_equal.
+  - pose proof (@list_block_erase K ls (rev done ++ @finish T K located_pos st)%list) as H.
+    cbn [Erase.of_blocks] in H. rewrite H.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
   - destruct (Attributes.ap_done ap) eqn:E; [reflexivity|].
     unfold finish_para_recover. destruct slices as [|slice slices];
@@ -5051,9 +5042,8 @@ Proof.
     reflexivity.
   - cbn [foot_block mk Erase.of_block]. fold Erase.of_blocks.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
-  - destruct (@table_block T located_pos (rev rows) cap) as [q a b] eqn:Et.
-    pose proof (@erase_table_block T (rev rows) cap []) as Ht.
-    rewrite Et in Ht. cbn [Erase.of_blocks] in Ht |- *. exact Ht.
+  - pose proof (@erase_table_block T (rev rows) cap []) as Ht.
+    cbn [Erase.of_blocks] in Ht. exact Ht.
   - destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
     + cbn in IHst. symmetry in IHst. rewrite IHst. reflexivity.
     + cbn [decorate_head add_roles_head add_roles Erase.of_blocks] in IHst |- *.
@@ -5463,7 +5453,7 @@ Proof.
       [ | |
         destruct (is_blank l);
         [ unfold StateErase.result; cbn [fst snd StateErase.state];
-          rewrite Erase.blocks_set_pos, erase_table_block;
+          rewrite Erase.set_pos_parts_erase, erase_table_block;
           cbn [StateErase.of_cap Erase.of_blocks]; reflexivity
         | unfold StateErase.result;
           cbn [fst snd StateErase.state StateErase.of_cap StateErase.of_lines map];
@@ -5479,7 +5469,8 @@ Proof.
          destruct (@step_fuel T K LI located_pos n off l (PPara []))
            as [bs st'];
          unfold StateErase.result; cbn [fst snd];
-         rewrite Erase.blocks_set_pos; rewrite ?erase_table_block;
+         rewrite ?Erase.set_pos_parts_erase, ?Erase.blocks_set_pos;
+         rewrite ?erase_table_block;
          cbn [StateErase.of_cap]; reflexivity.
   - (* PPend *)
     cbn [step_fuel StateErase.state]. rewrite is_idle_erase.

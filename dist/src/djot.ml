@@ -194,12 +194,13 @@ module Block = struct
     | BlockQuote of t node list
     | CodeBlock of string * string
     | Div of string * t node list
-    | OrderedList of ordered_list_attributes * list_spacing * t node list list
-    | BulletList of list_spacing * t node list list
-    | TaskList of list_spacing * (task_status * t node list) list
-    | DefinitionList of list_spacing * (Inline.t node list * t node list) list
+    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
+    | BulletList of list_spacing * t node list node list
+    | TaskList of list_spacing * (task_status * t node list) node list
+    | DefinitionList of
+        list_spacing * (Inline.t node list node * t node list node) node list
     | ThematicBreak
-    | Table of Inline.t node list * cell list list
+    | Table of Inline.t node list node * cell node list node list
     | RawBlock of string * string
     | FootnoteDef of string * t node list
     | RefDef of string * string
@@ -406,9 +407,12 @@ module Doc = struct
     match (b : Block.t) with
     | FootnoteDef (_, l) -> bl (n :: acc) l
     | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
-    | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
-    | TaskList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
-    | DefinitionList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
+    | OrderedList (_, _, its) | BulletList (_, its) ->
+      List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
+    | TaskList (_, its) ->
+      List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
+    | DefinitionList (_, its) ->
+      List.fold_left (fun acc it -> bl acc (Node.content (snd (Node.content it)))) acc its
     | Ext_keyed (_, b) -> collect_footnote_defs acc b
     | Para _ | Heading _ | CodeBlock _ | ThematicBreak | Table _ | RawBlock _ | RefDef _
       -> acc
@@ -587,81 +591,6 @@ module Doc = struct
         compare a.Textloc.first_byte b.Textloc.first_byte)
     | None -> []
   ;;
-
-  (* The ranges a list, definition list or table records for its parts,
-     or [None] without locations. *)
-  let part_spans d n =
-    match provenance d n with
-    | Some (lines, p) -> Some (Textloc.of_span lines, p.part_spans)
-    | None -> None
-  ;;
-
-  (* [xs] paired with [locs], or with [none] when the counts differ: no
-     locations, or a mapped node whose children changed. *)
-  let zip_locs ~none locs xs =
-    if List.compare_lengths locs xs = 0
-    then List.combine locs xs
-    else List.map (fun x -> none, x) xs
-  ;;
-
-  let item_locs d n =
-    match part_spans d n with
-    | Some (loc, K.Ast.PItems l) -> List.map loc l
-    | _ -> []
-  ;;
-
-  let list_items d n =
-    match Node.content n with
-    | Block.BulletList (_, its) | OrderedList (_, _, its) ->
-      zip_locs ~none:Textloc.none (item_locs d n) its
-    | _ -> []
-  ;;
-
-  let task_items d n =
-    match Node.content n with
-    | Block.TaskList (_, its) ->
-      List.map
-        (fun (l, (st, bs)) -> l, st, bs)
-        (zip_locs ~none:Textloc.none (item_locs d n) its)
-    | _ -> []
-  ;;
-
-  let def_items d n =
-    match Node.content n with
-    | Block.DefinitionList (_, its) ->
-      let locs =
-        match part_spans d n with
-        | Some (loc, K.Ast.PDefItems l) ->
-          List.map (fun ((i, t), df) -> loc i, loc t, loc df) l
-        | _ -> []
-      in
-      let none = Textloc.(none, none, none) in
-      List.map
-        (fun ((i, t, df), (term, def)) -> i, (t, term), (df, def))
-        (zip_locs ~none locs its)
-    | _ -> []
-  ;;
-
-  let table_caption_loc d n =
-    match Node.content n, part_spans d n with
-    | Block.Table _, Some (loc, K.Ast.PTable (Some c, _)) -> loc c
-    | _ -> Textloc.none
-  ;;
-
-  let table_rows d n =
-    match Node.content n with
-    | Block.Table (_, rows) ->
-      let locs =
-        match part_spans d n with
-        | Some (loc, K.Ast.PTable (_, l)) ->
-          List.map (fun (r, cs) -> loc r, List.map loc cs) l
-        | _ -> []
-      in
-      List.map
-        (fun ((r, cs), row) -> r, zip_locs ~none:Textloc.none cs row)
-        (zip_locs ~none:(Textloc.none, []) locs rows)
-    | _ -> []
-  ;;
 end
 
 module For_testing = struct
@@ -746,7 +675,9 @@ module Mapper = struct
   and block_children m (Node (p, a, x)) : Block.t node option =
     let il = map_inlines m
     and bl = map_blocks m in
-    let cell (Block.Cell (t, al, l)) = Block.Cell (t, al, il l) in
+    (* Items, rows, cells and captions keep their position and attributes. *)
+    let on f (Node (p, a, x)) = Node (p, a, f x) in
+    let cell = on (fun (Block.Cell (t, al, l)) -> Block.Cell (t, al, il l)) in
     let x : Block.t option =
       match x with
       | Para l -> Some (Para (il l))
@@ -754,12 +685,13 @@ module Mapper = struct
       | Heading (lvl, l) -> Some (Heading (lvl, il l))
       | BlockQuote l -> Some (BlockQuote (bl l))
       | Div (n, l) -> Some (Div (n, bl l))
-      | OrderedList (o, sp, its) -> Some (OrderedList (o, sp, List.map bl its))
-      | BulletList (sp, its) -> Some (BulletList (sp, List.map bl its))
-      | TaskList (sp, its) -> Some (TaskList (sp, List.map (fun (s, it) -> s, bl it) its))
+      | OrderedList (o, sp, its) -> Some (OrderedList (o, sp, List.map (on bl) its))
+      | BulletList (sp, its) -> Some (BulletList (sp, List.map (on bl) its))
+      | TaskList (sp, its) ->
+        Some (TaskList (sp, List.map (on (fun (s, it) -> s, bl it)) its))
       | DefinitionList (sp, its) ->
-        Some (DefinitionList (sp, List.map (fun (t, it) -> il t, bl it) its))
-      | Table (cap, rows) -> Some (Table (il cap, List.map (List.map cell) rows))
+        Some (DefinitionList (sp, List.map (on (fun (t, d) -> on il t, on bl d)) its))
+      | Table (cap, rows) -> Some (Table (on il cap, List.map (on (List.map cell)) rows))
       | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
       | Ext_keyed (l, b) ->
         Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
@@ -846,14 +778,26 @@ module Folder = struct
       (match Node.content n with
        | Para l | Heading (_, l) -> il acc l
        | Section l | BlockQuote l | Div (_, l) | FootnoteDef (_, l) -> bl acc l
-       | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
-       | TaskList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
+       | OrderedList (_, _, its) | BulletList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
+       | TaskList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
        | DefinitionList (_, its) ->
-         List.fold_left (fun acc (t, it) -> bl (il acc t) it) acc its
+         List.fold_left
+           (fun acc it ->
+             let t, d = Node.content it in
+             bl (il acc (Node.content t)) (Node.content d))
+           acc
+           its
        | Table (cap, rows) ->
-         let cell acc (Block.Cell (_, _, l)) = il acc l in
-         let acc = List.fold_left (List.fold_left cell) acc rows in
-         il acc cap
+         let cell acc c =
+           match Node.content c with
+           | Block.Cell (_, _, l) -> il acc l
+         in
+         let acc =
+           List.fold_left (fun acc r -> List.fold_left cell acc (Node.content r)) acc rows
+         in
+         il acc (Node.content cap)
        | Ext_keyed (l, b) -> fold_block f (il acc l) b
        | Ext_callout (_, _, title, body) -> bl (il acc title) body
        | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)

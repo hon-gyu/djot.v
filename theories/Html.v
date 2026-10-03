@@ -513,20 +513,22 @@ Local Definition align_attr (al : align) : attr :=
   | AlignCenter => [("style", "text-align: center;")]
   end.
 
-Local Definition render_cell (c : cell) : helt :=
-  match c with
-  | Cell ct al ils =>
+(* A cell's alignment style comes before its own attributes, as in
+   djot.js. *)
+Local Definition render_cell (n : node cell) : helt :=
+  match n with
+  | Node _ a (Cell ct al ils) =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
-      HElem tag 1 (align_attr al) (render_inlines ils)
+      HElem tag 1 (align_attr al ++ a)%list (render_inlines ils)
   end.
 
-Definition render_row (r : list cell) : helt :=
-  HElem "tr" 2 [] (map render_cell r).
+Definition render_row (r : node (list (node cell))) : helt :=
+  match r with Node _ a cs => HElem "tr" 2 a (map render_cell cs) end.
 
-Local Definition render_caption (caption : inlines) : list helt :=
+Local Definition render_caption (caption : node inlines) : list helt :=
   match caption with
-  | [] => []
-  | _ => [HElem "caption" 1 [] (render_inlines caption)]
+  | Node _ _ [] => []
+  | Node _ a ils => [HElem "caption" 1 a (render_inlines ils)]
   end.
 
 (*
@@ -556,12 +558,12 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       end in
   let render_bs := render_bs_at tight in
   let render_items :=
-    fix goi (sp : list_spacing) (its : list (list (node block))) {struct its}
+    fix goi (sp : list_spacing) (its : list (node (list (node block)))) {struct its}
       : list helt :=
       match its with
       | [] => []
-      | it :: rest =>
-          (HElem "li" 2 []
+      | Node _ ia it :: rest =>
+          (HElem "li" 2 ia
              (render_bs_at (match sp with Tight => true | Loose => false end) it)
            :: goi sp rest)%list
       end in
@@ -571,26 +573,27 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
      here.  The roundtrip reads it, since it records the blank lines the
      source had. *)
   let render_def_items :=
-    fix god (its : list (inlines * list (node block))) {struct its}
+    fix god (its : list (node (node inlines * node (list (node block))))) {struct its}
       : list helt :=
       match its with
       | [] => []
-      | (term, it) :: rest =>
-          (HElem "dt" 1 [] (render_inlines term)
-           :: HElem "dd" 2 [] (render_bs it)
+      | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
+          (HElem "dt" 1 ta (render_inlines term)
+           :: HElem "dd" 2 da (render_bs it)
            :: god rest)%list
       end in
   (* A task item's checkbox, ahead of its content and outside whatever
      the tightness does to that content.  The `<ul>` carries
      `class="task-list"` before the node's own attributes, the order
-     `ol_attrs` already establishes. *)
+     `ol_attrs` already establishes.  djot.js writes a task item's `<li>`
+     without its attributes. *)
   let render_task_items :=
     fix got (sp : list_spacing)
-      (its : list (task_status * list (node block))) {struct its}
+      (its : list (node (task_status * list (node block)))) {struct its}
       : list helt :=
       match its with
       | [] => []
-      | (st, it) :: rest =>
+      | Node _ _ (st, it) :: rest =>
           (HElem "li" 2 []
              (checkbox_elt st :: HText nl
               :: render_bs_at
@@ -773,16 +776,16 @@ Local Definition render_inlines_foot (st : foot_state) (ils : inlines)
 (* The table renderers again, threading the footnote counter: a cell may
    carry a footnote reference, and it is numbered in source order like
    any other. *)
-Local Definition render_cell_foot (st : foot_state) (c : cell)
+Local Definition render_cell_foot (st : foot_state) (n : node cell)
   : foot_state * helt :=
-  match c with
-  | Cell ct al ils =>
+  match n with
+  | Node _ a (Cell ct al ils) =>
       let tag := match ct with HeadCell => "th" | BodyCell => "td" end in
       let '(st', s) := render_inlines_foot st ils in
-      (st', HElem tag 1 (align_attr al) s)
+      (st', HElem tag 1 (align_attr al ++ a)%list s)
   end.
 
-Local Fixpoint render_cells_foot (st : foot_state) (r : list cell)
+Local Fixpoint render_cells_foot (st : foot_state) (r : list (node cell))
   : foot_state * list helt :=
   match r with
   | [] => (st, [])
@@ -792,23 +795,23 @@ Local Fixpoint render_cells_foot (st : foot_state) (r : list cell)
       (st2, e :: es)
   end.
 
-Local Fixpoint render_rows_foot (st : foot_state) (rows : list (list cell))
+Local Fixpoint render_rows_foot (st : foot_state) (rows : list (node (list (node cell))))
   : foot_state * list helt :=
   match rows with
   | [] => (st, [])
-  | r :: rest =>
+  | Node _ a r :: rest =>
       let '(st1, cells) := render_cells_foot st r in
       let '(st2, es) := render_rows_foot st1 rest in
-      (st2, HElem "tr" 2 [] cells :: es)
+      (st2, HElem "tr" 2 a cells :: es)
   end.
 
-Local Definition render_caption_foot (st : foot_state) (caption : inlines)
+Local Definition render_caption_foot (st : foot_state) (caption : node inlines)
   : foot_state * list helt :=
   match caption with
-  | [] => (st, [])
-  | _ =>
-      let '(st', s) := render_inlines_foot st caption in
-      (st', [HElem "caption" 1 [] s])
+  | Node _ _ [] => (st, [])
+  | Node _ a ils =>
+      let '(st', s) := render_inlines_foot st ils in
+      (st', [HElem "caption" 1 a s])
   end.
 
 Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
@@ -825,38 +828,39 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
       end in
   let render_items :=
     fix goi (st0 : foot_state) (sp : list_spacing)
-      (its : list (list (node block))) {struct its}
+      (its : list (node (list (node block)))) {struct its}
       : foot_state * list helt :=
       match its with
       | [] => (st0, [])
-      | it :: rest =>
+      | Node _ ia it :: rest =>
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := goi st1 sp rest in
-          (st2, HElem "li" 2 [] s1 :: s2)
+          (st2, HElem "li" 2 ia s1 :: s2)
       end in
   let render_task_items :=
     fix got (st0 : foot_state) (sp : list_spacing)
-      (its : list (task_status * list (node block))) {struct its}
+      (its : list (node (task_status * list (node block)))) {struct its}
       : foot_state * list helt :=
       match its with
       | [] => (st0, [])
-      | (chk, it) :: rest =>
+      | Node _ _ (chk, it) :: rest =>
           let t := match sp with Tight => true | Loose => false end in
           let '(st1, s1) := render_bs_at st0 t it in
           let '(st2, s2) := got st1 sp rest in
           (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
       end in
   let render_def_items :=
-    fix god (st0 : foot_state) (its : list (inlines * list (node block)))
-      {struct its} : foot_state * list helt :=
+    fix god (st0 : foot_state)
+      (its : list (node (node inlines * node (list (node block))))) {struct its}
+      : foot_state * list helt :=
       match its with
       | [] => (st0, [])
-      | (term, it) :: rest =>
+      | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
           let '(st1, s1) := render_inlines_foot st0 term in
           let '(st2, s2) := render_bs_at st1 tight it in
           let '(st3, s3) := god st2 rest in
-          (st3, HElem "dt" 1 [] s1 :: HElem "dd" 2 [] s2 :: s3)
+          (st3, HElem "dt" 1 ta s1 :: HElem "dd" 2 da s2 :: s3)
       end in
   match b with
   | Para ils =>
@@ -1172,7 +1176,7 @@ Local Lemma render_caption_foot_reference_shape :
     foot_shape (render_caption_foot refs st caption)
                (render_caption_foot refs' st caption).
 Proof.
-  intros [|i ils] st refs refs'; [unfold foot_shape; split; reflexivity|].
+  intros [cp ca [|i ils]] st refs refs'; [unfold foot_shape; split; reflexivity|].
   cbn [render_caption_foot].
   apply foot_shape_elem, render_inlines_foot_reference_shape.
 Qed.
@@ -1185,7 +1189,7 @@ Local Lemma render_cell_foot_reference_shape :
     foot_cell_shape (render_cell_foot refs st c)
                     (render_cell_foot refs' st c).
 Proof.
-  intros [ct al ils] st refs refs'. cbn [render_cell_foot].
+  intros [cp ca [ct al ils]] st refs refs'. cbn [render_cell_foot].
   destruct (render_inlines_foot refs st ils) as [s1 o1] eqn:E1.
   destruct (render_inlines_foot refs' st ils) as [s2 o2] eqn:E2.
   pose proof (render_inlines_foot_reference_shape ils st refs refs') as H.
@@ -1222,7 +1226,7 @@ Local Lemma render_rows_foot_reference_shape :
     foot_shape (render_rows_foot refs st rows)
                (render_rows_foot refs' st rows).
 Proof.
-  induction rows as [|row rest IH]; intros st refs refs';
+  induction rows as [|[rp ra row] rest IH]; intros st refs refs';
     [unfold foot_shape; cbn; split; reflexivity|].
   cbn [render_rows_foot].
   destruct (render_cells_foot refs st row) as [s1 es1] eqn:E1.
@@ -1252,27 +1256,27 @@ Local Definition render_bs_foot (refs : reference_map) (st : foot_state)
      end) st tight bs.
 
 Local Definition render_items_foot (refs : reference_map)
-  : foot_state -> list_spacing -> list blocks -> foot_state * list helt :=
-  fix goi (st : foot_state) (sp : list_spacing) (items : list blocks)
+  : foot_state -> list_spacing -> list (node blocks) -> foot_state * list helt :=
+  fix goi (st : foot_state) (sp : list_spacing) (items : list (node blocks))
     {struct items} : foot_state * list helt :=
     match items with
     | [] => (st, [])
-    | it :: rest =>
+    | Node _ ia it :: rest =>
         let t := match sp with Tight => true | Loose => false end in
         let '(st1, s1) := render_bs_foot refs st t it in
         let '(st2, s2) := goi st1 sp rest in
-        (st2, HElem "li" 2 [] s1 :: s2)
+        (st2, HElem "li" 2 ia s1 :: s2)
     end.
 
 Local Definition render_task_items_foot (refs : reference_map)
-  : foot_state -> list_spacing -> list (task_status * blocks)
+  : foot_state -> list_spacing -> list (node (task_status * blocks))
     -> foot_state * list helt :=
   fix got (st : foot_state) (sp : list_spacing)
-    (items : list (task_status * blocks)) {struct items}
+    (items : list (node (task_status * blocks))) {struct items}
     : foot_state * list helt :=
     match items with
     | [] => (st, [])
-    | (chk, it) :: rest =>
+    | Node _ _ (chk, it) :: rest =>
         let t := match sp with Tight => true | Loose => false end in
         let '(st1, s1) := render_bs_foot refs st t it in
         let '(st2, s2) := got st1 sp rest in
@@ -1280,16 +1284,16 @@ Local Definition render_task_items_foot (refs : reference_map)
     end.
 
 Local Definition render_def_items_foot (refs : reference_map) (tight : bool)
-  : foot_state -> list (inlines * blocks) -> foot_state * list helt :=
-  fix god (st : foot_state) (items : list (inlines * blocks))
+  : foot_state -> list (node (node inlines * node blocks)) -> foot_state * list helt :=
+  fix god (st : foot_state) (items : list (node (node inlines * node blocks)))
     {struct items} : foot_state * list helt :=
     match items with
     | [] => (st, [])
-    | (term, it) :: rest =>
+    | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
         let '(st1, s1) := render_inlines_foot refs st term in
         let '(st2, s2) := render_bs_foot refs st1 tight it in
         let '(st3, s3) := god st2 rest in
-        (st3, HElem "dt" 1 [] s1 :: HElem "dd" 2 [] s2 :: s3)
+        (st3, HElem "dt" 1 ta s1 :: HElem "dd" 2 da s2 :: s3)
     end.
 
 Local Lemma foot_shape_bind :
@@ -1322,7 +1326,7 @@ Proof.
     (D := fun its => forall st t refs refs',
        foot_shape (render_def_items_foot refs t st its)
                   (render_def_items_foot refs' t st its));
-    intros; cbn [render_block_foot];
+    intros; try destruct term; cbn [render_block_foot];
     unfold render_bs_foot, render_items_foot, render_task_items_foot,
       render_def_items_foot; cbn iota beta;
     repeat match goal with
@@ -1498,9 +1502,9 @@ Proof.
     map erase_helt_attrs (render_block refs tight b a) =
     map erase_helt_attrs (render_block refs' tight b a)).
   { intros b. induction b using block_ind2 with
-      (Q := Q) (R := Forall Q)
-      (D := Forall (fun ti => Q (snd ti)))
-      (K := Forall (fun ti => Q (snd ti)));
+      (Q := Q) (R := Forall (fun n => Q (node_contents n)))
+      (D := Forall (fun ti => Q (node_contents (snd (node_contents ti)))))
+      (K := Forall (fun ti => Q (snd (node_contents ti))));
       intros; try reflexivity.
     - destruct tight; cbn [render_block map erase_helt_attrs];
         [rewrite !map_app|];
@@ -1532,7 +1536,7 @@ Proof.
               map erase_helt_attrs (render_bs_at refs' tight bs)).
       rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|it rest Hit Hrest IH]; [reflexivity|].
+      induction IHb as [|[ip ia it] rest Hit Hrest IH]; [reflexivity|].
       cbn [map erase_helt_attrs]. f_equal.
       + f_equal.
         change (map erase_helt_attrs
@@ -1542,7 +1546,7 @@ Proof.
         rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
       + exact IH.
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|it rest Hit Hrest IH]; [reflexivity|].
+      induction IHb as [|[ip ia it] rest Hit Hrest IH]; [reflexivity|].
       cbn [map erase_helt_attrs]. f_equal.
       + f_equal.
         change (map erase_helt_attrs
@@ -1552,7 +1556,7 @@ Proof.
         rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
       + exact IH.
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[st it] rest Hit Hrest IH]; [reflexivity|].
+      induction IHb as [|[ip ia [st it]] rest Hit Hrest IH]; [reflexivity|].
       cbn [map erase_helt_attrs]. f_equal. f_equal. f_equal. f_equal.
       change (map erase_helt_attrs
                 (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
@@ -1561,7 +1565,7 @@ Proof.
       rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
       exact IH.
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[term it] rest Hit Hrest IH]; [reflexivity|].
+      induction IHb as [|[ip ia [[tp ta term] [dp da it]]] rest Hit Hrest IH]; [reflexivity|].
       cbn [map erase_helt_attrs].
       rewrite (render_inlines_reference_shape term refs refs').
       f_equal. f_equal. f_equal.
@@ -1571,12 +1575,12 @@ Proof.
       exact IH.
     - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
       rewrite !map_app. f_equal.
-      + destruct caption as [|i ils]; cbn [render_caption map erase_helt_attrs];
+      + destruct caption as [cp ca [|i ils]]; cbn [render_caption map erase_helt_attrs];
           [|rewrite (render_inlines_reference_shape (i :: ils) refs refs')]; reflexivity.
-      + induction rows as [|row rest IH]; [reflexivity|].
+      + induction rows as [|[rp ra row] rest IH]; [reflexivity|].
         cbn [map]. f_equal.
         * cbn [render_row erase_helt_attrs]. f_equal.
-          induction row as [|[ct al ils] row IHrow]; [reflexivity|].
+          induction row as [|[cp' ca' [ct al ils]] row IHrow]; [reflexivity|].
           cbn [map render_cell erase_helt_attrs].
           rewrite (render_inlines_reference_shape ils refs refs').
           f_equal. exact IHrow.

@@ -50,12 +50,12 @@ Fixpoint walk (d : nat) (lines : list source_line) (bs : blocks)
           let kids :=
             match node_contents n with
             | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => walk d' lines bs'
-            | BulletList _ items => flat_map (walk d' lines) items
-            | OrderedList _ _ items => flat_map (walk d' lines) items
+            | BulletList _ items | OrderedList _ _ items =>
+                flat_map (fun e => walk d' lines (node_contents e)) items
             | TaskList _ items =>
-                flat_map (fun e => walk d' lines (snd e)) items
+                flat_map (fun e => walk d' lines (snd (node_contents e))) items
             | DefinitionList _ items =>
-                flat_map (fun e => walk d' lines (snd e)) items
+                flat_map (fun e => walk d' lines (node_contents (snd (node_contents e)))) items
             | _ => []
             end in
           (here :: kids ++ walk d' lines rest)%list
@@ -127,7 +127,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* bullet_list [0,12), then the paragraphs of its two items: [2,3),
    [7,8), [11,12).  djot.js also spans the items themselves, [0,8) and
-   [9,12); those are `parts`, pinned below. *)
+   [9,12); those are pinned below. *)
 Example r_loose_list : ranges "- a
 
   b
@@ -141,7 +141,7 @@ Example r_footnote : ranges "[^1]: note
 " = [(0, 17); (6, 17)].
 Proof. vm_compute. reflexivity. Qed.
 
-(* table [0,29).  Rows and cells are `parts`, pinned below. *)
+(* table [0,29).  Rows and cells are pinned below. *)
 Example r_table : ranges "| a | b |
 |---|---|
 | c | d |
@@ -210,26 +210,27 @@ para
 Proof. vm_compute. reflexivity. Qed.
 
 (*
-Items, the first of the parts
------------------------------
+Items, rows and cells
+---------------------
 
-A list item is not a node, so its range lives in the parent's
-provenance, parallel to the children (plan F9).  A definition list's
-item records its term and definition beside the whole item.
+A list item, a definition item with its term and definition, a table
+row, a cell and a caption are nodes, each with its own range.
 *)
+
+Definition node_range {A : Type} (lines : list source_line) (n : node A) : nat * nat :=
+  match node_provenance n with
+  | Some p => range_of lines (node_span p)
+  | None => (999, 999)
+  end.
 
 Definition item_ranges (s : string) : list (list (nat * nat)) :=
   let lines := line_table s in
   map (fun n =>
-         match node_provenance n with
-         | Some p =>
-             match part_spans p with
-             | PItems rs => map (range_of lines) rs
-             | PDefItems rs =>
-                 map (fun r => let '(item, _, _) := r in range_of lines item) rs
-             | _ => []
-             end
-         | None => []
+         match node_contents n with
+         | BulletList _ its | OrderedList _ _ its => map (node_range lines) its
+         | TaskList _ its => map (node_range lines) its
+         | DefinitionList _ its => map (node_range lines) its
+         | _ => []
          end)
       (Located s).
 
@@ -264,16 +265,12 @@ Definition def_ranges (s : string)
   : list (list ((nat * nat) * (nat * nat) * (nat * nat))) :=
   let lines := line_table s in
   map (fun n =>
-         match node_provenance n with
-         | Some p =>
-             match part_spans p with
-             | PDefItems rs =>
-                 map (fun r => let '(item, term, definition) := r in
-                               (range_of lines item, range_of lines term,
-                                range_of lines definition)) rs
-             | _ => []
-             end
-         | None => []
+         match node_contents n with
+         | DefinitionList _ its =>
+             map (fun it => (node_range lines it,
+                             node_range lines (fst (node_contents it)),
+                             node_range lines (snd (node_contents it)))) its
+         | _ => []
          end) (Located s).
 
 Example p_def_parts :
@@ -328,9 +325,11 @@ Fixpoint tables (d : nat) (bs : blocks) : list (node block) :=
             | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' | Section bs' =>
                 tables d' bs'
             | BulletList _ items | OrderedList _ _ items =>
-                flat_map (tables d') items
-            | TaskList _ items | DefinitionList _ items =>
-                flat_map (fun e => tables d' (snd e)) items
+                flat_map (fun e => tables d' (node_contents e)) items
+            | TaskList _ items =>
+                flat_map (fun e => tables d' (snd (node_contents e))) items
+            | DefinitionList _ items =>
+                flat_map (fun e => tables d' (node_contents (snd (node_contents e)))) items
             | _ => []
             end in
           (here ++ kids ++ tables d' rest)%list
@@ -348,19 +347,14 @@ Definition table_ranges (s : string)
             list ((nat * nat) * list (nat * nat))) :=
   match first_table s with
   | Some n =>
-      match node_provenance n with
-      | Some p =>
-          match part_spans p with
-          | Ast.PTable caption rows =>
-              let lines := line_table s in
-              Some (range_of lines (node_span p),
-                    option_map (range_of lines) caption,
-                    map (fun row =>
-                           (range_of lines (fst row),
-                            map (range_of lines) (snd row))) rows)
-          | _ => None
-          end
-      | None => None
+      match node_contents n with
+      | Table caption rows =>
+          let lines := line_table s in
+          Some (node_range lines n,
+                option_map (fun _ => node_range lines caption) (node_provenance caption),
+                map (fun row => (node_range lines row,
+                                 map (node_range lines) (node_contents row))) rows)
+      | _ => None
       end
   | None => None
   end.
@@ -534,8 +528,8 @@ Fixpoint first_para (d : nat) (bs : blocks) : inlines :=
           match node_contents n with
           | Para ils | Heading _ ils => ils
           | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => first_para d' bs'
-          | BulletList _ (item :: _) => first_para d' item
-          | OrderedList _ _ (item :: _) => first_para d' item
+          | BulletList _ (item :: _) | OrderedList _ _ (item :: _) =>
+              first_para d' (node_contents item)
           | _ => first_para d' rest
           end
       end
@@ -723,9 +717,9 @@ Definition cell_ranges (s : string) : list (list (nat * nat)) :=
       | Table _ rows =>
           map (fun r =>
                  concat (map (fun c =>
-                   match c with
+                   match node_contents c with
                    | Cell _ _ ils => inline_walk 40 lines ils
-                   end) r))
+                   end) (node_contents r)))
               rows
       | _ => []
       end
@@ -737,7 +731,7 @@ Definition caption_ranges (s : string) : list (nat * nat) :=
   match first_table s with
   | Some n =>
       match node_contents n with
-      | Table ils _ => inline_walk 40 lines ils
+      | Table cap _ => inline_walk 40 lines (node_contents cap)
       | _ => []
       end
   | None => []
@@ -768,7 +762,7 @@ table parts all come out of one parse.  The djot.js side is
   cell texts [50,51), [54,55), [70,71), [74,75), caption text [81,84).
 
 Two table ranges are ours rather than djot.js's, and `p_table_parts`
-pins both on `table_sample` as well.  The caption's part span includes
+pins both on `table_sample` as well.  The caption's range includes
 the authored `^`, [79,84) against djot.js's [81,84); its inline range
 is djot.js's exactly.  And the table node runs on through the caption
 line to [48,84), where djot.js stops at the last row, [48,77): a node

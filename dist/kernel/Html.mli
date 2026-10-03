@@ -60,11 +60,11 @@ val render_inlines : reference_map -> inlines -> helt list
 
 val align_attr : align -> attr
 
-val render_cell : reference_map -> cell -> helt
+val render_cell : reference_map -> cell node -> helt
 
-val render_row : reference_map -> cell list -> helt
+val render_row : reference_map -> cell node list node -> helt
 
-val render_caption : reference_map -> inlines -> helt list
+val render_caption : reference_map -> inlines node -> helt list
 
 val render_block : reference_map -> bool -> block -> attr -> helt list
 
@@ -81,16 +81,17 @@ val render_inlines_foot :
   reference_map -> foot_state -> inlines -> foot_state * helt list
 
 val render_cell_foot :
-  reference_map -> foot_state -> cell -> foot_state * helt
+  reference_map -> foot_state -> cell node -> foot_state * helt
 
 val render_cells_foot :
-  reference_map -> foot_state -> cell list -> foot_state * helt list
+  reference_map -> foot_state -> cell node list -> foot_state * helt list
 
 val render_rows_foot :
-  reference_map -> foot_state -> cell list list -> foot_state * helt list
+  reference_map -> foot_state -> cell node list node list ->
+  foot_state * helt list
 
 val render_caption_foot :
-  reference_map -> foot_state -> inlines -> foot_state * helt list
+  reference_map -> foot_state -> inlines node -> foot_state * helt list
 
 val render_block_foot :
   reference_map -> foot_state -> bool -> block -> attr -> foot_state * helt

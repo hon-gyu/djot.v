@@ -2,8 +2,9 @@
 
 (* A parsed tree printed one node per line, indented by depth. With
    locations, each node shows its inclusive byte range and the source it
-   covers. A lowercase line is a part that is not a node: a list item,
-   a table row or cell, a callout's title. *)
+   covers. A lowercase line is a node that is neither a block nor an
+   inline (a list item, a table row or cell), or a callout's title or a
+   key's label, which have no node and no range. *)
 
 open Djot
 
@@ -66,6 +67,7 @@ let inline_label : Inline.t -> string * item list = function
 let group name l kids = Group (name, l, kids)
 
 let block_label d (n : Block.t node) : string * item list =
+  let loc m = Doc.textloc d m in
   match Node.content n with
   | Para l -> "Para", inlines l
   | Section l -> "Section", blocks l
@@ -73,31 +75,39 @@ let block_label d (n : Block.t node) : string * item list =
   | BlockQuote l -> "BlockQuote", blocks l
   | CodeBlock (lang, s) -> Printf.sprintf "CodeBlock %s %s" (quote lang) (quote s), []
   | Div (name, l) -> "Div " ^ quote name, blocks l
-  | OrderedList _ | BulletList _ ->
-    let name =
-      match Node.content n with
-      | OrderedList _ -> "OrderedList"
-      | _ -> "BulletList"
-    in
-    name, List.map (fun (l, bs) -> group "item" l (blocks bs)) (Doc.list_items d n)
-  | TaskList _ ->
+  | OrderedList (_, _, its) ->
+    ( "OrderedList"
+    , List.map (fun it -> group "item" (loc it) (blocks (Node.content it))) its )
+  | BulletList (_, its) ->
+    ( "BulletList"
+    , List.map (fun it -> group "item" (loc it) (blocks (Node.content it))) its )
+  | TaskList (_, its) ->
     ( "TaskList"
-    , List.map (fun (l, _, bs) -> group "item" l (blocks bs)) (Doc.task_items d n) )
-  | DefinitionList _ ->
-    ( "DefinitionList"
-    , List.map
-        (fun (l, (tl, t), (dl, df)) ->
-          group "item" l [ group "term" tl (inlines t); group "def" dl (blocks df) ])
-        (Doc.def_items d n) )
+    , List.map (fun it -> group "item" (loc it) (blocks (snd (Node.content it)))) its )
+  | DefinitionList (_, its) ->
+    let item it =
+      let t, df = Node.content it in
+      group
+        "item"
+        (loc it)
+        [ group "term" (loc t) (inlines (Node.content t))
+        ; group "def" (loc df) (blocks (Node.content df))
+        ]
+    in
+    "DefinitionList", List.map item its
   | ThematicBreak -> "ThematicBreak", []
-  | Table (cap, _) ->
-    let cell (l, Block.Cell (_, _, ils)) = group "cell" l (inlines ils) in
-    let row (l, cells) = group "row" l (List.map cell cells) in
-    ( "Table"
-    , (if cap = []
-       then []
-       else [ group "caption" (Doc.table_caption_loc d n) (inlines cap) ])
-      @ List.map row (Doc.table_rows d n) )
+  | Table (cap, rows) ->
+    let cell c =
+      match Node.content c with
+      | Block.Cell (_, _, ils) -> group "cell" (loc c) (inlines ils)
+    in
+    let row r = group "row" (loc r) (List.map cell (Node.content r)) in
+    let caption =
+      match Node.content cap with
+      | [] -> []
+      | ils -> [ group "caption" (loc cap) (inlines ils) ]
+    in
+    "Table", caption @ List.map row rows
   | RawBlock (f, s) -> Printf.sprintf "RawBlock %s %s" (quote f) (quote s), []
   | FootnoteDef (label, l) -> "FootnoteDef " ^ quote label, blocks l
   | RefDef (label, dest) -> Printf.sprintf "RefDef %s %s" (quote label) (quote dest), []

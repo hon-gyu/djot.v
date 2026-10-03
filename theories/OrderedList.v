@@ -106,7 +106,7 @@ Theorem nsc_uniformity :
     parse_lines (list_lines sp (map litem_lines (nsc_items core d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs sty d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros sty core d start sp lss Hne Hm Hsty Hio.
   destruct lss as [|L0 rest]; [congruence|].
@@ -114,7 +114,8 @@ Proof.
   rewrite (list_uniformity (nsc_marker core d start) sp L0
              (nsc_items core d (S start) rest) Hm Hio).
   unfold marker_list_checked. rewrite Hsty.
-  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items. reflexivity.
+  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items.
+  cbn [styles_list_checked styles_list map]. rewrite map_map. reflexivity.
 Qed.
 
 (* The same, with the list closed by a following line. *)
@@ -130,7 +131,7 @@ Theorem nsc_uniformity_tail :
     parse_lines (list_lines sp (map litem_lines (nsc_items core d start lss))
                  ++ EmptyString :: next :: tail)%list (PPara [])
     = mk (OrderedList (OLAttrs sty d start) (list_spacing_of sp lss)
-            (map (fun L => parse_lines L (PPara [])) lss))
+            (map (fun L => mk (parse_lines L (PPara []))) lss))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
   intros sty core d start sp lss next tail Hne Hm Hsty Hio Hnb Hnl Hindent.
@@ -139,7 +140,8 @@ Proof.
   rewrite (list_uniformity_tail (nsc_marker core d start) sp L0
              (nsc_items core d (S start) rest) next tail Hm Hio Hnb Hnl Hindent).
   unfold marker_list_checked. rewrite Hsty.
-  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items. reflexivity.
+  cbn [map snd]. rewrite map_snd_nsc_items, map_parse_nsc_items.
+  cbn [styles_list_checked styles_list map]. rewrite map_map. reflexivity.
 Qed.
 
 (*
@@ -227,7 +229,7 @@ Local Lemma marker_list_dec :
   forall d n sp checks items,
     dec_fits n = true ->
     marker_list_checked (dec_marker d n) sp checks items
-    = mk (OrderedList (OLAttrs Decimal d n) sp items).
+    = mk (OrderedList (OLAttrs Decimal d n) sp (map mk items)).
 Proof.
   intros d n sp checks items Hfit. unfold marker_list_checked.
   rewrite (dec_marker_styles d n Hfit). reflexivity.
@@ -306,7 +308,7 @@ Theorem ordered_decimal_uniformity :
     parse_lines (list_lines sp (map litem_lines (dec_items d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs Decimal d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros d start sp lss Hne Hfit Hok.
   destruct lss as [|L0 rest]; [congruence|].
@@ -318,7 +320,8 @@ Proof.
   rewrite (list_uniformity (dec_marker d start) sp L0
              (dec_items d (S start) rest) (dec_marker_ok d start H0) Hio).
   rewrite (marker_list_dec _ _ _ _ _ H0).
-  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
+  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items.
+  cbn [styles_list_checked styles_list map]. rewrite map_map. reflexivity.
 Qed.
 
 (* The same, with the list closed by a following line rather than by the
@@ -335,7 +338,7 @@ Theorem ordered_decimal_uniformity_tail :
     parse_lines (list_lines sp (map litem_lines (dec_items d start lss))
                  ++ EmptyString :: next :: tail)%list (PPara [])
     = mk (OrderedList (OLAttrs Decimal d start) (list_spacing_of sp lss)
-            (map (fun L => parse_lines L (PPara [])) lss))
+            (map (fun L => mk (parse_lines L (PPara []))) lss))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
   intros d start sp lss next tail Hne Hfit Hok Hnb Hnl Hindent.
@@ -349,7 +352,8 @@ Proof.
              (dec_items d (S start) rest) next tail
              (dec_marker_ok d start H0) Hio Hnb Hnl Hindent).
   rewrite (marker_list_dec _ _ _ _ _ H0).
-  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items. reflexivity.
+  cbn [map snd]. rewrite map_snd_dec_items, map_parse_dec_items.
+  cbn [styles_list_checked styles_list map]. rewrite map_map. reflexivity.
 Qed.
 
 (*
@@ -760,7 +764,7 @@ Theorem ordered_roman_uniformity_any :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros up d start sp lss Hne H1 H2 Hok.
   assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
@@ -809,7 +813,7 @@ Proof.
                       exact HL1))
                ltac:(discriminate) Hitems).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
 Qed.
 
@@ -823,7 +827,7 @@ Theorem ordered_roman_uniformity_any_tail :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
     = mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))
+             (map (fun L => mk (parse_lines L (PPara []))) lss))
       :: parse_lines (next :: tl) (PPara []).
 Proof.
   intros up d start sp lss next tl Hne H1 H2 Hok Hnb Hnl Hindent.
@@ -874,7 +878,7 @@ Proof.
                       exact HL1))
                ltac:(discriminate) Hitems Hnb Hnl Hindent).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
 Qed.
 
@@ -890,7 +894,7 @@ Theorem ordered_roman_uniformity :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Roman.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (roman_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros up d start sp lss Hne H1 H2 Hlen Hok.
   assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
@@ -1020,7 +1024,7 @@ Theorem ordered_alpha_uniformity :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Alpha.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros up d start sp lss Hne H1 H2 Hnr Hok.
   assert (Hl : 1 <= length lss) by (destruct lss; [congruence|cbn [length]; lia]).
@@ -1055,7 +1059,7 @@ Theorem ordered_alpha_uniformity_tail :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Alpha.str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
     = mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))
+             (map (fun L => mk (parse_lines L (PPara []))) lss))
       :: parse_lines (next :: tl) (PPara []).
 Proof.
   intros up d start sp lss next tl Hne H1 H2 Hnr Hok Hnb Hnl Hindent.
@@ -1093,7 +1097,7 @@ Theorem ordered_alpha_uniformity_any :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Alpha.str up) d start lss)))
                 (PPara [])
     = [mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))].
+             (map (fun L => mk (parse_lines L (PPara []))) lss))].
 Proof.
   intros up d start sp lss Hne H1 H2 Hcond Hok.
   destruct Hcond as [Hnr | [[Hlen Hnr] | [Hlen3 [Hd1 Hnr]]]].
@@ -1134,7 +1138,7 @@ Proof.
                       exact HL1))
                ltac:(discriminate) Hitems).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
   - (* the opener and the second marker are both roman digits; the third
        letter is what resolves it, so the set is peeled twice *)
@@ -1187,7 +1191,7 @@ Proof.
                       exact HL2)) ltac:(discriminate)
                Hitems).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
 Qed.
 
@@ -1206,7 +1210,7 @@ Theorem ordered_alpha_uniformity_any_tail :
     parse_lines (list_lines sp (map litem_lines (nsc_items (Alpha.str up) d start lss))
                  ++ EmptyString :: next :: tl)%list (PPara [])
     = mk (OrderedList (OLAttrs (alpha_sty up) d start) (list_spacing_of sp lss)
-             (map (fun L => parse_lines L (PPara [])) lss))
+             (map (fun L => mk (parse_lines L (PPara []))) lss))
       :: parse_lines (next :: tl) (PPara []).
 Proof.
   intros up d start sp lss next tl Hne H1 H2 Hcond Hok Hnb Hnl Hindent.
@@ -1249,7 +1253,7 @@ Proof.
                       exact HL1))
                ltac:(discriminate) Hitems Hnb Hnl Hindent).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
   - (* the opener and the second marker are both roman digits; the third
        letter is what resolves it, so the set is peeled twice *)
@@ -1302,7 +1306,7 @@ Proof.
                       exact HL2)) ltac:(discriminate)
                Hitems Hnb Hnl Hindent).
     cbn [styles_list_checked styles_list map snd].
-    rewrite map_snd_nsc_items, map_parse_nsc_items.
+    rewrite map_snd_nsc_items, map_parse_nsc_items, map_map.
     reflexivity.
 Qed.
 
@@ -1371,12 +1375,12 @@ Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
 Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
   : block :=
   match k with
-  | LKBullet => BulletList sp items
+  | LKBullet => BulletList sp (map mk items)
   | LKDef => DefinitionList sp (def_items items)
   | LKTask checks => TaskList sp (task_items checks items)
-  | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp items
-  | LKRoman up d start => OrderedList (OLAttrs (roman_sty up) d start) sp items
-  | LKAlpha up d start => OrderedList (OLAttrs (alpha_sty up) d start) sp items
+  | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp (map mk items)
+  | LKRoman up d start => OrderedList (OLAttrs (roman_sty up) d start) sp (map mk items)
+  | LKAlpha up d start => OrderedList (OLAttrs (alpha_sty up) d start) sp (map mk items)
   end.
 
 (* The side condition, at a list of `n` items. *)
@@ -1640,12 +1644,13 @@ Proof.
   - cbn [ck_ok] in Hck. apply andb_true_iff in Hck as [Htasks Hck].
     apply Nat.eqb_eq in Hck.
     exact (task_uniformity checks sp lss Htasks Hne Hck Hok).
-  - exact (ordered_decimal_uniformity d start sp lss Hne Hck Hok).
-  - cbn [ck_ok] in Hck.
+  - cbn [ck_block]. rewrite map_map.
+    exact (ordered_decimal_uniformity d start sp lss Hne Hck Hok).
+  - cbn [ck_ok ck_block] in Hck |- *. rewrite map_map.
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
     exact (ordered_roman_uniformity_any up d start sp lss Hne Hs Hr Hok).
-  - cbn [ck_ok] in Hck.
+  - cbn [ck_ok ck_block] in Hck |- *. rewrite map_map.
     apply andb_true_iff in Hck as [Hck Hres].
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
@@ -1711,14 +1716,15 @@ Proof.
     apply Nat.eqb_eq in Hck.
     exact (task_uniformity_tail checks sp lss next tail Htasks Hne Hck Hok
              Hnb Hnl Hindent).
-  - exact (ordered_decimal_uniformity_tail d start sp lss next tail
+  - cbn [ck_block]. rewrite map_map.
+    exact (ordered_decimal_uniformity_tail d start sp lss next tail
              Hne Hck Hok Hnb Hnl Hindent).
-  - cbn [ck_ok] in Hck.
+  - cbn [ck_ok ck_block] in Hck |- *. rewrite map_map.
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
     exact (ordered_roman_uniformity_any_tail up d start sp lss next tail
              Hne Hs Hr Hok Hnb Hnl Hindent).
-  - cbn [ck_ok] in Hck.
+  - cbn [ck_ok ck_block] in Hck |- *. rewrite map_map.
     apply andb_true_iff in Hck as [Hck Hres].
     apply andb_true_iff in Hck as [Hs Hr].
     apply Nat.leb_le in Hs. apply Nat.leb_le in Hr.
@@ -1829,8 +1835,8 @@ Proof. reflexivity. Qed.
 Example roman_from_two_parses :
   parse_lines ["ii. a"; "iii. b"; "iv. c"; "v. d"] (PPara [])
   = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2) Tight
-           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])];
-            [mk (Para [mk (Str "c")])]; [mk (Para [mk (Str "d")])]])].
+           [mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])];
+            mk [mk (Para [mk (Str "c")])]; mk [mk (Para [mk (Str "d")])]])].
 Proof. reflexivity. Qed.
 
 (* ...and so the uniformity theorem applies to it, with no proof of its
@@ -1844,8 +1850,8 @@ Corollary roman_from_two_uniformity :
                 (PPara [])
     = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2)
              (list_spacing_of sp [["a"]; ["b"]; ["c"]; ["d"]])
-             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara []);
-              parse_lines ["c"] (PPara []); parse_lines ["d"] (PPara [])])].
+             [mk (parse_lines ["a"] (PPara [])); mk (parse_lines ["b"] (PPara []));
+              mk (parse_lines ["c"] (PPara [])); mk (parse_lines ["d"] (PPara []))])].
 Proof.
   intros sp.
   exact (list_uniformity (MOrd "ii" RightPeriod) sp ["a"]
@@ -1874,7 +1880,7 @@ Corollary roman_from_one_uniformity :
                 (PPara [])
     = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1)
              (list_spacing_of sp [["a"]; ["b"]])
-             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara [])])].
+             [mk (parse_lines ["a"] (PPara [])); mk (parse_lines ["b"] (PPara []))])].
 Proof.
   intros sp.
   exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "ii" RightPeriod)
@@ -1895,7 +1901,7 @@ Corollary alpha_from_nine_uniformity :
                 (PPara [])
     = [mk (OrderedList (OLAttrs LetterLower RightPeriod 9)
              (list_spacing_of sp [["a"]; ["b"]])
-             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara [])])].
+             [mk (parse_lines ["a"] (PPara [])); mk (parse_lines ["b"] (PPara []))])].
 Proof.
   intros sp.
   exact (list_uniformity_narrow (MOrd "i" RightPeriod) (MOrd "j" RightPeriod)
@@ -1915,7 +1921,7 @@ Proof. reflexivity. Qed.
 Example roman_from_one_parses_anyway :
   parse_lines ["i. a"; "ii. b"] (PPara [])
   = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1) Tight
-           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+           [mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 (* The generalization, exercised.  `*` and `+` are separate list styles
@@ -1971,8 +1977,8 @@ Example renumbering_list_parses :
                                    (MOrd "10" RightPeriod, ["b"; "b2"])]))
               (PPara [])
   = [mk (OrderedList (OLAttrs Decimal RightPeriod 9) Tight
-           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "a2")])];
-            [mk (Para [mk (Str "b"); mk SoftBreak; mk (Str "b2")])]])].
+           [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "a2")])];
+            mk [mk (Para [mk (Str "b"); mk SoftBreak; mk (Str "b2")])]])].
 Proof. reflexivity. Qed.
 
 (* And the rendering really is the one whose pad moves. *)
@@ -1993,7 +1999,7 @@ Proof. reflexivity. Qed.
 Example decimal_list_parses :
   parse_lines ["3. a"; "3. b"] (PPara [])
   = [mk (OrderedList (OLAttrs Decimal RightPeriod 3) Tight
-           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+           [mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 Example decimal_item_ok : item_ok (MOrd "3" RightPeriod) ["a"] = true.
@@ -2008,14 +2014,14 @@ Proof. vm_compute. reflexivity. Qed.
 Example paren_list_parses :
   parse_lines ["(1) a"; "(1) b"] (PPara [])
   = [mk (OrderedList (OLAttrs Decimal LeftRightParen 1) Tight
-           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+           [mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 (* And it is not vacuous at ordered markers. *)
 Example star_list_parses :
   parse_lines ["* a"; "* b"] (PPara [])
-  = [mk (BulletList Tight [[mk (Para [mk (Str "a")])];
-                           [mk (Para [mk (Str "b")])]])].
+  = [mk (BulletList Tight [mk [mk (Para [mk (Str "a")])];
+                           mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 Example star_item_ok : item_ok star ["a"] = true.
@@ -2038,8 +2044,8 @@ Corollary roman_from_two_uniform :
                 (PPara [])
     = [mk (OrderedList (OLAttrs RomanLower RightPeriod 2)
              (list_spacing_of sp [["a"]; ["b"]; ["c"]])
-             [parse_lines ["a"] (PPara []); parse_lines ["b"] (PPara []);
-              parse_lines ["c"] (PPara [])])].
+             [mk (parse_lines ["a"] (PPara [])); mk (parse_lines ["b"] (PPara []));
+              mk (parse_lines ["c"] (PPara []))])].
 Proof.
   intros sp.
   exact (ordered_roman_uniformity false RightPeriod 2 sp [["a"]; ["b"]; ["c"]]
@@ -2063,8 +2069,8 @@ Corollary alpha_from_one_uniform :
                 (PPara [])
     = [mk (OrderedList (OLAttrs LetterLower RightParen 1)
              (list_spacing_of sp [["x"]; ["y"]; ["z"]; ["w"]])
-             [parse_lines ["x"] (PPara []); parse_lines ["y"] (PPara []);
-              parse_lines ["z"] (PPara []); parse_lines ["w"] (PPara [])])].
+             [mk (parse_lines ["x"] (PPara [])); mk (parse_lines ["y"] (PPara []));
+              mk (parse_lines ["z"] (PPara [])); mk (parse_lines ["w"] (PPara []))])].
 Proof.
   intros sp.
   exact (ordered_alpha_uniformity false RightParen 1 sp
@@ -2083,5 +2089,5 @@ Proof. reflexivity. Qed.
 Example roman_from_one_parses_anyway_too :
   parse_lines ["i. a"; "ii. b"] (PPara [])
   = [mk (OrderedList (OLAttrs RomanLower RightPeriod 1) Tight
-           [[mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])]])].
+           [mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.

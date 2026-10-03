@@ -193,13 +193,16 @@ module Block : sig
     | Div of string * t node list
     (** The string is a name, written [::: name] where djot reads a class, an extension
         ({!Profile.with_ext_tags}); empty means unnamed. *)
-    | OrderedList of ordered_list_attributes * list_spacing * t node list list
-    | BulletList of list_spacing * t node list list
-    | TaskList of list_spacing * (task_status * t node list) list
-    | DefinitionList of list_spacing * (Inline.t node list * t node list) list
+    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
+    (** Each item is a node, with its own location. *)
+    | BulletList of list_spacing * t node list node list
+    | TaskList of list_spacing * (task_status * t node list) node list
+    | DefinitionList of
+        list_spacing * (Inline.t node list node * t node list node) node list
+    (** Each item holds its term and its definition. *)
     | ThematicBreak
-    | Table of Inline.t node list * cell list list
-    (** Caption, then rows. An empty caption is no caption. *)
+    | Table of Inline.t node list node * cell node list node list
+    (** Caption, then rows of cells. A caption with no inlines is no caption. *)
     | RawBlock of string * string
     | FootnoteDef of string * t node list
     (** Moved into {!Doc.footnotes} by the document pass. *)
@@ -379,7 +382,8 @@ module Doc : sig
   val reference : t -> string -> (string * Attr.t) option
 
   (** {!Textloc.none} unless the document was parsed with [~locs:true] and the node came
-      from that parse. *)
+      from that parse. A list item spans from its marker to its last content, a table row
+      its line, a cell from its leading [|], a caption from its [^]. *)
   val textloc : t -> 'a node -> Textloc.t
 
   (** The label of a {!Block.FootnoteDef}, between [[^] and [\]].
@@ -395,40 +399,6 @@ module Doc : sig
   (** The node's delimiting syntax, in source order. Empty under the same conditions as
       {!textloc}. *)
   val syntax_locs : t -> 'a node -> (syntax * Textloc.t) list
-
-  (** {2 Parts that are not nodes}
-      List items, definition-list terms and definitions, table rows, cells and the caption
-      are not nodes, so {!textloc} cannot locate them. These functions return them with
-      their ranges. A range is {!Textloc.none} under the same conditions as {!textloc},
-      and for every part of a node whose parts a {!Mapper} changed in number. A mapper
-      that rewrites a part's content without changing the count keeps the old range. *)
-
-  (** A bullet or ordered list's items, each from its marker to its last content. [[]] for
-      any other node. *)
-  val list_items : t -> Block.t node -> (Textloc.t * Block.t node list) list
-
-  (** A task list's items, each from its marker, checkbox included. [[]] for any other
-      node. *)
-  val task_items
-    :  t
-    -> Block.t node
-    -> (Textloc.t * Block.task_status * Block.t node list) list
-
-  (** A definition list's items: the item's range, then the term and the definition each
-      with its range. [[]] for any other node. *)
-  val def_items
-    :  t
-    -> Block.t node
-    -> (Textloc.t * (Textloc.t * Inline.t node list) * (Textloc.t * Block.t node list))
-         list
-
-  (** A table's caption, from its [^]. {!Textloc.none} for a table without one and for any
-      other node. *)
-  val table_caption_loc : t -> Block.t node -> Textloc.t
-
-  (** A table's rows, each with its cells. A row spans its line, a cell from its leading
-      [|]. [[]] for any other node. *)
-  val table_rows : t -> Block.t node -> (Textloc.t * (Textloc.t * Block.cell) list) list
 end
 
 (** /**)

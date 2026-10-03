@@ -250,9 +250,9 @@ Example task_boxes_are_literal :
 - [x] b
 - [X]	c"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "[ ] a")])];
-            [mk (Para [mk (Str "[x] b")])];
-            [mk (Para [mk (Str "[X]	c")])]])].
+           [mk [mk (Para [mk (Str "[ ] a")])];
+            mk [mk (Para [mk (Str "[x] b")])];
+            mk [mk (Para [mk (Str "[X]	c")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_task_list_is_disabled :
@@ -266,9 +266,9 @@ Example tasks_restored :
 - [x] b
 - [X]	c"
   = [mk (TaskList Tight
-           [(Incomplete, [mk (Para [mk (Str "a")])]);
-            (Complete, [mk (Para [mk (Str "b")])]);
-            (Complete, [mk (Para [mk (Str "c")])])])].
+           [mk (Incomplete, [mk (Para [mk (Str "a")])]);
+            mk (Complete, [mk (Para [mk (Str "b")])]);
+            mk (Complete, [mk (Para [mk (Str "c")])])])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example with_tasks_preserves_other_block_settings :
@@ -322,7 +322,7 @@ Example djot_profile_keeps_definition_lists :
 
   d"
   = [mk (DefinitionList Loose
-           [([mk (Str "t")], [mk (Para [mk (Str "d")])])])].
+           [mk (mk [mk (Str "t")], mk [mk (Para [mk (Str "d")])])])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example definition_list_is_a_bullet_list :
@@ -330,7 +330,7 @@ Example definition_list_is_a_bullet_list :
 
   d"
   = [mk (BulletList Loose
-           [[mk (Para [mk (Str "t")]); mk (Para [mk (Str "d")])]])].
+           [mk [mk (Para [mk (Str "t")]); mk (Para [mk (Str "d")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_deflist_follows_deflists :

@@ -227,7 +227,7 @@ Bullet lists
 Example parse_list_tight :
   parse_blocks "- a
 - b" = [mk (BulletList Tight
-              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+              [ mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 (* A blank line between items, with content after it, loosens the list. *)
@@ -235,13 +235,13 @@ Example parse_list_loose :
   parse_blocks "- a
 
 - b" = [mk (BulletList Loose
-              [ [mk (Para [mk (Str "a")])]; [mk (Para [mk (Str "b")])] ])].
+              [ mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 (* A trailing blank does not: the next event closes the list. *)
 Example parse_list_trailing_blank :
   parse_blocks "- a
-" = [mk (BulletList Tight [[mk (Para [mk (Str "a")])]])].
+" = [mk (BulletList Tight [mk [mk (Para [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
 (* Thematic breaks win over bullet markers: `classify` tests them
@@ -256,15 +256,15 @@ Example parse_list_no_interrupt :
   parse_blocks "- a
   - b"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
+           [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
 Proof. reflexivity. Qed.
 
 (* A different bullet character is a different list. *)
 Example parse_list_style_change :
   parse_blocks "- a
 * b"
-  = [ mk (BulletList Tight [[mk (Para [mk (Str "a")])]])
-    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+  = [ mk (BulletList Tight [mk [mk (Para [mk (Str "a")])]])
+    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* Lazy continuation reaches into the item's paragraph. *)
@@ -272,14 +272,14 @@ Example parse_list_lazy :
   parse_blocks "- a
 b"
   = [mk (BulletList Tight
-           [[mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "b")])]])].
+           [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 (* A bare marker opens an item with no content. *)
 Example parse_list_empty_item :
   parse_blocks "-
 - b"
-  = [mk (BulletList Tight [ []; [mk (Para [mk (Str "b")])] ])].
+  = [mk (BulletList Tight [ mk []; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 Example parse_heading_in_quote :
@@ -517,7 +517,7 @@ Proof. reflexivity. Qed.
 Example parse_footnote_list_body :
   parse_blocks "[^a]: - item"
   = [mk (FootnoteDef "a"
-       [mk (BulletList Tight [[mk (Para [mk (Str "item")])]])])].
+       [mk (BulletList Tight [mk [mk (Para [mk (Str "item")])]])])].
 Proof. reflexivity. Qed.
 
 (* The opener shifts the list's indentation.  djot.js agrees: in the
@@ -569,7 +569,7 @@ Example parse_blank_absorbed_by_div :
   t
   :::"
   = [mk (BulletList Tight
-           [[mk (Div "" [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
+           [mk [mk (Div "" [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
 Proof. reflexivity. Qed.
 
 (* A block quote does not: the prefix-less blank closes it, so the blank
@@ -579,7 +579,7 @@ Example parse_blank_not_absorbed_by_quote :
 
   t"
   = [mk (BulletList Loose
-           [[mk (BlockQuote [mk (Para [mk (Str "a")])]); mk (Para [mk (Str "t")])]])].
+           [mk [mk (BlockQuote [mk (Para [mk (Str "a")])]); mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 
 (*
@@ -597,18 +597,18 @@ Example parse_table_header :
   parse_blocks "| a | b |
 |---|--:|
 | c | d |"
-  = [mk (Table []
-           [ [ Cell HeadCell AlignDefault [mk (Str "a")]
-             ; Cell HeadCell AlignRight [mk (Str "b")] ]
-           ; [ Cell BodyCell AlignDefault [mk (Str "c")]
-             ; Cell BodyCell AlignRight [mk (Str "d")] ] ])].
+  = [mk (Table (mk [])
+           [ mk [ mk (Cell HeadCell AlignDefault [mk (Str "a")])
+             ; mk (Cell HeadCell AlignRight [mk (Str "b")]) ]
+           ; mk [ mk (Cell BodyCell AlignDefault [mk (Str "c")])
+             ; mk (Cell BodyCell AlignRight [mk (Str "d")]) ] ])].
 Proof. reflexivity. Qed.
 
 (* With no row before it, a separator only sets alignment. *)
 Example parse_table_separator_first :
   parse_blocks "|--:|
 | b |"
-  = [mk (Table [] [[Cell BodyCell AlignRight [mk (Str "b")]]])].
+  = [mk (Table (mk []) [mk [mk (Cell BodyCell AlignRight [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 (* Two separators in a row both claim the same preceding row, so the
@@ -618,9 +618,9 @@ Example parse_table_two_separators :
 |---|
 |:-:|
 | b |"
-  = [mk (Table []
-           [ [Cell HeadCell AlignCenter [mk (Str "a")]]
-           ; [Cell BodyCell AlignCenter [mk (Str "b")]] ])].
+  = [mk (Table (mk [])
+           [ mk [mk (Cell HeadCell AlignCenter [mk (Str "a")])]
+           ; mk [mk (Cell BodyCell AlignCenter [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 (* Alignment runs out positionally rather than repeating. *)
@@ -628,24 +628,24 @@ Example parse_table_ragged :
   parse_blocks "| a |
 |--:|
 | b | c |"
-  = [mk (Table []
-           [ [Cell HeadCell AlignRight [mk (Str "a")]]
-           ; [ Cell BodyCell AlignRight [mk (Str "b")]
-             ; Cell BodyCell AlignDefault [mk (Str "c")] ] ])].
+  = [mk (Table (mk [])
+           [ mk [mk (Cell HeadCell AlignRight [mk (Str "a")])]
+           ; mk [ mk (Cell BodyCell AlignRight [mk (Str "b")])
+             ; mk (Cell BodyCell AlignDefault [mk (Str "c")]) ] ])].
 Proof. reflexivity. Qed.
 
 (* Separators alone are a table with no rows at all. *)
 Example parse_table_no_rows :
-  parse_blocks "|---|" = [mk (Table [] [])].
+  parse_blocks "|---|" = [mk (Table (mk []) [])].
 Proof. reflexivity. Qed.
 
 (* A cell is inline-parsed on its own, so a delimiter never crosses a
    bar (`tables.test:13`). *)
 Example parse_table_cells_are_separate :
   parse_blocks "|*c| d* |"
-  = [mk (Table []
-           [[ Cell BodyCell AlignDefault [mk (Str "*c")]
-            ; Cell BodyCell AlignDefault [mk (Str "d*")] ]])].
+  = [mk (Table (mk [])
+           [mk [ mk (Cell BodyCell AlignDefault [mk (Str "*c")])
+            ; mk (Cell BodyCell AlignDefault [mk (Str "d*")]) ]])].
 Proof. reflexivity. Qed.
 
 (* A line that fails the row scan is not a row: the table closes and the
@@ -654,7 +654,7 @@ Example parse_table_closed_by_bad_row :
   parse_blocks "| a |
 | b
 | c |"
-  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+  = [ mk (Table (mk []) [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])
     ; mk (Para [mk (Str "| b"); mk SoftBreak; mk (Str "| c |")]) ].
 Proof. reflexivity. Qed.
 
@@ -672,8 +672,8 @@ Example parse_table_caption_after_blanks :
 
 
 ^ cap"
-  = [mk (Table [mk (Str "cap")]
-           [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+  = [mk (Table (mk [mk (Str "cap")])
+           [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
 (* But a blank does end the rows: a row after one starts a second
@@ -682,8 +682,8 @@ Example parse_table_blank_splits :
   parse_blocks "| a |
 
 | b |"
-  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
-    ; mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "b")]]]) ].
+  = [ mk (Table (mk []) [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])
+    ; mk (Table (mk []) [mk [mk (Cell BodyCell AlignDefault [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* A caption owns every nonblank line after it, row lines included, and
@@ -692,8 +692,8 @@ Example parse_table_caption_swallows :
   parse_blocks "| a |
 ^ cap
 | b |"
-  = [mk (Table [mk (Str "cap"); mk SoftBreak; mk (Str "| b |")]
-           [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+  = [mk (Table (mk [mk (Str "cap"); mk SoftBreak; mk (Str "| b |")])
+           [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
 (* `^ ` with nothing after it is the empty caption, which is no
@@ -701,7 +701,7 @@ Proof. reflexivity. Qed.
 Example parse_table_caption_empty :
   parse_blocks "| a |
 ^ "
-  = [mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])].
+  = [mk (Table (mk []) [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
 (* A caption with no table before it is a paragraph.  djot.js swallows
@@ -721,7 +721,7 @@ Example parse_table_caption_too_late :
 p
 
 ^ cap"
-  = [ mk (Table [] [[Cell BodyCell AlignDefault [mk (Str "a")]]])
+  = [ mk (Table (mk []) [mk [mk (Cell BodyCell AlignDefault [mk (Str "a")])]])
     ; mk (Para [mk (Str "p")])
     ; mk (Para [mk (Str "^ cap")]) ].
 Proof. reflexivity. Qed.
@@ -742,7 +742,7 @@ Example parse_deflist :
 
   red fruit"
   = [mk (DefinitionList Loose
-           [([mk (Str "apple")], [mk (Para [mk (Str "red fruit")])])])].
+           [mk (mk [mk (Str "apple")], mk [mk (Para [mk (Str "red fruit")])])])].
 Proof. reflexivity. Qed.
 
 (* Without the blank the two lines are one paragraph, so the whole item
@@ -751,7 +751,7 @@ Example parse_deflist_one_para :
   parse_blocks ": apple
   red fruit"
   = [mk (DefinitionList Tight
-           [([mk (Str "apple"); mk SoftBreak; mk (Str "red fruit")], [])])].
+           [mk (mk [mk (Str "apple"); mk SoftBreak; mk (Str "red fruit")], mk [])])].
 Proof. reflexivity. Qed.
 
 (* The term is the first paragraph wherever it starts, so a marker line
@@ -760,13 +760,13 @@ Example parse_deflist_term_below :
   parse_blocks ":
 
   d"
-  = [mk (DefinitionList Loose [([mk (Str "d")], [])])].
+  = [mk (DefinitionList Loose [mk (mk [mk (Str "d")], mk [])])].
 Proof. reflexivity. Qed.
 
 (* An item whose first block is not a paragraph has no term. *)
 Example parse_deflist_no_term :
   parse_blocks ": # h"
-  = [mk (DefinitionList Tight [([], [mk (Heading 1 [mk (Str "h")])])])].
+  = [mk (DefinitionList Tight [mk (mk [], mk [mk (Heading 1 [mk (Str "h")])])])].
 Proof. reflexivity. Qed.
 
 (* A colon list and a bullet list do not merge: the style sets do not
@@ -774,8 +774,8 @@ Proof. reflexivity. Qed.
 Example parse_deflist_not_bullet :
   parse_blocks ": a
 - b"
-  = [ mk (DefinitionList Tight [([mk (Str "a")], [])])
-    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+  = [ mk (DefinitionList Tight [mk (mk [mk (Str "a")], mk [])])
+    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* And it does not interrupt a paragraph, as nothing in djot does. *)
@@ -797,38 +797,38 @@ Example parse_tasklist :
   parse_blocks "- [ ] a
 - [x] b"
   = [mk (TaskList Tight
-           [ (Incomplete, [mk (Para [mk (Str "a")])])
-           ; (Complete, [mk (Para [mk (Str "b")])]) ])].
+           [ mk (Incomplete, [mk (Para [mk (Str "a")])])
+           ; mk (Complete, [mk (Para [mk (Str "b")])]) ])].
 Proof. reflexivity. Qed.
 
 (* A marker at end of line is an item with no blocks at all. *)
 Example parse_tasklist_empty :
-  parse_blocks "- [ ]" = [mk (TaskList Tight [(Incomplete, [])])].
+  parse_blocks "- [ ]" = [mk (TaskList Tight [mk (Incomplete, [])])].
 Proof. reflexivity. Qed.
 
 (* The content after the marker is ordinary block content. *)
 Example parse_tasklist_heading :
   parse_blocks "- [ ] # h"
-  = [mk (TaskList Tight [(Incomplete, [mk (Heading 1 [mk (Str "h")])])])].
+  = [mk (TaskList Tight [mk (Incomplete, [mk (Heading 1 [mk (Str "h")])])])].
 Proof. reflexivity. Qed.
 
 (* `-X` and `-` do not intersect, so a bullet sibling starts a new list. *)
 Example parse_tasklist_not_bullet :
   parse_blocks "- [ ] a
 - b"
-  = [ mk (TaskList Tight [(Incomplete, [mk (Para [mk (Str "a")])])])
-    ; mk (BulletList Tight [[mk (Para [mk (Str "b")])]]) ].
+  = [ mk (TaskList Tight [mk (Incomplete, [mk (Para [mk (Str "a")])])])
+    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* Two spaces before the bracket, or none after it, and the marker is an
    ordinary bullet whose content happens to start with a bracket. *)
 Example parse_tasklist_wide :
   parse_blocks "-  [ ] a"
-  = [mk (BulletList Tight [[mk (Para [mk (Str "[ ] a")])]])].
+  = [mk (BulletList Tight [mk [mk (Para [mk (Str "[ ] a")])]])].
 Proof. reflexivity. Qed.
 
 (* And only a bullet takes one. *)
 Example parse_tasklist_colon :
   parse_blocks ": [ ] a"
-  = [mk (DefinitionList Tight [([mk (Str "[ ] a")], [])])].
+  = [mk (DefinitionList Tight [mk (mk [mk (Str "[ ] a")], mk [])])].
 Proof. reflexivity. Qed.

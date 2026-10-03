@@ -46,18 +46,6 @@ Section WithTable.
 Context {T : dtable}.
 Context {K : bconfig}.
 
-Local Lemma pristine_task_items_of_items :
-  forall checks items,
-    Pristine.of_items items = true ->
-    Pristine.of_task_items (task_items checks items) = true.
-Proof.
-  intros checks items. induction items as [|it rest IH] in checks |- *;
-    [reflexivity|].
-  cbn [Pristine.of_items]. intros H. apply andb_true_iff in H as [Hit Hrest].
-  destruct checks; cbn [task_items Pristine.of_task_items]; rewrite Hit;
-    apply IH, Hrest.
-Qed.
-
 (*
 Splitting a rendered document
 =============================
@@ -669,7 +657,7 @@ Local Lemma table_block_ctable :
     table_block (rev (rev (flat_map ctrow_trows rows))) cap = cb_ast (CTable rows).
 Proof.
   intros rows cap Hok Hcap. rewrite rev_involutive.
-  unfold table_block. rewrite Hcap, cb_ast_table. f_equal. f_equal.
+  unfold table_block. rewrite Hcap, cb_ast_table. do 3 f_equal.
   apply table_fold_ctable_cells.
   refine (forallb_weaken _ _ _ _ Hok).
   intros r Hr. apply ctrow_ok_parts in Hr as (_ & Hcis & _). exact Hcis.
@@ -2124,7 +2112,7 @@ Proof.
     apply andb_true_iff in H as [_ Hrows].
     rewrite cb_ast_table, render_node_lines_mk. unfold render_block_lines.
     cbn [render_lines fence_class drop_class attr_lines String.eqb app].
-    rewrite app_nil_r, cb_lines_table.
+    rewrite app_nil_r, cb_lines_table, rows_mk_contents.
     apply table_lines_ctable. exact Hrows.
   - (* explicit id: the spec is its own line.  Every wrapped block is
        `mk`-wrapped, so the set `add_attr` builds holds exactly the id,
@@ -2443,8 +2431,8 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
    [cblock]'s nonempty-item canonical fragment. *)
 Example task_list_source_render_roundtrip :
   let b := TaskList Tight
-             [(Incomplete, [mk (Para [mk (Str "a")])]);
-              (Complete, []); (Complete, [mk (Para [mk (Str "b")])])] in
+             [mk (Incomplete, [mk (Para [mk (Str "a")])]);
+              mk (Complete, []); mk (Complete, [mk (Para [mk (Str "b")])])] in
   render_block_lines b
     = ["- [ ] a"; "- [x]"; "- [x] b"]
   /\ parse_blocks (render_djot [mk b]) = [mk b].
@@ -2474,7 +2462,7 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 Example div_then_item_is_tight :
   parse_blocks ("- :::" ++ nl ++ "  a" ++ nl ++ "  :::" ++ nl ++ "- t")
   = [mk (BulletList Tight
-           [[mk (Div "" [mk (Para [mk (Str "a")])])]; [mk (Para [mk (Str "t")])]])].
+           [mk [mk (Div "" [mk (Para [mk (Str "a")])])]; mk [mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 
 (* A nested list after a paragraph in the same item: the blank the inner

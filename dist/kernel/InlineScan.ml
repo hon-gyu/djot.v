@@ -184,7 +184,7 @@ let merge_text_pos left right =
      | SomePos q ->
        SomePos { node_span = { span_start = p.node_span.span_start;
          span_stop = q.node_span.span_stop }; syntax_spans =
-         (app p.syntax_spans q.syntax_spans); part_spans = PNone })
+         (app p.syntax_spans q.syntax_spans) })
 
 (** val isnoc : inline node -> inlines -> inlines **)
 
