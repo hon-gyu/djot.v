@@ -1054,7 +1054,8 @@ Proof.
   destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool.
   - cbn [of_iscan]. rewrite of_oemit, of_imk,
       of_flush_text_to_at. reflexivity.
-  - destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled)%bool;
+  - destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled
+              && tag_may_follow txt)%bool;
       [|reflexivity].
     cbn [of_iscan]. rewrite of_tag_push, of_flush_text_to_at. reflexivity.
 Qed.

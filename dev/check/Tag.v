@@ -103,26 +103,39 @@ Proof. vm_compute. reflexivity. Qed.
 Inline names
 ============
 
-Every baseline row with names on.  The first four move; the rest are
+Every baseline row with names on.  The first two move; the rest are
 where a colon and a bracket meet without making a name.
 *)
 
 Local Notation T := (fun n xs => mk (Span n xs)).
 
 Example tagged_inline_rows :
-  (Named ":kbd[Ctrl+C]", Named ":kbd[a]{.x}", Named "a:kbd[b]{.x}")
+  (Named ":kbd[Ctrl+C]", Named ":kbd[a]{.x}")
   = ([P [T "kbd" [S "Ctrl+C"]]],
-     [P [Node NoPos [("class", "x")] (Span "kbd" [S "a"])]],
-     [P [S "a"; Node NoPos [("class", "x")] (Span "kbd" [S "b"])]]).
+     [P [Node NoPos [("class", "x")] (Span "kbd" [S "a"])]]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Right after a letter, digit or colon, `:name[` is djot's reading. *)
+Example tagged_not_after_a_word :
+  (Named "a:kbd[b]{.x}", Named "note:see[this](url)", Named "std::vector[0]",
+   Named "12:30[x]", Named "(:kbd[a]) _:kbd[b]_")
+  = ([P [S "a:kbd"; Node NoPos [("class", "x")] (Span "" [S "b"])]],
+     [P [S "note:see"; mk (Link [S "this"] (Direct "url"))]],
+     [P [S "std::vector[0]"]],
+     [P [S "12:30[x]"]],
+     [P [S "("; T "kbd" [S "a"]; S ") "; mk (Emph [T "kbd" [S "b"]])]]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* The rule reads the pending text, which a symbol leaves empty. *)
+Example tagged_after_a_symbol :
+  Named ":a::b[c]" = [P [mk (Symbol "a"); T "b" [S "c"]]].
 Proof. vm_compute. reflexivity. Qed.
 
 (* `]` closes a named bracket at once, so what follows is not a
    destination or a label. *)
 Example tagged_close_is_immediate :
-  (Named ":kbd[a](u)", Named "note:see[this](url)", Named ":kbd[a][r]")
-  = ([P [T "kbd" [S "a"]; S "(u)"]],
-     [P [S "note"; T "see" [S "this"]; S "(url)"]],
-     [P [T "kbd" [S "a"]; S "[r]"]]).
+  (Named ":kbd[a](u)", Named ":kbd[a][r]")
+  = ([P [T "kbd" [S "a"]; S "(u)"]], [P [T "kbd" [S "a"]; S "[r]"]]).
 Proof. vm_compute. reflexivity. Qed.
 
 Example tagged_not_a_name :

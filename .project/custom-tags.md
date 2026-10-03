@@ -5,8 +5,8 @@ ai-disclosure: autonomous
 
 Status: **implemented** (2026-10-03), from
 [[261001.plan.custom-tags]]. The six decisions the plan lists were made
-by an agent and have not been reviewed by a human; section 9 lists what
-a review should look at first. `dev/check/Tag.v` pins every row of
+by an agent. A human review amended D2 (2026-10-03); the other five have
+not been reviewed, and section 9 lists what to look at first. `dev/check/Tag.v` pins every row of
 sections 1, 3 and 7, the HTML of section 5 and the source ranges, and
 the roundtrip test has a tags pool: the ordinary documents plus named
 spans and divs in each container, rendered to djot and read back with
@@ -75,8 +75,10 @@ It is **non-conservative** in both halves:
 - Every `::: word` line changes meaning, from a class to a name. This is
   visible in HTML: `<div class="details">` becomes `<details>`.
 - Every document containing a colon, then one or more symbol characters,
-  then `[` changes meaning. Prose such as `note:see[this](url)` is in
-  that set. djot.js's test suite contains no such text, and four
+  then `[`, where the colon does not follow a letter, digit or colon,
+  changes meaning. The exception keeps prose such as
+  `note:see[this](url)`, `std::vector[0]` and `12:30[x]` out of that
+  set. djot.js's test suite contains no `:word[` text at all, and four
   `::: word` lines, all in its div tests.
 
 Canonical text already escapes `:`, so text ending in `:kbd` before a
@@ -102,6 +104,10 @@ symbol is, and a second colon still makes a symbol.
 
 `:[` has no name and is a colon before an ordinary bracket.
 
+The colon must not directly follow a letter, a digit or another colon
+of text (3.4). The check is on ASCII letters only, so prose without
+spaces between words, as in Chinese, can still open a named span.
+
 ### 3.3 Where a named span closes
 
 At the first `]` that arrives while it is the innermost open bracket.
@@ -121,6 +127,9 @@ abandoning the span, exactly as for an ordinary bracket.
 ### 3.4 Where `:name[` is not a named span
 
 - An escaped colon: `\:kbd[a]` is text, then an ordinary bracket.
+- A colon right after a letter, digit or colon of text: `a:kbd[b]` is
+  the text `a:kbd`, then an ordinary bracket, as in djot. "Of text"
+  means the pending text: after a symbol, `:a::b[c]` does open one.
 - A span that never closes: `:kbd[a` is its own text, as an unclosed
   bracket is.
 - A span whose `]` an inner ordinary bracket takes: `:kbd[x [a] y]` is
@@ -166,21 +175,24 @@ would merge name and class again.
 ## 6. Canonical spelling
 
 A named span is `:name[` then its children then `]`; its children may be
-empty, as a link's text may. A named div is `::: name`, then its blocks,
-then `:::`. Both need the setting, and a name made of the characters its
-opener reads: symbol characters for a span, class characters for a div.
+empty, as a link's text may. It may not directly follow text ending in a
+letter, digit or colon, since no escape separates them. A named div is
+`::: name`, then its blocks, then `:::`. Both need the setting, and a
+name made of the characters its opener reads: symbol characters for a
+span, class characters for a div.
 
 ## 7. Worked examples
 
-With the setting on:
+With the setting on. The other rows of section 1 read as they do in
+djot.
 
 | input | result |
 | --- | --- |
 | `:kbd[Ctrl+C]` | a span named `kbd` holding `Ctrl+C` |
 | `:kbd[a]{.x}` | that span, with class `x` |
 | `:kbd[a](u)` | a span named `kbd`, then the text `(u)` |
-| `note:see[this](url)` | `note`, a span named `see`, then `(url)` |
-| `:kbd:[a]{.x}` | the symbol `kbd`, then an unnamed span |
+| `(:kbd[a])` | `(`, a span named `kbd`, then `)` |
+| `std::vector[0]`, `12:30[x]` | text |
 | `:kbd[]` | an empty span named `kbd` |
 | `:a[:b[c]]` | a span named `a` holding one named `b` |
 | `[:kbd[a]](u)` | a link whose text is a named span |
@@ -206,7 +218,11 @@ attribute line, never as the fence's word.
   alias into a frame `FKTag name`; `ilead` closes it at a `]` through
   `tag_close`. `bunpush` never matches the frame, which is why no
   condition on a named span's first child is needed. The canonical view
-  gains `CITag`, and `iscan_cis_scope` its case.
+  gains `CITag`, and `iscan_cis_scope` its case. The word rule of 3.2
+  is `tag_may_follow`, read by `isymbol_step` on the pending text it
+  already holds; in the canonical view it is one `ci_pair_ok` case,
+  `CIStr` before `CITag`, and the inversion carries it in
+  `text_sep_ok`.
 - The scanner invariants (`Wf.v`, `InlineSpans.v`, `InlineLocated.v`,
   `InlineBuffer.v`, the suffix laws in `InlineInvert.v`) cover the new
   frame. The symbol state's span invariant now records that the state
@@ -240,9 +256,12 @@ user-visible consequence:
   drop it.
 - D5, `::: div` is named `div`. The proposal in the issue folds it into
   the unnamed div.
-- D2, the leading colon. Prose like `note:see[this](url)` changes
-  meaning. The issue's alternatives `!tag[...]` and `[x]{:tag}` avoid
-  this but collide with images or with attribute syntax.
+- D2, the leading colon. Amended in review (2026-10-03): the colon may
+  not follow a letter, digit or colon, so `note:see[this](url)`,
+  `std::vector[0]` and `12:30[x]` keep djot's reading. Prose with a
+  space or punctuation before the colon still changes meaning. The
+  issue's alternatives `!tag[...]` and `[x]{:tag}` avoid this but
+  collide with images or with attribute syntax.
 
 ### 9.2 HTML beyond escaping
 

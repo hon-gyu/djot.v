@@ -654,13 +654,14 @@ human has reviewed yet. The entries below are pinned by examples in
 `baseline_two_words_is_not_an_opener`, all checked against djot.js.
 
 **Non-conservative.** Both halves: every `::: word` and every
-`:symbol-chars[` changes meaning. The setting is off in both named
+`:symbol-chars[` not right after a letter, digit or colon changes
+meaning. The setting is off in both named
 profiles (`names_off_in_named_profiles`).
 
 | | decision | pinned by |
 | --- | --- | --- |
 | D1 | the name is a string field on `Div` and `Span`, empty meaning unnamed | `div_named_div_is_not_unnamed`, `tagged_nesting` |
-| D2 | the inline spelling is `:name[...]`, decided at the `[` from the symbol state | `tagged_inline_rows`, `tagged_not_a_name` |
+| D2 | the inline spelling is `:name[...]`, decided at the `[` from the symbol state; not right after a letter, digit or colon (amended in review, 2026-10-03) | `tagged_inline_rows`, `tagged_not_a_name`, `tagged_not_after_a_word` |
 | D3 | `]` closes a named bracket at once | `tagged_close_is_immediate` |
 | D4 | names are recorded as written; an empty inline name is not a name | `tagged_not_a_name`, `div_word_is_a_name` |
 | D5 | `::: div` is named `div` | `div_named_div_is_not_unnamed` |

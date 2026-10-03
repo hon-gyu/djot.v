@@ -845,6 +845,15 @@ Fixpoint str_last (s : string) (prev : option ascii) : option ascii :=
   | String c rest => str_last rest (Some c)
   end.
 
+(* Whether a named bracket may open after the pending text `txt`: not
+   right after a letter, digit or colon, so `std::vector[0]` and
+   `12:30[x]` stay text (`.project/custom-tags.md`). *)
+Definition tag_may_follow (txt : string) : bool :=
+  match str_last txt None with
+  | Some c => negb (is_alnum c || Ascii.eqb c ":"%char)
+  | None => true
+  end.
+
 (* Source text.
 
    Not `concat (map ...)` of a per-element function: a delimiter's
@@ -1043,10 +1052,12 @@ Renderability
    which opens with a backtick run too.  A verbatim before a delimiter
    spelled with `=` would read as a raw spec: `` `x`{=a=} `` is raw
    content in format `a=`.  That exclusion is on the row's character,
-   since the table is a parameter. *)
+   since the table is a parameter.  A named span after text ending in a
+   letter, digit or colon would read as text (`tag_may_follow`). *)
 Definition ci_pair_ok (a b : cinline) : bool :=
   match a, b with
   | CIStr _, CIStr _ => false
+  | CIStr s, CITag _ _ => tag_may_follow s
   | CIVerb _, CIVerb _ => false
   | CIVerb _, CIDelim k _ => negb (Ascii.eqb (dchar k) eqchar)
   (* raw content opens with a backtick run of its own, so it merges with

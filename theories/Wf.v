@@ -2153,7 +2153,7 @@ Proof.
         -- apply oscope_ok_emit;
              [apply iscan_wf_flush; assumption | reflexivity | apply andb_false_l].
         -- rewrite ocur_emit. reflexivity.
-      * destruct (Ascii.eqb c lbrack && nonempty_str salias && tags_enabled)%bool;
+      * destruct (Ascii.eqb c lbrack && nonempty_str salias && tags_enabled && tag_may_follow stxt)%bool;
           [|apply IHsob, Hsh].
         apply iscan_wf_text; [|reflexivity].
         apply oscope_ok_tag_push, iscan_wf_flush; assumption.

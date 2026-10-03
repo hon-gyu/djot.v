@@ -1816,7 +1816,8 @@ Definition isymbol_step `{PosPolicy} `{InlineCursor}
          (oemit (imk start cursor_stop (Symbol (tval alias)))
            (flush_text_to_at start (tval txt) o))
   (* the alias is a name, and the `[` opens its bracket *)
-  else if (Ascii.eqb c lbrack && tnonempty alias && tags_enabled)%bool
+  else if (Ascii.eqb c lbrack && tnonempty alias && tags_enabled
+           && tag_may_follow (tval txt))%bool
   then let start := spot_before cursor_start (one ":"%char ++ tval alias)%string in
        IText false tnil (Some c)
          (tag_push (tval alias) start (flush_text_to_at start (tval txt) o))

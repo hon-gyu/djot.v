@@ -2043,7 +2043,7 @@ Proof.
     { cbn [st_inv orb]. split; [|split; [exact nx_prev|discriminate]].
       apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
       apply flush_text_to_at_touched. eapply oinv_strict; [exact nx_lt|exact Ht]. }
-    destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled)%bool; [|exact Hsh].
+    destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled && tag_may_follow txt)%bool; [|exact Hsh].
     cbn [st_inv orb]. split; [|split; [exact nx_prev|discriminate]].
     rewrite Hs, spot_before_no_nl by (cbn [no_char append one]; exact Hnl).
     unfold tag_push, pspan. cbn [pos_records located_pos]. rewrite Hn.

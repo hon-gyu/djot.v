@@ -199,7 +199,7 @@ Definition dollar_rt_lhs (c : cblock) : blocks :=
 
 (* Custom tag names move both layers, so their pool is read with both
    settings on: the ordinary pool, which must not move, then each named
-   span and named div in the containers.  The last three are ones the
+   span and named div in the containers.  The last five are ones the
    canonical view excludes, so the pinned count shows each exclusion is
    reached; so is a named div directly inside a div, whose fence the
    canonical view does not lengthen. *)
@@ -225,7 +225,10 @@ Definition tags_pool (d : nat) : list cblock :=
       (* an empty name is no name, and a space is not in one *)
       ; CPara [[CITag "" [CIStr "a"]]]
       ; CPara [[CITag "a b" [CIStr "a"]]]
-      ; CDiv "a b" [CPara [[CIStr "x"]]] ])%list.
+      ; CDiv "a b" [CPara [[CIStr "x"]]]
+      (* nor does one open right after a letter, digit or colon *)
+      ; CPara [[CIStr "a"; CITag "kbd" [CIStr "b"]]]
+      ; CPara [[CIStr "std:"; CITag "vector" [CIStr "0"]]] ])%list.
 
 Definition tags_accepted (d : nat) : list cblock :=
   filter (@cb_ok tags_table tags_bconfig) (tags_pool d).

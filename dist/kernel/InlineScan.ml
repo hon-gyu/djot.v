@@ -1226,7 +1226,10 @@ let isymbol_step t x h h0 c alias txt o sh' =
             IText (false, x.tnil, (Some c),
             (oemit (imk h start h0.cursor_stop (Symbol (x.tval alias)))
               (flush_text_to_at h h0 start (x.tval txt) o)))
-       else if (&&) ((&&) ((=) c lbrack) (x.tnonempty alias)) (tags_enabled t)
+       else if (&&)
+                 ((&&) ((&&) ((=) c lbrack) (x.tnonempty alias))
+                   (tags_enabled t))
+                 (tag_may_follow (x.tval txt))
             then let start =
                    spot_before h0.cursor_start ((^) (one ':') (x.tval alias))
                  in
