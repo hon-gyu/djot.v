@@ -76,7 +76,11 @@ Class bconfig : Type := BConfig {
        See `.project/keyed-blocks.md`. *)
   bkeyed : bool;
   (* Does a newly opened quote recognize an Obsidian-style callout header? *)
-  bcallouts : bool
+  bcallouts : bool;
+  (* Is the word after a div's opening fence the div's name rather than a
+     class?  Non-conservative, like `bkeyed`: `::: word` is valid djot
+     either way and changes reading.  See `.project/custom-tags.md`. *)
+  bdiv_names : bool
 }.
 
 (* The source line currently being folded.  It is an observation only:
@@ -123,7 +127,7 @@ Local Definition setext_underline (c : ascii) (n : nat) : option nat :=
 
 #[export] Instance djot_bconfig : bconfig :=
   BConfig no_interrupt no_underline true true true true true true true
-    true false false.
+    true false false false.
 
 (* Field-local block knobs.  Each preserves the other decisions, which is what
    lets independently justified settings compose without rebuilding a record
@@ -133,48 +137,57 @@ Definition with_marker_interrupts
   (K : bconfig) : bconfig :=
   BConfig f (@bunderline K) (@btables K) (@bheading_continues K) (@bdivs K)
     (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_underline
   (f : ascii -> nat -> option nat) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) f (@btables K) (@bheading_continues K)
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_tables (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) enabled
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_heading_continuation (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K) enabled
     (@bdivs K) (@btasks K) (@braw_blocks K) (@bdeflists K) (@battrs K)
-    (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_divs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) enabled (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_tasks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) enabled (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_raw_blocks (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) enabled (@bdeflists K)
-    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_deflists (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K) enabled
-    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) enabled (@bfootnotes K) (@bkeyed K) (@bcallouts K).
+    (@bdeflists K) enabled (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 (* Exported, but the profile-level `with_footnotes` is what a caller
    should reach for: a reference the document cannot define, or a
@@ -182,18 +195,28 @@ Definition with_block_attrs (enabled : bool) (K : bconfig) : bconfig :=
 Definition with_block_footnotes (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) enabled (@bkeyed K) (@bcallouts K).
+    (@bdeflists K) (@battrs K) enabled (@bkeyed K) (@bcallouts K)
+    (@bdiv_names K).
 
 (* Keys are a mode, not a default: see `bkeyed`. *)
 Definition with_keyed (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) enabled (@bcallouts K).
+    (@bdeflists K) (@battrs K) (@bfootnotes K) enabled (@bcallouts K)
+    (@bdiv_names K).
 
 Definition with_callouts (enabled : bool) (K : bconfig) : bconfig :=
   BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
     (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
-    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) enabled.
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) enabled
+    (@bdiv_names K).
+
+(* Names are a mode, as keys are: see `bdiv_names`. *)
+Definition with_div_names (enabled : bool) (K : bconfig) : bconfig :=
+  BConfig (@bmarker_interrupts K) (@bunderline K) (@btables K)
+    (@bheading_continues K) (@bdivs K) (@btasks K) (@braw_blocks K)
+    (@bdeflists K) (@battrs K) (@bfootnotes K) (@bkeyed K) (@bcallouts K)
+    enabled.
 
 (* Other settings, deliberately not `Instance`s: they are named where
    wanted (`dev/check/Sublist.v`, `dev/check/Setext.v`), so that
@@ -1020,13 +1043,25 @@ Definition finish_para_recover (slices : list stored_line) : blocks :=
                          (rev slices))))]
   end.
 
-(* A div's class becomes a `class` attribute on the node; a classless div
-   carries no attributes at all, so the canonical case stays `mk`-wrapped
-   and proofs compute through it. *)
-Definition div_block (cls : string) (bs : blocks) : node block :=
-  if String.eqb cls EmptyString
-  then mk (Div bs)
-  else Node NoPos [("class", cls)] (Div bs).
+(* The word after a div's opening fence: its name with `bdiv_names`,
+   otherwise a `class` attribute on the node.  A div with no word carries
+   no attributes at all either way, so the canonical case stays
+   `mk`-wrapped and proofs compute through it. *)
+Definition div_block (word : string) (bs : blocks) : node block :=
+  if bdiv_names then mk (Div word bs)
+  else if String.eqb word EmptyString
+  then mk (Div EmptyString bs)
+  else Node NoPos [("class", word)] (Div EmptyString bs).
+
+(* Where the word is a name, or there is none, the div is the bare node. *)
+Lemma div_block_named :
+  forall word bs,
+    (bdiv_names || String.eqb word EmptyString)%bool = true ->
+    div_block word bs = mk (Div word bs).
+Proof.
+  intros word bs H. unfold div_block. destruct bdiv_names; [reflexivity|].
+  cbn [orb] in H. rewrite H. apply String.eqb_eq in H. subst word. reflexivity.
+Qed.
 
 (* The block a list closes to, read off the candidate set its state
    carries.  Stated on the set rather than on a marker because siblings
@@ -4992,7 +5027,7 @@ Proof.
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst;
       try rewrite erase_parse_inline_line_located;
       reflexivity.
-  - unfold div_block. destruct (String.eqb cls EmptyString) eqn:E;
+  - unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString) eqn:E];
       cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk];
       fold Erase.of_blocks;
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst; reflexivity.
@@ -5318,7 +5353,7 @@ Proof.
     destruct (negb (in_fence st) && div_close len l)%bool.
     + unfold StateErase.result; cbn [fst snd StateErase.state].
       rewrite Erase.blocks_set_pos.
-      unfold div_block. destruct (String.eqb cls EmptyString) eqn:E;
+      unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString) eqn:E];
         cbn [Erase.of_blocks Erase.of_block mk]; fold Erase.of_blocks;
         rewrite Erase.blocks_app, Erase.blocks_rev, finish_erase; reflexivity.
     + rewrite <- (IH off l st).

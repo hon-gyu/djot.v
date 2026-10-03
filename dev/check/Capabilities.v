@@ -173,7 +173,7 @@ Definition inline_attrs_restored_table : dtable :=
 
 Example inline_attrs_restored :
   @InlineScan.parse_inline_line inline_attrs_restored_table "[s]{.c}"
-  = [Node NoPos [("class", "c")] (Span [mk (Str "s")])].
+  = [Node NoPos [("class", "c")] (Span "" [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example with_inline_attrs_preserves_other_inline_settings :
@@ -216,7 +216,7 @@ Example djot_profile_keeps_divs :
   parse_profile_blocks djot_profile ":::
 a
 :::"
-  = [mk (Div [mk (Para [mk (Str "a")])])].
+  = [mk (Div "" [mk (Para [mk (Str "a")])])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example divs_off_read_as_text :
@@ -228,7 +228,7 @@ a
 Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_div_is_disabled :
-  @cb_ok djot_table (with_divs false djot_bconfig) (CDiv [CPara [[CIStr "a"]]])
+  @cb_ok djot_table (with_divs false djot_bconfig) (CDiv "" [CPara [[CIStr "a"]]])
   = false.
 Proof. vm_compute. reflexivity. Qed.
 

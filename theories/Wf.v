@@ -80,7 +80,7 @@ Local Fixpoint wf_inline (il : inline) : bool :=
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Quoted _ ns =>
       wf_container ns
-  | Link ns _ | Image ns _ | Span ns =>
+  | Link ns _ | Image ns _ | Span _ ns =>
       (* a bracketed construct may be empty: `[](url)` and `[]{.a}` are
          both valid djot, and djot.js builds the empty node for each *)
       wf_ils ns && no_adjacent_str ns
@@ -139,7 +139,7 @@ Local Fixpoint wf_block (b : block) : bool :=
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
      empty for the same reason and on the same evidence: `:::` then `:::`
      renders as `<div>\n</div>` in djot.js. *)
-  | BlockQuote bs | Div bs => wf_bs bs
+  | BlockQuote bs | Div _ bs => wf_bs bs
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
   | OrderedList _ _ items => nonempty items && wf_items items
@@ -245,12 +245,13 @@ Qed.
 
 (* Divs share BlockQuote's clause, so they share its lemma's shape. *)
 Local Lemma wf_block_div :
-  forall bs, wf_block (Div bs) = wf_blocks bs.
+  forall name bs, wf_block (Div name bs) = wf_blocks bs.
 Proof.
+  intros name.
   induction bs as [|n bs IH]; [reflexivity|].
   destruct n as [p a x].
-  change (wf_block (Div (Node p a x :: bs)))
-    with (wf_block x && wf_block (Div bs))%bool.
+  change (wf_block (Div name (Node p a x :: bs)))
+    with (wf_block x && wf_block (Div name bs))%bool.
   rewrite IH. reflexivity.
 Qed.
 
@@ -261,7 +262,7 @@ Local Lemma div_block_wf :
     wf_blocks bs = true -> wf_blocks [div_block cls bs] = true.
 Proof.
   intros cls bs H. unfold div_block.
-  destruct (String.eqb cls EmptyString);
+  destruct bdiv_names; [|destruct (String.eqb cls EmptyString)];
     rewrite wf_blocks_cons; cbn [node_contents mk];
     rewrite wf_block_div, H; reflexivity.
 Qed.
@@ -1226,6 +1227,14 @@ Proof.
   change (ilist_ok []) with true. rewrite andb_true_l. exact H.
 Qed.
 
+Local Lemma oscope_ok_tag_push :
+  forall name start o, oscope_ok o = true -> oscope_ok (tag_push name start o) = true.
+Proof.
+  intros name start [out stk word] H. unfold oscope_ok, tag_push in *;
+    cbn [os_out os_stk frames_ok forallb fr_out] in *.
+  change (ilist_ok []) with true. rewrite andb_true_l. exact H.
+Qed.
+
 Local Lemma oscope_ok_dpush :
   forall image open o,
     oscope_ok o = true -> oscope_ok (dpush image open o) = true.
@@ -1256,10 +1265,11 @@ Qed.
 Local Lemma fr_src_nonempty : forall f, nonempty_str (fr_src f) = true.
 Proof.
   intros [kind marked out]. unfold fr_src; cbn [fr_kind fr_marked].
-  destruct kind as [k|image|image].
+  destruct kind as [k|image|image|name].
   - apply ddecay_str_nonempty.
   - destruct image; reflexivity.
   - destruct image; reflexivity.
+  - destruct name; reflexivity.
 Qed.
 
 Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
@@ -1408,6 +1418,49 @@ Proof.
   - injection E as <- <- <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
     apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)].
   - discriminate E.
+  - discriminate E.
+Qed.
+
+(* The same for a named bracket's close. *)
+Local Lemma tag_close_go_ok :
+  forall stk pend content name open rest,
+    frames_ok stk = true -> ilist_ok pend = true ->
+    tag_close_go pend stk = Some (content, name, open, rest) ->
+    (ilist_ok content && frames_ok rest)%bool = true.
+Proof.
+  induction stk as [|f stk IH]; intros pend content name open rest Hs Hp E;
+    [discriminate|].
+  cbn [tag_close_go] in E. destruct (fr_kind f).
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+            content name open rest (frames_ok_tail f stk Hs)); [|exact E].
+    apply ilist_ok_oapp;
+      [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
+      |apply ilist_ok_src].
+  - discriminate E.
+  - discriminate E.
+  - injection E as <- <- <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
+    apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)].
+Qed.
+
+Local Lemma tag_close_ok :
+  forall o kids name open o',
+    oscope_ok o = true -> tag_close o = Some (kids, name, open, o') ->
+    (oscope_ok o' && wf_inlines kids)%bool = true.
+Proof.
+  intros o kids name open o' Ho E. unfold tag_close in E.
+  destruct (tag_close_go [] (os_stk o)) as [[[[content nm] op] rest]|] eqn:Eg;
+    [|discriminate].
+  injection E as <- <- <- <-.
+  apply andb_true_iff in Ho as [Hb Hs].
+  pose proof (tag_close_go_ok (os_stk o) [] content nm op rest Hs eq_refl Eg)
+    as Hcr.
+  apply andb_true_iff in Hcr as [Hc Hr].
+  pose proof (oresolve_ok content Hc) as Hres.
+  unfold rlist_ok in Hres. apply andb_true_iff in Hres as [Hall Hadj].
+  apply andb_true_iff. split.
+  - unfold oscope_ok; cbn [os_out os_stk os_word_start].
+    rewrite Hb, Hr. reflexivity.
+  - unfold wf_inlines. rewrite forallb_rev, Hall. cbn [andb]. exact Hadj.
 Qed.
 
 Local Lemma bclose_ok :
@@ -1669,7 +1722,7 @@ Local Lemma oscope_ok_bunpush :
     oscope_ok o = true -> bunpush o = Some (image, open, o') ->
     oscope_ok o' = true.
 Proof.
-  intros [out [|[[k|im|im] m op [|n l]] stk] word] image open o' Ho H;
+  intros [out [|[[k|im|im|nm] m op [|n l]] stk] word] image open o' Ho H;
     try discriminate.
   injection H as _ _ <-. unfold oscope_ok in *;
     cbn [os_out os_stk frames_ok forallb] in *.
@@ -1709,8 +1762,19 @@ Proof.
     destruct (note_pos txt prev && wikilinks_enabled)%bool; [|exact Hb].
     destruct (bunpush o) as [[[image open] o']|] eqn:Eu; [|exact Hb].
     cbn [iscan_wf]. exact (oscope_ok_bunpush o image open o' Ho Eu). }
-  destruct (Ascii.eqb c rbrack);
-    [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
+  destruct (Ascii.eqb c rbrack).
+  { tred. destruct (if tags_enabled then tag_close (flush_text_at txt o) else None)
+      as [[[[kids name] open] o']|] eqn:Et;
+      [|cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity].
+    destruct tags_enabled; [|discriminate Et].
+    pose proof (tag_close_ok _ kids name open o' (iscan_wf_flush txt o Ho Hs) Et)
+      as Hk.
+    apply andb_true_iff in Hk as [Ho' Hk].
+    unfold wf_inlines in Hk. apply andb_true_iff in Hk as [Hall Hadj].
+    apply iscan_wf_text; [|rewrite ocur_emit; reflexivity].
+    apply oscope_ok_emit; [exact Ho'| |reflexivity].
+    rewrite imk_semantic. cbn [node_contents mk wf_inline].
+    rewrite wf_ils_forallb, Hall, Hadj. reflexivity. }
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [destruct (bunpush o) as [[[image open] o']|] eqn:Eu;
        [cbn [iscan_wf]; exact (oscope_ok_bunpush o image open o' Ho Eu)|]|];
@@ -2089,7 +2153,10 @@ Proof.
         -- apply oscope_ok_emit;
              [apply iscan_wf_flush; assumption | reflexivity | apply andb_false_l].
         -- rewrite ocur_emit. reflexivity.
-      * apply IHsob, Hsh.
+      * destruct (Ascii.eqb c lbrack && nonempty_str salias && tags_enabled && tag_may_follow stxt)%bool;
+          [|apply IHsob, Hsh].
+        apply iscan_wf_text; [|reflexivity].
+        apply oscope_ok_tag_push, iscan_wf_flush; assumption.
   (* the node the spec decides is not a `Str` either way, so the scope it
      lands in carries the head condition its own emission establishes *)
   - cbn [iscan_wf] in H. unfold iraw_step_at. tred.
@@ -3473,7 +3540,7 @@ Local Fixpoint supported (b : block) : bool :=
      nothing. *)
   | Table _ _ => true
   | FootnoteDef _ bs => sup_bs bs
-  | BlockQuote bs | Div bs | Ext_callout _ _ _ bs => sup_bs bs
+  | BlockQuote bs | Div _ bs | Ext_callout _ _ _ bs => sup_bs bs
   (* A label holds inlines, so only the block is recursed into. *)
   | Ext_keyed _ b => sup_bs [b]
   | BulletList _ items => sup_items items
@@ -3547,12 +3614,13 @@ Proof.
 Qed.
 
 Local Lemma supported_div :
-  forall bs, supported (Div bs) = supported_blocks bs.
+  forall name bs, supported (Div name bs) = supported_blocks bs.
 Proof.
+  intros name.
   induction bs as [|n bs IH]; [reflexivity|].
   destruct n as [p a x].
-  change (supported (Div (Node p a x :: bs)))
-    with (supported x && supported (Div bs))%bool.
+  change (supported (Div name (Node p a x :: bs)))
+    with (supported x && supported (Div name bs))%bool.
   rewrite IH. reflexivity.
 Qed.
 
@@ -3561,7 +3629,7 @@ Local Lemma div_block_supported :
     supported_blocks bs = true -> supported_blocks [div_block cls bs] = true.
 Proof.
   intros cls bs H. unfold div_block.
-  destruct (String.eqb cls EmptyString);
+  destruct bdiv_names; [|destruct (String.eqb cls EmptyString)];
     rewrite supported_blocks_cons; cbn [node_contents mk];
     rewrite supported_div, H; reflexivity.
 Qed.

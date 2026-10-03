@@ -518,13 +518,14 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
+  tags_accepted tags_rt_lhs
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
   line_table resolve_span DjotV.InlineLocated.cursor_in
   DjotV.InlineScan.chunks_text DjotV.InlineScan.map_text DjotV.InlineScan.lift
   DjotV.Profile.djot_profile DjotV.Profile.markdown_like_profile
-  DjotV.Profile.with_footnotes
+  DjotV.Profile.with_footnotes DjotV.Profile.with_tags
   DjotV.InlineTable.with_smart_typography DjotV.InlineTable.with_raw_inline
   DjotV.InlineTable.with_math DjotV.InlineTable.with_inline_attrs
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation

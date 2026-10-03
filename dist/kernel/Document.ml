@@ -38,7 +38,7 @@ let rec inline_text il =
    | Math (_, s) -> s
    | Link (ils, _) -> go ils
    | Image (ils, _) -> go ils
-   | Span ils -> go ils
+   | Span (_, ils) -> go ils
    | UrlLink s -> s
    | EmailLink s -> s
    | Ext_wikilink (_, t0, al) -> wiki_display t0 al
@@ -235,9 +235,9 @@ module Ids =
      | BlockQuote bs ->
        let (st', bs') = go bs (register_id a st) in
        (st', (Node (p, a, (BlockQuote bs'))))
-     | Div bs ->
+     | Div (name, bs) ->
        let (st', bs') = go bs (register_id a st) in
-       (st', (Node (p, a, (Div bs'))))
+       (st', (Node (p, a, (Div (name, bs')))))
      | OrderedList (oa, sp, items) ->
        let (st', items') =
          let rec goit its s =
@@ -424,7 +424,7 @@ module Refs =
     (match b with
      | Section bs -> go bs m
      | BlockQuote bs -> go bs m
-     | Div bs -> go bs m
+     | Div (_, bs) -> go bs m
      | OrderedList (_, _, items) -> goit items m
      | BulletList (_, items) -> goit items m
      | TaskList (_, items) ->
@@ -499,8 +499,9 @@ module Notes =
     (match b with
      | BlockQuote bs ->
        let (m', bs') = go bs m in (m', (Some (Node (p, a, (BlockQuote bs')))))
-     | Div bs ->
-       let (m', bs') = go bs m in (m', (Some (Node (p, a, (Div bs')))))
+     | Div (name, bs) ->
+       let (m', bs') = go bs m in
+       (m', (Some (Node (p, a, (Div (name, bs'))))))
      | OrderedList (oa, sp, items) ->
        let (m', items') = goit items m in
        (m', (Some (Node (p, a, (OrderedList (oa, sp, items'))))))

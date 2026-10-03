@@ -1,3 +1,4 @@
+open Ascii
 open Ast
 open Datatypes
 open Document
@@ -139,7 +140,7 @@ let rec plain_text il =
    | Math (_, s) -> s
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns
-   | Span ns -> go ns
+   | Span (_, ns) -> go ns
    | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
@@ -153,6 +154,208 @@ let rec plain_text il =
 
 let plain_texts ns =
   String.concat "" (map (fun n -> plain_text (node_contents n)) ns)
+
+(** val ascii_lower : char -> char **)
+
+let ascii_lower c =
+  let n = Char.code c in
+  if (&&)
+       (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ
+         0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) n)
+       (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (Stdlib.succ
+         0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  then ascii_of_nat
+         (( + ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           (Stdlib.succ (Stdlib.succ (Stdlib.succ
+           0)))))))))))))))))))))))))))))))))
+  else c
+
+(** val str_lower : string -> string **)
+
+let rec str_lower s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun c rest ->
+    (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    ((ascii_lower c), (str_lower rest)))
+    s
+
+(** val tag_letter : char -> bool **)
+
+let tag_letter c =
+  let n = Char.code (ascii_lower c) in
+  (&&)
+    (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ
+      0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+      n)
+    (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val tag_tail_ok : string -> bool **)
+
+let rec tag_tail_ok s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun c rest ->
+    (&&)
+      ((||)
+        ((||) (tag_letter c)
+          ((&&)
+            (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              0)))))))))))))))))))))))))))))))))))))))))))))))) (Char.code c))
+            (( <= ) (Char.code c) (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ
+              0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+        ((=) c '-'))
+      (tag_tail_ok rest))
+    s
+
+(** val unordinary_elements : string list **)
+
+let unordinary_elements =
+  "area" :: ("base" :: ("br" :: ("col" :: ("embed" :: ("hr" :: ("img" :: ("input" :: ("link" :: ("meta" :: ("param" :: ("source" :: ("track" :: ("wbr" :: ("script" :: ("style" :: ("textarea" :: ("title" :: ("xmp" :: ("iframe" :: ("noembed" :: ("noframes" :: ("plaintext" :: ("noscript" :: [])))))))))))))))))))))))
+
+(** val html_tag_ok : string -> bool **)
+
+let html_tag_ok name =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> false)
+    (fun c rest ->
+    (&&) ((&&) (tag_letter c) (tag_tail_ok rest))
+      (negb (existsb ((=) (str_lower name)) unordinary_elements)))
+    name
+
+(** val named_elem : string -> string -> attr -> string * attr **)
+
+let named_elem default name a =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> (default, a))
+    (fun _ _ ->
+    if html_tag_ok name
+    then (name, a)
+    else (default, (("data-tag", name) :: a)))
+    name
 
 (** val render_inline : reference_map -> inline -> attr -> helt list **)
 
@@ -210,7 +413,9 @@ let rec render_inline refs il a =
            url) :: (app (ref_extra a0 a) a))))) :: []
          | None ->
            (HVoid ("img", false, (("alt", (plain_texts ils)) :: a))) :: []))
-   | Span ils -> (HElem ("span", 0, a, (render_ils ils))) :: []
+   | Span (name, ils) ->
+     let (t, a') = named_elem "span" name a in
+     (HElem (t, 0, a', (render_ils ils))) :: []
    | FootnoteReference _ -> []
    | UrlLink url ->
      (HElem ("a", 0, (("href", url) :: a), ((HText url) :: []))) :: []
@@ -340,8 +545,9 @@ let rec render_block refs tight b a =
           (fun _ _ -> ("class", ((^) "language-" lang)) :: [])
           lang),
        ((HText code) :: []))) :: []))) :: []
-   | Div bs ->
-     (HElem ("div", (Stdlib.succ (Stdlib.succ 0)), a, (render_bs bs))) :: []
+   | Div (name, bs) ->
+     let (t, a') = named_elem "div" name a in
+     (HElem (t, (Stdlib.succ (Stdlib.succ 0)), a', (render_bs bs))) :: []
    | OrderedList (oa, sp, items) ->
      (HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), (app (ol_attrs oa) a),
        (render_items sp items))) :: []
@@ -455,9 +661,10 @@ let rec render_inline_foot refs st il a =
            (st', ((HElem ("a", 0, (("href",
            url) :: (app (ref_extra a0 a) a)), s)) :: []))
          | None -> (st', ((HElem ("a", 0, a, s)) :: []))))
-   | Span ils ->
+   | Span (name, ils) ->
      let (st', s) = render_ils st ils in
-     (st', ((HElem ("span", 0, a, s)) :: []))
+     let (t, a') = named_elem "span" name a in
+     (st', ((HElem (t, 0, a', s)) :: []))
    | FootnoteReference label ->
      let (p, first) = number_footnote label st in
      let (st', n) = p in
@@ -592,9 +799,10 @@ let rec render_block_foot refs st tight b a =
      let (st', s) = render_bs_at st tight bs in
      (st', ((HElem ("blockquote", (Stdlib.succ (Stdlib.succ 0)), a,
      s)) :: []))
-   | Div bs ->
+   | Div (name, bs) ->
      let (st', s) = render_bs_at st tight bs in
-     (st', ((HElem ("div", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
+     let (t, a') = named_elem "div" name a in
+     (st', ((HElem (t, (Stdlib.succ (Stdlib.succ 0)), a', s)) :: []))
    | OrderedList (oa, sp, items) ->
      let (st', s) = render_items st sp items in
      (st', ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)),

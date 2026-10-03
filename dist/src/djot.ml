@@ -53,7 +53,7 @@ module Inline = struct
     | Math of math_style * string
     | Link of t node list * target
     | Image of t node list * target
-    | Span of t node list
+    | Span of string * t node list
     | FootnoteReference of string
     | UrlLink of string
     | EmailLink of string
@@ -109,7 +109,7 @@ module Block = struct
     | Heading of int * Inline.t node list
     | BlockQuote of t node list
     | CodeBlock of string * string
-    | Div of t node list
+    | Div of string * t node list
     | OrderedList of ordered_list_attributes * list_spacing * t node list list
     | BulletList of list_spacing * t node list list
     | TaskList of list_spacing * (task_status * t node list) list
@@ -211,6 +211,7 @@ module Profile = struct
   let with_heading_continuation = block K.Step.with_heading_continuation
   let with_ext_keyed = block K.Step.with_keyed
   let with_ext_callouts = block K.Step.with_callouts
+  let with_ext_tags = K.Profile.with_tags
 end
 
 module Doc = struct
@@ -229,7 +230,7 @@ module Doc = struct
     let bl acc l = List.fold_left collect_footnote_defs acc l in
     match (b : Block.t) with
     | FootnoteDef (_, l) -> bl (n :: acc) l
-    | Section l | BlockQuote l | Div l | Ext_callout (_, _, _, l) -> bl acc l
+    | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
     | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
     | TaskList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
     | DefinitionList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
@@ -432,7 +433,7 @@ module Mapper = struct
       | Subscript l -> Subscript (k l)
       | Link (l, t) -> Link (k l, t)
       | Image (l, t) -> Image (k l, t)
-      | Span l -> Span (k l)
+      | Span (n, l) -> Span (n, k l)
       | Quoted (q, l) -> Quoted (q, k l)
       | ( Str _ | Verbatim _ | Symbol _ | Math _ | FootnoteReference _ | UrlLink _
         | EmailLink _ | Ext_wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
@@ -455,7 +456,7 @@ module Mapper = struct
       | Section l -> Some (Section (bl l))
       | Heading (lvl, l) -> Some (Heading (lvl, il l))
       | BlockQuote l -> Some (BlockQuote (bl l))
-      | Div l -> Some (Div (bl l))
+      | Div (n, l) -> Some (Div (n, bl l))
       | OrderedList (o, sp, its) -> Some (OrderedList (o, sp, List.map bl its))
       | BulletList (sp, its) -> Some (BulletList (sp, List.map bl its))
       | TaskList (sp, its) ->
@@ -508,7 +509,7 @@ module Folder = struct
         let k = List.fold_left (fold_inline f) acc in
         match Node.contents n with
         | Emph l | Strong l | Highlight l | Insert l | Delete l | Superscript l
-        | Subscript l | Link (l, _) | Image (l, _) | Span l | Quoted (_, l) ->
+        | Subscript l | Link (l, _) | Image (l, _) | Span (_, l) | Quoted (_, l) ->
             k l
         | Str _ | Verbatim _ | Symbol _ | Math _ | FootnoteReference _ | UrlLink _
         | EmailLink _ | Ext_wikilink _ | RawInline _ | NonBreakingSpace | SoftBreak
@@ -523,7 +524,7 @@ module Folder = struct
         let bl acc l = List.fold_left (fold_block f) acc l in
         match Node.contents n with
         | Para l | Heading (_, l) -> il acc l
-        | Section l | BlockQuote l | Div l | FootnoteDef (_, l) -> bl acc l
+        | Section l | BlockQuote l | Div (_, l) | FootnoteDef (_, l) -> bl acc l
         | OrderedList (_, _, its) | BulletList (_, its) -> List.fold_left bl acc its
         | TaskList (_, its) -> List.fold_left (fun acc (_, it) -> bl acc it) acc its
         | DefinitionList (_, its) ->

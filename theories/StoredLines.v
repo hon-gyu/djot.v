@@ -294,7 +294,7 @@ Inductive inl_all (I : inlines -> Prop) : node block -> Prop :=
   | ia_heading p a lvl ils : I ils -> inl_all I (Node p a (Heading lvl ils))
   | ia_quote p a bs : Forall (inl_all I) bs -> inl_all I (Node p a (BlockQuote bs))
   | ia_code p a lang code : inl_all I (Node p a (CodeBlock lang code))
-  | ia_div p a bs : Forall (inl_all I) bs -> inl_all I (Node p a (Div bs))
+  | ia_div p a name bs : Forall (inl_all I) bs -> inl_all I (Node p a (Div name bs))
   | ia_olist p a oa sp items : Forall (Forall (inl_all I)) items ->
       inl_all I (Node p a (OrderedList oa sp items))
   | ia_blist p a sp items : Forall (Forall (inl_all I)) items ->
@@ -638,7 +638,7 @@ Qed.
 
 Lemma div_block_ok : forall cls bs, Forall bgood bs -> bgood (div_block cls bs).
 Proof.
-  intros cls bs H. unfold div_block. destruct (String.eqb cls EmptyString); constructor; exact H.
+  intros cls bs H. unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString)]; constructor; exact H.
 Qed.
 
 Lemma fence_block_ok : forall f c, bgood (fence_block f c).

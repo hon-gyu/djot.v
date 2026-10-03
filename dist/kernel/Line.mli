@@ -161,6 +161,10 @@ val heading_line : int -> string -> string
 
 val div_fence : string
 
+val div_open_line : string -> string -> string
+
+val div_word_ok : string -> bool
+
 val blanks : int -> string
 
 type marker =

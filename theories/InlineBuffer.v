@@ -148,6 +148,7 @@ Proof.
   intros c t prev o. unfold ilead. tred. rewrite note_pos_map.
   repeat match goal with
   | |- context [if ?b then _ else _] => destruct b
+  | |- context [match ?x with Some _ => _ | None => _ end] => destruct x as [[[[? ?] ?] ?]|]
   | |- context [match ?x with Some _ => _ | None => _ end] => destruct x as [[[? ?] ?]|]
   | |- context [match dstyle_of ?c with Some _ => _ | None => _ end] => destruct (dstyle_of c)
   end; cbn [map_text]; laws; reflexivity.

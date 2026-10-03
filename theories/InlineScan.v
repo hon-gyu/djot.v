@@ -236,7 +236,11 @@ Inductive frame_kind : Type :=
      reach an opener from outside the link, so this frame stops the walk.
      `[u](a ]{.c}`, where djot.js re-enters the bracket, is not matched
      (`.project/exact-html-gaps.md`). *)
-  | FKDest (image : bool).
+  | FKDest (image : bool)
+  (* A named bracket, `:name[` (`.project/custom-tags.md`).  Its `]`
+     closes it at once, so no byte after the `]` is waited for and the
+     frame is never handed to `bclose`. *)
+  | FKTag (name : string).
 
 Record frame : Type := Frame {
   fr_kind : frame_kind;
@@ -250,6 +254,7 @@ Definition fr_src (f : frame) : string :=
   match fr_kind f with
   | FKDelim k cm => ddecay_str k (fr_marked f) cm
   | FKBracket image | FKDest image => bracket_open image
+  | FKTag name => tag_open name
   end.
 
 (* Whether a closer's search out through the open scopes stops here
@@ -257,7 +262,7 @@ Definition fr_src (f : frame) : string :=
 Definition fr_barrier (f : frame) : bool :=
   match fr_kind f with
   | FKDest _ => true
-  | FKDelim _ _ | FKBracket _ => false
+  | FKDelim _ _ | FKBracket _ | FKTag _ => false
   end.
 
 Record ostate : Type := OState {
@@ -373,7 +378,7 @@ Definition oset_cur (l : oitems) (o : ostate) : ostate :=
 Definition dmatch (k : dstyle) (m : bool) (f : frame) : bool :=
   match fr_kind f with
   | FKDelim k' _ => (dstyle_eq k k' && Bool.eqb m (fr_marked f))%bool
-  | FKBracket _ | FKDest _ => false
+  | FKBracket _ | FKDest _ | FKTag _ => false
   end.
 
 (* An attribute-less `Str` -- the kind a neighbour merges with. *)
@@ -626,6 +631,15 @@ Definition bpush `{PosPolicy} `{InlineCursor} (image : bool) (o : ostate)
 Definition dpush (image : bool) (open : span) (o : ostate) : ostate :=
   OState (os_out o)
     (Frame (FKDest image) false open [] :: os_stk o)
+    (os_word_start o).
+
+(* A named bracket's push.  Its opener starts at the colon, `start`, and
+   ends after the `[`. *)
+Definition tag_push `{PosPolicy} `{InlineCursor} (name : string) (start : spot)
+  (o : ostate) : ostate :=
+  OState (os_out o)
+    (Frame (FKTag name) false (pspan (SrcSpan start cursor_stop)) []
+       :: os_stk o)
     (os_word_start o).
 
 Lemma oemit_all_app :
@@ -926,6 +940,8 @@ Fixpoint bclose_go `{PosPolicy} (pend : oitems) (stk : list frame)
       (* the destination's own opener is not offered back; see the
          constructor's comment *)
       | FKDest _ => None
+      (* `tag_close` has already closed a named bracket at its `]` *)
+      | FKTag _ => None
       | FKDelim _ _ =>
           bclose_go (oapp content [OIn (fr_lit f)]) rest
       end
@@ -939,6 +955,62 @@ Definition bclose `{PosPolicy} (o : ostate)
       Some (List.rev (oresolve content), image, open,
               OState (os_out o) rest (os_word_start o))
   end.
+
+(* A `]` closes a named bracket when that is the innermost bracket,
+   abandoning the delimiter frames above it as `bclose_go` does.  Any
+   other bracket, or none, leaves the `]` to `IClosed`. *)
+Fixpoint tag_close_go `{PosPolicy} (pend : oitems) (stk : list frame)
+  : option (oitems * string * span * list frame) :=
+  match stk with
+  | [] => None
+  | f :: rest =>
+      let content := oapp pend (fr_out f) in
+      match fr_kind f with
+      | FKTag name => Some (content, name, fr_open f, rest)
+      | FKBracket _ | FKDest _ => None
+      | FKDelim _ _ => tag_close_go (oapp content [OIn (fr_lit f)]) rest
+      end
+  end.
+
+Definition tag_close `{PosPolicy} (o : ostate)
+  : option (inlines * string * span * ostate) :=
+  match tag_close_go [] (os_stk o) with
+  | None => None
+  | Some (content, name, open, rest) =>
+      Some (List.rev (oresolve content), name, open,
+              OState (os_out o) rest (os_word_start o))
+  end.
+
+(* Whether a named bracket is innermost is a fact about the frames'
+   kinds, so emitting into the current scope cannot change it. *)
+Local Lemma tag_close_go_none :
+  forall `{PosPolicy} stk pend pend',
+    tag_close_go pend stk = None -> tag_close_go pend' stk = None.
+Proof.
+  intros P stk. induction stk as [|f rest IH]; intros pend pend' H; [reflexivity|].
+  cbn [tag_close_go] in H |- *.
+  destruct (fr_kind f); try reflexivity; [exact (IH _ _ H)|discriminate H].
+Qed.
+
+Lemma tag_close_oemit :
+  forall `{PosPolicy} n o, tag_close o = None -> tag_close (oemit n o) = None.
+Proof.
+  intros P n [out [|f rest] word] H; [reflexivity|].
+  unfold tag_close, oemit in *. cbn [os_stk os_out os_word_start] in *.
+  cbn [tag_close_go fr_kind fr_out] in H |- *.
+  destruct (fr_kind f); try reflexivity.
+  - destruct (tag_close_go _ rest) as [[[[? ?] ?] ?]|] eqn:E; [discriminate H|].
+    rewrite (tag_close_go_none _ _ _ E). reflexivity.
+  - discriminate H.
+Qed.
+
+Lemma tag_close_flush :
+  forall `{PosPolicy} `{InlineCursor} txt o,
+    tag_close o = None -> tag_close (flush_text_at txt o) = None.
+Proof.
+  intros P C txt o H. unfold flush_text_at.
+  destruct (nonempty_str txt); [apply tag_close_oemit|]; exact H.
+Qed.
 
 (* Take back a bracket the previous byte pushed.  Only an empty bracket
    frame can be taken back, which is exactly what a `[` leaves and
@@ -972,6 +1044,17 @@ Proof.
   unfold bclose. cbn [os_stk os_out bclose_go fr_out fr_kind oapp].
   rewrite app_nil_r, oresolve_map_rev, List.rev_involutive.
   destruct image; reflexivity.
+Qed.
+
+Lemma tag_close_oemit_all :
+  forall ns name start base,
+    tag_close (oemit_all ns (tag_push name start base)) =
+      Some (ns, name, null_span, base).
+Proof.
+  intros ns name start [out stk word]. unfold tag_push. rewrite oemit_all_frame.
+  unfold tag_close. cbn [os_stk os_out tag_close_go fr_out fr_kind oapp].
+  rewrite app_nil_r, oresolve_map_rev, List.rev_involutive.
+  reflexivity.
 Qed.
 
 (*
@@ -1391,7 +1474,16 @@ Definition ilead `{PosPolicy} `{InlineCursor}
            IText false tnil (Some lbrack)
              (bpush false (flush_text_at (tval txt) o))
        end
-  else if Ascii.eqb c rbrack then IClosed txt o
+  (* With names on, a `]` that closes a named bracket builds its span
+     here; see `tag_close`. *)
+  else if Ascii.eqb c rbrack
+  then match (if tags_enabled then tag_close (flush_text_at (tval txt) o)
+              else None) with
+       | Some (kids, name, open, o') =>
+           IText false tnil (Some rbrack)
+             (oemit (imk (span_start open) cursor_stop (Span name kids)) o')
+       | None => IClosed txt o
+       end
   (* A `^` right inside a bracket that has just opened marks a footnote:
      the bracket is taken back and the label read as source.  Written as a
      guard on `bunpush`, so a `^` anywhere else falls through to the
@@ -1671,7 +1763,7 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
          (oemit
            (add_inline_role RAttrSpec spec
              (Node (mkpos (inline_prov (span_start open) spec_start))
-               (ap_attrs p') (Span kids)))
+               (ap_attrs p') (Span EmptyString kids)))
            (ospan_bang image o))
   else ISpan kids image open p' (tpush src (one c)) o.
 
@@ -1723,6 +1815,12 @@ Definition isymbol_step `{PosPolicy} `{InlineCursor}
        IText false tnil (Some c)
          (oemit (imk start cursor_stop (Symbol (tval alias)))
            (flush_text_to_at start (tval txt) o))
+  (* the alias is a name, and the `[` opens its bracket *)
+  else if (Ascii.eqb c lbrack && tnonempty alias && tags_enabled
+           && tag_may_follow (tval txt))%bool
+  then let start := spot_before cursor_start (one ":"%char ++ tval alias)%string in
+       IText false tnil (Some c)
+         (tag_push (tval alias) start (flush_text_to_at start (tval txt) o))
   else sh'.
 
 (* One byte of a raw-format spec.  The `}` decides it; the pattern's

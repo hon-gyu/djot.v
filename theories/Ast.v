@@ -471,7 +471,10 @@ Inductive inline : Type :=
   | Math (style : math_style) (s : string)
   | Link (ils : list (node inline)) (tgt : target)
   | Image (ils : list (node inline)) (tgt : target)
-  | Span (ils : list (node inline))
+  (* `name` is an extension (`.project/custom-tags.md`), written
+     `:name[...]`; empty means unnamed, which is djot's span.  It is
+     recorded as written, and what it denotes is the consumer's. *)
+  | Span (name : string) (ils : list (node inline))
   | FootnoteReference (label : string)
   | UrlLink (url : string)
   | EmailLink (email : string)
@@ -504,7 +507,7 @@ Definition inline_ind2
   (hmath : forall st s, P (Math st s))
   (hlink : forall ils tgt, Q ils -> P (Link ils tgt))
   (himage : forall ils tgt, Q ils -> P (Image ils tgt))
-  (hspan : forall ils, Q ils -> P (Span ils))
+  (hspan : forall name ils, Q ils -> P (Span name ils))
   (hfoot : forall label, P (FootnoteReference label))
   (hurl : forall url, P (UrlLink url))
   (hmail : forall email, P (EmailLink email))
@@ -538,7 +541,7 @@ Definition inline_ind2
     | Math st s => hmath st s
     | Link ils tgt => hlink ils tgt (golist ils)
     | Image ils tgt => himage ils tgt (golist ils)
-    | Span ils => hspan ils (golist ils)
+    | Span name ils => hspan name ils (golist ils)
     | FootnoteReference label => hfoot label
     | UrlLink url => hurl url
     | EmailLink email => hmail email
@@ -601,7 +604,9 @@ Inductive block : Type :=
   | Heading (level : nat) (ils : inlines)
   | BlockQuote (bs : list (node block))
   | CodeBlock (lang : string) (code : string)
-  | Div (bs : list (node block))
+  (* `name` is an extension, written `::: name` where djot reads a
+     class; empty means unnamed.  As for `Span`. *)
+  | Div (name : string) (bs : list (node block))
   | OrderedList (attrs : ordered_list_attributes) (sp : list_spacing)
       (items : list (list (node block)))
   | BulletList (sp : list_spacing) (items : list (list (node block)))
@@ -651,7 +656,7 @@ Definition block_ind2
   (hheading : forall lvl ils, P (Heading lvl ils))
   (hquote : forall bs, Q bs -> P (BlockQuote bs))
   (hcode : forall lang code, P (CodeBlock lang code))
-  (hdiv : forall bs, Q bs -> P (Div bs))
+  (hdiv : forall name bs, Q bs -> P (Div name bs))
   (holist : forall attrs sp items, R items -> P (OrderedList attrs sp items))
   (hblist : forall sp items, R items -> P (BulletList sp items))
   (htlist : forall sp items, K items -> P (TaskList sp items))
@@ -708,7 +713,7 @@ Definition block_ind2
     | Heading lvl ils => hheading lvl ils
     | BlockQuote bs => hquote bs (golist bs)
     | CodeBlock lang code => hcode lang code
-    | Div bs => hdiv bs (golist bs)
+    | Div name bs => hdiv name bs (golist bs)
     | OrderedList attrs sp items => holist attrs sp items (goitems items)
     | BulletList sp items => hblist sp items (goitems items)
     | TaskList sp items => htlist sp items (gotasks items)
@@ -833,7 +838,7 @@ Fixpoint of_inline (i : inline) : inline :=
   | Subscript ils => Subscript (go ils)
   | Link ils tgt => Link (go ils) tgt
   | Image ils tgt => Image (go ils) tgt
-  | Span ils => Span (go ils)
+  | Span name ils => Span name (go ils)
   | Quoted qt ils => Quoted qt (go ils)
   | x => x
   end.
@@ -903,7 +908,7 @@ Fixpoint of_block (b : block) : block :=
   | Section bs => Section (go bs)
   | Heading lvl ils => Heading lvl (of_inlines ils)
   | BlockQuote bs => BlockQuote (go bs)
-  | Div bs => Div (go bs)
+  | Div name bs => Div name (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
   | BulletList sp items => BulletList sp (goitems items)
   | TaskList sp items =>
@@ -1074,7 +1079,7 @@ Fixpoint of_inline (d : nat) (i : inline) : inline :=
   | Subscript ils => Subscript (go ils)
   | Link ils tgt => Link (go ils) tgt
   | Image ils tgt => Image (go ils) tgt
-  | Span ils => Span (go ils)
+  | Span name ils => Span name (go ils)
   | Quoted qt ils => Quoted qt (go ils)
   | x => x
   end.
@@ -1117,7 +1122,7 @@ Fixpoint of_block (d : nat) (b : block) : block :=
   | Section bs => Section (go bs)
   | Heading lvl ils => Heading lvl (of_inlines d ils)
   | BlockQuote bs => BlockQuote (go bs)
-  | Div bs => Div (go bs)
+  | Div name bs => Div name (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
   | BulletList sp items => BulletList sp (goitems items)
   | TaskList sp items =>

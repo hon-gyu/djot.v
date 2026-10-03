@@ -292,7 +292,7 @@ Proof.
   - destruct (announces_end st) eqn:Hann; [|exact (H Ha)].
     destruct st; try discriminate Hann; [discriminate Ha|].
     cbn [finish app]. nopos. cbn [ends_list map last ends_in_list node_contents].
-    unfold div_block. destruct (String.eqb _ _); reflexivity.
+    unfold div_block. destruct bdiv_names; [|destruct (String.eqb _ _)]; reflexivity.
   - apply orb_false_iff in Ha as [_ Ha]. exact (H Ha).
 Qed.
 
@@ -375,7 +375,7 @@ Proof.
   - apply fresh_absorbing; [reflexivity|exact I].
   - destruct bdivs; cbn [fst snd].
     + eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|].
-      unfold div_block. destruct (String.eqb cls ""); reflexivity.
+      unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls "")]; reflexivity.
     + eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
   - destruct (quote_header rest) as [[[kind fold] title]|].
     + unfold open_callout. cbn [fst snd].
@@ -447,7 +447,7 @@ Proof.
   - destruct (IH Hl Hs) as [Hs' _].
     cbn [feed_lazy blank_absorbed finish state_ok]. nopos. rewrite feed_lazy_text.
     split; [exact Hs'|]. repeat split; try reflexivity.
-    unfold div_block. destruct (String.eqb dcls ""); reflexivity.
+    unfold div_block. destruct bdiv_names; [|destruct (String.eqb dcls "")]; reflexivity.
   - destruct (IH Hl Hs) as [Hs' _].
     cbn [feed_lazy blank_absorbed finish state_ok]. nopos.
     split; [exact Hs'|]. repeat split; try reflexivity.
@@ -512,7 +512,7 @@ Proof.
   - apply fresh_emit; [discriminate|reflexivity].
   - destruct bdivs; cbn [fst snd].
     + eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|].
-      unfold div_block. destruct (String.eqb cls ""); reflexivity.
+      unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls "")]; reflexivity.
     + eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
   - eapply fresh_single; [exact I|reflexivity|cbn [finish]; nopos; reflexivity|reflexivity].
   - destruct btables; cbn [fst snd].
@@ -675,14 +675,14 @@ Proof.
     destruct (negb (in_fence dinner) && div_close dlen l)%bool.
     + apply fresh_step_ok, fresh_emit; [discriminate|].
       cbn [ends_list map last]. nopos. unfold div_block.
-      destruct (String.eqb dcls ""); reflexivity.
+      destruct bdiv_names; [|destruct (String.eqb dcls "")]; reflexivity.
     + cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
       assert (Hin : step_ok dinner l (step_fuel n off l dinner))
         by (apply IH; [lia|exact Hp|exact Hs]).
       destruct (step_fuel n off l dinner) as [bs inner']. destruct Hin as [Hs' _].
       apply fresh_step_ok. eapply fresh_single;
         [exact Hs'|reflexivity|cbn [finish]; nopos; reflexivity|].
-      unfold div_block. destruct (String.eqb dcls ""); reflexivity.
+      unfold div_block. destruct bdiv_names; [|destruct (String.eqb dcls "")]; reflexivity.
   - (* list *)
     cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
     assert (Hin : state_ok (snd (step_fuel n off l inner)))

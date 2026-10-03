@@ -299,7 +299,7 @@ Local Fixpoint plain_text (il : inline) : string :=
   | UrlLink s | EmailLink s => s
   | Ext_wikilink _ t al => wiki_display t al
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
-  | Superscript ns | Subscript ns | Span ns | Quoted _ ns
+  | Superscript ns | Subscript ns | Span _ ns | Quoted _ ns
   | Link ns _ | Image ns _ => go ns
   | SoftBreak | HardBreak => nl
   | NonBreakingSpace => " "
@@ -319,6 +319,74 @@ that `alist_lookup`'s first-match rule prefers the explicit one.  It is a
 section variable rather than a threaded argument because every recursion
 here would otherwise carry it unchanged.
 *)
+
+(*
+Element names
+-------------
+
+A named div or span (`.project/custom-tags.md`) renders as an element of
+that name only where the escaping here is the escaping a browser undoes:
+the element must hold ordinary content.  Otherwise the name goes in a
+`data-tag` attribute of the unnamed element, not in a class, which would
+merge the name back into the classes.
+*)
+
+Local Definition ascii_lower (c : ascii) : ascii :=
+  let n := nat_of_ascii c in
+  if (Nat.leb 65 n && Nat.leb n 90)%bool then ascii_of_nat (n + 32) else c.
+
+Local Fixpoint str_lower (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest => String (ascii_lower c) (str_lower rest)
+  end.
+
+Local Definition tag_letter (c : ascii) : bool :=
+  let n := nat_of_ascii (ascii_lower c) in (Nat.leb 97 n && Nat.leb n 122)%bool.
+
+Local Fixpoint tag_tail_ok (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c rest =>
+      (tag_letter c
+       || (Nat.leb 48 (nat_of_ascii c) && Nat.leb (nat_of_ascii c) 57)
+       || Ascii.eqb c "-")%bool
+      && tag_tail_ok rest
+  end.
+
+(* Void elements, which hold no children; raw-text and escapable
+   raw-text elements, whose content the tokenizer does not read as
+   markup; and the legacy elements that switch the tokenizer too. *)
+Local Definition unordinary_elements : list string :=
+  ["area"; "base"; "br"; "col"; "embed"; "hr"; "img"; "input"; "link";
+   "meta"; "param"; "source"; "track"; "wbr";
+   "script"; "style"; "textarea"; "title";
+   "xmp"; "iframe"; "noembed"; "noframes"; "plaintext"; "noscript"].
+
+(* ASCII letters, digits and hyphens, starting with a letter, and not an
+   element with special content in any letter case. *)
+Definition html_tag_ok (name : string) : bool :=
+  match name with
+  | EmptyString => false
+  | String c rest =>
+      (tag_letter c && tag_tail_ok rest
+       && negb (existsb (String.eqb (str_lower name)) unordinary_elements))%bool
+  end.
+
+(* The element a node renders as, given the one it would be unnamed, and
+   the attributes that go on it. *)
+Definition named_elem (default name : string) (a : attr) : string * attr :=
+  match name with
+  | EmptyString => (default, a)
+  | _ => if html_tag_ok name then (name, a) else (default, ("data-tag", name) :: a)
+  end.
+
+Example named_elem_cases :
+  (named_elem "span" "kbd" [], named_elem "div" "Script" [],
+   named_elem "span" "a_b" [("class", "x")], named_elem "div" "" [])
+  = (("kbd", []), ("div", [("data-tag", "Script")]),
+     ("span", [("data-tag", "a_b"); ("class", "x")]), ("div", [])).
+Proof. reflexivity. Qed.
 
 Section WithRefs.
 Context (refs : reference_map).
@@ -383,7 +451,8 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
               :: ref_extra a0 a ++ a)%list]
       | None => [HVoid "img" false (("alt", plain_texts ils) :: a)]
       end
-  | Span ils => [HElem "span" 0 a (render_ils ils)]
+  | Span name ils =>
+      let '(t, a') := named_elem "span" name a in [HElem t 0 a' (render_ils ils)]
   | FootnoteReference _ => [] (* numbered on the `_foot` path *)
   (* An autolink renders as its own text under an `href`, which is an
      extra attribute and so precedes the node's own.  The two kinds
@@ -546,7 +615,8 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
              | EmptyString => []
              | _ => [("class", "language-" ++ lang)]
              end) [HText code]]]
-  | Div bs => [HElem "div" 2 a (render_bs bs)]
+  | Div name bs =>
+      let '(t, a') := named_elem "div" name a in [HElem t 2 a' (render_bs bs)]
   | OrderedList oa sp items =>
       [HElem "ol" 2 (ol_attrs oa ++ a)%list (render_items sp items)]
   | BulletList sp items => [HElem "ul" 2 a (render_items sp items)]
@@ -651,8 +721,9 @@ Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
       let '(st', s) := render_ils st ils in (st', [HElem "sup" 0 a s])
   | Subscript ils =>
       let '(st', s) := render_ils st ils in (st', [HElem "sub" 0 a s])
-  | Span ils =>
-      let '(st', s) := render_ils st ils in (st', [HElem "span" 0 a s])
+  | Span name ils =>
+      let '(st', s) := render_ils st ils in
+      let '(t, a') := named_elem "span" name a in (st', [HElem t 0 a' s])
   | Quoted q ils =>
       let '(st', s) := render_ils st ils in
       match q with
@@ -801,9 +872,9 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | BlockQuote bs =>
       let '(st', s) := render_bs_at st tight bs in
       (st', [HElem "blockquote" 2 a s])
-  | Div bs =>
+  | Div name bs =>
       let '(st', s) := render_bs_at st tight bs in
-      (st', [HElem "div" 2 a s])
+      let '(t, a') := named_elem "div" name a in (st', [HElem t 2 a' s])
   | OrderedList oa sp items =>
       let '(st', s) := render_items st sp items in
       (st', [HElem "ol" 2 (ol_attrs oa ++ a)%list s])
@@ -970,6 +1041,8 @@ Proof.
   - destruct tgt as [url|label]; [reflexivity|].
     destruct (lookup_reference label refs) as [[url a0]|];
       destruct (lookup_reference label refs') as [[url' a0']|]; reflexivity.
+  - destruct (named_elem "span" name a) as [t a'].
+    cbn [map erase_helt_attrs]. f_equal. f_equal. exact (H refs refs').
   - destruct qt; cbn [map erase_helt_attrs]; repeat rewrite map_app;
       f_equal; f_equal; exact (H refs refs').
   - rewrite !map_app. f_equal;
@@ -1022,6 +1095,8 @@ Proof.
         eapply foot_shape_elem; exact (H st refs refs').
   - unfold foot_shape. cbn [fst snd].
     split; [reflexivity|apply render_inline_reference_shape].
+  - destruct (named_elem "span" name a) as [t a'].
+    eapply foot_shape_elem. exact (H st refs refs').
   - destruct qt.
     + change (foot_shape
         (let '(u,v) := render_inlines_foot refs st ils in
@@ -1250,6 +1325,9 @@ Proof.
     intros; cbn [render_block_foot];
     unfold render_bs_foot, render_items_foot, render_task_items_foot,
       render_def_items_foot; cbn iota beta;
+    repeat match goal with
+           | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
+           end;
     repeat (eapply foot_shape_bind;
       [first [apply IHb | apply IHb0 | exact (IHb _ tight refs refs')
              | apply render_inlines_foot_reference_shape
@@ -1427,17 +1505,29 @@ Proof.
     - destruct tight; cbn [render_block map erase_helt_attrs];
         [rewrite !map_app|];
         rewrite (render_inlines_reference_shape ils refs refs'); reflexivity.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+    - cbn [render_block].
+      repeat match goal with
+             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
+             end.
+      cbn [map erase_helt_attrs]. f_equal. f_equal.
       change (map erase_helt_attrs (render_bs_at refs tight bs) =
               map erase_helt_attrs (render_bs_at refs' tight bs)).
       rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
     - cbn [render_block map erase_helt_attrs].
       rewrite (render_inlines_reference_shape ils refs refs'). reflexivity.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+    - cbn [render_block].
+      repeat match goal with
+             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
+             end.
+      cbn [map erase_helt_attrs]. f_equal. f_equal.
       change (map erase_helt_attrs (render_bs_at refs tight bs) =
               map erase_helt_attrs (render_bs_at refs' tight bs)).
       rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
+    - cbn [render_block].
+      repeat match goal with
+             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
+             end.
+      cbn [map erase_helt_attrs]. f_equal. f_equal.
       change (map erase_helt_attrs (render_bs_at refs tight bs) =
               map erase_helt_attrs (render_bs_at refs' tight bs)).
       rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').

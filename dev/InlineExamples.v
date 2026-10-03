@@ -721,17 +721,17 @@ Spans
 
 Example span_simple :
   parse_inline_line "[s]{.a}"
-  = [Node NoPos [("class", "a")] (Span [mk (Str "s")])].
+  = [Node NoPos [("class", "a")] (Span "" [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* An empty spec still builds the node, and so does an empty label --
    `wf_inline` exempts a span from `nonempty` for exactly this reason. *)
 Example span_empty_spec :
-  parse_inline_line "[s]{}" = [mk (Span [mk (Str "s")])].
+  parse_inline_line "[s]{}" = [mk (Span "" [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example span_empty_label :
-  parse_inline_line "[]{.a}" = [Node NoPos [("class", "a")] (Span [])].
+  parse_inline_line "[]{.a}" = [Node NoPos [("class", "a")] (Span "" [])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The brace must be adjacent: a space between it and the `]` leaves an
@@ -751,14 +751,14 @@ Proof. vm_compute. reflexivity. Qed.
 (* `!` is not part of a span: the image opener decays to text. *)
 Example span_ignores_image_marker :
   parse_inline_line "![x]{.a}"
-  = [mk (Str "!"); Node NoPos [("class", "a")] (Span [mk (Str "x")])].
+  = [mk (Str "!"); Node NoPos [("class", "a")] (Span "" [mk (Str "x")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And it merges with the text before it rather than leaving two
    adjacent `Str` nodes, which `wf_inlines` forbids. *)
 Example span_image_marker_merges :
   parse_inline_line "a![x]{.a}"
-  = [mk (Str "a!"); Node NoPos [("class", "a")] (Span [mk (Str "x")])].
+  = [mk (Str "a!"); Node NoPos [("class", "a")] (Span "" [mk (Str "x")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A second spec belongs to the span too, and classes accumulate where
@@ -767,7 +767,7 @@ Proof. vm_compute. reflexivity. Qed.
    `oattach_list` finds the span node itself. *)
 Example span_stacked_specs :
   parse_inline_line "[s]{.a}{.b}"
-  = [Node NoPos [("class", "a b")] (Span [mk (Str "s")])].
+  = [Node NoPos [("class", "a b")] (Span "" [mk (Str "s")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

@@ -143,7 +143,7 @@ Fixpoint dn_inline (W : list window) (p : pos) (x : inline) : Prop :=
   dpos_ok W p x /\
   match x with
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
-  | Superscript ils | Subscript ils | Span ils | Quoted _ ils
+  | Superscript ils | Subscript ils | Span _ ils | Quoted _ ils
   | Link ils _ | Image ils _ => go ils
   | _ => True
   end.
@@ -349,7 +349,7 @@ Definition frame_ok (W : list window) (f : frame) : Prop :=
       opener_at W k (fr_marked f) (span_start (fr_open f)) /\
       span_stop (fr_open f) =
         sright (String.length (otok k (fr_marked f))) (span_start (fr_open f))
-  | FKBracket _ | FKDest _ => True
+  | FKBracket _ | FKDest _ | FKTag _ => True
   end /\
   spot_lt (span_start (fr_open f)) (span_stop (fr_open f)) /\
   Forall (item_ok W) (fr_out f).
@@ -434,7 +434,11 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
       Forall (dn_node W) kids /\ held W o false cur /\ st_inv W cur sh
   | IAuto src txt o =>
       held W o (nonempty_str txt) cur /\ ends_at W (String lt src) cur
-  | ISymbol _ txt sh o => held W o (nonempty_str txt) cur /\ st_inv W cur sh
+  (* held at the colon, which a named bracket's frame starts at *)
+  | ISymbol alias txt sh o =>
+      ends_at W (String ":" alias) cur /\
+      oinv W o (nonempty_str txt) (sleft (S (String.length alias)) cur) /\
+      no_char nl_char alias = true /\ st_inv W cur sh
   | IRaw spec _ o =>
       ends_at W (String lbrace spec) cur /\
       held W o false (sleft (String.length (String lbrace spec)) cur)
@@ -452,7 +456,7 @@ Every lemma from here on is about the located scan.
 Definition children (x : inline) : inlines :=
   match x with
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
-  | Superscript ils | Subscript ils | Span ils | Quoted _ ils
+  | Superscript ils | Subscript ils | Span _ ils | Quoted _ ils
   | Link ils _ | Image ils _ => ils
   | _ => []
   end.
@@ -822,7 +826,7 @@ Proof.
   cbn [os_stk os_out os_word_start] in *.
   split; [exact H1|split].
   - constructor; [|exact H2].
-    split; [destruct kind; [contradiction|exact I|exact I]|split; [exact Hlt|constructor]].
+    split; [destruct kind; [contradiction|exact I|exact I|exact I]|split; [exact Hlt|constructor]].
   - cbn [stack_ok fr_open fr_out]. split; [apply spot_le_refl|split; [|exact H3]].
     intros [H|H]; [contradiction|discriminate].
 Qed.
@@ -842,7 +846,7 @@ Lemma dmatch_true : forall k m f,
   dmatch k m f = true -> exists cm, fr_kind f = FKDelim k cm /\ fr_marked f = m.
 Proof.
   intros k m [kind fm fo fout] H. unfold dmatch in H. cbn [fr_kind fr_marked] in *.
-  destruct kind as [k' cm| |]; try discriminate.
+  destruct kind as [k' cm| | |]; try discriminate.
   apply andb_true_iff in H as [Hk Hm].
   exists cm. split.
   - destruct k, k'; try discriminate; reflexivity.
@@ -952,7 +956,7 @@ Proof.
   inversion Hf as [|? ? Hfo Hfs]; subst. destruct Hs as (S1 & S3).
   cbn [bclose_go] in Hgo.
   pose proof (oapp_ok W pend (fr_out f) Hp (proj2 (proj2 Hfo))) as Hc.
-  destruct (fr_kind f) as [k cm|im|im] eqn:Hk; try discriminate.
+  destruct (fr_kind f) as [k cm|im|im|nm] eqn:Hk; try discriminate.
   - destruct (IH (oapp (oapp pend (fr_out f)) [OIn (fr_lit f)]) (span_start (fr_open f))
                 content image open rest) as (A & B & C & D & E).
     + apply oapp_ok; [exact Hc|constructor; [apply fr_lit_ok|constructor]].
@@ -984,6 +988,55 @@ Proof.
     split; [split; [exact H1|split; [exact B|exact C]]|split; [exact D|exact E]].
 Qed.
 
+Lemma tag_close_go_ok : forall W stk pend hp content name open rest,
+  Forall (item_ok W) pend -> Forall (frame_ok W) stk ->
+  (match stk with
+   | [] => True
+   | f :: rest =>
+       spot_le (span_stop (fr_open f)) hp /\ stack_ok rest false (span_start (fr_open f))
+   end) ->
+  tag_close_go pend stk = Some (content, name, open, rest) ->
+  Forall (item_ok W) content /\ Forall (frame_ok W) rest /\
+  stack_ok rest false (span_start open) /\
+  spot_lt (span_start open) (span_stop open) /\ spot_le (span_stop open) hp.
+Proof.
+  intros W stk. induction stk as [|f stk IH];
+    intros pend hp content name open rest Hp Hf Hs Hgo; [discriminate|].
+  inversion Hf as [|? ? Hfo Hfs]; subst. destruct Hs as (S1 & S3).
+  cbn [tag_close_go] in Hgo.
+  pose proof (oapp_ok W pend (fr_out f) Hp (proj2 (proj2 Hfo))) as Hc.
+  destruct (fr_kind f) as [k cm|im|im|nm] eqn:Hk; try discriminate.
+  - destruct (IH (oapp (oapp pend (fr_out f)) [OIn (fr_lit f)]) (span_start (fr_open f))
+                content name open rest) as (A & B & C & D & E).
+    + apply oapp_ok; [exact Hc|constructor; [apply fr_lit_ok|constructor]].
+    + exact Hfs.
+    + destruct stk as [|g stk']; [exact I|]. destruct S3 as (T1 & T2 & T3).
+      split; assumption.
+    + exact Hgo.
+    + split; [exact A|split; [exact B|split; [exact C|split; [exact D|]]]].
+      eapply spot_le_trans; [exact E|].
+      eapply spot_le_trans; [apply spot_lt_le, (proj1 (proj2 Hfo))|exact S1].
+  - injection Hgo as <- <- <- <-.
+    split; [exact Hc|split; [exact Hfs|split; [exact S3|split; [exact (proj1 (proj2 Hfo))|exact S1]]]].
+Qed.
+
+Lemma tag_close_ok : forall W o h kids name open o',
+  oinv W o false h ->
+  tag_close o = Some (kids, name, open, o') ->
+  Forall (dn_node W) kids /\ oinv W o' false (span_start open) /\
+  spot_lt (span_start open) (span_stop open) /\ spot_le (span_stop open) h.
+Proof.
+  intros W [out stk word] h kids name open o' (H1 & H2 & H3) Hb.
+  unfold tag_close in Hb. cbn [os_stk os_out os_word_start] in *.
+  destruct (tag_close_go [] stk) as [[[[content nm] op] rest]|] eqn:Hgo; [|discriminate].
+  injection Hb as <- <- <- <-.
+  destruct (tag_close_go_ok W stk [] h content nm op rest (Forall_nil _) H2) as (A & B & C & D & E).
+  - destruct stk as [|f rest']; [exact I|]. destruct H3 as (X & _ & Z). split; assumption.
+  - exact Hgo.
+  - split; [apply Forall_rev, oresolve_ok, A|].
+    split; [split; [exact H1|split; [exact B|exact C]]|split; [exact D|exact E]].
+Qed.
+
 Lemma bunpush_ok : forall W o h image open o',
   oinv W o false h ->
   bunpush o = Some (image, open, o') ->
@@ -993,7 +1046,7 @@ Proof.
   intros W [out stk word] h image open o' (H1 & H2 & H3) Hb.
   unfold bunpush in Hb. cbn [os_stk os_out os_word_start] in *.
   destruct stk as [|[kind fm fo fout] rest]; [discriminate|].
-  destruct kind as [|im|]; try discriminate. destruct fout; [|discriminate].
+  destruct kind as [|im| |]; try discriminate. destruct fout; [|discriminate].
   injection Hb as <- <- <-.
   inversion H2 as [|? ? Hf Hrest]; subst. destruct H3 as (A & _ & C).
   split; [split; [exact H1|split; [exact Hrest|exact C]]|split; [exact (proj1 (proj2 Hf))|exact A]].
@@ -1203,7 +1256,10 @@ Proof.
   { apply Ascii.eqb_eq in E8; subst c. cbn [st_inv].
     split; [exact Hheld|exact (ends_here _ _ _ _ Hcur)]. }
   destruct (Ascii.eqb c ":"%char) eqn:E9.
-  { cbn [st_inv]. split; [exact Hheld|].
+  { apply Ascii.eqb_eq in E9; subst c. cbn [st_inv].
+    split; [exact (ends_at_one _ _ _ _ Hcur)|].
+    split; [tred; cbn [String.length]; rewrite Hback; exact Ho|].
+    split; [reflexivity|].
     split; [|split; [exact Hph|discriminate]]. apply remember_word_start_ok, oinv_any, Hon. }
   destruct (Ascii.eqb c lbrack) eqn:E10.
   { destruct (if (note_pos txt prev && wikilinks_enabled)%bool then bunpush o else None)
@@ -1219,8 +1275,19 @@ Proof.
       + symmetry. exact Hs.
       + rewrite Hn. apply (cur_next _ _ _ _ Hcur). }
   destruct (Ascii.eqb c rbrack) eqn:E11.
-  { apply Ascii.eqb_eq in E11; subst c. cbn [st_inv]. rewrite Hback.
-    split; [exact Ho|]. rewrite <- Hback. exact Hb. }
+  { apply Ascii.eqb_eq in E11; subst c.
+    destruct (if tags_enabled then tag_close (flush_text_at (tval txt) o) else None)
+      as [[[[kids name] open] o']|] eqn:Et.
+    - destruct tags_enabled; [|discriminate Et]. tred.
+      destruct (tag_close_ok W _ cur kids name open o' (flush_text_at_ok W CU txt o cur Ho) Et)
+        as (K & A & B & C).
+      cbn [st_inv orb]. split; [|split; [exact Hph|discriminate]].
+      apply oinv_any, oemit_ok; [apply dn_imk_plain; [reflexivity|exact K]|].
+      eapply oinv_strict; [|exact A].
+      eapply spot_lt_trans; [exact B|].
+      eapply spot_le_lt_trans; [exact C|apply (cur_next _ _ _ _ Hcur)].
+    - cbn [st_inv]. rewrite Hback.
+      split; [exact Ho|]. rewrite <- Hback. exact Hb. }
   destruct (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
             then bunpush o else None) as [[[image open] o']|] eqn:Ew.
   { destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool; [|discriminate].
@@ -1502,7 +1569,7 @@ Proof.
   - (* IAuto *) destruct H as (A & B). 
     split; [|split; [apply prev_blit; [exact B|discriminate]|discriminate]].
     apply oinv_any; exact (held_oinv _ _ _ _ A).
-  - (* ISymbol *) destruct H as (A & B). apply IHst, B.
+  - (* ISymbol *) destruct H as (_ & _ & _ & B). apply IHst, B.
 Qed.
 
 Lemma iattr_feed_ok : forall W (CU : InlineCursor) cur next c p src txt prev sh o,
@@ -1948,17 +2015,43 @@ Proof.
 Qed.
 
 Lemma isymbol_ok : forall alias txt o sh',
-  held W o (nonempty_str txt) cur -> st_inv W next sh' ->
+  ends_at W (String ":" alias) cur ->
+  oinv W o (nonempty_str txt) (sleft (S (String.length alias)) cur) ->
+  no_char nl_char alias = true ->
+  st_inv W next sh' ->
   st_inv W next (isymbol_step c alias txt o sh').
 Proof.
-  intros alias txt o sh' Ho Hsh. pose proof (held_oinv _ _ _ _ Ho) as Ht.
+  intros alias txt o sh' He Ho0 Hnl Hsh.
+  assert (Hlt0 : spot_lt (sleft (S (String.length alias)) cur) cur)
+    by (apply spot_lt_sleft; lia).
+  assert (Ho : held W o (nonempty_str txt) cur) by (eapply held_intro; [exact Hlt0|exact Ho0]).
+  pose proof (held_oinv _ _ _ _ Ho) as Ht.
   unfold isymbol_step. tred.
-  destruct (symbol_char c).
-  - cbn [st_inv]. split; [eapply held_step; [exact Ho|exact nx_lt]|exact Hsh].
-  - destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool; [|exact Hsh].
+  destruct (symbol_char c) eqn:Esym.
+  - cbn [st_inv]. split; [|split; [|split; [|exact Hsh]]].
+    + change (String ":" (alias ++ one c)) with ((String ":" alias) ++ one c)%string.
+      eapply ends_at_snoc; [exact He|exact Hcur].
+    + replace (sleft (S (String.length (alias ++ one c))) next)
+        with (sleft (S (String.length alias)) cur); [exact Ho0|].
+      rewrite length_append. cbn [String.length one].
+      unfold next. pose proof (cur_rem _ _ _ _ Hcur). destruct cur as [kk rr].
+      unfold sleft, sright. cbn in *. f_equal. lia.
+    + rewrite no_char_app, Hnl. cbn [no_char one].
+      destruct (Ascii.eqb c nl_char) eqn:En; [|reflexivity].
+      apply Ascii.eqb_eq in En. rewrite En in Esym. discriminate Esym.
+  - destruct (Ascii.eqb c ":"%char && nonempty_str alias)%bool.
+    { cbn [st_inv orb]. split; [|split; [exact nx_prev|discriminate]].
+      apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
+      apply flush_text_to_at_touched. eapply oinv_strict; [exact nx_lt|exact Ht]. }
+    destruct (Ascii.eqb c lbrack && nonempty_str alias && tags_enabled && tag_may_follow txt)%bool; [|exact Hsh].
     cbn [st_inv orb]. split; [|split; [exact nx_prev|discriminate]].
-    apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
-    apply flush_text_to_at_touched. eapply oinv_strict; [exact nx_lt|exact Ht].
+    rewrite Hs, spot_before_no_nl by (cbn [no_char append one]; exact Hnl).
+    unfold tag_push, pspan. cbn [pos_records located_pos]. rewrite Hn.
+    change (sright 1 cur) with (span_stop (SrcSpan (sleft (String.length (one ":"%char ++ alias)) cur) (sright 1 cur))).
+    apply frame_push_ok; [exact I| |].
+    + cbn [span_start String.length append one]. apply flush_text_to_at_ok, Ho0.
+    + cbn [span_start span_stop String.length append one].
+      eapply spot_lt_trans; [exact Hlt0|exact nx_lt].
 Qed.
 
 Lemma iraw_ok : forall allow spec txt o,
@@ -2181,8 +2274,8 @@ Proof.
     apply oinv_any, oemit_ok; [apply dn_bnode, Hk|].
     eapply oinv_strict; [exact nx_lt|exact (held_oinv _ _ _ _ Ho)].
   - (* IAuto *) destruct H as (Ho & He). cbn [istep_at]. apply iauto_ok; assumption.
-  - (* ISymbol *) destruct H as (Ho & Hsh). cbn [istep_at].
-    apply isymbol_ok; [exact Ho|apply IHst, Hsh].
+  - (* ISymbol *) destruct H as (He & Ho & Hnl & Hsh). cbn [istep_at].
+    apply isymbol_ok; [exact He|exact Ho|exact Hnl|apply IHst, Hsh].
   - (* IRaw *) destruct H as (He & Ho). cbn [istep_at]. apply iraw_ok; assumption.
 Qed.
 
@@ -2379,7 +2472,7 @@ Proof.
     apply IHst, Hsh.
   - (* IDest *) destruct H as (Hk & Ho & Hsh). cbn [st_inv].
     split; [exact Hk|split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh]].
-  - (* ISymbol *) destruct H as (Ho & Hsh). apply IHst, Hsh.
+  - (* ISymbol *) destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
 Qed.
 
 End Break.

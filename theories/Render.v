@@ -315,11 +315,11 @@ Inductive cblock : Type :=
   | CQuote (inner : list cblock)
   | CCallout (kind : string) (fold : option callout_fold)
       (title : list cinline) (inner : list cblock)
-  (* A canonical div: bare `:::` at both ends, no class.  The fence
-     length is fixed for the same reason `CCode`'s is: content that would
-     close it early is excluded by `cb_ok` rather than escaped by growing
-     the fence. *)
-  | CDiv (inner : list cblock)
+  (* A canonical div: `:::` at both ends, no class, and its name, if it
+     has one, after the opening fence.  The fence length is fixed for the
+     same reason `CCode`'s is: content that would close it early is
+     excluded by `cb_ok` rather than escaped by growing the fence. *)
+  | CDiv (name : string) (inner : list cblock)
   (* `list_kind` (`OrderedList.v`) is the list flavour: bullet,
      definition, task, or an ordered scheme with its delimiter and start,
      which are the only data the markers depend on. *)
@@ -360,7 +360,8 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CCallout kind fold title inner =>
       quote_line (callout_header_line kind fold (ci_line title))
       :: map quote_line (sep_lines (map cb_lines inner))
-  | CDiv inner => (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list
+  | CDiv name inner =>
+      (div_open_line div_fence name :: sep_lines (map cb_lines inner) ++ [div_fence])%list
   (* Each item's own lines, then the markers its kind supplies and the
      layout its spacing supplies: `Parser.ck_items` and
      `Parser.list_lines`, which is exactly the shape `ck_uniformity`
@@ -392,7 +393,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CQuote inner => mk (BlockQuote (map cb_ast inner))
   | CCallout kind fold title inner =>
       mk (Ext_callout kind fold (ci_inlines title) (map cb_ast inner))
-  | CDiv inner => mk (Div (map cb_ast inner))
+  | CDiv name inner => mk (Div name (map cb_ast inner))
   | CList k sp items => mk (ck_block k sp (itemsof items))
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table [] (ctable_cells [] rows))
@@ -443,7 +444,7 @@ Definition cblock_ind2
   (hquote : forall inner, Q inner -> P (CQuote inner))
   (hcallout : forall kind fold title inner,
       Q inner -> P (CCallout kind fold title inner))
-  (hdiv : forall inner, Q inner -> P (CDiv inner))
+  (hdiv : forall name inner, Q inner -> P (CDiv name inner))
   (hlist : forall k sp items, R items -> P (CList k sp items))
   (href : forall label dest, P (CRef label dest))
   (htable : forall rows, P (CTable rows))
@@ -470,7 +471,7 @@ Definition cblock_ind2
     | CQuote inner => hquote inner (golist inner)
     | CCallout kind fold title inner =>
         hcallout kind fold title inner (golist inner)
-    | CDiv inner => hdiv inner (golist inner)
+    | CDiv name inner => hdiv name inner (golist inner)
     | CList k sp items =>
         hlist k sp items
           ((fix golistlist (iss : list (list cblock)) : R iss :=
@@ -902,6 +903,26 @@ Proof.
   repeat split; assumption.
 Qed.
 
+(* A canonical div's name: none, or a word the opener reads back whole,
+   which is a name only with `bdiv_names`. *)
+Definition div_name_ok (name : string) : bool :=
+  String.eqb name EmptyString || (bdiv_names && div_word_ok name).
+
+Lemma div_name_ok_word : forall name, div_name_ok name = true -> div_word_ok name = true.
+Proof.
+  intros name H. unfold div_name_ok in H. apply orb_true_iff in H as [H|H].
+  - apply String.eqb_eq in H. subst name. reflexivity.
+  - apply andb_true_iff in H as [_ H]. exact H.
+Qed.
+
+Lemma div_name_ok_block :
+  forall name bs, div_name_ok name = true -> div_block name bs = mk (Div name bs).
+Proof.
+  intros name bs H. apply div_block_named. unfold div_name_ok in H.
+  apply orb_true_iff in H as [H|H]; [rewrite H, orb_true_r; reflexivity|].
+  apply andb_true_iff in H as [H _]. rewrite H. reflexivity.
+Qed.
+
 Fixpoint cb_ok (cb : cblock) : bool :=
   let inner_ok :=
     fix go (cs : list cblock) : bool :=
@@ -947,8 +968,8 @@ Fixpoint cb_ok (cb : cblock) : bool :=
      without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
      side condition of Parser.div_uniformity, specialised to the lines
      this rendering produces. *)
-  | CDiv inner =>
-      bdivs && divs_ok inner && cb_pairs_ok inner
+  | CDiv name inner =>
+      bdivs && div_name_ok name && divs_ok inner && cb_pairs_ok inner
       && div_content_ok (sep_lines (map cb_lines inner))
   | CList k sp items =>
       nonempty items && items_ok items
@@ -1057,20 +1078,21 @@ Lemma cb_ok_callout :
 Proof. intros. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
 Lemma cb_ok_div :
-  forall inner,
-    cb_ok (CDiv inner)
-    = (bdivs && forallb cb_ok inner && cb_pairs_ok inner
+  forall name inner,
+    cb_ok (CDiv name inner)
+    = (bdivs && div_name_ok name && forallb cb_ok inner && cb_pairs_ok inner
        && div_content_ok (sep_lines (map cb_lines inner)))%bool.
-Proof. intros inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
+Proof. intros name inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
 
 Lemma cb_ast_div :
-  forall inner, cb_ast (CDiv inner) = mk (Div (map cb_ast inner)).
+  forall name inner, cb_ast (CDiv name inner) = mk (Div name (map cb_ast inner)).
 Proof. reflexivity. Qed.
 
 Lemma cb_lines_div :
-  forall inner,
-    cb_lines (CDiv inner)
-    = (div_fence :: sep_lines (map cb_lines inner) ++ [div_fence])%list.
+  forall name inner,
+    cb_lines (CDiv name inner)
+    = (div_open_line div_fence name
+         :: sep_lines (map cb_lines inner) ++ [div_fence])%list.
 Proof. reflexivity. Qed.
 
 Definition cblocks_ok (cbs : list cblock) : bool :=
@@ -1262,16 +1284,19 @@ Proof.
   rewrite (IH Hrest). destruct L; [discriminate HL|reflexivity].
 Qed.
 
-(* A node's attributes, as the line before its block.  A div's class goes
-   on its fence instead when it is one word and comes first: an attribute
-   line's class replaces the fence's, so two words have to go on the line,
-   and a fence's class reads back ahead of the line's attributes. *)
+(* A node's attributes, as the line before its block.  An unnamed div's
+   class goes on its fence instead when it is one word and comes first:
+   an attribute line's class replaces the fence's, so two words have to
+   go on the line, and a fence's class reads back ahead of the line's
+   attributes.  A named div's fence holds its name, and with `bdiv_names`
+   a fence's word is a name, so a class stays on the line. *)
 Definition attr_lines (a : attr) : list string :=
   match a with [] => [] | _ => [attr_spec a] end.
 
 Definition fence_class (a : attr) (b : block) : string :=
   match b with
-  | Div _ =>
+  | Div EmptyString _ =>
+      if bdiv_names then EmptyString else
       match a with
       | (k, c) :: _ =>
           if String.eqb k "class" && class_word_ok c then c else EmptyString
@@ -1279,6 +1304,12 @@ Definition fence_class (a : attr) (b : block) : string :=
       end
   | _ => EmptyString
   end.
+
+Lemma fence_class_nil : forall b, fence_class [] b = EmptyString.
+Proof.
+  intros b. destruct b; try reflexivity. destruct name; [|reflexivity].
+  cbn [fence_class]. destruct bdiv_names; reflexivity.
+Qed.
 
 Definition drop_class (cls : string) (a : attr) : attr :=
   if String.eqb cls EmptyString then a
@@ -1294,9 +1325,6 @@ Local Definition closer_run (l : string) : nat :=
 Definition div_fence_for (body : list string) : string :=
   if div_content_ok body then div_fence
   else chars ":" (Nat.max 3 (S (list_max (map closer_run body)))).
-
-Definition div_open_line (fence cls : string) : string :=
-  if String.eqb cls EmptyString then fence else (fence ++ " " ++ cls)%string.
 
 (* A footnote's body sits under its label, indented so that every line
    belongs to it; blank lines stay blank. *)
@@ -1359,9 +1387,10 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
           (callout_header_line kind fold (String.concat " " (text_lines title)))
         :: map quote_line
           (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)))%list
-   | Div bs =>
+   | Div name bs =>
        let body := sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
-       (div_open_line (div_fence_for body) cls :: body ++ [div_fence_for body])%list
+       let word := match name with EmptyString => cls | _ => name end in
+       (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
        sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
    | BulletList sp items =>
@@ -1417,27 +1446,30 @@ Lemma render_lines_noclass :
     render_lines a x = (attr_lines a ++ render_block_lines x)%list.
 Proof.
   intros a x H.
-  assert (Hc : forall bs, fence_class a (Div bs) = EmptyString).
-  { intros bs. destruct a as [|[k v] a']; [reflexivity|].
-    cbn [alist_lookup] in H. cbn [fence_class].
+  assert (Hc : forall name bs, fence_class a (Div name bs) = EmptyString).
+  { intros name bs. destruct name; [|reflexivity]. cbn [fence_class].
+    destruct bdiv_names; [reflexivity|]. destruct a as [|[k v] a']; [reflexivity|].
+    cbn [alist_lookup] in H.
     destruct (String.eqb "class" k) eqn:E; [discriminate H|].
     rewrite String.eqb_sym, E. reflexivity. }
   unfold render_block_lines.
   destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
-    try (rewrite Hc; reflexivity); reflexivity.
+    try (rewrite Hc, fence_class_nil; reflexivity); reflexivity.
 Qed.
 
 Lemma render_block_div :
-  forall bs,
+  forall name bs,
     div_content_ok (sep_lines (render_blocks_lines bs)) = true ->
-    render_block_lines (Div bs)
-    = (div_fence :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
+    render_block_lines (Div name bs)
+    = (div_open_line div_fence name
+         :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
 Proof.
-  intros bs H. unfold render_block_lines. cbn [render_lines fence_class drop_class
-    attr_lines String.eqb app].
+  intros name bs H. unfold render_block_lines.
+  cbn [render_lines]. rewrite fence_class_nil.
+  cbn [drop_class attr_lines String.eqb app].
   change (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
     with (render_blocks_lines bs).
-  unfold div_fence_for. rewrite H. reflexivity.
+  unfold div_fence_for. rewrite H. destruct name; reflexivity.
 Qed.
 
 Lemma render_block_quote :
@@ -1797,7 +1829,7 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
   | BlockQuote bs => Node p a (BlockQuote (go bs))
   | Ext_callout kind fold title bs =>
       Node p a (Ext_callout kind fold title (go bs))
-  | Div bs => Node p a (Div (go bs))
+  | Div name bs => Node p a (Div name (go bs))
   | FootnoteDef l bs => Node p a (FootnoteDef l (go bs))
   | BulletList sp its => Node p a (BulletList sp (goits its))
   | OrderedList oa sp its => Node p a (OrderedList oa sp (goits its))

@@ -1,3 +1,4 @@
+open Ascii
 open Ast
 open Datatypes
 open Document
@@ -38,6 +39,20 @@ val ol_attrs : ordered_list_attributes -> attr
 val plain_text : inline -> string
 
 val plain_texts : inline node list -> string
+
+val ascii_lower : char -> char
+
+val str_lower : string -> string
+
+val tag_letter : char -> bool
+
+val tag_tail_ok : string -> bool
+
+val unordinary_elements : string list
+
+val html_tag_ok : string -> bool
+
+val named_elem : string -> string -> attr -> string * attr
 
 val render_inline : reference_map -> inline -> attr -> helt list
 

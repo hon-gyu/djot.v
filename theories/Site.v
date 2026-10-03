@@ -357,6 +357,7 @@ Local Fixpoint ci_dests (c : cinline) : list string :=
   match c with
   | CIDelim _ kids => flat_map ci_dests kids
   | CIRef _ kids _ => flat_map ci_dests kids
+  | CITag _ kids => flat_map ci_dests kids
   | CILink _ kids dst => (dst :: flat_map ci_dests kids)%list
   | CIWiki _ t _ => [t]
   | _ => []
@@ -368,6 +369,7 @@ Local Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
   | CILink img kids dst => CILink img (map (ci_map_dest f) kids) (f dst)
   | CIRef img kids label => CIRef img (map (ci_map_dest f) kids) label
   | CIWiki embed t al => CIWiki embed (f t) al
+  | CITag name kids => CITag name (map (ci_map_dest f) kids)
   | _ => c
   end.
 
@@ -385,6 +387,7 @@ Local Definition cinline_ind2
   (hauto : forall s, P (CIAuto s))
   (hraw : forall fmt s, P (CIRaw fmt s))
   (hwiki : forall embed t al, P (CIWiki embed t al))
+  (htag : forall name kids, Q kids -> P (CITag name kids))
   (hnil : Q [])
   (hcons : forall c cs, P c -> Q cs -> Q (c :: cs))
   : forall c, P c :=
@@ -405,6 +408,7 @@ Local Definition cinline_ind2
     | CIAuto s => hauto s
     | CIRaw fmt s => hraw fmt s
     | CIWiki embed t al => hwiki embed t al
+    | CITag name kids => htag name kids (golist kids)
     end.
 
 Local Lemma ci_dests_map :
@@ -415,10 +419,11 @@ Proof.
             (fun c => ci_dests (ci_map_dest f c) = map f (ci_dests c))
             (fun cs => flat_map ci_dests (map (ci_map_dest f) cs)
                        = map f (flat_map ci_dests cs))
-            _ _ _ _ _ _ _ _ _ _ _); try reflexivity.
+            _ _ _ _ _ _ _ _ _ _ _ _); try reflexivity.
   - intros k kids IH. cbn [ci_map_dest ci_dests]. exact IH.
   - intros img kids dst IH. cbn [ci_map_dest ci_dests map]. rewrite IH. reflexivity.
   - intros img kids label IH. cbn [ci_map_dest ci_dests]. exact IH.
+  - intros name kids IH. cbn [ci_map_dest ci_dests]. exact IH.
   - intros c cs IHc IHcs. cbn [map flat_map].
     rewrite map_app, IHc, IHcs. reflexivity.
 Qed.
@@ -448,7 +453,7 @@ Fixpoint cb_dests (cb : cblock) : list string :=
   | CQuote inner => flat_map cb_dests inner
   | CCallout _ _ title inner =>
       (cis_dests title ++ flat_map cb_dests inner)%list
-  | CDiv inner => flat_map cb_dests inner
+  | CDiv _ inner => flat_map cb_dests inner
   | CList _ _ items => flat_map (flat_map cb_dests) items
   | CRef _ dest => [dest]
   | CTable rows => flat_map ctrow_dests rows
@@ -464,7 +469,7 @@ Fixpoint cb_map_dest (f : string -> string) (cb : cblock) : cblock :=
   | CQuote inner => CQuote (map (cb_map_dest f) inner)
   | CCallout kind fold title inner =>
       CCallout kind fold (cis_map_dest f title) (map (cb_map_dest f) inner)
-  | CDiv inner => CDiv (map (cb_map_dest f) inner)
+  | CDiv name inner => CDiv name (map (cb_map_dest f) inner)
   | CList k sp items => CList k sp (map (map (cb_map_dest f)) items)
   | CRef label dest => CRef label (f dest)
   | CTable rows => CTable (map (ctrow_map_dest f) rows)
@@ -519,7 +524,7 @@ Proof.
   - intros kind fold title inner IH.
     cbn [cb_dests cb_map_dest].
     rewrite map_app, cis_dests_map, IH. reflexivity.
-  - intros inner IH. exact IH.
+  - intros name inner IH. exact IH.
   - intros k sp items IH. exact IH.
   - intros rows. cbn [cb_dests cb_map_dest].
     induction rows as [|r rows IH]; [reflexivity|].
@@ -789,7 +794,7 @@ Proof.
     (fun c => (forall s, In s (ci_dests c) -> f s = s) -> ci_map_dest f c = c)
     (fun cs => (forall s, In s (flat_map ci_dests cs) -> f s = s)
                -> map (ci_map_dest f) cs = cs)
-    _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+    _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
   - intros k kids IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros img kids dst IH H. cbn [ci_map_dest].
     rewrite IH; [rewrite H; [reflexivity | cbn [ci_dests]; left; reflexivity]|].
@@ -797,6 +802,7 @@ Proof.
   - intros img kids label IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros embed t al H. cbn [ci_map_dest].
     rewrite H; [reflexivity | cbn [ci_dests]; left; reflexivity].
+  - intros name kids IH H. cbn [ci_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros c cs IHc IHcs H. cbn [map].
     rewrite IHc, IHcs; [reflexivity| |].
     + intros s Hs. apply H. cbn [flat_map]. apply in_or_app. right. exact Hs.
@@ -849,7 +855,7 @@ Proof.
     rewrite cis_map_dest_id, IH; [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
+  - intros name inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros k sp items IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
   - intros label dest H. cbn [cb_map_dest]. rewrite H; [reflexivity|left; reflexivity].
   - intros rows H. cbn [cb_map_dest] in *. f_equal.

@@ -2238,3 +2238,26 @@ range (`PTable`) is now present whenever a `^` line was read, whatever
 its inlines.  The `dist/` API changes with it: `Block.Table` carries
 `Inline.t node list`, not an option.  The test suite, the generated
 corpus against djot.js and the roundtrip pools keep their counts.
+
+## 2026-10-03 -- ours: block attributes replace a div's class word
+
+| Input | djot.js | ours |
+| --- | --- | --- |
+| `{.a}` / `::: b` / `y` / `:::` | `<div class="a b">` | `<div class="a">` |
+
+Found while pinning the baseline for `.project/261001.plan.custom-tags.md`.
+djot.js pushes the div's container with the pending block attributes
+already on it (`pushContainer` calls `addBlockAttributes`), and the
+fence's word then arrives as a `class` event, which appends
+(`parse.ts:536`).  Ours builds the div with the word as its class
+(`Step.div_block`) and then applies the pending set by assignment
+(`Attr.apply_pending`, through `decorate_head`), so the pending `class`
+overwrites the word.  The reference says classes given more than once
+"will be combined", for inline attributes and for repeated block specs
+alike.
+
+**Verdict: ours, open.**  Not reported upstream, and not a djot.js
+question.  The fix is in `apply_pending`: a pending `class` goes before a
+class the block already has, as djot.js's order gives.  With custom tag
+names on, `::: b` writes a name rather than a class, so there the case
+does not arise.

@@ -11,6 +11,13 @@ let with_footnotes enabled p =
   { profile_inline = (with_inline_footnotes enabled t); profile_block =
   (with_block_footnotes enabled p.profile_block) }
 
+(** val with_tags : bool -> profile -> profile **)
+
+let with_tags enabled p =
+  let t = p.profile_inline in
+  { profile_inline = (with_inline_tags enabled t); profile_block =
+  (with_div_names enabled p.profile_block) }
+
 (** val djot_profile : profile **)
 
 let djot_profile =

@@ -3506,6 +3506,47 @@ Definition div_fence : string := ":::".
 Lemma classify_canonical_div : classify div_fence = KDiv 3 EmptyString.
 Proof. reflexivity. Qed.
 
+(* An opening fence with its word, if it has one. *)
+Definition div_open_line (fence word : string) : string :=
+  if String.eqb word EmptyString then fence else (fence ++ " " ++ word)%string.
+
+(* A word the opener reads back whole. *)
+Definition div_word_ok (w : string) : bool := str_forallb is_class_char w.
+
+Lemma classify_canonical_div_open :
+  forall w, div_word_ok w = true ->
+    classify (div_open_line div_fence w) = KDiv 3 w.
+Proof.
+  intros w Hw. apply classify_div_fences.
+  exists EmptyString.
+  unfold div_open_line. destruct (String.eqb w EmptyString) eqn:E.
+  - apply String.eqb_eq in E. subst w.
+    exists EmptyString, EmptyString. repeat split; reflexivity.
+  - exists " "%string, EmptyString. repeat split; try exact Hw; try reflexivity.
+    rewrite append_empty_r. reflexivity.
+Qed.
+
+Lemma div_open_line_no_nl :
+  forall w, div_word_ok w = true -> no_nl (div_open_line div_fence w) = true.
+Proof.
+  intros w Hw. unfold div_open_line. destruct (String.eqb w EmptyString); [reflexivity|].
+  change (no_nl w = true).
+  induction w as [|c w IH]; [reflexivity|].
+  cbn [div_word_ok str_forallb no_nl] in Hw |- *. unfold div_word_ok in IH.
+  apply andb_true_iff in Hw as [Hc Hw]. rewrite (IH Hw), andb_true_r.
+  destruct (Ascii.eqb c "010") eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c. discriminate Hc.
+Qed.
+
+Lemma div_open_line_ok :
+  forall w, div_word_ok w = true -> line_ok (div_open_line div_fence w) = true.
+Proof.
+  intros w Hw. unfold line_ok. rewrite (div_open_line_no_nl w Hw), andb_true_r.
+  unfold div_open_line. destruct (String.eqb w EmptyString); [reflexivity|].
+  cbn [div_fence append nonblank is_blank drop_leading_ws is_ws].
+  apply String.eqb_refl.
+Qed.
+
 Lemma div_close_canonical : div_close 3 div_fence = true.
 Proof. reflexivity. Qed.
 

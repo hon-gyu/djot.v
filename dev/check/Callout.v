@@ -58,7 +58,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_span :
   Djot "> [!note]{.a}" =
-  [Q [P [Node NoPos [("class", "a")] (Span [S "!note"])]]].
+  [Q [P [Node NoPos [("class", "a")] (Span "" [S "!note"])]]].
 Proof. vm_compute. reflexivity. Qed.
 
 Example baseline_reference_link :
@@ -126,7 +126,7 @@ Example canonical_quote_prefix_probe :
   map rendered_quote_header
     [S "[!note] T";
      mk (Link [S "!note"] (Direct "x"));
-     Node NoPos [("class", "a")] (Span [S "!note"]);
+     Node NoPos [("class", "a")] (Span "" [S "!note"]);
      mk (Link [S "!note"] (Reference "r"));
      mk (FootnoteReference "n");
      mk (Ext_wikilink false "note" None)]

@@ -1350,35 +1350,40 @@ Qed.
 
 (** Uniformity for fenced divs: a div's contents parse exactly as they
     would at top level, for any contents that leave the div open.  The
-    canonical instance of `fenced_div_closed`. *)
+    canonical instance of `fenced_div_closed`, with any word the opener
+    reads back. *)
 Theorem div_uniformity :
-  forall content,
+  forall word content,
     bdivs = true ->
+    div_word_ok word = true ->
     div_content_ok content = true ->
-    parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-    = [mk (Div (parse_lines content (PPara [])))].
+    parse_lines (div_open_line div_fence word :: content ++ [div_fence])%list
+      (PPara [])
+    = [div_block word (parse_lines content (PPara []))].
 Proof.
-  intros content Hdivs Hok. unfold div_content_ok in Hok.
+  intros word content Hdivs Hw Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
-  exact (fenced_div_closed _ _ _ _ _ [] Hdivs classify_canonical_div Hopen Hf
-           div_close_canonical).
+  exact (fenced_div_closed _ _ _ _ _ [] Hdivs (classify_canonical_div_open word Hw)
+           Hopen Hf div_close_canonical).
 Qed.
 
 (* The same with a document after it, which is the form the roundtrip
    proof needs: the closing fence is consumed and the separator blank
    returns the parser to idle. *)
 Theorem div_uniformity_tail :
-  forall content tail,
+  forall word content tail,
     bdivs = true ->
+    div_word_ok word = true ->
     div_content_ok content = true ->
-    parse_lines (div_fence :: content ++ div_fence :: EmptyString :: tail)%list
+    parse_lines (div_open_line div_fence word
+                   :: content ++ div_fence :: EmptyString :: tail)%list
                 (PPara [])
-    = mk (Div (parse_lines content (PPara []))) :: parse_lines tail (PPara []).
+    = div_block word (parse_lines content (PPara [])) :: parse_lines tail (PPara []).
 Proof.
-  intros content tail Hdivs Hok. unfold div_content_ok in Hok.
+  intros word content tail Hdivs Hw Hok. unfold div_content_ok in Hok.
   apply andb_true_iff in Hok as [Hopen Hf]. apply negb_true_iff in Hf.
-  rewrite (fenced_div_closed _ _ _ _ _ _ Hdivs classify_canonical_div Hopen Hf
-             div_close_canonical).
+  rewrite (fenced_div_closed _ _ _ _ _ _ Hdivs (classify_canonical_div_open word Hw)
+             Hopen Hf div_close_canonical).
   rewrite (parse_lines_blank_nil EmptyString tail
              (classify_blank EmptyString eq_refl)).
   reflexivity.
@@ -2226,7 +2231,7 @@ End WithTable.
 Example div_indented_close_differs :
   let content := ["- a"; "  :::"; "  b"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  <> [mk (Div (parse_lines content (PPara [])))].
+  <> [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. vm_compute. discriminate. Qed.
 
 Example div_indented_close_rejected :
@@ -2239,7 +2244,7 @@ Proof. reflexivity. Qed.
 Example div_code_fence_uniform :
   let content := ["```"; ":::"; "```"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  = [mk (Div (parse_lines content (PPara [])))].
+  = [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. reflexivity. Qed.
 
 Example div_code_fence_accepted :
@@ -2251,7 +2256,7 @@ Proof. reflexivity. Qed.
 Example div_unclosed_fence_differs :
   let content := ["```"]%list in
   parse_lines (div_fence :: content ++ [div_fence])%list (PPara [])
-  <> [mk (Div (parse_lines content (PPara [])))].
+  <> [mk (Div EmptyString (parse_lines content (PPara [])))].
 Proof. vm_compute. discriminate. Qed.
 
 (*
