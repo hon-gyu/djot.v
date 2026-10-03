@@ -39,6 +39,12 @@ differences:
   post-processing; `Html.to_string` serializes it.
 - `Source.of_doc` renders a document back to djot, where cmarkit has a
   CommonMark renderer.
+- `Doc.replace_lines` and `Doc.replace_bytes` edit a parsed document,
+  parsing again only the part the edit can affect.  The `_changed`
+  variants also return the lines that were parsed again.
+- `Stream` parses input fed in lines or in arbitrary chunks, returning
+  each top-level block when the input closes it; `Stream.finish` gives
+  the document.
 
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
