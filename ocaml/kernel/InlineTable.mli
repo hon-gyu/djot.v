@@ -113,6 +113,12 @@ val dsyntax_bare : dsyntax -> bool
 
 val drow_ok : dconfig -> dstyle -> bool
 
+val dconfig_distinct : dconfig -> bool
+
+val dconfig_rows_ok : dconfig -> bool
+
+val dconfig_ok : dconfig -> bool
+
 type dentry = { de_char : char; de_width : int; de_syntax : dsyntax;
                 de_decay : ddecay }
 

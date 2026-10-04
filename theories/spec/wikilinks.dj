@@ -1,4 +1,3 @@
-profile: ext_wikilinks=on
 # Wikilinks
 
 Setting: `ext_wikilinks`.
@@ -7,18 +6,24 @@ A wikilink is a target between double brackets, as in Obsidian.
 
 ``` example
 See [[Backlinks]].
+.
+<p>See <a href="Backlinks">Backlinks</a>.</p>
 ```
 
 A `|` separates the target from an alias, which is the text shown.
 
 ``` example
 See [[Backlinks|the other direction]].
+.
+<p>See <a href="Backlinks">the other direction</a>.</p>
 ```
 
 A `!` in front makes it an embed, as it makes a link an image.
 
 ``` example
 ![[diagram.png]]
+.
+<p><img alt="diagram.png" src="diagram.png"></p>
 ```
 
 ## Where it opens and closes
@@ -28,6 +33,8 @@ at the first `]]` on the same line. A single `]` is part of the target.
 
 ``` example
 [[a]b]]
+.
+<p><a href="a]b">a]b</a></p>
 ```
 
 It does not cross a line break. One that is not closed by the end of its
@@ -36,6 +43,9 @@ line is text.
 ``` example
 [[a
 b]]
+.
+<p>[[a
+b]]</p>
 ```
 
 ## Target and alias
@@ -46,12 +56,16 @@ as inline content.
 
 ``` example
 [[a|*b*]]
+.
+<p><a href="a">*b*</a></p>
 ```
 
 An empty target is not a wikilink.
 
 ``` example
 [[]] and [[|b]]
+.
+<p>[[]] and [[|b]]</p>
 ```
 
 ## What it changes in djot
@@ -61,6 +75,8 @@ whose text begins with a bracket reads differently.
 
 ``` example
 [[1]](u)
+.
+<p><a href="1">1</a>(u)</p>
 ```
 
 In a table, the row is split into cells first, so a `|` inside a wikilink

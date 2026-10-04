@@ -1,4 +1,3 @@
-profile: ext_list_interrupts=on
 # List interruption
 
 Setting: `ext_list_interrupts`. On in the Markdown-like profile.
@@ -10,6 +9,16 @@ marker on the line after paragraph text starts a list.
 Things to do:
 - one
 - two
+.
+<p>Things to do:</p>
+<ul>
+<li>
+one
+</li>
+<li>
+two
+</li>
+</ul>
 ```
 
 This also lets a sublist follow an item's text directly.
@@ -18,6 +27,20 @@ This also lets a sublist follow an item's text directly.
 - fruit
   - apple
   - pear
+.
+<ul>
+<li>
+fruit
+<ul>
+<li>
+apple
+</li>
+<li>
+pear
+</li>
+</ul>
+</li>
+</ul>
 ```
 
 An ordered marker starts a list only when its number is `1`. Other numbers
@@ -26,12 +49,25 @@ often end a sentence.
 ``` example
 The civil war ended in
 1865. And this should not start a list.
+.
+<p>The civil war ended in
+1865. And this should not start a list.</p>
 ```
 
 ``` example
 The steps are
 1. first
 2. second
+.
+<p>The steps are</p>
+<ol>
+<li>
+first
+</li>
+<li>
+second
+</li>
+</ol>
 ```
 
 ## What it costs

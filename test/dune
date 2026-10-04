@@ -10,3 +10,9 @@
  (names diff roundtrip spans convert bench compare readme)
  (modules diff roundtrip spans convert bench compare readme)
  (libraries djot djot_fixtures djot_test unix))
+
+; Writes theories/SpecExamples.v.  It links nothing, so that it does
+; not wait for the extraction.
+(executable
+ (name spec_examples)
+ (modules spec_examples))

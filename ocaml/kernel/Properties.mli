@@ -10,6 +10,8 @@ type status =
 | Unknown
 | Inapplicable of string
 
+val status_name : status -> string
+
 val claimed : status -> bool
 
 type property = { p_id : string; p_group : string; p_statement : string;

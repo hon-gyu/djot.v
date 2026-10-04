@@ -1,25 +1,25 @@
 (* ai-disclosure: ai-generated *)
 
-(* Writes the static pages: [gen PAGES OUT].  A page is a djot file,
+(* Writes the static pages: [gen PAGES EXTENSIONS OUT].  A page is a djot file,
    rendered by the parser this site is about.  Four code block languages
    are filled in here:
 
-   - [example]: the source, the HTML it renders to under a profile, and a
-     link that opens it in the playground;
+   - [example]: a source and its HTML, as the extension reference writes
+     them, with a link that opens the source in the playground;
    - [changes]: the properties whose status a profile changes, against
      djot;
    - [properties]: the status of every property under the named profiles;
    - [versions]: the version, the syntax reference it models, and the
      commit the site was built from.
 
-   The extensions page is made of the files of [extensions/], in the
-   order of their names.  Each starts with a [profile: ...] line in the
-   form [Spec.of_string] reads, which is the profile of its [example] and
-   [changes] blocks. *)
+   The extensions page is made of the files of the directory EXTENSIONS,
+   the extension reference (theories/spec), in the order of their
+   names.  A file's setting is the one of its name in
+   theories/Profiles.v. *)
 
 open Djot
 open Site_common
-module P = Djot_properties
+module P = Djot.Kernel.Properties
 
 let read path = In_channel.with_open_bin path In_channel.input_all
 
@@ -146,13 +146,13 @@ let status_cell (s : P.status) : string =
 
 let property_table ~all profiles =
   let differs p =
-    List.exists (fun (_, q) -> P.status p q <> P.status p Profile.djot) profiles
+    List.exists (fun (_, q) -> p.P.p_status (Profiles.options q) <> p.P.p_status (Profiles.options Profile.djot)) profiles
   in
   let row p =
     Printf.sprintf
       "<tr><td>%s</td>%s</tr>"
-      (escape (P.statement p))
-      (String.concat "" (List.map (fun (_, q) -> status_cell (P.status p q)) profiles))
+      (escape (p.P.p_statement))
+      (String.concat "" (List.map (fun (_, q) -> status_cell (p.P.p_status (Profiles.options q))) profiles))
   in
   Printf.sprintf
     {|<table class="properties"><tr><th>Property</th>%s</tr>%s</table>|}
@@ -191,8 +191,17 @@ let versions () =
     Versions.commit_date
 ;;
 
-let example ~root profile src =
-  let html = Html.of_doc (Doc.of_string ~profile src) in
+(* An example of the extension reference: its source, a line with a
+   period, and its HTML.  The HTML is the reference's own, which the
+   Rocq build has checked against the parser. *)
+let example ~root profile block =
+  let rec split source = function
+    | "." :: html -> List.rev source, html
+    | l :: rest -> split (l :: source) rest
+    | [] -> failwith "an example without its \".\" line"
+  in
+  let source, html = split [] (String.split_on_char '\n' block) in
+  let src = String.concat "" (List.map (fun l -> l ^ "\n") source) in
   Printf.sprintf
     {|<div class="example">
 <pre class="source"><code>%s</code></pre>
@@ -200,14 +209,14 @@ let example ~root profile src =
 <a href="%splayground/#profile=%s&amp;text=%s">Open in the playground</a>
 </div>|}
     (escape src)
-    (escape html)
+    (escape (String.concat "\n" html))
     root
-    (percent (Spec.to_string profile))
+    (percent (Profiles.to_string profile))
     (percent src)
 ;;
 
 let named name =
-  match List.assoc_opt name Spec.presets with
+  match List.assoc_opt name Profiles.presets with
   | Some p -> name, p
   | None -> failwith (name ^ ": no such preset")
 ;;
@@ -249,17 +258,15 @@ let title src =
   | _ -> "djot.v"
 ;;
 
-(* An extension file as a part of the extensions page: its profile, and
-   its text with every heading one level down, its [example] blocks
-   naming profile [i], and its properties at the end. *)
-let extension i src =
-  let profile, lines =
-    match String.split_on_char '\n' src with
-    | l :: rest when String.starts_with ~prefix:"profile: " l ->
-      (match Spec.of_string (String.sub l 9 (String.length l - 9)) with
-       | Ok p -> p, rest
-       | Error e -> failwith e)
-    | _ -> failwith "an extension file starts with a profile: line"
+(* A file of the extension reference as a part of the extensions page:
+   its setting, and its text with every heading one level down, its
+   [example] blocks naming profile [i], and its properties at the end. *)
+let extension i file =
+  let name = Filename.chop_suffix (Filename.basename file) ".dj" in
+  let profile =
+    match Option.bind (List.assoc_opt name Kernel.Spec.all) Profile.of_kernel with
+    | Some p -> p
+    | None -> failwith (name ^ ": no setting of that name in theories/Profiles.v")
   in
   let fenced = ref false in
   let line l =
@@ -272,7 +279,7 @@ let extension i src =
     else l
   in
   ( profile
-  , String.concat "\n" (List.map line lines)
+  , String.concat "\n" (List.map line (String.split_on_char '\n' (read file)))
     ^ Printf.sprintf
         "\n### Properties\n\n\
          What turning this on changes, against djot. Every property not listed keeps its \
@@ -313,14 +320,15 @@ let () =
       List.iter
         (fun t ->
           if Links.theorem t = None
-          then failwith (Printf.sprintf "%s: no theorem named %s" (P.id p) t))
-        (P.theorems p))
+          then failwith (Printf.sprintf "%s: no theorem named %s" (p.P.p_id) t))
+        (p.P.p_theorems))
     P.all
 ;;
 
 let () =
   let pages = Sys.argv.(1)
-  and out = Sys.argv.(2) in
+  and extensions = Sys.argv.(2)
+  and out = Sys.argv.(3) in
   let ( / ) = Filename.concat in
   let page ~root ~dst src =
     write
@@ -333,11 +341,11 @@ let () =
   page ~root:"" ~dst:"index.html" (read (pages / "home.dj"));
   page ~root:"../" ~dst:("api" / "index.html") (read (pages / "api.dj"));
   let parts =
-    Sys.readdir (pages / "extensions")
+    Sys.readdir extensions
     |> Array.to_list
     |> List.filter (fun f -> Filename.check_suffix f ".dj")
     |> List.sort compare
-    |> List.mapi (fun i f -> extension i (read (pages / "extensions" / f)))
+    |> List.mapi (fun i f -> extension i (extensions / f))
   in
   let src = String.concat "" (read (pages / "extensions.dj") :: List.map snd parts) in
   let d = document ~root:"../" ~profiles:(Array.of_list (List.map fst parts)) src in

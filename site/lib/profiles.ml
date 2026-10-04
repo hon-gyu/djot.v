@@ -4,6 +4,7 @@ open Djot
 module Switch = Profile.Switch
 module Delimiter = Profile.Delimiter
 
+let options (p : Profile.t) = (p :> Kernel.Profile.options)
 let presets = [ "djot", Profile.djot; "markdown-like", Profile.markdown_like ]
 
 let preset p =

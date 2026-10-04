@@ -1,6 +1,6 @@
 (library
  (name site_common)
- (libraries djot djot.properties))
+ (libraries djot))
 
 ; The commits the site states and the theorems it links to.  Read from the
 ; repository outside this project, so the rules rerun on every build.

@@ -12,7 +12,7 @@
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
 From DjotV Require Import Strings Html Step Document Profile ProfileChecks Properties
-  Reparse Readable.
+  Spec Reparse Readable.
 From DjotVDev Require Import Fixtures Generate.
 
 Extraction Language OCaml.
@@ -533,6 +533,8 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.ProfileChecks.heading_wrap_safe DjotV.ProfileChecks.quote_uniform
   DjotV.ProfileChecks.lazy_uniform DjotV.ProfileChecks.shape_first
   DjotV.Properties.all DjotV.Properties.claimed
+  DjotV.Properties.status_name
+  DjotV.Spec.all DjotV.InlineTable.dconfig_ok
   DjotV.InlineTable.with_inline_footnotes DjotV.InlineTable.with_inline_tags
   DjotV.InlineTable.with_wikilinks DjotV.InlineTable.with_dollar_math
   DjotV.InlineTable.update_drow DjotV.InlineTable.drow_update_compatible

@@ -1,4 +1,3 @@
-profile: ext_tags=on
 # Custom tag names
 
 Setting: `ext_tags`.
@@ -7,12 +6,18 @@ A div and a span can have a name, which becomes the element.
 
 ``` example
 Press :kbd[Ctrl+C] to copy.
+.
+<p>Press <kbd>Ctrl+C</kbd> to copy.</p>
 ```
 
 ``` example
 ::: details
 Hidden until opened.
 :::
+.
+<details>
+<p>Hidden until opened.</p>
+</details>
 ```
 
 This extension changes how existing djot documents parse: in djot the word
@@ -28,6 +33,10 @@ does not change. A fence with no word opens an unnamed div.
 ::: aside
 A named div with a class.
 :::
+.
+<aside class="note">
+<p>A named div with a class.</p>
+</aside>
 ```
 
 ## A span's name
@@ -38,12 +47,16 @@ it is the innermost open bracket, and nothing after the `]` is waited for.
 
 ``` example
 :kbd[x](u)
+.
+<p><kbd>x</kbd>(u)</p>
 ```
 
 Attributes attach as they do to any inline.
 
 ``` example
 :kbd[Esc]{.key}
+.
+<p><kbd class="key">Esc</kbd></p>
 ```
 
 ## Where `:name[` is not a named span
@@ -53,12 +66,16 @@ digit or a colon.
 
 ``` example
 \:kbd[a] and a:kbd[b]
+.
+<p>:kbd[a] and a:kbd[b]</p>
 ```
 
 When it never closes.
 
 ``` example
 :kbd[a
+.
+<p>:kbd[a</p>
 ```
 
 ## Output
@@ -71,6 +88,8 @@ is `div` or `span` and the name is in a `data-tag` attribute.
 
 ``` example
 :script[x] and :a_b[y]
+.
+<p><span data-tag="script">x</span> and <span data-tag="a_b">y</span></p>
 ```
 
 {% ai-disclosure: ai-generated %}

@@ -1,4 +1,5 @@
-== djot
+djot
+====================
 block-no-backtracking: proved
 inline-no-backtracking: proved
 incremental-reparse: proved
@@ -19,7 +20,9 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
-== markdown_like
+
+markdown_like
+====================
 block-no-backtracking: proved
 inline-no-backtracking: proved
 incremental-reparse: proved
@@ -40,7 +43,9 @@ hard-wrap-paragraph: broken
 hard-wrap-heading: broken
 block-structure-first: conditional
 inline-precedence: conditional
-== djot, wikilinks and dollar math on
+
+djot, wikilinks and dollar math on
+====================
 block-no-backtracking: proved
 inline-no-backtracking: proved
 incremental-reparse: proved
@@ -61,7 +66,9 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
-== djot, keyed on
+
+djot, keyed on
+====================
 block-no-backtracking: proved
 inline-no-backtracking: proved
 incremental-reparse: proved
@@ -82,7 +89,9 @@ hard-wrap-paragraph: broken
 hard-wrap-heading: proved
 block-structure-first: unknown
 inline-precedence: conditional
-== djot, callouts on, divs off
+
+djot, callouts on, divs off
+====================
 block-no-backtracking: proved
 inline-no-backtracking: proved
 incremental-reparse: proved
@@ -103,3 +112,4 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
+

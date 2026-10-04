@@ -2,7 +2,7 @@
 
 (* The playground's parser, run as a web worker so that typing is not held
    up by a long document.  A request is the text, the profile as
-   [Spec.to_string] writes it, and whether to record positions; the answer
+   [Profiles.to_string] writes it, and whether to record positions; the answer
    is every output, or an error. *)
 
 open Brr
@@ -23,7 +23,7 @@ let () =
     let msg : Jv.t = Brr_io.Message.Ev.data (Ev.as_type e) in
     let t0 = Performance.now_ms G.performance in
     let fields =
-      match Spec.of_string (get_string msg "profile") with
+      match Profiles.of_string (get_string msg "profile") with
       | Error e -> [| "error", Jv.of_string e |]
       | Ok profile ->
         (try outputs (get_string msg "text") profile (Jv.to_bool (Jv.get msg "locs")) with

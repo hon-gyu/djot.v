@@ -8,7 +8,7 @@ open Site_common
 module Profile = Djot.Profile
 module Switch = Profile.Switch
 module Delimiter = Profile.Delimiter
-module P = Djot_properties
+module P = Djot.Kernel.Properties
 
 let str = Jstr.v
 let default_text =
@@ -120,7 +120,7 @@ let rec parse () =
       (Jv.obj
          [| "id", Jv.of_int !sent
           ; "text", Jv.of_string (value editor)
-          ; "profile", Jv.of_string (Spec.to_string !profile)
+          ; "profile", Jv.of_string (Profiles.to_string !profile)
           ; "locs", Jv.of_bool !locs
          |]))
 
@@ -153,7 +153,7 @@ let write_address () =
   let fragment =
     Printf.sprintf
       "#profile=%s&text=%s"
-      (encode (Spec.to_string !profile))
+      (encode (Profiles.to_string !profile))
       (encode (value editor))
   in
   let uri = Uri.of_jstr (str fragment) ~base:(Uri.to_jstr (Window.location G.window)) in
@@ -173,7 +173,7 @@ let read_address () =
         | _ -> None)
       (String.split_on_char '&' fragment)
   in
-  (match Option.map Spec.of_string (field "profile") with
+  (match Option.map Profiles.of_string (field "profile") with
    | Some (Ok p) -> profile := p
    | _ -> ());
   El.set_prop El.Prop.value (str (Option.value (field "text") ~default:default_text)) editor
@@ -212,10 +212,10 @@ let source_link name =
 
 let rec render_properties () =
   let row p =
-    let status = P.status p !profile in
+    let status = p.P.p_status (Profiles.options !profile) in
     let cls = P.status_name status in
     let moved =
-      match List.assoc_opt (P.id p) !before with
+      match List.assoc_opt (p.P.p_id) !before with
       | Some c when c <> cls -> " moved"
       | _ -> ""
     in
@@ -234,7 +234,7 @@ let rec render_properties () =
       | Proved | Unknown -> []
     in
     let theorems =
-      match P.theorems p with
+      match p.P.p_theorems with
       | [] -> []
       | ts ->
         [ el
@@ -249,23 +249,23 @@ let rec render_properties () =
       (el
          "summary"
          [ el "span" ~cls:"status" ~at:[ At.title (str cls) ] [ txt (glyph status) ]
-         ; txt (P.statement p)
+         ; txt (p.P.p_statement)
          ]
-       :: el "p" [ txt (P.implication p) ]
+       :: el "p" [ txt (p.P.p_implication) ]
        :: (note @ theorems))
   in
   let groups =
     List.fold_left
-      (fun gs p -> if List.mem (P.group p) gs then gs else gs @ [ P.group p ])
+      (fun gs p -> if List.mem (p.P.p_group) gs then gs else gs @ [ p.P.p_group ])
       []
       P.all
   in
   let group g =
-    el "h3" [ txt g ] :: List.map row (List.filter (fun p -> P.group p = g) P.all)
+    el "h3" [ txt g ] :: List.map row (List.filter (fun p -> p.P.p_group = g) P.all)
   in
   let count c =
     List.length
-      (List.filter (fun p -> P.status_name (P.status p !profile) = c) P.all)
+      (List.filter (fun p -> P.status_name (p.P.p_status (Profiles.options !profile)) = c) P.all)
   in
   let summary =
     Printf.sprintf
@@ -292,7 +292,7 @@ out from them.
 and set_profile p =
   before
   := List.map
-       (fun q -> P.id q, P.status_name (P.status q !profile))
+       (fun q -> q.P.p_id, P.status_name (q.P.p_status (Profiles.options !profile)))
        P.all;
   profile := p;
   render_profile ();
@@ -302,7 +302,7 @@ and set_profile p =
 and distance p q =
   List.length (List.filter (fun s -> Switch.get s p <> Switch.get s q) Profile.switches)
   + List.length
-      (List.filter (fun d -> Spec.spelling d p <> Spec.spelling d q) Profile.delimiters)
+      (List.filter (fun d -> Profiles.spelling d p <> Profiles.spelling d q) Profile.delimiters)
 
 and render_profile () =
   let nearest, n =
@@ -311,7 +311,7 @@ and render_profile () =
         let m = distance !profile q in
         if m < n then name, m else best, n)
       ("", max_int)
-      Spec.presets
+      Profiles.presets
   in
   let select =
     el
@@ -322,9 +322,9 @@ and render_profile () =
              "option"
              ~at:(At.value (str name) :: (if name = nearest then [ At.selected ] else []))
              [ txt name ])
-         Spec.presets)
+         Profiles.presets)
   in
-  on Ev.change (fun _ -> set_profile (List.assoc (value select) Spec.presets)) select;
+  on Ev.change (fun _ -> set_profile (List.assoc (value select) Profiles.presets)) select;
   let changes =
     if n = 0
     then []
@@ -343,7 +343,7 @@ and render_profile () =
       (fun _ -> set_profile (Switch.set s (El.prop El.Prop.checked box) !profile))
       box;
     let differs =
-      if Switch.get s !profile <> Switch.get s (List.assoc nearest Spec.presets)
+      if Switch.get s !profile <> Switch.get s (List.assoc nearest Profiles.presets)
       then "switch differs"
       else "switch"
     in
@@ -356,7 +356,7 @@ and render_profile () =
       ]
   in
   let delimiter d =
-    let run, syntax = Spec.spelling d !profile in
+    let run, syntax = Profiles.spelling d !profile in
     let input = el "input" ~at:[ At.value (str run); At.v (str "size") (str "3") ] [] in
     let choice =
       el
@@ -373,7 +373,7 @@ and render_profile () =
            ])
     in
     let apply _ =
-      match Spec.respell d (value input) (value choice) !profile with
+      match Profiles.respell d (value input) (value choice) !profile with
       | Ok p ->
         delimiter_error := None;
         set_profile p

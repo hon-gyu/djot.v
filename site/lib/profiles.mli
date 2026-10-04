@@ -22,3 +22,6 @@ val respell
   -> string
   -> Djot.Profile.t
   -> (Djot.Profile.t, string) result
+
+(** The profile as the kernel's record, which the checks and the property list read. *)
+val options : Djot.Profile.t -> Djot.Kernel.Profile.options

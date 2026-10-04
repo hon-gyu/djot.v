@@ -107,6 +107,7 @@ module Profile = struct
   let djot = K.Profile.djot_options
   let markdown_like = K.Profile.markdown_like_options
   let table (p : t) = p.o_inline
+  let of_kernel (o : t) = if K.InlineTable.dconfig_ok o.o_inline then Some o else None
   let bconfig = K.Profile.bconfig_of
 
   module Switch = struct

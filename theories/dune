@@ -2,3 +2,13 @@
  (name DjotV)
  (synopsis "A verified and generalized djot implementation")
  (theories Stdlib))
+
+; The examples of the extension reference, as statements to prove.
+(rule
+ (targets SpecExamples.v)
+ (deps
+  (glob_files spec/*.dj))
+ (action
+  (with-stdout-to
+   %{targets}
+   (run ../test/spec_examples.exe %{deps}))))

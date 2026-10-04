@@ -34,6 +34,17 @@ Inductive status : Type :=
   (* The construct the property is about is off. *)
   | Inapplicable (why : string).
 
+(* The word a status is shown as. *)
+Definition status_name (s : status) : string :=
+  match s with
+  | Proved => "proved"
+  | Conditional _ => "conditional"
+  | Broken _ _ => "broken"
+  | Conjectured => "conjectured"
+  | Unknown => "unknown"
+  | Inapplicable _ => "inapplicable"
+  end.
+
 Definition claimed (s : status) : bool :=
   match s with Proved | Conditional _ => true | _ => false end.
 
