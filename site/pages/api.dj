@@ -1,0 +1,29 @@
+# OCaml API
+
+The parser is available as an OCaml library, the `djot` package.
+
+``` ocaml
+let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
+let html = Djot.Html.of_doc doc
+```
+
+- [API reference](odoc/djot/): the generated documentation.
+- [Source code](https://github.com/hon-gyu/djot.v/tree/main/ocaml)
+
+The package is not on opam yet. The repository's `ocaml` branch holds the
+package at its root, for use as a vendored directory or a git submodule.
+
+## Libraries
+
+- `djot`: documents, blocks and inlines, with a mapper and a folder over
+  them, an HTML renderer, and a renderer back to djot. The API follows the
+  shape of [cmarkit](https://erratique.ch/software/cmarkit).
+  `Djot.Profile` chooses the syntax a parse accepts. `Djot.Source` and
+  `Djot.Stream` parse texts that change or arrive in pieces.
+- `djot.json`: documents as JSON in the format of djot.js's AST, in both
+  directions. Built when jsont and bytesrw are installed.
+- `djot.properties`: the properties proved of the parser, and the status
+  of each under a given profile.
+- `djot.kernel`: the extracted modules, as Rocq produced them.
+
+{% ai-disclosure: ai-generated %}

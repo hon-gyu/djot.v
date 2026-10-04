@@ -137,19 +137,19 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 # Site
 # ----
 
-# web/ is a dune project of its own, built with the switch that has the
+# site/ is a dune project of its own, built with the switch that has the
 # ocaml/ package's dependencies plus brr and js_of_ocaml.
 SITE = _build/site
 
 site:  ## Build the static site into _build/site
-	cd web && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
+	cd site && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
 	cd ocaml && dune build @doc
 	rm -rf $(SITE)
-	web/_build/default/gen/gen.exe web/pages $(SITE)
-	cp web/pages/style.css web/pages/preview.css $(SITE)/
-	cp web/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
-	cp web/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
-	cp -R ocaml/_build/default/_doc/_html $(SITE)/api
+	site/_build/default/gen/gen.exe site/pages $(SITE)
+	cp site/pages/style.css site/pages/preview.css $(SITE)/
+	cp site/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
+	cp site/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
+	cp -R ocaml/_build/default/_doc/_html $(SITE)/api/odoc
 	touch $(SITE)/.nojekyll
 
 site-serve: site  ## Build the site and serve it on localhost:8000

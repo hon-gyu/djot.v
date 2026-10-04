@@ -68,6 +68,13 @@ let sent = ref 0
 let busy = ref false
 let stale = ref false
 
+(* The page's theme, which the preview follows. *)
+let theme () =
+  match El.at (str "data-theme") (Document.root G.document) with
+  | Some t -> Jstr.to_string t
+  | None -> "light"
+;;
+
 let show_output () =
   match !result with
   | None -> ()
@@ -85,9 +92,11 @@ let show_output () =
              ; At.v
                  (str "srcdoc")
                  (str
-                    ("<!doctype html><meta charset=utf-8><link rel=stylesheet \
-                      href=\"../preview.css\">"
-                     ^ Option.value (field "html") ~default:""))
+                    (Printf.sprintf
+                       "<!doctype html><html data-theme=\"%s\"><meta charset=utf-8><link \
+                        rel=stylesheet href=\"../preview.css\">%s"
+                       (theme ())
+                       (Option.value (field "html") ~default:"")))
              ]
            []
        in
@@ -185,13 +194,13 @@ Properties
 ----------
 *)
 
-let label : P.status -> string * string * string = function
-  | Proved -> "proved", "\xE2\x9C\x93", "proved"
-  | Proved_with_caveat _ -> "caveat", "\xE2\x9C\x93*", "proved, with a caveat"
-  | Broken _ -> "broken", "\xE2\x9C\x97", "broken"
-  | Expected -> "expected", "?", "expected, not proved"
-  | Unknown -> "unknown", "\xE2\x80\x93", "no claim"
-  | Not_applicable _ -> "na", "n/a", "not applicable"
+let glyph : P.status -> string = function
+  | Proved -> "\xE2\x9C\x93"
+  | Proved_with_caveat _ -> "\xE2\x9C\x93*"
+  | Broken _ -> "\xE2\x9C\x97"
+  | Expected -> "?"
+  | Unknown -> "\xE2\x80\x93"
+  | Not_applicable _ -> "n/a"
 ;;
 
 let source_link (name, file) =
@@ -211,7 +220,7 @@ let source_link (name, file) =
 let rec render_properties () =
   let row p =
     let status = P.status p !profile in
-    let cls, glyph, title = label status in
+    let cls = Status.word status in
     let moved =
       match List.assoc_opt (P.id p) !before with
       | Some c when c <> cls -> " moved"
@@ -246,7 +255,7 @@ let rec render_properties () =
       ~cls:("property " ^ cls ^ moved)
       (el
          "summary"
-         [ el "span" ~cls:"status" ~at:[ At.title (str title) ] [ txt glyph ]
+         [ el "span" ~cls:"status" ~at:[ At.title (str cls) ] [ txt (glyph status) ]
          ; txt (P.statement p)
          ]
        :: el "p" [ txt (P.implication p) ]
@@ -263,15 +272,15 @@ let rec render_properties () =
   in
   let count c =
     List.length
-      (List.filter (fun p -> let c', _, _ = label (P.status p !profile) in c' = c) P.all)
+      (List.filter (fun p -> Status.word (P.status p !profile) = c) P.all)
   in
   let summary =
     Printf.sprintf
-      "%d proved, %d with a caveat, %d broken, %d expected"
+      "%d proved, %d conditional, %d broken, %d conjectured"
       (count "proved")
-      (count "caveat")
+      (count "conditional")
       (count "broken")
-      (count "expected")
+      (count "conjectured")
   in
   El.set_children
     property_panel
@@ -290,7 +299,7 @@ out from them.
 and set_profile p =
   before
   := List.map
-       (fun q -> let c, _, _ = label (P.status q !profile) in P.id q, c)
+       (fun q -> P.id q, Status.word (P.status q !profile))
        P.all;
   profile := p;
   render_profile ();
@@ -360,12 +369,15 @@ and render_profile () =
       el
         "select"
         (List.map
-           (fun s ->
+           (fun (s, shown) ->
              el
                "option"
                ~at:(At.value (str s) :: (if s = syntax then [ At.selected ] else []))
-               [ txt s ])
-           [ "bare"; "braced"; "off" ])
+               [ txt shown ])
+           [ "bare", run ^ "x" ^ run
+           ; "braced", Printf.sprintf "{%sx%s} only" run run
+           ; "off", "off"
+           ])
     in
     let apply _ =
       match Spec.respell d (value input) (value choice) !profile with
@@ -422,7 +434,7 @@ let render_tabs () =
   let buttons =
     List.map
       button
-      [ "preview", "Preview"; "html", "HTML"; "json", "JSON"; "ast", "AST"; "djot", "djot" ]
+      [ "preview", "Preview"; "html", "HTML"; "json", "JSON"; "ast", "AST" ]
   in
   List.iter
     (fun b ->
@@ -446,6 +458,7 @@ let page () =
          answered
          (Brr_webworkers.Worker.as_target (Lazy.force parser)));
     on Ev.input (fun _ -> changed ()) editor;
+    ignore (Ev.listen (Ev.Type.void (str "themechange")) (fun _ -> show_output ()) (Window.as_target G.window));
     render_tabs ();
     render_profile ();
     render_properties ();

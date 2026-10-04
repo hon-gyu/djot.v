@@ -15,7 +15,6 @@ let outputs text profile locs =
   [| "html", Jv.of_string (Djot.Html.of_doc d)
    ; "json", Jv.of_string (Djot_json.to_string ~format:Jsont.Indent d)
    ; "ast", Jv.of_string (Djot_json.to_ast_string d)
-   ; "djot", Jv.of_string (Djot.Doc.to_string d)
   |]
 ;;
 

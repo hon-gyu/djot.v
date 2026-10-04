@@ -1,10 +1,14 @@
 /* ai-disclosure: ai-generated */
-body { font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0.8rem; color: #1d1d1b; }
-code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
-blockquote { margin: 0 0 0 0.5rem; padding-left: 0.8rem; border-left: 3px solid #ccc; color: #555; }
-table { border-collapse: collapse; } th, td { border: 1px solid #ccc; padding: 0.2rem 0.5rem; }
-.callout { border-left: 3px solid #2b5fa8; background: #eef3fa; padding: 0.4rem 0.8rem; margin: 0.8rem 0; }
+/* The preview frame.  It takes the page's theme from its root element. */
+html { --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5f5e5a; --line: #dedbd3; --panel: #f3f1ec; --accent: #2456a6; color-scheme: light; }
+html[data-theme="dark"] { --bg: #17171a; --fg: #e6e4df; --muted: #a3a199; --line: #33333a; --panel: #1f1f24; --accent: #8ab4f0; color-scheme: dark; }
+body { font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0.8rem; color: var(--fg); background: var(--bg); }
+a { color: var(--accent); }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+blockquote { margin: 0 0 0 0.5rem; padding-left: 0.8rem; border-left: 3px solid var(--line); color: var(--muted); }
+table { border-collapse: collapse; } th, td { border: 1px solid var(--line); padding: 0.2rem 0.5rem; }
+.callout { border-left: 3px solid var(--accent); background: var(--panel); padding: 0.4rem 0.8rem; margin: 0.8rem 0; }
 .callout-title { font-weight: 600; }
 dl.keyed { display: grid; grid-template-columns: max-content 1fr; gap: 0 0.8rem; }
 dl.keyed dt { font-weight: 600; } dl.keyed dd { margin: 0; } dl.keyed dd > p:first-child { margin-top: 0; }
-kbd { border: 1px solid #bbb; border-radius: 3px; padding: 0 0.25rem; font-size: 0.85em; }
+kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 0.25rem; font-size: 0.85em; }
