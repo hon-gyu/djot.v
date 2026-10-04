@@ -14,6 +14,26 @@ djot.js writes. Recorded 2026-10-04.
 | --- | ------- | ---- | --------------------- |
 | Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; see "smart punctuation contributes its rendering" in `djotjs-divergences.md` for the cost |
 
+### What smart punctuation would touch
+
+Sized 2026-10-04, not started.
+
+- The scanner writes the rendered characters into its text buffer at
+  eight places: `iperiod_step`, three arms of `idash_step`, the dash arms
+  of `iresolve` and `islice_end`, and the two uses of `ddecay_str` for an
+  unmatched quote. Each would close the buffer and emit a node instead.
+- A new inline constructor goes through every inline traversal and
+  through the proofs that text between constructs is one `Str`
+  (`no_adjacent_str` in `Wf.v`, `InlineInvert.v`, `InlinePrecedence.v`,
+  `InlineSpans.v`).
+- `inline_text` decides what reaches an image's `alt` and a derived
+  heading id. Reading the node's source there would undo the divergence
+  adjudicated on 2026-08-21; reading its rendering keeps it. The node
+  can hold both, so this is a separate choice.
+- The canonical inline view has no case for it, so the proved round trip
+  would either gain one or exclude these nodes as it excludes the
+  characters now.
+
 ## Closed
 
 ### Derived identifiers (2026-10-04)
