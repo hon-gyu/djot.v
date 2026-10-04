@@ -86,6 +86,62 @@ Definition commonmark_test_bconfig : bconfig :=
 Definition commonmark_test_profile : profile :=
   Profile commonmark_test_table commonmark_test_bconfig.
 
+(** ** Options
+
+   A profile as data.  [bconfig] answers two of its questions with
+   functions, so a profile cannot be listed, compared with a named one, or
+   decided on.  [options] holds the choices a caller makes: the inline
+   table, which is first-order already, and one boolean per block setting.
+   The two block rules are each a choice between djot's answer and one
+   reviewed alternative.
+
+   Footnotes and tag names have no field: [profile_of] reads both halves
+   from the inline table, so the halves cannot disagree. *)
+
+Record options : Type := Options {
+  o_inline : dtable;
+  (* [prose_safe_markers] when on. *)
+  o_list_interrupts : bool;
+  (* [setext_underline] when on. *)
+  o_setext : bool;
+  o_tables : bool;
+  o_heading_continuation : bool;
+  o_divs : bool;
+  o_tasks : bool;
+  o_raw_blocks : bool;
+  o_deflists : bool;
+  o_block_attrs : bool;
+  o_keyed : bool;
+  o_callouts : bool
+}.
+
+Definition bconfig_of (o : options) : bconfig :=
+  let C := @cfg (o_inline o) in
+  BConfig
+    (if o_list_interrupts o then prose_safe_markers else Step.no_interrupt)
+    (if o_setext o then Step.setext_underline else Step.no_underline)
+    (o_tables o) (o_heading_continuation o) (o_divs o) (o_tasks o)
+    (o_raw_blocks o) (o_deflists o) (o_block_attrs o) (dc_footnotes C)
+    (o_keyed o) (o_callouts o) (dc_tags C).
+
+Definition profile_of (o : options) : profile :=
+  Profile (o_inline o) (bconfig_of o).
+
+Definition djot_options : options :=
+  Options djot_table false false true true true true true true true false
+    false.
+
+Definition markdown_like_options : options :=
+  Options markdown_like_table true true true false true true true true true
+    false false.
+
+Lemma profile_of_djot : profile_of djot_options = djot_profile.
+Proof. reflexivity. Qed.
+
+Lemma profile_of_markdown_like :
+  profile_of markdown_like_options = markdown_like_profile.
+Proof. reflexivity. Qed.
+
 Definition parse_profile_blocks (P : profile) (s : string) : blocks :=
   @parse_blocks (profile_inline P) (profile_block P) _ _ s.
 

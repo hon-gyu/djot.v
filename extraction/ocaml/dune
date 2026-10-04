@@ -44,6 +44,7 @@
   PeanoNat
   PosDef
   Profile
+  ProfileChecks
   Readable
   Render
   Reparse

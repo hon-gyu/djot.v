@@ -3,6 +3,11 @@ type reflect =
 | ReflectT
 | ReflectF
 
+(** val implb : bool -> bool -> bool **)
+
+let implb b1 b2 =
+  if b1 then b2 else true
+
 (** val negb : bool -> bool **)
 
 let negb = function
