@@ -1,0 +1,4 @@
+(library
+ (name djot)
+ (public_name djot)
+ (libraries djot.kernel))

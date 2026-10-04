@@ -1,0 +1,123 @@
+
+== document
+# Intro
+
+{#main k="a b"}
+::: warn
+Text[^n] with {_soft
+break_}\.
+:::
+
+{#Intro-1}
+# Intro
+
+[^n]:
+  A note.
+
+  - x
+  - y
+
+== document, markdown_like
+# Intro
+
+{#main k="a b"}
+::: warn
+Text[^n] with {_soft
+break_}\.
+:::
+
+{#Intro-1}
+# Intro
+
+[^n]:
+  A note.
+
+  - x
+  - y
+
+== empty list item
+- a
+-
+- b
+
+B.
+
+== key over a paragraph
+key: value
+more
+
+key:
+- a
+
+== callout
+> [!warning]- Do not rename
+> body
+
+== of_blocks
+{.c}
+> a {*b*}\
+> c
+
+== of_inlines
+a {*b*}\
+c
+
+== readable
+# Notes: v1.2
+
+Ratio 3:1 and snake_case, _fine_ and "quoted", see [docs](https://example.com/x_y).
+
+- one
+
+  two
+
+- three
+
+> a
+>
+> b
+
+| name        | value |
+|:------------|------:|
+| longer cell | 1     |
+
+== the same blocks, not readable
+# Notes\: v1.2
+
+Ratio 3\:1 and snake\_case, {_fine_} and {"quoted"}, see [docs](https\://example\.com/x\_y)\.
+
+- one
+  
+  two
+
+- three
+
+> a
+> 
+> b
+
+| name | value |
+|:--|--:|
+| longer cell | 1 |
+
+== readable delimiters
+a_b_c
+a {_ b _} c
+_a{_b_}c_
+_a _b_ c_
+_a_{_b_}
+a{'b'}
+a 'b'
+
+== checked
+Ratio 3:1, a * b, see (x).
+
+\- not a list
+
+snake\_case\_name
+
+| a   |
+
+\^ not a caption
+
+plain again

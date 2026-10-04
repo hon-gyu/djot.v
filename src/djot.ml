@@ -1,0 +1,1122 @@
+(*---------------------------------------------------------------------------
+   Copyright (c) 2021 The cmarkit programmers. All rights reserved.
+   Copyright (c) 2026 hon-gyu. All rights reserved.
+   SPDX-License-Identifier: MIT AND ISC
+  ---------------------------------------------------------------------------*)
+
+(* The module types are modeled on cmarkit's; see LICENSE-cmarkit. The
+   implementation is not derived from cmarkit: it calls the Rocq-extracted
+   kernel. 
+   
+   Other deviation:
+   - No [Meta.t]. [Attr.t] is used instead.
+*)
+
+module Kernel = Djot_kernel
+module K = Kernel
+
+module Attr = struct
+  type t = (string * string) list
+
+  let empty : t = []
+  let find (k : string) (a : t) : string option = K.Ast.alist_lookup k a
+  let id (a : t) : string option = find "id" a
+
+  let classes (a : t) : string list =
+    match find "class" a with
+    | None -> []
+    | Some s -> List.filter (( <> ) "") (String.split_on_char ' ' s)
+  ;;
+
+  let kvs (a : t) : (string * string) list =
+    List.filter (fun (k, _) -> k <> "id" && k <> "class") a
+  ;;
+
+  let is_valid : t -> bool = K.Attributes.attr_ok
+  let is_key : string -> bool = K.Attributes.key_ok
+  let is_class : string -> bool = K.Attributes.class_word_ok
+
+  let is_valid_strict : t -> bool =
+    fun a -> is_valid a && List.for_all (fun c -> is_class c) (classes a)
+  ;;
+
+  let set (k : string) (v : string) (a : t) : t option =
+    if is_key k then Some (K.Ast.Attr.set k v a) else None
+  ;;
+
+  let set_id (id : string) (a : t) : t = K.Ast.Attr.set "id" id a
+
+  let add_class (c : string) (a : t) : t option =
+    if is_class c then Some (K.Ast.Attr.add_class c a) else None
+  ;;
+
+  let remove : string -> t -> t = K.Ast.Attr.remove
+
+  let set_classes (cs : string list) (a : t) : t option =
+    if List.for_all is_class cs then Some (K.Ast.Attr.set_classes cs a) else None
+  ;;
+
+  let set_exn k v a =
+    match set k v a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.set_exn: not a key"
+  ;;
+
+  let add_class_exn c a =
+    match add_class c a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.add_class_exn: not a class name"
+  ;;
+
+  let set_classes_exn cs a =
+    match set_classes cs a with
+    | Some a -> a
+    | None -> invalid_arg "Attr.set_classes_exn: not a class name"
+  ;;
+
+  let to_string : t -> string = K.Attributes.attr_spec
+
+  (** Whitespace runs in a value collapse to one space, so [of_string (to_string a) <> a]. *)
+  let of_string (s : string) : t option =
+    let n = String.length s in
+    if n = 0 || s.[0] <> '{'
+    then None
+    else (
+      let p, rest = K.Attributes.afeed (String.sub s 1 (n - 1)) K.Attributes.ap_init in
+      if K.Attributes.ap_done p && rest = "" then Some p.ap_attrs else None)
+  ;;
+end
+
+type 'a node = 'a K.Ast.node = Node of K.Ast.pos * Attr.t * 'a
+
+module Node = struct
+  let make ?(attrs : Attr.t = []) x : 'a node = Node (K.Ast.NoPos, attrs, x)
+
+  let attrs : 'a node -> Attr.t = function
+    | Node (_, a, _) -> a
+  ;;
+
+  let content : 'a node -> 'a = function
+    | Node (_, _, x) -> x
+  ;;
+end
+
+module Profile = struct
+  type t = K.Profile.profile
+
+  let djot = K.Profile.djot_profile
+  let markdown_like = K.Profile.markdown_like_profile
+  let with_footnotes = K.Profile.with_footnotes
+
+  (* The inline switches are the ones proved to keep a table admissible
+     (InlineTable.v, `*_preserves_admissible`). *)
+  let inline f b (p : t) = { p with profile_inline = f b p.profile_inline }
+  let block f b (p : t) = { p with profile_block = f b p.profile_block }
+  let with_smart_typography = inline K.InlineTable.with_smart_typography
+  let with_raw_inline = inline K.InlineTable.with_raw_inline
+  let with_math = inline K.InlineTable.with_math
+  let with_inline_attrs = inline K.InlineTable.with_inline_attrs
+  let with_ext_wikilinks = inline K.InlineTable.with_wikilinks
+  let with_ext_dollar_math = inline K.InlineTable.with_dollar_math
+  let with_tables = block K.Step.with_tables
+  let with_divs = block K.Step.with_divs
+  let with_tasks = block K.Step.with_tasks
+  let with_raw_blocks = block K.Step.with_raw_blocks
+  let with_deflists = block K.Step.with_deflists
+  let with_block_attrs = block K.Step.with_block_attrs
+  let with_heading_continuation = block K.Step.with_heading_continuation
+  let with_ext_keyed = block K.Step.with_keyed
+  let with_ext_callouts = block K.Step.with_callouts
+  let with_ext_tags = K.Profile.with_tags
+
+  let with_ext_setext_headings b =
+    block K.Step.with_underline K.Step.(if b then setext_underline else no_underline)
+  ;;
+
+  let with_ext_list_interrupts b =
+    block
+      K.Step.with_marker_interrupts
+      K.Step.(if b then prose_safe_markers else no_interrupt)
+  ;;
+
+  let pp_fields ppf fields =
+    Format.pp_open_vbox ppf 0;
+    Format.pp_print_list
+      ~pp_sep:Format.pp_print_cut
+      (fun ppf (name, v) -> Format.fprintf ppf "%s: %s" name v)
+      ppf
+      fields;
+    Format.pp_close_box ppf ()
+  ;;
+
+  let delimiter_fields (p : t) =
+    let t = p.profile_inline in
+    let delim s =
+      let run = String.make (t.dc_width s) (t.dc_char s) in
+      match t.dc_syntax s with
+      | K.InlineTable.DOff -> "off"
+      | DBraced -> run ^ " braced"
+      | DBare -> run ^ " bare"
+      | DBareAfterBreak -> run ^ " bare after a break"
+    in
+    [ "emph", delim DEmph
+    ; "strong", delim DStrong
+    ; "superscript", delim DSuper
+    ; "subscript", delim DSub
+    ; "highlight", delim DMark
+    ; "insert", delim DInsert
+    ; "delete", delim DDelete
+    ; "single_quote", delim DSQuote
+    ; "double_quote", delim DDQuote
+    ]
+  ;;
+
+  let pp_delimiters ppf p = pp_fields ppf (delimiter_fields p)
+
+  (* The two block rules are functions, told apart by which kernel value
+     they are. *)
+  let pp ppf (p : t) =
+    let t = p.profile_inline
+    and k = p.profile_block in
+    let switch b = if b then "on" else "off" in
+    let rule f ~on ~off =
+      if f == on then "on" else if f == off then "off" else "custom"
+    in
+    let switches =
+      [ "footnotes", switch (t.dc_footnotes && k.bfootnotes)
+      ; "smart_typography", switch t.dc_smart_typography
+      ; "raw_inline", switch t.dc_raw_inline
+      ; "math", switch t.dc_math
+      ; "inline_attrs", switch t.dc_attrs
+      ; "tables", switch k.btables
+      ; "divs", switch k.bdivs
+      ; "tasks", switch k.btasks
+      ; "raw_blocks", switch k.braw_blocks
+      ; "deflists", switch k.bdeflists
+      ; "block_attrs", switch k.battrs
+      ; "heading_continuation", switch k.bheading_continues
+      ; "ext_wikilinks", switch t.dc_wikilinks
+      ; "ext_dollar_math", switch t.dc_dollar_math
+      ; "ext_keyed", switch k.bkeyed
+      ; "ext_callouts", switch k.bcallouts
+      ; "ext_tags", switch (t.dc_tags && k.bdiv_names)
+      ; ( "ext_setext_headings"
+        , rule k.bunderline ~on:K.Step.setext_underline ~off:K.Step.no_underline )
+      ; ( "ext_list_interrupts"
+        , rule k.bmarker_interrupts ~on:K.Step.prose_safe_markers ~off:K.Step.no_interrupt
+        )
+      ]
+    in
+    pp_fields ppf (delimiter_fields p @ switches)
+  ;;
+end
+
+type style =
+  [ `Safe
+  | `Checked
+  | `Naive
+  ]
+
+(* Source in a [style], from the two forms the kernel writes. *)
+module Styled = struct
+  let tree (p : Profile.t) (s : string) : K.Ast.doc =
+    K.Document.parse_doc p.K.Profile.profile_inline p.profile_block K.Ast.semantic_pos s
+  ;;
+
+  (* The naive parts, top-level blocks or one run of inlines, where the whole
+     still parses as the safe parts do. When it does not, a part goes back to
+     the safe form if it parses differently alone or after the part before it,
+     and when that is not enough every part does. *)
+  let checked profile ~sep (safe : string list) (naive : string list) : string =
+    let join = String.concat sep in
+    let same a b = tree profile a = tree profile b in
+    let all_safe = join safe in
+    let target = tree profile all_safe in
+    let all_naive = join naive in
+    if tree profile all_naive = target
+    then all_naive
+    else (
+      let pick (prev, acc) p w =
+        let ok =
+          same w p
+          &&
+          match prev with
+          | None -> true
+          | Some (prev_safe, prev_chosen) ->
+            same (join [ prev_chosen; w ]) (join [ prev_safe; p ])
+        in
+        let chosen = if ok then w else p in
+        Some (p, chosen), chosen :: acc
+      in
+      let _, picked = List.fold_left2 pick (None, []) safe naive in
+      let mixed = join (List.rev picked) in
+      if tree profile mixed = target then mixed else all_safe)
+  ;;
+
+  (* [Render.sep_lines] puts one blank line between blocks. *)
+  let blocks (style : style) (profile : Profile.t) (bs : K.Ast.block node list) : string =
+    let table = profile.K.Profile.profile_inline in
+    let config = profile.profile_block in
+    let safe = K.Render.render_djot table config in
+    let naive = K.Readable.readable_djot table config in
+    match style with
+    | `Safe -> safe bs
+    | `Naive -> naive bs
+    | `Checked ->
+      let each f = List.map (fun b -> f [ b ]) bs in
+      checked profile ~sep:"\n\n" (each safe) (each naive)
+  ;;
+
+  let inlines (style : style) (profile : Profile.t) (ils : K.Ast.inline node list)
+    : string
+    =
+    let table = profile.K.Profile.profile_inline in
+    let safe = String.concat "\n" (K.InlineView.inline_lines table ils "") in
+    let naive () = String.concat "\n" (K.Readable.readable_inline_lines table ils) in
+    match style with
+    | `Safe -> safe
+    | `Naive -> naive ()
+    | `Checked -> checked profile ~sep:"" [ safe ] [ naive () ]
+  ;;
+end
+
+module Inline = struct
+  type math_style = K.Ast.math_style =
+    | DisplayMath
+    | InlineMath
+
+  type target = K.Ast.target =
+    | Direct of string
+    | Reference of string
+
+  type quote_type = K.Ast.quote_type =
+    | SingleQuotes
+    | DoubleQuotes
+
+  type t = K.Ast.inline =
+    | Str of string
+    | Emph of t node list
+    | Strong of t node list
+    | Highlight of t node list
+    | Insert of t node list
+    | Delete of t node list
+    | Superscript of t node list
+    | Subscript of t node list
+    | Verbatim of string
+    | Symbol of string
+    | Math of math_style * string
+    | Link of t node list * target
+    | Image of t node list * target
+    | Span of string * t node list
+    | FootnoteReference of string
+    | UrlLink of string
+    | EmailLink of string
+    | RawInline of string * string
+    | NonBreakingSpace
+    | Quoted of quote_type * t node list
+    | SoftBreak
+    | HardBreak
+    | Ext_wikilink of bool * string * string option
+
+  let to_string ?(profile = Profile.djot) ?(style = `Safe) (ils : t node list) : string =
+    Styled.inlines style profile ils
+  ;;
+
+  let to_plain_text (ns : t node list) : string =
+    String.concat "" (List.map (fun n -> K.Document.inline_text (Node.content n)) ns)
+  ;;
+end
+
+module Block = struct
+  type list_spacing = K.Ast.list_spacing =
+    | Tight
+    | Loose
+
+  type ordered_list_style = K.Ast.ordered_list_style =
+    | Decimal
+    | LetterUpper
+    | LetterLower
+    | RomanUpper
+    | RomanLower
+
+  type ordered_list_delim = K.Ast.ordered_list_delim =
+    | RightPeriod
+    | RightParen
+    | LeftRightParen
+
+  type ordered_list_attributes = K.Ast.ordered_list_attributes =
+    { ol_style : ordered_list_style
+    ; ol_delim : ordered_list_delim
+    ; ol_start : int
+    }
+
+  type task_status = K.Ast.task_status =
+    | Complete
+    | Incomplete
+
+  type align = K.Ast.align =
+    | AlignLeft
+    | AlignRight
+    | AlignCenter
+    | AlignDefault
+
+  type cell_type = K.Ast.cell_type =
+    | HeadCell
+    | BodyCell
+
+  type cell = K.Ast.cell = Cell of cell_type * align * Inline.t node list
+
+  type callout_fold = K.Ast.callout_fold =
+    | FoldExpanded
+    | FoldCollapsed
+
+  type t = K.Ast.block =
+    | Para of Inline.t node list
+    | Section of t node list
+    | Heading of int * Inline.t node list
+    | BlockQuote of t node list
+    | CodeBlock of string * string
+    | Div of string * t node list
+    | OrderedList of ordered_list_attributes * list_spacing * t node list node list
+    | BulletList of list_spacing * t node list node list
+    | TaskList of list_spacing * (task_status * t node list) node list
+    | DefinitionList of
+        list_spacing * (Inline.t node list node * t node list node) node list
+    | ThematicBreak
+    | Table of Inline.t node list node * cell node list node list
+    | RawBlock of string * string
+    | FootnoteDef of string * t node list
+    | RefDef of string * string
+    | Ext_keyed of Inline.t node list * t node
+    | Ext_callout of string * callout_fold option * Inline.t node list * t node list
+
+  let to_string ?(profile = Profile.djot) ?(style = `Safe) (bs : t node list) : string =
+    Styled.blocks style profile bs
+  ;;
+end
+
+module Textloc = struct
+  type byte_pos = int
+  type line_pos = int * byte_pos
+
+  type t =
+    { first_byte : byte_pos
+    ; last_byte : byte_pos
+    ; first_line : line_pos
+    ; last_line : line_pos
+    }
+
+  let first_byte t = t.first_byte
+  let last_byte t = t.last_byte
+  let first_line t = t.first_line
+  let last_line t = t.last_line
+
+  let make ~first_byte ~last_byte ~first_line ~last_line =
+    { first_byte; last_byte; first_line; last_line }
+  ;;
+
+  let none = { first_byte = -1; last_byte = -1; first_line = -1, -1; last_line = -1, -1 }
+  let is_none t = t.first_byte < 0
+  let is_empty t = t.first_byte > t.last_byte
+
+  let reloc ~first ~last =
+    { first with last_byte = last.last_byte; last_line = last.last_line }
+  ;;
+
+  let pp : Format.formatter -> t -> unit =
+    fun ppf t ->
+    if is_none t
+    then Format.pp_print_string ppf "<none>"
+    else
+      Format.fprintf
+        ppf
+        "%d.%d-%d.%d"
+        (fst t.first_line)
+        (t.first_byte - snd t.first_line)
+        (fst t.last_line)
+        (t.last_byte - snd t.last_line)
+  ;;
+
+  (* Strings.resolve_spot, over an array: the list lookup is linear in
+     the line index. *)
+  let resolve_spot (lines : K.Strings.source_line array) (p : K.Ast.spot) =
+    if p.spot_line >= Array.length lines
+    then None
+    else (
+      let l = lines.(p.spot_line) in
+      if p.spot_rem > l.source_line_length
+      then None
+      else (
+        let col = l.source_line_length - p.spot_rem in
+        Some (l.source_line_start + col, p.spot_line, col)))
+  ;;
+
+  let line_pos lines i = i + 1, lines.(i).K.Strings.source_line_start
+
+  (* A stop at the start of a line ends the range on the line before. *)
+  let of_span lines (s : K.Ast.span) =
+    match resolve_spot lines s.span_start, resolve_spot lines s.span_stop with
+    | Some (a, la, _), Some (b, lb, cb) ->
+      let lb = if cb = 0 && b > a && lb > la then lb - 1 else lb in
+      { first_byte = a
+      ; last_byte = b - 1
+      ; first_line = line_pos lines la
+      ; last_line = line_pos lines lb
+      }
+    | _ -> none
+  ;;
+end
+
+module Doc = struct
+  type t =
+    { kernel : K.Ast.doc
+    ; parsed : Block.t node list (* What the document pass was run over. *)
+    ; footnote_defs : Block.t node list
+    ; lines : K.Strings.source_line array option
+    ; profile : Profile.t
+    }
+
+  (* The definitions the document pass takes out of the tree, in source
+     order. *)
+  let rec collect_footnote_defs (acc : Block.t node list) (node : Block.t node)
+    : Block.t node list
+    =
+    match node with
+    | Node (_, _, b) as n ->
+      let bl acc l = List.fold_left collect_footnote_defs acc l in
+      (match (b : Block.t) with
+       | FootnoteDef (_, l) -> bl (n :: acc) l
+       | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
+       | OrderedList (_, _, its) | BulletList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
+       | TaskList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
+       | DefinitionList (_, its) ->
+         List.fold_left
+           (fun acc it -> bl acc (Node.content (snd (Node.content it))))
+           acc
+           its
+       | Ext_keyed (_, b) -> collect_footnote_defs acc b
+       | Para _
+       | Heading _
+       | CodeBlock _
+       | ThematicBreak
+       | Table _
+       | RawBlock _
+       | RefDef _ -> acc)
+  ;;
+
+  let make ~profile ~lines pos bs =
+    { kernel = K.Document.doc_pass pos bs
+    ; parsed = bs
+    ; footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs)
+    ; lines
+    ; profile
+    }
+  ;;
+
+  (* The fold step the pieces are cut with, and its finish. *)
+  let fold_step ~locs (p : Profile.t) =
+    let { K.Profile.profile_inline = table; profile_block = bconfig } = p in
+    if locs
+    then K.Reparse.loc_step table bconfig, K.Step.finish table bconfig K.Ast.located_pos
+    else K.Reparse.sem_step table bconfig, K.Step.finish table bconfig K.Ast.semantic_pos
+  ;;
+
+  let of_pieces ~profile ~locs src ps =
+    if locs
+    then
+      make
+        ~profile
+        ~lines:(Some (Array.of_list (K.Strings.line_table src)))
+        K.Ast.located_pos
+        (K.Reparse.assemble 0 ps)
+    else make ~profile ~lines:None K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
+  ;;
+
+  let pieces_of_string ~profile ~locs (s : string) : K.Reparse.piece list =
+    let stp, fin = fold_step ~locs profile in
+    K.Reparse.pieces stp fin (K.Strings.split_lines s)
+  ;;
+
+  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
+    of_pieces ~profile ~locs s (pieces_of_string ~profile ~locs s)
+  ;;
+
+  let to_string ?(style = `Safe) (d : t) : string =
+    Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel)
+  ;;
+
+  let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
+  let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
+  let footnote_defs (d : t) : Block.t node list = d.footnote_defs
+
+  let footnote (d : t) (l : string) : Block.t node list option =
+    K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
+  ;;
+
+  let references (d : t) : (string * (string * Attr.t)) list = d.kernel.doc_references
+
+  let reference (d : t) (l : string) : (string * Attr.t) option =
+    K.Ast.lookup_reference l (d.kernel.doc_references @ d.kernel.doc_auto_references)
+  ;;
+
+  let textloc (d : t) (node : 'a node) : Textloc.t =
+    match node with
+    | Node (p, _, _) ->
+      (match d.lines, p with
+       | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
+       | _ -> Textloc.none)
+  ;;
+
+  (* A definition's range starts at its [[^]. *)
+  let footnote_label_loc (d : t) (node : Block.t node) : Textloc.t =
+    match node with
+    | Node (_, _, Block.FootnoteDef (label, _)) ->
+      let l = textloc d node in
+      if Textloc.is_none l
+      then Textloc.none
+      else (
+        let first_byte = l.first_byte + 2 in
+        Textloc.make
+          ~first_byte
+          ~last_byte:(first_byte + String.length label - 1)
+          ~first_line:l.first_line
+          ~last_line:l.first_line)
+    | Node _ -> Textloc.none
+  ;;
+
+  type syntax = K.Ast.syntax_role =
+    | RAttrSpec
+    | ROpenFence
+    | RCloseFence
+
+  let provenance d (Node (p, _, _)) =
+    match d.lines, p with
+    | Some lines, K.Ast.SomePos p -> Some (lines, p)
+    | _ -> None
+  ;;
+
+  let syntax_locs (d : t) (n : 'a node) : (syntax * Textloc.t) list =
+    match provenance d n with
+    | Some (lines, p) ->
+      (* Recorded as the parser settles them: a block's attribute spec
+           comes after its fences. *)
+      List.map (fun (r, s) -> r, Textloc.of_span lines s) p.syntax_spans
+      |> List.stable_sort (fun (_, a) (_, b) ->
+        compare a.Textloc.first_byte b.Textloc.first_byte)
+    | None -> []
+  ;;
+end
+
+module Source = struct
+  type t =
+    { text : string
+    ; pieces : K.Reparse.piece list (* The parse of [text], for the edits. *)
+    ; doc : Doc.t
+    }
+
+  let of_pieces ~profile ~locs text pieces =
+    { text; pieces; doc = Doc.of_pieces ~profile ~locs text pieces }
+  ;;
+
+  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
+    of_pieces ~profile ~locs s (Doc.pieces_of_string ~profile ~locs s)
+  ;;
+
+  let to_string (t : t) : string = t.text
+  let doc (t : t) : Doc.t = t.doc
+
+  (* The byte where zero-based line [k] starts, or the length when [k] is
+     the number of lines. *)
+  let line_start (src : string) (k : int) : int =
+    let rec go i k =
+      if k = 0
+      then i
+      else (
+        match String.index_from_opt src i '\n' with
+        | Some j -> go (j + 1) (k - 1)
+        | None -> String.length src)
+    in
+    go 0 k
+  ;;
+
+  (* [src] with zero-based lines [f] to [l] replaced by [s], newlines
+     added where [s] would otherwise join a neighbouring line. *)
+  let edit_source (src : string) (f : int) (l : int) (s : string) : string =
+    let a = line_start src f
+    and b = line_start src (l + 1) in
+    let pre = String.sub src 0 a
+    and post = String.sub src b (String.length src - b) in
+    let ends_nl x = x <> "" && x.[String.length x - 1] = '\n' in
+    let mid =
+      if s = ""
+      then ""
+      else (
+        let s = if post <> "" && not (ends_nl s) then s ^ "\n" else s in
+        if pre <> "" && not (ends_nl pre) then "\n" ^ s else s)
+    in
+    pre ^ mid ^ post
+  ;;
+
+  type change =
+    { first : int
+    ; old_last : int
+    ; new_last : int
+    }
+
+  (* The splice keeps the pieces it does not parse as the values they
+     were, so the pieces two lists share at each end are the kept ones.
+     The pieces shared at the start are counted up to the first [f] lines
+     only, which places an edit that changes no piece at the edit. *)
+  let change_of f old_ps new_ps =
+    let lines n p = n + List.length p.K.Reparse.piece_lines in
+    let rec shared limit n a b =
+      match a, b with
+      | x :: a, y :: b when x == y && lines n x <= limit -> shared limit (lines n x) a b
+      | _ -> n, a, b
+    in
+    let pre, a, b = shared f 0 old_ps new_ps in
+    let _, a, b = shared max_int 0 (List.rev a) (List.rev b) in
+    { first = pre + 1
+    ; old_last = List.fold_left lines pre a
+    ; new_last = List.fold_left lines pre b
+    }
+  ;;
+
+  (* The edit widens to the pieces holding lines [first] to [last]; the
+     lines of those pieces outside the range go back in around [s]. *)
+  let replace_lines_changed (t : t) ~first ~last (s : string) : t * change =
+    let src = t.text
+    and ps = t.pieces in
+    let n = List.length ps in
+    let pa = Array.of_list ps in
+    let starts = Array.make (n + 1) 0 in
+    Array.iteri
+      (fun k p -> starts.(k + 1) <- starts.(k) + List.length p.K.Reparse.piece_lines)
+      pa;
+    let f = first - 1
+    and l = last - 1 in
+    if f < 0 || l < f - 1 || l >= starts.(n)
+    then invalid_arg "Source.replace_lines: range outside the source";
+    let rec holding k = if k < n && starts.(k + 1) <= f then holding (k + 1) else k in
+    let rec after k = if k < n && starts.(k) <= l then after (k + 1) else k in
+    let i = holding 0 in
+    let j = max i (after 0) in
+    let before =
+      if i < j
+      then List.filteri (fun k _ -> starts.(i) + k < f) pa.(i).K.Reparse.piece_lines
+      else []
+    in
+    let behind =
+      if i < j
+      then
+        List.filteri (fun k _ -> starts.(j - 1) + k > l) pa.(j - 1).K.Reparse.piece_lines
+      else []
+    in
+    let profile = t.doc.profile
+    and locs = Option.is_some t.doc.lines in
+    let stp, fin = Doc.fold_step ~locs profile in
+    let ps' =
+      K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind)
+    in
+    of_pieces ~profile ~locs (edit_source src f l s) ps', change_of f ps ps'
+  ;;
+
+  let replace_lines t ~first ~last s = fst (replace_lines_changed t ~first ~last s)
+
+  (* The edit widens to whole lines: from the start of the line holding
+     byte [first] to the end of the line holding the byte after [last],
+     which the edit joins to what comes before it. *)
+  let replace_bytes_changed (t : t) ~first ~last (s : string) : t * change =
+    let src = t.text in
+    let n = String.length src in
+    let a = first
+    and b = last + 1 in
+    if a < 0 || b < a || b > n
+    then invalid_arg "Source.replace_bytes: range outside the source";
+    let la =
+      match if a = 0 then None else String.rindex_from_opt src (a - 1) '\n' with
+      | Some k -> k + 1
+      | None -> 0
+    in
+    let lb =
+      match if b = n then None else String.index_from_opt src b '\n' with
+      | Some k -> k + 1
+      | None -> n
+    in
+    let newlines i j =
+      let c = ref 0 in
+      for k = i to j - 1 do
+        if src.[k] = '\n' then incr c
+      done;
+      !c
+    in
+    let first_line = newlines 0 la + 1 in
+    let count = newlines la lb + if lb > la && src.[lb - 1] <> '\n' then 1 else 0 in
+    replace_lines_changed
+      t
+      ~first:first_line
+      ~last:(first_line + count - 1)
+      (String.sub src la (a - la) ^ s ^ String.sub src b (lb - b))
+  ;;
+
+  let replace_bytes t ~first ~last s = fst (replace_bytes_changed t ~first ~last s)
+end
+
+module Stream = struct
+  type t =
+    { profile : Profile.t
+    ; locs : bool
+    ; chunks : string list (* The input so far, last chunk first. *)
+    ; partial : string list (* The unfinished line's parts, last first. *)
+    ; pieces : K.Reparse.piece list (* The finished pieces, last first. *)
+    ; offset : int (* The lines in [pieces]. *)
+    ; pending : K.Reparse.pending
+    ; ids : K.Document.id_state (* After the blocks returned. *)
+    }
+
+  let start ?(profile = Profile.djot) ?(locs = false) () =
+    { profile
+    ; locs
+    ; chunks = []
+    ; partial = []
+    ; pieces = []
+    ; offset = 0
+    ; pending = K.Reparse.fresh
+    ; ids = K.Document.id_state_init
+    }
+  ;;
+
+  let rec drop n l =
+    match l with
+    | _ :: rest when n > 0 -> drop (n - 1) rest
+    | _ -> l
+  ;;
+
+  (* The blocks of the piece being read that [feed] has not returned yet,
+     placed where the piece starts. *)
+  let unreturned t bs =
+    let bs = drop (List.length t.pending.K.Reparse.pend_blocks) bs in
+    K.Document.Ids.of_list
+      (if t.locs then K.Ast.Shift.of_blocks t.offset bs else bs)
+      t.ids
+  ;;
+
+  (* One whole line. A line that leaves the fold idle ends the piece. *)
+  let line t l =
+    let stp, _ = Doc.fold_step ~locs:t.locs t.profile in
+    match K.Reparse.cut stp [ l ] t.pending with
+    | [], p ->
+      let ids, bs = unreturned t p.K.Reparse.pend_blocks in
+      bs, { t with pending = p; ids }
+    | c :: _, p ->
+      let ids, bs = unreturned t c.K.Reparse.piece_blocks in
+      ( bs
+      , { t with
+          pieces = c :: t.pieces
+        ; offset = t.offset + List.length c.K.Reparse.piece_lines
+        ; pending = p
+        ; ids
+        } )
+  ;;
+
+  let feed_string t s =
+    let t = { t with chunks = s :: t.chunks } in
+    let rec go acc t = function
+      | [] -> acc, t
+      | [ last ] -> acc, if last = "" then t else { t with partial = last :: t.partial }
+      | part :: rest ->
+        let bs, t = line t (String.concat "" (List.rev (part :: t.partial))) in
+        go (List.rev_append bs acc) { t with partial = [] } rest
+    in
+    let acc, t = go [] t (String.split_on_char '\n' s) in
+    List.rev acc, t
+  ;;
+
+  let feed_line t l = feed_string t (l ^ "\n")
+
+  (* The pieces as if input ended here: the unfinished line, if it has
+     bytes, is the last line. *)
+  let ended t =
+    let stp, fin = Doc.fold_step ~locs:t.locs t.profile in
+    let cs, p =
+      match t.partial with
+      | [] -> [], t.pending
+      | parts -> K.Reparse.cut stp [ String.concat "" (List.rev parts) ] t.pending
+    in
+    cs @ K.Reparse.close fin p
+  ;;
+
+  let peek t = snd (unreturned t (K.Reparse.pieces_tree (ended t)))
+
+  let finish t =
+    Source.of_pieces
+      ~profile:t.profile
+      ~locs:t.locs
+      (String.concat "" (List.rev t.chunks))
+      (List.rev_append t.pieces (ended t))
+  ;;
+
+  module Sections = struct
+    type event =
+      | Enter of Attr.t
+      | Item of Block.t node
+      | Leave
+
+    (* The levels of the open sections, innermost first. *)
+    type t = int list
+
+    let start = []
+
+    let step t (Node (p, a, b) as n) =
+      match (b : Block.t) with
+      | Heading (lvl, _) ->
+        let rec leave acc = function
+          | l :: rest when lvl <= l -> leave (Leave :: acc) rest
+          | t -> acc, t
+        in
+        let left, t = leave [] t in
+        left @ [ Enter a; Item (Node (p, [], b)) ], lvl :: t
+      | _ -> [ Item n ], t
+    ;;
+
+    let finish t = List.map (fun _ -> Leave) t
+  end
+end
+
+module For_testing = struct
+  let kernel (d : Doc.t) = d.kernel
+  let parsed (d : Doc.t) = d.parsed
+end
+
+(* Both traversals match every constructor by name, leaves included, so a
+   constructor added in Rocq fails to compile here until it is placed. *)
+
+module Mapper = struct
+  type 'a filter_map = 'a option
+
+  type 'a result =
+    [ `Default
+    | `Map of 'a
+    ]
+
+  let default = `Default
+  let delete : 'a result = `Map None
+  let ret (x : 'a) : 'a filter_map result = `Map (Some x)
+
+  type t =
+    { inline : t -> Inline.t node -> Inline.t node filter_map result
+    ; block : t -> Block.t node -> Block.t node filter_map result
+    }
+
+  type 'a mapper = t -> 'a -> 'a filter_map result
+
+  let make
+    ?(inline : Inline.t node mapper = fun _ _ -> `Default)
+    ?(block : Block.t node mapper = fun _ _ -> `Default)
+    ()
+    =
+    { inline; block }
+  ;;
+
+  let rec map_inline m n =
+    match m.inline m n with
+    | `Map r -> r
+    | `Default -> Some (inline_children m n)
+
+  and map_inlines m ns = List.filter_map (map_inline m) ns
+
+  and inline_children m (Node (p, a, x)) : Inline.t node =
+    let k = map_inlines m in
+    let x : Inline.t =
+      match x with
+      | Emph l -> Emph (k l)
+      | Strong l -> Strong (k l)
+      | Highlight l -> Highlight (k l)
+      | Insert l -> Insert (k l)
+      | Delete l -> Delete (k l)
+      | Superscript l -> Superscript (k l)
+      | Subscript l -> Subscript (k l)
+      | Link (l, t) -> Link (k l, t)
+      | Image (l, t) -> Image (k l, t)
+      | Span (n, l) -> Span (n, k l)
+      | Quoted (q, l) -> Quoted (q, k l)
+      | ( Str _
+        | Verbatim _
+        | Symbol _
+        | Math _
+        | FootnoteReference _
+        | UrlLink _
+        | EmailLink _
+        | Ext_wikilink _
+        | RawInline _
+        | NonBreakingSpace
+        | SoftBreak
+        | HardBreak ) as x -> x
+    in
+    Node (p, a, x)
+  ;;
+
+  let rec map_block m n =
+    match m.block m n with
+    | `Map r -> r
+    | `Default -> block_children m n
+
+  and map_blocks m ns = List.filter_map (map_block m) ns
+
+  and block_children m (Node (p, a, x)) : Block.t node option =
+    let il = map_inlines m
+    and bl = map_blocks m in
+    (* Items, rows, cells and captions keep their position and attributes. *)
+    let on f (Node (p, a, x)) = Node (p, a, f x) in
+    let cell = on (fun (Block.Cell (t, al, l)) -> Block.Cell (t, al, il l)) in
+    let x : Block.t option =
+      match x with
+      | Para l -> Some (Para (il l))
+      | Section l -> Some (Section (bl l))
+      | Heading (lvl, l) -> Some (Heading (lvl, il l))
+      | BlockQuote l -> Some (BlockQuote (bl l))
+      | Div (n, l) -> Some (Div (n, bl l))
+      | OrderedList (o, sp, its) -> Some (OrderedList (o, sp, List.map (on bl) its))
+      | BulletList (sp, its) -> Some (BulletList (sp, List.map (on bl) its))
+      | TaskList (sp, its) ->
+        Some (TaskList (sp, List.map (on (fun (s, it) -> s, bl it)) its))
+      | DefinitionList (sp, its) ->
+        Some (DefinitionList (sp, List.map (on (fun (t, d) -> on il t, on bl d)) its))
+      | Table (cap, rows) -> Some (Table (on il cap, List.map (on (List.map cell)) rows))
+      | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
+      | Ext_keyed (l, b) ->
+        Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
+      | Ext_callout (kind, fold, title, body) ->
+        Some (Ext_callout (kind, fold, il title, bl body))
+      | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _) as x -> Some x
+    in
+    Option.map (fun x -> Node (p, a, x)) x
+  ;;
+
+  let map_doc (m : t) (d : Doc.t) : Doc.t =
+    let k = d.kernel in
+    { d with
+      kernel =
+        { k with
+          doc_blocks = map_blocks m k.doc_blocks
+        ; doc_footnotes = List.map (fun (l, bs) -> l, map_blocks m bs) k.doc_footnotes
+        }
+    }
+  ;;
+end
+
+module Folder = struct
+  type 'a result =
+    [ `Default
+    | `Fold of 'a
+    ]
+
+  let default = `Default
+  let ret x = `Fold x
+
+  type 'a t =
+    { inline : 'a t -> 'a -> Inline.t node -> 'a result
+    ; block : 'a t -> 'a -> Block.t node -> 'a result
+    }
+
+  type ('a, 'b) folder = 'b t -> 'b -> 'a -> 'b result
+
+  let make
+    ?(inline : (Inline.t node, 'a) folder = fun _ _ _ -> `Default)
+    ?(block : (Block.t node, 'a) folder = fun _ _ _ -> `Default)
+    ()
+    =
+    { inline; block }
+  ;;
+
+  let rec fold_inline (f : 'a t) (acc : 'a) (n : Inline.t node) : 'a =
+    match f.inline f acc n with
+    | `Fold acc -> acc
+    | `Default ->
+      let k = List.fold_left (fold_inline f) acc in
+      (match Node.content n with
+       | Emph l
+       | Strong l
+       | Highlight l
+       | Insert l
+       | Delete l
+       | Superscript l
+       | Subscript l
+       | Link (l, _)
+       | Image (l, _)
+       | Span (_, l)
+       | Quoted (_, l) -> k l
+       | Str _
+       | Verbatim _
+       | Symbol _
+       | Math _
+       | FootnoteReference _
+       | UrlLink _
+       | EmailLink _
+       | Ext_wikilink _
+       | RawInline _
+       | NonBreakingSpace
+       | SoftBreak
+       | HardBreak -> acc)
+  ;;
+
+  let rec fold_block (f : 'a t) (acc : 'a) (n : Block.t node) : 'a =
+    match f.block f acc n with
+    | `Fold acc -> acc
+    | `Default ->
+      let il acc l = List.fold_left (fold_inline f) acc l in
+      let bl acc l = List.fold_left (fold_block f) acc l in
+      (match Node.content n with
+       | Para l | Heading (_, l) -> il acc l
+       | Section l | BlockQuote l | Div (_, l) | FootnoteDef (_, l) -> bl acc l
+       | OrderedList (_, _, its) | BulletList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
+       | TaskList (_, its) ->
+         List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
+       | DefinitionList (_, its) ->
+         List.fold_left
+           (fun acc it ->
+             let t, d = Node.content it in
+             bl (il acc (Node.content t)) (Node.content d))
+           acc
+           its
+       | Table (cap, rows) ->
+         let cell acc c =
+           match Node.content c with
+           | Block.Cell (_, _, l) -> il acc l
+         in
+         let acc =
+           List.fold_left (fun acc r -> List.fold_left cell acc (Node.content r)) acc rows
+         in
+         il acc (Node.content cap)
+       | Ext_keyed (l, b) -> fold_block f (il acc l) b
+       | Ext_callout (_, _, title, body) -> bl (il acc title) body
+       | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
+  ;;
+
+  let fold_doc (f : 'a t) (acc : 'a) (d : Doc.t) : 'a =
+    let bl acc l = List.fold_left (fold_block f) acc l in
+    List.fold_left
+      (fun acc (_, bs) -> bl acc bs)
+      (bl acc (Doc.blocks d))
+      (Doc.footnotes d)
+  ;;
+end
+
+module Html = struct
+  type t = K.Html.helt =
+    | HText of string
+    | HRaw of string
+    | HVoid of string * bool * Attr.t
+    | HElem of string * int * Attr.t * t list
+
+  let tree (d : Doc.t) = K.Html.html_tree d.kernel
+  let (to_string : t list -> string) = K.Html.serialize_flat
+  let of_doc (d : Doc.t) = K.Html.render_html d.kernel
+
+  let of_blocks (bs : Block.t node list) =
+    K.Html.render_html (K.Document.doc_pass K.Ast.semantic_pos bs)
+  ;;
+end
