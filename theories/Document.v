@@ -106,6 +106,78 @@ Local Definition is_id_sep (c : ascii) : bool :=
 Definition id_base (s : string) : string :=
   String.concat "-" (words is_id_sep s).
 
+(* The syntax reference on the identifier: the heading's text, "removing
+   punctuation (other than `_` and `-`), replacing spaces with `-`".  The
+   next two lemmas say which bytes `id_base` drops, over all 256.  It
+   follows djot.js where that differs from the wording: both quote
+   characters, `:` and `;` are kept too, and a punctuation byte separates
+   words as a space does, so `a.b` gives `a-b`. *)
+Lemma is_id_sep_punct : forall c, is_punct c = true ->
+  is_id_sep c
+  = negb (existsb (Ascii.eqb c) ["_"; "-"; """"; "'"; ":"; ";"]%char).
+Proof.
+  intros [[] [] [] [] [] [] [] []]; vm_compute; first [reflexivity | discriminate].
+Qed.
+
+Lemma is_id_sep_other : forall c, is_punct c = false ->
+  is_id_sep c
+  = existsb (Ascii.eqb c) ["009"; "010"; "011"; "012"; "013"; " "]%char.
+Proof.
+  intros [[] [] [] [] [] [] [] []]; vm_compute; first [reflexivity | discriminate].
+Qed.
+
+Local Lemma concat_dash_sep_free : forall ws,
+  Forall (fun w => w <> "" /\ sep_free is_id_sep w = true) ws ->
+  sep_free is_id_sep (String.concat "-" ws) = true.
+Proof.
+  assert (A : forall a b, sep_free is_id_sep a = true ->
+    sep_free is_id_sep b = true -> sep_free is_id_sep (a ++ b) = true).
+  { unfold sep_free. intros a b Ha Hb.
+    induction a as [|c a IH]; cbn in *; [exact Hb|].
+    apply andb_true_iff in Ha. destruct Ha as [Hc Ha].
+    rewrite Hc, IH by exact Ha. reflexivity. }
+  induction ws as [|w ws IH]; intros H; [reflexivity|].
+  inversion H as [|? ? [_ Hw] Hws]; subst. cbn [String.concat].
+  destruct ws as [|w' ws']; [exact Hw|].
+  apply A; [exact Hw|]. apply (A "-"); [reflexivity|]. apply IH, Hws.
+Qed.
+
+(* No dropped byte reaches the identifier. *)
+Theorem id_base_sep_free : forall s, sep_free is_id_sep (id_base s) = true.
+Proof. intros s. apply concat_dash_sep_free, words_tokens. Qed.
+
+(* `id_base` by cases on the text, as `words` is: a text with nothing to
+   drop is its own identifier; dropped bytes at the start vanish; a word
+   followed by a dropped byte is joined to the rest by one `-`, or stands
+   alone when the rest has no word.  So runs collapse and neither end
+   carries a `-` of its own. *)
+Theorem id_base_word : forall w,
+  sep_free is_id_sep w = true -> id_base w = w.
+Proof.
+  intros w H. unfold id_base. destruct w as [|c w]; [reflexivity|].
+  rewrite words_last by (exact H || discriminate). reflexivity.
+Qed.
+
+Theorem id_base_sep : forall c s,
+  is_id_sep c = true -> id_base (String c s) = id_base s.
+Proof.
+  intros c s H. unfold id_base. rewrite words_sep by exact H. reflexivity.
+Qed.
+
+Theorem id_base_word_sep : forall w c s,
+  w <> "" -> sep_free is_id_sep w = true -> is_id_sep c = true ->
+  id_base (w ++ String c s)
+  = if nonempty_str (id_base s) then w ++ "-" ++ id_base s else w.
+Proof.
+  intros w c s Hne Hw Hc. unfold id_base.
+  rewrite words_word by assumption. cbn [String.concat].
+  pose proof (words_tokens is_id_sep s) as Tk.
+  destruct (words is_id_sep s) as [|w' ws]; [reflexivity|].
+  inversion Tk as [|? ? [Hw' _] _]; subst.
+  destruct w' as [|x w']; [contradiction|].
+  destruct ws; reflexivity.
+Qed.
+
 Local Definition id_taken (used : list string) (s : string) : bool :=
   existsb (String.eqb s) used.
 
@@ -117,12 +189,9 @@ Local Definition id_candidate (base : string) (i : nat) : string :=
        ++ "-" ++ nat_str i.
 
 (* The specification: the first free candidate.  Fuel, fixed by
-   `unique_id` below.  With n identifiers taken, candidates 0..n+1 are
-   n+2 distinct strings, so one of them is free and the O branch is
-   unreachable.  Argued, not proved: the discharge lemma (compare
-   `Step.step_fuel_enough`) needs pigeonhole plus injectivity of
-   `nat_str`.  Nothing depends on it: `assign_heading_id_spec` relates the
-   pass to this definition whatever the O branch returns. *)
+   `unique_id` below.  With n identifiers taken, candidates 1..n+1 are
+   n+1 distinct nonempty strings, so one of them is free and the O branch
+   is unreachable (`unique_id_first`). *)
 Local Fixpoint unique_id_from (fuel i : nat) (used : list string) (base : string)
   : string :=
   let cand := id_candidate base i in
@@ -323,6 +392,101 @@ Proof.
     pose proof (H i ltac:(lia)) as Hi. unfold id_free in Hi. rewrite Hi.
     rewrite IH by (intros j Hj; apply H; lia).
     f_equal. lia.
+Qed.
+
+Local Lemma pigeonhole : forall (f : nat -> string) (used : list string),
+  (forall a b, f a = f b -> a = b) ->
+  exists j, j <= length used /\ ~ In (f j) used.
+Proof.
+  intros f used Hinj.
+  assert (D : forall n, (forall j, j < n -> In (f j) used) -> n <= length used).
+  { intros n Hall.
+    replace n with (length (map f (seq 0 n)))
+      by (rewrite length_map, length_seq; reflexivity).
+    apply NoDup_incl_length.
+    - apply NoDup_map_NoDup_ForallPairs;
+        [intros a b _ _; apply Hinj|apply seq_NoDup].
+    - intros x Hx. apply in_map_iff in Hx. destruct Hx as [j [<- Hj]].
+      apply in_seq in Hj. apply Hall. lia. }
+  destruct (Exists_dec (fun j => ~ In (f j) used) (seq 0 (S (length used))))
+    as [E|E].
+  - intros j. destruct (in_dec string_dec (f j) used); [right|left]; tauto.
+  - apply Exists_exists in E. destruct E as [j [Hj Hn]]. apply in_seq in Hj.
+    exists j. split; [lia|exact Hn].
+  - exfalso. specialize (D (S (length used))).
+    assert (S (length used) <= length used); [|lia].
+    apply D. intros j Hj.
+    destruct (in_dec string_dec (f j) used) as [Hi|Hi]; [exact Hi|].
+    exfalso. apply E, Exists_exists.
+    exists j. split; [apply in_seq; lia|exact Hi].
+Qed.
+
+Local Lemma id_candidate_S : forall base i,
+  id_candidate base (S i)
+  = (match base with EmptyString => "s" | _ => base end)
+    ++ "-" ++ nat_str (S i).
+Proof. reflexivity. Qed.
+
+(* Within the fuel `unique_id` runs on, some candidate is free. *)
+Local Lemma id_free_within : forall used base,
+  exists j, j < S (S (length used)) /\ id_free used base j = true.
+Proof.
+  intros used base.
+  destruct (pigeonhole (fun j => id_candidate base (S j)) used)
+    as [j [Hj Hn]].
+  { intros a b H. rewrite !id_candidate_S in H.
+    apply append_inj_l in H. apply (append_inj_l "-") in H.
+    apply nat_str_inj in H. lia. }
+  exists (S j). split; [lia|]. unfold id_free.
+  replace (nonempty_str (id_candidate base (S j))) with true
+    by (rewrite id_candidate_S; destruct base; reflexivity).
+  cbn [andb].
+  destruct (id_taken used (id_candidate base (S j))) eqn:E; [|reflexivity].
+  apply id_taken_in in E. contradiction.
+Qed.
+
+Local Lemma unique_id_from_first : forall used base f i,
+  (exists j, i <= j < i + f /\ id_free used base j = true) ->
+  exists j, i <= j < i + f /\ id_free used base j = true
+    /\ (forall k, i <= k < j -> id_free used base k = false)
+    /\ unique_id_from f i used base = id_candidate base j.
+Proof.
+  intros used base f. induction f as [|f IH]; intros i [j [Hj Hf]]; [lia|].
+  cbn [unique_id_from]. fold (id_free used base i).
+  destruct (id_free used base i) eqn:E.
+  - exists i. split; [lia|]. split; [exact E|].
+    split; [intros k Hk; lia|reflexivity].
+  - destruct (IH (S i)) as [j' [Hj' [Hf' [Hlow Heq]]]].
+    { exists j. split; [|exact Hf].
+      destruct (Nat.eq_dec j i); [congruence|lia]. }
+    exists j'. split; [lia|]. split; [exact Hf'|]. split; [|exact Heq].
+    intros k Hk. destruct (Nat.eq_dec k i) as [->|]; [exact E|apply Hlow; lia].
+Qed.
+
+(* The reference: "a numerical suffix to ensure uniqueness".  `unique_id`
+   is the first candidate that is nonempty and not taken. *)
+Theorem unique_id_first : forall used base,
+  exists i, unique_id used base = id_candidate base i
+    /\ id_free used base i = true
+    /\ forall j, j < i -> id_free used base j = false.
+Proof.
+  intros used base. unfold unique_id.
+  destruct (unique_id_from_first used base (S (S (length used))) 0)
+    as [j [_ [Hf [Hlow Heq]]]].
+  { destruct (id_free_within used base) as [j [Hj Hf]].
+    exists j. split; [lia|exact Hf]. }
+  exists j. split; [exact Heq|]. split; [exact Hf|].
+  intros k Hk. apply Hlow. lia.
+Qed.
+
+Theorem unique_id_fresh : forall used base,
+  unique_id used base <> "" /\ ~ In (unique_id used base) used.
+Proof.
+  intros used base. destruct (unique_id_first used base) as [i [-> [Hf _]]].
+  unfold id_free in Hf. apply andb_true_iff in Hf. destruct Hf as [Hn Ht].
+  split.
+  - intros E. rewrite E in Hn. discriminate.
+  - intros Hin. apply id_taken_in in Hin. rewrite Hin in Ht. discriminate.
 Qed.
 
 Local Lemma fresh_for_spec : forall st base,

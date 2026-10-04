@@ -2035,3 +2035,15 @@ Example heading_identifier_unique :
 </section>
 ".
 Proof. vm_compute. reflexivity. Qed.
+
+(* "removing punctuation (other than `_` and `-`)" as djot.js reads it:
+   a punctuation byte separates words as a space does, and `:` and `;`
+   stay (`is_id_sep_punct`, Document.v). *)
+Example heading_identifier_punctuation :
+  convert "# a.b  c:d;e_f-g!
+"
+  = "<section id=""a-b-c:d;e_f-g"">
+<h1>a.b  c:d;e_f-g!</h1>
+</section>
+".
+Proof. vm_compute. reflexivity. Qed.

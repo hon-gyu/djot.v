@@ -2270,3 +2270,32 @@ question.  The fix is in `apply_pending`: a pending `class` goes before a
 class the block already has, as djot.js's order gives.  With custom tag
 names on, `::: b` writes a name rather than a class, so there the case
 does not arise.
+
+## 2026-10-04 -- SPEC-GAP: which punctuation a heading identifier drops
+
+Found while stating the reference's identifier rule over all texts
+(`is_id_sep_punct`, `id_base_word_sep` in `Document.v`).  djot.js and
+ours agree; the reference's wording says something else.
+
+| Input | djot.js and ours | What the reference says |
+| --- | --- | --- |
+| `# a.b` | `a-b` | "removing punctuation (other than `_` and `-`)": read literally, `ab`. |
+| `# c:d;e` | `c:d;e` | `:` and `;` are punctuation other than `_` and `-`, so `cde`. |
+
+djot.js replaces each run of whitespace and of the bytes
+``[]~!@#$%^&*(){}`,.<>\|=+/?`` by one space, trims, and joins with `-`
+(`getUniqueIdentifier`, `parse.ts`).  So punctuation separates words
+instead of vanishing, and the four ASCII punctuation bytes missing from
+that list besides `_` and `-` are kept: `"`, `'`, `:`, `;`.  Bytes
+outside ASCII are kept as well.  The reference's own example,
+`My heading + auto-identifier`, comes out the same under both readings.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).  Identifiers
+are link targets, so following the wording instead would break links
+that work under djot.js.  Pinned by `heading_identifier_punctuation` in
+`dev/check/Reference.v`.
+
+The verdict was chosen by the agent and is pending the maintainer's
+decision.  Following the wording instead is a change to `is_id_sep` and
+`id_base` in `Document.v`, and the theorems that state the rule
+(`is_id_sep_punct`, `id_base_word_sep`) would be restated with it.

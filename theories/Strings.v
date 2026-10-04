@@ -3,7 +3,7 @@
    byte offsets, and small list helpers. *)
 
 From Stdlib Require Import String Ascii List Bool Lia.
-From Stdlib Require DecimalString.
+From Stdlib Require DecimalString DecimalNat DecimalFacts.
 From DjotV Require Import Ast.
 Import ListNotations.
 
@@ -72,6 +72,17 @@ Proof. intros A l x. destruct l. all: reflexivity. Qed.
 Definition nat_str (n : nat) : string :=
   DecimalString.NilZero.string_of_uint (Nat.to_uint n).
 
+Lemma nat_str_inj : forall a b, nat_str a = nat_str b -> a = b.
+Proof.
+  assert (N : forall n, Nat.to_uint n <> Decimal.Nil).
+  { intros n. rewrite <- (DecimalNat.Unsigned.of_to n) at 1.
+    rewrite DecimalNat.Unsigned.to_of. apply DecimalFacts.unorm_nonnil. }
+  intros a b H. unfold nat_str in H.
+  apply (f_equal DecimalString.NilZero.uint_of_string) in H.
+  rewrite !DecimalString.NilZero.usu in H by apply N. injection H as H.
+  apply DecimalNat.Unsigned.to_uint_inj, H.
+Qed.
+
 Lemma forallb_rev :
   forall {A : Type} (f : A -> bool) (l : list A),
     forallb f (rev l) = forallb f l.
@@ -96,6 +107,12 @@ Qed.
 Lemma append_assoc : forall a b c, (a ++ b) ++ c = a ++ (b ++ c).
 Proof.
   induction a as [|x a IH]; intros; simpl; [reflexivity | rewrite IH; reflexivity].
+Qed.
+
+Lemma append_inj_l : forall p a b, p ++ a = p ++ b -> a = b.
+Proof.
+  intros p a b. induction p as [|c p IH]; cbn; intros H; [exact H|].
+  injection H as H. apply IH, H.
 Qed.
 
 (* String reversal, accumulator-style so it is structurally recursive.
@@ -807,4 +824,96 @@ Proof.
     with (l ++ String "010" (join_nl ls))%string.
   rewrite split_lines_line by exact Hl.
   f_equal. apply IH. exact Hls.
+Qed.
+
+(*
+Words
+=====
+*)
+
+(* No byte of `w` is a separator. *)
+Definition sep_free (sep : ascii -> bool) (w : string) : bool :=
+  forallb (fun c => negb (sep c)) (list_ascii_of_string w).
+
+Local Lemma words_aux_spec_acc : forall sep s cur acc,
+  Ast.words_aux_spec sep s cur acc
+  = (Ast.words_aux_spec sep s cur [] ++ acc)%list.
+Proof.
+  intros sep s. induction s as [|c s IH]; intros cur acc; cbn.
+  - destruct cur; reflexivity.
+  - destruct (sep c); [|apply IH].
+    destruct cur; [apply IH|].
+    rewrite IH, (IH _ [_]), <- app_assoc. reflexivity.
+Qed.
+
+Local Lemma words_aux_spec_word : forall sep w s cur acc,
+  sep_free sep w = true ->
+  Ast.words_aux_spec sep (w ++ s) cur acc
+  = Ast.words_aux_spec sep s (cur ++ w) acc.
+Proof.
+  unfold sep_free.
+  intros sep w. induction w as [|c w IH]; intros s cur acc H; cbn in *.
+  - rewrite append_empty_r. reflexivity.
+  - apply andb_true_iff in H. destruct H as [Hc Hw].
+    apply negb_true_iff in Hc. rewrite Hc, IH by exact Hw.
+    rewrite append_assoc. reflexivity.
+Qed.
+
+(* `words sep` by cases on the string: empty, a separator first, or a
+   word first.  A word is a nonempty string with no separator, and it is
+   followed by a separator or by the end.  Every string is one of these,
+   so the four equations determine `words`. *)
+Lemma words_empty : forall sep, words sep EmptyString = [].
+Proof. reflexivity. Qed.
+
+Lemma words_sep : forall sep c s,
+  sep c = true -> words sep (String c s) = words sep s.
+Proof. intros sep c s H. rewrite !words_spec. cbn. rewrite H. reflexivity. Qed.
+
+Lemma words_last : forall sep w,
+  w <> EmptyString -> sep_free sep w = true ->
+  words sep w = [w].
+Proof.
+  intros sep w Hne H. rewrite words_spec.
+  rewrite <- (append_empty_r w) at 1.
+  rewrite words_aux_spec_word by exact H. cbn.
+  destruct w; [contradiction|reflexivity].
+Qed.
+
+Lemma words_word : forall sep w c s,
+  w <> EmptyString -> sep_free sep w = true ->
+  sep c = true ->
+  words sep (w ++ String c s) = w :: words sep s.
+Proof.
+  intros sep w c s Hne H Hc. rewrite !words_spec.
+  rewrite words_aux_spec_word by exact H. cbn. rewrite Hc.
+  destruct w; [contradiction|].
+  rewrite words_aux_spec_acc, rev_app_distr. reflexivity.
+Qed.
+
+(* Every token is a word. *)
+Lemma words_tokens : forall sep s,
+  Forall (fun w => w <> EmptyString
+                   /\ sep_free sep w = true)
+         (words sep s).
+Proof.
+  intros sep s. rewrite words_spec. apply Forall_rev.
+  set (P := fun w => w <> EmptyString
+                     /\ sep_free sep w = true).
+  assert (G : forall s cur acc,
+    sep_free sep cur = true ->
+    Forall P acc -> Forall P (Ast.words_aux_spec sep s cur acc)).
+  { clear s. induction s as [|c s IH]; intros cur acc Hcur Hacc; cbn.
+    - destruct cur; [exact Hacc|]. constructor; [|exact Hacc].
+      split; [discriminate|exact Hcur].
+    - destruct (sep c) eqn:E.
+      + destruct cur; apply IH; try reflexivity; try exact Hacc.
+        constructor; [|exact Hacc]. split; [discriminate|exact Hcur].
+      + apply IH; [|exact Hacc].
+        clear -Hcur E. unfold sep_free in *.
+        induction cur as [|x cur IHc]; cbn in *.
+        * rewrite E. reflexivity.
+        * apply andb_true_iff in Hcur. destruct Hcur as [Hx Hr].
+          rewrite Hx, IHc by exact Hr. reflexivity. }
+  apply G; [reflexivity|constructor].
 Qed.

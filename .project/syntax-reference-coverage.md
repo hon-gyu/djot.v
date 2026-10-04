@@ -40,11 +40,11 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
-| Block: references, footnotes, attributes, ids | 7 | 2 | 5 | 0 | 0 | 0 |
+| Block: references, footnotes, attributes, ids | 7 | 3 | 4 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
-60 prose cases in `Reference.v` all match djot.js except
+61 prose cases in `Reference.v` all match djot.js except
 `table_caption_alone` (adjudicated 2026-08-22, see the log) and the
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
@@ -203,12 +203,12 @@ Leaf blocks and tables: T 12, T~ 1, E 3, n/a 2.
 | BA2 | Block attributes | "if they don't fit on one line, subsequent lines must be indented" | T | `attr_continuation`, `attr_unindented`; `block_attributes_multiline`, `block_attributes_multiline_unindented` | A spec over lines indented past its opener parses as the same spec on one line, for continuation lines with content.  The "must": an unindented second line makes the two lines a paragraph (two-line case).  Unit: ParserExamples.v, "Block attributes". |
 | BA3 | Block attributes | "Repeated attribute specifiers can be used, and the attributes will accumulate" | T | `attr_accumulate`; `block_attributes` | Any run of complete specs, one per line, merged in order by `Attr.merge`.  `attr_uniformity` is the one-spec case. |
 | LH1 | Links to headings | "Identifiers are added automatically to any headings that do not have explicit identifiers" | T~ | `assign_heading_id_spec`; `heading_identifier` | Stated through `id_base` and `unique_id`, the pass's own functions.  Unit: `section_*`, `explicit_id_displaces_auto_id` in Document.v. |
-| LH2 | Links to headings | the identifier: plain text "excluding non-textual elements such as footnote references and symbols, removing punctuation (other than `_` and `-`), replacing spaces with `-`, and ... a numerical suffix" | E | `heading_identifier`, `heading_identifier_footnote`, `heading_identifier_symbol`, `heading_identifier_unique` | |
+| LH2 | Links to headings | the identifier: plain text "excluding non-textual elements such as footnote references and symbols, removing punctuation (other than `_` and `-`), replacing spaces with `-`, and ... a numerical suffix" | T~ | `is_id_sep_punct`, `is_id_sep_other`, `id_base_sep_free`, `id_base_word`, `id_base_sep`, `id_base_word_sep`, `unique_id_first`, `unique_id_fresh` (Document.v); `heading_identifier`, `heading_identifier_footnote`, `heading_identifier_symbol`, `heading_identifier_unique`, `heading_identifier_punctuation` | Shape: from the heading's plain text on, over every text and every set of taken identifiers.  Which bytes are dropped, that none reaches the identifier, that the rest is kept, and that runs of dropped bytes become one `-` between words.  The suffix gives the first candidate that is nonempty and not taken.  The plain text itself (`inlines_text`, the "excluding" clause) has only the examples.  Which punctuation is dropped follows djot.js, not the wording: `SPEC-GAP`, 2026-10-04. |
 | LH3 | Links to headings | "implicit link references are created for all headings" | E | `heading_implicit_reference` | Unit: `implicit_heading_reference` in Document.v. |
 | LH4 | Links to headings | `# Introduction[^1]` "generates the identifier `Introduction`, not `Introduction1`" | E | `heading_identifier_footnote` | |
 | — | Reference link definition | "The reference label should be defined somewhere in the document" | T~ | see L5 | Advice to the author; what happens when it is not defined is L5. |
 
-References, footnotes, attributes, identifiers: T 7, T~ 2, E 5 (the
+References, footnotes, attributes, identifiers: T 7, T~ 3, E 4 (the
 last row is counted under L5).
 
 ### Nesting limits and security
@@ -284,7 +284,11 @@ Single constructs, each a small theorem over a finite or simple domain:
 13. Done: **HE1, CB1, TB1, RD1** at the line level over all spellings:
     `classify_heading_ws`, `classify_backtick_fences`,
     `classify_thematic`, `classify_ref_whitespace`.
-14. **LH2** `id_base` characterized clause by clause.
+14. Done: **LH2**, `id_base` by cases on the text (`id_base_word`,
+    `id_base_sep`, `id_base_word_sep`) over the bytes it drops
+    (`is_id_sep_punct`, `is_id_sep_other`), and `unique_id_first` for the
+    suffix.  The cases rest on the same four equations for `words`
+    (Strings.v), which `normalize_label` is also built on.
 
 Moved here from "An example is enough" on 2026-09-30, each with a plan:
 
@@ -330,3 +334,5 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 - CB1: tilde fences (2026-08-02).
 - DV1: no whitespace needed before a div's class (2026-09-30).
 - PT2: separator cells are not trimmed (2026-08-02).
+- LH2: punctuation in a heading separates the identifier's words, and
+  `"` `'` `:` `;` are kept (2026-10-04).
