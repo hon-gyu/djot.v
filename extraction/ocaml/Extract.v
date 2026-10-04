@@ -11,7 +11,7 @@
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
-From DjotV Require Import Strings Html Step Document Profile Reparse.
+From DjotV Require Import Strings Html Step Document Profile Reparse Readable.
 From DjotVDev Require Import Fixtures Generate.
 
 Extraction Language OCaml.
@@ -516,6 +516,8 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
      map_text chunks_text !state)".
 
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
+  DjotV.Readable.readable_djot DjotV.Readable.readable_doc
+  DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
   tags_accepted tags_rt_lhs
