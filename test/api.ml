@@ -123,13 +123,13 @@ let () =
 let () =
   let d = Doc.of_string ~locs:true "- a\n- b\n" in
   let block _ = function
-    | Node (p, a, Block.BulletList (sp, _ :: it :: _)) ->
-      Mapper.ret (Node (p, a, Block.BulletList (sp, [ it ])))
+    | Node (p, a, Block.BulletList (c, sp, _ :: it :: _)) ->
+      Mapper.ret (Node (p, a, Block.BulletList (c, sp, [ it ])))
     | _ -> Mapper.default
   in
   let mapped = Mapper.map_doc (Mapper.make ~block ()) d in
   match Doc.blocks mapped with
-  | [ Node (_, _, Block.BulletList (_, [ it ])) ] ->
+  | [ Node (_, _, Block.BulletList (_, _, [ it ])) ] ->
     assert (Textloc.first_byte (Doc.textloc mapped it) = 4)
   | _ -> failwith "unexpected document"
 ;;

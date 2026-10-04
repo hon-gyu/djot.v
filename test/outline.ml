@@ -78,7 +78,7 @@ let block_label d (n : Block.t node) : string * item list =
   | OrderedList (_, _, its) ->
     ( "OrderedList"
     , List.map (fun it -> group "item" (loc it) (blocks (Node.content it))) its )
-  | BulletList (_, its) ->
+  | BulletList (_, _, its) ->
     ( "BulletList"
     , List.map (fun it -> group "item" (loc it) (blocks (Node.content it))) its )
   | TaskList (_, its) ->

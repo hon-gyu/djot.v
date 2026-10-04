@@ -455,9 +455,21 @@ let block_at ?keep ?auto (l : loc) (inline : Inline.t node Jsont.t) : t node Jso
          C.map "ordered_list" ordered ~dec:(fun (a, sp, items) ->
            OrderedList (a, sp, items))
        in
+       let bullet =
+         let marker =
+           let dec s =
+             if String.length s = 1 then s.[0] else error "a bullet list style is one character"
+           in
+           Jsont.map Jsont.string ~kind:"bullet list style" ~dec ~enc:(String.make 1)
+         in
+         O.map (fun sp c items -> c, sp, items)
+         |> O.mem "tight" tight ~enc:(fun (_, sp, _) -> sp)
+         |> O.mem "style" marker ~enc:(fun (c, _, _) -> c)
+         |> O.mem "children" (Jsont.list item) ~enc:(fun (_, _, items) -> items)
+         |> O.finish
+       in
        let bullet_list =
-         C.map "bullet_list" (spaced item) ~dec:(fun (sp, items) ->
-           BulletList (sp, items))
+         C.map "bullet_list" bullet ~dec:(fun (c, sp, items) -> BulletList (c, sp, items))
        in
        let task_list =
          C.map "task_list" (spaced task_item) ~dec:(fun (sp, items) ->
@@ -494,7 +506,7 @@ let block_at ?keep ?auto (l : loc) (inline : Inline.t node Jsont.t) : t node Jso
          | CodeBlock (lang, s) -> C.value code_block (lang, s)
          | Div (n, k) -> C.value div (n, k)
          | OrderedList (a, sp, items) -> C.value ordered_list (a, sp, items)
-         | BulletList (sp, items) -> C.value bullet_list (sp, items)
+         | BulletList (c, sp, items) -> C.value bullet_list (c, sp, items)
          | TaskList (sp, items) -> C.value task_list (sp, items)
          | DefinitionList (sp, items) -> C.value definition_list (sp, items)
          | ThematicBreak -> C.value thematic_break ()

@@ -360,7 +360,7 @@ type block =
 | Div of string * block node list
 | OrderedList of ordered_list_attributes * list_spacing
    * block node list node list
-| BulletList of list_spacing * block node list node list
+| BulletList of char * list_spacing * block node list node list
 | TaskList of list_spacing * (task_status * block node list) node list
 | DefinitionList of list_spacing
    * (inlines node * block node list node) node list
@@ -490,7 +490,7 @@ let parts_onto h ps b =
     (match b with
      | OrderedList (attrs, sp, its) ->
        OrderedList (attrs, sp, (set_each h rs its))
-     | BulletList (sp, its) -> BulletList (sp, (set_each h rs its))
+     | BulletList (bc, sp, its) -> BulletList (bc, sp, (set_each h rs its))
      | TaskList (sp, its) -> TaskList (sp, (set_each h rs its))
      | _ -> b)
   | PDefItems rs ->
@@ -616,7 +616,7 @@ module Shift =
      | Div (name, bs) -> Div (name, (go bs))
      | OrderedList (attrs, sp, items) ->
        OrderedList (attrs, sp, (goitems items))
-     | BulletList (sp, items) -> BulletList (sp, (goitems items))
+     | BulletList (bc, sp, items) -> BulletList (bc, sp, (goitems items))
      | TaskList (sp, items) ->
        TaskList (sp,
          (let rec gotasks = function

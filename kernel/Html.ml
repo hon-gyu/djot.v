@@ -560,7 +560,7 @@ let rec render_block refs tight b a =
    | OrderedList (oa, sp, items) ->
      (HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), (app (ol_attrs oa) a),
        (render_items sp items))) :: []
-   | BulletList (sp, items) ->
+   | BulletList (_, sp, items) ->
      (HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), a,
        (render_items sp items))) :: []
    | TaskList (sp, items) ->
@@ -826,7 +826,7 @@ let rec render_block_foot refs st tight b a =
      let (st', s) = render_items st sp items in
      (st', ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)),
      (app (ol_attrs oa) a), s)) :: []))
-   | BulletList (sp, items) ->
+   | BulletList (_, sp, items) ->
      let (st', s) = render_items st sp items in
      (st', ((HElem ("ul", (Stdlib.succ (Stdlib.succ 0)), a, s)) :: []))
    | TaskList (sp, items) ->

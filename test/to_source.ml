@@ -33,6 +33,7 @@ let () =
   render "document" src;
   render ~profile:Profile.markdown_like "document, markdown_like" src;
   render "written id" "{#My-title}\n# My title\n\n# x\n\n{#x}\n# y\n";
+  render "bullet markers" "- a\n\n+ b\n+ c\n\n* d\n";
   render "empty list item" "- a\n-\n- b\n\nB.\n";
   render
     ~profile:(Profile.with_ext_keyed true Profile.djot)
@@ -74,7 +75,8 @@ let () =
         ]
     ; n
         (Block.BulletList
-           ( Block.Loose
+           ( '-'
+           , Block.Loose
            , [ n [ para [ str "one" ]; para [ str "two" ] ]; n [ para [ str "three" ] ] ]
            ))
     ; n (Block.BlockQuote [ para [ str "a" ]; para [ str "b" ] ])

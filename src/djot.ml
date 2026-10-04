@@ -378,7 +378,7 @@ module Block = struct
     | CodeBlock of string * string
     | Div of string * t node list
     | OrderedList of ordered_list_attributes * list_spacing * t node list node list
-    | BulletList of list_spacing * t node list node list
+    | BulletList of char * list_spacing * t node list node list
     | TaskList of list_spacing * (task_status * t node list) node list
     | DefinitionList of
         list_spacing * (Inline.t node list node * t node list node) node list
@@ -930,7 +930,7 @@ module Mapper = struct
       | BlockQuote l -> Some (BlockQuote (bl l))
       | Div (n, l) -> Some (Div (n, bl l))
       | OrderedList (o, sp, its) -> Some (OrderedList (o, sp, List.map (on bl) its))
-      | BulletList (sp, its) -> Some (BulletList (sp, List.map (on bl) its))
+      | BulletList (c, sp, its) -> Some (BulletList (c, sp, List.map (on bl) its))
       | TaskList (sp, its) ->
         Some (TaskList (sp, List.map (on (fun (s, it) -> s, bl it)) its))
       | DefinitionList (sp, its) ->
@@ -1019,7 +1019,7 @@ module Folder = struct
       (match Node.content n with
        | Para l | Heading (_, l) -> il acc l
        | Section l | BlockQuote l | Div (_, l) | FootnoteDef (_, l) -> bl acc l
-       | OrderedList (_, _, its) | BulletList (_, its) ->
+       | OrderedList (_, _, its) | BulletList (_, _, its) ->
          List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
        | TaskList (_, its) ->
          List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its

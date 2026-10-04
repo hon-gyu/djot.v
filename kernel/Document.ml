@@ -253,7 +253,7 @@ module Ids =
          in goit items (register_id a st)
        in
        (st', (Node (p, a, (OrderedList (oa, sp, items')))))
-     | BulletList (sp, items) ->
+     | BulletList (bc, sp, items) ->
        let (st', items') =
          let rec goit its s =
            match its with
@@ -265,7 +265,7 @@ module Ids =
              (s2, ((Node (ip, ia, it1)) :: rest1))
          in goit items (register_id a st)
        in
-       (st', (Node (p, a, (BulletList (sp, items')))))
+       (st', (Node (p, a, (BulletList (bc, sp, items')))))
      | TaskList (sp, items) ->
        let (st', items') =
          let rec got its s =
@@ -438,7 +438,7 @@ module Refs =
      | BlockQuote bs -> go bs m
      | Div (_, bs) -> go bs m
      | OrderedList (_, _, items) -> goit items m
-     | BulletList (_, items) -> goit items m
+     | BulletList (_, _, items) -> goit items m
      | TaskList (_, items) ->
        let rec got its acc =
          match its with
@@ -517,7 +517,7 @@ module Notes =
      | BlockQuote bs -> go bs m
      | Div (_, bs) -> go bs m
      | OrderedList (_, _, items) -> goit items m
-     | BulletList (_, items) -> goit items m
+     | BulletList (_, _, items) -> goit items m
      | TaskList (_, items) ->
        let rec got its acc =
          match its with

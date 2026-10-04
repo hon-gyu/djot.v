@@ -305,7 +305,9 @@ module Block : sig
         ({!Profile.with_ext_tags}); empty means unnamed. *)
     | OrderedList of ordered_list_attributes * list_spacing * t node list node list
     (** Each item is a node, with its own location. *)
-    | BulletList of list_spacing * t node list node list
+    | BulletList of char * list_spacing * t node list node list
+    (** The character is the marker the items are written with: [-], [+] or [*], or [:]
+        where definition lists are off. *)
     | TaskList of list_spacing * (task_status * t node list) node list
     | DefinitionList of
         list_spacing * (Inline.t node list node * t node list node) node list
@@ -393,8 +395,7 @@ module Doc : sig
       - whitespace runs in attribute values collapse to one space;
       - a span with no attributes, an empty block quote, an empty table and an empty
         definition item read back as something else;
-      - two adjacent bullet lists read back as one, since the tree does not keep the
-        marker;
+      - two adjacent bullet lists with the same marker read back as one;
       - a [|] in a table cell's text splits the cell.
 
       The round trip is proved in Rocq for a fragment of documents written with [`Safe];

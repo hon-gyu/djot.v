@@ -185,7 +185,7 @@ type block =
 | Div of string * block node list
 | OrderedList of ordered_list_attributes * list_spacing
    * block node list node list
-| BulletList of list_spacing * block node list node list
+| BulletList of char * list_spacing * block node list node list
 | TaskList of list_spacing * (task_status * block node list) node list
 | DefinitionList of list_spacing
    * (inlines node * block node list node) node list

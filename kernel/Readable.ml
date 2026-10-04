@@ -383,8 +383,9 @@ let rec readable_lines t k a b =
                                                              body) :: []))
      | OrderedList (oa, sp, items) ->
        list_lines sp (map item_lines (ck_items (lk_of_ol oa) (itemss items)))
-     | BulletList (sp, items) ->
-       list_lines sp (map item_lines (ck_items LKBullet (itemss items)))
+     | BulletList (bc, sp, items) ->
+       list_lines sp
+         (map item_lines (same_marker (MBullet bc) (itemss items)))
      | TaskList (sp, items) ->
        list_lines sp (map task_lines (taskitemss items))
      | DefinitionList (sp, its) ->

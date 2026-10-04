@@ -777,9 +777,9 @@ let rec render_lines t k a b =
      | OrderedList (oa, sp, items) ->
        list_lines sp
          (map item_or_marker_lines (ck_items (lk_of_ol oa) (itemss items)))
-     | BulletList (sp, items) ->
+     | BulletList (bc, sp, items) ->
        list_lines sp
-         (map item_or_marker_lines (ck_items LKBullet (itemss items)))
+         (map item_or_marker_lines (same_marker (MBullet bc) (itemss items)))
      | TaskList (sp, items) ->
        list_lines sp (map task_litem_lines (taskitemss items))
      | DefinitionList (sp, its) ->
@@ -894,9 +894,9 @@ let rec drop_auto_ids b p a q =
    | OrderedList (oa, sp, its) ->
      let (q', its') = goits its q in
      (q', (Node (p, a, (OrderedList (oa, sp, its')))))
-   | BulletList (sp, its) ->
+   | BulletList (bc, sp, its) ->
      let (q', its') = goits its q in
-     (q', (Node (p, a, (BulletList (sp, its')))))
+     (q', (Node (p, a, (BulletList (bc, sp, its')))))
    | TaskList (sp, its) ->
      let (q', its') =
        let rec gotasks ts q0 =

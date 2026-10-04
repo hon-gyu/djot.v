@@ -175,6 +175,58 @@
   ]
 }
 
+== bullet lists
+{
+  "tag": "doc",
+  "references": {},
+  "autoReferences": {},
+  "footnotes": {},
+  "children": [
+    {
+      "tag": "bullet_list",
+      "tight": true,
+      "style": "-",
+      "children": [
+        {
+          "tag": "list_item",
+          "children": [
+            {
+              "tag": "para",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "a"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "bullet_list",
+      "tight": true,
+      "style": "+",
+      "children": [
+        {
+          "tag": "list_item",
+          "children": [
+            {
+              "tag": "para",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "b"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
 == table
 {
   "tag": "doc",

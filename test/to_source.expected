@@ -40,6 +40,14 @@ break_.
 {#x}
 # y
 
+== bullet markers
+- a
+
++ b
++ c
+
+* d
+
 == empty list item
 - a
 -
