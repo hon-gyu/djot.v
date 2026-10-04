@@ -28,8 +28,18 @@ let docs =
   ]
 ;;
 
-(* The parsed blocks with heading identifiers, which the stream returns. *)
-let identified d = snd Kernel.Document.(Ids.of_list (For_testing.parsed d) id_state_init)
+(* The document's blocks with each section replaced by its blocks, which
+   the stream returns. A section's attributes go back on its heading. *)
+let identified d =
+  let rec flat bs =
+    List.concat_map
+      (function
+        | Node (_, a, Block.Section (Node (p, _, h) :: rest)) -> Node (p, a, h) :: flat rest
+        | n -> [ n ])
+      bs
+  in
+  flat (Doc.blocks d)
+;;
 
 let feed_all feed t parts =
   List.fold_left
@@ -52,7 +62,6 @@ let same ?(locs = false) s src =
   and b = Doc.of_string ~locs src in
   Source.to_string s = src
   && For_testing.kernel a = For_testing.kernel b
-  && Doc.footnote_defs a = Doc.footnote_defs b
 ;;
 
 (* However the input is cut, the returned blocks followed by [peek] are
@@ -166,14 +175,13 @@ let () =
   List.iter
     (fun src ->
       let bs, t = Stream.feed_string (Stream.start ()) src in
-      let _, visible = Kernel.Document.Notes.of_list (bs @ Stream.peek t) [] in
       let events, s =
         List.fold_left
           (fun (acc, s) b ->
             let es, s = Stream.Sections.step s b in
             acc @ es, s)
           ([], Stream.Sections.start)
-          visible
+          (bs @ Stream.peek t)
       in
       assert (build (events @ Stream.Sections.finish s) = Doc.blocks (Source.doc (Stream.finish t))))
     ("# a\n\n## b\n\nx\n\n### c\n\n## d\n\n# a\n\n{#k .c}\n### e\n\ny\n" :: docs)

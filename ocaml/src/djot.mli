@@ -315,7 +315,8 @@ module Block : sig
     (** Caption, then rows of cells. A caption with no inlines is no caption. *)
     | RawBlock of string * string
     | FootnoteDef of string * t node list
-    (** Taken out of {!Doc.blocks} when a text is parsed; see {!Doc.footnotes}. *)
+    (** A definition stays where it was written; {!Doc.footnotes} is collected from
+        these. *)
     | RefDef of string * string
     | Ext_keyed of Inline.t node list * t node (** An extension: [label: content]. *)
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
@@ -378,8 +379,8 @@ module Doc : sig
   (** Parses a djot text.
 
       Each heading gets an identifier and is wrapped, with the blocks under it, in a
-      {!Block.Section}. Footnote and reference definitions are taken out of the blocks;
-      they are found with {!footnotes} and {!references}.
+      {!Block.Section}. Footnote and reference definitions stay in the blocks, and are
+      also collected by label in {!footnotes} and {!references}.
 
       @param profile the syntax to accept; default {!Profile.djot}
       @param locs whether to record source positions, see {!textloc}; default [false] *)
@@ -388,7 +389,6 @@ module Doc : sig
   (** The document as djot source, in the syntax of the profile it was parsed with. A
       heading identifier the parser would derive again is left out. Parsing the result
       with that profile gives the same tree, up to source positions, except that:
-      - footnote definitions come after the blocks;
       - whitespace runs in attribute values collapse to one space;
       - a span with no attributes, an empty block quote, an empty table and an empty
         definition item read back as something else;
@@ -406,7 +406,9 @@ module Doc : sig
 
   val blocks : t -> Block.t node list
 
-  (** The footnotes: one entry per label, with the blocks of its definition.
+  (** The footnotes: one entry per label, with the blocks of its definition as they are
+      in {!blocks}. A definition written inside another is in that one's blocks and has
+      an entry of its own.
 
       Two labels are the same when they are equal once each run of whitespace is replaced
       by one space, so [[^a  b]] and [[^a b]] are one footnote and [[^a]] and [[^A]] are
@@ -415,7 +417,7 @@ module Doc : sig
   val footnotes : t -> (string * Block.t node list) list
 
   (** Every {!Block.FootnoteDef} in source order, repeated labels included, each with its
-      label as written and its blocks. {!Mapper.map_doc} does not map these. *)
+      label as written and its blocks. These are the nodes in {!blocks}. *)
   val footnote_defs : t -> Block.t node list
 
   (** The blocks of the footnote with this label, compared as in {!footnotes}. *)
@@ -528,9 +530,8 @@ module Stream : sig
       {!finish} gives the source, and with it the document.
 
       - The blocks are top level and in source order.
-      - differ from {!Doc.blocks} in two ways:
-        - a heading is not wrapped in a {!Block.Section} (see {!Sections})
-        - each {!Block.FootnoteDef} is where it was written. *)
+      - They differ from {!Doc.blocks} in one way: a heading is not wrapped in a
+        {!Block.Section} (see {!Sections}). *)
   type t
 
   val start : ?profile:Profile.t -> ?locs:bool -> unit -> t
@@ -583,9 +584,9 @@ module For_testing : sig
   (** The document without its line table, so that two parses compare with [=]. *)
   val kernel : Doc.t -> Kernel.Ast.doc
 
-  (** The blocks as parsed, before headings are wrapped in sections and definitions taken
-      out. *)
-  val parsed : Doc.t -> Block.t node list
+  (** The blocks of a source's pieces, before identifiers and sections. An edit keeps
+      the values of the pieces it does not parse again. *)
+  val parsed : Source.t -> Block.t node list
 end
 
 (** /**)
@@ -615,8 +616,9 @@ module Mapper : sig
   (** A {!Block.Ext_keyed} whose block is deleted is deleted. *)
   val map_block : t -> Block.t node -> Block.t node filter_map
 
-  (** Maps the blocks, then each footnote's blocks. {!Doc.references},
-      {!Doc.footnote_defs} and what {!Doc.reference} answers stay as they were.
+  (** Maps the blocks. {!Doc.footnotes} is collected again from the result, so it follows
+      a definition that was mapped or deleted. {!Doc.references} and what
+      {!Doc.reference} answers stay as they were.
 
       The result is not tied to any text: an edit of the {!Source} the document came from
       gives the parse of the edited text, without the map. *)
@@ -646,7 +648,8 @@ module Folder : sig
   val fold_inline : 'a t -> 'a -> Inline.t node -> 'a
   val fold_block : 'a t -> 'a -> Block.t node -> 'a
 
-  (** The blocks, then each footnote's blocks. Children are visited in source order. *)
+  (** The blocks, with children visited in source order. A footnote's blocks are
+      visited once, under its {!Block.FootnoteDef}. *)
   val fold_doc : 'a t -> 'a -> Doc.t -> 'a
 end
 
@@ -672,8 +675,6 @@ module Html : sig
       blocks {!Stream} returns. Headings get identifiers and sections, and footnotes and
       references are resolved among these blocks, as {!Doc.of_string} does for a text.
 
-      The blocks must be as written, with each {!Block.FootnoteDef} in place and no
-      {!Block.Section}. For a parsed document use {!of_doc}: {!Doc.blocks} has its
-      definitions taken out, so its footnotes would come out empty here. *)
+      The blocks must have no {!Block.Section}. For a parsed document use {!of_doc}. *)
   val of_blocks : Block.t node list -> string
 end

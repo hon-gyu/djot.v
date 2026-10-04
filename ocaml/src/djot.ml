@@ -470,14 +470,10 @@ end
 module Doc = struct
   type t =
     { kernel : K.Ast.doc
-    ; parsed : Block.t node list (* What the document pass was run over. *)
-    ; footnote_defs : Block.t node list
     ; lines : K.Strings.source_line array option
     ; profile : Profile.t
     }
 
-  (* The definitions the document pass takes out of the tree, in source
-     order. *)
   let rec collect_footnote_defs (acc : Block.t node list) (node : Block.t node)
     : Block.t node list
     =
@@ -507,12 +503,7 @@ module Doc = struct
   ;;
 
   let make ~profile ~lines pos bs =
-    { kernel = K.Document.doc_pass pos bs
-    ; parsed = bs
-    ; footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs)
-    ; lines
-    ; profile
-    }
+    { kernel = K.Document.doc_pass pos bs; lines; profile }
   ;;
 
   (* The fold step the pieces are cut with, and its finish. *)
@@ -549,7 +540,10 @@ module Doc = struct
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
   let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
-  let footnote_defs (d : t) : Block.t node list = d.footnote_defs
+
+  let footnote_defs (d : t) : Block.t node list =
+    List.rev (List.fold_left collect_footnote_defs [] (blocks d))
+  ;;
 
   let footnote (d : t) (l : string) : Block.t node list option =
     K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
@@ -891,7 +885,7 @@ end
 
 module For_testing = struct
   let kernel (d : Doc.t) = d.kernel
-  let parsed (d : Doc.t) = d.parsed
+  let parsed (s : Source.t) = K.Reparse.pieces_tree s.pieces
 end
 
 (* Both traversals match every constructor by name, leaves included, so a
@@ -1001,12 +995,9 @@ module Mapper = struct
 
   let map_doc (m : t) (d : Doc.t) : Doc.t =
     let k = d.kernel in
+    let doc_blocks = map_blocks m k.doc_blocks in
     { d with
-      kernel =
-        { k with
-          doc_blocks = map_blocks m k.doc_blocks
-        ; doc_footnotes = List.map (fun (l, bs) -> l, map_blocks m bs) k.doc_footnotes
-        }
+      kernel = { k with doc_blocks; doc_footnotes = K.Document.Notes.of_list doc_blocks [] }
     }
   ;;
 end
@@ -1101,11 +1092,7 @@ module Folder = struct
   ;;
 
   let fold_doc (f : 'a t) (acc : 'a) (d : Doc.t) : 'a =
-    let bl acc l = List.fold_left (fold_block f) acc l in
-    List.fold_left
-      (fun acc (_, bs) -> bl acc bs)
-      (bl acc (Doc.blocks d))
-      (Doc.footnotes d)
+    List.fold_left (fold_block f) acc (Doc.blocks d)
   ;;
 end
 

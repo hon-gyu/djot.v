@@ -70,7 +70,7 @@ let () =
      [^n]: note\n"
   in
   let d = Doc.of_string ~profile:extended src in
-  let tree = Doc.footnote_defs d @ Doc.blocks d in
+  let tree = Doc.blocks d in
   let json = Jsont_bytesrw.encode_string blocks tree |> Result.get_ok in
   assert (Jsont_bytesrw.decode_string blocks json = Ok tree)
 ;;
