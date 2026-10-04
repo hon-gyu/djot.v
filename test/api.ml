@@ -119,6 +119,39 @@ let () =
   assert (Doc.footnotes (Mapper.map_doc (Mapper.make ~block ()) d) = [])
 ;;
 
+(* A document made from the blocks of another has the same blocks and
+   tables. Its derived identifiers were on the blocks, so they count as
+   written. *)
+let () =
+  let d =
+    Doc.of_string "# a\n\n{#x}\n## b\n\nc[^n]\n\n[^n]: note\n\n[r]: /u\n\n# a\n"
+  in
+  let d' = Doc.make (Doc.blocks d) in
+  assert (Doc.blocks d' = Doc.blocks d);
+  assert (Doc.footnotes d' = Doc.footnotes d);
+  assert (Doc.references d' = Doc.references d);
+  assert (Doc.auto_references d' = Doc.auto_references d);
+  assert (Html.of_doc d' = Html.of_doc d);
+  assert (Doc.auto_identifiers d = [ "a"; "a-1" ]);
+  assert (Doc.auto_identifiers d' = [])
+;;
+
+(* Mapping derives the identifiers again: with the first heading deleted,
+   the second takes the identifier it had. A written one stays. *)
+let () =
+  let d = Doc.of_string "# a\n\n{#x}\n# b\n\n# a\n" in
+  let first = ref true in
+  let block _ = function
+    | Node (_, _, Block.Section (_ :: rest)) when !first ->
+      first := false;
+      Mapper.ret (Node.make (Block.Div ("", rest)))
+    | _ -> Mapper.default
+  in
+  let d = Mapper.map_doc (Mapper.make ~block ()) d in
+  assert (Doc.auto_identifiers d = [ "a" ]);
+  assert (Doc.to_string d = ":::\n:::\n\n{#x}\n# b\n\n# a")
+;;
+
 (* A mapper that drops an item keeps the range of the item it keeps. *)
 let () =
   let d = Doc.of_string ~locs:true "- a\n- b\n" in

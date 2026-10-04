@@ -474,8 +474,12 @@ module Doc = struct
     ; profile : Profile.t
     }
 
-  let make ~profile ~lines pos bs =
+  let pass ~profile ~lines pos bs =
     { kernel = K.Document.doc_pass pos bs; lines; profile }
+  ;;
+
+  let make ?(profile = Profile.djot) (bs : Block.t node list) : t =
+    pass ~profile ~lines:None K.Ast.semantic_pos (K.Document.unsection bs)
   ;;
 
   (* The fold step the pieces are cut with, and its finish. *)
@@ -489,12 +493,12 @@ module Doc = struct
   let of_pieces ~profile ~locs src ps =
     if locs
     then
-      make
+      pass
         ~profile
         ~lines:(Some (Array.of_list (K.Strings.line_table src)))
         K.Ast.located_pos
         (K.Reparse.assemble 0 ps)
-    else make ~profile ~lines:None K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
+    else pass ~profile ~lines:None K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
   ;;
 
   let pieces_of_string ~profile ~locs (s : string) : K.Reparse.piece list =
@@ -947,11 +951,9 @@ module Mapper = struct
   ;;
 
   let map_doc (m : t) (d : Doc.t) : Doc.t =
-    let k = d.kernel in
-    let doc_blocks = map_blocks m k.doc_blocks in
-    { d with
-      kernel = { k with doc_blocks; doc_footnotes = K.Document.Notes.of_list doc_blocks [] }
-    }
+    let pos = if Option.is_some d.lines then K.Ast.located_pos else K.Ast.semantic_pos in
+    let bs = map_blocks m (K.Render.doc_source_blocks d.kernel) in
+    { d with kernel = K.Document.doc_pass pos (K.Document.unsection bs) }
   ;;
 end
 

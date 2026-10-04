@@ -649,3 +649,7 @@ val doc_pass : coq_PosPolicy -> blocks -> doc
 val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc
 
 val parse_doc_located : dtable -> bconfig -> string -> doc
+
+val unsection_block : block -> pos -> attr -> blocks
+
+val unsection : blocks -> blocks

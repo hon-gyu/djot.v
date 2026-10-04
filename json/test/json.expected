@@ -395,6 +395,17 @@
   ]
 }
 
+== decoded
+# a
+
+See [r] and [^n].
+
+# b
+
+[r]: /u
+
+[^n]: note
+
 == errors
 Unexpected member [1mtag[0m value in [1minline object[0m: [1mnope[0m. Must be [1mstr[0m, [1memph[0m,
 [1mstrong[0m, [1mmark[0m, [1minsert[0m, [1mdelete[0m, [1msuperscript[0m, [1msubscript[0m, [1mverbatim[0m, [1msymb[0m,
