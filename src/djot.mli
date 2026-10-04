@@ -83,6 +83,10 @@ module Profile : sig
       off. The kernel record is readable, for the checks in {!Kernel.ProfileChecks}. *)
   type t = private Kernel.Profile.options
 
+  (** The profile of a kernel record, such as one of {!Kernel.Spec.all}. [None] if
+      its delimiter table is not one the parser accepts. *)
+  val of_kernel : Kernel.Profile.options -> t option
+
   (** djot as specified. The extensions are off. *)
   val djot : t
 

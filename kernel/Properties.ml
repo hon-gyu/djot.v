@@ -10,6 +10,16 @@ type status =
 | Unknown
 | Inapplicable of string
 
+(** val status_name : status -> string **)
+
+let status_name = function
+| Proved -> "proved"
+| Conditional _ -> "conditional"
+| Broken (_, _) -> "broken"
+| Conjectured -> "conjectured"
+| Unknown -> "unknown"
+| Inapplicable _ -> "inapplicable"
+
 (** val claimed : status -> bool **)
 
 let claimed = function

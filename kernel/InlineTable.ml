@@ -473,6 +473,28 @@ let drow_ok c k =
       (ddecay_ok (c.dc_decay k)))
     (negb ((&&) (dsyntax_bare (c.dc_syntax k)) ((=) (c.dc_char k) hyphen)))
 
+(** val dconfig_distinct : dconfig -> bool **)
+
+let dconfig_distinct c =
+  forallb (fun k ->
+    forallb (fun k' ->
+      implb
+        ((&&) ((&&) (denabled c k) (denabled c k'))
+          ((=) (c.dc_char k) (c.dc_char k')))
+        (dstyle_eq k k'))
+      dstyles)
+    dstyles
+
+(** val dconfig_rows_ok : dconfig -> bool **)
+
+let dconfig_rows_ok c =
+  forallb (drow_ok c) dstyles
+
+(** val dconfig_ok : dconfig -> bool **)
+
+let dconfig_ok c =
+  (&&) (dconfig_distinct c) (dconfig_rows_ok c)
+
 type dentry = { de_char : char; de_width : int; de_syntax : dsyntax;
                 de_decay : ddecay }
 

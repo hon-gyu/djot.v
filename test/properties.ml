@@ -4,20 +4,21 @@
    it parses under the profile to something other than what djot gives. *)
 
 open Djot
-module P = Djot_properties
+module P = Kernel.Properties
 
 let html profile src = Html.of_doc (Doc.of_string ~profile src)
 
-let show name profile =
-  Printf.printf "== %s\n" name;
+let show name (profile : Profile.t) =
+  Printf.printf "%s\n%s\n" name (String.make 20 '=');
   List.iter
-    (fun p ->
-      let s = P.status p profile in
-      Printf.printf "%s: %s\n" (P.id p) (P.status_name s);
+    (fun (p : P.property) ->
+      let s = p.P.p_status (profile :> Kernel.Profile.options) in
+      Printf.printf "%s: %s\n" p.P.p_id (P.status_name s);
       match s with
       | Broken (_, example) -> assert (html profile example <> html Profile.djot example)
       | _ -> ())
-    P.all
+    P.all;
+  Printf.printf "\n"
 ;;
 
 let () =
