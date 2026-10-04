@@ -140,9 +140,15 @@ val with_wikilinks : bool -> dconfig -> dconfig
 
 val with_inline_tags : bool -> dconfig -> dconfig
 
-val drow_trigger_compatible : dconfig -> dstyle -> dentry -> bool
+type drow_refusal =
+| RWidth
+| RNotPunct
+| RReserved
+| RDecay
+| RBareHyphen
+| RTaken of dstyle
 
-val drow_update_compatible : dconfig -> dstyle -> dentry -> bool
+val drow_update_refusal : dconfig -> dstyle -> dentry -> drow_refusal option
 
 val markdown_strong_entry : dentry
 

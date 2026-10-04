@@ -537,7 +537,7 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.Spec.all DjotV.InlineTable.dconfig_ok
   DjotV.InlineTable.with_inline_footnotes DjotV.InlineTable.with_inline_tags
   DjotV.InlineTable.with_wikilinks DjotV.InlineTable.with_dollar_math
-  DjotV.InlineTable.update_drow DjotV.InlineTable.drow_update_compatible
+  DjotV.InlineTable.update_drow DjotV.InlineTable.drow_update_refusal
   DjotV.InlineTable.with_smart_typography DjotV.InlineTable.with_raw_inline
   DjotV.InlineTable.with_math DjotV.InlineTable.with_inline_attrs
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation

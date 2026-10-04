@@ -611,6 +611,57 @@ Proof.
       exact (Hrows k Hk).
 Qed.
 
+(* Why an update is refused: the first condition of
+   `drow_update_compatible` that fails, in the order of `drow_ok`. *)
+Inductive drow_refusal : Type :=
+  | RWidth
+  | RNotPunct
+  | RReserved
+  | RDecay
+  | RBareHyphen
+  (* Another enabled row has the character. *)
+  | RTaken (by_row : dstyle).
+
+Definition drow_update_refusal
+  (C : dconfig) (target : dstyle) (e : dentry) : option drow_refusal :=
+  let C' := update_drow target e C in
+  if Nat.eqb (de_width e) 0 then Some RWidth
+  else if negb (is_punct (de_char e)) then Some RNotPunct
+  else if dreserved (de_char e) then Some RReserved
+  else if negb (ddecay_ok (de_decay e)) then Some RDecay
+  else if (dsyntax_bare (de_syntax e) && Ascii.eqb (de_char e) hyphen)%bool
+  then Some RBareHyphen
+  else
+    option_map RTaken
+      (find
+         (fun k =>
+            (negb (dstyle_eq k target) && denabled C' k && denabled C' target
+             && Ascii.eqb (dc_char C' k) (dc_char C' target))%bool)
+         dstyles).
+
+Theorem drow_update_refusal_none : forall C target e,
+  drow_update_refusal C target e = None
+  <-> drow_update_compatible C target e = true.
+Proof.
+  intros C target e.
+  unfold drow_update_refusal, drow_update_compatible, drow_trigger_compatible.
+  rewrite drow_ok_update_drow_target.
+  destruct (Nat.eqb (de_width e) 0); [cbn; split; discriminate|].
+  destruct (is_punct (de_char e)); [|cbn; split; discriminate].
+  destruct (dreserved (de_char e)); [cbn; split; discriminate|].
+  destruct (ddecay_ok (de_decay e)); [|cbn; split; discriminate].
+  destruct (dsyntax_bare (de_syntax e) && Ascii.eqb (de_char e) hyphen)%bool;
+    [cbn; split; discriminate|].
+  cbn [negb andb]. generalize dstyles as l.
+  induction l as [|k l IH]; [cbn; tauto|].
+  cbn [find forallb].
+  destruct (negb (dstyle_eq k target) && denabled (update_drow target e C) k
+            && denabled (update_drow target e C) target)%bool;
+    cbn [andb implb].
+  - destruct (Ascii.eqb _ _); cbn; [split; discriminate | exact IH].
+  - exact IH.
+Qed.
+
 (* Markdown's `**` spelling for strong, as one checked row update, with
    djot's semantics everywhere else.  A single `*` is literal because the
    row has one fixed width: there is no run-length disambiguation or

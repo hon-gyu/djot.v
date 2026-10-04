@@ -122,7 +122,7 @@ module Profile = struct
 
     let name s = s.name
     let doc s = s.doc
-    let is_extension s = String.starts_with ~prefix:"ext_" s.name
+    let is_extension s = not (s.get djot)
     let get s = s.get
     let set s = s.set
   end
@@ -372,25 +372,15 @@ module Profile = struct
     delimiters @ [ { name = "single_quote"; row = DSQuote }; { name = "double_quote"; row = DDQuote } ]
   ;;
 
-  (* Why [drow_update_compatible] said no, by asking its conditions one at
-     a time. *)
-  let rejection (d : Delimiter.t) c width (syntax : Delimiter.syntax) (p : t) =
-    let t = table p in
-    let clash (r : Delimiter.t) =
-      r.row <> d.row && t.dc_syntax r.row <> DOff && t.dc_char r.row = c
-    in
-    if width < 1
-    then "the width must be at least 1"
-    else if not (is_punct c)
-    then Printf.sprintf "%C is not ASCII punctuation" c
-    else if dreserved c
-    then Printf.sprintf "%C is taken by other syntax" c
-    else if syntax = `Bare && c = '-'
-    then "a bare delimiter cannot be a hyphen"
-    else (
-      match List.find_opt clash rows with
-      | Some r -> Printf.sprintf "%C is already the %s delimiter" c r.name
-      | None -> "not a valid delimiter")
+  let refusal c : drow_refusal -> string = function
+    | RWidth -> "the width must be at least 1"
+    | RNotPunct -> Printf.sprintf "%C is not ASCII punctuation" c
+    | RReserved -> Printf.sprintf "%C is taken by other syntax" c
+    | RDecay -> "an unmatched delimiter must leave something behind"
+    | RBareHyphen -> "a bare delimiter cannot be a hyphen"
+    | RTaken row ->
+      let r = List.find (fun (r : Delimiter.t) -> r.row = row) rows in
+      Printf.sprintf "%C is already the %s delimiter" c r.name
   ;;
 
   let with_delimiter (d : Delimiter.t) c ~width (syntax : Delimiter.syntax) (p : t) =
@@ -405,9 +395,9 @@ module Profile = struct
       ; de_decay = DDSelf
       }
     in
-    if drow_update_compatible (table p) d.row entry
-    then Ok { p with o_inline = update_drow d.row entry (table p) }
-    else Error (rejection d c width syntax p)
+    match drow_update_refusal (table p) d.row entry with
+    | None -> Ok { p with o_inline = update_drow d.row entry (table p) }
+    | Some r -> Error (refusal c r)
   ;;
 
   let delimiter_fields (p : t) =
