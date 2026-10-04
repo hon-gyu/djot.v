@@ -638,10 +638,9 @@ module Refs :
 
 module Notes :
  sig
-  val of_block :
-    block -> pos -> attr -> note_map -> note_map * block node option
+  val of_block : block -> note_map -> note_map
 
-  val of_list : blocks -> note_map -> note_map * blocks
+  val of_list : blocks -> note_map -> note_map
  end
 
 val doc_pass : coq_PosPolicy -> blocks -> doc

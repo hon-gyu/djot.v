@@ -329,8 +329,8 @@ Definition readable_djot (bs : blocks) : string :=
   String.concat nl
     (sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs)).
 
-(* A parsed document: derived heading ids left out and the footnotes at
-   the end, as `Render.render_doc` has them. *)
+(* A parsed document: derived heading ids left out, as
+   `Render.render_doc` has them. *)
 Definition readable_doc (d : doc) : string :=
   readable_djot (doc_source_blocks d).
 

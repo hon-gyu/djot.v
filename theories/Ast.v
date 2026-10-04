@@ -619,9 +619,8 @@ Inductive block : Type :=
      so whether a table has one is not a block-level fact. *)
   | Table (caption : node inlines) (rows : list (node (list (node cell))))
   | RawBlock (format : string) (contents : string)
-  (* The source form of a footnote definition.  The document pass moves
-     its children into `doc_footnotes`; the block stays so that the source
-     has an image in the roundtrip. *)
+  (* A footnote definition.  A block that renders to no HTML where it
+     stands; `Document.doc_pass` derives the note map from it. *)
   | FootnoteDef (label : string) (children : list (node block))
   (* A link-reference definition.  A block that renders to no HTML, so
      that the source line has an image in the roundtrip;

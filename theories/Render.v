@@ -1784,16 +1784,14 @@ Documents
 ---------
 
 A parsed document back to source.  The document pass added two things
-the source did not spell, and moved one thing out of the tree:
+the source did not spell:
 
 - A heading's id, when the pass derived it, is left out.  The test is the
   heading text's base id: the pass gives a heading exactly that id when
   it is free, and it is free again in the rendering, since every id taken
   before the heading is taken there too.  A heading whose id was
   disambiguated (`a-1`) keeps it, spelled out.
-- A section is its blocks (`render_lines`).
-- Footnote definitions come back after the blocks, in the order of the
-  document's note table.  Where they stood in the source is not kept. *)
+- A section is its blocks (`render_lines`). *)
 
 Local Definition drop_id_if (v : string) (a : attr) : attr :=
   match alist_lookup "id" a with
@@ -1856,8 +1854,7 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block 
   end.
 
 Definition doc_source_blocks (d : doc) : blocks :=
-  (map (fun n => match n with Node p a x => drop_auto_ids x p a end) (doc_blocks d)
-   ++ map (fun ln => mk (FootnoteDef (fst ln) (snd ln))) (doc_footnotes d))%list.
+  map (fun n => match n with Node p a x => drop_auto_ids x p a end) (doc_blocks d).
 
 Definition render_doc (d : doc) : string := render_djot (doc_source_blocks d).
 
