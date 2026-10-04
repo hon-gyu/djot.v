@@ -424,6 +424,10 @@ module Doc : sig
   (** Explicit reference definitions: label, destination, attributes. *)
   val references : t -> (string * (string * Attr.t)) list
 
+  (** One reference per heading: the heading's text as label, and its identifier after a
+      [#] as destination. *)
+  val auto_references : t -> (string * (string * Attr.t)) list
+
   (** A label's destination, from an explicit definition or else from a heading. *)
   val reference : t -> string -> (string * Attr.t) option
 

@@ -52,6 +52,16 @@ differences:
   each top-level block when the input closes it; `Stream.finish` gives
   the source, and `Source.doc` its document.
 
+The `djot.json` library writes a document as JSON in the format of
+djot.js's AST, for checking a document's shape with JSON Schema or `jq`.
+It is built when [jsont](https://erratique.ch/software/jsont) and bytesrw
+are installed; `Djot_json` lists what it adds to djot.js's format and
+where it differs.
+
+```ocaml
+let json = Djot_json.to_string (Djot.Doc.of_string "# hi\n")
+```
+
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
 `Profile.with_footnotes` and so on.  The extensions are off in both and

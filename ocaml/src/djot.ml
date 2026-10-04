@@ -557,8 +557,12 @@ module Doc = struct
 
   let references (d : t) : (string * (string * Attr.t)) list = d.kernel.doc_references
 
+  let auto_references (d : t) : (string * (string * Attr.t)) list =
+    d.kernel.doc_auto_references
+  ;;
+
   let reference (d : t) (l : string) : (string * Attr.t) option =
-    K.Ast.lookup_reference l (d.kernel.doc_references @ d.kernel.doc_auto_references)
+    K.Ast.lookup_reference l (references d @ auto_references d)
   ;;
 
   let textloc (d : t) (node : 'a node) : Textloc.t =

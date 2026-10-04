@@ -1,0 +1,289 @@
+
+== document
+{
+  "tag": "doc",
+  "references": {
+    "ref": {
+      "tag": "reference",
+      "label": "ref",
+      "destination": "/url"
+    }
+  },
+  "autoReferences": {
+    "A title": {
+      "tag": "reference",
+      "label": "A title",
+      "destination": "#A-title"
+    }
+  },
+  "footnotes": {
+    "n": {
+      "tag": "footnote",
+      "label": "n",
+      "children": [
+        {
+          "tag": "para",
+          "children": [
+            {
+              "tag": "str",
+              "text": "A note."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "children": [
+    {
+      "tag": "section",
+      "attributes": {
+        "id": "A-title"
+      },
+      "children": [
+        {
+          "tag": "heading",
+          "level": 1,
+          "plain": "A title",
+          "children": [
+            {
+              "tag": "str",
+              "text": "A "
+            },
+            {
+              "tag": "emph",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "title"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "para",
+          "children": [
+            {
+              "tag": "str",
+              "text": "See "
+            },
+            {
+              "tag": "link",
+              "reference": "ref",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "it"
+                }
+              ]
+            },
+            {
+              "tag": "str",
+              "text": " and "
+            },
+            {
+              "tag": "footnote_reference",
+              "text": "n"
+            },
+            {
+              "tag": "str",
+              "text": "…"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+== table
+{
+  "tag": "doc",
+  "references": {},
+  "autoReferences": {},
+  "footnotes": {},
+  "children": [
+    {
+      "tag": "table",
+      "children": [
+        {
+          "tag": "caption",
+          "children": [
+            {
+              "tag": "str",
+              "text": "cap"
+            }
+          ]
+        },
+        {
+          "tag": "row",
+          "head": true,
+          "children": [
+            {
+              "tag": "cell",
+              "head": true,
+              "align": "right",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "h"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "row",
+          "head": false,
+          "children": [
+            {
+              "tag": "cell",
+              "head": false,
+              "align": "right",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "1"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+== extensions
+{
+  "tag": "doc",
+  "references": {},
+  "autoReferences": {},
+  "footnotes": {},
+  "children": [
+    {
+      "tag": "ext_keyed",
+      "plain": "tags",
+      "label": [
+        {
+          "tag": "str",
+          "text": "tags"
+        }
+      ],
+      "children": [
+        {
+          "tag": "para",
+          "children": [
+            {
+              "tag": "ext_wikilink",
+              "embed": false,
+              "target": "page",
+              "alias": "alias"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "ext_callout",
+      "kind": "note",
+      "fold": "collapsed",
+      "title": [
+        {
+          "tag": "str",
+          "text": "A title"
+        }
+      ],
+      "children": []
+    },
+    {
+      "tag": "div",
+      "name": "aside",
+      "children": []
+    }
+  ]
+}
+
+== positions
+{
+  "tag": "doc",
+  "references": {},
+  "autoReferences": {},
+  "footnotes": {},
+  "children": [
+    {
+      "tag": "block_quote",
+      "pos": {
+        "start": {
+          "line": 1,
+          "col": 1,
+          "offset": 0
+        },
+        "end": {
+          "line": 1,
+          "col": 3,
+          "offset": 2
+        }
+      },
+      "children": [
+        {
+          "tag": "para",
+          "pos": {
+            "start": {
+              "line": 1,
+              "col": 3,
+              "offset": 2
+            },
+            "end": {
+              "line": 1,
+              "col": 3,
+              "offset": 2
+            }
+          },
+          "children": [
+            {
+              "tag": "str",
+              "pos": {
+                "start": {
+                  "line": 1,
+                  "col": 3,
+                  "offset": 2
+                },
+                "end": {
+                  "line": 1,
+                  "col": 3,
+                  "offset": 2
+                }
+              },
+              "text": "a"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+== errors
+Unexpected member [1mtag[0m value in [1minline object[0m: [1mnope[0m. Must be [1mstr[0m, [1memph[0m,
+[1mstrong[0m, [1mmark[0m, [1minsert[0m, [1mdelete[0m, [1msuperscript[0m, [1msubscript[0m, [1mverbatim[0m, [1msymb[0m,
+[1minline_math[0m, [1mdisplay_math[0m, [1mlink[0m, [1mimage[0m, [1mspan[0m, [1mfootnote_reference[0m, [1murl[0m, [1memail[0m,
+[1mraw_inline[0m, [1mnon_breaking_space[0m, [1msingle_quoted[0m, [1mdouble_quoted[0m, [1msoft_break[0m,
+[1mhard_break[0m or [1mext_wikilink[0m.
+File "-", line 1, characters 40-41:
+File "-": in member [1mtag[0m of
+File "-", line 1, characters 27-41: [1minline object[0m
+File "-", line 1, characters 27-41: at index [1m0[0m of
+File "-", line 1, characters 26-41: [1marray<inline object>[0m
+File "-": in member [1mchildren[0m of
+File "-", line 1, characters 1-41: [1mobject[0m
+File "-", line 1, characters 1-41: at index [1m0[0m of
+File "-", line 1, characters 0-41: [1marray<block object>[0m
+Missing member [1mlevel[0m in [1mobject[0m
+File "-", line 1, characters 1-32:
+File "-", line 1, characters 1-32: at index [1m0[0m of
+File "-", line 1, characters 0-32: [1marray<block object>[0m
+a keyed block holds one block
+File "-", line 1, characters 1-45:
+File "-", line 1, characters 1-45: at index [1m0[0m of
+File "-", line 1, characters 0-45: [1marray<block object>[0m
