@@ -323,8 +323,7 @@ module Block : sig
     (** Kind, fold marker, inline title, and body. *)
 
   (** The blocks as djot source, for the source of one node or of a mapped tree. Unlike
-      {!Doc.to_string}, a heading identifier is written out as an attribute even when the
-      parser would derive it again.
+      {!Doc.to_string}, a heading's identifier is always written as an attribute.
       @param profile the syntax to write; default {!Profile.djot}
       @param style default [`Checked] *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
@@ -387,7 +386,7 @@ module Doc : sig
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
   (** The document as djot source, in the syntax of the profile it was parsed with. A
-      heading identifier the parser would derive again is left out.
+      heading's identifier is not written when it is the one its text gives.
 
       With [`Safe] or [`Checked], parsing the result with that profile gives the same
       tree, up to source positions, except that:
@@ -405,7 +404,6 @@ module Doc : sig
 
       @param style default [`Checked] *)
   val to_string : ?style:style -> t -> string
-  (* CR: why mention Roundtrip.v here? *)
 
   val blocks : t -> Block.t node list
 
@@ -418,8 +416,6 @@ module Doc : sig
       two. When a label is defined more than once, the entry holds the last definition;
       every definition is in {!blocks}. *)
   val footnotes : t -> (string * Block.t node list) list
-  (* CR: where does this "Two labels are the same when they are equal once each run of whitespace is replaced
-    by one space" come from? djot syntax reference?  *)
 
   (** The blocks of the footnote with this label, compared as in {!footnotes}. *)
   val footnote : t -> string -> Block.t node list option
@@ -439,7 +435,6 @@ module Doc : sig
       its line, a cell from its leading [|], a caption from its [^], a footnote definition
       from its [[^]. *)
   val textloc : t -> 'a node -> Textloc.t
-  (* CR: what is this for? *)
 
   type syntax = Kernel.Ast.syntax_role =
     | RAttrSpec (** Attributes in braces, [{...}]. *)
@@ -648,7 +643,6 @@ module Folder : sig
   (** Children are visited in source order. To fold a document, fold its {!Doc.blocks}:
       a footnote's blocks are there, under its {!Block.FootnoteDef}. *)
   val fold_block : 'a t -> 'a -> Block.t node -> 'a
-  (* CR: is this fold_doc useful? can we just remove it and let user get the blocks themselves? *)
 end
 
 (** {1 HTML} *)
