@@ -925,10 +925,7 @@ let rec drop_auto_ids b p a =
 (** val doc_source_blocks : doc -> blocks **)
 
 let doc_source_blocks d =
-  app
-    (map (fun n -> let Node (p, a, x) = n in drop_auto_ids x p a)
-      d.doc_blocks)
-    (map (fun ln -> mk (FootnoteDef ((fst ln), (snd ln)))) d.doc_footnotes)
+  map (fun n -> let Node (p, a, x) = n in drop_auto_ids x p a) d.doc_blocks
 
 (** val render_doc : dtable -> bconfig -> doc -> string **)
 

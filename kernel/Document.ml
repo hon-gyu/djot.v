@@ -485,110 +485,87 @@ module Refs =
 
 module Notes =
  struct
-  (** val of_block :
-      block -> pos -> attr -> note_map -> note_map * block node option **)
+  (** val of_block : block -> note_map -> note_map **)
 
-  let rec of_block b p a m =
+  let rec of_block b m =
     let go =
       let rec go ns acc =
         match ns with
-        | [] -> (acc, [])
-        | n :: rest ->
-          let Node (p', a', x) = n in
-          let (acc1, n1) = of_block x p' a' acc in
-          let (acc2, rest1) = go rest acc1 in
-          (match n1 with
-           | Some n0 -> (acc2, (n0 :: rest1))
-           | None -> (acc2, rest1))
+        | [] -> acc
+        | n :: rest -> let Node (_, _, x) = n in go rest (of_block x acc)
       in go
     in
     let goit =
       let rec goit its acc =
         match its with
-        | [] -> (acc, [])
+        | [] -> acc
         | n :: rest ->
-          let Node (ip, ia, it) = n in
-          let (acc1, it1) = go it acc in
-          let (acc2, rest1) = goit rest acc1 in
-          (acc2, ((Node (ip, ia, it1)) :: rest1))
+          let Node (_, _, it) = n in
+          goit rest
+            (let rec go' ns acc' =
+               match ns with
+               | [] -> acc'
+               | n0 :: more ->
+                 let Node (_, _, x) = n0 in go' more (of_block x acc')
+             in go' it acc)
       in goit
     in
     (match b with
-     | BlockQuote bs ->
-       let (m', bs') = go bs m in (m', (Some (Node (p, a, (BlockQuote bs')))))
-     | Div (name, bs) ->
-       let (m', bs') = go bs m in
-       (m', (Some (Node (p, a, (Div (name, bs'))))))
-     | OrderedList (oa, sp, items) ->
-       let (m', items') = goit items m in
-       (m', (Some (Node (p, a, (OrderedList (oa, sp, items'))))))
-     | BulletList (sp, items) ->
-       let (m', items') = goit items m in
-       (m', (Some (Node (p, a, (BulletList (sp, items'))))))
-     | TaskList (sp, items) ->
-       let (m', items') =
-         let rec got its acc =
-           match its with
-           | [] -> (acc, [])
-           | n :: rest ->
-             let Node (ip, ia, x) = n in
-             let (chk, it) = x in
-             let (acc1, it1) = go it acc in
-             let (acc2, rest1) = got rest acc1 in
-             (acc2, ((Node (ip, ia, (chk, it1))) :: rest1))
-         in got items m
-       in
-       (m', (Some (Node (p, a, (TaskList (sp, items'))))))
-     | DefinitionList (sp, items) ->
-       let (m', items') =
-         let rec god its acc =
-           match its with
-           | [] -> (acc, [])
-           | n :: rest ->
-             let Node (ip, ia, x) = n in
-             let (term, n0) = x in
-             let Node (dp, da, it) = n0 in
-             let (acc1, it1) = go it acc in
-             let (acc2, rest1) = god rest acc1 in
-             (acc2, ((Node (ip, ia, (term, (Node (dp, da, it1))))) :: rest1))
-         in god items m
-       in
-       (m', (Some (Node (p, a, (DefinitionList (sp, items'))))))
+     | Section bs -> go bs m
+     | BlockQuote bs -> go bs m
+     | Div (_, bs) -> go bs m
+     | OrderedList (_, _, items) -> goit items m
+     | BulletList (_, items) -> goit items m
+     | TaskList (_, items) ->
+       let rec got its acc =
+         match its with
+         | [] -> acc
+         | n :: rest ->
+           let Node (_, _, x) = n in
+           let (_, it) = x in
+           got rest
+             (let rec go' ns acc' =
+                match ns with
+                | [] -> acc'
+                | n0 :: more ->
+                  let Node (_, _, x0) = n0 in go' more (of_block x0 acc')
+              in go' it acc)
+       in got items m
+     | DefinitionList (_, items) ->
+       let rec god its acc =
+         match its with
+         | [] -> acc
+         | n :: rest ->
+           let Node (_, _, x) = n in
+           let (_, n1) = x in
+           let Node (_, _, it) = n1 in
+           god rest
+             (let rec go' ns acc' =
+                match ns with
+                | [] -> acc'
+                | n0 :: more ->
+                  let Node (_, _, x0) = n0 in go' more (of_block x0 acc')
+              in go' it acc)
+       in god items m
      | FootnoteDef (label, bs) ->
-       let (m', bs') = go bs m in
-       ((alist_set (normalize_label label) bs' m'), None)
-     | Ext_keyed (label, b0) ->
-       let Node (p', a', x) = b0 in
-       let (m', o) = of_block x p' a' m in
-       (m',
-       (match o with
-        | Some n' -> Some (Node (p, a, (Ext_keyed (label, n'))))
-        | None -> None))
-     | Ext_callout (kind, fold0, title, bs) ->
-       let (m', bs') = go bs m in
-       (m', (Some (Node (p, a, (Ext_callout (kind, fold0, title, bs'))))))
-     | _ -> (m, (Some (Node (p, a, b)))))
+       alist_set (normalize_label label) bs (go bs m)
+     | Ext_keyed (_, b0) -> let Node (_, _, x) = b0 in of_block x m
+     | Ext_callout (_, _, _, bs) -> go bs m
+     | _ -> m)
 
-  (** val of_list : blocks -> note_map -> note_map * blocks **)
+  (** val of_list : blocks -> note_map -> note_map **)
 
   let rec of_list ns m =
     match ns with
-    | [] -> (m, [])
-    | n :: rest ->
-      let Node (p, a, b) = n in
-      let (m1, n1) = of_block b p a m in
-      let (m2, rest1) = of_list rest m1 in
-      (match n1 with
-       | Some n0 -> (m2, (n0 :: rest1))
-       | None -> (m2, rest1))
+    | [] -> m
+    | n :: rest -> let Node (_, _, b) = n in of_list rest (of_block b m)
  end
 
 (** val doc_pass : coq_PosPolicy -> blocks -> doc **)
 
 let doc_pass p bs =
   let (st, bs') = Ids.of_list bs id_state_init in
-  let (notes, visible) = Notes.of_list bs' [] in
-  { doc_blocks = (sectionize p visible); doc_footnotes = notes;
+  { doc_blocks = (sectionize p bs'); doc_footnotes = (Notes.of_list bs' []);
   doc_references = (Refs.of_list bs' []); doc_auto_references =
   (rev st.id_refs); doc_auto_identifiers = (rev st.id_used) }
 
