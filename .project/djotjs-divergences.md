@@ -832,8 +832,8 @@ anything.
 
 | input | verdict | note |
 | ----- | ------- | ---- |
-| `![a'b](u)` | **we differ, on purpose** | djot.js `alt="a'b"`, ours `alt="a’b"` |
-| `# head'ing` | **we differ, on purpose** | djot.js `id="head'ing"`, ours `id="head’ing"` |
+| `![a'b](u)` | **we differ, to be closed** | djot.js `alt="a'b"`, ours `alt="a’b"` |
+| `# head'ing` | **we differ, to be closed** | djot.js `id="head'ing"`, ours `id="head’ing"` |
 | `![a...b](u)` | same family | djot.js `alt="a...b"`, ours `alt="a…b"` |
 | `![a---b](u)` | same family | djot.js `alt="a---b"`, ours `alt="a—b"` |
 
@@ -860,6 +860,15 @@ price]] clause: the price is a constructor plus a field on every
 traversal, and the reachable set is smart punctuation inside a link
 label or a heading. Unreachable from a canonical document either way,
 since `escape_str` claims `'`, `"`, `-` and `.`.
+
+**Revised 2026-10-04.** The verdict above was about cost, and the rows
+said "on purpose" where no reason to prefer our output was given. The
+decision now is to follow djot.js: `alt` and a derived id read what the
+author typed. An id then does not change when the punctuation map does,
+and it stays typeable. This waits for the node, which is planned
+together with a user-provided punctuation map; see "Smart punctuation:
+the plan" in `json-gaps.md`. Until then the rows above still describe
+what we output.
 
 ## Adjudicated 2026-08-21 — ours: a failed autolink candidate is flat
 

@@ -12,11 +12,28 @@ djot.js writes. Recorded 2026-10-04.
 
 | Gap | djot.js | Ours | What closing it needs |
 | --- | ------- | ---- | --------------------- |
-| Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; see "smart punctuation contributes its rendering" in `djotjs-divergences.md` for the cost |
+| Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; planned below |
 
-### What smart punctuation would touch
+### Smart punctuation: the plan
 
-Sized 2026-10-04, not started.
+Decided 2026-10-04, not started.
+
+- The node is worth having. It keeps the parse independent of the
+  punctuation map, lets `Doc.to_string` write back what was typed, and
+  gives `alt` and derived ids a text that does not move with the map.
+- It lands together with the user-provided punctuation map, not before.
+  The dash and ellipsis rules are scanner states of their own (`IPeriod`,
+  `IDash`); a map replaces them with something read from a table, and a
+  node added at the present sites would be redone then.
+- `inline_text` reads the node's source, as djot.js does. This closes
+  the divergence logged on 2026-08-21 ("smart punctuation contributes
+  its rendering" in `djotjs-divergences.md`). Derived ids of headings
+  with a quote, a dash run or an ellipsis change once.
+- Open: whether the node holds only its source, the renderer looking the
+  replacement up, or both. A tree rendered without a document
+  (`Html.of_blocks`) has no map to look in, which favours both.
+
+What it touches:
 
 - The scanner writes the rendered characters into its text buffer at
   eight places: `iperiod_step`, three arms of `idash_step`, the dash arms
@@ -26,10 +43,6 @@ Sized 2026-10-04, not started.
   through the proofs that text between constructs is one `Str`
   (`no_adjacent_str` in `Wf.v`, `InlineInvert.v`, `InlinePrecedence.v`,
   `InlineSpans.v`).
-- `inline_text` decides what reaches an image's `alt` and a derived
-  heading id. Reading the node's source there would undo the divergence
-  adjudicated on 2026-08-21; reading its rendering keeps it. The node
-  can hold both, so this is a separate choice.
 - The canonical inline view has no case for it, so the proved round trip
   would either gain one or exclude these nodes as it excludes the
   characters now.
