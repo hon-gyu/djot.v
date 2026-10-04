@@ -130,5 +130,5 @@ ocaml-pkg-check-current: build  ## Fail if ocaml/kernel is behind the extraction
 # do `git push origin ocaml` to update the remote branch.
 ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 	@git subtree split --prefix=ocaml --branch=ocaml -q >/dev/null
-	@echo "local ocaml branch:  `git rev-parse --short ocaml`"
-	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify origin/ocaml || echo none`"
+	@echo "local ocaml branch:  `git rev-parse --short refs/heads/ocaml`"
+	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify refs/remotes/origin/ocaml || echo none`"
