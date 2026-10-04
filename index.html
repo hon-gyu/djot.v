@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>djot.v</title>
+<script>
+(function () {
+  var root = document.documentElement, stored = null;
+  try { stored = localStorage.getItem("theme"); } catch (e) {}
+  root.dataset.theme = stored || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  window.toggleTheme = function () {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+    window.dispatchEvent(new Event("themechange"));
+  };
+})();
+</script>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="style.css">
+<header>
+<a class="brand" href="./">djot.v</a>
+<nav>
+<a href="playground/">Playground</a>
+<a href="extensions/">Extensions</a>
+<a href="api/">OCaml API</a>
+</nav>
+<span class="tools">
+<a class="github" href="https://github.com/hon-gyu/djot.v"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+<button class="theme" onclick="toggleTheme()" aria-label="Switch between light and dark">Light / dark</button>
+</span>
+</header>
+<main>
+<section id="djot-v">
+<h1>djot.v</h1>
+<p>A <a href="https://djot.net">djot</a> parser written and verified in
+<a href="https://rocq-prover.org">Rocq</a>, and extracted to OCaml.</p>
+<p>djot was designed around a few goals: parsing never backtracks, text means
+the same thing inside a container as outside it, a link is recognized
+without looking at the rest of the document, and a paragraph can be
+hard-wrapped anywhere. Here those goals are theorems about the parser.</p>
+<p>djot is one setting of the parser. Its inline delimiters can be respelled,
+its constructs can be switched off, and extensions can be switched on. For
+each setting, the proofs say which of the properties it keeps. A
+Markdown-like profile, for example, keeps no backtracking and uniformity,
+and gives up safe hard-wrapping.</p>
+<ul>
+<li>
+<a href="playground/">Playground</a>: run the parser in the browser, change the
+profile, and see which properties the profile keeps.
+</li>
+<li>
+<a href="extensions/">Extensions</a>: the syntax of each extension.
+</li>
+<li>
+<a href="api/">OCaml API</a>: the extracted parser as a library.
+</li>
+</ul>
+<section id="Versions">
+<h2>Versions</h2>
+<dl class="versions">
+<dt>Version</dt><dd>0.1.0</dd>
+<dt>Syntax reference</dt><dd><a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">jgm/djot at d77f8a0</a>, 2026-06-16</dd>
+<dt>Built from</dt><dd><a href="https://github.com/hon-gyu/djot.v/tree/df4eeb366cead02af1d8fe008bbfb95eb1cdfca1">df4eeb3</a>, 2026-10-05</dd>
+</dl></section>
+<section id="Properties">
+<h2>Properties</h2>
+<p>The status of each property under the two named profiles. The playground
+shows the same for any profile.</p>
+<dl class="legend">
+<dt class="proved">proved</dt><dd>The theorems hold for the profile.</dd>
+<dt class="conditional">conditional</dt><dd>They hold under a condition on the document, stated below the status.</dd>
+<dt class="broken">broken</dt><dd>The property fails for the profile, for the reason stated.</dd>
+<dt class="conjectured">conjectured</dt><dd>Believed to hold, and not proved for the profile.</dd>
+<dt class="unknown">unknown</dt><dd>No claim either way.</dd>
+<dt class="inapplicable">inapplicable</dt><dd>The property is about a construct that is switched off.</dd>
+</dl>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>markdown-like</th></tr><tr><td>A later line never changes a block already parsed.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Each byte of a paragraph is read once.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>After an edit, reparsing can stop once the parser is back in the state it had before the edit.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Replacing one block leaves the parse of every other block unchanged.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Recording source positions does not change the parse.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Parsing takes linear time.</td><td class="status conjectured">conjectured</td><td class="status conjectured">conjectured</td></tr>
+<tr><td>Text inside a block quote parses as it would at top level.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>The same, for the items of a definition list.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Text inside a fenced div parses as it would at top level, unless it contains the div's own closing fence.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Lines indented under a footnote belong to it, cannot affect anything outside it, and parse as they would at top level.</td><td class="status conditional">conditional<small>Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker.</small></td><td class="status conditional">conditional<small>Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker.</small></td></tr>
+<tr><td>A text line that continues a paragraph may leave out the prefixes of the quotes, list items and footnotes around it, and parses as it would with them written.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>Not for a line that underlines the paragraph: it makes a setext heading.</small></td></tr>
+<tr><td>A list is loose only where a blank line separates two of its items, or two blocks inside one item.</td><td class="status conditional">conditional<small>One direction: a list the parser calls loose has such a blank line.</small></td><td class="status conditional">conditional<small>One direction: a list the parser calls loose has such a blank line.</small></td></tr>
+<tr><td>Indenting every line of a document by the same amount does not change its parse.</td><td class="status conditional">conditional<small>As long as no block attribute spans several lines.</small></td><td class="status conditional">conditional<small>As long as no block attribute spans several lines.</small></td></tr>
+<tr><td>Whether [foo][bar] is a link does not depend on whether bar is defined.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>Adding, removing or changing a reference definition changes only link and image attributes in the HTML.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status broken">broken<small>A line that begins with a list marker starts a list.</small></td></tr>
+<tr><td>A heading continues on the following lines until a blank line.</td><td class="status proved">proved</td><td class="status broken">broken<small>A heading is one line.</small></td></tr>
+<tr><td>Which blocks a document has, and how they nest, is decided without reading inline syntax.</td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td></tr>
+<tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status conditional">conditional<small>For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered.</small></td><td class="status conditional">conditional<small>For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered.</small></td></tr></table></section>
+</section>
+</main>
+<footer>
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/df4eeb366cead02af1d8fe008bbfb95eb1cdfca1">df4eeb3</a> (2026-10-05).
+Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
+</footer>
+</html>

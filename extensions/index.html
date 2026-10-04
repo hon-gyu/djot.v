@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extensions</title>
+<script>
+(function () {
+  var root = document.documentElement, stored = null;
+  try { stored = localStorage.getItem("theme"); } catch (e) {}
+  root.dataset.theme = stored || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  window.toggleTheme = function () {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+    window.dispatchEvent(new Event("themechange"));
+  };
+})();
+</script>
+<link rel="stylesheet" href="../theme.css">
+<link rel="stylesheet" href="../style.css">
+<header>
+<a class="brand" href="../">djot.v</a>
+<nav>
+<a href="../playground/">Playground</a>
+<a href="../extensions/">Extensions</a>
+<a href="../api/">OCaml API</a>
+</nav>
+<span class="tools">
+<a class="github" href="https://github.com/hon-gyu/djot.v"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+<button class="theme" onclick="toggleTheme()" aria-label="Switch between light and dark">Light / dark</button>
+</span>
+</header>
+<div class="with-contents">
+<main>
+<section id="Extensions">
+<h1>Extensions</h1>
+<p>Syntax the parser reads in addition to djot’s. Every extension is off in the
+djot profile and is switched on by itself. For djot’s own syntax, see the
+<a href="https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html">djot syntax reference</a>.</p>
+<p>Each section ends with the properties that the extension changes.</p>
+<section id="Callouts">
+<h2>Callouts</h2>
+<p>Setting: <code>ext_callouts</code>.</p>
+<p>A block quote whose first line is a header <code>[!kind]</code> is a callout, as in
+Obsidian.</p>
+<div class="example">
+<pre class="source"><code>&gt; [!note] Backlinks
+&gt; A backlink is a link seen from its target.
+</code></pre>
+<pre class="rendered"><code>&lt;div class=&quot;callout&quot; data-callout=&quot;note&quot;&gt;
+&lt;div class=&quot;callout-title&quot;&gt;Backlinks&lt;/div&gt;
+&lt;div class=&quot;callout-content&quot;&gt;
+&lt;p&gt;A backlink is a link seen from its target.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21note%5D%20Backlinks%0A%3E%20A%20backlink%20is%20a%20link%20seen%20from%20its%20target.%0A">Open in the playground</a>
+</div><section id="The-header">
+<h3>The header</h3>
+<p>The header is tested on the line that opens a quote, and only there. After
+the quote prefix it is:</p>
+<ol>
+<li>
+<code>[!</code>;
+</li>
+<li>
+a kind: one or more ASCII letters, digits, <code>-</code> or <code>_</code>;
+</li>
+<li>
+<code>]</code>;
+</li>
+<li>
+optionally a fold marker, <code>+</code> or <code>-</code>;
+</li>
+<li>
+then the end of the line, or a space or tab and the title.
+</li>
+</ol>
+<p>The kind is kept as written. The title is the rest of the line, parsed as
+inline content.</p>
+<div class="example">
+<pre class="source"><code>&gt; [!warning]- Do *not* rename
+&gt; The fold marker makes it a `details` element.
+</code></pre>
+<pre class="rendered"><code>&lt;details class=&quot;callout&quot; data-callout=&quot;warning&quot;&gt;
+&lt;summary class=&quot;callout-title&quot;&gt;Do &lt;strong&gt;not&lt;/strong&gt; rename&lt;/summary&gt;
+&lt;div class=&quot;callout-content&quot;&gt;
+&lt;p&gt;The fold marker makes it a &lt;code&gt;details&lt;/code&gt; element.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/details&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21warning%5D-%20Do%20%2Anot%2A%20rename%0A%3E%20The%20fold%20marker%20makes%20it%20a%20%60details%60%20element.%0A">Open in the playground</a>
+</div><p>A later line of an open quote is not tested.</p>
+<div class="example">
+<pre class="source"><code>&gt; a
+&gt; [!note] T
+</code></pre>
+<pre class="rendered"><code>&lt;blockquote&gt;
+&lt;p&gt;a
+[!note] T&lt;/p&gt;
+&lt;/blockquote&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20a%0A%3E%20%5B%21note%5D%20T%0A">Open in the playground</a>
+</div></section>
+<section id="What-is-not-a-header">
+<h3>What is not a header</h3>
+<p>Anything else after the <code>]</code> leaves the line as djot reads it. This keeps
+links, spans and reference definitions that begin with <code>[!</code>.</p>
+<div class="example">
+<pre class="source"><code>&gt; [!note](x)
+</code></pre>
+<pre class="rendered"><code>&lt;blockquote&gt;
+&lt;p&gt;&lt;a href=&quot;x&quot;&gt;!note&lt;/a&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21note%5D%28x%29%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>&gt; [!no te] T
+</code></pre>
+<pre class="rendered"><code>&lt;blockquote&gt;
+&lt;p&gt;[!no te] T&lt;/p&gt;
+&lt;/blockquote&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21no%20te%5D%20T%0A">Open in the playground</a>
+</div></section>
+<section id="The-body">
+<h3>The body</h3>
+<p>The following lines of the quote are the body, parsed as blocks. No blank
+line is needed after the header. A line without <code>&gt;</code> directly after the
+header closes the callout, because the header opens no paragraph for it to
+continue.</p>
+<div class="example">
+<pre class="source"><code>&gt; [!note] T
+after
+</code></pre>
+<pre class="rendered"><code>&lt;div class=&quot;callout&quot; data-callout=&quot;note&quot;&gt;
+&lt;div class=&quot;callout-title&quot;&gt;T&lt;/div&gt;
+&lt;div class=&quot;callout-content&quot;&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;after&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21note%5D%20T%0Aafter%0A">Open in the playground</a>
+</div><p>Inside the body, a paragraph continues onto a line without <code>&gt;</code> as in any
+quote.</p>
+<div class="example">
+<pre class="source"><code>&gt; [!note] T
+&gt; para
+lazy
+</code></pre>
+<pre class="rendered"><code>&lt;div class=&quot;callout&quot; data-callout=&quot;note&quot;&gt;
+&lt;div class=&quot;callout-title&quot;&gt;T&lt;/div&gt;
+&lt;div class=&quot;callout-content&quot;&gt;
+&lt;p&gt;para
+lazy&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+</code></pre>
+<a href="../playground/#profile=ext_callouts%3Don&amp;text=%3E%20%5B%21note%5D%20T%0A%3E%20para%0Alazy%0A">Open in the playground</a>
+</div></section>
+<section id="Output">
+<h3>Output</h3>
+<p>Obsidian’s classes. <code>data-callout</code> holds the kind. With a fold marker the
+outer element is <code>details</code>, open for <code>+</code> and closed for <code>-</code>. The tree keeps
+a node of its own, with the kind, the fold marker, the title and the body.</p>
+</section>
+<section id="Properties">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>Text inside a block quote parses as it would at top level.</td><td class="status proved">proved</td><td class="status broken">broken<small>A quote whose first line is a callout header is a callout, and the header is not part of its content.</small></td></tr></table></section>
+</section>
+<section id="Custom-tag-names">
+<h2>Custom tag names</h2>
+<p>Setting: <code>ext_tags</code>.</p>
+<p>A div and a span can have a name, which becomes the element.</p>
+<div class="example">
+<pre class="source"><code>Press :kbd[Ctrl+C] to copy.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;Press &lt;kbd&gt;Ctrl+C&lt;/kbd&gt; to copy.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=Press%20%3Akbd%5BCtrl%2BC%5D%20to%20copy.%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>::: details
+Hidden until opened.
+:::
+</code></pre>
+<pre class="rendered"><code>&lt;details&gt;
+&lt;p&gt;Hidden until opened.&lt;/p&gt;
+&lt;/details&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%3A%3A%3A%20details%0AHidden%20until%20opened.%0A%3A%3A%3A%0A">Open in the playground</a>
+</div><p>This extension changes how existing djot documents parse: in djot the word
+after a div fence is a class, and <code>:name[</code> is text before a bracket.</p>
+<section id="A-div’s-name">
+<h3>A div’s name</h3>
+<p>The word after a div’s opening fence is its name. Which lines open a div
+does not change. A fence with no word opens an unnamed div.</p>
+<div class="example">
+<pre class="source"><code>{.note}
+::: aside
+A named div with a class.
+:::
+</code></pre>
+<pre class="rendered"><code>&lt;aside class=&quot;note&quot;&gt;
+&lt;p&gt;A named div with a class.&lt;/p&gt;
+&lt;/aside&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%7B.note%7D%0A%3A%3A%3A%20aside%0AA%20named%20div%20with%20a%20class.%0A%3A%3A%3A%0A">Open in the playground</a>
+</div></section>
+<section id="A-span’s-name">
+<h3>A span’s name</h3>
+<p><code>:name[</code> opens a named span. The name is made of the characters a symbol
+<code>:name:</code> may contain. The span closes at the first <code>]</code> that arrives while
+it is the innermost open bracket, and nothing after the <code>]</code> is waited for.</p>
+<div class="example">
+<pre class="source"><code>:kbd[x](u)
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;kbd&gt;x&lt;/kbd&gt;(u)&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%3Akbd%5Bx%5D%28u%29%0A">Open in the playground</a>
+</div><p>Attributes attach as they do to any inline.</p>
+<div class="example">
+<pre class="source"><code>:kbd[Esc]{.key}
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;kbd class=&quot;key&quot;&gt;Esc&lt;/kbd&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%3Akbd%5BEsc%5D%7B.key%7D%0A">Open in the playground</a>
+</div></section>
+<section id="Where-:name-is-not-a-named-span">
+<h3>Where <code>:name[</code> is not a named span</h3>
+<p>After an escaped colon, or when the colon directly follows a letter, a
+digit or a colon.</p>
+<div class="example">
+<pre class="source"><code>\:kbd[a] and a:kbd[b]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;:kbd[a] and a:kbd[b]&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%5C%3Akbd%5Ba%5D%20and%20a%3Akbd%5Bb%5D%0A">Open in the playground</a>
+</div><p>When it never closes.</p>
+<div class="example">
+<pre class="source"><code>:kbd[a
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;:kbd[a&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%3Akbd%5Ba%0A">Open in the playground</a>
+</div></section>
+<section id="Output-1">
+<h3>Output</h3>
+<p>The name is the element name when it is made of ASCII letters, digits and
+hyphens, starts with a letter, and is not an element whose content a
+browser reads differently (a void element such as <code>br</code>, or <code>script</code>,
+<code>style</code>, <code>textarea</code>, <code>title</code>, <code>iframe</code> and similar). Otherwise the element
+is <code>div</code> or <code>span</code> and the name is in a <code>data-tag</code> attribute.</p>
+<div class="example">
+<pre class="source"><code>:script[x] and :a_b[y]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;span data-tag=&quot;script&quot;&gt;x&lt;/span&gt; and &lt;span data-tag=&quot;a_b&quot;&gt;y&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_tags%3Don&amp;text=%3Ascript%5Bx%5D%20and%20%3Aa_b%5By%5D%0A">Open in the playground</a>
+</div></section>
+<section id="Properties-1">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+</section>
+<section id="Dollar-math">
+<h2>Dollar math</h2>
+<p>Setting: <code>ext_dollar_math</code>.</p>
+<p>Math between dollar signs, as in pandoc’s Markdown and on GitHub. It is
+independent of djot’s own math syntax, <code>$`x`</code>, which stays available.</p>
+<div class="example">
+<pre class="source"><code>The area is $\pi r^2$.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;The area is &lt;span class=&quot;math inline&quot;&gt;\(\pi r^2\)&lt;/span&gt;.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=The%20area%20is%20%24%5Cpi%20r%5E2%24.%0A">Open in the playground</a>
+</div><p>Two dollars give display math.</p>
+<div class="example">
+<pre class="source"><code>$$\int_0^1 x\,dx$$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;span class=&quot;math display&quot;&gt;\[\int_0^1 x\,dx\]&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%24%24%5Cint_0%5E1%20x%5C%2Cdx%24%24%0A">Open in the playground</a>
+</div><section id="Inline-math">
+<h3>Inline math</h3>
+<p>One <code>$</code> opens inline math when the character after it is not whitespace and
+not a backtick. The next <code>$</code> closes it when the character before it is not
+whitespace and the character after it is not a digit. Otherwise the opener
+is text.</p>
+<div class="example">
+<pre class="source"><code>It costs $5 and $10.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;It costs $5 and $10.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=It%20costs%20%245%20and%20%2410.%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>To split $100 in half, we calculate $100/2$.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;To split $100 in half, we calculate &lt;span class=&quot;math inline&quot;&gt;\(100/2\)&lt;/span&gt;.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=To%20split%20%24100%20in%20half%2C%20we%20calculate%20%24100%2F2%24.%0A">Open in the playground</a>
+</div><p>Inside the math, a backslash and the character after it are kept as
+written, and that character cannot close.</p>
+<div class="example">
+<pre class="source"><code>$a\$b$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;span class=&quot;math inline&quot;&gt;\(a\$b\)&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%24a%5C%24b%24%0A">Open in the playground</a>
+</div><p>The content is not parsed as inline syntax.</p>
+<div class="example">
+<pre class="source"><code>$a*b*c$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;span class=&quot;math inline&quot;&gt;\(a*b*c\)&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%24a%2Ab%2Ac%24%0A">Open in the playground</a>
+</div></section>
+<section id="Display-math">
+<h3>Display math</h3>
+<p>Two <code>$</code> open display math, closed by the next <code>$$</code>. The whitespace and
+digit conditions do not apply. Three or more <code>$</code> in a row are text.</p>
+<div class="example">
+<pre class="source"><code>$$x$ and $$$y$$$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;$$x$ and $$$y$$$&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%24%24x%24%20and%20%24%24%24y%24%24%24%0A">Open in the playground</a>
+</div></section>
+<section id="The-GitHub-form">
+<h3>The GitHub form</h3>
+<p>A <code>$</code> directly before a code span and another directly after it make
+inline math whose content is the code span’s.</p>
+<div class="example">
+<pre class="source"><code>$`x_1`$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;span class=&quot;math inline&quot;&gt;\(x_1\)&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%24%60x_1%60%24%0A">Open in the playground</a>
+</div></section>
+<section id="Priority">
+<h3>Priority</h3>
+<p>A closer has to arrive before the end of the paragraph, heading or table
+cell. Once math closes, it wins over emphasis, links and spans that overlap
+it.</p>
+<div class="example">
+<pre class="source"><code>*a $b* c$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;*a &lt;span class=&quot;math inline&quot;&gt;\(b* c\)&lt;/span&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%2Aa%20%24b%2A%20c%24%0A">Open in the playground</a>
+</div><p>A <code>$</code> inside a code span is not an opener, and <code>\$</code> is a literal dollar.</p>
+<div class="example">
+<pre class="source"><code>`a $b` c$ and \$x$
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;a $b&lt;/code&gt; c$ and $x$&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_dollar_math%3Don&amp;text=%60a%20%24b%60%20c%24%20and%20%5C%24x%24%0A">Open in the playground</a>
+</div></section>
+<section id="Properties-2">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+</section>
+<section id="Keyed-blocks">
+<h2>Keyed blocks</h2>
+<p>Setting: <code>ext_keyed</code>.</p>
+<p>A colon pairs a label with one block.</p>
+<div class="example">
+<pre class="source"><code>status: in progress
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;status&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;in progress&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=status%3A%20in%20progress%0A">Open in the playground</a>
+</div><p>When nothing follows the colon, the block is the one on the following
+lines.</p>
+<div class="example">
+<pre class="source"><code>steps:
+- one
+- two
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;steps&lt;/dt&gt;
+&lt;dd&gt;
+&lt;ul&gt;
+&lt;li&gt;
+one
+&lt;/li&gt;
+&lt;li&gt;
+two
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=steps%3A%0A-%20one%0A-%20two%0A">Open in the playground</a>
+</div><p>This extension changes how existing djot documents parse: every line it
+reads as a key is a paragraph line in djot.</p>
+<section id="Where-a-colon-makes-a-key">
+<h3>Where a colon makes a key</h3>
+<p>A text line is split at its first colon that is</p>
+<ul>
+<li>
+not escaped;
+</li>
+<li>
+not preceded by whitespace;
+</li>
+<li>
+followed by a space or by the end of the line (a tab does not count);
+</li>
+<li>
+outside every inline construct: not in a code span, a bracket, an
+attribute or an open delimiter.
+</li>
+</ul>
+<div class="example">
+<pre class="source"><code>see http://example.com: not this colon, but the next
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;see http://example.com&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;not this colon, but the next&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=see%20http%3A%2F%2Fexample.com%3A%20not%20this%20colon%2C%20but%20the%20next%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>`a: b` is code
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;a: b&lt;/code&gt; is code&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=%60a%3A%20b%60%20is%20code%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>foo : bar
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;foo : bar&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=foo%20%3A%20bar%0A">Open in the playground</a>
+</div><p>The label is one inline element: a run of text, or an emphasis, a link, a
+code span.</p>
+</section>
+<section id="The-value">
+<h3>The value</h3>
+<p>What follows the colon on the key line is inline content, never block
+syntax.</p>
+<div class="example">
+<pre class="source"><code>foo: - bar
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;foo&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;- bar&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=foo%3A%20-%20bar%0A">Open in the playground</a>
+</div><p>A line is split once.</p>
+<div class="example">
+<pre class="source"><code>foo: bar: baz
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;foo&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;bar: baz&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=foo%3A%20bar%3A%20baz%0A">Open in the playground</a>
+</div></section>
+<section id="One-block">
+<h3>One block</h3>
+<p>A key takes one block, and its scope ends where that block ends. A
+paragraph ends at a blank line, a list at a line that is not part of it, a
+fenced block at its closing fence.</p>
+<div class="example">
+<pre class="source"><code>foo:
+bar
+
+baz
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;foo&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;bar&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+&lt;p&gt;baz&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=foo%3A%0Abar%0A%0Abaz%0A">Open in the playground</a>
+</div><p>Keys nest by line.</p>
+<div class="example">
+<pre class="source"><code>foo:
+bar: baz
+</code></pre>
+<pre class="rendered"><code>&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;foo&lt;/dt&gt;
+&lt;dd&gt;
+&lt;dl class=&quot;keyed&quot;&gt;
+&lt;dt&gt;bar&lt;/dt&gt;
+&lt;dd&gt;
+&lt;p&gt;baz&lt;/p&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+&lt;/dd&gt;
+&lt;/dl&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=foo%3A%0Abar%3A%20baz%0A">Open in the playground</a>
+</div></section>
+<section id="Where-a-colon-is-not-a-key">
+<h3>Where a colon is not a key</h3>
+<p>Lines that djot reads as something other than text are read that way
+first: a div fence <code>:::</code>, a definition list marker, a reference definition
+<code>[x]: u</code>, a footnote definition, a heading.</p>
+<div class="example">
+<pre class="source"><code># foo: bar
+</code></pre>
+<pre class="rendered"><code>&lt;section id=&quot;foo:-bar&quot;&gt;
+&lt;h1&gt;foo: bar&lt;/h1&gt;
+&lt;/section&gt;
+</code></pre>
+<a href="../playground/#profile=ext_keyed%3Don&amp;text=%23%20foo%3A%20bar%0A">Open in the playground</a>
+</div></section>
+<section id="Output-2">
+<h3>Output</h3>
+<p>A description list with one term and the class <code>keyed</code>. The tree keeps a
+node of its own, with the label and the block.</p>
+</section>
+<section id="Properties-3">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status conjectured">conjectured</td></tr>
+<tr><td>Which blocks a document has, and how they nest, is decided without reading inline syntax.</td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td><td class="status unknown">unknown</td></tr></table></section>
+</section>
+<section id="List-interruption">
+<h2>List interruption</h2>
+<p>Setting: <code>ext_list_interrupts</code>. On in the Markdown-like profile.</p>
+<p>In djot a list needs a blank line before it. With this setting a list
+marker on the line after paragraph text starts a list.</p>
+<div class="example">
+<pre class="source"><code>Things to do:
+- one
+- two
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;Things to do:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+one
+&lt;/li&gt;
+&lt;li&gt;
+two
+&lt;/li&gt;
+&lt;/ul&gt;
+</code></pre>
+<a href="../playground/#profile=ext_list_interrupts%3Don&amp;text=Things%20to%20do%3A%0A-%20one%0A-%20two%0A">Open in the playground</a>
+</div><p>This also lets a sublist follow an item’s text directly.</p>
+<div class="example">
+<pre class="source"><code>- fruit
+  - apple
+  - pear
+</code></pre>
+<pre class="rendered"><code>&lt;ul&gt;
+&lt;li&gt;
+fruit
+&lt;ul&gt;
+&lt;li&gt;
+apple
+&lt;/li&gt;
+&lt;li&gt;
+pear
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+</code></pre>
+<a href="../playground/#profile=ext_list_interrupts%3Don&amp;text=-%20fruit%0A%20%20-%20apple%0A%20%20-%20pear%0A">Open in the playground</a>
+</div><p>An ordered marker starts a list only when its number is <code>1</code>. Other numbers
+often end a sentence.</p>
+<div class="example">
+<pre class="source"><code>The civil war ended in
+1865. And this should not start a list.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;The civil war ended in
+1865. And this should not start a list.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_list_interrupts%3Don&amp;text=The%20civil%20war%20ended%20in%0A1865.%20And%20this%20should%20not%20start%20a%20list.%0A">Open in the playground</a>
+</div><div class="example">
+<pre class="source"><code>The steps are
+1. first
+2. second
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;The steps are&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+first
+&lt;/li&gt;
+&lt;li&gt;
+second
+&lt;/li&gt;
+&lt;/ol&gt;
+</code></pre>
+<a href="../playground/#profile=ext_list_interrupts%3Don&amp;text=The%20steps%20are%0A1.%20first%0A2.%20second%0A">Open in the playground</a>
+</div><section id="What-it-costs">
+<h3>What it costs</h3>
+<p>A paragraph can no longer be wrapped anywhere: a line that begins with a
+bullet or with <code>1.</code> starts a list.</p>
+</section>
+<section id="Properties-4">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status broken">broken<small>A line that begins with a list marker starts a list.</small></td></tr></table></section>
+</section>
+<section id="Setext-headings">
+<h2>Setext headings</h2>
+<p>Setting: <code>ext_setext_headings</code>. On in the Markdown-like profile.</p>
+<p>A paragraph followed by a line of <code>=</code> is a level 1 heading.</p>
+<div class="example">
+<pre class="source"><code>A heading
+=========
+</code></pre>
+<pre class="rendered"><code>&lt;section id=&quot;A-heading&quot;&gt;
+&lt;h1&gt;A heading&lt;/h1&gt;
+&lt;/section&gt;
+</code></pre>
+<a href="../playground/#profile=ext_setext_headings%3Don&amp;text=A%20heading%0A%3D%3D%3D%3D%3D%3D%3D%3D%3D%0A">Open in the playground</a>
+</div><p>A line of two or more <code>-</code> makes a level 2 heading.</p>
+<div class="example">
+<pre class="source"><code>A heading
+--
+</code></pre>
+<pre class="rendered"><code>&lt;section id=&quot;A-heading&quot;&gt;
+&lt;h2&gt;A heading&lt;/h2&gt;
+&lt;/section&gt;
+</code></pre>
+<a href="../playground/#profile=ext_setext_headings%3Don&amp;text=A%20heading%0A--%0A">Open in the playground</a>
+</div><p>A single <code>-</code> is a list marker and does not underline.</p>
+<div class="example">
+<pre class="source"><code>A paragraph
+-
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;A paragraph
+-&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_setext_headings%3Don&amp;text=A%20paragraph%0A-%0A">Open in the playground</a>
+</div><p>The underline applies to the paragraph above it, so the heading can span
+several lines.</p>
+<div class="example">
+<pre class="source"><code>A heading
+on two lines
+===
+</code></pre>
+<pre class="rendered"><code>&lt;section id=&quot;A-heading-on-two-lines&quot;&gt;
+&lt;h1&gt;A heading
+on two lines&lt;/h1&gt;
+&lt;/section&gt;
+</code></pre>
+<a href="../playground/#profile=ext_setext_headings%3Don&amp;text=A%20heading%0Aon%20two%20lines%0A%3D%3D%3D%0A">Open in the playground</a>
+</div><p>Without a paragraph above, the same line is what djot reads.</p>
+<div class="example">
+<pre class="source"><code>===
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;===&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_setext_headings%3Don&amp;text=%3D%3D%3D%0A">Open in the playground</a>
+</div><section id="What-it-costs-1">
+<h3>What it costs</h3>
+<p>A paragraph can no longer be wrapped anywhere: a line that is all <code>=</code>, or
+two or more <code>-</code>, ends the paragraph and changes what it is.</p>
+</section>
+<section id="Properties-5">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A text line that continues a paragraph may leave out the prefixes of the quotes, list items and footnotes around it, and parses as it would with them written.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>Not for a line that underlines the paragraph: it makes a setext heading.</small></td></tr>
+<tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status broken">broken<small>A line of = or - under a paragraph makes it a heading.</small></td></tr></table></section>
+</section>
+<section id="Wikilinks">
+<h2>Wikilinks</h2>
+<p>Setting: <code>ext_wikilinks</code>.</p>
+<p>A wikilink is a target between double brackets, as in Obsidian.</p>
+<div class="example">
+<pre class="source"><code>See [[Backlinks]].
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;See &lt;a href=&quot;Backlinks&quot;&gt;Backlinks&lt;/a&gt;.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=See%20%5B%5BBacklinks%5D%5D.%0A">Open in the playground</a>
+</div><p>A <code>|</code> separates the target from an alias, which is the text shown.</p>
+<div class="example">
+<pre class="source"><code>See [[Backlinks|the other direction]].
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;See &lt;a href=&quot;Backlinks&quot;&gt;the other direction&lt;/a&gt;.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=See%20%5B%5BBacklinks%7Cthe%20other%20direction%5D%5D.%0A">Open in the playground</a>
+</div><p>A <code>!</code> in front makes it an embed, as it makes a link an image.</p>
+<div class="example">
+<pre class="source"><code>![[diagram.png]]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;img alt=&quot;diagram.png&quot; src=&quot;diagram.png&quot;&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%21%5B%5Bdiagram.png%5D%5D%0A">Open in the playground</a>
+</div><section id="Where-it-opens-and-closes">
+<h3>Where it opens and closes</h3>
+<p>A wikilink opens at a <code>[</code> that comes directly after another <code>[</code>, and closes
+at the first <code>]]</code> on the same line. A single <code>]</code> is part of the target.</p>
+<div class="example">
+<pre class="source"><code>[[a]b]]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;a href=&quot;a]b&quot;&gt;a]b&lt;/a&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%5B%5Ba%5Db%5D%5D%0A">Open in the playground</a>
+</div><p>It does not cross a line break. One that is not closed by the end of its
+line is text.</p>
+<div class="example">
+<pre class="source"><code>[[a
+b]]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;[[a
+b]]&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%5B%5Ba%0Ab%5D%5D%0A">Open in the playground</a>
+</div></section>
+<section id="Target-and-alias">
+<h3>Target and alias</h3>
+<p>The region is split at its first <code>|</code>. Both parts are kept as written:
+nothing is trimmed, a backslash is not decoded, and the alias is not parsed
+as inline content.</p>
+<div class="example">
+<pre class="source"><code>[[a|*b*]]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;a href=&quot;a&quot;&gt;*b*&lt;/a&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%5B%5Ba%7C%2Ab%2A%5D%5D%0A">Open in the playground</a>
+</div><p>An empty target is not a wikilink.</p>
+<div class="example">
+<pre class="source"><code>[[]] and [[|b]]
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;[[]] and [[|b]]&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%5B%5B%5D%5D%20and%20%5B%5B%7Cb%5D%5D%0A">Open in the playground</a>
+</div></section>
+<section id="What-it-changes-in-djot">
+<h3>What it changes in djot</h3>
+<p>A <code>[</code> at the start of a link’s text is read as a wikilink opener. So a link
+whose text begins with a bracket reads differently.</p>
+<div class="example">
+<pre class="source"><code>[[1]](u)
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;a href=&quot;1&quot;&gt;1&lt;/a&gt;(u)&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_wikilinks%3Don&amp;text=%5B%5B1%5D%5D%28u%29%0A">Open in the playground</a>
+</div><p>In a table, the row is split into cells first, so a <code>|</code> inside a wikilink
+ends the cell.</p>
+</section>
+<section id="Output-3">
+<h3>Output</h3>
+<p>A wikilink renders as the link it stands for: the target is the <code>href</code>, and
+the alias, or the target when there is none, is the text. An embed renders
+as an image. The tree keeps a node of its own, with the target, the alias
+and whether it is an embed.</p>
+</section>
+<section id="Properties-6">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+</section>
+</section>
+</main>
+<nav class="contents">
+<a class="level2" href="#Callouts">Callouts</a>
+<a class="level3" href="#The-header">The header</a>
+<a class="level3" href="#What-is-not-a-header">What is not a header</a>
+<a class="level3" href="#The-body">The body</a>
+<a class="level3" href="#Output">Output</a>
+<a class="level3" href="#Properties">Properties</a>
+<a class="level2" href="#Custom-tag-names">Custom tag names</a>
+<a class="level3" href="#A-div’s-name">A div’s name</a>
+<a class="level3" href="#A-span’s-name">A span’s name</a>
+<a class="level3" href="#Where-:name-is-not-a-named-span">Where :name[ is not a named span</a>
+<a class="level3" href="#Output-1">Output</a>
+<a class="level3" href="#Properties-1">Properties</a>
+<a class="level2" href="#Dollar-math">Dollar math</a>
+<a class="level3" href="#Inline-math">Inline math</a>
+<a class="level3" href="#Display-math">Display math</a>
+<a class="level3" href="#The-GitHub-form">The GitHub form</a>
+<a class="level3" href="#Priority">Priority</a>
+<a class="level3" href="#Properties-2">Properties</a>
+<a class="level2" href="#Keyed-blocks">Keyed blocks</a>
+<a class="level3" href="#Where-a-colon-makes-a-key">Where a colon makes a key</a>
+<a class="level3" href="#The-value">The value</a>
+<a class="level3" href="#One-block">One block</a>
+<a class="level3" href="#Where-a-colon-is-not-a-key">Where a colon is not a key</a>
+<a class="level3" href="#Output-2">Output</a>
+<a class="level3" href="#Properties-3">Properties</a>
+<a class="level2" href="#List-interruption">List interruption</a>
+<a class="level3" href="#What-it-costs">What it costs</a>
+<a class="level3" href="#Properties-4">Properties</a>
+<a class="level2" href="#Setext-headings">Setext headings</a>
+<a class="level3" href="#What-it-costs-1">What it costs</a>
+<a class="level3" href="#Properties-5">Properties</a>
+<a class="level2" href="#Wikilinks">Wikilinks</a>
+<a class="level3" href="#Where-it-opens-and-closes">Where it opens and closes</a>
+<a class="level3" href="#Target-and-alias">Target and alias</a>
+<a class="level3" href="#What-it-changes-in-djot">What it changes in djot</a>
+<a class="level3" href="#Output-3">Output</a>
+<a class="level3" href="#Properties-6">Properties</a>
+</nav>
+</div>
+<footer>
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/df4eeb366cead02af1d8fe008bbfb95eb1cdfca1">df4eeb3</a> (2026-10-05).
+Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
+</footer>
+</html>
