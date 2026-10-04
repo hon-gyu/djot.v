@@ -536,7 +536,7 @@ let footnote_defs_closing (d : Doc.t) : Block.t node list =
       Folder.ret (n :: List.fold_left (Folder.fold_block f) acc k)
     | _ -> Folder.default
   in
-  Folder.fold_doc (Folder.make ~block ()) [] d
+  List.fold_left (Folder.fold_block (Folder.make ~block ())) [] (Doc.blocks d)
 ;;
 
 (* Encoding only: a [Doc.t] is not built from blocks.  Definitions are

@@ -13,14 +13,14 @@ let () =
   assert (Html.of_doc d = Kernel.Html.convert src)
 ;;
 
-(* The fold visits footnote bodies after the blocks, in source order. *)
+(* A fold over the blocks visits a footnote body under its definition. *)
 let () =
   let d = Doc.of_string "*a* b [c](d)[^n]\n\n[^n]: note\n" in
   let inline _ acc = function
     | Node (_, _, Inline.Str s) -> Folder.ret (s :: acc)
     | _ -> Folder.default
   in
-  let strs = Folder.fold_doc (Folder.make ~inline ()) [] d in
+  let strs = List.fold_left (Folder.fold_block (Folder.make ~inline ())) [] (Doc.blocks d) in
   assert (List.rev strs = [ "a"; " b "; "c"; "note" ])
 ;;
 
@@ -88,7 +88,11 @@ let () =
 let () =
   let src = "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
   let d = Doc.of_string ~locs:true src in
-  assert (List.length (Doc.footnote_defs d) = 2);
+  let block _ acc = function
+    | Node (_, _, Block.FootnoteDef _) -> Folder.ret (acc + 1)
+    | _ -> Folder.default
+  in
+  assert (List.fold_left (Folder.fold_block (Folder.make ~block ())) 0 (Doc.blocks d) = 2);
   match Doc.footnotes d with
   | [ ("a", [ Node (_, _, Block.Para [ Node (_, _, Inline.Str "two") ]) ]) ] -> ()
   | _ -> failwith "unexpected note map"
@@ -105,7 +109,9 @@ let () =
     | Node (_, _, Inline.Str s) -> Folder.ret (s :: acc)
     | _ -> Folder.default
   in
-  assert (Folder.fold_doc (Folder.make ~inline ()) [] d = [ "x"; "one" ]);
+  assert (
+    List.fold_left (Folder.fold_block (Folder.make ~inline ())) [] (Doc.blocks d)
+    = [ "x"; "one" ]);
   let block _ = function
     | Node (_, _, Block.FootnoteDef _) -> Mapper.delete
     | _ -> Mapper.default
