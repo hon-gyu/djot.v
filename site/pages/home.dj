@@ -29,14 +29,6 @@ and gives up safe hard-wrapping.
 The status of each property under the two named profiles. The playground
 shows the same for any profile.
 
-- *proved*: the theorems hold for the profile.
-- *conditional*: they hold under a condition on the document, stated
-  below the status.
-- *broken*: the property fails for the profile, for the reason stated.
-- *conjectured*: believed to hold, and not proved for the profile.
-- *unknown*: no claim either way.
-- *inapplicable*: the property is about a construct that is switched off.
-
 ``` properties
 djot
 markdown-like

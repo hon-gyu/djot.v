@@ -2,8 +2,8 @@
  (name site_common)
  (libraries djot djot.properties))
 
-; The commits the site states.  Read from git, so the rule reruns on every
-; build.
+; The commits the site states and the theorems it links to.  Read from the
+; repository outside this project, so the rules rerun on every build.
 (rule
  (targets versions.ml)
  (deps
@@ -13,3 +13,13 @@
   (with-stdout-to
    versions.ml
    (run sh %{dep:versions.sh}))))
+
+(rule
+ (targets theorems.ml)
+ (deps
+  (universe)
+  theorems.sh)
+ (action
+  (with-stdout-to
+   theorems.ml
+   (run sh %{dep:theorems.sh}))))

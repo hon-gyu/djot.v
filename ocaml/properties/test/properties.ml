@@ -6,15 +6,6 @@
 open Djot
 module P = Djot_properties
 
-let label : P.status -> string = function
-  | Proved -> "proved"
-  | Proved_with_caveat _ -> "proved with caveat"
-  | Broken _ -> "broken"
-  | Expected -> "expected"
-  | Unknown -> "unknown"
-  | Not_applicable _ -> "not applicable"
-;;
-
 let html profile src = Html.of_doc (Doc.of_string ~profile src)
 
 let show name profile =
@@ -22,7 +13,7 @@ let show name profile =
   List.iter
     (fun p ->
       let s = P.status p profile in
-      Printf.printf "%s: %s\n" (P.id p) (label s);
+      Printf.printf "%s: %s\n" (P.id p) (P.status_name s);
       match s with
       | Broken { example; _ } -> assert (html profile example <> html Profile.djot example)
       | _ -> ())

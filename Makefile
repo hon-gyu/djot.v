@@ -146,7 +146,7 @@ site:  ## Build the static site into _build/site
 	cd ocaml && dune build @doc
 	rm -rf $(SITE)
 	site/_build/default/gen/gen.exe site/pages $(SITE)
-	cp site/pages/style.css site/pages/preview.css $(SITE)/
+	cp site/pages/theme.css site/pages/style.css site/pages/preview.css $(SITE)/
 	cp site/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
 	cp site/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
 	cp -R ocaml/_build/default/_doc/_html $(SITE)/api/odoc

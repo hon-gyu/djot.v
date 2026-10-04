@@ -94,7 +94,8 @@ let show_output () =
                  (str
                     (Printf.sprintf
                        "<!doctype html><html data-theme=\"%s\"><meta charset=utf-8><link \
-                        rel=stylesheet href=\"../preview.css\">%s"
+                        rel=stylesheet href=\"../theme.css\"><link rel=stylesheet \
+                        href=\"../preview.css\">%s"
                        (theme ())
                        (Option.value (field "html") ~default:"")))
              ]
@@ -196,31 +197,23 @@ Properties
 
 let glyph : P.status -> string = function
   | Proved -> "\xE2\x9C\x93"
-  | Proved_with_caveat _ -> "\xE2\x9C\x93*"
+  | Conditional _ -> "\xE2\x9C\x93*"
   | Broken _ -> "\xE2\x9C\x97"
-  | Expected -> "?"
+  | Conjectured -> "?"
   | Unknown -> "\xE2\x80\x93"
-  | Not_applicable _ -> "n/a"
+  | Inapplicable _ -> "n/a"
 ;;
 
-let source_link (name, file) =
-  el
-    "a"
-    ~at:
-      [ At.href
-          (str
-             (Printf.sprintf
-                "https://github.com/hon-gyu/djot.v/blob/%s/theories/%s"
-                Versions.commit
-                file))
-      ]
-    [ el "code" [ txt name ] ]
+let source_link name =
+  match Links.theorem name with
+  | Some href -> el "a" ~at:[ At.href (str href) ] [ el "code" [ txt name ] ]
+  | None -> el "code" [ txt name ]
 ;;
 
 let rec render_properties () =
   let row p =
     let status = P.status p !profile in
-    let cls = Status.word status in
+    let cls = P.status_name status in
     let moved =
       match List.assoc_opt (P.id p) !before with
       | Some c when c <> cls -> " moved"
@@ -228,7 +221,7 @@ let rec render_properties () =
     in
     let note =
       match status with
-      | Proved_with_caveat s | Not_applicable s -> [ el "p" ~cls:"note" [ txt s ] ]
+      | Conditional s | Inapplicable s -> [ el "p" ~cls:"note" [ txt s ] ]
       | Broken { reason; example } ->
         let load = el "button" [ txt "Load an example" ] in
         on Ev.click
@@ -237,7 +230,7 @@ let rec render_properties () =
             changed ())
           load;
         [ el "p" ~cls:"note" [ txt reason ]; load ]
-      | Expected -> [ el "p" ~cls:"note" [ txt "Not proved for this profile." ] ]
+      | Conjectured -> [ el "p" ~cls:"note" [ txt "Not proved for this profile." ] ]
       | Proved | Unknown -> []
     in
     let theorems =
@@ -272,7 +265,7 @@ let rec render_properties () =
   in
   let count c =
     List.length
-      (List.filter (fun p -> Status.word (P.status p !profile) = c) P.all)
+      (List.filter (fun p -> P.status_name (P.status p !profile) = c) P.all)
   in
   let summary =
     Printf.sprintf
@@ -299,7 +292,7 @@ out from them.
 and set_profile p =
   before
   := List.map
-       (fun q -> P.id q, Status.word (P.status q !profile))
+       (fun q -> P.id q, P.status_name (P.status q !profile))
        P.all;
   profile := p;
   render_profile ();

@@ -57,8 +57,6 @@ let percent s =
   Buffer.contents b
 ;;
 
-let repo = "https://github.com/hon-gyu/djot.v"
-
 let github_mark =
   {|<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>|}
 ;;
@@ -93,6 +91,7 @@ let layout ~root ~title body =
     ; theme_script
     ; Printf.sprintf
         {|
+<link rel="stylesheet" href="%stheme.css">
 <link rel="stylesheet" href="%sstyle.css">
 <header>
 <a class="brand" href="%s">djot.v</a>
@@ -108,24 +107,25 @@ let layout ~root ~title body =
 </header>
 |}
         root
+        root
         (if root = "" then "./" else root)
         root
         root
         root
-        repo
+        Links.repo
         github_mark
     ; body
     ; Printf.sprintf
         {|
 <footer>
-Built from <a href="%s/tree/%s">%s</a>.
+Built from <a href="%s">%s</a> (%s).
 Models the <a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">djot syntax reference at %s</a> (%s).
 </footer>
 </html>
 |}
-        repo
-        Versions.commit
+        Links.tree
         Versions.describe
+        Versions.commit_date
         Versions.spec_commit
         (String.sub Versions.spec_commit 0 7)
         Versions.spec_date
@@ -135,11 +135,11 @@ Models the <a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">djot synt
 let status_cell (s : P.status) : string =
   let note =
     match s with
-    | Proved_with_caveat n | Not_applicable n | Broken { reason = n; _ } ->
+    | Conditional n | Inapplicable n | Broken { reason = n; _ } ->
       Printf.sprintf "<small>%s</small>" (escape n)
-    | Proved | Expected | Unknown -> ""
+    | Proved | Conjectured | Unknown -> ""
   in
-  Printf.sprintf {|<td class="status %s">%s%s</td>|} (Status.word s) (Status.word s) note
+  Printf.sprintf {|<td class="status %s">%s%s</td>|} (P.status_name s) (P.status_name s) note
 ;;
 
 let property_table ~all profiles =
@@ -160,18 +160,31 @@ let property_table ~all profiles =
     (String.concat "\n" (List.map row (List.filter (fun p -> all || differs p) P.all)))
 ;;
 
+(* What each status word means, shown above a full table. *)
+let legend =
+  {|<dl class="legend">
+<dt class="proved">proved</dt><dd>The theorems hold for the profile.</dd>
+<dt class="conditional">conditional</dt><dd>They hold under a condition on the document, stated below the status.</dd>
+<dt class="broken">broken</dt><dd>The property fails for the profile, for the reason stated.</dd>
+<dt class="conjectured">conjectured</dt><dd>Believed to hold, and not proved for the profile.</dd>
+<dt class="unknown">unknown</dt><dd>No claim either way.</dd>
+<dt class="inapplicable">inapplicable</dt><dd>The property is about a construct that is switched off.</dd>
+</dl>
+|}
+;;
+
 let versions () =
   Printf.sprintf
     {|<dl class="versions">
 <dt>Syntax reference</dt><dd><a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">jgm/djot at %s</a>, %s</dd>
-<dt>This project</dt><dd><a href="%s/tree/%s">%s</a></dd>
+<dt>This project</dt><dd><a href="%s">%s</a>, %s</dd>
 </dl>|}
     Versions.spec_commit
     (String.sub Versions.spec_commit 0 7)
     Versions.spec_date
-    repo
-    Versions.commit
+    Links.tree
     Versions.describe
+    Versions.commit_date
 ;;
 
 let example ~root profile src =
@@ -217,9 +230,10 @@ let document ~root ?(profiles = [||]) src =
     | CodeBlock ("versions", _) -> raw (versions ())
     | CodeBlock ("properties", s) ->
       raw
-        (property_table
+        (legend
+         ^ property_table
            ~all:true
-           (List.map named (List.filter (( <> ) "") (String.split_on_char '\n' s))))
+             (List.map named (List.filter (( <> ) "") (String.split_on_char '\n' s))))
     | _ -> Mapper.default
   in
   Mapper.map_doc (Mapper.make ~block ()) (Doc.of_string src)
@@ -285,6 +299,19 @@ let contents (d : Doc.t) =
       bs
   in
   "<nav class=\"contents\">\n" ^ String.concat "\n" (sections (Doc.blocks d)) ^ "\n</nav>\n"
+;;
+
+(* A property that names a theorem the development does not have is a
+   mistake in the property list. *)
+let () =
+  List.iter
+    (fun p ->
+      List.iter
+        (fun t ->
+          if Links.theorem t = None
+          then failwith (Printf.sprintf "%s: no theorem named %s" (P.id p) t))
+        (P.theorems p))
+    P.all
 ;;
 
 let () =
