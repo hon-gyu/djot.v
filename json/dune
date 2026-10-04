@@ -1,0 +1,5 @@
+(library
+ (name djot_json)
+ (public_name djot.json)
+ (optional)
+ (libraries djot jsont jsont.bytesrw))

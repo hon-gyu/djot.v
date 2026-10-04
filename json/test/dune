@@ -1,0 +1,4 @@
+(test
+ (name json)
+ (enabled_if %{lib-available:djot.json})
+ (libraries djot djot.json jsont jsont.bytesrw))
