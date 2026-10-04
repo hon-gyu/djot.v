@@ -9,16 +9,18 @@
 
 type status =
   | Proved (** The theorems hold for the profile. *)
-  | Proved_with_caveat of string
-  (** They hold, with a side condition on the document. *)
+  | Conditional of string (** They hold, under the stated condition on the document. *)
   | Broken of
       { reason : string
       ; example : string
       }
   (** The property fails for the profile; [example] is a source that shows it. *)
-  | Expected (** Believed to hold; not proved for this profile. *)
+  | Conjectured (** Believed to hold; not proved for this profile. *)
   | Unknown (** No claim. *)
-  | Not_applicable of string (** The construct the property is about is off. *)
+  | Inapplicable of string (** The construct the property is about is off. *)
+
+(** The constructor's name in lower case: ["proved"], ["conditional"]. *)
+val status_name : status -> string
 
 type t
 
@@ -33,8 +35,8 @@ val statement : t -> string
 (** What the property gives a writer or a tool. *)
 val implication : t -> string
 
-(** The theorems, each with its file under [theories/]. *)
-val theorems : t -> (string * string) list
+(** The names of the theorems in the Rocq development. *)
+val theorems : t -> string list
 
 val status : t -> Djot.Profile.t -> status
 
