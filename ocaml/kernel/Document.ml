@@ -137,13 +137,14 @@ let id_candidate base i =
 
 type id_state = { id_used : string list; id_refs : reference_map;
                   id_count : int; id_used_set : StrSet.t;
-                  id_ref_labels : StrSet.t; id_next : int StrMap.t }
+                  id_ref_labels : StrSet.t; id_next : int StrMap.t;
+                  id_derived : string list }
 
 (** val id_state_init : id_state **)
 
 let id_state_init =
   { id_used = []; id_refs = []; id_count = 0; id_used_set = StrSet.empty;
-    id_ref_labels = StrSet.empty; id_next = StrMap.empty }
+    id_ref_labels = StrSet.empty; id_next = StrMap.empty; id_derived = [] }
 
 (** val take_id : string -> id_state -> id_state **)
 
@@ -151,7 +152,7 @@ let take_id ident st =
   { id_used = (ident :: st.id_used); id_refs = st.id_refs; id_count =
     (Stdlib.succ st.id_count); id_used_set =
     (StrSet.add ident st.id_used_set); id_ref_labels = st.id_ref_labels;
-    id_next = st.id_next }
+    id_next = st.id_next; id_derived = st.id_derived }
 
 (** val add_auto_ref : string -> string -> id_state -> id_state **)
 
@@ -161,7 +162,7 @@ let add_auto_ref label ident st =
   else { id_used = st.id_used; id_refs = ((label, (((^) "#" ident),
          [])) :: st.id_refs); id_count = st.id_count; id_used_set =
          st.id_used_set; id_ref_labels = (StrSet.add label st.id_ref_labels);
-         id_next = st.id_next }
+         id_next = st.id_next; id_derived = st.id_derived }
 
 (** val register_id : attr -> id_state -> id_state **)
 
@@ -209,7 +210,8 @@ let assign_heading_id p a lvl ils st =
      let st' = { id_used = st1.id_used; id_refs = st1.id_refs; id_count =
        st1.id_count; id_used_set = st1.id_used_set; id_ref_labels =
        st1.id_ref_labels; id_next =
-       (StrMap.add base (Stdlib.succ i) st1.id_next) }
+       (StrMap.add base (Stdlib.succ i) st1.id_next); id_derived =
+       (ident :: st1.id_derived) }
      in
      ((add_auto_ref (normalize_label text) ident st'), (Node (p, (("id",
      ident) :: a), (Heading (lvl, ils))))))
@@ -567,7 +569,7 @@ let doc_pass p bs =
   let (st, bs') = Ids.of_list bs id_state_init in
   { doc_blocks = (sectionize p bs'); doc_footnotes = (Notes.of_list bs' []);
   doc_references = (Refs.of_list bs' []); doc_auto_references =
-  (rev st.id_refs); doc_auto_identifiers = (rev st.id_used) }
+  (rev st.id_refs); doc_auto_identifiers = (rev st.id_derived) }
 
 (** val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc **)
 

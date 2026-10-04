@@ -1,7 +1,6 @@
 open Ast
 open Attributes
 open Datatypes
-open Document
 open InlineScan
 open InlineTable
 open InlineView
@@ -846,86 +845,110 @@ let render_blocks_lines t k bs =
 let render_djot t k bs =
   String.concat nl (sep_lines (render_blocks_lines t k bs))
 
-(** val drop_id_if : string -> attr -> attr **)
+(** val drop_derived : attr -> string list -> string list * attr **)
 
-let drop_id_if v a =
+let drop_derived a q =
   match alist_lookup "id" a with
-  | Some v' ->
-    if (=) v v' then filter (fun kv -> negb ((=) (fst kv) "id")) a else a
-  | None -> a
+  | Some v ->
+    (match q with
+     | [] -> (q, a)
+     | d :: q' -> if (=) v d then (q', (Attr.remove "id" a)) else (q, a))
+  | None -> (q, a)
 
-(** val base_id : inlines -> string **)
+(** val drop_auto_ids :
+    block -> pos -> attr -> string list -> string list * block node **)
 
-let base_id ils =
-  id_base (inlines_text ils)
-
-(** val drop_auto_ids : block -> pos -> attr -> block node **)
-
-let rec drop_auto_ids b p a =
+let rec drop_auto_ids b p a q =
   let go =
-    let rec go = function
-    | [] -> []
-    | n :: rest ->
-      let Node (p', a', x) = n in (drop_auto_ids x p' a') :: (go rest)
+    let rec go bs q0 =
+      match bs with
+      | [] -> (q0, [])
+      | n :: rest ->
+        let Node (p', a', x) = n in
+        let (q1, n0) = drop_auto_ids x p' a' q0 in
+        let (q2, rest') = go rest q1 in (q2, (n0 :: rest'))
     in go
   in
   let goits =
-    let rec goits = function
-    | [] -> []
-    | n :: rest ->
-      let Node (ip, ia, it) = n in (Node (ip, ia, (go it))) :: (goits rest)
+    let rec goits its q0 =
+      match its with
+      | [] -> (q0, [])
+      | n :: rest ->
+        let Node (ip, ia, it) = n in
+        let (q1, it') = go it q0 in
+        let (q2, rest') = goits rest q1 in
+        (q2, ((Node (ip, ia, it')) :: rest'))
     in goits
   in
   (match b with
    | Section bs ->
-     let a' =
-       match bs with
-       | [] -> a
-       | n :: _ ->
-         let Node (_, _, x) = n in
-         (match x with
-          | Heading (_, ils) -> drop_id_if (base_id ils) a
-          | _ -> a)
-     in
-     Node (p, a', (Section (go bs)))
+     let (q1, a') = drop_derived a q in
+     let (q2, bs') = go bs q1 in (q2, (Node (p, a', (Section bs'))))
    | Heading (lvl, ils) ->
-     Node (p, (drop_id_if (base_id ils) a), (Heading (lvl, ils)))
-   | BlockQuote bs -> Node (p, a, (BlockQuote (go bs)))
-   | Div (name, bs) -> Node (p, a, (Div (name, (go bs))))
+     let (q', a') = drop_derived a q in
+     (q', (Node (p, a', (Heading (lvl, ils)))))
+   | BlockQuote bs ->
+     let (q', bs') = go bs q in (q', (Node (p, a, (BlockQuote bs'))))
+   | Div (name, bs) ->
+     let (q', bs') = go bs q in (q', (Node (p, a, (Div (name, bs')))))
    | OrderedList (oa, sp, its) ->
-     Node (p, a, (OrderedList (oa, sp, (goits its))))
-   | BulletList (sp, its) -> Node (p, a, (BulletList (sp, (goits its))))
+     let (q', its') = goits its q in
+     (q', (Node (p, a, (OrderedList (oa, sp, its')))))
+   | BulletList (sp, its) ->
+     let (q', its') = goits its q in
+     (q', (Node (p, a, (BulletList (sp, its')))))
    | TaskList (sp, its) ->
-     Node (p, a, (TaskList (sp,
-       (let rec gotasks = function
-        | [] -> []
-        | n :: rest ->
-          let Node (ip, ia, x) = n in
-          let (chk, it) = x in
-          (Node (ip, ia, (chk, (go it)))) :: (gotasks rest)
-        in gotasks its))))
+     let (q', its') =
+       let rec gotasks ts q0 =
+         match ts with
+         | [] -> (q0, [])
+         | n :: rest ->
+           let Node (ip, ia, x) = n in
+           let (chk, it) = x in
+           let (q1, it') = go it q0 in
+           let (q2, rest') = gotasks rest q1 in
+           (q2, ((Node (ip, ia, (chk, it'))) :: rest'))
+       in gotasks its q
+     in
+     (q', (Node (p, a, (TaskList (sp, its')))))
    | DefinitionList (sp, its) ->
-     Node (p, a, (DefinitionList (sp,
-       (let rec godefs = function
-        | [] -> []
-        | n :: rest ->
-          let Node (ip, ia, x) = n in
-          let (term, n0) = x in
-          let Node (dp, da, it) = n0 in
-          (Node (ip, ia, (term, (Node (dp, da, (go it)))))) :: (godefs rest)
-        in godefs its))))
-   | FootnoteDef (l, bs) -> Node (p, a, (FootnoteDef (l, (go bs))))
+     let (q', its') =
+       let rec godefs ds q0 =
+         match ds with
+         | [] -> (q0, [])
+         | n :: rest ->
+           let Node (ip, ia, x) = n in
+           let (term, n0) = x in
+           let Node (dp, da, it) = n0 in
+           let (q1, it') = go it q0 in
+           let (q2, rest') = godefs rest q1 in
+           (q2, ((Node (ip, ia, (term, (Node (dp, da, it'))))) :: rest'))
+       in godefs its q
+     in
+     (q', (Node (p, a, (DefinitionList (sp, its')))))
+   | FootnoteDef (l, bs) ->
+     let (q', bs') = go bs q in (q', (Node (p, a, (FootnoteDef (l, bs')))))
    | Ext_keyed (label, b0) ->
      let Node (p', a', x) = b0 in
-     Node (p, a, (Ext_keyed (label, (drop_auto_ids x p' a'))))
+     let (q', n) = drop_auto_ids x p' a' q in
+     (q', (Node (p, a, (Ext_keyed (label, n)))))
    | Ext_callout (kind, fold, title, bs) ->
-     Node (p, a, (Ext_callout (kind, fold, title, (go bs))))
-   | _ -> Node (p, a, b))
+     let (q', bs') = go bs q in
+     (q', (Node (p, a, (Ext_callout (kind, fold, title, bs')))))
+   | _ -> (q, (Node (p, a, b))))
 
 (** val doc_source_blocks : doc -> blocks **)
 
 let doc_source_blocks d =
-  map (fun n -> let Node (p, a, x) = n in drop_auto_ids x p a) d.doc_blocks
+  snd
+    (let rec go bs q =
+       match bs with
+       | [] -> (q, [])
+       | n :: rest ->
+         let Node (p, a, x) = n in
+         let (q1, n0) = drop_auto_ids x p a q in
+         let (q2, rest') = go rest q1 in (q2, (n0 :: rest'))
+     in go d.doc_blocks d.doc_auto_identifiers)
 
 (** val render_doc : dtable -> bconfig -> doc -> string **)
 

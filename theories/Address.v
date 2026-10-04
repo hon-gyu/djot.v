@@ -495,11 +495,11 @@ Local Definition toc_make (v : list string) : cblock :=
 Definition toc : derived (list string) := Derived "toc" auto_ids toc_make.
 
 Example refresh_view_can_move :
-  auto_ids toc_doc = ["toc"; "H"]
+  auto_ids toc_doc = ["H"]
   /\ match refresh toc toc_doc with
      | inl cbs => auto_ids cbs
      | inr _ => []
-     end = ["toc"; "H"; "H-1"].
+     end = ["H"; "H-1"].
 Proof. split; reflexivity. Qed.
 
 (* And so the build does not converge: a second refresh writes a

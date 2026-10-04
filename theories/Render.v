@@ -1786,75 +1786,108 @@ Documents
 A parsed document back to source.  The document pass added two things
 the source did not spell:
 
-- A heading's id, when the pass derived it, is left out.  The test is the
-  heading text's base id: the pass gives a heading exactly that id when
-  it is free, and it is free again in the rendering, since every id taken
-  before the heading is taken there too.  A heading whose id was
-  disambiguated (`a-1`) keeps it, spelled out.
+- A heading's id, when the pass derived it, is left out.  The derived
+  ids are `doc_auto_identifiers`, in document order, and the walk takes
+  them off in that order: an id is the derived one when it is the next
+  on the list.  A written id is never mistaken for it, since a derived
+  id differs from every id before its heading
+  (`Document.written_id_repeats_derived`).
 - A section is its blocks (`render_lines`). *)
 
-Local Definition drop_id_if (v : string) (a : attr) : attr :=
-  match alist_lookup "id" a with
-  | Some v' =>
-      if String.eqb v v' then filter (fun kv => negb (String.eqb (fst kv) "id")) a
-      else a
-  | None => a
+(* `a` without its id when that is the next derived one. *)
+Local Definition drop_derived (a : attr) (q : list string)
+  : list string * attr :=
+  match alist_lookup "id" a, q with
+  | Some v, d :: q' =>
+      if String.eqb v d then (q', Attr.remove "id" a) else (q, a)
+  | _, _ => (q, a)
   end.
 
-Local Definition base_id (ils : inlines) : string :=
-  Document.id_base (Document.inlines_text ils).
-
 (* Recursion is on the block, with its node's position and attributes
-   alongside, which is the shape the guard accepts (`Undo.pass_block`). *)
-Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) {struct b} : node block :=
+   alongside, which is the shape the guard accepts (`Undo.pass_block`).
+   The order is `Document.Ids.of_block`'s, a section standing where its
+   heading did. *)
+Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) (q : list string)
+  {struct b} : list string * node block :=
   let go :=
-    fix go (bs : blocks) : blocks :=
+    fix go (bs : blocks) (q : list string) : list string * blocks :=
       match bs with
-      | [] => []
-      | Node p' a' x :: rest => drop_auto_ids x p' a' :: go rest
+      | [] => (q, [])
+      | Node p' a' x :: rest =>
+          let (q1, n) := drop_auto_ids x p' a' q in
+          let (q2, rest') := go rest q1 in
+          (q2, n :: rest')
       end in
   let goits :=
-    fix goits (its : list (node blocks)) : list (node blocks) :=
+    fix goits (its : list (node blocks)) (q : list string)
+      : list string * list (node blocks) :=
       match its with
-      | [] => []
-      | Node ip ia it :: rest => Node ip ia (go it) :: goits rest
+      | [] => (q, [])
+      | Node ip ia it :: rest =>
+          let (q1, it') := go it q in
+          let (q2, rest') := goits rest q1 in
+          (q2, Node ip ia it' :: rest')
       end in
   match b with
-  | Heading lvl ils => Node p (drop_id_if (base_id ils) a) (Heading lvl ils)
+  | Heading lvl ils =>
+      let (q', a') := drop_derived a q in (q', Node p a' (Heading lvl ils))
   | Section bs =>
-      let a' := match bs with
-                | Node _ _ (Heading _ ils) :: _ => drop_id_if (base_id ils) a
-                | _ => a
-                end in
-      Node p a' (Section (go bs))
-  | BlockQuote bs => Node p a (BlockQuote (go bs))
+      let (q1, a') := drop_derived a q in
+      let (q2, bs') := go bs q1 in
+      (q2, Node p a' (Section bs'))
+  | BlockQuote bs =>
+      let (q', bs') := go bs q in (q', Node p a (BlockQuote bs'))
   | Ext_callout kind fold title bs =>
-      Node p a (Ext_callout kind fold title (go bs))
-  | Div name bs => Node p a (Div name (go bs))
-  | FootnoteDef l bs => Node p a (FootnoteDef l (go bs))
-  | BulletList sp its => Node p a (BulletList sp (goits its))
-  | OrderedList oa sp its => Node p a (OrderedList oa sp (goits its))
+      let (q', bs') := go bs q in
+      (q', Node p a (Ext_callout kind fold title bs'))
+  | Div name bs => let (q', bs') := go bs q in (q', Node p a (Div name bs'))
+  | FootnoteDef l bs =>
+      let (q', bs') := go bs q in (q', Node p a (FootnoteDef l bs'))
+  | BulletList sp its =>
+      let (q', its') := goits its q in (q', Node p a (BulletList sp its'))
+  | OrderedList oa sp its =>
+      let (q', its') := goits its q in (q', Node p a (OrderedList oa sp its'))
   | TaskList sp its =>
-      Node p a (TaskList sp
-        ((fix gotasks (ts : list (node (task_status * blocks))) :=
-            match ts with
-            | [] => []
-            | Node ip ia (chk, it) :: rest => Node ip ia (chk, go it) :: gotasks rest
-            end) its))
+      let (q', its') :=
+        (fix gotasks (ts : list (node (task_status * blocks)))
+             (q : list string)
+           : list string * list (node (task_status * blocks)) :=
+           match ts with
+           | [] => (q, [])
+           | Node ip ia (chk, it) :: rest =>
+               let (q1, it') := go it q in
+               let (q2, rest') := gotasks rest q1 in
+               (q2, Node ip ia (chk, it') :: rest')
+           end) its q in
+      (q', Node p a (TaskList sp its'))
   | DefinitionList sp its =>
-      Node p a (DefinitionList sp
-        ((fix godefs (ds : list (node (node inlines * node blocks))) :=
-            match ds with
-            | [] => []
-            | Node ip ia (term, Node dp da it) :: rest =>
-                Node ip ia (term, Node dp da (go it)) :: godefs rest
-            end) its))
-  | Ext_keyed label (Node p' a' x) => Node p a (Ext_keyed label (drop_auto_ids x p' a'))
-  | _ => Node p a b
+      let (q', its') :=
+        (fix godefs (ds : list (node (node inlines * node blocks)))
+             (q : list string)
+           : list string * list (node (node inlines * node blocks)) :=
+           match ds with
+           | [] => (q, [])
+           | Node ip ia (term, Node dp da it) :: rest =>
+               let (q1, it') := go it q in
+               let (q2, rest') := godefs rest q1 in
+               (q2, Node ip ia (term, Node dp da it') :: rest')
+           end) its q in
+      (q', Node p a (DefinitionList sp its'))
+  | Ext_keyed label (Node p' a' x) =>
+      let (q', n) := drop_auto_ids x p' a' q in
+      (q', Node p a (Ext_keyed label n))
+  | _ => (q, Node p a b)
   end.
 
 Definition doc_source_blocks (d : doc) : blocks :=
-  map (fun n => match n with Node p a x => drop_auto_ids x p a end) (doc_blocks d).
+  snd ((fix go (bs : blocks) (q : list string) : list string * blocks :=
+          match bs with
+          | [] => (q, [])
+          | Node p a x :: rest =>
+              let (q1, n) := drop_auto_ids x p a q in
+              let (q2, rest') := go rest q1 in
+              (q2, n :: rest')
+          end) (doc_blocks d) (doc_auto_identifiers d)).
 
 Definition render_doc (d : doc) : string := render_djot (doc_source_blocks d).
 
@@ -1866,4 +1899,36 @@ End WithTable.
    since the escape set is where the answer comes from. *)
 Example no_canonical_caption_opener :
   cb_pairs_ok [CTable [CTBody [[CIStr "a"]]]; cpara ["^ cap"]] = true.
+Proof. reflexivity. Qed.
+
+(* A written id is kept even where the heading's text gives the same. *)
+Example render_doc_keeps_written_id :
+  render_doc (Document.parse_doc "{#My-title}
+# My title") = "{#My-title}
+# My title".
+Proof. reflexivity. Qed.
+
+(* A derived id is left out, whatever it had to step around. *)
+Example render_doc_drops_derived_id :
+  render_doc (Document.parse_doc "# a
+
+# a") = "# a
+
+# a".
+Proof. reflexivity. Qed.
+
+(* The first `x` is derived and the second written; a heading in a quote
+   keeps its id on itself and loses it the same way. *)
+Example render_doc_written_repeat :
+  render_doc (Document.parse_doc "# x
+
+{#x}
+# y
+
+> # x") = "# x
+
+{#x}
+# y
+
+> # x".
 Proof. reflexivity. Qed.

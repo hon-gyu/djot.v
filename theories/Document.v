@@ -142,8 +142,8 @@ The identifier pass
 -------------------
 *)
 
-(* Threaded through the block tree in document order.  Both lists hold
-   their entries newest-first; `doc_pass` reverses them.
+(* Threaded through the block tree in document order.  The lists hold
+   their entries newest-first; `doc_pass` reverses the two it keeps.
 
    Run as written, `unique_id` rescans every candidate from 0 against the
    whole list, which is cubic in the number of headings sharing a text.
@@ -158,14 +158,17 @@ Record id_state : Type := IdSt
   ; id_count : nat
   ; id_used_set : StrSet.t
   ; id_ref_labels : StrSet.t
-  ; id_next : StrMap.t nat }.
+  ; id_next : StrMap.t nat
+  (* The identifiers the pass derived, latest first. *)
+  ; id_derived : list string }.
 
 Definition id_state_init : id_state :=
-  IdSt [] [] 0 StrSet.empty StrSet.empty (@StrMap.empty nat).
+  IdSt [] [] 0 StrSet.empty StrSet.empty (@StrMap.empty nat) [].
 
 Local Definition take_id (ident : string) (st : id_state) : id_state :=
   IdSt (ident :: id_used st) (id_refs st) (S (id_count st))
-       (StrSet.add ident (id_used_set st)) (id_ref_labels st) (id_next st).
+       (StrSet.add ident (id_used_set st)) (id_ref_labels st) (id_next st)
+       (id_derived st).
 
 (* An implicit reference from the heading's text to its own id, unless
    that label already has an implicit one.  Explicit references are not
@@ -177,7 +180,8 @@ Local Definition add_auto_ref (label ident : string) (st : id_state) : id_state 
   then st
   else IdSt (id_used st) ((label, ("#" ++ ident, [])) :: id_refs st)
             (id_count st) (id_used_set st)
-            (StrSet.add label (id_ref_labels st)) (id_next st).
+            (StrSet.add label (id_ref_labels st)) (id_next st)
+            (id_derived st).
 
 (* An identifier a block attribute spec supplied is taken, and a later
    heading's auto-identifier steps around it.  Every id present in the
@@ -227,7 +231,8 @@ Definition assign_heading_id (p : pos) (a : attr) (lvl : nat) (ils : inlines)
       let st1 := take_id ident st in
       let st' := IdSt (id_used st1) (id_refs st1) (id_count st1)
                       (id_used_set st1) (id_ref_labels st1)
-                      (StrMap.add base (S i) (id_next st1)) in
+                      (StrMap.add base (S i) (id_next st1))
+                      (ident :: id_derived st1) in
       (add_auto_ref (normalize_label text) ident st',
        Node p (("id", ident) :: a) (Heading lvl ils))
   end.
@@ -1299,7 +1304,7 @@ Definition doc_pass (bs : blocks) : doc :=
    ; doc_footnotes := Notes.of_list bs' []
    ; doc_references := Refs.of_list bs' []
    ; doc_auto_references := rev (id_refs st)
-   ; doc_auto_identifiers := rev (id_used st) |}.
+   ; doc_auto_identifiers := rev (id_derived st) |}.
 
 (** Parse a Djot document: first run the line fold, then perform
     whole-document resolution. *)
@@ -3175,8 +3180,20 @@ Example explicit_id_displaces_auto_id :
   doc_auto_identifiers (parse_doc "{#x}
 a
 
-# x") = ["x"; "x-1"].
+# x") = ["x-1"].
 Proof. reflexivity. Qed.
+
+(* A written id that repeats a derived one comes after it, since a
+   derived id steps around every id before its heading.  So the first
+   heading with a listed id is the one it was derived for. *)
+Example written_id_repeats_derived :
+  let d := parse_doc "# x
+
+{#x}
+# y" in
+  doc_auto_identifiers d = ["x"]
+  /\ map node_attrs (doc_blocks d) = [[("id", "x")]; [("id", "x")]].
+Proof. split; reflexivity. Qed.
 
 (* Sections are top-level only: inside a quote the heading keeps its id. *)
 Example quote_heading_unsectioned :

@@ -8,7 +8,6 @@ Text[^n] with _soft
 break_.
 :::
 
-{#Intro-1}
 # Intro
 
 [^n]: A note.
@@ -25,13 +24,21 @@ Text[^n] with _soft
 break_.
 :::
 
-{#Intro-1}
 # Intro
 
 [^n]: A note.
 
   - x
   - y
+
+== written id
+{#My-title}
+# My title
+
+# x
+
+{#x}
+# y
 
 == empty list item
 - a

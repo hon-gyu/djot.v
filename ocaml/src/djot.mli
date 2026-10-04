@@ -385,8 +385,8 @@ module Doc : sig
       @param locs whether to record source positions, see {!textloc}; default [false] *)
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
-  (** The document as djot source, in the syntax of the profile it was parsed with. A
-      heading's identifier is not written when it is the one its text gives.
+  (** The document as djot source, in the syntax of the profile it was parsed with. An
+      identifier in {!auto_identifiers} is not written.
 
       With [`Safe] or [`Checked], parsing the result with that profile gives the same
       tree, up to source positions, except that:
@@ -426,6 +426,12 @@ module Doc : sig
   (** One reference per heading: the heading's text as label, and its identifier after a
       [#] as destination. *)
   val auto_references : t -> (string * (string * Attr.t)) list
+
+  (** The identifiers derived from a heading's text, in document order; an identifier a
+      heading was written with is not listed. Going through the headings and sections in
+      document order, the first one with the next listed identifier is the one it was
+      derived for. *)
+  val auto_identifiers : t -> string list
 
   (** A label's destination, from an explicit definition or else from a heading. *)
   val reference : t -> string -> (string * Attr.t) option

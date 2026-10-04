@@ -1542,7 +1542,8 @@ Definition lookup_reference (label : string) (m : reference_map)
 
 (* A whole document: the block tree and the side tables the inline pass
    resolves against.  The auto_ tables are the ones derived from
-   headings. *)
+   headings.  `doc_auto_identifiers` lists the ids the pass derived, in
+   document order; an id a heading was written with is not in it. *)
 Record doc : Type := Doc
   { doc_blocks : blocks
   ; doc_footnotes : note_map

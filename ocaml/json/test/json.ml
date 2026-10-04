@@ -25,6 +25,7 @@ let () =
   show
     "document"
     "# A _title_\n\nSee [it][ref] and [^n]...\n\n[ref]: /url\n\n[^n]: A note.\n";
+  show "identifiers" "# a\n\n{#a .c}\n# b\n\n> # a\n";
   show "table" "| h |\n|--:|\n| 1 |\n^ cap\n";
   show
     ~profile:extended
