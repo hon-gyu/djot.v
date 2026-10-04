@@ -4,3 +4,6 @@
 [submodule "djoths"]
 	path = djoths
 	url = https://github.com/jgm/djoths.git
+[submodule "djot"]
+	path = djot
+	url = https://github.com/jgm/djot.git
