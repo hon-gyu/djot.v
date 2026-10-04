@@ -1,7 +1,8 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
-        ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch
+        ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
+        site site-serve
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -132,3 +133,24 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 	@git subtree split --prefix=ocaml --branch=ocaml -q >/dev/null
 	@echo "local ocaml branch:  `git rev-parse --short refs/heads/ocaml`"
 	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify refs/remotes/origin/ocaml || echo none`"
+
+# Site
+# ----
+
+# web/ is a dune project of its own, built with the switch that has the
+# ocaml/ package's dependencies plus brr and js_of_ocaml.
+SITE = _build/site
+
+site:  ## Build the static site into _build/site
+	cd web && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
+	cd ocaml && dune build @doc
+	rm -rf $(SITE)
+	web/_build/default/gen/gen.exe web/pages $(SITE)
+	cp web/pages/style.css web/pages/preview.css $(SITE)/
+	cp web/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
+	cp web/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
+	cp -R ocaml/_build/default/_doc/_html $(SITE)/api
+	touch $(SITE)/.nojekyll
+
+site-serve: site  ## Build the site and serve it on localhost:8000
+	python3 -m http.server -d $(SITE) 8000

@@ -1,0 +1,15 @@
+(library
+ (name site_common)
+ (libraries djot djot.properties))
+
+; The commits the site states.  Read from git, so the rule reruns on every
+; build.
+(rule
+ (targets versions.ml)
+ (deps
+  (universe)
+  versions.sh)
+ (action
+  (with-stdout-to
+   versions.ml
+   (run sh %{dep:versions.sh}))))

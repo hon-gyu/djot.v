@@ -1,0 +1,80 @@
+profile: ext_callouts=on
+# Callouts
+
+Setting: `ext_callouts`.
+
+A block quote whose first line is a header `[!kind]` is a callout, as in
+Obsidian.
+
+``` example
+> [!note] Backlinks
+> A backlink is a link seen from its target.
+```
+
+## The header
+
+The header is tested on the line that opens a quote, and only there. After
+the quote prefix it is:
+
+1. `[!`;
+2. a kind: one or more ASCII letters, digits, `-` or `_`;
+3. `]`;
+4. optionally a fold marker, `+` or `-`;
+5. then the end of the line, or a space or tab and the title.
+
+The kind is kept as written. The title is the rest of the line, parsed as
+inline content.
+
+``` example
+> [!warning]- Do *not* rename
+> The fold marker makes it a `details` element.
+```
+
+A later line of an open quote is not tested.
+
+``` example
+> a
+> [!note] T
+```
+
+## What is not a header
+
+Anything else after the `]` leaves the line as djot reads it. This keeps
+links, spans and reference definitions that begin with `[!`.
+
+``` example
+> [!note](x)
+```
+
+``` example
+> [!no te] T
+```
+
+## The body
+
+The following lines of the quote are the body, parsed as blocks. No blank
+line is needed after the header. A line without `>` directly after the
+header closes the callout, because the header opens no paragraph for it to
+continue.
+
+``` example
+> [!note] T
+after
+```
+
+Inside the body, a paragraph continues onto a line without `>` as in any
+quote.
+
+``` example
+> [!note] T
+> para
+lazy
+```
+
+## Output
+
+Obsidian's classes. `data-callout` holds the kind. With a fold marker the
+outer element is `details`, open for `+` and closed for `-`. The tree keeps
+a node of its own, with the kind, the fold marker, the title and the body.
+
+{% ai-disclosure: ai-generated %}

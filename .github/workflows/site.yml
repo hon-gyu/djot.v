@@ -1,0 +1,44 @@
+# ai-disclosure: ai-generated
+# Builds the site from the checked-in extracted parser (ocaml/kernel), so
+# no Rocq is needed, and publishes it to GitHub Pages.
+name: site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The syntax reference pin; its commit date is shown on the site.
+      - run: git submodule update --init djot
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.4"
+      - run: opam install -y dune odoc jsont bytesrw brr js_of_ocaml-compiler
+      - run: opam exec -- make site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _build/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

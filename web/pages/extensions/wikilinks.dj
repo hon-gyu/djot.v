@@ -1,0 +1,76 @@
+profile: ext_wikilinks=on
+# Wikilinks
+
+Setting: `ext_wikilinks`.
+
+A wikilink is a target between double brackets, as in Obsidian.
+
+``` example
+See [[Backlinks]].
+```
+
+A `|` separates the target from an alias, which is the text shown.
+
+``` example
+See [[Backlinks|the other direction]].
+```
+
+A `!` in front makes it an embed, as it makes a link an image.
+
+``` example
+![[diagram.png]]
+```
+
+## Where it opens and closes
+
+A wikilink opens at a `[` that comes directly after another `[`, and closes
+at the first `]]` on the same line. A single `]` is part of the target.
+
+``` example
+[[a]b]]
+```
+
+It does not cross a line break. One that is not closed by the end of its
+line is text.
+
+``` example
+[[a
+b]]
+```
+
+## Target and alias
+
+The region is split at its first `|`. Both parts are kept as written:
+nothing is trimmed, a backslash is not decoded, and the alias is not parsed
+as inline content.
+
+``` example
+[[a|*b*]]
+```
+
+An empty target is not a wikilink.
+
+``` example
+[[]] and [[|b]]
+```
+
+## What it changes in djot
+
+A `[` at the start of a link's text is read as a wikilink opener. So a link
+whose text begins with a bracket reads differently.
+
+``` example
+[[1]](u)
+```
+
+In a table, the row is split into cells first, so a `|` inside a wikilink
+ends the cell.
+
+## Output
+
+A wikilink renders as the link it stands for: the target is the `href`, and
+the alias, or the target when there is none, is the text. An embed renders
+as an image. The tree keeps a node of its own, with the target, the alias
+and whether it is an embed.
+
+{% ai-disclosure: ai-generated %}
