@@ -161,9 +161,9 @@ Table 0-24 "| a | b |\n| 1 | 2 |\n^ cap"
     cell 14-18 "| 2 |"
       Str "2" 16-16 "2"
 
-== footnote labels
-label 8-8 "a", lines 3 (at 6) to 3 (at 6)
-label 21-21 "a", lines 5 (at 17) to 5 (at 17)
+== footnote definitions
+definition 6-15 "[^a]: one\n", lines 3 (at 6) to 3 (at 6)
+definition 19-27 "[^a]: two", lines 5 (at 17) to 5 (at 17)
 
 == reloc
 reloc 0-3 "a\n\nb", lines 1 (at 0) to 3 (at 3)

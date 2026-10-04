@@ -243,7 +243,7 @@ module Inline : sig
   (** The inlines as djot source, as they are written inside a paragraph, a soft or hard
       break ending a line.
       @param profile the syntax to write; default {!Profile.djot}
-      @param style default [`Safe]; [`Checked] reads the inlines as one paragraph *)
+      @param style default [`Checked], which reads the inlines as one paragraph *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
@@ -326,7 +326,7 @@ module Block : sig
       {!Doc.to_string}, a heading identifier is written out as an attribute even when the
       parser would derive it again.
       @param profile the syntax to write; default {!Profile.djot}
-      @param style default [`Safe] *)
+      @param style default [`Checked] *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
@@ -387,8 +387,10 @@ module Doc : sig
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
   (** The document as djot source, in the syntax of the profile it was parsed with. A
-      heading identifier the parser would derive again is left out. Parsing the result
-      with that profile gives the same tree, up to source positions, except that:
+      heading identifier the parser would derive again is left out.
+
+      With [`Safe] or [`Checked], parsing the result with that profile gives the same
+      tree, up to source positions, except that:
       - whitespace runs in attribute values collapse to one space;
       - a span with no attributes, an empty block quote, an empty table and an empty
         definition item read back as something else;
@@ -396,13 +398,14 @@ module Doc : sig
         marker;
       - a [|] in a table cell's text splits the cell.
 
-      Roundtrip.v proves the round trip for a fragment of documents; beyond it this is
-      tested, not proved.
+      The round trip is proved in Rocq for a fragment of documents written with [`Safe];
+      beyond it this is tested, not proved.
 
-      @param style
-        default [`Safe]. The other styles write the same blocks in the same order, so the
-        exceptions above that come from the tree apply to them too. *)
+      With [`Naive] the result need not parse back to the same tree; see {!style}.
+
+      @param style default [`Checked] *)
   val to_string : ?style:style -> t -> string
+  (* CR: why mention Roundtrip.v here? *)
 
   val blocks : t -> Block.t node list
 
@@ -413,12 +416,10 @@ module Doc : sig
       Two labels are the same when they are equal once each run of whitespace is replaced
       by one space, so [[^a  b]] and [[^a b]] are one footnote and [[^a]] and [[^A]] are
       two. When a label is defined more than once, the entry holds the last definition;
-      {!footnote_defs} has every one. *)
+      every definition is in {!blocks}. *)
   val footnotes : t -> (string * Block.t node list) list
-
-  (** Every {!Block.FootnoteDef} in source order, repeated labels included, each with its
-      label as written and its blocks. These are the nodes in {!blocks}. *)
-  val footnote_defs : t -> Block.t node list
+  (* CR: where does this "Two labels are the same when they are equal once each run of whitespace is replaced
+    by one space" come from? djot syntax reference?  *)
 
   (** The blocks of the footnote with this label, compared as in {!footnotes}. *)
   val footnote : t -> string -> Block.t node list option
@@ -435,13 +436,10 @@ module Doc : sig
 
   (** {!Textloc.none} unless the document was parsed with [~locs:true] and the node came
       from that parse. A list item spans from its marker to its last content, a table row
-      its line, a cell from its leading [|], a caption from its [^]. *)
+      its line, a cell from its leading [|], a caption from its [^], a footnote definition
+      from its [[^]. *)
   val textloc : t -> 'a node -> Textloc.t
-
-  (** The label of a {!Block.FootnoteDef}, between [[^] and [\]].
-      {!Textloc.none} for any other node and under the same conditions
-      as {!textloc}. *)
-  val footnote_label_loc : t -> Block.t node -> Textloc.t
+  (* CR: what is this for? *)
 
   type syntax = Kernel.Ast.syntax_role =
     | RAttrSpec (** Attributes in braces, [{...}]. *)
@@ -646,11 +644,11 @@ module Folder : sig
     -> 'a t
 
   val fold_inline : 'a t -> 'a -> Inline.t node -> 'a
-  val fold_block : 'a t -> 'a -> Block.t node -> 'a
 
-  (** The blocks, with children visited in source order. A footnote's blocks are
-      visited once, under its {!Block.FootnoteDef}. *)
-  val fold_doc : 'a t -> 'a -> Doc.t -> 'a
+  (** Children are visited in source order. To fold a document, fold its {!Doc.blocks}:
+      a footnote's blocks are there, under its {!Block.FootnoteDef}. *)
+  val fold_block : 'a t -> 'a -> Block.t node -> 'a
+  (* CR: is this fold_doc useful? can we just remove it and let user get the blocks themselves? *)
 end
 
 (** {1 HTML} *)

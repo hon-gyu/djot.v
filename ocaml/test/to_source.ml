@@ -92,7 +92,9 @@ let () =
     ]
   in
   Printf.printf "\n== readable\n%s\n" (Block.to_string ~style:`Naive blocks);
-  Printf.printf "\n== the same blocks, not readable\n%s\n" (Block.to_string blocks)
+  Printf.printf
+    "\n== the same blocks, not readable\n%s\n"
+    (Block.to_string ~style:`Safe blocks)
 ;;
 
 (* A delimiter is bare where it reads back as one and braced otherwise. *)
@@ -106,7 +108,7 @@ let () =
     (fun ils ->
       let out = Inline.to_string ~style:`Naive ils in
       let tree s = For_testing.kernel (Doc.of_string s) in
-      assert (tree out = tree (Inline.to_string ils));
+      assert (tree out = tree (Inline.to_string ~style:`Safe ils));
       print_endline out)
     [ [ str "a"; em [ str "b" ]; str "c" ]
     ; [ str "a "; em [ str " b " ]; str " c" ]
@@ -137,7 +139,7 @@ let () =
   in
   let out = Block.to_string ~style:`Checked blocks in
   let tree s = For_testing.kernel (Doc.of_string s) in
-  assert (tree out = tree (Block.to_string blocks));
+  assert (tree out = tree (Block.to_string ~style:`Safe blocks));
   assert (tree (Block.to_string ~style:`Naive blocks) <> tree out);
   Printf.printf "\n== checked\n%s\n" out
 ;;
