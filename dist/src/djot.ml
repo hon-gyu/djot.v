@@ -211,6 +211,75 @@ module Profile = struct
   ;;
 end
 
+type style =
+  [ `Safe
+  | `Checked
+  | `Naive
+  ]
+
+(* Source in a [style], from the two forms the kernel writes. *)
+module Styled = struct
+  let tree (p : Profile.t) (s : string) : K.Ast.doc =
+    K.Document.parse_doc p.K.Profile.profile_inline p.profile_block K.Ast.semantic_pos s
+  ;;
+
+  (* The naive parts, top-level blocks or one run of inlines, where the whole
+     still parses as the safe parts do. When it does not, a part goes back to
+     the safe form if it parses differently alone or after the part before it,
+     and when that is not enough every part does. *)
+  let checked profile ~sep (safe : string list) (naive : string list) : string =
+    let join = String.concat sep in
+    let same a b = tree profile a = tree profile b in
+    let all_safe = join safe in
+    let target = tree profile all_safe in
+    let all_naive = join naive in
+    if tree profile all_naive = target
+    then all_naive
+    else (
+      let pick (prev, acc) p w =
+        let ok =
+          same w p
+          &&
+          match prev with
+          | None -> true
+          | Some (prev_safe, prev_chosen) ->
+            same (join [ prev_chosen; w ]) (join [ prev_safe; p ])
+        in
+        let chosen = if ok then w else p in
+        Some (p, chosen), chosen :: acc
+      in
+      let _, picked = List.fold_left2 pick (None, []) safe naive in
+      let mixed = join (List.rev picked) in
+      if tree profile mixed = target then mixed else all_safe)
+  ;;
+
+  (* [Render.sep_lines] puts one blank line between blocks. *)
+  let blocks (style : style) (profile : Profile.t) (bs : K.Ast.block node list) : string =
+    let table = profile.K.Profile.profile_inline in
+    let config = profile.profile_block in
+    let safe = K.Render.render_djot table config in
+    let naive = K.Readable.readable_djot table config in
+    match style with
+    | `Safe -> safe bs
+    | `Naive -> naive bs
+    | `Checked ->
+      let each f = List.map (fun b -> f [ b ]) bs in
+      checked profile ~sep:"\n\n" (each safe) (each naive)
+  ;;
+
+  let inlines (style : style) (profile : Profile.t) (ils : K.Ast.inline node list)
+    : string
+    =
+    let table = profile.K.Profile.profile_inline in
+    let safe = String.concat "\n" (K.InlineView.inline_lines table ils "") in
+    let naive () = String.concat "\n" (K.Readable.readable_inline_lines table ils) in
+    match style with
+    | `Safe -> safe
+    | `Naive -> naive ()
+    | `Checked -> checked profile ~sep:"" [ safe ] [ naive () ]
+  ;;
+end
+
 module Inline = struct
   type math_style = K.Ast.math_style =
     | DisplayMath
@@ -249,8 +318,8 @@ module Inline = struct
     | HardBreak
     | Ext_wikilink of bool * string * string option
 
-  let to_string ?(profile = Profile.djot) (ils : t node list) : string =
-    String.concat "\n" (K.InlineView.inline_lines profile.K.Profile.profile_inline ils "")
+  let to_string ?(profile = Profile.djot) ?(style = `Safe) (ils : t node list) : string =
+    Styled.inlines style profile ils
   ;;
 
   let to_plain_text (ns : t node list) : string =
@@ -321,8 +390,8 @@ module Block = struct
     | Ext_keyed of Inline.t node list * t node
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
 
-  let to_string ?(profile = Profile.djot) (bs : t node list) : string =
-    K.Render.render_djot profile.K.Profile.profile_inline profile.profile_block bs
+  let to_string ?(profile = Profile.djot) ?(style = `Safe) (bs : t node list) : string =
+    Styled.blocks style profile bs
   ;;
 end
 
@@ -474,8 +543,8 @@ module Doc = struct
     of_pieces ~profile ~locs s (pieces_of_string ~profile ~locs s)
   ;;
 
-  let to_string (d : t) : string =
-    K.Render.render_doc d.profile.profile_inline d.profile.profile_block d.kernel
+  let to_string ?(style = `Safe) (d : t) : string =
+    Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel)
   ;;
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
@@ -818,7 +887,6 @@ end
 
 module For_testing = struct
   let kernel (d : Doc.t) = d.kernel
-
   let parsed (d : Doc.t) = d.parsed
 end
 

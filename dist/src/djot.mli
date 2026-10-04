@@ -174,6 +174,26 @@ module Node : sig
   val content : 'a node -> 'a
 end
 
+(** {1 Writing source} *)
+
+(** How a tree is written as djot source by [to_string].
+    - [`Safe]: text is escaped and delimiters are braced by fixed rules, so that the
+      result parses back to the tree. Fast, and not what a person would type: [3\:1],
+      [{_a_}].
+    - [`Naive]: the text a person would type, for a tree built by hand. Nothing is
+      escaped, emphasis and quotes are written without braces where they read back as
+      such, table columns are padded, and a blank line inside a container is empty. Text
+      is written as it is, so a paragraph holding [- x] reads back as a list and [a*b*c]
+      as strong emphasis.
+    - [`Checked]: [`Naive] wherever that parses to the same tree as [`Safe] does, and
+      [`Safe] for the top-level blocks where it does not. The result always parses as the
+      [`Safe] one. Costs two parses of the result, more when blocks differ. *)
+type style =
+  [ `Safe
+  | `Checked
+  | `Naive
+  ]
+
 (** {1 Inlines} *)
 
 module Inline : sig
@@ -222,8 +242,9 @@ module Inline : sig
 
   (** The inlines as djot source, as they are written inside a paragraph, a soft or hard
       break ending a line.
-      @param profile the syntax to write; default {!Profile.djot} *)
-  val to_string : ?profile:Profile.t -> t node list -> string
+      @param profile the syntax to write; default {!Profile.djot}
+      @param style default [`Safe]; [`Checked] reads the inlines as one paragraph *)
+  val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
 (** {1 Blocks} *)
@@ -303,8 +324,9 @@ module Block : sig
   (** The blocks as djot source, for the source of one node or of a mapped tree. Unlike
       {!Doc.to_string}, a heading identifier is written out as an attribute even when the
       parser would derive it again.
-      @param profile the syntax to write; default {!Profile.djot} *)
-  val to_string : ?profile:Profile.t -> t node list -> string
+      @param profile the syntax to write; default {!Profile.djot}
+      @param style default [`Safe] *)
+  val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
 (** {1 Source locations} *)
@@ -375,8 +397,12 @@ module Doc : sig
       - a [|] in a table cell's text splits the cell.
 
       Roundtrip.v proves the round trip for a fragment of documents; beyond it this is
-      tested, not proved. *)
-  val to_string : t -> string
+      tested, not proved.
+
+      @param style
+        default [`Safe]. The other styles write the same blocks in the same order, so the
+        exceptions above that come from the tree apply to them too. *)
+  val to_string : ?style:style -> t -> string
 
   val blocks : t -> Block.t node list
 
@@ -553,8 +579,8 @@ module For_testing : sig
   (** The document without its line table, so that two parses compare with [=]. *)
   val kernel : Doc.t -> Kernel.Ast.doc
 
-  (** The blocks as parsed, before headings are wrapped in sections and definitions
-      taken out. *)
+  (** The blocks as parsed, before headings are wrapped in sections and definitions taken
+      out. *)
   val parsed : Doc.t -> Block.t node list
 end
 
