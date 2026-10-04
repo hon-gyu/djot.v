@@ -1,0 +1,25 @@
+(library
+ (name site_common)
+ (libraries djot))
+
+; The commits the site states and the theorems it links to.  Read from the
+; repository outside this project, so the rules rerun on every build.
+(rule
+ (targets versions.ml)
+ (deps
+  (universe)
+  versions.sh)
+ (action
+  (with-stdout-to
+   versions.ml
+   (run sh %{dep:versions.sh}))))
+
+(rule
+ (targets theorems.ml)
+ (deps
+  (universe)
+  theorems.sh)
+ (action
+  (with-stdout-to
+   theorems.ml
+   (run sh %{dep:theorems.sh}))))

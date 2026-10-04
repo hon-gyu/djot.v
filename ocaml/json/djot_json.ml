@@ -655,6 +655,82 @@ let to_string ?(format = Jsont.Minify) (d : Doc.t) : string =
   | Error e -> invalid_arg e
 ;;
 
+(* djot.js's [renderAST], over the encoded document. *)
+let to_ast_string (d : Doc.t) : string =
+  let b = Buffer.create 1024 in
+  let stringify (v : Jsont.json) =
+    match Jsont_bytesrw.encode_string Jsont.json v with
+    | Ok s -> s
+    | Error e -> invalid_arg e
+  in
+  let mem name (o : Jsont.object') =
+    List.find_map (fun ((n, _), v) -> if n = name then Some v else None) o
+  in
+  let omitted =
+    [ "children"
+    ; "tag"
+    ; "pos"
+    ; "attributes"
+    ; "autoAttributes"
+    ; "references"
+    ; "autoReferences"
+    ; "footnotes"
+    ]
+  in
+  let int name o =
+    match mem name o with
+    | Some (Jsont.Number (f, _)) -> string_of_int (int_of_float f)
+    | _ -> "?"
+  in
+  let point name o =
+    match mem name o with
+    | Some (Jsont.Object (p, _)) ->
+      String.concat ":" [ int "line" p; int "col" p; int "offset" p ]
+    | _ -> "?"
+  in
+  let rec node indent (v : Jsont.json) =
+    match v with
+    | Object (o, _) ->
+      Buffer.add_string b (String.make indent ' ');
+      (match mem "tag" o with
+       | Some (String (t, _)) -> Buffer.add_string b t
+       | _ -> ());
+      (match mem "pos" o with
+       | Some (Object (p, _)) ->
+         Printf.bprintf b " (%s-%s)" (point "start" p) (point "end" p)
+       | _ -> ());
+      let field ((k, _), v) = Printf.bprintf b " %s=%s" k (stringify v) in
+      List.iter (fun (((k, _), _) as m) -> if not (List.mem k omitted) then field m) o;
+      (match mem "attributes" o with
+       | Some (Object (a, _)) -> List.iter field a
+       | _ -> ());
+      Buffer.add_char b '\n';
+      (match mem "children" o with
+       | Some (Array (cs, _)) -> List.iter (node (indent + 2)) cs
+       | _ -> ())
+    | _ -> ()
+  in
+  let table name (o : Jsont.object') =
+    match mem name o with
+    | Some (Object ((_ :: _ as entries), _)) ->
+      Printf.bprintf b "%s\n" name;
+      List.iter
+        (fun ((k, _), v) ->
+          Printf.bprintf b "  [%s] =\n" (stringify (Jsont.Json.string k));
+          node 4 v)
+        entries
+    | _ -> ()
+  in
+  let json = of_doc d in
+  node 0 json;
+  (match json with
+   | Object (o, _) ->
+     table "references" o;
+     table "footnotes" o
+   | _ -> ());
+  Buffer.contents b
+;;
+
 let to_doc ?profile (json : Jsont.json) : (Doc.t, string) result =
   Jsont.Json.decode (made ?profile ()) json
 ;;

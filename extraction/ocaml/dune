@@ -44,9 +44,12 @@
   PeanoNat
   PosDef
   Profile
+  ProfileChecks
+  Properties
   Readable
   Render
   Reparse
+  Spec
   Specif
   Step
   String0

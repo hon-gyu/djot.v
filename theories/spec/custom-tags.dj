@@ -1,0 +1,95 @@
+# Custom tag names
+
+Setting: `ext_tags`.
+
+A div and a span can have a name, which becomes the element.
+
+``` example
+Press :kbd[Ctrl+C] to copy.
+.
+<p>Press <kbd>Ctrl+C</kbd> to copy.</p>
+```
+
+``` example
+::: details
+Hidden until opened.
+:::
+.
+<details>
+<p>Hidden until opened.</p>
+</details>
+```
+
+This extension changes how existing djot documents parse: in djot the word
+after a div fence is a class, and `:name[` is text before a bracket.
+
+## A div's name
+
+The word after a div's opening fence is its name. Which lines open a div
+does not change. A fence with no word opens an unnamed div.
+
+``` example
+{.note}
+::: aside
+A named div with a class.
+:::
+.
+<aside class="note">
+<p>A named div with a class.</p>
+</aside>
+```
+
+## A span's name
+
+`:name[` opens a named span. The name is made of the characters a symbol
+`:name:` may contain. The span closes at the first `]` that arrives while
+it is the innermost open bracket, and nothing after the `]` is waited for.
+
+``` example
+:kbd[x](u)
+.
+<p><kbd>x</kbd>(u)</p>
+```
+
+Attributes attach as they do to any inline.
+
+``` example
+:kbd[Esc]{.key}
+.
+<p><kbd class="key">Esc</kbd></p>
+```
+
+## Where `:name[` is not a named span
+
+After an escaped colon, or when the colon directly follows a letter, a
+digit or a colon.
+
+``` example
+\:kbd[a] and a:kbd[b]
+.
+<p>:kbd[a] and a:kbd[b]</p>
+```
+
+When it never closes.
+
+``` example
+:kbd[a
+.
+<p>:kbd[a</p>
+```
+
+## Output
+
+The name is the element name when it is made of ASCII letters, digits and
+hyphens, starts with a letter, and is not an element whose content a
+browser reads differently (a void element such as `br`, or `script`,
+`style`, `textarea`, `title`, `iframe` and similar). Otherwise the element
+is `div` or `span` and the name is in a `data-tag` attribute.
+
+``` example
+:script[x] and :a_b[y]
+.
+<p><span data-tag="script">x</span> and <span data-tag="a_b">y</span></p>
+```
+
+{% ai-disclosure: ai-generated %}

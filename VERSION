@@ -1,0 +1,7 @@
+# What a published djot.v models, and its own version.  
+# The site, and anything else that states a version, reads this file.  
+# The `djot` submodule may be ahead of it: it is the reference being worked 
+# against, not the one published.
+version: 0.1.0
+djot-commit: d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7
+djot-date: 2026-06-16

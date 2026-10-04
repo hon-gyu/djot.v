@@ -3,6 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Dollar math
 
+The extension is implemented, and its rules are stated in
+`theories/spec/dollar-math.dj`. That file is the reference from now on. This
+note is the work log behind it: the reasons, the alternatives, and what the
+implementation cost. It is not updated when the rules change.
+
 Status: **implemented** (2026-09-27), v1. Rebased onto main on
 2026-10-02. The setting, scanner states, proofs, extraction and the
 Markdown-like profile's use of it are built, and the OCaml package

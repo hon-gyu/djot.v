@@ -3,6 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Wikilinks
 
+The extension is implemented, and its rules are stated in
+`theories/spec/wikilinks.dj`. That file is the reference from now on. This
+note is the work log behind it: the reasons, the alternatives, and what the
+implementation cost. It is not updated when the rules change.
+
 Status: **implemented** (2026-09-22). Sections 0, 3, 4, 5, 6 and 9.2
 were revised that day so that the construct carries syntax only, 9.4 was
 added, and section 8 was restated against the tree before any code was

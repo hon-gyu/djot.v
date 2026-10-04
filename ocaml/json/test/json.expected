@@ -429,3 +429,29 @@ a keyed block holds one block
 File "-", line 1, characters 1-45:
 File "-", line 1, characters 1-45: at index [1m0[0m of
 File "-", line 1, characters 0-45: [1marray<block object>[0m
+
+== ast
+doc
+  section (1:1:0-8:10:54)
+    heading (1:1:0-1:4:3) level=1 plain="Hi"
+      str (1:3:2-1:4:3) text="Hi"
+    bullet_list (3:1:6-4:16:33) tight=true style="-"
+      list_item (3:1:6-3:11:16)
+        para (3:3:8-3:11:16)
+          str (3:3:8-3:4:9) text="a "
+          strong (3:5:10-3:7:12) class="c"
+            str (3:6:11-3:6:11) text="b"
+      list_item (4:1:18-4:16:33)
+        para (4:3:20-4:16:33)
+          link (4:3:20-4:8:25) reference="y"
+            str (4:4:21-4:4:21) text="x"
+          str (4:9:26-4:12:29) text=" and"
+          footnote_reference (4:13:30-4:16:33) text="n"
+references
+  ["y"] =
+    reference label="y" destination="/u"
+footnotes
+  ["n"] =
+    footnote (8:1:45-8:10:54) label="n"
+      para (8:7:51-8:10:54)
+        str (8:7:51-8:10:54) text="note"

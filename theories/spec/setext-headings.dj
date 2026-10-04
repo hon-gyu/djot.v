@@ -1,0 +1,64 @@
+# Setext headings
+
+Setting: `ext_setext_headings`. On in the Markdown-like profile.
+
+A paragraph followed by a line of `=` is a level 1 heading.
+
+``` example
+A heading
+=========
+.
+<section id="A-heading">
+<h1>A heading</h1>
+</section>
+```
+
+A line of two or more `-` makes a level 2 heading.
+
+``` example
+A heading
+--
+.
+<section id="A-heading">
+<h2>A heading</h2>
+</section>
+```
+
+A single `-` is a list marker and does not underline.
+
+``` example
+A paragraph
+-
+.
+<p>A paragraph
+-</p>
+```
+
+The underline applies to the paragraph above it, so the heading can span
+several lines.
+
+``` example
+A heading
+on two lines
+===
+.
+<section id="A-heading-on-two-lines">
+<h1>A heading
+on two lines</h1>
+</section>
+```
+
+Without a paragraph above, the same line is what djot reads.
+
+``` example
+===
+.
+<p>===</p>
+```
+
+## What it costs
+
+A paragraph can no longer be wrapped anywhere: a line that is all `=`, or
+two or more `-`, ends the paragraph and changes what it is.
+
+{% ai-disclosure: ai-generated %}

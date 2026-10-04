@@ -3,6 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Callouts
 
+The extension is implemented, and its rules are stated in
+`theories/spec/callouts.dj`. That file is the reference from now on. This
+note is the work log behind it: the reasons, the alternatives, and what the
+implementation cost. It is not updated when the rules change.
+
 Status: **implemented** (2026-09-27). The recognizer, parser setting,
 distinct node, located title, HTML and source renderers, canonical view,
 roundtrip proof, generated checks, extraction, and public facade are built.

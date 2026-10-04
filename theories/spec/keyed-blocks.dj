@@ -1,0 +1,168 @@
+# Keyed blocks
+
+Setting: `ext_keyed`.
+
+A colon pairs a label with one block.
+
+``` example
+status: in progress
+.
+<dl class="keyed">
+<dt>status</dt>
+<dd>
+<p>in progress</p>
+</dd>
+</dl>
+```
+
+When nothing follows the colon, the block is the one on the following
+lines.
+
+``` example
+steps:
+- one
+- two
+.
+<dl class="keyed">
+<dt>steps</dt>
+<dd>
+<ul>
+<li>
+one
+</li>
+<li>
+two
+</li>
+</ul>
+</dd>
+</dl>
+```
+
+This extension changes how existing djot documents parse: every line it
+reads as a key is a paragraph line in djot.
+
+## Where a colon makes a key
+
+A text line is split at its first colon that is
+
+- not escaped;
+- not preceded by whitespace;
+- followed by a space or by the end of the line (a tab does not count);
+- outside every inline construct: not in a code span, a bracket, an
+  attribute or an open delimiter.
+
+``` example
+see http://example.com: not this colon, but the next
+.
+<dl class="keyed">
+<dt>see http://example.com</dt>
+<dd>
+<p>not this colon, but the next</p>
+</dd>
+</dl>
+```
+
+``` example
+`a: b` is code
+.
+<p><code>a: b</code> is code</p>
+```
+
+``` example
+foo : bar
+.
+<p>foo : bar</p>
+```
+
+The label is one inline element: a run of text, or an emphasis, a link, a
+code span.
+
+## The value
+
+What follows the colon on the key line is inline content, never block
+syntax.
+
+``` example
+foo: - bar
+.
+<dl class="keyed">
+<dt>foo</dt>
+<dd>
+<p>- bar</p>
+</dd>
+</dl>
+```
+
+A line is split once.
+
+``` example
+foo: bar: baz
+.
+<dl class="keyed">
+<dt>foo</dt>
+<dd>
+<p>bar: baz</p>
+</dd>
+</dl>
+```
+
+## One block
+
+A key takes one block, and its scope ends where that block ends. A
+paragraph ends at a blank line, a list at a line that is not part of it, a
+fenced block at its closing fence.
+
+``` example
+foo:
+bar
+
+baz
+.
+<dl class="keyed">
+<dt>foo</dt>
+<dd>
+<p>bar</p>
+</dd>
+</dl>
+<p>baz</p>
+```
+
+Keys nest by line.
+
+``` example
+foo:
+bar: baz
+.
+<dl class="keyed">
+<dt>foo</dt>
+<dd>
+<dl class="keyed">
+<dt>bar</dt>
+<dd>
+<p>baz</p>
+</dd>
+</dl>
+</dd>
+</dl>
+```
+
+## Where a colon is not a key
+
+Lines that djot reads as something other than text are read that way
+first: a div fence `:::`, a definition list marker, a reference definition
+`[x]: u`, a footnote definition, a heading.
+
+``` example
+# foo: bar
+.
+<section id="foo:-bar">
+<h1>foo: bar</h1>
+</section>
+```
+
+## Output
+
+A description list with one term and the class `keyed`. The tree keeps a
+node of its own, with the label and the block.
+
+{% ai-disclosure: ai-generated %}

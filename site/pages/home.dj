@@ -1,0 +1,37 @@
+# djot.v
+
+A [djot](https://djot.net) parser written and verified in
+[Rocq](https://rocq-prover.org), and extracted to OCaml.
+
+djot was designed around a few goals: parsing never backtracks, text means
+the same thing inside a container as outside it, a link is recognized
+without looking at the rest of the document, and a paragraph can be
+hard-wrapped anywhere. Here those goals are theorems about the parser.
+
+djot is one setting of the parser. Its inline delimiters can be respelled,
+its constructs can be switched off, and extensions can be switched on. For
+each setting, the proofs say which of the properties it keeps. A
+Markdown-like profile, for example, keeps no backtracking and uniformity,
+and gives up safe hard-wrapping.
+
+- [Playground](playground/): run the parser in the browser, change the
+  profile, and see which properties the profile keeps.
+- [Extensions](extensions/): the syntax of each extension.
+- [OCaml API](api/): the extracted parser as a library.
+
+## Versions
+
+``` versions
+```
+
+## Properties
+
+The status of each property under the two named profiles. The playground
+shows the same for any profile.
+
+``` properties
+djot
+markdown-like
+```
+
+{% ai-disclosure: ai-generated %}

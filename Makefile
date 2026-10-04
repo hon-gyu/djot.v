@@ -1,7 +1,8 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
-        ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch
+        ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
+        site site-serve site-publish check-rocq check-readme check-site
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -132,3 +133,40 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 	@git subtree split --prefix=ocaml --branch=ocaml -q >/dev/null
 	@echo "local ocaml branch:  `git rev-parse --short refs/heads/ocaml`"
 	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify refs/remotes/origin/ocaml || echo none`"
+
+# Site
+# ----
+
+# site/ is a dune project of its own, built with the switch that has the
+# ocaml/ package's dependencies plus brr and js_of_ocaml.
+SITE = _build/site
+
+site:  ## Build the static site into _build/site
+	cd site && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
+	cd ocaml && dune build @doc
+	rm -rf $(SITE)
+	site/_build/default/gen/gen.exe site/pages theories/spec $(SITE)
+	cp site/pages/theme.css site/pages/style.css site/pages/preview.css $(SITE)/
+	cp site/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
+	cp site/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
+	cp -R ocaml/_build/default/_doc/_html $(SITE)/api/odoc
+	touch $(SITE)/.nojekyll
+
+site-serve: site  ## Build the site and serve it on localhost:8000
+	python3 -m http.server -d $(SITE) 8000
+
+# Run by hand.  The site becomes a new commit on the gh-pages branch of
+# origin, which GitHub Pages serves.
+site-publish: site  ## Build the site and push it to the gh-pages branch of origin
+	scripts/site-publish.sh $(SITE)
+
+# All local checks. Run before branch merging
+# --------------------------------------------
+
+check-rocq: build ocaml-pkg-check-current check-readme  ## (needs Rocq switch) check the proofs, that ocaml/kernel is the current extraction, and the README tables
+
+check-readme:  ## Fail if the README's property tables differ from theories/Properties.v (dune promote updates them)
+	dune build @readme
+
+check-site: site  ## (needs OCaml switch) test the ocaml/ package and build the site
+	cd ocaml && dune build @runtest @install

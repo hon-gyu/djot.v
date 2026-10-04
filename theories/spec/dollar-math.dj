@@ -1,0 +1,100 @@
+# Dollar math
+
+Setting: `ext_dollar_math`.
+
+Math between dollar signs, as in pandoc's Markdown and on GitHub. It is
+independent of djot's own math syntax, ``$`x` ``, which stays available.
+
+``` example
+The area is $\pi r^2$.
+.
+<p>The area is <span class="math inline">\(\pi r^2\)</span>.</p>
+```
+
+Two dollars give display math.
+
+``` example
+$$\int_0^1 x\,dx$$
+.
+<p><span class="math display">\[\int_0^1 x\,dx\]</span></p>
+```
+
+## Inline math
+
+One `$` opens inline math when the character after it is not whitespace and
+not a backtick. The next `$` closes it when the character before it is not
+whitespace and the character after it is not a digit. Otherwise the opener
+is text.
+
+``` example
+It costs $5 and $10.
+.
+<p>It costs $5 and $10.</p>
+```
+
+``` example
+To split $100 in half, we calculate $100/2$.
+.
+<p>To split $100 in half, we calculate <span class="math inline">\(100/2\)</span>.</p>
+```
+
+Inside the math, a backslash and the character after it are kept as
+written, and that character cannot close.
+
+``` example
+$a\$b$
+.
+<p><span class="math inline">\(a\$b\)</span></p>
+```
+
+The content is not parsed as inline syntax.
+
+``` example
+$a*b*c$
+.
+<p><span class="math inline">\(a*b*c\)</span></p>
+```
+
+## Display math
+
+Two `$` open display math, closed by the next `$$`. The whitespace and
+digit conditions do not apply. Three or more `$` in a row are text.
+
+``` example
+$$x$ and $$$y$$$
+.
+<p>$$x$ and $$$y$$$</p>
+```
+
+## The GitHub form
+
+A `$` directly before a code span and another directly after it make
+inline math whose content is the code span's.
+
+``` example
+$`x_1`$
+.
+<p><span class="math inline">\(x_1\)</span></p>
+```
+
+## Priority
+
+A closer has to arrive before the end of the paragraph, heading or table
+cell. Once math closes, it wins over emphasis, links and spans that overlap
+it.
+
+``` example
+*a $b* c$
+.
+<p>*a <span class="math inline">\(b* c\)</span></p>
+```
+
+A `$` inside a code span is not an opener, and `\$` is a literal dollar.
+
+``` example
+`a $b` c$ and \$x$
+.
+<p><code>a $b</code> c$ and $x$</p>
+```
+
+{% ai-disclosure: ai-generated %}

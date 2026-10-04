@@ -102,42 +102,223 @@ module Node = struct
 end
 
 module Profile = struct
-  type t = K.Profile.profile
+  type t = K.Profile.options
 
-  let djot = K.Profile.djot_profile
-  let markdown_like = K.Profile.markdown_like_profile
-  let with_footnotes = K.Profile.with_footnotes
+  let djot = K.Profile.djot_options
+  let markdown_like = K.Profile.markdown_like_options
+  let table (p : t) = p.o_inline
+  let of_kernel (o : t) = if K.InlineTable.dconfig_ok o.o_inline then Some o else None
+  let bconfig = K.Profile.bconfig_of
+
+  module Switch = struct
+    type profile = t
+
+    type t =
+      { name : string
+      ; doc : string
+      ; get : profile -> bool
+      ; set : bool -> profile -> profile
+      }
+
+    let name s = s.name
+    let doc s = s.doc
+    let is_extension s = not (s.get djot)
+    let get s = s.get
+    let set s = s.set
+  end
 
   (* The inline switches are the ones proved to keep a table admissible
      (InlineTable.v, `*_preserves_admissible`). *)
-  let inline f b (p : t) = { p with profile_inline = f b p.profile_inline }
-  let block f b (p : t) = { p with profile_block = f b p.profile_block }
-  let with_smart_typography = inline K.InlineTable.with_smart_typography
-  let with_raw_inline = inline K.InlineTable.with_raw_inline
-  let with_math = inline K.InlineTable.with_math
-  let with_inline_attrs = inline K.InlineTable.with_inline_attrs
-  let with_ext_wikilinks = inline K.InlineTable.with_wikilinks
-  let with_ext_dollar_math = inline K.InlineTable.with_dollar_math
-  let with_tables = block K.Step.with_tables
-  let with_divs = block K.Step.with_divs
-  let with_tasks = block K.Step.with_tasks
-  let with_raw_blocks = block K.Step.with_raw_blocks
-  let with_deflists = block K.Step.with_deflists
-  let with_block_attrs = block K.Step.with_block_attrs
-  let with_heading_continuation = block K.Step.with_heading_continuation
-  let with_ext_keyed = block K.Step.with_keyed
-  let with_ext_callouts = block K.Step.with_callouts
-  let with_ext_tags = K.Profile.with_tags
-
-  let with_ext_setext_headings b =
-    block K.Step.with_underline K.Step.(if b then setext_underline else no_underline)
+  let inline name doc get f : Switch.t =
+    { name
+    ; doc
+    ; get = (fun p -> get p.K.Profile.o_inline)
+    ; set = (fun b p -> { p with o_inline = f b p.o_inline })
+    }
   ;;
 
-  let with_ext_list_interrupts b =
-    block
-      K.Step.with_marker_interrupts
-      K.Step.(if b then prose_safe_markers else no_interrupt)
+  open K.InlineTable
+
+  let footnotes =
+    inline
+      "footnotes"
+      "[^a] and [^a]: ..."
+      (fun t -> t.dc_footnotes)
+      with_inline_footnotes
   ;;
+
+  let smart_typography =
+    inline
+      "smart_typography"
+      "dashes and ellipses"
+      (fun t -> t.dc_smart_typography)
+      with_smart_typography
+  ;;
+
+  let raw_inline =
+    inline "raw_inline" "`x`{=html}" (fun t -> t.dc_raw_inline) with_raw_inline
+  ;;
+
+  let math = inline "math" "$`x` and $$`x`" (fun t -> t.dc_math) with_math
+
+  let inline_attrs =
+    inline
+      "inline_attrs"
+      "{...} after an inline, and [text]{...}"
+      (fun t -> t.dc_attrs)
+      with_inline_attrs
+  ;;
+
+  let ext_wikilinks =
+    inline
+      "ext_wikilinks"
+      "[[target|alias]] and ![[target]]"
+      (fun t -> t.dc_wikilinks)
+      with_wikilinks
+  ;;
+
+  let ext_dollar_math =
+    inline
+      "ext_dollar_math"
+      "$x$, $$x$$ and $`x`$"
+      (fun t -> t.dc_dollar_math)
+      with_dollar_math
+  ;;
+
+  let ext_tags =
+    inline "ext_tags" "::: name and :name[...]" (fun t -> t.dc_tags) with_inline_tags
+  ;;
+
+  let tables : Switch.t =
+    { name = "tables"
+    ; doc = "pipe tables"
+    ; get = (fun p -> p.o_tables)
+    ; set = (fun b p -> { p with o_tables = b })
+    }
+  ;;
+
+  let divs : Switch.t =
+    { name = "divs"
+    ; doc = "::: fenced divs"
+    ; get = (fun p -> p.o_divs)
+    ; set = (fun b p -> { p with o_divs = b })
+    }
+  ;;
+
+  let tasks : Switch.t =
+    { name = "tasks"
+    ; doc = "- [ ] task list items"
+    ; get = (fun p -> p.o_tasks)
+    ; set = (fun b p -> { p with o_tasks = b })
+    }
+  ;;
+
+  let raw_blocks : Switch.t =
+    { name = "raw_blocks"
+    ; doc = "code blocks with an =format info string"
+    ; get = (fun p -> p.o_raw_blocks)
+    ; set = (fun b p -> { p with o_raw_blocks = b })
+    }
+  ;;
+
+  let deflists : Switch.t =
+    { name = "deflists"
+    ; doc = ": definition lists"
+    ; get = (fun p -> p.o_deflists)
+    ; set = (fun b p -> { p with o_deflists = b })
+    }
+  ;;
+
+  let block_attrs : Switch.t =
+    { name = "block_attrs"
+    ; doc = "an attribute line {...} before a block"
+    ; get = (fun p -> p.o_block_attrs)
+    ; set = (fun b p -> { p with o_block_attrs = b })
+    }
+  ;;
+
+  let heading_continuation : Switch.t =
+    { name = "heading_continuation"
+    ; doc = "a heading's text continues onto the following lines"
+    ; get = (fun p -> p.o_heading_continuation)
+    ; set = (fun b p -> { p with o_heading_continuation = b })
+    }
+  ;;
+
+  let ext_keyed : Switch.t =
+    { name = "ext_keyed"
+    ; doc = "label: content"
+    ; get = (fun p -> p.o_keyed)
+    ; set = (fun b p -> { p with o_keyed = b })
+    }
+  ;;
+
+  let ext_callouts : Switch.t =
+    { name = "ext_callouts"
+    ; doc = "> [!kind] on the first line of a block quote"
+    ; get = (fun p -> p.o_callouts)
+    ; set = (fun b p -> { p with o_callouts = b })
+    }
+  ;;
+
+  let ext_setext_headings : Switch.t =
+    { name = "ext_setext_headings"
+    ; doc = "a paragraph underlined with = or --"
+    ; get = (fun p -> p.o_setext)
+    ; set = (fun b p -> { p with o_setext = b })
+    }
+  ;;
+
+  let ext_list_interrupts : Switch.t =
+    { name = "ext_list_interrupts"
+    ; doc = "a list starts on the line after paragraph text"
+    ; get = (fun p -> p.o_list_interrupts)
+    ; set = (fun b p -> { p with o_list_interrupts = b })
+    }
+  ;;
+
+  let switches =
+    [ footnotes
+    ; smart_typography
+    ; raw_inline
+    ; math
+    ; inline_attrs
+    ; tables
+    ; divs
+    ; tasks
+    ; raw_blocks
+    ; deflists
+    ; block_attrs
+    ; heading_continuation
+    ; ext_wikilinks
+    ; ext_dollar_math
+    ; ext_keyed
+    ; ext_callouts
+    ; ext_tags
+    ; ext_setext_headings
+    ; ext_list_interrupts
+    ]
+  ;;
+
+  let with_footnotes = footnotes.set
+  let with_smart_typography = smart_typography.set
+  let with_raw_inline = raw_inline.set
+  let with_math = math.set
+  let with_inline_attrs = inline_attrs.set
+  let with_tables = tables.set
+  let with_divs = divs.set
+  let with_tasks = tasks.set
+  let with_raw_blocks = raw_blocks.set
+  let with_deflists = deflists.set
+  let with_block_attrs = block_attrs.set
+  let with_heading_continuation = heading_continuation.set
+  let with_ext_wikilinks = ext_wikilinks.set
+  let with_ext_dollar_math = ext_dollar_math.set
+  let with_ext_keyed = ext_keyed.set
+  let with_ext_callouts = ext_callouts.set
+  let with_ext_tags = ext_tags.set
+  let with_ext_setext_headings = ext_setext_headings.set
+  let with_ext_list_interrupts = ext_list_interrupts.set
 
   let pp_fields ppf fields =
     Format.pp_open_vbox ppf 0;
@@ -149,65 +330,101 @@ module Profile = struct
     Format.pp_close_box ppf ()
   ;;
 
-  let delimiter_fields (p : t) =
-    let t = p.profile_inline in
-    let delim s =
-      let run = String.make (t.dc_width s) (t.dc_char s) in
-      match t.dc_syntax s with
-      | K.InlineTable.DOff -> "off"
-      | DBraced -> run ^ " braced"
-      | DBare -> run ^ " bare"
-      | DBareAfterBreak -> run ^ " bare after a break"
+  module Delimiter = struct
+    type profile = t
+
+    type syntax =
+      [ `Off
+      | `Braced
+      | `Bare
+      ]
+
+    type t =
+      { name : string
+      ; row : dstyle
+      }
+
+    let name d = d.name
+
+    let spelling d (p : profile) : char * int * syntax =
+      let t = table p in
+      ( t.dc_char d.row
+      , t.dc_width d.row
+      , match t.dc_syntax d.row with
+        | DOff -> `Off
+        | DBraced -> `Braced
+        | DBare | DBareAfterBreak -> `Bare )
+    ;;
+  end
+
+  let emph : Delimiter.t = { name = "emph"; row = DEmph }
+  let strong : Delimiter.t = { name = "strong"; row = DStrong }
+  let superscript : Delimiter.t = { name = "superscript"; row = DSuper }
+  let subscript : Delimiter.t = { name = "subscript"; row = DSub }
+  let highlight : Delimiter.t = { name = "highlight"; row = DMark }
+  let insert : Delimiter.t = { name = "insert"; row = DInsert }
+  let delete : Delimiter.t = { name = "delete"; row = DDelete }
+  let delimiters = [ emph; strong; superscript; subscript; highlight; insert; delete ]
+
+  (* The quote rows have no setter: what an unmatched quote leaves behind
+     is part of the row. *)
+  let rows =
+    delimiters @ [ { name = "single_quote"; row = DSQuote }; { name = "double_quote"; row = DDQuote } ]
+  ;;
+
+  let refusal c : drow_refusal -> string = function
+    | RWidth -> "the width must be at least 1"
+    | RNotPunct -> Printf.sprintf "%C is not ASCII punctuation" c
+    | RReserved -> Printf.sprintf "%C is taken by other syntax" c
+    | RDecay -> "an unmatched delimiter must leave something behind"
+    | RBareHyphen -> "a bare delimiter cannot be a hyphen"
+    | RTaken row ->
+      let r = List.find (fun (r : Delimiter.t) -> r.row = row) rows in
+      Printf.sprintf "%C is already the %s delimiter" c r.name
+  ;;
+
+  let with_delimiter (d : Delimiter.t) c ~width (syntax : Delimiter.syntax) (p : t) =
+    let entry =
+      { de_char = c
+      ; de_width = width
+      ; de_syntax =
+          (match syntax with
+           | `Off -> DOff
+           | `Braced -> DBraced
+           | `Bare -> DBare)
+      ; de_decay = DDSelf
+      }
     in
-    [ "emph", delim DEmph
-    ; "strong", delim DStrong
-    ; "superscript", delim DSuper
-    ; "subscript", delim DSub
-    ; "highlight", delim DMark
-    ; "insert", delim DInsert
-    ; "delete", delim DDelete
-    ; "single_quote", delim DSQuote
-    ; "double_quote", delim DDQuote
-    ]
+    match drow_update_refusal (table p) d.row entry with
+    | None -> Ok { p with o_inline = update_drow d.row entry (table p) }
+    | Some r -> Error (refusal c r)
+  ;;
+
+  let delimiter_fields (p : t) =
+    let t = table p in
+    let delim (d : Delimiter.t) =
+      let s = d.row in
+      let run = String.make (t.dc_width s) (t.dc_char s) in
+      ( d.name
+      , match t.dc_syntax s with
+        | DOff -> "off"
+        | DBraced -> run ^ " braced"
+        | DBare -> run ^ " bare"
+        | DBareAfterBreak -> run ^ " bare after a break" )
+    in
+    List.map delim rows
   ;;
 
   let pp_delimiters ppf p = pp_fields ppf (delimiter_fields p)
 
-  (* The two block rules are functions, told apart by which kernel value
-     they are. *)
+  let equal (p : t) (q : t) =
+    delimiter_fields p = delimiter_fields q
+    && List.for_all (fun (s : Switch.t) -> s.get p = s.get q) switches
+  ;;
+
   let pp ppf (p : t) =
-    let t = p.profile_inline
-    and k = p.profile_block in
-    let switch b = if b then "on" else "off" in
-    let rule f ~on ~off =
-      if f == on then "on" else if f == off then "off" else "custom"
-    in
-    let switches =
-      [ "footnotes", switch (t.dc_footnotes && k.bfootnotes)
-      ; "smart_typography", switch t.dc_smart_typography
-      ; "raw_inline", switch t.dc_raw_inline
-      ; "math", switch t.dc_math
-      ; "inline_attrs", switch t.dc_attrs
-      ; "tables", switch k.btables
-      ; "divs", switch k.bdivs
-      ; "tasks", switch k.btasks
-      ; "raw_blocks", switch k.braw_blocks
-      ; "deflists", switch k.bdeflists
-      ; "block_attrs", switch k.battrs
-      ; "heading_continuation", switch k.bheading_continues
-      ; "ext_wikilinks", switch t.dc_wikilinks
-      ; "ext_dollar_math", switch t.dc_dollar_math
-      ; "ext_keyed", switch k.bkeyed
-      ; "ext_callouts", switch k.bcallouts
-      ; "ext_tags", switch (t.dc_tags && k.bdiv_names)
-      ; ( "ext_setext_headings"
-        , rule k.bunderline ~on:K.Step.setext_underline ~off:K.Step.no_underline )
-      ; ( "ext_list_interrupts"
-        , rule k.bmarker_interrupts ~on:K.Step.prose_safe_markers ~off:K.Step.no_interrupt
-        )
-      ]
-    in
-    pp_fields ppf (delimiter_fields p @ switches)
+    let switch (s : Switch.t) = s.name, if s.get p then "on" else "off" in
+    pp_fields ppf (delimiter_fields p @ List.map switch switches)
   ;;
 end
 
@@ -220,7 +437,7 @@ type style =
 (* Source in a [style], from the two forms the kernel writes. *)
 module Styled = struct
   let tree (p : Profile.t) (s : string) : K.Ast.doc =
-    K.Document.parse_doc p.K.Profile.profile_inline p.profile_block K.Ast.semantic_pos s
+    K.Document.parse_doc (Profile.table p) (Profile.bconfig p) K.Ast.semantic_pos s
   ;;
 
   (* The naive parts, top-level blocks or one run of inlines, where the whole
@@ -255,8 +472,8 @@ module Styled = struct
 
   (* [Render.sep_lines] puts one blank line between blocks. *)
   let blocks (style : style) (profile : Profile.t) (bs : K.Ast.block node list) : string =
-    let table = profile.K.Profile.profile_inline in
-    let config = profile.profile_block in
+    let table = Profile.table profile in
+    let config = Profile.bconfig profile in
     let safe = K.Render.render_djot table config in
     let naive = K.Readable.readable_djot table config in
     match style with
@@ -270,7 +487,7 @@ module Styled = struct
   let inlines (style : style) (profile : Profile.t) (ils : K.Ast.inline node list)
     : string
     =
-    let table = profile.K.Profile.profile_inline in
+    let table = Profile.table profile in
     let safe = String.concat "\n" (K.InlineView.inline_lines table ils "") in
     let naive () = String.concat "\n" (K.Readable.readable_inline_lines table ils) in
     match style with
@@ -484,7 +701,8 @@ module Doc = struct
 
   (* The fold step the pieces are cut with, and its finish. *)
   let fold_step ~locs (p : Profile.t) =
-    let { K.Profile.profile_inline = table; profile_block = bconfig } = p in
+    let table = Profile.table p
+    and bconfig = Profile.bconfig p in
     if locs
     then K.Reparse.loc_step table bconfig, K.Step.finish table bconfig K.Ast.located_pos
     else K.Reparse.sem_step table bconfig, K.Step.finish table bconfig K.Ast.semantic_pos

@@ -1,3 +1,3 @@
 (tests
- (names api replace_lines stream locations profiles to_source)
+ (names api replace_lines stream locations profiles to_source properties)
  (libraries djot))

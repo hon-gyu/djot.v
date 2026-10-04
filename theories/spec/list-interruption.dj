@@ -1,0 +1,78 @@
+# List interruption
+
+Setting: `ext_list_interrupts`. On in the Markdown-like profile.
+
+In djot a list needs a blank line before it. With this setting a list
+marker on the line after paragraph text starts a list.
+
+``` example
+Things to do:
+- one
+- two
+.
+<p>Things to do:</p>
+<ul>
+<li>
+one
+</li>
+<li>
+two
+</li>
+</ul>
+```
+
+This also lets a sublist follow an item's text directly.
+
+``` example
+- fruit
+  - apple
+  - pear
+.
+<ul>
+<li>
+fruit
+<ul>
+<li>
+apple
+</li>
+<li>
+pear
+</li>
+</ul>
+</li>
+</ul>
+```
+
+An ordered marker starts a list only when its number is `1`. Other numbers
+often end a sentence.
+
+``` example
+The civil war ended in
+1865. And this should not start a list.
+.
+<p>The civil war ended in
+1865. And this should not start a list.</p>
+```
+
+``` example
+The steps are
+1. first
+2. second
+.
+<p>The steps are</p>
+<ol>
+<li>
+first
+</li>
+<li>
+second
+</li>
+</ol>
+```
+
+## What it costs
+
+A paragraph can no longer be wrapped anywhere: a line that begins with a
+bullet or with `1.` starts a list.
+
+{% ai-disclosure: ai-generated %}

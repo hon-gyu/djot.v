@@ -57,3 +57,25 @@ let () =
   assert (List.mem "ext_setext_headings: on" (lines p));
   assert (List.mem "ext_list_interrupts: on" (lines p))
 ;;
+
+(* Respelling a delimiter, and why a spelling is refused. *)
+let () =
+  let open Profile in
+  let try_ name d c ~width syntax p =
+    match with_delimiter d c ~width syntax p with
+    | Ok p -> Format.printf "@.== %s@.%a@." name pp_delimiters p
+    | Error e -> Format.printf "@.== %s@.refused: %s@." name e
+  in
+  try_ "strong as **" strong '*' ~width:2 `Bare djot;
+  try_ "strong as _" strong '_' ~width:1 `Bare djot;
+  try_ "strong as a" strong 'a' ~width:1 `Bare djot;
+  try_ "strong as `" strong '`' ~width:1 `Bare djot;
+  try_ "emph as -" emph '-' ~width:1 `Bare djot;
+  try_ "emph, width 0" emph '_' ~width:0 `Bare djot;
+  (match with_delimiter strong '*' ~width:2 `Bare (with_ext_dollar_math true djot) with
+   | Ok p ->
+     let md = markdown_like |> with_ext_setext_headings false in
+     let md = md |> with_ext_list_interrupts false |> with_heading_continuation true in
+     assert (equal p md)
+   | Error _ -> assert false)
+;;

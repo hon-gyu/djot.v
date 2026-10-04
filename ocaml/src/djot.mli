@@ -80,8 +80,12 @@ end
 
 module Profile : sig
   (** The syntax a parse accepts. Start from a named profile and switch constructs on or
-      off. *)
-  type t
+      off. The kernel record is readable, for the checks in {!Kernel.ProfileChecks}. *)
+  type t = private Kernel.Profile.options
+
+  (** The profile of a kernel record, such as one of {!Kernel.Spec.all}. [None] if
+      its delimiter table is not one the parser accepts. *)
+  val of_kernel : Kernel.Profile.options -> t option
 
   (** djot as specified. The extensions are off. *)
   val djot : t
@@ -150,6 +154,76 @@ module Profile : sig
   (** A bullet, or an ordered marker numbered [1], starts a list on the line after
       paragraph text, with no blank line between. On in {!markdown_like}. *)
   val with_ext_list_interrupts : bool -> t -> t
+
+  (** {2 Switches as data} *)
+
+  (** One of the switches above, as a value. *)
+  module Switch : sig
+    type profile := t
+    type t
+
+    (** The switch's function name without [with_]: [tables], [ext_keyed]. *)
+    val name : t -> string
+
+    (** The syntax the switch turns on, in a few words. *)
+    val doc : t -> string
+
+    (** Whether the switch is an extension, off in {!djot}. *)
+    val is_extension : t -> bool
+
+    val get : t -> profile -> bool
+    val set : t -> bool -> profile -> profile
+  end
+
+  (** Every switch, djot constructs first. *)
+  val switches : Switch.t list
+
+  (** {2 Delimiters} *)
+
+  (** An inline delimiter whose spelling a profile chooses. *)
+  module Delimiter : sig
+    type profile := t
+    type t
+
+    (** How a delimiter is written: [`Bare] as [*x*], with [{*x*}] also read; [`Braced]
+        as [{=x=}] only; [`Off] removes the construct. *)
+    type syntax =
+      [ `Off
+      | `Braced
+      | `Bare
+      ]
+
+    (** [emph], [strong], [superscript], [subscript], [highlight], [insert], [delete]. *)
+    val name : t -> string
+
+    (** The character, how many of it make the delimiter, and how it is written. *)
+    val spelling : t -> profile -> char * int * syntax
+  end
+
+  val emph : Delimiter.t
+  val strong : Delimiter.t
+  val superscript : Delimiter.t
+  val subscript : Delimiter.t
+  val highlight : Delimiter.t
+  val insert : Delimiter.t
+  val delete : Delimiter.t
+
+  (** The seven above. *)
+  val delimiters : Delimiter.t list
+
+  (** [with_delimiter d c ~width syntax p] respells [d] as [width] copies of [c].
+      The error says why a spelling is refused: the character is not ASCII punctuation,
+      is taken by other syntax, or is another delimiter's. *)
+  val with_delimiter
+    :  Delimiter.t
+    -> char
+    -> width:int
+    -> Delimiter.syntax
+    -> t
+    -> (t, string) result
+
+  (** Whether two profiles have every switch and every delimiter spelling the same. *)
+  val equal : t -> t -> bool
 
   (** One [name: value] line per inline delimiter, giving its characters and how it is
       written, e.g. [strong: ** bare] or [highlight: = braced]. *)

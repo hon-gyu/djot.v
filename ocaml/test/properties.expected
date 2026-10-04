@@ -1,0 +1,115 @@
+djot
+====================
+block-no-backtracking: proved
+inline-no-backtracking: proved
+incremental-reparse: proved
+block-replace: proved
+positions: proved
+linear-time: conjectured
+quote-uniformity: proved
+list-uniformity: proved
+definition-list-uniformity: proved
+div-uniformity: proved
+footnote-uniformity: conditional
+lazy-lines: proved
+list-tightness: conditional
+indent-uniformity: conditional
+reference-locality: proved
+reference-shape: proved
+hard-wrap-paragraph: proved
+hard-wrap-heading: proved
+block-structure-first: conditional
+inline-precedence: conditional
+
+markdown_like
+====================
+block-no-backtracking: proved
+inline-no-backtracking: proved
+incremental-reparse: proved
+block-replace: proved
+positions: proved
+linear-time: conjectured
+quote-uniformity: proved
+list-uniformity: proved
+definition-list-uniformity: proved
+div-uniformity: proved
+footnote-uniformity: conditional
+lazy-lines: conditional
+list-tightness: conditional
+indent-uniformity: conditional
+reference-locality: proved
+reference-shape: proved
+hard-wrap-paragraph: broken
+hard-wrap-heading: broken
+block-structure-first: conditional
+inline-precedence: conditional
+
+djot, wikilinks and dollar math on
+====================
+block-no-backtracking: proved
+inline-no-backtracking: proved
+incremental-reparse: proved
+block-replace: proved
+positions: proved
+linear-time: conjectured
+quote-uniformity: proved
+list-uniformity: proved
+definition-list-uniformity: proved
+div-uniformity: proved
+footnote-uniformity: conditional
+lazy-lines: proved
+list-tightness: conditional
+indent-uniformity: conditional
+reference-locality: proved
+reference-shape: proved
+hard-wrap-paragraph: proved
+hard-wrap-heading: proved
+block-structure-first: conditional
+inline-precedence: conditional
+
+djot, keyed on
+====================
+block-no-backtracking: proved
+inline-no-backtracking: proved
+incremental-reparse: proved
+block-replace: proved
+positions: proved
+linear-time: conjectured
+quote-uniformity: proved
+list-uniformity: proved
+definition-list-uniformity: proved
+div-uniformity: proved
+footnote-uniformity: conditional
+lazy-lines: proved
+list-tightness: conditional
+indent-uniformity: conditional
+reference-locality: proved
+reference-shape: proved
+hard-wrap-paragraph: conjectured
+hard-wrap-heading: proved
+block-structure-first: unknown
+inline-precedence: conditional
+
+djot, callouts on, divs off
+====================
+block-no-backtracking: proved
+inline-no-backtracking: proved
+incremental-reparse: proved
+block-replace: proved
+positions: proved
+linear-time: conjectured
+quote-uniformity: broken
+list-uniformity: proved
+definition-list-uniformity: proved
+div-uniformity: inapplicable
+footnote-uniformity: conditional
+lazy-lines: proved
+list-tightness: conditional
+indent-uniformity: conditional
+reference-locality: proved
+reference-shape: proved
+hard-wrap-paragraph: proved
+hard-wrap-heading: proved
+block-structure-first: conditional
+inline-precedence: conditional
+

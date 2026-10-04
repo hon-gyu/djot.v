@@ -25,4 +25,6 @@ val forallb : ('a1 -> bool) -> 'a1 list -> bool
 
 val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list
 
+val find : ('a1 -> bool) -> 'a1 list -> 'a1 option
+
 val list_max : int list -> int

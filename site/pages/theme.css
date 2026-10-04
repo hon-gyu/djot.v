@@ -1,0 +1,15 @@
+/* ai-disclosure: ai-generated */
+/* The colours and fonts, for the pages and for the playground's preview
+   frame. */
+:root {
+  --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5f5e5a; --line: #dedbd3; --panel: #f3f1ec;
+  --accent: #2456a6; --ok: #1f6b3f; --bad: #a62b23; --warn: #7a5200;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #17171a; --fg: #e6e4df; --muted: #a3a199; --line: #33333a; --panel: #1f1f24;
+  --accent: #8ab4f0; --ok: #6cc08c; --bad: #ef8a80; --warn: #e0b34a;
+  color-scheme: dark;
+}

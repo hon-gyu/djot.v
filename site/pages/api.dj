@@ -1,0 +1,16 @@
+# OCaml API
+
+The parser is available as an OCaml library, the `djot` package.
+
+``` ocaml
+let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
+let html = Djot.Html.of_doc doc
+```
+
+- [API reference](odoc/djot/): the generated documentation.
+- [Source code](https://github.com/hon-gyu/djot.v/tree/main/ocaml)
+
+The package is not on opam yet. The repository's `ocaml` branch holds the
+package at its root, for use as a vendored directory or a git submodule.
+
+{% ai-disclosure: ai-generated %}

@@ -11,7 +11,8 @@
 
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
-From DjotV Require Import Strings Html Step Document Profile Reparse Readable.
+From DjotV Require Import Strings Html Step Document Profile ProfileChecks Properties
+  Spec Reparse Readable.
 From DjotVDev Require Import Fixtures Generate.
 
 Extraction Language OCaml.
@@ -527,8 +528,16 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
   line_table resolve_span DjotV.InlineLocated.cursor_in
   DjotV.InlineScan.chunks_text DjotV.InlineScan.map_text DjotV.InlineScan.lift
-  DjotV.Profile.djot_profile DjotV.Profile.markdown_like_profile
-  DjotV.Profile.with_footnotes DjotV.Profile.with_tags
+  DjotV.Profile.djot_options DjotV.Profile.markdown_like_options
+  DjotV.Profile.bconfig_of DjotV.ProfileChecks.wrap_safe
+  DjotV.ProfileChecks.heading_wrap_safe DjotV.ProfileChecks.quote_uniform
+  DjotV.ProfileChecks.lazy_uniform DjotV.ProfileChecks.shape_first
+  DjotV.Properties.all DjotV.Properties.claimed
+  DjotV.Properties.status_name
+  DjotV.Spec.all DjotV.InlineTable.dconfig_ok
+  DjotV.InlineTable.with_inline_footnotes DjotV.InlineTable.with_inline_tags
+  DjotV.InlineTable.with_wikilinks DjotV.InlineTable.with_dollar_math
+  DjotV.InlineTable.update_drow DjotV.InlineTable.drow_update_refusal
   DjotV.InlineTable.with_smart_typography DjotV.InlineTable.with_raw_inline
   DjotV.InlineTable.with_math DjotV.InlineTable.with_inline_attrs
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation
