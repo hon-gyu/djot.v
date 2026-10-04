@@ -19,7 +19,6 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: proved with caveat
 inline-precedence: proved with caveat
-roundtrip: expected
 == markdown_like
 block-no-backtracking: proved
 inline-no-backtracking: proved
@@ -41,7 +40,6 @@ hard-wrap-paragraph: broken
 hard-wrap-heading: broken
 block-structure-first: proved with caveat
 inline-precedence: proved with caveat
-roundtrip: expected
 == djot, wikilinks and dollar math on
 block-no-backtracking: proved
 inline-no-backtracking: proved
@@ -63,7 +61,6 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: proved with caveat
 inline-precedence: proved with caveat
-roundtrip: expected
 == djot, keyed on
 block-no-backtracking: proved
 inline-no-backtracking: proved
@@ -85,7 +82,6 @@ hard-wrap-paragraph: broken
 hard-wrap-heading: proved
 block-structure-first: unknown
 inline-precedence: proved with caveat
-roundtrip: expected
 == djot, callouts on, divs off
 block-no-backtracking: proved
 inline-no-backtracking: proved
@@ -107,4 +103,3 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: proved with caveat
 inline-precedence: proved with caveat
-roundtrip: expected

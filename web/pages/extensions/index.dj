@@ -1,9 +1,0 @@
-# Extensions
-
-Syntax the parser reads in addition to djot's. Every extension is off in the
-djot profile and is switched on by itself. For djot's own syntax, see the
-[djot syntax reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html).
-
-Each page ends with the properties that the extension changes.
-
-{% ai-disclosure: ai-generated %}

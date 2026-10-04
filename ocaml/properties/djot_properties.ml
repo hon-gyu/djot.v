@@ -43,7 +43,6 @@ let local = "Local interpretation"
 let wrapping = "Safe hard-wrapping"
 let structure = "Block structure first"
 let precedence = "Inline precedence"
-let roundtrip = "Roundtrip"
 
 let all =
   [ { id = "block-no-backtracking"
@@ -301,13 +300,6 @@ let all =
           (Proved_with_caveat
              "For emphasis-like delimiters, links and plain text. Smart quotes, spans and \
               images are not covered.")
-    }
-  ; { id = "roundtrip"
-    ; group = roundtrip
-    ; statement = "Rendering a document to djot and parsing it back gives the same document."
-    ; implication = "djot-to-djot conversion loses nothing."
-    ; theorems = []
-    ; status = always Expected
     }
   ]
 ;;
