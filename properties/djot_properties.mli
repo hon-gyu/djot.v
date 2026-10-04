@@ -2,19 +2,16 @@
 
 (** The properties proved of the parser, and which of them a profile keeps.
 
-    Each property names the theorems behind it in the Rocq development. Where a theorem
-    has a hypothesis about the profile, {!val-status} evaluates it with the checks of
-    {!Djot.Kernel.ProfileChecks}, each of which is proved there to agree with that
-    hypothesis. *)
+    The list is {!Djot.Kernel.Properties}, extracted from [theories/Properties.v]. There
+    each property has, beside the words given here, its statement for a profile and a
+    proof of that statement wherever {!val-status} is {!Proved} or {!Conditional}. *)
 
-type status =
+type status = Djot.Kernel.Properties.status =
   | Proved (** The theorems hold for the profile. *)
   | Conditional of string (** They hold, under the stated condition on the document. *)
-  | Broken of
-      { reason : string
-      ; example : string
-      }
-  (** The property fails for the profile; [example] is a source that shows it. *)
+  | Broken of string * string
+  (** [Broken (reason, example)]: the property fails for the profile; [example] is a
+      source that shows it. *)
   | Conjectured (** Believed to hold; not proved for this profile. *)
   | Unknown (** No claim. *)
   | Inapplicable of string (** The construct the property is about is off. *)
