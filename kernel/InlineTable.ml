@@ -584,22 +584,39 @@ let with_inline_tags enabled c =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
     dc_wikilinks = c.dc_wikilinks; dc_tags = enabled }
 
-(** val drow_trigger_compatible : dconfig -> dstyle -> dentry -> bool **)
+type drow_refusal =
+| RWidth
+| RNotPunct
+| RReserved
+| RDecay
+| RBareHyphen
+| RTaken of dstyle
 
-let drow_trigger_compatible c target0 e =
+(** val drow_update_refusal :
+    dconfig -> dstyle -> dentry -> drow_refusal option **)
+
+let drow_update_refusal c target0 e =
   let c' = update_drow target0 e c in
-  forallb (fun k ->
-    implb
-      ((&&) ((&&) (negb (dstyle_eq k target0)) (denabled c' k))
-        (denabled c' target0))
-      (negb ((=) (c'.dc_char k) (c'.dc_char target0))))
-    dstyles
-
-(** val drow_update_compatible : dconfig -> dstyle -> dentry -> bool **)
-
-let drow_update_compatible c target0 e =
-  (&&) (drow_ok (update_drow target0 e c) target0)
-    (drow_trigger_compatible c target0 e)
+  if ( = ) e.de_width 0
+  then Some RWidth
+  else if negb (is_punct e.de_char)
+       then Some RNotPunct
+       else if dreserved e.de_char
+            then Some RReserved
+            else if negb (ddecay_ok e.de_decay)
+                 then Some RDecay
+                 else if (&&) (dsyntax_bare e.de_syntax)
+                           ((=) e.de_char hyphen)
+                      then Some RBareHyphen
+                      else option_map (fun x -> RTaken x)
+                             (find (fun k ->
+                               (&&)
+                                 ((&&)
+                                   ((&&) (negb (dstyle_eq k target0))
+                                     (denabled c' k))
+                                   (denabled c' target0))
+                                 ((=) (c'.dc_char k) (c'.dc_char target0)))
+                               dstyles)
 
 (** val markdown_strong_entry : dentry **)
 

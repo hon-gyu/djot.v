@@ -81,6 +81,12 @@ let rec filter f = function
 | [] -> []
 | x :: l0 -> if f x then x :: (filter f l0) else filter f l0
 
+(** val find : ('a1 -> bool) -> 'a1 list -> 'a1 option **)
+
+let rec find f = function
+| [] -> None
+| x :: tl0 -> if f x then Some x else find f tl0
+
 (** val list_max : int list -> int **)
 
 let list_max l =
