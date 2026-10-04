@@ -2,6 +2,9 @@
 
 djot.v is a verified and generalized [djot](https://djot.net) implementation in Rocq, with an optimized extraction to OCaml.
 
+> [!NOTE]
+> The [site](https://hon-gyu.github.io/djot.v/) has a playground, the reference for the extensions, and the OCaml API.
+
 It is **verified** in the sense that the goals behind djot's design[^design-rationale] are stated as theorems about the parser and proved. The main ones:
 
 - No backtracking[^no-backtracking]: 
@@ -42,7 +45,7 @@ It is **generalized** in the sense that djot is one setting of a configurable pa
 
 ## Djot Properties
 
-This section lists what is proved of the djot profile. The site's playground shows the same for any profile.
+This section lists what is proved of the djot profile. The site's [playground](https://hon-gyu.github.io/djot.v/playground/) shows the same for any profile.
 
 The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
