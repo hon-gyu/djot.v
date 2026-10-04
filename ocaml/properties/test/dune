@@ -1,0 +1,3 @@
+(test
+ (name properties)
+ (libraries djot djot.properties))
