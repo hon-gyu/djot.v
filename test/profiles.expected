@@ -154,3 +154,29 @@ insert: + braced
 delete: - braced
 single_quote: ' bare after a break
 double_quote: " bare
+
+== strong as **
+emph: _ bare
+strong: ** bare
+superscript: ^ bare
+subscript: ~ bare
+highlight: = braced
+insert: + braced
+delete: - braced
+single_quote: ' bare after a break
+double_quote: " bare
+
+== strong as _
+refused: '_' is already the emph delimiter
+
+== strong as a
+refused: 'a' is not ASCII punctuation
+
+== strong as `
+refused: '`' is taken by other syntax
+
+== emph as -
+refused: a bare delimiter cannot be a hyphen
+
+== emph, width 0
+refused: the width must be at least 1

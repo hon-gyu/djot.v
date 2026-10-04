@@ -1,5 +1,7 @@
 open Ast
 open Attributes
+open Datatypes
+open List0
 open ListDef
 open Strings
 
@@ -387,6 +389,11 @@ let rec chars c n =
     (c, (chars c m)))
     n
 
+(** val dstyles : dstyle list **)
+
+let dstyles =
+  DEmph :: (DStrong :: (DSuper :: (DSub :: (DMark :: (DInsert :: (DDelete :: (DSQuote :: (DDQuote :: []))))))))
+
 (** val dstyle_eq : dstyle -> dstyle -> bool **)
 
 let dstyle_eq a b =
@@ -442,6 +449,29 @@ let dstyle_at_fast = (let rows = [DEmph; DStrong; DSuper; DSub; DMark; DInsert; 
         | Some (c', tbl) when c' == c -> tbl
         | _ -> let tbl = build c in Atomic.set last (Some (c, tbl)); tbl in
       Array.unsafe_get tbl (Char.code ch))
+
+(** val ddecay_ok : ddecay -> bool **)
+
+let ddecay_ok = function
+| DDSelf -> true
+| DDPair (_, l, r) -> (&&) (nonempty_str l) (nonempty_str r)
+
+(** val dsyntax_bare : dsyntax -> bool **)
+
+let dsyntax_bare = function
+| DOff -> false
+| DBraced -> false
+| _ -> true
+
+(** val drow_ok : dconfig -> dstyle -> bool **)
+
+let drow_ok c k =
+  (&&)
+    ((&&)
+      ((&&) ((&&) (negb (( = ) (c.dc_width k) 0)) (is_punct (c.dc_char k)))
+        (negb (dreserved (c.dc_char k))))
+      (ddecay_ok (c.dc_decay k)))
+    (negb ((&&) (dsyntax_bare (c.dc_syntax k)) ((=) (c.dc_char k) hyphen)))
 
 type dentry = { de_char : char; de_width : int; de_syntax : dsyntax;
                 de_decay : ddecay }
@@ -531,6 +561,23 @@ let with_inline_tags enabled c =
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
     dc_wikilinks = c.dc_wikilinks; dc_tags = enabled }
+
+(** val drow_trigger_compatible : dconfig -> dstyle -> dentry -> bool **)
+
+let drow_trigger_compatible c target0 e =
+  let c' = update_drow target0 e c in
+  forallb (fun k ->
+    implb
+      ((&&) ((&&) (negb (dstyle_eq k target0)) (denabled c' k))
+        (denabled c' target0))
+      (negb ((=) (c'.dc_char k) (c'.dc_char target0))))
+    dstyles
+
+(** val drow_update_compatible : dconfig -> dstyle -> dentry -> bool **)
+
+let drow_update_compatible c target0 e =
+  (&&) (drow_ok (update_drow target0 e c) target0)
+    (drow_trigger_compatible c target0 e)
 
 (** val markdown_strong_entry : dentry **)
 

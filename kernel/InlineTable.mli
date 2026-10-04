@@ -1,5 +1,7 @@
 open Ast
 open Attributes
+open Datatypes
+open List0
 open ListDef
 open Strings
 
@@ -97,11 +99,19 @@ val djot_config : dconfig
 
 val chars : char -> int -> string
 
+val dstyles : dstyle list
+
 val dstyle_eq : dstyle -> dstyle -> bool
 
 val denabled : dconfig -> dstyle -> bool
 
 val dstyle_at_fast : dconfig -> char -> dstyle option
+
+val ddecay_ok : ddecay -> bool
+
+val dsyntax_bare : dsyntax -> bool
+
+val drow_ok : dconfig -> dstyle -> bool
 
 type dentry = { de_char : char; de_width : int; de_syntax : dsyntax;
                 de_decay : ddecay }
@@ -123,6 +133,10 @@ val with_inline_footnotes : bool -> dconfig -> dconfig
 val with_wikilinks : bool -> dconfig -> dconfig
 
 val with_inline_tags : bool -> dconfig -> dconfig
+
+val drow_trigger_compatible : dconfig -> dstyle -> dentry -> bool
+
+val drow_update_compatible : dconfig -> dstyle -> dentry -> bool
 
 val markdown_strong_entry : dentry
 

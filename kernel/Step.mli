@@ -36,12 +36,6 @@ val setext_underline : char -> int -> int option
 
 val djot_bconfig : bconfig
 
-val with_marker_interrupts :
-  (lstyle list -> string -> task_marker option -> string -> bool) -> bconfig
-  -> bconfig
-
-val with_underline : (char -> int -> int option) -> bconfig -> bconfig
-
 val with_tables : bool -> bconfig -> bconfig
 
 val with_heading_continuation : bool -> bconfig -> bconfig
@@ -56,8 +50,6 @@ val with_deflists : bool -> bconfig -> bconfig
 
 val with_block_attrs : bool -> bconfig -> bconfig
 
-val with_block_footnotes : bool -> bconfig -> bconfig
-
 val with_keyed : bool -> bconfig -> bconfig
 
 val with_callouts : bool -> bconfig -> bconfig
@@ -65,8 +57,6 @@ val with_callouts : bool -> bconfig -> bconfig
 val with_div_names : bool -> bconfig -> bconfig
 
 val keyed_bconfig : bconfig
-
-val markdown_like_bconfig : bconfig
 
 val configured_list_styles :
   bconfig -> lstyle list -> task_marker option -> lstyle list

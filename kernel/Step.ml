@@ -70,26 +70,6 @@ let djot_bconfig =
     braw_blocks = true; bdeflists = true; battrs = true; bfootnotes = true;
     bkeyed = false; bcallouts = false; bdiv_names = false }
 
-(** val with_marker_interrupts :
-    (lstyle list -> string -> task_marker option -> string -> bool) ->
-    bconfig -> bconfig **)
-
-let with_marker_interrupts f k =
-  { bmarker_interrupts = f; bunderline = k.bunderline; btables = k.btables;
-    bheading_continues = k.bheading_continues; bdivs = k.bdivs; btasks =
-    k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists; battrs =
-    k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed; bcallouts =
-    k.bcallouts; bdiv_names = k.bdiv_names }
-
-(** val with_underline : (char -> int -> int option) -> bconfig -> bconfig **)
-
-let with_underline f k =
-  { bmarker_interrupts = k.bmarker_interrupts; bunderline = f; btables =
-    k.btables; bheading_continues = k.bheading_continues; bdivs = k.bdivs;
-    btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists = k.bdeflists;
-    battrs = k.battrs; bfootnotes = k.bfootnotes; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
-
 (** val with_tables : bool -> bconfig -> bconfig **)
 
 let with_tables enabled k =
@@ -153,15 +133,6 @@ let with_block_attrs enabled k =
     k.bdeflists; battrs = enabled; bfootnotes = k.bfootnotes; bkeyed =
     k.bkeyed; bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
 
-(** val with_block_footnotes : bool -> bconfig -> bconfig **)
-
-let with_block_footnotes enabled k =
-  { bmarker_interrupts = k.bmarker_interrupts; bunderline = k.bunderline;
-    btables = k.btables; bheading_continues = k.bheading_continues; bdivs =
-    k.bdivs; btasks = k.btasks; braw_blocks = k.braw_blocks; bdeflists =
-    k.bdeflists; battrs = k.battrs; bfootnotes = enabled; bkeyed = k.bkeyed;
-    bcallouts = k.bcallouts; bdiv_names = k.bdiv_names }
-
 (** val with_keyed : bool -> bconfig -> bconfig **)
 
 let with_keyed enabled k =
@@ -193,13 +164,6 @@ let with_div_names enabled k =
 
 let keyed_bconfig =
   with_keyed true djot_bconfig
-
-(** val markdown_like_bconfig : bconfig **)
-
-let markdown_like_bconfig =
-  with_heading_continuation false
-    (with_underline setext_underline
-      (with_marker_interrupts prose_safe_markers djot_bconfig))
 
 (** val configured_list_styles :
     bconfig -> lstyle list -> task_marker option -> lstyle list **)
