@@ -15,8 +15,8 @@ let render ?(profile = Profile.djot) name src =
 ;;
 
 (* Sections and derived heading ids, attributes and a div's class,
-   footnotes, and breaks inside emphasis. The second heading keeps its
-   derived id [Intro-1], the first leaves its id out. *)
+   footnotes, and breaks inside emphasis. Both headings leave their
+   derived ids out, [Intro] and [Intro-1]. *)
 let () =
   let src =
     "# Intro\n\n\
@@ -32,6 +32,7 @@ let () =
   in
   render "document" src;
   render ~profile:Profile.markdown_like "document, markdown_like" src;
+  render "written id" "{#My-title}\n# My title\n\n# x\n\n{#x}\n# y\n";
   render "empty list item" "- a\n-\n- b\n\nB.\n";
   render
     ~profile:(Profile.with_ext_keyed true Profile.djot)

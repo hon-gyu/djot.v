@@ -1,7 +1,6 @@
 open Ast
 open Attributes
 open Datatypes
-open Document
 open InlineScan
 open InlineTable
 open InlineView
@@ -174,11 +173,10 @@ val render_blocks_lines : dtable -> bconfig -> blocks -> string list list
 
 val render_djot : dtable -> bconfig -> blocks -> string
 
-val drop_id_if : string -> attr -> attr
+val drop_derived : attr -> string list -> string list * attr
 
-val base_id : inlines -> string
-
-val drop_auto_ids : block -> pos -> attr -> block node
+val drop_auto_ids :
+  block -> pos -> attr -> string list -> string list * block node
 
 val doc_source_blocks : doc -> blocks
 

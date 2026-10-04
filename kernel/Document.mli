@@ -583,7 +583,8 @@ val id_candidate : string -> int -> string
 
 type id_state = { id_used : string list; id_refs : reference_map;
                   id_count : int; id_used_set : StrSet.t;
-                  id_ref_labels : StrSet.t; id_next : int StrMap.t }
+                  id_ref_labels : StrSet.t; id_next : int StrMap.t;
+                  id_derived : string list }
 
 val id_state_init : id_state
 

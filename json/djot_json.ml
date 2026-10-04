@@ -53,15 +53,25 @@ let pos : Textloc.t Jsont.t =
 type loc = { loc : 'a. 'a node -> Textloc.t }
 
 (* A node: its tag and the members of that tag's case, then the members
-   every node has.  A decoded node has no position. *)
-let node ~kind (l : loc) cases enc_case : 'a node Jsont.t =
+   every node has.  The identifier of a node that [auto] holds for is
+   written under ["autoAttributes"]; read, it goes first among the
+   attributes, where the document pass puts it.  A decoded node has no
+   position. *)
+let node ~kind ?(auto = fun _ -> false) (l : loc) cases enc_case : 'a node Jsont.t =
   let pos_of n =
     let t = l.loc n in
     if Textloc.is_none t then None else Some t
   in
-  O.map ~kind (fun content attrs _pos -> Node.make ~attrs content)
+  let written n = if auto n then Attr.remove "id" (Node.attrs n) else Node.attrs n in
+  let derived n =
+    match Attr.id (Node.attrs n) with
+    | Some id when auto n -> [ "id", id ]
+    | _ -> []
+  in
+  O.map ~kind (fun content attrs auto _pos -> Node.make ~attrs:(auto @ attrs) content)
   |> O.case_mem "tag" Jsont.string cases ~tag_to_string:Fun.id ~enc:Node.content ~enc_case
-  |> O.mem "attributes" attrs ~dec_absent:Attr.empty ~enc:Node.attrs ~enc_omit:(( = ) [])
+  |> O.mem "attributes" attrs ~dec_absent:Attr.empty ~enc:written ~enc_omit:(( = ) [])
+  |> O.mem "autoAttributes" attrs ~dec_absent:Attr.empty ~enc:derived ~enc_omit:(( = ) [])
   |> O.opt_mem "pos" pos ~enc:pos_of
   |> O.finish
 ;;
@@ -300,7 +310,7 @@ let block_list ?keep (block : t node Jsont.t) : t node list Jsont.t =
   | Some keep -> Jsont.map (Jsont.list block) ~dec:Fun.id ~enc:(List.filter keep)
 ;;
 
-let block_at ?keep (l : loc) (inline : Inline.t node Jsont.t) : t node Jsont.t =
+let block_at ?keep ?auto (l : loc) (inline : Inline.t node Jsont.t) : t node Jsont.t =
   let inlines = Jsont.list inline in
   let plain k = Inline.to_plain_text k in
   let rec t =
@@ -515,7 +525,7 @@ let block_at ?keep (l : loc) (inline : Inline.t node Jsont.t) : t node Jsont.t =
          ; C.make ext_callout
          ]
        in
-       node ~kind:"block" l cases enc_case)
+       node ~kind:"block" ?auto l cases enc_case)
   in
   Lazy.force t
 ;;
@@ -539,6 +549,27 @@ let footnote_defs_closing (d : Doc.t) : Block.t node list =
   List.fold_left (Folder.fold_block (Folder.make ~block ())) [] (Doc.blocks d)
 ;;
 
+(* The headings and sections whose identifier the document pass derived,
+   by the rule of [Doc.auto_identifiers]. *)
+let auto_id_nodes (d : Doc.t) : Block.t node list =
+  let take (q, acc) n =
+    match q with
+    | id :: q' when Attr.id (Node.attrs n) = Some id -> q', n :: acc
+    | _ -> q, acc
+  in
+  let block f acc n =
+    match Node.content n with
+    | Heading _ -> Folder.ret (take acc n)
+    | Section k -> Folder.ret (List.fold_left (Folder.fold_block f) (take acc n) k)
+    | _ -> Folder.default
+  in
+  List.fold_left
+    (Folder.fold_block (Folder.make ~block ()))
+    (Doc.auto_identifiers d, [])
+    (Doc.blocks d)
+  |> snd
+;;
+
 (* Encoding only: a [Doc.t] is not built from blocks.  Definitions are
    listed in [references] and [footnotes] and left out of the blocks. *)
 let doc (d : Doc.t) : Doc.t Jsont.t =
@@ -548,7 +579,11 @@ let doc (d : Doc.t) : Doc.t Jsont.t =
     | RefDef _ | FootnoteDef _ -> false
     | _ -> true
   in
-  let block = block_at ~keep l (inline_at l) in
+  let auto =
+    let nodes = auto_id_nodes d in
+    fun n -> List.memq n nodes
+  in
+  let block = block_at ~keep ~auto l (inline_at l) in
   let defs = assoc ~kind:"definitions" block in
   let reference (label, (dest, attrs)) = label, Node.make ~attrs (RefDef (label, dest)) in
   (* An entry is the definition node its blocks came from, so it has that

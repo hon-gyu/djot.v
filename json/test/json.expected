@@ -36,7 +36,7 @@
   "children": [
     {
       "tag": "section",
-      "attributes": {
+      "autoAttributes": {
         "id": "A-title"
       },
       "children": [
@@ -88,6 +88,85 @@
             {
               "tag": "str",
               "text": "…"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+== identifiers
+{
+  "tag": "doc",
+  "references": {},
+  "autoReferences": {
+    "a": {
+      "tag": "reference",
+      "label": "a",
+      "destination": "#a"
+    },
+    "b": {
+      "tag": "reference",
+      "label": "b",
+      "destination": "#a"
+    }
+  },
+  "footnotes": {},
+  "children": [
+    {
+      "tag": "section",
+      "autoAttributes": {
+        "id": "a"
+      },
+      "children": [
+        {
+          "tag": "heading",
+          "level": 1,
+          "plain": "a",
+          "children": [
+            {
+              "tag": "str",
+              "text": "a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "section",
+      "attributes": {
+        "id": "a",
+        "class": "c"
+      },
+      "children": [
+        {
+          "tag": "heading",
+          "level": 1,
+          "plain": "b",
+          "children": [
+            {
+              "tag": "str",
+              "text": "b"
+            }
+          ]
+        },
+        {
+          "tag": "block_quote",
+          "children": [
+            {
+              "tag": "heading",
+              "autoAttributes": {
+                "id": "a-1"
+              },
+              "level": 1,
+              "plain": "a",
+              "children": [
+                {
+                  "tag": "str",
+                  "text": "a"
+                }
+              ]
             }
           ]
         }

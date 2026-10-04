@@ -523,6 +523,8 @@ module Doc = struct
     d.kernel.doc_auto_references
   ;;
 
+  let auto_identifiers (d : t) : string list = d.kernel.doc_auto_identifiers
+
   let reference (d : t) (l : string) : (string * Attr.t) option =
     K.Ast.lookup_reference l (references d @ auto_references d)
   ;;
