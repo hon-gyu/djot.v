@@ -7,6 +7,12 @@ let hd default = function
 | [] -> default
 | x :: _ -> x
 
+(** val tl : 'a1 list -> 'a1 list **)
+
+let tl = function
+| [] -> []
+| _ :: l' -> l'
+
 (** val nth_error : 'a1 list -> int -> 'a1 option **)
 
 let rec nth_error l n =

@@ -3,6 +3,8 @@ open Nat0
 
 val hd : 'a1 -> 'a1 list -> 'a1
 
+val tl : 'a1 list -> 'a1 list
+
 val nth_error : 'a1 list -> int -> 'a1 option
 
 val last : 'a1 list -> 'a1 -> 'a1
