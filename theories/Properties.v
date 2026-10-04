@@ -4,12 +4,16 @@
 
    One record per property.  The words in it are what the README and the
    site print.  [p_status] says what is claimed of a profile, [p_holds]
-   states the property for that profile, and [p_sound] proves the
-   statement wherever the status claims it.
+   states the property for that profile, [p_sound] proves the statement
+   wherever the status claims it, and [p_refuted] disproves it wherever
+   the status is [Broken].
 
-   So a status is not free text.  A row that claims a property of every
-   profile carries a proof for every profile, and stops compiling when
-   the theorem behind it gains a hypothesis about the profile.
+   So which status a row has is not free text.  A row that claims a
+   property of every profile carries a proof for every profile, and stops
+   compiling when the theorem behind it gains a hypothesis about the
+   profile.  The words a status carries are not checked: a condition, a
+   reason, and the example of a [Broken], which is an illustration and
+   need not be the input [p_refuted] uses.
 
    [p_holds] states the row's main theorem.  [p_theorems] also names the
    variants and the lemmas a reader may want; those are names only. *)
@@ -48,6 +52,9 @@ Definition status_name (s : status) : string :=
 Definition claimed (s : status) : bool :=
   match s with Proved | Conditional _ => true | _ => false end.
 
+Definition broken (s : status) : bool :=
+  match s with Broken _ _ => true | _ => false end.
+
 Record property : Type := Property {
   p_id : string;
   p_group : string;
@@ -56,7 +63,8 @@ Record property : Type := Property {
   p_theorems : list string;
   p_status : options -> status;
   p_holds : options -> Prop;
-  p_sound : forall o, claimed (p_status o) = true -> p_holds o
+  p_sound : forall o, claimed (p_status o) = true -> p_holds o;
+  p_refuted : forall o, broken (p_status o) = true -> ~ p_holds o
 }.
 
 (*
@@ -196,9 +204,76 @@ Definition reference_shape : Prop :=
     = map erase_helt_attrs (render_blocks refs' bs).
 
 (*
+The refutations
+---------------
+
+What a [Broken] status rests on: an input on which the statement fails,
+at any inline table.  Only the outermost shape of the parse is computed,
+which does not depend on the table.
+*)
+
+Local Definition one_para (bs : blocks) : bool :=
+  match bs with [Node _ _ (Para _)] => true | _ => false end.
+
+Local Definition one_quote (bs : blocks) : bool :=
+  match bs with [Node _ _ (BlockQuote _)] => true | _ => false end.
+
+Lemma callout_quote_not_uniform : forall o,
+  o_callouts o = true -> ~ quote_uniform_holds (o_inline o) (bconfig_of o).
+Proof.
+  intros [[C ok] li se ta hc dv tk rb dl ba ke co] Hc H. cbn in Hc. subst co.
+  specialize (H "[!note] Title" ["body"]). apply (f_equal one_quote) in H.
+  destruct li, se, ke, (dc_footnotes C) eqn:Ef, (dc_tags C) eqn:Et;
+    lazy in H; discriminate H.
+Qed.
+
+Lemma list_interrupt_cuts_wrap : forall o,
+  o_list_interrupts o = true ->
+  ~ hard_wrap_paragraph (o_inline o) (bconfig_of o).
+Proof.
+  intros [[C ok] li se ta hc dv tk rb dl ba ke co] Hi H. cbn in Hi. subst li.
+  specialize (H "A paragraph wrapped so that the next line starts with"
+                ["- a hyphen."] eq_refl eq_refl).
+  apply (f_equal one_para) in H.
+  destruct se, tk, ke, (dc_footnotes C) eqn:Ef, (dc_tags C) eqn:Et;
+    lazy in H; discriminate H.
+Qed.
+
+Lemma setext_cuts_wrap : forall o,
+  o_setext o = true -> ~ hard_wrap_paragraph (o_inline o) (bconfig_of o).
+Proof.
+  intros [[C ok] li se ta hc dv tk rb dl ba ke co] Hs H. cbn in Hs. subst se.
+  specialize (H "A paragraph wrapped before" ["==="] eq_refl eq_refl).
+  apply (f_equal one_para) in H.
+  destruct li, tk, ke, (dc_footnotes C) eqn:Ef, (dc_tags C) eqn:Et;
+    lazy in H; discriminate H.
+Qed.
+
+Lemma one_line_heading_cuts_wrap : forall o,
+  o_heading_continuation o = false ->
+  ~ hard_wrap_heading (o_inline o) (bconfig_of o).
+Proof.
+  intros [[C ok] li se ta hc dv tk rb dl ba ke co] Hh H. cbn in Hh. subst hc.
+  specialize (H 1 ["onto a second line"] "" [] (open_extent "" 0) []
+                eq_refl eq_refl eq_refl).
+  apply (f_equal (@List.length _)) in H.
+  destruct li, se, tk, ke, (dc_footnotes C) eqn:Ef, (dc_tags C) eqn:Et;
+    lazy in H; discriminate H.
+Qed.
+
+(*
 The rows
 --------
 *)
+
+(* Closes [p_refuted] for a row that has no [Broken] status. *)
+Local Ltac never_broken :=
+  repeat match goal with
+         | H : broken (if ?b then _ else _) = true |- _ => destruct b
+         end;
+  discriminate.
+
+Local Obligation Tactic := Tactics.program_simpl; try never_broken.
 
 Local Notation at_profile P := (fun o => P (o_inline o) (bconfig_of o)).
 Local Definition always (s : status) (_ : options) : status := s.
@@ -293,6 +368,10 @@ Program Definition p_quote_uniformity : property := {|
 Next Obligation.
   intros l lines. apply quote_uniformity. apply quote_uniform_sound.
   destruct (quote_uniform o); [reflexivity | discriminate H].
+Qed.
+Next Obligation.
+  apply callout_quote_not_uniform. unfold quote_uniform in H.
+  destruct (o_callouts o); [reflexivity | discriminate H].
 Qed.
 
 Program Definition p_list_uniformity : property := {|
@@ -430,11 +509,10 @@ Program Definition p_hard_wrap_paragraph : property := {|
         "A paragraph wrapped before
 ===
 "
-    else
-      Broken "A text line with a key is a keyed block, not a paragraph."
-        "note: a paragraph
-that goes on
-";
+    (* Keyed blocks are on.  A first line with a key is a keyed block and
+       not a paragraph, so [hard_wrap_paragraph] is not the statement to
+       prove; no line of a paragraph is known to start a block. *)
+    else Conjectured;
   p_holds := at_profile hard_wrap_paragraph
 |}.
 Next Obligation.
@@ -442,6 +520,11 @@ Next Obligation.
   destruct (wrap_safe o); [reflexivity|].
   destruct (o_list_interrupts o); [discriminate H|].
   destruct (o_setext o); discriminate H.
+Qed.
+Next Obligation.
+  destruct (wrap_safe o); [discriminate H|].
+  destruct (o_list_interrupts o) eqn:Hi; [exact (list_interrupt_cuts_wrap o Hi)|].
+  destruct (o_setext o) eqn:Hs; [exact (setext_cuts_wrap o Hs) | discriminate H].
 Qed.
 
 Program Definition p_hard_wrap_heading : property := {|
@@ -462,6 +545,10 @@ Next Obligation.
   intros lvl ls b rest rng cur. apply heading_text_wrap_then_rest.
   apply (proj1 (heading_wrap_safe_iff o)).
   destruct (heading_wrap_safe o); [reflexivity | discriminate H].
+Qed.
+Next Obligation.
+  apply one_line_heading_cuts_wrap. unfold heading_wrap_safe in H.
+  destruct (o_heading_continuation o); [discriminate H | reflexivity].
 Qed.
 
 Program Definition p_block_structure_first : property := {|

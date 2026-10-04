@@ -1,7 +1,9 @@
 (* ai-disclosure: ai-generated *)
 
-(* The statuses of the named profiles, and each [Broken] example checked:
-   it parses under the profile to something other than what djot gives. *)
+(* The statuses of the named profiles.  That a [Broken] property fails is
+   proved in the kernel ([p_refuted]).  The example a [Broken] shows is an
+   illustration, and is checked here only to parse under the profile to
+   something other than what djot gives. *)
 
 open Djot
 module P = Kernel.Properties
