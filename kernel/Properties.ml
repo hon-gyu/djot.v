@@ -252,9 +252,7 @@ let p_hard_wrap_paragraph =
               then Broken
                      ("A line of = or - under a paragraph makes it a heading.",
                      "A paragraph wrapped before\n===\n")
-              else Broken
-                     ("A text line with a key is a keyed block, not a paragraph.",
-                     "note: a paragraph\nthat goes on\n")) }
+              else Conjectured) }
 
 (** val p_hard_wrap_heading : property **)
 

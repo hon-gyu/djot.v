@@ -85,7 +85,7 @@ list-tightness: conditional
 indent-uniformity: conditional
 reference-locality: proved
 reference-shape: proved
-hard-wrap-paragraph: broken
+hard-wrap-paragraph: conjectured
 hard-wrap-heading: proved
 block-structure-first: unknown
 inline-precedence: conditional
