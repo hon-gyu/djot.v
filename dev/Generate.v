@@ -443,8 +443,8 @@ Boundary records
    spelling that roundtrips. *)
 Example nested_loose_promotes_outer :
   rt_lhs (CList LKBullet Tight [[CList LKBullet Loose [[cpara ["a"]; cpara ["t"]]]]])
-  = [ mk (BulletList Tight
-            [mk [ mk (BulletList Loose
+  = [ mk (BulletList "-" Tight
+            [mk [ mk (BulletList "-" Loose
                      [mk [ mk (Para [mk (Str "a")])
                          ; mk (Para [mk (Str "t")]) ]]) ]]) ].
 Proof. reflexivity. Qed.
@@ -555,8 +555,8 @@ Definition end_blank_shape (sp : list_spacing) : cblock :=
 
 Example nested_list_end_blank_tight :
   rt_lhs (end_blank_shape Tight)
-  = [ mk (BulletList Tight
-            [ mk [ mk (BulletList Tight [mk [ mk (Para [mk (Str "b")]) ]]) ]
+  = [ mk (BulletList "-" Tight
+            [ mk [ mk (BulletList "-" Tight [mk [ mk (Para [mk (Str "b")]) ]]) ]
             ; mk [ mk (Para [mk (Str "d")]) ] ]) ].
 Proof. reflexivity. Qed.
 

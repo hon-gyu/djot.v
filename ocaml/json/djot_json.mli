@@ -17,7 +17,6 @@
     Where the tree does not hold what djot.js writes:
     - dashes, ellipses and unmatched quotes are part of a ["str"], as the character they
       render to; there is no ["smart_punctuation"] node;
-    - a bullet list has no ["style"];
     - ["pos"] has the range of {!Djot.Doc.textloc}, and its columns and offsets count
       bytes where djot.js counts UTF-16 code units. *)
 

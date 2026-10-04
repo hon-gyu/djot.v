@@ -13,7 +13,6 @@ djot.js writes. Recorded 2026-10-04.
 | Gap | djot.js | Ours | What closing it needs |
 | --- | ------- | ---- | --------------------- |
 | Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; see "smart punctuation contributes its rendering" in `djotjs-divergences.md` for the cost |
-| Bullet list `style` | the marker, `-`, `+` or `*` | absent | the marker on `BulletList`; the same field would remove the round-trip exception that two adjacent bullet lists read back as one |
 
 ## Closed
 
@@ -36,6 +35,21 @@ the pass. `Document.pass_erase` says so only for input with no written
 heading id. The cases are kernel-checked examples
 (`Render.render_doc_keeps_written_id` and the two after it,
 `Document.written_id_repeats_derived`).
+
+### Bullet list `style` (2026-10-04)
+
+`BulletList` holds the marker its items were written with, and `of_doc`
+writes it as `style`. With definition lists off a `:` list is a bullet
+list and its style is `:`, which djot.js never writes.
+
+`Render.render_lines` writes a list with its own marker, so adjacent
+bullet lists that differ in it read back as two. The `Doc.to_string`
+exception is now only for adjacent lists with the same marker.
+
+The proved round trip did not widen: the canonical view still has one
+bullet list kind, written `-` (`LKBullet`). Covering `+` and `*` means
+giving `LKBullet` the marker and letting `cb_pairs_ok` accept adjacent
+lists that differ in it.
 
 ## Not a gap in the tree
 

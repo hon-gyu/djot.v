@@ -226,7 +226,7 @@ Bullet lists
 
 Example parse_list_tight :
   parse_blocks "- a
-- b" = [mk (BulletList Tight
+- b" = [mk (BulletList "-" Tight
               [ mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
@@ -234,14 +234,14 @@ Proof. reflexivity. Qed.
 Example parse_list_loose :
   parse_blocks "- a
 
-- b" = [mk (BulletList Loose
+- b" = [mk (BulletList "-" Loose
               [ mk [mk (Para [mk (Str "a")])]; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 (* A trailing blank does not: the next event closes the list. *)
 Example parse_list_trailing_blank :
   parse_blocks "- a
-" = [mk (BulletList Tight [mk [mk (Para [mk (Str "a")])]])].
+" = [mk (BulletList "-" Tight [mk [mk (Para [mk (Str "a")])]])].
 Proof. reflexivity. Qed.
 
 (* Thematic breaks win over bullet markers: `classify` tests them
@@ -255,7 +255,7 @@ Proof. reflexivity. Qed.
 Example parse_list_no_interrupt :
   parse_blocks "- a
   - b"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
 Proof. reflexivity. Qed.
 
@@ -263,15 +263,15 @@ Proof. reflexivity. Qed.
 Example parse_list_style_change :
   parse_blocks "- a
 * b"
-  = [ mk (BulletList Tight [mk [mk (Para [mk (Str "a")])]])
-    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
+  = [ mk (BulletList "-" Tight [mk [mk (Para [mk (Str "a")])]])
+    ; mk (BulletList "*" Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* Lazy continuation reaches into the item's paragraph. *)
 Example parse_list_lazy :
   parse_blocks "- a
 b"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
@@ -279,7 +279,7 @@ Proof. reflexivity. Qed.
 Example parse_list_empty_item :
   parse_blocks "-
 - b"
-  = [mk (BulletList Tight [ mk []; mk [mk (Para [mk (Str "b")])] ])].
+  = [mk (BulletList "-" Tight [ mk []; mk [mk (Para [mk (Str "b")])] ])].
 Proof. reflexivity. Qed.
 
 Example parse_heading_in_quote :
@@ -517,7 +517,7 @@ Proof. reflexivity. Qed.
 Example parse_footnote_list_body :
   parse_blocks "[^a]: - item"
   = [mk (FootnoteDef "a"
-       [mk (BulletList Tight [mk [mk (Para [mk (Str "item")])]])])].
+       [mk (BulletList "-" Tight [mk [mk (Para [mk (Str "item")])]])])].
 Proof. reflexivity. Qed.
 
 (* The opener shifts the list's indentation.  djot.js agrees: in the
@@ -568,7 +568,7 @@ Example parse_blank_absorbed_by_div :
 
   t
   :::"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Div "" [mk (Para [mk (Str "a")]); mk (Para [mk (Str "t")])])]])].
 Proof. reflexivity. Qed.
 
@@ -578,7 +578,7 @@ Example parse_blank_not_absorbed_by_quote :
   parse_blocks "- > a
 
   t"
-  = [mk (BulletList Loose
+  = [mk (BulletList "-" Loose
            [mk [mk (BlockQuote [mk (Para [mk (Str "a")])]); mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 
@@ -775,7 +775,7 @@ Example parse_deflist_not_bullet :
   parse_blocks ": a
 - b"
   = [ mk (DefinitionList Tight [mk (mk [mk (Str "a")], mk [])])
-    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
+    ; mk (BulletList "-" Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* And it does not interrupt a paragraph, as nothing in djot does. *)
@@ -817,14 +817,14 @@ Example parse_tasklist_not_bullet :
   parse_blocks "- [ ] a
 - b"
   = [ mk (TaskList Tight [mk (Incomplete, [mk (Para [mk (Str "a")])])])
-    ; mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]]) ].
+    ; mk (BulletList "-" Tight [mk [mk (Para [mk (Str "b")])]]) ].
 Proof. reflexivity. Qed.
 
 (* Two spaces before the bracket, or none after it, and the marker is an
    ordinary bullet whose content happens to start with a bracket. *)
 Example parse_tasklist_wide :
   parse_blocks "-  [ ] a"
-  = [mk (BulletList Tight [mk [mk (Para [mk (Str "[ ] a")])]])].
+  = [mk (BulletList "-" Tight [mk [mk (Para [mk (Str "[ ] a")])]])].
 Proof. reflexivity. Qed.
 
 (* And only a bullet takes one. *)

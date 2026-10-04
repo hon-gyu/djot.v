@@ -50,7 +50,7 @@ Fixpoint walk (d : nat) (lines : list source_line) (bs : blocks)
           let kids :=
             match node_contents n with
             | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => walk d' lines bs'
-            | BulletList _ items | OrderedList _ _ items =>
+            | BulletList _ _ items | OrderedList _ _ items =>
                 flat_map (fun e => walk d' lines (node_contents e)) items
             | TaskList _ items =>
                 flat_map (fun e => walk d' lines (snd (node_contents e))) items
@@ -227,7 +227,7 @@ Definition item_ranges (s : string) : list (list (nat * nat)) :=
   let lines := line_table s in
   map (fun n =>
          match node_contents n with
-         | BulletList _ its | OrderedList _ _ its => map (node_range lines) its
+         | BulletList _ _ its | OrderedList _ _ its => map (node_range lines) its
          | TaskList _ its => map (node_range lines) its
          | DefinitionList _ its => map (node_range lines) its
          | _ => []
@@ -324,7 +324,7 @@ Fixpoint tables (d : nat) (bs : blocks) : list (node block) :=
             match node_contents n with
             | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' | Section bs' =>
                 tables d' bs'
-            | BulletList _ items | OrderedList _ _ items =>
+            | BulletList _ _ items | OrderedList _ _ items =>
                 flat_map (fun e => tables d' (node_contents e)) items
             | TaskList _ items =>
                 flat_map (fun e => tables d' (snd (node_contents e))) items
@@ -528,7 +528,7 @@ Fixpoint first_para (d : nat) (bs : blocks) : inlines :=
           match node_contents n with
           | Para ils | Heading _ ils => ils
           | BlockQuote bs' | Div _ bs' | FootnoteDef _ bs' => first_para d' bs'
-          | BulletList _ (item :: _) | OrderedList _ _ (item :: _) =>
+          | BulletList _ _ (item :: _) | OrderedList _ _ (item :: _) =>
               first_para d' (node_contents item)
           | _ => first_para d' rest
           end

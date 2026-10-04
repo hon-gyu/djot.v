@@ -298,9 +298,9 @@ Inductive inl_all (I : inlines -> Prop) : node block -> Prop :=
   | ia_olist p a oa sp items :
       Forall (fun it => Forall (inl_all I) (node_contents it)) items ->
       inl_all I (Node p a (OrderedList oa sp items))
-  | ia_blist p a sp items :
+  | ia_blist p a bc sp items :
       Forall (fun it => Forall (inl_all I) (node_contents it)) items ->
-      inl_all I (Node p a (BulletList sp items))
+      inl_all I (Node p a (BulletList bc sp items))
   | ia_tlist p a sp items :
       Forall (fun it => Forall (inl_all I) (snd (node_contents it))) items ->
       inl_all I (Node p a (TaskList sp items))
@@ -1150,7 +1150,7 @@ Proof.
           by (intros ys; induction ys as [|[p' a' it] ys IH]; [reflexivity|];
               cbn [map]; rewrite <- IH; unfold ishift; rewrite <- (Hgo it); reflexivity);
         rewrite E
-    | |- context [BulletList _ (?F ?xs)] =>
+    | |- context [BulletList _ _ (?F ?xs)] =>
         let E := fresh "E" in
         assert (E : forall ys, F ys = map ishift ys)
           by (intros ys; induction ys as [|[p' a' it] ys IH]; [reflexivity|];

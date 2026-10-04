@@ -708,15 +708,15 @@ let div_block k word bs =
 
 let styles_list k s sp items =
   match s with
-  | [] -> mk (BulletList (sp, (map mk items)))
+  | [] -> mk (BulletList ('-', sp, (map mk items)))
   | p :: _ ->
     let (l0, start) = p in
     (match l0 with
      | SBullet c ->
        if (&&) ((=) c ':') k.bdeflists
        then mk (DefinitionList (sp, (def_items items)))
-       else mk (BulletList (sp, (map mk items)))
-     | STask _ -> mk (BulletList (sp, (map mk items)))
+       else mk (BulletList (c, sp, (map mk items)))
+     | STask _ -> mk (BulletList ('-', sp, (map mk items)))
      | SOrd (n, d) ->
        mk (OrderedList ({ ol_style = n; ol_delim = d; ol_start = start }, sp,
          (map mk items))))

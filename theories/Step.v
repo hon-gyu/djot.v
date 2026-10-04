@@ -1083,11 +1083,11 @@ Definition styles_list (S : list (lstyle * nat)) (sp : list_spacing)
   | (SBullet c, _) :: _ =>
       if (Ascii.eqb c ":" && bdeflists)%bool
       then mk (DefinitionList sp (def_items items))
-      else mk (BulletList sp (map mk items))
+      else mk (BulletList c sp (map mk items))
   (* The state-free form cannot build a task list, since statuses are per
      item: `styles_list_checked` below handles that style, and this arm
      keeps the function total. *)
-  | _ => mk (BulletList sp (map mk items))
+  | _ => mk (BulletList "-" sp (map mk items))
   end.
 
 (* The state-aware form used by list uniformity.  Non-task styles ignore the

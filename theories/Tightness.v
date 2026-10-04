@@ -54,7 +54,7 @@ The rule
     recursions are, so the nested fix passes the guard. *)
 Fixpoint ends_in_list_b (x : block) : bool :=
   match x with
-  | OrderedList _ _ _ | BulletList _ _ | TaskList _ _ | DefinitionList _ _ => true
+  | OrderedList _ _ _ | BulletList _ _ _ | TaskList _ _ | DefinitionList _ _ => true
   | FootnoteDef _ bs =>
       (fix go (bs : list (node block)) : bool :=
          match bs with

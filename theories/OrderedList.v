@@ -1375,7 +1375,7 @@ Definition ck_items (k : list_kind) (lss : list (list string)) : list litem :=
 Definition ck_block (k : list_kind) (sp : list_spacing) (items : list blocks)
   : block :=
   match k with
-  | LKBullet => BulletList sp (map mk items)
+  | LKBullet => BulletList "-" sp (map mk items)
   | LKDef => DefinitionList sp (def_items items)
   | LKTask checks => TaskList sp (task_items checks items)
   | LKDecimal d start => OrderedList (OLAttrs Decimal d start) sp (map mk items)
@@ -2020,7 +2020,7 @@ Proof. reflexivity. Qed.
 (* And it is not vacuous at ordered markers. *)
 Example star_list_parses :
   parse_lines ["* a"; "* b"] (PPara [])
-  = [mk (BulletList Tight [mk [mk (Para [mk (Str "a")])];
+  = [mk (BulletList "*" Tight [mk [mk (Para [mk (Str "a")])];
                            mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 

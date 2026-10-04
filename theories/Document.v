@@ -470,7 +470,7 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (st : id_state)
   | Ext_keyed label (Node p' a' x) =>
       let (st', n') := of_block x p' a' (register_id a st) in
       (st', Node p a (Ext_keyed label n'))
-  | BulletList sp items =>
+  | BulletList bc sp items =>
       let (st', items') :=
         (fix goit (its : list (node blocks)) (s : id_state) {struct its}
            : id_state * list (node blocks) :=
@@ -481,7 +481,7 @@ Fixpoint of_block (b : block) (p : pos) (a : attr) (st : id_state)
                let (s2, rest1) := goit rest s1 in
                (s2, Node ip ia it1 :: rest1)
            end) items (register_id a st) in
-      (st', Node p a (BulletList sp items'))
+      (st', Node p a (BulletList bc sp items'))
   | OrderedList oa sp items =>
       let (st', items') :=
         (fix goit (its : list (node blocks)) (s : id_state) {struct its}
@@ -647,10 +647,10 @@ Proof.
 Qed.
 
 Lemma blist :
-  forall p a sp items st,
-    of_block (BulletList sp items) p a st
+  forall p a bc sp items st,
+    of_block (BulletList bc sp items) p a st
     = let (st', items') := of_items items (register_id a st) in
-      (st', Node p a (BulletList sp items')).
+      (st', Node p a (BulletList bc sp items')).
 Proof.
   assert (H : forall its st,
              (fix goit (l : list (node blocks)) (s : id_state)
@@ -673,7 +673,7 @@ Proof.
   { induction its as [|[ip ia it] rest IH]; intros st; [reflexivity|].
     cbn [of_items]. rewrite inner_go.
     destruct (of_list it st) as [s1 it1]. rewrite IH. reflexivity. }
-  intros p a sp items st. cbn [of_block]. rewrite H. reflexivity.
+  intros p a bc sp items st. cbn [of_block]. rewrite H. reflexivity.
 Qed.
 
 (* The definition arm, whose inner fixpoint differs from the bullet's
@@ -1033,7 +1033,7 @@ Local Fixpoint of_block (b : block) (p : pos) (a : attr) (m : reference_map)
   | BlockQuote bs | Div _ bs | Section bs | FootnoteDef _ bs
   | Ext_callout _ _ _ bs => go bs m
   | Ext_keyed _ (Node p' a' x) => of_block x p' a' m
-  | BulletList _ items | OrderedList _ _ items => goit items m
+  | BulletList _ _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
       (fix god (its : list (node (node inlines * node blocks))) (acc : reference_map)
          {struct its} : reference_map :=
@@ -1180,7 +1180,7 @@ Fixpoint of_block (b : block) (m : note_map) {struct b} : note_map :=
   | FootnoteDef label bs => alist_set (normalize_label label) bs (go bs m)
   | BlockQuote bs | Div _ bs | Section bs | Ext_callout _ _ _ bs => go bs m
   | Ext_keyed _ (Node _ _ x) => of_block x m
-  | BulletList _ items | OrderedList _ _ items => goit items m
+  | BulletList _ _ items | OrderedList _ _ items => goit items m
   | DefinitionList _ items =>
       (fix god (its : list (node (node inlines * node blocks))) (acc : note_map)
          {struct its} : note_map :=
@@ -1404,7 +1404,7 @@ Local Fixpoint pass_block (b : block) (p : pos) (a : attr) {struct b}
   | Ext_keyed label (Node p' a' x) =>
       [Node p a (Ext_keyed label
          (hd (Node p' a' x) (pass_block x p' a')))]
-  | BulletList sp items => [Node p a (BulletList sp (goit items))]
+  | BulletList bc sp items => [Node p a (BulletList bc sp (goit items))]
   | OrderedList oa sp items => [Node p a (OrderedList oa sp (goit items))]
   | DefinitionList sp items =>
       [Node p a (DefinitionList sp
@@ -1583,13 +1583,13 @@ Proof.
 Qed.
 
 Local Lemma pass_blist :
-  forall sp items p a,
-    pass_block (BulletList sp items) p a
-    = [Node p a (BulletList sp (pass_items items))].
+  forall bc sp items p a,
+    pass_block (BulletList bc sp items) p a
+    = [Node p a (BulletList bc sp (pass_items items))].
 Proof.
-  intros sp items p a.
-  change (pass_block (BulletList sp items) p a)
-    with [Node p a (BulletList sp
+  intros bc sp items p a.
+  change (pass_block (BulletList bc sp items) p a)
+    with [Node p a (BulletList bc sp
             ((fix goit (its : list (node blocks)) : list (node blocks) :=
                 match its with
                 | [] => []
@@ -1688,7 +1688,7 @@ Local Fixpoint of_block (b : block) (a : attr) {struct b} : bool :=
   | BlockQuote inner | Div _ inner | FootnoteDef _ inner
   | Ext_callout _ _ _ inner => go inner
   | Ext_keyed _ (Node _ a' x) => of_block x a'
-  | BulletList _ items => goit items
+  | BulletList _ _ items => goit items
   | OrderedList _ _ items => goit items
   | DefinitionList _ items =>
       (fix god (its : list (node (node inlines * node blocks))) : bool :=
@@ -1824,11 +1824,11 @@ Proof.
 Qed.
 
 Local Lemma blist :
-  forall sp items a,
-    of_block (BulletList sp items) a = of_items items.
+  forall bc sp items a,
+    of_block (BulletList bc sp items) a = of_items items.
 Proof.
-  intros sp items a.
-  change (of_block (BulletList sp items) a)
+  intros bc sp items a.
+  change (of_block (BulletList bc sp items) a)
     with ((fix goit (its : list (node blocks)) : bool :=
              match its with
              | [] => true

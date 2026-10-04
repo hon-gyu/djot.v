@@ -145,7 +145,7 @@ let ck_items k lss =
 
 let ck_block k sp items =
   match k with
-  | LKBullet -> BulletList (sp, (map mk items))
+  | LKBullet -> BulletList ('-', sp, (map mk items))
   | LKDef -> DefinitionList (sp, (def_items items))
   | LKTask checks -> TaskList (sp, (task_items checks items))
   | LKDecimal (d, start) ->

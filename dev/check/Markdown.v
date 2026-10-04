@@ -234,9 +234,9 @@ Proof. vm_compute. reflexivity. Qed.
 Example md_sublist_without_blank :
   MdBlocks "- a
   - b"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "a")]);
-             mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]])]])].
+             mk (BulletList "-" Tight [mk [mk (Para [mk (Str "b")])]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example md_adjacent_headings_stay_separate :

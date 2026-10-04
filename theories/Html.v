@@ -622,7 +622,7 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
       let '(t, a') := named_elem "div" name a in [HElem t 2 a' (render_bs bs)]
   | OrderedList oa sp items =>
       [HElem "ol" 2 (ol_attrs oa ++ a)%list (render_items sp items)]
-  | BulletList sp items => [HElem "ul" 2 a (render_items sp items)]
+  | BulletList bc sp items => [HElem "ul" 2 a (render_items sp items)]
   | TaskList sp items =>
       [HElem "ul" 2 (("class", "task-list") :: a) (render_task_items sp items)]
   | DefinitionList _ items => [HElem "dl" 2 a (render_def_items items)]
@@ -882,7 +882,7 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | OrderedList oa sp items =>
       let '(st', s) := render_items st sp items in
       (st', [HElem "ol" 2 (ol_attrs oa ++ a)%list s])
-  | BulletList sp items =>
+  | BulletList bc sp items =>
       let '(st', s) := render_items st sp items in
       (st', [HElem "ul" 2 a s])
   (* As `render_block`, with the counter threaded: a footnote reference

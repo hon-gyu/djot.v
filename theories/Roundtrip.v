@@ -2461,7 +2461,7 @@ Proof. split; [reflexivity|apply roundtrip_blocks; reflexivity]. Qed.
 
 Example div_then_item_is_tight :
   parse_blocks ("- :::" ++ nl ++ "  a" ++ nl ++ "  :::" ++ nl ++ "- t")
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Div "" [mk (Para [mk (Str "a")])])]; mk [mk (Para [mk (Str "t")])]])].
 Proof. reflexivity. Qed.
 

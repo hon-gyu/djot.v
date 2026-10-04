@@ -93,7 +93,7 @@ let located_failures src =
             | Djot.Ast.Div (_, bs') | Djot.Ast.FootnoteDef (_, bs') -> blocks own bs'
             | Djot.Ast.Ext_keyed (_, kid) -> blocks own [kid]
             | Djot.Ast.OrderedList (_, _, items)
-            | Djot.Ast.BulletList (_, items) ->
+            | Djot.Ast.BulletList (_, _, items) ->
               List.iter
                 (fun it ->
                    let o = part "item" it own in

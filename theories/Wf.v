@@ -144,7 +144,7 @@ Local Fixpoint wf_block (b : block) : bool :=
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
   | OrderedList _ _ items => nonempty items && wf_items items
-  | BulletList _ items => nonempty items && wf_items items
+  | BulletList _ _ items => nonempty items && wf_items items
   | TaskList _ items => nonempty items && wf_task_items items
   | DefinitionList _ items => nonempty items && wf_def_items items
   | ThematicBreak => true
@@ -271,11 +271,11 @@ Qed.
 (* wf_block's hand-inlined item-list fixpoint, named for the same reason
    as wf_block_quote. *)
 Local Lemma wf_block_bullet :
-  forall sp items,
-    wf_block (BulletList sp items)
+  forall bc sp items,
+    wf_block (BulletList bc sp items)
     = (nonempty items && forallb (fun it => wf_blocks (node_contents it)) items)%bool.
 Proof.
-  intros sp items.
+  intros bc sp items.
   assert (H : forall its,
              (fix goi (l : list (node (list (node block)))) : bool :=
                 match l with
@@ -284,7 +284,7 @@ Proof.
                 end) its = forallb (fun it => wf_blocks (node_contents it)) its).
   { induction its as [|[p a it] rest IH]; [reflexivity|].
     cbn [forallb node_contents]. rewrite wf_block_quote, IH. reflexivity. }
-  change (wf_block (BulletList sp items))
+  change (wf_block (BulletList bc sp items))
     with (nonempty items
           && (fix goi (l : list (node (list (node block)))) : bool :=
                 match l with
@@ -3574,7 +3574,7 @@ Local Fixpoint supported (b : block) : bool :=
   | BlockQuote bs | Div _ bs | Ext_callout _ _ _ bs => sup_bs bs
   (* A label holds inlines, so only the block is recursed into. *)
   | Ext_keyed _ b => sup_bs [b]
-  | BulletList _ items => sup_items items
+  | BulletList _ _ items => sup_items items
   | OrderedList _ _ items => sup_items items
   (* A term holds inlines, so only the definition is recursed into. *)
   | DefinitionList _ items =>
@@ -3666,11 +3666,11 @@ Proof.
 Qed.
 
 Local Lemma supported_bullet :
-  forall sp items,
-    supported (BulletList sp items)
+  forall bc sp items,
+    supported (BulletList bc sp items)
     = forallb (fun it => supported_blocks (node_contents it)) items.
 Proof.
-  intros sp items.
+  intros bc sp items.
   assert (H : forall its,
              (fix goi (l : list (node (list (node block)))) : bool :=
                 match l with
@@ -3679,7 +3679,7 @@ Proof.
                 end) its = forallb (fun it => supported_blocks (node_contents it)) its).
   { induction its as [|[ip ia it] rest IH]; [reflexivity|].
     cbn [forallb node_contents]. rewrite supported_quote, IH. reflexivity. }
-  change (supported (BulletList sp items))
+  change (supported (BulletList bc sp items))
     with ((fix goi (l : list (node (list (node block)))) : bool :=
              match l with
              | [] => true

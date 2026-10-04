@@ -299,8 +299,8 @@ Fixpoint readable_lines (a : attr) (b : block) : list string :=
        (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
        sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs)
-   | BulletList sp items =>
-       list_lines sp (map item_lines (ck_items LKBullet (itemss items)))
+   | BulletList bc sp items =>
+       list_lines sp (map item_lines (same_marker (MBullet bc) (itemss items)))
    | DefinitionList sp its =>
        list_lines sp (map item_lines (ck_items LKDef (defitemss its)))
    | OrderedList oa sp items =>

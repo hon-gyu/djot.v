@@ -606,7 +606,10 @@ Inductive block : Type :=
   | Div (name : string) (bs : list (node block))
   | OrderedList (attrs : ordered_list_attributes) (sp : list_spacing)
       (items : list (node (list (node block))))
-  | BulletList (sp : list_spacing) (items : list (node (list (node block))))
+  (* `bc` is the marker the items were written with: `-`, `+` or `*`, or
+     `:` where definition lists are off. *)
+  | BulletList (bc : ascii) (sp : list_spacing)
+      (items : list (node (list (node block))))
   | TaskList (sp : list_spacing)
       (items : list (node (task_status * list (node block))))
   (* An item holds its term and its definition. *)
@@ -655,7 +658,7 @@ Definition block_ind2
   (hcode : forall lang code, P (CodeBlock lang code))
   (hdiv : forall name bs, Q bs -> P (Div name bs))
   (holist : forall attrs sp items, R items -> P (OrderedList attrs sp items))
-  (hblist : forall sp items, R items -> P (BulletList sp items))
+  (hblist : forall bc sp items, R items -> P (BulletList bc sp items))
   (htlist : forall sp items, K items -> P (TaskList sp items))
   (hdlist : forall sp items, D items -> P (DefinitionList sp items))
   (hthematic : P ThematicBreak)
@@ -714,7 +717,7 @@ Definition block_ind2
     | CodeBlock lang code => hcode lang code
     | Div name bs => hdiv name bs (golist bs)
     | OrderedList attrs sp items => holist attrs sp items (goitems items)
-    | BulletList sp items => hblist sp items (goitems items)
+    | BulletList bc sp items => hblist bc sp items (goitems items)
     | TaskList sp items => htlist sp items (gotasks items)
     | DefinitionList sp items => hdlist sp items (godefs items)
     | ThematicBreak => hthematic
@@ -861,7 +864,7 @@ Fixpoint set_rows `{PosPolicy} (rs : list (span * list span))
 Definition parts_onto `{PosPolicy} (ps : parts) (b : block) : block :=
   match ps, b with
   | PItems rs, OrderedList attrs sp its => OrderedList attrs sp (set_each rs its)
-  | PItems rs, BulletList sp its => BulletList sp (set_each rs its)
+  | PItems rs, BulletList bc sp its => BulletList bc sp (set_each rs its)
   | PItems rs, TaskList sp its => TaskList sp (set_each rs its)
   | PDefItems rs, DefinitionList sp its => DefinitionList sp (set_defs rs its)
   | PTable cap rs, Table caption rows =>
@@ -1008,7 +1011,7 @@ Fixpoint of_block (b : block) : block :=
   | BlockQuote bs => BlockQuote (go bs)
   | Div name bs => Div name (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
-  | BulletList sp items => BulletList sp (goitems items)
+  | BulletList bc sp items => BulletList bc sp (goitems items)
   | TaskList sp items =>
       TaskList sp
         ((fix gotasks (items : list (node (task_status * blocks))) :=
@@ -1119,10 +1122,10 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma blist_items : forall sp its,
-  of_block (BulletList sp its) = BulletList sp (map item its).
+Lemma blist_items : forall bc sp its,
+  of_block (BulletList bc sp its) = BulletList bc sp (map item its).
 Proof.
-  intros sp its. cbn [of_block]. f_equal.
+  intros bc sp its. cbn [of_block]. f_equal.
   induction its as [|[p a it] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
   reflexivity.
 Qed.
@@ -1317,7 +1320,7 @@ Fixpoint of_block (d : nat) (b : block) : block :=
   | BlockQuote bs => BlockQuote (go bs)
   | Div name bs => Div name (go bs)
   | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
-  | BulletList sp items => BulletList sp (goitems items)
+  | BulletList bc sp items => BulletList bc sp (goitems items)
   | TaskList sp items =>
       TaskList sp
         ((fix gotasks (items : list (node (task_status * blocks))) :=

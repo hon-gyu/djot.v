@@ -249,7 +249,7 @@ Example task_boxes_are_literal :
   parse_profile_blocks (DjotWith (with_tasks false djot_bconfig)) "- [ ] a
 - [x] b
 - [X]	c"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "[ ] a")])];
             mk [mk (Para [mk (Str "[x] b")])];
             mk [mk (Para [mk (Str "[X]	c")])]])].
@@ -329,7 +329,7 @@ Example definition_list_is_a_bullet_list :
   parse_profile_blocks (DjotWith (with_deflists false djot_bconfig)) ": t
 
   d"
-  = [mk (BulletList Loose
+  = [mk (BulletList ":" Loose
            [mk [mk (Para [mk (Str "t")]); mk (Para [mk (Str "d")])]])].
 Proof. vm_compute. reflexivity. Qed.
 

@@ -196,7 +196,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example enabled_callout_in_list :
   Callouts "- > [!note] T
   > body" =
-  [mk (BulletList Tight [mk [C "note" None [S "T"] [P [S "body"]]]])].
+  [mk (BulletList "-" Tight [mk [C "note" None [S "T"] [P [S "body"]]]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example enabled_block_attribute :
@@ -230,7 +230,7 @@ Example worked_warning_with_list :
 > - [[b]]" =
   [C "warning" (Some FoldCollapsed) [S "Do not rename"]
     [P [S "Renaming breaks the backlinks below."];
-     mk (BulletList Tight
+     mk (BulletList "-" Tight
        [mk [P [mk (Ext_wikilink false "a" None)]];
         mk [P [mk (Ext_wikilink false "b" None)]]])]].
 Proof. vm_compute. reflexivity. Qed.

@@ -1394,8 +1394,9 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
        (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
        sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
-   | BulletList sp items =>
-       list_lines sp (map item_or_marker_lines (ck_items LKBullet (itemss items)))
+   | BulletList bc sp items =>
+       list_lines sp
+         (map item_or_marker_lines (same_marker (MBullet bc) (itemss items)))
    | DefinitionList sp its =>
        list_lines sp (map item_or_marker_lines (ck_items LKDef (defitemss its)))
    | OrderedList oa sp items =>
@@ -1588,6 +1589,9 @@ Proof.
                      (map (fun it => sep_lines (render_blocks_lines it)) items) = true)
       by (rewrite render_forallb_map; exact Hne);
     try solve [rewrite H, (map_item_or_marker_lines _ _ Hne'); reflexivity].
+  - (* the tree's marker is the canonical bullet *)
+    rewrite H. change (same_marker (MBullet "-")) with (ck_items LKBullet).
+    rewrite (map_item_or_marker_lines _ _ Hne'). reflexivity.
   - rewrite (Hdef items Hrok), (map_item_or_marker_lines _ _ Hne'). reflexivity.
   - clear Hne'. apply Nat.eqb_eq in Hrok. rename Hrok into Hlen.
     f_equal.
@@ -1843,8 +1847,8 @@ Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) (q : list string)
   | Div name bs => let (q', bs') := go bs q in (q', Node p a (Div name bs'))
   | FootnoteDef l bs =>
       let (q', bs') := go bs q in (q', Node p a (FootnoteDef l bs'))
-  | BulletList sp its =>
-      let (q', its') := goits its q in (q', Node p a (BulletList sp its'))
+  | BulletList bc sp its =>
+      let (q', its') := goits its q in (q', Node p a (BulletList bc sp its'))
   | OrderedList oa sp its =>
       let (q', its') := goits its q in (q', Node p a (OrderedList oa sp its'))
   | TaskList sp its =>
@@ -1931,4 +1935,16 @@ Example render_doc_written_repeat :
 # y
 
 > # x".
+Proof. reflexivity. Qed.
+
+(* A bullet list is written with its own marker, so lists that differ in
+   it stay apart when the source is read back. *)
+Example render_keeps_bullet_marker :
+  let src := "- a
+
++ b
++ c
+
+* d" in
+  render_djot (parse_blocks src) = src.
 Proof. reflexivity. Qed.

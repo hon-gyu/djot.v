@@ -41,16 +41,16 @@ The sublist
 Example djot_swallows_the_marker :
   Djot "- a
   - b"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str "- b")])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example sublist_nests_without_a_blank :
   Sub "- a
   - b"
-  = [mk (BulletList Tight
+  = [mk (BulletList "-" Tight
            [mk [mk (Para [mk (Str "a")]);
-             mk (BulletList Tight [mk [mk (Para [mk (Str "b")])]])]])].
+             mk (BulletList "-" Tight [mk [mk (Para [mk (Str "b")])]])]])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* The same document djot needs a blank line to read this way, so the
