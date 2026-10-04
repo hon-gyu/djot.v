@@ -3,6 +3,11 @@ ai-disclosure: autonomous
 ---
 # Custom tag names
 
+The extension is implemented, and its rules are stated in
+`theories/spec/custom-tags.dj`. That file is the reference from now on. This
+note is the work log behind it: the reasons, the alternatives, and what the
+implementation cost. It is not updated when the rules change.
+
 Status: **implemented** (2026-10-03), from
 [[261001.plan.custom-tags]]. The six decisions the plan lists were made
 by an agent. A human review amended D2 (2026-10-03); the other five have

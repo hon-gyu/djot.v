@@ -3,6 +3,11 @@ ai-disclosure: ai-generated
 ---
 # Keyed blocks
 
+The extension is implemented, and its rules are stated in
+`theories/spec/keyed-blocks.dj`. That file is the reference from now on. This
+note is the work log behind it: the reasons, the alternatives, and what the
+implementation cost. It is not updated when the rules change.
+
 The constructor this file calls `Keyed` was renamed `Ext_keyed` on
 2026-09-26, to mark it as an extension in the public API.
 
