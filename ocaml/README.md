@@ -40,9 +40,9 @@ differences:
 - `Doc.to_string` renders a document back to djot, where cmarkit has a
   CommonMark renderer.  `Block.to_string` and `Inline.to_string` do the
   same for part of a tree.
-- A `Doc.t` is not built from blocks.  `Html.of_blocks` renders blocks
-  built in code; `Doc.of_string (Block.to_string blocks)` gives a
-  document for them, by way of their djot source.
+- `Doc.make` gives the document of blocks built in code, with ids,
+  sections and definitions resolved as for a parsed text.
+  `Html.of_blocks` renders such blocks directly.
 - A `Source.t` is a text together with its parse, for texts that change.
   `Source.replace_lines` and `Source.replace_bytes` edit the text,
   parsing again only the part the edit can affect, and `Source.doc`
@@ -53,7 +53,8 @@ differences:
   the source, and `Source.doc` its document.
 
 The `djot.json` library writes a document as JSON in the format of
-djot.js's AST, for checking a document's shape with JSON Schema or `jq`.
+djot.js's AST, for checking a document's shape with JSON Schema or `jq`,
+and reads one back.
 It is built when [jsont](https://erratique.ch/software/jsont) and bytesrw
 are installed; `Djot_json` lists what it adds to djot.js's format and
 where it differs.

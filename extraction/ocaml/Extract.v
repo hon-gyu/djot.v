@@ -516,6 +516,7 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
      map_text chunks_text !state)".
 
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
+  DjotV.Document.unsection
   DjotV.Readable.readable_djot DjotV.Readable.readable_doc
   DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs

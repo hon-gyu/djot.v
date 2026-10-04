@@ -84,6 +84,20 @@ bullet list kind, written `-` (`LKBullet`). Covering `+` and `*` means
 giving `LKBullet` the marker and letting `cb_pairs_ok` accept adjacent
 lists that differ in it.
 
+## Decoding a document
+
+Added 2026-10-04 with `Doc.make`. `to_doc` makes the document of
+`children`, then `references`, then `footnotes`. What the format does
+not hold, and so does not come back:
+
+- where a definition stood: definitions are after the other blocks, so
+  `Doc.blocks` and `Doc.to_string` differ and the HTML does not;
+- a definition replaced by a later one of the same label;
+- positions.
+
+Writing definitions in `children` as well would make the round trip
+exact, at the price of nodes djot.js does not have there.
+
 ## Not a gap in the tree
 
 `pos` has djot.js's shape with two differences in its values.

@@ -55,23 +55,28 @@ type loc = { loc : 'a. 'a node -> Textloc.t }
 (* A node: its tag and the members of that tag's case, then the members
    every node has.  The identifier of a node that [auto] holds for is
    written under ["autoAttributes"]; read, it goes first among the
-   attributes, where the document pass puts it.  A decoded node has no
-   position. *)
-let node ~kind ?(auto = fun _ -> false) (l : loc) cases enc_case : 'a node Jsont.t =
+   attributes, where the document pass puts it, or is dropped with
+   [~derived:false].  A decoded node has no position. *)
+let node ~kind ?(auto = fun _ -> false) ?(derived = true) (l : loc) cases enc_case
+  : 'a node Jsont.t
+  =
   let pos_of n =
     let t = l.loc n in
     if Textloc.is_none t then None else Some t
   in
   let written n = if auto n then Attr.remove "id" (Node.attrs n) else Node.attrs n in
-  let derived n =
+  let auto_attrs n =
     match Attr.id (Node.attrs n) with
     | Some id when auto n -> [ "id", id ]
     | _ -> []
   in
-  O.map ~kind (fun content attrs auto _pos -> Node.make ~attrs:(auto @ attrs) content)
+  let dec content attrs auto _pos =
+    Node.make ~attrs:(if derived then auto @ attrs else attrs) content
+  in
+  O.map ~kind dec
   |> O.case_mem "tag" Jsont.string cases ~tag_to_string:Fun.id ~enc:Node.content ~enc_case
   |> O.mem "attributes" attrs ~dec_absent:Attr.empty ~enc:written ~enc_omit:(( = ) [])
-  |> O.mem "autoAttributes" attrs ~dec_absent:Attr.empty ~enc:derived ~enc_omit:(( = ) [])
+  |> O.mem "autoAttributes" attrs ~dec_absent:Attr.empty ~enc:auto_attrs ~enc_omit:(( = ) [])
   |> O.opt_mem "pos" pos ~enc:pos_of
   |> O.finish
 ;;
@@ -310,7 +315,9 @@ let block_list ?keep (block : t node Jsont.t) : t node list Jsont.t =
   | Some keep -> Jsont.map (Jsont.list block) ~dec:Fun.id ~enc:(List.filter keep)
 ;;
 
-let block_at ?keep ?auto (l : loc) (inline : Inline.t node Jsont.t) : t node Jsont.t =
+let block_at ?keep ?auto ?derived (l : loc) (inline : Inline.t node Jsont.t)
+  : t node Jsont.t
+  =
   let inlines = Jsont.list inline in
   let plain k = Inline.to_plain_text k in
   let rec t =
@@ -537,7 +544,7 @@ let block_at ?keep ?auto (l : loc) (inline : Inline.t node Jsont.t) : t node Jso
          ; C.make ext_callout
          ]
        in
-       node ~kind:"block" ?auto l cases enc_case)
+       node ~kind:"block" ?auto ?derived l cases enc_case)
   in
   Lazy.force t
 ;;
@@ -619,6 +626,23 @@ let doc (d : Doc.t) : Doc.t Jsont.t =
   |> O.finish
 ;;
 
+(* Decoding only.  The definitions go after the blocks, references first:
+   where they stood is not in the JSON. *)
+let made ?profile () : Doc.t Jsont.t =
+  let block = block_at ~derived:false no_loc inline in
+  let defs = Jsont.map (assoc ~kind:"definitions" block) ~dec:(List.map snd) in
+  let dec tag references footnotes children =
+    if tag <> "doc" then error "a document has the tag \"doc\"";
+    Doc.make ?profile (children @ references @ footnotes)
+  in
+  O.map ~kind:"doc" dec
+  |> O.mem "tag" Jsont.string
+  |> O.mem "references" defs ~dec_absent:[]
+  |> O.mem "footnotes" defs ~dec_absent:[]
+  |> O.mem "children" (Jsont.list block)
+  |> O.finish
+;;
+
 let of_doc (d : Doc.t) : Jsont.json =
   match Jsont.Json.encode' (doc d) d with
   | Ok json -> json
@@ -629,4 +653,12 @@ let to_string ?(format = Jsont.Minify) (d : Doc.t) : string =
   match Jsont_bytesrw.encode_string ~format (doc d) d with
   | Ok s -> s
   | Error e -> invalid_arg e
+;;
+
+let to_doc ?profile (json : Jsont.json) : (Doc.t, string) result =
+  Jsont.Json.decode (made ?profile ()) json
+;;
+
+let of_string ?profile (s : string) : (Doc.t, string) result =
+  Jsont_bytesrw.decode_string (made ?profile ()) s
 ;;

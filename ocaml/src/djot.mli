@@ -387,6 +387,20 @@ module Doc : sig
       @param locs whether to record source positions, see {!textloc}; default [false] *)
   val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
 
+  (** The document these blocks make: headings get identifiers and sections, and
+      footnotes and references are collected, as {!of_string} does for a text.
+
+      A {!Block.Section} among the blocks is replaced by its blocks, its attributes going
+      to the heading it opens with, so the blocks of a document can be given back. An
+      identifier already on a heading or section is kept as a written one, also when it
+      is in {!auto_identifiers} of the document the blocks came from; {!Mapper.map_doc}
+      derives those again.
+
+      The document has no positions: {!textloc} gives {!Textloc.none}.
+
+      @param profile what {!to_string} writes for; default {!Profile.djot} *)
+  val make : ?profile:Profile.t -> Block.t node list -> t
+
   (** The document as djot source, in the syntax of the profile it was parsed with. An
       identifier in {!auto_identifiers} is not written.
 
@@ -616,9 +630,11 @@ module Mapper : sig
   (** A {!Block.Ext_keyed} whose block is deleted is deleted. *)
   val map_block : t -> Block.t node -> Block.t node filter_map
 
-  (** Maps the blocks. {!Doc.footnotes} is collected again from the result, so it follows
-      a definition that was mapped or deleted. {!Doc.references} and what
-      {!Doc.reference} answers stay as they were.
+  (** The document made of the mapped blocks, as {!Doc.make} gives it, with the profile
+      and the positions of the one given. The mapper sees {!Doc.blocks} without the
+      identifiers in {!Doc.auto_identifiers}; they are derived again from the result, and
+      so are the sections, {!Doc.footnotes}, {!Doc.references} and
+      {!Doc.auto_references}.
 
       The result is not tied to any text: an edit of the {!Source} the document came from
       gives the parse of the edited text, without the map. *)

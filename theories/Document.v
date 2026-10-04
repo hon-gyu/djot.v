@@ -1659,6 +1659,30 @@ Qed.
 End WithTable.
 End Undo.
 
+(* The sections taken back off, ids kept: a section is its blocks, and
+   its attributes go back to the heading it opens with.  A section that
+   opens with anything else loses them.  Top level only, which is where
+   `sectionize` builds sections. *)
+Fixpoint unsection_block (b : block) (p : pos) (a : attr) {struct b}
+  : blocks :=
+  match b with
+  | Section inner =>
+      match (fix go (ns : blocks) : blocks :=
+               match ns with
+               | [] => []
+               | Node p' a' x :: rest =>
+                   (unsection_block x p' a' ++ go rest)%list
+               end) inner with
+      | Node hp _ (Heading lvl ils) :: rest =>
+          Node hp a (Heading lvl ils) :: rest
+      | bs => bs
+      end
+  | _ => [Node p a b]
+  end.
+
+Definition unsection (bs : blocks) : blocks :=
+  flat_map (fun n => match n with Node p a b => unsection_block b p a end) bs.
+
 Module Pristine.
 
 Section WithTable.
@@ -3394,3 +3418,21 @@ x") = []
 [^n]: x")
      = [("n", [Node NoPos [] (Para [Node NoPos [] (Str "x")])])].
 Proof. repeat split; vm_compute; reflexivity. Qed.
+
+(* Sections come back off with every id on its heading, derived or
+   written. *)
+Example unsection_then_pass :
+  let d := parse_doc "# a
+
+{#x}
+## b
+
+c
+
+# a" in
+  unsection (doc_blocks d)
+  = [ Node NoPos [("id", "a")] (Heading 1 [mk (Str "a")])
+    ; Node NoPos [("id", "x")] (Heading 2 [mk (Str "b")])
+    ; mk (Para [mk (Str "c")])
+    ; Node NoPos [("id", "a-1")] (Heading 1 [mk (Str "a")]) ].
+Proof. reflexivity. Qed.

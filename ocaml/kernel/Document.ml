@@ -580,3 +580,27 @@ let parse_doc t0 k p s =
 
 let parse_doc_located t0 k s =
   doc_pass located_pos (parse_blocks_located t0 k s)
+
+(** val unsection_block : block -> pos -> attr -> blocks **)
+
+let rec unsection_block b p a =
+  match b with
+  | Section inner ->
+    (match let rec go = function
+           | [] -> []
+           | n :: rest ->
+             let Node (p', a', x) = n in
+             app (unsection_block x p' a') (go rest)
+           in go inner with
+     | [] -> []
+     | n :: rest ->
+       let Node (hp, a0, x) = n in
+       (match x with
+        | Heading (lvl, ils) -> (Node (hp, a, (Heading (lvl, ils)))) :: rest
+        | x0 -> (Node (hp, a0, x0)) :: rest))
+  | _ -> (Node (p, a, b)) :: []
+
+(** val unsection : blocks -> blocks **)
+
+let unsection bs =
+  flat_map (fun n -> let Node (p, a, b) = n in unsection_block b p a) bs

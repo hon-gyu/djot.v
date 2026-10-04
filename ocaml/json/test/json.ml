@@ -77,6 +77,23 @@ let () =
   assert (Jsont_bytesrw.decode_string blocks json = Ok tree)
 ;;
 
+(* A decoded document renders as the one encoded. Without definitions it
+   is the same document; with them, they come back after the blocks. *)
+let () =
+  let back d = Djot_json.of_string (Djot_json.to_string d) |> Result.get_ok in
+  let d = Doc.of_string "# a\n\n{#x .c}\n## b\n\n- i\n\n+ j\n\n# a\n" in
+  assert (For_testing.kernel (back d) = For_testing.kernel d);
+  let d =
+    Doc.of_string "# a\n\nSee [r] and [^n].\n\n[^n]: note\n\n[r]: /u\n\n# b\n"
+  in
+  let d' = back d in
+  assert (Html.of_doc d' = Html.of_doc d);
+  assert (Doc.footnotes d' = Doc.footnotes d);
+  assert (Doc.references d' = Doc.references d);
+  assert (Doc.auto_identifiers d' = Doc.auto_identifiers d);
+  Printf.printf "\n== decoded\n%s\n" (Doc.to_string d')
+;;
+
 let () =
   Printf.printf "\n== errors\n";
   let decode json =

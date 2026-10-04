@@ -41,12 +41,25 @@ val inline : Djot.Inline.t Djot.node Jsont.t
 (** The ["doc"] object: [references], [autoReferences] and [footnotes] by label, then the
     blocks, with the definitions left out as djot.js does. A footnote has the attributes
     of its definition. An identifier in {!Djot.Doc.auto_identifiers} is under
-    ["autoAttributes"], as in djot.js. Nodes have a ["pos"] when the document was parsed with
-    [~locs:true].
-
-    There is no decoder for documents, since a {!Djot.Doc.t} is not built from blocks. *)
+    ["autoAttributes"], as in djot.js. Nodes have a ["pos"] when the document was parsed
+    with [~locs:true]. *)
 val of_doc : Djot.Doc.t -> Jsont.json
 
 (** {!of_doc} as JSON text.
     @param format default [Jsont.Minify] *)
 val to_string : ?format:Jsont.format -> Djot.Doc.t -> string
+
+(** The document a ["doc"] object describes: {!Djot.Doc.make} of its ["children"], then
+    its ["references"], then its ["footnotes"]. An identifier under ["autoAttributes"]
+    is left out and derived again. ["autoReferences"] is not read.
+
+    The JSON does not say where a definition stood, and has one definition per label. So
+    for a document [d], [to_doc (of_doc d)] has the definitions after the other blocks,
+    without those an entry of the same label replaced, and no positions. Its HTML is
+    that of [d].
+
+    @param profile as for {!Djot.Doc.make} *)
+val to_doc : ?profile:Djot.Profile.t -> Jsont.json -> (Djot.Doc.t, string) result
+
+(** {!to_doc} of JSON text. *)
+val of_string : ?profile:Djot.Profile.t -> string -> (Djot.Doc.t, string) result
