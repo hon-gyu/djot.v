@@ -49,6 +49,11 @@ val of_doc : Djot.Doc.t -> Jsont.json
     @param format default [Jsont.Minify] *)
 val to_string : ?format:Jsont.format -> Djot.Doc.t -> string
 
+(** {!of_doc} in the indented form djot.js prints with [-t ast]: one node per line with
+    its position, members and attributes, children indented under it, then the
+    references and the footnotes. *)
+val to_ast_string : Djot.Doc.t -> string
+
 (** The document a ["doc"] object describes: {!Djot.Doc.make} of its ["children"], then
     its ["references"], then its ["footnotes"]. An identifier under ["autoAttributes"]
     is left out and derived again. ["autoReferences"] is not read.

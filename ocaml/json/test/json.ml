@@ -105,3 +105,8 @@ let () =
   decode {|[{"tag":"heading","children":[]}]|};
   decode {|[{"tag":"ext_keyed","label":[],"children":[]}]|}
 ;;
+
+let () =
+  let src = "# Hi\n\n- a *b*{.c}\n- [x][y] and[^n]\n\n[y]: /u\n\n[^n]: note\n" in
+  Printf.printf "\n== ast\n%s" (Djot_json.to_ast_string (Doc.of_string ~locs:true src))
+;;
