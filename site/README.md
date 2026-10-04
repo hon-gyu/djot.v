@@ -13,8 +13,9 @@ make site-serve    # the same, then serve it on localhost:8000
 make site-publish  # the same, then push it to the gh-pages branch of origin
 ```
 
-`site-publish` refuses to run with uncommitted changes, since the site
-states the commit it is built from. It adds one commit to the `gh-pages`
+`site-publish` refuses to run with uncommitted changes, or from a commit
+that is not on origin, since the site states the commit it is built from
+and links to the source at that commit. It adds one commit to the `gh-pages`
 branch on the remote and touches nothing in the working tree. GitHub Pages
 has to be set to serve that branch.
 
@@ -56,7 +57,7 @@ block languages:
 
 The extensions page is `pages/extensions.dj` followed by the files of
 `theories/spec/`, the extension reference, which is part of the
-Rocq development (`theories/Profiles.v` says how it is checked).
+Rocq development (`theories/Spec.v` says how it is checked).
 `gen.ml` moves their headings one level down and appends a Properties
 section to each.
 
@@ -101,5 +102,4 @@ These are written by hand and go stale without any build failing:
 6. **Styles.** `preview.css` styles the classes the HTML renderer writes
    (`callout`, `keyed`). A new rendered class needs a rule there.
 7. **`VERSION`.** The version number and the syntax reference commit are
-   edited by hand. `make check-versions` compares the commit with the one
-   the audit in `.project/syntax-reference-coverage.md` names.
+   edited by hand.

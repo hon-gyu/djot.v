@@ -15,7 +15,7 @@
    The extensions page is made of the files of the directory EXTENSIONS,
    the extension reference (theories/spec), in the order of their
    names.  A file's setting is the one of its name in
-   theories/Profiles.v. *)
+   theories/Spec.v. *)
 
 open Djot
 open Site_common
@@ -266,7 +266,7 @@ let extension i file =
   let profile =
     match Option.bind (List.assoc_opt name Kernel.Spec.all) Profile.of_kernel with
     | Some p -> p
-    | None -> failwith (name ^ ": no setting of that name in theories/Profiles.v")
+    | None -> failwith (name ^ ": no setting of that name in theories/Spec.v")
   in
   let fenced = ref false in
   let line l =

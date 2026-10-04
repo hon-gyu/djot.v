@@ -13,6 +13,12 @@ test -z "$(git status --porcelain)" || {
   exit 1
 }
 
+git fetch -q origin
+test -n "$(git branch -r --contains HEAD --list 'origin/*')" || {
+  echo "push first: the site links to the source at $(git rev-parse --short HEAD)"
+  exit 1
+}
+
 index=$(mktemp)
 trap 'rm -f "$index"' EXIT
 rm -f "$index" # git wants to create it
@@ -21,7 +27,6 @@ rm -f "$index" # git wants to create it
 GIT_INDEX_FILE=$index git --work-tree="$site" add -A -f .
 tree=$(GIT_INDEX_FILE=$index git write-tree)
 
-git fetch -q origin gh-pages 2>/dev/null || true
 if parent=$(git rev-parse -q --verify refs/remotes/origin/gh-pages); then
   commit=$(git commit-tree "$tree" -p "$parent" -m "site at $(git rev-parse --short HEAD)")
 else

@@ -64,7 +64,6 @@ answer comes back, so only the latest text is parsed.
 *)
 
 let parser = lazy (Brr_webworkers.Worker.create (str "worker.js"))
-let sent = ref 0
 let busy = ref false
 let stale = ref false
 
@@ -114,12 +113,10 @@ let rec parse () =
   then stale := true
   else (
     busy := true;
-    incr sent;
     Brr_webworkers.Worker.post
       (Lazy.force parser)
       (Jv.obj
-         [| "id", Jv.of_int !sent
-          ; "text", Jv.of_string (value editor)
+         [| "text", Jv.of_string (value editor)
           ; "profile", Jv.of_string (Profiles.to_string !profile)
           ; "locs", Jv.of_bool !locs
          |]))
@@ -268,12 +265,12 @@ let rec render_properties () =
       (List.filter (fun p -> P.status_name (p.P.p_status (Profiles.options !profile)) = c) P.all)
   in
   let summary =
-    Printf.sprintf
-      "%d proved, %d conditional, %d broken, %d conjectured"
-      (count "proved")
-      (count "conditional")
-      (count "broken")
-      (count "conjectured")
+    [ "proved"; "conditional"; "broken"; "conjectured"; "unknown"; "inapplicable" ]
+    |> List.filter_map (fun c ->
+      match count c with
+      | 0 -> None
+      | n -> Some (Printf.sprintf "%d %s" n c))
+    |> String.concat ", "
   in
   El.set_children
     property_panel

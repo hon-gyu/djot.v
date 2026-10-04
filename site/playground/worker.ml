@@ -31,7 +31,7 @@ let () =
     in
     let ms = Performance.now_ms G.performance -. t0 in
     Brr_webworkers.Worker.G.post
-      (Jv.obj (Array.append [| "id", Jv.get msg "id"; "ms", Jv.of_float ms |] fields))
+      (Jv.obj (Array.append [| "ms", Jv.of_float ms |] fields))
   in
   ignore (Ev.listen Brr_io.Message.Ev.message answer G.target)
 ;;

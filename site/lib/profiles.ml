@@ -60,6 +60,8 @@ let of_string s =
     | Some s, "on" -> Ok (Switch.set s true p)
     | Some s, "off" -> Ok (Switch.set s false p)
     | Some _, _ -> Error (name ^ ": on or off")
+    | None, _ when List.exists (fun d -> Delimiter.name d = name) Profile.delimiters ->
+      Error (name ^ ": expected characters:syntax, such as **:bare")
     | None, _ -> Error (name ^ ": no such setting")
   in
   let delimiter (name, value) =

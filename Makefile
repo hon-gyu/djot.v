@@ -2,7 +2,7 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
-        site site-serve site-publish check-rocq check-readme check-site check-versions
+        site site-serve site-publish check-rocq check-readme check-site
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -168,5 +168,5 @@ check-rocq: build ocaml-pkg-check-current check-readme  ## (needs Rocq switch) c
 check-readme:  ## Fail if the README's property tables differ from theories/Properties.v (dune promote updates them)
 	dune build @readme
 
-check-site: check-versions site  ## (needs OCaml switch) test the ocaml/ package and build the site
+check-site: site  ## (needs OCaml switch) test the ocaml/ package and build the site
 	cd ocaml && dune build @runtest @install
