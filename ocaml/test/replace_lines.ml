@@ -53,7 +53,6 @@ let () =
                   let expected = Doc.of_string ~locs (String.concat "\n" edited ^ "\n") in
                   let got = Source.doc (Source.replace_lines d ~first ~last s) in
                   assert (For_testing.kernel got = For_testing.kernel expected);
-                  assert (Doc.footnote_defs got = Doc.footnote_defs expected);
                   assert (ranges got = ranges expected))
                 news
             done
@@ -98,8 +97,8 @@ let () =
   let d = Source.of_string "a\n\nb\n\nc\n\n```\nk\n```\n\nd\n" in
   let d', (c : Source.change) = Source.replace_lines_changed d ~first:3 ~last:3 "x" in
   assert (c = { first = 3; old_last = 4; new_last = 4 });
-  let old = For_testing.parsed (Source.doc d)
-  and now = For_testing.parsed (Source.doc d') in
+  let old = For_testing.parsed d
+  and now = For_testing.parsed d' in
   assert (List.length old = List.length now);
   List.iteri (fun k b -> assert (b == List.nth now k = (k <> 1))) old;
   let _, (c : Source.change) = Source.replace_lines_changed d ~first:3 ~last:3 "```" in
@@ -131,7 +130,6 @@ let () =
                   assert (Source.to_string got = edited);
                   let got = Source.doc got in
                   assert (For_testing.kernel got = For_testing.kernel expected);
-                  assert (Doc.footnote_defs got = Doc.footnote_defs expected);
                   assert (c.first >= 1 && c.old_last >= c.first - 1))
                 [ ""; "x"; "\n"; "x\n"; "\n\n- z"; "```\n" ]
             done

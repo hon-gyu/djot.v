@@ -105,14 +105,18 @@ let () =
   Outline.show "| a | b |\n| 1 | 2 |\n^ cap\n"
 ;;
 
-(* Every footnote definition's label is located. *)
+(* A footnote definition's range starts at its [[^]. *)
 let () =
-  header "footnote labels";
+  header "footnote definitions";
   let src = "[^a]\n\n[^a]: one\n\n> [^a]: two\n" in
   let d = Doc.of_string ~locs:true src in
-  List.iter
-    (fun n -> print_range ~lines:true "label" src (Doc.footnote_label_loc d n))
-    (Doc.footnote_defs d)
+  let block _ acc = function
+    | Node (_, _, Block.FootnoteDef _) as n -> Folder.ret (n :: acc)
+    | _ -> Folder.default
+  in
+  List.fold_left (Folder.fold_block (Folder.make ~block ())) [] (Doc.blocks d)
+  |> List.rev
+  |> List.iter (fun n -> print_range ~lines:true "definition" src (Doc.textloc d n))
 ;;
 
 (* Building a range from two others. *)

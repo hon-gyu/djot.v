@@ -16,6 +16,20 @@ djot.js writes. Recorded 2026-10-04.
 | Derived identifiers | a derived section id is under `autoAttributes`, a written one under `attributes` | always under `attributes` | the document pass recording which ids it derived; `doc_auto_identifiers` lists every used id, written ones included |
 | Bullet list `style` | the marker, `-`, `+` or `*` | absent | the marker on `BulletList`; the same field would remove the round-trip exception that two adjacent bullet lists read back as one |
 
+### Derived identifiers also affect `Doc.to_string`
+
+The same missing record is why `Doc.to_string` has to guess which
+identifiers to write (`Render.drop_auto_ids`): it leaves one out when it
+equals what the heading's text gives. The guess is wrong both ways.
+
+- A written `{#My-title}` above `# My title` is left out. The parse is
+  the same; the author's text is not kept.
+- A derived `My-title-1` on a repeated heading is written out as if it
+  had been chosen.
+
+With the pass recording which ids it derived, `to_string` would leave
+out exactly those. Noted 2026-10-04.
+
 ## Not a gap in the tree
 
 `pos` has djot.js's shape with two differences in its values.

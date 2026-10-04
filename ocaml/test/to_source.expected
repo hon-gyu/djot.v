@@ -4,15 +4,14 @@
 
 {#main k="a b"}
 ::: warn
-Text[^n] with {_soft
-break_}\.
+Text[^n] with _soft
+break_.
 :::
 
 {#Intro-1}
 # Intro
 
-[^n]:
-  A note.
+[^n]: A note.
 
   - x
   - y
@@ -22,15 +21,14 @@ break_}\.
 
 {#main k="a b"}
 ::: warn
-Text[^n] with {_soft
-break_}\.
+Text[^n] with _soft
+break_.
 :::
 
 {#Intro-1}
 # Intro
 
-[^n]:
-  A note.
+[^n]: A note.
 
   - x
   - y
@@ -55,11 +53,11 @@ key:
 
 == of_blocks
 {.c}
-> a {*b*}\
+> a *b*\
 > c
 
 == of_inlines
-a {*b*}\
+a *b*\
 c
 
 == readable

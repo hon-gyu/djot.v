@@ -318,7 +318,7 @@ module Inline = struct
     | HardBreak
     | Ext_wikilink of bool * string * string option
 
-  let to_string ?(profile = Profile.djot) ?(style = `Safe) (ils : t node list) : string =
+  let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string =
     Styled.inlines style profile ils
   ;;
 
@@ -390,7 +390,7 @@ module Block = struct
     | Ext_keyed of Inline.t node list * t node
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
 
-  let to_string ?(profile = Profile.djot) ?(style = `Safe) (bs : t node list) : string =
+  let to_string ?(profile = Profile.djot) ?(style = `Checked) (bs : t node list) : string =
     Styled.blocks style profile bs
   ;;
 end
@@ -470,49 +470,12 @@ end
 module Doc = struct
   type t =
     { kernel : K.Ast.doc
-    ; parsed : Block.t node list (* What the document pass was run over. *)
-    ; footnote_defs : Block.t node list
     ; lines : K.Strings.source_line array option
     ; profile : Profile.t
     }
 
-  (* The definitions the document pass takes out of the tree, in source
-     order. *)
-  let rec collect_footnote_defs (acc : Block.t node list) (node : Block.t node)
-    : Block.t node list
-    =
-    match node with
-    | Node (_, _, b) as n ->
-      let bl acc l = List.fold_left collect_footnote_defs acc l in
-      (match (b : Block.t) with
-       | FootnoteDef (_, l) -> bl (n :: acc) l
-       | Section l | BlockQuote l | Div (_, l) | Ext_callout (_, _, _, l) -> bl acc l
-       | OrderedList (_, _, its) | BulletList (_, its) ->
-         List.fold_left (fun acc it -> bl acc (Node.content it)) acc its
-       | TaskList (_, its) ->
-         List.fold_left (fun acc it -> bl acc (snd (Node.content it))) acc its
-       | DefinitionList (_, its) ->
-         List.fold_left
-           (fun acc it -> bl acc (Node.content (snd (Node.content it))))
-           acc
-           its
-       | Ext_keyed (_, b) -> collect_footnote_defs acc b
-       | Para _
-       | Heading _
-       | CodeBlock _
-       | ThematicBreak
-       | Table _
-       | RawBlock _
-       | RefDef _ -> acc)
-  ;;
-
   let make ~profile ~lines pos bs =
-    { kernel = K.Document.doc_pass pos bs
-    ; parsed = bs
-    ; footnote_defs = List.rev (List.fold_left collect_footnote_defs [] bs)
-    ; lines
-    ; profile
-    }
+    { kernel = K.Document.doc_pass pos bs; lines; profile }
   ;;
 
   (* The fold step the pieces are cut with, and its finish. *)
@@ -543,13 +506,12 @@ module Doc = struct
     of_pieces ~profile ~locs s (pieces_of_string ~profile ~locs s)
   ;;
 
-  let to_string ?(style = `Safe) (d : t) : string =
+  let to_string ?(style = `Checked) (d : t) : string =
     Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel)
   ;;
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
   let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
-  let footnote_defs (d : t) : Block.t node list = d.footnote_defs
 
   let footnote (d : t) (l : string) : Block.t node list option =
     K.Ast.alist_lookup (K.Ast.normalize_label l) (footnotes d)
@@ -571,23 +533,6 @@ module Doc = struct
       (match d.lines, p with
        | Some lines, K.Ast.SomePos p -> Textloc.of_span lines p.node_span
        | _ -> Textloc.none)
-  ;;
-
-  (* A definition's range starts at its [[^]. *)
-  let footnote_label_loc (d : t) (node : Block.t node) : Textloc.t =
-    match node with
-    | Node (_, _, Block.FootnoteDef (label, _)) ->
-      let l = textloc d node in
-      if Textloc.is_none l
-      then Textloc.none
-      else (
-        let first_byte = l.first_byte + 2 in
-        Textloc.make
-          ~first_byte
-          ~last_byte:(first_byte + String.length label - 1)
-          ~first_line:l.first_line
-          ~last_line:l.first_line)
-    | Node _ -> Textloc.none
   ;;
 
   type syntax = K.Ast.syntax_role =
@@ -891,7 +836,7 @@ end
 
 module For_testing = struct
   let kernel (d : Doc.t) = d.kernel
-  let parsed (d : Doc.t) = d.parsed
+  let parsed (s : Source.t) = K.Reparse.pieces_tree s.pieces
 end
 
 (* Both traversals match every constructor by name, leaves included, so a
@@ -1001,12 +946,9 @@ module Mapper = struct
 
   let map_doc (m : t) (d : Doc.t) : Doc.t =
     let k = d.kernel in
+    let doc_blocks = map_blocks m k.doc_blocks in
     { d with
-      kernel =
-        { k with
-          doc_blocks = map_blocks m k.doc_blocks
-        ; doc_footnotes = List.map (fun (l, bs) -> l, map_blocks m bs) k.doc_footnotes
-        }
+      kernel = { k with doc_blocks; doc_footnotes = K.Document.Notes.of_list doc_blocks [] }
     }
   ;;
 end
@@ -1098,14 +1040,6 @@ module Folder = struct
        | Ext_keyed (l, b) -> fold_block f (il acc l) b
        | Ext_callout (_, _, title, body) -> bl (il acc title) body
        | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
-  ;;
-
-  let fold_doc (f : 'a t) (acc : 'a) (d : Doc.t) : 'a =
-    let bl acc l = List.fold_left (fold_block f) acc l in
-    List.fold_left
-      (fun acc (_, bs) -> bl acc bs)
-      (bl acc (Doc.blocks d))
-      (Doc.footnotes d)
   ;;
 end
 

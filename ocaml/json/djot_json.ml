@@ -527,26 +527,47 @@ let no_loc = { loc = (fun _ -> Textloc.none) }
 let inline = inline_at no_loc
 let block = block_at no_loc inline
 
-(* Encoding only: a [Doc.t] is not built from blocks.  Reference
-   definitions are listed in [references] and left out of the blocks, as
-   the document pass does for footnotes. *)
+(* The footnote definitions, last closed first: the order the document
+   pass assigns them in, reversed. *)
+let footnote_defs_closing (d : Doc.t) : Block.t node list =
+  let block f acc n =
+    match Node.content n with
+    | Block.FootnoteDef (_, k) ->
+      Folder.ret (n :: List.fold_left (Folder.fold_block f) acc k)
+    | _ -> Folder.default
+  in
+  List.fold_left (Folder.fold_block (Folder.make ~block ())) [] (Doc.blocks d)
+;;
+
+(* Encoding only: a [Doc.t] is not built from blocks.  Definitions are
+   listed in [references] and [footnotes] and left out of the blocks. *)
 let doc (d : Doc.t) : Doc.t Jsont.t =
   let l = { loc = (fun n -> Doc.textloc d n) } in
   let keep n =
     match Node.content n with
-    | RefDef _ -> false
+    | RefDef _ | FootnoteDef _ -> false
     | _ -> true
   in
   let block = block_at ~keep l (inline_at l) in
   let defs = assoc ~kind:"definitions" block in
   let reference (label, (dest, attrs)) = label, Node.make ~attrs (RefDef (label, dest)) in
-  let footnote (label, blocks) = label, Node.make (FootnoteDef (label, blocks)) in
+  (* An entry is the definition node its blocks came from, so it has that
+     node's attributes and position. *)
+  let footnotes d =
+    let defs = footnote_defs_closing d in
+    let defines label n =
+      match Node.content n with
+      | Block.FootnoteDef (l, _) -> Kernel.Ast.normalize_label l = label
+      | _ -> false
+    in
+    List.map (fun (label, _) -> label, List.find (defines label) defs) (Doc.footnotes d)
+  in
   O.enc_only ~kind:"doc" ()
   |> O.mem "tag" Jsont.string ~enc:(Fun.const "doc")
   |> O.mem "references" defs ~enc:(fun d -> List.map reference (Doc.references d))
   |> O.mem "autoReferences" defs ~enc:(fun d ->
     List.map reference (Doc.auto_references d))
-  |> O.mem "footnotes" defs ~enc:(fun d -> List.map footnote (Doc.footnotes d))
+  |> O.mem "footnotes" defs ~enc:footnotes
   |> O.mem "children" (block_list ~keep block) ~enc:Doc.blocks
   |> O.finish
 ;;
