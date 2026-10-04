@@ -1,4 +1,0 @@
-(library
- (name djot_properties)
- (public_name djot.properties)
- (libraries djot))
