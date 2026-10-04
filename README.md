@@ -42,58 +42,65 @@ It is **generalized** in the sense that djot is one setting of a configurable pa
 
 ## Djot Properties
 
-This section lists everything proved, what each proof assumes, and what is still to be done.
+This section lists what is proved of the djot profile. The site's playground shows the same for any profile.
 
 The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
 > ai-disclosure: this section is ai-generated
 
+<!-- properties: generated from theories/Properties.v -->
+
 ### No backtracking
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| Block parsing does not backtrack: a later line never changes a block already parsed. | Blocks can be emitted as lines arrive. | proved: `prefix_determinism`, `no_future_line_dependence` |
-| Inline parsing does not backtrack: each byte of a paragraph is read once. | An unclosed `*` or `[` never forces a rescan. | proved: `iscan_str_no_reread` |
-| After an edit, reparsing can stop as soon as the parser is back in the state it had before the edit. | An editor reparses only the changed region and reuses the rest of the old parse. | proved: `prefix_state_suffices`, `reparse_only_new` |
+| A later line never changes a block already parsed. | Blocks can be emitted as lines arrive. | proved: `prefix_determinism`, `no_future_line_dependence` |
+| Each byte of a paragraph is read once. | An unclosed * or [ never forces a rescan. | proved: `iscan_str_no_reread` |
+| After an edit, reparsing can stop once the parser is back in the state it had before the edit. | An editor reparses the changed region and reuses the rest. | proved: `prefix_state_suffices`, `reparse_only_new` |
 | Replacing one block leaves the parse of every other block unchanged. | An edit's effect stays within the block it touches. | proved: `block_replace`, `replace_at_id_parse` |
-| Recording source positions does not change the parse. | Tools that need positions, such as editors, get the same tree as everyone else. | proved: `parse_blocks_located_erase`, `parse_doc_located_erase` |
-| Parsing takes linear time. | Reading each byte once is not enough for this: one byte can do work proportional to the number of open delimiters. | planned (long-term) |
+| Recording source positions does not change the parse. | A tool that needs positions gets the same tree as everyone else. | proved: `parse_blocks_located_erase`, `parse_doc_located_erase` |
+| Parsing takes linear time. | Reading each byte once does not give this: one byte can do work proportional to the number of open delimiters. | conjectured |
 
 ### Container uniformity
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| Text inside a block quote, list item, fenced div or definition-list item parses as it would at top level. For list items, the text must be indented the way the formatter writes it; for divs, it must not contain the div's own closing fence. | Moving text into or out of a container does not change its meaning. | proved: `quote_uniformity`, `list_uniformity`, `ordered_uniformity`, `div_uniformity`, `div_uniformity_tail`, `definition_list_uniformity` |
-| Lines indented under a footnote belong to it and cannot affect anything outside it. They parse as they would at top level, unless the footnote's first line starts a list. | Moving text into a footnote does not change its meaning, with one exception: in `[^a]: - x` followed by `  - y`, the indentation of `- y` is measured from `[^a]:`, so it becomes a second item, while the same two lines at top level make one item. | proved: `footnote_content_uniformity`, `footnote_content_uniformity_tail`, `footnote_open_uniformity_tail`, `footnote_unshifted_uniformity`, `footnote_text_uniformity`, `footnote_blank_uniformity` (and tail variants); the exception: `footnote_list_shift_counterexample` |
-| A text line that continues an open paragraph may leave out the prefixes of the block quotes, list items and footnotes around it, and it parses as it would with them written out. Where setext headings are on, a line that underlines the paragraph is the exception. | Leaving out a prefix on such a line does not change what the document means. Together with the uniformity rows, this gives the meaning of a document with lazy lines: `> a` then `b` is a quote holding the paragraph `a b`, and likewise for a list item and a footnote. | proved: `lazy_stack_line` (the three containers, as the syntax reference lists them), `step_lazy`, `step_lazy_spelling` (any indentation the containers accept), `lazy_line_restore`; per container: `quote_lazy_line`, `list_lazy_line`, `footnote_lazy_line` |
-| A list is loose only where a blank line separates two of its items, or two blocks inside one item. A blank line directly before a nested list, or right after one ends, does not count, and neither does a blank line inside a nested block such as a div, a footnote, or a table before its caption. | Whether a list renders with space between its items follows from where its blank lines are, as the syntax reference states it. | proved in one direction: `list_spacing_separates` (a list the parser calls loose has such a blank line); the converse is planned |
-| Indenting every line of a document by the same amount does not change its parse, as long as no block attribute `{...}` spans several lines. | Indentation matters only relative to a list marker or footnote, as the syntax reference says: a document pasted at some indentation means the same thing. | proved: `indent_uniformity` |
+| Text inside a block quote parses as it would at top level. | Moving text into or out of a quote does not change its meaning. | proved: `quote_uniformity`, `quote_uniform_sound` |
+| Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it. | Moving text into or out of a list item does not change its meaning. | proved: `list_uniformity`, `ordered_uniformity` |
+| The same, for the items of a definition list. | Moving text into or out of a definition does not change its meaning. | proved: `definition_list_uniformity` |
+| Text inside a fenced div parses as it would at top level, unless it contains the div's own closing fence. | Moving text into or out of a div does not change its meaning. | proved: `div_uniformity`, `div_uniformity_tail` |
+| Lines indented under a footnote belong to it, cannot affect anything outside it, and parse as they would at top level. | Moving text into a footnote does not change its meaning. | conditional: `footnote_content_uniformity`, `footnote_text_uniformity`, `footnote_list_shift_counterexample`. Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker. |
+| A text line that continues a paragraph may leave out the prefixes of the quotes, list items and footnotes around it, and parses as it would with them written. | Leaving out a prefix on such a line does not change the document. | proved: `lazy_stack_line`, `step_lazy`, `lazy_line_restore`, `lazy_uniform_sound` |
+| A list is loose only where a blank line separates two of its items, or two blocks inside one item. | Whether a list renders with space between its items follows from where its blank lines are. | conditional: `list_spacing_separates`. One direction: a list the parser calls loose has such a blank line. |
+| Indenting every line of a document by the same amount does not change its parse. | A document pasted at some indentation means the same thing. | conditional: `indent_uniformity`. As long as no block attribute spans several lines. |
 
 ### Local interpretation
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| Whether `[foo][bar]` is a link does not depend on whether `bar` is defined. | Inline syntax can be read from the paragraph alone, without the rest of the document. | proved, and true by construction, since link recognition never sees the definitions: `classify_inlines_locality` |
-| Adding, removing or changing a reference definition changes only link and image attributes in the HTML, such as the URL, never its structure or text. | Resolving references never restructures the document. | proved: `render_inline_reference_shape`, `render_inlines_reference_shape`, `html_tree_reference_shape`, `render_document_foot_reference_shape`, `render_blocks_reference_shape` |
+| Whether [foo][bar] is a link does not depend on whether bar is defined. | Inline syntax can be read from the paragraph alone. | proved: `classify_inlines_locality` |
+| Adding, removing or changing a reference definition changes only link and image attributes in the HTML. | Resolving references never restructures the document. | proved: `render_blocks_reference_shape` |
 
 ### Safe hard-wrapping
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| A line inside a paragraph never starts a new block, even if it begins with `- `, `# `, `> `, `1. ` or `***`. | Hard-wrapping a paragraph cannot accidentally create a list, heading or quote. It can still change inline content when a line break moves into verbatim, after a backslash (where it becomes a hard line break), or past trailing spaces (`wrap_moves_*`). | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest` |
-| A heading continues on the following lines, with or without a repeated `#` marker, until a blank line. | Hard-wrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
+| A line inside a paragraph never starts a new block. | Hard-wrapping a paragraph cannot create a list, heading or quote by accident. | proved: `hard_wrap_one_para`, `hard_wrap_para_then_rest`, `wrap_safe_iff`, `wrap_cut_list`, `wrap_cut_setext` |
+| A heading continues on the following lines until a blank line. | Hard-wrapping a long heading keeps it one heading. | proved: `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest` |
 
 ### Block structure first
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| Which blocks a document has, and how they nest, is decided without reading inline syntax: the same blocks come out however emphasis, links and other inline constructs parse. The one exception is a table caption, which disappears when its inline content comes out empty. | A tool can find the blocks of a document, such as for folding or an outline, without an inline parser, and a bug in inline parsing cannot move a block boundary. | proved: `block_shape_independent` |
+| Which blocks a document has, and how they nest, is decided without reading inline syntax. | A tool can find the blocks of a document without an inline parser, and a bug in inline parsing cannot move a block boundary. | conditional: `block_shape_independent`. Except a table caption, which disappears when its inline content is empty. |
 
 ### Inline precedence
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| When emphasis delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener: `_a *b_ c*` is emphasis around `a *b`, with the `*`s as text. There is exactly one reading that follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, the one the syntax reference gives, and it can be worked out by hand. | proved for a paragraph of `_`, `*`, `^`, `~` (bare or in braces), `{= =}`, `{+ +}`, links `[..](..)` and `[..][..]`, and plain text: `para_inlines_valid`, `valid_unique`; smart quotes, spans and images are not covered |
+| When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, which can be worked out by hand. | conditional: `para_inlines_valid`, `valid_unique`. For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered. |
+
+<!-- /properties -->
 
 ### Roundtrip
 

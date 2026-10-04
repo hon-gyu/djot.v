@@ -222,7 +222,7 @@ let rec render_properties () =
     let note =
       match status with
       | Conditional s | Inapplicable s -> [ el "p" ~cls:"note" [ txt s ] ]
-      | Broken { reason; example } ->
+      | Broken (reason, example) ->
         let load = el "button" [ txt "Load an example" ] in
         on Ev.click
           (fun _ ->

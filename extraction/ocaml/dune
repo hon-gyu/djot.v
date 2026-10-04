@@ -45,6 +45,7 @@
   PosDef
   Profile
   ProfileChecks
+  Properties
   Readable
   Render
   Reparse

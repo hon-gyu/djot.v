@@ -1,12 +1,12 @@
 #!/bin/sh
 # ai-disclosure: ai-generated
-# Writes versions.ml: this repository's commit and the commit of the djot
-# syntax reference it pins as the `djot` submodule.
+# Writes versions.ml: what the VERSION file at the root of the repository
+# states, and the commit the site is built from.
 root=$(git rev-parse --show-toplevel)
-spec=$(git -C "$root" ls-files -s djot | awk '{print $2}')
-spec_date=$(git -C "$root/djot" log -1 --format=%ad --date=short "$spec" 2>/dev/null)
+field() { sed -n "s/^$1: *//p" "$root/VERSION"; }
+echo "let version = \"$(field version)\""
+echo "let spec_commit = \"$(field djot-commit)\""
+echo "let spec_date = \"$(field djot-date)\""
 echo "let commit = \"$(git -C "$root" rev-parse HEAD)\""
 echo "let commit_date = \"$(git -C "$root" log -1 --format=%ad --date=short)\""
 echo "let describe = \"$(git -C "$root" describe --always --tags --dirty)\""
-echo "let spec_commit = \"$spec\""
-echo "let spec_date = \"$spec_date\""

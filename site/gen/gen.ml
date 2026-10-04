@@ -9,7 +9,8 @@
    - [changes]: the properties whose status a profile changes, against
      djot;
    - [properties]: the status of every property under the named profiles;
-   - [versions]: the commits the site was built from.
+   - [versions]: the version, the syntax reference it models, and the
+     commit the site was built from.
 
    The extensions page is made of the files of [extensions/], in the
    order of their names.  Each starts with a [profile: ...] line in the
@@ -118,11 +119,12 @@ let layout ~root ~title body =
     ; Printf.sprintf
         {|
 <footer>
-Built from <a href="%s">%s</a> (%s).
+djot.v %s, built from <a href="%s">%s</a> (%s).
 Models the <a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">djot syntax reference at %s</a> (%s).
 </footer>
 </html>
 |}
+        Versions.version
         Links.tree
         Versions.describe
         Versions.commit_date
@@ -135,7 +137,7 @@ Models the <a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">djot synt
 let status_cell (s : P.status) : string =
   let note =
     match s with
-    | Conditional n | Inapplicable n | Broken { reason = n; _ } ->
+    | Conditional n | Inapplicable n | Broken (n, _) ->
       Printf.sprintf "<small>%s</small>" (escape n)
     | Proved | Conjectured | Unknown -> ""
   in
@@ -176,9 +178,11 @@ let legend =
 let versions () =
   Printf.sprintf
     {|<dl class="versions">
+<dt>Version</dt><dd>%s</dd>
 <dt>Syntax reference</dt><dd><a href="https://github.com/jgm/djot/blob/%s/doc/syntax.md">jgm/djot at %s</a>, %s</dd>
-<dt>This project</dt><dd><a href="%s">%s</a>, %s</dd>
+<dt>Built from</dt><dd><a href="%s">%s</a>, %s</dd>
 </dl>|}
+    Versions.version
     Versions.spec_commit
     (String.sub Versions.spec_commit 0 7)
     Versions.spec_date

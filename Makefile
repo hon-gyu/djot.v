@@ -2,7 +2,7 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
-        site site-serve
+        site site-serve site-publish check-rocq check-readme check-site check-versions
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -154,3 +154,32 @@ site:  ## Build the static site into _build/site
 
 site-serve: site  ## Build the site and serve it on localhost:8000
 	python3 -m http.server -d $(SITE) 8000
+
+# Run by hand, with the remote as the destination.  The site is one fresh
+# commit on the gh-pages branch, which GitHub Pages serves.
+site-publish: site  ## Build the site and push it to the gh-pages branch of origin
+	@test -z "`git status --porcelain`" || { echo "commit or stash first: the site states the commit it is built from"; exit 1; }
+	cd $(SITE) && rm -rf .git && git init -q -b gh-pages && git add -A && \
+	  git commit -q -m "site at `git -C $(CURDIR) rev-parse --short HEAD`" && \
+	  git push -f `git -C $(CURDIR) remote get-url origin` gh-pages
+	rm -rf $(SITE)/.git
+
+# Everything, locally
+# -------------------
+
+# Two recipes, one per opam switch.
+
+check-rocq: build ocaml-pkg-check-current check-readme  ## Rocq switch: check the proofs, that ocaml/kernel is the current extraction, and the README tables
+
+check-readme:  ## Fail if the README's property tables differ from theories/Properties.v (dune promote updates them)
+	dune build @readme
+
+check-site: check-versions site  ## OCaml switch: test the ocaml/ package and build the site
+	cd ocaml && dune build @runtest @install
+
+# The audit of the syntax reference names the commit it read.
+check-versions:  ## Fail if the syntax reference audit is of another commit than VERSION states
+	@c=`sed -n 's/^djot-commit: *//p' VERSION | cut -c1-7`; \
+	grep -q "Audited version.*$$c" .project/syntax-reference-coverage.md \
+	  || { echo "VERSION names djot $$c; .project/syntax-reference-coverage.md audits another commit"; exit 1; }; \
+	echo "syntax reference audit is of $$c"

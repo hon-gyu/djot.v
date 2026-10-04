@@ -15,7 +15,7 @@ let show name profile =
       let s = P.status p profile in
       Printf.printf "%s: %s\n" (P.id p) (P.status_name s);
       match s with
-      | Broken { example; _ } -> assert (html profile example <> html Profile.djot example)
+      | Broken (_, example) -> assert (html profile example <> html Profile.djot example)
       | _ -> ())
     P.all
 ;;

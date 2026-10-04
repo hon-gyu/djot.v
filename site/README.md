@@ -2,15 +2,20 @@
 # site
 
 The project's static site: a home page, a playground, the extension
-reference, and the OCaml API documentation. Published to GitHub Pages by
-`.github/workflows/site.yml` on every push to `main`.
+reference, and the OCaml API documentation. There is no CI: the site is
+built and published by hand.
 
 ## Building
 
 ```
-make site         # into _build/site
-make site-serve   # the same, then serve it on localhost:8000
+make site          # into _build/site
+make site-serve    # the same, then serve it on localhost:8000
+make site-publish  # the same, then push it to the gh-pages branch of origin
 ```
+
+`site-publish` refuses to run with uncommitted changes, since the site
+states the commit it is built from. GitHub Pages has to be set to serve
+the `gh-pages` branch.
 
 Both need an opam switch with the `ocaml/` package's dependencies (jsont,
 bytesrw, odoc) plus brr and js_of_ocaml-compiler. Neither needs Rocq: the
@@ -28,7 +33,7 @@ dependencies of the package. It sees the package through the symlink
 | `lib/spec.ml` | A profile as a short string, for URLs: what differs from djot. Used by the playground and by the playground links on the pages. |
 | `lib/links.ml` | The repository's address, and the link to a theorem's statement. |
 | `lib/theorems.sh` | Writes `theorems.ml` at build time: every theorem of `theories/` and `dev/` with its file and line. |
-| `lib/versions.sh` | Writes `versions.ml` at build time from git: this repository's commit and the commit of the `djot` submodule. |
+| `lib/versions.sh` | Writes `versions.ml` at build time: what the `VERSION` file at the root states, and the commit being built. |
 | `gen/gen.ml` | Writes the static pages from `pages/`. |
 | `playground/playground.ml` | The playground's interface, with brr. |
 | `playground/worker.ml` | The playground's parser, as a web worker. |
@@ -63,10 +68,13 @@ the site:
 
 - the switches and delimiters the playground offers (`Djot.Profile.switches`,
   `Djot.Profile.delimiters`);
-- the status of a property under a profile, where it depends on the
-  profile (the checks of `theories/ProfileChecks.v`);
+- the property list, with its words and the status of each property
+  under a profile (`theories/Properties.v`, where every status that claims
+  a property carries a proof of it for that profile). The README's
+  property tables are written from the same file;
 - the rendered output of every `example` block;
-- the commits in the footer and on the home page;
+- the version, the syntax reference commit and the built commit in the
+  footer and on the home page (`VERSION`, and git);
 - the link from a theorem's name to its statement. A property that names
   a theorem the development does not have fails the build;
 - the word a status is shown as (`Djot_properties.status_name`).
@@ -76,12 +84,10 @@ These are written by hand and go stale without any build failing:
 1. **The prose of the extension pages.** An example's output is
    regenerated, so it stays true, but the sentence above it is not checked
    against it. After a change to an extension's parsing, reread its page.
-2. **The property list** (`ocaml/properties/djot_properties.ml`):
-   - a row with a fixed status (`always Proved`, a fixed condition) is a
-     claim about every profile that nothing recomputes. If a theorem gains
-     a hypothesis about the profile, the row needs a check in
-     `ProfileChecks.v`;
-   - the statements repeat the README's property tables.
+2. **The words of the property list** (`theories/Properties.v`): each
+   row's statement and implication in English, beside its formal
+   statement. The theorem names listed for a row are names only; one that
+   does not exist fails the site build.
 3. **The home page and the API page** (`pages/home.dj`, `pages/api.dj`):
    what they say about the Markdown-like profile, and the code sample,
    which is not compiled. The meaning of each status word is written in
@@ -89,13 +95,10 @@ These are written by hand and go stale without any build failing:
 4. **Switch descriptions.** The one-line `doc` of each switch in
    `ocaml/src/djot.ml` repeats the doc comment in `djot.mli`.
 5. **The extracted code.** The site runs `ocaml/kernel`, which is a copy of
-   the extraction. `make ocaml-pkg-check-current` says whether it is behind
-   `theories/`; the workflow does not run it, since it needs Rocq.
-6. **The syntax reference.** The site states the commit of the `djot`
-   submodule. Moving the submodule does not redo the audit in
-   `.project/syntax-reference-coverage.md`, which names its commit
-   separately.
-7. **Styles.** `preview.css` styles the classes the HTML renderer writes
+   the extraction. `make check-rocq` says whether it is behind
+   `theories/`. Run it before publishing.
+6. **Styles.** `preview.css` styles the classes the HTML renderer writes
    (`callout`, `keyed`). A new rendered class needs a rule there.
-8. **The workflow.** Its `opam install` line lists the dependencies by
-   hand, and its OCaml version is fixed.
+7. **`VERSION`.** The version number and the syntax reference commit are
+   edited by hand. `make check-versions` compares the commit with the one
+   the audit in `.project/syntax-reference-coverage.md` names.

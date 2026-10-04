@@ -1,1 +1,14 @@
 (data_only_dirs ocaml site)
+
+; The README's property tables are written from theories/Properties.v.
+; `dune build @readme` fails when they differ, and `dune promote` then
+; updates the README.
+(rule
+ (with-stdout-to
+  README.md.gen
+  (run test/readme.exe %{dep:README.md})))
+
+(rule
+ (alias readme)
+ (action
+  (diff README.md README.md.gen)))
