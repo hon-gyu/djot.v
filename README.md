@@ -130,7 +130,7 @@ To run the comparison, build djot.js once with `make build-djotjs`, then
 
 ## Extracted Programs
 
-The OCaml extraction is packaged in [`dist/`](dist) as the `djot` library, which builds without Rocq. It parses a document, lets you walk or rewrite the tree, and renders it to HTML or back to djot. Its API is modeled on [cmarkit](https://github.com/dbuenzli/cmarkit)'s; see [dist/README.md](dist/README.md).
+The OCaml extraction is packaged in [`ocaml/`](ocaml) as the `djot` library, which builds without Rocq. It parses a document, lets you walk or rewrite the tree, and renders it to HTML or back to djot. Its API is modeled on [cmarkit](https://github.com/dbuenzli/cmarkit)'s; see [ocaml/README.md](ocaml/README.md).
 
 The extraction itself is trusted, not proved: the theorems are about the Rocq definitions, and the OCaml is what Rocq's extraction produces from them.
 
@@ -155,4 +155,4 @@ Rocq can also extract to Scheme, which is untested.
 
 MIT, see [LICENSE](LICENSE).
 
-The module types of the `djot` package in `dist/` are modeled on cmarkit's, which is under the ISC license; its notice is in [dist/LICENSE-cmarkit](dist/LICENSE-cmarkit). The package is licensed MIT AND ISC.
+The module types of the `djot` package in `ocaml/` are modeled on cmarkit's, which is under the ISC license; its notice is in [ocaml/LICENSE-cmarkit](ocaml/LICENSE-cmarkit). The package is licensed MIT AND ISC.

@@ -112,23 +112,23 @@ for f in $(EXTRACTED)/*.ml $(EXTRACTED)/*.mli; do \
 done
 endef
 
-ocaml-pkg-regen: build  ## Regenerate dist/kernel from the extraction and promtote to worktree
-	@$(call copy-extracted-modules,dist/kernel)
-	@echo "dist/kernel regenerated from $(EXTRACTED)"
+ocaml-pkg-regen: build  ## Regenerate ocaml/kernel from the extraction and promtote to worktree
+	@$(call copy-extracted-modules,ocaml/kernel)
+	@echo "ocaml/kernel regenerated from $(EXTRACTED)"
 
-ocaml-pkg-check-current: build  ## Fail if dist/kernel is behind the extraction
+ocaml-pkg-check-current: build  ## Fail if ocaml/kernel is behind the extraction
 	@tmp=`mktemp -d`; $(call copy-extracted-modules,$$tmp); \
-	if diff -r --exclude=dune dist/kernel $$tmp >/dev/null; then \
-	  rm -rf $$tmp; echo "dist/kernel is current"; \
+	if diff -r --exclude=dune ocaml/kernel $$tmp >/dev/null; then \
+	  rm -rf $$tmp; echo "ocaml/kernel is current"; \
 	else \
-	  diff -r --exclude=dune dist/kernel $$tmp | head -20; rm -rf $$tmp; \
-	  echo "dist/kernel is stale: run make ocaml-pkg-regen"; exit 1; \
+	  diff -r --exclude=dune ocaml/kernel $$tmp | head -20; rm -rf $$tmp; \
+	  echo "ocaml/kernel is stale: run make ocaml-pkg-regen"; exit 1; \
 	fi
 
-# The ocaml branch holds dist/ at its root, for consumers that vendor the
+# The ocaml branch holds ocaml/ at its root, for consumers that vendor the
 # package as a git submodule.
 # do `git push origin ocaml` to update the remote branch.
-ocaml-pkg-split-branch:  ## Update the ocaml branch from dist/ at HEAD
-	@git subtree split --prefix=dist --branch=ocaml -q >/dev/null
+ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
+	@git subtree split --prefix=ocaml --branch=ocaml -q >/dev/null
 	@echo "local ocaml branch:  `git rev-parse --short ocaml`"
 	@echo "origin/ocaml (as of last fetch): `git rev-parse --short -q --verify origin/ocaml || echo none`"

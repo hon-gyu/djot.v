@@ -404,13 +404,13 @@ pool in `dev/Generate.v` and a `test/roundtrip.exe --callouts` mode with
 its `make` recipe, as keys and wikilinks have, and a
 `dev/check/Callout.v` pinning sections 3 and 7.
 
-**The facade** (`dist/src/djot.ml`, `djot.mli`). `Block.t` re-exports
+**The facade** (`ocaml/src/djot.ml`, `djot.mli`). `Block.t` re-exports
 the kernel type, so the new constructor appears there with a doc
 comment naming its fields. `Mapper` and `Folder` match every constructor
 by name and will not compile until the arm is placed; the title is
 inlines and the body blocks, as `Ext_keyed`'s label and block are.
-`Profile.with_ext_callouts`, a case in `dist/test/api.ml`, and the
-extension list in `dist/README.md`. The root README's list of settings
+`Profile.with_ext_callouts`, a case in `ocaml/test/api.ml`, and the
+extension list in `ocaml/README.md`. The root README's list of settings
 gains a line saying what the setting breaks, which by the prediction
 above is container uniformity for block quotes.
 
@@ -450,8 +450,8 @@ Each step ends with the tree building and the existing checks passing.
    callout's own uniformity theorem.
 7. **Canonical form and roundtrip.** `CCallout`, its generator pool, the
    roundtrip mode and recipe.
-8. **Extraction and facade.** Regenerate `dist/kernel` (`make dist`),
-   then the facade, its test and both READMEs. `make check-dist` must
+8. **Extraction and facade.** Regenerate `ocaml/kernel` (`make ocaml-pkg-regen`),
+   then the facade, its test and both READMEs. `make ocaml-pkg-check-current` must
    pass.
 
 After step 8, go back over section 8 and record which predictions held,
@@ -464,7 +464,7 @@ blank closure, inline titles, list and keyed nesting, block attributes,
 folded HTML with an `open` attribute, and an empty title. The
 state transition and uniformity theorems compile, and
 `callout_uniformity` and `roundtrip_blocks` have no additional
-assumptions. `dune build`, `make check-dist`, the standalone `dist`
+assumptions. `dune build`, `make ocaml-pkg-check-current`, the standalone `ocaml`
 build and tests, and the extracted callout roundtrip pool at depths
 1–3 pass (321, 3720, and 43882 accepted documents, no mismatches).
 The djot.js corpus is absent from this checkout, so `make diff` and

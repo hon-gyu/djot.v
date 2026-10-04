@@ -2227,7 +2227,7 @@ Two ways to remove the exception, neither changing the HTML:
 2. Follow djot.js: a table's caption is `inlines`, empty meaning none.
    One spelling, and the exception goes away with the option.  Touches
    the `Table` constructor everywhere: Step, Html, Roundtrip, Wf, and
-   the `dist/` API, where the caption stops being optional.
+   the `ocaml/` API, where the caption stops being optional.
 
 **Verdict: ours, closed 2026-10-02 by option 2.**  `Table`'s caption is
 `inlines` and `caption_of` returns the caption's inlines as parsed, so
@@ -2235,7 +2235,7 @@ the three inputs above give `[]`, `[x]` and `[]`, the shape of djot.js's
 AST.  `inline_attrs_affect_caption_presence` is deleted and
 `block_shape_independent` erases only inlines.  The caption's located
 range (`PTable`) is now present whenever a `^` line was read, whatever
-its inlines.  The `dist/` API changes with it: `Block.Table` carries
+its inlines.  The `ocaml/` API changes with it: `Block.Table` carries
 `Inline.t node list`, not an option.  The test suite, the generated
 corpus against djot.js and the roundtrip pools keep their counts.
 
