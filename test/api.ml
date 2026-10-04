@@ -94,6 +94,25 @@ let () =
   | _ -> failwith "unexpected note map"
 ;;
 
+(* A definition stays where it was written: the source parses back to the
+   same document, a fold visits its text once, and deleting it empties the
+   map. *)
+let () =
+  let src = "[^a]: one\n\nx[^a]\n" in
+  let d = Doc.of_string src in
+  assert (For_testing.kernel (Doc.of_string (Doc.to_string d)) = For_testing.kernel d);
+  let inline _ acc = function
+    | Node (_, _, Inline.Str s) -> Folder.ret (s :: acc)
+    | _ -> Folder.default
+  in
+  assert (Folder.fold_doc (Folder.make ~inline ()) [] d = [ "x"; "one" ]);
+  let block _ = function
+    | Node (_, _, Block.FootnoteDef _) -> Mapper.delete
+    | _ -> Mapper.default
+  in
+  assert (Doc.footnotes (Mapper.map_doc (Mapper.make ~block ()) d) = [])
+;;
+
 (* A mapper that drops an item keeps the range of the item it keeps. *)
 let () =
   let d = Doc.of_string ~locs:true "- a\n- b\n" in

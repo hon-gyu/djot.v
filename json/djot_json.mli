@@ -38,8 +38,9 @@ val inline : Djot.Inline.t Djot.node Jsont.t
 (** {1 Documents} *)
 
 (** The ["doc"] object: [references], [autoReferences] and [footnotes] by label, then the
-    blocks, with reference definitions left out as djot.js does. Nodes have a ["pos"] when
-    the document was parsed with [~locs:true].
+    blocks, with the definitions left out as djot.js does. A footnote has the attributes
+    of its definition. Nodes have a ["pos"] when the document was parsed with
+    [~locs:true].
 
     There is no decoder for documents, since a {!Djot.Doc.t} is not built from blocks. *)
 val of_doc : Djot.Doc.t -> Jsont.json

@@ -156,11 +156,7 @@ let rec print_item ?src d depth it =
 
 let print_blocks ?src d bs = List.iter (fun n -> print_item ?src d 0 (B n)) bs
 
-(* The blocks, then the footnote definitions. *)
-let print ?src d =
-  print_blocks ?src d (Doc.blocks d);
-  print_blocks ?src d (Doc.footnote_defs d)
-;;
+let print ?src d = print_blocks ?src d (Doc.blocks d)
 
 (* The source as a header, then its parse with locations. *)
 let show ?(profile = Profile.djot) src =
