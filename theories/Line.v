@@ -451,7 +451,7 @@ intersection ends the list. *)
    whose style is `:`, and the term split happens when the list closes.
    `::` is not a marker, since the character after the first colon is not
    whitespace, and `:::` is a div, which `classify` tests first. *)
-Local Definition is_bullet (c : ascii) : bool :=
+Definition is_bullet (c : ascii) : bool :=
   (Ascii.eqb c "-" || Ascii.eqb c "*" || Ascii.eqb c "+"
    || Ascii.eqb c ":")%char%bool.
 
@@ -540,6 +540,30 @@ Fixpoint str_forallb (p : ascii -> bool) (s : string) : bool :=
   | EmptyString => true
   | String c s' => (p c && str_forallb p s')%bool
   end.
+
+Lemma str_forallb_impl :
+  forall (p q : ascii -> bool) s,
+    (forall c, p c = true -> q c = true) ->
+    str_forallb p s = true -> str_forallb q s = true.
+Proof.
+  intros p q s Hpq. induction s as [|c s IH]; [reflexivity|].
+  cbn [str_forallb]. intros H. apply andb_true_iff in H as [Hc Hs].
+  rewrite (Hpq c Hc). apply IH, Hs.
+Qed.
+
+Lemma is_roman_lo_lower : forall c, is_roman_lo c = true -> is_lower c = true.
+Proof.
+  intros c H. unfold is_roman_lo in H.
+  repeat (apply orb_true_iff in H as [H|H]);
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+
+Lemma is_roman_up_upper : forall c, is_roman_up c = true -> is_upper c = true.
+Proof.
+  intros c H. unfold is_roman_up in H.
+  repeat (apply orb_true_iff in H as [H|H]);
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
 
 (*
 Marker shape and candidate styles
@@ -631,11 +655,11 @@ Definition styles_of_core (core : string) (d : ordered_list_delim)
   end.
 
 (* The checkbox of a task marker, and what is left of the line after it.
-   It is read after the bullet's one space: `task_check` sees `[x] a`,
-   never `- [x] a`.  Exactly one space before the bracket and whitespace
-   or end of line after it, so `-  [ ] a` and `- [ ]a` are plain
-   bullets. *)
-Local Definition box_status (c : ascii) : option task_status :=
+   It is read after the bullet's one whitespace character: `task_check`
+   sees `[x] a`, never `- [x] a`.  Exactly one character before the
+   bracket and whitespace or end of line after it, so `-  [ ] a` and
+   `- [ ]a` are plain bullets. *)
+Definition box_status (c : ascii) : option task_status :=
   if Ascii.eqb c " " then Some Incomplete
   else if (Ascii.eqb c "x" || Ascii.eqb c "X")%char%bool then Some Complete
   else None.
@@ -3794,9 +3818,6 @@ Proof. reflexivity. Qed.
 Lemma marker_cont_blank : forall m, is_blank (mk_cont m) = true.
 Proof. intros m. apply blanks_blank. Qed.
 
-Local Lemma bullet_cont_blank : is_blank bullet_cont = true.
-Proof. reflexivity. Qed.
-
 Lemma classify_marker_cont :
   forall m l, classify (mk_cont m ++ l) = classify l.
 Proof. intros m l. apply classify_ws_prefix, marker_cont_blank. Qed.
@@ -3807,14 +3828,6 @@ Proof.
   intros m l. rewrite indent_of_ws_prefix by apply marker_cont_blank.
   unfold mk_cont. rewrite blanks_length. reflexivity.
 Qed.
-
-Local Lemma classify_bullet_cont :
-  forall l, classify (bullet_cont ++ l) = classify l.
-Proof. intros l. apply classify_marker_cont. Qed.
-
-Local Lemma indent_of_bullet_cont :
-  forall l, indent_of (bullet_cont ++ l) = item_pad + indent_of l.
-Proof. intros l. apply indent_of_marker_cont. Qed.
 
 (* The four bullet styles, enumerated: `is_bullet` is a disjunction of
    character tests, so every fact about a recognized marker reduces to
@@ -3845,23 +3858,6 @@ Proof.
   cbn in H. discriminate.
 Qed.
 
-(* A run of `p` characters followed by one that is not comes off whole,
-   leaving the rest untouched: an ordered marker's core in `marker_shape`,
-   a callout's kind in `callout_header`. *)
-Local Lemma take_while_all_app :
-  forall p s rest,
-    str_forallb p s = true ->
-    match rest with String c _ => p c = false | EmptyString => True end ->
-    take_while p (s ++ rest) = (s, rest).
-Proof.
-  intros p. induction s as [|c s IH]; intros rest Hs Hrest.
-  - destruct rest as [|c r]; [reflexivity|].
-    cbn [take_while append]. rewrite Hrest. reflexivity.
-  - cbn [str_forallb] in Hs. apply andb_true_iff in Hs as [Hc Hs].
-    change ((String c s) ++ rest)%string with (String c (s ++ rest))%string.
-    cbn [take_while]. rewrite Hc, (IH rest Hs Hrest). reflexivity.
-Qed.
-
 (* The canonical callout header: the fold marker directly after `]`, then
    one space before a nonempty title. *)
 Definition callout_kind_ok (kind : string) : bool :=
@@ -3888,7 +3884,8 @@ Proof.
   intros kind fold title Hk Ht.
   unfold callout_kind_ok in Hk. apply andb_true_iff in Hk as [Hne Hk].
   unfold callout_header_line, callout_header. cbn [append Ascii.eqb Bool.eqb andb].
-  rewrite (take_while_all_app callout_kind_char kind (String "]" _) Hk eq_refl).
+  rewrite (take_while_app callout_kind_char kind (String "]" _) Hk)
+    by (right; eexists; eexists; split; reflexivity).
   destruct kind as [|c k]; [discriminate Hne|].
   destruct fold as [[|]|]; cbn [callout_fold_marker append];
     destruct title as [|t title]; cbn [callout_sep Ascii.eqb Bool.eqb orb];
@@ -3992,58 +3989,13 @@ Proof.
   rewrite Hws, Hcol. reflexivity.
 Qed.
 
-(* A marker opener is never blank and never starts with whitespace, so
-   the recognizers `classify` runs before `list_marker` all see its first
-   character and all reject it. *)
-Local Lemma marker_open_shape :
-  forall m l, marker_ok m = true ->
-    drop_leading_ws (mk_open m ++ l) = (mk_open m ++ l)%string /\
-    is_blank (mk_open m ++ l) = false /\
-    quote_prefix (mk_open m ++ l) = None /\
-    heading_open (mk_open m ++ l) = None /\
-    fence_open (mk_open m ++ l) = None /\
-    div_open (mk_open m ++ l) = None /\
-    indent_of (mk_open m ++ l) = 0.
-Proof.
-  intros m l Hm.
-  (* Every case begins with an alphanumeric character, "(", or a bullet:
-     not whitespace, ">", "#", "`" or "~".  The colon is a bullet too, so
-     the div opener is ruled out by what follows it: an opener is one
-     character and a space, and `:::` needs three. *)
-  assert (Hhd : exists c r, (mk_open m ++ l)%string = String c r
-                            /\ is_ws c = false
-                            /\ Ascii.eqb c ">" = false /\ Ascii.eqb c "#" = false
-                            /\ Ascii.eqb c "`" = false /\ Ascii.eqb c "~" = false
-                            /\ div_open (String c r) = None).
-  { destruct m as [c|c chk|core d].
-    - cbn [marker_ok] in Hm.
-      destruct (is_bullet_cases c Hm) as [E|[E|[E|E]]]; subst c;
-        eexists; eexists; repeat split; reflexivity.
-    - cbn [marker_ok] in Hm.
-      destruct (is_task_bullet_cases c Hm) as [E|[E|E]]; subst c;
-        destruct chk; eexists; eexists; repeat split; reflexivity.
-    - cbn [marker_ok] in Hm.
-      apply andb_true_iff in Hm as [Hm _]. apply andb_true_iff in Hm as [Hne Hal].
-      destruct d; cbn [mk_open];
-        [ destruct core as [|c core'] eqn:Ec; [discriminate Hne|]
-        | destruct core as [|c core'] eqn:Ec; [discriminate Hne|]
-        | exists "("%char; eexists; repeat split; reflexivity ];
-        (cbn [str_forallb] in Hal; apply andb_true_iff in Hal as [Hc _];
-         destruct (is_alnum_not_special c Hc) as (H1 & H2 & H3 & H4 & H5 & H6);
-         exists c; eexists; repeat split; try assumption;
-         apply div_open_not_colon; assumption). }
-  destruct Hhd as (c & r & Heq & Hws & Hgt & Hhash & Hbq & Htil & Hcol).
-  rewrite Heq.
-  repeat split.
-  - cbn [drop_leading_ws]. rewrite Hws. reflexivity.
-  - cbn [is_blank]. rewrite Hws. reflexivity.
-  - unfold quote_prefix. cbn [drop_leading_ws]. rewrite Hws, Hgt. reflexivity.
-  - unfold heading_open. cbn [drop_leading_ws]. rewrite Hws.
-    cbn [count_run]. rewrite (Ascii.eqb_sym "#" c), Hhash. reflexivity.
-  - unfold fence_open. cbn [drop_leading_ws]. rewrite Hws, Hbq, Htil. reflexivity.
-  - exact Hcol.
-  - cbn [indent_of]. rewrite Hws. reflexivity.
-Qed.
+(*
+Every spelling
+--------------
+
+What `classify` takes for a list marker, as a relation on the line.  The
+canonical openers above are instances of it.
+*)
 
 (* A bullet opener followed by a checkbox is a task marker instead, so an
    item's first line has to be one the marker survives. *)
@@ -4069,85 +4021,340 @@ Proof.
   destruct (task_check l); [discriminate H|reflexivity].
 Qed.
 
-Local Lemma list_marker_open :
+(* What a marker is followed by: the end of the line, or one whitespace
+   character and then the item's first line `r`. *)
+Definition marker_end (tail r : string) : Prop :=
+  tail = EmptyString /\ r = EmptyString
+  \/ exists c, is_ws c = true /\ tail = String c r.
+
+(* A checkbox `m` in front of `r`: the box holds a space, `x` or `X`, and
+   the bracket is followed as a marker is. *)
+Definition checkbox_ok (m : task_marker) (r : string) : Prop :=
+  box_status (tm_box m) = Some (tm_status m) /\
+  match tm_sep m with
+  | Some c => is_ws c = true
+  | None => r = EmptyString
+  end.
+
+Lemma task_check_spec : forall l m r,
+  task_check l = Some (m, r) <->
+  l = (task_marker_source m ++ r)%string /\ checkbox_ok m r.
+Proof.
+  intros l m r. split.
+  - intros H. split; [exact (task_check_source l m r H)|].
+    destruct l as [|c0 [|c1 [|c2 rest]]]; try (cbn in H; discriminate H).
+    cbn [task_check] in H.
+    destruct (Ascii.eqb c0 "[" && Ascii.eqb c2 "]")%char%bool; [|discriminate H].
+    destruct (box_status c1) eqn:Es; [|discriminate H].
+    destruct rest as [|c' rest'].
+    + injection H as <- <-. split; [exact Es|reflexivity].
+    + destruct (is_ws c') eqn:Ew; [|discriminate H].
+      injection H as <- <-. split; [exact Es|exact Ew].
+  - intros [-> [Hb Hs]]. destruct m as [st b sep].
+    cbn [tm_box tm_status tm_sep] in Hb, Hs.
+    unfold task_marker_source. cbn [tm_box tm_sep].
+    destruct sep as [c|].
+    + cbn [append task_check Ascii.eqb Bool.eqb andb]. rewrite Hb, Hs. reflexivity.
+    + subst r. cbn [append task_check Ascii.eqb Bool.eqb andb]. rewrite Hb. reflexivity.
+Qed.
+
+(* An ordered marker without what follows it. *)
+Definition ord_text (core : string) (d : ordered_list_delim) : string :=
+  match d with
+  | RightPeriod => core ++ "."
+  | RightParen => core ++ ")"
+  | LeftRightParen => "(" ++ core ++ ")"
+  end.
+
+Local Lemma marker_shape_spec : forall s core d r,
+  marker_shape s = Some (core, d, r) <->
+  str_forallb is_alnum core = true /\ s = (ord_text core d ++ r)%string.
+Proof.
+  intros s core d r. split.
+  - unfold marker_shape. intros H. destruct s as [|c s']; [discriminate|].
+    destruct (Ascii.eqb c "(") eqn:Ec.
+    + apply Ascii.eqb_eq in Ec. subst c.
+      destruct (take_while is_alnum s') as [a b] eqn:Et.
+      apply take_while_split in Et as [-> Ha].
+      destruct b as [|c' b']; [discriminate|].
+      destruct (Ascii.eqb c' ")") eqn:E; [|discriminate].
+      apply Ascii.eqb_eq in E. subst c'. injection H as <- <- <-.
+      split; [exact Ha|]. cbn [ord_text]. rewrite !append_assoc. reflexivity.
+    + destruct (take_while is_alnum (String c s')) as [a b] eqn:Et.
+      apply take_while_split in Et as [-> Ha].
+      destruct b as [|c' b']; [discriminate|].
+      destruct (Ascii.eqb c' ".") eqn:E.
+      * apply Ascii.eqb_eq in E. subst c'. injection H as <- <- <-.
+        split; [exact Ha|]. cbn [ord_text]. rewrite append_assoc. reflexivity.
+      * destruct (Ascii.eqb c' ")") eqn:E'; [|discriminate].
+        apply Ascii.eqb_eq in E'. subst c'. injection H as <- <- <-.
+        split; [exact Ha|]. cbn [ord_text]. rewrite append_assoc. reflexivity.
+  - intros [Ha ->].
+    (* the scan's first character is the core's, or the delimiter's *)
+    assert (Hhd : forall x t, Ascii.eqb x "(" = false ->
+              exists c0 t0, (core ++ String x t)%string = String c0 t0
+                /\ Ascii.eqb c0 "(" = false).
+    { intros x t Hx. destruct core as [|c0 core'];
+        [exists x, t|exists c0, (core' ++ String x t)%string];
+        (split; [reflexivity|]); [exact Hx|].
+      cbn [str_forallb] in Ha. apply andb_true_iff in Ha as [Hc _].
+      exact (is_alnum_not_paren c0 Hc). }
+    assert (Htw : forall x t, is_alnum x = false ->
+              take_while is_alnum (core ++ String x t) = (core, String x t)).
+    { intros x t Hx. apply take_while_app; [exact Ha|].
+      right. exists x, t. split; [reflexivity|exact Hx]. }
+    destruct d; cbn [ord_text]; rewrite ?append_assoc.
+    + change ("." ++ r)%string with (String "." r).
+      destruct (Hhd "."%char r eq_refl) as (c0 & t0 & E & Hp).
+      unfold marker_shape. rewrite E, Hp, <- E, Htw by reflexivity. reflexivity.
+    + change (")" ++ r)%string with (String ")" r).
+      destruct (Hhd ")"%char r eq_refl) as (c0 & t0 & E & Hp).
+      unfold marker_shape. rewrite E, Hp, <- E, Htw by reflexivity. reflexivity.
+    + change ("(" ++ core ++ ")" ++ r)%string
+        with (String "(" (core ++ String ")" r)).
+      unfold marker_shape. change (Ascii.eqb "(" "(") with true. cbn beta iota.
+      rewrite Htw by reflexivity. reflexivity.
+Qed.
+
+Local Lemma is_lower_alnum : forall c, is_lower c = true -> is_alnum c = true.
+Proof. intros c H. unfold is_alnum. rewrite H, orb_true_r. reflexivity. Qed.
+
+Local Lemma is_upper_alnum : forall c, is_upper c = true -> is_alnum c = true.
+Proof. intros c H. unfold is_alnum. rewrite H, orb_true_r. reflexivity. Qed.
+
+(* A core that names a style is a nonempty alphanumeric run, which is
+   what `marker_shape` scans. *)
+Local Lemma styles_of_core_alnum : forall core d,
+  styles_of_core core d <> [] ->
+  nonempty_str core = true /\ str_forallb is_alnum core = true.
+Proof.
+  intros [|c rest] d H; [contradiction H; reflexivity|]. split; [reflexivity|].
+  cbn [styles_of_core] in H.
+  destruct (str_forallb is_digit (String c rest)) eqn:Hd;
+    [exact (str_digits_alnum _ Hd)|].
+  destruct rest as [|c' rest'].
+  - cbn [str_forallb]. rewrite andb_true_r.
+    destruct (is_roman_lo c) eqn:E1;
+      [apply is_lower_alnum, is_roman_lo_lower, E1|].
+    destruct (is_roman_up c) eqn:E2;
+      [apply is_upper_alnum, is_roman_up_upper, E2|].
+    destruct (is_lower c) eqn:E3; [apply is_lower_alnum, E3|].
+    destruct (is_upper c) eqn:E4; [apply is_upper_alnum, E4|].
+    contradiction H; reflexivity.
+  - destruct (str_forallb is_roman_lo (String c (String c' rest'))) eqn:E1.
+    { apply (str_forallb_impl is_roman_lo); [|exact E1].
+      intros x Hx. apply is_lower_alnum, is_roman_lo_lower, Hx. }
+    destruct (str_forallb is_roman_up (String c (String c' rest'))) eqn:E2.
+    { apply (str_forallb_impl is_roman_up); [|exact E2].
+      intros x Hx. apply is_upper_alnum, is_roman_up_upper, Hx. }
+    contradiction H; reflexivity.
+Qed.
+
+(* An ordered marker starts with its numeral or with `(`. *)
+Local Lemma ord_text_head : forall core d tail,
+  styles_of_core core d <> [] ->
+  exists c rest, (ord_text core d ++ tail)%string = String c rest
+    /\ (is_alnum c = true \/ c = "("%char).
+Proof.
+  intros core d tail Hs.
+  destruct (styles_of_core_alnum core d Hs) as [Hne Hal].
+  destruct d; cbn [ord_text];
+    [ destruct core as [|c core']; [discriminate Hne|]
+    | destruct core as [|c core']; [discriminate Hne|]
+    | exists "("%char; eexists; split; [reflexivity|right; reflexivity] ];
+    (cbn [str_forallb] in Hal; apply andb_true_iff in Hal as [Hc _];
+     exists c; eexists; split; [reflexivity|left; exact Hc]).
+Qed.
+
+(** The syntax reference's marker table, with its task rule: "A bullet
+    list item that begins with `[ ]`, `[X]`, or `[x]` followed by a space
+    is a task list item".  `marker_spelling body sty core chk r` says
+    that `body` is a marker with candidate styles `sty`, numeral `core`
+    and checkbox `chk`, followed by the item's first line `r`.
+
+    A bullet is `-`, `+`, `*` or `:`.  A task marker is a bullet other
+    than `:`, one whitespace character and a checkbox; a bullet in front
+    of a checkbox is never a plain bullet.  An ordered marker is a
+    numeral `core` in one of the three delimiter shapes, and its styles
+    are the ones the numeral can be read in (`styles_of_core`). *)
+Inductive marker_spelling
+  : string -> list lstyle -> string -> option task_marker -> string -> Prop :=
+  | SpellBullet : forall c tail r,
+      is_bullet c = true -> marker_end tail r ->
+      (is_task_bullet c = true -> task_start r = false) ->
+      marker_spelling (String c tail) [SBullet c] EmptyString None r
+  | SpellTask : forall c w m r,
+      is_task_bullet c = true -> is_ws w = true -> checkbox_ok m r ->
+      marker_spelling (String c (String w (task_marker_source m ++ r)))
+        [STask c] EmptyString (Some m) r
+  | SpellOrd : forall core d tail r,
+      styles_of_core core d <> [] -> marker_end tail r ->
+      marker_spelling (ord_text core d ++ tail)
+        (styles_of_core core d) core None r.
+
+Local Lemma is_task_bullet_bullet :
+  forall c, is_task_bullet c = true -> is_bullet c = true.
+Proof.
+  intros c H. unfold is_bullet. unfold is_task_bullet in H. rewrite H.
+  reflexivity.
+Qed.
+
+(* A marker starts with a bullet, an alphanumeric character or `(`, so
+   the recognizers `classify` runs before `list_marker` all see its first
+   character and all reject it.  The colon is a bullet too, and the div
+   opener is ruled out by what follows it: `:::` needs three. *)
+Local Lemma spelling_head : forall body sty core chk r,
+  marker_spelling body sty core chk r ->
+  exists c rest, body = String c rest /\ is_ws c = false
+    /\ Ascii.eqb c ">" = false /\ Ascii.eqb c "#" = false
+    /\ Ascii.eqb c "`" = false /\ Ascii.eqb c "~" = false
+    /\ div_open body = None.
+Proof.
+  intros body sty core chk r H.
+  assert (Hbul : forall c tail, is_bullet c = true ->
+    (tail = EmptyString \/ exists w t, tail = String w t /\ is_ws w = true) ->
+    exists c0 rest, String c tail = String c0 rest /\ is_ws c0 = false
+      /\ Ascii.eqb c0 ">" = false /\ Ascii.eqb c0 "#" = false
+      /\ Ascii.eqb c0 "`" = false /\ Ascii.eqb c0 "~" = false
+      /\ div_open (String c tail) = None).
+  { intros c tail Hc Ht. exists c, tail.
+    destruct (is_bullet_cases c Hc) as [E|[E|[E|E]]]; subst c;
+      repeat split; try reflexivity.
+    destruct Ht as [->|(w & t & -> & Hw)]; [reflexivity|].
+    destruct (Ascii.eqb ":" w) eqn:E;
+      [apply Ascii.eqb_eq in E; subst w; discriminate Hw|].
+    unfold div_open. cbn [drop_leading_ws]. change (is_ws ":") with false.
+    cbn beta iota. change (Ascii.eqb ":" ":") with true. cbn beta iota.
+    cbn [count_run]. change (Ascii.eqb ":" ":") with true. rewrite E.
+    reflexivity. }
+  destruct H as [c tail r Hc He _ | c w m r Hc Hw _ | core d tail r Hs He].
+  - apply Hbul; [exact Hc|].
+    destruct He as [[-> _]|(w & Hw & ->)]; [left; reflexivity|right; eauto].
+  - apply Hbul; [exact (is_task_bullet_bullet c Hc)|right; eauto].
+  - destruct (ord_text_head core d tail Hs) as (c & rest & E & Hc).
+    rewrite E. exists c, rest.
+    destruct Hc as [Hc| ->]; [|repeat split; reflexivity].
+    destruct (is_alnum_not_special c Hc) as (H1 & H2 & H3 & H4 & H5 & H6).
+    repeat split; try assumption. apply div_open_not_colon; assumption.
+Qed.
+
+Local Lemma list_marker_spelling : forall l sty core chk r,
+  list_marker l = Some (sty, core, chk, r) <->
+  marker_spelling (drop_leading_ws l) sty core chk r.
+Proof.
+  intros l sty core chk r. unfold list_marker.
+  generalize (drop_leading_ws l) as b. intros b. split.
+  - intros H. destruct b as [|c rest]; [discriminate|].
+    destruct (is_bullet c) eqn:Hb.
+    + destruct rest as [|c' rest'].
+      * injection H as <- <- <- <-.
+        apply SpellBullet; [exact Hb|left; split; reflexivity|reflexivity].
+      * destruct (is_ws c') eqn:Hw; [|discriminate].
+        destruct (is_task_bullet c) eqn:Ht.
+        -- destruct (task_check rest') as [[m tr]|] eqn:Et.
+           ++ injection H as <- <- <- <-.
+              apply task_check_spec in Et as [-> Hok].
+              apply SpellTask; assumption.
+           ++ injection H as <- <- <- <-.
+              apply SpellBullet; [exact Hb|right; eauto|].
+              intros _. unfold task_start. rewrite Et. reflexivity.
+        -- injection H as <- <- <- <-.
+           apply SpellBullet; [exact Hb|right; eauto|congruence].
+    + destruct (marker_shape (String c rest)) as [[[core' d] r0]|] eqn:Em;
+        [|discriminate].
+      apply marker_shape_spec in Em as [_ ->].
+      destruct (styles_of_core core' d) as [|s0 ss] eqn:Es; [discriminate|].
+      assert (Hs : styles_of_core core' d <> []) by (rewrite Es; discriminate).
+      rewrite <- Es in H.
+      destruct r0 as [|c' r0'].
+      * injection H as <- <- <- <-.
+        apply SpellOrd; [exact Hs|left; split; reflexivity].
+      * destruct (is_ws c') eqn:Hw; [|discriminate].
+        injection H as <- <- <- <-. apply SpellOrd; [exact Hs|right; eauto].
+  - intros H.
+    destruct H as [c tail r Hc He Hn | c w m r Hc Hw Hok | core d tail r Hs He].
+    + rewrite Hc. destruct He as [[-> ->]|(w & Hw & ->)]; [reflexivity|].
+      rewrite Hw. destruct (is_task_bullet c); [|reflexivity].
+      specialize (Hn eq_refl). unfold task_start in Hn.
+      destruct (task_check r); [discriminate Hn|reflexivity].
+    + rewrite (is_task_bullet_bullet c Hc), Hw, Hc.
+      rewrite (proj2 (task_check_spec _ m r) (conj eq_refl Hok)). reflexivity.
+    + destruct (ord_text_head core d tail Hs) as (c0 & rest & E & Hc0).
+      assert (Hb : is_bullet c0 = false)
+        by (destruct Hc0 as [Hc0| ->];
+            [exact (is_alnum_not_bullet c0 Hc0)|reflexivity]).
+      rewrite E, Hb, <- E.
+      destruct (styles_of_core_alnum core d Hs) as [_ Hal].
+      rewrite (proj2 (marker_shape_spec _ core d tail) (conj Hal eq_refl)).
+      destruct (styles_of_core core d) as [|s0 ss] eqn:Es;
+        [contradiction Hs; reflexivity|].
+      destruct He as [[-> ->]|(w & Hw & ->)]; [reflexivity|].
+      rewrite Hw. reflexivity.
+Qed.
+
+(** LI5 and TK1 over every spelling: a line is a list marker exactly when
+    it is not a thematic break and, after any indentation, spells one. *)
+Theorem classify_list_marker : forall l sty core chk r,
+  classify l = KList sty core chk r <->
+  is_thematic l = false /\
+  exists pre body, is_blank pre = true /\ l = (pre ++ body)%string /\
+    marker_spelling body sty core chk r.
+Proof.
+  intros l sty core chk r. split.
+  - unfold classify. intros H.
+    destruct (is_blank l); [discriminate|].
+    destruct (quote_prefix l); [discriminate|].
+    destruct (heading_open l) as [[hl hr]|]; [discriminate|].
+    destruct (fence_open l); [discriminate|].
+    destruct (div_open l) as [[dn dc]|]; [discriminate|].
+    destruct (is_thematic l); [discriminate|]. split; [reflexivity|].
+    destruct (list_marker l) as [[[[s0 c0] k0] r0]|] eqn:El;
+      [|repeat match type of H with
+               | context [match ?x with _ => _ end] => destruct x
+               end; discriminate].
+    injection H as <- <- <- <-.
+    destruct (drop_leading_ws_split l) as (pre & Hpre & Hl).
+    exists pre, (drop_leading_ws l). repeat split; [exact Hpre|exact Hl|].
+    apply list_marker_spelling, El.
+  - intros (Hth & pre & body & Hpre & -> & Hsp).
+    rewrite is_thematic_ws_prefix in Hth by exact Hpre.
+    rewrite classify_ws_prefix by exact Hpre.
+    destruct (spelling_head _ _ _ _ _ Hsp)
+      as (c & rest & E & Hws & Hgt & Hhash & Hbq & Htil & Hdiv).
+    assert (Hlm : list_marker body = Some (sty, core, chk, r)).
+    { apply list_marker_spelling. rewrite E, drop_head_nonws by exact Hws.
+      rewrite <- E. exact Hsp. }
+    unfold classify. rewrite Hdiv, Hth, Hlm, E.
+    cbn [is_blank]. rewrite Hws. cbn [andb].
+    unfold quote_prefix, heading_open, fence_open. cbn [drop_leading_ws].
+    rewrite Hws, Hgt. cbn [count_run].
+    rewrite (Ascii.eqb_sym "#" c), Hhash, Hbq, Htil. reflexivity.
+Qed.
+
+(* The canonical opener spells its marker. *)
+Local Lemma mk_open_spelling :
   forall m l, marker_ok m = true -> task_shadow m l = false ->
-    list_marker (mk_open m ++ l) =
-      Some (mk_sty m, mk_core m,
-              match m with
-              | MTask _ chk => Some (canonical_task_marker chk)
-              | _ => None
-              end, l).
+    marker_spelling (mk_open m ++ l) (mk_sty m) (mk_core m) (mk_task_marker m) l.
 Proof.
   intros m l Hm Hts.
-  destruct (marker_open_shape m l Hm) as (Hdrop & _ & _ & _ & _ & _ & _).
-  unfold list_marker. rewrite Hdrop.
-  destruct m as [c|c chk|core d].
-  - cbn [marker_ok] in Hm. cbn [mk_open mk_sty mk_core].
-    change (String c " " ++ l)%string with (String c (String " " l)).
-    cbn beta iota. rewrite Hm.
-    cbn [task_shadow] in Hts.
-    destruct (is_task_bullet c);
-      [ destruct (task_check l) as [[st r]|]; [discriminate Hts|reflexivity]
-      | reflexivity ].
-  - cbn [marker_ok] in Hm.
-    destruct (is_task_bullet_cases c Hm) as [E|[E|E]]; subst c;
-      destruct chk; reflexivity.
-  - cbn [marker_ok] in Hm.
-    apply andb_true_iff in Hm as [Hm Hsty].
-    apply andb_true_iff in Hm as [Hne Hal].
-    cbn [mk_sty mk_core mk_open].
-    (* The two suffix forms share a script: expose the core's first
-       character so `marker_shape` takes its non-paren branch, then let
-       `take_while_all_app` hand the core back whole.  The enclosed
-       form starts with "(" and takes the other branch, where the core is
-       already positioned for the same lemma. *)
-    destruct d; rewrite append_assoc.
-    + destruct core as [|c0 core'] eqn:Ec; [discriminate Hne|].
-      cbn [str_forallb] in Hal. apply andb_true_iff in Hal as [Hc0 Hal'].
-      change (String c0 core' ++ ". " ++ l)%string
-        with (String c0 (core' ++ ". " ++ l))%string.
-      cbn beta iota. rewrite (is_alnum_not_bullet c0 Hc0).
-      cbn [marker_shape]. rewrite (is_alnum_not_paren c0 Hc0).
-      change (String c0 (core' ++ ". " ++ l))%string
-        with ((String c0 core') ++ (String "." (String " " l)))%string.
-      rewrite (take_while_all_app is_alnum (String c0 core') (String "." (String " " l))
-                 (ltac:(cbn [str_forallb]; rewrite Hc0, Hal'; reflexivity)) eq_refl).
-      cbn beta iota. rewrite ?Ascii.eqb_refl. cbn beta iota match.
-      destruct (styles_of_core (String c0 core') RightPeriod) eqn:Es;
-        [cbn [nonempty] in Hsty; discriminate Hsty|].
-      cbn [is_ws]. reflexivity.
-    + destruct core as [|c0 core'] eqn:Ec; [discriminate Hne|].
-      cbn [str_forallb] in Hal. apply andb_true_iff in Hal as [Hc0 Hal'].
-      change (String c0 core' ++ ") " ++ l)%string
-        with (String c0 (core' ++ ") " ++ l))%string.
-      cbn beta iota. rewrite (is_alnum_not_bullet c0 Hc0).
-      cbn [marker_shape]. rewrite (is_alnum_not_paren c0 Hc0).
-      change (String c0 (core' ++ ") " ++ l))%string
-        with ((String c0 core') ++ (String ")" (String " " l)))%string.
-      rewrite (take_while_all_app is_alnum (String c0 core') (String ")" (String " " l))
-                 (ltac:(cbn [str_forallb]; rewrite Hc0, Hal'; reflexivity)) eq_refl).
-      cbn beta iota.
-      change ((")" =? ".")%char) with false. rewrite ?Ascii.eqb_refl.
-      cbn beta iota match.
-      destruct (styles_of_core (String c0 core') RightParen) eqn:Es;
-        [cbn [nonempty] in Hsty; discriminate Hsty|].
-      cbn [is_ws]. reflexivity.
-    + rewrite (append_assoc core ") " l).
-      change ("(" ++ core ++ ") " ++ l)%string
-        with (String "(" (core ++ String ")" (String " " l)))%string.
-      cbn beta iota.
-      change (is_bullet "(") with false.
-      cbn beta iota match.
-      cbn [marker_shape].
-      change (("(" =? "(")%char) with true.
-      cbn beta iota match.
-      rewrite (take_while_all_app is_alnum core (String ")" (String " " l)) Hal eq_refl).
-      cbn beta iota.
-      change ((")" =? ")")%char) with true.
-      cbn beta iota match.
-      destruct (styles_of_core core LeftRightParen) eqn:Es;
-        [cbn [nonempty] in Hsty; discriminate Hsty|].
-      cbn [is_ws]. reflexivity.
+  destruct m as [c|c chk|core d]; cbn [marker_ok] in Hm;
+    cbn [mk_sty mk_core mk_task_marker].
+  - change (mk_open (MBullet c) ++ l)%string with (String c (String " " l)).
+    apply SpellBullet; [exact Hm|right; exists " "%char; split; reflexivity|].
+    intros _. cbn [task_shadow] in Hts. unfold task_start.
+    destruct (task_check l); [discriminate Hts|reflexivity].
+  - replace (mk_open (MTask c chk) ++ l)%string
+      with (String c (String " "
+              (task_marker_source (canonical_task_marker chk) ++ l)))
+      by (destruct chk; reflexivity).
+    apply SpellTask; [exact Hm|reflexivity|destruct chk; split; reflexivity].
+  - apply andb_true_iff in Hm as [_ Hsty].
+    replace (mk_open (MOrd core d) ++ l)%string
+      with (ord_text core d ++ String " " l)%string
+      by (destruct d; cbn [mk_open ord_text]; rewrite ?append_assoc;
+          reflexivity).
+    apply SpellOrd; [|right; exists " "%char; split; reflexivity].
+    destruct (styles_of_core core d); [discriminate Hsty|discriminate].
 Qed.
 
 (* An opener classifies as its own marker, with the item's line as the
@@ -4161,26 +4368,20 @@ Lemma classify_marker_open :
     KList (mk_sty m) (mk_core m)
       (mk_task_marker m) l.
 Proof.
-  intros m l Hm Hth Hts.
-  destruct (marker_open_shape m l Hm) as (_ & Hb & Hq & Hh & Hf & Hd & _).
-  unfold classify. rewrite Hb, Hq, Hh, Hf, Hd, Hth.
-  rewrite (list_marker_open m l Hm Hts). reflexivity.
-Qed.
-
-Local Lemma classify_bullet_open :
-  forall l, is_thematic (bullet_open ++ l) = false ->
-  task_shadow bullet l = false ->
-  classify (bullet_open ++ l) = KList [SBullet "-"%char] EmptyString None l.
-Proof.
-  intros l Hth Hts. exact (classify_marker_open bullet l eq_refl Hth Hts).
+  intros m l Hm Hth Hts. apply classify_list_marker. split; [exact Hth|].
+  exists EmptyString, (mk_open m ++ l)%string.
+  repeat split. exact (mk_open_spelling m l Hm Hts).
 Qed.
 
 Lemma indent_of_marker_open :
   forall m l, marker_ok m = true -> indent_of (mk_open m ++ l) = 0.
 Proof.
   intros m l Hm.
-  destruct (marker_open_shape m l Hm) as (_ & _ & _ & _ & _ & _ & Hi).
-  exact Hi.
+  assert (Hts : task_shadow m EmptyString = false) by (destruct m; reflexivity).
+  destruct (spelling_head _ _ _ _ _ (mk_open_spelling m EmptyString Hm Hts))
+    as (c & rest & E & Hws & _).
+  rewrite append_empty_r in E. rewrite E.
+  cbn [append indent_of]. rewrite Hws. reflexivity.
 Qed.
 
 (* A recognized marker names at least one style, so a sibling's

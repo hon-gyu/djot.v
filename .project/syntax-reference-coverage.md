@@ -38,7 +38,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | --- | --- | --- | --- | --- | --- | --- |
 | Inline | 3 | 8 | 41 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
-| Block: heading, quote, list item, list | 13 | 6 | 0 | 0 | 0 | 1 |
+| Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
 | Block: references, footnotes, attributes, ids | 7 | 3 | 4 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
@@ -141,8 +141,8 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
 | HE1 | Heading | "one or more `#` characters, followed by whitespace.  The number of `#` characters defines the heading level" | T | `classify_heading_ws`, `classify_heading_level`; `heading`, `heading_needs_space` | Line level: any indentation, any whitespace character.  A bare `#` is an empty heading in both engines although the rule asks for whitespace after it. |
-| HE2 | Heading | "The heading text may spill over onto following lines, which may also be preceded by the same number of `#` characters (but these can also be left off)" | T | `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest`; `heading_marked_continuation`, `heading_lazy_continuation` | Stated from an open heading state. |
-| HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T~ | the two theorems above; `heading_other_marker_count`, `heading_ends_with_container` | Shape: ended by a blank line.  A `#` line of another level also ends it, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28. |
+| HE2 | Heading | "The heading text may spill over onto following lines, which may also be preceded by the same number of `#` characters (but these can also be left off)" | T | `heading_ends_at` (Uniformity.v), `heading_text_wrap_then_rest`, `heading_marker_wrap_then_rest`; `heading_marked_continuation`, `heading_lazy_continuation` | Stated from an open heading state.  `heading_ends_at` takes the following lines marked or not in any mix (`heading_keeps`); the other two are the all-unmarked and the all-marked run. |
+| HE3 | Heading | "The heading ends when a blank line (or the end of the document or enclosing container) is encountered" | T | `heading_ends_at`, `heading_ends_with_lines`; `heading_other_marker_count`, `heading_ends_with_container` | The heading ends at the first line it does not keep, which is then parsed as if no heading were open, or with the lines.  A blank is such a line.  The enclosing-container half as for CB2: each container theorem parses the contents as a document that ends with the container.  Any line that is neither text nor a `#` line of the same level ends it too, a list marker or a quote as well as a `#` line of another level, and a heading continues lazily inside a quote: `SPEC-GAP`, 2026-09-28 and 2026-10-05. |
 | BQ1 | Block quote | "each of which begins with `>`, followed either by a space or by the end of the line" | T | `classify_quote_marker`, `step_quote_bare`; `block_quote`, `quote_needs_space`, `quote_bare_marker` | Line level, both directions: any indentation, `>` then the end of the line or one whitespace character.  Tab and CR after `>`: `SPEC-GAP`, 2026-09-30. |
 | BQ2 | Block quote | "The contents of the block quote (minus initial `>`) are parsed as block-level content" | T | `quote_uniformity`, `quote_uniformity_pad`, `quote_uniformity_bare`, `quote_uniformity_tail`, `parse_lines_quote` | A bare `>` first line opens the same quote but is not stated (it records a different source range). |
 | BQ3 | Block quote | "it is possible to 'lazily' omit the `>` prefixes from regular paragraph lines ... except in front of the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `quote_lazy_line`; `block_quote_lazy`, `quote_no_lazy_first_line` | The exception has only the example. |
@@ -150,18 +150,18 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | LI2 | List item | "Indentation may be 'lazily' omitted on paragraph lines following the first line of a paragraph" | T | `lazy_stack_line`, `step_lazy_spelling`, `list_lazy_line`; `list_item_lazy` | `step_lazy_spelling` takes any indentation past the marker. |
 | LI3 | List item | "an indented list marker on the line directly after paragraph text does not begin a sublist; it is taken as lazy continuation of the paragraph" | T | `list_uniformity` with `hard_wrap_one_para`; `list_item_no_sublist` | By composition: the item's lines parse as a top-level document, where BI5 holds. |
 | LI4 | List item | "A blank line ends the paragraph, after which the indented marker begins a sublist" | T | `list_uniformity` twice; `list_item_sublist_after_blank` | By composition, as LI3. |
-| LI5 | List item | the marker table: `-` `+` `*` bullets; `1.` `1)` `(1)` and the alpha and roman variants ordered; `:` definition; `- [ ]` task | T~ | `ck_uniformity`, `star_uniformity`, `plus_uniformity`, `definition_list_uniformity`, `nsc_uniformity` | Shape: canonical marker spellings, every flavour in `list_kind`. |
+| LI5 | List item | the marker table: `-` `+` `*` bullets; `1.` `1)` `(1)` and the alpha and roman variants ordered; `:` definition; `- [ ]` task | T | `classify_list_marker` (Line.v), `styles_of_core_numeral` (Marker.v); `ck_uniformity`, `star_uniformity`, `plus_uniformity`, `definition_list_uniformity`, `nsc_uniformity` | Line level, both directions: a line is a list marker exactly when it is not a thematic break and, after any indentation, spells one (`marker_spelling`): a bullet, a bullet with a checkbox, or a numeral in one of the three delimiter shapes, then the end of the line or one whitespace character.  `styles_of_core_numeral` is the table's right column: the candidate styles are the enumerations the numeral reads in (`numeral_ok`).  Any run of roman digits is a roman numeral (`iiii`, `vx`), as in djot.js.  A tab or CR counts as the space: `SPEC-GAP`, 2026-10-05.  The uniformity theorems say what list the canonical spellings build. |
 | LI6 | List item | "Ordered list markers can use any number in the series: thus, `(xix)` and `v)` are both valid" | T | `ordered_decimal_uniformity`, `ordered_roman_uniformity_any`, `ordered_alpha_uniformity_any`; `ordered_roman_wide` | Decimal cores are capped at 18 digits, 2026-09-26 entry. |
 | LI7 | List item | "`v)` is *also* a valid lower-alpha-enumerated marker" | T | `alpha_from_nine_uniformity`, `list_uniformity_narrow`; `ordered_v_paren` | A lone ambiguous marker reads as roman: `SPEC-GAP`, 2026-09-28. |
-| TK1 | Task list item | "A bullet list item that begins with `[ ]`, `[X]`, or `[x]` followed by a space is a task list item" | T~ | `ck_uniformity` (`LKTask`); `task_items` | Shape: canonical task markers.  Unit: `marker_task_*` in Line.v. |
+| TK1 | Task list item | "A bullet list item that begins with `[ ]`, `[X]`, or `[x]` followed by a space is a task list item" | T | `classify_list_marker` (`SpellTask`, `checkbox_ok`), `ck_uniformity` (`LKTask`); `task_items`, `task_tab_after_bullet` | Line level, both directions: a `-`, `+` or `*`, one whitespace character, the box, then the end of the line or one whitespace character; and a bullet in front of such a box is never a plain bullet.  A tab between the bullet and the box makes a task item here and a plain bullet in djot.js (divergences, 2026-10-05).  Unit: `marker_task_*` in Line.v. |
 | DL1 | Definition list item | "the first line or lines after the `:` marker is parsed as inline content and taken to be the *term*.  Any further blocks ... are ... the *definition*" | T~ | `definition_list_uniformity`; `definition_list_item`, `definition_term_lines` | The term split is `def_items`, Ast.v's own function, not a statement of the rule. |
-| LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`, `list_different_types_split`; `list_style_change` | Same-type joining has the canonical repeated-marker shape.  The split theorem covers an open list and a next marker at the list's column whose candidate styles are disjoint from the list's surviving styles; the old list is emitted before the new list opens. |
+| LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T | `list_same_type_joins`, `list_different_types_split` (Uniformity.v), `list_uniformity_same`; `list_style_change` | Both halves from an open list and a next marker, in any spelling, at the list's column (`list_takes` false).  A marker that shares a style with the list's surviving styles starts its next item: nothing is emitted, and the item so far joins the finished ones.  One whose styles are disjoint ends the list, which is emitted before the new list opens.  `list_uniformity_same` is the whole list for a repeated canonical marker. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_item_loose`, `separates_loosens`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | Both directions.  The parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  Every such blank loosens: between items (`separates_after_loosens`), and inside an item (`separates_item_loose`) when the lines before the blank leave no code block open.  A blank inside an open code block is not covered by the converse; the parser does not count it.  `separates` says "between two blocks" with the next nonblank line: written after the blank it starts a block of its own, and so does a paragraph line at its indentation.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30). |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_item_loose`, `separates_loosens`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | Both directions.  The parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  Every such blank loosens: between items (`separates_after_loosens`), and inside an item (`separates_item_loose`) when the lines before the blank leave no code block open.  A blank inside an open code block is not covered by the converse; the parser does not count it.  `separates` says "between two blocks" with the next nonblank line: written after the blank it starts a block of its own, and so does a paragraph line at its indentation.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30).  `run_safe` is not only a proof condition: without it the first theorem is false, for a spec that attaches to nothing between a nested list and two blanks (divergences, 2026-10-05, open). |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
-Heading, block quote, list item, list: T 13, T~ 6, n/a 1.
+Heading, block quote, list item, list: T 17, T~ 2, n/a 1.
 
 ### Leaf blocks and tables
 
@@ -304,17 +304,29 @@ Moved here from "An example is enough" on 2026-09-30, each with a plan:
 18. Done: **BQ1 over every spelling**, `classify_quote_marker`
     (`260930.plan.quote-marker.md`).
 
+Added 2026-10-05, from the rows still below T:
+
+19. Done: **LI5, TK1 over every spelling**, `classify_list_marker` and
+    `styles_of_core_numeral`.  `classify_marker_open`, the canonical
+    opener, is now a corollary.
+20. Done: **HE3 every ending, HE2 in any mix**, `heading_ends_at` and
+    `heading_ends_with_lines`.
+21. Done: **LS1 the joining half**, `list_same_type_joins`.
+
+Open: **LS4 without `run_safe`**.  The theorem is false there until the
+2026-10-05 entry on a spec between a nested list and a blank is decided.
+
 ### An example is enough
 
 P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
 M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
 N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD2 (continuation chunks), RD3,
-RD4, LH3, LH4, and what the T~ theorems leave of DL1 and TK1.
+RD4, LH3, LH4, and what the T~ theorem leaves of DL1.
 
 Each is one case, or a list of cases with no quantifier worth stating,
-and its examples say what the reference says.  DL1 and TK1 are T~ for
-canonical markers (`definition_list_uniformity`, `ck_uniformity`); the
-rest stays at examples.  DL1's term split is an AST function stated
+and its examples say what the reference says.  DL1 is T~ for the
+canonical marker (`definition_list_uniformity`); the rest stays at
+examples.  DL1's term split is an AST function stated
 once (`def_split`); proving it would restate it.
 
 This list is why inline syntax is mostly E.  It records a choice, not a
@@ -326,11 +338,14 @@ reopen it.
 Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 
 - HE3: a `#` line of another level ends a heading; a heading continues
-  lazily inside a quote (2026-09-28).
+  lazily inside a quote (2026-09-28).  Any block opener ends a heading
+  (2026-10-05).
 - LI7: a lone ambiguous marker reads as roman (2026-09-28).
 - LS4: a div left open at the end of an item ends before the blank
   after it (2026-09-30).
 - BQ1: a tab or CR after `>` counts as the space (2026-09-30).
+- LI1, LI5, TK1: a tab or CR after a list marker or a checkbox counts as
+  the space (2026-10-05).
 - CB1: tilde fences (2026-08-02).
 - DV1: no whitespace needed before a div's class (2026-09-30).
 - PT2: separator cells are not trimmed (2026-08-02).

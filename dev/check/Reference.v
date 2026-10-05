@@ -17,8 +17,9 @@ explicit.  They are single documents: what each rule says over all
 inputs is the business of the theorems, and
 `.project/syntax-reference-coverage.md` says which rule has one.
 
-Some examples differ from djot.js: `table_caption_alone`, and the
-tightness cases in the prose part's "List" section, see there.
+Some examples differ from djot.js: `table_caption_alone`,
+`task_tab_after_bullet`, and the tightness cases in the prose part's
+"List" section, see there.
 *)
 
 From Stdlib Require Import String.
@@ -1531,6 +1532,21 @@ b
 <li>
 <input disabled="""" type=""checkbox"" checked=""""/>
 c
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+(* A tab after the bullet, as after any marker.  djot.js asks for a space
+   there and reads a plain bullet; `.project/djotjs-divergences.md`,
+   2026-10-05. *)
+Example task_tab_after_bullet :
+  convert "-	[x] a
+"
+  = "<ul class=""task-list"">
+<li>
+<input disabled="""" type=""checkbox"" checked=""""/>
+a
 </li>
 </ul>
 ".

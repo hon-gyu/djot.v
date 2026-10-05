@@ -429,30 +429,6 @@ none of them is interesting; they are here so the `styles_of_core`
 lemmas downstream read as one rewrite each.
 *)
 
-Lemma str_forallb_impl :
-  forall (p q : ascii -> bool) s,
-    (forall c, p c = true -> q c = true) ->
-    str_forallb p s = true -> str_forallb q s = true.
-Proof.
-  intros p q s Hpq. induction s as [|c s IH]; [reflexivity|].
-  cbn [str_forallb]. intros H. apply andb_true_iff in H as [Hc Hs].
-  rewrite (Hpq c Hc). apply IH, Hs.
-Qed.
-
-Lemma is_roman_lo_lower : forall c, is_roman_lo c = true -> is_lower c = true.
-Proof.
-  intros c H. unfold is_roman_lo in H.
-  repeat (apply orb_true_iff in H as [H|H]);
-    apply Ascii.eqb_eq in H; subst c; reflexivity.
-Qed.
-
-Lemma is_roman_up_upper : forall c, is_roman_up c = true -> is_upper c = true.
-Proof.
-  intros c H. unfold is_roman_up in H.
-  repeat (apply orb_true_iff in H as [H|H]);
-    apply Ascii.eqb_eq in H; subst c; reflexivity.
-Qed.
-
 Lemma is_lower_not_digit : forall c, is_lower c = true -> is_digit c = false.
 Proof.
   intros c H. unfold is_lower, is_digit, in_range in *.
@@ -500,6 +476,71 @@ Proof.
   destruct up.
   - rewrite (is_upper_not_digit c (is_roman_up_upper c Hc)). reflexivity.
   - rewrite (is_lower_not_digit c (is_roman_lo_lower c Hc)). reflexivity.
+Qed.
+
+(* Whether `core` is a numeral of style `n`.  A decimal numeral is at
+   most `dec_digits_max` digits, an alphabetic one a single letter, and a
+   roman one any run of roman digits: `iiii` and `vx` are taken, and
+   `Roman.value` decodes them. *)
+Definition numeral_ok (n : ordered_list_style) (core : string) : bool :=
+  match n with
+  | Decimal =>
+      nonempty_str core && str_forallb is_digit core
+      && Nat.leb (String.length core) dec_digits_max
+  | LetterLower =>
+      match core with String c EmptyString => is_lower c | _ => false end
+  | LetterUpper =>
+      match core with String c EmptyString => is_upper c | _ => false end
+  | RomanLower => nonempty_str core && str_forallb is_roman_lo core
+  | RomanUpper => nonempty_str core && str_forallb is_roman_up core
+  end.
+
+(** The syntax reference's marker table and the sentence after it:
+    "Ordered list markers can use any number in the series: thus, `(xix)`
+    and `v)` are both valid lower-roman-enumerated markers, and `v)` is
+    *also* a valid lower-alpha-enumerated marker."  A marker's candidate
+    styles are the enumerations its numeral can be read in, with the
+    delimiter it was written with. *)
+Theorem styles_of_core_numeral : forall core d,
+  styles_of_core core d
+  = map (fun n => SOrd n d)
+      (filter (fun n => numeral_ok n core)
+         [Decimal; RomanLower; LetterLower; RomanUpper; LetterUpper]).
+Proof.
+  (* how the five character classes overlap, by enumeration *)
+  assert (T : forall c,
+    (is_digit c = true -> is_roman_lo c = false /\ is_roman_up c = false
+                          /\ is_lower c = false /\ is_upper c = false)
+    /\ (is_roman_lo c = true -> is_lower c = true)
+    /\ (is_roman_up c = true -> is_upper c = true)
+    /\ (is_lower c = true -> is_roman_up c = false /\ is_upper c = false)).
+  { intros c. destruct c as [[] [] [] [] [] [] [] []]; vm_compute;
+      repeat split; intros; congruence. }
+  intros [|c rest] d; [reflexivity|].
+  destruct (T c) as (Td & Trl & Tru & Tl).
+  cbn [styles_of_core filter numeral_ok nonempty_str andb].
+  destruct (str_forallb is_digit (String c rest)) eqn:Hd.
+  - cbn [str_forallb] in Hd |- *. apply andb_true_iff in Hd as [Hc Hr].
+    destruct (Td Hc) as (H1 & H2 & H3 & H4). rewrite H1, H2. cbn [andb].
+    destruct rest; rewrite ?H3, ?H4;
+      destruct (Nat.leb _ dec_digits_max); reflexivity.
+  - cbn [andb]. destruct rest as [|c' rest'].
+    + cbn [str_forallb]. rewrite !andb_true_r.
+      destruct (is_roman_lo c) eqn:E1.
+      { rewrite (Trl eq_refl). destruct (Tl (Trl eq_refl)) as [-> ->].
+        reflexivity. }
+      destruct (is_roman_up c) eqn:E2.
+      { rewrite (Tru eq_refl).
+        destruct (is_lower c) eqn:E3; [destruct (Tl eq_refl); congruence|].
+        reflexivity. }
+      destruct (is_lower c) eqn:E3.
+      { destruct (Tl eq_refl) as [_ ->]. reflexivity. }
+      destruct (is_upper c); reflexivity.
+    + destruct (str_forallb is_roman_lo (String c (String c' rest'))) eqn:E1.
+      { cbn [str_forallb] in E1 |- *. apply andb_true_iff in E1 as [Hc _].
+        destruct (Tl (Trl Hc)) as [-> _]. reflexivity. }
+      destruct (str_forallb is_roman_up (String c (String c' rest')));
+        reflexivity.
 Qed.
 
 (* A marker's start number under one of its candidate styles. *)

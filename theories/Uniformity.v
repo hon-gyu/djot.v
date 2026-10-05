@@ -137,6 +137,52 @@ Proof.
   eapply step_list_diffstyle; eauto using narrow_disjoint.
 Qed.
 
+Lemma narrow_shared : forall old new p s,
+  In p old -> In s new -> fst p = s -> narrow old new <> [].
+Proof.
+  intros old new p s Hp Hs Heq Hnil.
+  assert (Hin : In p (narrow old new)).
+  { unfold narrow. apply filter_In. split; [exact Hp|].
+    apply existsb_exists. exists s. split; [exact Hs|].
+    rewrite Heq. apply lstyle_eqb_refl. }
+  rewrite Hnil in Hin. destruct Hin.
+Qed.
+
+(** The other half of "a sequence of list items of the same type": a
+    marker at the list's column that shares a style with the open list
+    starts that list's next item.  Nothing is emitted.  The item so far
+    joins the list's finished items, and the list keeps the styles the
+    two have in common. *)
+Theorem list_same_type_joins :
+  forall l sty core chk content ls done inner bs inner' tail p s,
+    classify l = KList sty core chk content ->
+    In p (ls_styles ls) -> In s (configured_list_styles sty chk) ->
+    fst p = s ->
+    list_takes ls 0 l inner = false ->
+    step (configured_list_rest chk content) (PPara []) = (bs, inner') ->
+    exists ls',
+      parse_lines (l :: tail) (PList ls done inner)
+      = parse_lines tail
+          (PList ls' (rev bs)
+             (pad_state (consumed l (configured_list_rest chk content)) inner'))
+      /\ ls_items ls' = ((rev done ++ finish inner) :: ls_items ls)%list
+      /\ ls_styles ls'
+         = narrow (ls_styles ls) (configured_list_styles sty chk).
+Proof.
+  intros l sty core chk content ls done inner bs inner' tail p s
+    Hkind Hp Hs Heq Hcolumn Hcontent.
+  pose proof (narrow_shared _ _ p s Hp Hs Heq) as Hne.
+  destruct (narrow (ls_styles ls) (configured_list_styles sty chk))
+    as [|s0 ss] eqn:Hn; [contradiction Hne; reflexivity|].
+  eexists. split; [|split].
+  - rewrite (parse_lines_step _ _ _ _ _
+               (step_list_sibling _ _ _ _ _ _ _ _ _ _ _ _
+                  Hkind Hn Hcolumn Hcontent)).
+    reflexivity.
+  - reflexivity.
+  - reflexivity.
+Qed.
+
 Lemma parse_lines_nil_cons :
   forall c cur',
     parse_lines [] (PPara (c :: cur')) =
@@ -693,6 +739,107 @@ Proof.
   intros lvl ls b rest rng cur Hcontinues Hrng Hlvl Hls Hb.
   rewrite parse_lines_heading_seed by assumption.
   apply parse_lines_heading_close. exact Hb.
+Qed.
+
+(*
+How a heading ends
+------------------
+*)
+
+(** Whether an open heading of level `lvl` takes the line `l`: a text
+    line, or a heading line of the same level. *)
+Definition heading_keeps (lvl : nat) (l : string) : bool :=
+  bheading_continues
+  && match classify l with
+     | KText => true
+     | KHeading lvl' _ => Nat.eqb lvl' lvl
+     | _ => false
+     end.
+
+(** What a kept line adds to the heading: its text, without the hashes. *)
+Definition heading_line_text (l : string) : string :=
+  match classify l with KHeading _ txt => txt | _ => l end.
+
+Definition heading_lines (ls : list string) (cur : list stored_line)
+  : list stored_line :=
+  fold_left (fun cur l => push_text (heading_line_text l) cur) ls cur.
+
+Local Lemma step_heading_keeps :
+  forall l lvl rng cur,
+    heading_keeps lvl l = true ->
+    step l (PHeading lvl rng cur)
+    = ([], PHeading lvl (touch_extent rng)
+             (push_text (heading_line_text l) cur)).
+Proof.
+  intros l lvl rng cur H. unfold heading_keeps in H.
+  apply andb_true_iff in H as [Hc H].
+  unfold heading_line_text, step. cbn [step_fuel].
+  destruct (classify l) eqn:E; try discriminate H; rewrite Hc.
+  - rewrite H. reflexivity.
+  - unfold push_text. destruct (is_blank l) eqn:Eb; [|reflexivity].
+    rewrite (classify_blank l Eb) in E. discriminate E.
+Qed.
+
+Local Lemma step_heading_ends :
+  forall l lvl rng cur,
+    heading_keeps lvl l = false ->
+    step l (PHeading lvl rng cur)
+    = (heading_block lvl cur :: fst (step l (PPara [])), snd (step l (PPara []))).
+Proof.
+  intros l lvl rng cur H. unfold heading_keeps in H.
+  unfold step. cbn [step_fuel pstate_depth].
+  destruct (classify l) eqn:E; cbn [open_line open_kind close_reopen].
+  all: try match goal with
+           | |- close_reopen _ ?r = _ => destruct r as [bs st']
+           end.
+  all: cbn [close_reopen finish app fst snd]; try reflexivity.
+  - destruct bheading_continues; [|reflexivity].
+    cbn [andb] in H. rewrite H. reflexivity.
+  - destruct bheading_continues; [discriminate H|].
+    destruct (open_text (drop_leading_ws l)) as [bs st']. reflexivity.
+Qed.
+
+(** The syntax reference: "The heading text may spill over onto following
+    lines, which may also be preceded by the same number of `#`
+    characters (but these can also be left off).  The heading ends when a
+    blank line (or the end of the document or enclosing container) is
+    encountered."
+
+    An open heading takes every line it keeps, marked or not in any mix,
+    and ends at the first line `b` it does not keep, which is then read
+    as if the heading had not been there.  A blank is such a line, and so
+    is one that opens another block: a heading line of another level, a
+    list marker, a quote, a fence.  The reference names only the blank. *)
+Theorem heading_ends_at :
+  forall lvl ls b rest rng cur,
+    forallb (heading_keeps lvl) ls = true ->
+    heading_keeps lvl b = false ->
+    parse_lines (ls ++ b :: rest)%list (PHeading lvl rng cur)
+    = heading_block lvl (heading_lines ls cur)
+        :: parse_lines (b :: rest) (PPara []).
+Proof.
+  intros lvl ls. induction ls as [|l ls IH]; intros b rest rng cur Hls Hb.
+  - cbn [app heading_lines fold_left].
+    rewrite (parse_lines_step _ _ _ _ _ (step_heading_ends b lvl rng cur Hb)).
+    cbn [app parse_lines]. destruct (step b (PPara [])); reflexivity.
+  - cbn [forallb] in Hls. apply andb_true_iff in Hls as [Hl Hls]. cbn [app].
+    rewrite (parse_lines_step _ _ _ _ _ (step_heading_keeps l lvl rng cur Hl)).
+    apply IH; assumption.
+Qed.
+
+(** The end of the document, or of the enclosing container, whose
+    contents are parsed as a document. *)
+Theorem heading_ends_with_lines :
+  forall lvl ls rng cur,
+    forallb (heading_keeps lvl) ls = true ->
+    parse_lines ls (PHeading lvl rng cur)
+    = [heading_block lvl (heading_lines ls cur)].
+Proof.
+  intros lvl ls. induction ls as [|l ls IH]; intros rng cur Hls.
+  - reflexivity.
+  - cbn [forallb] in Hls. apply andb_true_iff in Hls as [Hl Hls].
+    rewrite (parse_lines_step _ _ _ _ _ (step_heading_keeps l lvl rng cur Hl)).
+    apply IH; assumption.
 Qed.
 
 (* A canonical single-line heading has no continuation lines to consume, so

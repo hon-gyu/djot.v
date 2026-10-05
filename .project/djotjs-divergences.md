@@ -2299,3 +2299,106 @@ The verdict was chosen by the agent and is pending the maintainer's
 decision.  Following the wording instead is a change to `is_id_sep` and
 `id_base` in `Document.v`, and the theorems that state the rule
 (`is_id_sep_punct`, `id_base_word_sep`) would be restated with it.
+
+## 2026-10-05 -- SPEC-GAP: which whitespace may follow a list marker
+
+Found while stating the marker table over every spelling
+(`classify_list_marker` in `Line.v`).
+
+| Input | djot.js | Ours |
+| --- | --- | --- |
+| `-` then a tab, then `a` | a bullet item holding `a` | the same |
+| `1.` then a tab, then `a` | an ordered item | the same |
+| `- [x]` then a tab, then `a` | a checked task item | the same |
+| `-` then a tab, then `[x] a` | a bullet item holding `[x] a` | a checked task item |
+
+The reference says a list item is "a list marker followed by a space (or
+a newline)", and a task item "begins with `[ ]`, `[X]`, or `[x]`
+followed by a space".  Both engines take a tab or CR where it says
+space, after a marker and after a checkbox, as they do after a quote's
+`>` (2026-09-30).
+
+**Verdict for the first three rows: `SPEC-GAP`, ours stands** (it
+matches djot.js).
+
+The fourth row is a difference.  djot.js matches a task marker with one
+pattern that has a literal space between the bullet and the box, so a
+tab there falls through to the plain bullet, whose own pattern takes the
+tab.  Ours reads the bullet first, with any `is_ws` character after it,
+and then looks for the box at the start of the item (`list_marker`).
+The reference states the task rule about the item, "a bullet list item
+that begins with" a box, and both engines accept the item in the fourth
+row as a bullet list item, so by the wording it is a task item.
+
+**Verdict for the fourth row: ours stands, pending the maintainer's
+decision**; chosen by the agent.  Pinned by `task_tab_after_bullet` in
+`dev/check/Reference.v`.  Following djot.js instead is a change to
+`list_marker` (ask for a space before `task_check`) and to the
+`SpellTask` clause of `marker_spelling`.
+
+## 2026-10-05 -- a block attribute spec between a nested list and a blank
+
+Found while trying to drop `run_safe` from the tightness theorems
+(`Tightness.v`), which excludes an item whose lines leave a block
+attribute spec open at a line boundary.  The item below holds a nested
+list, a spec that attaches to nothing, and a paragraph.
+
+| Item's lines | djot.js | Ours |
+| --- | --- | --- |
+| `- x` / `{.a}` / blank / `para` | loose | tight |
+| `- x` / `{.a}` / blank / blank / `para` | loose | loose |
+| `- x` / blank / `para` | tight | tight |
+
+Ours changes its answer with the number of blanks.  The first blank
+meets the spec still open (`blank_absorbed` of `PAttr` is true), so it
+is not counted; it completes the spec, whose attributes are dropped, and
+leaves the item idle.  A second blank then meets an idle state and is
+counted.  djot.js counts the first blank already.
+
+The rule as `Tightness.separates` states it calls both tight: the lines
+before either blank parse to the nested list alone, and a blank directly
+after a nested list ends is exempt.  So with the first two rows the
+parser loosens at a blank the rule does not count, and
+`item_loose_separates` is false without `run_safe`:
+`["- x"; "{.a}"; ""; ""; "para"]` is the counterexample.
+
+**Verdict: ours, open; the choice is the maintainer's.**  Two ways out:
+
+- Follow djot.js.  The blank is not directly after the list, a spec
+  line lies between, so it counts.  That is a change to `separates` (the
+  exemption asks about the last line before the blank, not only the
+  blocks) and to what a blank does at a finished spec.
+- Keep the rule.  A spec that attaches to nothing is no block, so the
+  blank is still directly after the list.  Then the second row is the
+  bug: the state after a dropped spec must remember that a list just
+  ended.
+
+Either way `run_safe` cannot be dropped before this is settled.
+
+## 2026-10-05 -- SPEC-GAP: a heading is interrupted by any block opener
+
+Follows the 2026-09-28 entry on how a heading ends, found while stating
+it over every line (`heading_ends_at` in `Uniformity.v`).
+
+| Input | djot.js and ours |
+| --- | --- |
+| `# a` / `- b` | a heading, then a list |
+| `# a` / `> b` | a heading, then a quote |
+| `# a` / `***` | a heading, then a thematic break |
+| `# a` / a table row | a heading, then a table |
+
+The reference says a heading ends at "a blank line (or the end of the
+document or enclosing container)", and that a paragraph "can never be
+interrupted by other block-level elements".  It does not say a heading
+can be.  In both engines only a text line or a `#` line of the same
+level continues a heading; every other line ends it and is read afresh.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js).
+
+## 2026-10-05 -- tightness cases collected in `list-tightness.md`
+
+The tightness entries above are spread over two months and several were
+reversed.  `list-tightness.md` lists every case with its current
+outputs and says which verdicts are settled, which are provisional and
+which are open.  Read it before any of the entries above.
+
