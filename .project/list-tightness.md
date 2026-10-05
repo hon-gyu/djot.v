@@ -40,7 +40,10 @@ Exceptions 1 and 2 are the reference's "start or end of a list" applied
 to a nested list.  A blank between two items always counts.
 
 The parser has followed this since 2026-10-05 (`Step.line_fate`); the
-case sections below say what changed.
+case sections below say what changed.  Block attributes with no block
+after them are proposed as a block of their own (2026-10-06, see
+"Dangling block attributes"); the parser and the proofs do not follow
+that yet.
 
 ## Proposal: a definition for the syntax reference
 
@@ -53,7 +56,8 @@ the item; the change to the List item section says they are not.
 It decides the first two shapes of C1 (below) loose, C2 loose, D1 loose,
 the open code block in group A loose, and an attribute line before a
 nested list (jgm/djot issue #200) tight.  The parser and the proofs
-follow it since 2026-10-05.
+follow it since 2026-10-05, except the Block attributes change, added
+2026-10-06.
 
 ### Why the reference needs changing
 
@@ -130,12 +134,15 @@ nested list:
 ```
 
 djot.js says loose; the djot author says it should be tight
-(jgm/djot issue #200).
+(jgm/djot issue #200).  Nor does the reference say what attributes with
+no block after them are, so it cannot say whether a blank next to them
+lies between two blocks.
 
 The proposal answers each: an item ends with its last nonblank line
 (1); the exemption covers a blank inside an item next to a nested list,
 and never a blank between items (2); an attribute attached to a block
-counts as part of it (3).
+counts as part of it, and attributes with no block after them are a
+block of their own (3).
 
 ### The change
 
@@ -144,18 +151,17 @@ The change to `doc/syntax.md` in the djot repository:
 ````diff
 --- a/doc/syntax.md
 +++ b/doc/syntax.md
-@@ -441,6 +441,10 @@ example:
+@@ -441,6 +441,9 @@ example:
  
       > containing a block quote
  
 +A list item ends with its last nonblank line; blank lines after it are
-+not part of the item. A block left open inside the item, such as a code
-+block or a div with no closing fence, ends there too.
++not part of the item.
 +
  Indentation may be “lazily” omitted on paragraph lines following the
  first line of a paragraph:
  
-@@ -543,8 +547,11 @@ its first item. The numbers of subsequent items are irrelevant.
+@@ -543,8 +546,11 @@ its first item. The numbers of subsequent items are irrelevant.
      8) six
  
  A list is classed as *tight* if it does not contain blank lines between
@@ -169,7 +175,7 @@ The change to `doc/syntax.md` in the djot repository:
  
      - one
      - two
-@@ -560,6 +567,87 @@ less space between items.
+@@ -560,6 +566,96 @@ less space between items.
  
      - two
  
@@ -200,6 +206,15 @@ The change to `doc/syntax.md` in the djot repository:
 +
 +      {.note}
 +      - sub
++    - two
++
++Attributes with no block after them form a block of their own, so this
++list is loose. The blank line lies between two blocks of the first
++item:
++
++    - one
++
++      {.note}
 +    - two
 +
 +This list is loose. No line of the first item follows the blank line,
@@ -257,7 +272,7 @@ The change to `doc/syntax.md` in the djot repository:
  
  ### Code block
  
-@@ -569,7 +657,8 @@ specifier may optionally be preceded and/or followed by whitespace.)
+@@ -569,7 +665,8 @@ specifier may optionally be preceded and/or followed by whitespace.)
  The code block ends with a line of backticks equal or greater in length to the
  opening backtick “fence,” or the end of the document or enclosing block,
  if no such line is encountered. Its contents are interpreted as verbatim
@@ -267,17 +282,25 @@ The change to `doc/syntax.md` in the djot repository:
  longer string of backticks to use as the “fence”:
  
      ````
-@@ -741,6 +830,10 @@ by the contents of the note, indented to any column beyond the column in
+@@ -741,6 +838,9 @@ by the contents of the note, indented to any column beyond the column in
  which the reference starts. The contents of the note are parsed as
  block-level content.
  
 +A footnote ends with its last nonblank line; blank lines after it are
-+not part of the footnote. A block left open inside the footnote, such as
-+a code block or a div with no closing fence, ends there too.
++not part of the footnote.
 +
      Here's the reference.[^foo]
  
      [^foo]: This is a note
+@@ -776,4 +876,8 @@ must be indented. Repeated attribute specifiers can be used, and
+     {source="Iliad"}
+     > Sing, muse, of the wrath of Achilles
+ 
++Block attributes with no block after them, because a blank line or the
++end of the containing block comes next, form a block of their own. It
++produces no output.
++
+ ### Links to headings
 ````
 
 Notes, not for the reference:
@@ -286,21 +309,22 @@ Notes, not for the reference:
   tightness" is gone.  For the outer list it follows from where an item
   ends; for a nested list it is the sentence on blank lines directly
   before or after one.
+- A code block or a div left open inside an item or a footnote ends
+  where the item or footnote ends, at its last nonblank line.  The
+  reference already says each ends with "the end of the document or
+  enclosing block" (code block) or "containing block" (div), so the
+  change does not repeat it.
 - A code block with no closing line drops its trailing blank lines
   everywhere: in an item, in a footnote, in a block quote and at the end
   of the document.  The item and footnote sentences alone would leave
   the last two keeping them; one rule for all four is simpler to state
   and to implement (`Step.finish`).
-- One case the parser decides differently from the text.  A blank
-  followed only by block attribute lines and then the next item, as in
-  `- a`, blank, `  {.x}`, `- b`, counts in the parser as a blank between
-  items: the attribute line leaves the blank to the line after it, and
-  the next marker spends it.  Read literally, the text says tight, since
-  an attribute attached to nothing is no block.  The theorems do not
-  reach this case (`run_safe` excludes an open attribute spec).
-- D1 has no example in the reference, because an attribute that
-  attaches to nothing is a corner case that would confuse readers more
-  than it helps.  The input:
+- The Block attributes change is what lets "between blocks" stand.
+  Without it, an attribute line with no block after it belongs to no
+  block, and a blank next to one lies between a block and nothing.  See
+  "Dangling block attributes" below.
+- D1 needs no example of its own in the reference; it is the Block
+  attributes example with a nested list in place of `one`.  The input:
 
   ```
   - - x
@@ -310,15 +334,108 @@ Notes, not for the reference:
   - b
   ```
 
-  The blank is inside the first item, since `para` is a line of that
-  item and comes after it.  `{.a}` is followed by a blank instead of a
-  block, so it is attached to nothing and is not part of the nested
-  list.  The line before the blank is therefore not the nested list's
-  last line, the exception does not apply, and the blank lies between
-  two blocks of the item: loose.
+  `{.a}` is followed by a blank, so it is a block of its own and not
+  part of the nested list.  The blank lies between it and `para`, two
+  blocks of the first item, and not directly after the nested list:
+  loose.
 - The attribute example is jgm/djot issue #200.  djot.js gives loose;
   our parser gives tight since 2026-10-05
   (`list_blank_before_attribute_on_nested_list`).
+
+### Dangling block attributes
+
+Proposed 2026-10-06; the parser, the AST and the proofs do not follow it
+yet.
+
+Block attributes "attach to a block-level element" on "the line
+immediately before the block".  The reference defines them by that job
+only, so an attribute line with a blank or the end of its container
+after it is part of nothing, and today the parser drops it.  It is still
+a visible line of the source; it has no image only in the rendering.
+Treating it as a block of its own that renders to nothing keeps every
+nonblank line of an item inside some block, and "between blocks" then
+needs no further reading.  A reference definition is the precedent: a
+block that renders nothing where it stands (`RefDef` in `Ast.v`).  A
+line holding only a comment, `{% ... %}`, is the common case.
+
+What the parser and djot.js (`d7c3904`) give today, run 2026-10-06, and
+what the proposal gives.  "Tight" and "loose" are about the outer list.
+
+1. Today: ours loose, `{.x}` dropped; djot.js loose, `{.x}` put on item
+   `b`.  Proposal: loose, the blank between `a` and the attribute block.
+
+   ```
+   - a
+
+     {.x}
+   - b
+   ```
+
+2. Today: loose, both.  Proposal: loose, the blank between the attribute
+   block and `a`.  Read without the proposal, "between blocks" says
+   tight here, since the item's only block is `a`.
+
+   ```
+   - {.x}
+
+     a
+   - b
+   ```
+
+3. Today: loose, both.  Proposal: loose.
+
+   ```
+   - a
+
+     {.x}
+
+   - b
+   ```
+
+4. Today: ours tight, djot.js loose.  Proposal: loose, the blank between
+   `a` and the attribute block.  The one tightness change: today the
+   blank waits for a line to decide it, and the attribute line passes it
+   on to a line that never comes.
+
+   ```
+   - a
+
+     {.x}
+   ```
+
+5. Today: the attribute dropped, both.  Proposal: an attribute block,
+   then the paragraph.
+
+   ```
+   {.x}
+
+   para
+   ```
+
+What the change takes:
+
+- A block constructor in `Ast.v` with no payload; the node carries the
+  attributes.  Every match on `block` gains a case: well-formedness, the HTML
+  renderer (it prints nothing), the source renderer (it prints the
+  spec), `Generate`, the roundtrip and uniformity proofs.
+- Stacked specs with no block after them make one block, the
+  attributes merged as for an attached spec.
+- `Step`: a blank or the end of a container after a pending attribute
+  emits the block instead of dropping it.  The idle state a drop leaves
+  behind goes, and with it the `PPend` case of `blank_safe`; whether
+  `run_safe` can then lose its end condition is to be checked.
+- `Tightness.settles_blank` stops skipping an attribute line that has no
+  block after it.
+- The djot.js comparison erases the block before comparing.
+
+Not a parser switch.  With the attribute as no block, the tightness rule
+needs a second reading that we could not state cleanly (input 2), and a
+second set of proofs.  The parser always makes the block, and tightness
+is decided once.  A consumer who wants the AST without it gets a
+function that removes these blocks after parsing, next to the
+`Document` passes.  Removing them leaves every list's tightness as
+recorded, and the HTML is the same either way.  With block attributes
+off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 
 ## Status at a glance
 
@@ -328,6 +445,7 @@ Notes, not for the reference:
 | B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
 | D | 2 shapes where our parser was inconsistent | both fixed |
+| | attributes with no block after them | proposed as a block of their own (2026-10-06); not implemented |
 
 ## A. Agreed, not in question
 
