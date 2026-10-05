@@ -4013,10 +4013,9 @@ exclusion.  It strips its own column from every content line, and the two
 sides here carry the *same* state, so the padded side strips from a line
 that is `String.length p` characters longer while subtracting the same
 column: the two agree exactly when the fence sits at or right of where the
-padded line starts.  `fence_cols_ok` is that condition, and `pad_safe`
-excludes only an open attribute spec.  Both stop at
-`PQuote`, because a quote prefix absorbs the pad before handing down its
-residue. *)
+padded line starts.  `fence_cols_ok` is that condition, and the only one.
+It stops at `PQuote`, because a quote prefix absorbs the pad before
+handing down its residue. *)
 
 (* Every fence open in this state sits at column `off` or further right.
    `step_fuel_pad` asks it of `String.length p + off`, and the two ways of
@@ -4136,10 +4135,11 @@ Fixpoint pad_safe (st : pstate) : bool :=
   | PFoot _ _ _ _ inner => pad_safe inner
   | PPend _ _ inner => pad_safe inner
   | PKey _ _ _ inner => pad_safe inner
-  (* PAttr is the whole of the exclusion, and it is not `step_fuel_pad`
-     that wants it: a pad is invisible to a spec, but a blank line inside
-     an open one is a continuation line rather than a close, so
-     `step_blank_finish` fails.  Nothing a canonical rendering emits
+  (* PAttr is the whole of the exclusion, and no pad lemma wants it: a
+     pad is invisible to a spec (`step_fuel_pad`).  It is asked of the
+     states a list item's lines pass through (`ListUniformity.run_safe`),
+     for the tightness invariant, which does not follow a spec
+     (`Tightness.step_fuel_ok`).  Nothing a canonical rendering emits
      opens a spec. *)
   | PAttr _ _ _ _ _ _ => false
   | _ => true
@@ -4304,11 +4304,10 @@ Ltac ws_openers p l Hp :=
 Local Lemma step_fuel_pad :
   forall n p off l st,
     is_blank p = true ->
-    pad_safe st = true ->
     fence_cols_ok (String.length p + off) st = true ->
     step_fuel n off (p ++ l) st = step_fuel n (String.length p + off) l st.
 Proof.
-  induction n as [|n IH]; intros p off l st Hp Hsafe Hcol; [reflexivity|].
+  induction n as [|n IH]; intros p off l st Hp Hcol; [reflexivity|].
   (* natural subtraction truncates, so this needs the residue to be no
      longer than the line -- which classify always gives *)
   assert (Hc : forall rest, String.length rest <= String.length l ->
@@ -4456,15 +4455,15 @@ Proof.
          cbn [close_reopen open_kind];
          rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
   (* div: the pad is invisible to the close test and passes through *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
+  { cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (div_close_ws_prefix p dlen l Hp).
     destruct (negb (in_fence dinner) && div_close dlen l)%bool;
       [rewrite (line_span_from_ws_prefix p l Hp); reflexivity|].
-    rewrite (IH p off l dinner Hp Hsafe Hcol). reflexivity. }
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
+    rewrite (IH p off l dinner Hp Hcol). reflexivity. }
+  { cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
-    { rewrite (IH p off l inner Hp Hsafe Hcol). reflexivity. }
+    { rewrite (IH p off l inner Hp Hcol). reflexivity. }
     all: ws_openers p l Hp.
     all: unfold list_takes; rewrite (key_claims_ws_prefix p l inner Hp),
                                      ?(keeps_line_ws_prefix p off l inner Hp).
@@ -4474,7 +4473,7 @@ Proof.
                    || Nat.ltb (ls_indent ls)
                         (String.length p + off + indent_of l))%bool
            eqn:Elt;
-         try (rewrite (IH p off l inner Hp Hsafe Hcol); reflexivity).
+         try (rewrite (IH p off l inner Hp Hcol); reflexivity).
     { (* thematic break: the whole line *)
       cbn [is_lazy open_kind close_reopen].
       rewrite (line_span_from_ws_prefix p l Hp). reflexivity. }
@@ -4509,7 +4508,14 @@ Proof.
         [rewrite (feed_lazy_ws_prefix p l _ Hp)|
          cbn [close_reopen open_kind];
          rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp)]; reflexivity. } }
-  { discriminate Hsafe. }
+  (* an attribute spec: its column test moves with the offset, and the
+     machine and the kept slices read the line past its leading
+     whitespace *)
+  { cbn [step_fuel]. unfold attr_feed, push_text.
+    rewrite (indent_of_ws_prefix p l Hp), (drop_leading_ws_ws_prefix p l Hp),
+      (is_blank_ws_prefix p l Hp), Nat.add_assoc, (Nat.add_comm off (String.length p)).
+    rewrite ?(IH p off l (PPend _ _ (PPara [])) Hp eq_refl),
+      ?(IH p off l (para_recover _ aslices) Hp eq_refl). reflexivity. }
   (* the recovery's paragraph: the same branches an open paragraph takes,
      and the count rides through them untouched *)
   { cbn [step_fuel open_line]. rewrite (classify_ws_prefix p l Hp).
@@ -4534,21 +4540,21 @@ Proof.
     destruct (Nat.ltb rind (String.length p + off + indent_of l));
       [destruct (nonempty_str (drop_leading_ws l) && no_ws (drop_leading_ws l))%bool;
        [reflexivity|]|];
-      rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+      rewrite (IH p off l (PPara []) Hp eq_refl); reflexivity. }
   (* footnote definition: padding shifts its opener and is passed through
      recursively to whichever state owns the current body line *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
+  { cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l).
-    { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
+    { rewrite (IH p off l finner Hp Hcol). reflexivity. }
     { rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
       destruct (Nat.ltb find (String.length p + off + indent_of l)).
-      { rewrite (IH p off l finner Hp Hsafe Hcol). reflexivity. }
+      { rewrite (IH p off l finner Hp Hcol). reflexivity. }
       rewrite (classify_ws_prefix p l Hp).
       destruct (is_lazy (classify l) finner);
         [rewrite (feed_lazy_ws_prefix p l _ Hp); reflexivity|].
-      rewrite (IH p off l (PPara []) Hp eq_refl eq_refl). reflexivity. } }
+      rewrite (IH p off l (PPara []) Hp eq_refl). reflexivity. } }
   (* table: the pad is invisible to the row scanner and to the caption
      opener alike, and the line that ends the table is reprocessed from
      idle *)
@@ -4559,39 +4565,39 @@ Proof.
     { destruct (caption_open l); [rewrite (spot_at_ws_prefix p l Hp); reflexivity|].
       destruct (is_blank l); [reflexivity|].
       destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp; try reflexivity;
-        rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+        rewrite (IH p off l (PPara []) Hp eq_refl); reflexivity. }
     { destruct (caption_open l); [rewrite (spot_at_ws_prefix p l Hp); reflexivity|].
       destruct (is_blank l); [reflexivity|].
       destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
-        rewrite (IH p off l (PPara []) Hp eq_refl eq_refl); reflexivity. }
+        rewrite (IH p off l (PPara []) Hp eq_refl); reflexivity. }
     { destruct (is_blank l); reflexivity. } }
   (* pending attributes: transparent *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
+  { cbn [fence_cols_ok] in Hcol. cbn [step_fuel open_line].
     rewrite (classify_ws_prefix p l Hp).
     destruct (classify l) eqn:E; cbn [open_line is_lazy]; ws_openers p l Hp;
       try (destruct (is_idle pinner);
            [unfold open_attr; rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp),
               (drop_leading_ws_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)); reflexivity|]);
-      rewrite (IH p off l pinner Hp Hsafe Hcol); reflexivity. }
+      rewrite (IH p off l pinner Hp Hcol); reflexivity. }
   (* an open key: transparent too -- the pad reaches the retraction test
      only through `is_blank`, which reads through it *)
-  { cbn [pad_safe] in Hsafe; cbn [fence_cols_ok] in Hcol.
+  { cbn [fence_cols_ok] in Hcol.
     cbn [step_fuel open_line]. rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l && is_idle kinner)%bool; [reflexivity|].
-    rewrite (IH p off l kinner Hp Hsafe Hcol). reflexivity. }
+    rewrite (IH p off l kinner Hp Hcol). reflexivity. }
 Qed.
 
 (** A blank prefix in front of a line is exactly a shift of its starting
     column. *)
 Lemma step_pad :
   forall p l st,
-    is_blank p = true -> pad_safe st = true ->
+    is_blank p = true ->
     fence_cols_ok (String.length p) st = true ->
     step (p ++ l) st = step_at (String.length p) l st.
 Proof.
-  intros p l st Hp Hsafe Hcol. unfold step, step_at.
-  rewrite (step_fuel_pad _ p 0 l st Hp Hsafe
+  intros p l st Hp Hcol. unfold step, step_at.
+  rewrite (step_fuel_pad _ p 0 l st Hp
              ltac:(rewrite Nat.add_0_r; exact Hcol)), Nat.add_0_r.
   apply step_fuel_enough_off. rewrite length_append. lia.
 Qed.
@@ -4672,9 +4678,6 @@ Proof.
           | apply SpPend; apply IHst
           | apply SpKey; apply IHst ].
 Qed.
-
-Local Lemma lazy_ok_pad_safe : forall st, lazy_ok st = true -> pad_safe st = true.
-Proof. induction st; cbn [lazy_ok pad_safe]; intros H; auto; discriminate. Qed.
 
 Local Lemma lazy_ok_fence_cols :
   forall c st, lazy_ok st = true -> fence_cols_ok c st = true.
@@ -4796,7 +4799,7 @@ Proof.
       apply orb_true_iff. right. apply Nat.ltb_lt. lia. }
     destruct Hc as [Hc|[r Hc]]; rewrite Hc, Ht;
       rewrite (step_fuel_pad n _ col _ inner (blanks_blank _)
-                 (lazy_ok_pad_safe _ Hlazy) (lazy_ok_fence_cols _ _ Hlazy)),
+                 (lazy_ok_fence_cols _ _ Hlazy)),
         blanks_length;
       rewrite (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu),
         keeps_line_lazy by exact Hlazy;
@@ -4812,7 +4815,7 @@ Proof.
     replace (ind <? col + (k + indent_of (p ++ l)))%nat with true
       by (symmetry; apply Nat.ltb_lt; lia).
     rewrite (step_fuel_pad n _ col _ inner (blanks_blank _)
-               (lazy_ok_pad_safe _ Hlazy) (lazy_ok_fence_cols _ _ Hlazy)),
+               (lazy_ok_fence_cols _ _ Hlazy)),
       blanks_length, (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu).
     reflexivity.
   - (* div *)

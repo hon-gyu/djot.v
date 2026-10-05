@@ -272,8 +272,8 @@ Compute report show_sl
 (* A false statement, to show what a failure looks like, and to keep the
    comparison honest: if `st_eqb` ever degenerates to `true` this stops
    reporting.  Padding a line by one column is *not* the same as leaving
-   it alone -- that is the whole content of `step_fuel_pad`'s `pad_safe`
-   hypothesis -- so a witness is expected here. *)
+   it alone -- it is a shift of the offset, which is `step_pad` -- so a
+   witness is expected here. *)
 Compute probe show_sl
   (fun p => holds (out_eqb (step (" " ++ snd p) (fst p)) (step (snd p) (fst p))))
   sl_pool.
@@ -352,12 +352,12 @@ Compute fails 40 (fun s => holds (ord_items_ok (Alpha.str false) RightPeriod s 3
 
 (* The real form, and the one to copy: a *conditional* statement, where
    `guarded` separates the discards out.  Read the tally first.  A shift
-   of the offset and a pad of the line agree wherever `pad_safe` and
-   `fence_cols_ok` hold, which is `step_pad`.  Dropping the second
-   conjunct is a live probe of why it is there: a fence open at a column
-   left of the pad strips too little. *)
+   of the offset and a pad of the line agree wherever `fence_cols_ok`
+   holds, which is `step_pad`.  Dropping the guard is a live probe of why
+   it is there: a fence open at a column left of the pad strips too
+   little. *)
 Compute report show_sl
-  (fun p => guarded (pad_safe (fst p) && fence_cols_ok 1 (fst p))
+  (fun p => guarded (fence_cols_ok 1 (fst p))
               (out_eqb (step (" " ++ snd p) (fst p))
                        (step_at 1 (snd p) (fst p))))
   sl_pool.

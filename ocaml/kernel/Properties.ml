@@ -198,12 +198,14 @@ let p_lazy_lines =
 
 let p_list_tightness =
   { p_id = "list-tightness"; p_group = uniformity; p_statement =
-    "A list is loose only where a blank line separates two of its items, or two blocks inside one item.";
+    "A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.";
     p_implication =
     "Whether a list renders with space between its items follows from where its blank lines are.";
-    p_theorems = ("list_spacing_separates" :: []); p_status =
+    p_theorems =
+    ("list_spacing_separates" :: ("separates_loosens" :: ("separates_after_loosens" :: [])));
+    p_status =
     (always (Conditional
-      "One direction: a list the parser calls loose has such a blank line.")) }
+      "For items in which no block attribute spans several lines. A blank line inside a code block does not count.")) }
 
 (** val p_indent_uniformity : property **)
 
@@ -212,9 +214,7 @@ let p_indent_uniformity =
     "Indenting every line of a document by the same amount does not change its parse.";
     p_implication =
     "A document pasted at some indentation means the same thing.";
-    p_theorems = ("indent_uniformity" :: []); p_status =
-    (always (Conditional
-      "As long as no block attribute spans several lines.")) }
+    p_theorems = ("indent_uniformity" :: []); p_status = (always Proved) }
 
 (** val p_reference_locality : property **)
 

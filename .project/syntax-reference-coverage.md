@@ -127,7 +127,7 @@ Inline: T 3, T~ 8, E 41, n/a 5.
 | --- | --- | --- | --- | --- | --- |
 | BI1 | Block syntax | "block structure can be discerned prior to inline parsing and takes priority over inline structure" | T | `block_shape_independent` (BlockShape.v) | The block tree with every inline erased, table captions included, is the same under any two inline delimiter tables.  A caption is inlines, empty meaning none, as in djot.js's AST, so whether a table has one is not a block-level fact (divergences, closed 2026-10-02).  Keyed blocks, an extension, are off: finding a key's label asks the inline scanner, which breaks the rule on purpose (`key_split_contract`). |
 | BI2 | Block syntax | "blocks can be parsed line by line with no backtracking.  The contribution a line makes to block-level structure never depends on a future line" | T | `prefix_determinism`, `no_future_line_dependence`, `prefix_state_suffices` | |
-| BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `indent_uniformity`, `classify_ws_prefix`, `quote_uniformity_pad` | Shape: every line indented by the same blanks, with no block attribute spec open between lines (`specs_closed`); then the parse is unchanged, lists and footnotes included.  Indentation that differs from line to line is read by code blocks and by nesting, so no statement covers it. |
+| BI3 | Block syntax | "Indentation is only significant for list item or footnote nesting" | T~ | `indent_uniformity`, `classify_ws_prefix`, `quote_uniformity_pad` | Shape: every line indented by the same blanks; then the parse is unchanged, for every document, lists and footnotes included.  Indentation that differs from line to line is read by code blocks and by nesting, so no statement covers it. |
 | BI4 | Block syntax | "a thematic break or fenced code block can be directly followed by a paragraph" | E | `code_block_longer_closer` | |
 | BI5 | Block syntax | "Paragraphs can never be interrupted by other block-level elements" | T | `hard_wrap_one_para` (with `djot_wrap_neutral`) | Inside containers, by composition with the uniformity theorems. |
 | BI6 | Block syntax | paragraphs "must always end with a blank line (or the end of the document or containing element)" | T | `hard_wrap_para_then_rest`, `hard_wrap_one_para`; `quote_uniformity`, `div_uniformity` for the containing element | |
@@ -158,7 +158,7 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T~ | `list_uniformity_same`, `list_different_types_split`; `list_style_change` | Same-type joining has the canonical repeated-marker shape.  The split theorem covers an open list and a next marker at the list's column whose candidate styles are disjoint from the list's surviving styles; the old list is emitted before the new list opens. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | One direction: the parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  The converse holds between items (`separates_after_loosens`); inside an item it is open.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30). |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_item_loose`, `separates_loosens`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | Both directions.  The parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  Every such blank loosens: between items (`separates_after_loosens`), and inside an item (`separates_item_loose`) when the lines before the blank leave no code block open.  A blank inside an open code block is not covered by the converse; the parser does not count it.  `separates` says "between two blocks" with the next nonblank line: written after the blank it starts a block of its own, and so does a paragraph line at its indentation.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30). |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
 Heading, block quote, list item, list: T 13, T~ 6, n/a 1.
@@ -243,19 +243,19 @@ Container and continuation rules:
    `quote_uniformity_bare` (empty lines written `>`).  The reference's
    `code_block_closed_by_parent` was already `parse_lines_quote`, a quote
    followed by a blank line.
-4. Done in part: **BI3 over documents**, `indent_uniformity`.  Its side
-   condition, no attribute spec open between lines, is not in the
-   reference: a differential run found no document where it matters, but
-   the padded run is not a shift of the plain one there (a spec keeps its
-   lines' text), so dropping it needs a different proof.
+4. Done: **BI3 over documents**, `indent_uniformity`, with no side
+   condition.  An open attribute spec reads a line past its leading
+   whitespace, so the padded run is a shift of the plain one there too
+   (`step_fuel_pad`).
 
 List and table structure:
 
-5. Done in part: **LS4 tightness**, `item_loose_separates` and
+5. Done: **LS4 tightness**, `item_loose_separates` and
    `separator_separates` (Tightness.v): a loose verdict always has a
    blank the rule counts.  The converse, that every such blank loosens,
-   holds between items (`separates_after_loosens`) and is open inside an
-   item (`260929.plan.list-tightness.md`, step 3).
+   holds between items (`separates_after_loosens`) and inside an item
+   (`separates_item_loose`), there for a blank outside any open code
+   block (`260929.plan.list-tightness.md`, step 3).
 6. Done: **LS1 the split half**, `list_different_types_split`.
 7. Done: **PT3 header regime**, `table_separator_regime`, and **PT4
    alignment cases**, `separator_cell_alignment` and

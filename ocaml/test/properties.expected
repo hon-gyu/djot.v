@@ -13,7 +13,7 @@ div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: proved
 list-tightness: conditional
-indent-uniformity: conditional
+indent-uniformity: proved
 reference-locality: proved
 reference-shape: proved
 hard-wrap-paragraph: proved
@@ -36,7 +36,7 @@ div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: conditional
 list-tightness: conditional
-indent-uniformity: conditional
+indent-uniformity: proved
 reference-locality: proved
 reference-shape: proved
 hard-wrap-paragraph: broken
@@ -59,7 +59,7 @@ div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: proved
 list-tightness: conditional
-indent-uniformity: conditional
+indent-uniformity: proved
 reference-locality: proved
 reference-shape: proved
 hard-wrap-paragraph: proved
@@ -82,7 +82,7 @@ div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: proved
 list-tightness: conditional
-indent-uniformity: conditional
+indent-uniformity: proved
 reference-locality: proved
 reference-shape: proved
 hard-wrap-paragraph: conjectured
@@ -105,7 +105,7 @@ div-uniformity: inapplicable
 footnote-uniformity: conditional
 lazy-lines: proved
 list-tightness: conditional
-indent-uniformity: conditional
+indent-uniformity: proved
 reference-locality: proved
 reference-shape: proved
 hard-wrap-paragraph: proved

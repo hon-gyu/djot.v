@@ -148,19 +148,26 @@ Definition lazy_lines (every : bool) : Prop :=
     /\ step (spine_prefix 0 st ++ l) st = step l st.
 
 Definition list_tightness : Prop :=
-  forall sp itemss,
-    forallb (fun L => run_safe L (PPara []) && negb (is_blank (hd "" L)))
-      itemss = true ->
-    list_spacing_of sp itemss = Loose ->
-    (exists L, In L itemss /\ exists i, separates L i)
-    \/ (sp = Loose
-        /\ exists pre L M post,
-             itemss = (pre ++ L :: M :: post)%list /\ separates_after L).
+  (forall sp itemss,
+     forallb (fun L => run_safe L (PPara []) && negb (is_blank (hd "" L)))
+       itemss = true ->
+     list_spacing_of sp itemss = Loose ->
+     (exists L, In L itemss /\ exists i, separates L i)
+     \/ (sp = Loose
+         /\ exists pre L M post,
+              itemss = (pre ++ L :: M :: post)%list /\ separates_after L))
+  /\ (forall sp itemss L i,
+        In L itemss ->
+        blank_safe (snd (run_lines (firstn i L) (PPara []))) = true ->
+        separates L i -> list_spacing_of sp itemss = Loose)
+  /\ (forall pre L M post,
+        forallb (fun L => run_safe L (PPara [])) (pre ++ L :: M :: post)%list = true ->
+        separates_after L ->
+        list_spacing_of Loose (pre ++ L :: M :: post)%list = Loose).
 
 Definition indent_uniform : Prop :=
   forall p lines,
     is_blank p = true ->
-    specs_closed lines (PPara []) = true ->
     parse_lines (map (fun l => p ++ l) lines) (PPara [])
     = parse_lines lines (PPara []).
 
@@ -449,13 +456,16 @@ Qed.
 Program Definition p_list_tightness : property := {|
   p_id := "list-tightness";
   p_group := uniformity;
-  p_statement := "A list is loose only where a blank line separates two of its items, or two blocks inside one item.";
+  p_statement := "A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.";
   p_implication := "Whether a list renders with space between its items follows from where its blank lines are.";
-  p_theorems := ["list_spacing_separates"];
-  p_status := always (Conditional "One direction: a list the parser calls loose has such a blank line.");
+  p_theorems := ["list_spacing_separates"; "separates_loosens"; "separates_after_loosens"];
+  p_status := always (Conditional "For items in which no block attribute spans several lines. A blank line inside a code block does not count.");
   p_holds := at_profile list_tightness
 |}.
-Next Obligation. exact (@list_spacing_separates _ _). Qed.
+Next Obligation.
+  exact (conj (@list_spacing_separates _ _)
+           (conj (@separates_loosens _ _) (@separates_after_loosens _ _))).
+Qed.
 
 Program Definition p_indent_uniformity : property := {|
   p_id := "indent-uniformity";
@@ -463,7 +473,7 @@ Program Definition p_indent_uniformity : property := {|
   p_statement := "Indenting every line of a document by the same amount does not change its parse.";
   p_implication := "A document pasted at some indentation means the same thing.";
   p_theorems := ["indent_uniformity"];
-  p_status := always (Conditional "As long as no block attribute spans several lines.");
+  p_status := always Proved;
   p_holds := at_profile indent_uniform
 |}.
 Next Obligation. exact (@indent_uniformity _ _). Qed.

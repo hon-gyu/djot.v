@@ -410,13 +410,6 @@ record where the blanks sit relative to the markers.
    rather than as an equality is what makes it hold for an item whose
    content opens a list, where the pad genuinely moves a recorded
    column. *)
-Local Lemma pad_safe_pad_state :
-  forall k st, pad_safe (pad_state k st) = pad_safe st.
-Proof.
-  intros k st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    cbn [pad_state pad_safe]; try reflexivity; exact IH.
-Qed.
-
 Local Lemma blank_safe_pad_state :
   forall k st, blank_safe (pad_state k st) = blank_safe st.
 Proof.
@@ -431,24 +424,24 @@ Qed.
    column zero is left of everything. *)
 Local Lemma step_pad_shift :
   forall p l st,
-    is_blank p = true -> pad_safe st = true ->
+    is_blank p = true ->
     step (p ++ l) (pad_state (String.length p) st)
     = (fst (step l st), pad_state (String.length p) (snd (step l st))).
 Proof.
-  intros p l st Hp Hsafe.
+  intros p l st Hp.
   rewrite (step_pad p l (pad_state (String.length p) st) Hp)
-    by (first [rewrite pad_safe_pad_state; exact Hsafe
-              |apply fence_cols_ok_pad]).
+    by apply fence_cols_ok_pad.
   rewrite <- (Nat.add_0_r (String.length p)) at 1.
   rewrite step_at_shift, step_at_zero. reflexivity.
 Qed.
 
 (* The side condition along a whole run, and it is two conditions rather
-   than one.  Every line is padded, so every state the run passes through
-   must be `pad_safe`, i.e. no attribute spec is open.  The state the run
-   ends in meets a blank line, the item separator, so it must also be
-   `blank_safe`: a run may contain a code block, but must not end inside
-   one. *)
+   than one.  The state the run ends in meets a blank line, the item
+   separator, so it must be `blank_safe`: a run may contain a code block,
+   but must not end inside one.  Every state the run passes through must
+   be `pad_safe`, i.e. no attribute spec is open, which is what
+   `Tightness.step_fuel_ok` asks of each line; the shift itself
+   (`run_lines_pad_shift`) needs neither. *)
 Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
   match lines with
   | [] => blank_safe st
@@ -458,47 +451,16 @@ Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
 Local Lemma run_lines_pad_shift :
   forall p lines st,
     is_blank p = true ->
-    run_safe lines st = true ->
     run_lines (map (fun l => (p ++ l)%string) lines) (pad_state (String.length p) st)
     = (fst (run_lines lines st), pad_state (String.length p) (snd (run_lines lines st))).
 Proof.
-  intros p lines. induction lines as [|l rest IH]; intros st Hp Hsafe.
+  intros p lines. induction lines as [|l rest IH]; intros st Hp.
   - reflexivity.
   - cbn [map run_lines] in *.
-    apply andb_prop in Hsafe as [Hnow Hlater].
-    rewrite (step_pad_shift p l st Hp Hnow).
+    rewrite (step_pad_shift p l st Hp).
     destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
-    rewrite (IH st' Hp Hlater).
+    rewrite (IH st' Hp).
     destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
-Qed.
-
-(* And from the idle state the shift is *invisible*: `pad_state` moves
-   columns, `finish` reads none, and the emitted blocks are untouched.  So
-   a blank pad in front of every line of a run changes nothing at all,
-   whatever the run opens -- a nested list or a code block included.
-   `run_safe` is the whole side condition. *)
-Local Lemma run_lines_pad_invisible :
-  forall p L,
-    is_blank p = true ->
-    run_safe L (PPara []) = true ->
-    run_lines (map (fun l => (p ++ l)%string) L) (PPara [])
-    = (fst (run_lines L (PPara [])),
-       pad_state (String.length p) (snd (run_lines L (PPara [])))).
-Proof.
-  intros p L Hp Hsafe. exact (run_lines_pad_shift p L (PPara []) Hp Hsafe).
-Qed.
-
-Local Lemma parse_lines_pad_invisible :
-  forall p L,
-    is_blank p = true ->
-    run_safe L (PPara []) = true ->
-    parse_lines (map (fun l => (p ++ l)%string) L) (PPara [])
-    = parse_lines L (PPara []).
-Proof.
-  intros p L Hp Hsafe.
-  rewrite (parse_lines_run _ _ _ _ (run_lines_pad_invisible p L Hp Hsafe)).
-  rewrite pad_state_finish.
-  symmetry. apply parse_lines_run, surjective_pairing.
 Qed.
 
 (* The marker line consumes exactly the item's content column, so this is
@@ -584,7 +546,7 @@ Proof.
   induction lines as [|l rest IH]; intros st ls Hsafe; [reflexivity|].
   cbn [run_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hp Hrest].
   cbn [scan_list_content lines_loose].
-  pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk) Hp) as Hsh.
+  pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk)) as Hsh.
   rewrite mk_cont_length in Hsh.
   pose proof (keeps_line_pad_prefix (mk_cont mrk) l st (marker_cont_blank mrk))
     as Hft.
@@ -680,7 +642,7 @@ Proof.
   cbn [indent_lines run_lines].
   rewrite (step_item_open l0 Hth Hts).
   pose proof (run_lines_pad_shift (mk_cont mrk) rest (snd (step l0 (PPara [])))
-                (marker_cont_blank mrk) Hsafe) as Hrun.
+                (marker_cont_blank mrk)) as Hrun.
   rewrite mk_cont_length in Hrun.
   rewrite (run_lines_list_cont rest
              (list_opened ((mk_open mrk) ++ l0) 0 (mk_styles mrk) (mk_check mrk))
@@ -732,7 +694,7 @@ Proof.
              Es).
   rewrite configured_mrk_check, configured_mrk_rest, consumed_marker_open.
   pose proof (run_lines_pad_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
-  cbn [snd] in Hsafe. specialize (Hrun Hsafe).
+  cbn [snd] in Hsafe.
   rewrite mk_cont_length in Hrun.
   assert (Hi0 : ls_indent (list_next (list_narrow ls (s0 :: ss))
                              (rev done ++ finish inner)%list (mk_check mrk) ((mk_open mrk) ++ l0)) = 0).
@@ -2364,45 +2326,17 @@ The syntax reference: "Indentation is only significant for list item or
 footnote nesting."  What can be stated for every document is the
 uniform case: indenting every line by the same blanks changes nothing,
 lists and footnotes included, since they read columns relative to each
-other.  The side condition is that no block attribute spec is open when
-a line arrives: a spec keeps its lines' text for the paragraph it falls
-back to, so there the padded run is not a shift of the plain one, though
-djot.js and we agree on the result.
+other.
 *)
-
-(* No attribute spec is open when any of the lines arrives. *)
-Fixpoint specs_closed (lines : list string) (st : pstate) : bool :=
-  match lines with
-  | [] => true
-  | l :: rest => (pad_safe st && specs_closed rest (snd (step l st)))%bool
-  end.
-
-Local Lemma run_lines_pad_shift_closed :
-  forall p lines st,
-    is_blank p = true ->
-    specs_closed lines st = true ->
-    run_lines (map (fun l => (p ++ l)%string) lines) (pad_state (String.length p) st)
-    = (fst (run_lines lines st), pad_state (String.length p) (snd (run_lines lines st))).
-Proof.
-  intros p lines. induction lines as [|l rest IH]; intros st Hp Hsafe.
-  - reflexivity.
-  - cbn [map run_lines specs_closed] in *.
-    apply andb_prop in Hsafe as [Hnow Hlater].
-    rewrite (step_pad_shift p l st Hp Hnow).
-    destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
-    rewrite (IH st' Hp Hlater).
-    destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
-Qed.
 
 Theorem indent_uniformity :
   forall p lines,
     is_blank p = true ->
-    specs_closed lines (PPara []) = true ->
     parse_lines (map (fun l => (p ++ l)%string) lines) (PPara [])
     = parse_lines lines (PPara []).
 Proof.
-  intros p lines Hp Hsafe.
-  pose proof (run_lines_pad_shift_closed p lines (PPara []) Hp Hsafe) as R.
+  intros p lines Hp.
+  pose proof (run_lines_pad_shift p lines (PPara []) Hp) as R.
   cbn [pad_state] in R. rewrite (parse_lines_run _ _ _ _ R), pad_state_finish.
   symmetry. apply parse_lines_run, surjective_pairing.
 Qed.
