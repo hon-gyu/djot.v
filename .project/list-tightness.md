@@ -37,6 +37,263 @@ exceptions.
 Exceptions 1 and 2 are the reference's "start or end of a list" applied
 to a nested list.
 
+## Proposal: a definition for the syntax reference
+
+Proposed 2026-10-05.  It uses only terms the reference already has: a
+list item "consists of" lines, a block left open "ends with ... the
+containing block", and a list "contains" blank lines.  What the reference
+leaves out is whether blank lines after an item's last line are part of
+the item; the change to the List item section says they are not.
+
+It decides the first two shapes of C1 (below) loose, C2 loose, D1 loose,
+the open code block in group A loose, and an attribute line before a
+nested list (jgm/djot issue #200) tight.
+
+### Why the reference needs changing
+
+The current text:
+
+> A list is classed as *tight* if it does not contain blank lines
+> between items, or between blocks inside an item.  Blank lines at the
+> start or end of a list do not count against tightness.
+
+It leaves three questions open, and on each the implementations, or
+djot.js and the djot author, give different answers.  The djot.js
+results below were checked on 2026-10-05 at `d7c3904`; the others are
+from `djotjs-divergences.md`.
+
+**1. Where does a list item end?**  The reference says an item consists
+of a marker "followed by one or more lines, indented relative to the
+list marker".  A blank line has no indentation, so it does not say
+whether blank lines after the item's last line are part of the item.
+It matters when the item leaves a block open, since that block "ends
+with ... the containing block":
+
+```
+- :::
+
+- b
+```
+
+If the blank is part of the first item, it is inside the open div and
+the list is tight.  If not, it lies between two items and the list is
+loose.  djot.js and djoths say tight; djot.lua says loose.  With a code
+block in place of the div, the same question decides the AST as well:
+djot.js keeps the blank as a line of code (`text="\n"`) and calls the
+list tight.
+
+**2. Which list does "start or end of a list" protect?**  A list starts
+with a marker line, so it cannot contain a blank before its first item;
+"start" only has a meaning for a nested list, and the reference's
+example is one (a blank before `  - sub` inside an item).  The text does
+not say how far the exemption reaches.  The djot author's ruling on
+
+```
+- a
+
+- - b
+```
+
+is that it is loose: the blank is between two outer items, not at the
+start of the inner list (djot.js says tight, which the author called a
+bug).  The mirror image at the end of a nested list
+
+```
+- a
+
+  - b
+
+- c
+```
+
+is tight in djot.js, and its tests expect that (`lists.test` 242 and
+308).  The reference gives no way to tell whether "end of a list" means
+something different from "start".
+
+**3. Is a block attribute part of the block?**  The reference says what
+an attribute attaches to, not whether its line counts as part of that
+block.  So it cannot say whether the blank here is "at the start" of the
+nested list:
+
+```
+- a
+
+  {.x}
+  - b
+- c
+```
+
+djot.js says loose; the djot author says it should be tight
+(jgm/djot issue #200).
+
+The proposal answers each: an item ends with its last nonblank line
+(1); the exemption covers a blank inside an item next to a nested list,
+and never a blank between items (2); an attribute attached to a block
+counts as part of it (3).
+
+### The change
+
+The change to `doc/syntax.md` in the djot repository:
+
+````diff
+--- a/doc/syntax.md
++++ b/doc/syntax.md
+@@ -441,6 +441,10 @@ example:
+ 
+      > containing a block quote
+ 
++A list item ends with its last nonblank line; blank lines after it are
++not part of the item. A block left open inside the item, such as a code
++block or a div with no closing fence, ends there too.
++
+ Indentation may be “lazily” omitted on paragraph lines following the
+ first line of a paragraph:
+ 
+@@ -543,8 +547,11 @@ its first item. The numbers of subsequent items are irrelevant.
+     8) six
+ 
+ A list is classed as *tight* if it does not contain blank lines between
+-items, or between blocks inside an item. Blank lines at the start or end
+-of a list do not count against tightness.
++items, or between blocks inside an item. A blank line inside an item
++does not count if it comes directly before or directly after a list
++nested in that item; block attributes attached to the nested list count
++as part of it. Nor does a blank line inside a block nested in an item,
++such as a div, a code block or a nested list.
+ 
+     - one
+     - two
+@@ -560,6 +567,87 @@ less space between items.
+ 
+     - two
+ 
++A blank line between two paragraphs of an item also makes the list
++loose:
++
++    - one
++
++      more
++    - two
++
++A blank line directly after a nested list does not, when the item
++continues after it:
++
++    - one
++    - two
++
++      - sub
++      - sub
++
++      more
++
++Attributes attached to the nested list are part of it, so the blank
++line here is still directly before the nested list, and the list is
++tight:
++
++    - one
++
++      {.note}
++      - sub
++    - two
++
++This list is loose. No line of the first item follows the blank line,
++so the item does not contain it, and it lies between two items:
++
++    - one
++
++      - sub
++
++    - two
++
++So is this one, for the same reason. The blank line comes before the
++second item, not inside it:
++
++    - one
++
++    - - sub
++
++This list is tight. The blank line is inside the code block, which
++continues up to its closing fence:
++
++    - ```
++      a
++
++      b
++      ```
++    - two
++
++This list is loose. No line of the first item follows the blank line,
++so the item ends with the line `code`, and the code block, which has no
++closing fence, ends with it. The blank line lies between two items, and
++the code block contains only `code`:
++
++    - ```
++      code
++
++    - two
++
++This list is tight. A caption is part of the table it follows, so the
++blank line is inside the table:
++
++    - | a |
++
++      ^ caption
++    - two
++
++This list is tight. The last item ends with its line `- two`, and the
++list with it, so the list does not contain the blank line:
++
++    - one
++    - two
++
++    A paragraph.
++
+ 
+ ### Code block
+ 
+@@ -741,6 +829,10 @@ by the contents of the note, indented to any column beyond the column in
+ which the reference starts. The contents of the note are parsed as
+ block-level content.
+ 
++A footnote ends with its last nonblank line; blank lines after it are
++not part of the footnote. A block left open inside the footnote, such as
++a code block or a div with no closing fence, ends there too.
++
+     Here's the reference.[^foo]
+ 
+     [^foo]: This is a note
+````
+
+Notes, not for the reference:
+
+- "Blank lines at the start or end of a list do not count against
+  tightness" is gone.  For the outer list it follows from where an item
+  ends; for a nested list it is the sentence on blank lines directly
+  before or after one.
+- Only list items and footnotes change where they end.  At the end of
+  the document, or in a block quote (whose `>` marks a line as the
+  quote's), a blank line after an unclosed code block is still code.
+- D1 has no example in the reference, because an attribute that
+  attaches to nothing is a corner case that would confuse readers more
+  than it helps.  The input:
+
+  ```
+  - - x
+    {.a}
+
+    para
+  - b
+  ```
+
+  The blank is inside the first item, since `para` is a line of that
+  item and comes after it.  `{.a}` is followed by a blank instead of a
+  block, so it is attached to nothing and is not part of the nested
+  list.  The line before the blank is therefore not the nested list's
+  last line, the exception does not apply, and the blank lies between
+  two blocks of the item: loose.
+- The attribute example is jgm/djot issue #200, where djot.js and our parser
+  both give loose today.
+
 ## Status at a glance
 
 | Group | Cases | Status |
