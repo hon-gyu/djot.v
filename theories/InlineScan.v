@@ -2952,6 +2952,167 @@ Lemma para_inlines_one :
 Proof. reflexivity. Qed.
 
 (*
+Rules stated from text mode
+===========================
+
+Each takes the scan in text mode with nothing pending, `IText false`,
+whatever came before, and says what the construct's bytes do to it.
+*)
+
+(** O2: a backslash and a punctuation byte add the byte to the text, and
+    nothing else. *)
+Theorem escape_in_text : forall c rest txt prev o,
+  is_punct c = true ->
+  iscan_str (String bslash (String c rest)) (IText false txt prev o)
+  = iscan_str rest (IText false (txt ++ one c) (Some c) o).
+Proof.
+  intros c rest txt prev o Hc. cbn [iscan_str]. unfold istep. cbn [istep_at].
+  unfold ilead. change (is_bslash bslash) with true. cbn [istep_at].
+  rewrite Hc, (is_punct_not_ws c Hc). reflexivity.
+Qed.
+
+Local Lemma iscan_dash_run : forall n m txt prev o s,
+  iscan_str (chars hyphen n ++ s) (IDash m txt prev o)
+  = iscan_str s (IDash (n + m) txt prev o).
+Proof.
+  induction n as [|n IH]; intros m txt prev o s; [reflexivity|].
+  cbn [chars append iscan_str]. unfold istep. cbn [istep_at]. unfold idash_step.
+  rewrite Ascii.eqb_refl, IH. f_equal. f_equal. lia.
+Qed.
+
+(** Q5: a run of hyphens is cut whole.  The run ends at the first byte
+    that is not a hyphen, the text gains `typography_dashes` of its
+    length (`dashes`, when smart typography is on: `dashes_divide`), and
+    that byte is read next.  A `}` is the exception: it takes the last
+    hyphen back for a close marker (`idash_step`). *)
+Theorem dash_run_in_text : forall n c rest txt prev o,
+  Ascii.eqb c hyphen = false -> Ascii.eqb c rbrace = false ->
+  iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o)
+  = iscan_str (String c rest)
+      (IText false (txt ++ typography_dashes (S n)) (Some hyphen) o).
+Proof.
+  intros n c rest txt prev o Hh Hr.
+  change (iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o))
+    with (iscan_str (chars hyphen n ++ String c rest) (IDash 1 txt prev o)).
+  rewrite iscan_dash_run, Nat.add_1_r. cbn [iscan_str]. f_equal.
+  unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh, Hr. reflexivity.
+Qed.
+
+(** Q5, for a run that ends its line. *)
+Theorem dash_run_at_end : forall n txt prev o,
+  iresolve (iscan_str (chars hyphen (S n)) (IText false txt prev o))
+  = IText false (txt ++ typography_dashes (S n)) (Some hyphen) o.
+Proof.
+  intros n txt prev o.
+  change (iscan_str (chars hyphen (S n)) (IText false txt prev o))
+    with (iscan_str (chars hyphen n) (IDash 1 txt prev o)).
+  rewrite <- (append_empty_r (chars hyphen n)), iscan_dash_run, Nat.add_1_r.
+  reflexivity.
+Qed.
+
+Local Lemma iscan_open_run : forall k m vk o s,
+  iscan_str (ticks k ++ s) (IOpen m vk o) = iscan_str s (IOpen (k + m) vk o).
+Proof.
+  induction k as [|k IH]; intros m vk o s; [reflexivity|].
+  cbn [ticks append iscan_str]. unfold istep. cbn [istep_at].
+  change (is_tick tick) with true. cbn iota. rewrite IH. do 2 f_equal. lia.
+Qed.
+
+Local Lemma iscan_verb_run : forall k n run txt vk o s,
+  iscan_str (ticks k ++ s) (IVerb n run txt vk o)
+  = iscan_str s (IVerb n (k + run) txt vk o).
+Proof.
+  induction k as [|k IH]; intros n run txt vk o s; [reflexivity|].
+  cbn [ticks append iscan_str]. unfold istep. cbn [istep_at].
+  change (is_tick tick) with true. cbn iota. rewrite IH. do 2 f_equal. lia.
+Qed.
+
+Local Lemma iscan_verb_body : forall body n run txt vk o,
+  verb_safe_from n run body = true ->
+  nonempty_str body = true -> ends_tick body = false ->
+  iscan_str body (IVerb n run txt vk o)
+  = IVerb n 0 (txt ++ ticks run ++ body) vk o.
+Proof.
+  induction body as [|c body IH]; intros n run txt vk o Hs Hne He; [discriminate|].
+  cbn [iscan_str verb_safe_from] in *. unfold istep. cbn [istep_at].
+  destruct (is_tick c) eqn:Ec.
+  - destruct body as [|d body].
+    { unfold ends_tick in He. cbn in He. congruence. }
+    rewrite ends_tick_cons_nonempty in He.
+    rewrite (IH n (S run) txt vk o Hs eq_refl He).
+    unfold is_tick in Ec. apply Ascii.eqb_eq in Ec. subst c. rewrite ticks_succ_r.
+    f_equal. rewrite !append_assoc. reflexivity.
+  - apply andb_true_iff in Hs as [Hr Hs]. apply negb_true_iff in Hr. rewrite Hr.
+    destruct body as [|d body]; [reflexivity|].
+    rewrite ends_tick_cons_nonempty in He.
+    rewrite (IH n 0 _ vk o Hs eq_refl He). cbn [ticks append]. f_equal.
+    change (tpush txt (ticks run ++ one c)) with (txt ++ ticks run ++ one c).
+    rewrite !append_assoc. reflexivity.
+Qed.
+
+(* An opening run and a body with no run of the same length: the scan is
+   inside the verbatim, holding the body. *)
+Local Lemma iscan_verb_span : forall n body s txt prev o,
+  nonempty_str body = true -> starts_tick body = false ->
+  ends_tick body = false -> verb_safe (S n) body = true ->
+  iscan_str (ticks (S n) ++ body ++ s) (IText false txt prev o)
+  = iscan_str s (IVerb (S n) 0 body VVerb (flush_text txt o)).
+Proof.
+  intros n body s txt prev o Hne Hs He Hsafe.
+  change (iscan_str (ticks (S n) ++ body ++ s) (IText false txt prev o))
+    with (iscan_str (ticks n ++ body ++ s) (IOpen 1 VVerb (flush_text txt o))).
+  rewrite iscan_open_run, Nat.add_1_r.
+  destruct body as [|d body]; [discriminate|]. cbn [starts_tick] in Hs.
+  cbn [append iscan_str].
+  replace (istep d (IOpen (S n) VVerb (flush_text txt o)))
+    with (IVerb (S n) 0 (one d) VVerb (flush_text txt o))
+    by (unfold istep; cbn [istep_at]; rewrite Hs; reflexivity).
+  unfold verb_safe in Hsafe. cbn [verb_safe_from] in Hsafe. rewrite Hs in Hsafe.
+  cbn [Nat.eqb negb andb] in Hsafe.
+  destruct body as [|e body]; [reflexivity|].
+  rewrite ends_tick_cons_nonempty in He.
+  rewrite iscan_str_app, (iscan_verb_body _ _ _ _ _ _ Hsafe eq_refl He).
+  reflexivity.
+Qed.
+
+(** V1: a run of backticks opens a verbatim, and the next run of the same
+    length closes it.  `body` neither starts nor ends with a backtick, so
+    the two runs are exactly the delimiters, and holds no run of their
+    length (`verb_safe`).  The node's text is `trim_verb body` (V3).  The
+    byte after the closer is read next; a `{` there may begin a raw
+    format instead (R1). *)
+Theorem verbatim_in_text : forall n body c rest txt prev o,
+  nonempty_str body = true -> starts_tick body = false ->
+  ends_tick body = false -> verb_safe (S n) body = true ->
+  is_tick c = false -> Ascii.eqb c lbrace = false ->
+  iscan_str (ticks (S n) ++ body ++ ticks (S n) ++ String c rest)
+    (IText false txt prev o)
+  = iscan_str (String c rest)
+      (IText false "" (Some tick)
+         (oemit (mk (Verbatim (trim_verb body))) (flush_text txt o))).
+Proof.
+  intros n body c rest txt prev o Hne Hs He Hsafe Hc Hb.
+  rewrite (iscan_verb_span n body _ txt prev o Hne Hs He Hsafe).
+  rewrite iscan_verb_run, Nat.add_0_r. cbn [iscan_str]. f_equal.
+  unfold istep. cbn [istep_at]. rewrite Hc, Nat.eqb_refl, Hb. reflexivity.
+Qed.
+
+(** V1, for a verbatim that ends its paragraph. *)
+Theorem verbatim_at_end : forall n body txt prev o,
+  nonempty_str body = true -> starts_tick body = false ->
+  ends_tick body = false -> verb_safe (S n) body = true ->
+  ifinish_ostate
+    (iscan_str (ticks (S n) ++ body ++ ticks (S n)) (IText false txt prev o))
+  = oemit (mk (Verbatim (trim_verb body))) (flush_text txt o).
+Proof.
+  intros n body txt prev o Hne Hs He Hsafe.
+  rewrite (iscan_verb_span n body _ txt prev o Hne Hs He Hsafe).
+  rewrite <- (append_empty_r (ticks (S n))), iscan_verb_run, Nat.add_0_r.
+  cbn [iscan_str ifinish_ostate iresolve]. unfold ifinish_ostate_flat.
+  rewrite Nat.eqb_refl. reflexivity.
+Qed.
+
+(*
 The key connective
 ==================
 

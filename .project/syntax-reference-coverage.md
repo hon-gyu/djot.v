@@ -36,11 +36,11 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 3 | 8 | 41 | 0 | 0 | 5 |
+| Inline | 6 | 5 | 41 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
-| Block: leaf blocks and tables | 12 | 1 | 3 | 0 | 0 | 2 |
-| Block: references, footnotes, attributes, ids | 7 | 3 | 4 | 0 | 0 | 0 |
+| Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
+| Block: references, footnotes, attributes, ids | 8 | 2 | 4 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
@@ -49,24 +49,25 @@ Every rule with a parse outcome is at least E: the 76 code examples and
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
 are the container rules, the line-level spellings and block-level
-determinism.  Inline syntax has three T: link locality, which holds by
-construction, and the emphasis flanking and nonempty rules (M2, M3) over
-every document.  It has eight T~: precedence over
-a restricted alphabet (P1 to P5), escapes (O2), canonical verbatim (V1)
-and dash runs (Q5).  The other 41 inline rules are at E.
+determinism.  Inline syntax has six T: link locality, which holds by
+construction, the emphasis flanking and nonempty rules (M2, M3) over
+every document, and escapes (O2), verbatim spans (V1) and dash runs
+(Q5) from any point where the scan is reading text.  It has five T~:
+precedence and nesting over a restricted alphabet (P1 to P5).  The
+other 41 inline rules are at E.
 
 ## Inline syntax
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
 | P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one reading is valid, and the paragraph is its tree.  Shape: a paragraph of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, brackets with a destination `](...)` or a reference label `][...]`, and bytes no other syntax claims (`over_alphabet`, Precedence.v).  So the reference's two bracket examples are instances.  Left out: `{` except as a marker, `[^`, `[[`, `]{`, images, backslashes and smart quotes. |
-| P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | Shape: canonical inline trees (`ci`), as the inline renderer writes them. |
+| P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_nested` (Precedence.v), `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | `valid` lets a pair open and close inside another, and `valid_nested` says that is the only way two pairs meet.  Shape as P1.  `para_inlines_ci_para` adds the trees the inline renderer writes, whatever their constructs. |
 | P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | T~ | `para_inlines_valid`; `precedence_braces`, `emphasis_braces` | `lex` (Precedence.v) makes `{_` an opener that cannot close and `_}` a closer that cannot open.  Shape as P1.  Unit: InlineExamples.v, "The delimiter family". |
 | P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | T~ | `para_inlines_valid`; `marked_closer_needs_marked_opener` | `valid` pairs tokens of the same style and marking (`dkey`).  Shape as P1. |
 | P5 | Precedence | "When there are multiple openers ... the closest one is used" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique` (Precedence.v); `precedence_closest_opener` | `closest_live` in `valid`.  Shape as P1. |
 | P6 | Precedence | "Verbatim syntax ... doesn't allow nested markup" | E | `precedence_verbatim` | |
 | O1 | Ordinary text | "Anything that isn't given a special meaning is parsed as literal text" | n/a | | The default case of every other row. |
-| O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | T~ | `escape_every_punct` (InlineExamples.v); `escape_punctuation` | Shape: the escape alone on a line, every one of the 256 bytes checked.  Unit: InlineExamples.v, "Escapes". |
+| O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | T | `escape_in_text` (InlineScan.v), `escape_every_punct` (InlineExamples.v); `escape_punctuation` | From the scan reading text with nothing pending, after any prefix and before any rest: the two bytes add the punctuation byte to the text and change nothing else.  Not followed: a candidate still undecided (a symbol alias, an attribute spec, a destination), which reads the same bytes in its ordinary-reading shadow.  Unit: InlineExamples.v, "Escapes". |
 | O3 | Ordinary text | "Backslashes before characters other than ASCII punctuation ... are just treated as literal backslashes" | E | `escape_other_is_literal` | |
 | O4 | Ordinary text | "Backslash before a newline (or before spaces or tabs followed by a newline) is parsed as a hard line break.  Spaces and tab characters before the backslash are ignored" | E | `escape_newline_hard_break`, `escape_newline_after_spaces`, `line_break` | |
 | O5 | Ordinary text | "Backslash before a space is parsed as a nonbreaking space" | E | `escape_space_nbsp` | |
@@ -80,7 +81,7 @@ and dash runs (Q5).  The other 41 inline rules are at E.
 | A1 | Autolink | "A URL or email address that is enclosed in `<`...`>` will be hyperlinked" | E | `autolink` | Unit: InlineExamples.v, "Autolinks". |
 | A2 | Autolink | "The content between pointy braces is treated literally (backslash-escapes may not be used)" | E | `autolink_literal` | |
 | A3 | Autolink | "The URL or email address may not contain a newline" | E | `autolink_no_newline` | |
-| V1 | Verbatim | begins with a run of backticks, "ends with an equal-lengthed string" | T~ | `para_inlines_ci_para`; `verbatim_backticks` | Shape: canonical verbatim (InlineExamples.v, "Canonical verbatim"). |
+| V1 | Verbatim | begins with a run of backticks, "ends with an equal-lengthed string" | T | `verbatim_in_text`, `verbatim_at_end` (InlineScan.v); `verbatim_backticks` | From the scan reading text, as O2: a run of any length opens, and the next run of that length closes, for a body that holds no run of that length (`verb_safe`) and neither starts nor ends with a backtick, so that the runs are the delimiters.  The node's text is `trim_verb` of the body (V3).  A `{` after the closer is R1's.  Unit: InlineExamples.v, "Canonical verbatim". |
 | V2 | Verbatim | "backslash escapes don't work there" | E | `verbatim_no_escapes` | |
 | V3 | Verbatim | "If the content starts or ends with a backtick character, a single space is removed" | E | `verbatim_space_stripped` | `trim_verb_pad` is the renderer's inverse, not this rule. |
 | V4 | Verbatim | "If the text ... ends before a closing backtick string ..., the verbatim text extends to the end" | E | `verbatim_unclosed` | |
@@ -96,7 +97,7 @@ and dash runs (Q5).  The other 41 inline rules are at E.
 | Q2 | Smart punctuation | "using curly braces to mark a quote as an opener `{"` or a closer `"}`" | E | `smart_quotes_braces` | |
 | Q3 | Smart punctuation | "If you want a straight quote, use a backslash-escape" | E | `smart_quotes_escaped` | |
 | Q4 | Smart punctuation | three periods: ellipsis; three hyphens: em dash; two: en dash | E | `smart_dashes_ellipsis` | |
-| Q5 | Smart punctuation | longer hyphen runs divided "uniformly, if possible, and preferring em-dashes" | T~ | `dashes_divide`; `smart_dash_runs` | Shape: the function the scanner applies to a run of hyphens, for every length; that the scanner hands it the whole run is only in examples (`dashes_1` ... `dashes_13`, InlineScan.v). |
+| Q5 | Smart punctuation | longer hyphen runs divided "uniformly, if possible, and preferring em-dashes" | T | `dashes_divide`, `dash_run_in_text`, `dash_run_at_end` (InlineScan.v); `smart_dash_runs` | `dashes_divide` is the cut, for every length.  The other two say the scan hands it the whole run: from the scan reading text, as O2, a run ended by any byte but `}`, or by the end of the line.  A `}` takes the last hyphen back for a delete closer.  Unit: `dashes_1` ... `dashes_13`. |
 | MA1 | Math | verbatim prefixed with `$` (inline) or `$$` (display) | E | `math`, `math_display` | Unit: InlineExamples.v, "Math". |
 | F1 | Footnote reference | "`^` + the reference label in square brackets" | E | `footnote_reference` | Unit: InlineExamples.v, "Footnote references". |
 | B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | E | `line_break` | |
@@ -117,7 +118,7 @@ and dash runs (Q5).  The other 41 inline rules are at E.
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 3, T~ 8, E 41, n/a 5.
+Inline: T 6, T~ 5, E 41, n/a 5.
 
 ## Block syntax
 
@@ -169,7 +170,7 @@ Heading, block quote, list item, list: T 17, T~ 2, n/a 1.
 | --- | --- | --- | --- | --- | --- |
 | CB1 | Code block | "starts with a line of three or more consecutive backticks, optionally followed by a language specifier, but nothing else" (whitespace around it allowed) | T | `classify_backtick_fences`; `code_block_info_only`, `code_block_info_spaces` | Line level: any indentation, any run of three or more, whitespace or none before the info string, trailing whitespace.  Tilde fences: `SPEC-GAP`, 2026-08-02. |
 | CB2 | Code block | "ends with a line of backticks equal or greater in length to the opening backtick 'fence,' or the end of the document or enclosing block" | T | `fence_close_backticks`, `fenced_code_closed`, `fenced_code_unclosed`, `parse_lines_quote`, `quote_uniformity_tail`, `div_uniformity`, `list_uniformity`, `footnote_content_uniformity`; `code_block_longer_fence`, `code_block_longer_closer`, `code_block_unclosed`, `code_block_closed_by_parent` | `fence_close_backticks` says which lines close a backtick fence of any length; `fenced_code_closed` and `fenced_code_unclosed` say the block runs to the first of them or the end of the document.  The enclosing-block half: each container theorem parses the contents as a document that ends with the container. |
-| CB3 | Code block | "Its contents are interpreted as verbatim text" | T~ | `roundtrip_blocks` | Shape: canonical code blocks, whose fence the renderer picks longer than any backtick run inside. |
+| CB3 | Code block | "Its contents are interpreted as verbatim text" | T | `fenced_code_closed`, `fenced_code_unclosed` | The block's text is the lines between the fences joined by newlines, each less the opener's indentation and otherwise as written, whatever they hold. |
 | TB1 | Thematic break | "three or more `*` or `-` characters, and nothing else (except spaces or tabs)"; "may be indented" | T | `classify_thematic`; `thematic_break_indented`, `thematic_dashes`, `thematic_mixed_ws` | Line level.  `*` and `-` may be mixed on one line, in both engines. |
 | TB2 | Thematic break | "(`<hr>` in HTML)" | n/a | | Rendering. |
 | RB1 | Raw block | "A code block with `=FORMAT` where the language specification would normally go is interpreted as raw content" | T | `raw_block_closed`; `raw_block` | |
@@ -186,14 +187,14 @@ Heading, block quote, list item, list: T 17, T~ 2, n/a 1.
 | PT7 | Pipe table | "backslash-escaped pipes and pipes in verbatim spans ... do not count as cell separators" | T | `table_row_escaped_bar`, `table_row_verbatim_bar`; `table_escaped_pipes` | One cell holding `\|` between plain text, and one holding a single-backtick span with any bar-bearing, backtick-free content.  Unit: `row_escaped_bar`, `row_verbatim_bar` and neighbours. |
 | PT8 | Pipe table | caption: `^` lines "indented relative to the `^`"; "directly after the table, or there can be an intervening blank line" | E | `table_caption_after_table`, `table_caption_after_blank`, `table_caption_alone` | The reference's snippet on its own differs from djot.js: ours, 2026-08-22. |
 
-Leaf blocks and tables: T 12, T~ 1, E 3, n/a 2.
+Leaf blocks and tables: T 13, E 3, n/a 2.
 
 ### References, footnotes, attributes, identifiers
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RD1 | Reference link definition | "the reference label in square brackets, followed by a colon, followed by whitespace (or a newline) and the URL" | T | `classify_ref_whitespace`; `reference_definition` | Line level: any indentation, then after the colon either whitespace and a whitespace-free URL chunk, or nothing (the URL starts on the next line, RD2).  Whitespace after the URL makes the line text, in both engines. |
-| RD2 | Reference link definition | "The URL may be split over multiple lines (... concatenated, with any leading or trailing space removed).  None of the chunks of the URL may contain internal whitespace" | T~ | `ref_open_value_no_ws`; `reference_definition`, `reference_url_lines` | Shape: the first chunk.  Unit: ParserExamples.v, "Reference definitions". |
+| RD2 | Reference link definition | "The URL may be split over multiple lines (... concatenated, with any leading or trailing space removed).  None of the chunks of the URL may contain internal whitespace" | T | `ref_url_chunks`, `ref_url_chunks_end` (Uniformity.v), `ref_open_value_no_ws`; `reference_definition`, `reference_url_lines` | Any number of lines after the opener, each indented past it and holding one whitespace-free run (`ref_chunk`): the URL is the first chunk and those runs joined.  The first line that is not one ends the definition and is parsed as if none were open, so a chunk with whitespace inside or after it is not part of the URL.  Unit: ParserExamples.v, "Reference definitions". |
 | RD3 | Reference link definition | "No case normalization is done on reference labels" | E | `reference_case_sensitive` | |
 | RD4 | Reference link definition | "Attributes on reference definitions get transferred to the link ... the attribute on the link overrides the one on the reference definition" | E | `reference_attributes`, `reference_attributes_link_overrides` | `html_tree_reference_shape` bounds what a definition can change (attributes only), not this rule. |
 | FN1 | Footnote | "a footnote reference followed by a colon followed by the contents of the note, indented to any column beyond the column in which the reference starts.  The contents ... are parsed as block-level content" | T | `footnote_content_uniformity`, `footnote_open_uniformity_tail`, `footnote_text_uniformity`, `footnote_blank_uniformity`, `footnote_unshifted_uniformity` (and `_tail`s); `footnote`, `footnote_indent_past_reference`, `footnote_indent_not_past` | Except a note whose first line opens a list: `footnote_list_shift_counterexample`. |
@@ -208,7 +209,7 @@ Leaf blocks and tables: T 12, T~ 1, E 3, n/a 2.
 | LH4 | Links to headings | `# Introduction[^1]` "generates the identifier `Introduction`, not `Introduction1`" | E | `heading_identifier_footnote` | |
 | — | Reference link definition | "The reference label should be defined somewhere in the document" | T~ | see L5 | Advice to the author; what happens when it is not defined is L5. |
 
-References, footnotes, attributes, identifiers: T 7, T~ 3, E 4 (the
+References, footnotes, attributes, identifiers: T 8, T~ 2, E 4 (the
 last row is counted under L5).
 
 ### Nesting limits and security
@@ -221,7 +222,7 @@ last row is counted under L5).
 ## Triage
 
 Every row below T with a parse outcome, sorted into the plan's three
-outcomes.
+outcomes, and the T~ rows that stay as they are.
 
 ### Prove it, ranked
 
@@ -263,7 +264,7 @@ List and table structure:
 
 Inline structure:
 
-8. Done: **P1, P3, P4, P5 precedence**, `para_inlines_valid`: on a
+8. Done: **P1 to P5 precedence**, `para_inlines_valid`: on a
    paragraph of delimiters, bare or marked with braces, and brackets
    with destinations or reference labels, the paragraph is the tree of
    the unique reading the rules allow
@@ -313,14 +314,45 @@ Added 2026-10-05, from the rows still below T:
     `heading_ends_with_lines`.
 21. Done: **LS1 the joining half**, `list_same_type_joins`.
 
+Added 2026-10-05, from the T~ rows and the four the lists above had
+missed (P2, V1, CB3, LH1):
+
+22. Done: **O2, V1, Q5 from text mode**, `escape_in_text`,
+    `verbatim_in_text`, `verbatim_at_end`, `dash_run_in_text`,
+    `dash_run_at_end`.
+23. Done: **RD2 every chunk**, `ref_url_chunks`, `ref_url_chunks_end`.
+24. Done: **CB3**.  `fenced_code_closed` already said it; the row cited
+    the roundtrip.
+
 Open: **LS4 without `run_safe`**.  The theorem is false there until the
 2026-10-05 entry on a spec between a nested list and a blank is decided.
+
+### Stays restricted
+
+T~ rows where the restriction is not a gap to close now.
+
+- **P1 to P5**: the alphabet leaves out `{` except as a marker, `[^`,
+  `[[`, `]{`, images, backslashes and smart quotes.  Each is a new token
+  kind in `lex` and a new case through the simulation in
+  InlinePrecedence.v.  That is a plan of its own, not a row to sweep.
+- **BI3**: the rule as worded is false for indentation that differs from
+  line to line, which code block contents and nesting read.  Uniform
+  indentation is all there is to state.
+- **DL1**: the canonical marker; the term split is under "An example is
+  enough".
+- **LH1**: `assign_heading_id_spec` is the rule at one heading.  That
+  the pass reaches every heading at every depth needs a predicate over
+  each container, a further copy of the traversal
+  `261003.plan.traversal-pilot.md` is meant to remove.  After that plan.
+- **LH2**: the "excluding" clause is `inline_text`'s arms for footnote
+  references and symbols.  A theorem would repeat the definition; the
+  examples pin it.
 
 ### An example is enough
 
 P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
 M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
-N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD2 (continuation chunks), RD3,
+N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD3,
 RD4, LH3, LH4, and what the T~ theorem leaves of DL1.
 
 Each is one case, or a list of cases with no quantifier worth stating,

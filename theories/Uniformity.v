@@ -288,6 +288,77 @@ Proof.
   rewrite (parse_lines_step _ _ _ _ _ (step_ref_blank _ _ _ _ _ H)). reflexivity.
 Qed.
 
+(* A line that extends an open definition's URL: indented past the
+   opener's column `ind`, and one run with no whitespace in it or after
+   it. *)
+Definition ref_chunk (ind : nat) (l : string) : bool :=
+  (Nat.ltb ind (indent_of l) && nonempty_str (drop_leading_ws l)
+   && no_ws (drop_leading_ws l))%bool.
+
+Local Lemma concat_empty_cons : forall x xs,
+  String.concat "" (x :: xs) = x ++ String.concat "" xs.
+Proof.
+  intros x [|y ys]; cbn [String.concat]; [rewrite append_empty_r|]; reflexivity.
+Qed.
+
+Local Lemma parse_lines_ref_chunks : forall chunks rest range ind lbl v,
+  forallb (ref_chunk ind) chunks = true ->
+  parse_lines (chunks ++ rest)%list (PRef range ind lbl v)
+  = parse_lines rest
+      (PRef (Nat.iter (List.length chunks) touch_extent range) ind lbl
+         (v ++ String.concat "" (map drop_leading_ws chunks))).
+Proof.
+  induction chunks as [|c chunks IH]; intros rest range ind lbl v H.
+  - cbn [app map String.concat List.length Nat.iter nat_rect].
+    rewrite append_empty_r. reflexivity.
+  - cbn [forallb] in H. apply andb_true_iff in H as [Hc H].
+    unfold ref_chunk in Hc. apply andb_true_iff in Hc as [Hc Hw].
+    apply andb_true_iff in Hc as [Hi Hne].
+    cbn [app map parse_lines]. unfold step at 1. cbn [step_fuel Nat.add].
+    rewrite Hi. unfold ref_cont. rewrite Hne, Hw. cbn [andb app].
+    rewrite (IH rest _ ind lbl _ H), concat_empty_cons, append_assoc.
+    cbn [List.length]. rewrite Nat.iter_succ_r. reflexivity.
+Qed.
+
+(** RD2: the lines after a definition's opener that are indented past it
+    and hold one whitespace-free run are chunks of its URL, joined with
+    the whitespace around them dropped.  The first line that is not one
+    ends the definition and is parsed as if none were open: a chunk with
+    whitespace inside or after it is such a line. *)
+Theorem ref_url_chunks : forall l lbl v chunks next rest,
+  classify l = KRef lbl v ->
+  forallb (ref_chunk (indent_of l)) chunks = true ->
+  ref_chunk (indent_of l) next = false ->
+  parse_lines (l :: chunks ++ next :: rest)%list (PPara [])
+  = ref_block lbl (v ++ String.concat "" (map drop_leading_ws chunks))
+    :: parse_lines (next :: rest) (PPara []).
+Proof.
+  intros l lbl v chunks next rest Hl Hc Hn.
+  rewrite (parse_lines_ref_open l _ lbl v Hl), (parse_lines_ref_chunks _ _ _ _ _ _ Hc).
+  cbn [parse_lines]. unfold step at 1. cbn [step_fuel Nat.add].
+  replace (if Nat.ltb (indent_of l) (indent_of next) then ref_cont next else None)
+    with (@None string).
+  2:{ unfold ref_chunk in Hn. unfold ref_cont.
+      destruct (Nat.ltb (indent_of l) (indent_of next)); [|reflexivity].
+      cbn [andb] in Hn. rewrite Hn. reflexivity. }
+  rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+  destruct (step next (PPara [])) as [bs st']. reflexivity.
+Qed.
+
+(** RD2, when the document ends in the definition. *)
+Theorem ref_url_chunks_end : forall l lbl v chunks,
+  classify l = KRef lbl v ->
+  forallb (ref_chunk (indent_of l)) chunks = true ->
+  parse_lines (l :: chunks) (PPara [])
+  = [ref_block lbl (v ++ String.concat "" (map drop_leading_ws chunks))].
+Proof.
+  intros l lbl v chunks Hl Hc.
+  pose proof (parse_lines_ref_chunks chunks [] (open_extent l (indent_of l))
+                (indent_of l) lbl v Hc) as E.
+  rewrite app_nil_r in E.
+  rewrite (parse_lines_ref_open l _ lbl v Hl), E. reflexivity.
+Qed.
+
 (*
 Table equations
 ---------------
