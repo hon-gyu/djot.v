@@ -95,7 +95,7 @@ val item_forces_loose : dtable -> bconfig -> cblock list -> bool
 
 val items_force_loose : dtable -> bconfig -> cblock list list -> bool
 
-val items_seps_loosen : dtable -> bconfig -> cblock list list -> bool
+val items_seps_loosen : dtable -> cblock list list -> bool
 
 val is_clist : cblock -> bool
 

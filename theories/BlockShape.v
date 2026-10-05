@@ -287,28 +287,6 @@ Proof. induction st; cbn [Shape.state lazy_ok]; auto. Qed.
 Local Lemma in_fence_shape : forall st, in_fence (Shape.state st) = in_fence st.
 Proof. induction st; cbn [Shape.state in_fence]; auto. Qed.
 
-Local Lemma blank_held_shape : forall st,
-  blank_held (Shape.state st) = blank_held st.
-Proof.
-  induction st; cbn [Shape.state blank_held]; auto.
-  rewrite IHst. destruct st; reflexivity.
-Qed.
-
-Local Lemma blank_absorbed_shape : forall st,
-  blank_absorbed (Shape.state st) = blank_absorbed st.
-Proof.
-  induction st; cbn [Shape.state blank_absorbed]; auto.
-  - apply blank_held_shape.
-  - rewrite IHst. destruct st; reflexivity.
-Qed.
-
-Local Lemma keeps_line_shape : forall off l st,
-  keeps_line off l (Shape.state st) = keeps_line off l st.
-Proof.
-  intros off l st. induction st; cbn [Shape.state keeps_line]; auto;
-    rewrite lazy_ok_shape; reflexivity.
-Qed.
-
 Local Lemma is_idle_shape : forall st, is_idle (Shape.state st) = is_idle st.
 Proof. intros []; reflexivity. Qed.
 
@@ -321,6 +299,25 @@ Local Lemma key_claims_shape : forall l st,
 Proof.
   intros l st. induction st; cbn [Shape.state key_claims];
     rewrite ?IHst, ?is_idle_shape, ?announces_end_shape; reflexivity.
+Qed.
+
+Local Lemma keeps_line_shape : forall off l st,
+  keeps_line off l (Shape.state st) = keeps_line off l st.
+Proof.
+  assert (Hh : forall st, holds_list (Shape.state st) = holds_list st)
+    by (induction st; cbn [Shape.state holds_list]; auto).
+  intros off l st. induction st; cbn [Shape.state keeps_line]; auto;
+    rewrite lazy_ok_shape; try reflexivity.
+  unfold foot_takes. rewrite key_claims_shape, Hh. reflexivity.
+Qed.
+
+Local Lemma line_fate_shape : forall off l k st,
+  line_fate off l k (Shape.state st) = line_fate off l k st.
+Proof.
+  intros off l k st. unfold line_fate. rewrite keeps_line_shape.
+  replace (spec_open (Shape.state st)) with (spec_open st)
+    by (destruct st; reflexivity).
+  reflexivity.
 Qed.
 
 Local Lemma list_takes_shape : forall ls off l st,
@@ -351,10 +348,10 @@ Local Lemma list_narrow_shape : forall ls ns,
   list_narrow (Shape.of_list_state ls) ns.
 Proof. intros [] ns; reflexivity. Qed.
 
-Local Lemma list_content_shape : forall `{LI : LineIx} ls k kept,
-  Shape.of_list_state (list_content ls k kept) =
-  list_content (Shape.of_list_state ls) k kept.
-Proof. intros LI [] k kept; destruct k; reflexivity. Qed.
+Local Lemma list_content_shape : forall `{LI : LineIx} ls f,
+  Shape.of_list_state (list_content ls f) =
+  list_content (Shape.of_list_state ls) f.
+Proof. intros LI [] f; destruct f; reflexivity. Qed.
 
 Local Lemma list_next_shape : forall `{LI : LineIx} ls item chk l,
   Shape.of_list_state (list_next ls item chk l) =
@@ -679,17 +676,16 @@ Proof.
     all: try (rewrite list_takes_shape; destruct (list_takes ls off l st)).
     all: try (pose proof (IH off l st) as H; split_same H;
          unfold Shape.result; cbn [fst snd Shape.state];
-         rewrite ?list_content_shape, ?keeps_line_shape, ?Shape.list_state_idem,
+         rewrite ?list_content_shape, ?line_fate_shape, ?Shape.list_state_idem,
            !Shape.blocks_app, !Shape.blocks_rev, Hbs, Shape.blocks_idem, Hs;
          reflexivity).
     all: try (cbn [is_lazy];
               apply (close_reopen_shape T T' (PList ls done st));
               apply open_line_shape; assumption).
-    + rewrite blank_absorbed_shape. pose proof (IH off l st) as H. split_same H.
+    + pose proof (IH off l st) as H. split_same H.
       unfold Shape.result; cbn [fst snd Shape.state].
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Hbs, Shape.blocks_idem, Hs.
-      destruct (blank_absorbed st);
-        rewrite ?list_blank_shape, Shape.list_state_idem; reflexivity.
+      rewrite !list_blank_shape, Shape.list_state_idem; reflexivity.
     + cbn [ls_styles Shape.of_list_state].
       destruct (narrow (ls_styles ls) (configured_list_styles sty chk))
         as [|p l0].

@@ -32,5 +32,5 @@ Proof. vm_compute. reflexivity. Qed.
    the generated fragment rather than only change its proofs. *)
 Example accepted_counts : (List.length (accepted 1),
                            List.length (accepted 2),
-                           List.length (accepted 3)) = (312, 4385, 57857).
+                           List.length (accepted 3)) = (344, 5453, 81845).
 Proof. vm_compute. reflexivity. Qed.

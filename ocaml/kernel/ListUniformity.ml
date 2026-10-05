@@ -6,7 +6,14 @@ open List0
 open ListDef
 open Step
 open Strings
-open Uniformity
+
+(** val item_end_ok : string -> bool **)
+
+let item_end_ok l =
+  match classify l with
+  | KBlank -> false
+  | KAttr _ -> false
+  | _ -> true
 
 (** val indent_lines : string -> string -> string list -> string list **)
 
@@ -45,12 +52,12 @@ let rec lines_loose t k loose gap st = function
 | l :: rest ->
   let st' = snd (step t k semantic_line_ix semantic_pos l st) in
   (match classify l with
-   | KBlank ->
-     lines_loose t k loose (if blank_absorbed st then gap else true) st' rest
-   | KList (_, _, _, _) -> lines_loose t k loose false st' rest
-   | _ ->
-     lines_loose t k (if keeps_line k 0 l st then loose else (||) loose gap)
-       false st' rest)
+   | KBlank -> lines_loose t k loose true st' rest
+   | x ->
+     (match line_fate k 0 l x st with
+      | Spends -> lines_loose t k ((||) loose gap) false st' rest
+      | Clears -> lines_loose t k loose false st' rest
+      | Waits -> lines_loose t k loose gap st' rest))
 
 (** val item_loose : dtable -> bconfig -> string list -> bool **)
 
@@ -79,21 +86,15 @@ let item_ok t k m = function
         (snd (step t k semantic_line_ix semantic_pos l0 (PPara [])))))
     (match more with
      | [] -> true
-     | _ :: _ -> nonblank (last more ""))
+     | _ :: _ -> item_end_ok (last more ""))
 
-(** val ends_open_container : dtable -> bconfig -> string list -> bool **)
+(** val seps_loosen : string list list -> bool **)
 
-let ends_open_container t k l =
-  blank_absorbed (snd (run_lines t k l (PPara [])))
-
-(** val seps_loosen : dtable -> bconfig -> string list list -> bool **)
-
-let rec seps_loosen t k = function
+let seps_loosen = function
 | [] -> false
-| l :: rest ->
-  (match rest with
-   | [] -> false
-   | _ :: _ -> (||) (negb (ends_open_container t k l)) (seps_loosen t k rest))
+| _ :: l0 -> (match l0 with
+              | [] -> false
+              | _ :: _ -> true)
 
 (** val same_marker : marker -> string list list -> litem list **)
 

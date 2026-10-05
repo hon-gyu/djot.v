@@ -1751,18 +1751,124 @@ Example list_blank_after_open_div :
 ".
 Proof. vm_compute. reflexivity. Qed.
 
-Example list_blank_in_open_code :
+Example list_blank_after_open_code :
   convert "- ```
 
 - b
 "
   = "<ul>
 <li>
-<pre><code>
-</code></pre>
+<pre><code></code></pre>
 </li>
 <li>
+<p>b</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_nested_list_between_items :
+  convert "- - b
+
+- c
+"
+  = "<ul>
+<li>
+<ul>
+<li>
 b
+</li>
+</ul>
+</li>
+<li>
+<p>c</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_nested_list_before_item :
+  convert "- a
+
+  - b
+
+- c
+"
+  = "<ul>
+<li>
+<p>a</p>
+<ul>
+<li>
+b
+</li>
+</ul>
+</li>
+<li>
+<p>c</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_nested_list_in_item :
+  convert "- - a
+
+  b
+"
+  = "<ul>
+<li>
+<ul>
+<li>
+a
+</li>
+</ul>
+b
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_attribute_on_nested_list :
+  convert "- a
+
+  {.x}
+  - b
+- c
+"
+  = "<ul>
+<li>
+a
+<ul class=""x"">
+<li>
+b
+</li>
+</ul>
+</li>
+<li>
+c
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_after_dropped_attribute :
+  convert "- - x
+  {.a}
+
+  para
+- b
+"
+  = "<ul>
+<li>
+<ul>
+<li>
+x
+</li>
+</ul>
+<p>para</p>
+</li>
+<li>
+<p>b</p>
 </li>
 </ul>
 ".
@@ -1809,6 +1915,16 @@ Proof. vm_compute. reflexivity. Qed.
 Example code_block_unclosed :
   convert "```
 a
+"
+  = "<pre><code>a
+</code></pre>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example code_block_unclosed_trailing_blank :
+  convert "```
+a
+
 "
   = "<pre><code>a
 </code></pre>

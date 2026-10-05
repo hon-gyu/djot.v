@@ -154,15 +154,12 @@ Definition list_tightness : Prop :=
      list_spacing_of sp itemss = Loose ->
      (exists L, In L itemss /\ exists i, separates L i)
      \/ (sp = Loose
-         /\ exists pre L M post,
-              itemss = (pre ++ L :: M :: post)%list /\ separates_after L))
+         /\ exists pre L M post, itemss = (pre ++ L :: M :: post)%list))
   /\ (forall sp itemss L i,
         In L itemss ->
         blank_safe (snd (run_lines (firstn i L) (PPara []))) = true ->
         separates L i -> list_spacing_of sp itemss = Loose)
   /\ (forall pre L M post,
-        forallb (fun L => run_safe L (PPara [])) (pre ++ L :: M :: post)%list = true ->
-        separates_after L ->
         list_spacing_of Loose (pre ++ L :: M :: post)%list = Loose).
 
 Definition indent_uniform : Prop :=
@@ -458,13 +455,13 @@ Program Definition p_list_tightness : property := {|
   p_group := uniformity;
   p_statement := "A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.";
   p_implication := "Whether a list renders with space between its items follows from where its blank lines are.";
-  p_theorems := ["list_spacing_separates"; "separates_loosens"; "separates_after_loosens"];
+  p_theorems := ["list_spacing_separates"; "separates_loosens"; "blank_between_items_loosens"];
   p_status := always (Conditional "For items in which no block attribute spans several lines. A blank line inside a code block does not count.");
   p_holds := at_profile list_tightness
 |}.
 Next Obligation.
   exact (conj (@list_spacing_separates _ _)
-           (conj (@separates_loosens _ _) (@separates_after_loosens _ _))).
+           (conj (@separates_loosens _ _) (@blank_between_items_loosens _ _))).
 Qed.
 
 Program Definition p_indent_uniformity : property := {|

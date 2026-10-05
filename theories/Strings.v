@@ -232,6 +232,16 @@ Proof.
   cbn [map]. rewrite drop_ws_upto_0, IH. reflexivity.
 Qed.
 
+(* Dropping some leading whitespace preserves blankness. *)
+Lemma is_blank_drop_ws_upto :
+  forall n s, is_blank (drop_ws_upto n s) = is_blank s.
+Proof.
+  induction n as [|n IH]; intros s; [destruct s; reflexivity|].
+  destruct s as [|c s]; [reflexivity|]. cbn [drop_ws_upto].
+  destruct (is_ws c) eqn:E; [|reflexivity].
+  rewrite IH, is_blank_cons, E. reflexivity.
+Qed.
+
 (* The two ways of reaching a nested line agree on it: `n` more columns
    of offset to strip and `n` more columns of blank prefix cancel. *)
 Lemma drop_ws_upto_ws_prefix :

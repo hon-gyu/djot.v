@@ -550,9 +550,9 @@ Qed.
 
    The table waits because `step` emits blocks upward and cannot reach
    back into a table already emitted to add its caption.  Waiting does
-   not change list tightness: `blank_absorbed` stays `false` for a table,
-   so a blank arms the enclosing list as it would after a closed
-   table. *)
+   not change list tightness: a blank arms the enclosing list as it would
+   after a closed table, and only a caption, which `keeps_line` names,
+   clears it. *)
 Record cell_part : Type := CellPart
   { cell_range : span
   ; cell_text_start : spot }.
@@ -686,13 +686,12 @@ The line fold
    narrowing a plain filter that cannot disturb the number.
 
    Tight/loose is decided on the line sequence rather than on the
-   finished tree: a blank line arms `ls_blanks`, and the next sibling
-   marker, or the next content line that neither opens a nested list nor
-   continues an open div, footnote or table, makes the list loose.  So `- a`, blank,
-   `  - b` stays tight although a blank separates the item's two
-   children, as the syntax reference's `- two` / blank / `  - sub`
-   example requires.  The list is emitted only
-   when it closes, so nothing is revised retroactively. *)
+   finished tree: a blank line arms `ls_blanks`, the next sibling marker
+   makes the list loose, and the next content line decides as
+   `line_fate` says.  So `- a`, blank, `  - b` stays tight although a
+   blank separates the item's two children, as the syntax reference's
+   `- two` / blank / `  - sub` example requires.  The list is emitted
+   only when it closes, so nothing is revised retroactively. *)
 Record list_state : Type := LSt
   { ls_indent : nat
   ; ls_extent : extent               (* the list's own source range *)
@@ -1272,6 +1271,21 @@ Proof.
   injection H as <-. apply andb_true_iff in E as [_ E]. exact E.
 Qed.
 
+(* An accumulator, newest first, without the blank lines it ends with. *)
+Fixpoint drop_blank_lines (acc : list stored_line) : list stored_line :=
+  match acc with
+  | x :: rest => if is_blank (snd x) then drop_blank_lines rest else acc
+  | [] => []
+  end.
+
+(* Where a code block with no closing line stops: at the end of its last
+   line, or of its opener when it has none. *)
+Definition open_fence_stop (opener : span) (acc : list stored_line) : spot :=
+  match acc with
+  | [] => span_stop opener
+  | newest :: _ => stored_stop newest
+  end.
+
 Fixpoint finish (st : pstate) : blocks :=
   match st with
   | PPara [] => []
@@ -1283,9 +1297,13 @@ Fixpoint finish (st : pstate) : blocks :=
          (mk (Para (para_inlines_at k (rev cur))))]
   | PHeading lvl range cur =>
       [set_pos (prov_at (extent_span range)) (heading_block lvl cur)]
+  (* A code block with no closing line ends with its last nonblank line:
+     the blank lines it took after that are not its own. *)
   | PFence f _ range opener acc =>
-      [set_pos (prov_with (extent_span range) [(ROpenFence, opener)])
-         (fence_block f (line_texts (rev acc)))]
+      let acc' := drop_blank_lines acc in
+      [set_pos (prov_with (SrcSpan (extent_start range) (open_fence_stop opener acc'))
+                  [(ROpenFence, opener)])
+         (fence_block f (line_texts (rev acc')))]
   | PTable range rows cap =>
       [set_pos (prov_at (extent_span range))
          (set_parts (table_parts cap) (table_block (rev rows) cap))]
@@ -1424,20 +1442,28 @@ Fixpoint in_fence (st : pstate) : bool :=
 Definition is_lazy (k : line_kind) (inner : pstate) : bool :=
   match k with KText => lazy_ok inner | _ => false end.
 
-(* Content within the current item.  A line that opens a nested list does
-   not loosen, nor does one an open div, footnote or table keeps (`kept`); anything
-   else loosens the list if a blank line is armed.  Either way the flag
-   is spent. *)
-Definition list_content (ls : list_state) (k : line_kind) (kept : bool)
-  : list_state :=
-  let loose :=
-    match k with
-    | KList _ _ _ _ => ls_loose ls
-    | _ => if kept then ls_loose ls else (ls_loose ls || ls_blanks ls)%bool
-    end in
+(* What a content line of the current item makes of a blank armed before
+   it.  The blank lay between two blocks of the item, and the line spends
+   it into looseness; or it lay inside a block the line continues, or
+   directly before or after a nested list, and the line clears it; or the
+   line is a block attribute, and the block the attribute attaches to
+   decides. *)
+Inductive blank_fate : Type := Spends | Clears | Waits.
+
+(* Content within the current item, with what the line makes of the
+   armed blank (`line_fate`). *)
+Definition list_content (ls : list_state) (f : blank_fate) : list_state :=
   LSt (ls_indent ls) (touch_extent (ls_extent ls))
-      (touch_extent (ls_item_extent ls)) (ls_item_extents ls)
-      (ls_styles ls) loose false (ls_items ls) (ls_check ls) (ls_checks ls).
+      (touch_extent (ls_item_extent ls)) (ls_item_extents ls) (ls_styles ls)
+      (match f with
+       | Spends => (ls_loose ls || ls_blanks ls)%bool
+       | Clears | Waits => ls_loose ls
+       end)
+      (match f with
+       | Waits => ls_blanks ls
+       | Spends | Clears => false
+       end)
+      (ls_items ls) (ls_check ls) (ls_checks ls).
 
 (* Append a lazy line to the innermost paragraph.  Its leading whitespace
    goes, as on a non-lazy continuation line: a lazy line is a
@@ -1458,7 +1484,7 @@ Fixpoint feed_lazy (l : string) (st : pstate) : pstate :=
       PDiv len cls (touch_extent range) opener done (feed_lazy l inner)
   (* Content of the current item, as a line indented into it would be. *)
   | PList ls done inner =>
-      PList (list_content ls KText false) done (feed_lazy l inner)
+      PList (list_content ls Spends) done (feed_lazy l inner)
   | PFoot range ind lbl done inner =>
       PFoot (touch_extent range) ind lbl done (feed_lazy l inner)
   | PAttr _ _ _ _ _ _ | PRef _ _ _ _ | PTable _ _ _ => st
@@ -1831,66 +1857,68 @@ Definition list_takes (ls : list_state) (off : nat) (l : string)
 Definition foot_takes (ind off : nat) (l : string) (inner : pstate) : bool :=
   (key_claims l inner || Nat.ltb ind (off + indent_of l))%bool.
 
-(* Is a blank here held by a block below: a line of an open code block or
-   of an unfinished attribute spec, or a line of a key's block that the
-   key keeps until the block's closing fence?  Read down through every
-   container a blank reaches without closing it. *)
-Fixpoint blank_held (st : pstate) : bool :=
+(* Whether a footnote's contents end in a list still open, looking
+   through what wraps a block as `Tightness.ends_in_list` does: a blank
+   there is directly after that list. *)
+Fixpoint holds_list (st : pstate) : bool :=
   match st with
-  | PFence _ _ _ _ _ | PAttr _ _ _ _ _ _ => true
-  | PKey _ _ _ inner => (announces_end inner || blank_held inner)%bool
-  | PDiv _ _ _ _ _ inner | PList _ _ inner | PFoot _ _ _ _ inner
-  | PPend _ _ inner => blank_held inner
+  | PList _ _ _ => true
+  | PFoot _ _ _ _ inner | PPend _ _ inner | PKey _ _ _ inner => holds_list inner
   | _ => false
   end.
 
-Fixpoint blank_absorbed (st : pstate) : bool :=
-  match st with
-  | PFence _ _ _ _ _ | PList _ _ _ | PAttr _ _ _ _ _ _ => true
-  (* An open div leaves a blank to the enclosing list unless a block
-     inside it holds the blank.  Whether the blank lay inside the div is
-     known only at the next line: one the item still has goes to the div
-     (`keeps_line`), and a new item or the end of the list means the div
-     ended at the line before the blank. *)
-  | PDiv _ _ _ _ _ inner => blank_held inner
-  (* A key absorbs nothing of its own: with its block still unopened a
-     blank retracts it, which closes rather than continues, so an
-     enclosing list is armed exactly as `- foo:` / blank / `- bar`
-     needs (6.1).  A key whose block is a fence or div keeps every line
-     until the closing fence, the blank included.  A footnote arms the
-     list, since whether the blank is its own is known only at the next
-     line (`keeps_line`). *)
-  | PKey _ _ _ inner => (announces_end inner || blank_absorbed inner)%bool
-  | PPend _ _ inner | PFoot _ _ _ _ inner => blank_absorbed inner
-  | _ => false
-  end.
+(* Whether a block the item has open keeps `l` as its own line, so that a
+   blank before the line lay inside that block, or, for a nested list,
+   directly after its end: an open code block or div takes every line
+   the item takes, a nested list leaves the line to the item when it does
+   not take it, a footnote takes the lines it takes (`foot_takes`) and
+   leaves the rest directly after a list it ends in, and a table takes a
+   caption.  The line then clears the armed flag without loosening the
+   list.  A line the block does not keep ends it, and the blank
+   separated it from what follows.
 
-(* Whether a block the item has open, of the three a blank leaves open,
-   keeps `l` as its own line: a div takes every line the item takes, a
-   footnote takes a line indented past its `[`, and a table takes a
-   caption.  A blank before such a line lay inside that block, so the
-   line clears the armed flag without loosening the list; a line the
-   block does not keep ends it, and the blank separated it from what
-   follows.  Reads through the states `blank_absorbed` reads through.
-
-   A div or footnote with a paragraph open has seen no blank since, so
-   nothing is armed and the answer does not matter; it is `false` there
-   so that a line the item takes and a lazy line give the list the same
-   state (`step_fuel_lazy`). *)
+   A div, list or footnote with a paragraph open has seen no blank since,
+   so nothing is armed and the answer does not matter; it is `false`
+   there so that a line the item takes and a lazy line give the list the
+   same state (`step_fuel_lazy`). *)
 Fixpoint keeps_line (off : nat) (l : string) (st : pstate) : bool :=
   match st with
-  | PDiv _ _ _ _ _ inner => negb (lazy_ok inner)
+  | PFence _ _ _ _ _ => true
+  | PDiv _ _ _ _ _ inner | PList _ _ inner => negb (lazy_ok inner)
   | PFoot _ ind _ _ inner =>
-      (negb (lazy_ok inner) && Nat.ltb ind (off + indent_of l))%bool
+      (negb (lazy_ok inner) && (foot_takes ind off l inner || holds_list inner))%bool
   | PTable _ _ _ => match caption_open l with Some _ => true | None => false end
   | PPend _ _ inner | PKey _ _ _ inner => keeps_line off l inner
   | _ => false
   end.
 
+(* An attribute spec still taking lines. *)
+Definition spec_open (st : pstate) : bool :=
+  match st with
+  | PAttr _ _ _ _ ap _ => negb (ap_done ap)
+  | _ => false
+  end.
+
+(* The fate of an armed blank at a content line of the current item.  A
+   line a block the item has open keeps clears it.  Otherwise a block
+   attribute, and every line of a spec still open, leave it to the block
+   the attributes attach to, so that a blank before an attribute on a
+   nested list is a blank directly before the list; a line that opens a
+   nested list clears it; and anything else spends it. *)
+Definition line_fate (off : nat) (l : string) (k : line_kind) (inner : pstate)
+  : blank_fate :=
+  if spec_open inner then Waits
+  else if keeps_line off l inner then Clears
+  else match k with
+       | KAttr _ => if battrs then Waits else Spends
+       | KList _ _ _ _ => Clears
+       | _ => Spends
+       end.
+
 (* A sibling marker closes the current item and opens the next.  A blank
    armed since the item's last content line is a blank between items, so
    the marker spends it into looseness, whatever follows the marker on
-   its line. *)
+   its line and whatever the item left open. *)
 Definition list_next (ls : list_state) (item : blocks) (chk : task_status)
   (l : string) : list_state :=
   LSt (ls_indent ls) (touch_extent (ls_extent ls)) (open_extent l (indent_of l))
@@ -2095,13 +2123,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           | KBlank =>
               (* a blank arms the loose flag but closes nothing: it goes
                  to the item's contents, where it ends any open
-                 paragraph.  It arms *this* list only when nothing the
-                 item has open absorbs it first, which `blank_absorbed`
-                 reads off the state before the descent.  The recursion
-                 then arms exactly the innermost list that can see it. *)
+                 paragraph.  It arms every list it passes through, and
+                 the next line decides, for each, whether it lay between
+                 items, between blocks of the item, or inside a block
+                 (`list_next`, `line_fate`). *)
               let (bs, inner') := step_fuel n' off l inner in
-              let ls' := if blank_absorbed inner then ls else list_blank ls in
-              ([], PList ls' (rev bs ++ done)%list inner')
+              ([], PList (list_blank ls) (rev bs ++ done)%list inner')
           | k =>
               if list_takes ls off l inner
               then
@@ -2112,7 +2139,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    is inline and verbatim text, the same open indentation
                    gap quotes and headings have. *)
                 let (bs, inner') := step_fuel n' off l inner in
-                ([], PList (list_content ls k (keeps_line off l inner))
+                ([], PList (list_content ls (line_fate off l k inner))
                        (rev bs ++ done)%list inner')
               else
                 match k with
@@ -2138,7 +2165,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                     end
                 | _ =>
                     if is_lazy k inner
-                    then ([], PList (list_content ls k false) done (feed_lazy l inner))
+                    then ([], PList (list_content ls Spends) done (feed_lazy l inner))
                     else close_reopen (PList ls done inner)
                            (open_line descend
                               (off + indent_of l) l k)
@@ -2711,29 +2738,6 @@ Lemma pad_state_announces_end :
   forall n st, announces_end (pad_state n st) = announces_end st.
 Proof. intros n st. destruct st; reflexivity. Qed.
 
-Lemma pad_state_blank_held :
-  forall n st, blank_held (pad_state n st) = blank_held st.
-Proof.
-  intros n st.
-  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
-                  |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
-                  |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [pad_state blank_held]; try exact IH.
-  rewrite pad_state_announces_end, IH. reflexivity.
-Qed.
-
-Lemma pad_state_blank_absorbed :
-  forall n st, blank_absorbed (pad_state n st) = blank_absorbed st.
-Proof.
-  intros n st.
-  induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
-                  |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
-                  |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [pad_state blank_absorbed]; try exact IH.
-  - apply pad_state_blank_held.
-  - rewrite pad_state_announces_end, IH. reflexivity.
-Qed.
-
 Local Lemma pad_state_key_claims :
   forall n l st, key_claims l (pad_state n st) = key_claims l st.
 Proof.
@@ -2769,11 +2773,20 @@ Proof.
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [keeps_line]; try exact IH.
-  - rewrite (indent_of_ws_prefix p l Hp).
+  - unfold foot_takes.
+    rewrite (key_claims_ws_prefix p l finner Hp), (indent_of_ws_prefix p l Hp).
     replace (off + (String.length p + indent_of l))
       with (String.length p + off + indent_of l) by lia.
     reflexivity.
   - rewrite (caption_open_ws_prefix p l Hp). reflexivity.
+Qed.
+
+Lemma line_fate_ws_prefix :
+  forall p off l k st, is_blank p = true ->
+    line_fate off (p ++ l) k st = line_fate (String.length p + off) l k st.
+Proof.
+  intros p off l k st Hp. unfold line_fate.
+  rewrite (keeps_line_ws_prefix p off l st Hp). reflexivity.
 Qed.
 
 Local Lemma pad_state_list_takes :
@@ -2788,10 +2801,9 @@ Proof.
 Qed.
 
 Local Lemma pad_list_content :
-  forall n ls k foot,
-    list_content (ls_pad n ls) k foot
-    = ls_pad n (list_content ls k foot).
-Proof. intros n ls k foot. destruct ls; destruct k; reflexivity. Qed.
+  forall n ls f,
+    list_content (ls_pad n ls) f = ls_pad n (list_content ls f).
+Proof. intros n ls f. destruct ls; destruct f; reflexivity. Qed.
 
 (* The footnote's column moves with the line, as the list's does in
    `pad_state_list_takes`. *)
@@ -2800,22 +2812,37 @@ Local Lemma pad_state_keeps_line :
     keeps_line (n + off) l (pad_state n st) = keeps_line off l st.
 Proof.
   intros n off l st.
+  assert (Hh : forall st, holds_list (pad_state n st) = holds_list st)
+    by (induction st0; cbn [pad_state holds_list]; auto).
   induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
                   |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     try reflexivity; cbn [pad_state keeps_line]; try exact IH.
   - rewrite pad_state_lazy_ok. reflexivity.
-  - rewrite pad_state_lazy_ok, <- Nat.add_assoc, ltb_add_mono_l. reflexivity.
+  - rewrite pad_state_lazy_ok. reflexivity.
+  - rewrite pad_state_lazy_ok, Hh. unfold foot_takes.
+    rewrite pad_state_key_claims, <- Nat.add_assoc, ltb_add_mono_l. reflexivity.
 Qed.
 
-(* A line indented by `p` into a state padded by as much. *)
-Lemma keeps_line_pad_prefix :
-  forall p l st, is_blank p = true ->
-    keeps_line 0 (p ++ l) (pad_state (String.length p) st) = keeps_line 0 l st.
+Local Lemma pad_state_line_fate :
+  forall n off l k st,
+    line_fate (n + off) l k (pad_state n st) = line_fate off l k st.
 Proof.
-  intros p l st Hp. rewrite (keeps_line_ws_prefix p 0 l _ Hp).
-  exact (pad_state_keeps_line (String.length p) 0 l st).
+  intros n off l k st. unfold line_fate.
+  replace (spec_open (pad_state n st)) with (spec_open st)
+    by (destruct st; reflexivity).
+  rewrite pad_state_keeps_line. reflexivity.
 Qed.
+
+(* The pad an enclosing item adds is invisible to the verdict. *)
+Lemma line_fate_pad_prefix :
+  forall p l k st, is_blank p = true ->
+    line_fate 0 (p ++ l) k (pad_state (String.length p) st) = line_fate 0 l k st.
+Proof.
+  intros p l k st Hp. rewrite (line_fate_ws_prefix p 0 l k _ Hp).
+  exact (pad_state_line_fate (String.length p) 0 l k st).
+Qed.
+
 
 Local Lemma pad_list_narrow :
   forall n ls ns,
@@ -3039,34 +3066,32 @@ Proof.
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_blank_absorbed.
-      destruct (blank_absorbed inner); [reflexivity|].
-      rewrite pad_list_blank. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_list_blank. reflexivity. }
     all: rewrite pad_state_list_takes.
     all: destruct (list_takes ls off l inner) eqn:Elt.
     (* thematic *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* fence *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [close_reopen open_fence fst snd pad_state].
       rewrite finish_pad_list, Nat.add_assoc. reflexivity. }
     (* div *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
       rewrite finish_pad_list; reflexivity. }
     (* quote *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { rewrite <- Nat.add_assoc.
       pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -3079,13 +3104,13 @@ Proof.
     (* heading *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* list marker *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { change (ls_styles (ls_pad k ls)) with (ls_styles ls).
       destruct (narrow (ls_styles ls) (configured_list_styles m chk))
         as [|s0 ss] eqn:Em.
@@ -3110,14 +3135,14 @@ Proof.
     (* attribute spec *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { unfold open_attr. destruct (@battrs K);
         cbn [close_reopen fst snd pad_state];
         rewrite ?Nat.add_assoc, finish_pad_list; reflexivity. }
     (* footnote definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -3128,20 +3153,20 @@ Proof.
     (* reference definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
     (* table row *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@btables K); cbn [close_reopen fst snd pad_state];
         rewrite finish_pad_list; reflexivity. }
     (* text *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite ?pad_state_keeps_line, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
@@ -3584,15 +3609,13 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-(* The blank arms this list only when the item has nothing open to absorb
-   it first; `blank_absorbed inner` is the test. *)
+(* The blank arms this list, whatever the item has open. *)
 Lemma step_list_blank :
   forall l ls done inner bs inner',
     classify l = KBlank ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (if blank_absorbed inner then ls else list_blank ls)
-               (rev bs ++ done)%list inner').
+    ([], PList (list_blank ls) (rev bs ++ done)%list inner').
 Proof.
   intros l ls done inner bs inner' H Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H.
@@ -3617,7 +3640,7 @@ Lemma step_list_indented :
     Nat.ltb (ls_indent ls) (indent_of l) = true ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_content ls k (keeps_line 0 l inner)) (rev bs ++ done)%list inner').
+    ([], PList (list_content ls (line_fate 0 l k inner)) (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l.
@@ -4474,7 +4497,7 @@ Proof.
     { rewrite (IH p off l inner Hp Hcol). reflexivity. }
     all: ws_openers p l Hp.
     all: unfold list_takes; rewrite (key_claims_ws_prefix p l inner Hp),
-                                     ?(keeps_line_ws_prefix p off l inner Hp).
+                                     ?(line_fate_ws_prefix p off l _ inner Hp).
     all: rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
                  (Nat.add_comm off (String.length p)).
     all: destruct (key_claims l inner
@@ -4710,6 +4733,18 @@ Proof.
     auto; try discriminate H; rewrite H; reflexivity.
 Qed.
 
+(* A lazy line spends an armed blank, as does a line the item takes with a
+   paragraph open; nothing is armed there anyway. *)
+Local Lemma line_fate_lazy :
+  forall off l k st, lazy_ok st = true ->
+    (k = KText \/ exists r, k = KQuote r) -> line_fate off l k st = Spends.
+Proof.
+  intros off l k st H Hk. unfold line_fate.
+  replace (spec_open st) with false by (destruct st; cbn in H |- *; congruence).
+  rewrite (keeps_line_lazy off l st H).
+  destruct Hk as [->|[r ->]]; reflexivity.
+Qed.
+
 Local Lemma step_fuel_lazy :
   forall st n off l,
     pstate_depth st < n -> lazy_ok st = true ->
@@ -4734,7 +4769,8 @@ Proof.
   - (* list: taken by the item or lazy, the flags come out the same *)
     rewrite Htext. destruct (list_takes ls off l inner).
     + rewrite (IH n off l ltac:(lia) Hlazy Htext Hu).
-      rewrite (keeps_line_lazy off l inner Hlazy). reflexivity.
+      rewrite (line_fate_lazy off l KText inner Hlazy (or_introl eq_refl)).
+      reflexivity.
     + cbn [is_lazy]. rewrite Hlazy. reflexivity.
   - (* the recovery's paragraph *)
     rewrite Hu, Htext. reflexivity.
@@ -4812,7 +4848,8 @@ Proof.
                  (lazy_ok_fence_cols _ _ Hlazy)),
         blanks_length;
       rewrite (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu),
-        keeps_line_lazy by exact Hlazy;
+        line_fate_lazy
+          by first [exact Hlazy | left; reflexivity | right; eexists; reflexivity];
       reflexivity.
   - (* footnote: likewise *)
     pose proof (spelling_classify _ _ _ l
@@ -5010,6 +5047,14 @@ Qed.
 (* Closing a located state adds only provenance.  The recursive cases are
    the reason erasure is structural: blocks retained below quotes, lists,
    divs, footnotes and keys must be stripped along with the outer node. *)
+Local Lemma drop_blank_lines_erase : forall ls,
+  drop_blank_lines (StateErase.of_lines ls) = StateErase.of_lines (drop_blank_lines ls).
+Proof.
+  induction ls as [|x ls IH]; [reflexivity|].
+  cbn [drop_blank_lines StateErase.of_lines map StateErase.of_line snd].
+  destruct (is_blank (snd x)); [exact IH|reflexivity].
+Qed.
+
 Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
   Erase.of_blocks (@finish T K located_pos st) =
   @finish T K semantic_pos (StateErase.state st).
@@ -5031,8 +5076,11 @@ Proof.
   - destruct cur as [|first cur]; [reflexivity|].
     cbn [mk Erase.of_blocks Erase.of_block].
     rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev. reflexivity.
-  - destruct (@fence_block K f (line_texts (rev acc))) as [q a b] eqn:Ef.
-    pose proof (@fence_block_erase K f (line_texts (rev acc)) []) as Hf.
+  - rewrite drop_blank_lines_erase, StateErase.of_lines_texts_rev.
+    destruct (@fence_block K f (line_texts (rev (drop_blank_lines acc))))
+      as [q a b] eqn:Ef.
+    pose proof (@fence_block_erase K f (line_texts (rev (drop_blank_lines acc))) [])
+      as Hf.
     rewrite Ef in Hf. cbn [Erase.of_blocks] in Hf. exact Hf.
   - destruct header as [[[kind fold] [line source]]|];
       cbn [option_map StateErase.of_line mk Erase.of_block quote_block callout_title
@@ -5089,10 +5137,10 @@ Local Lemma list_narrow_erase : forall ls ns,
   StateErase.of_list_state (list_narrow ls ns) = list_narrow (StateErase.of_list_state ls) ns.
 Proof. intros [] ns; reflexivity. Qed.
 
-Local Lemma list_content_erase : forall `{LI : LineIx} ls k foot,
-  StateErase.of_list_state (@list_content LI ls k foot) =
-  @list_content semantic_line_ix (StateErase.of_list_state ls) k foot.
-Proof. intros LI [] k foot; destruct k; reflexivity. Qed.
+Local Lemma list_content_erase : forall `{LI : LineIx} ls f,
+  StateErase.of_list_state (@list_content LI ls f) =
+  @list_content semantic_line_ix (StateErase.of_list_state ls) f.
+Proof. intros LI [] f; destruct f; reflexivity. Qed.
 
 Local Lemma list_next_erase : forall `{LI : LineIx} ls item chk l,
   StateErase.of_list_state (@list_next LI ls item chk l) =
@@ -5111,12 +5159,6 @@ Local Lemma in_fence_erase : forall st, in_fence (StateErase.state st) = in_fenc
 Proof. induction st; cbn [StateErase.state in_fence] in *; auto. Qed.
 
 
-Local Lemma keeps_line_erase : forall `{K : bconfig} off l st,
-  keeps_line off l (StateErase.state st) = keeps_line off l st.
-Proof.
-  induction st; cbn [StateErase.state keeps_line] in *; auto;
-    rewrite lazy_ok_erase; reflexivity.
-Qed.
 
 Lemma is_idle_erase : forall st, is_idle (StateErase.state st) = is_idle st.
 Proof. intros []; (reflexivity || (destruct cur; reflexivity)). Qed.
@@ -5125,27 +5167,32 @@ Local Lemma announces_end_erase : forall st,
   announces_end (StateErase.state st) = announces_end st.
 Proof. intros []; (reflexivity || (destruct cur; reflexivity)). Qed.
 
-Local Lemma blank_held_erase : forall st,
-  blank_held (StateErase.state st) = blank_held st.
-Proof.
-  induction st; cbn [StateErase.state blank_held] in *; auto.
-  rewrite announces_end_erase, IHst. reflexivity.
-Qed.
-
-Local Lemma blank_absorbed_erase : forall st,
-  blank_absorbed (StateErase.state st) = blank_absorbed st.
-Proof.
-  induction st; cbn [StateErase.state blank_absorbed] in *; auto.
-  - apply blank_held_erase.
-  - rewrite announces_end_erase, IHst. reflexivity.
-Qed.
-
 Local Lemma key_claims_erase : forall `{K : bconfig} l st,
   key_claims l (StateErase.state st) = key_claims l st.
 Proof.
   intros K l st. induction st; cbn [StateErase.state key_claims] in *;
     rewrite ?IHst, ?is_idle_erase, ?announces_end_erase; reflexivity.
 Qed.
+
+Local Lemma keeps_line_erase : forall `{K : bconfig} off l st,
+  keeps_line off l (StateErase.state st) = keeps_line off l st.
+Proof.
+  assert (Hh : forall st, holds_list (StateErase.state st) = holds_list st)
+    by (induction st; cbn [StateErase.state holds_list]; auto).
+  induction st; cbn [StateErase.state keeps_line] in *; auto;
+    rewrite lazy_ok_erase; try reflexivity.
+  unfold foot_takes. rewrite key_claims_erase, Hh. reflexivity.
+Qed.
+
+Local Lemma line_fate_erase : forall `{K : bconfig} off l k st,
+  line_fate off l k (StateErase.state st) = line_fate off l k st.
+Proof.
+  intros K0 off l k st. unfold line_fate. rewrite keeps_line_erase.
+  replace (spec_open (StateErase.state st)) with (spec_open st)
+    by (destruct st; reflexivity).
+  reflexivity.
+Qed.
+
 
 Local Lemma list_takes_erase : forall `{K : bconfig} ls off l st,
   list_takes (StateErase.of_list_state ls) off l (StateErase.state st) =
@@ -5374,15 +5421,14 @@ Proof.
          destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'];
          unfold StateErase.result; cbn [fst snd StateErase.state];
          rewrite Erase.blocks_app, Erase.blocks_rev, list_content_erase,
-           keeps_line_erase;
+           line_fate_erase;
          reflexivity).
     all: try (cbn [is_lazy]; apply close_reopen_line_erase; exact Hd).
-    + rewrite blank_absorbed_erase. rewrite <- (IH off l st).
+    + rewrite <- (IH off l st).
       destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'].
       unfold StateErase.result; cbn [fst snd StateErase.state].
-      rewrite Erase.blocks_app, Erase.blocks_rev.
-      destruct (blank_absorbed st);
-        [reflexivity|rewrite list_blank_erase; reflexivity].
+      rewrite Erase.blocks_app, Erase.blocks_rev, list_blank_erase.
+      reflexivity.
     + cbn [ls_styles StateErase.of_list_state].
       destruct (narrow (ls_styles ls) (configured_list_styles sty chk))
         as [|p l0]; [apply close_reopen_line_erase; exact Hd|].

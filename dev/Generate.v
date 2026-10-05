@@ -540,28 +540,24 @@ Proof. reflexivity. Qed.
 A blank at the end of a nested list
 ===================================
 
-`["- - b"; ""; "- d"]`: the blank ends the inner list and separates two
-items of the outer one.  The spec exempts a list's trailing blank from
-tightness, and djot.js reads it that way, so the outer list is
-Tight.
-
-The three below pin the boundary: the `Tight` tree is what the source
-denotes, the `Loose` tree is unreachable and `cb_ok` rejects it, and the
-`Tight` rendering carries no separator blank at all.
+`["- - b"; ""; "- d"]`: the blank ends the inner list, and it lies after
+the last line of the first item, so it is between two items of the
+outer one, which is Loose.  Both spacings round-trip: the `Loose`
+rendering carries the separator blank and the `Tight` one carries none.
 *)
 
 Definition end_blank_shape (sp : list_spacing) : cblock :=
   CList LKBullet sp [ [CList LKBullet Tight [ [cpara ["b"]] ]] ; [cpara ["d"]] ].
 
-Example nested_list_end_blank_tight :
-  rt_lhs (end_blank_shape Tight)
-  = [ mk (BulletList "-" Tight
+Example nested_list_end_blank_loose :
+  rt_lhs (end_blank_shape Loose)
+  = [ mk (BulletList "-" Loose
             [ mk [ mk (BulletList "-" Tight [mk [ mk (Para [mk (Str "b")]) ]]) ]
             ; mk [ mk (Para [mk (Str "d")]) ] ]) ].
 Proof. reflexivity. Qed.
 
-Example nested_list_end_blank_loose_rejected :
-  cb_ok (end_blank_shape Loose) = false.
+Example nested_list_end_blank_ok :
+  (cb_ok (end_blank_shape Tight), cb_ok (end_blank_shape Loose)) = (true, true).
 Proof. reflexivity. Qed.
 
 Example nested_list_end_blank_lines :

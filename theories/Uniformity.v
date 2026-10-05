@@ -422,7 +422,7 @@ Fence equations
 Local Lemma parse_lines_fence_eof :
   forall f ind range opener acc,
     parse_lines [] (PFence f ind range opener acc)
-    = [fence_block f (line_texts (rev acc))].
+    = [fence_block f (line_texts (rev (drop_blank_lines acc)))].
 Proof. reflexivity. Qed.
 
 Lemma parse_lines_fence_close :
@@ -615,18 +615,55 @@ Proof.
   rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
 Qed.
 
-(** CB2, "or the end of the document". *)
-Theorem fenced_code_unclosed : forall l f content,
+(* Blank lines added after the newest line of an accumulator are what
+   `drop_blank_lines` takes off again. *)
+Local Lemma drop_blank_lines_after : forall ws acc,
+  forallb is_blank ws = true ->
+  (acc = [] \/ exists x rest, acc = x :: rest /\ is_blank (snd x) = false) ->
+  drop_blank_lines (remember_lines ws ++ acc)%list = acc.
+Proof.
+  induction ws as [|w ws IH]; intros acc Hws Hacc.
+  - destruct Hacc as [->|[x [rest [-> Hx]]]];
+      cbn [remember_lines map app drop_blank_lines];
+      [reflexivity|rewrite Hx; reflexivity].
+  - cbn [forallb] in Hws. apply andb_true_iff in Hws as [Hw Hws].
+    cbn [remember_lines map app drop_blank_lines remember_line snd]. rewrite Hw.
+    exact (IH acc Hws Hacc).
+Qed.
+
+(** CB2, "or the end of the document".  The blank lines the block ends
+    with are not part of it. *)
+Theorem fenced_code_unclosed : forall l f content ws,
   classify l = KFence f ->
-  forallb (fun x => negb (fence_close f x)) content = true ->
-  parse_lines (l :: content) (PPara []) =
+  forallb (fun x => negb (fence_close f x)) (content ++ ws) = true ->
+  (content = [] \/ is_blank (last content EmptyString) = false) ->
+  forallb is_blank ws = true ->
+  parse_lines (l :: content ++ ws) (PPara []) =
   [fence_block f (map (drop_ws_upto (indent_of l)) content)].
 Proof.
-  intros l f content Hl Hc.
-  rewrite <- (app_nil_r content).
-  rewrite (parse_lines_fence_run l f content [] Hl Hc).
-  cbn [parse_lines finish]. rewrite app_nil_r.
-  rewrite line_texts_rev_remember_lines, rev_involutive. reflexivity.
+  intros l f content ws Hl Hc Hlast Hws.
+  rewrite <- (app_nil_r (content ++ ws)).
+  rewrite (parse_lines_fence_run l f (content ++ ws) [] Hl Hc).
+  cbn [parse_lines finish].
+  assert (Hd : drop_blank_lines
+                 (remember_lines (rev (map (drop_ws_upto (indent_of l)) (content ++ ws))))
+               = remember_lines (rev (map (drop_ws_upto (indent_of l)) content))).
+  { rewrite map_app, rev_app_distr. unfold remember_lines at 1. rewrite map_app.
+    fold (remember_lines (rev (map (drop_ws_upto (indent_of l)) ws))).
+    fold (remember_lines (rev (map (drop_ws_upto (indent_of l)) content))).
+    apply drop_blank_lines_after.
+    - rewrite forallb_forall in Hws |- *. intros x Hx.
+      apply in_rev, in_map_iff in Hx as [y [<- Hy]].
+      rewrite is_blank_drop_ws_upto. exact (Hws y Hy).
+    - destruct Hlast as [->|Hlast]; [left; reflexivity|right].
+      destruct content as [|c0 cs]; [discriminate Hlast|].
+      destruct (@exists_last _ (c0 :: cs) ltac:(discriminate)) as [init [z Ez]].
+      rewrite Ez in Hlast |- *. rewrite last_last in Hlast.
+      rewrite map_app, rev_app_distr. cbn [map rev app].
+      exists (remember_line (drop_ws_upto (indent_of l) z)).
+      eexists. split; [reflexivity|].
+      cbn [remember_line snd]. rewrite is_blank_drop_ws_upto. exact Hlast. }
+  rewrite Hd, line_texts_rev_remember_lines, rev_involutive. reflexivity.
 Qed.
 
 (** RB1: with `=FORMAT` for the info string, the same block is raw

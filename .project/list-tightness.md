@@ -23,19 +23,24 @@ The syntax reference:
 > items, or between blocks inside an item.  Blank lines at the start or
 > end of a list do not count against tightness.
 
-Our reading, as `Tightness.v` states it (`separates`,
-`separates_after`): a list is loose exactly when a blank lies between
-two of its items, or between two of one item's own blocks, with three
-exceptions.
+Our reading, as the proposal below puts it and `Tightness.v` states it
+(`separates`, `blank_between_items_loosens`): a list item and a footnote
+end with their last nonblank line, and a list is loose exactly when a
+blank lies between two of its items, or between two of one item's own
+blocks, with three exceptions, all inside an item.
 
-1. A blank directly before a nested list inside an item.
+1. A blank directly before a nested list, or before a block attribute
+   on one.
 2. A blank directly after a nested list ends.
 3. A blank inside a nested block (a div, a code block, a footnote, a
    table before its caption, a nested list's own items), which counts
    only for that block.
 
 Exceptions 1 and 2 are the reference's "start or end of a list" applied
-to a nested list.
+to a nested list.  A blank between two items always counts.
+
+The parser has followed this since 2026-10-05 (`Step.line_fate`); the
+case sections below say what changed.
 
 ## Proposal: a definition for the syntax reference
 
@@ -47,7 +52,8 @@ the item; the change to the List item section says they are not.
 
 It decides the first two shapes of C1 (below) loose, C2 loose, D1 loose,
 the open code block in group A loose, and an attribute line before a
-nested list (jgm/djot issue #200) tight.
+nested list (jgm/djot issue #200) tight.  The parser and the proofs
+follow it since 2026-10-05.
 
 ### Why the reference needs changing
 
@@ -251,7 +257,17 @@ The change to `doc/syntax.md` in the djot repository:
  
  ### Code block
  
-@@ -741,6 +829,10 @@ by the contents of the note, indented to any column beyond the column in
+@@ -569,7 +657,8 @@ specifier may optionally be preceded and/or followed by whitespace.)
+ The code block ends with a line of backticks equal or greater in length to the
+ opening backtick “fence,” or the end of the document or enclosing block,
+ if no such line is encountered. Its contents are interpreted as verbatim
+-text. If the contents contain a line of backticks, be sure to select a
++text; when there is no closing line, the blank lines at the end are not
++part of them. If the contents contain a line of backticks, be sure to select a
+ longer string of backticks to use as the “fence”:
+ 
+     ````
+@@ -741,6 +830,10 @@ by the contents of the note, indented to any column beyond the column in
  which the reference starts. The contents of the note are parsed as
  block-level content.
  
@@ -270,9 +286,18 @@ Notes, not for the reference:
   tightness" is gone.  For the outer list it follows from where an item
   ends; for a nested list it is the sentence on blank lines directly
   before or after one.
-- Only list items and footnotes change where they end.  At the end of
-  the document, or in a block quote (whose `>` marks a line as the
-  quote's), a blank line after an unclosed code block is still code.
+- A code block with no closing line drops its trailing blank lines
+  everywhere: in an item, in a footnote, in a block quote and at the end
+  of the document.  The item and footnote sentences alone would leave
+  the last two keeping them; one rule for all four is simpler to state
+  and to implement (`Step.finish`).
+- One case the parser decides differently from the text.  A blank
+  followed only by block attribute lines and then the next item, as in
+  `- a`, blank, `  {.x}`, `- b`, counts in the parser as a blank between
+  items: the attribute line leaves the blank to the line after it, and
+  the next marker spends it.  Read literally, the text says tight, since
+  an attribute attached to nothing is no block.  The theorems do not
+  reach this case (`run_safe` excludes an open attribute spec).
 - D1 has no example in the reference, because an attribute that
   attaches to nothing is a corner case that would confuse readers more
   than it helps.  The input:
@@ -291,17 +316,18 @@ Notes, not for the reference:
   list.  The line before the blank is therefore not the nested list's
   last line, the exception does not apply, and the blank lies between
   two blocks of the item: loose.
-- The attribute example is jgm/djot issue #200, where djot.js and our parser
-  both give loose today.
+- The attribute example is jgm/djot issue #200.  djot.js gives loose;
+  our parser gives tight since 2026-10-05
+  (`list_blank_before_attribute_on_nested_list`).
 
 ## Status at a glance
 
 | Group | Cases | Status |
 | --- | --- | --- |
-| A | the basic ones | agreed with djot.js, not in question |
+| A | the basic ones | agreed with djot.js, except the open code block, now decided by the proposal |
 | B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
-| C | 2 shapes the reference does not decide | provisional |
-| D | 2 shapes where our parser was inconsistent | D1 open, needs a decision; D2 fixed |
+| C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
+| D | 2 shapes where our parser was inconsistent | both fixed |
 
 ## A. Agreed, not in question
 
@@ -343,8 +369,11 @@ A blank inside a div that continues after it: tight (exception 3).
   :::
 ```
 
-A blank inside an open code block: tight.  The blank is a line of the
-code.
+A blank after an open code block: tight until 2026-10-05, when the blank
+was a line of the code (djot.js's reading).  Now loose, with the code
+block empty: the item ends with the line ```` - ``` ````, and the code
+block with it, so the blank is between items.  Pinned:
+`list_blank_after_open_code`.
 
 ````
 - ```
@@ -484,20 +513,23 @@ Each was decided by reading the reference.  The log marks all four
 ```
 
 - djot.js: tight, all three.
-- Ours: tight, all three.
-- The question: the blank ends the nested list, and it also lies
+- Ours: loose, loose, tight (2026-10-05; before that, tight, all three).
+- Decided by the proposal: in the first two the blank is between two
+  outer items, the mirror of B1; in the third it is inside the item,
+  directly after the nested list (exception 2).
+- The question was: the blank ends the nested list, and it also lies
   between two items (first two) or two blocks (third) of the outer
   list.  The reference exempts blanks "at the start or end of a list"
   and does not say whether that also clears the outer list.
 - For tight: djot.js's own tests expect it (`lists.test` 242 and 308).
 - For loose: it would make the two ends symmetric.  At the start of a
   nested list the djot author ruled that a blank between outer items
-  does loosen (B1).  The loose reading is implemented on branch
-  `hy/blank-after-nested-list`; it passes every check of ours and fails
-  those two djot.js tests.
-- Pinned: `Generate.nested_list_end_blank_tight`.
-
-Every case in D1 rests on this exemption, so C1 is worth deciding first.
+  does loosen (B1).
+- Pinned: `list_blank_after_nested_list_between_items`,
+  `list_blank_after_nested_list_before_item`,
+  `list_blank_after_nested_list_in_item`, and
+  `Generate.nested_list_end_blank_loose`, which round-trips the first
+  shape both ways.
 
 ### C2. A blank after an item that leaves a div open
 
@@ -531,15 +563,19 @@ Every case in D1 rests on this exemption, so C1 is worth deciding first.
   with a closed div does, and the blank is between items.
 - For tight: the div is still open when the blank arrives, and a blank
   inside a div that continues is the div's own (group A).
-- The log entry says "provisional, to be revisited".
-- Pinned: `list_blank_after_open_div`, `list_blank_in_open_code`.
+- Decided by the proposal: loose.  The code block case went the same way
+  (group A).
+- Pinned: `list_blank_after_open_div`, `list_blank_after_open_code`.
 
-## D. Open: our parser is inconsistent
+## D. Where our parser was inconsistent
 
-### D1. A block attribute line between a nested list and a blank
+### D1. A block attribute line between a nested list and a blank (fixed 2026-10-05)
 
 Found 2026-10-05.  The attribute line attaches to nothing, so it leaves
-no block.
+no block.  Now loose for all five, as djot.js: a blank arms the list
+whatever the item has open, and the line after it decides
+(`Step.line_fate`).  Pinned: `list_blank_after_dropped_attribute`.  What
+follows is the record from before the fix.
 
 One blank, then a paragraph:
 
@@ -680,19 +716,14 @@ off the two are the same.  Pinned by
 
 This does not depend on C2.
 
-## Decisions wanted, in the order they depend on each other
+## Decisions wanted
 
-1. C1: does a blank directly after a nested list loosen the outer list?
-2. C2: does an item end before or after a trailing blank when it leaves
-   a div open?
-3. D1, given 1: loose or tight when an attribute line sits between the
-   list and the blank.
-4. B2 to B4: keep each against djot.js, or wait for upstream.
+1. B2 to B4: keep each against djot.js, or wait for upstream.
 
 ## Where it lives
 
-- Parser: `blank_absorbed`, `blank_held`, `keeps_line`, `list_content`
-  and `list_next` in `Step.v`.
+- Parser: `line_fate`, `keeps_line`, `holds_list`, `list_content`,
+  `list_next` and, for a code block left open, `finish` in `Step.v`.
 - The scan the renderer and the uniformity theorems use: `lines_loose`,
   `item_loose`, `seps_loosen`, `list_spacing_of` in `ListUniformity.v`.
 - The rule and its proofs: `Tightness.v`; plan and proof notes in

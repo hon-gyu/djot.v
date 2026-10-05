@@ -3279,9 +3279,8 @@ Proof.
       cbn [fst snd] in Hb, Hs |- *.
       split; [reflexivity|].
       cbn [state_wf].
-      (* the blank either leaves the list state alone or only arms
-         `ls_blanks`; either way `ls_items` is untouched *)
-      destruct (blank_absorbed inner); cbn [ls_items list_blank];
+      (* the blank only arms `ls_blanks`, so `ls_items` is untouched *)
+      cbn [ls_items list_blank];
         rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs. }
     6: { (* attribute spec: item contents when indented, else close *)
       destruct (list_takes ls off l inner).
@@ -4185,7 +4184,7 @@ Proof.
          cbn [fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported].
-         destruct (blank_absorbed inner); cbn [ls_items list_blank];
+         cbn [ls_items list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs. }
     6: { destruct (list_takes ls off l inner).

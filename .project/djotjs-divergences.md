@@ -2402,3 +2402,36 @@ reversed.  `list-tightness.md` lists every case with its current
 outputs and says which verdicts are settled, which are provisional and
 which are open.  Read it before any of the entries above.
 
+
+## 2026-10-05 -- OURS: list tightness follows the proposal in `list-tightness.md`
+
+A list item and a footnote end with their last nonblank line, so a blank
+after an item lies between items and always loosens the list.  Inside an
+item a blank loosens unless it is directly before or after a nested list
+(an attribute on the nested list counts as part of it) or inside a
+nested block.  A code block with no closing line drops its trailing
+blank lines, everywhere.
+
+| Input | djot.js | ours before | ours now |
+| --- | --- | --- | --- |
+| `- - b` / blank / `- c` | tight | tight | loose |
+| `- a` / blank / `  - b` / blank / `- c` | tight | tight | loose |
+| `- - a` / blank / `  b` | tight | tight | tight |
+| ```` - ``` ```` / blank / `- b` | tight, code `"\n"` | tight, code `"\n"` | loose, code `""` |
+| ```` ``` ```` / blank (end of document) | code `"\n"` | code `"\n"` | code `""` |
+| `- - x` / `  {.a}` / blank / `  para` / `- b` | loose | tight | loose |
+| `- a` / blank / `  {.x}` / `  - b` / `- c` | loose | loose | tight |
+
+The fourth and fifth rows change the AST as well as the spacing.  The
+last row is jgm/djot issue #200, where the djot author says tight.
+
+Against djot.js: the test suite has 2 mismatches of 287, `lists.test`
+242 and 308, both the second row's shape.  Generated documents: 1667 of
+8687 differ, and 524 of 2074 with lazy lines; every one of them only in
+`<p>` wrapping (before: 531 of 7094 and 184 of 1686, also all spacing).
+The generated corpora grew with the round-trip fragment, which accepts
+81845 documents at depth 3, up from 57857, since a loose rendering with
+a nested list at an item's end now parses back as written.
+
+**Verdict: `OURS`**, from the syntax reference as `list-tightness.md`
+reads it.  C1 and D1 there are closed; B2 to B4 stand as before.
