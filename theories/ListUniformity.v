@@ -916,7 +916,7 @@ Proof.
     [split; reflexivity|discriminate Hempty].
 Qed.
 
-Local Lemma step_blank_key_claims :
+Lemma step_blank_key_claims :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     forall next, key_claims next (snd (step l st)) = false.
 Proof.

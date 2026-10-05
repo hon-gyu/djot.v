@@ -1824,6 +1824,13 @@ Definition list_takes (ls : list_state) (off : nat) (l : string)
   (inner : pstate) : bool :=
   (key_claims l inner || Nat.ltb (ls_indent ls) (off + indent_of l))%bool.
 
+(* Whether a footnote hands this line to its contents: the column test,
+   and whatever the column when a key below claims it, as for a list
+   item.  A footnote ends by column and by nothing else, so the override
+   reaches through it as it does through an item (5.1). *)
+Definition foot_takes (ind off : nat) (l : string) (inner : pstate) : bool :=
+  (key_claims l inner || Nat.ltb ind (off + indent_of l))%bool.
+
 (* Is a blank here held by a block below: a line of an open code block or
    of an unfinished attribute spec, or a line of a key's block that the
    key keeps until the block's closing fence?  Read down through every
@@ -2244,7 +2251,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
           then let (bs, inner') := step_fuel n' off l inner in
                ([], PFoot (touch_extent range) ind lbl
                         (rev bs ++ done)%list inner')
-          else if Nat.ltb ind (off + indent_of l)
+          else if foot_takes ind off l inner
           then let (bs, inner') := step_fuel n' off l inner in
                ([], PFoot (touch_extent range) ind lbl
                         (rev bs ++ done)%list inner')
@@ -2536,7 +2543,7 @@ Proof.
     + rewrite (IH n' _ l finner) by lia.
       rewrite (IH (String.length l + S (pstate_depth finner)) _ l finner) by lia.
       reflexivity.
-    + destruct (Nat.ltb find (off + indent_of l)).
+    + destruct (foot_takes find off l finner).
       * rewrite (IH n' _ l finner) by lia.
         rewrite (IH (String.length l + S (pstate_depth finner)) _ l finner) by lia.
         reflexivity.
@@ -3191,8 +3198,9 @@ Proof.
     { rewrite (IH k off l finner).
       destruct (step_fuel n off l finner) as [bs inner'] eqn:Ed.
       cbn [fst snd pad_state]. reflexivity. }
-    { rewrite <- Nat.add_assoc, ltb_add_mono_l.
-      destruct (Nat.ltb find (off + indent_of l)).
+    { unfold foot_takes.
+      rewrite pad_state_key_claims, <- Nat.add_assoc, ltb_add_mono_l.
+      destruct (key_claims l finner || Nat.ltb find (off + indent_of l))%bool.
       { rewrite (IH k off l finner).
         destruct (step_fuel n off l finner) as [bs inner'] eqn:Ed.
         cbn [fst snd pad_state]. reflexivity. }
@@ -4547,9 +4555,11 @@ Proof.
     rewrite (is_blank_ws_prefix p l Hp).
     destruct (is_blank l).
     { rewrite (IH p off l finner Hp Hcol). reflexivity. }
-    { rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
+    { unfold foot_takes. rewrite (key_claims_ws_prefix p l finner Hp).
+      rewrite ?(open_extent_ws_prefix p l Hp), ?(line_span_from_ws_prefix p l Hp), ?(indent_of_ws_prefix p l Hp), Nat.add_assoc,
               (Nat.add_comm off (String.length p)).
-      destruct (Nat.ltb find (String.length p + off + indent_of l)).
+      destruct (key_claims l finner
+                || Nat.ltb find (String.length p + off + indent_of l))%bool.
       { rewrite (IH p off l finner Hp Hcol). reflexivity. }
       rewrite (classify_ws_prefix p l Hp).
       destruct (is_lazy (classify l) finner);
@@ -4729,7 +4739,7 @@ Proof.
   - (* the recovery's paragraph *)
     rewrite Hu, Htext. reflexivity.
   - (* footnote *)
-    rewrite Hnb. destruct (find <? off + indent_of l)%nat.
+    rewrite Hnb. destruct (foot_takes find off l finner).
     + rewrite (IH n off l ltac:(lia) Hlazy Htext Hu). reflexivity.
     + rewrite Htext. cbn [is_lazy]. rewrite Hlazy. reflexivity.
   - (* pending attributes *)
@@ -4811,9 +4821,11 @@ Proof.
     destruct n as [|n]; [cbn [pstate_depth] in Hn; lia|].
     cbn [lazy_ok pstate_depth] in Hlazy, Hn. cbn [step_fuel feed_lazy].
     rewrite append_assoc in Hnb |- *.
-    rewrite Hnb, (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length.
-    replace (ind <? col + (k + indent_of (p ++ l)))%nat with true
-      by (symmetry; apply Nat.ltb_lt; lia).
+    assert (Ht : forall x, foot_takes ind col (blanks k ++ x) inner = true).
+    { intros x. unfold foot_takes.
+      rewrite (indent_of_ws_prefix _ _ (blanks_blank _)), blanks_length.
+      apply orb_true_iff. right. apply Nat.ltb_lt. lia. }
+    rewrite Hnb, Ht.
     rewrite (step_fuel_pad n _ col _ inner (blanks_blank _)
                (lazy_ok_fence_cols _ _ Hlazy)),
       blanks_length, (Nat.add_comm k col), (IH n l ltac:(lia) Hlazy Htext Hu).
@@ -5429,8 +5441,9 @@ Proof.
     assert (Hi : StateErase.result (@step_fuel T K LI located_pos n off l st) =
       @step_fuel T K semantic_line_ix semantic_pos n off l (StateErase.state st))
       by apply IH.
+    unfold foot_takes. rewrite key_claims_erase.
     destruct (is_blank l);
-      [|destruct (Nat.ltb ind (off + indent_of l))].
+      [|destruct (key_claims l st || Nat.ltb ind (off + indent_of l))%bool].
     + rewrite <- Hi.
       destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'].
       unfold StateErase.result; cbn [fst snd StateErase.state].

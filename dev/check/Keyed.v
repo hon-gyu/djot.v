@@ -410,6 +410,21 @@ bar
             mk [para "baz"]])].
 Proof. vm_compute. reflexivity. Qed.
 
+(* A footnote ends by column as a list item does, so an open key holds
+   it open the same way.  Line 2 is not indented into the note and still
+   reaches the fence; line 5, with the key finished, ends the note. *)
+Example out_of_column_is_claimed_in_a_footnote :
+  Key "[^n]: foo:
+```
+bar
+```
+baz"
+  = [mk (FootnoteDef "n"
+           [mk (Ext_keyed [mk (Str "foo")] (mk (CodeBlock "" "bar
+")))]);
+     para "baz"].
+Proof. vm_compute. reflexivity. Qed.
+
 (* 7.5, the same discipline two levels deep.  Line 3 passes through both
    lists that the open key is holding open and reaches the fence.  Line
    5, at column 2 with the key finished, is content to the outer list

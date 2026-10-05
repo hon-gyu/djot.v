@@ -11,7 +11,7 @@ by an agent and is still open to revision.  This file says which is
 which.
 
 The djot.js and our outputs below were run again on 2026-10-05, djot.js
-at `d7c3904`, except D2.  What djot.lua and djoths give, and what was
+at `d7c3904`.  What djot.lua and djoths give, and what was
 said upstream, is taken from the log and was not checked again.  "Tight"
 and "loose" are about the outermost list.
 
@@ -44,7 +44,7 @@ to a nested list.
 | A | the basic ones | agreed with djot.js, not in question |
 | B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
 | C | 2 shapes the reference does not decide | provisional |
-| D | 2 shapes where our parser is inconsistent | open, need a decision |
+| D | 2 shapes where our parser was inconsistent | D1 open, needs a decision; D2 fixed |
 
 ## A. Agreed, not in question
 
@@ -383,11 +383,9 @@ If C1 is changed to loose, exception 2 goes away and this case goes with
 it: all five are loose and only the parser's swallowed first blank needs
 fixing.
 
-### D2. A keyed block holding an unclosed div, inside a footnote
+### D2. A keyed block holding an unclosed div, inside a footnote (fixed 2026-10-05)
 
 Extension only (keyed blocks on); djot.js has nothing to compare.
-Reported by the agent that proved the converse theorem, and not checked
-again since.
 
 ```
 - [^1]: k:
@@ -397,23 +395,33 @@ again since.
   x
 ```
 
+Before the fix:
+
 - Parse: a footnote, then the paragraph `x`, with the blank between
   them.
-- The rule: loose.
-- The parser: tight.  The key holds every line, the blank included,
-  until the div's closing fence, which never comes.
+- The rule: loose.  The parser: tight.
 
-The choice:
+The cause was not in the tightness scan.  A key whose block is a div or
+a code block keeps every line until the closing fence, whatever its
+column; a list item hands such a line down (`list_takes`).  A footnote
+did not: it ended at `x`, which is not indented into it, and the div
+ended with it.  So the list was told the key held the blank, and the
+footnote then let the line go.
 
-- **Fix the parser.**  A div left open under a key stops holding the
-  blank once the item's next line falls outside it, as a plain open div
-  does under C2.
-- **Leave it.**  The `blank_safe` hypothesis on `separates_item_loose`
-  already excludes it, and the case needs the extension and an unclosed
-  div.
+Now a footnote hands a line a key claims to its contents, as an item
+does (`foot_takes` in `Step.v`).  `x` is a line of the div, the blank is
+inside the div, and the item is one footnote: tight, by the parser and
+by the rule.  The same input without the key is unchanged (C2): the
+footnote ends at `x` and the item is loose.
 
-This follows C2: if C2 goes back to tight, the parser is right here and
-the rule is what changes.
+Cost: the footnote theorems that say which line ends a note
+(`footnote_content_uniformity_tail` and the four built on it) now ask
+that the note does not take the line (`foot_takes ... = false`) where
+they asked that it is not indented past the opener.  With keyed blocks
+off the two are the same.  Pinned by
+`out_of_column_is_claimed_in_a_footnote` in `dev/check/Keyed.v`.
+
+This does not depend on C2.
 
 ## Decisions wanted, in the order they depend on each other
 
@@ -422,8 +430,7 @@ the rule is what changes.
    a div open?
 3. D1, given 1: loose or tight when an attribute line sits between the
    list and the blank.
-4. D2, given 2: fix the parser or leave the hypothesis.
-5. B2 to B4: keep each against djot.js, or wait for upstream.
+4. B2 to B4: keep each against djot.js, or wait for upstream.
 
 ## Where it lives
 

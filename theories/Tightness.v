@@ -735,7 +735,7 @@ Proof.
     { intros [bs inner'] [Hs' [Ht' _]]. apply fresh_step_ok. cbn [fst snd]. apply fresh_foot.
       cbn [state_ok]. split; [exact Hs'|]. rewrite rev_app_distr, rev_involutive. apply Ht'. exact Hti. }
     destruct (is_blank l) eqn:Hb; [apply Hcont, Hin|].
-    destruct (Nat.ltb find (off + indent_of l)); [apply Hcont, Hin|].
+    destruct (foot_takes find off l finner); [apply Hcont, Hin|].
     destruct (is_lazy (classify l) finner) eqn:Hlz.
     + apply fresh_step_ok. cbn [fst snd]. apply fresh_foot. cbn [state_ok].
       assert (Hlo : lazy_ok finner = true)
@@ -820,7 +820,11 @@ Fixpoint settled (st : pstate) : Prop :=
   match st with
   | PPara [] => True
   | PTable _ _ (TAfterBlank _) => True
-  | PDiv _ _ _ _ _ inner => blank_safe inner = true /\ lazy_ok inner = false
+  (* No key under the div still claims a line: a blank retracts a key
+     that was waiting, and `blank_safe` excludes one holding a block. *)
+  | PDiv _ _ _ _ _ inner =>
+      blank_safe inner = true /\ lazy_ok inner = false
+      /\ (forall next, key_claims next inner = false)
   | PFoot _ _ _ _ inner => settled inner
   | PPend _ _ inner => settled inner /\ is_idle inner = false
   | PKey _ _ _ inner =>
@@ -888,7 +892,7 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H; cbn [settled] in H; try contradiction; try reflexivity.
   - destruct cur; [reflexivity|contradiction].
-  - exact (proj2 H).
+  - exact (proj1 (proj2 H)).
   - apply IH, H.
   - apply IH, H.
   - apply IH, H.
@@ -905,6 +909,21 @@ Proof.
   - destruct H as [H Hi']. specialize (IH H Hi').
     destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
   - apply key_close_ne.
+Qed.
+
+(* A settled state holds no key that claims a line out of column. *)
+Lemma settled_no_claim : forall st,
+  settled st -> forall l, key_claims l st = false.
+Proof.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH
+    |ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
+    intros H l; cbn [settled] in H; try contradiction; cbn [key_claims];
+    try reflexivity.
+  - apply H.
+  - apply IH, H.
+  - apply IH, H.
+  - destruct H as [_ [Hni Hann]]. rewrite Hni. exact Hann.
 Qed.
 
 (* A blank that nothing absorbs leaves a settled state. *)
@@ -930,7 +949,9 @@ Proof.
                (div_stays_open_blank l dinner dlen Hb) Es).
     pose proof (proj1 (step_blank_safe l dinner Hl Hsafe)) as Hs'.
     pose proof (step_blank_lazy_false l dinner Hl Hsafe) as Hz.
-    rewrite Es in Hs', Hz. cbn [snd] in *. exact (conj Hs' Hz).
+    pose proof (step_blank_key_claims l dinner Hl Hsafe) as Hkc.
+    rewrite Es in Hs', Hz, Hkc. cbn [snd] in *.
+    exact (conj Hs' (conj Hz Hkc)).
   - rewrite (step_para_off_flush l okoff ocur Hl). exact I.
   - rewrite (step_ref_blank l rrng rind rlbl rval Hl). exact I.
   - cbn [blank_safe] in Hsafe. specialize (IH Hsafe Ha).
@@ -1011,10 +1032,13 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hk; cbn [settled] in Hset; try contradiction.
   - destruct cur; [|contradiction]. destruct (step l (PPara [])). reflexivity.
-  - cbn [keeps_line] in Hk. rewrite (proj2 Hset) in Hk. discriminate Hk.
+  - cbn [keeps_line] in Hk. rewrite (proj1 (proj2 Hset)) in Hk. discriminate Hk.
   - cbn [keeps_line] in Hk. rewrite (settled_lazy finner Hset) in Hk. cbn [negb andb] in Hk.
+    assert (Hft : foot_takes find 0 l finner = false)
+      by (unfold foot_takes; rewrite (settled_no_claim finner Hset), Hk;
+          reflexivity).
     rewrite (step_foot_close l frng find flbl fdone finner (fst (step l (PPara [])))
-               (snd (step l (PPara []))) Hb Hk).
+               (snd (step l (PPara []))) Hb Hft).
     + cbn [finish]. nopos. reflexivity.
     + unfold is_lazy. rewrite (settled_lazy finner Hset). destruct (classify l); reflexivity.
     + apply surjective_pairing.
@@ -1113,7 +1137,7 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H Hd; cbn [settled] in H; try contradiction; cbn [div_top] in Hd;
     try discriminate Hd; cbn [keeps_line].
-  - rewrite (proj2 H). reflexivity.
+  - rewrite (proj1 (proj2 H)). reflexivity.
   - apply IH; [exact (proj1 H)|exact Hd].
   - apply IH; [exact (proj1 H)|exact Hd].
 Qed.

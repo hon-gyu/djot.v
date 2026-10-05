@@ -1050,7 +1050,7 @@ Proof.
       split; [constructor|]. cbn [snd st_ok fst] in *.
       split; [apply Forall_app; split; [apply Forall_rev, Hb|exact Hdn]|exact Hi']. }
     destruct (is_blank l); [exact (Hdesc (IH off l st Hl Hi))|].
-    destruct (Nat.ltb ind (off + indent_of l)); [exact (Hdesc (IH off l st Hl Hi))|].
+    destruct (foot_takes ind off l st); [exact (Hdesc (IH off l st Hl Hi))|].
     destruct (is_lazy (classify l) st).
     + split; [constructor|]. split; [exact Hdn|exact (feed_lazy_ok l st Hl Hi)].
     + destruct (IH off l (PPara []) Hl I) as [Hb Hs'].

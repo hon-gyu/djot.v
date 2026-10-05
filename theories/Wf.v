@@ -3442,7 +3442,7 @@ Proof.
       cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
       cbn [state_wf]. rewrite Hlbl, wf_blocks_app, wf_blocks_rev, Hb, Hdone, Hs.
       reflexivity.
-    + destruct (Nat.ltb find (off + indent_of l)).
+    + destruct (foot_takes find off l finner).
       * destruct (IH off l finner Hinner) as [Hb Hs].
         destruct (step_fuel n off l finner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].
@@ -4318,7 +4318,7 @@ Proof.
       cbn [state_supported].
       rewrite supported_blocks_app, supported_blocks_rev, Hb, Hd, Hs.
       reflexivity.
-    + destruct (Nat.ltb find (off + indent_of l)).
+    + destruct (foot_takes find off l finner).
       * destruct (IH off l finner Hi) as [Hb Hs].
         destruct (step_fuel n off l finner) as [bs inner'].
         cbn [fst snd] in Hb, Hs |- *. split; [reflexivity|].

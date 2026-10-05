@@ -733,7 +733,9 @@ Proof.
     unfold Shape.result; cbn [fst snd]. rewrite !Shape.blocks_set_pos.
     unfold ref_block, mk. rewrite !Shape.blocks_cons, Hbs, Hs. reflexivity.
   - (* PFoot *)
-    destruct (is_blank l); [|destruct (Nat.ltb ind (off + indent_of l))].
+    unfold foot_takes. rewrite key_claims_shape.
+    destruct (is_blank l);
+      [|destruct (key_claims l st || Nat.ltb ind (off + indent_of l))%bool].
     1-2: pose proof (IH off l st) as H; split_same H;
       unfold Shape.result; cbn [fst snd Shape.state];
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Hbs, Shape.blocks_idem, Hs;
