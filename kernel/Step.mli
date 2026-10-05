@@ -283,6 +283,8 @@ val key_claims : string -> pstate -> bool
 
 val list_takes : list_state -> int -> string -> pstate -> bool
 
+val foot_takes : int -> int -> string -> pstate -> bool
+
 val blank_held : pstate -> bool
 
 val blank_absorbed : pstate -> bool

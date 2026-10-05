@@ -1119,6 +1119,11 @@ let rec key_claims l = function
 let list_takes ls off l inner =
   (||) (key_claims l inner) (( < ) ls.ls_indent (( + ) off (indent_of l)))
 
+(** val foot_takes : int -> int -> string -> pstate -> bool **)
+
+let foot_takes ind off l inner =
+  (||) (key_claims l inner) (( < ) ind (( + ) off (indent_of l)))
+
 (** val blank_held : pstate -> bool **)
 
 let rec blank_held = function
@@ -1369,7 +1374,7 @@ let rec step_fuel t k lI p n off l st =
        then let (bs, inner') = step_fuel t k lI p n' off l inner in
             ([], (PFoot ((touch_extent lI range), ind, lbl,
             (app (rev bs) done0), inner')))
-       else if ( < ) ind (( + ) off (indent_of l))
+       else if foot_takes ind off l inner
             then let (bs, inner') = step_fuel t k lI p n' off l inner in
                  ([], (PFoot ((touch_extent lI range), ind, lbl,
                  (app (rev bs) done0), inner')))
