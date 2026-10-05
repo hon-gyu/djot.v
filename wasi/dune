@@ -1,0 +1,16 @@
+; ai-disclosure: ai-generated
+
+; The library as a program, built to WebAssembly for a WASI host, which the
+; --enable wasi flag asks of every step.  The Python package in py/ runs it.
+
+(executable
+ (name djot_wasi)
+ (modes wasm)
+ (wasm_of_ocaml
+  (flags
+   (:standard --enable wasi))
+  (build_runtime_flags
+   (:standard --enable wasi))
+  (link_flags
+   (:standard --enable wasi)))
+ (libraries djot djot.json))

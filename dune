@@ -1,4 +1,4 @@
-(data_only_dirs ocaml site)
+(data_only_dirs ocaml site py wasi)
 
 ; The README's property tables are written from theories/Properties.v.
 ; `dune build @readme` fails when they differ, and `dune promote` then

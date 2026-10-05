@@ -2,7 +2,7 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
-        site site-serve site-publish check-rocq check-readme check-site
+        site site-serve site-publish py-wasm check-py check-rocq check-readme check-site
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -159,6 +159,23 @@ site-serve: site  ## Build the site and serve it on localhost:8000
 # origin, which GitHub Pages serves.
 site-publish: site  ## Build the site and push it to the gh-pages branch of origin
 	scripts/site-publish.sh $(SITE)
+
+# Python package
+# --------------
+
+# wasi/ is a dune project of its own, built with a switch that has the
+# ocaml/ package's dependencies plus wasm_of_ocaml-compiler.  It builds the
+# library as a WASI command, which any WASI host with WasmGC can run.  The
+# module is checked in to py/, so the Python package needs no OCaml.
+PY_WASM = py/src/djotv/djot.wasm
+
+py-wasm:  ## Build the WebAssembly module of the Python package into py/src/djotv
+	cd wasi && dune build --root . --profile release ./djot_wasi.bc.wasm.js
+	cp wasi/_build/default/djot_wasi.bc.wasm.assets/code.wasm $(PY_WASM)
+	chmod 644 $(PY_WASM)
+
+check-py:  ## test the Python package against the module in py/src/djotv
+	cd py && uv run pytest -q
 
 # All local checks. Run before branch merging
 # --------------------------------------------
