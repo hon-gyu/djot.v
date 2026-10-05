@@ -6,7 +6,8 @@ open List0
 open ListDef
 open Step
 open Strings
-open Uniformity
+
+val item_end_ok : string -> bool
 
 val indent_lines : string -> string -> string list -> string list
 
@@ -25,8 +26,6 @@ val litem_lines : litem -> string list
 
 val item_ok : dtable -> bconfig -> marker -> string list -> bool
 
-val ends_open_container : dtable -> bconfig -> string list -> bool
-
-val seps_loosen : dtable -> bconfig -> string list list -> bool
+val seps_loosen : string list list -> bool
 
 val same_marker : marker -> string list list -> litem list

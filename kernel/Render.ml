@@ -303,10 +303,10 @@ let item_forces_loose t k item =
 let items_force_loose t k items =
   existsb (item_forces_loose t k) items
 
-(** val items_seps_loosen : dtable -> bconfig -> cblock list list -> bool **)
+(** val items_seps_loosen : dtable -> cblock list list -> bool **)
 
-let items_seps_loosen t k items =
-  seps_loosen t k (map (item_lines t) items)
+let items_seps_loosen t items =
+  seps_loosen (map (item_lines t) items)
 
 (** val is_clist : cblock -> bool **)
 
@@ -526,7 +526,7 @@ let rec cb_ok t k cb =
          (match sp with
           | Tight -> negb (items_force_loose t k items)
           | Loose ->
-            (||) (items_seps_loosen t k items) (items_force_loose t k items)))
+            (||) (items_seps_loosen t items) (items_force_loose t k items)))
        (ck_content_ok k0 items)
    | CRef (label, dest) -> ref_ok label dest
    | CTable rows ->

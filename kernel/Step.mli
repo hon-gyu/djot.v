@@ -208,6 +208,10 @@ val key_close :
 
 val ref_cont : string -> string option
 
+val drop_blank_lines : stored_line list -> stored_line list
+
+val open_fence_stop : span -> stored_line list -> spot
+
 val finish : dtable -> bconfig -> coq_PosPolicy -> pstate -> blocks
 
 val lazy_ok : bconfig -> pstate -> bool
@@ -216,7 +220,12 @@ val in_fence : pstate -> bool
 
 val is_lazy : bconfig -> line_kind -> pstate -> bool
 
-val list_content : coq_LineIx -> list_state -> line_kind -> bool -> list_state
+type blank_fate =
+| Spends
+| Clears
+| Waits
+
+val list_content : coq_LineIx -> list_state -> blank_fate -> list_state
 
 val feed_lazy : coq_LineIx -> string -> pstate -> pstate
 
@@ -285,11 +294,13 @@ val list_takes : list_state -> int -> string -> pstate -> bool
 
 val foot_takes : int -> int -> string -> pstate -> bool
 
-val blank_held : pstate -> bool
-
-val blank_absorbed : pstate -> bool
+val holds_list : pstate -> bool
 
 val keeps_line : bconfig -> int -> string -> pstate -> bool
+
+val spec_open : pstate -> bool
+
+val line_fate : bconfig -> int -> string -> line_kind -> pstate -> blank_fate
 
 val list_next :
   coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state

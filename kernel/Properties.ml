@@ -202,7 +202,7 @@ let p_list_tightness =
     p_implication =
     "Whether a list renders with space between its items follows from where its blank lines are.";
     p_theorems =
-    ("list_spacing_separates" :: ("separates_loosens" :: ("separates_after_loosens" :: [])));
+    ("list_spacing_separates" :: ("separates_loosens" :: ("blank_between_items_loosens" :: [])));
     p_status =
     (always (Conditional
       "For items in which no block attribute spans several lines. A blank line inside a code block does not count.")) }
