@@ -20,3 +20,10 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
 ]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+reportUnusedVariable = "warning"

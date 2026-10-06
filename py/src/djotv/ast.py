@@ -14,7 +14,7 @@ written with, is in `auto_attributes`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, cast
 
 type Align = Literal["default", "left", "right", "center"]
 type Checkbox = Literal["checked", "unchecked"]
@@ -69,8 +69,8 @@ class Pos:
 class Node:
     tag: ClassVar[str]
 
-    attributes: dict[str, str] = field(default_factory=dict)
-    auto_attributes: dict[str, str] = field(default_factory=dict)
+    attributes: dict[str, str] = field(default_factory=dict[str, str])
+    auto_attributes: dict[str, str] = field(default_factory=dict[str, str])
     pos: Pos | None = None
 
     def __repr__(self) -> str:
@@ -103,7 +103,7 @@ class Node:
                 # Left out when empty, as the OCaml library writes them.
                 pass
             elif isinstance(value, list):
-                out[f.name] = [child.to_json() for child in value]
+                out[f.name] = [child.to_json() for child in cast(list[Node], value)]
             elif value is not None:
                 out[f.name] = value
         return out
@@ -126,43 +126,43 @@ class Str(Node):
 @dataclass(slots=True, repr=False)
 class Emph(Node):
     tag: ClassVar[str] = "emph"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Strong(Node):
     tag: ClassVar[str] = "strong"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Mark(Node):
     tag: ClassVar[str] = "mark"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Insert(Node):
     tag: ClassVar[str] = "insert"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Delete(Node):
     tag: ClassVar[str] = "delete"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Superscript(Node):
     tag: ClassVar[str] = "superscript"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Subscript(Node):
     tag: ClassVar[str] = "subscript"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
@@ -196,7 +196,7 @@ class Link(Node):
     """A link to `destination`, or to the definition labelled `reference`."""
 
     tag: ClassVar[str] = "link"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
     destination: str | None = None
     reference: str | None = None
 
@@ -206,7 +206,7 @@ class Image(Node):
     """An image at `destination`, or at the definition labelled `reference`."""
 
     tag: ClassVar[str] = "image"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
     destination: str | None = None
     reference: str | None = None
 
@@ -216,7 +216,7 @@ class Span(Node):
     """`name` is that of `:name[...]`, an extension; empty when unnamed."""
 
     tag: ClassVar[str] = "span"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
     name: str = ""
 
 
@@ -255,13 +255,13 @@ class NonBreakingSpace(Node):
 @dataclass(slots=True, repr=False)
 class SingleQuoted(Node):
     tag: ClassVar[str] = "single_quoted"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class DoubleQuoted(Node):
     tag: ClassVar[str] = "double_quoted"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
@@ -291,7 +291,7 @@ class ExtWikilink(Node):
 @dataclass(slots=True, repr=False)
 class Para(Node):
     tag: ClassVar[str] = "para"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
@@ -300,7 +300,7 @@ class Section(Node):
     same or a higher level.  The heading's identifier is on the section."""
 
     tag: ClassVar[str] = "section"
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
@@ -310,14 +310,14 @@ class Heading(Node):
 
     tag: ClassVar[str] = "heading"
     level: int
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
     plain: str = ""
 
 
 @dataclass(slots=True, repr=False)
 class BlockQuote(Node):
     tag: ClassVar[str] = "block_quote"
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
@@ -332,14 +332,14 @@ class Div(Node):
     """`name` is that of `::: name`, an extension; empty when unnamed."""
 
     tag: ClassVar[str] = "div"
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
     name: str = ""
 
 
 @dataclass(slots=True, repr=False)
 class ListItem(Node):
     tag: ClassVar[str] = "list_item"
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
@@ -347,7 +347,7 @@ class OrderedList(Node):
     """`style` is the numeral between its delimiters, `start` the first number."""
 
     tag: ClassVar[str] = "ordered_list"
-    children: list[ListItem] = field(default_factory=list)
+    children: list[ListItem] = field(default_factory=list[ListItem])
     style: OrderedListStyle = "1."
     start: int = 1
     tight: bool = True
@@ -358,7 +358,7 @@ class BulletList(Node):
     """`style` is the marker: `-`, `+` or `*`."""
 
     tag: ClassVar[str] = "bullet_list"
-    children: list[ListItem] = field(default_factory=list)
+    children: list[ListItem] = field(default_factory=list[ListItem])
     style: str = "-"
     tight: bool = True
 
@@ -367,26 +367,26 @@ class BulletList(Node):
 class TaskListItem(Node):
     tag: ClassVar[str] = "task_list_item"
     checkbox: Checkbox
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
 class TaskList(Node):
     tag: ClassVar[str] = "task_list"
-    children: list[TaskListItem] = field(default_factory=list)
+    children: list[TaskListItem] = field(default_factory=list[TaskListItem])
     tight: bool = True
 
 
 @dataclass(slots=True, repr=False)
 class Term(Node):
     tag: ClassVar[str] = "term"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
 class Definition(Node):
     tag: ClassVar[str] = "definition"
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
@@ -394,13 +394,13 @@ class DefinitionListItem(Node):
     """Two children: the term, then the definition."""
 
     tag: ClassVar[str] = "definition_list_item"
-    children: list[Term | Definition] = field(default_factory=list)
+    children: list[Term | Definition] = field(default_factory=list[Term | Definition])
 
 
 @dataclass(slots=True, repr=False)
 class DefinitionList(Node):
     tag: ClassVar[str] = "definition_list"
-    children: list[DefinitionListItem] = field(default_factory=list)
+    children: list[DefinitionListItem] = field(default_factory=list[DefinitionListItem])
     tight: bool = True
 
 
@@ -412,7 +412,7 @@ class ThematicBreak(Node):
 @dataclass(slots=True, repr=False)
 class Cell(Node):
     tag: ClassVar[str] = "cell"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
     head: bool = False
     align: Align = "default"
 
@@ -423,14 +423,14 @@ class Row(Node):
     reader and not read back: each cell says so itself."""
 
     tag: ClassVar[str] = "row"
-    children: list[Cell] = field(default_factory=list)
+    children: list[Cell] = field(default_factory=list[Cell])
     head: bool = False
 
 
 @dataclass(slots=True, repr=False)
 class Caption(Node):
     tag: ClassVar[str] = "caption"
-    children: list[Inline] = field(default_factory=list)
+    children: list[Inline] = field(default_factory=list[Inline])
 
 
 @dataclass(slots=True, repr=False)
@@ -439,7 +439,7 @@ class Table(Node):
     with no children is no caption."""
 
     tag: ClassVar[str] = "table"
-    children: list[Caption | Row] = field(default_factory=list)
+    children: list[Caption | Row] = field(default_factory=list[Caption | Row])
 
 
 @dataclass(slots=True, repr=False)
@@ -455,7 +455,7 @@ class Footnote(Node):
 
     tag: ClassVar[str] = "footnote"
     label: str
-    children: list[Block] = field(default_factory=list)
+    children: list[Block] = field(default_factory=list[Block])
 
 
 @dataclass(slots=True, repr=False)
@@ -476,8 +476,8 @@ class ExtKeyed(Node):
     """
 
     tag: ClassVar[str] = "ext_keyed"
-    label: list[Inline] = field(default_factory=list)
-    children: list[Block] = field(default_factory=list)
+    label: list[Inline] = field(default_factory=list[Inline])
+    children: list[Block] = field(default_factory=list[Block])
     plain: str = ""
 
 
@@ -488,8 +488,8 @@ class ExtCallout(Node):
 
     tag: ClassVar[str] = "ext_callout"
     kind: str
-    title: list[Inline] = field(default_factory=list)
-    children: list[Block] = field(default_factory=list)
+    title: list[Inline] = field(default_factory=list[Inline])
+    children: list[Block] = field(default_factory=list[Block])
     fold: Fold | None = None
 
 
@@ -508,10 +508,10 @@ class Doc:
 
     tag: ClassVar[str] = "doc"
 
-    children: list[Block] = field(default_factory=list)
-    references: dict[str, Reference] = field(default_factory=dict)
-    auto_references: dict[str, Reference] = field(default_factory=dict)
-    footnotes: dict[str, Footnote] = field(default_factory=dict)
+    children: list[Block] = field(default_factory=list[Block])
+    references: dict[str, Reference] = field(default_factory=dict[str, Reference])
+    auto_references: dict[str, Reference] = field(default_factory=dict[str, Reference])
+    footnotes: dict[str, Footnote] = field(default_factory=dict[str, Footnote])
 
     def to_json(self) -> dict[str, Any]:
         def table(defs: dict[str, Any]) -> dict[str, Any]:
@@ -592,7 +592,8 @@ def node_from_json(json: dict[str, Any]) -> Any:
             members["pos"] = Pos(_point(value["start"]), _point(value["end"]))
         elif isinstance(value, list):
             # A member that is a list is a list of nodes.
-            members[name] = [node_from_json(child) for child in value]
+            children = cast(list[dict[str, Any]], value)
+            members[name] = [node_from_json(child) for child in children]
         else:
             members[name] = value
     try:

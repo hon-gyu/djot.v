@@ -40,17 +40,16 @@ class Profile:
     """
 
     base: Literal["djot", "markdown_like"] = "djot"
-    switches: dict[str, bool] = field(default_factory=dict)
-
-    def _options(self) -> list[str]:
-        options = ["--profile", self.base]
-        for name, on in self.switches.items():
-            options += ["--on" if on else "--off", name]
-        return options
+    switches: dict[str, bool] = field(default_factory=dict[str, bool])
 
 
 def _options(profile: Profile | None) -> list[str]:
-    return [] if profile is None else profile._options()
+    if profile is None:
+        return []
+    options = ["--profile", profile.base]
+    for name, on in profile.switches.items():
+        options += ["--on" if on else "--off", name]
+    return options
 
 
 def parse(text: str, *, profile: Profile | None = None, locs: bool = False) -> Doc:

@@ -1,12 +1,14 @@
 # ai-disclosure: ai-generated
+# pyright: reportPrivateUsage=false
 import doctest
 import json
 import threading
+from typing import Any, cast
 
 import pytest
 
 import djotv
-from djotv import DjotError, Profile, ast
+from djotv import DjotError, Profile, _options, ast
 from djotv._runtime import run
 
 # A text with every node the parser makes.
@@ -84,26 +86,37 @@ EXTENSIONS = Profile(
 )
 
 
-def tags(json_value) -> set[str]:
+def tags(json_value: Any) -> set[str]:
+    found: set[str] = set()
     if isinstance(json_value, list):
-        return set().union(*map(tags, json_value))
-    if isinstance(json_value, dict):
-        found = set().union(*map(tags, json_value.values()))
-        tag = json_value.get("tag")
-        return found | {tag} if isinstance(tag, str) else found
-    return set()
+        for child in cast(list[Any], json_value):
+            found |= tags(child)
+    elif isinstance(json_value, dict):
+        members = cast(dict[str, Any], json_value)
+        for child in members.values():
+            found |= tags(child)
+        tag = members.get("tag")
+        if isinstance(tag, str):
+            found.add(tag)
+    return found
+
+
+def para(text: str, *, profile: Profile | None = None, locs: bool = False) -> ast.Para:
+    (block,) = djotv.parse(text, profile=profile, locs=locs).children
+    assert isinstance(block, ast.Para)
+    return block
 
 
 @pytest.mark.parametrize("locs", [False, True])
-def test_tree_is_the_json(locs):
-    options = EXTENSIONS._options() + (["--locs"] if locs else [])
+def test_tree_is_the_json(locs: bool):
+    options = _options(EXTENSIONS) + (["--locs"] if locs else [])
     written = json.loads(run("ast", options, EVERYTHING))
     doc = djotv.parse(EVERYTHING, profile=EXTENSIONS, locs=locs)
     assert doc.to_json() == written
 
 
 def test_every_class_is_read():
-    written = json.loads(run("ast", EXTENSIONS._options(), EVERYTHING))
+    written = json.loads(run("ast", _options(EXTENSIONS), EVERYTHING))
     assert tags(written) - {"doc"} == set(ast._CLASSES)
 
 
@@ -141,17 +154,16 @@ def test_a_built_tree():
 
 
 def test_match():
-    (para,) = djotv.parse("[a](b)").children
-    match para:
+    (block,) = djotv.parse("[a](b)").children
+    match block:
         case ast.Para(children=[ast.Link(destination=destination)]):
             assert destination == "b"
         case _:
-            raise AssertionError(para)
+            raise AssertionError(block)
 
 
 def test_pos():
-    (para,) = djotv.parse("é *b*", locs=True).children
-    strong = para.children[1]
+    strong = para("é *b*", locs=True).children[1]
     assert strong.pos == ast.Pos(ast.Point(1, 4, 3), ast.Point(1, 6, 5))
     assert djotv.parse("x").children[0].pos is None
 
@@ -163,11 +175,9 @@ def test_repr():
 
 
 def test_profile():
-    assert djotv.parse("[[w]]").children[0].children[0] == ast.Str("[[w]]")
+    assert para("[[w]]").children[0] == ast.Str("[[w]]")
     wikilinks = Profile(switches={"ext_wikilinks": True})
-    assert djotv.parse("[[w]]", profile=wikilinks).children[0].children == [
-        ast.ExtWikilink("w")
-    ]
+    assert para("[[w]]", profile=wikilinks).children == [ast.ExtWikilink("w")]
     assert "<strong>" in djotv.to_html("**x**", profile=Profile("markdown_like"))
     assert "<table>" not in djotv.to_html(
         "| a |\n", profile=Profile(switches={"tables": False})
@@ -184,9 +194,9 @@ def test_errors():
 
 
 def test_threads():
-    results = []
+    results: list[bool] = []
 
-    def work(i):
+    def work(i: int):
         results.append(djotv.to_html(f"*{i}*") == f"<p><strong>{i}</strong></p>\n")
 
     threads = [threading.Thread(target=work, args=(i,)) for i in range(8)]

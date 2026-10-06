@@ -12,15 +12,15 @@ wheel everywhere Wasmtime does.
 import djotv
 from djotv import ast
 
-djotv.to_html("*hi*")                 # '<p><strong>hi</strong></p>\n'
+djotv.to_html("*hi*")  # '<p><strong>hi</strong></p>\n'
 
 doc = djotv.parse("# Title\n\nSee [the site](https://djot.net).\n", locs=True)
 match doc.children[0].children[1]:
     case ast.Para(children=[_, ast.Link(destination=url) as link, _]):
-        print(url, link.pos.start.line)   # https://djot.net 3
+        print(url, link.pos.start.line)  # https://djot.net 3
 
-djotv.to_html(doc)                    # the HTML of a tree
-djotv.to_djot(doc)                    # a tree as djot text
+djotv.to_html(doc)  # the HTML of a tree
+djotv.to_djot(doc)  # a tree as djot text
 ```
 
 The tree is typed: `djotv.ast` has one dataclass per node, and `ast.Block` and

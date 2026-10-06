@@ -122,7 +122,7 @@ class _Call:
 
 
 _I32, _I64 = ValType.i32(), ValType.i64()
-_SIGNATURES = {
+_SIGNATURES: dict[str, tuple[list[ValType], list[ValType]]] = {
     "fd_write": ([_I32] * 4, [_I32]),
     "fd_read": ([_I32] * 4, [_I32]),
     "fd_seek": ([_I32, _I64, _I32, _I32], [_I32]),
