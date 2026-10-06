@@ -143,7 +143,9 @@ let p_list_uniformity =
     p_implication =
     "Moving text into or out of a list item does not change its meaning.";
     p_theorems = ("list_uniformity" :: ("ordered_uniformity" :: []));
-    p_status = (always Proved) }
+    p_status =
+    (always (Conditional
+      "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.")) }
 
 (** val p_definition_list_uniformity : property **)
 
@@ -152,7 +154,10 @@ let p_definition_list_uniformity =
     "The same, for the items of a definition list."; p_implication =
     "Moving text into or out of a definition does not change its meaning.";
     p_theorems = ("definition_list_uniformity" :: []); p_status = (fun o ->
-    if o.o_deflists then Proved else Inapplicable "Definition lists are off") }
+    if o.o_deflists
+    then Conditional
+           "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line."
+    else Inapplicable "Definition lists are off") }
 
 (** val p_div_uniformity : property **)
 
@@ -172,7 +177,7 @@ let p_footnote_uniformity =
     "Lines indented under a footnote belong to it, cannot affect anything outside it, and parse as they would at top level.";
     p_implication =
     "Moving text into a footnote does not change its meaning."; p_theorems =
-    ("footnote_content_uniformity" :: ("footnote_text_uniformity" :: ("footnote_list_shift_counterexample" :: [])));
+    ("footnote_content_uniformity" :: ("footnote_unshifted_uniformity" :: ("footnote_text_uniformity" :: ("footnote_list_shift_counterexample" :: []))));
     p_status = (fun o ->
     if o.o_inline.dc_footnotes
     then Conditional
@@ -205,7 +210,7 @@ let p_list_tightness =
     ("list_spacing_separates" :: ("separates_loosens" :: ("blank_between_items_loosens" :: [])));
     p_status =
     (always (Conditional
-      "For items in which no block attribute spans several lines. A blank line inside a code block does not count.")) }
+      "For items with no block attribute outside a block quote. A blank line inside a code block does not count.")) }
 
 (** val p_indent_uniformity : property **)
 
