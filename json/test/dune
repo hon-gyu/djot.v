@@ -10,5 +10,5 @@
  (enabled_if
   (and
    %{lib-available:djot.json}
-   %{lib-available:yaml}))
+   %{lib-available:djot.yaml_gate}))
  (libraries djot djot.json))
