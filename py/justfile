@@ -1,0 +1,24 @@
+_default:
+    just --list --unsorted
+
+test *args:
+    uv run pytest {{ args }}
+
+typecheck-pyright:
+    uvx pyright .
+
+typecheck-ty:
+    uvx ty check
+
+lint:
+    uvx ruff check .
+
+format *args:
+    uvx ruff format . {{ args }}
+
+check:
+    @just typecheck-pyright
+    @just typecheck-ty
+    @just lint
+    @just format --check
+    @just test
