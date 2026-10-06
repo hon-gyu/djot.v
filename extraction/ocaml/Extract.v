@@ -129,6 +129,23 @@ Extract Constant DjotV.Strings.split_lines =>
   "(fun s -> match List.rev (String.split_on_char '\n' s) with
      | """" :: rest -> List.rev rest
      | parts -> List.rev parts)".
+Extract Constant DjotV.Strings.line_table =>
+  "(fun s ->
+     let n = String.length s in
+     let rec go start acc =
+       match String.index_from_opt s start '\n' with
+       | Some i ->
+         go (i + 1)
+           ({ source_line_start = start; source_line_length = i - start;
+              source_line_ending = 1 } :: acc)
+       | None ->
+         List.rev
+           (if start < n
+            then { source_line_start = start; source_line_length = n - start;
+                   source_line_ending = 0 } :: acc
+            else acc)
+     in
+     go 0 [])".
 
 (* Destination newlines are removed once the candidate closes.  The
    Gallina structural scan remains the specification; matching native

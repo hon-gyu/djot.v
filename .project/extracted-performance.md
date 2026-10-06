@@ -22,7 +22,9 @@ beside the existing semantic parser.  `line_table` and `resolve_span`
 convert recorded spots to byte coordinates.  The location-on block parse
 is benchmarked beside the semantic one and the incumbent in
 "Locations on, against the incumbent" below, at about 10% over the
-semantic parse on ordinary prose.
+semantic parse on ordinary prose.  Through `Djot.Doc.of_string` the cost
+of positions is higher, 50% to 75% over the plain parse, and linear
+since the line table was realized (see "The line table" under "Fixed").
 
 ## The mechanism
 
@@ -517,6 +519,36 @@ compared directly: 173279316 comparisons, no difference; the suites and
 `parse_doc` 34.8 -> 32.6 ms; one paragraph of short lines at 320 KB
 7.8 -> 6.6 ms; the other prose shapes moved by under 10%.
 
+The line table (2026-10-06, baseline `08d9a93`).  `Strings.line_table`
+walked the document by `String c rest`, a copy of the remainder per
+byte, so building the table was quadratic in the document.  The located
+parses do not build it; `Djot.Doc.of_string ~locs:true` and
+`Djot.Source` do, to turn recorded spots into byte offsets, and the
+table was nearly all of their time.  It is realized by one scan with
+`String.index_from_opt`.  Checked against the extraction at `b0d4dc5`:
+every string over `{a, space, \n, \r}` up to length 8, 100000 random
+ones of length 9 to 48, and 20000 random byte strings up to length 199;
+207381 strings, no difference.  The located-bounds run (82138
+documents), the test suite, the generated and lazy-line runs and the
+depth-3 roundtrip give the counts they gave before, and the `ocaml/`
+package tests pass.
+
+`Doc.of_string` without and with positions, release profile, OCaml
+5.4.1, old -> new, milliseconds (best of 20; the old located column
+best of 3, and of 2 for `m.dj`):
+
+| input | bytes | plain | `~locs:true` |
+| --- | ---: | ---: | ---: |
+| `readme.dj` | 12601 | 0.39 -> 0.35 | 9.37 -> 0.62 |
+| `readme.dj` x10 | 126019 | 3.75 -> 3.67 | 1260 -> 5.59 |
+| `readme.dj` x20 | 252039 | 7.35 -> 7.51 | 5566 -> 11.74 |
+| `readme.dj` x64 | 806527 | 24.52 new | 40.06 new |
+| `m.dj` (`djoths/benchmark`) | 249526 | 10.01 -> 9.29 | 6239 -> 15.63 |
+| `m.dj` x4 | 998107 | 38.87 new | 65.62 new |
+
+Positions now cost 1.5 to 1.75 times the plain parse at every size, and
+the ratio no longer grows with the document.
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -594,6 +626,13 @@ second pass.  djot.js's `sourcePositions` cost 13% at x1 and 22% to 32%
 at x64 across two runs.  Ours is 10x to 16x djot.js's parse, which is
 the constant factor the first table already records against cmarkit
 rather than a scaling difference: both grow linearly here.
+
+This table is of `parse_blocks_located`, which does not build the line
+table.  `Djot.Doc.of_string ~locs:true` does, and takes the piecewise
+path (`Reparse.pieces` with `loc_step`); measured on 2026-10-06 it costs
+50% to 75% over `Doc.of_string`, not 10%.  The numbers are in "The line
+table" under "Fixed".  Where the difference from 10% goes has not been
+profiled.
 
 ### `nat` as `int`
 
