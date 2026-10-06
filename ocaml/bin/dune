@@ -1,0 +1,14 @@
+(executable
+ (name main)
+ (public_name djot)
+ (package djot)
+ (optional)
+ (libraries djot djot.json cmdliner unix))
+
+(rule
+ (with-stdout-to
+  builtin_css.ml
+  (progn
+   (echo "let s = {css|")
+   (run tail -n +2 %{dep:djot.css})
+   (echo "|css}\n"))))

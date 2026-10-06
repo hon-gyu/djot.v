@@ -8,3 +8,11 @@
  (modules frontmatter)
  (enabled_if %{lib-available:djot.yaml_gate})
  (libraries djot))
+
+(cram
+ (applies_to cli)
+ (enabled_if
+  (and
+   %{lib-available:cmdliner}
+   %{lib-available:djot.json}))
+ (deps %{bin:djot}))
