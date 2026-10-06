@@ -1,3 +1,10 @@
 (tests
  (names api replace_lines stream locations profiles to_source properties)
+ (modules :standard \ frontmatter)
+ (libraries djot))
+
+(test
+ (name frontmatter)
+ (modules frontmatter)
+ (enabled_if %{lib-available:yaml})
  (libraries djot))

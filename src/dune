@@ -1,4 +1,10 @@
 (library
  (name djot)
  (public_name djot)
- (libraries djot.kernel))
+ (libraries
+  djot.kernel
+  (select
+   frontmatter_yaml.ml
+   from
+   (yaml -> frontmatter_yaml.yaml.ml)
+   (-> frontmatter_yaml.none.ml))))

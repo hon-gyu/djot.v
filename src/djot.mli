@@ -442,6 +442,52 @@ module Textloc : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** {1 Frontmatter} *)
+
+(** YAML metadata at the start of a text, between two lines of [---]:
+
+    {v
+---
+title: A note
+tags: [a, b]
+---
+    v}
+
+    Frontmatter is not djot. It is read here, before the djot parser, and only where a
+    function is given [~frontmatter:true]; the parser then gets the text after it. Such a
+    function raises [Invalid_argument] when this library was built without the [yaml]
+    package.
+
+    A text starts with frontmatter when all of these hold:
+    - its first line is [---], with nothing after it but spaces and tabs;
+    - a later line is [---] in the same way, the first such line being the end;
+    - the lines between them are a YAML mapping, or there is no line between them.
+
+    Otherwise the text is djot from its first line, where [---] is a thematic break. A
+    blank line between two [---] lines is not a mapping, so that is two thematic breaks. *)
+module Frontmatter : sig
+  (** A YAML value, as far as JSON has one. This is the type [Yaml.value] of the [yaml]
+      package, so a value can be given to that package's functions as it is. *)
+  type value =
+    [ `Null
+    | `Bool of bool
+    | `Float of float
+    | `String of string
+    | `A of value list
+    | `O of (string * value) list
+    ]
+
+  type t =
+    { fields : (string * value) list
+      (** The mapping, in source order; empty when there is no line between the
+          delimiters. *)
+    ; text : string (** The lines between the delimiters, as written. *)
+    ; loc : Textloc.t
+      (** From the opening [---] to the closing one. Set whether or not the parse records
+          positions. *)
+    }
+end
+
 (** {1 Documents} *)
 
 (** A parsed document: its blocks, and the footnotes and references they define.
@@ -458,8 +504,12 @@ module Doc : sig
       also collected by label in {!footnotes} and {!references}.
 
       @param profile the syntax to accept; default {!Profile.djot}
-      @param locs whether to record source positions, see {!textloc}; default [false] *)
-  val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
+      @param locs whether to record source positions, see {!textloc}; default [false]
+      @param frontmatter whether to read {!Frontmatter}; default [false] *)
+  val of_string : ?profile:Profile.t -> ?locs:bool -> ?frontmatter:bool -> string -> t
+
+  (** The frontmatter the text started with. [None] for a document made from blocks. *)
+  val frontmatter : t -> Frontmatter.t option
 
   (** The document these blocks make: headings get identifiers and sections, and
       footnotes and references are collected, as {!of_string} does for a text.
@@ -490,6 +540,8 @@ module Doc : sig
       beyond it this is tested, not proved.
 
       With [`Naive] the result need not parse back to the same tree; see {!style}.
+
+      {!frontmatter} is written first, its text as it was.
 
       @param style default [`Checked] *)
   val to_string : ?style:style -> t -> string
@@ -555,9 +607,14 @@ end
 module Source : sig
   type t
 
-  (** [of_string s] is the source with text [s]. [profile] and [locs] are as in
-      {!Doc.of_string}, and hold for every edit of this source. *)
-  val of_string : ?profile:Profile.t -> ?locs:bool -> string -> t
+  (** [of_string s] is the source with text [s]. [profile], [locs] and [frontmatter] are
+      as in {!Doc.of_string}, and hold for every edit of this source.
+
+      With [frontmatter], an edit after the frontmatter parses as any edit does. An edit
+      that reaches the frontmatter, or the start of a text without one, can make, change
+      or unmake it; when it does, the whole text is parsed again and the {!change} is
+      every line. *)
+  val of_string : ?profile:Profile.t -> ?locs:bool -> ?frontmatter:bool -> string -> t
 
   (** The text. {!Doc.textloc} of {!doc} gives byte ranges in it. *)
   val to_string : t -> string
@@ -622,7 +679,11 @@ module Stream : sig
         {!Block.Section} (see {!Sections}). *)
   type t
 
-  val start : ?profile:Profile.t -> ?locs:bool -> unit -> t
+  (** With [frontmatter], see {!Frontmatter}, a first line of [---] is held, and the lines
+      after it, until a closing [---] or the end of the input says whether they are
+      frontmatter. Frontmatter gives no block; lines that are not frontmatter give theirs
+      then. *)
+  val start : ?profile:Profile.t -> ?locs:bool -> ?frontmatter:bool -> unit -> t
 
   (** Feed bytes: any part of the input, holding several lines or part of one.
 
