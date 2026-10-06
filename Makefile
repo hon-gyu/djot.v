@@ -117,12 +117,17 @@ ocaml-pkg-regen: build  ## Regenerate ocaml/kernel from the extraction and promt
 	@$(call copy-extracted-modules,ocaml/kernel)
 	@echo "ocaml/kernel regenerated from $(EXTRACTED)"
 
+# Compared with runs of whitespace as one space: where the extraction
+# breaks its lines depends on the OCaml that Rocq was built with.
 ocaml-pkg-check-current: build  ## Fail if ocaml/kernel is behind the extraction
 	@tmp=`mktemp -d`; $(call copy-extracted-modules,$$tmp); \
-	if diff -r --exclude=dune ocaml/kernel $$tmp >/dev/null; then \
+	for d in ocaml/kernel $$tmp; do \
+	  (cd $$d && for f in *.ml *.mli; do echo "== $$f"; tr -s ' \t\n' ' ' < $$f; echo; done) > $$tmp/`basename $$d`.flat; \
+	done; \
+	if diff $$tmp/kernel.flat $$tmp/`basename $$tmp`.flat >/dev/null; then \
 	  rm -rf $$tmp; echo "ocaml/kernel is current"; \
 	else \
-	  diff -r --exclude=dune ocaml/kernel $$tmp | head -20; rm -rf $$tmp; \
+	  diff -r --exclude=dune --exclude='*.flat' ocaml/kernel $$tmp | head -20; rm -rf $$tmp; \
 	  echo "ocaml/kernel is stale: run make ocaml-pkg-regen"; exit 1; \
 	fi
 
@@ -137,8 +142,8 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 # Site
 # ----
 
-# site/ is a dune project of its own, built with the switch that has the
-# ocaml/ package's dependencies plus brr and js_of_ocaml.
+# site/ is a dune project of its own, which needs the ocaml/ package's
+# dependencies plus brr and js_of_ocaml.
 SITE = _build/site
 
 site:  ## Build the static site into _build/site
@@ -163,14 +168,15 @@ site-publish: site  ## Build the site and push it to the gh-pages branch of orig
 # Python package
 # --------------
 
-# wasi/ is a dune project of its own, built with a switch that has the
-# ocaml/ package's dependencies plus wasm_of_ocaml-compiler.  It builds the
-# library as a WASI command, which any WASI host with WasmGC can run.  The
-# module is checked in to py/, so the Python package needs no OCaml.
+# wasi/ is a dune project of its own, which needs the ocaml/ package's
+# dependencies plus wasm_of_ocaml-compiler.  DJOT_NO_YAML=1 builds ocaml/
+# without yaml where it is installed: it binds C, which the module cannot
+# link.  It builds the library as a WASI command, which any WASI host with
+# WasmGC can run.
 PY_WASM = py/src/djotv/djot.wasm
 
 py-wasm:  ## Build the WebAssembly module of the Python package into py/src/djotv
-	cd wasi && dune build --root . --profile release ./djot_wasi.bc.wasm.js
+	cd wasi && DJOT_NO_YAML=1 dune build --root . --profile release ./djot_wasi.bc.wasm.js
 	cp wasi/_build/default/djot_wasi.bc.wasm.assets/code.wasm $(PY_WASM)
 	chmod 644 $(PY_WASM)
 
@@ -180,10 +186,10 @@ check-py:  ## test the Python package against the module in py/src/djotv
 # All local checks. Run before branch merging
 # --------------------------------------------
 
-check-rocq: build ocaml-pkg-check-current check-readme  ## (needs Rocq switch) check the proofs, that ocaml/kernel is the current extraction, and the README tables
+check-rocq: build ocaml-pkg-check-current check-readme  ## check the proofs, that ocaml/kernel is the current extraction, and the README tables
 
 check-readme:  ## Fail if the README's property tables differ from theories/Properties.v (dune promote updates them)
 	dune build @readme
 
-check-site: site  ## (needs OCaml switch) test the ocaml/ package and build the site
+check-site: site  ## test the ocaml/ package and build the site
 	cd ocaml && dune build @runtest @install
