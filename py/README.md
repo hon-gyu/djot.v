@@ -37,6 +37,12 @@ djotv.parse("[[page]]", profile=Profile(switches={"ext_wikilinks": True}))
 djotv.to_html("**strong**", profile=Profile("markdown_like"))
 ```
 
+## Installation
+
+```sh
+uv add git+https://github.com/hon-gyu/djot.v#subdirectory=py
+```
+
 ## How it runs
 
 The module is a WASI command.  Each call is one run of it: the command and its
