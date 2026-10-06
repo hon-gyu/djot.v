@@ -63,6 +63,20 @@ where it differs.
 let json = Djot_json.to_string (Djot.Doc.of_string "# hi\n")
 ```
 
+With `~frontmatter:true`, `Doc.of_string`, `Source.of_string` and
+`Stream.start` read YAML frontmatter, a mapping between two `---` lines
+at the start of the text, and parse the rest as djot.
+This needs the [yaml](https://github.com/avsm/ocaml-yaml) package and
+raises `Invalid_argument` when the library was built without it.
+The frontmatter is read in OCaml, outside the extracted parser, so the
+theorems say nothing about it; `Djot.Frontmatter` gives the rule.
+
+```ocaml
+let doc = Djot.Doc.of_string ~frontmatter:true "---\ntitle: hi\n---\n# hi\n"
+let title =
+  Option.bind (Djot.Doc.frontmatter doc) (fun fm -> List.assoc_opt "title" fm.fields)
+```
+
 The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 `Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
 `Profile.with_footnotes` and so on.  The extensions are off in both and

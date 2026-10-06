@@ -18,5 +18,6 @@ uniformity, local interpretation of links, and safe hard-wrapping of
 paragraphs. The extracted modules are the djot.kernel library. The
 Djot module is an API over them whose module types are modeled on
 cmarkit's. The djot.json library, built when jsont and bytesrw are
-installed, writes trees as JSON in the format of djot.js's AST.")
- (depopts jsont bytesrw))
+installed, writes trees as JSON in the format of djot.js's AST. Reading
+YAML frontmatter needs yaml.")
+ (depopts jsont bytesrw yaml))

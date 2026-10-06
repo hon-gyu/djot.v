@@ -684,15 +684,102 @@ module Textloc = struct
   ;;
 end
 
+module Frontmatter = struct
+  type value =
+    [ `Null
+    | `Bool of bool
+    | `Float of float
+    | `String of string
+    | `A of value list
+    | `O of (string * value) list
+    ]
+
+  type t =
+    { fields : (string * value) list
+    ; text : string
+    ; loc : Textloc.t
+    }
+
+  let require () =
+    if not Frontmatter_yaml.available
+    then invalid_arg "Djot: frontmatter needs the yaml package"
+  ;;
+
+  (* [---], then only the bytes the kernel takes as blank. *)
+  let is_delim (l : string) : bool =
+    String.length l >= 3
+    && String.sub l 0 3 = "---"
+    && K.Strings.is_blank (String.sub l 3 (String.length l - 3))
+  ;;
+
+  (* The frontmatter and the number of lines it takes, delimiters included. *)
+  type found = t * int
+
+  (* [text] is the lines between the delimiters, [close] the byte where the
+     closing one starts and [close_len] its length. *)
+  let of_payload ~(text : string) ~(close : int) ~(close_len : int) : found option =
+    let fields =
+      if text = ""
+      then Some []
+      else (
+        match Frontmatter_yaml.parse text with
+        | Some (`O fields) -> Some fields
+        | _ -> None)
+    in
+    let last = 2 + List.length (String.split_on_char '\n' text) - 1 in
+    let loc =
+      Textloc.make
+        ~first_byte:0
+        ~last_byte:(close + close_len - 1)
+        ~first_line:(1, 0)
+        ~last_line:(last, close)
+    in
+    Option.map (fun fields -> { fields; text; loc }, last) fields
+  ;;
+
+  (* The frontmatter [s] starts with: a [---] line, lines that are a YAML
+     mapping or no line at all, and the first [---] line after them. *)
+  let find (s : string) : found option =
+    let line_end i =
+      Option.value (String.index_from_opt s i '\n') ~default:(String.length s)
+    in
+    let line i = String.sub s i (line_end i - i) in
+    let rec closer i =
+      if i >= String.length s
+      then None
+      else if is_delim (line i)
+      then Some i
+      else closer (line_end i + 1)
+    in
+    let open_end = line_end 0 in
+    if open_end >= String.length s || not (is_delim (line 0))
+    then None
+    else
+      Option.bind (closer (open_end + 1)) (fun close ->
+        of_payload
+          ~text:(String.sub s (open_end + 1) (close - open_end - 1))
+          ~close
+          ~close_len:(line_end close - close))
+  ;;
+
+  (* The byte after the frontmatter's last line. *)
+  let body_start (s : string) ((fm, _) : found) : int =
+    min (String.length s) (Textloc.last_byte fm.loc + 2)
+  ;;
+
+  let to_source (fm : t) : string = "---\n" ^ fm.text ^ "---\n"
+end
+
 module Doc = struct
   type t =
     { kernel : K.Ast.doc
     ; lines : K.Strings.source_line array option
     ; profile : Profile.t
+    ; front : Frontmatter.found option
     }
 
-  let pass ~profile ~lines pos bs =
-    { kernel = K.Document.doc_pass pos bs; lines; profile }
+  let pass ~profile ~lines ?front pos bs =
+    { kernel = K.Document.doc_pass pos bs; lines; profile; front }
   ;;
 
   let make ?(profile = Profile.djot) (bs : Block.t node list) : t =
@@ -708,15 +795,17 @@ module Doc = struct
     else K.Reparse.sem_step table bconfig, K.Step.finish table bconfig K.Ast.semantic_pos
   ;;
 
-  let of_pieces ~profile ~locs src ps =
+  (* [ps] are the pieces of [src] after its frontmatter. *)
+  let of_pieces ~profile ~locs ?front src ps =
     if locs
     then
       pass
         ~profile
         ~lines:(Some (Array.of_list (K.Strings.line_table src)))
+        ?front
         K.Ast.located_pos
-        (K.Reparse.assemble 0 ps)
-    else pass ~profile ~lines:None K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
+        (K.Reparse.assemble (Option.fold ~none:0 ~some:snd front) ps)
+    else pass ~profile ~lines:None ?front K.Ast.semantic_pos (K.Reparse.pieces_tree ps)
   ;;
 
   let pieces_of_string ~profile ~locs (s : string) : K.Reparse.piece list =
@@ -724,12 +813,35 @@ module Doc = struct
     K.Reparse.pieces stp fin (K.Strings.split_lines s)
   ;;
 
-  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
-    of_pieces ~profile ~locs s (pieces_of_string ~profile ~locs s)
+  (* The frontmatter of [s], when asked for, and the pieces of the rest. *)
+  let split ~profile ~locs ~frontmatter (s : string)
+    : Frontmatter.found option * K.Reparse.piece list
+    =
+    if frontmatter then Frontmatter.require ();
+    let front = if frontmatter then Frontmatter.find s else None in
+    let body =
+      match front with
+      | None -> s
+      | Some f ->
+        let b = Frontmatter.body_start s f in
+        String.sub s b (String.length s - b)
+    in
+    front, pieces_of_string ~profile ~locs body
   ;;
 
+  let of_string ?(profile = Profile.djot) ?(locs = false) ?(frontmatter = false) s : t =
+    let front, ps = split ~profile ~locs ~frontmatter s in
+    of_pieces ~profile ~locs ?front s ps
+  ;;
+
+  let frontmatter (d : t) : Frontmatter.t option = Option.map fst d.front
+
   let to_string ?(style = `Checked) (d : t) : string =
-    Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel)
+    let body = Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel) in
+    match d.front with
+    | None -> body
+    | Some (fm, _) when body = "" -> Frontmatter.to_source fm
+    | Some (fm, _) -> Frontmatter.to_source fm ^ "\n" ^ body
   ;;
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
@@ -785,16 +897,19 @@ end
 module Source = struct
   type t =
     { text : string
-    ; pieces : K.Reparse.piece list (* The parse of [text], for the edits. *)
+    ; pieces : K.Reparse.piece list
+      (* The parse of [text] after its frontmatter, for the edits. *)
     ; doc : Doc.t
+    ; frontmatter : bool (* Whether an edit looks for frontmatter. *)
     }
 
-  let of_pieces ~profile ~locs text pieces =
-    { text; pieces; doc = Doc.of_pieces ~profile ~locs text pieces }
+  let of_pieces ~profile ~locs ~frontmatter ?front text pieces =
+    { text; pieces; doc = Doc.of_pieces ~profile ~locs ?front text pieces; frontmatter }
   ;;
 
-  let of_string ?(profile = Profile.djot) ?(locs = false) (s : string) : t =
-    of_pieces ~profile ~locs s (Doc.pieces_of_string ~profile ~locs s)
+  let of_string ?(profile = Profile.djot) ?(locs = false) ?(frontmatter = false) s : t =
+    let front, ps = Doc.split ~profile ~locs ~frontmatter s in
+    of_pieces ~profile ~locs ~frontmatter ?front s ps
   ;;
 
   let to_string (t : t) : string = t.text
@@ -858,8 +973,9 @@ module Source = struct
   ;;
 
   (* The edit widens to the pieces holding lines [first] to [last]; the
-     lines of those pieces outside the range go back in around [s]. *)
-  let replace_lines_changed (t : t) ~first ~last (s : string) : t * change =
+     lines of those pieces outside the range go back in around [s].
+     [skip] is the lines of the frontmatter, which the edit is after. *)
+  let splice_lines (t : t) ~skip ~first ~last (s : string) : t * change =
     let src = t.text
     and ps = t.pieces in
     let n = List.length ps in
@@ -868,10 +984,8 @@ module Source = struct
     Array.iteri
       (fun k p -> starts.(k + 1) <- starts.(k) + List.length p.K.Reparse.piece_lines)
       pa;
-    let f = first - 1
-    and l = last - 1 in
-    if f < 0 || l < f - 1 || l >= starts.(n)
-    then invalid_arg "Source.replace_lines: range outside the source";
+    let f = first - 1 - skip
+    and l = last - 1 - skip in
     let rec holding k = if k < n && starts.(k + 1) <= f then holding (k + 1) else k in
     let rec after k = if k < n && starts.(k) <= l then after (k + 1) else k in
     let i = holding 0 in
@@ -893,7 +1007,46 @@ module Source = struct
     let ps' =
       K.Reparse.splice stp fin ps i j (before @ K.Strings.split_lines s @ behind)
     in
-    of_pieces ~profile ~locs (edit_source src f l s) ps', change_of f ps ps'
+    let c = change_of f ps ps' in
+    ( of_pieces
+        ~profile
+        ~locs
+        ~frontmatter:t.frontmatter
+        ?front:t.doc.front
+        (edit_source src (f + skip) (l + skip) s)
+        ps'
+    , { first = c.first + skip; old_last = c.old_last + skip; new_last = c.new_last + skip }
+    )
+  ;;
+
+  let line_count (t : t) : int =
+    List.fold_left
+      (fun n p -> n + List.length p.K.Reparse.piece_lines)
+      (Option.fold ~none:0 ~some:snd t.doc.front)
+      t.pieces
+  ;;
+
+  (* An edit after the frontmatter leaves it as it is. Any other edit can
+     make, change or unmake it, and then the whole text is parsed again. *)
+  let replace_lines_changed (t : t) ~first ~last (s : string) : t * change =
+    let total = line_count t in
+    if first < 1 || last < first - 1 || last > total
+    then invalid_arg "Source.replace_lines: range outside the source";
+    let skip = Option.fold ~none:0 ~some:snd t.doc.front in
+    let text () = edit_source t.text (first - 1) (last - 1) s in
+    if skip > 0 && first > skip
+    then splice_lines t ~skip ~first ~last s
+    else if skip = 0 && not (t.frontmatter && Option.is_some (Frontmatter.find (text ())))
+    then splice_lines t ~skip:0 ~first ~last s
+    else (
+      let t' =
+        of_string
+          ~profile:t.doc.profile
+          ~locs:(Option.is_some t.doc.lines)
+          ~frontmatter:t.frontmatter
+          (text ())
+      in
+      t', { first = 1; old_last = total; new_last = line_count t' })
   ;;
 
   let replace_lines t ~first ~last s = fst (replace_lines_changed t ~first ~last s)
@@ -947,10 +1100,23 @@ module Stream = struct
     ; offset : int (* The lines in [pieces]. *)
     ; pending : K.Reparse.pending
     ; ids : K.Document.id_state (* After the blocks returned. *)
+    ; frontmatter : bool
+    ; front : front
     }
 
-  let start ?(profile = Profile.djot) ?(locs = false) () =
+  (* Where the input is relative to its frontmatter. *)
+  and front =
+    | Start (* No whole line yet. *)
+    | Held of string list
+    (* The lines from an opening [---], last first: frontmatter if a
+       closing one comes. *)
+    | Body of Frontmatter.found option
+
+  let start ?(profile = Profile.djot) ?(locs = false) ?(frontmatter = false) () =
+    if frontmatter then Frontmatter.require ();
     { profile
+    ; frontmatter
+    ; front = (if frontmatter then Start else Body None)
     ; locs
     ; chunks = []
     ; partial = []
@@ -976,8 +1142,9 @@ module Stream = struct
       t.ids
   ;;
 
-  (* One whole line. A line that leaves the fold idle ends the piece. *)
-  let line t l =
+  (* One whole line after the frontmatter. A line that leaves the fold idle
+     ends the piece. *)
+  let body_line t l =
     let stp, _ = Doc.fold_step ~locs:t.locs t.profile in
     match K.Reparse.cut stp [ l ] t.pending with
     | [], p ->
@@ -992,6 +1159,50 @@ module Stream = struct
         ; pending = p
         ; ids
         } )
+  ;;
+
+  (* The held lines turned out not to be frontmatter. *)
+  let release t ls =
+    List.fold_left
+      (fun (acc, t) l ->
+         let bs, t = body_line t l in
+         acc @ bs, t)
+      ([], { t with front = Body None })
+      ls
+  ;;
+
+  (* One whole line. *)
+  let line t l =
+    match t.front with
+    | Body _ -> body_line t l
+    | Start when Frontmatter.is_delim l -> [], { t with front = Held [ l ] }
+    | Start -> release t [ l ]
+    | Held ls when Frontmatter.is_delim l ->
+      let ls = List.rev ls in
+      let text = String.concat "" (List.map (fun l -> l ^ "\n") (List.tl ls)) in
+      let close = String.length (List.hd ls) + 1 + String.length text in
+      (match Frontmatter.of_payload ~text ~close ~close_len:(String.length l) with
+       | Some (_, n) as found -> [], { t with front = Body found; offset = n }
+       | None -> release t (ls @ [ l ]))
+    | Held ls -> [], { t with front = Held (l :: ls) }
+  ;;
+
+  (* As if input ended here, for the frontmatter: the unfinished line can
+     be its closing [---], and lines still held are not frontmatter. *)
+  let settle t =
+    match t.front with
+    | Body _ -> [], t
+    | Start | Held _ ->
+      let bs, t =
+        match t.partial with
+        | [] -> [], t
+        | parts -> line { t with partial = [] } (String.concat "" (List.rev parts))
+      in
+      (match t.front with
+       | Held ls ->
+         let bs', t = release t (List.rev ls) in
+         bs @ bs', t
+       | Start | Body _ -> bs, t)
   ;;
 
   let feed_string t s =
@@ -1021,12 +1232,18 @@ module Stream = struct
     cs @ K.Reparse.close fin p
   ;;
 
-  let peek t = snd (unreturned t (K.Reparse.pieces_tree (ended t)))
+  let peek t =
+    let bs, t = settle t in
+    bs @ snd (unreturned t (K.Reparse.pieces_tree (ended t)))
+  ;;
 
   let finish t =
+    let _, t = settle t in
     Source.of_pieces
       ~profile:t.profile
       ~locs:t.locs
+      ~frontmatter:t.frontmatter
+      ?front:(match t.front with Body f -> f | Start | Held _ -> None)
       (String.concat "" (List.rev t.chunks))
       (List.rev_append t.pieces (ended t))
   ;;
