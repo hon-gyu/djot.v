@@ -91,32 +91,24 @@ let split_lines = (fun s -> match List.rev (String.split_on_char '\n' s) with
 type source_line = { source_line_start : int; source_line_length : int;
                      source_line_ending : int }
 
-(** val line_table_aux : string -> int -> int -> source_line list **)
-
-let rec line_table_aux s start len =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ ->
-    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-      (fun _ -> [])
-      (fun _ -> { source_line_start = start; source_line_length = len;
-      source_line_ending = 0 } :: [])
-      len)
-    (fun c rest ->
-    if (=) c '\n'
-    then { source_line_start = start; source_line_length = len;
-           source_line_ending = (Stdlib.succ
-           0) } :: (line_table_aux rest (Stdlib.succ (( + ) start len)) 0)
-    else line_table_aux rest start (Stdlib.succ len))
-    s
-
 (** val line_table : string -> source_line list **)
 
-let line_table s =
-  line_table_aux s 0 0
+let line_table = (fun s ->
+     let n = String.length s in
+     let rec go start acc =
+       match String.index_from_opt s start '\n' with
+       | Some i ->
+         go (i + 1)
+           ({ source_line_start = start; source_line_length = i - start;
+              source_line_ending = 1 } :: acc)
+       | None ->
+         List.rev
+           (if start < n
+            then { source_line_start = start; source_line_length = n - start;
+                   source_line_ending = 0 } :: acc
+            else acc)
+     in
+     go 0 [])
 
 (** val source_line_at : source_line list -> int -> source_line option **)
 

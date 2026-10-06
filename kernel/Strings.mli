@@ -32,8 +32,6 @@ val split_lines : string -> string list
 type source_line = { source_line_start : int; source_line_length : int;
                      source_line_ending : int }
 
-val line_table_aux : string -> int -> int -> source_line list
-
 val line_table : string -> source_line list
 
 val source_line_at : source_line list -> int -> source_line option
