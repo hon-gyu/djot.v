@@ -101,43 +101,77 @@ Definition block_replace_holds : Prop :=
 Definition positions : Prop :=
   forall s, erase_doc (parse_doc_located s) = @parse_doc T K semantic_pos s.
 
+(* The shape every container's uniformity takes.  A container written
+   from `a` is the lines `lines a`; its contents are the line runs
+   `parts a`, one per item for a list and one for the other containers.
+   The container parses to `build a` of what each part parses to at top
+   level, whenever `ok a`.  `ok` is where the containers differ: it is
+   each container's rule for where it ends. *)
+Definition container_uniform {A : Type} (ok : A -> Prop)
+    (lines : A -> list string) (parts : A -> list (list string))
+    (build : A -> list blocks -> node block) : Prop :=
+  forall a, ok a ->
+    parse_lines (lines a) (PPara [])
+    = [build a (map (fun L => parse_lines L (PPara [])) (parts a))].
+
 Definition quote_uniform_holds : Prop :=
-  forall l lines,
-    parse_lines (map (fun x => "> " ++ x) (l :: lines)) (PPara [])
-    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+  container_uniform (fun _ => True)
+    (fun '(l, rest) => map (fun x => "> " ++ x) (l :: rest))
+    (fun '(l, rest) => [l :: rest])
+    (fun _ bss => mk (BlockQuote (concat bss))).
 
 Definition list_uniform : Prop :=
-  forall m0 sp L0 tail,
-    marker_ok m0 = true ->
-    items_ok m0 ((m0, L0) :: tail) = true ->
-    parse_lines (list_lines sp (map litem_lines ((m0, L0) :: tail))) (PPara [])
-    = [marker_list_checked m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
-         (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))
-         (map (fun it => parse_lines (snd it) (PPara [])) ((m0, L0) :: tail))].
+  container_uniform
+    (fun '(m0, _, L0, tail) =>
+       marker_ok m0 = true /\ items_ok m0 ((m0, L0) :: tail) = true)
+    (fun '(m0, sp, L0, tail) =>
+       list_lines sp (map litem_lines ((m0, L0) :: tail)))
+    (fun '(m0, _, L0, tail) => map snd ((m0, L0) :: tail))
+    (fun '(m0, sp, L0, tail) =>
+       marker_list_checked m0 (list_spacing_of sp (map snd ((m0, L0) :: tail)))
+         (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))).
 
 Definition definition_list_uniform : Prop :=
-  forall sp lss,
-    lss <> [] ->
-    forallb (item_ok colon) lss = true ->
-    parse_lines (list_lines sp (map litem_lines (same_marker colon lss)))
-      (PPara [])
-    = [mk (DefinitionList (list_spacing_of sp lss)
-             (def_items (map (fun L => parse_lines L (PPara [])) lss)))].
+  container_uniform
+    (fun '(_, lss) => lss <> [] /\ forallb (item_ok colon) lss = true)
+    (fun '(sp, lss) => list_lines sp (map litem_lines (same_marker colon lss)))
+    (fun '(_, lss) => lss)
+    (fun '(sp, lss) bss => mk (DefinitionList (list_spacing_of sp lss) (def_items bss))).
 
 Definition div_uniform : Prop :=
-  forall word content,
-    div_word_ok word = true ->
-    div_content_ok content = true ->
-    parse_lines (div_open_line div_fence word :: content ++ [div_fence])%list
-      (PPara [])
-    = [div_block word (parse_lines content (PPara []))].
+  container_uniform
+    (fun '(word, content) =>
+       div_word_ok word = true /\ div_content_ok content = true)
+    (fun '(word, content) =>
+       (div_open_line div_fence word :: content ++ [div_fence])%list)
+    (fun '(_, content) => [content])
+    (fun '(word, _) bss => div_block word (concat bss)).
 
+(* The opener line holds the first line of the contents after the label;
+   the rest are indented past the opener.  `ok` asks that the first line
+   leave no column for the shift to move, which is what a list there
+   breaks (`footnote_list_shift_counterexample`). *)
+Definition footnote_wrapped_uniform : Prop :=
+  container_uniform
+    (fun '(opener, lbl, first, rest) =>
+       classify opener = KFoot lbl first
+       /\ pad_state (consumed opener first) (snd (step first (PPara [])))
+          = snd (step first (PPara []))
+       /\ forallb (fun x => (is_blank x || Nat.ltb (indent_of opener) (indent_of x))%bool)
+            rest = true)
+    (fun '(opener, _, _, rest) => opener :: rest)
+    (fun '(_, _, first, rest) => [first :: rest])
+    (fun '(_, lbl, _, _) bss => foot_block lbl (concat bss)).
+
+(* Lines indented under an open footnote stay in it, from any state it
+   was opened in. *)
 Definition footnote_uniform : Prop :=
-  forall lines range ind lbl done inner,
-    forallb (fun l => (is_blank l || Nat.ltb ind (indent_of l))%bool) lines
-    = true ->
-    parse_lines lines (PFoot range ind lbl done inner)
-    = [foot_block lbl (rev done ++ parse_lines lines inner)%list].
+  footnote_wrapped_uniform
+  /\ forall lines range ind lbl done inner,
+       forallb (fun l => (is_blank l || Nat.ltb ind (indent_of l))%bool) lines
+       = true ->
+       parse_lines lines (PFoot range ind lbl done inner)
+       = [foot_block lbl (rev done ++ parse_lines lines inner)%list].
 
 (* [every] says the underline condition is not needed. *)
 Definition lazy_lines (every : bool) : Prop :=
@@ -226,7 +260,7 @@ Lemma callout_quote_not_uniform : forall o,
   o_callouts o = true -> ~ quote_uniform_holds (o_inline o) (bconfig_of o).
 Proof.
   intros [[C ok] li se ta hc dv tk rb dl ba ke co] Hc H. cbn in Hc. subst co.
-  specialize (H "[!note] Title" ["body"]). apply (f_equal one_quote) in H.
+  specialize (H ("[!note] Title", ["body"]) I). apply (f_equal one_quote) in H.
   destruct li, se, ke, (dc_footnotes C) eqn:Ef, (dc_tags C) eqn:Et;
     lazy in H; discriminate H.
 Qed.
@@ -370,7 +404,8 @@ Program Definition p_quote_uniformity : property := {|
   p_holds := at_profile quote_uniform_holds
 |}.
 Next Obligation.
-  intros l lines. apply quote_uniformity. apply quote_uniform_sound.
+  intros [l lines] _. cbn [map concat]. rewrite app_nil_r.
+  apply quote_uniformity. apply quote_uniform_sound.
   destruct (quote_uniform o); [reflexivity | discriminate H].
 Qed.
 Next Obligation.
@@ -387,7 +422,10 @@ Program Definition p_list_uniformity : property := {|
   p_status := always (Conditional "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.");
   p_holds := at_profile list_uniform
 |}.
-Next Obligation. exact (@list_uniformity _ _). Qed.
+Next Obligation.
+  intros [[[m0 sp] L0] tail] [Hm Hok]. rewrite map_map.
+  exact (list_uniformity m0 sp L0 tail Hm Hok).
+Qed.
 
 Program Definition p_definition_list_uniformity : property := {|
   p_id := "definition-list-uniformity";
@@ -401,8 +439,8 @@ Program Definition p_definition_list_uniformity : property := {|
   p_holds := at_profile definition_list_uniform
 |}.
 Next Obligation.
-  intros sp lss. apply definition_list_uniformity. cbn.
-  destruct (o_deflists o); [reflexivity | discriminate H].
+  intros [sp lss] [Hne Hok]. apply definition_list_uniformity; [|exact Hne|exact Hok].
+  cbn. destruct (o_deflists o); [reflexivity | discriminate H].
 Qed.
 
 Program Definition p_div_uniformity : property := {|
@@ -415,8 +453,9 @@ Program Definition p_div_uniformity : property := {|
   p_holds := at_profile div_uniform
 |}.
 Next Obligation.
-  intros word content. apply div_uniformity. cbn.
-  destruct (o_divs o); [reflexivity | discriminate H].
+  intros [word content] [Hw Hc]. cbn [map concat]. rewrite app_nil_r.
+  apply div_uniformity; [|exact Hw|exact Hc].
+  cbn. destruct (o_divs o); [reflexivity | discriminate H].
 Qed.
 
 Program Definition p_footnote_uniformity : property := {|
@@ -424,15 +463,23 @@ Program Definition p_footnote_uniformity : property := {|
   p_group := uniformity;
   p_statement := "Lines indented under a footnote belong to it, cannot affect anything outside it, and parse as they would at top level.";
   p_implication := "Moving text into a footnote does not change its meaning.";
-  p_theorems := ["footnote_content_uniformity"; "footnote_text_uniformity";
-                 "footnote_list_shift_counterexample"];
+  p_theorems := ["footnote_content_uniformity"; "footnote_unshifted_uniformity";
+                 "footnote_text_uniformity"; "footnote_list_shift_counterexample"];
   p_status := fun o =>
     if dc_footnotes (@cfg (o_inline o))
     then Conditional "Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker."
     else Inapplicable "Footnotes are off";
   p_holds := at_profile footnote_uniform
 |}.
-Next Obligation. exact (@footnote_content_uniformity _ _). Qed.
+Next Obligation.
+  split; [|exact (@footnote_content_uniformity _ _)].
+  intros [[[opener lbl] first] rest] [Hc [Hp Hr]]. cbn [map concat].
+  rewrite app_nil_r.
+  destruct (step first (PPara [])) as [bs inner] eqn:Es.
+  apply (footnote_unshifted_uniformity opener lbl first rest bs inner);
+    [|exact Hc|exact Es|exact Hp|exact Hr].
+  cbn. destruct (dc_footnotes (@cfg (o_inline o))); [reflexivity | discriminate H].
+Qed.
 
 Program Definition p_lazy_lines : property := {|
   p_id := "lazy-lines";
