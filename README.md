@@ -83,6 +83,18 @@ The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
 switch on with `Profile.with_ext_wikilinks`, `Profile.with_ext_keyed`, and
 `Profile.with_ext_callouts`.
 
+The `djot` command is built when cmdliner and `djot.json` are available.
+Its subcommands `html`, `djot`, `json` and `ast` render a file, or stdin,
+to HTML, djot, djot.js's JSON AST, and an indented tree.  `--from json`
+reads the JSON back, `html --doc` writes a complete page, and the profile
+switches are options such as `--no-tables` and `--ext-wikilinks`;
+`djot --help` lists them.
+
+```sh
+djot html --doc --frontmatter notes.dj > notes.html
+djot json notes.dj | jq '...' | djot html --from json
+```
+
 The extracted modules are the `djot.kernel` library (`Djot.Kernel`).
 They mirror the Rocq ones and speak the extracted representation, with
 numbers as OCaml `int`.  `test/api.ml` tests the hand-written API,
