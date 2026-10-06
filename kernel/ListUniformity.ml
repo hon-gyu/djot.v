@@ -48,13 +48,15 @@ let rec run_safe t k lines st =
     dtable -> bconfig -> bool -> bool -> pstate -> string list -> bool **)
 
 let rec lines_loose t k loose gap st = function
-| [] -> loose
+| [] -> (||) loose ((&&) (attr_waits st) gap)
 | l :: rest ->
   let st' = snd (step t k semantic_line_ix semantic_pos l st) in
   (match classify l with
-   | KBlank -> lines_loose t k loose true st' rest
+   | KBlank ->
+     lines_loose t k ((||) loose ((&&) (stops_waiting st st') gap)) true st'
+       rest
    | x ->
-     (match line_fate k 0 l x st with
+     (match fate_after st st' (line_fate k 0 l x st) with
       | Spends -> lines_loose t k ((||) loose gap) false st' rest
       | Clears -> lines_loose t k loose false st' rest
       | Waits -> lines_loose t k loose gap st' rest))
