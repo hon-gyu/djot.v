@@ -384,7 +384,7 @@ Program Definition p_list_uniformity : property := {|
   p_statement := "Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.";
   p_implication := "Moving text into or out of a list item does not change its meaning.";
   p_theorems := ["list_uniformity"; "ordered_uniformity"];
-  p_status := always Proved;
+  p_status := always (Conditional "For items in which no block attribute spans several lines, and that do not end inside a code block, on a block attribute, or on a blank line.");
   p_holds := at_profile list_uniform
 |}.
 Next Obligation. exact (@list_uniformity _ _). Qed.
@@ -396,7 +396,8 @@ Program Definition p_definition_list_uniformity : property := {|
   p_implication := "Moving text into or out of a definition does not change its meaning.";
   p_theorems := ["definition_list_uniformity"];
   p_status := fun o =>
-    if o_deflists o then Proved else Inapplicable "Definition lists are off";
+    if o_deflists o then Conditional "For items in which no block attribute spans several lines, and that do not end inside a code block, on a block attribute, or on a blank line."
+    else Inapplicable "Definition lists are off";
   p_holds := at_profile definition_list_uniform
 |}.
 Next Obligation.
