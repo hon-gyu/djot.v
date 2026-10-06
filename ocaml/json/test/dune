@@ -1,4 +1,14 @@
 (test
  (name json)
+ (modules json)
  (enabled_if %{lib-available:djot.json})
  (libraries djot djot.json jsont jsont.bytesrw))
+
+(test
+ (name frontmatter)
+ (modules frontmatter)
+ (enabled_if
+  (and
+   %{lib-available:djot.json}
+   %{lib-available:yaml}))
+ (libraries djot djot.json))

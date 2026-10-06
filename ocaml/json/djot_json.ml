@@ -589,6 +589,34 @@ let auto_id_nodes (d : Doc.t) : Block.t node list =
   |> snd
 ;;
 
+(* A frontmatter value is the JSON of the same shape. *)
+let frontmatter_fields : (string * Frontmatter.value) list Jsont.t =
+  let rec enc : Frontmatter.value -> Jsont.json = function
+    | `Null -> Jsont.Json.null ()
+    | `Bool b -> Jsont.Json.bool b
+    | `Float f -> Jsont.Json.number f
+    | `String s -> Jsont.Json.string s
+    | `A vs -> Jsont.Json.list (List.map enc vs)
+    | `O ms -> Jsont.Json.object' (List.map enc_mem ms)
+  and enc_mem (k, v) = Jsont.Json.mem (Jsont.Json.name k) (enc v) in
+  let rec dec : Jsont.json -> Frontmatter.value = function
+    | Null _ -> `Null
+    | Bool (b, _) -> `Bool b
+    | Number (f, _) -> `Float f
+    | String (s, _) -> `String s
+    | Array (vs, _) -> `A (List.map dec vs)
+    | Object (ms, _) -> `O (List.map dec_mem ms)
+  and dec_mem ((k, _), v) = k, dec v in
+  Jsont.map
+    ~kind:"frontmatter"
+    Jsont.json_object
+    ~enc:(fun ms -> Jsont.Json.object' (List.map enc_mem ms))
+    ~dec:(fun (j : Jsont.json) ->
+      match j with
+      | Object (ms, _) -> List.map dec_mem ms
+      | _ -> error "frontmatter is an object")
+;;
+
 (* Encoding only: a [Doc.t] is not built from blocks.  Definitions are
    listed in [references] and [footnotes] and left out of the blocks. *)
 let doc (d : Doc.t) : Doc.t Jsont.t =
@@ -618,6 +646,8 @@ let doc (d : Doc.t) : Doc.t Jsont.t =
   in
   O.enc_only ~kind:"doc" ()
   |> O.mem "tag" Jsont.string ~enc:(Fun.const "doc")
+  |> O.opt_mem "frontmatter" frontmatter_fields ~enc:(fun d ->
+    Option.map (fun (fm : Frontmatter.t) -> fm.fields) (Doc.frontmatter d))
   |> O.mem "references" defs ~enc:(fun d -> List.map reference (Doc.references d))
   |> O.mem "autoReferences" defs ~enc:(fun d ->
     List.map reference (Doc.auto_references d))
@@ -631,12 +661,18 @@ let doc (d : Doc.t) : Doc.t Jsont.t =
 let made ?profile () : Doc.t Jsont.t =
   let block = block_at ~derived:false no_loc inline in
   let defs = Jsont.map (assoc ~kind:"definitions" block) ~dec:(List.map snd) in
-  let dec tag references footnotes children =
+  let dec tag frontmatter references footnotes children =
     if tag <> "doc" then error "a document has the tag \"doc\"";
-    Doc.make ?profile (children @ references @ footnotes)
+    let frontmatter =
+      match Option.map Frontmatter.make frontmatter with
+      | fm -> fm
+      | exception Invalid_argument e -> error "%s" e
+    in
+    Doc.make ?profile ?frontmatter (children @ references @ footnotes)
   in
   O.map ~kind:"doc" dec
   |> O.mem "tag" Jsont.string
+  |> O.opt_mem "frontmatter" frontmatter_fields
   |> O.mem "references" defs ~dec_absent:[]
   |> O.mem "footnotes" defs ~dec_absent:[]
   |> O.mem "children" (Jsont.list block)

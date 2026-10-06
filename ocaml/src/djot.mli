@@ -477,15 +477,31 @@ module Frontmatter : sig
     | `O of (string * value) list
     ]
 
-  type t =
+  (** [fields] is always what [text] reads as. *)
+  type t = private
     { fields : (string * value) list
       (** The mapping, in source order; empty when there is no line between the
           delimiters. *)
     ; text : string (** The lines between the delimiters, as written. *)
     ; loc : Textloc.t
       (** From the opening [---] to the closing one. Set whether or not the parse records
-          positions. *)
+          positions; {!Textloc.none} when made by {!make} or {!of_string}. *)
     }
+
+  (** The frontmatter with these fields. Its text is the YAML the [yaml] package writes
+      for them, and no line for no field.
+
+      @raise Invalid_argument
+        if that YAML does not read back as the fields, or if the library was built
+        without [yaml]. *)
+  val make : (string * value) list -> t
+
+  (** The frontmatter with this text between its delimiters. A newline is added when the
+      text does not end with one. [None] when the text is not a YAML mapping, or has a
+      [---] line, which would end the frontmatter.
+
+      @raise Invalid_argument if the library was built without [yaml]. *)
+  val of_string : string -> t option
 end
 
 (** {1 Documents} *)
@@ -522,8 +538,13 @@ module Doc : sig
 
       The document has no positions: {!textloc} gives {!Textloc.none}.
 
-      @param profile what {!to_string} writes for; default {!Profile.djot} *)
-  val make : ?profile:Profile.t -> Block.t node list -> t
+      @param profile what {!to_string} writes for; default {!Profile.djot}
+      @param frontmatter default none *)
+  val make : ?profile:Profile.t -> ?frontmatter:Frontmatter.t -> Block.t node list -> t
+
+  (** The document with this frontmatter, or none. Its blocks keep their positions, which
+      are in the text the document was parsed from. *)
+  val with_frontmatter : Frontmatter.t option -> t -> t
 
   (** The document as djot source, in the syntax of the profile it was parsed with. An
       identifier in {!auto_identifiers} is not written.
