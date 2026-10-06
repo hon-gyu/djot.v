@@ -42,8 +42,8 @@ to a nested list.  A blank between two items always counts.
 The parser has followed this since 2026-10-05 (`Step.line_fate`); the
 case sections below say what changed.  Block attributes with no block
 after them are proposed as a block of their own (2026-10-06, see
-"Dangling block attributes"); the parser and the proofs do not follow
-that yet.
+"Dangling block attributes"); the parser decides tightness as if they
+were one since 2026-10-06, and still drops them from the AST.
 
 ## Proposal: a definition for the syntax reference
 
@@ -56,8 +56,8 @@ the item; the change to the List item section says they are not.
 It decides the first two shapes of C1 (below) loose, C2 loose, D1 loose,
 the open code block in group A loose, and an attribute line before a
 nested list (jgm/djot issue #200) tight.  The parser and the proofs
-follow it since 2026-10-05, except the Block attributes change, added
-2026-10-06.
+follow it since 2026-10-05.  The Block attributes change, added
+2026-10-06, the parser follows for tightness only.
 
 ### Why the reference needs changing
 
@@ -344,8 +344,9 @@ Notes, not for the reference:
 
 ### Dangling block attributes
 
-Proposed 2026-10-06; the parser, the AST and the proofs do not follow it
-yet.
+Proposed 2026-10-06.  The parser decides tightness as if the attributes
+were a block since 2026-10-06; the AST does not have the block yet, and
+the parser still drops them.
 
 Block attributes "attach to a block-level element" on "the line
 immediately before the block".  The reference defines them by that job
@@ -358,10 +359,12 @@ needs no further reading.  A reference definition is the precedent: a
 block that renders nothing where it stands (`RefDef` in `Ast.v`).  A
 line holding only a comment, `{% ... %}`, is the common case.
 
-What the parser and djot.js (`d7c3904`) give today, run 2026-10-06, and
-what the proposal gives.  "Tight" and "loose" are about the outer list.
+What the parser gave before the tightness change, what djot.js
+(`d7c3904`) gives, run 2026-10-06, and what the proposal gives.  The
+parser now gives the proposal's answer on each.  "Tight" and "loose"
+are about the outer list.
 
-1. Today: ours loose, `{.x}` dropped; djot.js loose, `{.x}` put on item
+1. Before: ours loose, `{.x}` dropped; djot.js loose, `{.x}` put on item
    `b`.  Proposal: loose, the blank between `a` and the attribute block.
 
    ```
@@ -371,7 +374,7 @@ what the proposal gives.  "Tight" and "loose" are about the outer list.
    - b
    ```
 
-2. Today: loose, both.  Proposal: loose, the blank between the attribute
+2. Before: loose, both.  Proposal: loose, the blank between the attribute
    block and `a`.  Read without the proposal, "between blocks" says
    tight here, since the item's only block is `a`.
 
@@ -382,7 +385,7 @@ what the proposal gives.  "Tight" and "loose" are about the outer list.
    - b
    ```
 
-3. Today: loose, both.  Proposal: loose.
+3. Before: loose, both.  Proposal: loose.
 
    ```
    - a
@@ -392,10 +395,10 @@ what the proposal gives.  "Tight" and "loose" are about the outer list.
    - b
    ```
 
-4. Today: ours tight, djot.js loose.  Proposal: loose, the blank between
-   `a` and the attribute block.  The one tightness change: today the
-   blank waits for a line to decide it, and the attribute line passes it
-   on to a line that never comes.
+4. Before: ours tight, djot.js loose.  Proposal: loose, the blank
+   between `a` and the attribute block.  Before, the blank waited for a
+   line to decide it, and the attribute line passed it on to a line that
+   never came.
 
    ```
    - a
@@ -403,8 +406,8 @@ what the proposal gives.  "Tight" and "loose" are about the outer list.
      {.x}
    ```
 
-5. Today: the attribute dropped, both.  Proposal: an attribute block,
-   then the paragraph.
+5. Before and now: the attribute dropped, both.  Proposal: an attribute
+   block, then the paragraph.
 
    ```
    {.x}
@@ -412,7 +415,31 @@ what the proposal gives.  "Tight" and "loose" are about the outer list.
    para
    ```
 
-What the change takes:
+Tightness, done 2026-10-06.  A blank that block attributes left
+waiting counts when they stop waiting without a block: when a blank
+drops them, when a spec fails and becomes a paragraph, or when the list
+closes on them (`Step.stops_waiting`, `fate_after`, `list_settle`).
+Besides input 4, this changes:
+
+```
+- a
+
+  {.x}
+
+  - b
+```
+
+which is loose (was tight: the nested list cleared the blank), the same
+shape one list down, where the nested list is now loose, and a spec left
+unfinished or failing after a blank, whose paragraph the blank now
+separates from `a`.  Pinned: the `list_blank_before_dangling_*`,
+`list_blank_before_stacked_dangling_attributes`,
+`list_blank_before_unfinished_spec` and `list_blank_before_failed_spec`
+examples.  The theorems in `Tightness.v` do not reach these inputs:
+`run_safe` excludes an attribute spec at a line boundary, which every
+attribute line leaves.
+
+What the rest of the change takes:
 
 - A block constructor in `Ast.v` with no payload; the node carries the
   attributes.  Every match on `block` gains a case: well-formedness, the HTML
@@ -423,9 +450,11 @@ What the change takes:
 - `Step`: a blank or the end of a container after a pending attribute
   emits the block instead of dropping it.  The idle state a drop leaves
   behind goes, and with it the `PPend` case of `blank_safe`; whether
-  `run_safe` can then lose its end condition is to be checked.
+  `run_safe` can then lose its end condition is to be checked.  The
+  tightness rule above then reads off the emitted block.
 - `Tightness.settles_blank` stops skipping an attribute line that has no
-  block after it.
+  block after it, and the theorems are extended to items with attribute
+  lines.
 - The djot.js comparison erases the block before comparing.
 
 Not a parser switch.  With the attribute as no block, the tightness rule
@@ -445,7 +474,7 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 | B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
 | D | 2 shapes where our parser was inconsistent | both fixed |
-| | attributes with no block after them | proposed as a block of their own (2026-10-06); not implemented |
+| | attributes with no block after them | proposed as a block of their own (2026-10-06); tightness follows it, the AST block is not implemented |
 
 ## A. Agreed, not in question
 
@@ -841,7 +870,8 @@ This does not depend on C2.
 ## Where it lives
 
 - Parser: `line_fate`, `keeps_line`, `holds_list`, `list_content`,
-  `list_next` and, for a code block left open, `finish` in `Step.v`.
+  `list_next`, `fate_after` and `list_settle` (attributes that attach to
+  no block) and, for a code block left open, `finish` in `Step.v`.
 - The scan the renderer and the uniformity theorems use: `lines_loose`,
   `item_loose`, `seps_loosen`, `list_spacing_of` in `ListUniformity.v`.
 - The rule and its proofs: `Tightness.v`; plan and proof notes in

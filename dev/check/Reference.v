@@ -1874,6 +1874,118 @@ x
 ".
 Proof. vm_compute. reflexivity. Qed.
 
+Example list_blank_before_dangling_attribute_at_end :
+  convert "- a
+
+  {.x}
+"
+  = "<ul>
+<li>
+<p>a</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_dangling_attribute_then_nested_list :
+  convert "- a
+
+  {.x}
+
+  - b
+"
+  = "<ul>
+<li>
+<p>a</p>
+<ul>
+<li>
+b
+</li>
+</ul>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_dangling_attribute_in_nested_list :
+  convert "- - a
+
+    {.x}
+- b
+"
+  = "<ul>
+<li>
+<ul>
+<li>
+<p>a</p>
+</li>
+</ul>
+</li>
+<li>
+b
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_stacked_dangling_attributes :
+  convert "- a
+
+  {.x}
+  {.y}
+"
+  = "<ul>
+<li>
+<p>a</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_unfinished_spec :
+  convert "- a
+
+  {.x
+"
+  = "<ul>
+<li>
+<p>a</p>
+<p>{.x</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_failed_spec :
+  convert "- a
+
+  {.x
+  oops
+"
+  = "<ul>
+<li>
+<p>a</p>
+<p>{.x
+oops</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
+Example list_blank_before_dangling_attribute_over_two_lines :
+  convert "- a
+
+  {.x
+   .y}
+"
+  = "<ul>
+<li>
+<p>a</p>
+</li>
+</ul>
+".
+Proof. vm_compute. reflexivity. Qed.
+
 (*
 Code block
 ----------

@@ -2832,7 +2832,7 @@ Proof.
     cbn [state_wf] in H. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
     cbn [finish]; nopos. rewrite wf_blocks_cons, andb_true_r.
-    apply wf_list_block.
+    apply wf_list_block. unfold list_settle. cbn [ls_items].
     rewrite nonempty_rev, forallb_rev. cbn [nonempty forallb].
     rewrite wf_blocks_app, wf_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
@@ -3280,7 +3280,7 @@ Proof.
       split; [reflexivity|].
       cbn [state_wf].
       (* the blank only arms `ls_blanks`, so `ls_items` is untouched *)
-      cbn [ls_items list_blank];
+      unfold list_settle; cbn [ls_items list_blank];
         rewrite Hitems, wf_blocks_app, wf_blocks_rev, Hb, Hd; exact Hs. }
     6: { (* attribute spec: item contents when indented, else close *)
       destruct (list_takes ls off l inner).
@@ -3865,7 +3865,7 @@ Proof.
   - cbn [state_supported] in H. apply andb_true_iff in H as [H1 Hi].
     apply andb_true_iff in H1 as [Hitems Hd].
     cbn [finish]; nopos. rewrite supported_blocks_cons.
-    rewrite supported_list_block, forallb_rev. cbn [forallb].
+    rewrite supported_list_block, forallb_rev. unfold list_settle. cbn [forallb ls_items].
     rewrite supported_blocks_app, supported_blocks_rev, Hd, (IH Hi), Hitems.
     reflexivity.
   - cbn [finish]; nopos. destruct (ap_done aap); [reflexivity|].
@@ -4184,7 +4184,7 @@ Proof.
          cbn [fst snd] in Hb, Hs |- *.
          split; [reflexivity|].
          cbn [state_supported].
-         cbn [ls_items list_blank];
+         unfold list_settle; cbn [ls_items list_blank];
            rewrite Hitems, supported_blocks_app, supported_blocks_rev, Hb, Hd;
            exact Hs. }
     6: { destruct (list_takes ls off l inner).

@@ -161,6 +161,12 @@ val pstate_depth : pstate -> int
 
 val is_idle : pstate -> bool
 
+val attr_waits : pstate -> bool
+
+val stops_waiting : pstate -> pstate -> bool
+
+val list_settle : bool -> list_state -> list_state
+
 val heading_block :
   dtable -> coq_PosPolicy -> int -> stored_line list -> block node
 
@@ -301,6 +307,8 @@ val keeps_line : bconfig -> int -> string -> pstate -> bool
 val spec_open : pstate -> bool
 
 val line_fate : bconfig -> int -> string -> line_kind -> pstate -> blank_fate
+
+val fate_after : pstate -> pstate -> blank_fate -> blank_fate
 
 val list_next :
   coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state

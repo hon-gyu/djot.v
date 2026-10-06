@@ -987,6 +987,35 @@ Fixpoint pstate_depth (st : pstate) : nat :=
 Definition is_idle (st : pstate) : bool :=
   match st with PPara [] => true | _ => false end.
 
+(* Block attributes with no block under them yet: a spec still open, or
+   finished and pending over nothing. *)
+Definition attr_waits (st : pstate) : bool :=
+  match st with
+  | PAttr _ _ _ _ _ _ => true
+  | PPend _ _ inner => is_idle inner
+  | _ => false
+  end.
+
+(* Attributes that were waiting for a block before a line and are not
+   after it.  Asked only where the line opens no block they could attach
+   to: a blank, or a line a spec was waiting on, so they were dropped or
+   the spec failed. *)
+Definition stops_waiting (inner inner' : pstate) : bool :=
+  (attr_waits inner && negb (attr_waits inner'))%bool.
+
+(* Spend the armed blank into looseness when `b`.  For a blank that block
+   attributes left waiting (`line_fate`) when they attach to no block:
+   they are then a block of their own, or a paragraph if the spec failed,
+   and the blank lay between it and the block before
+   (`.project/list-tightness.md`, "Dangling block attributes"). *)
+Definition list_settle (b : bool) (ls : list_state) : list_state :=
+  LSt (ls_indent ls) (ls_extent ls) (ls_item_extent ls)
+      (ls_item_extents ls) (ls_styles ls) (ls_loose ls || (b && ls_blanks ls))%bool
+      (ls_blanks ls) (ls_items ls) (ls_check ls) (ls_checks ls).
+
+Lemma list_settle_false : forall ls, list_settle false ls = ls.
+Proof. intros []. unfold list_settle. cbn. rewrite orb_false_r. reflexivity. Qed.
+
 (* End of input (or of an enclosing container): close everything still
    open, outermost result first. *)
 (* A heading's text lines become its inlines exactly as a paragraph's
@@ -1318,6 +1347,7 @@ Fixpoint finish (st : pstate) : blocks :=
       (* Bound once: a list nested in the item would otherwise be
          finished twice, and a line of `n` markers `2^n` times. *)
       let last := (rev done ++ finish inner)%list in
+      let ls := list_settle (attr_waits inner) ls in
       [set_pos (prov_at (extent_span (ls_extent ls)))
          (set_parts (list_parts ls last) (list_block ls last))]
   (* A spec still wanting continuation lines never was one: its lines are
@@ -1376,12 +1406,13 @@ Local Lemma finish_list_styles :
     finish (PList ls done inner)
     = [set_pos (prov_at (extent_span (ls_extent ls)))
          (set_parts (list_parts ls (rev done ++ finish inner)%list)
-            (styles_list_checked S (if ls_loose ls then Loose else Tight)
+            (styles_list_checked S
+               (if ls_loose (list_settle (attr_waits inner) ls) then Loose else Tight)
                (rev (ls_check ls :: ls_checks ls))
                (rev ((rev done ++ finish inner)%list :: ls_items ls))))].
 Proof.
   intros S ls done inner H. cbn [finish].
-  rewrite (list_block_styles S ls _ H). reflexivity.
+  rewrite (list_block_styles S (list_settle (attr_waits inner) ls) _ H). reflexivity.
 Qed.
 
 Local Lemma finish_list_marker :
@@ -1390,7 +1421,8 @@ Local Lemma finish_list_marker :
     finish (PList ls done inner)
     = [set_pos (prov_at (extent_span (ls_extent ls)))
          (set_parts (list_parts ls (rev done ++ finish inner)%list)
-            (marker_list_checked m (if ls_loose ls then Loose else Tight)
+            (marker_list_checked m
+               (if ls_loose (list_settle (attr_waits inner) ls) then Loose else Tight)
                (rev (ls_check ls :: ls_checks ls))
                (rev ((rev done ++ finish inner)%list :: ls_items ls))))].
 Proof.
@@ -1903,7 +1935,8 @@ Definition spec_open (st : pstate) : bool :=
    line a block the item has open keeps clears it.  Otherwise a block
    attribute, and every line of a spec still open, leave it to the block
    the attributes attach to, so that a blank before an attribute on a
-   nested list is a blank directly before the list; a line that opens a
+   nested list is a blank directly before the list, and spend it if they
+   attach to none (`fate_after`, `list_settle`); a line that opens a
    nested list clears it; and anything else spends it. *)
 Definition line_fate (off : nat) (l : string) (k : line_kind) (inner : pstate)
   : blank_fate :=
@@ -1914,6 +1947,14 @@ Definition line_fate (off : nat) (l : string) (k : line_kind) (inner : pstate)
        | KList _ _ _ _ => Clears
        | _ => Spends
        end.
+
+(* A blank left waiting, once the line is in: spent when the attributes
+   it waited on stop waiting, as a spec that failed does. *)
+Definition fate_after (inner inner' : pstate) (f : blank_fate) : blank_fate :=
+  match f with
+  | Waits => if stops_waiting inner inner' then Spends else Waits
+  | _ => f
+  end.
 
 (* A sibling marker closes the current item and opens the next.  A blank
    armed since the item's last content line is a blank between items, so
@@ -2126,9 +2167,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                  paragraph.  It arms every list it passes through, and
                  the next line decides, for each, whether it lay between
                  items, between blocks of the item, or inside a block
-                 (`list_next`, `line_fate`). *)
+                 (`list_next`, `line_fate`).  A blank that ends
+                 attributes still waiting for their block spends one
+                 armed before them (`list_settle`). *)
               let (bs, inner') := step_fuel n' off l inner in
-              ([], PList (list_blank ls) (rev bs ++ done)%list inner')
+              ([], PList (list_blank (list_settle (stops_waiting inner inner') ls))
+                     (rev bs ++ done)%list inner')
           | k =>
               if list_takes ls off l inner
               then
@@ -2139,7 +2183,7 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    is inline and verbatim text, the same open indentation
                    gap quotes and headings have. *)
                 let (bs, inner') := step_fuel n' off l inner in
-                ([], PList (list_content ls (line_fate off l k inner))
+                ([], PList (list_content ls (fate_after inner inner' (line_fate off l k inner)))
                        (rev bs ++ done)%list inner')
               else
                 match k with
@@ -2694,12 +2738,19 @@ Proof.
     try reflexivity; cbn [pad_state pstate_depth]; rewrite IH; reflexivity.
 Qed.
 
+Lemma pad_state_attr_waits :
+  forall n st, attr_waits (pad_state n st) = attr_waits st.
+Proof.
+  intros n st. destruct st as [| | | | | | | | | | |pend specs inner|]; try reflexivity.
+  destruct inner as [[|]| | | | | | | | | | | |]; reflexivity.
+Qed.
+
 (* finish reads a list's spacing and items, never its column. *)
 Lemma pad_state_finish :
   forall n st, finish (pad_state n st) = finish st.
 Proof.
   intros n st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [pad_state finish]; rewrite IH; reflexivity.
+    try reflexivity; cbn [pad_state finish]; rewrite ?pad_state_attr_waits, IH; reflexivity.
 Qed.
 
 Local Lemma pad_state_lazy_ok :
@@ -2724,6 +2775,18 @@ Local Lemma pad_list_blank :
     list_blank (ls_pad n ls)
     = ls_pad n (list_blank ls).
 Proof. intros n ls. destruct ls. reflexivity. Qed.
+
+Local Lemma pad_list_settle :
+  forall n b ls, list_settle b (ls_pad n ls) = ls_pad n (list_settle b ls).
+Proof. intros n b ls. destruct ls. reflexivity. Qed.
+
+Local Lemma pad_state_stops_waiting :
+  forall n st st', stops_waiting (pad_state n st) (pad_state n st') = stops_waiting st st'.
+Proof. intros n st st'. unfold stops_waiting. rewrite !pad_state_attr_waits. reflexivity. Qed.
+
+Local Lemma pad_state_fate_after :
+  forall n st st' f, fate_after (pad_state n st) (pad_state n st') f = fate_after st st' f.
+Proof. intros n st st' f. unfold fate_after. rewrite pad_state_stops_waiting. reflexivity. Qed.
 
 (* Padding never changes which constructor is on top, so the blank's
    "is a list open here" test is pad-invariant. *)
@@ -2862,7 +2925,7 @@ Local Lemma finish_pad_list :
     = finish (PList ls done inner).
 Proof.
   intros n ls done inner. cbn [finish].
-  rewrite (pad_state_finish n inner). destruct ls. reflexivity.
+  rewrite (pad_state_finish n inner), pad_state_attr_waits. destruct ls. reflexivity.
 Qed.
 
 Local Lemma finish_pad_div :
@@ -3066,32 +3129,32 @@ Proof.
     destruct (classify l) as [| |g|dl dc|rest|klvl krest|m mc chk mr|kap|flbl frest|rlbl rval|krow|] eqn:E; cbn [open_line is_lazy].
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_list_blank. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_stops_waiting, pad_list_settle, pad_list_blank. reflexivity. }
     all: rewrite pad_state_list_takes.
     all: destruct (list_takes ls off l inner) eqn:Elt.
     (* thematic *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* fence *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [close_reopen open_fence fst snd pad_state].
       rewrite finish_pad_list, Nat.add_assoc. reflexivity. }
     (* div *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@bdivs K); cbn [close_reopen fst snd pad_state];
       rewrite finish_pad_list; reflexivity. }
     (* quote *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { rewrite <- Nat.add_assoc.
       pose proof (IH k (off + consumed l rest) rest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -3104,13 +3167,13 @@ Proof.
     (* heading *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       rewrite finish_pad_list. reflexivity. }
     (* list marker *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { change (ls_styles (ls_pad k ls)) with (ls_styles ls).
       destruct (narrow (ls_styles ls) (configured_list_styles m chk))
         as [|s0 ss] eqn:Em.
@@ -3135,14 +3198,14 @@ Proof.
     (* attribute spec *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { unfold open_attr. destruct (@battrs K);
         cbn [close_reopen fst snd pad_state];
         rewrite ?Nat.add_assoc, finish_pad_list; reflexivity. }
     (* footnote definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { rewrite <- !Nat.add_assoc.
       pose proof (IH k (off + consumed l frest) frest (PPara [])) as H;
         cbn [pad_state] in H; rewrite H.
@@ -3153,20 +3216,20 @@ Proof.
     (* reference definition *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [close_reopen open_ref fst snd pad_state].
       rewrite Nat.add_assoc, finish_pad_list. reflexivity. }
     (* table row *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [is_lazy close_reopen open_kind fst snd pad_state].
       destruct (@btables K); cbn [close_reopen fst snd pad_state];
         rewrite finish_pad_list; reflexivity. }
     (* text *)
     { rewrite (IH k off l inner).
       destruct (step_fuel n off l inner) as [bs inner'] eqn:Ed.
-      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_list_content. reflexivity. }
+      cbn [fst snd pad_state]. rewrite pad_state_line_fate, pad_state_fate_after, pad_list_content. reflexivity. }
     { cbn [is_lazy]. rewrite pad_state_lazy_ok.
       destruct (lazy_ok inner) eqn:El.
       { cbn [pad_state]. rewrite pad_state_feed_lazy. reflexivity. }
@@ -3609,13 +3672,15 @@ Proof.
   rewrite step_at_idle, Hr. reflexivity.
 Qed.
 
-(* The blank arms this list, whatever the item has open. *)
+(* The blank arms this list, whatever the item has open, and spends one
+   armed before attributes it leaves with no block. *)
 Lemma step_list_blank :
   forall l ls done inner bs inner',
     classify l = KBlank ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_blank ls) (rev bs ++ done)%list inner').
+    ([], PList (list_blank (list_settle (stops_waiting inner inner') ls))
+           (rev bs ++ done)%list inner').
 Proof.
   intros l ls done inner bs inner' H Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H.
@@ -3640,7 +3705,8 @@ Lemma step_list_indented :
     Nat.ltb (ls_indent ls) (indent_of l) = true ->
     step l inner = (bs, inner') ->
     step l (PList ls done inner) =
-    ([], PList (list_content ls (line_fate 0 l k inner)) (rev bs ++ done)%list inner').
+    ([], PList (list_content ls (fate_after inner inner' (line_fate 0 l k inner)))
+           (rev bs ++ done)%list inner').
 Proof.
   intros l k ls done inner bs inner' H Hk Hind Hr. unfold step at 1.
   cbn [step_fuel open_line pstate_depth]. rewrite H, !Nat.add_0_l.
@@ -4203,6 +4269,17 @@ Fixpoint blank_safe (st : pstate) : bool :=
   | PPend _ _ inner => (blank_safe inner && negb (is_idle inner))%bool
   | _ => true
   end.
+
+(* A state a blank may meet has no attributes waiting: `blank_safe`
+   excludes an open spec and a pending one over nothing. *)
+Lemma blank_safe_attr_waits :
+  forall st, blank_safe st = true -> attr_waits st = false.
+Proof.
+  intros st H. destruct st as [| | | | | | | | | | |pend specs inner|]; try reflexivity.
+  - discriminate H.
+  - cbn [blank_safe] in H. apply andb_true_iff in H as [_ H].
+    cbn [attr_waits]. destruct (is_idle inner); [discriminate H|reflexivity].
+Qed.
 
 (* Two ways the override is ruled out.  A line that opens no
    announced-end block cannot be claimed by a key that is still waiting,
@@ -5055,6 +5132,13 @@ Proof.
   destruct (is_blank (snd x)); [exact IH|reflexivity].
 Qed.
 
+Local Lemma attr_waits_erase : forall `{T : dtable} (st : pstate),
+  attr_waits (StateErase.state st) = attr_waits st.
+Proof.
+  intros T st. destruct st as [| | | | | | | | | | |pend specs inner|]; try reflexivity.
+  destruct inner as [[|]| | | | | | | | | | | |]; reflexivity.
+Qed.
+
 Lemma finish_erase : forall `{T : dtable} `{K : bconfig} (st : pstate),
   Erase.of_blocks (@finish T K located_pos st) =
   @finish T K semantic_pos (StateErase.state st).
@@ -5093,8 +5177,9 @@ Proof.
       cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk];
       fold Erase.of_blocks;
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst; reflexivity.
-  - pose proof (@list_block_erase K ls (rev done ++ @finish T K located_pos st)%list) as H.
-    cbn [Erase.of_blocks] in H. rewrite H.
+  - pose proof (@list_block_erase K (list_settle (attr_waits st) ls)
+                  (rev done ++ @finish T K located_pos st)%list) as H.
+    cbn [Erase.of_blocks] in H. rewrite H, attr_waits_erase. destruct ls.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
   - destruct (Attributes.ap_done ap) eqn:E; [reflexivity|].
     unfold finish_para_recover. destruct slices as [|slice slices];
@@ -5132,6 +5217,18 @@ Qed.
 Local Lemma list_blank_erase : forall ls,
   StateErase.of_list_state (list_blank ls) = list_blank (StateErase.of_list_state ls).
 Proof. intros []; reflexivity. Qed.
+
+Local Lemma list_settle_erase : forall b ls,
+  StateErase.of_list_state (list_settle b ls) = list_settle b (StateErase.of_list_state ls).
+Proof. intros b []; reflexivity. Qed.
+
+Local Lemma stops_waiting_erase : forall `{T : dtable} st st',
+  stops_waiting (StateErase.state st) (StateErase.state st') = stops_waiting st st'.
+Proof. intros T st st'. unfold stops_waiting. rewrite !attr_waits_erase. reflexivity. Qed.
+
+Local Lemma fate_after_erase : forall `{T : dtable} st st' f,
+  fate_after (StateErase.state st) (StateErase.state st') f = fate_after st st' f.
+Proof. intros T st st' f. unfold fate_after. rewrite stops_waiting_erase. reflexivity. Qed.
 
 Local Lemma list_narrow_erase : forall ls ns,
   StateErase.of_list_state (list_narrow ls ns) = list_narrow (StateErase.of_list_state ls) ns.
@@ -5421,13 +5518,14 @@ Proof.
          destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'];
          unfold StateErase.result; cbn [fst snd StateErase.state];
          rewrite Erase.blocks_app, Erase.blocks_rev, list_content_erase,
-           line_fate_erase;
+           line_fate_erase, fate_after_erase;
          reflexivity).
     all: try (cbn [is_lazy]; apply close_reopen_line_erase; exact Hd).
     + rewrite <- (IH off l st).
       destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'].
       unfold StateErase.result; cbn [fst snd StateErase.state].
-      rewrite Erase.blocks_app, Erase.blocks_rev, list_blank_erase.
+      rewrite Erase.blocks_app, Erase.blocks_rev, list_blank_erase,
+        list_settle_erase, stops_waiting_erase.
       reflexivity.
     + cbn [ls_styles StateErase.of_list_state].
       destruct (narrow (ls_styles ls) (configured_list_styles sty chk))

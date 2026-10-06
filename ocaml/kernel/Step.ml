@@ -610,6 +610,27 @@ let is_idle = function
                 | _ :: _ -> false)
 | _ -> false
 
+(** val attr_waits : pstate -> bool **)
+
+let attr_waits = function
+| PAttr (_, _, _, _, _, _) -> true
+| PPend (_, _, inner) -> is_idle inner
+| _ -> false
+
+(** val stops_waiting : pstate -> pstate -> bool **)
+
+let stops_waiting inner inner' =
+  (&&) (attr_waits inner) (negb (attr_waits inner'))
+
+(** val list_settle : bool -> list_state -> list_state **)
+
+let list_settle b ls =
+  { ls_indent = ls.ls_indent; ls_extent = ls.ls_extent; ls_item_extent =
+    ls.ls_item_extent; ls_item_extents = ls.ls_item_extents; ls_styles =
+    ls.ls_styles; ls_loose = ((||) ls.ls_loose ((&&) b ls.ls_blanks));
+    ls_blanks = ls.ls_blanks; ls_items = ls.ls_items; ls_check = ls.ls_check;
+    ls_checks = ls.ls_checks }
+
 (** val heading_block :
     dtable -> coq_PosPolicy -> int -> stored_line list -> block node **)
 
@@ -831,8 +852,9 @@ let rec finish t k p = function
     (div_block k cls (app (rev done0) (finish t k p inner)))) :: []
 | PList (ls, done0, inner) ->
   let last0 = app (rev done0) (finish t k p inner) in
-  (set_pos p (prov_at (extent_span ls.ls_extent))
-    (set_parts p (list_parts k ls last0) (list_block k ls last0))) :: []
+  let ls0 = list_settle (attr_waits inner) ls in
+  (set_pos p (prov_at (extent_span ls0.ls_extent))
+    (set_parts p (list_parts k ls0 last0) (list_block k ls0 last0))) :: []
 | PAttr (pend, specs, _, _, ap, slices) ->
   if ap_done ap
   then []
@@ -1189,6 +1211,12 @@ let line_fate k off l k0 inner =
              | KAttr _ -> if k.battrs then Waits else Spends
              | _ -> Spends)
 
+(** val fate_after : pstate -> pstate -> blank_fate -> blank_fate **)
+
+let fate_after inner inner' f = match f with
+| Waits -> if stops_waiting inner inner' then Spends else Waits
+| _ -> f
+
 (** val list_next :
     coq_LineIx -> list_state -> blocks -> task_status -> string -> list_state **)
 
@@ -1319,11 +1347,15 @@ let rec step_fuel t k lI p n off l st =
        (match classify l with
         | KBlank ->
           let (bs, inner') = step_fuel t k lI p n' off l inner in
-          ([], (PList ((list_blank ls), (app (rev bs) done0), inner')))
+          ([], (PList
+          ((list_blank (list_settle (stops_waiting inner inner') ls)),
+          (app (rev bs) done0), inner')))
         | x ->
           if list_takes ls off l inner
           then let (bs, inner') = step_fuel t k lI p n' off l inner in
-               ([], (PList ((list_content lI ls (line_fate k off l x inner)),
+               ([], (PList
+               ((list_content lI ls
+                  (fate_after inner inner' (line_fate k off l x inner))),
                (app (rev bs) done0), inner')))
           else (match x with
                 | KList (sty, core, chk, rest) ->

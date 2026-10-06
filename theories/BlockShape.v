@@ -290,6 +290,9 @@ Proof. induction st; cbn [Shape.state in_fence]; auto. Qed.
 Local Lemma is_idle_shape : forall st, is_idle (Shape.state st) = is_idle st.
 Proof. intros []; reflexivity. Qed.
 
+Local Lemma attr_waits_shape : forall st, attr_waits (Shape.state st) = attr_waits st.
+Proof. intros []; try reflexivity. apply is_idle_shape. Qed.
+
 Local Lemma announces_end_shape : forall st,
   announces_end (Shape.state st) = announces_end st.
 Proof. intros []; reflexivity. Qed.
@@ -342,6 +345,10 @@ State updates
 Local Lemma list_blank_shape : forall ls,
   Shape.of_list_state (list_blank ls) = list_blank (Shape.of_list_state ls).
 Proof. intros []; reflexivity. Qed.
+
+Local Lemma list_settle_shape : forall b ls,
+  Shape.of_list_state (list_settle b ls) = list_settle b (Shape.of_list_state ls).
+Proof. intros b []; reflexivity. Qed.
 
 Local Lemma list_narrow_shape : forall ls ns,
   Shape.of_list_state (list_narrow ls ns) =
@@ -479,9 +486,9 @@ Proof.
       rewrite !Shape.blocks_cons; Shape.unfold_block;
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Shape.blocks_idem, IHst;
       reflexivity.
-  - rewrite list_block_shape, Shape.blocks_app, Shape.blocks_rev, IHst.
+  - rewrite attr_waits_shape, list_block_shape, Shape.blocks_app, Shape.blocks_rev, IHst.
     symmetry.
-    rewrite list_block_shape, Shape.list_state_idem, Shape.blocks_app,
+    rewrite list_block_shape, !list_settle_shape, Shape.list_state_idem, Shape.blocks_app,
       Shape.blocks_rev, Shape.blocks_idem.
     reflexivity.
   - destruct (ap_done ap); [reflexivity|].
@@ -675,7 +682,9 @@ Proof.
     destruct (classify l) eqn:E.
     all: try (rewrite list_takes_shape; destruct (list_takes ls off l st)).
     all: try (pose proof (IH off l st) as H; split_same H;
-         unfold Shape.result; cbn [fst snd Shape.state];
+         pose proof (f_equal attr_waits Hs) as Hw; rewrite !attr_waits_shape in Hw;
+         unfold Shape.result, fate_after, stops_waiting; cbn [fst snd Shape.state];
+         rewrite ?attr_waits_shape, ?Hw;
          rewrite ?list_content_shape, ?line_fate_shape, ?Shape.list_state_idem,
            !Shape.blocks_app, !Shape.blocks_rev, Hbs, Shape.blocks_idem, Hs;
          reflexivity).
@@ -684,8 +693,11 @@ Proof.
               apply open_line_shape; assumption).
     + pose proof (IH off l st) as H. split_same H.
       unfold Shape.result; cbn [fst snd Shape.state].
+      pose proof (f_equal attr_waits Hs) as Hw; rewrite !attr_waits_shape in Hw.
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Hbs, Shape.blocks_idem, Hs.
-      rewrite !list_blank_shape, Shape.list_state_idem; reflexivity.
+      unfold stops_waiting.
+      rewrite !list_blank_shape, !list_settle_shape, attr_waits_shape, Hw,
+        Shape.list_state_idem; reflexivity.
     + cbn [ls_styles Shape.of_list_state].
       destruct (narrow (ls_styles ls) (configured_list_styles sty chk))
         as [|p l0].
