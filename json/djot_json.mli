@@ -12,7 +12,9 @@
     - ["tight"] on a definition list;
     - ["name"] on a div or span that has one;
     - ["ext_wikilink"], ["ext_keyed"] and ["ext_callout"], with the members of
-      {!Djot.Inline.Ext_wikilink}, {!Djot.Block.Ext_keyed} and {!Djot.Block.Ext_callout}.
+      {!Djot.Inline.Ext_wikilink}, {!Djot.Block.Ext_keyed} and {!Djot.Block.Ext_callout};
+    - ["frontmatter"] on a document that has one: the fields of {!Djot.Frontmatter} as a
+      JSON object, a number that is not finite as [null].
 
     Where the tree does not hold what djot.js writes:
     - dashes, ellipses and unmatched quotes are part of a ["str"], as the character they
@@ -38,8 +40,8 @@ val inline : Djot.Inline.t Djot.node Jsont.t
 
 (** {1 Documents} *)
 
-(** The ["doc"] object: [references], [autoReferences] and [footnotes] by label, then the
-    blocks, with the definitions left out as djot.js does. A footnote has the attributes
+(** The ["doc"] object: [frontmatter] when there is one, [references], [autoReferences]
+    and [footnotes] by label, then the blocks, with the definitions left out as djot.js does. A footnote has the attributes
     of its definition. An identifier in {!Djot.Doc.auto_identifiers} is under
     ["autoAttributes"], as in djot.js. Nodes have a ["pos"] when the document was parsed
     with [~locs:true]. *)
@@ -62,6 +64,9 @@ val to_ast_string : Djot.Doc.t -> string
     for a document [d], [to_doc (of_doc d)] has the definitions after the other blocks,
     without those an entry of the same label replaced, and no positions. Its HTML is
     that of [d].
+
+    ["frontmatter"] is read with {!Djot.Frontmatter.make}, so the fields come back and
+    the YAML text they were written as does not. It is an error where [make] raises.
 
     @param profile as for {!Djot.Doc.make} *)
 val to_doc : ?profile:Djot.Profile.t -> Jsont.json -> (Djot.Doc.t, string) result

@@ -212,3 +212,52 @@ let () =
   let bs, _ = Stream.feed_string t "---\n\n" in
   assert (List.length bs = 3)
 ;;
+
+(* Made frontmatter reads back as its fields, and a document made with it
+   writes it first. *)
+let () =
+  let fields : (string * Frontmatter.value) list =
+    [ "title", `String "A: note"
+    ; "n", `Float 3.
+    ; "s", `String "1"
+    ; "t", `String "true"
+    ; "nil", `Null
+    ; "ok", `Bool false
+    ; "dash", `String "---"
+    ; "list", `A [ `String "a"; `O [ "k", `String "v\nw" ] ]
+    ; "empty", `O []
+    ]
+  in
+  let fm = Frontmatter.make fields in
+  assert (fm.fields = fields && Textloc.is_none fm.loc);
+  let d = Doc.make ~frontmatter:fm [ Node.make (Block.Para [ Node.make (Inline.Str "p") ]) ] in
+  let d' = parse (Doc.to_string d) in
+  assert ((Option.get (Doc.frontmatter d')).fields = fields);
+  assert (For_testing.kernel d = For_testing.kernel d');
+  assert ((Frontmatter.make []).text = "");
+  assert (Doc.to_string (Doc.make ~frontmatter:(Frontmatter.make []) []) = "---\n---");
+  (* Numbers that are not finite have a YAML text. *)
+  let fm = Frontmatter.make [ "x", `Float Float.nan; "y", `Float Float.infinity ] in
+  assert (compare fm.fields [ "x", `Float Float.nan; "y", `Float Float.infinity ] = 0)
+;;
+
+(* A text is frontmatter when it would be between delimiters. *)
+let () =
+  let text s = Option.map (fun (f : Frontmatter.t) -> f.text) (Frontmatter.of_string s) in
+  assert (text "a: 1" = Some "a: 1\n");
+  assert (text "a: 1\nb: 2\n" = Some "a: 1\nb: 2\n");
+  assert (text "" = Some "");
+  assert (text "foo" = None);
+  assert (text "a: 1\n---\nb: 2\n" = None);
+  assert (text "\n" = None)
+;;
+
+(* Changing the frontmatter leaves the blocks and their positions. *)
+let () =
+  let d = parse ~locs:true "---\na: 1\n---\np\n" in
+  let d' = Doc.with_frontmatter (Frontmatter.of_string "b: 2") d in
+  assert (Doc.to_string d' = "---\nb: 2\n---\n\np");
+  assert (ranges d' = ranges d);
+  let none = Doc.with_frontmatter None d in
+  assert (Doc.frontmatter none = None && Doc.to_string none = "p")
+;;

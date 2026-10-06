@@ -767,7 +767,37 @@ module Frontmatter = struct
     min (String.length s) (Textloc.last_byte fm.loc + 2)
   ;;
 
-  let to_source (fm : t) : string = "---\n" ^ fm.text ^ "---\n"
+  (* Not read from a text. *)
+  let unlocated ((fm, n) : found) : found = { fm with loc = Textloc.none }, n
+
+  (* Whole lines that, written between delimiters, read back as themselves:
+     a [---] line among them would end the frontmatter early. *)
+  let found_of_string (text : string) : found option =
+    let text =
+      if text = "" || text.[String.length text - 1] = '\n' then text else text ^ "\n"
+    in
+    match find ("---\n" ^ text ^ "---\n") with
+    | Some (fm, _ as f) when fm.text = text -> Some (unlocated f)
+    | _ -> None
+  ;;
+
+  let of_string (text : string) : t option =
+    require ();
+    Option.map fst (found_of_string text)
+  ;;
+
+  let make (fields : (string * value) list) : t =
+    require ();
+    let text =
+      if fields = [] then Some "" else Frontmatter_yaml.print (`O fields)
+    in
+    match Option.bind text found_of_string with
+    | Some (fm, _) when compare fm.fields fields = 0 -> fm
+    | _ -> invalid_arg "Frontmatter.make: the fields have no YAML that reads back as them"
+  ;;
+
+  (* [fm] with the lines it takes when written. *)
+  let found (fm : t) : found = fm, 2 + List.length (String.split_on_char '\n' fm.text) - 1
 end
 
 module Doc = struct
@@ -782,8 +812,17 @@ module Doc = struct
     { kernel = K.Document.doc_pass pos bs; lines; profile; front }
   ;;
 
-  let make ?(profile = Profile.djot) (bs : Block.t node list) : t =
-    pass ~profile ~lines:None K.Ast.semantic_pos (K.Document.unsection bs)
+  let make ?(profile = Profile.djot) ?frontmatter (bs : Block.t node list) : t =
+    pass
+      ~profile
+      ~lines:None
+      ?front:(Option.map Frontmatter.found frontmatter)
+      K.Ast.semantic_pos
+      (K.Document.unsection bs)
+  ;;
+
+  let with_frontmatter (fm : Frontmatter.t option) (d : t) : t =
+    { d with front = Option.map Frontmatter.found fm }
   ;;
 
   (* The fold step the pieces are cut with, and its finish. *)
@@ -840,8 +879,8 @@ module Doc = struct
     let body = Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel) in
     match d.front with
     | None -> body
-    | Some (fm, _) when body = "" -> Frontmatter.to_source fm
-    | Some (fm, _) -> Frontmatter.to_source fm ^ "\n" ^ body
+    | Some (fm, _) when body = "" -> "---\n" ^ fm.text ^ "---"
+    | Some (fm, _) -> "---\n" ^ fm.text ^ "---\n\n" ^ body
   ;;
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
