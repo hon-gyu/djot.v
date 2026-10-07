@@ -2,6 +2,8 @@
 
 The --frontmatter option. Runs only when the library is built with yaml.
 
+  $ unset DJOT_SYNTAX
+
   $ cat > doc.dj <<'END'
   > ---
   > title: A page
