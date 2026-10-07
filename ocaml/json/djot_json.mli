@@ -71,5 +71,11 @@ val to_ast_string : Djot.Doc.t -> string
     @param profile as for {!Djot.Doc.make} *)
 val to_doc : ?profile:Djot.Profile.t -> Jsont.json -> (Djot.Doc.t, string) result
 
-(** {!to_doc} of JSON text. *)
-val of_string : ?profile:Djot.Profile.t -> string -> (Djot.Doc.t, string) result
+(** {!to_doc} of JSON text.
+
+    @param file the name an error gives for the text; ["-"] by default *)
+val of_string
+  :  ?file:string
+  -> ?profile:Djot.Profile.t
+  -> string
+  -> (Djot.Doc.t, string) result

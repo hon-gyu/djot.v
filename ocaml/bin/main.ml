@@ -24,7 +24,7 @@ let djot_cmd : int Cmd.t =
     let styles = [ "checked", `Checked; "safe", `Safe; "naive", `Naive ] in
     Arg.(value & opt (enum styles) `Checked & info [ "style" ] ~doc ~docv:"STYLE")
   in
-  Cmd.make (Cmd.info "djot" ~doc ~man)
+  Cmd.make (Cmd.info "djot" ~doc ~man ~exits:Djot_cli.exits)
   @@ let+ i = Djot_cli.input
      and+ style in
      run i (fun doc ->
@@ -43,7 +43,7 @@ let ast_cmd : int Cmd.t =
     ]
     @ Djot_cli.syntax_man
   in
-  Cmd.make (Cmd.info "ast" ~doc ~man)
+  Cmd.make (Cmd.info "ast" ~doc ~man ~exits:Djot_cli.exits)
   @@ let+ i = Djot_cli.input
      and+ locs = Djot_cli.locs in
      run ~locs i Djot_json.to_ast_string
@@ -64,7 +64,7 @@ let json_cmd : int Cmd.t =
     let doc = "Write the JSON on one line." in
     Arg.(value & flag & info [ "compact" ] ~doc)
   in
-  Cmd.make (Cmd.info "json" ~doc ~man)
+  Cmd.make (Cmd.info "json" ~doc ~man ~exits:Djot_cli.exits)
   @@ let+ i = Djot_cli.input
      and+ locs = Djot_cli.locs
      and+ compact in
@@ -83,7 +83,7 @@ let cmd : int Cmd.t =
   in
   let default : int Term.t = Term.(ret (const (`Help (`Auto, None)))) in
   Cmd.group
-    (Cmd.info "djot" ~version:"%%VERSION%%" ~doc ~man)
+    (Cmd.info "djot" ~version:"%%VERSION%%" ~doc ~man ~exits:Djot_cli.exits)
     ~default
     [ Cmd_html.cmd; djot_cmd; ast_cmd; json_cmd ]
 ;;

@@ -1,56 +1,140 @@
 # ai-disclosure: ai-generated
 
+The djot command, one test per option. Frontmatter is in cli_frontmatter.t,
+which needs the yaml package.
+
   $ cat > doc.dj <<'END'
-  > ---
-  > title: A page
-  > ---
   > # Hi
   > 
   > *strong* and [[w]]
   > END
 
-  $ djot html doc.dj --frontmatter
+Subcommands
+===========
+
+  $ djot html doc.dj
   <section id="Hi">
   <h1>Hi</h1>
   <p><strong>strong</strong> and [[w]]</p>
   </section>
 
-  $ djot html doc.dj --frontmatter --ext-wikilinks
-  <section id="Hi">
-  <h1>Hi</h1>
-  <p><strong>strong</strong> and <a href="w">w</a></p>
-  </section>
-
-  $ djot ast --locs doc.dj --frontmatter
-  doc frontmatter={"title":"A page"}
-    section (4:1:22-6:18:45)
-      heading (4:1:22-4:4:25) level=1 plain="Hi"
-        str (4:3:24-4:4:25) text="Hi"
-      para (6:1:28-6:18:45)
-        strong (6:1:28-6:8:35)
-          str (6:2:29-6:7:34) text="strong"
-        str (6:9:36-6:18:45) text=" and [[w]]"
-
-  $ djot djot doc.dj --frontmatter --style safe
-  ---
-  title: A page
-  ---
+  $ djot djot doc.dj
+  # Hi
   
+  *strong* and [[w]]
+
+  $ djot djot doc.dj --style safe
   # Hi
   
   {*strong*} and \[\[w\]\]
 
-  $ djot json doc.dj --frontmatter | djot html --from json
+  $ djot ast doc.dj
+  doc
+    section
+      heading level=1 plain="Hi"
+        str text="Hi"
+      para
+        strong
+          str text="strong"
+        str text=" and [[w]]"
+
+  $ djot ast --locs doc.dj | grep strong
+        strong (3:1:6-3:8:13)
+          str (3:2:7-3:7:12) text="strong"
+
+  $ echo x | djot json
+  {
+    "tag": "doc",
+    "references": {},
+    "autoReferences": {},
+    "footnotes": {},
+    "children": [
+      {
+        "tag": "para",
+        "children": [
+          {
+            "tag": "str",
+            "text": "x"
+          }
+        ]
+      }
+    ]
+  }
+
+  $ echo x | djot json --compact
+  {"tag":"doc","references":{},"autoReferences":{},"footnotes":{},"children":[{"tag":"para","children":[{"tag":"str","text":"x"}]}]}
+
+  $ echo x | djot json --compact --locs | grep -c '"pos"'
+  1
+
+The bare command prints the manual.
+
+  $ djot --help=plain > help
+  $ djot > /dev/null
+
+Input
+=====
+
+  $ djot json doc.dj | djot html --from json
   <section id="Hi">
   <h1>Hi</h1>
   <p><strong>strong</strong> and [[w]]</p>
   </section>
 
-  $ djot html -c doc.dj --frontmatter --css s.css | grep -v '^<meta'
+  $ djot html - < doc.dj | head -1
+  <section id="Hi">
+
+  $ djot html doc.dj --time 2>&1 > /dev/null | sed 's/[0-9.]* ms/N ms/'
+  parse: N ms
+  render: N ms
+
+Syntax options
+==============
+
+  $ djot html doc.dj --ext-wikilinks | grep '<p>'
+  <p><strong>strong</strong> and <a href="w">w</a></p>
+
+  $ echo 'a -- b' | djot html
+  <p>a – b</p>
+
+  $ echo 'a -- b' | djot html --no-smart-typography
+  <p>a -- b</p>
+
+  $ cat > md.dj <<'END'
+  > Title
+  > =====
+  > 
+  > **b**
+  > END
+
+  $ djot html md.dj
+  <p>Title
+  =====</p>
+  <p><strong><strong>b</strong></strong></p>
+
+  $ djot html md.dj --profile markdown-like
+  <section id="Title">
+  <h1>Title</h1>
+  <p><strong>b</strong></p>
+  </section>
+
+An option naming a construct overrides the profile.
+
+  $ djot html md.dj --profile markdown-like --no-ext-setext-headings
+  <p>Title
+  =====</p>
+  <p><strong>b</strong></p>
+
+HTML page
+=========
+
+  $ djot html --doc doc.dj --css s.css
   <!DOCTYPE html>
   <html lang="en">
   <head>
-  <title>A page</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doc</title>
   <link rel="stylesheet" href="s.css">
   </head>
   <body>
@@ -61,14 +145,36 @@
   </body>
   </html>
 
+  $ djot html -c doc.dj --title 'A & B' --lang fr | grep -e '<html' -e '<title'
+  <html lang="fr">
+  <title>A &amp; B</title>
+
   $ echo x | djot html -c | grep title
   <title>Untitled</title>
+
+The built-in stylesheet is used unless a stylesheet is given.
+
+  $ djot html -c doc.dj | grep -c '<style>'
+  1
+
+  $ echo 'p { color: red }' > a.css
+  $ djot html -c doc.dj --inline-css a.css | grep -A2 '<style>'
+  <style>
+  p { color: red }
+  </style>
+
+Errors
+======
 
   $ djot html missing.dj
   djot: missing.dj: No such file or directory
   [1]
 
-  $ djot html --from json doc.dj
-  djot: doc.dj: Expected doc object but found number
-  File "-", line 1, characters 0-1:
+  $ djot html --from json doc.dj 2>&1 | head -1
+  djot: doc.dj: Expected JSON value but found #
+
+  $ djot html --from json doc.dj 2> /dev/null
   [1]
+
+  $ djot html --from yaml doc.dj 2> /dev/null
+  [124]

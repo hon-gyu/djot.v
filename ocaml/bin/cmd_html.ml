@@ -148,7 +148,7 @@ let cmd : int Cmd.t =
     in
     Arg.(value & opt_all file [] & info [ "inline-css" ] ~doc ~docv:"FILE.css")
   in
-  Cmd.make (Cmd.info "html" ~doc ~man)
+  Cmd.make (Cmd.info "html" ~doc ~man ~exits:Djot_cli.exits)
   @@ let+ i = Djot_cli.input
      and+ docu
      and+ title

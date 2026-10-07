@@ -12,3 +12,6 @@ val locs : bool Cmdliner.Term.t
 (** The intro of the manual section the syntax options are listed under. A command
     taking {!input} appends it to its manual. *)
 val syntax_man : Cmdliner.Manpage.block list
+
+(** The exit codes of every command, for its manual. *)
+val exits : Cmdliner.Cmd.Exit.info list
