@@ -1654,11 +1654,13 @@ Proof.
     change (Ascii.eqb rbrace lbrack) with false.
     change (Ascii.eqb rbrace rbrack) with false.
     change (Ascii.eqb rbrace hat) with false. cbn [andb].
-    rewrite Hd. reflexivity. }
+    rewrite Hd. change (Ascii.eqb rbrace percent) with false.
+    rewrite andb_false_r. reflexivity. }
   unfold in_alphabet in Ha. rewrite Hd in Ha.
   apply andb_true_iff in Ha as [Ha _]. apply andb_true_iff in Ha as [Ha Hhy].
   apply andb_true_iff in Ha as [_ Hres]. rewrite Hlb, Erb, Hlk, Hrk in Hres.
-  cbn [orb] in Hres. apply negb_true_iff in Hres, Hhy.
+  cbn [orb] in Hres. apply andb_true_iff in Hres as [Hres Hpct].
+  apply negb_true_iff in Hres, Hhy, Hpct.
   pose proof (dreserved_false c Hres)
     as (Hbs & Htk & _ & _ & _ & _ & Hbg & Hdol & Hpd & Hlt).
   assert (Hcolon : Ascii.eqb c ":"%char = false).
@@ -1666,7 +1668,7 @@ Proof.
     repeat (apply orb_false_iff in Hres as [Hres ?]). assumption. }
   unfold ilead.
   rewrite Hbs, Htk, Hdol, Hpd, Hhy, Hlb, Hbg, Hlt, Hcolon, Hlk, Hrk, Hn.
-  cbn [andb]. rewrite Hd. reflexivity.
+  cbn [andb]. rewrite Hd, Hpct. reflexivity.
 Qed.
 
 Local Lemma alphabet_hyphen : forall c,
@@ -3009,7 +3011,7 @@ Proof.
   destruct (Ascii.eqb c rbrace) eqn:E2; [apply Ascii.eqb_eq in E2; subst c; reflexivity|].
   destruct (Ascii.eqb c lbrack) eqn:E3; [apply Ascii.eqb_eq in E3; subst c; reflexivity|].
   destruct (Ascii.eqb c rbrack) eqn:E4; [apply Ascii.eqb_eq in E4; subst c; reflexivity|].
-  cbn [orb] in Hc. apply negb_true_iff in Hc.
+  cbn [orb] in Hc. apply andb_true_iff in Hc as [Hc _]. apply negb_true_iff in Hc.
   rewrite (proj1 (dreserved_false c Hc)). reflexivity.
 Qed.
 

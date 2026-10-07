@@ -303,7 +303,7 @@ Local Fixpoint plain_text (il : inline) : string :=
   | Link ns _ | Image ns _ => go ns
   | SoftBreak | HardBreak => nl
   | NonBreakingSpace => " "
-  | FootnoteReference _ | Symbol _ => ""
+  | FootnoteReference _ | Symbol _ | Hole _ => ""
   end.
 
 Local Definition plain_texts (ns : list (node inline)) : string :=
@@ -474,6 +474,10 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | RawInline fmt s => if String.eqb fmt "html" then [HRaw s] else []
   (* The one constant this file writes unescaped. *)
   | NonBreakingSpace => [HRaw "&nbsp;"]
+  (* A hole the consumer has not evaluated shows as its expression, so
+     it is not lost silently.  `data-hole` is an extra attribute and so
+     precedes the node's own. *)
+  | Hole s => [HElem "code" 0 (("data-hole", "") :: a) [HText s]]
   (* The curly quotes are the whole of what a quoted span renders as:
      the children between the two characters, and no element. *)
   | Quoted SingleQuotes ils =>

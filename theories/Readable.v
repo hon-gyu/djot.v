@@ -114,6 +114,7 @@ Fixpoint readable_text (il : inline) (before : option ascii)
   | NonBreakingSpace => String bslash (one " "%char)
   | SoftBreak => one "010"%char
   | HardBreak => String bslash (one "010"%char)
+  | Hole s => hole_spell s
   end.
 
 Local Fixpoint readable_nodes (ns : inlines) (before : option ascii) : string :=

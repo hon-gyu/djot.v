@@ -74,7 +74,9 @@ Fixpoint inline_text (il : inline) : string :=
   | UrlLink s | EmailLink s => s
   (* the text a wikilink displays, as its desugared link would push it *)
   | Ext_wikilink _ t al => wiki_display t al
-  | Symbol _ | NonBreakingSpace => ""
+  (* a hole contributes nothing: its text is not known until it is
+     evaluated, and the consumer that evaluates it can number again *)
+  | Symbol _ | NonBreakingSpace | Hole _ => ""
   end.
 
 Definition inlines_text (ils : inlines) : string :=

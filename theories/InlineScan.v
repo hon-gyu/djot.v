@@ -1421,7 +1421,21 @@ Inductive iscan_g : Type :=
      spec source read since.  The node is not emitted yet: whether it is
      `Verbatim` or `RawInline` is what the spec decides.  Only a verbatim
      reaches here, never math. *)
-  | IRaw (spec : Buf) (txt : string) (o : ostate).
+  | IRaw (spec : Buf) (txt : string) (o : ostate)
+  (* a `%` whose role the next byte decides: `{` opens a hole candidate,
+     and anything else makes it text.  `IBang`'s shape, for `IBang`'s
+     reason. *)
+  | IPercent (txt : Buf) (prev : option ascii) (o : ostate)
+  (* a hole candidate, `%{` and the source after it.  `depth` counts the
+     unclosed `{` inside it, `esc` is a pending backslash (an escaped
+     brace does not count), and `src` is the source since `%{`, escapes
+     and all: `hole_text` decodes it when the candidate closes.  `txt`
+     is the text pending when the `%` arrived.  `sh` is the ordinary
+     reading of the same bytes, from the `%` on, selected if no closing
+     `}` arrives; the closing one discards it, and with it anything it
+     closed, so a closed hole wins over what it overlaps. *)
+  | IHole (depth : nat) (esc : bool) (src : Buf) (txt : Buf)
+          (sh : iscan_g) (o : ostate).
 Local Notation iscan := iscan_g.
 
 (* The one position in which the table does not get the byte: right
@@ -1494,9 +1508,14 @@ Definition ilead `{PosPolicy} `{InlineCursor}
        | None =>
            match dstyle_of c with
            | Some k => IDelim k 0 txt prev false o
+           (* With holes on, a `%` waits for the byte after it.  Asked
+              after the table, so a table that spells a row with `%`
+              keeps it, and has no holes. *)
            | None =>
-               IText false (tpush txt (one c)) (Some c)
-                 (remember_word_start c o)
+               if (holes_enabled && Ascii.eqb c percent)%bool
+               then IPercent txt prev o
+               else IText false (tpush txt (one c)) (Some c)
+                      (remember_word_start c o)
            end
        end.
 
@@ -1647,6 +1666,9 @@ Fixpoint islice_end (st : iscan) : iscan :=
   | IAuto src txt o =>
       IText false (auto_lit (tval src) txt) (blit_prev (String lt (tval src))) o
   | ISymbol _ _ sh _ => islice_end sh
+  (* a `%` never opens a hole inside a failed spec's region: the `{` after
+     it would start a new slice *)
+  | IPercent txt _ o => IText false (tpush txt (one percent)) (Some percent) o
   | _ => st
   end.
 
@@ -2052,6 +2074,53 @@ Definition idash_step `{PosPolicy} `{InlineCursor}
        end
   else ilead c (tpush txt (typography_dashes n)) (Some hyphen) o.
 
+(* Resolving a `%`: a `{` opens a hole candidate, whose ordinary reading
+   is the `%` as text and the `{` dispatched after it; anything else makes
+   the `%` text and is dispatched afresh. *)
+Definition ipercent_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (txt : Buf) (prev : option ascii) (o : ostate) : iscan :=
+  if Ascii.eqb c lbrace
+  then IHole 0 false tnil txt
+         (ilead c (tpush txt (one percent)) (Some percent) o) o
+  else ilead c (tpush txt (one percent)) (Some percent) o.
+
+(* A hole's payload must hold something other than whitespace: `%{}` and
+   `%{ }` are text. *)
+Fixpoint all_ws_nl (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c rest => (is_ws_nl c && all_ws_nl rest)%bool
+  end.
+
+Definition hole_ok (src : string) : bool := negb (all_ws_nl (hole_text src)).
+
+(* The closing `}`: the hole is emitted onto the state from before the
+   `%`, with the text pending then flushed in front of it, and the
+   ordinary reading is dropped. *)
+Definition ihole_close `{PosPolicy} `{InlineCursor}
+  (src : string) (txt : Buf) (o : ostate) : iscan :=
+  let start := spot_before cursor_start
+                 (String percent (String lbrace src)) in
+  IText false tnil (Some rbrace)
+    (oemit (imk start cursor_stop (Hole (hole_text src)))
+       (flush_text_to_at start (tval txt) o)).
+
+(* One byte of a hole candidate, whose ordinary reading `sh'` has already
+   consumed it. *)
+Definition ihole_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (depth : nat) (esc : bool) (src txt : Buf)
+  (sh' : iscan) (o : ostate) : iscan :=
+  if esc then IHole depth false (tpush src (one c)) txt sh' o
+  else if is_bslash c then IHole depth true (tpush src (one c)) txt sh' o
+  else if Ascii.eqb c lbrace
+  then IHole (S depth) false (tpush src (one c)) txt sh' o
+  else if Ascii.eqb c rbrace
+  then match depth with
+       | O => if hole_ok (tval src) then ihole_close (tval src) txt o else sh'
+       | S d => IHole d false (tpush src (one c)) txt sh' o
+       end
+  else IHole depth false (tpush src (one c)) txt sh' o.
+
 (* No byte follows: the end of a line or of the paragraph.  Every state
    waiting on a next byte resolves here, so after it none remains, which
    is what lets `ibreak` and `ifinish` match on the rest. *)
@@ -2065,6 +2134,7 @@ Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   | IDash n txt _ o =>
       IText false (tpush txt (typography_dashes n)) (Some hyphen) o
   | IBang txt _ o => IText false (tpush txt (one bang)) (Some bang) o
+  | IPercent txt _ o => IText false (tpush txt (one percent)) (Some percent) o
   (* A token still being spelled is text: the run ended before the row's
      width was reached. *)
   | IDelim k extra txt before marked o =>
@@ -2316,6 +2386,9 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
            end
       else IDest kids image open false depth (tpush dst (one c))
              (istep_at attrs_enabled c sh) o
+  | IPercent txt prev o => ipercent_step c txt prev o
+  | IHole depth esc src txt sh o =>
+      ihole_step c depth esc src txt (istep_at attrs_enabled c sh) o
   end.
 
 Definition istep `{PosPolicy} `{InlineCursor}
@@ -2371,6 +2444,7 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDollar`,
      `IPeriod`, `IDash`, `IDelim` or `IClosed` *)
   | IDollarMath _ _ _ _ _ _ o | IDollarMathClose _ _ _ _ _ o
+  | IHole _ _ _ _ _ o | IPercent _ _ o
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
   | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ o => o
@@ -2399,6 +2473,8 @@ Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | ISymbol _ _ sh _ => ifinish_ostate sh
+  (* a hole the paragraph ended inside never closed *)
+  | IHole _ _ _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
@@ -2490,6 +2566,7 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
       iattr_feed nl_char p src txt prev sh o
   (* unreachable, as in `ifinish_ostate` *)
   | (IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
+    | IHole _ _ _ _ _ _ | IPercent _ _ _
     | IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _) as st' => st'
@@ -2546,6 +2623,10 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
         (ibreak_at attrs_enabled sh) o
   | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
+  (* A hole crosses the break, which is part of its payload.  A pending
+     backslash before it escapes nothing, and is kept. *)
+  | IHole depth _ src txt sh o =>
+      IHole depth false (tpush src nl) txt (ibreak_at attrs_enabled sh) o
   | _ => ibreak_flat (iresolve st)
   end.
 
@@ -2571,6 +2652,7 @@ Definition iclosed_at (st : iscan) : bool :=
      text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
+  | IHole _ _ _ _ _ _ | IPercent _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _
   | INote _ _ _ _ _ | IReference _ _ _ _ _
@@ -2632,7 +2714,7 @@ Definition is_compound (st : iscan) : bool :=
              | None => false end))%bool
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
-  | ISymbol _ _ _ _ => true
+  | ISymbol _ _ _ _ | IHole _ _ _ _ _ _ => true
   | _ => false
   end.
 
@@ -2696,6 +2778,9 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
   | IAuto src t o => IAuto (tval src) (tval t) o
   | ISymbol alias t sh o => ISymbol (tval alias) (tval t) (map_text sh) o
   | IRaw spec v o => IRaw (tval spec) v o
+  | IPercent t prev o => IPercent (tval t) prev o
+  | IHole depth esc src t sh o =>
+      IHole depth esc (tval src) (tval t) (map_text sh) o
   end.
 
 Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
@@ -2725,6 +2810,9 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
   | IAuto src t o => IAuto (tof src) (tof t) o
   | ISymbol alias t sh o => ISymbol (tof alias) (tof t) (lift sh) o
   | IRaw spec v o => IRaw (tof spec) v o
+  | IPercent t prev o => IPercent (tof t) prev o
+  | IHole depth esc src t sh o =>
+      IHole depth esc (tof src) (tof t) (lift sh) o
   end.
 
 End Read.
@@ -2782,7 +2870,7 @@ Proof.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
   cbn [tval tnonempty tpush tof tnil] in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|? ? ? ? ? ? ?|? ? ? ? ? ?|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|? ? ? ? ? ? ?|? ? ? ? ? ?|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob|pctxt pcprev pcob|hd he hsrc htxt hsh hob];
     try discriminate.
   - destruct o as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].

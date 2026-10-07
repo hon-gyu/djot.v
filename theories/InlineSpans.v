@@ -442,6 +442,10 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
   | IRaw spec _ o =>
       ends_at W (String lbrace spec) cur /\
       held W o false (sleft (String.length (String lbrace spec)) cur)
+  | IPercent txt _ o =>
+      held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some percent
+  | IHole _ _ _ txt sh o =>
+      held W o (nonempty_str txt) cur /\ st_inv W cur sh
   end.
 
 (*
@@ -1301,8 +1305,11 @@ Proof.
     rewrite Hr. cbn [String.length one]. rewrite Hback.
     split; [pose proof (dwidth_nonzero k); lia|].
     split; [exact (ends_here _ _ _ _ Hcur)|split; [exact Ho|intros _; exact Hp]].
-  - cbn [st_inv]. split; [|split; [exact Hph|discriminate]].
-    apply remember_word_start_ok, oinv_any, Hon.
+  - destruct (holes_enabled && Ascii.eqb c percent)%bool eqn:Ep.
+    + apply andb_true_iff in Ep as [_ Ep]. apply Ascii.eqb_eq in Ep; subst c.
+      cbn [st_inv]. split; [exact Hheld|exact Hb].
+    + cbn [st_inv]. split; [|split; [exact Hph|discriminate]].
+      apply remember_word_start_ok, oinv_any, Hon.
 Qed.
 
 (*
@@ -1570,6 +1577,9 @@ Proof.
     split; [|split; [apply prev_blit; [exact B|discriminate]|discriminate]].
     apply oinv_any; exact (held_oinv _ _ _ _ A).
   - (* ISymbol *) destruct H as (_ & _ & _ & B). apply IHst, B.
+  - (* IPercent *) destruct H as (A & B).
+    split; [|split; [unfold prev_ok; rewrite B; reflexivity|discriminate]].
+    apply oinv_any; exact (held_oinv _ _ _ _ A).
 Qed.
 
 Lemma iattr_feed_ok : forall W (CU : InlineCursor) cur next c p src txt prev sh o,
@@ -1694,7 +1704,8 @@ Proof.
   { destruct (dstyle_of nl_char) as [k|] eqn:E; [|reflexivity].
     apply dstyle_of_char in E. pose proof (dchar_not_nl k) as H. rewrite E in H. discriminate. }
   unfold ilead. cbn -[dstyle_of remember_word_start note_pos bunpush oinv prev_ok byte_at].
-  rewrite Hk. cbn [st_inv]. tred. cbn [orb].
+  rewrite Hk. change (Ascii.eqb nl_char percent) with false. rewrite andb_false_r.
+  cbn [st_inv]. tred. cbn [orb].
   split; [|split; [unfold prev_ok; rewrite Hb; right; reflexivity|discriminate]].
   apply remember_word_start_ok. apply oinv_any. eapply oinv_strict; eassumption.
 Qed.
@@ -1900,6 +1911,17 @@ Proof.
         as (txt' & prev' & o' & Eq & A & B).
       tred. rewrite E2, Eq. cbn [st_inv orb]. split; [exact A|split; [exact B|discriminate]].
     + apply ilead_held; [exact Ht|exact Hph].
+Qed.
+
+Lemma ipercent_ok : forall txt prev o,
+  held W o (nonempty_str txt) cur -> byte_at W (sleft 1 cur) = Some percent ->
+  st_inv W next (ipercent_step c txt prev o).
+Proof.
+  intros txt prev o Ho Hb. pose proof (held_oinv _ _ _ _ Ho) as Ht.
+  assert (Hl : forall t, st_inv W next (ilead c t (Some percent) o))
+    by (intros t; apply ilead_held; [exact Ht|unfold prev_ok; rewrite Hb; reflexivity]).
+  unfold ipercent_step. destruct (Ascii.eqb c lbrace); [|apply Hl].
+  cbn [st_inv]. split; [eapply held_step; [exact Ho|exact nx_lt]|apply Hl].
 Qed.
 
 Lemma ibang_ok : forall txt prev o,
@@ -2277,6 +2299,25 @@ Proof.
   - (* ISymbol *) destruct H as (He & Ho & Hnl & Hsh). cbn [istep_at].
     apply isymbol_ok; [exact He|exact Ho|exact Hnl|apply IHst, Hsh].
   - (* IRaw *) destruct H as (He & Ho). cbn [istep_at]. apply iraw_ok; assumption.
+  - (* IPercent *) destruct H as (Ho & Hb). cbn [istep_at]. apply ipercent_ok; assumption.
+  - (* IHole *) destruct H as (Ho & Hsh). cbn [istep_at].
+    assert (Hk : forall d e s',
+               st_inv W next (IHole d e s' txt (istep_at allow c st) o))
+      by (intros; cbn [st_inv];
+          split; [eapply held_step; [exact Ho|exact nx_lt]|apply IHst, Hsh]).
+    unfold ihole_step.
+    destruct esc; [apply Hk|].
+    destruct (is_bslash c); [apply Hk|].
+    destruct (Ascii.eqb c lbrace); [apply Hk|].
+    destruct (Ascii.eqb c rbrace) eqn:E; [|apply Hk].
+    destruct depth as [|d]; [|apply Hk].
+    destruct (hole_ok (tval src)); [|apply IHst, Hsh].
+    unfold ihole_close. tred. rewrite Hn.
+    cbn [st_inv orb nonempty_str].
+    split; [|split; [apply eqb_rewrite, E|discriminate]].
+    apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
+    eapply oinv_strict; [exact nx_lt|].
+    apply flush_text_to_at_touched, (held_oinv _ _ _ _ Ho).
 Qed.
 
 End Step.
@@ -2333,6 +2374,9 @@ Proof.
   - (* IClosed *) destruct H as (Ho & Hb).
     split; [|split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate]].
     apply oinv_any. eapply oinv_strict; [|exact Ho]. apply spot_lt_sleft; lia.
+  - (* IPercent *) destruct H as (Ho & Hb).
+    split; [|split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate]].
+    apply oinv_any; exact (held_oinv _ _ _ _ Ho).
 Qed.
 
 (* A state with no byte owed: what `iresolve` leaves, and not a state
@@ -2342,7 +2386,8 @@ Definition settled (st : iscan) : Prop :=
   | IBrace _ _ _ | IDollar _ _ _ _ | IPeriod _ _ _ _ | IDash _ _ _ _
   | IBang _ _ _ | IDelim _ _ _ _ _ _ | IClosed _ _
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
-  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _ => False
+  | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _
+  | IPercent _ _ _ | IHole _ _ _ _ _ _ => False
   | _ => True
   end.
 
@@ -2473,6 +2518,8 @@ Proof.
   - (* IDest *) destruct H as (Hk & Ho & Hsh). cbn [st_inv].
     split; [exact Hk|split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh]].
   - (* ISymbol *) destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
+  - (* IHole *) destruct H as (Ho & Hsh). cbn [st_inv].
+    split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
 Qed.
 
 End Break.
@@ -2556,6 +2603,7 @@ Proof.
         [apply Hclose; reflexivity|apply IHst, Hsh].
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
+  - destruct H as (_ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
 Qed.
 
