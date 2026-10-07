@@ -37,8 +37,8 @@ let ast_cmd : int Cmd.t =
   let man : Manpage.block list =
     [ `S Manpage.s_description
     ; `P
-        "$(cmd) prints the document as an indented tree in the form djot.js prints \
-         with $(b,-t astpretty). With $(b,--locs), each node shows its source range as \
+        "$(cmd) prints the document as an indented tree in the form djot.js prints with \
+         $(b,-t astpretty). With $(b,--locs), each node shows its source range as \
          $(i,line):$(i,column):$(i,byte) at both ends."
     ]
     @ syntax_man
@@ -55,8 +55,8 @@ let json_cmd : int Cmd.t =
     [ `S Manpage.s_description
     ; `P
         "$(cmd) writes the document as JSON in the format of djot.js's AST, with the \
-         additions listed in the documentation of the $(b,djot.json) library. \
-         $(b,--from json) reads it back."
+         additions listed in the documentation of the $(b,djot.json) library. $(b,--from \
+         json) reads it back."
     ]
     @ syntax_man
   in
@@ -84,5 +84,6 @@ let cmd : int Cmd.t =
   Cmd.group
     (Cmd.info "djot" ~version:"%%VERSION%%" ~doc ~man)
     [ Cmd_html.cmd; djot_cmd; ast_cmd; json_cmd ]
+;;
 
 let () = exit (Cmd.eval' cmd)

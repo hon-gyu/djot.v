@@ -38,10 +38,10 @@ let () =
   header "lines";
   List.iter
     (fun src ->
-      let d = Doc.of_string ~locs:true src in
-      List.iter
-        (fun n -> print_range ~lines:true "block" src (Doc.textloc d n))
-        (Doc.blocks d))
+       let d = Doc.of_string ~locs:true src in
+       List.iter
+         (fun n -> print_range ~lines:true "block" src (Doc.textloc d n))
+         (Doc.blocks d))
     [ "# hi\n\nbody\n"; "```py\nx = 1\n```\n" ]
 ;;
 
@@ -76,21 +76,21 @@ let () =
   header "syntax";
   List.iter
     (fun src ->
-      Printf.printf "\n%s\n" (Outline.quote src);
-      let d = Doc.of_string ~locs:true src in
-      List.iter
-        (fun n ->
-          List.iter
-            (fun (r, t) ->
-              print_range
-                (match (r : Doc.syntax) with
-                 | RAttrSpec -> "RAttrSpec"
-                 | ROpenFence -> "ROpenFence"
-                 | RCloseFence -> "RCloseFence")
-                src
-                t)
-            (Doc.syntax_locs d n))
-        (Doc.blocks d))
+       Printf.printf "\n%s\n" (Outline.quote src);
+       let d = Doc.of_string ~locs:true src in
+       List.iter
+         (fun n ->
+            List.iter
+              (fun (r, t) ->
+                 print_range
+                   (match (r : Doc.syntax) with
+                    | RAttrSpec -> "RAttrSpec"
+                    | ROpenFence -> "ROpenFence"
+                    | RCloseFence -> "RCloseFence")
+                   src
+                   t)
+              (Doc.syntax_locs d n))
+         (Doc.blocks d))
     [ "{#i}\n::: warn\ninside\n:::\n"; "```py\nx\n```\n"; "::: a\nx\n" ]
 ;;
 

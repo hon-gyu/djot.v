@@ -22,9 +22,9 @@ let quote s =
   Buffer.add_char b '"';
   String.iter
     (fun c ->
-      if c = '"' || c = '\\' || Char.code c < 0x20
-      then Buffer.add_string b (String.escaped (String.make 1 c))
-      else Buffer.add_char b c)
+       if c = '"' || c = '\\' || Char.code c < 0x20
+       then Buffer.add_string b (String.escaped (String.make 1 c))
+       else Buffer.add_char b c)
     s;
   Buffer.add_char b '"';
   Buffer.contents b
@@ -155,7 +155,6 @@ let rec print_item ?src d depth it =
 ;;
 
 let print_blocks ?src d bs = List.iter (fun n -> print_item ?src d 0 (B n)) bs
-
 let print ?src d = print_blocks ?src d (Doc.blocks d)
 
 (* The source as a header, then its parse with locations. *)

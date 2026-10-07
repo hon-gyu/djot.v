@@ -14,9 +14,7 @@
    (echo "|css}\n"))))
 
 (cram
-(applies_to cli)
-(enabled_if
-  (and
-  %{lib-available:cmdliner}
-  %{lib-available:djot.json}))
-(deps %{bin:djot}))
+ (applies_to cli)
+ (enabled_if
+  (and %{lib-available:cmdliner} %{lib-available:djot.json}))
+ (deps %{bin:djot}))
