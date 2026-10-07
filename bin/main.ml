@@ -12,7 +12,7 @@ let djot_cmd : int Cmd.t =
     [ `S Manpage.s_description
     ; `P "$(cmd) writes the document back as djot source, in the syntax of the profile."
     ]
-    @ syntax_man
+    @ Args.syntax_man
   in
   let style : Djot.style Term.t =
     let doc =
@@ -25,7 +25,7 @@ let djot_cmd : int Cmd.t =
     Arg.(value & opt (enum styles) `Checked & info [ "style" ] ~doc ~docv:"STYLE")
   in
   Cmd.make (Cmd.info "djot" ~doc ~man)
-  @@ let+ i = input
+  @@ let+ i = Args.input
      and+ style in
      run i (fun doc ->
        let s = Djot.Doc.to_string ~style doc in
@@ -41,11 +41,11 @@ let ast_cmd : int Cmd.t =
          $(b,-t astpretty). With $(b,--locs), each node shows its source range as \
          $(i,line):$(i,column):$(i,byte) at both ends."
     ]
-    @ syntax_man
+    @ Args.syntax_man
   in
   Cmd.make (Cmd.info "ast" ~doc ~man)
-  @@ let+ i = input
-     and+ locs in
+  @@ let+ i = Args.input
+     and+ locs = Args.locs in
      run ~locs i Djot_json.to_ast_string
 ;;
 
@@ -58,15 +58,15 @@ let json_cmd : int Cmd.t =
          additions listed in the documentation of the $(b,djot.json) library. $(b,--from \
          json) reads it back."
     ]
-    @ syntax_man
+    @ Args.syntax_man
   in
   let compact : bool Term.t =
     let doc = "Write the JSON on one line." in
     Arg.(value & flag & info [ "compact" ] ~doc)
   in
   Cmd.make (Cmd.info "json" ~doc ~man)
-  @@ let+ i = input
-     and+ locs
+  @@ let+ i = Args.input
+     and+ locs = Args.locs
      and+ compact in
      let format = if compact then Jsont.Minify else Jsont.Indent in
      run ~locs i (fun doc -> Djot_json.to_string ~format doc ^ "\n")
