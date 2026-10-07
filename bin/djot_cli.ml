@@ -48,6 +48,20 @@ let locs : bool Term.t =
   Arg.(value & flag & info [ "l"; "locs" ] ~doc)
 ;;
 
+let profiles : (string * Djot.Profile.t) list =
+  [ "djot", Djot.Profile.djot; "markdown-like", Djot.Profile.markdown_like ]
+;;
+
+(** The profiles that have [s] on, as a sentence of a manual. *)
+let on_in (s : Djot.Profile.Switch.t) : string =
+  match List.filter (fun (_, p) -> Djot.Profile.Switch.get s p) profiles with
+  | [] -> "Off in every profile."
+  | on when List.compare_lengths on profiles = 0 -> "On in every profile."
+  | on ->
+    let names = List.map (fun (name, _) -> Printf.sprintf "$(b,%s)" name) on in
+    Printf.sprintf "On in %s only." (String.concat ", " names)
+;;
+
 (** [--profile], then one [--NAME] and [--no-NAME] pair per {!Djot.Profile.switches}. *)
 let profile : Djot.Profile.t Term.t =
   let base : Djot.Profile.t Term.t =
@@ -55,16 +69,14 @@ let profile : Djot.Profile.t Term.t =
       "The syntax to start from: $(b,djot), or $(b,markdown-like), which adds Markdown \
        spellings. The other options of this section change it construct by construct."
     in
-    let profiles = [ "djot", `Djot; "markdown-like", `Markdown_like ] in
-    let+ p =
+    let names = List.map (fun (name, _) -> name, name) profiles in
+    let+ name =
       Arg.(
         value
-        & opt (enum profiles) `Djot
+        & opt (enum names) "djot"
         & info [ "profile" ] ~doc ~docv:"PROFILE" ~docs:s_syntax)
     in
-    match p with
-    | `Djot -> Djot.Profile.djot
-    | `Markdown_like -> Djot.Profile.markdown_like
+    List.assoc name profiles
   in
   let switch (s : Djot.Profile.Switch.t) : bool option Term.t =
     let name =
@@ -75,9 +87,13 @@ let profile : Djot.Profile.t Term.t =
         (Djot.Profile.Switch.name s)
     in
     let what = Manpage.escape (Djot.Profile.Switch.doc s) in
-    let on = Arg.info [ name ] ~docs:s_syntax ~doc:("Turn on: " ^ what ^ ".") in
+    let on =
+      let doc = Printf.sprintf "Turn on: %s. %s" what (on_in s) in
+      Arg.info [ name ] ~docs:s_syntax ~doc
+    in
     let off =
-      Arg.info [ "no-" ^ name ] ~docs:s_syntax ~doc:("Turn off: " ^ what ^ ".")
+      let doc = Printf.sprintf "Turn off what $(b,--%s) turns on." name in
+      Arg.info [ "no-" ^ name ] ~docs:s_syntax ~doc
     in
     Arg.(value & vflag None [ Some true, on; Some false, off ])
   in
@@ -104,7 +120,8 @@ let input : input Term.t =
 let syntax_man : Manpage.block list =
   [ `S s_syntax
   ; `P
-      "Options naming a construct turn it on or off. Those whose name starts with \
-       $(b,ext-) are extensions to djot, off in the $(b,djot) profile."
+      "Options naming a construct turn it on or off, and say which profiles have it on. \
+       Those whose name starts with $(b,ext-) are extensions to djot, off in the \
+       $(b,djot) profile."
   ]
 ;;
