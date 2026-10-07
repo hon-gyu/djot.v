@@ -95,8 +95,11 @@ block in language `%`, so nothing in the parser changed for it.
 
 1. The baseline table checked against djot.js (its `lib/` was not built
    in this checkout).
-2. The frame stack, if linear cost on hostile input matters before the
-   destination chain is fixed too.
+2. ~~The frame stack~~ Done for holes and destinations together, as a
+   separate machine proved equal to this one, so the proofs above did
+   not move: [[261007.plan.candidate-stack]]. The `%{ x ` row above is
+   now 0.03 s at n = 1000. Holes nested and then closed are still
+   quadratic, in the copying each close does.
 3. `hole_src` escapes every brace, so a payload with balanced braces
    renders as `%{ \{x\} }`. Leaving balanced braces bare is a renderer
    refinement for [[261007.plan.irredundant-escapes]].

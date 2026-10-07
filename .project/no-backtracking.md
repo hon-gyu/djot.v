@@ -110,6 +110,14 @@ A linear-time theorem therefore needs an explicit cost model and any
 necessary amortization argument. It must not be inferred from
 `iscan_str_no_reread` alone.
 
+The specification scan is such a case: open destinations and holes
+chain their ordinary readings, and every byte steps the whole chain.
+The extraction runs a second machine instead, which keeps them as
+frames over one reading and is proved to compute the same result
+(`InlineStack.v`, [[261007.plan.candidate-stack]]). Its frames cost a
+byte O(1), amortized over the pops. That is a property of the code,
+measured by `make bench`; it is not a theorem.
+
 ## Consequences for conformance
 
 `attributes.test:370` shows that djot.js itself replays buffered
