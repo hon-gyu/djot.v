@@ -83,7 +83,7 @@ let cmd : int Cmd.t =
          $(b,stdout)."
     ; `Pre "$(cmd) $(b,--doc README.dj > README.html)"
     ]
-    @ syntax_man
+    @ Args.syntax_man
   in
   let docu : bool Term.t =
     let doc = "Write a complete HTML page rather than a fragment." in
@@ -115,7 +115,7 @@ let cmd : int Cmd.t =
     Arg.(value & opt_all file [] & info [ "inline-css" ] ~doc ~docv:"FILE.css")
   in
   Cmd.make (Cmd.info "html" ~doc ~man)
-  @@ let+ i = input
+  @@ let+ i = Args.input
      and+ docu
      and+ title
      and+ lang
