@@ -778,6 +778,6 @@ let to_doc ?profile (json : Jsont.json) : (Doc.t, string) result =
   Jsont.Json.decode (made ?profile ()) json
 ;;
 
-let of_string ?profile (s : string) : (Doc.t, string) result =
-  Jsont_bytesrw.decode_string (made ?profile ()) s
+let of_string ?file ?profile (s : string) : (Doc.t, string) result =
+  Jsont_bytesrw.decode_string ?file (made ?profile ()) s
 ;;

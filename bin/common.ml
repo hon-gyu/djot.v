@@ -44,7 +44,7 @@ let parse ~(locs : bool) (i : input) : (Djot.Doc.t, string) result =
   let@ text = Result.bind (read_file i.file) in
   let@ () = timed ~on:i.time "parse" in
   (match i.from with
-   | `Json -> Djot_json.of_string ~profile:i.profile text
+   | `Json -> Djot_json.of_string ~file:i.file ~profile:i.profile text
    | `Djot ->
      (match
         Djot.Doc.of_string ~profile:i.profile ~locs ~frontmatter:i.frontmatter text

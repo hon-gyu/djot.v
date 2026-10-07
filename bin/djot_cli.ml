@@ -8,6 +8,13 @@ open Common
 
 let s_syntax : string = "SYNTAX OPTIONS"
 
+let exits : Cmd.Exit.info list =
+  Cmd.Exit.info 1 ~doc:"when the input cannot be read or parsed."
+  :: List.filter
+       (fun (e : Cmd.Exit.info) -> Cmd.Exit.info_code e <> Cmd.Exit.some_error)
+       Cmd.Exit.defaults
+;;
+
 let file : string Term.t =
   let doc = "The input file. Reads from $(b,stdin) if none or $(b,-) is given." in
   let (arg : string Arg.t) = Arg.(pos 0 string "-" & info [] ~doc ~docv:"FILE") in
@@ -46,7 +53,7 @@ let profile : Djot.Profile.t Term.t =
   let base : Djot.Profile.t Term.t =
     let doc =
       "The syntax to start from: $(b,djot), or $(b,markdown-like), which adds Markdown \
-       spellings. The options below change it construct by construct."
+       spellings. The other options of this section change it construct by construct."
     in
     let profiles = [ "djot", `Djot; "markdown-like", `Markdown_like ] in
     let+ p =
