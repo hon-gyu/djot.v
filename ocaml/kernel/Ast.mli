@@ -130,6 +130,7 @@ type inline =
 | SoftBreak
 | HardBreak
 | Ext_wikilink of bool * string * string option
+| Hole of string
 
 type inlines = inline node list
 
@@ -222,12 +223,12 @@ type parts =
 val set_each : coq_PosPolicy -> span list -> 'a1 node list -> 'a1 node list
 
 val set_defs :
-  coq_PosPolicy -> ((span * span) * span) list -> (inlines node * blocks
-  node) node list -> (inlines node * blocks node) node list
+  coq_PosPolicy -> ((span * span) * span) list -> (inlines node * blocks node)
+  node list -> (inlines node * blocks node) node list
 
 val set_rows :
-  coq_PosPolicy -> (span * span list) list -> cell node list node list ->
-  cell node list node list
+  coq_PosPolicy -> (span * span list) list -> cell node list node list -> cell
+  node list node list
 
 val parts_onto : coq_PosPolicy -> parts -> block -> block
 

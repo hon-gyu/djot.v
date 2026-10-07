@@ -104,7 +104,7 @@ let is_punct c =
           (Stdlib.succ (Stdlib.succ
           0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
     ((&&)
-      (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
@@ -128,7 +128,7 @@ let is_punct c =
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
         (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-        (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+        (Stdlib.succ (Stdlib.succ (Stdlib.succ
         0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
         n)
       (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
@@ -247,6 +247,11 @@ let rparen =
 let vbar =
   '|'
 
+(** val percent : char **)
+
+let percent =
+  '%'
+
 (** val hat : char **)
 
 let hat =
@@ -313,7 +318,8 @@ type dconfig = { dc_char : (dstyle -> char); dc_width : (dstyle -> int);
                  dc_decay : (dstyle -> ddecay); dc_smart_typography :
                  bool; dc_raw_inline : bool; dc_math : bool;
                  dc_dollar_math : bool; dc_attrs : bool; dc_footnotes :
-                 bool; dc_wikilinks : bool; dc_tags : bool }
+                 bool; dc_wikilinks : bool; dc_tags : bool; dc_holes :
+                 bool }
 
 (** val djot_dchar : dstyle -> char **)
 
@@ -375,7 +381,7 @@ let djot_config =
   { dc_char = djot_dchar; dc_width = djot_dwidth; dc_syntax = djot_dsyntax;
     dc_decay = djot_ddecay; dc_smart_typography = true; dc_raw_inline = true;
     dc_math = true; dc_dollar_math = false; dc_attrs = true; dc_footnotes =
-    true; dc_wikilinks = false; dc_tags = false }
+    true; dc_wikilinks = false; dc_tags = false; dc_holes = false }
 
 (** val chars : char -> int -> string **)
 
@@ -510,7 +516,7 @@ let update_drow target0 e c =
     dc_smart_typography = c.dc_smart_typography; dc_raw_inline =
     c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math = c.dc_dollar_math;
     dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks =
-    c.dc_wikilinks; dc_tags = c.dc_tags }
+    c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes = c.dc_holes }
 
 (** val with_smart_typography : bool -> dconfig -> dconfig **)
 
@@ -519,7 +525,7 @@ let with_smart_typography enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = enabled; dc_raw_inline =
     c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math = c.dc_dollar_math;
     dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes; dc_wikilinks =
-    c.dc_wikilinks; dc_tags = c.dc_tags }
+    c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes = c.dc_holes }
 
 (** val with_raw_inline : bool -> dconfig -> dconfig **)
 
@@ -528,7 +534,8 @@ let with_raw_inline enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = enabled; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes =
+    c.dc_holes }
 
 (** val with_math : bool -> dconfig -> dconfig **)
 
@@ -537,7 +544,8 @@ let with_math enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = enabled; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes =
+    c.dc_holes }
 
 (** val with_dollar_math : bool -> dconfig -> dconfig **)
 
@@ -546,7 +554,8 @@ let with_dollar_math enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     enabled; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes =
+    c.dc_holes }
 
 (** val with_inline_attrs : bool -> dconfig -> dconfig **)
 
@@ -555,7 +564,8 @@ let with_inline_attrs enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = enabled; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes =
+    c.dc_holes }
 
 (** val with_inline_footnotes : bool -> dconfig -> dconfig **)
 
@@ -564,7 +574,8 @@ let with_inline_footnotes enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = enabled;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes =
+    c.dc_holes }
 
 (** val with_wikilinks : bool -> dconfig -> dconfig **)
 
@@ -573,7 +584,7 @@ let with_wikilinks enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = enabled; dc_tags = c.dc_tags }
+    dc_wikilinks = enabled; dc_tags = c.dc_tags; dc_holes = c.dc_holes }
 
 (** val with_inline_tags : bool -> dconfig -> dconfig **)
 
@@ -582,7 +593,16 @@ let with_inline_tags enabled c =
     dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
     dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
     c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
-    dc_wikilinks = c.dc_wikilinks; dc_tags = enabled }
+    dc_wikilinks = c.dc_wikilinks; dc_tags = enabled; dc_holes = c.dc_holes }
+
+(** val with_holes : bool -> dconfig -> dconfig **)
+
+let with_holes enabled c =
+  { dc_char = c.dc_char; dc_width = c.dc_width; dc_syntax = c.dc_syntax;
+    dc_decay = c.dc_decay; dc_smart_typography = c.dc_smart_typography;
+    dc_raw_inline = c.dc_raw_inline; dc_math = c.dc_math; dc_dollar_math =
+    c.dc_dollar_math; dc_attrs = c.dc_attrs; dc_footnotes = c.dc_footnotes;
+    dc_wikilinks = c.dc_wikilinks; dc_tags = c.dc_tags; dc_holes = enabled }
 
 type drow_refusal =
 | RWidth

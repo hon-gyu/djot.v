@@ -63,6 +63,11 @@ let wikilinks_enabled t =
 let tags_enabled t =
   t.dc_tags
 
+(** val holes_enabled : dtable -> bool **)
+
+let holes_enabled t =
+  t.dc_holes
+
 (** val denabled_of : dtable -> dstyle -> bool **)
 
 let denabled_of =
@@ -141,9 +146,11 @@ let marked_close t k tail =
 
 let needs_escape t c =
   (||)
-    ((||) ((||) ((||) (dreserved c) (is_delim t c)) ((=) c hat))
-      ((=) c hyphen))
-    ((=) c ':')
+    ((||)
+      ((||) ((||) ((||) (dreserved c) (is_delim t c)) ((=) c hat))
+        ((=) c hyphen))
+      ((=) c ':'))
+    ((&&) (holes_enabled t) ((=) c percent))
 
 (** val needs_escape_dest : char -> bool **)
 
@@ -619,6 +626,96 @@ let raw_text fmt s =
 
     ('=', ((^) fmt (one rbrace))))))
 
+(** val hole_text : string -> string **)
+
+let rec hole_text s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> s)
+    (fun c tl ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ -> s)
+      (fun d rest ->
+      if (&&) (is_bslash c)
+           ((||) ((||) ((=) d lbrace) ((=) d rbrace)) (is_bslash d))
+      then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+             (d, (hole_text rest))
+      else (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+             (c, (hole_text tl)))
+      tl)
+    s
+
+(** val hole_src : string -> string **)
+
+let rec hole_src s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun c rest ->
+    if (||) ((=) c lbrace) ((=) c rbrace)
+    then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (bslash,
+           ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+           (c, (hole_src rest))))
+    else if is_bslash c
+         then ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                 (fun _ ->
+                 (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                 (bslash,
+                 ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                 (c, ""))))
+                 (fun d _ ->
+                 if (||) ((||) ((=) d lbrace) ((=) d rbrace)) (is_bslash d)
+                 then (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                        (bslash,
+                        ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                        (c, (hole_src rest))))
+                 else (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                        (c, (hole_src rest)))
+                 rest)
+         else (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                (c, (hole_src rest)))
+    s
+
+(** val hole_spell : string -> string **)
+
+let hole_spell s =
+  (^) (one percent) ((^) (one lbrace) ((^) (hole_src s) (one rbrace)))
+
 type cinline =
 | CIStr of string
 | CIVerb of string
@@ -904,7 +1001,8 @@ let rec inline_text t il =
   (fun (c, s) -> String.make 1 c ^ s)
 
        (bslash, (one '\n'))
-   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al)
+   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
+   | Hole s -> hole_spell s)
 
 (** val line_ends : inlines -> bool **)
 

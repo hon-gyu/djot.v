@@ -235,6 +235,8 @@ type 'buf iscan_g =
 | IAuto of 'buf * 'buf * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
 | IRaw of 'buf * string * ostate
+| IPercent of 'buf * char option * ostate
+| IHole of int * bool * 'buf * 'buf * 'buf iscan_g * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
 
@@ -303,8 +305,8 @@ val ispan_feed :
   inlines -> bool -> span -> aparser -> 'a1 -> ostate -> 'a1 iscan_g
 
 val inote_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
+  -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val iauto_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -335,8 +337,8 @@ val iwiki_close :
   -> ostate -> 'a1 iscan_g
 
 val iwiki_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
+  -> bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val ibang_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -366,6 +368,22 @@ val idash_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   int -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
+val ipercent_step :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> char option -> ostate -> 'a1 iscan_g
+
+val all_ws_nl : string -> bool
+
+val hole_ok : string -> bool
+
+val ihole_close :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  ostate -> 'a1 iscan_g
+
+val ihole_step :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> int -> bool
+  -> 'a1 -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
+
 val iresolve :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
   iscan_g -> 'a1 iscan_g
@@ -375,8 +393,8 @@ val iescws_resolve :
   option -> ostate -> ('a1 * char option) * ostate
 
 val iesc_hard :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 ->
-  ostate -> ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 -> ostate
+  -> ostate
 
 val istep_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
