@@ -628,33 +628,18 @@ let raw_text fmt s =
 
 (** val hole_text : string -> string **)
 
-let rec hole_text s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> s)
-    (fun c tl ->
-    (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-      (fun _ -> s)
-      (fun d rest ->
-      if (&&) (is_bslash c)
-           ((||) ((||) ((=) d lbrace) ((=) d rbrace)) (is_bslash d))
-      then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-             (d, (hole_text rest))
-      else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-             (c, (hole_text tl)))
-      tl)
-    s
+let rec hole_text = (fun s ->
+     if not (String.contains s '\\') then s else
+     let n = String.length s in
+     let b = Buffer.create n and i = ref 0 in
+     while !i < n do
+       let c = s.[!i] in
+       if c = '\\' && !i + 1 < n
+          && (let d = s.[!i + 1] in d = '{' || d = '}' || d = '\\')
+       then (Buffer.add_char b s.[!i + 1]; i := !i + 2)
+       else (Buffer.add_char b c; incr i)
+     done;
+     Buffer.contents b)
 
 (** val hole_src : string -> string **)
 

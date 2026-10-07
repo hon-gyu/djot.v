@@ -92,6 +92,9 @@ roundtrip-escapes: build  ## Escapes of the canonical renderer that the parse do
 check-span-containment: build  ## Located parse: every span lies inside its document and parent
 	dune exec test/spans.exe -- $(VERBOSE) 3
 
+check-stack: build  ## Extracted candidate-stack scan against the specification scan, on random paragraphs
+	dune exec test/stack.exe -- $(VERBOSE)
+
 bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
 	dune exec test/bench.exe -- $(SHAPES)
 

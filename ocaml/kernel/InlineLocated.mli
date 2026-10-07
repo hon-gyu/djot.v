@@ -26,6 +26,20 @@ val iscan_lines_located :
 val ifinish_located :
   dtable -> coq_PosPolicy -> (int * string) list -> string iscan_g -> inlines
 
+val sscan_str_located :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> bool -> int -> spot -> int ->
+  string -> 'a1 sscan -> 'a1 sscan
+
+val sscan_lines_located :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> int -> spot -> (int * string)
+  list -> 'a1 sscan -> 'a1 sscan
+
+val para_inlines_located_stk :
+  dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines
+
+val parse_inline_line_located_stk :
+  dtable -> coq_PosPolicy -> int -> int -> string -> inlines
+
 val para_inlines_located :
   dtable -> coq_PosPolicy -> int -> (int * string) list -> inlines
 
