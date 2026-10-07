@@ -78,9 +78,9 @@ let profile_cmd : int Cmd.t =
     [ `S Manpage.s_description
     ; `P
         "$(cmd) reads no input. It prints the syntax that the syntax options given to \
-         it select: how each inline delimiter is written, then whether each construct \
-         is on."
-    ; `Pre "$(cmd) $(b,--profile markdown-like --no-tables)"
+         it and $(b,DJOT_SYNTAX) select: how each inline delimiter is written, then \
+         whether each construct is on."
+    ; `Pre "$(cmd) $(b,--profile markdown-like --no-tables --highlight '==')"
     ]
     @ Djot_cli.syntax_man
   in

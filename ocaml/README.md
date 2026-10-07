@@ -75,6 +75,19 @@ djot html --doc --frontmatter notes.dj > notes.html
 djot json notes.dj | jq '...' | djot html --from json
 ```
 
+An inline delimiter has an option too, taking how it is written: `--strong '**'`,
+`--highlight '{=}'` to read only the braced form, or `--delete off`.
+
+`DJOT_SYNTAX` holds the syntax the options start from, so that it need not be
+repeated on each command line.  It is a profile, then constructs and delimiters
+named as the options are.  `--profile` ignores it.
+
+```sh
+export DJOT_SYNTAX="markdown-like ext-wikilinks no-tables highlight==="
+djot profile            # prints the syntax in effect
+djot html notes.dj
+```
+
 ## The library
 
 ### API

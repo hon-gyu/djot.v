@@ -3,6 +3,9 @@
 The djot command, one test per option. Frontmatter is in cli_frontmatter.t,
 which needs the yaml package.
 
+  $ unset DJOT_SYNTAX
+  $ export NO_COLOR=1
+
   $ cat > doc.dj <<'END'
   > # Hi
   > 
@@ -182,6 +185,76 @@ The profile command prints the syntax the options select.
   > ext_setext_headings: on
   > ext_list_interrupts: on
   [1]
+
+An option naming a delimiter respells it: bare, braced only, or off.
+
+  $ echo '**b** ==h== {==h==}' | djot html --strong '**' --highlight '=='
+  <p><strong>b</strong> <mark>h</mark> <mark>h</mark></p>
+
+  $ djot profile --superscript '{^}' --delete off | grep -e superscript -e delete
+  superscript: ^ braced
+  delete: off
+
+  $ djot profile --strong _
+  Usage: djot profile [--help] [OPTION]…
+  djot: strong=_: '_' is already the emph delimiter
+  [124]
+
+  $ djot profile --strong ab 2>&1 | grep -c expected
+  1
+
+DJOT_SYNTAX gives the syntax the options start from.
+
+  $ export DJOT_SYNTAX='markdown-like ext-wikilinks no-tables highlight==='
+  $ djot profile | diff djot.profile -
+  2c2
+  < strong: * bare
+  ---
+  > strong: ** bare
+  5c5
+  < highlight: = braced
+  ---
+  > highlight: == bare
+  15c15
+  < tables: on
+  ---
+  > tables: off
+  21,23c21,23
+  < heading_continuation: on
+  < ext_wikilinks: off
+  < ext_dollar_math: off
+  ---
+  > heading_continuation: off
+  > ext_wikilinks: on
+  > ext_dollar_math: on
+  27,28c27,28
+  < ext_setext_headings: off
+  < ext_list_interrupts: off
+  ---
+  > ext_setext_headings: on
+  > ext_list_interrupts: on
+  [1]
+
+  $ echo '[[w]]' | djot html
+  <p><a href="w">w</a></p>
+
+An option overrides it, and --profile ignores it.
+
+  $ djot profile --tables | grep -e tables -e wikilinks
+  tables: on
+  ext_wikilinks: on
+
+  $ djot profile --profile djot | diff djot.profile -
+
+  $ DJOT_SYNTAX='tables markdown-like' djot profile 2>&1 | grep -c 'DJOT_SYNTAX: markdown-like: expected'
+  1
+
+  $ DJOT_SYNTAX='strong=_' djot profile
+  Usage: djot profile [--help] [OPTION]…
+  djot: DJOT_SYNTAX: strong=_: '_' is already the emph delimiter
+  [124]
+
+  $ unset DJOT_SYNTAX
 
 HTML page
 =========
