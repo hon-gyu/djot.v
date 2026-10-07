@@ -1159,19 +1159,95 @@ Proof.
   reflexivity.
 Qed.
 
+(* The scanner's previous byte is the last one the run has written. *)
+Local Definition prev_of (pre : string) (prev : option ascii) : Prop :=
+  match pre with
+  | EmptyString => True
+  | String p _ => prev = Some p
+  end.
+
+(* Whitespace is never escaped, and is neither of the bytes a waiting
+   state asks about. *)
+Local Lemma is_space_plain :
+  forall x, InlineView.is_space x = true ->
+    needs_escape x = false /\ Ascii.eqb x lbrack = false
+    /\ Ascii.eqb x rbrace = false.
+Proof.
+  intros x Hx. unfold InlineView.is_space in Hx.
+  destruct (needs_escape x) eqn:Ex.
+  - apply needs_escape_punct in Ex.
+    repeat (apply orb_true_iff in Hx as [Hx|Hx]);
+      apply Ascii.eqb_eq in Hx; subst x; discriminate Ex.
+  - repeat (apply orb_true_iff in Hx as [Hx|Hx]);
+      apply Ascii.eqb_eq in Hx; subst x; repeat split; reflexivity.
+Qed.
+
+(* A reserved character belongs to no row. *)
+Local Lemma delim_alone_free :
+  forall p c d, dreserved c = true -> delim_alone p c d = false.
+Proof.
+  intros p c d H. unfold delim_alone.
+  destruct (dstyle_of c) as [k|] eqn:Ek; [|reflexivity].
+  rewrite <- (dstyle_of_char c k Ek), dchar_free in H. discriminate.
+Qed.
+
+(* A delimiter character between spaces: the space before it rules out a
+   close, the one after it an open, so the token decays to itself and
+   the stack is not consulted. *)
+Local Lemma delim_alone_step :
+  forall c p d txt o,
+    delim_alone p c d = true ->
+    istep d (ilead c txt (Some p) o)
+    = istep d (IText false (txt ++ one c)%string (Some c) o).
+Proof.
+  intros c p d txt o Halone. unfold delim_alone in Halone.
+  destruct (dstyle_of c) as [k|] eqn:Ek; [|discriminate].
+  repeat (apply andb_true_iff in Halone as [Halone ?]).
+  pose proof (dstyle_of_char c k Ek) as Hck.
+  pose proof (dstyle_of_enabled c k Ek) as Hen.
+  destruct (is_space_plain d H) as [_ [_ Hdr]].
+  destruct (is_space_plain p H0) as [_ [Hpl _]].
+  subst c. apply negb_true_iff in H1.
+  destruct (dreserved_false (dchar k) (dchar_free k))
+    as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol [Hpd Hlt]]]]]]]]].
+  assert (Hcolon : Ascii.eqb (dchar k) ":"%char = false).
+  { destruct (Ascii.eqb (dchar k) ":"%char) eqn:E; [|reflexivity].
+    apply Ascii.eqb_eq in E. pose proof (dchar_free k) as Hfree.
+    rewrite E in Hfree. discriminate. }
+  unfold ilead at 1.
+  rewrite Hb, Ht, Hdol, Hpd, H1, Hlb, Hlt, Hlk, Hrk, Hbg, Hcolon.
+  unfold note_pos. rewrite Hpl, andb_false_r, andb_false_r, andb_false_l.
+  rewrite (dstyle_of_dchar k Hen).
+  cbn [istep istep_at].
+  apply Nat.eqb_eq in Halone. rewrite Halone. cbn [Nat.ltb Nat.leb].
+  rewrite Hdr. unfold idelim_resolve, idelim_done.
+  cbn [nonspace_at]. rewrite H0, H. cbn [negb orb]. rewrite andb_false_r.
+  unfold InlineScan.idelim_lit, InlineScan.idelim_lit_prev, ddecay_str, dtoken.
+  destruct (dc_decay cfg k); [|discriminate]. rewrite Halone. tred.
+  reflexivity.
+Qed.
+
 (* A character left bare by `bare_ok` waits on the byte after it, and
    that byte never completes a construct with it, so the two bytes read
    as the character pushed as text and then the next one. *)
 Local Lemma bare_step :
-  forall b c pre d r txt prev o,
-    needs_escape c = true -> bare_ok b pre c (String d r) = true ->
-    iscan_str (escape_from b (String c pre) (String d r)) (ilead c txt prev o)
-    = iscan_str (escape_from b (String c pre) (String d r))
+  forall b c p pre' d r txt o,
+    needs_escape c = true ->
+    bare_ok b (String p pre') c (String d r) = true ->
+    iscan_str (escape_from b (String c (String p pre')) (String d r))
+      (ilead c txt (Some p) o)
+    = iscan_str (escape_from b (String c (String p pre')) (String d r))
         (IText false (txt ++ one c)%string (Some c) o).
 Proof.
-  intros b c pre d r txt prev o Hc Hb.
-  destruct pre as [|p pre']; [discriminate Hb|].
+  intros b c p pre' d r txt o Hc Hb.
   cbn [bare_ok] in Hb.
+  apply orb_true_iff in Hb as [Hb|Halone].
+  2: { pose proof Halone as Hd. unfold delim_alone in Hd.
+       destruct (dstyle_of c); [|discriminate].
+       apply andb_true_iff in Hd as [_ Hd].
+       destruct (is_space_plain d Hd) as [Hnd _].
+       cbn [escape_from]. rewrite Hnd. cbn [andb iscan_str]. f_equal.
+       apply delim_alone_step, Halone. }
   assert (Hd1 : typography_dashes 1 = one hyphen)
     by (unfold typography_dashes; destruct smart_typography; reflexivity).
   cbn [escape_from].
@@ -1194,11 +1270,13 @@ Proof.
     assert (Hlb : Ascii.eqb d lbrack = false).
     { destruct (Ascii.eqb d lbrack) eqn:E; [|reflexivity].
       apply Ascii.eqb_eq in E. subst d.
-      destruct r, b; cbn in Hd; discriminate Hd. }
+      destruct r, b; cbn - [delim_alone] in Hd;
+        rewrite ?delim_alone_free in Hd by reflexivity; discriminate Hd. }
     assert (Hrb : Ascii.eqb d rbrace = false).
     { destruct (Ascii.eqb d rbrace) eqn:E; [|reflexivity].
       apply Ascii.eqb_eq in E. subst d.
-      destruct r, b; cbn in Hd; discriminate Hd. }
+      destruct r, b; cbn - [delim_alone] in Hd;
+        rewrite ?delim_alone_free in Hd by reflexivity; discriminate Hd. }
     apply orb_true_iff in Hb as [Hb|Hh]; [apply orb_true_iff in Hb as [Hp|Hbang]|].
     + apply andb_true_iff in Hp as [Hp _]. apply andb_true_iff in Hp as [Hp Hdp].
       apply negb_true_iff in Hdp.
@@ -1220,10 +1298,11 @@ Qed.
    table row costs an escape, not a proof. *)
 Local Lemma iscan_escape_from :
   forall s pre txt prev o,
+    prev_of pre prev ->
     iscan_str (escape_from false pre s) (IText false txt prev o)
     = IText false (txt ++ s)%string (str_last s prev) o.
 Proof.
-  induction s as [|c rest IH]; intros pre txt prev o.
+  induction s as [|c rest IH]; intros pre txt prev o Hprev.
   - cbn [escape_from iscan_str]. rewrite append_empty_r. reflexivity.
   - cbn [escape_from].
     destruct (needs_escape c && negb (bare_ok false pre c rest))%bool eqn:Hesc.
@@ -1232,15 +1311,17 @@ Proof.
       change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
       rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
               (needs_escape_punct c Hc).
-      rewrite IH, append_assoc. reflexivity.
+      rewrite IH, append_assoc by reflexivity. reflexivity.
     + destruct (needs_escape c) eqn:Hc.
       * cbn [andb negb] in Hesc. apply negb_false_iff in Hesc.
         destruct rest as [|d r]; [destruct pre; discriminate Hesc|].
+        destruct pre as [|p pre']; [discriminate Hesc|].
+        cbn [prev_of] in Hprev. subst prev.
         cbn [iscan_str istep istep_at].
-        rewrite (bare_step false c pre d r txt prev o Hc Hesc).
-        rewrite IH, append_assoc. reflexivity.
+        rewrite (bare_step false c p pre' d r txt o Hc Hesc).
+        rewrite IH, append_assoc by reflexivity. reflexivity.
       * cbn [iscan_str istep istep_at]. rewrite (ilead_plain c txt prev o Hc).
-        rewrite IH, append_assoc. reflexivity.
+        rewrite IH, append_assoc by reflexivity. reflexivity.
 Qed.
 
 (* A run that ends its line may leave its last character bare, and then
@@ -1248,15 +1329,17 @@ Qed.
    which is where the escaped spelling ends already. *)
 Local Lemma escape_end_state :
   forall s pre txt prev o,
+    prev_of pre prev ->
     let st := iscan_str (escape_from true pre s) (IText false txt prev o) in
     st = IText false (txt ++ s)%string (str_last s prev) o
     \/ ((exists t p, st = IPeriod false t p o \/ st = IBang t p o \/ st = IDash 1 t p o)
         /\ iresolve st = IText false (txt ++ s)%string (str_last s prev) o).
 Proof.
-  induction s as [|c rest IH]; intros pre txt prev o; cbn zeta.
+  induction s as [|c rest IH]; intros pre txt prev o Hprev; cbn zeta.
   - left. cbn [escape_from iscan_str]. rewrite append_empty_r. reflexivity.
   - cbn [escape_from].
-    specialize (IH (String c pre) (txt ++ one c)%string (Some c) o). cbn zeta in IH.
+    specialize (IH (String c pre) (txt ++ one c)%string (Some c) o eq_refl).
+    cbn zeta in IH.
     rewrite append_assoc in IH. cbn [append one] in IH.
     change (str_last (String c rest) prev) with (str_last rest (Some c)).
     destruct (needs_escape c && negb (bare_ok true pre c rest))%bool eqn:Hesc.
@@ -1281,18 +1364,21 @@ Proof.
            ++ apply Ascii.eqb_eq in Hh. subst c.
               unfold ilead. cbn - [tpush typography_dashes]. split; [eauto|].
               rewrite Hd1. reflexivity.
-        -- cbn [iscan_str istep istep_at].
-           rewrite (bare_step true c pre d r txt prev o Hc Hesc). exact IH.
+        -- destruct pre as [|p pre']; [discriminate Hesc|].
+           cbn [prev_of] in Hprev. subst prev.
+           cbn [iscan_str istep istep_at].
+           rewrite (bare_step true c p pre' d r txt o Hc Hesc). exact IH.
       * cbn [iscan_str istep istep_at]. rewrite (ilead_plain c txt prev o Hc). exact IH.
 Qed.
 
 Local Lemma ifinish_escape_end :
   forall s pre txt prev o,
+    prev_of pre prev ->
     ifinish (iscan_str (escape_from true pre s) (IText false txt prev o))
     = ifinish (IText false (txt ++ s)%string (str_last s prev) o).
 Proof.
-  intros s pre txt prev o.
-  destruct (escape_end_state s pre txt prev o)
+  intros s pre txt prev o Hprev.
+  destruct (escape_end_state s pre txt prev o Hprev)
     as [E | [[t [p [E|[E|E]]]] Hr]]; rewrite E; [reflexivity| | |];
     rewrite E in Hr; unfold ifinish, ifinish_rev; cbn [ifinish_ostate];
     rewrite Hr; reflexivity.
@@ -1300,11 +1386,12 @@ Qed.
 
 Local Lemma iscan_closed_escape_end :
   forall s pre txt prev o,
+    prev_of pre prev ->
     iscan_closed (iscan_str (escape_from true pre s) (IText false txt prev o))
     = iscan_closed (IText false (txt ++ s)%string (str_last s prev) o).
 Proof.
-  intros s pre txt prev o.
-  destruct (escape_end_state s pre txt prev o)
+  intros s pre txt prev o Hprev.
+  destruct (escape_end_state s pre txt prev o Hprev)
     as [E | [[t [p [E|[E|E]]]] Hr]]; rewrite E; [reflexivity| | |];
     rewrite E in Hr; unfold iscan_closed; rewrite Hr; reflexivity.
 Qed.
@@ -1313,7 +1400,7 @@ Local Lemma iscan_escape :
   forall s txt prev o,
     iscan_str (escape_str s) (IText false txt prev o)
     = IText false (txt ++ s)%string (str_last s prev) o.
-Proof. intros s. apply iscan_escape_from. Qed.
+Proof. intros s txt prev o. apply iscan_escape_from. exact I. Qed.
 
 Local Lemma iscan_escape_after_verb :
   forall s n body vk o,
@@ -1944,9 +2031,8 @@ Proof.
   change nl_char with "010"%char. rewrite Hc, (IH H). reflexivity.
 Qed.
 
-(* The destination is escaped text, and reads back the way escaped text
-   does: `needs_escape_dest` claims every byte the mode dispatches on,
-   and its escapes decode because each such byte is punctuation. *)
+(* `needs_escape_dest` claims every byte the destination mode dispatches
+   on, and its escapes decode because each such byte is punctuation. *)
 Local Lemma iscan_dest_escape :
   forall s kids image open depth dst sh o,
     iscan_str (escape_dest s) (IDest kids image open false depth dst sh o)
@@ -1964,8 +2050,7 @@ Proof.
     cbn [istep istep_at]. rewrite Hp, IH, Hsplit. reflexivity.
   - assert (Hbs : is_bslash c = false).
     { destruct (is_bslash c) eqn:E; [|reflexivity].
-      unfold needs_escape_dest, needs_escape in Hc.
-      apply Ascii.eqb_eq in E. subst c. discriminate. }
+      unfold needs_escape_dest in Hc. rewrite E in Hc. discriminate. }
     assert (Hlp : Ascii.eqb c lparen = false).
     { destruct (Ascii.eqb c lparen) eqn:E; [|reflexivity].
       unfold needs_escape_dest in Hc. rewrite E in Hc.
@@ -3518,7 +3603,7 @@ Proof.
         - left. rewrite ci_text_at_cons2. cbn [ci_src].
           rewrite iscan_str_app, iscan_escape. reflexivity. }
       destruct Hstr as [Hstr|[-> ->]].
-      2:{ rewrite ci_text_at_last, ifinish_escape_end. cbn [append].
+      2:{ rewrite ci_text_at_last, ifinish_escape_end by exact I. cbn [append].
           change (IText false s (str_last s prev') (OState (List.map OIn out) [] None))
             with (iscan_str (ci_text_at true [])
                     (IText false s (str_last s prev') (OState (List.map OIn out) [] None))).
@@ -3813,7 +3898,7 @@ Proof.
     cbn [ci_ok] in Hsok. apply andb_true_iff in Hsok as [Hs _].
     destruct rest as [|r rest'].
     + rewrite ci_text_at_last. destruct b.
-      * rewrite iscan_closed_escape_end.
+      * rewrite iscan_closed_escape_end by exact I.
         exact (IH [] Hrestlt _ _ out (cis_ok_tail _ _ Hok) (text_sep_nil _)).
       * change (escape_from false EmptyString s) with (escape_str s).
         rewrite iscan_escape.

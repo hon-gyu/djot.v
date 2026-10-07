@@ -345,22 +345,19 @@ Proof. reflexivity. Qed.
 Local Lemma needs_escape_colon : needs_escape ":"%char = true.
 Proof. unfold needs_escape. rewrite orb_true_r. reflexivity. Qed.
 
-(* Inside a destination the scanner dispatches on two more characters,
-   the parentheses that move its depth counter, and on none of the
-   delimiters -- but escaping those too is harmless (an escape decodes to
-   the character in either mode) and keeps one predicate ordered above
-   the other. *)
+(* Inside a destination the scanner dispatches on the backslash and the
+   two parentheses that move its depth counter, and on nothing else.  The
+   backtick is claimed for the table row, which is cut on the rendered
+   line and tracks verbatim spans there (`Line.row_cells`). *)
 Definition needs_escape_dest (c : ascii) : bool :=
-  (needs_escape c || Ascii.eqb c lparen || Ascii.eqb c rparen)%bool.
+  (is_bslash c || is_tick c || Ascii.eqb c lparen || Ascii.eqb c rparen)%bool.
 
 Lemma needs_escape_dest_punct :
   forall c, needs_escape_dest c = true -> is_punct c = true.
 Proof.
-  intros c H. unfold needs_escape_dest in H.
-  apply orb_true_iff in H as [H|H].
-  - apply orb_true_iff in H as [H|H]; [apply needs_escape_punct, H|].
-    apply Ascii.eqb_eq in H. subst c. reflexivity.
-  - apply Ascii.eqb_eq in H. subst c. reflexivity.
+  intros c H. unfold needs_escape_dest, is_bslash, is_tick in H.
+  repeat (apply orb_true_iff in H as [H|H]);
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
 Qed.
 
 (* Could `pre` be an ordered list's number, so that a period after it
@@ -372,14 +369,30 @@ Local Definition marker_core (pre : string) : bool :=
       || Nat.eqb (String.length pre) 1 && str_forallb is_alnum pre
       || str_forallb is_roman_lo pre || str_forallb is_roman_up pre).
 
+(* A delimiter character with whitespace on both sides neither opens nor
+   closes, whatever is on the scanner's stack.  Only for a row that is
+   one character wide and decays to itself, so that the character read
+   back is the one written.  The hyphen is left to its own rule, since
+   the scanner dispatches on it before the table. *)
+Definition delim_alone (p c d : ascii) : bool :=
+  match dstyle_of c with
+  | Some k =>
+      Nat.eqb (dwidth k) 1
+      && match dc_decay cfg k with DDSelf => true | _ => false end
+      && negb (Ascii.eqb c hyphen)
+      && is_space p && is_space d
+  | None => false
+  end.
+
 (* A character `needs_escape` claims may go bare when the byte after it
    cannot complete a construct with it: a period that starts no ellipsis
    and ends no list number, a `!` whose `[` would be escaped anyway, a
-   hyphen that starts no dash.  The line's end completes nothing either,
-   so a run that ends its line (`at_end`) may leave its last character
-   bare too, unless that period could end a list number.  A run's first
-   character is always escaped, since it may start a line, where `- ` is
-   a list marker.  `pre` is what the run has written so far, reversed. *)
+   hyphen that starts no dash, a delimiter character between spaces.  The
+   line's end completes nothing either, so a run that ends its line
+   (`at_end`) may leave its last character bare too, unless that period
+   could end a list number.  A run's first character is always escaped,
+   since it may start a line, where `- ` is a list marker.  `pre` is what
+   the run has written so far, reversed. *)
 Definition bare_ok (at_end : bool) (pre : string) (c : ascii) (rest : string)
   : bool :=
   match pre, rest with
@@ -388,11 +401,12 @@ Definition bare_ok (at_end : bool) (pre : string) (c : ascii) (rest : string)
       at_end
       && ((Ascii.eqb c period && negb (marker_core pre))
           || Ascii.eqb c bang || Ascii.eqb c hyphen)
-  | _, String d _ =>
+  | String p _, String d _ =>
       (Ascii.eqb c period && negb (Ascii.eqb d period)
        && negb (marker_core pre && Ascii.eqb d " "%char))
       || Ascii.eqb c bang
       || (Ascii.eqb c hyphen && negb (Ascii.eqb d hyphen))
+      || delim_alone p c d
   end.
 
 Fixpoint escape_from (at_end : bool) (pre s : string) : string :=

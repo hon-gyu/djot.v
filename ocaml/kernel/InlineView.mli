@@ -54,17 +54,19 @@ val marked_close : dtable -> dstyle -> string -> string
 
 val needs_escape : dtable -> char -> bool
 
-val needs_escape_dest : dtable -> char -> bool
+val needs_escape_dest : char -> bool
 
 val marker_core : string -> bool
 
-val bare_ok : bool -> string -> char -> string -> bool
+val delim_alone : dtable -> char -> char -> char -> bool
+
+val bare_ok : dtable -> bool -> string -> char -> string -> bool
 
 val escape_from : dtable -> bool -> string -> string -> string
 
 val escape_str : dtable -> string -> string
 
-val escape_dest : dtable -> string -> string
+val escape_dest : string -> string
 
 val tick_runs_from : int -> string -> int list
 
@@ -96,7 +98,7 @@ val bracket_open : bool -> string
 
 val tag_open : string -> string
 
-val link_close : dtable -> string -> string -> string
+val link_close : string -> string -> string
 
 val ref_close : string -> string -> string
 

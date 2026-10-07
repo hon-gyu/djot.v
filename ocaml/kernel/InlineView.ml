@@ -145,10 +145,10 @@ let needs_escape t c =
       ((=) c hyphen))
     ((=) c ':')
 
-(** val needs_escape_dest : dtable -> char -> bool **)
+(** val needs_escape_dest : char -> bool **)
 
-let needs_escape_dest t c =
-  (||) ((||) (needs_escape t c) ((=) c lparen)) ((=) c rparen)
+let needs_escape_dest c =
+  (||) ((||) ((||) (is_bslash c) (is_tick c)) ((=) c lparen)) ((=) c rparen)
 
 (** val marker_core : string -> bool **)
 
@@ -162,16 +162,33 @@ let marker_core pre =
         (str_forallb is_roman_lo pre))
       (str_forallb is_roman_up pre))
 
-(** val bare_ok : bool -> string -> char -> string -> bool **)
+(** val delim_alone : dtable -> char -> char -> char -> bool **)
 
-let bare_ok at_end pre c rest =
+let delim_alone t p c d =
+  match dstyle_of t c with
+  | Some k ->
+    (&&)
+      ((&&)
+        ((&&)
+          ((&&) (( = ) (dwidth t k) (Stdlib.succ 0))
+            (match t.dc_decay k with
+             | DDSelf -> true
+             | DDPair (_, _, _) -> false))
+          (negb ((=) c hyphen)))
+        (is_space p))
+      (is_space d)
+  | None -> false
+
+(** val bare_ok : dtable -> bool -> string -> char -> string -> bool **)
+
+let bare_ok t at_end pre c rest =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
     (fun _ -> false)
-    (fun _ _ ->
+    (fun p _ ->
     (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -185,10 +202,12 @@ let bare_ok at_end pre c rest =
       (fun d _ ->
       (||)
         ((||)
-          ((&&) ((&&) ((=) c period) (negb ((=) d period)))
-            (negb ((&&) (marker_core pre) ((=) d ' '))))
-          ((=) c bang))
-        ((&&) ((=) c hyphen) (negb ((=) d hyphen))))
+          ((||)
+            ((&&) ((&&) ((=) c period) (negb ((=) d period)))
+              (negb ((&&) (marker_core pre) ((=) d ' '))))
+            ((=) c bang))
+          ((&&) ((=) c hyphen) (negb ((=) d hyphen))))
+        (delim_alone t p c d))
       rest)
     pre
 
@@ -202,7 +221,7 @@ let rec escape_from t at_end pre s =
 
     (fun _ -> "")
     (fun c rest ->
-    if (&&) (needs_escape t c) (negb (bare_ok at_end pre c rest))
+    if (&&) (needs_escape t c) (negb (bare_ok t at_end pre c rest))
     then (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -232,9 +251,9 @@ let rec escape_from t at_end pre s =
 let escape_str t s =
   escape_from t false "" s
 
-(** val escape_dest : dtable -> string -> string **)
+(** val escape_dest : string -> string **)
 
-let rec escape_dest t s =
+let rec escape_dest s =
   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
@@ -242,7 +261,7 @@ let rec escape_dest t s =
 
     (fun _ -> "")
     (fun c rest ->
-    if needs_escape_dest t c
+    if needs_escape_dest c
     then (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -250,11 +269,11 @@ let rec escape_dest t s =
            ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, (escape_dest t rest))))
+           (c, (escape_dest rest))))
     else (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-           (c, (escape_dest t rest)))
+           (c, (escape_dest rest)))
     s
 
 (** val tick_runs_from : int -> string -> int list **)
@@ -409,9 +428,9 @@ let tag_open name =
     (':', ((^) name (one lbrack))))
     name
 
-(** val link_close : dtable -> string -> string -> string **)
+(** val link_close : string -> string -> string **)
 
-let link_close t dst tail =
+let link_close dst tail =
   (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -420,7 +439,7 @@ let link_close t dst tail =
   (fun (c, s) -> String.make 1 c ^ s)
 
     (lparen,
-    ((^) (escape_dest t dst)
+    ((^) (escape_dest dst)
       ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
@@ -639,7 +658,7 @@ let rec ci_src t ci =
    | CIDelim (k, kids) ->
      (^) (marked_open t k) ((^) (go kids) (marked_close t k ""))
    | CILink (img, kids, dst) ->
-     (^) (bracket_open img) ((^) (go kids) (link_close t dst ""))
+     (^) (bracket_open img) ((^) (go kids) (link_close dst ""))
    | CIRef (img, kids, label) ->
      (^) (bracket_open img) ((^) (go kids) (ref_close label ""))
    | CINote label -> note_text label
@@ -856,13 +875,13 @@ let rec inline_text t il =
    | Link (ns, tgt) ->
      (match tgt with
       | Direct dst ->
-        (^) (bracket_open false) ((^) (go ns) (link_close t dst ""))
+        (^) (bracket_open false) ((^) (go ns) (link_close dst ""))
       | Reference label ->
         (^) (bracket_open false) ((^) (go ns) (ref_close label "")))
    | Image (ns, tgt) ->
      (match tgt with
       | Direct dst ->
-        (^) (bracket_open true) ((^) (go ns) (link_close t dst ""))
+        (^) (bracket_open true) ((^) (go ns) (link_close dst ""))
       | Reference label ->
         (^) (bracket_open true) ((^) (go ns) (ref_close label "")))
    | Span (name, ns) -> (^) (tag_open name) ((^) (go ns) (one ']'))
