@@ -673,3 +673,40 @@ profiles (`names_off_in_named_profiles`).
 does (`tagged_with_delimiters`) and is never taken back for a note
 (`tagged_not_a_note`). The roundtrip holds at the profile
 (`tag_roundtrip_blocks`).
+
+## Pinned and reviewed: holes
+
+**Ask.** Article template literals (Crichton and Krishnamurthi, "A Core
+Calculus for Documents", POPL 2024, section 3.2.3): djot as the literal,
+with holes for expressions. Specified in `theories/spec/holes.dj`; the
+reasoning is [[261007.plan.holes]]'s. D1 to D5, D9 and D10 were decided
+by a human in conversation (2026-10-07); D7, D8 and D11 were proposed by
+an agent and accepted in review the same day, and D6 was amended in that
+review. The entries are pinned by examples in `dev/check/Hole.v`.
+
+**Baseline.** `off_in_djot`, read from our parser and listed in the plan;
+not yet checked against djot.js.
+
+**Non-conservative.** The inline half: every `%{` outside verbatim
+contexts changes, and `%` followed by an attribute block (`a %{.c}`)
+loses its attributes. The setting is off in both named profiles. The
+block half (D10) is a convention on code blocks and changes no parse.
+
+| | decision | pinned by |
+| --- | --- | --- |
+| D1 | `%{e}`, a `Hole` inline node holding the decoded payload | `a_hole` |
+| D2 | the closer is the `}` that returns the brace depth to zero | `brace_depth` |
+| D3 | `%{` wins over an attribute block | `hole_not_attributes` |
+| D4 | a hole crosses a soft break, which is in its payload | `across_lines` |
+| D5 | one kind; `%*{` and `%?{` reserved, and read as today | (no example: nothing changes) |
+| D6 | an empty or blank payload is a hole, for the consumer to reject (amended in review, 2026-10-07) | `empty_holes` |
+| D7 | `\{`, `\}`, `\\` decode and do not count; other backslashes stay | `escapes` |
+| D8 | not an opener when escaped, or in a code span, destination or autolink | `not_an_opener` |
+| D9 | always closed; a closed hole wins over what it overlaps | `unclosed_is_text`, `closed_hole_wins`, `holes_and_verbatim` |
+| D10 | no block syntax: a code block in language `%` is a consumer convention | `theories/spec/holes.dj` |
+| D11 | HTML shows an unevaluated hole as `<code data-hole="">` | `theories/spec/holes.dj` |
+
+**Consequences pinned alongside.** A hole takes attributes like any
+inline (`hole_attributes`); its located range covers the sigil and both
+braces (`hole_located_ranges`); rendering a parsed document with holes
+and parsing it again gives the same blocks (`holes_render_back`).

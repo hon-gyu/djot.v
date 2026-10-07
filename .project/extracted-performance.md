@@ -692,6 +692,24 @@ Measured 2026-09-26 at `537dba9`, release profile, parse (`parse_doc`)
 against full conversion (`Html.convert`).  djot.js figures are its
 `parse` plus `renderHTML` on the same generated inputs.
 
+### Fixed: open destinations and holes were a chain
+
+Measured 2026-10-07 on `hy/holes`, release profile, `make bench` shapes.
+
+| input | 20 KB before | 20 KB after | 320 KB after |
+| --- | --- | --- | --- |
+| `[a](b ` repeated, wrapped | 3.6 s | 3.6 ms | 58 ms |
+| `%{ x ` repeated, wrapped, holes on | 4.7 s | 4.0 ms | 72 ms |
+| the two alternating | 6.7 s | 4.7 ms | 79 ms |
+
+Each open destination or hole carried the ordinary reading of its
+region, which opened the next one inside itself, so every byte walked
+the chain. The extraction now runs the candidate stack
+(`InlineScan.v`, "The candidate stack"), proved equal to the
+specification scan in `InlineStack.v`. Plan and record:
+[[261007.plan.candidate-stack]]. `make check-stack` compares the two
+extracted scans on random paragraphs.
+
 ### Fixed: unclosed openers were quadratic in a paragraph
 
 | input, wrapped at 78 columns | 40 KB | 160 KB | djot.js 160 KB |
@@ -731,6 +749,12 @@ deduplicates once, with a proof against the `alist_set` fold.
   per line: 20000 continuation lines take 22 ms.
 
 Both are quadratic in a count no document reaches.
+
+- Destinations or holes nested and then closed, `[a](`ⁿ `)`ⁿ or
+  `%{a`ⁿ `}`ⁿ: every close copies and decodes its whole payload, and
+  each inner node is built and then discarded by the one around it.
+  Linear needs payloads kept as slices until the paragraph ends
+  ([[261007.plan.candidate-stack]], "What it costs").
 
 ### Recheck: inline links
 

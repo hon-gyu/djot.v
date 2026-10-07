@@ -238,6 +238,33 @@ Definition tags_rt_lhs (c : cblock) : blocks :=
   @parse_blocks tags_table tags_bconfig _ _
     (@render_djot tags_table tags_bconfig (blocks_of_cblocks [c])).
 
+(* Holes have no node in the canonical view, so their pool is the
+   ordinary one read with the setting on, plus text that would open a hole
+   if a `%` were left bare: before a brace, at the end of a run that a
+   braced delimiter follows, and beside a code span. *)
+Definition holes_table : dtable :=
+  DTable (with_holes true djot_config) eq_refl.
+
+Definition holes_pool (d : nat) : list cblock :=
+  (enum_cblock d
+   ++ flat_map (fun p => [p; CQuote [p]; CList LKBullet Tight [[p]]])
+      [ CPara [[CIStr "%{x}"]]
+      ; CPara [[CIStr "a %{.c} b"]]
+      ; CPara [[CIStr "50%"]]
+      ; CPara [[CIStr "a %"; CIDelim DEmph [CIStr "x"]]]
+      ; CPara [[CIStr "%"; CIDelim DMark [CIStr "x"]; CIStr "}"]]
+      ; CPara [[CIStr "%"; CIVerb "x"; CIStr "{y}"]]
+      ; CPara [[CIDelim DStrong [CIStr "a %{b"]; CIStr " c}"]]
+      ; CPara [[CIStr "%{"]; [CIStr "x}"]]
+      ; CTable [CTBody [[CIStr "%{x}"]]] ])%list.
+
+Definition holes_accepted (d : nat) : list cblock :=
+  filter (@cb_ok holes_table _) (holes_pool d).
+
+Definition holes_rt_lhs (c : cblock) : blocks :=
+  @parse_blocks holes_table _ _ _
+    (@render_djot holes_table _ (blocks_of_cblocks [c])).
+
 (* Callouts exercise both title syntax and nesting under the enabled block
    setting.  Ordinary quotes beginning with literal header text are retained
    in the pool to check that canonical escaping keeps them ordinary quotes. *)

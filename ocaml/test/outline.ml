@@ -62,6 +62,7 @@ let inline_label : Inline.t -> string * item list = function
     let alias = Option.fold ~none:"" ~some:(fun a -> " " ^ quote a) alias in
     ( Printf.sprintf "Ext_wikilink%s %s%s" (if embed then " embed" else "") (quote t) alias
     , [] )
+  | Hole s -> "Hole " ^ quote s, []
 ;;
 
 let group name l kids = Group (name, l, kids)

@@ -89,6 +89,11 @@ Definition rparen : ascii := ")"%char.
 (* A wikilink's alias separator.  Not dispatched in text mode. *)
 Definition vbar : ascii := "|"%char.
 
+(* A hole's sigil, `%{e}`.  Dispatched in text mode only while holes are
+   on, but no row may use it in any table (`drow_ok`), so that turning
+   holes on never takes a character from a row. *)
+Definition percent : ascii := "%"%char.
+
 (* The footnote marker.  It is the superscript row's character, and only
    a `^` immediately inside a `[` marks a note, so the table may keep
    claiming it.  `[^` is spelled with this rather than `dchar DSuper`, so
@@ -196,7 +201,11 @@ Record dconfig : Type := DConfig {
   (* Does `:name[...]` make a span with that name?  Off in djot's own
      table, and non-conservative: djot reads the same bytes as text before
      a bracket.  See `.project/custom-tags.md`. *)
-  dc_tags : bool
+  dc_tags : bool;
+  (* Does `%{e}` make a hole?  Off in djot's own table, and
+     non-conservative: djot reads the same bytes as text, or as `%` with
+     attributes after it.  See `.project/261007.plan.holes.md`. *)
+  dc_holes : bool
 }.
 
 Definition djot_dchar (k : dstyle) : ascii :=
@@ -243,7 +252,7 @@ Definition djot_dwidth (_ : dstyle) : nat := 1.
 
 Definition djot_config : dconfig :=
   DConfig djot_dchar djot_dwidth djot_dsyntax djot_ddecay true true true false true
-    true false false.
+    true false false false.
 
 Fixpoint chars (c : ascii) (n : nat) : string :=
   match n with O => EmptyString | S m => String c (chars c m) end.
@@ -370,14 +379,14 @@ Definition update_drow
     (fun k => if dstyle_eq k target then de_syntax e else dc_syntax C k)
     (fun k => if dstyle_eq k target then de_decay e else dc_decay C k)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 (* Smart dashes and ellipses are scanner capabilities rather than delimiter
    rows.  This field-local knob leaves every row unchanged. *)
 Definition with_smart_typography (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C) enabled
     (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C) (dc_footnotes C)
-    (dc_wikilinks C) (dc_tags C).
+    (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_smart_typography_preserves_admissible :
   forall enabled, preserves (with_smart_typography enabled) delimiter_admissible.
@@ -386,7 +395,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_raw_inline (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) enabled (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_raw_inline_preserves_admissible :
   forall enabled, preserves (with_raw_inline enabled) delimiter_admissible.
@@ -397,7 +406,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) enabled (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_math_preserves_admissible :
   forall enabled, preserves (with_math enabled) delimiter_admissible.
@@ -406,7 +415,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_dollar_math (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) enabled
-    (dc_attrs C) (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
+    (dc_attrs C) (dc_footnotes C) (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_dollar_math_preserves_admissible :
   forall enabled, preserves (with_dollar_math enabled) delimiter_admissible.
@@ -417,7 +426,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_attrs (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) enabled
-    (dc_footnotes C) (dc_wikilinks C) (dc_tags C).
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_inline_attrs_preserves_admissible :
   forall enabled, preserves (with_inline_attrs enabled) delimiter_admissible.
@@ -428,7 +437,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_footnotes (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    enabled (dc_wikilinks C) (dc_tags C).
+    enabled (dc_wikilinks C) (dc_tags C) (dc_holes C).
 
 Theorem with_inline_footnotes_preserves_admissible :
   forall enabled,
@@ -439,7 +448,7 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_wikilinks (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) enabled (dc_tags C).
+    (dc_footnotes C) enabled (dc_tags C) (dc_holes C).
 
 Theorem with_wikilinks_preserves_admissible :
   forall enabled, preserves (with_wikilinks enabled) delimiter_admissible.
@@ -450,10 +459,21 @@ Proof. intros enabled C H. exact H. Qed.
 Definition with_inline_tags (enabled : bool) (C : dconfig) : dconfig :=
   DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
     (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
-    (dc_footnotes C) (dc_wikilinks C) enabled.
+    (dc_footnotes C) (dc_wikilinks C) enabled (dc_holes C).
 
 Theorem with_inline_tags_preserves_admissible :
   forall enabled, preserves (with_inline_tags enabled) delimiter_admissible.
+Proof. intros enabled C H. exact H. Qed.
+
+(* Holes are a scanner capability, not a row: `%` belongs to no row in
+   any table, so this knob leaves every row unchanged. *)
+Definition with_holes (enabled : bool) (C : dconfig) : dconfig :=
+  DConfig (dc_char C) (dc_width C) (dc_syntax C) (dc_decay C)
+    (dc_smart_typography C) (dc_raw_inline C) (dc_math C) (dc_dollar_math C) (dc_attrs C)
+    (dc_footnotes C) (dc_wikilinks C) (dc_tags C) enabled.
+
+Theorem with_holes_preserves_admissible :
+  forall enabled, preserves (with_holes enabled) delimiter_admissible.
 Proof. intros enabled C H. exact H. Qed.
 
 Local Definition drow_trigger_compatible
@@ -855,8 +875,9 @@ Fixpoint reference_text (il : inline) : string :=
   | Superscript ns | Subscript ns | Span _ ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
   | Ext_wikilink _ t al => wiki_display t al
+  (* a hole's text is not known until it is evaluated *)
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _
-  | NonBreakingSpace => EmptyString
+  | NonBreakingSpace | Hole _ => EmptyString
   end.
 
 Definition reference_inlines_text (ns : inlines) : string :=
@@ -876,7 +897,7 @@ Example clashing_config_not_ok :
                                 | DStrong => "_"%char | _ => djot_dchar k
                                 end)
                       djot_dwidth djot_dsyntax djot_ddecay true true true
-                      false true true false false)
+                      false true true false false false)
   = false.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -890,7 +911,7 @@ Example clashing_config_ok_when_off :
                       (fun k => match k with
                                 | DEmph => DOff | _ => djot_dsyntax k
                                 end)
-                      djot_ddecay true true true false true true false false) = true.
+                      djot_ddecay true true true false true true false false false) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 

@@ -235,6 +235,8 @@ type 'buf iscan_g =
 | IAuto of 'buf * 'buf * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
 | IRaw of 'buf * string * ostate
+| IPercent of 'buf * char option * ostate
+| IHole of int * bool * 'buf * 'buf * 'buf iscan_g * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
 
@@ -303,8 +305,8 @@ val ispan_feed :
   inlines -> bool -> span -> aparser -> 'a1 -> ostate -> 'a1 iscan_g
 
 val inote_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
+  -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val iauto_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -335,8 +337,8 @@ val iwiki_close :
   -> ostate -> 'a1 iscan_g
 
 val iwiki_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-  bool -> bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
+  -> bool -> 'a1 -> span -> ostate -> 'a1 iscan_g
 
 val ibang_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -366,6 +368,18 @@ val idash_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   int -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
+val ipercent_step :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> char option -> ostate -> 'a1 iscan_g
+
+val ihole_close :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+  ostate -> 'a1 iscan_g
+
+val ihole_step :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> int -> bool
+  -> 'a1 -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
+
 val iresolve :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
   iscan_g -> 'a1 iscan_g
@@ -375,8 +389,8 @@ val iescws_resolve :
   option -> ostate -> ('a1 * char option) * ostate
 
 val iesc_hard :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 ->
-  ostate -> ostate
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 -> ostate
+  -> ostate
 
 val istep_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
@@ -428,6 +442,53 @@ val map_text : 'a1 coq_TextOps -> 'a1 iscan_g -> string iscan_g
 
 val lift : 'a1 coq_TextOps -> string iscan_g -> 'a1 iscan_g
 
+val ddecode_from : bool -> string -> string
+
+val ddecode : string -> string
+
+type 'buf ckind =
+| CDest of inlines * bool * span * ostate
+| CHole of 'buf * ostate
+
+type 'buf cframe = { cf_kind : 'buf ckind; cf_level : int; cf_under :
+                     'buf; cf_dtop : int option; cf_htop : int option }
+
+type 'buf sscan = { s_frames : 'buf cframe list; s_dtop : int option;
+                    s_htop : int option; s_parens : int; s_braces : int;
+                    s_esc : bool; s_seg : 'buf; s_cur : 'buf iscan_g }
+
+val slift : 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 sscan
+
+val sat_level : int option -> int -> bool
+
+val sabove : int option -> int -> bool
+
+val scount : bool -> char -> char -> char -> int -> int
+
+val spop :
+  'a1 coq_TextOps -> bool -> 'a1 cframe list -> string list -> (('a1
+  cframe * 'a1 cframe list) * string) option
+
+val speel :
+  'a1 coq_TextOps -> 'a1 cframe list -> int option -> int option -> int -> int
+  -> bool -> 'a1 -> 'a1 iscan_g -> 'a1 sscan
+
+val sframe_close :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 ckind -> string
+  -> 'a1 iscan_g
+
+val sstep_at :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  char -> 'a1 sscan -> 'a1 sscan
+
+val sbreak_at :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+  'a1 sscan -> 'a1 sscan
+
+val sfinish :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 sscan
+  -> inlines
+
 val iscan_str : dtable -> string -> string iscan_g -> string iscan_g
 
 val iscan_lines : dtable -> string list -> string iscan_g -> string iscan_g
@@ -438,6 +499,23 @@ val iscan_lines_off :
   dtable -> int -> string list -> string iscan_g -> string iscan_g
 
 val istart : string iscan_g
+
+val sscan_str : dtable -> 'a1 coq_TextOps -> string -> 'a1 sscan -> 'a1 sscan
+
+val sscan_str_off :
+  dtable -> 'a1 coq_TextOps -> string -> 'a1 sscan -> 'a1 sscan
+
+val sscan_lines :
+  dtable -> 'a1 coq_TextOps -> string list -> 'a1 sscan -> 'a1 sscan
+
+val sscan_lines_off :
+  dtable -> 'a1 coq_TextOps -> int -> string list -> 'a1 sscan -> 'a1 sscan
+
+val sstart : 'a1 coq_TextOps -> 'a1 sscan
+
+val parse_inline_line_stk : dtable -> string -> inlines
+
+val para_inlines_off_stk : dtable -> int -> string list -> inlines
 
 val parse_inline_line : dtable -> string -> inlines
 

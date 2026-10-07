@@ -111,6 +111,7 @@ ext_dollar_math: off
 ext_keyed: off
 ext_callouts: off
 ext_tags: off
+ext_holes: off
 ext_setext_headings: off
 ext_list_interrupts: off
 
@@ -141,6 +142,7 @@ ext_dollar_math: on
 ext_keyed: off
 ext_callouts: off
 ext_tags: off
+ext_holes: off
 ext_setext_headings: on
 ext_list_interrupts: on
 

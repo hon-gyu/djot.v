@@ -27,7 +27,7 @@ type Inline = (
     Str | Emph | Strong | Mark | Insert | Delete | Superscript | Subscript | Verbatim
     | Symb | InlineMath | DisplayMath | Link | Image | Span | FootnoteReference | Url
     | Email | RawInline | NonBreakingSpace | SingleQuoted | DoubleQuoted | SoftBreak
-    | HardBreak | ExtWikilink
+    | HardBreak | ExtWikilink | ExtHole
 )  # fmt: skip
 
 type Block = (
@@ -282,6 +282,15 @@ class ExtWikilink(Node):
     target: str
     embed: bool = False
     alias: str | None = None
+
+
+@dataclass(slots=True, repr=False)
+class ExtHole(Node):
+    """An extension: `%{e}`, the expression between the braces with its
+    escapes decoded, for the consumer to evaluate."""
+
+    tag: ClassVar[str] = "ext_hole"
+    text: str
 
 
 # Blocks
@@ -558,7 +567,7 @@ _CLASSES: dict[str, type[Node]] = {
         Str, Emph, Strong, Mark, Insert, Delete, Superscript, Subscript, Verbatim, Symb,
         InlineMath, DisplayMath, Link, Image, Span, FootnoteReference, Url, Email,
         RawInline, NonBreakingSpace, SingleQuoted, DoubleQuoted, SoftBreak, HardBreak,
-        ExtWikilink,
+        ExtWikilink, ExtHole,
         Para, Section, Heading, BlockQuote, CodeBlock, Div, ListItem, OrderedList,
         BulletList, TaskListItem, TaskList, Term, Definition, DefinitionListItem,
         DefinitionList, ThematicBreak, Cell, Row, Caption, Table, RawBlock, Footnote,

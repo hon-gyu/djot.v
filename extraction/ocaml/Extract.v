@@ -152,9 +152,10 @@ Extract Constant DjotV.Strings.line_table =>
    strings by [String c rest] would copy every suffix. *)
 Extract Constant DjotV.InlineScan.drop_nl =>
   "(fun s ->
+     if not (String.contains s '\n') then s else begin
      let b = Buffer.create (String.length s) in
      String.iter (fun c -> if c <> '\n' then Buffer.add_char b c) s;
-     Buffer.contents b)".
+     Buffer.contents b end)".
 
 (* Line scans.  Every line goes through `classify`, and a container
    classifies what follows its prefix again.  Matching a native string by
@@ -533,18 +534,156 @@ Extract Constant DjotV.InlineLocated.iscan_str_located =>
      done;
      map_text chunks_text !state)".
 
+
+(* The paragraph scans run on the candidate stack (`InlineScan.v`, "The
+   candidate stack"), whose open destinations and holes cost a byte one
+   step however many are open.  [InlineStack.v] proves each of these
+   entry points equal to the one it replaces; the substitution itself is
+   trusted, as the drivers above are.  The stacked line drivers below are
+   the loops above with [sstep_at] for [istep_at]: in a fast-path run the
+   reading takes the run as one chunk, every open frame's segment takes
+   it too, and no counter moves, since the run holds no parenthesis,
+   brace or backslash. *)
+Extract Constant DjotV.InlineScan.parse_inline_line => "parse_inline_line_stk".
+Extract Constant DjotV.InlineScan.para_inlines =>
+  "(fun t l -> para_inlines_off_stk t 0 l)".
+Extract Constant DjotV.InlineScan.para_inlines_off => "para_inlines_off_stk".
+Extract Constant DjotV.InlineLocated.para_inlines_located =>
+  "para_inlines_located_stk".
+Extract Constant DjotV.InlineLocated.parse_inline_line_located =>
+  "parse_inline_line_located_stk".
+
+Extract Constant DjotV.InlineScan.sscan_str =>
+  "(fun t x s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | { s_cur = IText (false, txt, _, o); _ } as st when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           let run = String.sub s !i (!j - !i) in
+           state := { st with
+             s_cur = IText (false, x.tpush txt run, Some s.[!j - 1], o);
+             s_esc = false;
+             s_seg = (if st.s_frames = [] then st.s_seg else x.tpush st.s_seg run) };
+           i := !j
+       | st ->
+           state := sstep_at t x semantic_pos semantic_inline_cursor
+                      (inline_attrs_enabled t) s.[!i] st;
+           incr i
+     done;
+     !state)".
+Extract Constant DjotV.InlineScan.sscan_str_off =>
+  "(fun t x s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | { s_cur = IText (false, txt, _, o); _ } as st when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           let run = String.sub s !i (!j - !i) in
+           state := { st with
+             s_cur = IText (false, x.tpush txt run, Some s.[!j - 1], o);
+             s_esc = false;
+             s_seg = (if st.s_frames = [] then st.s_seg else x.tpush st.s_seg run) };
+           i := !j
+       | st ->
+           state := sstep_at t x semantic_pos semantic_inline_cursor false s.[!i] st;
+           incr i
+     done;
+     !state)".
+Extract Constant DjotV.InlineLocated.sscan_str_located =>
+  "(fun t x h allow k origin rem s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let cursor r = {
+       cursor_start = { spot_line = k; spot_rem = r };
+       cursor_stop = { spot_line = k; spot_rem = Stdlib.max 0 (r - 1) };
+       cursor_origin = origin } in
+     let i = ref 0 and pos = ref rem and state = ref st
+     and n = String.length s in
+     while !i < n do
+       match !state with
+       | { s_cur = IText (false, txt, _, o); _ } as st when plain s.[!i] ->
+           let j = ref !i and p = ref !pos and scope = ref o in
+           while !j < n && plain s.[!j] do
+             let c = s.[!j] in
+             if is_ws c then scope := remember_word_start h (cursor !p) c !scope;
+             p := Stdlib.max 0 (!p - 1);
+             incr j
+           done;
+           let run = String.sub s !i (!j - !i) in
+           state := { st with
+             s_cur = IText (false, x.tpush txt run, Some s.[!j - 1], !scope);
+             s_esc = false;
+             s_seg = (if st.s_frames = [] then st.s_seg else x.tpush st.s_seg run) };
+           i := !j;
+           pos := !p
+       | st ->
+           state := sstep_at t x h (cursor !pos) allow s.[!i] st;
+           pos := Stdlib.max 0 (!pos - 1);
+           incr i
+     done;
+     !state)".
+
+(* Two decoders a close runs over its whole payload, which recurse by
+   [String c rest].  Without a backslash both are the identity, and so
+   is [drop_nl] above without a newline: the common payload is returned
+   rather than copied. *)
+Extract Constant DjotV.InlineScan.ddecode_from =>
+  "(fun esc s ->
+     if not esc && not (String.contains s '\\') then s else
+     let b = Buffer.create (String.length s) and esc = ref esc in
+     String.iter (fun c ->
+       if !esc then begin
+         if not (InlineTable.is_punct c) then Buffer.add_char b '\\';
+         Buffer.add_char b c; esc := false
+       end else if c = '\\' then esc := true
+       else Buffer.add_char b c) s;
+     Buffer.contents b)".
+Extract Constant DjotV.InlineView.hole_text =>
+  "(fun s ->
+     if not (String.contains s '\\') then s else
+     let n = String.length s in
+     let b = Buffer.create n and i = ref 0 in
+     while !i < n do
+       let c = s.[!i] in
+       if c = '\\' && !i + 1 < n
+          && (let d = s.[!i + 1] in d = '{' || d = '}' || d = '\\')
+       then (Buffer.add_char b s.[!i + 1]; i := !i + 2)
+       else (Buffer.add_char b c; incr i)
+     done;
+     Buffer.contents b)".
+
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
   DjotV.Document.unsection
   DjotV.Readable.readable_djot DjotV.Readable.readable_doc
   DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
-  tags_accepted tags_rt_lhs escape_accepted rt_src rt_parse
+  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
   line_table resolve_span DjotV.InlineLocated.cursor_in
   DjotV.InlineScan.chunks_text DjotV.InlineScan.map_text DjotV.InlineScan.lift
+  DjotV.InlineScan.sstep_at
+  DjotV.InlineScan.iscan_lines_off DjotV.InlineScan.istart
+  DjotV.InlineLocated.iscan_lines_located DjotV.InlineLocated.ifinish_located
+  DjotV.InlineLocated.lines_start
+  DjotV.InlineScan.para_inlines_off_stk DjotV.InlineScan.parse_inline_line_stk
+  DjotV.InlineLocated.para_inlines_located_stk
+  DjotV.InlineLocated.parse_inline_line_located_stk
   DjotV.Profile.djot_options DjotV.Profile.markdown_like_options
   DjotV.Profile.bconfig_of DjotV.ProfileChecks.wrap_safe
   DjotV.ProfileChecks.heading_wrap_safe DjotV.ProfileChecks.quote_uniform

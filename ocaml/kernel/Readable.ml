@@ -121,7 +121,8 @@ let rec readable_text t il before around =
   (fun (c, s) -> String.make 1 c ^ s)
 
        (bslash, (one '\n'))
-   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al)
+   | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
+   | Hole s -> hole_spell s)
 
 (** val readable_nodes : dtable -> inlines -> char option -> string **)
 
@@ -309,9 +310,8 @@ let rec readable_lines t k a b =
     | n :: rest ->
       let Node (_, _, it) = n in
       (sep_lines
-        (map (fun n0 ->
-          readable_lines t k (node_attrs n0) (node_contents n0)) it)) ::
-      (goitems rest)
+        (map (fun n0 -> readable_lines t k (node_attrs n0) (node_contents n0))
+          it)) :: (goitems rest)
     in goitems
   in
   let taskitemss =
@@ -322,9 +322,8 @@ let rec readable_lines t k a b =
       let (chk, it) = x in
       (chk,
       (sep_lines
-        (map (fun n0 ->
-          readable_lines t k (node_attrs n0) (node_contents n0)) it))) ::
-      (gotasks rest)
+        (map (fun n0 -> readable_lines t k (node_attrs n0) (node_contents n0))
+          it))) :: (gotasks rest)
     in gotasks
   in
   let defitemss =
@@ -358,15 +357,15 @@ let rec readable_lines t k a b =
      | BlockQuote bs ->
        map quoted
          (sep_lines
-           (map (fun n ->
-             readable_lines t k (node_attrs n) (node_contents n)) bs))
+           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
+             bs))
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
      | Div (name, bs) ->
        let body =
          sep_lines
-           (map (fun n ->
-             readable_lines t k (node_attrs n) (node_contents n)) bs)
+           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
+             bs)
        in
        let word =
          (* If this appears, you're using String internals. Please don't *)
@@ -413,8 +412,8 @@ let rec readable_lines t k a b =
                       | _ -> false)
              | _ :: _ -> false))
          (sep_lines
-           (map (fun n ->
-             readable_lines t k (node_attrs n) (node_contents n)) bs))
+           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
+             bs))
      | RefDef (label, dest) -> (ref_line label dest) :: []
      | Ext_keyed (label, inner) ->
        key_lines t (readable_nodes t label None)

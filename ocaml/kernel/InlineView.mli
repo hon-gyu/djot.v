@@ -30,6 +30,8 @@ val wikilinks_enabled : dtable -> bool
 
 val tags_enabled : dtable -> bool
 
+val holes_enabled : dtable -> bool
+
 val denabled_of : dtable -> dstyle -> bool
 
 val dstyle_of : dtable -> char -> dstyle option
@@ -135,6 +137,12 @@ val raw_format : string -> string
 val raw_stop : char -> bool
 
 val raw_text : string -> string -> string
+
+val hole_text : string -> string
+
+val hole_src : string -> string
+
+val hole_spell : string -> string
 
 type cinline =
 | CIStr of string

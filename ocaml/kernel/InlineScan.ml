@@ -300,8 +300,8 @@ let flush_text_to_at h h0 stop txt o =
 (** val opush_at : dstyle -> bool -> bool -> span -> ostate -> ostate **)
 
 let opush_at k m cm open0 o =
-  { os_out = o.os_out; os_stk = ({ fr_kind = (FKDelim (k, cm)); fr_marked =
-    m; fr_open = open0; fr_out = [] } :: o.os_stk); os_word_start =
+  { os_out = o.os_out; os_stk = ({ fr_kind = (FKDelim (k, cm)); fr_marked = m;
+    fr_open = open0; fr_out = [] } :: o.os_stk); os_word_start =
     o.os_word_start }
 
 (** val previous_spot : spot -> spot **)
@@ -342,8 +342,8 @@ let dtoken_span t h h0 k marked =
     span_stop = h0.cursor_start }
 
 (** val opush :
-    dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> ostate
-    -> ostate **)
+    dtable -> coq_PosPolicy -> coq_InlineCursor -> dstyle -> bool -> ostate ->
+    ostate **)
 
 let opush t h h0 k m o =
   opush_at k m false (dtoken_span t h h0 k m) o
@@ -676,8 +676,8 @@ let rec bsplit_nl x h h0 s txt o =
     s
 
 (** val bclosed_lit :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool
-    -> ostate -> 'a1 * ostate **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+    ostate -> 'a1 * ostate **)
 
 let bclosed_lit x h h0 kids image o =
   let (pre, o1) = opop_str o in
@@ -686,8 +686,8 @@ let bclosed_lit x h h0 kids image o =
   ((x.tpush txt (one rbrack)), o2)
 
 (** val bspan_lit :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool
-    -> string -> ostate -> 'a1 * ostate **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+    string -> ostate -> 'a1 * ostate **)
 
 let bspan_lit x h h0 kids image src o =
   let (txt, o') = bclosed_lit x h h0 kids image o in
@@ -706,8 +706,8 @@ let blit_prev t =
   str_last t (Some nl_char)
 
 (** val bref_lit :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool
-    -> string -> ostate -> 'a1 * ostate **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+    string -> ostate -> 'a1 * ostate **)
 
 let bref_lit x h h0 kids image label o =
   let (txt, o') = bclosed_lit x h h0 kids image o in
@@ -716,9 +716,10 @@ let bref_lit x h h0 kids image label o =
 (** val drop_nl : string -> string **)
 
 let rec drop_nl = (fun s ->
+     if not (String.contains s '\n') then s else begin
      let b = Buffer.create (String.length s) in
      String.iter (fun c -> if c <> '\n' then Buffer.add_char b c) s;
-     Buffer.contents b)
+     Buffer.contents b end)
 
 (** val oapp_rev : oitems -> oitems -> oitems **)
 
@@ -792,6 +793,8 @@ type 'buf iscan_g =
 | IAuto of 'buf * 'buf * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
 | IRaw of 'buf * string * ostate
+| IPercent of 'buf * char option * ostate
+| IHole of int * bool * 'buf * 'buf * 'buf iscan_g * ostate
 
 (** val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool **)
 
@@ -850,9 +853,8 @@ let ilead t x h h0 c txt prev o =
                                                        IText (false, x.tnil,
                                                          (Some lbrack),
                                                          (bpush h h0 false
-                                                           (flush_text_at h
-                                                             h0 (x.tval txt)
-                                                             o))))
+                                                           (flush_text_at h h0
+                                                             (x.tval txt) o))))
                                                else if (=) c rbrack
                                                     then (match if tags_enabled
                                                                     t
@@ -906,23 +908,33 @@ let ilead t x h h0 c txt prev o =
                                                             image, x.tnil,
                                                             open0, o')
                                                           | None ->
-                                                            (match dstyle_of
-                                                                    t c with
+                                                            (match dstyle_of t
+                                                                    c with
                                                              | Some k ->
                                                                IDelim (k, 0,
                                                                  txt, prev,
                                                                  false, o)
                                                              | None ->
-                                                               IText (false,
-                                                                 (x.tpush txt
-                                                                   (one c)),
-                                                                 (Some c),
-                                                                 (remember_word_start
-                                                                   h h0 c o))))
+                                                               if (&&)
+                                                                    (holes_enabled
+                                                                    t)
+                                                                    ((=) c
+                                                                    percent)
+                                                               then IPercent
+                                                                    (txt,
+                                                                    prev, o)
+                                                               else IText
+                                                                    (false,
+                                                                    (x.tpush
+                                                                    txt
+                                                                    (one c)),
+                                                                    (Some c),
+                                                                    (remember_word_start
+                                                                    h h0 c o))))
 
 (** val idest_open :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool
-    -> span -> ostate -> 'a1 iscan_g **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
+    span -> ostate -> 'a1 iscan_g **)
 
 let idest_open x h h0 kids image open0 o =
   let (txt, o') = bflat x h h0 kids x.tnil (dpush image open0 o) in
@@ -1050,11 +1062,13 @@ let rec islice_end t x st = match st with
       (lt, (x.tval src)))),
     o)
 | ISymbol (_, _, sh, _) -> islice_end t x sh
+| IPercent (txt, _, o) ->
+  IText (false, (x.tpush txt (one percent)), (Some percent), o)
 | _ -> st
 
 (** val iattr_mark :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr ->
-    'a1 -> ostate -> 'a1 iscan_g **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr -> 'a1
+    -> ostate -> 'a1 iscan_g **)
 
 let iattr_mark x h h0 src a txt o =
   let spec_start =
@@ -1173,15 +1187,15 @@ let ispan_feed t x h h0 c kids image open0 p src o =
 
 let inote_step x h h0 c esc image label open0 o =
   if esc
-  then INote (false, image, (x.tpush label ((^) (one bslash) (one c))),
-         open0, o)
+  then INote (false, image, (x.tpush label ((^) (one bslash) (one c))), open0,
+         o)
   else if is_bslash c
        then INote (true, image, label, open0, o)
        else if (=) c rbrack
             then IText (false, x.tnil, (Some rbrack),
                    (oemit
-                     (imk h open0.span_start h0.cursor_stop
-                       (FootnoteReference (normalize_label (x.tval label))))
+                     (imk h open0.span_start h0.cursor_stop (FootnoteReference
+                       (normalize_label (x.tval label))))
                      (ospan_bang h h0 image o)))
             else INote (false, image, (x.tpush label (one c)), open0, o)
 
@@ -1374,8 +1388,8 @@ let ibang_step t x h h0 c txt _ o =
   if (=) c lbrack
   then IText (false, x.tnil, (Some lbrack),
          (bpush h h0 true
-           (flush_text_to_at h h0 (previous_spot h0.cursor_start)
-             (x.tval txt) o)))
+           (flush_text_to_at h h0 (previous_spot h0.cursor_start) (x.tval txt)
+             o)))
   else ilead t x h h0 c (x.tpush txt (one bang)) (Some bang) o
 
 (** val idelim_lit :
@@ -1415,8 +1429,8 @@ let idelim_resolve t x h h0 k txt before marker next o =
                        (dtoken_span t h h0 k false).span_start (x.tval txt) o)
               else None with
         | Some o' ->
-          IText (false, x.tnil, (Some
-            (if marker then rbrace else dchar t k)), o')
+          IText (false, x.tnil, (Some (if marker then rbrace else dchar t k)),
+            o')
         | None ->
           if oclose_barred k marker o
           then IText (false, (idelim_lit t x k txt marker),
@@ -1493,6 +1507,57 @@ let idash_step t x h h0 c n txt prev o =
        else ilead t x h h0 c (x.tpush txt (typography_dashes t n)) (Some
               hyphen) o
 
+(** val ipercent_step :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+    'a1 -> char option -> ostate -> 'a1 iscan_g **)
+
+let ipercent_step t x h h0 c txt _ o =
+  if (=) c lbrace
+  then IHole (0, false, x.tnil, txt,
+         (ilead t x h h0 c (x.tpush txt (one percent)) (Some percent) o), o)
+  else ilead t x h h0 c (x.tpush txt (one percent)) (Some percent) o
+
+(** val ihole_close :
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
+    ostate -> 'a1 iscan_g **)
+
+let ihole_close x h h0 src txt o =
+  let start =
+    spot_before h0.cursor_start
+      ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+      (percent,
+      ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+      (lbrace, src))))
+  in
+  IText (false, x.tnil, (Some rbrace),
+  (oemit (imk h start h0.cursor_stop (Hole (hole_text src)))
+    (flush_text_to_at h h0 start (x.tval txt) o)))
+
+(** val ihole_step :
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> int ->
+    bool -> 'a1 -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g **)
+
+let ihole_step x h h0 c depth esc src txt sh' o =
+  if esc
+  then IHole (depth, false, (x.tpush src (one c)), txt, sh', o)
+  else if is_bslash c
+       then IHole (depth, true, (x.tpush src (one c)), txt, sh', o)
+       else if (=) c lbrace
+            then IHole ((Stdlib.succ depth), false, (x.tpush src (one c)),
+                   txt, sh', o)
+            else if (=) c rbrace
+                 then ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+                         (fun _ ->
+                         ihole_close x h h0 (x.tval src) txt o)
+                         (fun d -> IHole (d, false, (x.tpush src (one c)),
+                         txt, sh', o))
+                         depth)
+                 else IHole (depth, false, (x.tpush src (one c)), txt, sh', o)
+
 (** val iresolve :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
     iscan_g -> 'a1 iscan_g **)
@@ -1516,11 +1581,13 @@ let iresolve t x h h0 st = match st with
 | IBang (txt, _, o) -> IText (false, (x.tpush txt (one bang)), (Some bang), o)
 | IClosed (txt, o) ->
   IText (false, (x.tpush txt (one rbrack)), (Some rbrack), o)
+| IPercent (txt, _, o) ->
+  IText (false, (x.tpush txt (one percent)), (Some percent), o)
 | _ -> st
 
 (** val iescws_resolve :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 ->
-    char option -> ostate -> ('a1 * char option) * ostate **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> 'a1 -> char
+    option -> ostate -> ('a1 * char option) * ostate **)
 
 let iescws_resolve x h h0 ws txt prev o =
   (* If this appears, you're using String internals. Please don't *)
@@ -1586,8 +1653,8 @@ let rec istep_at t x h h0 attrs_enabled c = function
        then if marked
             then idelim_marked k (Stdlib.succ extra) txt o
             else IDelim (k, (Stdlib.succ extra), txt, before, false, o)
-       else ilead t x h h0 c (x.tpush txt (idelim_run t k extra marked))
-              (Some (dchar t k)) o
+       else ilead t x h h0 c (x.tpush txt (idelim_run t k extra marked)) (Some
+              (dchar t k)) o
   else if marked
        then ilead t x h h0 c x.tnil (Some (dchar t k))
               (oopen_marked t x h h0 k ((=) c rbrace) txt o)
@@ -1669,8 +1736,8 @@ let rec istep_at t x h h0 attrs_enabled c = function
   else if (=) c dollar
        then IDollarMathClose (two, src, txt,
               (if two then Some nl_char else last), sh', o)
-       else IDollarMath (two, (is_bslash c), (x.tpush src (one c)), txt,
-              (Some c), sh', o)
+       else IDollarMath (two, (is_bslash c), (x.tpush src (one c)), txt, (Some
+              c), sh', o)
 | IDollarMathClose (two, src, txt, last, sh, o) ->
   let sh' = istep_at t x h h0 attrs_enabled c sh in
   if two
@@ -1835,6 +1902,10 @@ let rec istep_at t x h h0 attrs_enabled c = function
 | ISymbol (alias, txt, sh, o) ->
   isymbol_step t x h h0 c alias txt o (istep_at t x h h0 attrs_enabled c sh)
 | IRaw (spec, txt, o) -> iraw_step_at t x h h0 attrs_enabled c spec txt o
+| IPercent (txt, prev, o) -> ipercent_step t x h h0 c txt prev o
+| IHole (depth, esc, src, txt, sh, o) ->
+  ihole_step x h h0 c depth esc src txt (istep_at t x h h0 attrs_enabled c sh)
+    o
 
 (** val istep :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1900,6 +1971,8 @@ let ifinish_ostate_flat x h h0 = function
   in
   flush_text_at h h0 (iraw_lit (x.tval spec))
     (oemit (imk h (text_start h0 o) spec_start (Verbatim txt)) o)
+| IPercent (_, _, o) -> o
+| IHole (_, _, _, _, _, o) -> o
 
 (** val ifinish_ostate :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
@@ -1933,6 +2006,7 @@ let rec ifinish_ostate t x h h0 st = match st with
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | ISymbol (_, _, sh, _) -> ifinish_ostate t x h h0 sh
+| IHole (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | _ -> ifinish_ostate_flat x h h0 (iresolve t x h h0 st)
 
 (** val ifinish_rev :
@@ -2063,6 +2137,9 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
     (x.tpush dst ((^) (if esc then one bslash else "") nl)),
     (ibreak_at t x h h0 attrs_enabled sh), o)
 | ISymbol (_, _, sh, _) -> ibreak_at t x h h0 attrs_enabled sh
+| IHole (depth, _, src, txt, sh, o) ->
+  IHole (depth, false, (x.tpush src nl), txt,
+    (ibreak_at t x h h0 attrs_enabled sh), o)
 | _ -> ibreak_flat t x h h0 (iresolve t x h h0 st)
 
 (** val ibreak :
@@ -2139,6 +2216,9 @@ let rec map_text x = function
 | ISymbol (alias, t, sh, o) ->
   ISymbol ((x.tval alias), (x.tval t), (map_text x sh), o)
 | IRaw (spec, v, o) -> IRaw ((x.tval spec), v, o)
+| IPercent (t, prev, o) -> IPercent ((x.tval t), prev, o)
+| IHole (depth, esc, src, t, sh, o) ->
+  IHole (depth, esc, (x.tval src), (x.tval t), (map_text x sh), o)
 
 (** val lift : 'a1 coq_TextOps -> string iscan_g -> 'a1 iscan_g **)
 
@@ -2175,6 +2255,180 @@ let rec lift x = function
 | ISymbol (alias, t, sh, o) ->
   ISymbol ((x.tof alias), (x.tof t), (lift x sh), o)
 | IRaw (spec, v, o) -> IRaw ((x.tof spec), v, o)
+| IPercent (t, prev, o) -> IPercent ((x.tof t), prev, o)
+| IHole (depth, esc, src, t, sh, o) ->
+  IHole (depth, esc, (x.tof src), (x.tof t), (lift x sh), o)
+
+(** val ddecode_from : bool -> string -> string **)
+
+let rec ddecode_from = (fun esc s ->
+     if not esc && not (String.contains s '\\') then s else
+     let b = Buffer.create (String.length s) and esc = ref esc in
+     String.iter (fun c ->
+       if !esc then begin
+         if not (InlineTable.is_punct c) then Buffer.add_char b '\\';
+         Buffer.add_char b c; esc := false
+       end else if c = '\\' then esc := true
+       else Buffer.add_char b c) s;
+     Buffer.contents b)
+
+(** val ddecode : string -> string **)
+
+let ddecode s =
+  ddecode_from false s
+
+type 'buf ckind =
+| CDest of inlines * bool * span * ostate
+| CHole of 'buf * ostate
+
+type 'buf cframe = { cf_kind : 'buf ckind; cf_level : int; cf_under :
+                     'buf; cf_dtop : int option; cf_htop : int option }
+
+type 'buf sscan = { s_frames : 'buf cframe list; s_dtop : int option;
+                    s_htop : int option; s_parens : int; s_braces : int;
+                    s_esc : bool; s_seg : 'buf; s_cur : 'buf iscan_g }
+
+(** val slift : 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 sscan **)
+
+let slift x st =
+  { s_frames = []; s_dtop = None; s_htop = None; s_parens = 0; s_braces = 0;
+    s_esc = false; s_seg = x.tnil; s_cur = st }
+
+(** val sat_level : int option -> int -> bool **)
+
+let sat_level top n =
+  match top with
+  | Some l -> ( = ) l n
+  | None -> false
+
+(** val sabove : int option -> int -> bool **)
+
+let sabove top n =
+  match top with
+  | Some l -> ( < ) l n
+  | None -> true
+
+(** val scount : bool -> char -> char -> char -> int -> int **)
+
+let scount esc c up down n =
+  if esc
+  then n
+  else if (=) c up then Stdlib.succ n else if (=) c down then pred n else n
+
+(** val spop :
+    'a1 coq_TextOps -> bool -> 'a1 cframe list -> string list -> (('a1
+    cframe * 'a1 cframe list) * string) option **)
+
+let rec spop x dest fs acc =
+  match fs with
+  | [] -> None
+  | f :: fs' ->
+    if match f.cf_kind with
+       | CDest (_, _, _, _) -> dest
+       | CHole (_, _) -> negb dest
+    then Some ((f, fs'), (String.concat "" acc))
+    else spop x dest fs' ((x.tval f.cf_under) :: acc)
+
+(** val speel :
+    'a1 coq_TextOps -> 'a1 cframe list -> int option -> int option -> int ->
+    int -> bool -> 'a1 -> 'a1 iscan_g -> 'a1 sscan **)
+
+let speel x fs dtop htop p b esc seg cur = match cur with
+| IDest (kids, image, open0, esc0, depth, dst, sh, o) ->
+  if esc0
+  then { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p; s_braces =
+         b; s_esc = esc; s_seg = seg; s_cur = cur }
+  else ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+          (fun _ ->
+          if (&&) ((&&) (negb (x.tnonempty dst)) (negb esc)) (sabove dtop p)
+          then { s_frames = ({ cf_kind = (CDest (kids, image, open0, o));
+                 cf_level = p; cf_under = seg; cf_dtop = dtop; cf_htop =
+                 htop } :: fs); s_dtop = (Some p); s_htop = htop; s_parens =
+                 p; s_braces = b; s_esc = esc; s_seg = x.tnil; s_cur = sh }
+          else { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p;
+                 s_braces = b; s_esc = esc; s_seg = seg; s_cur = cur })
+          (fun _ -> { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens =
+          p; s_braces = b; s_esc = esc; s_seg = seg; s_cur = cur })
+          depth)
+| IHole (depth, esc0, src, txt, sh, o) ->
+  ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+     (fun _ ->
+     if esc0
+     then { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p;
+            s_braces = b; s_esc = esc; s_seg = seg; s_cur = cur }
+     else if (&&) ((&&) (negb (x.tnonempty src)) (negb esc)) (sabove htop b)
+          then { s_frames = ({ cf_kind = (CHole (txt, o)); cf_level = b;
+                 cf_under = seg; cf_dtop = dtop; cf_htop = htop } :: fs);
+                 s_dtop = dtop; s_htop = (Some b); s_parens = p; s_braces = b;
+                 s_esc = esc; s_seg = x.tnil; s_cur = sh }
+          else { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p;
+                 s_braces = b; s_esc = esc; s_seg = seg; s_cur = cur })
+     (fun _ -> { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p;
+     s_braces = b; s_esc = esc; s_seg = seg; s_cur = cur })
+     depth)
+| _ ->
+  { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p; s_braces = b;
+    s_esc = esc; s_seg = seg; s_cur = cur }
+
+(** val sframe_close :
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 ckind ->
+    string -> 'a1 iscan_g **)
+
+let sframe_close x h h0 k pay =
+  match k with
+  | CDest (kids, image, open0, o) ->
+    IText (false, x.tnil, (Some rparen),
+      (oemit
+        (imk h open0.span_start h0.cursor_stop
+          (bnode image kids (Direct (drop_nl (ddecode pay)))))
+        o))
+  | CHole (txt, o) -> ihole_close x h h0 pay txt o
+
+(** val sstep_at :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+    char -> 'a1 sscan -> 'a1 sscan **)
+
+let sstep_at t x h h0 attrs_enabled c s =
+  let { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p; s_braces =
+    b; s_esc = esc; s_seg = seg; s_cur = cur } = s
+  in
+  let dclose = (&&) ((&&) (negb esc) ((=) c rparen)) (sat_level dtop p) in
+  let hclose = (&&) ((&&) (negb esc) ((=) c rbrace)) (sat_level htop b) in
+  let p' = scount esc c lparen rparen p in
+  let b' = scount esc c lbrace rbrace b in
+  (match if (||) dclose hclose
+         then spop x dclose fs ((x.tval seg) :: [])
+         else None with
+   | Some p0 ->
+     let (p1, pay) = p0 in
+     let (f, fs') = p1 in
+     { s_frames = fs'; s_dtop = f.cf_dtop; s_htop = f.cf_htop; s_parens = p';
+     s_braces = b'; s_esc = false; s_seg =
+     (if null fs' then x.tnil else x.tpush f.cf_under ((^) pay (one c)));
+     s_cur = (sframe_close x h h0 f.cf_kind pay) }
+   | None ->
+     speel x fs dtop htop p' b' ((&&) (negb esc) (is_bslash c))
+       (if null fs then seg else x.tpush seg (one c))
+       (istep_at t x h h0 attrs_enabled c cur))
+
+(** val sbreak_at :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
+    'a1 sscan -> 'a1 sscan **)
+
+let sbreak_at t x h h0 attrs_enabled s =
+  let { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p; s_braces =
+    b; s_esc = _; s_seg = seg; s_cur = cur } = s
+  in
+  { s_frames = fs; s_dtop = dtop; s_htop = htop; s_parens = p; s_braces = b;
+  s_esc = false; s_seg = (if null fs then seg else x.tpush seg nl); s_cur =
+  (ibreak_at t x h h0 attrs_enabled cur) }
+
+(** val sfinish :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
+    sscan -> inlines **)
+
+let sfinish t x h h0 s =
+  ifinish t x h h0 s.s_cur
 
 (** val iscan_str : dtable -> string -> string iscan_g -> string iscan_g **)
 
@@ -2262,26 +2516,119 @@ let rec iscan_lines_off t k l st =
 let istart =
   IText (false, "", None, ostart)
 
+(** val sscan_str :
+    dtable -> 'a1 coq_TextOps -> string -> 'a1 sscan -> 'a1 sscan **)
+
+let rec sscan_str = (fun t x s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | { s_cur = IText (false, txt, _, o); _ } as st when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           let run = String.sub s !i (!j - !i) in
+           state := { st with
+             s_cur = IText (false, x.tpush txt run, Some s.[!j - 1], o);
+             s_esc = false;
+             s_seg = (if st.s_frames = [] then st.s_seg else x.tpush st.s_seg run) };
+           i := !j
+       | st ->
+           state := sstep_at t x semantic_pos semantic_inline_cursor
+                      (inline_attrs_enabled t) s.[!i] st;
+           incr i
+     done;
+     !state)
+
+(** val sscan_str_off :
+    dtable -> 'a1 coq_TextOps -> string -> 'a1 sscan -> 'a1 sscan **)
+
+let rec sscan_str_off = (fun t x s st ->
+     let plain c =
+       ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c = ' ')
+       && dstyle_of t c = None in
+     let i = ref 0 and state = ref st and n = String.length s in
+     while !i < n do
+       match !state with
+       | { s_cur = IText (false, txt, _, o); _ } as st when plain s.[!i] ->
+           let j = ref !i in
+           while !j < n && plain s.[!j] do incr j done;
+           let run = String.sub s !i (!j - !i) in
+           state := { st with
+             s_cur = IText (false, x.tpush txt run, Some s.[!j - 1], o);
+             s_esc = false;
+             s_seg = (if st.s_frames = [] then st.s_seg else x.tpush st.s_seg run) };
+           i := !j
+       | st ->
+           state := sstep_at t x semantic_pos semantic_inline_cursor false s.[!i] st;
+           incr i
+     done;
+     !state)
+
+(** val sscan_lines :
+    dtable -> 'a1 coq_TextOps -> string list -> 'a1 sscan -> 'a1 sscan **)
+
+let rec sscan_lines t x l st =
+  match l with
+  | [] -> st
+  | x0 :: rest ->
+    (match rest with
+     | [] -> sscan_str t x (strip_trailing_ws x0) st
+     | _ :: _ ->
+       sscan_lines t x rest
+         (sbreak_at t x semantic_pos semantic_inline_cursor
+           (inline_attrs_enabled t) (sscan_str t x x0 st)))
+
+(** val sscan_lines_off :
+    dtable -> 'a1 coq_TextOps -> int -> string list -> 'a1 sscan -> 'a1 sscan **)
+
+let rec sscan_lines_off t x k l st =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> sscan_lines t x l st)
+    (fun k' ->
+    match l with
+    | [] -> st
+    | x0 :: rest ->
+      (match rest with
+       | [] -> sscan_str_off t x (strip_trailing_ws x0) st
+       | _ :: _ ->
+         sscan_lines_off t x k' rest
+           (sbreak_at t x semantic_pos semantic_inline_cursor false
+             (sscan_str_off t x x0 st))))
+    k
+
+(** val sstart : 'a1 coq_TextOps -> 'a1 sscan **)
+
+let sstart x =
+  slift x (lift x istart)
+
+(** val parse_inline_line_stk : dtable -> string -> inlines **)
+
+let parse_inline_line_stk t s =
+  sfinish t chunks_text semantic_pos semantic_inline_cursor
+    (sscan_str t chunks_text s (sstart chunks_text))
+
+(** val para_inlines_off_stk : dtable -> int -> string list -> inlines **)
+
+let para_inlines_off_stk t k l =
+  sfinish t chunks_text semantic_pos semantic_inline_cursor
+    (sscan_lines_off t chunks_text k l (sstart chunks_text))
+
 (** val parse_inline_line : dtable -> string -> inlines **)
 
-let parse_inline_line t s =
-  ifinish t { tnil = ""; tpush = (^); tof = (fun s0 -> s0); tval = (fun t0 ->
-    t0); tnonempty = nonempty_str } semantic_pos semantic_inline_cursor
-    (iscan_str t s istart)
+let parse_inline_line = parse_inline_line_stk
 
 (** val para_inlines : dtable -> string list -> inlines **)
 
-let para_inlines t l =
-  ifinish t { tnil = ""; tpush = (^); tof = (fun s -> s); tval = (fun t0 ->
-    t0); tnonempty = nonempty_str } semantic_pos semantic_inline_cursor
-    (iscan_lines t l istart)
+let para_inlines = (fun t l -> para_inlines_off_stk t 0 l)
 
 (** val para_inlines_off : dtable -> int -> string list -> inlines **)
 
-let para_inlines_off t k l =
-  ifinish t { tnil = ""; tpush = (^); tof = (fun s -> s); tval = (fun t0 ->
-    t0); tnonempty = nonempty_str } semantic_pos semantic_inline_cursor
-    (iscan_lines_off t k l istart)
+let para_inlines_off = para_inlines_off_stk
 
 (** val key_before : char option -> bool **)
 

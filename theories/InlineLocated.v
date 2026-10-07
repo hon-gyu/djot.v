@@ -106,6 +106,38 @@ Local Definition ifinish_located `{PosPolicy} (l : list (nat * string))
   (st : iscan) : inlines :=
   @ifinish T _ _ _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l)) st.
 
+(* The located scan over the candidate stack, on a buffer.  The
+   extraction runs it in place of the one above (`InlineStack.v`). *)
+Section StackLocated.
+Context {Buf : Type} {X : TextOps Buf}.
+
+Fixpoint sscan_str_located `{PosPolicy} (allow : bool) (k : nat)
+  (origin : spot) (rem : nat) (s : string) (st : sscan (Buf:=Buf)) : sscan :=
+  match s with
+  | EmptyString => st
+  | String c rest =>
+      sscan_str_located allow k origin (pred rem) rest
+        (@sstep_at T _ _ _ (cursor_in k rem origin) allow c st)
+  end.
+
+Fixpoint sscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
+  (l : list (nat * string)) (st : sscan (Buf:=Buf)) : sscan :=
+  match l with
+  | [] => st
+  | [(k, x)] =>
+      sscan_str_located (allow_attrs off) k origin
+        (String.length x) (strip_trailing_ws x) st
+  | (k, x) :: rest =>
+      sscan_lines_located (pred off) origin rest
+        (@sbreak_at T _ _ _
+           (CursorAt (Spot k 0) (lines_start rest) (Spot k (String.length x)))
+           (allow_attrs off)
+           (sscan_str_located (allow_attrs off) k origin
+              (String.length x) x st))
+  end.
+
+End StackLocated.
+
 End WithTable.
 Module ScanErase.
 
@@ -197,6 +229,9 @@ Fixpoint of_iscan (st : iscan) : iscan :=
   | ISymbol alias txt sh o =>
       ISymbol alias txt (of_iscan sh) (of_ostate o)
   | IRaw spec txt o => IRaw spec txt (of_ostate o)
+  | IPercent txt prev o => IPercent txt prev (of_ostate o)
+  | IHole depth esc src txt sh o =>
+      IHole depth esc src txt (of_iscan sh) (of_ostate o)
   end.
 
 (* A node the policy built: its payload survives, its provenance does
@@ -467,7 +502,7 @@ Proof.
     (fun i => reference_text (Erase.of_inline i) = reference_text i)
     (fun ils => reference_text (Emph (Erase.of_inlines ils)) =
                 reference_text (Emph ils))
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     intros;
     cbn [Erase.of_inline Erase.of_inlines Erase.inode reference_text
       node_contents] in *;
@@ -748,8 +783,9 @@ Proof.
     cbn [of_iscan]. rewrite of_oemit, of_imk, span_node. reflexivity. }
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite of_bunpush; destruct (bunpush o) as [[[image open] o']|];
-      [reflexivity|]|];
-    destruct (dstyle_of c); cbn [of_iscan];
+      [reflexivity|]|].
+  all: destruct (dstyle_of c); cbn [of_iscan]; [reflexivity|].
+  all: destruct (holes_enabled && Ascii.eqb c percent)%bool; cbn [of_iscan];
     rewrite ?of_remember_word_start; reflexivity.
 Qed.
 
@@ -919,7 +955,7 @@ Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   of_iscan (@iresolve T _ _ P C st) =
   @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | | | |];
     try reflexivity.
   cbn [of_iscan iresolve].
   destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
@@ -1097,7 +1133,8 @@ Proof.
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh IHsh o | src txt o
-    | alias txt sh IHsh o | spec txt o ];
+    | alias txt sh IHsh o | spec txt o
+    | txt prev o | depth hesc src txt sh IHsh o ];
     intros allow c.
   - (* IText *)
     destruct esc; cbn [of_iscan istep_at].
@@ -1121,7 +1158,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
     destruct (@idelim_resolve T _ _ P C k txt before false (Some c) o)
-      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | | | |];
+      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply of_ilead].
   - (* IOpen *)
@@ -1215,6 +1252,19 @@ Proof.
   - (* ISymbol *)
     cbn [istep_at]. rewrite of_isymbol_step, IHsh. reflexivity.
   - (* IRaw *) apply of_iraw_step_at.
+  - (* IPercent *)
+    cbn [of_iscan istep_at]. unfold ipercent_step.
+    destruct (Ascii.eqb c lbrace); cbn [of_iscan];
+      rewrite ?of_ilead; reflexivity.
+  - (* IHole *)
+    cbn [of_iscan istep_at]. unfold ihole_step.
+    destruct hesc; cbn [of_iscan]; [rewrite IHsh; reflexivity|].
+    destruct (is_bslash c); cbn [of_iscan]; [rewrite IHsh; reflexivity|].
+    destruct (Ascii.eqb c lbrace); cbn [of_iscan]; [rewrite IHsh; reflexivity|].
+    destruct (Ascii.eqb c rbrace); cbn [of_iscan]; [|rewrite IHsh; reflexivity].
+    destruct depth; cbn [of_iscan]; [|rewrite IHsh; reflexivity].
+    unfold ihole_close. cbn [of_iscan].
+    rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
 Qed.
 
 Local Lemma of_ifinish_ostate_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
@@ -1231,7 +1281,8 @@ Proof.
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o
-    | alias txt sh o | spec txt o ];
+    | alias txt sh o | spec txt o
+    | txt prev o | depth hesc src txt sh o ];
     cbn [of_iscan ifinish_ostate_flat];
     try reflexivity.
   - destruct esc; [apply of_iesc_hard|apply of_flush_text_at].
@@ -1274,6 +1325,7 @@ Proof.
     rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
   - rewrite iscan_attr. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_dest. cbn [ifinish_ostate]. assumption.
+  - cbn [of_iscan ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
 Qed.
 
@@ -1332,7 +1384,8 @@ Proof.
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh IHdest o | src txt o
-    | alias txt sh IHsh o | spec txt o ];
+    | alias txt sh IHsh o | spec txt o
+    | txt prev o | depth hesc src txt sh IHsh o ];
     cbn [of_iscan ibreak_flat];
     try reflexivity.
   - destruct esc; cbn [of_iscan];
@@ -1386,6 +1439,7 @@ Proof.
   - rewrite iscan_dest. cbn [ibreak_at].
     rewrite iscan_dest, IHst. reflexivity.
   - cbn [ibreak_at]. apply IHst.
+  - cbn [ibreak_at of_iscan]. rewrite IHst. reflexivity.
 Qed.
 
 End WithTable.
@@ -1542,6 +1596,20 @@ Local Lemma erase_ifinish_located : forall `{P : PosPolicy} l st,
   Erase.of_inlines (@ifinish_located T P l st) =
   @ifinish T _ _ semantic_pos semantic_inline_cursor (ScanErase.of_iscan st).
 Proof. intros P l st. apply ScanErase.of_ifinish. Qed.
+
+(* What the extraction runs for `para_inlines_located` and
+   `parse_inline_line_located`: the same scans, on the stack and over
+   `chunks`. *)
+Definition para_inlines_located_stk `{PosPolicy} (off : nat)
+  (l : list (nat * string)) : inlines :=
+  @sfinish T chunks _ _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l))
+    (sscan_lines_located off (lines_start l) l sstart).
+
+Definition parse_inline_line_located_stk `{PosPolicy}
+  (k rem : nat) (s : string) : inlines :=
+  let stop := Spot k (rem - String.length s) in
+  @sfinish T chunks _ _ (CursorAt stop stop (Spot k rem))
+    (sscan_str_located inline_attrs_enabled k (Spot k rem) rem s sstart).
 
 (* A paragraph's lines with their source line indices, scanned so that
    every node records where it came from.  `off` is `para_inlines_off`'s:

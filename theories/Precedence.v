@@ -39,11 +39,12 @@ Definition bare_opens (k : dstyle) : bool :=
    braces, the brackets, and bytes that no row and no other syntax
    claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the
-   line. *)
+   line, and a hole's `%` is not drawn on while holes are on. *)
 Definition in_alphabet (c : ascii) : bool :=
   (negb (Ascii.eqb c nl_char)
    && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || Ascii.eqb c lbrack
-       || Ascii.eqb c rbrack || negb (dreserved c))
+       || Ascii.eqb c rbrack
+       || (negb (dreserved c) && negb (holes_enabled && Ascii.eqb c percent)))
    && negb (Ascii.eqb c hyphen)
    && match dstyle_of c with
       | Some k => self_row k && negb (Ascii.eqb c lparen || Ascii.eqb c rparen)

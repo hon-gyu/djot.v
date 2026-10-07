@@ -1,5 +1,5 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
-        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
         site site-serve site-publish py-wasm check-py check-rocq check-readme check-site
@@ -80,6 +80,9 @@ roundtrip-dollar-math: build  ## Dollar math extension
 roundtrip-tags: build  ## Custom tag names
 	dune exec test/roundtrip.exe -- $(VERBOSE) --tags 3
 
+roundtrip-holes: build  ## Holes
+	dune exec test/roundtrip.exe -- $(VERBOSE) --holes 3
+
 roundtrip-escapes: build  ## Escapes of the canonical renderer that the parse does not need
 	dune exec test/escapes.exe -- $(VERBOSE)
 
@@ -88,6 +91,9 @@ roundtrip-escapes: build  ## Escapes of the canonical renderer that the parse do
 
 check-span-containment: build  ## Located parse: every span lies inside its document and parent
 	dune exec test/spans.exe -- $(VERBOSE) 3
+
+check-stack: build  ## Extracted candidate-stack scan against the specification scan, on random paragraphs
+	dune exec test/stack.exe -- $(VERBOSE)
 
 bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
 	dune exec test/bench.exe -- $(SHAPES)

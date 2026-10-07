@@ -147,6 +147,11 @@ module Profile : sig
       Both spellings move together. *)
   val with_ext_tags : bool -> t -> t
 
+  (** Holes: [%{e}] reads as {!Inline.Hole}, an expression for the consumer to evaluate.
+      A code block whose language is [%] stays a {!Block.CodeBlock}; a consumer may
+      treat it as a block hole. *)
+  val with_ext_holes : bool -> t -> t
+
   (** A setext heading: a paragraph underlined with [=] (level 1) or two or more [-]
       (level 2). On in {!markdown_like}. *)
   val with_ext_setext_headings : bool -> t -> t
@@ -310,6 +315,9 @@ module Inline : sig
     | HardBreak
     | Ext_wikilink of bool * string * string option
     (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
+    | Hole of string
+    (** An extension ({!Profile.with_ext_holes}): [%{e}], the expression between the
+        braces with its escapes decoded.  The parser never reads it. *)
 
   (** The text a heading identifier is derived from. *)
   val to_plain_text : t node list -> string

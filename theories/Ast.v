@@ -479,7 +479,12 @@ Inductive inline : Type :=
   (* Extension, not djot (`.project/wikilinks.md`): `[[target|alias]]`,
      and `![[...]]` with `embed` set.  Both halves are source as written;
      what a target denotes is the consumer's. *)
-  | Ext_wikilink (embed : bool) (target : string) (alias : option string).
+  | Ext_wikilink (embed : bool) (target : string) (alias : option string)
+  (* Extension, not djot (`.project/261007.plan.holes.md`): `%{e}`, an
+     expression to be evaluated by the consumer.  The payload is the
+     source between the braces with its escapes decoded; the parser never
+     reads it. *)
+  | Hole (s : string).
 
 Definition inlines : Type := list (node inline).
 
@@ -510,6 +515,7 @@ Definition inline_ind2
   (hquoted : forall qt ils, Q ils -> P (Quoted qt ils))
   (hsoft : P SoftBreak)
   (hhard : P HardBreak)
+  (hhole : forall s, P (Hole s))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   : forall i, P i :=
@@ -544,6 +550,7 @@ Definition inline_ind2
     | Quoted qt ils => hquoted qt ils (golist ils)
     | SoftBreak => hsoft
     | HardBreak => hhard
+    | Hole s => hhole s
     end.
 
 (*

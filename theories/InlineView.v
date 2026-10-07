@@ -35,6 +35,8 @@ Definition wikilinks_enabled : bool := dc_wikilinks cfg.
 
 Definition tags_enabled : bool := dc_tags cfg.
 
+Definition holes_enabled : bool := dc_holes cfg.
+
 (* Whether the row exists at all in the table in force. *)
 Definition denabled_of (k : dstyle) : bool := denabled cfg k.
 
@@ -261,7 +263,7 @@ Qed.
    punctuation, which decodes back to itself. *)
 Definition needs_escape (c : ascii) : bool :=
   (dreserved c || is_delim c || Ascii.eqb c hat || Ascii.eqb c hyphen
-   || Ascii.eqb c ":"%char)%bool.
+   || Ascii.eqb c ":"%char || (holes_enabled && Ascii.eqb c percent))%bool.
 
 (* Obligation 1: an escaped character must be one the decoder accepts.
    The fixed characters are punctuation by computation; the table's
@@ -277,6 +279,9 @@ Qed.
 Lemma needs_escape_punct : forall c, needs_escape c = true -> is_punct c = true.
 Proof.
   intros c H. apply orb_true_iff in H as [H|H];
+    [|apply andb_true_iff in H as [_ H];
+      apply Ascii.eqb_eq in H; subst c; reflexivity].
+  apply orb_true_iff in H as [H|H];
     [|apply Ascii.eqb_eq in H; subst c; reflexivity].
   apply orb_true_iff in H as [H|H];
     [|apply Ascii.eqb_eq in H; subst c; reflexivity].
@@ -763,6 +768,44 @@ Definition after_verb_next (s : string) : bool :=
 (* A raw span's own source: the verbatim, then the spec. *)
 Definition raw_text (fmt s : string) : string :=
   (verb_text s ++ String lbrace (String "="%char (fmt ++ one rbrace)))%string.
+
+(* A hole's payload from its source, the bytes between `%{` and the `}`
+   that closes it.  `\{`, `\}` and `\\` are escapes; a backslash before
+   any other byte is kept with it, so a host language's own escapes reach
+   the consumer as written. *)
+Fixpoint hole_text (s : string) : string :=
+  match s with
+  | String c ((String d rest) as tl) =>
+      if (is_bslash c
+          && (Ascii.eqb d lbrace || Ascii.eqb d rbrace || is_bslash d))%bool
+      then String d (hole_text rest)
+      else String c (hole_text tl)
+  | _ => s
+  end.
+
+(* And its source from a payload: every brace escaped, so the depth count
+   never moves, and a backslash escaped where it would otherwise pair with
+   the byte after it, or with the closing brace. *)
+Fixpoint hole_src (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if (Ascii.eqb c lbrace || Ascii.eqb c rbrace)%bool
+      then String bslash (String c (hole_src rest))
+      else if is_bslash c
+      then match rest with
+           | String d _ =>
+               if (Ascii.eqb d lbrace || Ascii.eqb d rbrace || is_bslash d)%bool
+               then String bslash (String c (hole_src rest))
+               else String c (hole_src rest)
+           | EmptyString => String bslash (String c EmptyString)
+           end
+      else String c (hole_src rest)
+  end.
+
+(* A hole's own source. *)
+Definition hole_spell (s : string) : string :=
+  (one percent ++ one lbrace ++ hole_src s ++ one rbrace)%string.
 
 (* One line's inline content, described by the source that determines it.
    One constructor per inline construct the roundtrip covers, exactly as
@@ -1371,6 +1414,7 @@ Fixpoint inline_text (il : inline) : string :=
      top-level inlines, and a paragraph splits these off as well *)
   | SoftBreak => one "010"%char
   | HardBreak => String bslash (one "010"%char)
+  | Hole s => hole_spell s
   end.
 
 Lemma ci_ast_attrs : forall ci, node_attrs (ci_ast ci) = [].

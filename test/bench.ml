@@ -88,6 +88,16 @@ let shapes = [
     (fun n -> wrap (rep "_a " (n / 3)));
   "links", "inline links, wrapped",
     (fun n -> wrap (rep "[a](b) " (n / 7)));
+  "open-destinations", "unclosed link destinations, wrapped",
+    (fun n -> wrap (rep "[a](b " (n / 6)));
+  "nested-destinations", "link destinations nested and then closed",
+    (fun n -> rep "[a](" (n / 5) ^ rep ")" (n / 5));
+  "open-holes", "unclosed holes, wrapped (holes enabled)",
+    (fun n -> wrap (rep "%{ x " (n / 5)));
+  "nested-holes", "holes nested and then closed (holes enabled)",
+    (fun n -> rep "%{a" (n / 4) ^ rep "}" (n / 4));
+  "open-mixed", "unclosed destinations and holes alternating (holes enabled)",
+    (fun n -> wrap (rep "[a](%{ " (n / 7)));
   "headings", "the same heading repeated",
     (fun n -> rep "# heading\n\n" (n / 11));
   "lists", "nested list items",
@@ -126,6 +136,15 @@ let parse_wiki s =
 
 let convert_wiki s = Djot.Html.render_html (parse_wiki s)
 
+let holes_table =
+  { Djot.Inline.djot_table with Djot.InlineTable.dc_holes = true }
+
+let parse_holes s =
+  Djot.Document.parse_doc holes_table Djot.Step.djot_bconfig
+    Djot.Ast.semantic_pos s
+
+let convert_holes s = Djot.Html.render_html (parse_holes s)
+
 let growth = function
   | a :: b :: _ when b > 0. -> Some (a /. b)
   | _ -> None
@@ -138,6 +157,8 @@ let run sizes (name, desc, gen) =
       let s = gen n in
       let parse, convert =
         if name = "wiki" then parse_wiki, convert_wiki
+        else if List.mem name [ "open-holes"; "nested-holes"; "open-mixed" ]
+        then parse_holes, convert_holes
         else parse_doc, Djot.Html.convert in
       let p = time parse s and c = time convert s in
       let g xs x =

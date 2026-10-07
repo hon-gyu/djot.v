@@ -299,9 +299,22 @@ Proof. intros. unfold iescws_resolve. tred. destruct (tval ws); crush. Qed.
 Lemma iesc_hard_map : forall ws t o, iesc_hard ws t o = iesc_hard (tval ws) (tval t) o.
 Proof. intros. unfold iesc_hard. crush. Qed.
 
+Lemma ipercent_step_map : forall c t prev o,
+  map_text (ipercent_step c t prev o) = ipercent_step c (tval t) prev o.
+Proof.
+  intros. unfold ipercent_step. tred.
+  destruct (Ascii.eqb c lbrace); cbn [map_text]; rewrite ?ilead_map; laws;
+    reflexivity.
+Qed.
+
+Lemma ihole_step_map : forall c depth esc src t sh o,
+  map_text (ihole_step c depth esc src t sh o)
+  = ihole_step c depth esc (tval src) (tval t) (map_text sh) o.
+Proof. intros. unfold ihole_step, ihole_close. crush. Qed.
+
 Hint Rewrite ispan_feed_map inote_step_map iauto_step_map isymbol_step_map
   iraw_step_at_map iwiki_step_map ibang_step_map idollar_step_map
-  iperiod_step_map idash_step_map : map_text.
+  iperiod_step_map idash_step_map ipercent_step_map : map_text.
 
 Theorem istep_at_map : forall attrs c st,
   map_text (istep_at attrs c st) = istep_at attrs c (map_text st).
@@ -320,7 +333,7 @@ Proof.
     destruct marked; [crush; rewrite oopen_marked_map; reflexivity|].
     destruct (Ascii.eqb c rbrace); [crush|].
     rewrite <- idelim_resolve_map.
-    destruct (idelim_resolve k txt before false (Some c) o) as [[] | | | | | | | | | | | | | | | | | | | | |];
+    destruct (idelim_resolve k txt before false (Some c) o) as [[] | | | | | | | | | | | | | | | | | | | | | | |];
       cbn [map_text]; crush.
   - crush.
   - destruct vk; crush; laws; reflexivity.
@@ -340,6 +353,8 @@ Proof.
   - crush.
   - (* ISymbol *) rewrite <- IHst. crush.
   - crush.
+  - (* IPercent *) crush.
+  - (* IHole *) rewrite <- IHst. apply ihole_step_map.
 Qed.
 
 (* Run a text-rebuilding helper on the buffer side: its string-side call
@@ -408,6 +423,7 @@ Proof.
   - rewrite iattr_feed_map, IHst. reflexivity.
   - rewrite IHst. crush.
   - apply IHst.
+  - rewrite IHst. crush.
 Qed.
 
 End Lawful.

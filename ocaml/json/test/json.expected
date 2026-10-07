@@ -411,7 +411,7 @@ Unexpected member [1mtag[0m value in [1minline object[0m: [1mnope[0m. Must
 [1mstrong[0m, [1mmark[0m, [1minsert[0m, [1mdelete[0m, [1msuperscript[0m, [1msubscript[0m, [1mverbatim[0m, [1msymb[0m,
 [1minline_math[0m, [1mdisplay_math[0m, [1mlink[0m, [1mimage[0m, [1mspan[0m, [1mfootnote_reference[0m, [1murl[0m, [1memail[0m,
 [1mraw_inline[0m, [1mnon_breaking_space[0m, [1msingle_quoted[0m, [1mdouble_quoted[0m, [1msoft_break[0m,
-[1mhard_break[0m or [1mext_wikilink[0m.
+[1mhard_break[0m, [1mext_wikilink[0m or [1mext_hole[0m.
 File "-", line 1, characters 40-41:
 File "-": in member [1mtag[0m of
 File "-", line 1, characters 27-41: [1minline object[0m
