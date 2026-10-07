@@ -2,7 +2,7 @@
 
 (* The html subcommand. *)
 
-open Cmd_common
+open Common
 
 (* Full page
    ========= *)
@@ -68,8 +68,42 @@ let page
   Buffer.contents b
 ;;
 
-(* Command
-   ======= *)
+(* Rendering
+   ========= *)
+
+(** Prints the input as an HTML fragment, or as a page when [docu]. The other labelled
+    arguments describe the page. [inline_csss] are file names. *)
+let html
+      ~(docu : bool)
+      ~(title : string option)
+      ~(lang : string)
+      ~(csss : string list)
+      ~(inline_csss : string list)
+      (i : input)
+  : int
+  =
+  let read_all (files : string list) : (string list, string) result =
+    List.fold_right
+      (fun f acc -> Result.bind (read_file f) (fun s -> Result.map (List.cons s) acc))
+      files
+      (Ok [])
+  in
+  match read_all inline_csss with
+  | Error e ->
+    Printf.eprintf "djot: %s\n" e;
+    1
+  | Ok inline_csss ->
+    run i (fun doc ->
+      let body = Djot.Html.of_doc doc in
+      if not docu
+      then body
+      else (
+        let title : string = page_title ~title ~file:i.file doc in
+        page ~lang ~title ~csss ~inline_csss body))
+;;
+
+(* Command line
+   ============ *)
 
 open Cmdliner
 open Cmdliner.Term.Syntax
@@ -83,7 +117,7 @@ let cmd : int Cmd.t =
          $(b,stdout)."
     ; `Pre "$(cmd) $(b,--doc README.dj > README.html)"
     ]
-    @ Args.syntax_man
+    @ Djot_cli.syntax_man
   in
   let docu : bool Term.t =
     let doc = "Write a complete HTML page rather than a fragment." in
@@ -115,28 +149,11 @@ let cmd : int Cmd.t =
     Arg.(value & opt_all file [] & info [ "inline-css" ] ~doc ~docv:"FILE.css")
   in
   Cmd.make (Cmd.info "html" ~doc ~man)
-  @@ let+ i = Args.input
+  @@ let+ i = Djot_cli.input
      and+ docu
      and+ title
      and+ lang
      and+ csss
      and+ inline_csss in
-     let read_all (files : string list) : (string list, string) result =
-       List.fold_right
-         (fun f acc -> Result.bind (read_file f) (fun s -> Result.map (List.cons s) acc))
-         files
-         (Ok [])
-     in
-     match read_all inline_csss with
-     | Error e ->
-       Printf.eprintf "djot: %s\n" e;
-       1
-     | Ok inline_csss ->
-       run i (fun doc ->
-         let body = Djot.Html.of_doc doc in
-         if not docu
-         then body
-         else (
-           let title : string = page_title ~title ~file:i.file doc in
-           page ~lang ~title ~csss ~inline_csss body))
+     html ~docu ~title ~lang ~csss ~inline_csss i
 ;;
