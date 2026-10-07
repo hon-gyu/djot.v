@@ -41,11 +41,11 @@ let page_title ~(title : string option) ~(file : string) (doc : Djot.Doc.t) : st
 (** [inline_csss] are file contents. The built-in stylesheet is used when neither
     [csss] nor [inline_csss] is given. *)
 let page
-    ~(lang : string)
-    ~(title : string)
-    ~(csss : string list)
-    ~(inline_csss : string list)
-    (body : string)
+      ~(lang : string)
+      ~(title : string)
+      ~(csss : string list)
+      ~(inline_csss : string list)
+      (body : string)
   : string
   =
   let b = Buffer.create (String.length body + 4096) in
@@ -59,7 +59,7 @@ let page
   if csss = [] && inline_csss = [] then style Builtin_css.s;
   List.iter
     (fun url ->
-      add (Printf.sprintf "<link rel=\"stylesheet\" href=\"%s\">\n" (html_escape url)))
+       add (Printf.sprintf "<link rel=\"stylesheet\" href=\"%s\">\n" (html_escape url)))
     csss;
   List.iter style inline_csss;
   add "</head>\n<body>\n";

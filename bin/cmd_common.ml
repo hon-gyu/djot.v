@@ -124,7 +124,11 @@ let profile : Djot.Profile.t Term.t =
   in
   let switch (s : Djot.Profile.Switch.t) : bool option Term.t =
     let name =
-      String.map (function '_' -> '-' | c -> c) (Djot.Profile.Switch.name s)
+      String.map
+        (function
+          | '_' -> '-'
+          | c -> c)
+        (Djot.Profile.Switch.name s)
     in
     let what = Manpage.escape (Djot.Profile.Switch.doc s) in
     let on = Arg.info [ name ] ~docs:s_syntax ~doc:("Turn on: " ^ what ^ ".") in
@@ -133,11 +137,11 @@ let profile : Djot.Profile.t Term.t =
   in
   List.fold_left
     (fun acc s ->
-      let+ p = acc
-      and+ v = switch s in
-      match v with
-      | None -> p
-      | Some b -> Djot.Profile.Switch.set s b p)
+       let+ p = acc
+       and+ v = switch s in
+       match v with
+       | None -> p
+       | Some b -> Djot.Profile.Switch.set s b p)
     base
     Djot.Profile.switches
 ;;

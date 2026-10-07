@@ -83,9 +83,7 @@ let () =
   let back d = Djot_json.of_string (Djot_json.to_string d) |> Result.get_ok in
   let d = Doc.of_string "# a\n\n{#x .c}\n## b\n\n- i\n\n+ j\n\n# a\n" in
   assert (For_testing.kernel (back d) = For_testing.kernel d);
-  let d =
-    Doc.of_string "# a\n\nSee [r] and [^n].\n\n[^n]: note\n\n[r]: /u\n\n# b\n"
-  in
+  let d = Doc.of_string "# a\n\nSee [r] and [^n].\n\n[^n]: note\n\n[r]: /u\n\n# b\n" in
   let d' = back d in
   assert (Html.of_doc d' = Html.of_doc d);
   assert (Doc.footnotes d' = Doc.footnotes d);

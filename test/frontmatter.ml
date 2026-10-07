@@ -24,8 +24,7 @@ let () =
   assert (bytes fm.loc = (0, 33));
   assert (Textloc.first_line fm.loc = (1, 0) && Textloc.last_line fm.loc = (4, 31));
   assert (String.sub src 31 3 = "---");
-  assert (
-    For_testing.kernel (parse src) = For_testing.kernel (Doc.of_string "# h\n\np\n"));
+  assert (For_testing.kernel (parse src) = For_testing.kernel (Doc.of_string "# h\n\np\n"));
   let rec leaves = function
     | Node (_, _, Block.Section bs) -> List.concat_map leaves bs
     | n -> [ n ]
@@ -55,12 +54,12 @@ let () =
 let () =
   List.iter
     (fun src ->
-      List.iter
-        (fun locs ->
-          let d = parse ~locs src in
-          assert (Doc.frontmatter d = None);
-          assert (same d (Doc.of_string ~locs src)))
-        [ false; true ])
+       List.iter
+         (fun locs ->
+            let d = parse ~locs src in
+            assert (Doc.frontmatter d = None);
+            assert (same d (Doc.of_string ~locs src)))
+         [ false; true ])
     [ ""
     ; "---"
     ; "---\n"
@@ -102,12 +101,12 @@ let docs =
 let () =
   List.iter
     (fun src ->
-      let d = parse src in
-      let d' = parse (Doc.to_string d) in
-      assert (For_testing.kernel d = For_testing.kernel d');
-      assert (
-        Option.map (fun (f : Frontmatter.t) -> f.text) (Doc.frontmatter d)
-        = Option.map (fun (f : Frontmatter.t) -> f.text) (Doc.frontmatter d')))
+       let d = parse src in
+       let d' = parse (Doc.to_string d) in
+       assert (For_testing.kernel d = For_testing.kernel d');
+       assert (
+         Option.map (fun (f : Frontmatter.t) -> f.text) (Doc.frontmatter d)
+         = Option.map (fun (f : Frontmatter.t) -> f.text) (Doc.frontmatter d')))
     docs
 ;;
 
@@ -119,35 +118,35 @@ let () =
   let lines_of s = Array.of_list (Kernel.Strings.split_lines s) in
   List.iter
     (fun locs ->
-      List.iter
-        (fun src ->
-          let t = Source.of_string ~locs ~frontmatter:true src in
-          let ls = lines_of src in
-          let n = Array.length ls in
-          for first = 1 to n + 1 do
-            for last = first - 1 to n do
-              List.iter
-                (fun s ->
-                  let t', (c : Source.change) =
-                    Source.replace_lines_changed t ~first ~last s
-                  in
-                  let text = Source.to_string t' in
-                  assert (
-                    Array.to_list (lines_of text)
-                    = Array.to_list (Array.sub ls 0 (first - 1))
-                      @ Array.to_list (lines_of s)
-                      @ Array.to_list (Array.sub ls last (n - last)));
-                  assert (same (Source.doc t') (parse ~locs text));
-                  let n' = Array.length (lines_of text) in
-                  assert (c.first <= first && last <= c.old_last);
-                  assert (c.old_last <= n && n - c.old_last = n' - c.new_last);
-                  (* A further edit starts from the same state. *)
-                  let again = Source.replace_lines t' ~first:1 ~last:0 "" in
-                  assert (same (Source.doc again) (Source.doc t')))
-                news
-            done
-          done)
-        docs)
+       List.iter
+         (fun src ->
+            let t = Source.of_string ~locs ~frontmatter:true src in
+            let ls = lines_of src in
+            let n = Array.length ls in
+            for first = 1 to n + 1 do
+              for last = first - 1 to n do
+                List.iter
+                  (fun s ->
+                     let t', (c : Source.change) =
+                       Source.replace_lines_changed t ~first ~last s
+                     in
+                     let text = Source.to_string t' in
+                     assert (
+                       Array.to_list (lines_of text)
+                       = Array.to_list (Array.sub ls 0 (first - 1))
+                         @ Array.to_list (lines_of s)
+                         @ Array.to_list (Array.sub ls last (n - last)));
+                     assert (same (Source.doc t') (parse ~locs text));
+                     let n' = Array.length (lines_of text) in
+                     assert (c.first <= first && last <= c.old_last);
+                     assert (c.old_last <= n && n - c.old_last = n' - c.new_last);
+                     (* A further edit starts from the same state. *)
+                     let again = Source.replace_lines t' ~first:1 ~last:0 "" in
+                     assert (same (Source.doc again) (Source.doc t')))
+                  news
+              done
+            done)
+         docs)
     [ false; true ]
 ;;
 
@@ -164,7 +163,8 @@ let identified d =
   let rec flat bs =
     List.concat_map
       (function
-        | Node (_, a, Block.Section (Node (p, _, h) :: rest)) -> Node (p, a, h) :: flat rest
+        | Node (_, a, Block.Section (Node (p, _, h) :: rest)) ->
+          Node (p, a, h) :: flat rest
         | n -> [ n ])
       bs
   in
@@ -181,26 +181,26 @@ let chunks k s =
 let () =
   List.iter
     (fun locs ->
-      List.iter
-        (fun src ->
-          let expected = parse ~locs src in
-          for k = 1 to String.length src + 1 do
-            let bs, t =
-              List.fold_left
-                (fun (acc, t) x ->
-                  let bs, t = Stream.feed_string t x in
-                  acc @ bs, t)
-                ([], Stream.start ~locs ~frontmatter:true ())
-                (chunks k src)
-            in
-            assert (bs @ Stream.peek t = identified expected);
-            let s = Stream.finish t in
-            assert (Source.to_string s = src);
-            assert (same (Source.doc s) expected);
-            let s' = Source.replace_lines s ~first:1 ~last:0 "" in
-            assert (same (Source.doc s') expected)
-          done)
-        docs)
+       List.iter
+         (fun src ->
+            let expected = parse ~locs src in
+            for k = 1 to String.length src + 1 do
+              let bs, t =
+                List.fold_left
+                  (fun (acc, t) x ->
+                     let bs, t = Stream.feed_string t x in
+                     acc @ bs, t)
+                  ([], Stream.start ~locs ~frontmatter:true ())
+                  (chunks k src)
+              in
+              assert (bs @ Stream.peek t = identified expected);
+              let s = Stream.finish t in
+              assert (Source.to_string s = src);
+              assert (same (Source.doc s) expected);
+              let s' = Source.replace_lines s ~first:1 ~last:0 "" in
+              assert (same (Source.doc s') expected)
+            done)
+         docs)
     [ false; true ]
 ;;
 
@@ -230,7 +230,9 @@ let () =
   in
   let fm = Frontmatter.make fields in
   assert (fm.fields = fields && Textloc.is_none fm.loc);
-  let d = Doc.make ~frontmatter:fm [ Node.make (Block.Para [ Node.make (Inline.Str "p") ]) ] in
+  let d =
+    Doc.make ~frontmatter:fm [ Node.make (Block.Para [ Node.make (Inline.Str "p") ]) ]
+  in
   let d' = parse (Doc.to_string d) in
   assert ((Option.get (Doc.frontmatter d')).fields = fields);
   assert (For_testing.kernel d = For_testing.kernel d');
