@@ -143,18 +143,21 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 # ----
 
 # site/ is a dune project of its own, which needs the ocaml/ package's
-# dependencies plus brr and js_of_ocaml.
+# dependencies plus brr and js_of_ocaml.  The Python API reference is built
+# from py/ with uv, from the source alone: it needs no djot.wasm.
 SITE = _build/site
 
 site:  ## Build the static site into _build/site
 	cd site && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
 	cd ocaml && dune build @doc
+	cd py && uv run --group docs zensical build --strict
 	rm -rf $(SITE)
 	site/_build/default/gen/gen.exe site/pages theories/spec $(SITE)
 	cp site/pages/theme.css site/pages/style.css site/pages/preview.css $(SITE)/
 	cp site/_build/default/playground/playground.bc.js $(SITE)/playground/playground.js
 	cp site/_build/default/playground/worker.bc.js $(SITE)/playground/worker.js
 	cp -R ocaml/_build/default/_doc/_html $(SITE)/api/odoc
+	cp -R py/_build/docs $(SITE)/api/python
 	touch $(SITE)/.nojekyll
 
 site-serve: site  ## Build the site and serve it on localhost:8000

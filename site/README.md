@@ -2,7 +2,7 @@
 # site
 
 The project's static site: a home page, a playground, the extension
-reference, and the OCaml API documentation. There is no CI: the site is
+reference, and the OCaml and Python API documentation. There is no CI: the site is
 built and published by hand.
 
 ## Building
@@ -20,7 +20,9 @@ branch on the remote and touches nothing in the working tree. GitHub Pages
 has to be set to serve that branch.
 
 Both need an opam switch with the `ocaml/` package's dependencies (jsont,
-bytesrw, odoc) plus brr and js_of_ocaml-compiler. Neither needs Rocq: the
+bytesrw, odoc) plus brr and js_of_ocaml-compiler, and `uv` for the Python
+API reference, which is built by Zensical from `py/` (`py/zensical.toml`)
+into `api/python/`. Neither needs Rocq: the
 site is built from the extracted code checked in under `ocaml/kernel`.
 
 `site/` is a dune project of its own, so that brr and js_of_ocaml are not
@@ -91,8 +93,8 @@ These are written by hand and go stale without any build failing:
    statement. The theorem names listed for a row are names only; one that
    does not exist fails the site build.
 3. **The home page and the API page** (`pages/home.dj`, `pages/api.dj`):
-   what they say about the Markdown-like profile, and the code sample,
-   which is not compiled. The meaning of each status word is written in
+   what they say about the Markdown-like profile, and the code samples,
+   which are not compiled. The meaning of each status word is written in
    `gen/gen.ml`.
 4. **Switch descriptions.** The one-line `doc` of each switch in
    `ocaml/src/djot.ml` repeats the doc comment in `djot.mli`.
