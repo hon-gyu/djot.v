@@ -72,6 +72,24 @@ let json_cmd : int Cmd.t =
      run ~locs i (fun doc -> Djot_json.to_string ~format doc ^ "\n")
 ;;
 
+let profile_cmd : int Cmd.t =
+  let doc = "Print the syntax the options select" in
+  let man : Manpage.block list =
+    [ `S Manpage.s_description
+    ; `P
+        "$(cmd) reads no input. It prints the syntax that the syntax options given to \
+         it select: how each inline delimiter is written, then whether each construct \
+         is on."
+    ; `Pre "$(cmd) $(b,--profile markdown-like --no-tables)"
+    ]
+    @ Djot_cli.syntax_man
+  in
+  Cmd.make (Cmd.info "profile" ~doc ~man)
+  @@ let+ p = Djot_cli.profile in
+     Format.printf "%a@." Djot.Profile.pp p;
+     0
+;;
+
 let cmd : int Cmd.t =
   let doc = "Process djot files" in
   let man : Manpage.block list =
@@ -85,7 +103,7 @@ let cmd : int Cmd.t =
   Cmd.group
     (Cmd.info "djot" ~version:"%%VERSION%%" ~doc ~man ~exits:Djot_cli.exits)
     ~default
-    [ Cmd_html.cmd; djot_cmd; ast_cmd; json_cmd ]
+    [ Cmd_html.cmd; djot_cmd; ast_cmd; json_cmd; profile_cmd ]
 ;;
 
 let main () : int = Cmd.eval' cmd

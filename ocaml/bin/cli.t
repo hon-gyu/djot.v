@@ -125,6 +125,64 @@ An option naming a construct overrides the profile.
   =====</p>
   <p><strong>b</strong></p>
 
+The profile command prints the syntax the options select.
+
+  $ djot profile > djot.profile
+  $ cat djot.profile
+  emph: _ bare
+  strong: * bare
+  superscript: ^ bare
+  subscript: ~ bare
+  highlight: = braced
+  insert: + braced
+  delete: - braced
+  single_quote: ' bare after a break
+  double_quote: " bare
+  footnotes: on
+  smart_typography: on
+  raw_inline: on
+  math: on
+  inline_attrs: on
+  tables: on
+  divs: on
+  tasks: on
+  raw_blocks: on
+  deflists: on
+  block_attrs: on
+  heading_continuation: on
+  ext_wikilinks: off
+  ext_dollar_math: off
+  ext_keyed: off
+  ext_callouts: off
+  ext_tags: off
+  ext_setext_headings: off
+  ext_list_interrupts: off
+
+  $ djot profile --profile markdown-like --no-tables | diff djot.profile -
+  2c2
+  < strong: * bare
+  ---
+  > strong: ** bare
+  15c15
+  < tables: on
+  ---
+  > tables: off
+  21c21
+  < heading_continuation: on
+  ---
+  > heading_continuation: off
+  23c23
+  < ext_dollar_math: off
+  ---
+  > ext_dollar_math: on
+  27,28c27,28
+  < ext_setext_headings: off
+  < ext_list_interrupts: off
+  ---
+  > ext_setext_headings: on
+  > ext_list_interrupts: on
+  [1]
+
 HTML page
 =========
 

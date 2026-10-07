@@ -67,7 +67,8 @@ The subcommands `html`, `djot`, `json` and `ast` render a file, or stdin,
 to HTML, djot, djot.js's JSON AST, and an indented tree.  `--from json`
 reads the JSON back, `html --doc` writes a complete page, and the profile
 switches are options such as `--no-tables` and `--ext-wikilinks`;
-`djot html --help` lists them.
+`djot html --help` lists them.  `djot profile` takes the same options and
+prints the syntax they select.
 
 ```sh
 djot html --doc --frontmatter notes.dj > notes.html
