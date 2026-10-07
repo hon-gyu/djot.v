@@ -767,7 +767,6 @@ Proof.
     destruct (Ascii.eqb c lbrace); [reflexivity|].
     destruct (Ascii.eqb c rbrace); [|reflexivity].
     destruct hd; [|reflexivity].
-    destruct (hole_ok hs); [|reflexivity].
     unfold ihole_close. tred. rewrite ?imk_semantic. sem_flush.
     rewrite flush_text_app, oemit_app. reflexivity.
 Qed.

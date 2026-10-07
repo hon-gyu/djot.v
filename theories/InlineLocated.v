@@ -1231,7 +1231,6 @@ Proof.
     destruct (Ascii.eqb c lbrace); cbn [of_iscan]; [rewrite IHsh; reflexivity|].
     destruct (Ascii.eqb c rbrace); cbn [of_iscan]; [|rewrite IHsh; reflexivity].
     destruct depth; cbn [of_iscan]; [|rewrite IHsh; reflexivity].
-    destruct (hole_ok (tval src)); [|apply IHsh].
     unfold ihole_close. cbn [of_iscan].
     rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
 Qed.

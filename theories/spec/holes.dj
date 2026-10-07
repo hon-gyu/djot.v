@@ -53,13 +53,21 @@ x </code> b</p>
 ## What is not a hole
 
 A hole is always closed. When no closing `}` arrives before the end of the
-block, or the expression is empty or all whitespace, there is no hole and
-the source reads as if the `%` had been escaped.
+block, there is no hole and the source reads as if the `%` had been
+escaped. Here the first `%{` never closes, so the second one opens a hole.
 
 ``` example
-a %{x and %{ } b
+a %{x and %{y} b
 .
-<p>a %{x and % b</p>
+<p>a %{x and <code data-hole="">y</code> b</p>
+```
+
+An empty expression is still a hole, for the consumer to reject.
+
+``` example
+%{}
+.
+<p><code data-hole=""></code></p>
 ```
 
 Without the setting, `%{.c}` is a `%` with attributes. With it, `%{` is

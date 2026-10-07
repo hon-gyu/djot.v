@@ -68,11 +68,13 @@ text. `%{ x ` defeats that, and each open hole adds a link to the chain.
 The frame stack remains the fix; it changes the state's shape and so
 the five proof files above.
 
-**D6 is "read as if the `%` were escaped", not "text".** `%{}` falls
-back to the ordinary reading, in which `{}` is an empty attribute block
-that djot drops, so `%{}` renders as `%`. The plan's wording ("are
-text") was wrong for that case; the spec states the rule as the
-fallback.
+**D6 was amended in review: an empty hole is a hole.** As first built,
+an empty or blank payload fell back to the ordinary reading, in which
+`{}` is an empty attribute block that djot drops, so `%{}` rendered as
+`%`, not as the text the plan said. Review chose the simpler rule
+instead: the matching `}` always closes a hole, and `%{}` is `Hole ""`
+for the consumer to reject. The check and its case in each proof were
+deleted.
 
 **D10 has no code.** The block hole is the consumer's reading of a code
 block in language `%`, so nothing in the parser changed for it.
@@ -91,13 +93,12 @@ block in language `%`, so nothing in the parser changed for it.
 
 ## Open
 
-1. A human review of D6 to D8 and D11.
-2. The baseline table checked against djot.js (its `lib/` was not built
+1. The baseline table checked against djot.js (its `lib/` was not built
    in this checkout).
-3. The frame stack, if linear cost on hostile input matters before the
+2. The frame stack, if linear cost on hostile input matters before the
    destination chain is fixed too.
-4. `hole_src` escapes every brace, so a payload with balanced braces
+3. `hole_src` escapes every brace, so a payload with balanced braces
    renders as `%{ \{x\} }`. Leaving balanced braces bare is a renderer
    refinement for [[261007.plan.irredundant-escapes]].
-5. Kinds (`%*{`, `%?{`), holes in attribute values, and an evaluator,
+4. Kinds (`%*{`, `%?{`), holes in attribute values, and an evaluator,
    all out of v1 by the plan.

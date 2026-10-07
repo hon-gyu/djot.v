@@ -2084,19 +2084,10 @@ Definition ipercent_step `{PosPolicy} `{InlineCursor}
          (ilead c (tpush txt (one percent)) (Some percent) o) o
   else ilead c (tpush txt (one percent)) (Some percent) o.
 
-(* A hole's payload must hold something other than whitespace: `%{}` and
-   `%{ }` are text. *)
-Fixpoint all_ws_nl (s : string) : bool :=
-  match s with
-  | EmptyString => true
-  | String c rest => (is_ws_nl c && all_ws_nl rest)%bool
-  end.
-
-Definition hole_ok (src : string) : bool := negb (all_ws_nl (hole_text src)).
-
 (* The closing `}`: the hole is emitted onto the state from before the
    `%`, with the text pending then flushed in front of it, and the
-   ordinary reading is dropped. *)
+   ordinary reading is dropped.  An empty payload is a hole too: `%{}` is
+   one, for the consumer to reject. *)
 Definition ihole_close `{PosPolicy} `{InlineCursor}
   (src : string) (txt : Buf) (o : ostate) : iscan :=
   let start := spot_before cursor_start
@@ -2116,7 +2107,7 @@ Definition ihole_step `{PosPolicy} `{InlineCursor}
   then IHole (S depth) false (tpush src (one c)) txt sh' o
   else if Ascii.eqb c rbrace
   then match depth with
-       | O => if hole_ok (tval src) then ihole_close (tval src) txt o else sh'
+       | O => ihole_close (tval src) txt o
        | S d => IHole d false (tpush src (one c)) txt sh' o
        end
   else IHole depth false (tpush src (one c)) txt sh' o.

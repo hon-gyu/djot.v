@@ -1516,23 +1516,6 @@ let ipercent_step t x h h0 c txt _ o =
          (ilead t x h h0 c (x.tpush txt (one percent)) (Some percent) o), o)
   else ilead t x h h0 c (x.tpush txt (one percent)) (Some percent) o
 
-(** val all_ws_nl : string -> bool **)
-
-let rec all_ws_nl s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> true)
-    (fun c rest -> (&&) (is_ws_nl c) (all_ws_nl rest))
-    s
-
-(** val hole_ok : string -> bool **)
-
-let hole_ok src =
-  negb (all_ws_nl (hole_text src))
-
 (** val ihole_close :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
     ostate -> 'a1 iscan_g **)
@@ -1568,9 +1551,7 @@ let ihole_step x h h0 c depth esc src txt sh' o =
             else if (=) c rbrace
                  then ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
                          (fun _ ->
-                         if hole_ok (x.tval src)
-                         then ihole_close x h h0 (x.tval src) txt o
-                         else sh')
+                         ihole_close x h h0 (x.tval src) txt o)
                          (fun d -> IHole (d, false, (x.tpush src (one c)),
                          txt, sh', o))
                          depth)

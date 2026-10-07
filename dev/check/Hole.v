@@ -41,12 +41,12 @@ Example hole_not_attributes :
      [mk (Str "foo"); mk (Hole "#id")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* D6: an empty or blank payload is not a hole, and the bytes read as if
-   the `%` were escaped: here `{}` and `{  }` are empty attribute blocks,
-   which djot drops. *)
-Example empty_holes_are_not_holes :
+(* D6: an empty or blank payload is a hole, for the consumer to reject.
+   Escaped, the `%` is text and `{}` an empty attribute block, which djot
+   drops. *)
+Example empty_holes :
   (Parse "%{}", Parse "%{  }", Parse "\%{}")
-  = ([mk (Str "%")], [mk (Str "%")], [mk (Str "%")]).
+  = ([mk (Hole "")], [mk (Hole "  ")], [mk (Str "%")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* D7: `\{`, `\}` and `\\` are escapes and do not count; any other

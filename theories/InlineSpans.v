@@ -2311,7 +2311,6 @@ Proof.
     destruct (Ascii.eqb c lbrace); [apply Hk|].
     destruct (Ascii.eqb c rbrace) eqn:E; [|apply Hk].
     destruct depth as [|d]; [|apply Hk].
-    destruct (hole_ok (tval src)); [|apply IHst, Hsh].
     unfold ihole_close. tred. rewrite Hn.
     cbn [st_inv orb nonempty_str].
     split; [|split; [apply eqb_rewrite, E|discriminate]].

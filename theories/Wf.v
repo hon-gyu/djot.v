@@ -2231,7 +2231,6 @@ Proof.
     destruct (Ascii.eqb c lbrace); [apply Hkeep|].
     destruct (Ascii.eqb c rbrace); [|apply Hkeep].
     destruct hd; [|apply Hkeep].
-    destruct (hole_ok hs); [|exact Hsh'].
     unfold ihole_close. tred. sem_flush.
     apply iscan_wf_text.
     + apply oscope_ok_emit;
