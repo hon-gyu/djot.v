@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
+# ai-disclosure: ai-generated
+#
+# Installs nix and devenv, with the hon-gyu binary cache.  The steps after
+# it run their commands with `devenv shell --`.
+name: devenv
+description: Install nix and devenv, with the binary cache
+
+inputs:
+  cachix-auth-token:
+    description: Lets the job push what it builds to the cache.  Left out, the cache is read only.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@v31
+
+    - uses: cachix/cachix-action@v17
+      with:
+        name: hon-gyu
+        authToken: ${{ inputs.cachix-auth-token }}
+
+    - name: Install devenv
+      shell: bash
+      run: nix profile install nixpkgs#devenv

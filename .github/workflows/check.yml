@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# ai-disclosure: ai-generated
+#
+# The checks of `devenv test`, as two jobs.  ocaml/kernel is checked in, so
+# the packages build without Rocq and do not wait for the proofs; `proofs`
+# is what says the kernel they tested is the current extraction.
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a branch replaces the run of the push before it.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proofs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/devenv
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # dune rebuilds only what changed since the _build it is given.
+      - uses: actions/cache@v6
+        with:
+          path: _build
+          key: proofs-${{ hashFiles('devenv.lock') }}-${{ github.sha }}
+          restore-keys: proofs-${{ hashFiles('devenv.lock') }}-
+
+      - name: Proofs, extraction, README tables, axioms
+        run: devenv shell -- make check-rocq
+
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The site states `git describe --tags`, which wants the history
+          # and the tags.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/devenv
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: OCaml package tests and the site
+        run: devenv shell -- make check-site
+
+      - name: WebAssembly module
+        run: devenv shell -- make py-wasm
+
+      - name: Python tests
+        run: devenv shell -- make check-py
