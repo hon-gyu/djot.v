@@ -35,6 +35,8 @@ Definition dollar_math : options :=
   inline (DTable (with_dollar_math true djot_config) eq_refl).
 Definition custom_tags : options :=
   inline (DTable (with_inline_tags true djot_config) eq_refl).
+Definition holes : options :=
+  inline (DTable (with_holes true djot_config) eq_refl).
 Definition list_interruption : options := block true false false false.
 Definition setext_headings : options := block false true false false.
 Definition keyed_blocks : options := block false false true false.
@@ -43,7 +45,8 @@ Definition callouts : options := block false false false true.
 (* By the name of the reference file. *)
 Definition all : list (string * options) :=
   [ ("callouts", callouts); ("custom-tags", custom_tags);
-    ("dollar-math", dollar_math); ("keyed-blocks", keyed_blocks);
+    ("dollar-math", dollar_math); ("holes", holes);
+    ("keyed-blocks", keyed_blocks);
     ("list-interruption", list_interruption);
     ("setext-headings", setext_headings); ("wikilinks", wikilinks) ].
 

@@ -1,0 +1,118 @@
+# Holes
+
+Setting: `ext_holes`.
+
+A hole is an expression in a document, for a consumer to evaluate: the
+document is a template and the hole is where a value goes, as in an
+article template literal (Crichton and Krishnamurthi, "A Core Calculus
+for Documents", POPL 2024). The parser records the expression as written
+and never reads it. What language it is in, how it is evaluated, and
+whether its value is a node, a list or an option are the consumer's.
+
+``` example
+Today I am going shopping for %{List.length items} things.
+.
+<p>Today I am going shopping for <code data-hole="">List.length items</code> things.</p>
+```
+
+The HTML renderer shows a hole nobody evaluated as its expression, so it
+is not lost silently.
+
+## Where a hole ends
+
+`%{` opens a hole. Inside, every `{` must be matched by a `}`, and the `}`
+that matches the opening one closes the hole.
+
+``` example
+%{ {r with x = 1} }
+.
+<p><code data-hole=""> {r with x = 1} </code></p>
+```
+
+A brace that should not count is escaped. `\{`, `\}` and `\\` are read as
+`{`, `}` and `\`; a backslash before any other character is kept with it,
+so the expression's own escapes reach the consumer as written.
+
+``` example
+%{ print_string "\}\n" }
+.
+<p><code data-hole=""> print_string "}\n" </code></p>
+```
+
+A hole may cross a line break, which is part of the expression. It ends
+with its paragraph, heading or table cell like any inline.
+
+``` example
+a %{ f
+x } b
+.
+<p>a <code data-hole=""> f
+x </code> b</p>
+```
+
+## What is not a hole
+
+A hole is always closed. When no closing `}` arrives before the end of the
+block, or the expression is empty or all whitespace, there is no hole and
+the source reads as if the `%` had been escaped.
+
+``` example
+a %{x and %{ } b
+.
+<p>a %{x and % b</p>
+```
+
+Without the setting, `%{.c}` is a `%` with attributes. With it, `%{` is
+always a hole's opener, and `\%` writes a `%` before braces.
+
+``` example
+a %{.c} b and \%{.c} c
+.
+<p>a <code data-hole="">.c</code> b and <span class="c">%</span> c</p>
+```
+
+A `%` inside a code span, an autolink or a link destination is not an
+opener.
+
+``` example
+`%{x}` and [a](%{u})
+.
+<p><code>%{x}</code> and <a href="%{u}">a</a></p>
+```
+
+## Priority
+
+Once a hole closes, it wins over emphasis, links and spans that overlap
+it: its content is not markup.
+
+``` example
+*a %{b* c}
+.
+<p>*a <code data-hole="">b* c</code></p>
+```
+
+Between a hole and a code span, whichever opens first wins: a code span
+reads its content as text, and a hole that closes reads its own.
+
+``` example
+`a %{b` c} and %{ f "`" }
+.
+<p><code>a %{b</code> c} and <code data-hole=""> f "`" </code></p>
+```
+
+## Blocks
+
+There is no block syntax. A code block whose language is `%` is a code
+block to the parser; a consumer that evaluates holes may read it as one,
+with its content kept exactly, blank lines and indentation included.
+
+```` example
+``` %
+ul (List.map item items)
+```
+.
+<pre><code class="language-%">ul (List.map item items)
+</code></pre>
+````
+
+{% ai-disclosure: ai-generated %}

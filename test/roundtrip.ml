@@ -4,7 +4,7 @@
    accepts, in the extracted parser.  No other parser is consulted.
 
    Usage:
-     roundtrip [--keyed | --wiki | --callouts | --dollar | --tags] [DEPTH] [--report FILE] [--verbose]
+     roundtrip [--keyed | --wiki | --callouts | --dollar | --tags | --holes] [DEPTH] [--report FILE] [--verbose]
 
    The plain pool is what `Generate.gen_roundtrip_1` and `gen_roundtrip_2`
    prove in the kernel at depths 1 and 2; its default depth is 3, which
@@ -15,8 +15,9 @@
    callouts and wikilinks on (default depth 1), and `--dollar` the ordinary
    pool with dollar math on plus text full of `$` (default depth 2), and
    `--tags` the ordinary pool with custom tag names on plus named spans
-   and divs in the containers (default depth 2); djot.js has none of
-   these extensions.
+   and divs in the containers (default depth 2), and `--holes` the
+   ordinary pool with holes on plus text full of `%` and braces (default
+   depth 2); djot.js has none of these extensions.
 
    The pinned counts are the coverage witness: the fragment must grow when
    a construct lands, and a shrinking count is a regression that zero
@@ -31,6 +32,7 @@ let wiki_counts = [ (1, 374); (2, 5483); (3, 81875) ]
 let callout_counts = [ (1, 369); (2, 5478); (3, 81870) ]
 let dollar_counts = [ (1, 371); (2, 5480); (3, 81872) ]
 let tags_counts = [ (1, 396); (2, 5505); (3, 81897) ]
+let holes_counts = [ (1, 371); (2, 5480); (3, 81872) ]
 
 let run ~pool depth r verbose =
   let t0 = Unix.gettimeofday () in
@@ -43,6 +45,7 @@ let run ~pool depth r verbose =
     | `Callouts -> "callout ", G.callout_accepted, G.callout_rt_lhs, callout_counts
     | `Dollar -> "dollar ", G.dollar_accepted, G.dollar_rt_lhs, dollar_counts
     | `Tags -> "tags ", G.tags_accepted, G.tags_rt_lhs, tags_counts
+    | `Holes -> "holes ", G.holes_accepted, G.holes_rt_lhs, holes_counts
   in
   let docs = accepted depth in
   let t1 = Unix.gettimeofday () in
@@ -84,6 +87,7 @@ let () =
     | "--callouts" :: rest -> pool := `Callouts; args rest
     | "--dollar" :: rest -> pool := `Dollar; args rest
     | "--tags" :: rest -> pool := `Tags; args rest
+    | "--holes" :: rest -> pool := `Holes; args rest
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
     | d :: rest when int_of_string_opt d <> None ->
@@ -100,6 +104,7 @@ let () =
     | None, `Callouts -> 1
     | None, `Dollar -> 2
     | None, `Tags -> 2
+    | None, `Holes -> 2
   in
   let r = Report.create !report in
   let ok = run ~pool:!pool depth r !verbose in

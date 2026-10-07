@@ -539,7 +539,7 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
-  tags_accepted tags_rt_lhs escape_accepted rt_src rt_parse
+  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble

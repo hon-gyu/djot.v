@@ -4,7 +4,8 @@
    spec's examples, read with the setting on and off. *)
 
 From Stdlib Require Import String List.
-From DjotV Require Import Ast Inline Profile Strings Line Parser Config Reparse.
+From DjotV Require Import Ast Inline Profile Strings Line Parser Config Reparse
+  Render Step.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -118,4 +119,22 @@ Definition hole_range (s : string) : option (nat * nat) :=
 Example hole_located_ranges :
   (hole_range "%{x}", hole_range "ab %{\}}")
   = (Some (0, 4), Some (3, 8)).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A hole is outside the canonical view, as math is, so its own spelling
+   is checked here: rendering a parsed document and parsing it again gives
+   the same blocks. *)
+Definition hole_blocks (s : string) : blocks :=
+  Profile.parse_profile_blocks (Profile hole_table djot_bconfig) s.
+
+Definition hole_again (s : string) : blocks :=
+  hole_blocks (@Render.render_djot hole_table djot_bconfig (hole_blocks s)).
+
+Definition hole_samples : list string :=
+  ["a %{x} b"; "%{ {r with x = 1} }"; "%{a\\}"; "%{ print ""\}"" }";
+   "a %{ x
+y } b"; "50\% and %{x}{.c}"; "*a %{b* c}"; "%{\{}"].
+
+Example holes_render_back :
+  map hole_again hole_samples = map hole_blocks hole_samples.
 Proof. vm_compute. reflexivity. Qed.
