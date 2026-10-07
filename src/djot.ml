@@ -373,7 +373,10 @@ module Profile = struct
   (* The quote rows have no setter: what an unmatched quote leaves behind
      is part of the row. *)
   let rows =
-    delimiters @ [ { name = "single_quote"; row = DSQuote }; { name = "double_quote"; row = DDQuote } ]
+    delimiters
+    @ [ { name = "single_quote"; row = DSQuote }
+      ; { name = "double_quote"; row = DDQuote }
+      ]
   ;;
 
   let refusal c : drow_refusal -> string = function
@@ -540,7 +543,8 @@ module Inline = struct
     | Ext_wikilink of bool * string * string option
     | Hole of string
 
-  let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string =
+  let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string
+    =
     Styled.inlines style profile ils
   ;;
 
@@ -760,11 +764,13 @@ module Frontmatter = struct
     if open_end >= String.length s || not (is_delim (line 0))
     then None
     else
-      Option.bind (closer (open_end + 1)) (fun close ->
-        of_payload
-          ~text:(String.sub s (open_end + 1) (close - open_end - 1))
-          ~close
-          ~close_len:(line_end close - close))
+      Option.bind
+        (closer (open_end + 1))
+        (fun close ->
+           of_payload
+             ~text:(String.sub s (open_end + 1) (close - open_end - 1))
+             ~close
+             ~close_len:(line_end close - close))
   ;;
 
   (* The byte after the frontmatter's last line. *)
@@ -782,7 +788,7 @@ module Frontmatter = struct
       if text = "" || text.[String.length text - 1] = '\n' then text else text ^ "\n"
     in
     match find ("---\n" ^ text ^ "---\n") with
-    | Some (fm, _ as f) when fm.text = text -> Some (unlocated f)
+    | Some ((fm, _) as f) when fm.text = text -> Some (unlocated f)
     | _ -> None
   ;;
 
@@ -793,9 +799,7 @@ module Frontmatter = struct
 
   let make (fields : (string * value) list) : t =
     require ();
-    let text =
-      if fields = [] then Some "" else Frontmatter_yaml.print (`O fields)
-    in
+    let text = if fields = [] then Some "" else Frontmatter_yaml.print (`O fields) in
     match Option.bind text found_of_string with
     | Some (fm, _) when compare fm.fields fields = 0 -> fm
     | _ -> invalid_arg "Frontmatter.make: the fields have no YAML that reads back as them"
@@ -1059,8 +1063,10 @@ module Source = struct
         ?front:t.doc.front
         (edit_source src (f + skip) (l + skip) s)
         ps'
-    , { first = c.first + skip; old_last = c.old_last + skip; new_last = c.new_last + skip }
-    )
+    , { first = c.first + skip
+      ; old_last = c.old_last + skip
+      ; new_last = c.new_last + skip
+      } )
   ;;
 
   let line_count (t : t) : int =
@@ -1287,7 +1293,10 @@ module Stream = struct
       ~profile:t.profile
       ~locs:t.locs
       ~frontmatter:t.frontmatter
-      ?front:(match t.front with Body f -> f | Start | Held _ -> None)
+      ?front:
+        (match t.front with
+         | Body f -> f
+         | Start | Held _ -> None)
       (String.concat "" (List.rev t.chunks))
       (List.rev_append t.pieces (ended t))
   ;;
@@ -1347,9 +1356,9 @@ module Mapper = struct
   type 'a mapper = t -> 'a -> 'a filter_map result
 
   let make
-    ?(inline : Inline.t node mapper = fun _ _ -> `Default)
-    ?(block : Block.t node mapper = fun _ _ -> `Default)
-    ()
+        ?(inline : Inline.t node mapper = fun _ _ -> `Default)
+        ?(block : Block.t node mapper = fun _ _ -> `Default)
+        ()
     =
     { inline; block }
   ;;
@@ -1454,9 +1463,9 @@ module Folder = struct
   type ('a, 'b) folder = 'b t -> 'b -> 'a -> 'b result
 
   let make
-    ?(inline : (Inline.t node, 'a) folder = fun _ _ _ -> `Default)
-    ?(block : (Block.t node, 'a) folder = fun _ _ _ -> `Default)
-    ()
+        ?(inline : (Inline.t node, 'a) folder = fun _ _ _ -> `Default)
+        ?(block : (Block.t node, 'a) folder = fun _ _ _ -> `Default)
+        ()
     =
     { inline; block }
   ;;
@@ -1509,8 +1518,8 @@ module Folder = struct
        | DefinitionList (_, its) ->
          List.fold_left
            (fun acc it ->
-             let t, d = Node.content it in
-             bl (il acc (Node.content t)) (Node.content d))
+              let t, d = Node.content it in
+              bl (il acc (Node.content t)) (Node.content d))
            acc
            its
        | Table (cap, rows) ->

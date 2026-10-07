@@ -76,7 +76,12 @@ let node ~kind ?(auto = fun _ -> false) ?(derived = true) (l : loc) cases enc_ca
   O.map ~kind dec
   |> O.case_mem "tag" Jsont.string cases ~tag_to_string:Fun.id ~enc:Node.content ~enc_case
   |> O.mem "attributes" attrs ~dec_absent:Attr.empty ~enc:written ~enc_omit:(( = ) [])
-  |> O.mem "autoAttributes" attrs ~dec_absent:Attr.empty ~enc:auto_attrs ~enc_omit:(( = ) [])
+  |> O.mem
+       "autoAttributes"
+       attrs
+       ~dec_absent:Attr.empty
+       ~enc:auto_attrs
+       ~enc_omit:(( = ) [])
   |> O.opt_mem "pos" pos ~enc:pos_of
   |> O.finish
 ;;
@@ -468,7 +473,9 @@ let block_at ?keep ?auto ?derived (l : loc) (inline : Inline.t node Jsont.t)
        let bullet =
          let marker =
            let dec s =
-             if String.length s = 1 then s.[0] else error "a bullet list style is one character"
+             if String.length s = 1
+             then s.[0]
+             else error "a bullet list style is one character"
            in
            Jsont.map Jsont.string ~kind:"bullet list style" ~dec ~enc:(String.make 1)
          in
@@ -755,8 +762,8 @@ let to_ast_string (d : Doc.t) : string =
       Printf.bprintf b "%s\n" name;
       List.iter
         (fun ((k, _), v) ->
-          Printf.bprintf b "  [%s] =\n" (stringify (Jsont.Json.string k));
-          node 4 v)
+           Printf.bprintf b "  [%s] =\n" (stringify (Jsont.Json.string k));
+           node 4 v)
         entries
     | _ -> ()
   in
@@ -774,6 +781,6 @@ let to_doc ?profile (json : Jsont.json) : (Doc.t, string) result =
   Jsont.Json.decode (made ?profile ()) json
 ;;
 
-let of_string ?profile (s : string) : (Doc.t, string) result =
-  Jsont_bytesrw.decode_string (made ?profile ()) s
+let of_string ?file ?profile (s : string) : (Doc.t, string) result =
+  Jsont_bytesrw.decode_string ?file (made ?profile ()) s
 ;;

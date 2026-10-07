@@ -1,0 +1,24 @@
+(executable
+ (name main)
+ (public_name djot)
+ (package djot)
+ (optional)
+ (libraries djot djot.json cmdliner unix))
+
+(rule
+ (with-stdout-to
+  builtin_css.ml
+  (progn
+   (echo "let s = {css|")
+   (run tail -n +2 %{dep:djot.css})
+   (echo "|css}\n"))))
+
+(cram
+ (applies_to cli cli_frontmatter oy)
+ (enabled_if
+  (and %{lib-available:cmdliner} %{lib-available:djot.json}))
+ (deps %{bin:djot}))
+
+(cram
+ (applies_to cli_frontmatter oy)
+ (enabled_if %{lib-available:djot.yaml_gate}))

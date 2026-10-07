@@ -13,7 +13,9 @@ let () =
     String.starts_with
       ~prefix:{|doc frontmatter={"title":"A note","tags":["a",1],"x":null}|}
       (Djot_json.to_ast_string d));
-  let prefix = {|{"tag":"doc","frontmatter":{"title":"A note","tags":["a",1],"x":null},|} in
+  let prefix =
+    {|{"tag":"doc","frontmatter":{"title":"A note","tags":["a",1],"x":null},|}
+  in
   assert (String.starts_with ~prefix json);
   (* Read back, the fields are the same but for the number JSON has no form for. *)
   let d' = Result.get_ok (Djot_json.of_string json) in
@@ -25,5 +27,6 @@ let () =
   let plain = Djot_json.to_string (Doc.of_string "p\n") in
   assert (String.starts_with ~prefix:{|{"tag":"doc","references"|} plain);
   assert (Doc.frontmatter (Result.get_ok (Djot_json.of_string plain)) = None);
-  assert (Result.is_error (Djot_json.of_string {|{"tag":"doc","frontmatter":[],"children":[]}|}))
+  assert (
+    Result.is_error (Djot_json.of_string {|{"tag":"doc","frontmatter":[],"children":[]}|}))
 ;;
