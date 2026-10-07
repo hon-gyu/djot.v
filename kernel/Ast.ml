@@ -157,8 +157,8 @@ let posnode h p x =
 (** val null_span : span **)
 
 let null_span =
-  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line =
-    0; spot_rem = 0 } }
+  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line = 0;
+    spot_rem = 0 } }
 
 (** val pspan : coq_PosPolicy -> span -> span **)
 
@@ -290,6 +290,7 @@ type inline =
 | SoftBreak
 | HardBreak
 | Ext_wikilink of bool * string * string option
+| Hole of string
 
 type inlines = inline node list
 

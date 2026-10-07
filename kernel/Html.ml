@@ -136,19 +136,19 @@ let rec plain_text il =
    | Superscript ns -> go ns
    | Subscript ns -> go ns
    | Verbatim s -> s
-   | Symbol _ -> ""
    | Math (_, s) -> s
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns
    | Span (_, ns) -> go ns
-   | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
+   | SoftBreak -> nl
+   | HardBreak -> nl
    | Ext_wikilink (_, t, al) -> wiki_display t al
-   | _ -> nl)
+   | _ -> "")
 
 (** val plain_texts : inline node list -> string **)
 
@@ -249,7 +249,7 @@ let tag_letter c =
       (Stdlib.succ (Stdlib.succ
       0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
       n)
-    (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+    (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
@@ -273,7 +273,7 @@ let tag_letter c =
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
       (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-      (Stdlib.succ (Stdlib.succ (Stdlib.succ
+      (Stdlib.succ (Stdlib.succ
       0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
 (** val tag_tail_ok : string -> bool **)
@@ -291,33 +291,28 @@ let rec tag_tail_ok s =
         ((||) (tag_letter c)
           ((&&)
             (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               0)))))))))))))))))))))))))))))))))))))))))))))))) (Char.code c))
             (( <= ) (Char.code c) (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ
               0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
         ((=) c '-'))
       (tag_tail_ok rest))
@@ -437,7 +432,9 @@ let rec render_inline refs il a =
      then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
             t) :: a)))) :: []
      else (HElem ("a", 0, (("href", t) :: a), ((HText
-            (wiki_display t al)) :: []))) :: [])
+            (wiki_display t al)) :: []))) :: []
+   | Hole s ->
+     (HElem ("code", 0, (("data-hole", "") :: a), ((HText s) :: []))) :: [])
 
 (** val render_inlines : reference_map -> inlines -> helt list **)
 
@@ -512,8 +509,8 @@ let rec render_block refs tight b a =
       let Node (_, ta, term) = n0 in
       let Node (_, da, it) = n1 in
       (HElem ("dt", (Stdlib.succ 0), ta,
-      (render_inlines refs term))) :: ((HElem ("dd", (Stdlib.succ
-      (Stdlib.succ 0)), da, (render_bs it))) :: (god rest))
+      (render_inlines refs term))) :: ((HElem ("dd", (Stdlib.succ (Stdlib.succ
+      0)), da, (render_bs it))) :: (god rest))
     in god
   in
   let render_task_items =
@@ -621,8 +618,8 @@ let number_footnote label st =
    | Some n -> ((st, n), false)
    | None ->
      let n = st.foot_next in
-     (({ foot_numbers = (app st.foot_numbers ((label0, n) :: []));
-     foot_next = (Stdlib.succ n) }, n), true))
+     (({ foot_numbers = (app st.foot_numbers ((label0, n) :: [])); foot_next =
+     (Stdlib.succ n) }, n), true))
 
 (** val render_inline_foot :
     reference_map -> foot_state -> inline -> attr -> foot_state * helt list **)
@@ -667,8 +664,8 @@ let rec render_inline_foot refs st il a =
         (match lookup_reference label refs with
          | Some p ->
            let (url, a0) = p in
-           (st', ((HElem ("a", 0, (("href",
-           url) :: (app (ref_extra a0 a) a)), s)) :: []))
+           (st', ((HElem ("a", 0, (("href", url) :: (app (ref_extra a0 a) a)),
+           s)) :: []))
          | None -> (st', ((HElem ("a", 0, a, s)) :: []))))
    | Span (name, ils) ->
      let (st', s) = render_ils st ils in

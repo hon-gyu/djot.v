@@ -33,6 +33,11 @@ let dollar_math =
 let custom_tags =
   inline (with_inline_tags true djot_config)
 
+(** val holes : options **)
+
+let holes =
+  inline (with_holes true djot_config)
+
 (** val list_interruption : options **)
 
 let list_interruption =
@@ -57,6 +62,7 @@ let callouts =
 
 let all =
   ("callouts", callouts) :: (("custom-tags", custom_tags) :: (("dollar-math",
-    dollar_math) :: (("keyed-blocks", keyed_blocks) :: (("list-interruption",
+    dollar_math) :: (("holes", holes) :: (("keyed-blocks",
+    keyed_blocks) :: (("list-interruption",
     list_interruption) :: (("setext-headings",
-    setext_headings) :: (("wikilinks", wikilinks) :: []))))))
+    setext_headings) :: (("wikilinks", wikilinks) :: [])))))))
