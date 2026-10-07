@@ -835,6 +835,11 @@ let cis_lbrack_head = function
 let bracket_kids_ok t kids =
   negb ((&&) (wikilinks_enabled t) (cis_lbrack_head kids))
 
+(** val ref_label_safe : string -> bool **)
+
+let ref_label_safe s =
+  (&&) (no_char rbrack s) (no_char bslash s)
+
 (** val wiki_part_ok : string -> bool **)
 
 let wiki_part_ok s =
@@ -876,7 +881,7 @@ let rec ci_ok t ci =
      (&&)
        ((&&)
          ((&&)
-           ((&&) ((&&) (nonempty_str label) (no_char rbrack label))
+           ((&&) ((&&) (nonempty_str label) (ref_label_safe label))
              ((=) (normalize_label label) label))
            (go kids))
          (sep kids))

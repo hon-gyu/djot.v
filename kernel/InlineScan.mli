@@ -228,7 +228,7 @@ type 'buf iscan_g =
 | IClosed of 'buf * ostate
 | ISpan of inlines * bool * span * aparser * 'buf * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
-| IReference of inlines * bool * span * 'buf * ostate
+| IReference of inlines * bool * span * bool * 'buf * ostate
 | INote of bool * bool * 'buf * span * ostate
 | IWiki of bool * bool * bool * 'buf * span * ostate
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
