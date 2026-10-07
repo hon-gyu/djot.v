@@ -2808,6 +2808,174 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
 
 End Read.
 
+(*
+The candidate stack
+===================
+
+The scanner the extraction runs.  It computes what the specification
+scanner computes (`InlineStack.v`), and differs in one place: the open
+link destinations and holes.
+
+In the specification each of those carries the ordinary reading of its
+region, and that reading opens the next candidate inside itself, so k
+open candidates are a chain k deep that every byte walks.  Here they are
+frames on a stack over one ordinary reading, `s_cur`.  Two facts make
+that sound.  Candidates of one kind count the same bytes (`(` and `)`
+for a destination, `{` and `}` for a hole) under the same escapes, so
+the later one closes first and one counter per kind serves all of them,
+each frame keeping the counter's value at its opener.  And a close
+discards the ordinary reading it closes over, so every frame above the
+closing one goes with it, whatever its kind.
+
+A frame's payload is not kept whole.  `cf_under` holds the source from
+the opener of the frame below it to its own opener, and `s_seg` the
+source since the top frame's opener, so a byte is pushed once whatever
+the depth, and a close joins the segments above the frame it closes.
+
+A candidate the specification nests where the stack would not take it
+stays nested in `s_cur`: one opened inside an attribute, symbol or
+dollar math candidate's shadow, or one whose counter would not stay
+above the frame below.  That costs what it costs today, and nothing
+else depends on it.
+*)
+Section Stack.
+Context {Buf : Type} {X : TextOps Buf}.
+
+(* A destination's `dst` as a function of its source: an escaped byte is
+   itself if it is punctuation and keeps its backslash otherwise, and a
+   pending backslash at the end is not there yet. *)
+Fixpoint ddecode_from (esc : bool) (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if esc
+      then ((if is_punct c then one c else String bslash (one c))
+            ++ ddecode_from false rest)%string
+      else if is_bslash c then ddecode_from true rest
+      else String c (ddecode_from false rest)
+  end.
+
+Definition ddecode (s : string) : string := ddecode_from false s.
+
+(* What a frame builds at its close, on the state from before its
+   opener. *)
+Inductive ckind : Type :=
+  | CDest (kids : inlines) (image : bool) (open : span) (o : ostate)
+  | CHole (txt : Buf) (o : ostate).
+
+(* `cf_level` is the kind's counter just after the opener; `cf_dtop` and
+   `cf_htop` are the stack's from before the push, restored at the
+   pop. *)
+Record cframe : Type := CFrame {
+  cf_kind : ckind;
+  cf_level : nat;
+  cf_under : Buf;
+  cf_dtop : option nat;
+  cf_htop : option nat
+}.
+
+(* `s_frames` is top first.  `s_dtop` and `s_htop` are the levels of the
+   topmost destination and hole frames, which are the only ones a byte
+   can close.  The counters and `s_esc` run over every byte; `s_seg`
+   only while a frame is open. *)
+Record sscan : Type := SScan {
+  s_frames : list cframe;
+  s_dtop : option nat;
+  s_htop : option nat;
+  s_parens : nat;
+  s_braces : nat;
+  s_esc : bool;
+  s_seg : Buf;
+  s_cur : iscan_g (Buf:=Buf)
+}.
+
+Definition slift (st : iscan_g (Buf:=Buf)) : sscan :=
+  SScan [] None None 0 0 false tnil st.
+
+Definition sat_level (top : option nat) (n : nat) : bool :=
+  match top with Some l => Nat.eqb l n | None => false end.
+
+Definition sabove (top : option nat) (n : nat) : bool :=
+  match top with Some l => Nat.ltb l n | None => true end.
+
+Definition scount (esc : bool) (c up down : ascii) (n : nat) : nat :=
+  if esc then n
+  else if Ascii.eqb c up then S n
+  else if Ascii.eqb c down then pred n
+  else n.
+
+(* Down to the topmost frame of the kind, joining the payload: the
+   frames above it are discarded with the reading they lived in. *)
+Fixpoint spop (dest : bool) (fs : list cframe) (acc : list string)
+  : option (cframe * list cframe * string) :=
+  match fs with
+  | [] => None
+  | f :: fs' =>
+      if match cf_kind f with CDest _ _ _ _ => dest | CHole _ _ => negb dest end
+      then Some (f, fs', String.concat EmptyString acc)
+      else spop dest fs' (tval (cf_under f) :: acc)
+  end.
+
+(* A candidate the reading has just opened becomes a frame: nothing read
+   into it yet, and its counter above the frame below. *)
+Definition speel (fs : list cframe) (dtop htop : option nat) (p b : nat)
+  (esc : bool) (seg : Buf) (cur : iscan_g (Buf:=Buf)) : sscan :=
+  match cur with
+  | IDest kids image open false O dst sh o =>
+      if (negb (tnonempty dst) && negb esc && sabove dtop p)%bool
+      then SScan (CFrame (CDest kids image open o) p seg dtop htop :: fs)
+             (Some p) htop p b esc tnil sh
+      else SScan fs dtop htop p b esc seg cur
+  | IHole O false src txt sh o =>
+      if (negb (tnonempty src) && negb esc && sabove htop b)%bool
+      then SScan (CFrame (CHole txt o) b seg dtop htop :: fs)
+             dtop (Some b) p b esc tnil sh
+      else SScan fs dtop htop p b esc seg cur
+  | _ => SScan fs dtop htop p b esc seg cur
+  end.
+
+Definition sframe_close `{PosPolicy} `{InlineCursor}
+  (k : ckind) (pay : string) : iscan_g (Buf:=Buf) :=
+  match k with
+  | CDest kids image open o =>
+      IText false tnil (Some rparen)
+        (oemit (imk (span_start open) cursor_stop
+                  (bnode image kids (Direct (drop_nl (ddecode pay))))) o)
+  | CHole txt o => ihole_close pay txt o
+  end.
+
+Definition sstep_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (c : ascii) (s : sscan) : sscan :=
+  let '(SScan fs dtop htop p b esc seg cur) := s in
+  let dclose := (negb esc && Ascii.eqb c rparen && sat_level dtop p)%bool in
+  let hclose := (negb esc && Ascii.eqb c rbrace && sat_level htop b)%bool in
+  let p' := scount esc c lparen rparen p in
+  let b' := scount esc c lbrace rbrace b in
+  match (if (dclose || hclose)%bool then spop dclose fs [tval seg] else None) with
+  | Some (f, fs', pay) =>
+      SScan fs' (cf_dtop f) (cf_htop f) p' b' false
+        (if null fs' then tnil else tpush (cf_under f) (pay ++ one c))
+        (sframe_close (cf_kind f) pay)
+  | None =>
+      speel fs dtop htop p' b' (negb esc && is_bslash c)%bool
+        (if null fs then seg else tpush seg (one c))
+        (istep_at attrs_enabled c cur)
+  end.
+
+(* A break is a byte of every open payload, and escapes nothing. *)
+Definition sbreak_at `{PosPolicy} `{InlineCursor}
+  (attrs_enabled : bool) (s : sscan) : sscan :=
+  let '(SScan fs dtop htop p b _ seg cur) := s in
+  SScan fs dtop htop p b false (if null fs then seg else tpush seg nl)
+    (ibreak_at attrs_enabled cur).
+
+(* The paragraph ends with every frame open, and an open candidate keeps
+   its ordinary reading. *)
+Definition sfinish `{PosPolicy} `{InlineCursor} (s : sscan) : inlines :=
+  ifinish (s_cur s).
+
+End Stack.
+
 Lemma ibreak_flat_state :
   forall `{PosPolicy} `{InlineCursor} st,
     is_compound st = false -> ibreak st = ibreak_flat (iresolve st).
@@ -2982,6 +3150,69 @@ Fixpoint iscan_lines_off (k : nat) (l : list string) (st : iscan) : iscan :=
   end.
 
 Definition istart : iscan := IText false EmptyString None ostart.
+
+(* The paragraph drivers over the candidate stack, on a buffer.  They are
+   `iscan_str` and its siblings with `sstep_at` and `sbreak_at` for the
+   transitions, and the extraction runs them in place of those
+   (`InlineStack.v` proves the two agree). *)
+Section StackDrivers.
+Context {Buf : Type} {X : TextOps Buf}.
+
+Fixpoint sscan_str (s : string) (st : sscan (Buf:=Buf)) : sscan :=
+  match s with
+  | EmptyString => st
+  | String c rest =>
+      sscan_str rest
+        (@sstep_at _ _ semantic_pos semantic_inline_cursor
+           inline_attrs_enabled c st)
+  end.
+
+Fixpoint sscan_str_off (s : string) (st : sscan (Buf:=Buf)) : sscan :=
+  match s with
+  | EmptyString => st
+  | String c rest =>
+      sscan_str_off rest
+        (@sstep_at _ _ semantic_pos semantic_inline_cursor false c st)
+  end.
+
+Fixpoint sscan_lines (l : list string) (st : sscan (Buf:=Buf)) : sscan :=
+  match l with
+  | [] => st
+  | [x] => sscan_str (strip_trailing_ws x) st
+  | x :: rest =>
+      sscan_lines rest
+        (@sbreak_at _ _ semantic_pos semantic_inline_cursor
+           inline_attrs_enabled (sscan_str x st))
+  end.
+
+Fixpoint sscan_lines_off (k : nat) (l : list string) (st : sscan (Buf:=Buf))
+  : sscan :=
+  match k with
+  | O => sscan_lines l st
+  | S k' =>
+      match l with
+      | [] => st
+      | [x] => sscan_str_off (strip_trailing_ws x) st
+      | x :: rest =>
+          sscan_lines_off k' rest
+            (@sbreak_at _ _ semantic_pos semantic_inline_cursor false
+              (sscan_str_off x st))
+      end
+  end.
+
+Definition sstart : sscan (Buf:=Buf) := slift (lift istart).
+
+End StackDrivers.
+
+(* What the extraction runs for `parse_inline_line` and
+   `para_inlines_off`: the same scans, on the stack and over `chunks`. *)
+Definition parse_inline_line_stk (s : string) : inlines :=
+  @sfinish chunks _ semantic_pos semantic_inline_cursor
+    (sscan_str s sstart).
+
+Definition para_inlines_off_stk (k : nat) (l : list string) : inlines :=
+  @sfinish chunks _ semantic_pos semantic_inline_cursor
+    (sscan_lines_off k l sstart).
 (* Parse one line's inline content. *)
 Definition parse_inline_line (s : string) : inlines := ifinish (iscan_str s istart).
 

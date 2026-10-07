@@ -106,6 +106,38 @@ Local Definition ifinish_located `{PosPolicy} (l : list (nat * string))
   (st : iscan) : inlines :=
   @ifinish T _ _ _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l)) st.
 
+(* The located scan over the candidate stack, on a buffer.  The
+   extraction runs it in place of the one above (`InlineStack.v`). *)
+Section StackLocated.
+Context {Buf : Type} {X : TextOps Buf}.
+
+Fixpoint sscan_str_located `{PosPolicy} (allow : bool) (k : nat)
+  (origin : spot) (rem : nat) (s : string) (st : sscan (Buf:=Buf)) : sscan :=
+  match s with
+  | EmptyString => st
+  | String c rest =>
+      sscan_str_located allow k origin (pred rem) rest
+        (@sstep_at T _ _ _ (cursor_in k rem origin) allow c st)
+  end.
+
+Fixpoint sscan_lines_located `{PosPolicy} (off : nat) (origin : spot)
+  (l : list (nat * string)) (st : sscan (Buf:=Buf)) : sscan :=
+  match l with
+  | [] => st
+  | [(k, x)] =>
+      sscan_str_located (allow_attrs off) k origin
+        (String.length x) (strip_trailing_ws x) st
+  | (k, x) :: rest =>
+      sscan_lines_located (pred off) origin rest
+        (@sbreak_at T _ _ _
+           (CursorAt (Spot k 0) (lines_start rest) (Spot k (String.length x)))
+           (allow_attrs off)
+           (sscan_str_located (allow_attrs off) k origin
+              (String.length x) x st))
+  end.
+
+End StackLocated.
+
 End WithTable.
 Module ScanErase.
 
@@ -1564,6 +1596,20 @@ Local Lemma erase_ifinish_located : forall `{P : PosPolicy} l st,
   Erase.of_inlines (@ifinish_located T P l st) =
   @ifinish T _ _ semantic_pos semantic_inline_cursor (ScanErase.of_iscan st).
 Proof. intros P l st. apply ScanErase.of_ifinish. Qed.
+
+(* What the extraction runs for `para_inlines_located` and
+   `parse_inline_line_located`: the same scans, on the stack and over
+   `chunks`. *)
+Definition para_inlines_located_stk `{PosPolicy} (off : nat)
+  (l : list (nat * string)) : inlines :=
+  @sfinish T chunks _ _ (CursorAt (lines_stop l) (lines_stop l) (lines_start l))
+    (sscan_lines_located off (lines_start l) l sstart).
+
+Definition parse_inline_line_located_stk `{PosPolicy}
+  (k rem : nat) (s : string) : inlines :=
+  let stop := Spot k (rem - String.length s) in
+  @sfinish T chunks _ _ (CursorAt stop stop (Spot k rem))
+    (sscan_str_located inline_attrs_enabled k (Spot k rem) rem s sstart).
 
 (* A paragraph's lines with their source line indices, scanned so that
    every node records where it came from.  `off` is `para_inlines_off`'s:
