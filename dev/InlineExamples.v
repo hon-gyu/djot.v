@@ -650,6 +650,13 @@ Example reference_image :
   [mk (Image [mk (Str "alt")] (Reference "img"))].
 Proof. vm_compute. reflexivity. Qed.
 
+(* A backslash protects the `]` after it and stays in the label, as in a
+   footnote label. *)
+Example reference_label_escaped_bracket :
+  parse_inline_line "[a][b\]c]" =
+  [mk (Link [mk (Str "a")] (Reference "b\]c"))].
+Proof. vm_compute. reflexivity. Qed.
+
 Example unclosed_reference_is_literal :
   parse_inline_line "[link][open" = [mk (Str "[link][open")].
 Proof. vm_compute. reflexivity. Qed.

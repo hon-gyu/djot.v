@@ -180,6 +180,8 @@ val cis_lbrack_head : cinline list -> bool
 
 val bracket_kids_ok : dtable -> cinline list -> bool
 
+val ref_label_safe : string -> bool
+
 val wiki_part_ok : string -> bool
 
 val tag_name_ok : string -> bool

@@ -2525,7 +2525,7 @@ Qed.
 Local Lemma ref_finish : forall cm v b kids d open label,
   pv_mode v = PMRegion b kids d None label -> self_frames (pv_stk v) ->
   normal (top_of v) -> clean (top_of v) -> clean kids ->
-  ifinish (IReference (map mk kids) false open label (oview cm v))
+  ifinish (IReference (map mk kids) false open false label (oview cm v))
   = map mk (List.rev (pflatten v)).
 Proof.
   intros cm v b kids d open label Em B Hn Hc Hk.
@@ -2542,7 +2542,7 @@ Proof.
   unfold ifinish, ifinish_rev. cbn [ifinish_ostate iresolve ifinish_ostate_flat].
   unfold bref_lit, bclosed_lit. rewrite Ep.
   change (tof (pre ++ bracket_open false)) with (pre ++ one lbrack).
-  rewrite Eb. cbn [tval tpush]. rewrite append_assoc. reflexivity.
+  rewrite Eb. cbn [tval tpush]. rewrite append_empty_r, append_assoc. reflexivity.
 Qed.
 
 (*
@@ -2930,7 +2930,7 @@ Definition linked (ts : list token) (n : nat) (v : pview) (prev : option ascii)
   | PMNormal => exists txt o, core = IText false txt prev o /\ sim v txt o
   | PMRegion false kids d e label =>
       S d < n /\ e = rbrack_at n (skipn n ts) /\ clean kids
-      /\ exists open cm, core = IReference (map mk kids) false open label (oview cm v)
+      /\ exists open cm, core = IReference (map mk kids) false open false label (oview cm v)
   | PMRegion true kids d e dst =>
       S d < n /\ exists open depth sh cm,
         e = paren_close depth n (skipn n ts) /\ e <> None
@@ -3223,7 +3223,7 @@ Local Lemma closed_step : forall cm v0 txt c2 content rest,
     let o' := oview cm (PView rest (pv_out (add_text txt v0)) PMNormal) in
     if Ascii.eqb c2 lparen
     then IDest kids false null_span false 0 "" (idest_open kids false null_span o') o'
-    else IReference kids false null_span "" o'.
+    else IReference kids false null_span false "" o'.
 Proof.
   intros cm v0 txt c2 content rest Ht B Hc Hc2.
   unfold istep. cbn [istep_at].
@@ -3276,14 +3276,15 @@ Fixpoint no_rbrack (s : string) : bool :=
   end.
 
 Local Lemma iscan_ref : forall bytes kids im open label o,
-  no_rbrack bytes = true ->
-  iscan_str bytes (IReference kids im open label o)
-  = IReference kids im open (label ++ bytes) o.
+  no_rbrack bytes = true -> no_bslash bytes = true ->
+  iscan_str bytes (IReference kids im open false label o)
+  = IReference kids im open false (label ++ bytes) o.
 Proof.
-  induction bytes as [|c bytes IH]; intros kids im open label o H;
+  induction bytes as [|c bytes IH]; intros kids im open label o H Hb;
     [rewrite append_empty_r; reflexivity|].
   cbn [no_rbrack] in H. apply andb_true_iff in H as [Hc H]. apply negb_true_iff in Hc.
-  cbn [iscan_str]. unfold istep. cbn [istep_at]. rewrite Hc, IH by exact H.
+  cbn [no_bslash] in Hb. apply andb_true_iff in Hb as [Hbc Hb]. apply negb_true_iff in Hbc.
+  cbn [iscan_str]. unfold istep. cbn [istep_at]. rewrite Hbc, Hc, IH by assumption.
   cbn [tpush]. rewrite append_assoc. reflexivity.
 Qed.
 
@@ -3452,8 +3453,8 @@ Proof.
         * rewrite Hrb. apply settles_refl.
         * rewrite (region_close ts n t v false kids d txt Em).
           apply region_close_linked, region_node_nonstr.
-      + apply (Step (IReference (map mk kids) false open (txt ++ tok_text t) (oview cm v))).
-        * rewrite (iscan_ref _ _ _ _ _ _ Hrb). apply settles_refl.
+      + apply (Step (IReference (map mk kids) false open false (txt ++ tok_text t) (oview cm v))).
+        * rewrite (iscan_ref _ _ _ _ _ _ Hrb Hb). apply settles_refl.
         * rewrite (region_stay ts n t v false kids d e txt Em Hd).
           2: { intros e' E'. rewrite E' in He. symmetry in He.
                apply Precedence.rbrack_at_ge in He. lia. }
@@ -3527,7 +3528,7 @@ Proof.
               iscan_str (String rbrack (one c2)) (IText false txt prev o)
               = if Ascii.eqb c2 lparen
                 then IDest kids false null_span false 0 "" (idest_open kids false null_span o1) o1
-                else IReference kids false null_span "" o1).
+                else IReference kids false null_span false "" o1).
     { intros c2 H2. cbn [iscan_str one]. unfold istep at 2. cbn [istep_at].
       rewrite (ilead_rbrack_closed txt prev o Htag). rewrite Eo.
       pose proof (closed_step cm v0 txt c2 content rest' Ht) as Hcs.
@@ -3578,7 +3579,7 @@ Proof.
       apply Ascii.eqb_eq in S2. subst c2.
       apply over_alphabet_cons in Hs' as (_ & Hf2 & _).
       assert (Hcp : iscan_str (String rbrack (one lbrack)) (IText false txt prev o)
-                    = IReference kids false null_span "" o1)
+                    = IReference kids false null_span false "" o1)
         by exact (Hcl lbrack (or_intror eq_refl)).
       clear Hcl. rename Hcp into Hcl.
       set (e := region_end ts n false).
@@ -3587,7 +3588,7 @@ Proof.
       { rewrite (pstep_close_found ts n false v content rest' Em Hpc). unfold e.
         destruct (region_end ts n false); reflexivity. }
       apply (A (String rbrack (one lbrack)) r [TClose false; TOpen] (Some lbrack) []
-               (IReference kids false null_span "" o1));
+               (IReference kids false null_span false "" o1));
         [reflexivity|discriminate|reflexivity|reflexivity|exact Hf2
         |rewrite Hcl; apply settles_refl|constructor|].
       cbn [length prun]. rewrite Ev1, region_first.

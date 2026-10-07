@@ -2465,3 +2465,36 @@ delimiter character, though `_` and `-` are key characters: `a{-k=v}` and
 **Verdict: `SPEC-GAP`, ours stands** (it matches djot.js on every row).
 The grammar states each choice where it is made.  Chosen by the agent and
 pending the maintainer's decision.
+
+## Closed 2026-10-08 -- ours, fixed: a backslash before `]` in a reference label
+
+Found while probing escapes for the inline specification
+(`261007.plan.inline-specification.md`, stage 1).
+
+| Input | djot.js | ours before | ours now |
+| --- | --- | --- | --- |
+| `[a][b\]c]` | a link to label `b\]c` | a link to label `b\`, then `c]` | as djot.js |
+
+djot.js matches the label's `]` with its general matcher, where `\]` is
+an escape and closes nothing.  Our label state (`IReference`) ended at
+any `]`, though the footnote label state already let a backslash protect
+one (2026-08-15).  `IReference` now carries the same pending-backslash
+flag as `INote`: the backslash and the byte after it go into the label
+as written.  A canonical reference label (`ci_ok`) now has no backslash
+(`ref_label_safe`), as a canonical footnote label already had none.
+`make diff`, `make roundtrip`, `make check-stack` unchanged.  Pinned by
+`reference_label_escaped_bracket` in `dev/InlineExamples.v`.
+
+## 2026-10-08 -- open: a backslash before a line break inside a destination
+
+Found with the entry above.
+
+| Input | djot.js | Ours |
+| --- | --- | --- |
+| `[a](b\` / `c)` | `href="bc"` | `href="b\c"` |
+
+L3 says the line breaks of a split URL are ignored and the lines
+concatenated, which gives `b\c` read literally; djot.js reads the
+backslash and the line break together as a hard-break escape and drops
+both.  Ours stands for now; pending the maintainer's decision.  The
+inline specification will state whichever is chosen.

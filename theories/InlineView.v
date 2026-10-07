@@ -1139,6 +1139,11 @@ Definition cis_lbrack_head (cis : list cinline) : bool :=
 Definition bracket_kids_ok (kids : list cinline) : bool :=
   negb (wikilinks_enabled && cis_lbrack_head kids).
 
+(* A reference label the label scan reads whole: a `]` would end it, and
+   a backslash protects the byte after it, a `]` included. *)
+Definition ref_label_safe (s : string) : bool :=
+  (no_char rbrack s && no_char bslash s)%bool.
+
 (* One half of a canonical wikilink: nothing the region scan gives a
    role, and no line break. *)
 Definition wiki_part_ok (s : string) : bool :=
@@ -1187,7 +1192,7 @@ Fixpoint ci_ok (ci : cinline) : bool :=
      round-trips; `]` would end it early, and an empty one is the
      collapsed spelling, whose label comes from the text instead. *)
   | CIRef _ kids label =>
-      (nonempty_str label && no_char rbrack label
+      (nonempty_str label && ref_label_safe label
        && String.eqb (normalize_label label) label
        && go kids && sep kids && bracket_kids_ok kids)%bool
   | CINote label =>
@@ -1308,7 +1313,7 @@ Qed.
 Lemma ci_ok_ref :
   forall img kids label,
     ci_ok (CIRef img kids label)
-    = (nonempty_str label && no_char rbrack label
+    = (nonempty_str label && ref_label_safe label
        && String.eqb (normalize_label label) label && cis_ok kids
        && bracket_kids_ok kids)%bool.
 Proof.
