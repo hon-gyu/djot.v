@@ -372,10 +372,6 @@ val ipercent_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val all_ws_nl : string -> bool
-
-val hole_ok : string -> bool
-
 val ihole_close :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
   ostate -> 'a1 iscan_g
