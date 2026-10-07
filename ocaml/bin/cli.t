@@ -70,7 +70,7 @@ Subcommands
 The bare command prints the manual.
 
   $ djot --help=plain > help
-  $ djot > /dev/null
+  $ TERM=dumb djot | diff help -
 
 Input
 =====
