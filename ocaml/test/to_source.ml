@@ -109,10 +109,10 @@ let () =
   Printf.printf "\n== readable delimiters\n";
   List.iter
     (fun ils ->
-      let out = Inline.to_string ~style:`Naive ils in
-      let tree s = For_testing.kernel (Doc.of_string s) in
-      assert (tree out = tree (Inline.to_string ~style:`Safe ils));
-      print_endline out)
+       let out = Inline.to_string ~style:`Naive ils in
+       let tree s = For_testing.kernel (Doc.of_string s) in
+       assert (tree out = tree (Inline.to_string ~style:`Safe ils));
+       print_endline out)
     [ [ str "a"; em [ str "b" ]; str "c" ]
     ; [ str "a "; em [ str " b " ]; str " c" ]
     ; [ em [ str "a"; em [ str "b" ]; str "c" ] ]

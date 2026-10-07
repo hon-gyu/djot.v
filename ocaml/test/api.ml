@@ -20,7 +20,9 @@ let () =
     | Node (_, _, Inline.Str s) -> Folder.ret (s :: acc)
     | _ -> Folder.default
   in
-  let strs = List.fold_left (Folder.fold_block (Folder.make ~inline ())) [] (Doc.blocks d) in
+  let strs =
+    List.fold_left (Folder.fold_block (Folder.make ~inline ())) [] (Doc.blocks d)
+  in
   assert (List.rev strs = [ "a"; " b "; "c"; "note" ])
 ;;
 
@@ -123,9 +125,7 @@ let () =
    tables. Its derived identifiers were on the blocks, so they count as
    written. *)
 let () =
-  let d =
-    Doc.of_string "# a\n\n{#x}\n## b\n\nc[^n]\n\n[^n]: note\n\n[r]: /u\n\n# a\n"
-  in
+  let d = Doc.of_string "# a\n\n{#x}\n## b\n\nc[^n]\n\n[^n]: note\n\n[r]: /u\n\n# a\n" in
   let d' = Doc.make (Doc.blocks d) in
   assert (Doc.blocks d' = Doc.blocks d);
   assert (Doc.footnotes d' = Doc.footnotes d);
@@ -192,7 +192,9 @@ let () =
   let s' = Source.replace_lines s ~first:3 ~last:3 "three" in
   assert (Source.to_string s = "one\n\ntwo\n");
   assert (Source.to_string s' = "one\n\nthree");
-  assert (Source.to_string (Source.replace_lines s ~first:4 ~last:3 "end") = "one\n\ntwo\nend");
-  assert (Source.to_string (Source.replace_lines s ~first:1 ~last:0 "top") = "top\none\n\ntwo\n");
+  assert (
+    Source.to_string (Source.replace_lines s ~first:4 ~last:3 "end") = "one\n\ntwo\nend");
+  assert (
+    Source.to_string (Source.replace_lines s ~first:1 ~last:0 "top") = "top\none\n\ntwo\n");
   assert (Html.of_doc (Source.doc s') = Html.of_doc (Doc.of_string "one\n\nthree"))
 ;;

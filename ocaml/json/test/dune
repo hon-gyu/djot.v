@@ -8,7 +8,5 @@
  (name frontmatter)
  (modules frontmatter)
  (enabled_if
-  (and
-   %{lib-available:djot.json}
-   %{lib-available:djot.yaml_gate}))
+  (and %{lib-available:djot.json} %{lib-available:djot.yaml_gate}))
  (libraries djot djot.json))

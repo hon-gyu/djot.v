@@ -34,7 +34,8 @@ let identified d =
   let rec flat bs =
     List.concat_map
       (function
-        | Node (_, a, Block.Section (Node (p, _, h) :: rest)) -> Node (p, a, h) :: flat rest
+        | Node (_, a, Block.Section (Node (p, _, h) :: rest)) ->
+          Node (p, a, h) :: flat rest
         | n -> [ n ])
       bs
   in
@@ -44,8 +45,8 @@ let identified d =
 let feed_all feed t parts =
   List.fold_left
     (fun (acc, t) x ->
-      let bs, t = feed t x in
-      acc @ bs, t)
+       let bs, t = feed t x in
+       acc @ bs, t)
     ([], t)
     parts
 ;;
@@ -60,8 +61,7 @@ let chunks k s =
 let same ?(locs = false) s src =
   let a = Source.doc s
   and b = Doc.of_string ~locs src in
-  Source.to_string s = src
-  && For_testing.kernel a = For_testing.kernel b
+  Source.to_string s = src && For_testing.kernel a = For_testing.kernel b
 ;;
 
 (* However the input is cut, the returned blocks followed by [peek] are
@@ -70,25 +70,25 @@ let same ?(locs = false) s src =
 let () =
   List.iter
     (fun locs ->
-      List.iter
-        (fun src ->
-          let expected = Doc.of_string ~locs src in
-          let check feed parts =
-            let t = Stream.start ~locs () in
-            let bs, t = feed_all feed t parts in
-            assert (bs @ Stream.peek t = identified expected);
-            let s = Stream.finish t in
-            assert (same ~locs s src);
-            let d = Source.doc s in
-            List.iter (fun b -> assert (Doc.textloc d b = Doc.textloc expected b)) bs
-          in
-          for k = 1 to String.length src + 1 do
-            check Stream.feed_string (chunks k src)
-          done;
-          (* [feed_line] ends each line, so it matches when the source does. *)
-          if src = "" || src.[String.length src - 1] = '\n'
-          then check Stream.feed_line (Kernel.Strings.split_lines src))
-        docs)
+       List.iter
+         (fun src ->
+            let expected = Doc.of_string ~locs src in
+            let check feed parts =
+              let t = Stream.start ~locs () in
+              let bs, t = feed_all feed t parts in
+              assert (bs @ Stream.peek t = identified expected);
+              let s = Stream.finish t in
+              assert (same ~locs s src);
+              let d = Source.doc s in
+              List.iter (fun b -> assert (Doc.textloc d b = Doc.textloc expected b)) bs
+            in
+            for k = 1 to String.length src + 1 do
+              check Stream.feed_string (chunks k src)
+            done;
+            (* [feed_line] ends each line, so it matches when the source does. *)
+            if src = "" || src.[String.length src - 1] = '\n'
+            then check Stream.feed_line (Kernel.Strings.split_lines src))
+         docs)
     [ false; true ]
 ;;
 
@@ -106,11 +106,11 @@ let () =
   ignore
     (List.fold_left
        (fun (acc, t) c ->
-         let bs, t = Stream.feed_string t c in
-         let acc = acc @ bs in
-         assert (prefix acc whole);
-         assert (acc @ Stream.peek t = identified (Source.doc (Stream.finish t)));
-         acc, t)
+          let bs, t = Stream.feed_string t c in
+          let acc = acc @ bs in
+          assert (prefix acc whole);
+          assert (acc @ Stream.peek t = identified (Source.doc (Stream.finish t)));
+          acc, t)
        ([], Stream.start ())
        (chunks 3 src))
 ;;
@@ -160,11 +160,11 @@ let () =
     let stack =
       List.fold_left
         (fun stack (e : Stream.Sections.event) ->
-          match e, stack with
-          | Enter a, _ -> (Some a, []) :: stack
-          | Item b, (o, bs) :: rest -> (o, b :: bs) :: rest
-          | Leave, _ -> close stack
-          | Item _, [] -> assert false)
+           match e, stack with
+           | Enter a, _ -> (Some a, []) :: stack
+           | Item b, (o, bs) :: rest -> (o, b :: bs) :: rest
+           | Leave, _ -> close stack
+           | Item _, [] -> assert false)
         [ None, [] ]
         events
     in
@@ -174,15 +174,17 @@ let () =
   in
   List.iter
     (fun src ->
-      let bs, t = Stream.feed_string (Stream.start ()) src in
-      let events, s =
-        List.fold_left
-          (fun (acc, s) b ->
-            let es, s = Stream.Sections.step s b in
-            acc @ es, s)
-          ([], Stream.Sections.start)
-          (bs @ Stream.peek t)
-      in
-      assert (build (events @ Stream.Sections.finish s) = Doc.blocks (Source.doc (Stream.finish t))))
+       let bs, t = Stream.feed_string (Stream.start ()) src in
+       let events, s =
+         List.fold_left
+           (fun (acc, s) b ->
+              let es, s = Stream.Sections.step s b in
+              acc @ es, s)
+           ([], Stream.Sections.start)
+           (bs @ Stream.peek t)
+       in
+       assert (
+         build (events @ Stream.Sections.finish s)
+         = Doc.blocks (Source.doc (Stream.finish t))))
     ("# a\n\n## b\n\nx\n\n### c\n\n## d\n\n# a\n\n{#k .c}\n### e\n\ny\n" :: docs)
 ;;

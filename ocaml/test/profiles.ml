@@ -11,8 +11,8 @@ let parses src profiles =
   Printf.printf "\n%s\n" (Outline.quote src);
   List.iter
     (fun (name, profile) ->
-      Printf.printf "-- %s\n" name;
-      Outline.print (Doc.of_string ~profile src))
+       Printf.printf "-- %s\n" name;
+       Outline.print (Doc.of_string ~profile src))
     profiles
 ;;
 
@@ -72,10 +72,10 @@ let () =
   try_ "strong as `" strong '`' ~width:1 `Bare djot;
   try_ "emph as -" emph '-' ~width:1 `Bare djot;
   try_ "emph, width 0" emph '_' ~width:0 `Bare djot;
-  (match with_delimiter strong '*' ~width:2 `Bare (with_ext_dollar_math true djot) with
-   | Ok p ->
-     let md = markdown_like |> with_ext_setext_headings false in
-     let md = md |> with_ext_list_interrupts false |> with_heading_continuation true in
-     assert (equal p md)
-   | Error _ -> assert false)
+  match with_delimiter strong '*' ~width:2 `Bare (with_ext_dollar_math true djot) with
+  | Ok p ->
+    let md = markdown_like |> with_ext_setext_headings false in
+    let md = md |> with_ext_list_interrupts false |> with_heading_continuation true in
+    assert (equal p md)
+  | Error _ -> assert false
 ;;
