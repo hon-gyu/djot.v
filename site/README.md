@@ -2,8 +2,7 @@
 # site
 
 The project's static site: a home page, a playground, the extension
-reference, and the OCaml and Python API documentation. There is no CI: the site is
-built and published by hand.
+reference, and the OCaml and Python API documentation. 
 
 ## Building
 

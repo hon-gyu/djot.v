@@ -51,6 +51,8 @@ in
   env.OCAMLPATH = lib.makeSearchPath siteLib (lib.closePropagation ocamlLibs);
   env.ROCQPATH = "${rocqPackages.stdlib}/lib/coq/${rocqPackages.rocq-core.rocq-version}/user-contrib";  # holds Rocq's `Stdlib`
 
+  cachix.pull = [ "hon-gyu" ];
+
   # what `devenv test` runs
   enterTest = ''
     make check-rocq
