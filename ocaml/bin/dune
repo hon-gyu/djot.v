@@ -12,3 +12,11 @@
    (echo "let s = {css|")
    (run tail -n +2 %{dep:djot.css})
    (echo "|css}\n"))))
+
+(cram
+(applies_to cli)
+(enabled_if
+  (and
+  %{lib-available:cmdliner}
+  %{lib-available:djot.json}))
+(deps %{bin:djot}))
