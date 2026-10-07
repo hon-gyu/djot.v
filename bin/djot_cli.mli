@@ -6,6 +6,9 @@
     and the syntax options. *)
 val input : Common.input Cmdliner.Term.t
 
+(** [--profile] and the options naming a construct: the syntax options alone. *)
+val profile : Djot.Profile.t Cmdliner.Term.t
+
 (** [--locs]. *)
 val locs : bool Cmdliner.Term.t
 
