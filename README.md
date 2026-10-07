@@ -13,12 +13,58 @@ let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
 let html = Djot.Html.of_doc doc
 ```
 
+## Install
+
 The package is not on opam (yet).  The repository's `ocaml` branch holds this
-directory at its root.
+directory at its root, so opam can pin it.
+
+### The command
+
+The `djot` command needs cmdliner, jsont and bytesrw.  Install them first;
+without them the package installs the library alone.
+
+```sh
+opam install cmdliner jsont bytesrw
+opam pin add djot "git+https://github.com/hon-gyu/djot.v#ocaml"
+djot --help
+```
+
+Add `yaml` to the first line for the `--frontmatter` option.
+
+### The library
+
+```sh
+opam pin add djot "git+https://github.com/hon-gyu/djot.v#ocaml"
+```
+
+The optional parts are built when their dependencies are installed:
+
+| Part | Needs |
+| --- | --- |
+| `djot.json` library | [jsont](https://erratique.ch/software/jsont), bytesrw |
+| YAML frontmatter | [yaml](https://github.com/avsm/ocaml-yaml) |
+| `djot` command | cmdliner, and the `djot.json` library |
+
+## The `djot` command
+
+The subcommands `html`, `djot`, `json` and `ast` render a file, or stdin,
+to HTML, djot, djot.js's JSON AST, and an indented tree.  `--from json`
+reads the JSON back, `html --doc` writes a complete page, and the profile
+switches are options such as `--no-tables` and `--ext-wikilinks`;
+`djot html --help` lists them.
+
+```sh
+djot html --doc --frontmatter notes.dj > notes.html
+djot json notes.dj | jq '...' | djot html --from json
+```
+
+## The library
+
+### API
 
 The API follows [cmarkit](https://erratique.ch/software/cmarkit)'s shape
 (`Doc`, `Block`, `Inline`, `Textloc`, `Mapper`, `Folder`, `Html`).  cmarkit
-is under the ISC license; its notice is in `LICENSE-cmarkit.md`.  The
+is under the ISC license; its notice is in `LICENSE-cmarkit`.  The
 differences:
 
 - The tree types are the extracted ones, re-exported with their
@@ -52,16 +98,15 @@ differences:
   each top-level block when the input closes it; `Stream.finish` gives
   the source, and `Source.doc` its document.
 
-The `djot.json` library writes a document as JSON in the format of
-djot.js's AST, for checking a document's shape with JSON Schema or `jq`,
-and reads one back.
-It is built when [jsont](https://erratique.ch/software/jsont) and bytesrw
-are installed; `Djot_json` lists what it adds to djot.js's format and
-where it differs.
+### Profiles
 
-```ocaml
-let json = Djot_json.to_string (Djot.Doc.of_string "# hi\n")
-```
+The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
+`Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
+`Profile.with_footnotes` and so on.  The extensions are off in both and
+switch on with `Profile.with_ext_wikilinks`, `Profile.with_ext_keyed`, and
+`Profile.with_ext_callouts`.
+
+### Frontmatter
 
 With `~frontmatter:true`, `Doc.of_string`, `Source.of_string` and
 `Stream.start` read YAML frontmatter, a mapping between two `---` lines
@@ -77,23 +122,20 @@ let title =
   Option.bind (Djot.Doc.frontmatter doc) (fun fm -> List.assoc_opt "title" fm.fields)
 ```
 
-The syntax a parse accepts is a `Djot.Profile.t`: `Profile.djot` or
-`Profile.markdown_like`, adjusted per construct with `Profile.with_tables`,
-`Profile.with_footnotes` and so on.  The extensions are off in both and
-switch on with `Profile.with_ext_wikilinks`, `Profile.with_ext_keyed`, and
-`Profile.with_ext_callouts`.
+### JSON
 
-The `djot` command is built when cmdliner and `djot.json` are available.
-Its subcommands `html`, `djot`, `json` and `ast` render a file, or stdin,
-to HTML, djot, djot.js's JSON AST, and an indented tree.  `--from json`
-reads the JSON back, `html --doc` writes a complete page, and the profile
-switches are options such as `--no-tables` and `--ext-wikilinks`;
-`djot --help` lists them.
+The `djot.json` library writes a document as JSON in the format of
+djot.js's AST, for checking a document's shape with JSON Schema or `jq`,
+and reads one back.
+It is built when [jsont](https://erratique.ch/software/jsont) and bytesrw
+are installed; `Djot_json` lists what it adds to djot.js's format and
+where it differs.
 
-```sh
-djot html --doc --frontmatter notes.dj > notes.html
-djot json notes.dj | jq '...' | djot html --from json
+```ocaml
+let json = Djot_json.to_string (Djot.Doc.of_string "# hi\n")
 ```
+
+## Source layout
 
 The extracted modules are the `djot.kernel` library (`Djot.Kernel`).
 They mirror the Rocq ones and speak the extracted representation, with
