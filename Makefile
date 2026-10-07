@@ -80,6 +80,9 @@ roundtrip-dollar-math: build  ## Dollar math extension
 roundtrip-tags: build  ## Custom tag names
 	dune exec test/roundtrip.exe -- $(VERBOSE) --tags 3
 
+roundtrip-escapes: build  ## Escapes of the canonical renderer that the parse does not need
+	dune exec test/escapes.exe -- $(VERBOSE)
+
 # Other checks
 # ------------
 

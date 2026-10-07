@@ -19,7 +19,8 @@
    instead of quadratically. *)
 
 From Stdlib Require Import String Ascii List Bool.
-From DjotV Require Import Strings Line Ast Inline Parser Render.
+From DjotV Require Import Strings Line Ast Inline InlineTable InlineView Parser
+  Render.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -424,6 +425,64 @@ Example ordered_renumbering_roundtrips :
              [[cpara ["a"; "a2"]]; [cpara ["b"; "b2"]]] in
   cb_ok c = true /\ rt_lhs c = rt_rhs c.
 Proof. split; reflexivity. Qed.
+
+(*
+Escapes
+-------
+
+Text that puts each character the renderer may escape in each
+neighbourhood, and each span between each kind of neighbour.  Read by
+`test/escapes.ml`, which deletes the renderer's escapes one at a time and
+reports the ones the parse does not need.
+*)
+
+Definition escapable : list ascii :=
+  filter needs_escape
+    (list_ascii_of_string "!""#$%&'()*+,-./:;<=>?@[\]^_`{|}~").
+
+(* At either end of a run, inside a word, between spaces, where a
+   delimiter could open, where it could close, twice so that a pair could
+   match, and doubled. *)
+Definition escape_texts (c : ascii) : list string :=
+  let x := String c EmptyString in
+  [ x ++ "a"; "a" ++ x; "a" ++ x ++ "b"; "a " ++ x ++ " b";
+    "a " ++ x ++ "b"; "a" ++ x ++ " b"; "a" ++ x ++ "b" ++ x ++ "c";
+    "a " ++ x ++ "b" ++ x ++ " c"; "a" ++ x ++ x ++ "b" ].
+
+Definition escape_shapes (s : string) : list cblock :=
+  [ cpara [s]
+  ; cpara ["x"; s]
+  ; CPara [[CIDelim DEmph [CIStr s]]]
+  ; CPara [[CIStr s; CIVerb "v"]]
+  ; CPara [[CILink false [CIStr s] "u"]]
+  ; CPara [[CILink false [CIStr "l"] s]]
+  ; cheading 1 [s]
+  ; CQuote [cpara [s]]
+  ; CList LKBullet Tight [[cpara [s]]]
+  ; CTable [CTBody [[CIStr s]]] ].
+
+Definition span_shapes (k : dstyle) : list cblock :=
+  let e := CIDelim k [CIStr "e"] in
+  map (fun l => CPara [l])
+    [ [e]
+    ; [CIStr "a "; e; CIStr " b"]
+    ; [CIStr "a"; e; CIStr "b"]
+    ; [e; CIDelim k [CIStr "f"]]
+    ; [CIDelim k [CIStr "e f"]]
+    ; [CIDelim k [CIDelim DEmph [CIStr "e"]]]
+    ; [CIDelim DEmph [e]] ].
+
+Definition escape_pool : list cblock :=
+  (flat_map (fun c => flat_map escape_shapes (escape_texts c)) escapable
+   ++ flat_map span_shapes
+        [DEmph; DStrong; DSuper; DSub; DMark; DInsert; DDelete; DSQuote;
+         DDQuote])%list.
+
+Definition escape_accepted : list cblock := filter cb_ok escape_pool.
+
+Definition rt_src (c : cblock) : string := render_djot (blocks_of_cblocks [c]).
+
+Definition rt_parse (s : string) : blocks := parse_blocks s.
 
 (*
 Boundary records
