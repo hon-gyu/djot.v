@@ -5,9 +5,13 @@ let
   # OCaml 5 package set instead leaves Rocq and its Stdlib as the only
   # packages not in the binary cache. </ai>
   ocamlPackages = pkgs.ocamlPackages;  # default OCaml package (5.5.0)
-  rocqPackages = pkgs.mkRocqPackages (
+  rocqPackages = (pkgs.mkRocqPackages (
     pkgs.rocq-core_9_1.override { customOCamlPackages = ocamlPackages; }
-  );  # default to OCaml 4.14 so we override it
+  )).overrideScope (self: super: {
+    # <ai> the `coq` compatibility package, which coq-lsp builds on, picks
+    # OCaml 4.14 on its own too, and cannot link a Rocq built with 5.5 </ai>
+    coq = super.coq.override { customOCamlPackages = ocamlPackages; };
+  });  # default to OCaml 4.14 so we override it
 
   ocamlLibs = with ocamlPackages; [
     rocqPackages.rocq-core  # for dune's Rocq support and extraction look up
@@ -33,6 +37,11 @@ in
     ocamlPackages.js_of_ocaml-compiler
     ocamlPackages.wasm_of_ocaml-compiler
     rocqPackages.rocq-core
+    # <ai> `pet`, the proof server rocq-mcp drives.  It has to come from the
+    # same Rocq as the build: a Rocq built with another OCaml cannot read
+    # the .vo files in _build, and an opam one also finds two Stdlibs once
+    # ROCQPATH below is set. </ai>
+    rocqPackages.coq-lsp
     pkgs.binaryen  # wasm_of_ocaml runs wasm-opt and wasm-merge
     pkgs.nodejs  # djot.js, which make diff runs
     pkgs.ghc  # the Haskell extraction
@@ -50,6 +59,9 @@ in
   # alone, and ROCQPATH nothing. </ai>
   env.OCAMLPATH = lib.makeSearchPath siteLib (lib.closePropagation ocamlLibs);
   env.ROCQPATH = "${rocqPackages.stdlib}/lib/coq/${rocqPackages.rocq-core.rocq-version}/user-contrib";  # holds Rocq's `Stdlib`
+
+  # <ai> Rocq 9 has no `coqc` program; rocq-mcp compiles files with one. </ai>
+  scripts.coqc.exec = ''exec rocq c "$@"'';
 
   cachix.pull = [ "hon-gyu" ];
 
