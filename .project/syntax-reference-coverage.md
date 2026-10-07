@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 6 | 5 | 41 | 0 | 0 | 5 |
+| Inline | 11 | 6 | 35 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
@@ -49,12 +49,14 @@ Every rule with a parse outcome is at least E: the 76 code examples and
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
 are the container rules, the line-level spellings and block-level
-determinism.  Inline syntax has six T: link locality, which holds by
+determinism.  Inline syntax has eleven T: link locality, which holds by
 construction, the emphasis flanking and nonempty rules (M2, M3) over
-every document, and escapes (O2), verbatim spans (V1) and dash runs
-(Q5) from any point where the scan is reading text.  It has five T~:
-precedence and nesting over a restricted alphabet (P1 to P5).  The
-other 41 inline rules are at E.
+every document, escapes (O2), verbatim spans (V1) and dash runs (Q5)
+from any point where the scan is reading text, and the attribute
+language (AT2 to AT5, C1) as a grammar the machine accepts exactly.  It
+has six T~: precedence and nesting over a restricted alphabet (P1 to
+P5), and line breaks in a spec (AT6).  The other 35 inline rules are at
+E.
 
 ## Inline syntax
 
@@ -102,7 +104,7 @@ other 41 inline rules are at E.
 | F1 | Footnote reference | "`^` + the reference label in square brackets" | E | `footnote_reference` | Unit: InlineExamples.v, "Footnote references". |
 | B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | E | `line_break` | |
 | B2 | Line break | "may be rendered as spaces, or ... as newlines" | n/a | | Rendering. |
-| C1 | Comment | "Material between two `%` characters in an attribute will be ignored" | E | `comment_in_attribute` | |
+| C1 | Comment | "Material between two `%` characters in an attribute will be ignored" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `comment_in_attribute` | `CComment` and `BOpenComment` in the grammar (`AttrSyntax.v`) add nothing to the attributes.  As AT2. |
 | C2 | Comment | "an attribute specifier that contains only a comment" as a general comment | E | `comment_alone` | |
 | Y1 | Symbols | "Surrounding a word with `:` signs creates a 'symbol'", "rendered literally" by default | E | `symbols`, `symbol` | |
 | Y2 | Symbols | "may be treated specially by a filter" | n/a | | |
@@ -110,15 +112,15 @@ other 41 inline rules are at E.
 | R2 | Raw inline | "passed through verbatim when rendering the designated format, but ignored otherwise" | n/a | | Rendering. |
 | N1 | Span | "Text in square brackets that is not a link or image and is followed immediately by an attribute" | E | `span`, `span_needs_attributes` | |
 | AT1 | Inline attributes | "must *immediately follow* the inline element ... (with no intervening whitespace)" | E | `inline_attrs_need_adjacency` | Unit: InlineExamples.v, "Inline attributes". |
-| AT2 | Inline attributes | "`.foo` specifies `foo` as a class.  Multiple classes ... will be combined" | E | `inline_attrs_classes_combine` | |
-| AT3 | Inline attributes | "if multiple identifiers are given, the last one is used" | E | `inline_attrs_last_id` | |
-| AT4 | Inline attributes | `key="value"` or `key=value`; bare values of ASCII alphanumerics, `_`, `:`, `-`; "Backslash escapes may be used inside quoted values" | E | `inline_attrs_bare_value`, `inline_attrs_quoted_escape` | |
-| AT5 | Inline attributes | "`%` begins a comment, which ends with the next `%` or the end of the attribute" | E | `comment_in_attribute` | |
-| AT6 | Inline attributes | "Attribute specifiers may contain line breaks" | E | `inline_attributes` | |
+| AT2 | Inline attributes | "`.foo` specifies `foo` as a class.  Multiple classes ... will be combined" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_classes_combine` | The attribute language as a grammar written without the machine (`body`, `attrs_of` in `AttrSyntax.v`): the machine is done after a body and its `}` exactly when the grammar reads that body, with the grammar's attributes.  Every spec, block or inline, is read by this machine (`attr_open`, `iattr_feed`, `ispan_feed`); the inline scan's use of it is by the code, not restated.  Where the reference is silent the grammar follows djot.js: `SPEC-GAP`, 2026-10-07. |
+| AT3 | Inline attributes | "if multiple identifiers are given, the last one is used" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_last_id` | `add_item` on `IId`.  As AT2. |
+| AT4 | Inline attributes | `key="value"` or `key=value`; bare values of ASCII alphanumerics, `_`, `:`, `-`; "Backslash escapes may be used inside quoted values" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_bare_value`, `inline_attrs_quoted_escape` | `OBare`, `CQuoted`, `quoted`.  As AT2.  Which bytes escape and how whitespace in a value is stored: `SPEC-GAP`, 2026-10-07. |
+| AT5 | Inline attributes | "`%` begins a comment, which ends with the next `%` or the end of the attribute" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `comment_in_attribute` | `CComment` and `BOpenComment`.  As AT2. |
+| AT6 | Inline attributes | "Attribute specifiers may contain line breaks" | T~ | `machine_accepts`, `machine_sound` (AttrAgree.v), `attr_continuation`; `inline_attributes` | The grammar's whitespace includes the line feed, inside a quoted value too, and block specs over several lines are BA2.  Shape: the inline scan feeds a line break to the machine as a line feed (`nl_char` in the `IAttr` arms), which no theorem states. |
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 6, T~ 5, E 41, n/a 5.
+Inline: T 11, T~ 6, E 35, n/a 5.
 
 ## Block syntax
 
@@ -324,6 +326,13 @@ missed (P2, V1, CB3, LH1):
 24. Done: **CB3**.  `fenced_code_closed` already said it; the row cited
     the roundtrip.
 
+Added 2026-10-07, the first step from coverage to specification:
+
+25. Done: **AT2 to AT5, C1, AT6 in part**, the attribute language as a
+    grammar independent of the machine (`AttrSyntax.v`), with
+    `machine_accepts` and `machine_sound` (`AttrAgree.v`,
+    `261007.plan.attribute-grammar.md`).
+
 Open: **LS4 without `run_safe`**.  The theorem is false there until the
 2026-10-05 entry on a spec between a nested list and a blank is decided.
 
@@ -351,8 +360,8 @@ T~ rows where the restriction is not a gap to close now.
 ### An example is enough
 
 P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
-M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
-N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD3,
+M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C2, Y1, R1,
+N1, AT1, AT7, BI4, PT5, PT6, PT8, RD3,
 RD4, LH3, LH4, and what the T~ theorem leaves of DL1.
 
 Each is one case, or a list of cases with no quantifier worth stating,
@@ -383,3 +392,6 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 - PT2: separator cells are not trimmed (2026-08-02).
 - LH2: punctuation in a heading separates the identifier's words, and
   `"` `'` `:` `;` are kept (2026-10-04).
+- AT2 to AT7: identifier and class characters, escapable bytes and
+  whitespace in values, separation between items, and a `class` key in
+  one spec against stacked specs (2026-10-07).

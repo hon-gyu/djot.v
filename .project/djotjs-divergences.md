@@ -2435,3 +2435,33 @@ a nested list at an item's end now parses back as written.
 
 **Verdict: `OURS`**, from the syntax reference as `list-tightness.md`
 reads it.  C1 and D1 there are closed; B2 to B4 stand as before.
+
+## 2026-10-07 -- SPEC-GAP: the attribute language
+
+Found while writing the attribute grammar (`AttrSyntax.v`) and proving
+the machine accepts exactly it (`AttrAgree.v`).  djot.js and ours agree
+on every row; the reference is silent or says otherwise.
+
+| Input | Both engines | What the reference says |
+| --- | --- | --- |
+| `a{.x class="y"}` | `class="y"` | Stacked specs "will be combined": |
+| `a{.x}{class="y"}` | `class="x y"` | `avant{lang=fr}{.blue}` "is the same as" `avant{lang=fr .blue}`. |
+| `a{k="x\<y"}` | value `x\<y` | "Backslash escapes may be used inside quoted values"; text escapes (O2) cover all ASCII punctuation. `<`, `>`, `@` are not escapable in a value. |
+| `a{k="a  b"}` | value `a b` | Nothing.  Runs of space, CR and LF become one space; a tab is kept. |
+| `a{#é}`, `a{#a;'"}` | identifiers | Nothing on identifier characters: any byte but whitespace and ASCII punctuation, where `: _ - ; ' "` do not count. |
+| `a{.é}` | not a spec | Nothing on class characters: those of a bare value. |
+| `a{# }`, `a{.}` | a spec with no attributes | Nothing. |
+| `a{.a%c%}` | not a spec | Nothing on separation: an identifier, class or bare value is followed by whitespace or `}`; a quoted value or a closed comment by anything (`a{%c%.a}`, `a{k="v".c}`). |
+| `a{k=v k=w}` | `k="w"` | The last value of a key wins, as stated for identifiers only. |
+
+In the first two rows a `class` key inside one spec is an assignment
+(`Attr.set`), while a later spec merges with `Attr.merge`, which
+combines classes.
+
+Inline only, outside the attribute language: a spec cannot begin with a
+delimiter character, though `_` and `-` are key characters: `a{-k=v}` and
+`a{_k=v}` read `{-` and `{_` as marked openers.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js on every row).
+The grammar states each choice where it is made.  Chosen by the agent and
+pending the maintainer's decision.
