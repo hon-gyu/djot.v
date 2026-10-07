@@ -31,6 +31,22 @@ djot --help
 
 Add `yaml` to the first line for the `--frontmatter` option.
 
+### The command, from a checkout
+
+In this directory, with cmdliner, jsont and bytesrw installed:
+
+```sh
+dune build @install
+dune install djot                                   # into the current opam switch
+dune install --prefix ~/.local --sections bin djot  # or the binary alone, into ~/.local/bin
+```
+
+`dune install` copies the binary, so run both commands again after a change.
+`dune uninstall djot`, with the same `--prefix`, removes it.
+
+To run the working tree without installing, use `dune exec -- djot html notes.dj`,
+which builds first.
+
 ### The library
 
 ```sh
