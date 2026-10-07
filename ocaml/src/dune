@@ -6,5 +6,5 @@
   (select
    frontmatter_yaml.ml
    from
-   (yaml -> frontmatter_yaml.yaml.ml)
+   (djot.yaml_gate -> frontmatter_yaml.yaml.ml)
    (-> frontmatter_yaml.none.ml))))

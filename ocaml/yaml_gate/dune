@@ -1,0 +1,12 @@
+; An empty library that exists when yaml is installed and DJOT_NO_YAML is
+; not 1.  djot selects its frontmatter reader on it rather than on yaml,
+; so that a build can leave yaml out where it is installed: yaml binds C,
+; which a WebAssembly module cannot link.
+
+(library
+ (name djot_yaml_gate)
+ (public_name djot.yaml_gate)
+ (optional)
+ (enabled_if
+  (<> %{env:DJOT_NO_YAML=0} 1))
+ (libraries yaml))

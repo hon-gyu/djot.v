@@ -20,6 +20,10 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
 ]
+docs = [
+    "mkdocstrings-python>=2.0.9",
+    "zensical>=0.0.68",
+]
 
 [tool.pyright]
 typeCheckingMode = "strict"

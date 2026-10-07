@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+#
+# Builds the site, the Python API reference included, in the devenv shell
+# and publishes it with one new commit on the gh-pages branch, which GitHub Pages serves.
+name: site
+
+on:
+  # push:
+  #   branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # site-publish.sh pushes to gh-pages
+
+# One publish at a time, in the order of the pushes to main.
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The site states `git describe --tags`, which wants the history
+          # and the tags.
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: hon-gyu
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # site-publish.sh makes the commit with git commit-tree.
+      - name: Set the git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build and publish the site
+        run: devenv shell -- make site-publish

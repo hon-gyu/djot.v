@@ -6,5 +6,5 @@
 (test
  (name frontmatter)
  (modules frontmatter)
- (enabled_if %{lib-available:yaml})
+ (enabled_if %{lib-available:djot.yaml_gate})
  (libraries djot))

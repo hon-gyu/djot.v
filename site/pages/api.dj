@@ -1,4 +1,6 @@
-# OCaml API
+# API
+
+## OCaml
 
 The parser is available as an OCaml library, the `djot` package.
 
@@ -12,5 +14,26 @@ let html = Djot.Html.of_doc doc
 
 The package is not on opam yet. The repository's `ocaml` branch holds the
 package at its root, for use as a vendored directory or a git submodule.
+
+## Python
+
+The `djotv` package runs the parser compiled to WebAssembly, in Wasmtime.
+It is pure Python and needs no OCaml.
+
+``` python
+import djotv
+
+doc = djotv.parse("# hi\n\n*strong* and [a](b)\n", locs=True)
+html = djotv.to_html(doc)
+```
+
+- [API reference](python/): the generated documentation.
+- [Source code](https://github.com/hon-gyu/djot.v/tree/main/py)
+
+The package is not on PyPI yet. It installs from the repository:
+
+```
+uv add git+https://github.com/hon-gyu/djot.v#subdirectory=py
+```
 
 {% ai-disclosure: ai-generated %}

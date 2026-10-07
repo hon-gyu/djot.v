@@ -9,3 +9,6 @@ rocq_mcp_cache*
 
 *.aux
 *.glob
+
+.devenv*
+devenv.local.nix

@@ -22,3 +22,9 @@ check:
     @just lint
     @just format --check
     @just test
+
+docs:
+    uv run --group docs zensical build --strict
+
+docs-serve:
+    uv run --group docs zensical serve

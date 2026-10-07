@@ -99,7 +99,7 @@ let layout ~root ~title body =
 <nav>
 <a href="%splayground/">Playground</a>
 <a href="%sextensions/">Extensions</a>
-<a href="%sapi/">OCaml API</a>
+<a href="%sapi/">API</a>
 </nav>
 <span class="tools">
 <a class="github" href="%s">%s GitHub</a>

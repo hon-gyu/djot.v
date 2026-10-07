@@ -17,7 +17,8 @@ and gives up safe hard-wrapping.
 - [Playground](playground/): run the parser in the browser, change the
   profile, and see which properties the profile keeps.
 - [Extensions](extensions/): the syntax of each extension.
-- [OCaml API](api/): the extracted parser as a library.
+- [API](api/): the extracted parser as an OCaml library, and as a Python
+  package.
 
 ## Versions
 
