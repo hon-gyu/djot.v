@@ -184,6 +184,7 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
        let ext_wikilink =
          C.map "ext_wikilink" wikilink ~dec:(fun (e, t, a) -> Ext_wikilink (e, t, a))
        in
+       let ext_hole = C.map "ext_hole" text ~dec:(fun s -> Hole s) in
        let enc_case = function
          | Str s -> C.value str s
          | Emph k -> C.value emph k
@@ -210,6 +211,7 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
          | SoftBreak -> C.value soft_break ()
          | HardBreak -> C.value hard_break ()
          | Ext_wikilink (e, t, a) -> C.value ext_wikilink (e, t, a)
+         | Hole s -> C.value ext_hole s
        in
        let cases =
          [ C.make str
@@ -237,6 +239,7 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
          ; C.make soft_break
          ; C.make hard_break
          ; C.make ext_wikilink
+         ; C.make ext_hole
          ]
        in
        node ~kind:"inline" l cases enc_case)

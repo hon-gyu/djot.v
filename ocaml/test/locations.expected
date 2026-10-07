@@ -81,6 +81,12 @@ Para 0-10 "p :kbd[a] q"
     Str "a" 7-7 "a"
   Str " q" 9-10 " q"
 
+"p %{ {x} } q"
+Para 0-11 "p %{ {x} } q"
+  Str "p " 0-1 "p "
+  Hole " {x} " 2-9 "%{ {x} }"
+  Str " q" 10-11 " q"
+
 == extensions
 
 "> [!warning]- Do not rename\n> body\n"

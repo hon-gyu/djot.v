@@ -189,6 +189,8 @@ module Profile = struct
     inline "ext_tags" "::: name and :name[...]" (fun t -> t.dc_tags) with_inline_tags
   ;;
 
+  let ext_holes = inline "ext_holes" "%{e}" (fun t -> t.dc_holes) with_holes
+
   let tables : Switch.t =
     { name = "tables"
     ; doc = "pipe tables"
@@ -295,6 +297,7 @@ module Profile = struct
     ; ext_keyed
     ; ext_callouts
     ; ext_tags
+    ; ext_holes
     ; ext_setext_headings
     ; ext_list_interrupts
     ]
@@ -317,6 +320,7 @@ module Profile = struct
   let with_ext_keyed = ext_keyed.set
   let with_ext_callouts = ext_callouts.set
   let with_ext_tags = ext_tags.set
+  let with_ext_holes = ext_holes.set
   let with_ext_setext_headings = ext_setext_headings.set
   let with_ext_list_interrupts = ext_list_interrupts.set
 
@@ -534,6 +538,7 @@ module Inline = struct
     | SoftBreak
     | HardBreak
     | Ext_wikilink of bool * string * string option
+    | Hole of string
 
   let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string =
     Styled.inlines style profile ils
@@ -1382,7 +1387,8 @@ module Mapper = struct
         | RawInline _
         | NonBreakingSpace
         | SoftBreak
-        | HardBreak ) as x -> x
+        | HardBreak
+        | Hole _ ) as x -> x
     in
     Node (p, a, x)
   ;;
@@ -1483,7 +1489,8 @@ module Folder = struct
        | RawInline _
        | NonBreakingSpace
        | SoftBreak
-       | HardBreak -> acc)
+       | HardBreak
+       | Hole _ -> acc)
   ;;
 
   let rec fold_block (f : 'a t) (acc : 'a) (n : Block.t node) : 'a =
