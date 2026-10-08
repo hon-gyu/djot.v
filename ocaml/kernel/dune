@@ -3,3 +3,18 @@
  (public_name djot.kernel)
  (flags
   (:standard -w -a)))
+
+; What VERSION states, as the module Djot_kernel.Version.
+(rule
+ (with-stdout-to
+  version.ml
+  (run
+   sed
+   -n
+   -e
+   "s/^version: *\\(.*\\)/let version = \"\\1\"/p"
+   -e
+   "s/^syntax-reference-commit: *\\(.*\\)/let syntax_reference_commit = \"\\1\"/p"
+   -e
+   "s/^syntax-reference-date: *\\(.*\\)/let syntax_reference_date = \"\\1\"/p"
+   %{dep:VERSION})))

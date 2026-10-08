@@ -3,7 +3,7 @@
  (public_name djot)
  (package djot)
  (optional)
- (libraries djot djot.json cmdliner unix))
+ (libraries djot djot.kernel djot.json cmdliner unix))
 
 (rule
  (with-stdout-to
@@ -12,6 +12,12 @@
    (echo "let s = {css|")
    (run tail -n +2 %{dep:djot.css})
    (echo "|css}\n"))))
+
+; The (version) of ocaml/dune-project.
+(rule
+ (with-stdout-to
+  version.ml
+  (echo "let s = \"%{version:djot}\"\n")))
 
 (cram
  (applies_to cli cli_frontmatter oy)

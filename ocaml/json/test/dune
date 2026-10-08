@@ -2,7 +2,13 @@
  (name json)
  (modules json)
  (enabled_if %{lib-available:djot.json})
- (libraries djot djot.json jsont jsont.bytesrw))
+ (libraries djot djot.json jsont jsont.bytesrw)
+ ; jsont styles its error messages for a terminal unless told not to.
+ (action
+  (setenv
+   NO_COLOR
+   1
+   (run %{test}))))
 
 (test
  (name frontmatter)

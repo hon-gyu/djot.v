@@ -27,15 +27,9 @@ jobs:
           # and the tags.
           fetch-depth: 0
 
-      - uses: cachix/install-nix-action@v31
-
-      - uses: cachix/cachix-action@v17
+      - uses: ./.github/actions/devenv
         with:
-          name: hon-gyu
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Install devenv
-        run: nix profile install nixpkgs#devenv
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       # site-publish.sh makes the commit with git commit-tree.
       - name: Set the git identity
