@@ -541,8 +541,8 @@ module Doc : sig
       A {!Block.Section} among the blocks is replaced by its blocks, its attributes going
       to the heading it opens with, so the blocks of a document can be given back. An
       identifier already on a heading or section is kept as a written one, also when it
-      is in {!auto_identifiers} of the document the blocks came from; {!Mapper.map_doc}
-      derives those again.
+      is in {!auto_identifiers} of the document the blocks came from; give it
+      {!source_blocks} to have those derived again.
 
       The document has no positions: {!textloc} gives {!Textloc.none}.
 
@@ -576,6 +576,12 @@ module Doc : sig
   val to_string : ?style:style -> t -> string
 
   val blocks : t -> Block.t node list
+
+  (** {!blocks} without the identifiers in {!auto_identifiers}, as they were written.
+      Each block is the one at the same place in {!blocks}, with only those identifiers
+      removed. {!make} given these blocks, the profile and the {!frontmatter} gives a
+      document with the same {!to_string} and {!auto_identifiers}. *)
+  val source_blocks : t -> Block.t node list
 
   (** The footnotes: one entry per label, with the blocks of its definition as they are
       in {!blocks}. A definition written inside another is in that one's blocks and has
