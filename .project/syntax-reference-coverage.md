@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 6 | 5 | 41 | 0 | 0 | 5 |
+| Inline | 11 | 9 | 32 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
@@ -49,18 +49,20 @@ Every rule with a parse outcome is at least E: the 76 code examples and
 list tightness cases of LS4 (djot.js bugs, fixed here 2026-09-29, and a
 spec gap, 2026-09-30).  The T rows
 are the container rules, the line-level spellings and block-level
-determinism.  Inline syntax has six T: link locality, which holds by
+determinism.  Inline syntax has eleven T: link locality, which holds by
 construction, the emphasis flanking and nonempty rules (M2, M3) over
-every document, and escapes (O2), verbatim spans (V1) and dash runs
-(Q5) from any point where the scan is reading text.  It has five T~:
-precedence and nesting over a restricted alphabet (P1 to P5).  The
-other 41 inline rules are at E.
+every document, escapes (O2), verbatim spans (V1) and dash runs (Q5)
+from any point where the scan is reading text, and the attribute
+language (AT2 to AT5, C1) as a grammar the machine accepts exactly.  It
+has nine T~: precedence and nesting over a restricted alphabet (P1 to
+P5), backslash escapes over the same alphabet (O3 to O5), and line
+breaks in a spec (AT6).  The other 32 inline rules are at E.
 
 ## Inline syntax
 
 | # | Section | Rule | Level | Checks | Notes |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one reading is valid, and the paragraph is its tree.  Shape: a paragraph of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, brackets with a destination `](...)` or a reference label `][...]`, and bytes no other syntax claims (`over_alphabet`, Precedence.v).  So the reference's two bracket examples are instances.  Left out: `{` except as a marker, `[^`, `[[`, `]{`, images, backslashes and smart quotes. |
+| P1 | Precedence | "the first opener that gets closed takes precedence ... any potential openers between the opener and the closer get marked as regular text" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_unique`, `valid_nested` (Precedence.v); `precedence_first_closed_emph`, `precedence_first_closed_strong`, `precedence_link_closes_first`, `precedence_strong_closes_first` | The rule is `valid` (Precedence.v): an opener inside a pair that closed earlier is no longer live.  At most one reading is valid, and the paragraph is its tree.  Shape: a paragraph of delimiters of the rows whose unmatched token is its own text (`_ * ^ ~` bare or braced, `= +` braced, in djot's table), of any width, brackets with a destination `](...)` or a reference label `][...]`, and bytes no other syntax claims (`over_alphabet`, Precedence.v).  So the reference's two bracket examples are instances.  Backslash escapes are in the alphabet (O3 to O5).  Left out: `{` except as a marker, `[^`, `[[`, `]{`, images and smart quotes. |
 | P2 | Precedence | "*nested* containers are fine" | T~ | `para_inlines_valid` (InlinePrecedence.v), `valid_nested` (Precedence.v), `para_inlines_ci_para` (InlineInvert.v); `precedence_nesting`, `emphasis_nested` | `valid` lets a pair open and close inside another, and `valid_nested` says that is the only way two pairs meet.  Shape as P1.  `para_inlines_ci_para` adds the trees the inline renderer writes, whatever their constructs. |
 | P3 | Precedence | "`{_` ... can *only* open emphasis, while `_}` ... can *only* close" | T~ | `para_inlines_valid`; `precedence_braces`, `emphasis_braces` | `lex` (Precedence.v) makes `{_` an opener that cannot close and `_}` a closer that cannot open.  Shape as P1.  Unit: InlineExamples.v, "The delimiter family". |
 | P4 | Precedence | "Explicitly marked closers can only match explicitly marked openers, and non-marked closers can only match non-marked openers" | T~ | `para_inlines_valid`; `marked_closer_needs_marked_opener` | `valid` pairs tokens of the same style and marking (`dkey`).  Shape as P1. |
@@ -68,9 +70,9 @@ other 41 inline rules are at E.
 | P6 | Precedence | "Verbatim syntax ... doesn't allow nested markup" | E | `precedence_verbatim` | |
 | O1 | Ordinary text | "Anything that isn't given a special meaning is parsed as literal text" | n/a | | The default case of every other row. |
 | O2 | Ordinary text | "All ASCII punctuation characters ... may be backslash-escaped" | T | `escape_in_text` (InlineScan.v), `escape_every_punct` (InlineExamples.v); `escape_punctuation` | From the scan reading text with nothing pending, after any prefix and before any rest: the two bytes add the punctuation byte to the text and change nothing else.  Not followed: a candidate still undecided (a symbol alias, an attribute spec, a destination), which reads the same bytes in its ordinary-reading shadow.  Unit: InlineExamples.v, "Escapes". |
-| O3 | Ordinary text | "Backslashes before characters other than ASCII punctuation ... are just treated as literal backslashes" | E | `escape_other_is_literal` | |
-| O4 | Ordinary text | "Backslash before a newline (or before spaces or tabs followed by a newline) is parsed as a hard line break.  Spaces and tab characters before the backslash are ignored" | E | `escape_newline_hard_break`, `escape_newline_after_spaces`, `line_break` | |
-| O5 | Ordinary text | "Backslash before a space is parsed as a nonbreaking space" | E | `escape_space_nbsp` | |
+| O3 | Ordinary text | "Backslashes before characters other than ASCII punctuation ... are just treated as literal backslashes" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `lex` (Precedence.v); `escape_other_is_literal` | `esc_text`: the byte if punctuation, the backslash and the byte otherwise.  Shape as P1: a paragraph over the precedence alphabet, where a backslash may escape any byte.  Inside a destination an escape is decoded the same way, inside a reference label it is kept as written (`tok_region`). |
+| O4 | Ordinary text | "Backslash before a newline (or before spaces or tabs followed by a newline) is parsed as a hard line break.  Spaces and tab characters before the backslash are ignored" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `lex` (Precedence.v); `escape_newline_hard_break`, `escape_newline_after_spaces`, `line_break` | `THard`: a backslash and whitespace to the line's end; the tree trims the text before it (`str_trim`) and the break after it is the hard one (`after_hard`).  A backslash that ends the paragraph is a hard break too, as in djot.js.  Shape as P1. |
+| O5 | Ordinary text | "Backslash before a space is parsed as a nonbreaking space" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `lex` (Precedence.v); `escape_space_nbsp` | `TEscWs`: a backslash and a whitespace run with more on the line; a run that begins with a space is a non-breaking space and the rest of the run, one that begins with a tab is text with its backslash (`nbsp_rest`).  Shape as P1. |
 | L1 | Link | inline link: text in `[...]`, then the destination in parentheses, "no space between the `]` ... and the open `(`" | E | `link_inline`, `link_no_space_before_destination` | Unit: InlineExamples.v, "Direct links". |
 | L2 | Link | "link text (which may contain arbitrary inline formatting)" | E | `precedence_link_closes_first` | |
 | L3 | Link | "The URL may be split over multiple lines; ... the line breaks and any leading and trailing space is ignored, and the lines are concatenated" | E | `link_url_split` | |
@@ -102,7 +104,7 @@ other 41 inline rules are at E.
 | F1 | Footnote reference | "`^` + the reference label in square brackets" | E | `footnote_reference` | Unit: InlineExamples.v, "Footnote references". |
 | B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | E | `line_break` | |
 | B2 | Line break | "may be rendered as spaces, or ... as newlines" | n/a | | Rendering. |
-| C1 | Comment | "Material between two `%` characters in an attribute will be ignored" | E | `comment_in_attribute` | |
+| C1 | Comment | "Material between two `%` characters in an attribute will be ignored" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `comment_in_attribute` | `CComment` and `BOpenComment` in the grammar (`AttrSyntax.v`) add nothing to the attributes.  As AT2. |
 | C2 | Comment | "an attribute specifier that contains only a comment" as a general comment | E | `comment_alone` | |
 | Y1 | Symbols | "Surrounding a word with `:` signs creates a 'symbol'", "rendered literally" by default | E | `symbols`, `symbol` | |
 | Y2 | Symbols | "may be treated specially by a filter" | n/a | | |
@@ -110,15 +112,15 @@ other 41 inline rules are at E.
 | R2 | Raw inline | "passed through verbatim when rendering the designated format, but ignored otherwise" | n/a | | Rendering. |
 | N1 | Span | "Text in square brackets that is not a link or image and is followed immediately by an attribute" | E | `span`, `span_needs_attributes` | |
 | AT1 | Inline attributes | "must *immediately follow* the inline element ... (with no intervening whitespace)" | E | `inline_attrs_need_adjacency` | Unit: InlineExamples.v, "Inline attributes". |
-| AT2 | Inline attributes | "`.foo` specifies `foo` as a class.  Multiple classes ... will be combined" | E | `inline_attrs_classes_combine` | |
-| AT3 | Inline attributes | "if multiple identifiers are given, the last one is used" | E | `inline_attrs_last_id` | |
-| AT4 | Inline attributes | `key="value"` or `key=value`; bare values of ASCII alphanumerics, `_`, `:`, `-`; "Backslash escapes may be used inside quoted values" | E | `inline_attrs_bare_value`, `inline_attrs_quoted_escape` | |
-| AT5 | Inline attributes | "`%` begins a comment, which ends with the next `%` or the end of the attribute" | E | `comment_in_attribute` | |
-| AT6 | Inline attributes | "Attribute specifiers may contain line breaks" | E | `inline_attributes` | |
+| AT2 | Inline attributes | "`.foo` specifies `foo` as a class.  Multiple classes ... will be combined" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_classes_combine` | The attribute language as a grammar written without the machine (`body`, `attrs_of` in `AttrSyntax.v`): the machine is done after a body and its `}` exactly when the grammar reads that body, with the grammar's attributes.  Every spec, block or inline, is read by this machine (`attr_open`, `iattr_feed`, `ispan_feed`); the inline scan's use of it is by the code, not restated.  Where the reference is silent the grammar follows djot.js: `SPEC-GAP`, 2026-10-07. |
+| AT3 | Inline attributes | "if multiple identifiers are given, the last one is used" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_last_id` | `add_item` on `IId`.  As AT2. |
+| AT4 | Inline attributes | `key="value"` or `key=value`; bare values of ASCII alphanumerics, `_`, `:`, `-`; "Backslash escapes may be used inside quoted values" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_bare_value`, `inline_attrs_quoted_escape` | `OBare`, `CQuoted`, `quoted`.  As AT2.  Which bytes escape and how whitespace in a value is stored: `SPEC-GAP`, 2026-10-07. |
+| AT5 | Inline attributes | "`%` begins a comment, which ends with the next `%` or the end of the attribute" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `comment_in_attribute` | `CComment` and `BOpenComment`.  As AT2. |
+| AT6 | Inline attributes | "Attribute specifiers may contain line breaks" | T~ | `machine_accepts`, `machine_sound` (AttrAgree.v), `attr_continuation`; `inline_attributes` | The grammar's whitespace includes the line feed, inside a quoted value too, and block specs over several lines are BA2.  Shape: the inline scan feeds a line break to the machine as a line feed (`nl_char` in the `IAttr` arms), which no theorem states. |
 | AT7 | Inline attributes | stacked specifiers "will be combined" | E | `inline_attributes_stacked`, `inline_attributes_merged` | |
 | — | Highlighted | "(in HTML, `<mark>`)" | n/a | | Rendering. |
 
-Inline: T 6, T~ 5, E 41, n/a 5.
+Inline: T 11, T~ 9, E 32, n/a 5.
 
 ## Block syntax
 
@@ -159,7 +161,7 @@ Introduction and paragraph: T 5, T~ 1, E 1, n/a 1.
 | LS1 | List | "A list is simply a sequence of list items of the same type ... changing ordered list style or bullet will stop one list and start a new one" | T | `list_same_type_joins`, `list_different_types_split` (Uniformity.v), `list_uniformity_same`; `list_style_change` | Both halves from an open list and a next marker, in any spelling, at the list's column (`list_takes` false).  A marker that shares a style with the list's surviving styles starts its next item: nothing is emitted, and the item so far joins the finished ones.  One whose styles are disjoint ends the list, which is emitted before the new list opens.  `list_uniformity_same` is the whole list for a repeated canonical marker. |
 | LS2 | List | "the ambiguity will be resolved in such a way as to continue the list, if possible" | T | `list_uniformity_narrow`, `list_uniformity_narrow2`, `roman_from_one_uniformity`, `alpha_from_nine_uniformity`; `list_ambiguous_marker` | |
 | LS3 | List | "The start number ... will be determined by the number of its first item.  The numbers of subsequent items are irrelevant" | T | `list_uniformity` (`items_ok` admits any number of the same style); `list_start_number` | |
-| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_item_loose`, `separates_loosens`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | Both directions.  The parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  Every such blank loosens: between items (`separates_after_loosens`), and inside an item (`separates_item_loose`) when the lines before the blank leave no code block open.  A blank inside an open code block is not covered by the converse; the parser does not count it.  `separates` says "between two blocks" with the next nonblank line: written after the blank it starts a block of its own, and so does a paragraph line at its indentation.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30).  `run_safe` is not only a proof condition: without it the first theorem is false, for a spec that attaches to nothing between a nested list and two blanks (divergences, 2026-10-05, open). |
+| LS4 | List | "*tight* if it does not contain blank lines between items, or between blocks inside an item.  Blank lines at the start or end of a list do not count" | T~ | `item_loose_separates`, `separator_separates`, `list_spacing_separates`, `separates_item_loose`, `separates_loosens`, `separates_after_loosens` (Tightness.v); `list_tight`, `list_loose`; `list_blank_before_nested_list_item`, `list_blank_before_empty_last_item`, `list_div_closer_not_blank`, `list_blank_after_footnote_in_item`, `list_blank_after_footnote_between_items`, `list_blank_inside_footnote`, `list_blank_before_caption`, `list_blank_after_table`, `list_blank_after_open_div`, `list_blank_in_open_code` | Both directions.  The parser loosens a list only at a blank the rule counts (`separates`, `separates_after`), for items whose first line is nonblank and that pass `run_safe` (no block attribute spec open at a line boundary before the last line).  Every such blank loosens: between items (`separates_after_loosens`), and inside an item (`separates_item_loose`) when the lines before the blank leave no code block open.  A blank inside an open code block is not covered by the converse; the parser does not count it.  `separates` says "between two blocks" with the next nonblank line: written after the blank it starts a block of its own, and so does a paragraph line at its indentation.  Five shapes where djot.js breaks the rule are fixed to follow it (entries 2026-09-29): a div's closing fence no longer loosens (jgm/djot.js#157); a blank before an item that opens with a list marker, or before an empty last item, now does (jgm/djot.js#45); so does a blank that ends a footnote in an item; and a blank before a table's caption does not.  A div left open at the end of an item ends before the blank after it, so that blank loosens; a code block left open takes it as text, and does not (`SPEC-GAP`, 2026-09-30).  `run_safe` is not only a proof condition: without it the first theorem is false, for a spec that attaches to nothing between a nested list and a blank.  The verdict is decided (loose: the spec is a block of its own, `list-tightness.md` D1, 2026-10-06) and the parser follows it, but the AST still drops the spec, so `separates` sees the blank directly after the list. |
 | LS5 | List | "tight lists should be rendered with less space between items" | n/a | | Rendering. |
 
 Heading, block quote, list item, list: T 17, T~ 2, n/a 1.
@@ -324,15 +326,30 @@ missed (P2, V1, CB3, LH1):
 24. Done: **CB3**.  `fenced_code_closed` already said it; the row cited
     the roundtrip.
 
-Open: **LS4 without `run_safe`**.  The theorem is false there until the
-2026-10-05 entry on a spec between a nested list and a blank is decided.
+Added 2026-10-07, the first step from coverage to specification:
+
+25. Done: **AT2 to AT5, C1, AT6 in part**, the attribute language as a
+    grammar independent of the machine (`AttrSyntax.v`), with
+    `machine_accepts` and `machine_sound` (`AttrAgree.v`,
+    `261007.plan.attribute-grammar.md`).
+
+26. Done: **O3 to O5**, stage 1 of the inline specification: backslash
+    escapes in the precedence alphabet, `para_inlines_valid` unchanged in
+    statement (2026-10-08).
+
+Open: **LS4 without `run_safe`**.  The verdict on a spec between a
+nested list and a blank is decided (2026-10-06): the spec is a block of
+its own.  The theorem is false there until the AST has that block and
+`separates` reads it (`list-tightness.md`, "Dangling block
+attributes").
 
 ### Stays restricted
 
 T~ rows where the restriction is not a gap to close now.
 
-- **P1 to P5**: the alphabet leaves out `{` except as a marker, `[^`,
-  `[[`, `]{`, images, backslashes and smart quotes.  Each is a new token
+- **P1 to P5, O3 to O5**: the alphabet leaves out `{` except as a marker,
+  `[^`, `[[`, `]{`, images and smart quotes; the inline specification
+  widens it stage by stage (`261007.plan.inline-specification.md`).  Each is a new token
   kind in `lex` and a new case through the simulation in
   InlinePrecedence.v.  That is a plan of its own, not a row to sweep.
 - **BI3**: the rule as worded is false for indentation that differs from
@@ -350,9 +367,9 @@ T~ rows where the restriction is not a gap to close now.
 
 ### An example is enough
 
-P6, O3, O4, O5, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
-M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C1, C2, Y1, R1,
-N1, AT1 to AT7, BI4, PT5, PT6, PT8, RD3,
+P6, L1, L2, L3, L4, L6, I1, A1, A2, A3, V2, V3, V4,
+M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, MA1, F1, B1, C2, Y1, R1,
+N1, AT1, AT7, BI4, PT5, PT6, PT8, RD3,
 RD4, LH3, LH4, and what the T~ theorem leaves of DL1.
 
 Each is one case, or a list of cases with no quantifier worth stating,
@@ -383,3 +400,6 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
 - PT2: separator cells are not trimmed (2026-08-02).
 - LH2: punctuation in a heading separates the identifier's words, and
   `"` `'` `:` `;` are kept (2026-10-04).
+- AT2 to AT7: identifier and class characters, escapable bytes and
+  whitespace in values, separation between items, and a `class` key in
+  one spec against stacked specs (2026-10-07).

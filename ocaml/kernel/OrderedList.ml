@@ -55,46 +55,39 @@ let alpha_char up n =
     (( + )
       (if up
        then Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ
               0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
        else Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ
               0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
       n)
 

@@ -11,6 +11,15 @@ let
     # <ai> the `coq` compatibility package, which coq-lsp builds on, picks
     # OCaml 4.14 on its own too, and cannot link a Rocq built with 5.5 </ai>
     coq = super.coq.override { customOCamlPackages = ocamlPackages; };
+    # <ai> nixpkgs builds ppx_yojson_conv on yojson 2 here, while lsp in the
+    # OCaml 5.5 package set is on yojson 3, and findlib refuses the two;
+    # build it on yojson 3 too </ai>
+    vsrocq-language-server = super.vsrocq-language-server.overrideAttrs (old: {
+      buildInputs = map (p:
+        if lib.hasPrefix "ocaml${ocamlPackages.ocaml.version}-ppx_yojson_conv-" (p.name or "")
+        then ocamlPackages.ppx_yojson_conv
+        else p) old.buildInputs;
+    });
   });  # default to OCaml 4.14 so we override it
 
   ocamlLibs = with ocamlPackages; [
@@ -42,6 +51,9 @@ in
     # the .vo files in _build, and an opam one also finds two Stdlibs once
     # ROCQPATH below is set. </ai>
     rocqPackages.coq-lsp
+    # <ai> `vsrocqtop`, the server of the VsRocq editor extension, for the
+    # same reason as `pet`; else the opam one is found first on PATH </ai>
+    rocqPackages.vsrocq-language-server
     pkgs.binaryen  # wasm_of_ocaml runs wasm-opt and wasm-merge
     pkgs.nodejs  # djot.js, which make diff runs
     pkgs.ghc  # the Haskell extraction

@@ -1372,9 +1372,11 @@ Inductive iscan_g : Type :=
   | IAttr (p : aparser) (src : Buf) (txt : Buf) (prev : option ascii)
           (sh : iscan_g) (o : ostate)
   (* inside the second bracket of `[text][label]`.  The label is source
-     text, not inline content. *)
+     text, not inline content.  `esc` is a pending backslash, which
+     protects a `]` without being decoded, as in a footnote label:
+     `[a][b\]c]` labels `b\]c`. *)
   | IReference (kids : inlines) (image : bool) (open : span)
-          (label : Buf) (o : ostate)
+          (esc : bool) (label : Buf) (o : ostate)
   (* inside a `[^`.  The label is raw source, not inline content: nothing
      inside the brackets is classified.  `esc` is a pending backslash,
      which protects a `]` without being decoded: `[^a\]b]` labels `a\]b`.
@@ -2323,7 +2325,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
           then IDest kids image open false 0 tnil
                  (idest_open kids image open o') o'
           else if Ascii.eqb c lbrack
-               then IReference kids image open tnil o'
+               then IReference kids image open false tnil o'
                else ISpan kids image open ap_init tnil o'
       | None => ilead c (tpush txt (one rbrack)) (Some rbrack) o
       end
@@ -2344,8 +2346,11 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       isymbol_step c alias txt o
         (istep_at attrs_enabled c sh)
   | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
-  | IReference kids image open label o =>
-      if Ascii.eqb c rbrack
+  | IReference kids image open true label o =>
+      IReference kids image open false (tpush label (one bslash ++ one c)) o
+  | IReference kids image open false label o =>
+      if is_bslash c then IReference kids image open true label o
+      else if Ascii.eqb c rbrack
       then let key := match tval label with
                       | EmptyString => reference_inlines_text kids
                       | _ => tval label
@@ -2353,7 +2358,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
            IText false tnil (Some rbrack)
              (oemit (imk (span_start open) cursor_stop
                        (bnode image kids (Reference (normalize_label key)))) o)
-      else IReference kids image open (tpush label (one c)) o
+      else IReference kids image open false (tpush label (one c)) o
   | IDest kids image open true depth dst sh o =>
       IDest kids image open false depth
         (tpush dst (if is_punct c then one c
@@ -2422,8 +2427,10 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
       let spec_start := spot_before cursor_start (String lbrace (tval spec)) in
       flush_text_at (iraw_lit (tval spec))
         (oemit (imk (text_start o) spec_start (Verbatim txt)) o)
-  | IReference kids image _ label o =>
-      let '(txt, o') := bref_lit kids image (tval label) o in flush_text_at (tval txt) o'
+  | IReference kids image _ esc label o =>
+      let '(txt, o') := bref_lit kids image
+                          (tval label ++ (if esc then one bslash else EmptyString)) o in
+      flush_text_at (tval txt) o'
   (* an unclosed span is literal too: there is no next line for its spec
      to close on, and the breaks it did cross are in the source *)
   | ISpan kids image _ _ src o =>
@@ -2518,8 +2525,9 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   | INote esc image label open o =>
       INote false image
         (tpush label ((if esc then one bslash else EmptyString) ++ nl)) open o
-  | IReference kids image open label o =>
-      IReference kids image open (tpush label nl) o
+  | IReference kids image open esc label o =>
+      IReference kids image open false
+        (tpush label ((if esc then one bslash else EmptyString) ++ nl)) o
   (* A wikilink candidate does not cross a break: it decays here, as an
      autolink candidate does just below. *)
   | IWiki esc rb image region _ o =>
@@ -2646,7 +2654,7 @@ Definition iclosed_at (st : iscan) : bool :=
   | IHole _ _ _ _ _ _ | IPercent _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _
-  | INote _ _ _ _ _ | IReference _ _ _ _ _
+  | INote _ _ _ _ _ | IReference _ _ _ _ _ _
   | IDest _ _ _ _ _ _ _ _ => false
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
@@ -2761,7 +2769,7 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
   | IClosed t o => IClosed (tval t) o
   | ISpan kids image open p src o => ISpan kids image open p (tval src) o
   | IAttr p src t prev sh o => IAttr p (tval src) (tval t) prev (map_text sh) o
-  | IReference kids image open label o => IReference kids image open (tval label) o
+  | IReference kids image open esc label o => IReference kids image open esc (tval label) o
   | INote esc image label open o => INote esc image (tval label) open o
   | IWiki esc rb image region open o => IWiki esc rb image (tval region) open o
   | IDest kids image open esc depth dst sh o =>
@@ -2793,7 +2801,7 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
   | IClosed t o => IClosed (tof t) o
   | ISpan kids image open p src o => ISpan kids image open p (tof src) o
   | IAttr p src t prev sh o => IAttr p (tof src) (tof t) prev (lift sh) o
-  | IReference kids image open label o => IReference kids image open (tof label) o
+  | IReference kids image open esc label o => IReference kids image open esc (tof label) o
   | INote esc image label open o => INote esc image (tof label) open o
   | IWiki esc rb image region open o => IWiki esc rb image (tof region) open o
   | IDest kids image open esc depth dst sh o =>

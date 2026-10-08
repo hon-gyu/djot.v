@@ -41,8 +41,8 @@ let rec cut stp ls p =
     if is_idle st
     then let (cs, p') = cut stp rest fresh in
          (({ piece_lines = (rev lines); piece_blocks = bs } :: cs), p')
-    else cut stp rest { pend_lines = lines; pend_blocks = bs; pend_state =
-           st; pend_count = (Stdlib.succ p.pend_count) }
+    else cut stp rest { pend_lines = lines; pend_blocks = bs; pend_state = st;
+           pend_count = (Stdlib.succ p.pend_count) }
 
 (** val close : (pstate -> blocks) -> pending -> piece list **)
 

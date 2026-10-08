@@ -24,8 +24,8 @@ val cut :
 val close : (pstate -> blocks) -> pending -> piece list
 
 val pieces :
-  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) ->
-  string list -> piece list
+  (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) -> string
+  list -> piece list
 
 val settle :
   (int -> string -> pstate -> blocks * pstate) -> (pstate -> blocks) ->

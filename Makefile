@@ -1,6 +1,6 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes \
-        check-span-containment bench probe-lemmas \
+        check-span-containment check-grammar bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
         site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
 
@@ -94,6 +94,9 @@ check-span-containment: build  ## Located parse: every span lies inside its docu
 
 check-stack: build  ## Extracted candidate-stack scan against the specification scan, on random paragraphs
 	dune exec test/stack.exe -- $(VERBOSE)
+
+check-grammar: build  ## The inline grammar (dev/InlineGrammar.v) against ref_read, on paragraphs over the precedence alphabet
+	dune exec test/grammar.exe -- $(VERBOSE)
 
 bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
 	dune exec test/bench.exe -- $(SHAPES)

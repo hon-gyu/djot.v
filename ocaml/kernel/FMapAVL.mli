@@ -12,12 +12,12 @@ module Raw :
   | Node of 'elt tree * key * 'elt * 'elt tree * I.t
 
   val tree_rect :
-    'a2 -> ('a1 tree -> 'a2 -> key -> 'a1 -> 'a1 tree -> 'a2 -> I.t -> 'a2)
-    -> 'a1 tree -> 'a2
+    'a2 -> ('a1 tree -> 'a2 -> key -> 'a1 -> 'a1 tree -> 'a2 -> I.t -> 'a2) ->
+    'a1 tree -> 'a2
 
   val tree_rec :
-    'a2 -> ('a1 tree -> 'a2 -> key -> 'a1 -> 'a1 tree -> 'a2 -> I.t -> 'a2)
-    -> 'a1 tree -> 'a2
+    'a2 -> ('a1 tree -> 'a2 -> key -> 'a1 -> 'a1 tree -> 'a2 -> I.t -> 'a2) ->
+    'a1 tree -> 'a2
 
   val height : 'a1 tree -> I.t
 
@@ -100,8 +100,8 @@ module Raw :
   val map_option : (key -> 'a1 -> 'a2 option) -> 'a1 tree -> 'a2 tree
 
   val map2_opt :
-    (key -> 'a1 -> 'a2 option -> 'a3 option) -> ('a1 tree -> 'a3 tree) ->
-    ('a2 tree -> 'a3 tree) -> 'a1 tree -> 'a2 tree -> 'a3 tree
+    (key -> 'a1 -> 'a2 option -> 'a3 option) -> ('a1 tree -> 'a3 tree) -> ('a2
+    tree -> 'a3 tree) -> 'a1 tree -> 'a2 tree -> 'a3 tree
 
   val map2 :
     ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 tree -> 'a2 tree -> 'a3
@@ -530,8 +530,8 @@ module IntMake :
           'a1 option -> 'a2 option -> ('a1 option * 'a2 option) option
 
         val at_least_one_then_f :
-          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2
-          option -> 'a3 option
+          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2 option
+          -> 'a3 option
        end
 
       val fold' : (key -> 'a1 -> 'a2 -> 'a2) -> 'a1 tree -> 'a2 -> 'a2
@@ -843,8 +843,8 @@ module Make :
           'a1 option -> 'a2 option -> ('a1 option * 'a2 option) option
 
         val at_least_one_then_f :
-          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2
-          option -> 'a3 option
+          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2 option
+          -> 'a3 option
        end
 
       val fold' : (key -> 'a1 -> 'a2 -> 'a2) -> 'a1 tree -> 'a2 -> 'a2

@@ -1062,7 +1062,7 @@ Local Fixpoint iscan_wf (st : iscan) : bool :=
      buffer is the one the literal continuation appends to. *)
   | IBang _ _ o | IAuto _ _ o | IClosed _ o =>
       (oscope_ok o && negb (hd_str (ocur o)))%bool
-  | ISpan kids _ _ _ _ o | IReference kids _ _ _ o =>
+  | ISpan kids _ _ _ _ o | IReference kids _ _ _ _ o =>
       (oscope_ok o && wf_inlines kids)%bool
   (* An attribute candidate owes both its interpretations: the scope and
      seam condition its successful attachment will use, and the ordinary
@@ -2097,6 +2097,8 @@ Proof.
     + apply IHash, Hsh.
     + apply iattr_feed_wf; [exact Ho|exact Hs|apply IHash; exact Hsh].
   - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
+    destruct label; [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
+    destruct (is_bslash c); [cbn [iscan_wf]; rewrite Ho, Hk; reflexivity|].
     destruct (Ascii.eqb c rbrack); [|cbn [iscan_wf]; rewrite Ho, Hk; reflexivity].
     apply iscan_wf_text; [|rewrite ocur_emit; destruct img; reflexivity].
     apply oscope_ok_emit; [exact Ho| |destruct img; reflexivity].
@@ -2346,8 +2348,9 @@ Proof.
     destruct (battr_lit (tval asrc) atxt aob) as [t o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
-    destruct (bref_lit_ok kids img (tval label) ob Ho Hk) as [H1 H2].
-    destruct (bref_lit kids img (tval label) ob) as [txt o']; cbn [snd] in H1, H2.
+    set (lab := (tval ob ++ (if label then one bslash else EmptyString))%string).
+    destruct (bref_lit_ok kids img lab o Ho Hk) as [H1 H2].
+    destruct (bref_lit kids img lab o) as [txt o']; cbn [snd] in H1, H2.
     apply iscan_wf_flush; assumption.
   - cbn [iscan_wf] in Hr.
     destruct (opop_str_ok nob Hr) as [H1 H2].

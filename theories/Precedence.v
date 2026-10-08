@@ -7,7 +7,7 @@
    `InlinePrecedence.v` proves the scanner builds that tree. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
-From DjotV Require Import Strings Ast InlineTable InlineView.
+From DjotV Require Import Strings Ast Attributes InlineTable InlineView.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -65,10 +65,18 @@ Definition follow_ok (c : ascii) (rest : string) : bool :=
    && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
    && negb (Ascii.eqb c rbrack && starts_with lbrace rest))%bool.
 
+(* A backslash escapes the byte after it, whatever that byte is, so the
+   escaped byte is not drawn on the alphabet (O2, O3). *)
 Fixpoint over_alphabet (s : string) : bool :=
   match s with
   | EmptyString => true
-  | String c rest => (in_alphabet c && follow_ok c rest && over_alphabet rest)%bool
+  | String c rest =>
+      if is_bslash c
+      then match rest with
+           | EmptyString => true
+           | String _ rest' => over_alphabet rest'
+           end
+      else (in_alphabet c && follow_ok c rest && over_alphabet rest)%bool
   end.
 
 (* A text token is one byte, so that every token is nonempty.  A marked
@@ -76,13 +84,31 @@ Fixpoint over_alphabet (s : string) : bool :=
    end of a paragraph's line: a soft break in the tree, and whitespace to
    the delimiters on either side of it.  `TOpen` is a `[`, and `TClose` a
    `]` followed by `(`, which begins a destination (`dest`), or by `[`,
-   which begins a reference label; a `]` before anything else is text. *)
+   which begins a reference label; a `]` before anything else is text.
+
+   A backslash and what follows it are an escape (O2 to O5): before
+   whitespace that runs to the end of the line, a hard break (`THard`,
+   with that whitespace); before a run of whitespace that does not, the
+   run (`TEscWs`), which is a non-breaking space and the rest of the run
+   when it begins with a space; before any other byte, that byte as text
+   if it is punctuation, and the backslash and the byte otherwise
+   (`TEsc`). *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
   | TDelim (k : dstyle) (marked opens closes : bool)
   | TOpen
-  | TClose (dest : bool).
+  | TClose (dest : bool)
+  | TEsc (c : ascii)
+  | TEscWs (ws : string)
+  | THard (ws : string).
+
+(* The whitespace a string begins with. *)
+Fixpoint ws_run (s : string) : string :=
+  match s with
+  | String c rest => if is_ws c then String c (ws_run rest) else EmptyString
+  | EmptyString => EmptyString
+  end.
 
 Definition at_rbrace (p : option ascii) : bool :=
   match p with Some b => Ascii.eqb b rbrace | None => false end.
@@ -102,7 +128,19 @@ Fixpoint lex (prev : option ascii) (skip : nat) (s : string) : list token :=
       match skip with
       | S n => lex (Some c) n rest
       | O =>
-          if Ascii.eqb c lbrack then TOpen :: lex (Some c) 0 rest
+          if is_bslash c then
+            (if is_blank rest then THard rest
+             else match rest with
+                  | String d _ => if is_ws d then TEscWs (ws_run rest) else TEsc d
+                  | EmptyString => THard EmptyString
+                  end)
+              :: lex (Some c)
+                   (if is_blank rest then String.length rest
+                    else match rest with
+                         | String d _ => if is_ws d then String.length (ws_run rest) else 1
+                         | EmptyString => 0
+                         end) rest
+          else if Ascii.eqb c lbrack then TOpen :: lex (Some c) 0 rest
           else if Ascii.eqb c rbrack then
             (if starts_with lparen rest then TClose true
              else if starts_with lbrack rest then TClose false
@@ -553,7 +591,7 @@ Definition rstep (ts : list token) (i : nat) (t : token) (s : rstate) : rstate :
   | RInert None => s
   | RNormal =>
       match t with
-      | TText _ | TBreak => s
+      | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ => s
       | TOpen => ropen i KBracket true s
       | TDelim k mr op cl =>
           match (if cl then pick (KDelim k mr) (rs_live s) else PNone) with
@@ -1163,9 +1201,8 @@ Proof.
   { intros Ho Hc. apply (NC false KBracket); [discriminate| |].
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
-  destruct t as [c| |k mr op cl| |b].
-  - apply Text; reflexivity.
-  - apply Text; reflexivity.
+  (* text, a break and the escapes neither open nor close *)
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key ts n = if op then Some K else None)
@@ -1328,6 +1365,12 @@ Definition str_snoc (s : string) (out : inlines) : inlines :=
   | _ => mk (Str s) :: out
   end.
 
+(* An escaped byte as text: the byte if it is punctuation (O2), and the
+   backslash and the byte otherwise (O3). *)
+Definition esc_text (c : ascii) : string :=
+  if is_punct c then one c else String bslash (one c).
+
+(* A token as written. *)
 Definition tok_text (t : token) : string :=
   match t with
   | TText c => one c
@@ -1337,6 +1380,49 @@ Definition tok_text (t : token) : string :=
   | TDelim k true false _ => (dtoken k ++ one rbrace)%string
   | TOpen => one lbrack
   | TClose _ => one rbrack
+  | TEsc c => String bslash (one c)
+  | TEscWs ws => String bslash ws
+  | THard ws => String bslash ws
+  end.
+
+(* A run escaped by a backslash is a non-breaking space and the rest of
+   the run when it begins with a space (O5). *)
+Definition nbsp_rest (ws : string) : option string :=
+  match ws with
+  | String c rest => if Ascii.eqb c " "%char then Some rest else None
+  | EmptyString => None
+  end.
+
+(* A token in a destination, which decodes an escape as text does and
+   keeps everything else as written. *)
+Definition tok_dest (t : token) : string :=
+  match t with
+  | TEsc c => esc_text c
+  | _ => tok_text t
+  end.
+
+(* What a token adds to a region's text: a reference label keeps it as
+   written. *)
+Definition tok_region (dest : bool) (t : token) : string :=
+  if dest then tok_dest t else tok_text t.
+
+(* "Spaces and tab characters before the backslash are ignored" (O4): a
+   hard break trims the text right before it. *)
+Definition str_trim (out : inlines) : inlines :=
+  match out with
+  | Node p [] (Str t) :: rest =>
+      match strip_trailing_ws t with
+      | EmptyString => rest
+      | t' => Node p [] (Str t') :: rest
+      end
+  | _ => out
+  end.
+
+(* A break right after a hard break is that break: no soft one follows. *)
+Definition after_hard (ts : list token) (i : nat) : bool :=
+  match i with
+  | O => false
+  | S j => match nth_error ts j with Some (THard _) => true | _ => false end
   end.
 
 (* A destination is written without its line breaks. *)
@@ -1376,6 +1462,12 @@ Definition temit_str (s : string) (fs : tframes) (top : inlines)
   | (k, acc) :: rest => ((k, str_snoc s acc) :: rest, top)
   end.
 
+Definition ttrim (fs : tframes) (top : inlines) : tframes * inlines :=
+  match fs with
+  | [] => ([], str_trim top)
+  | (k, acc) :: rest => ((k, str_trim acc) :: rest, top)
+  end.
+
 (* Nodes in order, plain text merging at the seams. *)
 Fixpoint temit_all (ns : inlines) (fs : tframes) (top : inlines)
   : tframes * inlines :=
@@ -1410,11 +1502,23 @@ Definition tstep (ts : list token) (m : matching) (i : nat) (t : token)
       if match e with Some e' => Nat.eqb i e' | None => false end
       then tnormal (temit (mk (region_node b kids txt)) fs top)
       else (fs, top, TMRegion b kids d e
-                       (if Nat.eqb i (S d) then txt else (txt ++ tok_text t)%string))
+                       (if Nat.eqb i (S d) then txt else (txt ++ tok_region b t)%string))
   | TMNormal =>
       match t with
       | TText _ => tnormal (temit_str (tok_text t) fs top)
-      | TBreak => tnormal (temit (mk SoftBreak) fs top)
+      | TEsc c => tnormal (temit_str (esc_text c) fs top)
+      | TEscWs ws =>
+          match nbsp_rest ws with
+          | Some rest =>
+              let '(fs', top') := temit (mk NonBreakingSpace) fs top in
+              tnormal (if nonempty_str rest then temit_str rest fs' top' else (fs', top'))
+          | None => tnormal (temit_str (tok_text t) fs top)
+          end
+      | THard _ =>
+          let '(fs', top') := ttrim fs top in tnormal (temit (mk HardBreak) fs' top')
+      | TBreak =>
+          if after_hard ts i then (fs, top, TMNormal)
+          else tnormal (temit (mk SoftBreak) fs top)
       | TDelim k _ _ _ =>
           if is_opener m i then ((TKDelim k, []) :: fs, top, TMNormal)
           else match is_closer m i, fs with

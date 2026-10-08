@@ -523,8 +523,8 @@ module StrMap :
           'a1 option -> 'a2 option -> ('a1 option * 'a2 option) option
 
         val at_least_one_then_f :
-          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2
-          option -> 'a3 option
+          ('a1 option -> 'a2 option -> 'a3 option) -> 'a1 option -> 'a2 option
+          -> 'a3 option
        end
 
       val fold' : (key -> 'a1 -> 'a2 -> 'a2) -> 'a1 tree -> 'a2 -> 'a2

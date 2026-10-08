@@ -193,8 +193,8 @@ Local Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
       INote esc image label open (oout_app base o)
   | IWiki esc rb image region open o =>
       IWiki esc rb image region open (oout_app base o)
-  | IReference kids image open label o =>
-      IReference kids image open label (oout_app base o)
+  | IReference kids image open esc label o =>
+      IReference kids image open esc label (oout_app base o)
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open esc depth dst
         (iout_app base sh) (oout_app base o)
@@ -703,7 +703,8 @@ Proof.
   - destruct (ap_failed (astep ap c)).
     + apply IHash, Hb.
     + rewrite (IHash false c base Hb). apply iattr_feed_app, Hb.
-  - destruct (Ascii.eqb c rbrack); [cbn [iout_app]; rewrite oemit_app|];
+  - destruct label; [reflexivity|]. destruct (is_bslash c); [reflexivity|].
+    destruct (Ascii.eqb c rbrack); [cbn [iout_app]; rewrite oemit_app|];
       reflexivity.
   - unfold inote_step. destruct nesc; [reflexivity|].
     destruct (is_bslash c); [reflexivity|].
@@ -1041,8 +1042,10 @@ Proof.
   - rewrite battr_lit_app.
     destruct (battr_lit (tval asrc) atxt aob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
-  - rewrite (bref_lit_app kids img (tval label) ob base Hb).
-    destruct (bref_lit kids img (tval label) ob) as [t o']; cbn [fst snd].
+  - rewrite (bref_lit_app kids img
+      (tval ob ++ (if label then one bslash else EmptyString))%string o base Hb).
+    destruct (bref_lit kids img (tval ob ++ (if label then one bslash else EmptyString))%string o)
+      as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
   - rewrite (bnote_lit_app nesc nimg (tval nlab) nob base Hb).
     destruct (bnote_lit nesc nimg (tval nlab) nob) as [t o']; cbn [fst snd].
@@ -2110,7 +2113,7 @@ Local Lemma istep_lbrack_ref :
   forall txt o kids image open o',
     bclose (flush_text txt o) = Some (kids, image, open, o') ->
     istep lbrack (IClosed txt o) =
-      IReference kids image open EmptyString o'.
+      IReference kids image open false EmptyString o'.
 Proof.
   intros txt o kids image open o' H. cbn [istep istep_at].
   change (Ascii.eqb lbrack lparen) with false.
@@ -2308,22 +2311,26 @@ of it goes in one induction.
 
 Local Lemma iscan_ref_label :
   forall label kids image open acc o,
-    no_char rbrack label = true ->
-    iscan_str label (IReference kids image open acc o)
-    = IReference kids image open (acc ++ label)%string o.
+    ref_label_safe label = true ->
+    iscan_str label (IReference kids image open false acc o)
+    = IReference kids image open false (acc ++ label)%string o.
 Proof.
   induction label as [|c label IH]; intros kids image open acc o H;
     [rewrite append_empty_r; reflexivity|].
-  cbn [no_char] in H. apply andb_true_iff in H as [Hc H].
-  apply negb_true_iff in Hc.
-  cbn [iscan_str istep istep_at]. rewrite Hc, (IH _ _ _ _ _ H).
+  unfold ref_label_safe in H. cbn [no_char] in H.
+  apply andb_true_iff in H as [H1 H2].
+  apply andb_true_iff in H1 as [Hc H1]. apply andb_true_iff in H2 as [Hb H2].
+  apply negb_true_iff in Hc. apply negb_true_iff in Hb.
+  assert (H : ref_label_safe label = true)
+    by (unfold ref_label_safe; rewrite H1, H2; reflexivity).
+  cbn [iscan_str istep istep_at]. unfold is_bslash. rewrite Hb, Hc, (IH _ _ _ _ _ H).
   rewrite append_assoc. reflexivity.
 Qed.
 
 Local Lemma iscan_ref_close :
   forall label tail ns image base p,
     nonempty_str label = true ->
-    no_char rbrack label = true ->
+    ref_label_safe label = true ->
     iscan_str (ref_close label tail)
       (IText false EmptyString p (oemit_all ns (bpush image base)))
     = iscan_str tail

@@ -13,7 +13,7 @@ From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
 From DjotV Require Import Strings Html Step Document Profile ProfileChecks Properties
   Spec Reparse Readable.
-From DjotVDev Require Import Fixtures Generate.
+From DjotVDev Require Import Fixtures Generate InlineGrammar.
 
 Extraction Language OCaml.
 Extraction Blacklist String List Nat Bool.
@@ -699,4 +699,6 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.Step.with_tables DjotV.Step.with_heading_continuation
   DjotV.Step.with_divs DjotV.Step.with_tasks DjotV.Step.with_raw_blocks
   DjotV.Step.with_deflists DjotV.Step.with_block_attrs
-  DjotV.Attributes.attr_ok DjotV.Ast.Attr.remove DjotV.Ast.Attr.set_classes.
+  DjotV.Attributes.attr_ok DjotV.Ast.Attr.remove DjotV.Ast.Attr.set_classes
+  DjotV.Precedence.para_tokens DjotV.Precedence.over_alphabet DjotV.Precedence.ref_read
+  DjotVDev.InlineGrammar.grammar_read.

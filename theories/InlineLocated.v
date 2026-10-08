@@ -216,8 +216,8 @@ Fixpoint of_iscan (st : iscan) : iscan :=
       ISpan (Erase.of_inlines kids) image null_span p src (of_ostate o)
   | IAttr p src txt prev sh o =>
       IAttr p src txt prev (of_iscan sh) (of_ostate o)
-  | IReference kids image _ label o =>
-      IReference (Erase.of_inlines kids) image null_span label (of_ostate o)
+  | IReference kids image _ esc label o =>
+      IReference (Erase.of_inlines kids) image null_span esc label (of_ostate o)
   | INote esc image label _ o =>
       INote esc image label null_span (of_ostate o)
   | IWiki esc rb image region _ o =>
@@ -1230,9 +1230,11 @@ Proof.
     destruct (ap_failed (astep ap c)); [apply IHsh|].
     rewrite of_iattr_feed, IHsh. reflexivity.
   - (* IReference *)
-    cbn [of_iscan istep_at]. destruct (Ascii.eqb c rbrack); [|reflexivity].
+    cbn [of_iscan istep_at]. destruct label; [reflexivity|].
+    destruct (is_bslash c); [reflexivity|].
+    destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [of_iscan]. rewrite of_oemit, of_imk, of_bnode.
-    destruct label; [rewrite of_reference_inlines_text|]; reflexivity.
+    destruct o; [rewrite of_reference_inlines_text|]; reflexivity.
   - (* INote *) apply of_inote_step.
   - (* IWiki *) apply of_iwiki_step.
   - (* IDest *)
@@ -1296,7 +1298,9 @@ Proof.
     destruct (@battr_lit _ _ P C (tval src) txt o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bref_lit.
-    destruct (@bref_lit _ _ P C kids image (tval label) o) as [t o']; cbn [fst snd].
+    destruct (@bref_lit _ _ P C kids image
+                (tval o ++ (if label then one bslash else EmptyString))%string o0)
+      as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bnote_lit.
     destruct (@bnote_lit P C esc image (tval label) o) as [t o']; cbn [fst snd].

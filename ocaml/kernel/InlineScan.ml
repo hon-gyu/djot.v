@@ -786,7 +786,7 @@ type 'buf iscan_g =
 | IClosed of 'buf * ostate
 | ISpan of inlines * bool * span * aparser * 'buf * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
-| IReference of inlines * bool * span * 'buf * ostate
+| IReference of inlines * bool * span * bool * 'buf * ostate
 | INote of bool * bool * 'buf * span * ostate
 | IWiki of bool * bool * bool * 'buf * span * ostate
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
@@ -1834,7 +1834,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
      then IDest (kids, image, open0, false, 0, x.tnil,
             (idest_open x h h0 kids image open0 o'), o')
      else if (=) c lbrack
-          then IReference (kids, image, open0, x.tnil, o')
+          then IReference (kids, image, open0, false, x.tnil, o')
           else ISpan (kids, image, open0, ap_init, x.tnil, o')
    | None -> ilead t x h h0 c (x.tpush txt (one rbrack)) (Some rbrack) o)
 | ISpan (kids, image, open0, p, src, o) ->
@@ -1843,24 +1843,30 @@ let rec istep_at t x h h0 attrs_enabled c = function
   if ap_failed (astep p c)
   then istep_at t x h h0 false c sh
   else iattr_feed t x h h0 c p src txt prev (istep_at t x h h0 false c sh) o
-| IReference (kids, image, open0, label, o) ->
-  if (=) c rbrack
-  then let key =
-         (* If this appears, you're using String internals. Please don't *)
+| IReference (kids, image, open0, esc, label, o) ->
+  if esc
+  then IReference (kids, image, open0, false,
+         (x.tpush label ((^) (one bslash) (one c))), o)
+  else if is_bslash c
+       then IReference (kids, image, open0, true, label, o)
+       else if (=) c rbrack
+            then let key =
+                   (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-           (fun _ -> reference_inlines_text kids)
-           (fun _ _ -> x.tval label)
-           (x.tval label)
-       in
-       IText (false, x.tnil, (Some rbrack),
-       (oemit
-         (imk h open0.span_start h0.cursor_stop
-           (bnode image kids (Reference (normalize_label key))))
-         o))
-  else IReference (kids, image, open0, (x.tpush label (one c)), o)
+                     (fun _ -> reference_inlines_text kids)
+                     (fun _ _ -> x.tval label)
+                     (x.tval label)
+                 in
+                 IText (false, x.tnil, (Some rbrack),
+                 (oemit
+                   (imk h open0.span_start h0.cursor_stop
+                     (bnode image kids (Reference (normalize_label key))))
+                   o))
+            else IReference (kids, image, open0, false,
+                   (x.tpush label (one c)), o)
 | INote (esc, image, label, open0, o) ->
   inote_step x h h0 c esc image label open0 o
 | IWiki (esc, rb, image, region, open0, o) ->
@@ -1948,8 +1954,11 @@ let ifinish_ostate_flat x h h0 = function
 | IAttr (_, src, txt, _, _, o) ->
   let (t, o') = battr_lit x h h0 (x.tval src) txt o in
   flush_text_at h h0 (x.tval t) o'
-| IReference (kids, image, _, label, o) ->
-  let (txt, o') = bref_lit x h h0 kids image (x.tval label) o in
+| IReference (kids, image, _, esc, label, o) ->
+  let (txt, o') =
+    bref_lit x h h0 kids image
+      ((^) (x.tval label) (if esc then one bslash else "")) o
+  in
   flush_text_at h h0 (x.tval txt) o'
 | INote (esc, image, label, _, o) ->
   let (txt, o') = bnote_lit h h0 esc image (x.tval label) o in
@@ -2053,8 +2062,9 @@ let rec ibreak_flat t x h h0 st = match st with
   ispan_feed t x h h0 nl_char kids image open0 p src o
 | IAttr (p, src, txt, prev, sh, o) ->
   iattr_feed t x h h0 nl_char p src txt prev sh o
-| IReference (kids, image, open0, label, o) ->
-  IReference (kids, image, open0, (x.tpush label nl), o)
+| IReference (kids, image, open0, esc, label, o) ->
+  IReference (kids, image, open0, false,
+    (x.tpush label ((^) (if esc then one bslash else "") nl)), o)
 | INote (esc, image, label, open0, o) ->
   INote (false, image,
     (x.tpush label ((^) (if esc then one bslash else "") nl)), open0, o)
@@ -2204,8 +2214,8 @@ let rec map_text x = function
   ISpan (kids, image, open0, p, (x.tval src), o)
 | IAttr (p, src, t, prev, sh, o) ->
   IAttr (p, (x.tval src), (x.tval t), prev, (map_text x sh), o)
-| IReference (kids, image, open0, label, o) ->
-  IReference (kids, image, open0, (x.tval label), o)
+| IReference (kids, image, open0, esc, label, o) ->
+  IReference (kids, image, open0, esc, (x.tval label), o)
 | INote (esc, image, label, open0, o) ->
   INote (esc, image, (x.tval label), open0, o)
 | IWiki (esc, rb, image, region, open0, o) ->
@@ -2243,8 +2253,8 @@ let rec lift x = function
   ISpan (kids, image, open0, p, (x.tof src), o)
 | IAttr (p, src, t, prev, sh, o) ->
   IAttr (p, (x.tof src), (x.tof t), prev, (lift x sh), o)
-| IReference (kids, image, open0, label, o) ->
-  IReference (kids, image, open0, (x.tof label), o)
+| IReference (kids, image, open0, esc, label, o) ->
+  IReference (kids, image, open0, esc, (x.tof label), o)
 | INote (esc, image, label, open0, o) ->
   INote (esc, image, (x.tof label), open0, o)
 | IWiki (esc, rb, image, region, open0, o) ->

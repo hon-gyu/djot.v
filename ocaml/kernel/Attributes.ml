@@ -129,33 +129,28 @@ let is_key_char c =
                 0)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
           ((&&)
             (( <= ) (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
               0)))))))))))))))))))))))))))))))))))))))))))))))) n)
             (( <= ) n (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
-              (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+              (Stdlib.succ (Stdlib.succ (Stdlib.succ
               0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
         ((=) c '_'))
       ((=) c ':'))

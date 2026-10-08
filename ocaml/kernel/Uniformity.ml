@@ -30,8 +30,8 @@ let rec run_div_open t k len lines st =
 
 let div_content_ok t k lines =
   (&&)
-    (run_div_open t k (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) lines
-      (PPara []))
+    (run_div_open t k (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) lines (PPara
+      []))
     (negb (in_fence (snd (run_lines t k lines (PPara [])))))
 
 (** val pend_carriable : pstate -> bool **)

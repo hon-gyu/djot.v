@@ -427,7 +427,7 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
       ap_done p = false
   | IAttr p _ txt _ sh o =>
       held W o (nonempty_str txt) cur /\ ap_done p = false /\ st_inv W cur sh
-  | IReference kids _ _ _ o => Forall (dn_node W) kids /\ held W o false cur
+  | IReference kids _ _ _ _ o => Forall (dn_node W) kids /\ held W o false cur
   | INote _ _ _ _ o => held W o false cur
   | IWiki _ _ _ _ _ o => held W o false cur
   | IDest kids _ _ _ _ _ sh o =>
@@ -2275,11 +2275,13 @@ Proof.
     eapply iattr_feed_ok; [apply spot_lt_le, nx_lt|intros _; exact nx_prev|exact Ho|exact Hd|].
     apply IHst, Hsh.
   - (* IReference *) destruct H as (Hk & Ho). cbn [istep_at].
-    destruct (Ascii.eqb c rbrack) eqn:E.
-    + cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
-      apply oinv_any, oemit_ok; [apply dn_bnode, Hk|].
-      eapply oinv_strict; [exact nx_lt|exact (held_oinv _ _ _ _ Ho)].
-    + cbn [st_inv]. split; [exact Hk|eapply held_step; [exact Ho|exact nx_lt]].
+    assert (Hstay : forall e l, st_inv W next (IReference kids image open e l o))
+      by (intros; cbn [st_inv]; split; [exact Hk|eapply held_step; [exact Ho|exact nx_lt]]).
+    destruct esc; [apply Hstay|]. destruct (is_bslash c); [apply Hstay|].
+    destruct (Ascii.eqb c rbrack) eqn:E; [|apply Hstay].
+    cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
+    apply oinv_any, oemit_ok; [apply dn_bnode, Hk|].
+    eapply oinv_strict; [exact nx_lt|exact (held_oinv _ _ _ _ Ho)].
   - (* INote *) cbn [istep_at]. apply inote_ok, H.
   - (* IWiki *) cbn [istep_at]. apply iwiki_ok, H.
   - (* IDest *) destruct H as (Hk & Ho & Hsh).
@@ -2569,8 +2571,9 @@ Proof.
     pose proof (bspan_lit_ok W CU kids image src o _ Hk (held_far _ _ _ _ Ho)) as Hb.
     destruct (bspan_lit kids image src o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - destruct H as (Hk & Ho).
-    pose proof (bref_lit_ok W CU kids image label o _ Hk (held_far _ _ _ _ Ho)) as Hb.
-    destruct (bref_lit kids image label o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
+    set (lab := (label ++ (if esc then one bslash else EmptyString))%string).
+    pose proof (bref_lit_ok W CU kids image lab o _ Hk (held_far _ _ _ _ Ho)) as Hb.
+    destruct (bref_lit kids image lab o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - pose proof (bnote_lit_ok W CU esc image label o _ (held_far _ _ _ _ H)) as Hb.
     destruct (bnote_lit esc image label o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - pose proof (bwiki_lit_ok W esc rb image region o _ (held_far _ _ _ _ H)) as Hb.

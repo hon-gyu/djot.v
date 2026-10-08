@@ -2362,7 +2362,7 @@ parser loosens at a blank the rule does not count, and
 `item_loose_separates` is false without `run_safe`:
 `["- x"; "{.a}"; ""; ""; "para"]` is the counterexample.
 
-**Verdict: ours, open; the choice is the maintainer's.**  Two ways out:
+**Verdict: ours, decided 2026-10-06 (below).**  Two ways out:
 
 - Follow djot.js.  The blank is not directly after the list, a spec
   line lies between, so it counts.  That is a change to `separates` (the
@@ -2374,6 +2374,20 @@ parser loosens at a blank the rule does not count, and
   ended.
 
 Either way `run_safe` cannot be dropped before this is settled.
+
+**Decided 2026-10-06, by the maintainer: loose**, for a reason of its
+own, not djot.js's.  An attribute line with a blank or the end of its
+container after it attaches to nothing, and is a block of its own that
+renders nothing, as a reference definition is.  The blank then lies
+between that block and `para`, not directly after the nested list
+(`list-tightness.md`, D1 and "Dangling block attributes").  djot.js
+agrees on the output.  The parser decides tightness this way since
+2026-10-06, but still drops the attribute from the AST, and
+`Tightness.separates` reads the AST: on the input above it sees the
+nested list end before the blank and calls it tight.  So
+`item_loose_separates` is still false without `run_safe`, now with one
+blank as well as two.  What remains is the attribute block in the AST,
+and then the theorems without `run_safe`.
 
 ## 2026-10-05 -- SPEC-GAP: a heading is interrupted by any block opener
 
@@ -2435,3 +2449,66 @@ a nested list at an item's end now parses back as written.
 
 **Verdict: `OURS`**, from the syntax reference as `list-tightness.md`
 reads it.  C1 and D1 there are closed; B2 to B4 stand as before.
+
+## 2026-10-07 -- SPEC-GAP: the attribute language
+
+Found while writing the attribute grammar (`AttrSyntax.v`) and proving
+the machine accepts exactly it (`AttrAgree.v`).  djot.js and ours agree
+on every row; the reference is silent or says otherwise.
+
+| Input | Both engines | What the reference says |
+| --- | --- | --- |
+| `a{.x class="y"}` | `class="y"` | Stacked specs "will be combined": |
+| `a{.x}{class="y"}` | `class="x y"` | `avant{lang=fr}{.blue}` "is the same as" `avant{lang=fr .blue}`. |
+| `a{k="x\<y"}` | value `x\<y` | "Backslash escapes may be used inside quoted values"; text escapes (O2) cover all ASCII punctuation. `<`, `>`, `@` are not escapable in a value. |
+| `a{k="a  b"}` | value `a b` | Nothing.  Runs of space, CR and LF become one space; a tab is kept. |
+| `a{#é}`, `a{#a;'"}` | identifiers | Nothing on identifier characters: any byte but whitespace and ASCII punctuation, where `: _ - ; ' "` do not count. |
+| `a{.é}` | not a spec | Nothing on class characters: those of a bare value. |
+| `a{# }`, `a{.}` | a spec with no attributes | Nothing. |
+| `a{.a%c%}` | not a spec | Nothing on separation: an identifier, class or bare value is followed by whitespace or `}`; a quoted value or a closed comment by anything (`a{%c%.a}`, `a{k="v".c}`). |
+| `a{k=v k=w}` | `k="w"` | The last value of a key wins, as stated for identifiers only. |
+
+In the first two rows a `class` key inside one spec is an assignment
+(`Attr.set`), while a later spec merges with `Attr.merge`, which
+combines classes.
+
+Inline only, outside the attribute language: a spec cannot begin with a
+delimiter character, though `_` and `-` are key characters: `a{-k=v}` and
+`a{_k=v}` read `{-` and `{_` as marked openers.
+
+**Verdict: `SPEC-GAP`, ours stands** (it matches djot.js on every row).
+The grammar states each choice where it is made.  Chosen by the agent and
+pending the maintainer's decision.
+
+## Closed 2026-10-08 -- ours, fixed: a backslash before `]` in a reference label
+
+Found while probing escapes for the inline specification
+(`261007.plan.inline-specification.md`, stage 1).
+
+| Input | djot.js | ours before | ours now |
+| --- | --- | --- | --- |
+| `[a][b\]c]` | a link to label `b\]c` | a link to label `b\`, then `c]` | as djot.js |
+
+djot.js matches the label's `]` with its general matcher, where `\]` is
+an escape and closes nothing.  Our label state (`IReference`) ended at
+any `]`, though the footnote label state already let a backslash protect
+one (2026-08-15).  `IReference` now carries the same pending-backslash
+flag as `INote`: the backslash and the byte after it go into the label
+as written.  A canonical reference label (`ci_ok`) now has no backslash
+(`ref_label_safe`), as a canonical footnote label already had none.
+`make diff`, `make roundtrip`, `make check-stack` unchanged.  Pinned by
+`reference_label_escaped_bracket` in `dev/InlineExamples.v`.
+
+## 2026-10-08 -- open: a backslash before a line break inside a destination
+
+Found with the entry above.
+
+| Input | djot.js | Ours |
+| --- | --- | --- |
+| `[a](b\` / `c)` | `href="bc"` | `href="b\c"` |
+
+L3 says the line breaks of a split URL are ignored and the lines
+concatenated, which gives `b\c` read literally; djot.js reads the
+backslash and the line break together as a hard-break escape and drops
+both.  Ours stands for now; pending the maintainer's decision.  The
+inline specification will state whichever is chosen.
