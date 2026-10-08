@@ -6,7 +6,7 @@
    `para_inlines` is `tree_of` of the unique valid reading. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
-From DjotV Require Import Strings Ast InlineTable InlineView InlineScan
+From DjotV Require Import Strings Ast Attributes InlineTable InlineView InlineScan
   InlineInvert Precedence.
 Import ListNotations.
 
@@ -113,6 +113,23 @@ Fixpoint pclose_go (k : key) (pend : list inline) (stk : list pframe)
       else pclose_go k (xapp content [lit k']) rest
   end.
 
+(* What a hard break trims: the text it ends, as `str_trim`. *)
+Definition xtrim (l : list inline) : list inline :=
+  match l with
+  | Str t :: rest =>
+      match strip_trailing_ws t with
+      | EmptyString => rest
+      | t' => Str t' :: rest
+      end
+  | _ => l
+  end.
+
+Definition pv_trim (v : pview) : pview :=
+  match pv_stk v with
+  | [] => PView [] (xtrim (pv_out v)) (pv_mode v)
+  | f :: rest => PView (fset f (xtrim (fcontent f)) :: rest) (pv_out v) (pv_mode v)
+  end.
+
 (* A token that does not close opens if it may, or is its own text. *)
 Definition popen (i : nat) (k : key) (op : bool) (txt : string) (v : pview)
   : pview :=
@@ -126,11 +143,20 @@ Definition pstep (ts : list token) (i : nat) (t : token) (v : pview) : pview :=
       if match e with Some e' => Nat.eqb i e' | None => false end
       then pv_add (region_node b (map mk kids) txt) (pv_setmode PMNormal v)
       else pv_setmode (PMRegion b kids d e
-                         (if Nat.eqb i (S d) then txt else (txt ++ tok_text t)%string)) v
+                         (if Nat.eqb i (S d) then txt else (txt ++ tok_region b t)%string)) v
   | PMNormal =>
       match t with
       | TText c => pv_add (Str (one c)) v
-      | TBreak => pv_add SoftBreak v
+      | TEsc c => pv_add (Str (esc_text c)) v
+      | TEscWs ws =>
+          match nbsp_rest ws with
+          | Some rest =>
+              let w := pv_add NonBreakingSpace v in
+              if nonempty_str rest then pv_add (Str rest) w else w
+          | None => pv_add (Str (tok_text t)) v
+          end
+      | THard _ => pv_add HardBreak (pv_trim v)
+      | TBreak => if after_hard ts i then v else pv_add SoftBreak v
       | TOpen => popen i KBracket true (tok_text t) v
       | TDelim k mr op cl =>
           match (if cl then pick (KDelim k mr) (pv_live v) else PNone) with
@@ -528,6 +554,10 @@ Local Lemma pv_add_live : forall x v,
   pv_live (pv_add x v) = pv_live v /\ pv_mode (pv_add x v) = pv_mode v.
 Proof. intros x [[|[p k c|d c] rest] out md]; split; reflexivity. Qed.
 
+Local Lemma pv_trim_live : forall v,
+  pv_live (pv_trim v) = pv_live v /\ pv_mode (pv_trim v) = pv_mode v.
+Proof. intros [[|[p k c|d c] rest] out md]; split; reflexivity. Qed.
+
 Local Lemma pclose_found : forall k stk p below,
   pick k (map fitem stk) = PFound p below ->
   exists content rest, pclose_go k [] stk = Some (content, rest) /\ map fitem rest = below.
@@ -562,7 +592,10 @@ Proof.
   { intros i k [|] txt; unfold popen, ropen; cbn [pv_live pv_stk pv_mode rs_live rs_mode map fitem].
     - unfold pv_live in Hl. rewrite Hl, Ev. split; reflexivity.
     - apply Add. }
-  destruct t as [c| |k mr op cl| |b]; try apply Add; [| |].
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try apply Add; [| | | | |].
+  - (* a break: nothing after a hard break *)
+    destruct (after_hard ts n); [|apply Add].
+    split; [exact Hl|rewrite Ev; reflexivity].
   - rewrite Hl. destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |] eqn:P;
       [|apply Add|apply Open].
     destruct (Nat.ltb (S p) n); [|apply Open].
@@ -580,6 +613,15 @@ Proof.
     rewrite Hc. destruct (region_end ts n b) as [e|]; [|destruct b];
       cbn [pv_live pv_stk pv_mode rmode_of map fitem]; split; try reflexivity;
       rewrite ?Hb; reflexivity.
+  - (* an escaped whitespace run *)
+    destruct (nbsp_rest ws) as [r|]; [|apply Add].
+    destruct (nonempty_str r); [|apply Add].
+    destruct (pv_add_live (Str r) (pv_add NonBreakingSpace v)) as [E1 E2].
+    rewrite E1, E2. apply Add.
+  - (* a hard break *)
+    destruct (pv_trim_live v) as [T1 T2].
+    destruct (pv_add_live HardBreak (pv_trim v)) as [E1 E2].
+    rewrite E1, E2, T1, T2, Ev. split; [exact Hl|reflexivity].
 Qed.
 
 (*
@@ -626,6 +668,144 @@ Proof. intros [] l s E; discriminate E. Qed.
 
 Local Lemma region_node_nonstr : forall b l t s, region_node b l t <> Str s.
 Proof. intros [] l t s E; discriminate E. Qed.
+
+(*
+Trimming before a hard break
+----------------------------
+
+A hard break trims the text right before it, in the innermost content.
+A frame that `collapse` turns into text puts its opener's spelling
+before its content, and that spelling ends in a byte that is not
+whitespace, so trimming the collapsed content trims the frame's own.
+*)
+
+Local Lemma strip_app_nonempty : forall w t,
+  strip_trailing_ws t <> EmptyString ->
+  strip_trailing_ws (w ++ t) = (w ++ strip_trailing_ws t)%string.
+Proof.
+  intros w t H. unfold strip_trailing_ws in *. rewrite rev_string_app.
+  rewrite drop_leading_ws_app_nonblank.
+  - rewrite rev_string_app, rev_string_involutive. reflexivity.
+  - intros E. apply H. rewrite E. reflexivity.
+Qed.
+
+Local Lemma strip_app_empty : forall w t,
+  strip_trailing_ws t = EmptyString -> strip_trailing_ws (w ++ t) = strip_trailing_ws w.
+Proof.
+  intros w t H. destruct (strip_trailing_split t) as (p & Hp & E).
+  rewrite H in E. cbn [append] in E. subst p.
+  apply strip_trailing_ws_app_blank, Hp.
+Qed.
+
+(* Nonempty, and left alone by `strip_trailing_ws`. *)
+Definition solid (s : string) : Prop := strip_trailing_ws s = s /\ s <> EmptyString.
+
+Local Lemma xtrim_solid : forall w r, solid w -> xtrim (Str w :: r) = Str w :: r.
+Proof.
+  intros w r [H Hne]. cbn [xtrim]. rewrite H.
+  destruct w; [contradiction|reflexivity].
+Qed.
+
+Local Lemma solid_app : forall u w, solid w -> solid (u ++ w).
+Proof.
+  intros u w [H Hne]. split.
+  - rewrite strip_app_nonempty by (rewrite H; exact Hne). rewrite H. reflexivity.
+  - destruct u; [exact Hne|discriminate].
+Qed.
+
+Local Lemma xsnoc_solid : forall s acc, solid s ->
+  exists w r, xsnoc (Str s) acc = Str w :: r /\ solid w.
+Proof.
+  intros s [|y acc] Hs; [exists s, []; split; [reflexivity|exact Hs]|].
+  destruct (str_view y) as [[u ->]|Hy].
+  - exists (u ++ s)%string, acc. split; [reflexivity|apply solid_app, Hs].
+  - exists s, (y :: acc). split; [apply xsnoc_str_nonstr, Hy|exact Hs].
+Qed.
+
+Local Lemma xtrim_xapp_solid : forall c w r, solid w ->
+  xtrim (xapp c (Str w :: r)) = xapp (xtrim c) (Str w :: r).
+Proof.
+  intros c w r Hw. destruct c as [|y [|z c]].
+  - apply xtrim_solid, Hw.
+  - cbn [xapp]. destruct (str_view y) as [[t ->]|Hy].
+    + cbn [xsnoc xtrim].
+      destruct (strip_trailing_ws t) as [|a t'] eqn:Et.
+      * rewrite (strip_app_empty w t Et), (proj1 Hw).
+        destruct w; [destruct Hw as [_ []]; reflexivity|reflexivity].
+      * rewrite (strip_app_nonempty w t) by (rewrite Et; discriminate).
+        rewrite Et. destruct w; [destruct Hw as [_ []]; reflexivity|reflexivity].
+    + rewrite (xsnoc_nonstr y _ Hy).
+      destruct y; [destruct (Hy _ eq_refl)|..]; reflexivity.
+  - change (xapp (y :: z :: c) (Str w :: r)) with (y :: xapp (z :: c) (Str w :: r)).
+    destruct (str_view y) as [[t ->]|Hy].
+    + cbn [xtrim]. destruct (strip_trailing_ws t); reflexivity.
+    + destruct y; [destruct (Hy _ eq_refl)|..]; reflexivity.
+Qed.
+
+Local Lemma ws_punct : forall c, is_punct c = true -> is_ws c = false.
+Proof. intros c. destruct c as [[] [] [] [] [] [] [] []]; vm_compute; congruence. Qed.
+
+Local Lemma solid_last : forall x z, is_ws z = false -> solid (x ++ String z EmptyString).
+Proof.
+  intros x z Hz. apply solid_app. split; [|discriminate].
+  unfold strip_trailing_ws. cbn. rewrite Hz. reflexivity.
+Qed.
+
+Local Lemma chars_last : forall c n, chars c (S n) = (chars c n ++ String c EmptyString)%string.
+Proof.
+  intros c n. induction n as [|n IH]; [reflexivity|].
+  cbn [chars append]. f_equal. exact IH.
+Qed.
+
+Local Lemma lit_solid : forall k, exists s, lit k = Str s /\ solid s.
+Proof.
+  intros [k mr|]; [|exists (one lbrack); split; [reflexivity|split; [reflexivity|discriminate]]].
+  pose proof (ws_punct _ (dchar_punct k)) as Hw.
+  destruct (dwidth k) as [|n] eqn:En; [destruct (dwidth_nonzero k En)|].
+  assert (Ht : solid (dtoken k))
+    by (unfold dtoken; rewrite En, chars_last; apply solid_last, Hw).
+  destruct mr; cbn [lit tok_text]; eexists; split; try reflexivity;
+    [apply solid_app|]; exact Ht.
+Qed.
+
+Local Lemma xtrim_collapsed : forall c x acc, (exists s, x = Str s /\ solid s) ->
+  xtrim (xapp c (xsnoc x acc)) = xapp (xtrim c) (xsnoc x acc).
+Proof.
+  intros c x acc (s & -> & Hs).
+  destruct (xsnoc_solid s acc Hs) as (w & r & E & Hw). rewrite E.
+  apply xtrim_xapp_solid, Hw.
+Qed.
+
+Local Lemma collapse_trim : forall real v,
+  collapse real (pv_stk (pv_trim v)) (pv_out (pv_trim v))
+  = xinner xtrim (collapse real (pv_stk v) (pv_out v)).
+Proof.
+  intros real [[|[p k c|d c] rest] out md]; cbn [pv_trim pv_stk pv_out fset fcontent collapse].
+  - reflexivity.
+  - destruct (real p); [reflexivity|].
+    rewrite xinner_comp. apply xinner_ext. intros acc.
+    symmetry. apply xtrim_collapsed, lit_solid.
+  - rewrite xinner_comp. apply xinner_ext. intros acc.
+    symmetry. apply xtrim_collapsed.
+    exists (one lbrack). split; [reflexivity|split; [reflexivity|discriminate]].
+Qed.
+
+Local Lemma str_trim_embed : forall l, str_trim (map mk l) = map mk (xtrim l).
+Proof.
+  intros [|x l]; [reflexivity|]. destruct (str_view x) as [[t ->]|Hx].
+  - cbn [map mk str_trim xtrim]. destruct (strip_trailing_ws t); reflexivity.
+  - destruct x; [destruct (Hx _ eq_refl)|..]; reflexivity.
+Qed.
+
+Local Lemma ttrim_embed : forall st,
+  ttrim (fst (tfr st)) (snd (tfr st)) = tfr (xinner xtrim st).
+Proof.
+  intros [[|[k c] fs] top]; cbn [tfr ttrim xinner fst snd map]; rewrite str_trim_embed;
+    reflexivity.
+Qed.
+
+Local Lemma pv_trim_add : forall v, pv_mode (pv_trim v) = pv_mode v.
+Proof. intros [[|[p k c|d c] rest] out md]; reflexivity. Qed.
 
 Local Lemma vembed_add : forall real x v,
   vembed real (pv_add x v)
@@ -736,12 +916,16 @@ Proof.
     split; [reflexivity|].
     unfold frames_normal in N. cbn [pv_stk] in N. rewrite E in N.
     exact (proj1 (pclose_go_normal K _ [] content rest N Logic.I Hpc)). }
-  destruct t as [c| |k mr op cl| |b].
+  destruct t as [c| |k mr op cl| |b|c|ws|ws].
   - unfold v. cbn [tstep pstep pv_mode]. fold v. apply Str_.
-  - unfold v. cbn [tstep pstep pv_mode]. fold v. rewrite Emb.
-    rewrite (xinner_ext (xsnoc _) (cons SoftBreak))
-      by (intros l; apply xsnoc_nonstr; discriminate).
-    destruct fs0 as [|[k c] fs]; reflexivity.
+  - unfold v. cbn [tstep pstep pv_mode]. fold v.
+    destruct (after_hard ts n).
+    + unfold vembed, tembed, v. cbn [pv_stk pv_out pv_mode membed]. fold real.
+      rewrite Ec. reflexivity.
+    + rewrite Emb.
+      rewrite (xinner_ext (xsnoc _) (cons SoftBreak))
+        by (intros l; apply xsnoc_nonstr; discriminate).
+      destruct fs0 as [|[k c] fs]; reflexivity.
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Popen : (op = false -> is_opener m n = false) -> is_closer m n = false ->
@@ -816,6 +1000,49 @@ Proof.
         rewrite (xinner_ext _ _ _ X). reflexivity.
       * unfold vembed, tembed. cbn [pv_stk pv_out pv_mode membed]. rewrite map_rev.
         reflexivity.
+  - (* an escape is text *)
+    unfold v. cbn [tstep pstep pv_mode]. fold v. apply Str_.
+  - (* an escaped whitespace run: a non-breaking space and the rest of
+       the run, or text *)
+    unfold v. cbn [tstep pstep pv_mode]. fold v.
+    destruct (nbsp_rest ws) as [r|]; [|apply Str_].
+    change (map (fun f : tkind * list inline => (fst f, map mk (snd f))) fs0)
+      with (fst (tfr (fs0, top0))).
+    change (map mk top0) with (snd (tfr (fs0, top0))).
+    rewrite temit_embed.
+    assert (Nb : vembed real (pv_add NonBreakingSpace v)
+                 = (fst (tfr (xinner (cons NonBreakingSpace) (fs0, top0))),
+                    snd (tfr (xinner (cons NonBreakingSpace) (fs0, top0))), TMNormal)).
+    { rewrite Emb. rewrite (xinner_ext (xsnoc _) (cons NonBreakingSpace))
+        by (intros l; apply xsnoc_nonstr; discriminate). reflexivity. }
+    destruct (nonempty_str r).
+    + rewrite vembed_add, collapse_add. cbn [pv_add pv_stk pv_out pv_mode].
+      unfold v. cbn [pv_stk pv_out pv_mode membed]. fold real. rewrite Ec.
+      rewrite (xinner_ext (xsnoc NonBreakingSpace) (cons NonBreakingSpace))
+        by (intros l; apply xsnoc_nonstr; discriminate).
+      rewrite (proj2 (pv_add_live NonBreakingSpace _)). cbn [pv_mode membed].
+      destruct (xinner (cons NonBreakingSpace) (fs0, top0)) as [fs1 top1] eqn:E1.
+      cbn [tfr fst snd].
+      change (map (fun f : tkind * list inline => (fst f, map mk (snd f))) fs1)
+        with (fst (tfr (fs1, top1))).
+      change (map mk top1) with (snd (tfr (fs1, top1))).
+      rewrite temit_str_embed. reflexivity.
+    + rewrite Nb. reflexivity.
+  - (* a hard break, after the text before it is trimmed *)
+    unfold v. cbn [tstep pstep pv_mode]. fold v.
+    change (map (fun f : tkind * list inline => (fst f, map mk (snd f))) fs0)
+      with (fst (tfr (fs0, top0))).
+    change (map mk top0) with (snd (tfr (fs0, top0))).
+    rewrite ttrim_embed.
+    destruct (tfr (xinner xtrim (fs0, top0))) as [fs1 top1] eqn:E1.
+    unfold tnormal. cbn [fst snd].
+    rewrite vembed_add, pv_trim_add, collapse_trim. unfold v. cbn [pv_stk pv_out pv_mode membed].
+    fold real. rewrite Ec.
+    rewrite (xinner_ext (xsnoc _) (cons HardBreak))
+      by (intros l; apply xsnoc_nonstr; discriminate).
+    replace fs1 with (fst (tfr (xinner xtrim (fs0, top0)))) by (rewrite E1; reflexivity).
+    replace top1 with (snd (tfr (xinner xtrim (fs0, top0)))) by (rewrite E1; reflexivity).
+    rewrite temit_embed. reflexivity.
 Qed.
 
 Local Lemma pv_add_normal : forall x v, frames_normal v -> frames_normal (pv_add x v).
@@ -826,6 +1053,23 @@ Proof.
   destruct f; cbn [fset fcontent] in *; apply normal_xsnoc, Nf.
 Qed.
 
+Local Lemma normal_xtrim : forall l, normal l -> normal (xtrim l).
+Proof.
+  intros [|x l] N; [exact Logic.I|]. destruct (str_view x) as [[t ->]|Hx].
+  - cbn [xtrim]. destruct (strip_trailing_ws t) as [|a t'];
+      [exact (normal_tail _ _ N)|].
+    destruct l as [|y l]; [exact Logic.I|]. exact N.
+  - destruct x; [destruct (Hx _ eq_refl)|..]; exact N.
+Qed.
+
+Local Lemma pv_trim_normal : forall v, frames_normal v -> frames_normal (pv_trim v).
+Proof.
+  intros [[|f rest] out md] N; [constructor|].
+  unfold frames_normal in *. cbn [pv_trim pv_stk] in *.
+  apply Forall_cons_iff in N as [Nf N]. constructor; [|exact N].
+  destruct f; cbn [fset fcontent] in *; apply normal_xtrim, Nf.
+Qed.
+
 Local Lemma pstep_normal : forall ts n t v, frames_normal v -> frames_normal (pstep ts n t v).
 Proof.
   intros ts n t [stk out md] N. unfold pstep. cbn [pv_mode].
@@ -834,7 +1078,9 @@ Proof.
        [apply pv_add_normal; exact N|exact N]. }
   assert (Open : forall i k op txt, frames_normal (popen i k op txt {| pv_stk := stk; pv_out := out; pv_mode := PMNormal |})).
   { intros i k [|] txt; [constructor; [exact Logic.I|exact N]|apply pv_add_normal, N]. }
-  destruct t as [c| |k mr op cl| |b]; try (apply pv_add_normal; exact N); [| |].
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (apply pv_add_normal; exact N);
+    [| | | | |].
+  - destruct (after_hard ts n); [exact N|apply pv_add_normal, N].
   - unfold pv_live. cbn [pv_stk pv_out].
     destruct (if cl then pick (KDelim k mr) (map fitem stk) else PNone) as [p below| |];
       [|apply pv_add_normal, N|apply Open].
@@ -849,6 +1095,9 @@ Proof.
     destruct (pclose_go_normal _ stk [] content rest N Logic.I Hc) as [Nc Nr].
     destruct (region_end ts n b); [exact Nr|].
     destruct b; [|exact Nr]. constructor; [apply normal_xsnoc, Nc|exact Nr].
+  - destruct (nbsp_rest ws) as [r|]; [|apply pv_add_normal, N].
+    destruct (nonempty_str r); repeat apply pv_add_normal; exact N.
+  - apply pv_add_normal, pv_trim_normal, N.
 Qed.
 
 (* Nor an empty `Str`: every text the view adds is a token's, and a
@@ -910,8 +1159,25 @@ Qed.
 
 Local Lemma tok_text_ne : forall t, tok_text t <> "".
 Proof.
-  intros [c| |k [|] [|] cl| |b]; cbn; try discriminate;
+  intros [c| |k [|] [|] cl| |b|c|ws|ws]; cbn; try discriminate;
     pose proof (dtoken_nonempty k) as H; destruct (dtoken k); discriminate.
+Qed.
+
+Local Lemma clean_xtrim : forall l, clean l -> clean (xtrim l).
+Proof.
+  intros [|x l] N; [constructor|]. destruct (str_view x) as [[t ->]|Hx].
+  - apply Forall_cons_iff in N as [_ N]. cbn [xtrim].
+    destruct (strip_trailing_ws t) as [|a t']; [exact N|].
+    constructor; [discriminate|exact N].
+  - destruct x; [destruct (Hx _ eq_refl)|..]; exact N.
+Qed.
+
+Local Lemma pv_trim_clean : forall v, frames_clean v -> frames_clean (pv_trim v).
+Proof.
+  intros [[|f rest] out md] N; [constructor|].
+  unfold frames_clean in *. cbn [pv_trim pv_stk] in *.
+  apply Forall_cons_iff in N as [Nf N]. constructor; [|exact N].
+  destruct f; cbn [fset fcontent] in *; apply clean_xtrim, Nf.
 Qed.
 
 Local Lemma pstep_clean : forall ts n t v, frames_clean v -> frames_clean (pstep ts n t v).
@@ -925,9 +1191,9 @@ Proof.
   assert (Open : forall i k op txt, txt <> "" ->
                  frames_clean (popen i k op txt {| pv_stk := stk; pv_out := out; pv_mode := PMNormal |})).
   { intros i k [|] txt Ht; [constructor; [constructor|exact N]|apply pv_add_clean; [apply Str_, Ht|exact N]]. }
-  destruct t as [c| |k mr op cl| |b].
+  destruct t as [c| |k mr op cl| |b|c|ws|ws].
   - apply pv_add_clean; [discriminate|exact N].
-  - apply pv_add_clean; [discriminate|exact N].
+  - destruct (after_hard ts n); [exact N|apply pv_add_clean; [discriminate|exact N]].
   - unfold pv_live. cbn [pv_stk pv_out].
     destruct (if cl then pick (KDelim k mr) (map fitem stk) else PNone) as [p below| |];
       [|apply pv_add_clean; [apply Str_, tok_text_ne|exact N]|apply Open, tok_text_ne].
@@ -943,6 +1209,15 @@ Proof.
     destruct (pclose_go_clean _ stk [] content rest N (Forall_nil _) Hc) as [Nc Nr].
     destruct (region_end ts n b); [exact Nr|].
     destruct b; [|exact Nr]. constructor; [apply clean_xsnoc; [discriminate|exact Nc]|exact Nr].
+  - apply pv_add_clean; [apply Str_|exact N].
+    unfold esc_text. destruct (is_punct c); discriminate.
+  - destruct (nbsp_rest ws) as [r|];
+      [|apply pv_add_clean; [apply Str_, (tok_text_ne (TEscWs ws))|exact N]].
+    destruct (nonempty_str r) eqn:Er.
+    + apply pv_add_clean; [|apply pv_add_clean; [discriminate|exact N]].
+      apply Str_. intros ->. discriminate Er.
+    + apply pv_add_clean; [discriminate|exact N].
+  - apply pv_add_clean; [discriminate|apply pv_trim_clean, N].
 Qed.
 
 Local Lemma is_opener_iff : forall m i, is_opener m i = true <-> exists j, In (i, j) m.
@@ -976,7 +1251,7 @@ Proof.
   { intros k [|] s' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
   destruct md as [|[e|]].
-  - destruct t as [c| |k mr op cl| |b]; try (split; left; reflexivity).
+  - destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (split; left; reflexivity).
     + destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
         [destruct (Nat.ltb (S p) i)| |];
         try (apply Ro; reflexivity); try (split; left; reflexivity).
@@ -1085,7 +1360,7 @@ Proof.
     specialize (ri_bound_os ts n s I n Hin). lia. }
   unfold rstep in Hp, Ho. rewrite Hmd in Hp, Ho. unfold step_facts.
   destruct s as [lv pairs os' md']. cbn [rs_live rs_pairs rs_os rs_mode] in *.
-  destruct t as [c| |k mr op cl| |b]; try exact Logic.I.
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try exact Logic.I.
   - remember (if cl then pick (KDelim k mr) lv else PNone) as r eqn:P'.
     destruct r as [p below| |].
     + remember (Nat.ltb (S p) n) as l eqn:L. destruct l.
@@ -1555,12 +1830,29 @@ Proof.
     apply Forall_cons_iff in B as [_ B]. exact B.
 Qed.
 
+Local Lemma self_frames_trim : forall v,
+  self_frames (pv_stk v) -> self_frames (pv_stk (pv_trim v)).
+Proof.
+  intros [[|f rest] out md] B; [exact B|].
+  apply Forall_cons_iff in B as [Bk B]. constructor; [|exact B].
+  destruct f as [p [k mr|] c|d c]; exact Bk.
+Qed.
+
+(* The innermost frame holds something: true right after a hard break,
+   which the break that follows it does not add to. *)
+Definition top_filled (v : pview) : Prop :=
+  match pv_mode v, pv_stk v with
+  | PMNormal, PF _ _ c :: _ => c <> []
+  | _, _ => True
+  end.
+
 Local Lemma pv_ok_step : forall ts n t v,
   pv_ok n v ->
   (forall k mr op cl, t = TDelim k mr op cl -> self_row k = true) ->
+  (t = TBreak -> after_hard ts n = true -> top_filled v) ->
   pv_ok (S n) (pstep ts n t v).
 Proof.
-  intros ts n t v Ok Hb. pose proof Ok as (D & Bd & B & _).
+  intros ts n t v Ok Hb Hh. pose proof Ok as (D & Bd & B & Inn).
   unfold pstep. destruct (pv_mode v) as [|b kids d e txt] eqn:Em.
   2: { destruct (match e with Some e' => Nat.eqb n e' | None => false end).
        - apply pv_ok_add; exact D || exact Bd || exact B.
@@ -1576,7 +1868,15 @@ Proof.
       intros y [<-|H]; [cbn; lia|]. specialize (Bd y H). lia.
     - constructor; [|exact B]. destruct k as [k' mr|]; [exact (Hk k' mr eq_refl)|exact Logic.I].
     - cbn [pv_stk pv_mode]. rewrite Em. split; reflexivity. }
-  destruct t as [c| |k mr op cl| |b]; try (apply pv_ok_add; assumption).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (apply pv_ok_add; assumption).
+  - (* a break after a hard break adds nothing, to a frame already filled *)
+    destruct (after_hard ts n) eqn:Ea; [|apply pv_ok_add; assumption].
+    specialize (Hh eq_refl eq_refl). unfold top_filled in Hh. rewrite Em in Hh.
+    split; [exact D|]. split; [intros y H; specialize (Bd y H); lia|].
+    split; [exact B|]. rewrite Em.
+    destruct (pv_stk v) as [|[p k c|d c] rest] eqn:Es; try exact Logic.I.
+    assert (Hp : p < n) by (apply (Bd (LOpen p k)); unfold pv_live; rewrite Es; left; reflexivity).
+    split; [intros Hc; contradiction|lia].
   - specialize (Hb k mr op cl eq_refl).
     destruct (if cl then pick (KDelim k mr) (pv_live v) else PNone) as [p below| |] eqn:P;
       [|apply pv_ok_add; assumption|apply Open; intros k' mr' E; injection E as <- _; exact Hb].
@@ -1604,6 +1904,12 @@ Proof.
       * exact Logic.I.
     + split; [exact D'|]. split; [intros y H; specialize (Bd' y H); cbn; lia|].
       split; [exact B'|exact Logic.I].
+  - destruct (nbsp_rest ws) as [r|]; [|apply pv_ok_add; assumption].
+    destruct (nonempty_str r); [|apply pv_ok_add; assumption].
+    destruct (pv_add_live NonBreakingSpace v) as [E1 _].
+    apply pv_ok_add; [rewrite E1; exact D|rewrite E1; exact Bd|apply self_frames_add, B].
+  - destruct (pv_trim_live v) as [E1 _].
+    apply pv_ok_add; [rewrite E1; exact D|rewrite E1; exact Bd|apply self_frames_trim, B].
 Qed.
 
 (*
@@ -1912,19 +2218,14 @@ A destination that does not close is read twice: as a destination,
 which the balanced `)` would end and never does, and as ordinary text
 inside the bracket's scope, which is what the paragraph keeps.  The
 scanner's state is the second reading inside one `IDest` per such
-destination.  A byte passes through each of them, counting parens, as
-long as it is not a backslash and not the `)` that would end one. *)
+destination.  A byte passes through each of them, counting parens and
+decoding escapes, as long as it is not the `)` that would end one.
 
-Record wlayer : Type := WL {
-  wl_kids : inlines; wl_open : span; wl_depth : nat; wl_dst : string; wl_o : ostate
-}.
+What a destination keeps besides the reading inside it is a small
+machine of its own (`dstep`): a pending backslash, the paren depth and
+the text so far. *)
 
-Fixpoint wrap (ws : list wlayer) (core : iscan) : iscan :=
-  match ws with
-  | [] => core
-  | w :: rest =>
-      IDest (wl_kids w) false (wl_open w) false (wl_depth w) (wl_dst w) (wrap rest core) (wl_o w)
-  end.
+Record dstate : Type := DS { ds_esc : bool; ds_depth : nat; ds_dst : string }.
 
 (* The paren depth after a byte, or `None` if the byte ends the
    destination. *)
@@ -1933,22 +2234,46 @@ Definition pstep_byte (c : ascii) (depth : nat) : option nat :=
   else if Ascii.eqb c rparen then match depth with O => None | S d => Some d end
   else Some depth.
 
-Fixpoint pdepth (depth : nat) (s : string) : option nat :=
+(* One byte, as `IDest` reads it: an escaped byte is decoded and counts
+   no paren. *)
+Definition dstep (c : ascii) (s : dstate) : option dstate :=
+  if ds_esc s then Some (DS false (ds_depth s) (ds_dst s ++ esc_text c))
+  else if is_bslash c then Some (DS true (ds_depth s) (ds_dst s))
+  else match pstep_byte c (ds_depth s) with
+       | Some d => Some (DS false d (ds_dst s ++ one c))
+       | None => None
+       end.
+
+Fixpoint dfeed (s : string) (st : dstate) : option dstate :=
   match s with
-  | EmptyString => Some depth
-  | String c rest =>
-      match pstep_byte c depth with Some d => pdepth d rest | None => None end
+  | EmptyString => Some st
+  | String c rest => match dstep c st with Some st' => dfeed rest st' | None => None end
   end.
 
-Definition wl_step (c : ascii) (w : wlayer) : wlayer :=
-  WL (wl_kids w) (wl_open w)
-     (match pstep_byte c (wl_depth w) with Some d => d | None => 0 end)
-     (wl_dst w ++ one c) (wl_o w).
+Local Lemma dfeed_app : forall a b st,
+  dfeed (a ++ b) st = match dfeed a st with Some st' => dfeed b st' | None => None end.
+Proof.
+  induction a as [|c a IH]; intros b st; [reflexivity|].
+  cbn [append dfeed]. destruct (dstep c st); [apply IH|reflexivity].
+Qed.
+
+Record wlayer : Type := WL {
+  wl_kids : inlines; wl_open : span; wl_ds : dstate; wl_o : ostate
+}.
+
+Definition wl_depth (w : wlayer) : nat := ds_depth (wl_ds w).
+
+Fixpoint wrap (ws : list wlayer) (core : iscan) : iscan :=
+  match ws with
+  | [] => core
+  | w :: rest =>
+      IDest (wl_kids w) false (wl_open w) (ds_esc (wl_ds w)) (ds_depth (wl_ds w))
+        (ds_dst (wl_ds w)) (wrap rest core) (wl_o w)
+  end.
 
 Definition wl_after (s : string) (w : wlayer) : wlayer :=
   WL (wl_kids w) (wl_open w)
-     (match pdepth (wl_depth w) s with Some d => d | None => 0 end)
-     (wl_dst w ++ s) (wl_o w).
+     (match dfeed s (wl_ds w) with Some d => d | None => wl_ds w end) (wl_o w).
 
 Fixpoint no_bslash (s : string) : bool :=
   match s with
@@ -1956,54 +2281,70 @@ Fixpoint no_bslash (s : string) : bool :=
   | String c rest => negb (is_bslash c) && no_bslash rest
   end.
 
-Local Lemma istep_idest : forall c kids op depth dst sh o d',
-  is_bslash c = false -> pstep_byte c depth = Some d' ->
-  istep c (IDest kids false op false depth dst sh o)
-  = IDest kids false op false d' (dst ++ one c) (istep c sh) o.
+Local Lemma istep_idest : forall c kids op e depth dst sh o d,
+  dstep c (DS e depth dst) = Some d ->
+  istep c (IDest kids false op e depth dst sh o)
+  = IDest kids false op (ds_esc d) (ds_depth d) (ds_dst d) (istep c sh) o.
 Proof.
-  intros c kids op depth dst sh o d' Hb Hp. unfold pstep_byte in Hp.
-  unfold istep. cbn [istep_at]. rewrite Hb.
-  destruct (Ascii.eqb c lparen) eqn:El.
-  - injection Hp as <-. apply Ascii.eqb_eq in El. subst c. reflexivity.
-  - destruct (Ascii.eqb c rparen) eqn:Er.
-    + apply Ascii.eqb_eq in Er. subst c.
-      destruct depth as [|d]; [discriminate|injection Hp as <-]. reflexivity.
-    + injection Hp as <-. reflexivity.
+  intros c kids op e depth dst sh o d H. unfold dstep in H. cbn [ds_esc ds_depth ds_dst] in H.
+  unfold istep. destruct e; cbn [istep_at].
+  - injection H as <-. reflexivity.
+  - destruct (is_bslash c) eqn:Hb; [injection H as <-; reflexivity|].
+    unfold pstep_byte in H.
+    destruct (Ascii.eqb c lparen) eqn:El.
+    + injection H as <-. apply Ascii.eqb_eq in El. subst c. reflexivity.
+    + destruct (Ascii.eqb c rparen) eqn:Er.
+      * apply Ascii.eqb_eq in Er. subst c.
+        destruct depth as [|dp]; [discriminate|injection H as <-]. reflexivity.
+      * injection H as <-. reflexivity.
 Qed.
 
+Definition wl_step (c : ascii) (w : wlayer) : wlayer :=
+  WL (wl_kids w) (wl_open w)
+     (match dstep c (wl_ds w) with Some d => d | None => wl_ds w end) (wl_o w).
+
 Local Lemma istep_wrap : forall c ws core,
-  is_bslash c = false ->
-  Forall (fun w => pstep_byte c (wl_depth w) <> None) ws ->
+  Forall (fun w => dstep c (wl_ds w) <> None) ws ->
   istep c (wrap ws core) = wrap (map (wl_step c) ws) (istep c core).
 Proof.
-  intros c ws core Hb. induction ws as [|w ws IH]; intros F; [reflexivity|].
-  apply Forall_cons_iff in F as [Fw F]. cbn [wrap map].
-  destruct (pstep_byte c (wl_depth w)) as [d'|] eqn:Hp; [|contradiction].
-  rewrite (istep_idest c _ _ _ _ _ _ d' Hb Hp), IH by exact F.
-  unfold wl_step. rewrite Hp. reflexivity.
+  intros c ws core. induction ws as [|w ws IHw]; intros G; [reflexivity|].
+  apply Forall_cons_iff in G as [Gw G]. cbn [wrap map].
+  destruct (dstep c (wl_ds w)) as [d|] eqn:Hd; [|contradiction].
+  destruct w as [k o [e dp dst] o']. cbn [wl_ds wl_kids wl_open wl_o] in *.
+  rewrite (istep_idest c _ _ _ _ _ _ _ d Hd), IHw by exact G.
+  unfold wl_step. cbn [wl_ds wl_kids wl_open wl_o]. rewrite Hd. reflexivity.
 Qed.
 
 Local Lemma iscan_wrap : forall s ws core,
-  no_bslash s = true ->
-  Forall (fun w => pdepth (wl_depth w) s <> None) ws ->
+  Forall (fun w => dfeed s (wl_ds w) <> None) ws ->
   iscan_str s (wrap ws core) = wrap (map (wl_after s) ws) (iscan_str s core).
 Proof.
-  induction s as [|c s IH]; intros ws core Hb F.
+  induction s as [|c s IH]; intros ws core F.
   - cbn [iscan_str]. f_equal. rewrite <- (map_id ws) at 1. apply map_ext.
-    intros [k o d dst o']. unfold wl_after. cbn. rewrite append_empty_r. reflexivity.
-  - cbn [no_bslash] in Hb. apply andb_true_iff in Hb as [Hc Hb]. apply negb_true_iff in Hc.
-    cbn [iscan_str].
-    rewrite (istep_wrap c ws core Hc).
+    intros [k o d o']. reflexivity.
+  - cbn [iscan_str].
+    assert (Step : forall ws', Forall (fun w => dstep c (wl_ds w) <> None) ws' ->
+              istep c (wrap ws' core)
+              = wrap (map (fun w => WL (wl_kids w) (wl_open w)
+                                      (match dstep c (wl_ds w) with Some d => d | None => wl_ds w end)
+                                      (wl_o w)) ws') (istep c core)).
+    { induction ws' as [|w ws' IHw]; intros G; [reflexivity|].
+      apply Forall_cons_iff in G as [Gw G]. cbn [wrap map].
+      destruct (dstep c (wl_ds w)) as [d|] eqn:Hd; [|contradiction].
+      destruct w as [k o [e dp dst] o']. cbn [wl_ds wl_kids wl_open wl_o] in *.
+      rewrite (istep_idest c _ _ _ _ _ _ _ d Hd), IHw by exact G. reflexivity. }
+    rewrite Step.
     2: { rewrite Forall_forall in F |- *. intros w Hw E. apply (F w Hw).
-         cbn [pdepth]. rewrite E. reflexivity. }
-    rewrite IH; [|exact Hb|].
-    + f_equal. rewrite map_map. apply map_ext_in. intros [k o d dst o'] Hw.
-      rewrite Forall_forall in F. specialize (F _ Hw). cbn [wl_depth pdepth] in F.
-      unfold wl_step, wl_after. cbn [wl_depth wl_dst wl_kids wl_open wl_o pdepth].
-      destruct (pstep_byte c d); [|contradiction]. rewrite append_assoc. reflexivity.
+         cbn [dfeed]. rewrite E. reflexivity. }
+    rewrite IH.
+    + f_equal. rewrite map_map. apply map_ext_in. intros [k o d o'] Hw.
+      rewrite Forall_forall in F. specialize (F _ Hw). cbn [wl_ds dfeed] in F.
+      unfold wl_after. cbn [wl_ds wl_kids wl_open wl_o dfeed].
+      destruct (dstep c d) as [d0|]; [|contradiction].
+      destruct (dfeed s d0); [reflexivity|contradiction].
     + rewrite Forall_map. rewrite Forall_forall in F |- *. intros w Hw E.
-      apply (F w Hw). unfold wl_step in E. cbn [wl_depth pdepth] in *.
-      destruct (pstep_byte c (wl_depth w)); [exact E|reflexivity].
+      apply (F w Hw). cbn [dfeed wl_ds] in *.
+      destruct (dstep c (wl_ds w)); [exact E|reflexivity].
 Qed.
 
 (* A state resolved as at the end of a line, through the destination
@@ -2027,41 +2368,30 @@ Definition settles (X st : iscan) (next : option ascii) : Prop :=
   | None => rres X = rres st
   end.
 
-Local Lemma pdepth_app : forall d a b,
-  pdepth d (a ++ b) = match pdepth d a with Some d' => pdepth d' b | None => None end.
-Proof.
-  intros d a. revert d. induction a as [|c a IH]; intros d b; [reflexivity|].
-  cbn [append pdepth]. destruct (pstep_byte c d); [apply IH|reflexivity].
-Qed.
-
 Local Lemma no_bslash_app : forall a b, no_bslash (a ++ b) = (no_bslash a && no_bslash b)%bool.
 Proof.
   induction a as [|c a IH]; intros b; [reflexivity|]. cbn. rewrite IH. apply andb_assoc.
 Qed.
 
 Local Lemma step_through : forall bytes rest ws core X st,
-  no_bslash (bytes ++ rest) = true ->
-  Forall (fun w => pdepth (wl_depth w) (bytes ++ rest) <> None) ws ->
+  Forall (fun w => dfeed (bytes ++ rest) (wl_ds w) <> None) ws ->
   iscan_str bytes core = X -> settles X st (get 0 rest) ->
   rres (iscan_str (bytes ++ rest) (wrap ws core))
   = rres (iscan_str rest (wrap (map (wl_after bytes) ws) st)).
 Proof.
-  intros bytes rest ws core X st Hb F HX Hs.
-  rewrite no_bslash_app in Hb. apply andb_true_iff in Hb as [Hb1 Hb2].
+  intros bytes rest ws core X st F HX Hs.
   rewrite iscan_str_app, iscan_wrap, HX.
-  2: exact Hb1.
   2: { rewrite Forall_forall in F |- *. intros w Hw E. apply (F w Hw).
-       rewrite pdepth_app, E. reflexivity. }
+       rewrite dfeed_app, E. reflexivity. }
   destruct rest as [|c r].
   - cbn [iscan_str]. rewrite !rres_wrap. cbn [get settles] in Hs. rewrite Hs. reflexivity.
-  - cbn [iscan_str no_bslash] in *. apply andb_true_iff in Hb2 as [Hc _].
-    apply negb_true_iff in Hc.
-    assert (Fc : Forall (fun w => pstep_byte c (wl_depth w) <> None) (map (wl_after bytes) ws)).
+  - cbn [iscan_str]. cbn [get settles] in Hs.
+    assert (Fc : Forall (fun w => dstep c (wl_ds w) <> None) (map (wl_after bytes) ws)).
     { rewrite Forall_map. rewrite Forall_forall in F |- *. intros w Hw E. apply (F w Hw).
-      rewrite pdepth_app. unfold wl_after in E. cbn [wl_depth] in E.
-      destruct (pdepth (wl_depth w) bytes) as [d'|]; [|reflexivity].
-      cbn [pdepth]. rewrite E. reflexivity. }
-    rewrite !(istep_wrap c _ _ Hc Fc). cbn [get settles] in Hs. rewrite Hs. reflexivity.
+      rewrite dfeed_app. unfold wl_after in E. cbn [wl_ds] in E.
+      destruct (dfeed bytes (wl_ds w)) as [d'|]; [|reflexivity].
+      cbn [dfeed]. rewrite E. reflexivity. }
+    rewrite !(istep_wrap c _ _ Fc), Hs. reflexivity.
 Qed.
 
 (*
@@ -2231,6 +2561,15 @@ Proof.
   reflexivity.
 Qed.
 
+Local Lemma sdrop_length : forall s, sdrop (String.length s) s = "".
+Proof. induction s as [|c s IH]; [reflexivity|]. exact IH. Qed.
+
+Local Lemma ws_run_sdrop : forall s, (ws_run s ++ sdrop (String.length (ws_run s)) s)%string = s.
+Proof.
+  induction s as [|c s IH]; [reflexivity|]. cbn [ws_run].
+  destruct (is_ws c); [|reflexivity]. cbn [String.length sdrop append]. rewrite IH. reflexivity.
+Qed.
+
 Local Lemma lex_text : forall s prev skip, toks_text (lex prev skip s) = sdrop skip s.
 Proof.
   induction s as [|c rest IH]; intros prev skip; [destruct skip; reflexivity|].
@@ -2238,6 +2577,16 @@ Proof.
   assert (One : forall t p, tok_text t = one c ->
             toks_text (t :: lex p 0 rest) = String c rest).
   { intros t p E. cbn [toks_text]. rewrite E, IH. reflexivity. }
+  destruct (is_bslash c) eqn:Eb.
+  { (* an escape spells its backslash and the bytes it takes *)
+    unfold is_bslash in Eb. apply Ascii.eqb_eq in Eb. subst c.
+    cbn [toks_text]. rewrite IH.
+    destruct (is_blank rest) eqn:Bl.
+    - cbn [tok_text]. rewrite sdrop_length, append_empty_r. reflexivity.
+    - destruct rest as [|d r]; [discriminate Bl|]. destruct (is_ws d) eqn:Wd.
+      + cbn [tok_text]. change (String bslash (ws_run (String d r)) ++ ?x)%string
+          with (String bslash (ws_run (String d r) ++ x)). rewrite ws_run_sdrop. reflexivity.
+      + reflexivity. }
   destruct (Ascii.eqb c lbrack) eqn:Elk.
   { apply Ascii.eqb_eq in Elk. subst c. apply One. reflexivity. }
   destruct (Ascii.eqb c rbrack) eqn:Erk.
@@ -2269,18 +2618,58 @@ Qed.
 (* A delimiter token of the rows here, whose character is not a paren. *)
 Definition tok_plain (t : token) : Prop :=
   match t with
+  | TText c => is_bslash c = false
   | TDelim k _ _ _ =>
       self_row k = true /\ Ascii.eqb (dchar k) lparen = false
       /\ Ascii.eqb (dchar k) rparen = false
+  | TEscWs ws => is_blank ws = true /\ ws <> EmptyString
+  | THard ws => is_blank ws = true
   | _ => True
   end.
 
+Local Lemma ws_run_blank : forall s, is_blank (ws_run s) = true.
+Proof.
+  induction s as [|c s IH]; [reflexivity|]. cbn [ws_run].
+  destruct (is_ws c) eqn:E; [|reflexivity]. cbn [is_blank]. rewrite E. exact IH.
+Qed.
+
 Local Lemma over_alphabet_cons : forall c s,
-  over_alphabet (String c s) = true ->
+  is_bslash c = false -> over_alphabet (String c s) = true ->
   in_alphabet c = true /\ follow_ok c s = true /\ over_alphabet s = true.
 Proof.
-  intros c s H. cbn [over_alphabet] in H. apply andb_true_iff in H as [H H3].
-  apply andb_true_iff in H as [H1 H2]. auto.
+  intros c s Hb H. cbn [over_alphabet] in H. rewrite Hb in H.
+  apply andb_true_iff in H as [H H3]. apply andb_true_iff in H as [H1 H2]. auto.
+Qed.
+
+(* A backslash escapes the byte after it, which the alphabet does not
+   draw on. *)
+Local Lemma over_alphabet_bslash : forall s,
+  over_alphabet (String bslash s) = true ->
+  match s with EmptyString => True | String _ r => over_alphabet r = true end.
+Proof. intros [|d r] H; [exact Logic.I|exact H]. Qed.
+
+(* A byte of the alphabet is not a backslash. *)
+Local Lemma alphabet_not_bslash : forall c, in_alphabet c = true -> is_bslash c = false.
+Proof.
+  intros c Hc. destruct (is_bslash c) eqn:E; [|reflexivity].
+  unfold is_bslash in E. apply Ascii.eqb_eq in E. subst c. discriminate Hc.
+Qed.
+
+Local Lemma delim_not_bslash : forall d k, dstyle_of d = Some k -> is_bslash d = false.
+Proof.
+  intros d k Hd. pose proof (dstyle_of_char d k Hd) as E. subst d.
+  exact (proj1 (dreserved_false _ (dchar_free k))).
+Qed.
+
+(* Past a run of whitespace, a string of the alphabet still is one. *)
+Local Lemma over_alphabet_ws_run : forall s,
+  over_alphabet s = true -> over_alphabet (sdrop (String.length (ws_run s)) s) = true.
+Proof.
+  induction s as [|c s IH]; intros H; [exact H|]. cbn [ws_run].
+  destruct (is_ws c) eqn:Ew; [|exact H].
+  assert (Hb : is_bslash c = false)
+    by (destruct c as [[] [] [] [] [] [] [] []]; try discriminate Ew; reflexivity).
+  apply (over_alphabet_cons c s Hb) in H as (_ & _ & H). exact (IH H).
 Qed.
 
 Local Lemma alphabet_plain : forall c k b1 b2 b3,
@@ -2290,89 +2679,226 @@ Proof.
   split; [exact (alphabet_self _ k Hc Hd)|exact (alphabet_paren _ k Hc Hd)].
 Qed.
 
+Local Lemma over_alphabet_chars : forall c n r,
+  is_bslash c = false -> over_alphabet (chars c n ++ r) = true -> over_alphabet r = true.
+Proof.
+  intros c n r Hb. induction n as [|n IHn]; intros H; [exact H|].
+  cbn [chars append] in H. apply (over_alphabet_cons c _ Hb) in H as (_ & _ & H). exact (IHn H).
+Qed.
+
+(* Past a delimiter's bytes, a string of the alphabet still is one. *)
+Local Lemma over_alphabet_token : forall k s,
+  prefix (dtoken k) s = true -> over_alphabet s = true ->
+  over_alphabet (sdrop (dwidth k) s) = true.
+Proof.
+  intros k s P H. pose proof (prefix_sdrop _ _ P) as E.
+  unfold dtoken in E at 2. rewrite length_chars in E. rewrite E in H.
+  exact (over_alphabet_chars (dchar k) (dwidth k) _ (proj1 (dreserved_false _ (dchar_free k))) H).
+Qed.
+
 Local Lemma lex_plain : forall s prev skip,
-  over_alphabet s = true -> Forall tok_plain (lex prev skip s).
+  over_alphabet (sdrop skip s) = true -> Forall tok_plain (lex prev skip s).
 Proof.
   induction s as [|c rest IH]; intros prev skip Ha; [constructor|].
-  apply over_alphabet_cons in Ha as (Hc & _ & Hr).
-  cbn [lex]. destruct skip as [|skip]; [|apply IH, Hr].
+  cbn [lex]. destruct skip as [|skip]; [|apply IH, Ha]. cbn [sdrop] in Ha.
+  destruct (is_bslash c) eqn:Eb.
+  { (* an escape is plain, and the bytes it takes are skipped *)
+    unfold is_bslash in Eb. apply Ascii.eqb_eq in Eb. subst c.
+    apply over_alphabet_bslash in Ha.
+    destruct (is_blank rest) eqn:Bl.
+    { constructor; [exact Bl|]. apply IH. rewrite sdrop_length. reflexivity. }
+    destruct rest as [|d r]; [discriminate Bl|].
+    destruct (is_ws d) eqn:Wd.
+    - constructor; [split; [apply ws_run_blank|cbn [ws_run]; rewrite Wd; discriminate]|].
+      apply IH. cbn [ws_run]. rewrite Wd. cbn [String.length sdrop].
+      apply over_alphabet_ws_run, Ha.
+    - constructor; [exact Logic.I|]. apply IH, Ha. }
+  pose proof Ha as Ha0. apply (over_alphabet_cons c rest Eb) in Ha as (Hc & _ & Hr).
   destruct (Ascii.eqb c lbrack); [constructor; [exact Logic.I|apply IH, Hr]|].
   destruct (Ascii.eqb c rbrack).
   { constructor; [|apply IH, Hr].
-    destruct (starts_with lparen rest); [|destruct (starts_with lbrack rest)]; exact Logic.I. }
+    destruct (starts_with lparen rest); [|destruct (starts_with lbrack rest)];
+      first [exact Logic.I|exact Eb]. }
   destruct (Ascii.eqb c lbrace).
-  { destruct rest as [|d r]; [constructor; [exact Logic.I|apply IH, Hr]|].
-    destruct (dstyle_of d) as [k|] eqn:Hd; [|constructor; [exact Logic.I|apply IH, Hr]].
-    destruct (prefix (dtoken k) (String d r)); constructor;
-      try exact Logic.I; try (apply IH, Hr).
-    apply over_alphabet_cons in Hr as (Hdc & _). exact (alphabet_plain d k _ _ _ Hdc Hd). }
-  destruct (dstyle_of c) as [k|] eqn:Hd; [|constructor; [exact Logic.I|apply IH, Hr]].
-  destruct (prefix (dtoken k) (String c rest)); [|constructor; [exact Logic.I|apply IH, Hr]].
-  destruct (at_rbrace _); (constructor; [exact (alphabet_plain c k _ _ _ Hc Hd)|apply IH, Hr]).
+  { destruct rest as [|d r]; [constructor; [exact Eb|apply IH, Hr]|].
+    destruct (dstyle_of d) as [k|] eqn:Hd; [|constructor; [exact Eb|apply IH, Hr]].
+    destruct (prefix (dtoken k) (String d r)) eqn:P; [|constructor; [exact Eb|apply IH, Hr]].
+    constructor; [|apply IH, (over_alphabet_token k _ P Hr)].
+    apply (over_alphabet_cons d r (delim_not_bslash d k Hd)) in Hr as (Hdc & _).
+    exact (alphabet_plain d k _ _ _ Hdc Hd). }
+  destruct (dstyle_of c) as [k|] eqn:Hd; [|constructor; [exact Eb|apply IH, Hr]].
+  destruct (prefix (dtoken k) (String c rest)) eqn:P; [|constructor; [exact Eb|apply IH, Hr]].
+  pose proof (over_alphabet_token k _ P Ha0) as Hx.
+  destruct (dwidth k) as [|w] eqn:Ew; [destruct (dwidth_nonzero k Ew)|].
+  cbn [sdrop] in Hx. cbn [pred].
+  destruct (at_rbrace _) eqn:Ar; (constructor; [exact (alphabet_plain c k _ _ _ Hc Hd)|apply IH]);
+    [|exact Hx].
+  (* a marked closer skips its `}` too *)
+  assert (G : forall n u, at_rbrace (get n u) = true -> over_alphabet (sdrop n u) = true ->
+            over_alphabet (sdrop (S n) u) = true).
+  { intros n. induction n as [|n IHn]; intros u A H'.
+    - destruct u as [|e u]; [discriminate|]. cbn [get at_rbrace] in A. apply Ascii.eqb_eq in A.
+      subst e. cbn [sdrop] in H' |- *. exact (proj2 (proj2 (over_alphabet_cons rbrace u eq_refl H'))).
+    - destruct u as [|e u]; [destruct n; discriminate|]. cbn [get] in A. cbn [sdrop] in H' |- *.
+      exact (IHn u A H'). }
+  apply G; [exact Ar|exact Hx].
 Qed.
 
-Local Lemma pdepth_chars : forall c n d,
-  Ascii.eqb c lparen = false -> Ascii.eqb c rparen = false ->
-  pdepth d (chars c n) = Some d.
+Local Lemma dfeed_chars : forall c n d dst,
+  is_bslash c = false -> Ascii.eqb c lparen = false -> Ascii.eqb c rparen = false ->
+  dfeed (chars c n) (DS false d dst) = Some (DS false d (dst ++ chars c n)).
 Proof.
-  intros c n d H1 H2. induction n as [|n IH]; [reflexivity|].
-  cbn [chars pdepth]. unfold pstep_byte. rewrite H1, H2. exact IH.
+  intros c n d dst Hb H1 H2. revert dst. induction n as [|n IH]; intros dst.
+  - cbn. rewrite append_empty_r. reflexivity.
+  - cbn [chars dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst]. rewrite Hb.
+    unfold pstep_byte. rewrite H1, H2. rewrite IH, append_assoc. reflexivity.
 Qed.
 
-Local Lemma delim_pdepth : forall k mr op cl depth,
-  tok_plain (TDelim k mr op cl) ->
-  pdepth depth (tok_text (TDelim k mr op cl)) = Some depth.
+Local Lemma blank_byte : forall c, is_ws c = true ->
+  is_bslash c = false /\ Ascii.eqb c lparen = false /\ Ascii.eqb c rparen = false
+  /\ is_punct c = false.
+Proof. intros c. destruct c as [[] [] [] [] [] [] [] []]; intros H; try discriminate H; auto. Qed.
+
+Local Lemma dfeed_blank : forall s d dst, is_blank s = true ->
+  dfeed s (DS false d dst) = Some (DS false d (dst ++ s)).
 Proof.
-  intros k mr op cl depth (_ & H1 & H2).
-  destruct mr; [destruct op|]; cbn [tok_text]; unfold dtoken;
-    rewrite ?pdepth_app; cbn [one append pdepth];
-    rewrite ?(pdepth_chars _ _ _ H1 H2); try reflexivity.
-  change (pstep_byte lbrace depth) with (Some depth). cbn.
-  apply pdepth_chars; assumption.
+  induction s as [|c s IH]; intros d dst H; [cbn; rewrite append_empty_r; reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc H].
+  destruct (blank_byte c Hc) as (Hb & H1 & H2 & _).
+  cbn [dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst]. rewrite Hb.
+  unfold pstep_byte. rewrite H1, H2. rewrite IH by exact H. rewrite append_assoc. reflexivity.
 Qed.
 
-Local Lemma paren_close_cons : forall t depth i rest,
+(* A backslash and a run of whitespace: the first byte of the run is
+   escaped, and kept with its backslash. *)
+Local Lemma dfeed_esc_blank : forall ws d dst, is_blank ws = true ->
+  dfeed (String bslash ws) (DS false d dst)
+  = match ws with
+    | EmptyString => Some (DS true d dst)
+    | _ => Some (DS false d (dst ++ String bslash ws))
+    end.
+Proof.
+  intros [|w ws] d dst H; [reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hw H].
+  destruct (blank_byte w Hw) as (_ & _ & _ & Hp).
+  cbn [dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst].
+  change (is_bslash bslash) with true. cbn iota. unfold esc_text. rewrite Hp.
+  cbn [ds_esc ds_depth ds_dst]. rewrite dfeed_blank by exact H. rewrite !append_assoc.
+  reflexivity.
+Qed.
+
+(* What a token does to a destination's reading, from between two
+   tokens: a token that is not a paren adds its destination text, and
+   a hard break with no whitespace leaves its backslash pending. *)
+Local Lemma tok_dfeed : forall t d dst, tok_plain t ->
+  dfeed (tok_text t) (DS false d dst)
+  = match t with
+    | TText c => match pstep_byte c d with
+                 | Some d' => Some (DS false d' (dst ++ one c))
+                 | None => None
+                 end
+    | THard EmptyString => Some (DS true d dst)
+    | _ => Some (DS false d (dst ++ tok_dest t))
+    end.
+Proof.
+  intros t d dst Hp.
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; cbn [tok_dest].
+  - cbn [tok_text one dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst].
+    cbn [tok_plain] in Hp. rewrite Hp. destruct (pstep_byte c d); reflexivity.
+  - cbn [tok_text one dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst]. reflexivity.
+  - destruct Hp as (_ & H1 & H2).
+    pose proof (proj1 (dreserved_false _ (dchar_free k))) as Hb.
+    destruct mr; [destruct op|]; cbn [tok_text]; unfold dtoken.
+    + rewrite dfeed_app. cbn [one dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst].
+      change (is_bslash lbrace) with false. change (pstep_byte lbrace d) with (Some d).
+      cbn iota. rewrite dfeed_chars by assumption. rewrite append_assoc. reflexivity.
+    + rewrite dfeed_app, dfeed_chars by assumption. cbn [one dfeed]. unfold dstep.
+      cbn [ds_esc ds_depth ds_dst]. change (is_bslash rbrace) with false.
+      change (pstep_byte rbrace d) with (Some d). cbn iota. rewrite append_assoc. reflexivity.
+    + rewrite dfeed_chars by assumption. reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - cbn [tok_text one dfeed]. unfold dstep. cbn [ds_esc ds_depth ds_dst].
+    change (is_bslash bslash) with true. reflexivity.
+  - destruct Hp as [Hb Hne]. cbn [tok_text]. rewrite dfeed_esc_blank by exact Hb.
+    destruct ws; [contradiction|reflexivity].
+  - cbn [tok_plain] in Hp. cbn [tok_text]. rewrite dfeed_esc_blank by exact Hp.
+    destruct ws; reflexivity.
+Qed.
+
+Local Lemma paren_close_cons : forall t depth dst i rest,
   tok_plain t ->
   paren_close depth i (t :: rest)
-  = match pdepth depth (tok_text t) with
-    | Some d' => paren_close d' (S i) rest
+  = match dfeed (tok_text t) (DS false depth dst) with
+    | Some ds => paren_close (ds_depth ds) (S i) rest
     | None => Some i
     end.
 Proof.
-  intros t depth i rest Hp. destruct t as [c| |k mr op cl| |b]; try reflexivity.
-  - cbn [paren_close tok_text pdepth one]. unfold pstep_byte.
+  intros t depth dst i rest Hp. rewrite (tok_dfeed t depth dst Hp).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try reflexivity.
+  - cbn [paren_close]. unfold pstep_byte.
     destruct (Ascii.eqb c lparen); [reflexivity|].
     destruct (Ascii.eqb c rparen); [destruct depth; reflexivity|reflexivity].
-  - rewrite (delim_pdepth k mr op cl depth Hp). reflexivity.
+  - destruct ws; reflexivity.
 Qed.
 
 (* Only the `)` that balances ends a destination. *)
-Local Lemma pdepth_none : forall t depth,
-  tok_plain t -> pdepth depth (tok_text t) = None ->
+Local Lemma dfeed_none : forall t depth dst,
+  tok_plain t -> dfeed (tok_text t) (DS false depth dst) = None ->
   tok_text t = one rparen /\ depth = 0.
 Proof.
-  intros t depth Hp H. destruct t as [c| |k mr op cl| |b]; try discriminate H.
-  - cbn [tok_text one pdepth] in H. unfold pstep_byte in H.
+  intros t depth dst Hp H. rewrite (tok_dfeed t depth dst Hp) in H.
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try discriminate H.
+  - unfold pstep_byte in H.
     destruct (Ascii.eqb c lparen); [discriminate|].
     destruct (Ascii.eqb c rparen) eqn:E; [|discriminate].
     apply Ascii.eqb_eq in E. subst c. destruct depth; [split; reflexivity|discriminate].
-  - rewrite (delim_pdepth k mr op cl depth Hp) in H. discriminate.
+  - destruct ws; discriminate H.
+Qed.
+
+(* A hard break ends its line: no token follows it on the line. *)
+Definition hard_last (toks : list token) : Prop :=
+  forall a ws b, toks = (a ++ THard ws :: b)%list -> b = [].
+
+Local Lemma hard_last_cons : forall t toks, hard_last (t :: toks) -> hard_last toks.
+Proof.
+  intros t toks H a ws b E. apply (H (t :: a) ws b). rewrite E. reflexivity.
 Qed.
 
 (* Tokens that leave a paren open: so do their bytes. *)
-Local Lemma paren_close_app : forall toks depth i rest,
-  Forall tok_plain toks -> paren_close depth i (toks ++ rest) = None ->
-  exists d', pdepth depth (toks_text toks) = Some d'
-             /\ paren_close d' (i + length toks) rest = None.
+Local Lemma paren_close_app : forall toks depth dst i rest,
+  Forall tok_plain toks -> hard_last toks ->
+  paren_close depth i (toks ++ rest) = None ->
+  exists ds, dfeed (toks_text toks) (DS false depth dst) = Some ds
+             /\ paren_close (ds_depth ds) (i + length toks) rest = None
+             /\ (Forall (fun t => t <> THard EmptyString) toks -> ds_esc ds = false).
 Proof.
-  induction toks as [|t toks IH]; intros depth i rest F H.
-  - exists depth. rewrite Nat.add_0_r. split; [reflexivity|exact H].
+  induction toks as [|t toks IH]; intros depth dst i rest F Hl H.
+  - exists (DS false depth dst). rewrite Nat.add_0_r. split; [reflexivity|split; [exact H|reflexivity]].
   - apply Forall_cons_iff in F as [Ft F]. cbn [app] in H.
-    rewrite (paren_close_cons t depth i _ Ft) in H.
-    cbn [toks_text length]. rewrite pdepth_app.
-    destruct (pdepth depth (tok_text t)) as [d1|]; [|discriminate].
-    destruct (IH d1 (S i) rest F H) as (d' & E1 & E2). exists d'.
-    rewrite <- Nat.add_succ_comm. split; assumption.
+    rewrite (paren_close_cons t depth dst i _ Ft) in H.
+    cbn [toks_text length]. rewrite dfeed_app.
+    pose proof (tok_dfeed t depth dst Ft) as Et.
+    destruct (dfeed (tok_text t) (DS false depth dst)) as [d1|] eqn:E1; [|discriminate].
+    assert (Hd1 : toks = [] \/ ds_esc d1 = false).
+    { destruct t as [c| |k mr op cl| |b|c|ws|ws];
+        try (right; injection Et as Et; subst d1; reflexivity).
+      - destruct (pstep_byte c depth); [injection Et as Et; subst d1; right; reflexivity|discriminate].
+      - destruct ws.
+        + left. exact (Hl [] EmptyString toks eq_refl).
+        + right. injection Et as Et. subst d1. reflexivity. }
+    destruct Hd1 as [->|Hd1].
+    + exists d1. cbn [dfeed toks_text length app] in *. rewrite Nat.add_1_r.
+      split; [reflexivity|split; [exact H|]].
+      intros G. apply Forall_cons_iff in G as [G _].
+      destruct t as [c| |k mr op cl| |b|c|ws|ws];
+        try (injection Et as Et; subst d1; reflexivity).
+      * destruct (pstep_byte c depth); [injection Et as Et; subst d1; reflexivity|discriminate].
+      * destruct ws; [contradiction|injection Et as Et; subst d1; reflexivity].
+    + destruct d1 as [e1 dp1 dst1]. cbn [ds_esc ds_depth] in *. subst e1.
+      destruct (IH dp1 dst1 (S i) rest F (hard_last_cons t toks Hl) H) as (ds & E2 & E3 & E4).
+      exists ds. rewrite <- Nat.add_succ_comm. split; [assumption|split; [assumption|]].
+      intros G. apply Forall_cons_iff in G as [_ G]. exact (E4 G).
 Qed.
 
 (*
@@ -2425,8 +2951,8 @@ Local Lemma ibreak_wrap : forall ws core,
   ibreak (wrap ws core) = wrap (map (wl_after nl) ws) (ibreak core).
 Proof.
   intros ws core. unfold ibreak. induction ws as [|w ws IH]; [reflexivity|].
-  cbn [wrap map ibreak_at]. rewrite IH. destruct w as [k o d dst o'].
-  unfold wl_after. cbn. reflexivity.
+  cbn [wrap map ibreak_at]. rewrite IH. destruct w as [k o [e dp dst] o'].
+  unfold wl_after. destruct e; reflexivity.
 Qed.
 
 (*
@@ -2559,47 +3085,58 @@ Local Lemma pv_add_out : forall x v,
   pv_out (pv_add x v) = pv_out v \/ pv_out (pv_add x v) = xsnoc x (pv_out v).
 Proof. intros x [[|f rest] out md]; [right|left]; reflexivity. Qed.
 
+Local Lemma pv_trim_out : forall v,
+  pv_out (pv_trim v) = pv_out v \/ pv_out (pv_trim v) = xtrim (pv_out v).
+Proof. intros [[|f rest] out md]; [right|left]; reflexivity. Qed.
+
+(* The outermost content stays normal and clean. *)
 Local Lemma pstep_out : forall ts n t v,
-  pv_out (pstep ts n t v) = pv_out v
-  \/ exists x, x <> Str "" /\ pv_out (pstep ts n t v) = xsnoc x (pv_out v).
+  normal (pv_out v) -> clean (pv_out v) ->
+  normal (pv_out (pstep ts n t v)) /\ clean (pv_out (pstep ts n t v)).
 Proof.
-  intros ts n t v.
-  assert (Add : forall x v', x <> Str "" -> pv_out v' = pv_out v ->
-            pv_out (pv_add x v') = pv_out v
-            \/ exists y, y <> Str "" /\ pv_out (pv_add x v') = xsnoc y (pv_out v)).
-  { intros x v' Hx E. destruct (pv_add_out x v') as [H|H]; rewrite H, E;
-      [left; reflexivity|right; exists x; split; [exact Hx|reflexivity]]. }
+  intros ts n t v N0 C0.
+  assert (Add : forall x v', x <> Str "" -> normal (pv_out v') -> clean (pv_out v') ->
+            normal (pv_out (pv_add x v')) /\ clean (pv_out (pv_add x v'))).
+  { intros x v' Hx N C. destruct (pv_add_out x v') as [H|H]; rewrite H;
+      [split; assumption|split; [apply normal_xsnoc, N|apply clean_xsnoc; assumption]]. }
   assert (Txt : forall t', Str (tok_text t') <> Str "")
     by (intros t' E; injection E as E; exact (tok_text_ne t' E)).
   assert (Open : forall i k op t',
-            pv_out (popen i k op (tok_text t') v) = pv_out v
-            \/ exists y, y <> Str "" /\ pv_out (popen i k op (tok_text t') v) = xsnoc y (pv_out v)).
-  { intros i k [|] t'; [left; reflexivity|apply Add; [apply Txt|reflexivity]]. }
+            normal (pv_out (popen i k op (tok_text t') v)) /\ clean (pv_out (popen i k op (tok_text t') v))).
+  { intros i k [|] t'; [split; assumption|apply Add; [apply Txt|exact N0|exact C0]]. }
   unfold pstep. destruct (pv_mode v) as [|b kids d e txt].
   2: { destruct (match e with Some e' => Nat.eqb n e' | None => false end);
-         [apply Add; [apply region_node_nonstr|reflexivity]|left; reflexivity]. }
-  destruct t as [c| |k mr op cl| |b].
-  - apply Add; [discriminate|reflexivity].
-  - apply Add; [discriminate|reflexivity].
+         [apply Add; [apply region_node_nonstr|exact N0|exact C0]|split; assumption]. }
+  destruct t as [c| |k mr op cl| |b|c|ws|ws].
+  - apply Add; [discriminate|exact N0|exact C0].
+  - destruct (after_hard ts n); [split; assumption|apply Add; [discriminate|exact N0|exact C0]].
   - destruct (if cl then pick (KDelim k mr) (pv_live v) else PNone) as [p below| |];
-      [|apply Add; [apply Txt|reflexivity]|apply Open].
+      [|apply Add; [apply Txt|exact N0|exact C0]|apply Open].
     destruct (Nat.ltb (S p) n); [|apply Open].
-    destruct (pclose_go (KDelim k mr) [] (pv_stk v)) as [[content rest]|]; [|left; reflexivity].
-    apply Add; [apply dnode_nonstr|reflexivity].
+    destruct (pclose_go (KDelim k mr) [] (pv_stk v)) as [[content rest]|]; [|split; assumption].
+    apply Add; [apply dnode_nonstr|exact N0|exact C0].
   - apply Open.
   - destruct (pick KBracket (pv_live v));
       destruct (pclose_go KBracket [] (pv_stk v)) as [[content rest]|];
-      try (apply Add; [apply Txt|reflexivity]).
-    destruct (region_end ts n b); [left; reflexivity|]. destruct b; left; reflexivity.
+      try (apply Add; [apply Txt|exact N0|exact C0]).
+    destruct (region_end ts n b); [split; assumption|]. destruct b; split; assumption.
+  - apply Add; [|exact N0|exact C0]. intros E. injection E as E.
+    unfold esc_text in E. destruct (is_punct c); discriminate.
+  - destruct (nbsp_rest ws) as [r|]; [|apply Add; [apply (Txt (TEscWs ws))|exact N0|exact C0]].
+    destruct (Add NonBreakingSpace v ltac:(discriminate) N0 C0) as [N1 C1].
+    destruct (nonempty_str r) eqn:Er; [|split; assumption].
+    apply Add; [|exact N1|exact C1]. intros E. injection E as ->. discriminate Er.
+  - assert (Tr : normal (pv_out (pv_trim v)) /\ clean (pv_out (pv_trim v))).
+    { destruct (pv_trim_out v) as [H|H]; rewrite H;
+        [split; assumption|split; [apply normal_xtrim, N0|apply clean_xtrim, C0]]. }
+    apply Add; [discriminate|exact (proj1 Tr)|exact (proj2 Tr)].
 Qed.
 
 Local Lemma pstep_tidy : forall ts n t v, tidy v -> tidy (pstep ts n t v).
 Proof.
   intros ts n t v (Hn & Hc & Fn & Fc).
-  split; [|split; [|split; [apply pstep_normal, Fn|apply pstep_clean, Fc]]];
-    destruct (pstep_out ts n t v) as [E|(x & Hx & E)]; rewrite E; try assumption.
-  - apply normal_xsnoc, Hn.
-  - apply clean_xsnoc; assumption.
+  destruct (pstep_out ts n t v Hn Hc) as [N C].
+  split; [exact N|split; [exact C|split; [apply pstep_normal, Fn|apply pstep_clean, Fc]]].
 Qed.
 
 Local Lemma tidy_top : forall v, tidy v -> normal (top_of v) /\ clean (top_of v).
@@ -2684,6 +3221,9 @@ Proof.
     as (_ & _ & H1 & H2 & H3 & H4 & _). auto.
 Qed.
 
+Local Lemma dchar_nb : forall k, is_bslash (dchar k) = false.
+Proof. intros k. exact (proj1 (dreserved_false _ (dchar_free k))). Qed.
+
 (* A token with no `}` after it. *)
 Local Lemma lex_token : forall k prev rest,
   dstyle_of (dchar k) = Some k -> at_rbrace (get 0 rest) = false ->
@@ -2695,7 +3235,7 @@ Proof.
   assert (Hpre : prefix (dtoken k) (dtoken k ++ rest) = true)
     by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  rewrite Ed at 1. cbn [append lex]. rewrite Hlk, Hrk, Hlb, Hk.
+  rewrite Ed at 1. cbn [append lex]. rewrite dchar_nb, Hlk, Hrk, Hlb, Hk.
   replace (String (dchar k) (chars (dchar k) w ++ rest))
     with (dtoken k ++ rest)%string by (rewrite Ed; reflexivity).
   rewrite Hpre. unfold dtoken. rewrite Ew, get_chars, Hr. cbn [pred].
@@ -2711,7 +3251,7 @@ Proof.
   assert (Hpre : prefix (dtoken k) (dtoken k ++ String rbrace r) = true)
     by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  rewrite Ed at 1. cbn [append lex]. rewrite Hlk, Hrk, Hlb, Hk.
+  rewrite Ed at 1. cbn [append lex]. rewrite dchar_nb, Hlk, Hrk, Hlb, Hk.
   replace (String (dchar k) (chars (dchar k) w ++ String rbrace r))
     with (dtoken k ++ String rbrace r)%string by (rewrite Ed; reflexivity).
   rewrite Hpre. unfold dtoken. rewrite Ew, get_chars. cbn [get at_rbrace].
@@ -2727,7 +3267,7 @@ Proof.
   assert (Hpre : prefix (dtoken k) (dtoken k ++ rest) = true)
     by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  cbn [lex]. change (Ascii.eqb lbrace lbrack) with false.
+  cbn [lex]. change (is_bslash lbrace) with false. change (Ascii.eqb lbrace lbrack) with false.
   change (Ascii.eqb lbrace rbrack) with false. rewrite Ascii.eqb_refl.
   rewrite Ed at 1. cbn [append]. rewrite Hk.
   replace (String (dchar k) (chars (dchar k) w ++ rest))
@@ -2744,7 +3284,7 @@ Local Lemma lex_short : forall k j prev rest,
   = TText (dchar k) :: lex (Some (dchar k)) 0 (chars (dchar k) j ++ rest).
 Proof.
   intros k j prev rest Hk Hj Hr. destruct (dchar_plain k) as (Hlb & _ & Hlk & Hrk).
-  cbn [lex]. rewrite Hlk, Hrk, Hlb, Hk.
+  cbn [lex]. rewrite dchar_nb, Hlk, Hrk, Hlb, Hk.
   change (String (dchar k) (chars (dchar k) j ++ rest))
     with (chars (dchar k) (S j) ++ rest)%string.
   unfold dtoken. rewrite (prefix_chars_short (dchar k) (dwidth k) (S j) rest Hj Hr).
@@ -2773,7 +3313,7 @@ Local Lemma lex_lbrace_short : forall k j prev rest,
   = TText lbrace :: lex (Some lbrace) 0 (chars (dchar k) (S j) ++ rest).
 Proof.
   intros k j prev rest Hk Hj Hr.
-  cbn [lex]. change (Ascii.eqb lbrace lbrack) with false.
+  cbn [lex]. change (is_bslash lbrace) with false. change (Ascii.eqb lbrace lbrack) with false.
   change (Ascii.eqb lbrace rbrack) with false. rewrite Ascii.eqb_refl.
   cbn [chars append]. rewrite Hk.
   change (String (dchar k) (chars (dchar k) j ++ rest))
@@ -2784,10 +3324,11 @@ Qed.
 
 (* A byte that is no row's character, no `{` and no bracket. *)
 Local Lemma lex_byte : forall c prev rest,
+  is_bslash c = false ->
   Ascii.eqb c lbrack = false -> Ascii.eqb c rbrack = false ->
   Ascii.eqb c lbrace = false -> dstyle_of c = None ->
   lex prev 0 (String c rest) = TText c :: lex (Some c) 0 rest.
-Proof. intros c prev rest H1 H2 H3 H4. cbn [lex]. rewrite H1, H2, H3, H4. reflexivity. Qed.
+Proof. intros c prev rest H0 H1 H2 H3 H4. cbn [lex]. rewrite H0, H1, H2, H3, H4. reflexivity. Qed.
 
 (* A paren is no row's character on a line over the alphabet. *)
 Local Lemma alphabet_paren_none : forall c,
@@ -2807,10 +3348,11 @@ Local Lemma follow_ok_plain : forall p s,
 Proof. intros p s H1 H2 H3. unfold follow_ok. rewrite H1, H2, H3. reflexivity. Qed.
 
 Local Lemma over_alphabet_app_r : forall a b,
-  over_alphabet (a ++ b) = true -> over_alphabet b = true.
+  no_bslash a = true -> over_alphabet (a ++ b) = true -> over_alphabet b = true.
 Proof.
-  induction a as [|c a IH]; intros b H; [exact H|].
-  apply over_alphabet_cons in H as (_ & _ & H). exact (IH b H).
+  induction a as [|c a IH]; intros b Hb H; [exact H|].
+  cbn [no_bslash] in Hb. apply andb_true_iff in Hb as [Hc Hb]. apply negb_true_iff in Hc.
+  apply (over_alphabet_cons c _ Hc) in H as (_ & _ & H). exact (IH b Hb H).
 Qed.
 
 Local Lemma chars_add : forall c a b,
@@ -2820,32 +3362,39 @@ Proof.
   reflexivity.
 Qed.
 
-(* The first token of a line, its bytes, and the line after it. *)
-Local Lemma lex_cons : forall s prev,
-  over_alphabet s = true -> s <> "" ->
+(* The first token of a line that does not begin with a backslash, its
+   bytes, and the line after it. *)
+Local Lemma lex_cons : forall c s' prev,
+  is_bslash c = false -> over_alphabet (String c s') = true ->
   exists t r prev1,
-    s = (tok_text t ++ r)%string /\ lex prev 0 s = t :: lex prev1 0 r
-    /\ prev_ok prev1 r = true /\ String.length r < String.length s
-    /\ (forall c0, tok_text t = one c0 -> prev1 = Some c0).
+    String c s' = (tok_text t ++ r)%string /\ lex prev 0 (String c s') = t :: lex prev1 0 r
+    /\ prev_ok prev1 r = true /\ String.length r < String.length (String c s')
+    /\ (forall c0, tok_text t = one c0 -> prev1 = Some c0)
+    /\ no_bslash (tok_text t) = true /\ over_alphabet r = true.
 Proof.
-  intros s prev Ha Hne. destruct s as [|c s']; [contradiction|].
-  pose proof Ha as Ha'. apply over_alphabet_cons in Ha' as (Hc & Hf & Hs').
+  intros c s' prev Eb Ha.
+  pose proof Ha as Ha'. apply (over_alphabet_cons c s' Eb) in Ha' as (Hc & Hf & Hs').
+  assert (Nb : forall k, no_bslash (dtoken k) = true).
+  { intros k. unfold dtoken. generalize (dwidth k). intros w. induction w as [|w IHw]; [reflexivity|].
+    cbn [chars no_bslash]. rewrite dchar_nb, IHw. reflexivity. }
   assert (One : forall t, tok_text t = one c ->
             lex prev 0 (String c s') = t :: lex (Some c) 0 s' ->
             exists t r prev1,
               String c s' = (tok_text t ++ r)%string
               /\ lex prev 0 (String c s') = t :: lex prev1 0 r
               /\ prev_ok prev1 r = true /\ String.length r < String.length (String c s')
-              /\ (forall c0, tok_text t = one c0 -> prev1 = Some c0)).
+              /\ (forall c0, tok_text t = one c0 -> prev1 = Some c0)
+              /\ no_bslash (tok_text t) = true /\ over_alphabet r = true).
   { intros t Et El. exists t, s', (Some c). rewrite Et. split; [reflexivity|].
     split; [exact El|]. split; [exact Hf|]. split; [cbn; lia|].
-    intros c0 E0. injection E0 as <-. reflexivity. }
+    split; [intros c0 E0; injection E0 as <-; reflexivity|].
+    split; [cbn; rewrite Eb; reflexivity|exact Hs']. }
   destruct (Ascii.eqb c lbrack) eqn:Elk.
   { apply (One TOpen); [apply Ascii.eqb_eq in Elk; subst c; reflexivity|].
-    cbn [lex]. rewrite Elk. reflexivity. }
+    cbn [lex]. rewrite Eb, Elk. reflexivity. }
   destruct (Ascii.eqb c rbrack) eqn:Erk.
   { assert (Ec : c = rbrack) by (apply Ascii.eqb_eq, Erk).
-    cbn [lex] in One |- *. rewrite Elk, Erk in One |- *.
+    cbn [lex] in One |- *. rewrite Eb, Elk, Erk in One |- *.
     destruct (starts_with lparen s'); [|destruct (starts_with lbrack s')];
       eapply One; try reflexivity; subst c; reflexivity. }
   destruct (Ascii.eqb c lbrace) eqn:Elb.
@@ -2864,17 +3413,20 @@ Proof.
     - assert (Es : String (dchar k) s'' = (dtoken k ++ (chars (dchar k) (S j - dwidth k) ++ rest0))%string).
       { rewrite E. unfold dtoken. rewrite <- append_assoc, <- chars_add.
         f_equal. f_equal. lia. }
+      pose proof Hs' as Hs2. rewrite Es in Hs2. apply (over_alphabet_app_r _ _ (Nb k)) in Hs2.
       rewrite Es. exists (TDelim k true true false), (chars (dchar k) (S j - dwidth k) ++ rest0)%string,
         (Some (dchar k)).
       split; [reflexivity|]. split; [apply lex_marked_open, Hd|].
       split; [apply follow_ok_plain; assumption|].
       split; [cbn [String.length]; rewrite !length_append; lia|].
-      intros c0 E0. cbn in E0. injection E0 as _ E0.
-      pose proof (dtoken_nonempty k) as H. rewrite E0 in H. discriminate.
+      split; [intros c0 E0; cbn in E0; injection E0 as _ E0;
+              pose proof (dtoken_nonempty k) as H; rewrite E0 in H; discriminate|].
+      split; [cbn [tok_text one append no_bslash]; exact (Nb k)|exact Hs2].
     - rewrite E. exists (TText lbrace), (chars (dchar k) (S j) ++ rest0)%string, (Some lbrace).
       split; [reflexivity|]. split; [apply lex_lbrace_short; assumption|].
       split; [cbn [prev_ok]; rewrite <- E; exact Hf'|]. split; [cbn; lia|].
-      intros c0 E0. injection E0 as <-. reflexivity. }
+      split; [intros c0 E0; injection E0 as <-; reflexivity|].
+      split; [reflexivity|rewrite <- E; exact Hs']. }
   destruct (dstyle_of c) as [k|] eqn:Hd.
   2: { apply (One (TText c)); [reflexivity|]. apply lex_byte; assumption. }
   pose proof (dstyle_of_char c k Hd) as Ec. subst c.
@@ -2886,6 +3438,7 @@ Proof.
     assert (Es : String (dchar k) s' = (dtoken k ++ rest)%string).
     { rewrite E. unfold rest, dtoken. rewrite <- append_assoc, <- chars_add.
       f_equal. f_equal. lia. }
+    pose proof Ha as Ha2. rewrite Es in Ha2. apply (over_alphabet_app_r _ _ (Nb k)) in Ha2.
     rewrite Es. clearbody rest.
     assert (Hlen : String.length rest < String.length (dtoken k ++ rest)).
     { rewrite length_append, Ed. cbn [String.length]. lia. }
@@ -2896,18 +3449,23 @@ Proof.
       split; [cbn [tok_text]; rewrite append_assoc; reflexivity|].
       split; [apply lex_marked_close, Hd|]. split; [reflexivity|].
       split; [rewrite length_append in *; cbn [String.length] in *; lia|].
-      intros c0 E0. cbn [tok_text] in E0. rewrite Ed in E0. cbn in E0.
-      injection E0 as _ E0. destruct w; discriminate.
+      split; [intros c0 E0; cbn [tok_text] in E0; rewrite Ed in E0; cbn in E0;
+              injection E0 as _ E0; destruct w; discriminate|].
+      split; [cbn [tok_text]; rewrite no_bslash_app, (Nb k); reflexivity|].
+      exact (proj2 (proj2 (over_alphabet_cons rbrace r eq_refl Ha2))).
     + exists (TDelim k false (bare_opens k && nonspace_at (get 0 rest)) (nonspace_at prev)),
         rest, (Some (dchar k)).
       split; [reflexivity|]. split; [apply lex_token; assumption|].
       split; [apply follow_ok_plain; assumption|]. split; [exact Hlen|].
-      intros c0 E0. cbn [tok_text] in E0. rewrite Ed in E0. injection E0 as <- _. reflexivity.
+      split; [intros c0 E0; cbn [tok_text] in E0; rewrite Ed in E0; injection E0 as <- _; reflexivity|].
+      split; [exact (Nb k)|exact Ha2].
   - rewrite E. cbn [chars append]. exists (TText (dchar k)), (chars (dchar k) j ++ rest0)%string,
       (Some (dchar k)).
     split; [reflexivity|]. split; [apply lex_short; assumption|].
     split; [apply follow_ok_plain; assumption|]. split; [cbn; lia|].
-    intros c0 E0. injection E0 as <-. reflexivity.
+    split; [intros c0 E0; injection E0 as <-; reflexivity|].
+    split; [cbn [tok_text one no_bslash]; rewrite dchar_nb; reflexivity|].
+    cbn [chars append] in E. injection E as E. rewrite <- E. exact Hs'.
 Qed.
 
 (*
@@ -2922,12 +3480,18 @@ close; inside one reading per destination that they do not close.
 Definition never (ts : list token) (n : nat) (w : wlayer) : Prop :=
   paren_close (wl_depth w) n (skipn n ts) = None.
 
-Definition vinv (n : nat) (v : pview) : Prop := pv_ok n v /\ tidy v.
+(* Between two tokens of a line no destination reading holds a pending
+   backslash; only a hard break leaves one, at the line's end. *)
+Definition esc_off (w : wlayer) : Prop := ds_esc (wl_ds w) = false.
+
+Definition vinv (ts : list token) (n : nat) (v : pview) : Prop :=
+  pv_ok n v /\ tidy v /\ (after_hard ts n = true -> top_filled v).
 
 Definition linked (ts : list token) (n : nat) (v : pview) (prev : option ascii)
   (core : iscan) : Prop :=
   match pv_mode v with
-  | PMNormal => exists txt o, core = IText false txt prev o /\ sim v txt o
+  | PMNormal =>
+      after_hard ts n = false /\ exists txt o, core = IText false txt prev o /\ sim v txt o
   | PMRegion false kids d e label =>
       S d < n /\ e = rbrack_at n (skipn n ts) /\ clean kids
       /\ exists open cm, core = IReference (map mk kids) false open false label (oview cm v)
@@ -2937,20 +3501,54 @@ Definition linked (ts : list token) (n : nat) (v : pview) (prev : option ascii)
         /\ core = IDest (map mk kids) false open false depth dst sh (oview cm v)
   end.
 
+(* A backslash and whitespace the line ended after, which the scanner
+   holds until the line's end. *)
+Definition esc_pending (ws0 txt : string) (p : option ascii) (o : ostate) : iscan :=
+  match ws0 with
+  | EmptyString => IText true txt p o
+  | _ => IEscWs ws0 txt p o
+  end.
+
+(* What a hard break leaves at the end of a line: in text mode, the view
+   with the break and the scanner with it pending; in a region whose
+   backslash ended the line, the backslash pending in the scanner. *)
+Definition pending (ts : list token) (n : nat) (v : pview) (core : iscan) : Prop :=
+  (exists ws0 txt p o vb,
+     after_hard ts n = true /\ is_blank ws0 = true /\ core = esc_pending ws0 txt p o
+     /\ pv_mode vb = PMNormal /\ sim vb txt o /\ v = pv_add HardBreak (pv_trim vb))
+  \/ (exists kids d e label open cm,
+        pv_mode v = PMRegion false kids d e (label ++ one bslash)%string
+        /\ S d < n /\ e = rbrack_at n (skipn n ts) /\ clean kids
+        /\ core = IReference (map mk kids) false open true label (oview cm v))
+  \/ (exists kids d e dst open depth sh cm,
+        pv_mode v = PMRegion true kids d e (dst ++ one bslash)%string
+        /\ S d < n /\ e = paren_close depth n (skipn n ts) /\ e <> None
+        /\ core = IDest (map mk kids) false open true depth dst sh (oview cm v)).
+
+Definition linked_end (ts : list token) (n : nat) (v : pview) (prev : option ascii)
+  (core : iscan) : Prop :=
+  linked ts n v prev core \/ pending ts n v core.
+
+(* A `[` with nothing yet read after it would make a `^` a footnote's: the
+   byte before the line, or the text the scanner holds, rules that out. *)
+Definition note_ok (prev : option ascii) (core : iscan) (s : string) : Prop :=
+  prev_ok prev s = true
+  \/ (forall txt p o, core = IText false txt p o -> nonempty_str txt = true).
+
 (* A line's bytes, scanned from a linked state, end in one. *)
 Definition scanned (ts : list token) (n : nat) (v : pview) (ws : list wlayer)
   (core : iscan) (prev : option ascii) (s : string) : Prop :=
   exists ws' core' prev',
     rres (iscan_str s (wrap ws core)) = wrap ws' core'
-    /\ vinv (n + length (lex prev 0 s)) (prun ts n (lex prev 0 s) v)
+    /\ vinv ts (n + length (lex prev 0 s)) (prun ts n (lex prev 0 s) v)
     /\ Forall (never ts (n + length (lex prev 0 s))) ws'
-    /\ linked ts (n + length (lex prev 0 s)) (prun ts n (lex prev 0 s) v) prev' core'.
+    /\ linked_end ts (n + length (lex prev 0 s)) (prun ts n (lex prev 0 s) v) prev' core'.
 
 Definition scan_ih (ts after : list token) (len : nat) : Prop :=
   forall s prev n v ws core,
-    String.length s <= len -> over_alphabet s = true -> prev_ok prev s = true ->
+    String.length s <= len -> over_alphabet s = true -> note_ok prev core s ->
     skipn n ts = (lex prev 0 s ++ after)%list ->
-    vinv n v -> Forall (never ts n) ws -> linked ts n v prev core ->
+    vinv ts n v -> Forall (never ts n) ws -> Forall esc_off ws -> linked ts n v prev core ->
     scanned ts n v ws core prev s.
 
 Local Lemma prun_app : forall ts a b i v,
@@ -2961,22 +3559,6 @@ Proof.
   rewrite IH. f_equal. lia.
 Qed.
 
-Local Lemma vinv_step : forall ts n t v,
-  vinv n v -> tok_plain t -> vinv (S n) (pstep ts n t v).
-Proof.
-  intros ts n t v [Ok Ti] Hp. split; [|apply pstep_tidy, Ti].
-  apply pv_ok_step; [exact Ok|]. intros k mr op cl ->. exact (proj1 Hp).
-Qed.
-
-Local Lemma vinv_prun : forall ts toks n v,
-  vinv n v -> Forall tok_plain toks -> vinv (n + length toks) (prun ts n toks v).
-Proof.
-  intros ts. induction toks as [|t toks IH]; intros n v V F; cbn [prun length];
-    [rewrite Nat.add_0_r; exact V|].
-  apply Forall_cons_iff in F as [Ft F]. rewrite <- Nat.add_succ_comm.
-  apply IH; [apply vinv_step; assumption|exact F].
-Qed.
-
 Local Lemma skipn_app_tail : forall (ts a b : list token) n,
   skipn n ts = (a ++ b)%list -> skipn (n + length a) ts = b.
 Proof.
@@ -2984,35 +3566,111 @@ Proof.
   rewrite skipn_app, skipn_all, Nat.sub_diag. reflexivity.
 Qed.
 
-Local Lemma layers_step : forall ts n ws toks rest,
-  Forall (never ts n) ws -> skipn n ts = (toks ++ rest)%list -> Forall tok_plain toks ->
-  Forall (fun w => pdepth (wl_depth w) (toks_text toks) <> None) ws
-  /\ Forall (never ts (n + length toks)) (map (wl_after (toks_text toks)) ws).
+Local Lemma skipn_cons_tail : forall (ts : list token) n t rest,
+  skipn n ts = t :: rest -> skipn (S n) ts = rest.
 Proof.
-  intros ts n ws toks rest F Hs Fp. rewrite Forall_map.
-  split; (eapply Forall_impl; [|exact F]); intros w Hw; unfold never in *;
-    rewrite Hs in Hw;
-    destruct (paren_close_app toks _ n rest Fp Hw) as (d' & E1 & E2).
-  - rewrite E1. discriminate.
-  - rewrite (skipn_app_tail ts toks rest n Hs). unfold wl_after. cbn [wl_depth].
-    rewrite E1. exact E2.
+  intros ts n t rest H. pose proof (skipn_app_tail ts [t] rest n H) as E.
+  cbn [length] in E. rewrite Nat.add_1_r in E. exact E.
+Qed.
+
+Local Lemma top_filled_add : forall x v, top_filled (pv_add x v).
+Proof.
+  intros x [[|[p k c|d c] rest] out md]; unfold top_filled; cbn [pv_add pv_stk pv_mode fset fcontent];
+    destruct md; try exact Logic.I; apply xsnoc_nonempty.
+Qed.
+
+Local Lemma vinv_step : forall ts n t v,
+  vinv ts n v -> tok_plain t -> nth_error ts n = Some t -> vinv ts (S n) (pstep ts n t v).
+Proof.
+  intros ts n t v (Ok & Ti & Hh) Hp Hn. split; [|split; [apply pstep_tidy, Ti|]].
+  - apply pv_ok_step; [exact Ok| |].
+    + intros k mr op cl ->. exact (proj1 Hp).
+    + intros _ H. exact (Hh H).
+  - unfold after_hard. rewrite Hn. destruct t as [c| |k mr op cl| |b|c|ws|ws];
+      try discriminate. intros _.
+    unfold pstep. destruct (pv_mode v) as [|b kids d e txt] eqn:Em.
+    + apply top_filled_add.
+    + destruct (match e with Some e' => Nat.eqb n e' | None => false end);
+        [apply top_filled_add|unfold top_filled; cbn [pv_setmode pv_mode]; exact Logic.I].
+Qed.
+
+Local Lemma vinv_prun : forall ts toks n v rest,
+  vinv ts n v -> Forall tok_plain toks -> skipn n ts = (toks ++ rest)%list ->
+  vinv ts (n + length toks) (prun ts n toks v).
+Proof.
+  intros ts. induction toks as [|t toks IH]; intros n v rest V F Hs; cbn [prun length];
+    [rewrite Nat.add_0_r; exact V|].
+  apply Forall_cons_iff in F as [Ft F]. rewrite <- Nat.add_succ_comm.
+  assert (Hn : nth_error ts n = Some t).
+  { rewrite <- (Nat.add_0_r n), <- nth_error_skipn, Hs. reflexivity. }
+  apply (IH (S n) _ rest); [apply vinv_step; assumption|exact F|].
+  apply (skipn_cons_tail ts n t). exact Hs.
+Qed.
+
+
+Local Lemma layers_step : forall ts n ws toks rest,
+  Forall (never ts n) ws -> Forall esc_off ws ->
+  skipn n ts = (toks ++ rest)%list -> Forall tok_plain toks -> hard_last toks ->
+  Forall (fun w => dfeed (toks_text toks) (wl_ds w) <> None) ws
+  /\ Forall (never ts (n + length toks)) (map (wl_after (toks_text toks)) ws)
+  /\ (Forall (fun t => t <> THard EmptyString) toks ->
+      Forall esc_off (map (wl_after (toks_text toks)) ws)).
+Proof.
+  intros ts n ws toks rest F Fe Hs Fp Hl.
+  assert (G : forall w, In w ws ->
+            exists ds, dfeed (toks_text toks) (wl_ds w) = Some ds
+              /\ paren_close (ds_depth ds) (n + length toks) rest = None
+              /\ (Forall (fun t => t <> THard EmptyString) toks -> ds_esc ds = false)).
+  { intros [k o [e d dst] o'] Hw. rewrite Forall_forall in F, Fe.
+    specialize (F _ Hw). specialize (Fe _ Hw). unfold never, esc_off, wl_depth in *.
+    cbn [wl_ds ds_esc ds_depth] in *. subst e. rewrite Hs in F.
+    exact (paren_close_app toks d dst n rest Fp Hl F). }
+  split; [|split].
+  - rewrite Forall_forall. intros w Hw E. destruct (G w Hw) as (ds & E1 & _). congruence.
+  - rewrite Forall_map, Forall_forall. intros w Hw. destruct (G w Hw) as (ds & E1 & E2 & _).
+    unfold never, wl_after, wl_depth. cbn [wl_ds]. rewrite E1.
+    rewrite (skipn_app_tail ts toks rest n Hs). exact E2.
+  - intros H. rewrite Forall_map, Forall_forall. intros w Hw. destruct (G w Hw) as (ds & E1 & _ & E3).
+    unfold esc_off, wl_after. cbn [wl_ds]. rewrite E1. exact (E3 H).
 Qed.
 
 Local Lemma wrap_app : forall a b core, wrap (a ++ b) core = wrap a (wrap b core).
 Proof. induction a as [|w a IH]; intros b core; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
-Local Lemma alphabet_no_bslash : forall s, over_alphabet s = true -> no_bslash s = true.
+
+Local Lemma lex_skip_all : forall s p, lex p (String.length s) s = [].
+Proof. induction s as [|d r IHr]; intros p; [reflexivity|]. cbn [String.length lex]. apply IHr. Qed.
+
+(* `lex` puts a hard break only last: it takes the rest of the line. *)
+Local Lemma lex_hard_last : forall s prev skip, hard_last (lex prev skip s).
 Proof.
-  induction s as [|c s IH]; intros H; [reflexivity|].
-  apply over_alphabet_cons in H as (Hc & _ & Hs). cbn [no_bslash]. rewrite (IH Hs), andb_true_r.
-  unfold in_alphabet in Hc. apply andb_true_iff in Hc as [Hc _].
-  apply andb_true_iff in Hc as [Hc _]. apply andb_true_iff in Hc as [_ Hc].
-  destruct (Ascii.eqb c lbrace) eqn:E1; [apply Ascii.eqb_eq in E1; subst c; reflexivity|].
-  destruct (Ascii.eqb c rbrace) eqn:E2; [apply Ascii.eqb_eq in E2; subst c; reflexivity|].
-  destruct (Ascii.eqb c lbrack) eqn:E3; [apply Ascii.eqb_eq in E3; subst c; reflexivity|].
-  destruct (Ascii.eqb c rbrack) eqn:E4; [apply Ascii.eqb_eq in E4; subst c; reflexivity|].
-  cbn [orb] in Hc. apply andb_true_iff in Hc as [Hc _]. apply negb_true_iff in Hc.
-  rewrite (proj1 (dreserved_false c Hc)). reflexivity.
+  induction s as [|c rest IH]; intros prev skip a ws b E.
+  - destruct a; discriminate E.
+  - cbn [lex] in E. destruct skip as [|skip]; [|exact (IH _ _ a ws b E)].
+    assert (Tl : forall t prev' k, (t :: lex prev' k rest = a ++ THard ws :: b)%list ->
+               (t = THard ws /\ a = [] /\ b = lex prev' k rest) \/ b = []).
+    { intros t prev' k E'. destruct a as [|x a].
+      - left. cbn in E'. injection E' as -> ->. auto.
+      - right. cbn in E'. injection E' as _ E'. exact (IH _ _ a ws b E'). }
+    destruct (is_bslash c).
+    + destruct (is_blank rest) eqn:Bl.
+      * destruct (Tl _ _ _ E) as [(_ & _ & ->)| ->]; [|reflexivity].
+        apply lex_skip_all.
+      * destruct (Tl _ _ _ E) as [(Et & _)| ->]; [|reflexivity].
+        destruct rest as [|d r]; [discriminate Bl|]. destruct (is_ws d); discriminate Et.
+    + repeat (match type of E with
+              | context [if ?x then _ else _] => destruct x
+              | context [match ?x with Some _ => _ | None => _ end] => destruct x
+              | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x
+              end);
+        (destruct (Tl _ _ _ E) as [(Et & _)| ->]; [discriminate Et|reflexivity]).
+Qed.
+
+Local Lemma hard_last_app_l : forall a b, hard_last (a ++ b) -> hard_last a.
+Proof.
+  intros a b H x ws y E. subst a. specialize (H x ws (y ++ b)%list).
+  rewrite <- app_assoc in H. cbn in H. specialize (H eq_refl).
+  destruct y; [reflexivity|discriminate H].
 Qed.
 
 (* One step of the simulation: a chunk of bytes and its tokens, then the
@@ -3022,41 +3680,42 @@ Local Lemma scan_advance : forall ts after len,
   forall s prev n v ws core bytes rest toks prev1 extra core1,
     String.length s <= S len -> over_alphabet s = true ->
     skipn n ts = (lex prev 0 s ++ after)%list ->
-    vinv n v -> Forall (never ts n) ws ->
+    vinv ts n v -> Forall (never ts n) ws -> Forall esc_off ws ->
     s = (bytes ++ rest)%string -> bytes <> "" ->
     lex prev 0 s = (toks ++ lex prev1 0 rest)%list -> toks_text toks = bytes ->
-    prev_ok prev1 rest = true ->
+    Forall (fun t => t <> THard EmptyString) toks ->
+    over_alphabet rest = true -> note_ok prev1 core1 rest ->
     settles (iscan_str bytes core) (wrap extra core1) (get 0 rest) ->
-    Forall (never ts (n + length toks)) extra ->
+    Forall (never ts (n + length toks)) extra -> Forall esc_off extra ->
     linked ts (n + length toks) (prun ts n toks v) prev1 core1 ->
     scanned ts n v ws core prev s.
 Proof.
   intros ts after len IH s prev n v ws core bytes rest toks prev1 extra core1
-    Hl Ha Hsk V Fn Es Hne El Et Hp Hset Fe L.
+    Hl Ha Hsk V Fn Fe Es Hne El Et Hh Ha' Hp Hset Fn2 Fe2 L.
   pose proof (lex_plain s prev 0 Ha) as Fp.
-  destruct (layers_step ts n ws _ after Fn Hsk Fp) as [Hopen _].
+  destruct (layers_step ts n ws _ after Fn Fe Hsk Fp (lex_hard_last s prev 0)) as [Hopen _].
   rewrite lex_text in Hopen. cbn [sdrop] in Hopen.
-  rewrite El in Fp, Hsk. apply Forall_app in Fp as [Fp _].
+  pose proof (lex_hard_last s prev 0) as Hl0. rewrite El in Fp, Hsk, Hl0.
+  apply Forall_app in Fp as [Fp _].
   rewrite <- app_assoc in Hsk.
-  destruct (layers_step ts n ws toks _ Fn Hsk Fp) as [_ Fn'].
+  destruct (layers_step ts n ws toks _ Fn Fe Hsk Fp (hard_last_app_l _ _ Hl0)) as (_ & Fn' & Fe').
   pose proof (skipn_app_tail ts toks _ n Hsk) as Hsk'.
   assert (Hlen : String.length rest <= len).
   { rewrite Es, length_append in Hl. destruct bytes; [contradiction|]. cbn in Hl. lia. }
-  assert (Ha' : over_alphabet rest = true) by (rewrite Es in Ha; exact (over_alphabet_app_r _ _ Ha)).
   destruct (IH rest prev1 (n + length toks) (prun ts n toks v)
               (map (wl_after bytes) ws ++ extra)%list core1 Hlen Ha' Hp Hsk'
-              (vinv_prun ts toks n v V Fp))
+              (vinv_prun ts toks n v _ V Fp Hsk))
     as (ws' & core' & prev' & E & V' & Fn'' & L').
-  { apply Forall_app. split; [rewrite <- Et; exact Fn'|exact Fe]. }
+  { apply Forall_app. split; [rewrite <- Et; exact Fn'|exact Fn2]. }
+  { apply Forall_app. split; [rewrite <- Et; exact (Fe' Hh)|exact Fe2]. }
   { exact L. }
   exists ws', core', prev'.
   rewrite El, length_app, prun_app, Nat.add_assoc.
   split; [|split; [exact V'|split; [exact Fn''|exact L']]].
   rewrite <- E, wrap_app. rewrite Es at 1.
   apply (step_through bytes rest ws core (iscan_str bytes core) (wrap extra core1));
-    [| |reflexivity|exact Hset].
-  - rewrite <- Es. apply alphabet_no_bslash, Ha.
-  - rewrite <- Es. exact Hopen.
+    [|reflexivity|exact Hset].
+  rewrite <- Es. exact Hopen.
 Qed.
 
 (*
@@ -3073,12 +3732,16 @@ Proof.
     by (intros x; rewrite (proj2 (pv_add_live x v)); exact Em).
   assert (Open : forall i k op txt, pv_mode (popen i k op txt v) = PMNormal)
     by (intros i k [|] txt; [exact Em|apply Add]).
-  destruct t as [c| |k mr op cl| |b]; try apply Add; try apply Open.
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try apply Add; try apply Open.
+  - destruct (after_hard ts n); [exact Em|apply Add].
   - destruct (if cl then pick (KDelim k mr) (pv_live v) else PNone); try apply Add; try apply Open.
     destruct (Nat.ltb (S p) n); [|apply Open].
     destruct (pclose_go (KDelim k mr) [] (pv_stk v)) as [[content rest]|]; [|exact Em].
     rewrite (proj2 (pv_add_live _ _)). reflexivity.
   - destruct (Ht b eq_refl).
+  - destruct (nbsp_rest ws); [|apply Add].
+    destruct (nonempty_str s); [rewrite (proj2 (pv_add_live _ _))|]; apply Add.
+  - rewrite (proj2 (pv_add_live _ _)), pv_trim_add. exact Em.
 Qed.
 
 Local Lemma prun_texts : forall ts c j n v txt o,
@@ -3099,8 +3762,28 @@ Local Lemma toks_text_repeat : forall c j, toks_text (repeat (TText c) j) = char
 Proof. intros c j. induction j as [|j IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
 Local Lemma linked_normal : forall ts n v prev txt o,
-  pv_mode v = PMNormal -> sim v txt o -> linked ts n v prev (IText false txt prev o).
-Proof. intros ts n v prev txt o Em Hs. unfold linked. rewrite Em. exists txt, o. auto. Qed.
+  after_hard ts n = false -> pv_mode v = PMNormal -> sim v txt o ->
+  linked ts n v prev (IText false txt prev o).
+Proof.
+  intros ts n v prev txt o Ha Em Hs. unfold linked. rewrite Em.
+  split; [exact Ha|]. exists txt, o. auto.
+Qed.
+
+(* After a chunk whose last token is not a hard break. *)
+Local Lemma after_chunk : forall ts n toks rest,
+  skipn n ts = (toks ++ rest)%list -> toks <> [] ->
+  Forall (fun t => forall ws, t <> THard ws) toks ->
+  after_hard ts (n + length toks) = false.
+Proof.
+  intros ts n toks rest Hs Hne F.
+  destruct (exists_last Hne) as (a & t & ->).
+  rewrite length_app. cbn [length]. rewrite Nat.add_1_r, Nat.add_succ_r. cbn [after_hard].
+  assert (Hn : nth_error ts (n + length a) = Some t).
+  { rewrite <- nth_error_skipn, Hs, <- app_assoc. cbn [app].
+    rewrite nth_error_app2 by lia. rewrite Nat.sub_diag. reflexivity. }
+  rewrite Hn. apply Forall_app in F as [_ F]. apply Forall_cons_iff in F as [Ft _].
+  destruct t; try reflexivity. destruct (Ft ws eq_refl).
+Qed.
 
 (* A `[` pushes the view's frame. *)
 Local Lemma open_bracket_sim : forall n v txt o,
@@ -3167,7 +3850,7 @@ Qed.
 Local Lemma region_stay : forall ts n t v b kids d e txt,
   pv_mode v = PMRegion b kids d e txt -> S d < n ->
   (forall e', e = Some e' -> n < e') ->
-  pstep ts n t v = pv_setmode (PMRegion b kids d e (txt ++ tok_text t)) v.
+  pstep ts n t v = pv_setmode (PMRegion b kids d e (txt ++ tok_region b t)) v.
 Proof.
   intros ts n t v b kids d e txt Em Hd He. unfold pstep. rewrite Em.
   replace (match e with Some e' => Nat.eqb n e' | None => false end) with false.
@@ -3197,11 +3880,11 @@ Local Lemma region_close : forall ts n t v b kids d txt,
 Proof. intros ts n t v b kids d txt Em. unfold pstep. rewrite Em, Nat.eqb_refl. reflexivity. Qed.
 
 Local Lemma region_close_linked : forall ts n v cm x prev,
-  (forall s, x <> Str s) ->
+  after_hard ts n = false -> (forall s, x <> Str s) ->
   linked ts n (pv_add x (pv_setmode PMNormal v)) prev
     (IText false "" prev (oemit (mk x) (oview cm v))).
 Proof.
-  intros ts n v cm x prev Hx. apply linked_normal.
+  intros ts n v cm x prev Ha Hx. apply linked_normal; [exact Ha| |].
   - rewrite (proj2 (pv_add_live _ _)). reflexivity.
   - exists (pv_add x (pv_setmode PMNormal v)), cm.
     split; [exact (oemit_view cm x (pv_setmode PMNormal v) Hx)|].
@@ -3293,7 +3976,7 @@ Definition is_rb (t : token) : bool :=
 
 Local Lemma rbrack_at_cons : forall t i rest,
   rbrack_at i (t :: rest) = if is_rb t then Some i else rbrack_at (S i) rest.
-Proof. intros [c| |k mr op cl| |b] i rest; reflexivity. Qed.
+Proof. intros [c| |k mr op cl| |b|c|ws|ws] i rest; reflexivity. Qed.
 
 Local Lemma no_rbrack_chars : forall c n, Ascii.eqb c rbrack = false -> no_rbrack (chars c n) = true.
 Proof. intros c n H. induction n as [|n IH]; [reflexivity|]. cbn. rewrite H, IH. reflexivity. Qed.
@@ -3301,10 +3984,10 @@ Proof. intros c n H. induction n as [|n IH]; [reflexivity|]. cbn. rewrite H, IH.
 Local Lemma no_rbrack_app : forall a b, no_rbrack (a ++ b) = (no_rbrack a && no_rbrack b)%bool.
 Proof. induction a as [|c a IH]; intros b; [reflexivity|]. cbn. rewrite IH. apply andb_assoc. Qed.
 
-Local Lemma tok_rb : forall t,
+Local Lemma tok_rb : forall t, no_bslash (tok_text t) = true ->
   if is_rb t then tok_text t = one rbrack else no_rbrack (tok_text t) = true.
 Proof.
-  intros [c| |k mr op cl| |b]; try reflexivity.
+  intros [c| |k mr op cl| |b|c|ws|ws] Hb; try reflexivity; try discriminate Hb.
   - cbn. destruct (Ascii.eqb c rbrack) eqn:E; [apply Ascii.eqb_eq in E; subst c; reflexivity|].
     reflexivity.
   - destruct (dchar_plain k) as (_ & _ & _ & Hrk).
@@ -3313,27 +3996,21 @@ Proof.
       rewrite ?(no_rbrack_chars _ _ Hrk); reflexivity.
 Qed.
 
-Local Lemma iscan_dest : forall bytes kids open depth dst sh o d',
-  no_bslash bytes = true -> pdepth depth bytes = Some d' ->
-  iscan_str bytes (IDest kids false open false depth dst sh o)
-  = IDest kids false open false d' (dst ++ bytes) (iscan_str bytes sh) o.
+Local Lemma iscan_dest : forall bytes kids open e depth dst sh o ds,
+  dfeed bytes (DS e depth dst) = Some ds ->
+  iscan_str bytes (IDest kids false open e depth dst sh o)
+  = IDest kids false open (ds_esc ds) (ds_depth ds) (ds_dst ds) (iscan_str bytes sh) o.
 Proof.
-  intros bytes kids open depth dst sh o d' Hb Hp.
-  pose proof (iscan_wrap bytes [WL kids open depth dst o] sh Hb) as E.
-  cbn [wrap map wl_after wl_kids wl_open wl_depth wl_dst wl_o] in E.
+  intros bytes kids open e depth dst sh o ds Hp.
+  pose proof (iscan_wrap bytes [WL kids open (DS e depth dst) o] sh) as E.
+  cbn [wrap map wl_after wl_kids wl_open wl_ds wl_o ds_esc ds_depth ds_dst] in E.
   rewrite Hp in E. apply E. constructor; [|constructor].
-  cbn [wl_depth]. rewrite Hp. discriminate.
+  cbn [wl_ds]. rewrite Hp. discriminate.
 Qed.
 
 Local Lemma no_nl_drop : forall s, no_nl s = drop_nl s.
 Proof. induction s as [|c s IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
-Local Lemma skipn_cons_tail : forall (ts : list token) n t rest,
-  skipn n ts = t :: rest -> skipn (S n) ts = rest.
-Proof.
-  intros ts n t rest H. pose proof (skipn_app_tail ts [t] rest n H) as E.
-  cbn [length] in E. rewrite Nat.add_1_r in E. exact E.
-Qed.
 
 (*
 A line
@@ -3345,7 +4022,7 @@ Local Lemma linked_rres : forall ts n v prev core,
 Proof.
   intros ts n v prev core L. unfold linked in *.
   destruct (pv_mode v) as [|[|] kids d e txt].
-  - destruct L as (t & o & -> & Hs). exists t, o. split; [reflexivity|exact Hs].
+  - destruct L as (Ha & t & o & -> & Hs). split; [exact Ha|]. exists t, o. split; [reflexivity|exact Hs].
   - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
     split; [exact Hd|]. exists open, depth, (rres sh), cm. auto.
   - destruct L as (Hd & He & Hk & open & cm & ->). split; [exact Hd|].
@@ -3353,12 +4030,12 @@ Proof.
 Qed.
 
 Local Lemma scanned_nil : forall ts n v ws core prev,
-  vinv n v -> Forall (never ts n) ws -> linked ts n v prev core ->
+  vinv ts n v -> Forall (never ts n) ws -> linked ts n v prev core ->
   scanned ts n v ws core prev "".
 Proof.
   intros ts n v ws core prev V Fn L. exists ws, (rres core), prev.
   cbn [lex length prun iscan_str]. rewrite Nat.add_0_r, rres_wrap.
-  split; [reflexivity|]. split; [exact V|]. split; [exact Fn|apply linked_rres, L].
+  split; [reflexivity|]. split; [exact V|]. split; [exact Fn|left; apply linked_rres, L].
 Qed.
 
 (* Right after a `[`, a `^` would mark a footnote and a `[` a wikilink;
@@ -3373,6 +4050,24 @@ Proof.
   cbn [prev_ok] in H. unfold follow_ok in H.
   apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
   rewrite E in H. destruct Hc as [-> | ->]; discriminate H.
+Qed.
+
+(* The same from `note_ok`, in text mode. *)
+Local Lemma note_free' : forall prev c s' txt p o,
+  note_ok prev (IText false txt p o) (String c s') -> c = lbrack \/ c = hat ->
+  note_pos txt prev = false.
+Proof.
+  intros prev c s' txt p o [H|H] Hc; [exact (note_free prev c s' txt H Hc)|].
+  unfold note_pos. tred. rewrite (H txt p o eq_refl). reflexivity.
+Qed.
+
+Local Lemma no_note_ok' : forall prev c s' txt p o,
+  note_ok prev (IText false txt p o) (String c s') -> no_note c txt prev = true.
+Proof.
+  intros prev c s' txt p o H. unfold no_note.
+  destruct (Ascii.eqb c hat) eqn:E; [|reflexivity].
+  apply Ascii.eqb_eq in E. subst c.
+  rewrite (note_free' prev hat s' txt p o H (or_intror eq_refl)). reflexivity.
 Qed.
 
 Local Lemma no_note_ok : forall prev c s' txt,
@@ -3396,63 +4091,486 @@ Local Lemma lex_rbrack : forall prev s',
     :: lex (Some rbrack) 0 s'.
 Proof. reflexivity. Qed.
 
+Local Lemma no_bslash_chars : forall c n, is_bslash c = false -> no_bslash (chars c n) = true.
+Proof. intros c n H. induction n as [|n IH]; [reflexivity|]. cbn [chars no_bslash]. rewrite H, IH. reflexivity. Qed.
+
+Local Lemma no_bslash_dtoken : forall k, no_bslash (dtoken k) = true.
+Proof. intros k. apply no_bslash_chars, dchar_nb. Qed.
+
+Local Lemma toks_no_hard : forall toks, no_bslash (toks_text toks) = true ->
+  Forall (fun t => forall ws, t <> THard ws) toks.
+Proof.
+  induction toks as [|t toks IH]; intros H; [constructor|].
+  cbn [toks_text] in H. rewrite no_bslash_app in H. apply andb_true_iff in H as [Ht H].
+  constructor; [|exact (IH H)]. intros ws E. subst t. discriminate Ht.
+Qed.
+
+Local Lemma toks_no_hard0 : forall toks, no_bslash (toks_text toks) = true ->
+  Forall (fun t => t <> THard EmptyString) toks.
+Proof.
+  intros toks H. eapply Forall_impl; [|exact (toks_no_hard toks H)]. intros t Ht. apply Ht.
+Qed.
+
+Local Lemma after_one : forall ts n t rest, skipn n ts = t :: rest ->
+  no_bslash (tok_text t) = true -> after_hard ts (S n) = false.
+Proof.
+  intros ts n t rest Hs Hb. pose proof (after_chunk ts n [t] rest Hs ltac:(discriminate)) as E.
+  cbn [length] in E. rewrite Nat.add_1_r in E. apply E.
+  apply (toks_no_hard [t]). cbn [toks_text]. rewrite append_empty_r. exact Hb.
+Qed.
+
+Local Lemma tok_dest_plain : forall t, no_bslash (tok_text t) = true -> tok_dest t = tok_text t.
+Proof. intros [c| |k mr op cl| |b|c|ws|ws] H; try reflexivity. discriminate H. Qed.
+
+Local Lemma dfeed_plain_tok : forall t d dst ds, tok_plain t -> no_bslash (tok_text t) = true ->
+  dfeed (tok_text t) (DS false d dst) = Some ds -> ds = DS false (ds_depth ds) (dst ++ tok_text t).
+Proof.
+  intros t d dst ds Hp Hb E. rewrite (tok_dfeed t d dst Hp) in E.
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try discriminate Hb;
+    try (injection E as <-; reflexivity).
+  destruct (pstep_byte c d); [injection E as <-; reflexivity|discriminate].
+Qed.
+
+Local Ltac nb := unfold marked_open, dtoken; rewrite ?no_bslash_app;
+  cbn [no_bslash one append]; rewrite ?no_bslash_chars by apply dchar_nb;
+  rewrite ?dchar_nb; reflexivity.
+
+(* Escapes
+   -------
+
+   A line that begins with a backslash: an escaped byte, an escaped run
+   of whitespace, or the hard break that ends the line. *)
+
+Fixpoint skip_prev (p : option ascii) (k : nat) (s : string) : option ascii :=
+  match k, s with S k', String c r => skip_prev (Some c) k' r | _, _ => p end.
+
+Local Lemma lex_skip_gen : forall s p k, lex p k s = lex (skip_prev p k s) 0 (sdrop k s).
+Proof. induction s as [|c s IH]; intros p [|k]; try reflexivity. cbn [lex skip_prev sdrop]. apply IH. Qed.
+
+Local Lemma skip_prev_run : forall s p,
+  skip_prev p (String.length (ws_run s)) s = str_last (ws_run s) p.
+Proof.
+  induction s as [|c s IH]; intros p; [reflexivity|]. cbn [ws_run].
+  destruct (is_ws c); [cbn [String.length skip_prev str_last]; apply IH|reflexivity].
+Qed.
+
+Local Lemma lex_bs : forall p s,
+  lex p 0 (String bslash s)
+  = if is_blank s then [THard s]
+    else match s with
+         | String d r =>
+             if is_ws d
+             then TEscWs (ws_run s)
+                    :: lex (str_last (ws_run s) (Some bslash)) 0 (sdrop (String.length (ws_run s)) s)
+             else TEsc d :: lex (Some d) 0 r
+         | EmptyString => [THard EmptyString]
+         end.
+Proof.
+  intros p s. cbn [lex]. change (is_bslash bslash) with true. cbn iota.
+  destruct (is_blank s) eqn:Bl; [rewrite lex_skip_all; reflexivity|].
+  destruct s as [|d r]; [discriminate|]. destruct (is_ws d) eqn:Wd.
+  - rewrite lex_skip_gen, skip_prev_run. reflexivity.
+  - reflexivity.
+Qed.
+
+Local Lemma after_tok : forall ts n t rest, skipn n ts = t :: rest ->
+  (forall ws, t <> THard ws) -> after_hard ts (S n) = false.
+Proof.
+  intros ts n t rest Hs Ht. cbn [after_hard].
+  rewrite <- (Nat.add_0_r n), <- nth_error_skipn, Hs. cbn.
+  destruct t; try reflexivity. destruct (Ht ws eq_refl).
+Qed.
+
+Local Lemma esc_text_ne : forall d, esc_text d <> EmptyString.
+Proof. intros d. unfold esc_text. destruct (is_punct d); discriminate. Qed.
+
+Local Lemma istep_bslash_text : forall txt p o,
+  istep bslash (IText false txt p o) = IText true txt (Some bslash) o.
+Proof. intros txt p o. reflexivity. Qed.
+
+Local Lemma istep_esc_byte : forall d txt p o, is_ws d = false ->
+  istep d (IText true txt p o) = IText false (txt ++ esc_text d) (Some d) o.
+Proof.
+  intros d txt p o Hw. unfold istep. cbn [istep_at]. rewrite Hw. tred.
+  unfold esc_text. destruct (is_punct d); reflexivity.
+Qed.
+
+Local Lemma iscan_ref_bs : forall d kids im open label o,
+  iscan_str (String bslash (one d)) (IReference kids im open false label o)
+  = IReference kids im open false (label ++ String bslash (one d)) o.
+Proof. intros. reflexivity. Qed.
+
+Local Lemma iescws_cons : forall d w1 txt p o,
+  iescws_resolve (String d w1) txt p o
+  = if Ascii.eqb d " "%char
+    then (w1, str_last w1 (Some d), oemit (mk NonBreakingSpace) (flush_text txt o))
+    else ((txt ++ String bslash (String d w1))%string, str_last w1 (Some d), o).
+Proof. reflexivity. Qed.
+
+Local Lemma iscan_escws_acc : forall ws acc txt p o, is_blank ws = true ->
+  iscan_str ws (IEscWs acc txt p o) = IEscWs (acc ++ ws) txt p o.
+Proof.
+  induction ws as [|c ws IH]; intros acc txt p o H; [cbn; rewrite append_empty_r; reflexivity|].
+  cbn [is_blank] in H. apply andb_true_iff in H as [Hc H]. cbn [iscan_str].
+  unfold istep. cbn [istep_at]. rewrite Hc. tred. rewrite IH by exact H.
+  rewrite append_assoc. reflexivity.
+Qed.
+
+Local Lemma iscan_bs_blank : forall w txt p o, is_blank w = true ->
+  iscan_str (String bslash w) (IText false txt p o) = esc_pending w txt (Some bslash) o.
+Proof.
+  intros [|c w] txt p o H; [reflexivity|]. cbn [is_blank] in H. apply andb_true_iff in H as [Hc H].
+  cbn [iscan_str]. rewrite istep_bslash_text. unfold istep. cbn [istep_at]. rewrite Hc. tred.
+  rewrite iscan_escws_acc by exact H. reflexivity.
+Qed.
+
+Local Lemma blank_no_rbrack : forall w, is_blank w = true -> no_rbrack w = true /\ no_bslash w = true.
+Proof.
+  induction w as [|c w IH]; intros H; [split; reflexivity|]. cbn [is_blank] in H.
+  apply andb_true_iff in H as [Hc H]. destruct (IH H) as [H1 H2].
+  destruct (blank_byte c Hc) as (Hb & _ & _ & Hp).
+  cbn [no_rbrack no_bslash]. rewrite H1, H2, Hb, andb_true_r.
+  split; [|reflexivity]. destruct c as [[] [] [] [] [] [] [] []]; try discriminate Hc; reflexivity.
+Qed.
+
+Local Lemma iscan_ref_ws : forall c w kids im open label o, is_blank w = true ->
+  iscan_str (String bslash (String c w)) (IReference kids im open false label o)
+  = IReference kids im open false (label ++ String bslash (String c w)) o.
+Proof.
+  intros c w kids im open label o H. destruct (blank_no_rbrack w H) as [H1 H2].
+  change (iscan_str (String bslash (String c w)) (IReference kids im open false label o))
+    with (iscan_str w (IReference kids im open false (label ++ String bslash (one c)) o)).
+  rewrite iscan_ref by assumption. rewrite append_assoc. reflexivity.
+Qed.
+
+Local Lemma ws_follow : forall x s, is_ws x = true -> follow_ok x s = true.
+Proof. intros x s H. destruct x as [[] [] [] [] [] [] [] []]; try discriminate H; reflexivity. Qed.
+
+Local Lemma str_last_blank : forall w c, is_blank (String c w) = true ->
+  exists x, str_last w (Some c) = Some x /\ is_ws x = true.
+Proof.
+  induction w as [|c' w IH]; intros c H; cbn [is_blank] in H; apply andb_true_iff in H as [Hc H].
+  - exists c. split; [reflexivity|exact Hc].
+  - exact (IH c' H).
+Qed.
+
+Local Lemma ws_run_next : forall s c, get 0 (sdrop (String.length (ws_run s)) s) = Some c ->
+  is_ws c = false.
+Proof.
+  induction s as [|d s IH]; intros c H; [discriminate|]. cbn [ws_run] in H.
+  destruct (is_ws d) eqn:E.
+  - cbn [String.length sdrop] in H. exact (IH c H).
+  - cbn in H. injection H as <-. exact E.
+Qed.
+
+Local Lemma scan_esc : forall ts after len, scan_ih ts after len ->
+  forall s' prev n v ws core,
+    String.length (String bslash s') <= S len -> over_alphabet (String bslash s') = true ->
+    note_ok prev core (String bslash s') ->
+    skipn n ts = (lex prev 0 (String bslash s') ++ after)%list ->
+    vinv ts n v -> Forall (never ts n) ws -> Forall esc_off ws -> linked ts n v prev core ->
+    scanned ts n v ws core prev (String bslash s').
+Proof.
+  intros ts after len IH s' prev n v ws core Hl Ha Hp Hsk V Fn Fe L.
+  pose proof (fun bytes rest toks prev1 extra core1 =>
+                scan_advance ts after len IH (String bslash s') prev n v ws core
+                  bytes rest toks prev1 extra core1 Hl Ha Hsk V Fn Fe) as A.
+  pose proof (over_alphabet_bslash s' Ha) as Ha1.
+  pose proof V as (Ok & Ti & _).
+  destruct (is_blank s') eqn:Bl.
+  { (* a hard break: the rest of the line *)
+    assert (El : lex prev 0 (String bslash s') = [THard s']) by (rewrite lex_bs, Bl; reflexivity).
+    rewrite El in Hsk. cbn [app] in Hsk.
+    pose proof (skipn_cons_tail ts n _ _ Hsk) as Hsk1.
+    assert (Hpl : tok_plain (THard s')) by exact Bl.
+    assert (Hn : nth_error ts n = Some (THard s'))
+      by (rewrite <- (Nat.add_0_r n), <- nth_error_skipn, Hsk; reflexivity).
+    assert (Hl1 : hard_last [THard s']).
+    { intros a w b E. destruct a as [|y a]; [injection E as _ <-; reflexivity|].
+      destruct a; discriminate E. }
+    destruct (layers_step ts n ws [THard s'] after Fn Fe Hsk
+                (Forall_cons _ Hpl (Forall_nil _)) Hl1) as (Hopen & Fn' & _).
+    cbn [toks_text length tok_text] in Hopen, Fn'. rewrite append_empty_r in Hopen, Fn'.
+    rewrite Nat.add_1_r in Fn'.
+    pose proof (vinv_step ts n (THard s') v V Hpl Hn) as V'.
+    unfold scanned. rewrite El. cbn [length prun]. rewrite Nat.add_1_r.
+    exists (map (wl_after (String bslash s')) ws).
+    rewrite iscan_wrap by exact Hopen. rewrite rres_wrap.
+    unfold linked in L. destruct (pv_mode v) as [|[|] kids d0 e txt] eqn:Em.
+    - destruct L as (Hah & txt & o & -> & Hs).
+      rewrite iscan_bs_blank by exact Bl.
+      exists (esc_pending s' txt (Some bslash) o), (Some bslash).
+      split; [destruct s'; reflexivity|]. split; [exact V'|]. split; [exact Fn'|].
+      right. left. exists s', txt, (Some bslash), o, v.
+      split; [cbn [after_hard]; rewrite Hn; reflexivity|]. split; [exact Bl|]. split; [reflexivity|]. split; [exact Em|]. split; [exact Hs|].
+      unfold pstep. rewrite Em. reflexivity.
+    - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
+      rewrite Hsk in He. cbn [paren_close] in He.
+      assert (Rs := region_stay ts n (THard s') v true kids d0 e txt Em Hd
+                      ltac:(intros e' E'; rewrite E' in He; symmetry in He;
+                            apply Precedence.paren_close_ge in He; lia)).
+      rewrite Rs in V' |- *.
+      pose proof (dfeed_esc_blank s' depth txt Bl) as Ed.
+      destruct s' as [|w ws1].
+      + rewrite (iscan_dest _ _ _ _ _ _ _ _ _ Ed). cbn [ds_esc ds_depth ds_dst].
+        exists (IDest (map mk kids) false open true depth txt (rres (iscan_str (String bslash "") sh))
+                  (oview cm v)), None.
+        split; [reflexivity|]. split; [exact V'|]. split; [exact Fn'|].
+        right. right. right. exists kids, d0, e, txt, open, depth, (rres (iscan_str (String bslash "") sh)), cm.
+        cbn [pv_setmode pv_mode tok_region tok_dest tok_text].
+        split; [reflexivity|]. split; [lia|]. rewrite Hsk1. split; [exact He|]. split; [exact Hne|].
+        reflexivity.
+      + rewrite (iscan_dest _ _ _ _ _ _ _ _ _ Ed). cbn [ds_esc ds_depth ds_dst].
+        exists (IDest (map mk kids) false open false depth (txt ++ String bslash (String w ws1))
+                  (rres (iscan_str (String bslash (String w ws1)) sh)) (oview cm v)), None.
+        split; [reflexivity|]. split; [exact V'|]. split; [exact Fn'|].
+        left. unfold linked. cbn [pv_setmode pv_mode tok_region tok_dest tok_text]. split; [lia|].
+        exists open, depth, (rres (iscan_str (String bslash (String w ws1)) sh)), cm.
+        rewrite Hsk1. split; [exact He|]. split; [exact Hne|reflexivity].
+    - destruct L as (Hd & He & Hk & open & cm & ->).
+      rewrite Hsk in He. cbn [rbrack_at] in He.
+      assert (Rs := region_stay ts n (THard s') v false kids d0 e txt Em Hd
+                      ltac:(intros e' E'; rewrite E' in He; symmetry in He;
+                            apply Precedence.rbrack_at_ge in He; lia)).
+      rewrite Rs in V' |- *.
+      destruct s' as [|w ws1].
+      + exists (IReference (map mk kids) false open true txt (oview cm v)), None.
+        split; [reflexivity|]. split; [exact V'|]. split; [exact Fn'|].
+        right. right. left. exists kids, d0, e, txt, open, cm.
+        cbn [pv_setmode pv_mode tok_region tok_text].
+        split; [reflexivity|]. split; [lia|]. rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
+        reflexivity.
+      + cbn [is_blank] in Bl. apply andb_true_iff in Bl as [_ Bl].
+        rewrite iscan_ref_ws by exact Bl.
+        exists (IReference (map mk kids) false open false (txt ++ String bslash (String w ws1))
+                  (oview cm v)), None.
+        split; [reflexivity|]. split; [exact V'|]. split; [exact Fn'|].
+        left. unfold linked. cbn [pv_setmode pv_mode tok_region tok_text]. split; [lia|].
+        rewrite Hsk1. split; [exact He|]. split; [exact Hk|]. exists open, cm. reflexivity. }
+  destruct s' as [|d r]; [discriminate|].
+  destruct (is_ws d) eqn:Wd.
+  { (* an escaped run of whitespace *)
+    set (w1 := ws_run r).
+    assert (Hw : ws_run (String d r) = String d w1) by (cbn [ws_run]; rewrite Wd; reflexivity).
+    set (rest := sdrop (String.length w1) r).
+    assert (Ew : String d r = (String d w1 ++ rest)%string).
+    { pose proof (ws_run_sdrop (String d r)) as E. rewrite Hw in E. symmetry. exact E. }
+    assert (Hwb : is_blank (String d w1) = true) by (rewrite <- Hw; apply ws_run_blank).
+    assert (Ha2 : over_alphabet rest = true) by (apply over_alphabet_ws_run, Ha1).
+    destruct (str_last_blank w1 d Hwb) as (x & Ex & Hx).
+    assert (El : lex prev 0 (String bslash (String d r))
+                 = ([TEscWs (String d w1)] ++ lex (Some x) 0 rest)%list).
+    { rewrite lex_bs, Bl, Wd, Hw. cbn [str_last String.length sdrop]. rewrite Ex. reflexivity. }
+    assert (Hnx : forall c', get 0 rest = Some c' -> is_ws c' = false).
+    { intros c' E. apply (ws_run_next (String d r)). rewrite Hw. exact E. }
+    rewrite El in Hsk. cbn [app] in Hsk.
+    pose proof (skipn_cons_tail ts n _ _ Hsk) as Hsk1.
+    assert (Step : forall core1,
+              note_ok (Some x) core1 rest ->
+              settles (iscan_str (String bslash (String d w1)) core) core1 (get 0 rest) ->
+              linked ts (S n) (pstep ts n (TEscWs (String d w1)) v) (Some x) core1 ->
+              scanned ts n v ws core prev (String bslash (String d r))).
+    { intros core1 N1 Hset L1.
+      apply (A (String bslash (String d w1)) rest [TEscWs (String d w1)] (Some x) [] core1);
+        [rewrite Ew; reflexivity|discriminate|exact El|cbn; rewrite append_empty_r; reflexivity
+        |constructor; [discriminate|constructor]|exact Ha2|exact N1|exact Hset|constructor|constructor|].
+      cbn [length prun]. rewrite Nat.add_1_r. exact L1. }
+    unfold linked in L. destruct (pv_mode v) as [|[|] kids d0 e txt] eqn:Em.
+    - destruct L as (Hah & txt & o & -> & Hs).
+      pose proof Hs as (v0 & cm & Eo & Ht & Ev).
+      assert (Hrest : exists c', get 0 rest = Some c').
+      { destruct rest as [|c' r'] eqn:Er; [|exists c'; reflexivity].
+        exfalso. rewrite append_empty_r in Ew. rewrite Ew in Bl. rewrite Hwb in Bl. discriminate. }
+      destruct Hrest as (c' & G).
+      pose proof (Hnx c' G) as Hc'.
+      assert (Scan : iscan_str (String bslash (String d w1)) (IText false txt prev o)
+                     = IEscWs (String d w1) txt (Some bslash) o)
+        by exact (iscan_bs_blank (String d w1) txt prev o Hwb).
+      destruct (Ascii.eqb d " "%char) eqn:Sp.
+      + (* a non-breaking space, and the rest of the run as text *)
+        apply Ascii.eqb_eq in Sp. subst d.
+        apply (Step (IText false w1 (Some x) (oemit (mk NonBreakingSpace) (flush_text txt o)))).
+        * left. cbn [prev_ok]. apply ws_follow, Hx.
+        * rewrite G. cbn [settles]. rewrite Scan. unfold istep. cbn [istep_at].
+          rewrite Hc', iescws_cons, Ascii.eqb_refl, Ex. reflexivity.
+        * apply linked_normal.
+          { apply (after_tok ts n _ _ Hsk). discriminate. }
+          { apply pstep_mode; [exact Em|discriminate]. }
+          unfold pstep. rewrite Em. cbn [nbsp_rest]. rewrite Ascii.eqb_refl.
+          exists (pv_add NonBreakingSpace v), cm. split; [|split].
+          -- change (@flush_text_to_at semantic_pos semantic_inline_cursor ?s txt o)
+               with (flush_text txt o).
+             rewrite Eo, (flush_view cm txt v0 Ht), <- Ev.
+             apply oemit_view. discriminate.
+          -- apply top_add_nonstr. discriminate.
+          -- unfold add_text. reflexivity.
+      + (* a tab or a carriage return first: the backslash and the run as text *)
+        apply (Step (IText false (txt ++ String bslash (String d w1)) (Some x) o)).
+        * left. cbn [prev_ok]. apply ws_follow, Hx.
+        * rewrite G. cbn [settles]. rewrite Scan. unfold istep. cbn [istep_at].
+          rewrite Hc', iescws_cons, Sp. cbn [str_last]. rewrite Ex. reflexivity.
+        * apply linked_normal.
+          { apply (after_tok ts n _ _ Hsk). discriminate. }
+          { apply pstep_mode; [exact Em|discriminate]. }
+          unfold pstep. rewrite Em. cbn [nbsp_rest]. rewrite Sp.
+          apply sim_text; [exact Hs|reflexivity].
+    - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
+      rewrite Hsk in He. cbn [paren_close] in He.
+      apply (Step (IDest (map mk kids) false open false depth (txt ++ String bslash (String d w1))
+                    (iscan_str (String bslash (String d w1)) sh) (oview cm v))).
+      + right. intros t p o' E. discriminate E.
+      + rewrite (iscan_dest _ _ _ _ _ _ _ _ (DS false depth (txt ++ String bslash (String d w1)))).
+        * apply settles_refl.
+        * assert (Hpl : tok_plain (TEscWs (String d w1))) by (split; [exact Hwb|discriminate]).
+          pose proof (tok_dfeed (TEscWs (String d w1)) depth txt Hpl) as E.
+          cbn [tok_text tok_dest] in E. rewrite E. reflexivity.
+      + rewrite (region_stay ts n _ v true kids d0 e txt Em Hd).
+        2: { intros e' E'. rewrite E' in He. symmetry in He.
+             apply Precedence.paren_close_ge in He. lia. }
+        unfold linked. cbn [pv_setmode pv_mode tok_region tok_dest tok_text]. split; [lia|].
+        exists open, depth, (iscan_str (String bslash (String d w1)) sh), cm.
+        rewrite Hsk1. split; [exact He|]. split; [exact Hne|reflexivity].
+    - destruct L as (Hd & He & Hk & open & cm & ->).
+      rewrite Hsk in He. cbn [rbrack_at] in He.
+      apply (Step (IReference (map mk kids) false open false (txt ++ String bslash (String d w1))
+                    (oview cm v))).
+      + right. intros t p o' E. discriminate E.
+      + cbn [is_blank] in Hwb. apply andb_true_iff in Hwb as [_ Hwb].
+        rewrite iscan_ref_ws by exact Hwb. apply settles_refl.
+      + rewrite (region_stay ts n _ v false kids d0 e txt Em Hd).
+        2: { intros e' E'. rewrite E' in He. symmetry in He.
+             apply Precedence.rbrack_at_ge in He. lia. }
+        unfold linked. cbn [pv_setmode pv_mode tok_region tok_text]. split; [lia|].
+        rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
+        exists open, cm. reflexivity. }
+  (* an escaped byte *)
+  assert (El : lex prev 0 (String bslash (String d r)) = ([TEsc d] ++ lex (Some d) 0 r)%list)
+    by (rewrite lex_bs, Bl, Wd; reflexivity).
+  rewrite El in Hsk. cbn [app] in Hsk.
+  pose proof (skipn_cons_tail ts n _ _ Hsk) as Hsk1.
+  assert (Step : forall core1,
+            note_ok (Some d) core1 r ->
+            settles (iscan_str (String bslash (one d)) core) core1 (get 0 r) ->
+            linked ts (S n) (pstep ts n (TEsc d) v) (Some d) core1 ->
+            scanned ts n v ws core prev (String bslash (String d r))).
+  { intros core1 N1 Hset L1.
+    apply (A (String bslash (one d)) r [TEsc d] (Some d) [] core1);
+      [reflexivity|discriminate|exact El|reflexivity|constructor; [discriminate|constructor]
+      |exact Ha1|exact N1|exact Hset|constructor|constructor|].
+    cbn [length prun]. rewrite Nat.add_1_r. exact L1. }
+  unfold linked in L. destruct (pv_mode v) as [|[|] kids d0 e txt] eqn:Em.
+  - destruct L as (Hah & txt & o & -> & Hs).
+    apply (Step (IText false (txt ++ esc_text d) (Some d) o)).
+    + right. intros t p o' E. injection E as <- _ _.
+      destruct txt; [|reflexivity]. cbn. destruct (esc_text d) eqn:E'; [destruct (esc_text_ne d E')|reflexivity].
+    + cbn [iscan_str one]. rewrite istep_bslash_text, istep_esc_byte by exact Wd. apply settles_refl.
+    + apply linked_normal.
+      * apply (after_tok ts n (TEsc d) _ Hsk). discriminate.
+      * apply pstep_mode; [exact Em|discriminate].
+      * unfold pstep. rewrite Em. apply sim_text; [exact Hs|].
+        destruct (esc_text d) eqn:E'; [destruct (esc_text_ne d E')|reflexivity].
+  - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
+    rewrite Hsk in He. cbn [paren_close] in He.
+    apply (Step (IDest (map mk kids) false open false depth (txt ++ esc_text d)
+                  (iscan_str (String bslash (one d)) sh) (oview cm v))).
+    + right. intros t p o' E. discriminate E.
+    + rewrite (iscan_dest _ _ _ _ _ _ _ _ (DS false depth (txt ++ esc_text d))).
+      * apply settles_refl.
+      * exact (tok_dfeed (TEsc d) depth txt Logic.I).
+    + rewrite (region_stay ts n (TEsc d) v true kids d0 e txt Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.paren_close_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode tok_region tok_dest]. split; [lia|].
+      exists open, depth, (iscan_str (String bslash (one d)) sh), cm.
+      rewrite Hsk1. split; [exact He|]. split; [exact Hne|reflexivity].
+  - destruct L as (Hd & He & Hk & open & cm & ->).
+    rewrite Hsk in He. cbn [rbrack_at] in He.
+    apply (Step (IReference (map mk kids) false open false (txt ++ String bslash (one d)) (oview cm v))).
+    + right. intros t p o' E. discriminate E.
+    + rewrite iscan_ref_bs. apply settles_refl.
+    + rewrite (region_stay ts n (TEsc d) v false kids d0 e txt Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.rbrack_at_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode tok_region tok_text]. split; [lia|].
+      rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
+      exists open, cm. reflexivity.
+Qed.
+
 Local Lemma scan_sim : forall ts after len, scan_ih ts after len.
 Proof.
-  intros ts after. induction len as [|len IH]; intros s prev n v ws core Hl Ha Hp Hsk V Fn L;
+  intros ts after. induction len as [|len IH]; intros s prev n v ws core Hl Ha Hp Hsk V Fn Fe L;
     destruct s as [|c s']; try (apply scanned_nil; assumption).
   { cbn [String.length] in Hl. lia. }
   pose proof (fun bytes rest toks prev1 extra core1 =>
                 scan_advance ts after len IH (String c s') prev n v ws core
-                  bytes rest toks prev1 extra core1 Hl Ha Hsk V Fn) as A.
-  pose proof V as [Ok Ti]. pose proof Ok as (_ & _ & B & _).
+                  bytes rest toks prev1 extra core1 Hl Ha Hsk V Fn Fe) as A.
+  assert (A' : forall bytes rest toks prev1 extra core1,
+            String c s' = (bytes ++ rest)%string -> bytes <> "" ->
+            lex prev 0 (String c s') = (toks ++ lex prev1 0 rest)%list ->
+            toks_text toks = bytes -> no_bslash bytes = true ->
+            note_ok prev1 core1 rest ->
+            settles (iscan_str bytes core) (wrap extra core1) (get 0 rest) ->
+            Forall (never ts (n + length toks)) extra -> Forall esc_off extra ->
+            linked ts (n + length toks) (prun ts n toks v) prev1 core1 ->
+            scanned ts n v ws core prev (String c s')).
+  { intros bytes rest toks prev1 extra core1 E1 E2 E3 E4 Nb E5 E6 E7 E8 E9.
+    apply (A bytes rest toks prev1 extra core1 E1 E2 E3 E4); try assumption.
+    - apply toks_no_hard0. rewrite E4. exact Nb.
+    - pose proof Ha as Ha2. rewrite E1 in Ha2. exact (over_alphabet_app_r _ _ Nb Ha2). }
+  pose proof V as (Ok & Ti & _). pose proof Ok as (_ & _ & B & _).
+  destruct (is_bslash c) eqn:Eb.
+  { unfold is_bslash in Eb. apply Ascii.eqb_eq in Eb. subst c.
+    exact (scan_esc ts after len IH s' prev n v ws core Hl Ha Hp Hsk V Fn Fe L). }
   unfold linked in L. destruct (pv_mode v) as [|b kids d e txt] eqn:Em.
   2: { (* in a region *)
-    destruct (lex_cons (String c s') prev Ha ltac:(discriminate))
-      as (t & r & prev1 & Es & El & Hp1 & _ & Hlast).
+    destruct (lex_cons c s' prev Eb Ha)
+      as (t & r & prev1 & Es & El & Hp1 & _ & Hlast & Hb & _).
     pose proof (lex_plain _ prev 0 Ha) as Fp. rewrite El in Fp.
     apply Forall_cons_iff in Fp as [Ft _].
     rewrite El in Hsk. cbn [app] in Hsk.
     pose proof (skipn_cons_tail ts n t _ Hsk) as Hsk1.
-    assert (Hb : no_bslash (tok_text t) = true).
-    { pose proof (alphabet_no_bslash _ Ha) as H. rewrite Es, no_bslash_app in H.
-      apply andb_true_iff in H as [H _]. exact H. }
     assert (Step : forall core1,
               settles (iscan_str (tok_text t) core) core1 (get 0 r) ->
               linked ts (S n) (pstep ts n t v) prev1 core1 ->
               scanned ts n v ws core prev (String c s')).
     { intros core1 Hset L1.
-      apply (A (tok_text t) r [t] prev1 [] core1);
-        [exact Es|apply tok_text_ne|exact El|cbn; apply append_empty_r|exact Hp1|exact Hset
-        |constructor|]. cbn [length prun]. rewrite Nat.add_1_r. exact L1. }
+      apply (A' (tok_text t) r [t] prev1 [] core1);
+        [exact Es|apply tok_text_ne|exact El|cbn; apply append_empty_r
+        |exact Hb|left; exact Hp1|exact Hset|constructor|constructor|].
+      cbn [length prun]. rewrite Nat.add_1_r. exact L1. }
+    pose proof (after_one ts n t _ Hsk Hb) as Hah.
     destruct b.
     - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
-      rewrite Hsk, (paren_close_cons t depth n _ Ft) in He.
-      destruct (pdepth depth (tok_text t)) as [d'|] eqn:Pd.
-      + apply (Step (IDest (map mk kids) false open false d' (txt ++ tok_text t)
+      rewrite Hsk, (paren_close_cons t depth txt n _ Ft) in He.
+      destruct (dfeed (tok_text t) (DS false depth txt)) as [ds|] eqn:Pd.
+      + pose proof (dfeed_plain_tok t depth txt ds Ft Hb Pd) as Eds.
+        apply (Step (IDest (map mk kids) false open false (ds_depth ds) (txt ++ tok_text t)
                       (iscan_str (tok_text t) sh) (oview cm v))).
-        * rewrite (iscan_dest _ _ _ _ _ _ _ d' Hb Pd). apply settles_refl.
+        * rewrite (iscan_dest _ _ _ _ _ _ _ _ _ Pd).
+          destruct ds as [e1 dp1 dst1]. injection Eds as -> ->. apply settles_refl.
         * rewrite (region_stay ts n t v true kids d e txt Em Hd).
           2: { intros e' E'. rewrite E' in He. symmetry in He.
                apply Precedence.paren_close_ge in He. lia. }
           unfold linked. cbn [pv_setmode pv_mode]. split; [lia|].
-          exists open, d', (iscan_str (tok_text t) sh), cm.
+          cbn [tok_region]. rewrite (tok_dest_plain t Hb).
+          exists open, (ds_depth ds), (iscan_str (tok_text t) sh), cm.
           rewrite Hsk1. split; [exact He|]. split; [exact Hne|reflexivity].
-      + destruct (pdepth_none t depth Ft Pd) as [Et ->]. subst e.
+      + destruct (dfeed_none t depth txt Ft Pd) as [Et ->]. subst e.
         pose proof (Hlast _ Et) as ->.
         apply (Step (IText false "" (Some rparen)
                        (oemit (mk (region_node true (map mk kids) txt)) (oview cm v)))).
         * rewrite Et. unfold region_node. rewrite no_nl_drop. apply settles_refl.
         * rewrite (region_close ts n t v true kids d txt Em).
-          apply region_close_linked, region_node_nonstr.
+          apply region_close_linked; [exact Hah|apply region_node_nonstr].
     - destruct L as (Hd & He & Hk & open & cm & ->).
-      rewrite Hsk, rbrack_at_cons in He. pose proof (tok_rb t) as Hrb.
+      rewrite Hsk, rbrack_at_cons in He. pose proof (tok_rb t Hb) as Hrb.
       destruct (is_rb t).
       + subst e. pose proof (Hlast _ Hrb) as ->.
         apply (Step (IText false "" (Some rbrack)
                        (oemit (mk (region_node false (map mk kids) txt)) (oview cm v)))).
         * rewrite Hrb. apply settles_refl.
         * rewrite (region_close ts n t v false kids d txt Em).
-          apply region_close_linked, region_node_nonstr.
+          apply region_close_linked; [exact Hah|apply region_node_nonstr].
       + apply (Step (IReference (map mk kids) false open false (txt ++ tok_text t) (oview cm v))).
         * rewrite (iscan_ref _ _ _ _ _ _ Hrb Hb). apply settles_refl.
         * rewrite (region_stay ts n t v false kids d e txt Em Hd).
@@ -3462,27 +4580,32 @@ Proof.
           rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
           exists open, cm. reflexivity. }
   (* in text mode *)
-  destruct L as (txt & o & -> & Hs).
+  destruct L as (Hah & txt & o & -> & Hs).
   pose proof Hs as (v0 & cm & Eo & Ht & Ev).
-  pose proof Ha as Ha'. apply over_alphabet_cons in Ha' as (Hc & Hf & Hs').
-  assert (Hn : no_note c txt prev = true) by exact (no_note_ok prev c s' txt Hp).
+  pose proof Ha as Ha'. apply (over_alphabet_cons c s' Eb) in Ha' as (Hc & Hf & Hs').
+  assert (Hn : no_note c txt prev = true) by exact (no_note_ok' prev c s' txt prev o Hp).
   assert (Nrm : forall bytes rest toks prev1 txt' o',
             String c s' = (bytes ++ rest)%string -> bytes <> "" ->
             lex prev 0 (String c s') = (toks ++ lex prev1 0 rest)%list ->
-            toks_text toks = bytes -> prev_ok prev1 rest = true ->
+            toks_text toks = bytes -> no_bslash bytes = true -> prev_ok prev1 rest = true ->
             settles (iscan_str bytes (IText false txt prev o)) (IText false txt' prev1 o')
               (get 0 rest) ->
             pv_mode (prun ts n toks v) = PMNormal -> sim (prun ts n toks v) txt' o' ->
             scanned ts n v ws (IText false txt prev o) prev (String c s')).
-  { intros bytes rest toks prev1 txt' o' H1 H2 H3 H4 H5 H6 H7 H8.
-    apply (A bytes rest toks prev1 [] (IText false txt' prev1 o')); try assumption;
-      [constructor|apply linked_normal; assumption]. }
+  { intros bytes rest toks prev1 txt' o' H1 H2 H3 H4 Nb H5 H6 H7 H8.
+    apply (A' bytes rest toks prev1 [] (IText false txt' prev1 o')); try assumption;
+      [left; exact H5|constructor|constructor|].
+    apply linked_normal; [|exact H7|exact H8].
+    apply (after_chunk ts n toks (lex prev1 0 rest ++ after)).
+    - rewrite Hsk, H3, app_assoc. reflexivity.
+    - intros ->. cbn in H4. subst bytes. contradiction.
+    - apply toks_no_hard. rewrite H4. exact Nb. }
   destruct (Ascii.eqb c lbrack) eqn:Elk.
   { apply Ascii.eqb_eq in Elk. subst c.
     apply (Nrm (one lbrack) s' [TOpen] (Some lbrack) "" (bpush false (flush_text txt o)));
-      [reflexivity|discriminate|reflexivity|reflexivity|exact Hf| | |].
+      [reflexivity|discriminate|reflexivity|reflexivity|reflexivity|exact Hf| | |].
     - cbn [iscan_str one]. unfold istep. cbn [istep_at].
-      rewrite (ilead_lbrack txt prev o (note_free prev lbrack s' txt Hp (or_introl eq_refl))).
+      rewrite (ilead_lbrack txt prev o (note_free' prev lbrack s' txt prev o Hp (or_introl eq_refl))).
       apply settles_refl.
     - cbn [prun]. apply pstep_mode; [exact Em|discriminate].
     - cbn [prun]. unfold pstep. rewrite Em. apply open_bracket_sim, Hs. }
@@ -3502,7 +4625,7 @@ Proof.
               scanned ts n v ws (IText false txt prev o) prev (String rbrack s')).
     { intros t Et El Ep Hb.
       apply (Nrm (one rbrack) s' [t] (Some rbrack) (txt ++ one rbrack) o);
-        [reflexivity|discriminate|exact El|cbn; rewrite Et; reflexivity|exact Hf| | |].
+        [reflexivity|discriminate|exact El|cbn; rewrite Et; reflexivity|reflexivity|exact Hf| | |].
       - apply tok_rbrack_text; [exact Htag|exact Hb].
       - cbn [prun]. rewrite Ep, (proj2 (pv_add_live _ _)). exact Em.
       - cbn [prun]. rewrite Ep. apply sim_text; [exact Hs|reflexivity]. }
@@ -3537,11 +4660,11 @@ Proof.
     { (* a destination *)
       destruct s' as [|c2 r]; [discriminate|]. cbn [starts_with] in S1.
       apply Ascii.eqb_eq in S1. subst c2.
-      apply over_alphabet_cons in Hs' as (Hc2 & _ & Hr').
+      apply (over_alphabet_cons lparen r eq_refl) in Hs' as (Hc2 & _ & Hr').
       assert (El : lex prev 0 (String rbrack (String lparen r))
                    = ([TClose true; TText lparen] ++ lex (Some lparen) 0 r)%list).
       { rewrite lex_rbrack. cbn [starts_with app].
-        rewrite (lex_byte lparen (Some rbrack) r eq_refl eq_refl eq_refl
+        rewrite (lex_byte lparen (Some rbrack) r eq_refl eq_refl eq_refl eq_refl
                    (alphabet_paren_none lparen Hc2 eq_refl)). reflexivity. }
       assert (Hcp : iscan_str (String rbrack (one lparen)) (IText false txt prev o)
                     = IDest kids false null_span false 0 ""
@@ -3549,10 +4672,10 @@ Proof.
         by exact (Hcl lparen (or_introl eq_refl)).
       clear Hcl. rename Hcp into Hcl.
       destruct (region_end ts n true) as [e|] eqn:R.
-      - apply (A (String rbrack (one lparen)) r [TClose true; TText lparen] (Some lparen) []
+      - apply (A' (String rbrack (one lparen)) r [TClose true; TText lparen] (Some lparen) []
                  (IDest kids false null_span false 0 "" (idest_open kids false null_span o1) o1));
-          [reflexivity|discriminate|exact El|reflexivity|reflexivity
-          |rewrite Hcl; apply settles_refl|constructor|].
+          [reflexivity|discriminate|exact El|reflexivity|reflexivity|left; reflexivity
+          |rewrite Hcl; apply settles_refl|constructor|constructor|].
         cbn [length prun]. rewrite (pstep_close_found ts n true v content rest' Em Hpc), R.
         rewrite region_first.
         2: { intros e' E'. injection E' as <-.
@@ -3562,22 +4685,27 @@ Proof.
         replace (n + 2) with (S (S n)) by lia.
         split; [symmetry; exact R|]. split; [discriminate|reflexivity].
       - destruct (dest_open_sim cm n content rest' (pv_out v) Nc Cc) as (txt' & o2 & Eo' & S').
-        apply (A (String rbrack (one lparen)) r [TClose true; TText lparen] (Some lparen)
-                 [WL kids null_span 0 "" o1]
+        apply (A' (String rbrack (one lparen)) r [TClose true; TText lparen] (Some lparen)
+                 [WL kids null_span (DS false 0 "") o1]
                  (IText false (txt' ++ one rbrack ++ one lparen) (Some lparen) o2));
-          [reflexivity|discriminate|exact El|reflexivity|reflexivity| | |].
-        + rewrite Hcl. cbn [wrap wl_kids wl_open wl_depth wl_dst wl_o].
+          [reflexivity|discriminate|exact El|reflexivity|reflexivity|left; reflexivity| | | |].
+        + rewrite Hcl. cbn [wrap wl_kids wl_open wl_ds wl_o ds_esc ds_depth ds_dst].
           fold kids o1 in Eo'. rewrite Eo'. apply settles_refl.
-        + constructor; [|constructor]. unfold never. cbn [wl_depth length].
+        + constructor; [|constructor]. unfold never, wl_depth. cbn [wl_ds ds_depth length].
           replace (n + 2) with (S (S n)) by lia. exact R.
+        + constructor; [reflexivity|constructor].
         + cbn [length prun]. rewrite (pstep_close_found ts n true v content rest' Em Hpc), R.
-          apply linked_normal; [|exact S'].
+          apply linked_normal; [| |exact S'].
+          { apply (after_chunk ts n [TClose true; TText lparen] (lex (Some lparen) 0 r ++ after)).
+            - rewrite Hsk, El, app_assoc. reflexivity.
+            - discriminate.
+            - apply (toks_no_hard [TClose true; TText lparen]). reflexivity. }
           unfold pstep. cbn [pv_mode]. rewrite (proj2 (pv_add_live _ _)). reflexivity. }
     destruct (starts_with lbrack s') eqn:S2.
     { (* a reference label *)
       destruct s' as [|c2 r]; [discriminate|]. cbn [starts_with] in S2.
       apply Ascii.eqb_eq in S2. subst c2.
-      apply over_alphabet_cons in Hs' as (_ & Hf2 & _).
+      apply (over_alphabet_cons lbrack r eq_refl) in Hs' as (_ & Hf2 & _).
       assert (Hcp : iscan_str (String rbrack (one lbrack)) (IText false txt prev o)
                     = IReference kids false null_span false "" o1)
         by exact (Hcl lbrack (or_intror eq_refl)).
@@ -3587,10 +4715,10 @@ Proof.
                     = PView rest' (pv_out v) (PMRegion false (List.rev content) n e "")).
       { rewrite (pstep_close_found ts n false v content rest' Em Hpc). unfold e.
         destruct (region_end ts n false); reflexivity. }
-      apply (A (String rbrack (one lbrack)) r [TClose false; TOpen] (Some lbrack) []
+      apply (A' (String rbrack (one lbrack)) r [TClose false; TOpen] (Some lbrack) []
                (IReference kids false null_span false "" o1));
-        [reflexivity|discriminate|reflexivity|reflexivity|exact Hf2
-        |rewrite Hcl; apply settles_refl|constructor|].
+        [reflexivity|discriminate|reflexivity|reflexivity|reflexivity|left; exact Hf2
+        |rewrite Hcl; apply settles_refl|constructor|constructor|].
       cbn [length prun]. rewrite Ev1, region_first.
       2: { intros e' E'. pose proof (Precedence.region_end_ge ts n false e' E'). lia. }
       unfold linked. cbn [pv_mode]. split; [lia|].
@@ -3613,7 +4741,7 @@ Proof.
     destruct s' as [|d s'']; [discriminate|].
     cbn [starts_row] in Hrow. unfold is_delim in Hrow.
     destruct (dstyle_of d) as [k|] eqn:Hd; [|discriminate].
-    pose proof Hs' as Hd'. apply over_alphabet_cons in Hd' as (Hdc & _ & _).
+    pose proof Hs' as Hd'. apply (over_alphabet_cons _ _ (delim_not_bslash d k Hd)) in Hd' as (Hdc & _ & _).
     pose proof (dstyle_of_enabled d k Hd) as Hen.
     pose proof (dstyle_of_char d k Hd) as Ec. subst d.
     destruct (dchar_plain k) as (Hlbk & Hrbk & Hlkk & Hrkk).
@@ -3634,6 +4762,7 @@ Proof.
       + unfold marked_open. discriminate.
       + rewrite Es. exact (lex_marked_open k prev rest Hd).
       + cbn [toks_text]. rewrite append_empty_r. reflexivity.
+      + nb.
       + apply follow_ok_plain; assumption.
       + apply tok_marked_open, Hen.
       + cbn [prun]. apply pstep_mode; [exact Em|discriminate].
@@ -3655,6 +4784,7 @@ Proof.
         rewrite (lex_lbrace_short k j' prev rest0 Hd Hw Hr),
           (lex_partial k (S j') (Some lbrace) rest0 Hd Hw Hr). reflexivity.
       + cbn [toks_text tok_text]. rewrite toks_text_repeat. reflexivity.
+      + nb.
       + apply follow_ok_plain; assumption.
       + apply tok_marked_partial; [exact Hen|lia|exact Hnext].
       + exact M2.
@@ -3662,7 +4792,8 @@ Proof.
   destruct (dstyle_of c) as [k|] eqn:Hd.
   2: { (* a plain byte *)
     apply (Nrm (one c) s' [TText c] (Some c) (txt ++ one c) o);
-      [reflexivity|discriminate|exact (lex_byte c prev s' Elk Erk Elb Hd)|reflexivity|exact Hf| | |].
+      [reflexivity|discriminate|exact (lex_byte c prev s' Eb Elk Erk Elb Hd)|reflexivity
+      |cbn; rewrite Eb; reflexivity|exact Hf| | |].
     - cbn [iscan_str one]. unfold istep. cbn [istep_at].
       rewrite (ilead_text c txt prev o Hc Elb Elk Erk Hd Hn). apply settles_refl.
     - cbn [prun]. apply pstep_mode; [exact Em|discriminate].
@@ -3696,6 +4827,7 @@ Proof.
       * intros E0. destruct (dtoken k); [exact (Htok eq_refl)|discriminate].
       * rewrite Es. exact (lex_marked_close k prev r Hd).
       * cbn [toks_text tok_text]. apply append_empty_r.
+      * nb.
       * reflexivity.
       * rewrite (tok_marked_close k txt prev o Hen Hhy Hn), Hres. apply settles_refl.
       * cbn [prun]. apply pstep_mode; [exact Em|discriminate].
@@ -3710,6 +4842,7 @@ Proof.
       * exact Htok.
       * rewrite Es. exact (lex_token k prev rest Hd Hat).
       * cbn [toks_text tok_text]. apply append_empty_r.
+      * nb.
       * apply follow_ok_plain; assumption.
       * apply (tok_bare k txt prev o (get 0 rest) txt' o' Hen Hhy Hn); [|exact Hres].
         intros c0 E0. rewrite E0 in Hat. exact Hat.
@@ -3723,6 +4856,7 @@ Proof.
     + discriminate.
     + exact (lex_partial k (S j') prev rest0 Hd Hw Hr).
     + apply toks_text_repeat.
+    + nb.
     + apply follow_ok_plain; assumption.
     + apply tok_partial; [exact Hen|exact Hhy|exact Hn|lia|exact Hnext].
     + exact M2.
@@ -3738,57 +4872,159 @@ a line and takes the break: a soft break in text mode, a byte of the
 region in a label or a destination.  That is the view of a break token.
 *)
 
-Local Lemma break_linked : forall ts n v prev core rest,
-  skipn n ts = TBreak :: rest -> linked ts n v prev core ->
-  linked ts (S n) (pstep ts n TBreak v) None (ibreak core).
+Local Lemma pv_trim_add_text : forall txt v0, starts_text (top_of v0) = false ->
+  pv_trim (add_text txt v0) = add_text (strip_trailing_ws txt) v0.
 Proof.
-  intros ts n v prev core rest Hsk L. pose proof (skipn_cons_tail ts n _ _ Hsk) as Hsk1.
-  unfold linked in L. destruct (pv_mode v) as [|[|] kids d e txt] eqn:Em.
-  - destruct L as (txt & o & -> & Hs). destruct Hs as (v0 & cm & -> & Ht & Ev).
-    assert (E : ibreak (IText false txt prev (oview cm v0))
-                = IText false "" None (oview cm (pv_add SoftBreak v))).
-    { unfold ibreak, ibreak_at, ibreak_flat. cbn [iresolve].
-      change (@flush_text_at semantic_pos semantic_inline_cursor (tval txt) (oview cm v0))
-        with (flush_text txt (oview cm v0)).
-      rewrite (flush_view cm txt v0 Ht), <- Ev.
-      change (imk_here SoftBreak) with (mk SoftBreak).
-      rewrite (oemit_view cm SoftBreak v) by discriminate. reflexivity. }
-    rewrite E. apply linked_normal; [apply pstep_mode; [exact Em|discriminate]|].
-    unfold pstep. rewrite Em. exists (pv_add SoftBreak v), cm.
-    split; [reflexivity|]. split; [apply top_add_nonstr; discriminate|reflexivity].
-  - destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
-    rewrite Hsk in He. cbn [paren_close] in He.
-    rewrite (region_stay ts n TBreak v true kids d e txt Em Hd).
-    2: { intros e' E'. rewrite E' in He. symmetry in He.
-         apply Precedence.paren_close_ge in He. lia. }
-    unfold linked. cbn [pv_setmode pv_mode]. split; [lia|].
-    exists open, depth, (ibreak sh), cm. rewrite Hsk1.
-    split; [exact He|]. split; [exact Hne|reflexivity].
-  - destruct L as (Hd & He & Hk & open & cm & ->).
-    rewrite Hsk in He. cbn [rbrack_at] in He.
-    rewrite (region_stay ts n TBreak v false kids d e txt Em Hd).
-    2: { intros e' E'. rewrite E' in He. symmetry in He.
-         apply Precedence.rbrack_at_ge in He. lia. }
-    unfold linked. cbn [pv_setmode pv_mode]. split; [lia|].
-    rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
-    exists open, cm. reflexivity.
+  intros txt [[|f rest] out md] Ht; unfold add_text, top_of in *; cbn [pv_stk] in Ht.
+  - destruct (nonempty_str txt) eqn:En.
+    + cbn [pv_add pv_stk pv_out pv_trim pv_mode].
+      destruct out as [|y out]; [|destruct y; try discriminate Ht];
+        cbn [xsnoc xtrim];
+        destruct (strip_trailing_ws txt) eqn:Es; reflexivity.
+    + destruct txt; [|discriminate]. cbn. unfold pv_trim; cbn.
+      destruct out as [|y out]; [reflexivity|destruct y; try discriminate Ht; reflexivity].
+  - destruct (nonempty_str txt) eqn:En.
+    + cbn [pv_add pv_stk pv_out pv_trim pv_mode].
+      destruct f as [p k c|d c]; cbn [fset fcontent] in *;
+      (destruct c as [|y c]; [|destruct y; try discriminate Ht]);
+        cbn [xsnoc xtrim fset fcontent];
+        destruct (strip_trailing_ws txt) eqn:Es; reflexivity.
+    + destruct txt; [|discriminate]. cbn. unfold pv_trim; cbn.
+      destruct f as [p k c|d c]; cbn [fset fcontent] in *;
+        (destruct c as [|y c]; [reflexivity|destruct y; try discriminate Ht; reflexivity]).
 Qed.
 
-(* The paragraph's end, in a linked state. *)
+Local Lemma ibreak_pending : forall ws0 txt p o,
+  ibreak (esc_pending ws0 txt p o) = IText false "" None (oword_reset (iesc_hard ws0 txt o)).
+Proof. intros [|w ws] txt p o; reflexivity. Qed.
+
+Local Lemma break_linked : forall ts n v prev core rest,
+  skipn n ts = TBreak :: rest -> linked_end ts n v prev core ->
+  linked ts (S n) (pstep ts n TBreak v) None (ibreak core).
+Proof.
+  intros ts n v prev core rest Hsk [L|P]; pose proof (skipn_cons_tail ts n _ _ Hsk) as Hsk1;
+    assert (Ha1 : after_hard ts (S n) = false) by (apply (after_tok ts n TBreak rest Hsk); discriminate).
+  - unfold linked in L. destruct (pv_mode v) as [|[|] kids d e txt] eqn:Em.
+    + destruct L as (Ha & txt & o & -> & Hs). destruct Hs as (v0 & cm & -> & Ht & Ev).
+      assert (E : ibreak (IText false txt prev (oview cm v0))
+                  = IText false "" None (oview cm (pv_add SoftBreak v))).
+      { unfold ibreak, ibreak_at, ibreak_flat. cbn [iresolve].
+        change (@flush_text_at semantic_pos semantic_inline_cursor (tval txt) (oview cm v0))
+          with (flush_text txt (oview cm v0)).
+        rewrite (flush_view cm txt v0 Ht), <- Ev.
+        change (imk_here SoftBreak) with (mk SoftBreak).
+        rewrite (oemit_view cm SoftBreak v) by discriminate. reflexivity. }
+      rewrite E. unfold pstep. rewrite Em, Ha.
+      apply linked_normal; [exact Ha1|rewrite (proj2 (pv_add_live _ _)); exact Em|].
+      exists (pv_add SoftBreak v), cm.
+      split; [reflexivity|]. split; [apply top_add_nonstr; discriminate|reflexivity].
+    + destruct L as (Hd & open & depth & sh & cm & He & Hne & ->).
+      rewrite Hsk in He. cbn [paren_close] in He.
+      rewrite (region_stay ts n TBreak v true kids d e txt Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.paren_close_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode]. split; [lia|].
+      exists open, depth, (ibreak sh), cm. rewrite Hsk1.
+      split; [exact He|]. split; [exact Hne|reflexivity].
+    + destruct L as (Hd & He & Hk & open & cm & ->).
+      rewrite Hsk in He. cbn [rbrack_at] in He.
+      rewrite (region_stay ts n TBreak v false kids d e txt Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.rbrack_at_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode]. split; [lia|].
+      rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
+      exists open, cm. reflexivity.
+  - destruct P as [(ws0 & txt & p & o & vb & Ha & Hb & -> & Emb & Hs & ->)
+                  |[(kids & d & e & label & open & cm & Em & Hd & He & Hk & ->)
+                   |(kids & d & e & dst & open & depth & sh & cm & Em & Hd & He & Hne & ->)]].
+    + (* the hard break the line ended with *)
+      destruct Hs as (v0 & cm & -> & Ht & ->).
+      assert (Em : pv_mode (pv_add HardBreak (pv_trim (add_text txt v0))) = PMNormal)
+        by (rewrite (proj2 (pv_add_live _ _)), pv_trim_add; exact Emb).
+      unfold pstep. rewrite Em, Ha.
+      assert (E : ibreak (esc_pending ws0 txt p (oview cm v0))
+                  = IText false "" None (oview cm (pv_add HardBreak (pv_trim (add_text txt v0))))).
+      { rewrite (pv_trim_add_text txt v0 Ht).
+        assert (X : iesc_hard ws0 txt (oview cm v0)
+                    = oview cm (pv_add HardBreak (add_text (strip_trailing_ws txt) v0))).
+        { unfold iesc_hard. tred.
+          change (@flush_text_to_at semantic_pos semantic_inline_cursor ?s
+                    (strip_trailing_ws txt) (oview cm v0))
+            with (flush_text (strip_trailing_ws txt) (oview cm v0)).
+          rewrite (flush_view cm _ v0 Ht). rewrite imk_here_semantic.
+          apply oemit_view. discriminate. }
+        rewrite ibreak_pending, X. reflexivity. }
+      rewrite E. apply linked_normal; [exact Ha1|exact Em|].
+      exists (pv_add HardBreak (pv_trim (add_text txt v0))), cm.
+      split; [reflexivity|]. split; [apply top_add_nonstr; discriminate|reflexivity].
+    + (* a label whose backslash ended the line *)
+      rewrite Hsk in He. cbn [rbrack_at] in He.
+      rewrite (region_stay ts n TBreak v false kids d e _ Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.rbrack_at_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode tok_region tok_text]. split; [lia|].
+      rewrite Hsk1. split; [exact He|]. split; [exact Hk|].
+      exists open, cm. unfold ibreak, ibreak_at, ibreak_flat. tred.
+      rewrite append_assoc. reflexivity.
+    + (* a destination whose backslash ended the line *)
+      rewrite Hsk in He. cbn [paren_close] in He.
+      rewrite (region_stay ts n TBreak v true kids d e _ Em Hd).
+      2: { intros e' E'. rewrite E' in He. symmetry in He.
+           apply Precedence.paren_close_ge in He. lia. }
+      unfold linked. cbn [pv_setmode pv_mode tok_region tok_dest tok_text]. split; [lia|].
+      exists open, depth, (ibreak sh), cm. rewrite Hsk1.
+      split; [exact He|]. split; [exact Hne|].
+      unfold ibreak at 1, ibreak_at at 1. tred. rewrite append_assoc. reflexivity.
+Qed.
+
+Local Lemma ifinish_pending : forall ws0 txt p o,
+  ifinish (esc_pending ws0 txt p o) = ifinish (IText false "" None (iesc_hard ws0 txt o)).
+Proof. intros [|w ws] txt p o; reflexivity. Qed.
+
+Local Lemma ifinish_ref_esc : forall kids im open label o,
+  ifinish (IReference kids im open true label o)
+  = ifinish (IReference kids im open false (label ++ one bslash) o).
+Proof.
+  intros. unfold ifinish, ifinish_rev. cbn [ifinish_ostate iresolve ifinish_ostate_flat]. tred.
+  rewrite append_empty_r. reflexivity.
+Qed.
+
+(* The paragraph's end, in a linked state or one a hard break left. *)
 Local Lemma linked_finish : forall ts n v ws prev core,
-  vinv n v -> linked ts n v prev core -> skipn n ts = [] ->
+  vinv ts n v -> linked_end ts n v prev core -> skipn n ts = [] ->
   ifinish (wrap ws core) = map mk (List.rev (pflatten v)).
 Proof.
-  intros ts n v ws prev core [Ok Ti] L Hsk. pose proof Ok as (_ & _ & B & _).
-  rewrite ifinish_wrap. unfold linked in L.
-  destruct (pv_mode v) as [|[|] kids d e txt] eqn:Em.
-  - destruct L as (txt & o & -> & Hs). rewrite (sim_finish v txt prev o Hs B).
-    unfold pflatten, pfinish. rewrite Em. reflexivity.
-  - destruct L as (_ & open & depth & sh & cm & He & Hne & _).
-    rewrite Hsk in He. destruct (Hne He).
-  - destruct L as (_ & He & Hk & open & cm & ->). rewrite Hsk in He. cbn in He. subst e.
-    destruct (tidy_top v Ti) as [Hn Hc].
-    exact (ref_finish cm v false kids d open txt Em B Hn Hc Hk).
+  intros ts n v ws prev core (Ok & Ti & _) [L|P] Hsk; pose proof Ok as (_ & _ & B & _);
+    rewrite ifinish_wrap.
+  - unfold linked in L.
+    destruct (pv_mode v) as [|[|] kids d e txt] eqn:Em.
+    + destruct L as (_ & txt & o & -> & Hs). rewrite (sim_finish v txt prev o Hs B).
+      unfold pflatten, pfinish. rewrite Em. reflexivity.
+    + destruct L as (_ & open & depth & sh & cm & He & Hne & _).
+      rewrite Hsk in He. destruct (Hne He).
+    + destruct L as (_ & He & Hk & open & cm & ->). rewrite Hsk in He. cbn in He. subst e.
+      destruct (tidy_top v Ti) as [Hn Hc].
+      exact (ref_finish cm v false kids d open txt Em B Hn Hc Hk).
+  - destruct P as [(ws0 & txt & p & o & vb & _ & _ & -> & Emb & Hs & ->)
+                  |[(kids & d & e & label & open & cm & Em & Hd & He & Hk & ->)
+                   |(kids & d & e & dst & open & depth & sh & cm & Em & Hd & He & Hne & ->)]].
+    + rewrite ifinish_pending. destruct Hs as (v0 & cm & -> & Ht & ->).
+      set (v := pv_add HardBreak (pv_trim (add_text txt v0))) in *.
+      assert (X : iesc_hard ws0 txt (oview cm v0) = oview cm v).
+      { unfold v. rewrite (pv_trim_add_text txt v0 Ht). unfold iesc_hard. tred.
+        change (@flush_text_to_at semantic_pos semantic_inline_cursor ?s
+                  (strip_trailing_ws txt) (oview cm v0))
+          with (flush_text (strip_trailing_ws txt) (oview cm v0)).
+        rewrite (flush_view cm _ v0 Ht). rewrite imk_here_semantic.
+        apply oemit_view. discriminate. }
+      rewrite X. rewrite (sim_finish v "" None (oview cm v)).
+      * unfold pflatten, pfinish, v. rewrite (proj2 (pv_add_live _ _)), pv_trim_add, Emb. reflexivity.
+      * exists v, cm. split; [reflexivity|]. split; [apply top_add_nonstr; discriminate|reflexivity].
+      * exact B.
+    + rewrite ifinish_ref_esc. rewrite Hsk in He. cbn in He. subst e.
+      destruct (tidy_top v Ti) as [Hn Hc].
+      exact (ref_finish cm v false kids d open (label ++ one bslash) Em B Hn Hc Hk).
+    + rewrite Hsk in He. destruct (Hne He).
 Qed.
 
 Local Lemma blank_not_row : forall w, is_blank w = true -> starts_row w = false.
@@ -3801,40 +5037,64 @@ Proof.
 Qed.
 
 Local Lemma over_alphabet_app_l : forall a b,
-  over_alphabet (a ++ b) = true -> starts_row b = false ->
-  over_alphabet a = true.
+  over_alphabet (a ++ b) = true -> is_blank b = true -> over_alphabet a = true.
 Proof.
-  induction a as [|c a IH]; intros b H Hb; [reflexivity|].
-  apply over_alphabet_cons in H as (Hc & Hf & H).
-  cbn [over_alphabet]. rewrite Hc, (IH b H Hb), andb_true_r. cbn [andb].
-  destruct a as [|d a]; [|exact Hf].
-  cbn [append] in Hf. unfold follow_ok in *. rewrite Hb in Hf.
-  apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
-  cbn. rewrite Hf, !andb_false_r. reflexivity.
+  intros a b. remember (String.length a) as m eqn:Em. revert a Em.
+  induction m as [m IH] using lt_wf_ind. intros a Em H Hb.
+  destruct a as [|c a]; [reflexivity|].
+  destruct (is_bslash c) eqn:Eb.
+  - unfold is_bslash in Eb. apply Ascii.eqb_eq in Eb. subst c.
+    destruct a as [|d a]; [reflexivity|].
+    cbn [append] in H. apply over_alphabet_bslash in H.
+    cbn [over_alphabet]. change (is_bslash bslash) with true. cbn iota.
+    apply (IH (String.length a)); [cbn in Em; lia|reflexivity|exact H|exact Hb].
+  - cbn [append] in H. apply (over_alphabet_cons c _ Eb) in H as (Hc & Hf & H).
+    cbn [over_alphabet]. rewrite Eb, Hc.
+    rewrite (IH (String.length a) ltac:(cbn in Em; lia) a eq_refl H Hb), andb_true_r. cbn [andb].
+    destruct a as [|d a]; [|exact Hf].
+    cbn [append] in Hf. unfold follow_ok in *. rewrite (blank_not_row b Hb) in Hf.
+    apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
+    cbn. rewrite Hf, !andb_false_r. reflexivity.
 Qed.
 
 Local Lemma over_alphabet_strip : forall x,
   over_alphabet x = true -> over_alphabet (strip_trailing_ws x) = true.
 Proof.
   intros x Ha. destruct (strip_trailing_split x) as (w & Hw & E).
-  rewrite E in Ha. exact (over_alphabet_app_l _ w Ha (blank_not_row w Hw)).
+  rewrite E in Ha. exact (over_alphabet_app_l _ w Ha Hw).
+Qed.
+
+(* A break clears a destination reading's pending backslash. *)
+Local Lemma layers_break : forall ts m rest ws,
+  skipn m ts = TBreak :: rest -> Forall (never ts m) ws ->
+  Forall (never ts (S m)) (map (wl_after nl) ws) /\ Forall esc_off (map (wl_after nl) ws).
+Proof.
+  intros ts m rest ws Hs F. pose proof (skipn_cons_tail ts m _ _ Hs) as Hs1.
+  assert (D : forall w, exists dst, dfeed nl (wl_ds w) = Some (DS false (wl_depth w) dst)).
+  { intros [k o [[|] d dst] o']; unfold wl_depth; cbn [wl_ds ds_depth]; eexists; reflexivity. }
+  rewrite !Forall_map. split.
+  - eapply Forall_impl; [|exact F]. intros w Hw. unfold never in *.
+    destruct (D w) as (dst & E). unfold wl_after, wl_depth in *. cbn [wl_ds]. rewrite E.
+    cbn [ds_depth]. rewrite Hs in Hw. rewrite Hs1. exact Hw.
+  - apply Forall_forall. intros w _. destruct (D w) as (dst & E).
+    unfold esc_off, wl_after. cbn [wl_ds]. rewrite E. reflexivity.
 Qed.
 
 Local Lemma scan_lines_sim : forall ts ls n v ws core,
   Forall (fun x => over_alphabet x = true) ls ->
   skipn n ts = para_tokens ls ->
-  vinv n v -> Forall (never ts n) ws -> linked ts n v None core ->
+  vinv ts n v -> Forall (never ts n) ws -> Forall esc_off ws -> linked ts n v None core ->
   ifinish (iscan_lines ls (wrap ws core))
   = map mk (List.rev (pflatten (prun ts n (para_tokens ls) v))).
 Proof.
-  intros ts. induction ls as [|x rest IH]; intros n v ws core Ha Hsk V Fn L.
-  - cbn [iscan_lines para_tokens prun]. exact (linked_finish ts n v ws None core V L Hsk).
+  intros ts. induction ls as [|x rest IH]; intros n v ws core Ha Hsk V Fn Fe L.
+  - cbn [iscan_lines para_tokens prun]. exact (linked_finish ts n v ws None core V (or_introl L) Hsk).
   - apply Forall_cons_iff in Ha as [Hx Ha].
     destruct rest as [|y rest'].
     + cbn [iscan_lines para_tokens] in *. unfold tokens in *.
       rewrite <- (app_nil_r (lex None 0 (strip_trailing_ws x))) in Hsk.
       destruct (scan_sim ts [] _ (strip_trailing_ws x) None n v ws core (le_n _)
-                  (over_alphabet_strip x Hx) eq_refl Hsk V Fn L)
+                  (over_alphabet_strip x Hx) (or_introl eq_refl) Hsk V Fn Fe L)
         as (ws' & core' & prev' & E & V' & Fn' & L').
       rewrite <- ifinish_rres, E.
       exact (linked_finish ts _ _ ws' prev' core' V' L' (skipn_app_tail ts _ [] n Hsk)).
@@ -3842,15 +5102,19 @@ Proof.
         with (iscan_lines (y :: rest') (ibreak (iscan_str x (wrap ws core)))).
       change (para_tokens (x :: y :: rest'))
         with (lex None 0 x ++ TBreak :: para_tokens (y :: rest'))%list in *.
-      destruct (scan_sim ts _ _ x None n v ws core (le_n _) Hx eq_refl Hsk V Fn L)
+      destruct (scan_sim ts _ _ x None n v ws core (le_n _) Hx (or_introl eq_refl) Hsk V Fn Fe L)
         as (ws' & core' & prev' & E & V' & Fn' & L').
       pose proof (skipn_app_tail ts _ _ n Hsk) as Hsk'.
       unfold ibreak at 1. rewrite <- ibreak_rres, E. fold (ibreak (wrap ws' core')).
       rewrite ibreak_wrap, prun_app. cbn [prun].
-      apply IH; [exact Ha|exact (skipn_cons_tail ts _ _ _ Hsk')
-                |apply vinv_step; [exact V'|exact Logic.I]| |exact (break_linked ts _ _ _ _ _ Hsk' L')].
-      destruct (layers_step ts _ ws' [TBreak] _ Fn' Hsk' (Forall_cons TBreak (Logic.I : tok_plain TBreak) (Forall_nil _)))
-        as [_ F]. rewrite Nat.add_1_r in F. exact F.
+      destruct (layers_break ts _ _ ws' Hsk' Fn') as [Fn2 Fe2].
+      assert (Hn : nth_error ts (n + length (lex None 0 x)) = Some TBreak)
+        by (rewrite <- (Nat.add_0_r (n + _)), <- nth_error_skipn, Hsk'; reflexivity).
+      rewrite <- Nat.add_succ_r in Fn2 |- *.
+      apply IH; [exact Ha|rewrite Nat.add_succ_r; exact (skipn_cons_tail ts _ _ _ Hsk')
+                |rewrite Nat.add_succ_r; apply vinv_step; [exact V'|exact Logic.I|exact Hn]
+                |rewrite Nat.add_succ_r in *; exact Fn2|exact Fe2
+                |rewrite Nat.add_succ_r; exact (break_linked ts _ _ _ _ _ Hsk' L')].
 Qed.
 
 (*
@@ -3860,15 +5124,17 @@ The theorem
 On a paragraph over the alphabet, the scanner builds the tree of the
 unique reading the precedence rules allow. *)
 
-Local Lemma vinv_start : vinv 0 pv0.
+Local Lemma vinv_start : forall ts, vinv ts 0 pv0.
 Proof.
+  intros ts.
   split; [split; [constructor|]; split; [intros x []|]; split; [constructor|exact Logic.I]|].
+  split; [|intros H; discriminate H].
   split; [exact Logic.I|]. split; [constructor|]. split; constructor.
 Qed.
 
 Local Lemma linked_start : forall ts, linked ts 0 pv0 None istart.
 Proof.
-  intros ts. exists "", ostart. split; [reflexivity|].
+  intros ts. split; [reflexivity|]. exists "", ostart. split; [reflexivity|].
   exists pv0, (fun _ => false). split; [reflexivity|]. split; reflexivity.
 Qed.
 
@@ -3878,8 +5144,8 @@ Theorem parse_inline_line_matching : forall s,
 Proof.
   intros s Ha. unfold parse_inline_line. rewrite tree_of_prun.
   assert (Hsk : skipn 0 (tokens s) = (lex None 0 s ++ [])%list) by (rewrite app_nil_r; reflexivity).
-  destruct (scan_sim (tokens s) [] _ s None 0 pv0 [] istart (le_n _) Ha eq_refl Hsk
-              vinv_start (Forall_nil _) (linked_start _))
+  destruct (scan_sim (tokens s) [] _ s None 0 pv0 [] istart (le_n _) Ha (or_introl eq_refl) Hsk
+              (vinv_start _) (Forall_nil _) (Forall_nil _) (linked_start _))
     as (ws' & core' & prev' & E & V' & Fn' & L').
   cbn [wrap] in E. rewrite <- ifinish_rres, E.
   exact (linked_finish (tokens s) _ _ ws' prev' core' V' L' (skipn_app_tail _ _ [] 0 Hsk)).
@@ -3892,8 +5158,8 @@ Theorem para_inlines_matching : forall ls,
   para_inlines ls = tree_of (para_tokens ls) (fst (ref_read (para_tokens ls))).
 Proof.
   intros ls Ha. unfold para_inlines. rewrite tree_of_prun.
-  exact (scan_lines_sim (para_tokens ls) ls 0 pv0 [] istart Ha eq_refl vinv_start
-           (Forall_nil _) (linked_start _)).
+  exact (scan_lines_sim (para_tokens ls) ls 0 pv0 [] istart Ha eq_refl (vinv_start _)
+           (Forall_nil _) (Forall_nil _) (linked_start _)).
 Qed.
 
 (* The same in the reference's terms: the paragraph is the tree of any

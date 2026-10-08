@@ -89,9 +89,9 @@ let p_incremental_reparse =
   { p_id = "incremental-reparse"; p_group = no_backtracking; p_statement =
     "After an edit, reparsing can stop once the parser is back in the state it had before the edit.";
     p_implication =
-    "An editor reparses the changed region and reuses the rest.";
-    p_theorems = ("prefix_state_suffices" :: ("reparse_only_new" :: []));
-    p_status = (always Proved) }
+    "An editor reparses the changed region and reuses the rest."; p_theorems =
+    ("prefix_state_suffices" :: ("reparse_only_new" :: [])); p_status =
+    (always Proved) }
 
 (** val p_block_replace : property **)
 
@@ -295,7 +295,7 @@ let p_inline_precedence =
     "Overlapping delimiters have one meaning, which can be worked out by hand.";
     p_theorems = ("para_inlines_valid" :: ("valid_unique" :: [])); p_status =
     (always (Conditional
-      "For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered.")) }
+      "For emphasis-like delimiters, links, backslash escapes and plain text. Smart quotes, spans and images are not covered.")) }
 
 (** val all : property list **)
 
