@@ -183,8 +183,8 @@ module Pos =
     | _ -> true
 
   (** val sqrtrem_step :
-      (positive -> positive) -> (positive -> positive) -> (positive * mask)
-      -> positive * mask **)
+      (positive -> positive) -> (positive -> positive) -> (positive * mask) ->
+      positive * mask **)
 
   let sqrtrem_step f g = function
   | (s, y) ->

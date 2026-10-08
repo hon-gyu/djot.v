@@ -735,9 +735,8 @@ let rec render_lines t k a b =
         (app (match term with
               | [] -> []
               | _ :: _ -> (text_lines t term) :: [])
-          (map (fun n2 ->
-            render_lines t k (node_attrs n2) (node_contents n2)) it))) ::
-      (godefs rest)
+          (map (fun n2 -> render_lines t k (node_attrs n2) (node_contents n2))
+            it))) :: (godefs rest)
     in godefs
   in
   let cls = fence_class k a b in

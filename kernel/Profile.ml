@@ -15,11 +15,10 @@ let bconfig_of o =
   { bmarker_interrupts =
   (if o.o_list_interrupts then prose_safe_markers else no_interrupt);
   bunderline = (if o.o_setext then setext_underline else no_underline);
-  btables = o.o_tables; bheading_continues = o.o_heading_continuation;
-  bdivs = o.o_divs; btasks = o.o_tasks; braw_blocks = o.o_raw_blocks;
-  bdeflists = o.o_deflists; battrs = o.o_block_attrs; bfootnotes =
-  c.dc_footnotes; bkeyed = o.o_keyed; bcallouts = o.o_callouts; bdiv_names =
-  c.dc_tags }
+  btables = o.o_tables; bheading_continues = o.o_heading_continuation; bdivs =
+  o.o_divs; btasks = o.o_tasks; braw_blocks = o.o_raw_blocks; bdeflists =
+  o.o_deflists; battrs = o.o_block_attrs; bfootnotes = c.dc_footnotes;
+  bkeyed = o.o_keyed; bcallouts = o.o_callouts; bdiv_names = c.dc_tags }
 
 (** val djot_options : options **)
 
@@ -32,7 +31,7 @@ let djot_options =
 (** val markdown_like_options : options **)
 
 let markdown_like_options =
-  { o_inline = markdown_like_table; o_list_interrupts = true; o_setext =
-    true; o_tables = true; o_heading_continuation = false; o_divs = true;
-    o_tasks = true; o_raw_blocks = true; o_deflists = true; o_block_attrs =
-    true; o_keyed = false; o_callouts = false }
+  { o_inline = markdown_like_table; o_list_interrupts = true; o_setext = true;
+    o_tables = true; o_heading_continuation = false; o_divs = true; o_tasks =
+    true; o_raw_blocks = true; o_deflists = true; o_block_attrs = true;
+    o_keyed = false; o_callouts = false }

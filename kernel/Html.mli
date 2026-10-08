@@ -87,8 +87,8 @@ val render_cells_foot :
   reference_map -> foot_state -> cell node list -> foot_state * helt list
 
 val render_rows_foot :
-  reference_map -> foot_state -> cell node list node list ->
-  foot_state * helt list
+  reference_map -> foot_state -> cell node list node list -> foot_state * helt
+  list
 
 val render_caption_foot :
   reference_map -> foot_state -> inlines node -> foot_state * helt list
@@ -105,8 +105,8 @@ val note_backlink : int -> helt
 val add_backlink : helt list -> int -> helt list
 
 val render_note_defs :
-  reference_map -> foot_state -> note_map -> foot_state * (string * helt
-  list) list
+  reference_map -> foot_state -> note_map -> foot_state * (string * helt list)
+  list
 
 val label_at : int -> (string * int) list -> string option
 
