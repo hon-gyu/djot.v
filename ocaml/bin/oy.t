@@ -28,6 +28,7 @@
   ext_keyed: off
   ext_callouts: on
   ext_tags: on
+  ext_holes: off
   ext_setext_headings: on
   ext_list_interrupts: on
 
