@@ -407,28 +407,28 @@ See [r] and [^n].
 [^n]: note
 
 == errors
-Unexpected member [1mtag[0m value in [1minline object[0m: [1mnope[0m. Must be [1mstr[0m, [1memph[0m,
-[1mstrong[0m, [1mmark[0m, [1minsert[0m, [1mdelete[0m, [1msuperscript[0m, [1msubscript[0m, [1mverbatim[0m, [1msymb[0m,
-[1minline_math[0m, [1mdisplay_math[0m, [1mlink[0m, [1mimage[0m, [1mspan[0m, [1mfootnote_reference[0m, [1murl[0m, [1memail[0m,
-[1mraw_inline[0m, [1mnon_breaking_space[0m, [1msingle_quoted[0m, [1mdouble_quoted[0m, [1msoft_break[0m,
-[1mhard_break[0m, [1mext_wikilink[0m or [1mext_hole[0m.
+Unexpected member tag value in inline object: nope. Must be str, emph,
+strong, mark, insert, delete, superscript, subscript, verbatim, symb,
+inline_math, display_math, link, image, span, footnote_reference, url, email,
+raw_inline, non_breaking_space, single_quoted, double_quoted, soft_break,
+hard_break, ext_wikilink or ext_hole.
 File "-", line 1, characters 40-41:
-File "-": in member [1mtag[0m of
-File "-", line 1, characters 27-41: [1minline object[0m
-File "-", line 1, characters 27-41: at index [1m0[0m of
-File "-", line 1, characters 26-41: [1marray<inline object>[0m
-File "-": in member [1mchildren[0m of
-File "-", line 1, characters 1-41: [1mobject[0m
-File "-", line 1, characters 1-41: at index [1m0[0m of
-File "-", line 1, characters 0-41: [1marray<block object>[0m
-Missing member [1mlevel[0m in [1mobject[0m
+File "-": in member tag of
+File "-", line 1, characters 27-41: inline object
+File "-", line 1, characters 27-41: at index 0 of
+File "-", line 1, characters 26-41: array<inline object>
+File "-": in member children of
+File "-", line 1, characters 1-41: object
+File "-", line 1, characters 1-41: at index 0 of
+File "-", line 1, characters 0-41: array<block object>
+Missing member level in object
 File "-", line 1, characters 1-32:
-File "-", line 1, characters 1-32: at index [1m0[0m of
-File "-", line 1, characters 0-32: [1marray<block object>[0m
+File "-", line 1, characters 1-32: at index 0 of
+File "-", line 1, characters 0-32: array<block object>
 a keyed block holds one block
 File "-", line 1, characters 1-45:
-File "-", line 1, characters 1-45: at index [1m0[0m of
-File "-", line 1, characters 0-45: [1marray<block object>[0m
+File "-", line 1, characters 1-45: at index 0 of
+File "-", line 1, characters 0-45: array<block object>
 
 == ast
 doc
