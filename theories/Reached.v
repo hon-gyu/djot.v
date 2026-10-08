@@ -465,4 +465,16 @@ Proof.
   - discriminate Hr.
 Qed.
 
+(** A blank line at the end of the input changes no block. *)
+Theorem trailing_blank_line : forall L,
+  parse_lines (L ++ [EmptyString]) (PPara []) = parse_lines L (PPara []).
+Proof.
+  intros L. rewrite parse_lines_app_run.
+  pose proof (run_lines_reached L (PPara []) eq_refl) as Hr.
+  destruct (run_lines L (PPara [])) as [bs st] eqn:Hrun. cbn [snd] in Hr.
+  rewrite (parse_lines_run L _ _ _ Hrun).
+  pose proof (reached_blank_finish st Hr) as Hfin.
+  cbn [parse_lines]. destruct (step "" st) as [b st']. exact (f_equal _ Hfin).
+Qed.
+
 End WithTable.
