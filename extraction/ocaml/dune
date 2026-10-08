@@ -20,6 +20,7 @@
   Hexadecimal
   Html
   Inline
+  InlineGrammar
   InlineLocated
   InlineScan
   InlineTable
@@ -43,6 +44,7 @@
   OrdersTac
   PeanoNat
   PosDef
+  Precedence
   Profile
   ProfileChecks
   Properties
@@ -59,13 +61,13 @@
 
 (library
  (name djot)
- (modules :standard \ Fixtures Generate)
+ (modules :standard \ Fixtures Generate InlineGrammar)
  (flags
   (:standard -w -a)))
 
 (library
  (name djot_fixtures)
- (modules Fixtures Generate)
+ (modules Fixtures Generate InlineGrammar)
  (libraries djot)
  (flags
   (:standard -w -a -open Djot)))
