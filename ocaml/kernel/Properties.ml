@@ -148,7 +148,7 @@ let p_list_uniformity =
     p_implication =
     "Moving text into or out of a list item does not change its meaning.";
     p_theorems =
-    ("list_uniformity_shape" :: ("ordered_uniformity_shape" :: ("list_uniformity" :: ("ordered_uniformity" :: []))));
+    ("list_uniformity_shape" :: ("list_uniformity_shape_tail" :: ("ordered_uniformity_shape" :: ("list_uniformity" :: ("ordered_uniformity" :: [])))));
     p_status = (fun o ->
     if o.o_keyed then Conditional keyed_items_condition else Proved) }
 
