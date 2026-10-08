@@ -165,12 +165,12 @@ module N :
    end
 
   val measure_right_induction :
-    ('a1 -> coq_N) -> coq_N -> ('a1 -> __ -> ('a1 -> __ -> 'a2) -> 'a2) ->
-    'a1 -> 'a2
+    ('a1 -> coq_N) -> coq_N -> ('a1 -> __ -> ('a1 -> __ -> 'a2) -> 'a2) -> 'a1
+    -> 'a2
 
   val measure_left_induction :
-    ('a1 -> coq_N) -> coq_N -> ('a1 -> __ -> ('a1 -> __ -> 'a2) -> 'a2) ->
-    'a1 -> 'a2
+    ('a1 -> coq_N) -> coq_N -> ('a1 -> __ -> ('a1 -> __ -> 'a2) -> 'a2) -> 'a1
+    -> 'a2
 
   val measure_induction :
     ('a1 -> coq_N) -> ('a1 -> ('a1 -> __ -> 'a2) -> 'a2) -> 'a1 -> 'a2
@@ -182,8 +182,8 @@ module N :
   module Private_Dec :
    sig
     val max_case_strong :
-      coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> (__ -> 'a1)
-      -> (__ -> 'a1) -> 'a1
+      coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> (__ -> 'a1) ->
+      (__ -> 'a1) -> 'a1
 
     val max_case :
       coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> 'a1 -> 'a1 ->
@@ -192,8 +192,8 @@ module N :
     val max_dec : coq_N -> coq_N -> bool
 
     val min_case_strong :
-      coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> (__ -> 'a1)
-      -> (__ -> 'a1) -> 'a1
+      coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> (__ -> 'a1) ->
+      (__ -> 'a1) -> 'a1
 
     val min_case :
       coq_N -> coq_N -> (coq_N -> coq_N -> __ -> 'a1 -> 'a1) -> 'a1 -> 'a1 ->

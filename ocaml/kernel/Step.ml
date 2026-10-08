@@ -284,8 +284,8 @@ let stored_stop sl =
 
 let stored_span cur = match cur with
 | [] ->
-  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line =
-    0; spot_rem = 0 } }
+  { span_start = { spot_line = 0; spot_rem = 0 }; span_stop = { spot_line = 0;
+    spot_rem = 0 } }
 | newest :: _ ->
   { span_start = (stored_start (last cur newest)); span_stop =
     (stored_stop newest) }
@@ -559,8 +559,8 @@ let table_row_part lI l = function
           (sub width b) } }; cell_text_start = { spot_line = lI; spot_rem =
           (sub width text_start) } }
         in
-        Some ({ span_start = { spot_line = lI; spot_rem = width };
-        span_stop = { spot_line = lI; spot_rem =
+        Some ({ span_start = { spot_line = lI; spot_rem = width }; span_stop =
+        { spot_line = lI; spot_rem =
         (sub width (Stdlib.succ (String.length body))) } },
         (map cell_part_of cells))
       | None -> None)
@@ -983,8 +983,8 @@ let keyless t h l =
   | None -> true
 
 (** val open_kind :
-    dtable -> coq_LineIx -> coq_PosPolicy -> bconfig -> string -> line_kind
-    -> blocks * pstate **)
+    dtable -> coq_LineIx -> coq_PosPolicy -> bconfig -> string -> line_kind ->
+    blocks * pstate **)
 
 let open_kind t lI p h l = function
 | KThematic ->
@@ -1028,8 +1028,8 @@ let pend_result p pend specs = function
      ((add_roles_head p (attr_roles specs) (decorate_head pend bs)), st'))
 
 (** val key_result :
-    dtable -> coq_PosPolicy -> extent -> string -> string ->
-    (blocks * pstate) -> blocks * pstate **)
+    dtable -> coq_PosPolicy -> extent -> string -> string -> (blocks * pstate)
+    -> blocks * pstate **)
 
 let key_result t p range lbl src = function
 | (bs, st') ->
@@ -1284,8 +1284,8 @@ let rec step_fuel t k lI p n off l st =
               | x ->
                 if binterrupt k x
                 then close_reopen t k p (PPara (c :: cur'))
-                       (open_line t k lI p descend (( + ) off (indent_of l))
-                         l x)
+                       (open_line t k lI p descend (( + ) off (indent_of l)) l
+                         x)
                 else ([], (PPara
                        ((remember_line lI (drop_leading_ws l)) :: (c :: cur')))))))
      | PHeading (lvl, range, cur) ->
@@ -1311,8 +1311,8 @@ let rec step_fuel t k lI p n off l st =
      | PFence (f, ind, range, opener, acc) ->
        if fence_close f l
        then (((set_pos p
-                (prov_with (extent_span (touch_extent lI range))
-                  ((ROpenFence, opener) :: ((RCloseFence,
+                (prov_with (extent_span (touch_extent lI range)) ((ROpenFence,
+                  opener) :: ((RCloseFence,
                   (line_span_from lI l (indent_of l))) :: [])))
                 (fence_block k f (line_texts (rev acc)))) :: []),
               (PPara []))
@@ -1324,8 +1324,8 @@ let rec step_fuel t k lI p n off l st =
           let (bs, inner') =
             step_fuel t k lI p n' (( + ) off (consumed l rest)) rest inner
           in
-          ([], (PQuote ((touch_extent lI range), header,
-          (app (rev bs) done0), inner')))
+          ([], (PQuote ((touch_extent lI range), header, (app (rev bs) done0),
+          inner')))
         | x ->
           if is_lazy k x inner
           then ([], (PQuote ((touch_extent lI range), header, done0,
@@ -1335,8 +1335,8 @@ let rec step_fuel t k lI p n off l st =
      | PDiv (len, cls, range, opener, done0, inner) ->
        if (&&) (negb (in_fence inner)) (div_close len l)
        then (((set_pos p
-                (prov_with (extent_span (touch_extent lI range))
-                  ((ROpenFence, opener) :: ((RCloseFence,
+                (prov_with (extent_span (touch_extent lI range)) ((ROpenFence,
+                  opener) :: ((RCloseFence,
                   (line_span_from lI l (indent_of l))) :: [])))
                 (div_block k cls (app (rev done0) (finish t k p inner)))) :: []),
               (PPara []))
@@ -1363,8 +1363,8 @@ let rec step_fuel t k lI p n off l st =
                            (configured_list_styles k sty chk) with
                    | [] ->
                      close_reopen t k p (PList (ls, done0, inner))
-                       (open_line t k lI p descend (( + ) off (indent_of l))
-                         l (KList (sty, core, chk, rest)))
+                       (open_line t k lI p descend (( + ) off (indent_of l)) l
+                         (KList (sty, core, chk, rest)))
                    | p0 :: l0 ->
                      let item = app (rev done0) (finish t k p inner) in
                      let (bs, inner') =
@@ -1382,12 +1382,11 @@ let rec step_fuel t k lI p n off l st =
                   then ([], (PList ((list_content lI ls Spends), done0,
                          (feed_lazy lI l inner))))
                   else close_reopen t k p (PList (ls, done0, inner))
-                         (open_line t k lI p descend
-                           (( + ) off (indent_of l)) l x)))
+                         (open_line t k lI p descend (( + ) off (indent_of l))
+                           l x)))
      | PAttr (pend, specs, range, ind, ap, slices) ->
        if ap_done ap
-       then step_fuel t k lI p n' off l (PPend
-              ((Attr.merge ap.ap_attrs pend),
+       then step_fuel t k lI p n' off l (PPend ((Attr.merge ap.ap_attrs pend),
               (app specs ((extent_span range) :: [])), (PPara [])))
        else if ( < ) ind (( + ) off (indent_of l))
             then let ap' = attr_feed l ap in
@@ -1452,9 +1451,8 @@ let rec step_fuel t k lI p n off l st =
                    (set_parts p (table_parts cap)
                      (table_block t p (rev rows) cap))) :: []),
                  (PPara []))
-          else ([], (PTable ((touch_extent lI range), rows, (TCaption
-                 (parts0, start,
-                 ((remember_line lI (drop_leading_ws l)) :: ls))))))
+          else ([], (PTable ((touch_extent lI range), rows, (TCaption (parts0,
+                 start, ((remember_line lI (drop_leading_ws l)) :: ls))))))
         | _ ->
           (match caption_open l with
            | Some rest ->
@@ -1514,8 +1512,8 @@ let rec step_fuel t k lI p n off l st =
     blocks * pstate **)
 
 let step t k lI p l st =
-  step_fuel t k lI p (Stdlib.succ
-    (( + ) (String.length l) (pstate_depth st))) 0 l st
+  step_fuel t k lI p (Stdlib.succ (( + ) (String.length l) (pstate_depth st)))
+    0 l st
 
 (** val parse_lines :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate

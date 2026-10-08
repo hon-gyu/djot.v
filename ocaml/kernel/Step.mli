@@ -190,8 +190,8 @@ val styles_list :
   bconfig -> (lstyle * int) list -> list_spacing -> blocks list -> block node
 
 val styles_list_checked :
-  bconfig -> (lstyle * int) list -> list_spacing -> task_status list ->
-  blocks list -> block node
+  bconfig -> (lstyle * int) list -> list_spacing -> task_status list -> blocks
+  list -> block node
 
 val def_term_span : blocks -> span option
 
@@ -328,8 +328,8 @@ val step :
   blocks * pstate
 
 val parse_lines :
-  dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate
-  -> blocks
+  dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate ->
+  blocks
 
 val parse_blocks :
   dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string -> blocks

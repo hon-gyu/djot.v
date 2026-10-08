@@ -553,8 +553,8 @@ module N =
       ('a1 -> coq_N) -> ('a1 -> ('a1 -> __ -> 'a2) -> 'a2) -> 'a1 -> 'a2 **)
 
   let measure_induction f iH x =
-    measure_right_induction f N0 (fun y _ iH' ->
-      iH y (fun y0 _ -> iH' y0 __)) x
+    measure_right_induction f N0 (fun y _ iH' -> iH y (fun y0 _ -> iH' y0 __))
+      x
 
   module Private_Tac =
    struct
