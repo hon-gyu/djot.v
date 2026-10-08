@@ -465,6 +465,77 @@ Proof.
   - discriminate Hr.
 Qed.
 
+(* A spec still taking lines, under the containers a blank keeps open. *)
+Fixpoint spec_open_in (st : pstate) : bool :=
+  match st with
+  | PAttr _ _ _ _ ap _ => negb (ap_done ap)
+  | PDiv _ _ _ _ _ inner | PList _ _ inner | PFoot _ _ _ _ inner
+  | PPend _ _ inner => spec_open_in inner
+  | _ => false
+  end.
+
+Lemma spec_open_in_pad_state : forall k st,
+  spec_open_in (pad_state k st) = spec_open_in st.
+Proof.
+  intros k st.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH
+    |dlen dcls drng dop ddone dinner IH|ls done inner IH
+    |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH
+    |krng klbl ksrc kinner IH];
+    cbn [pad_state spec_open_in]; try reflexivity; exact IH.
+Qed.
+
+(** A blank line leaves nothing a text line after it continues.  A spec
+    still open is the exception: the blank fails it, and the paragraph
+    recovered from it stays open. *)
+Lemma reached_blank_lazy : forall st,
+  reached st = true -> spec_open_in st = false ->
+  lazy_ok (snd (step "" st)) = false.
+Proof.
+  pose proof blank_kblank as Hblank.
+  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH
+    |dlen dcls drng dop ddone dinner IH|ls done inner IH
+    |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
+    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH
+    |krng klbl ksrc kinner IH];
+    intros Hr Ho.
+  - destruct cur as [|c cur'];
+      [rewrite (step_idle "" KBlank Hblank eq_refl); reflexivity
+      |rewrite (step_para_flush "" c cur' Hblank); reflexivity].
+  - rewrite (step_heading_close "" lvl hrng cur Hblank). reflexivity.
+  - unfold step. cbn [step_fuel]. destruct (fence_close f ""); reflexivity.
+  - rewrite (step_quote_close "" KBlank qrng qhead done inner [] (PPara [])
+               Hblank eq_refl eq_refl eq_refl). reflexivity.
+  - destruct (step "" dinner) as [bs i] eqn:Hs.
+    rewrite (step_div_cont "" dlen dcls drng dop ddone dinner bs i
+               (div_stays_open_blank "" dinner dlen eq_refl) Hs).
+    cbn [snd lazy_ok]. exact (IH Hr Ho).
+  - destruct (step "" inner) as [bs i] eqn:Hs.
+    rewrite (step_list_blank "" ls done inner bs i Hblank Hs).
+    cbn [snd lazy_ok]. exact (IH Hr Ho).
+  - cbn [spec_open_in] in Ho. unfold step.
+    cbn [step_fuel pstate_depth String.length Nat.add].
+    destruct (ap_done aap); [|discriminate Ho].
+    cbn [step_fuel]. rewrite Hblank. reflexivity.
+  - rewrite (step_para_off_flush "" okoff ocur Hblank). reflexivity.
+  - rewrite (step_ref_blank "" rrng rind rlbl rval Hblank). reflexivity.
+  - unfold step. cbn [step_fuel open_line]. rewrite Hblank.
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    specialize (IH Hr Ho).
+    destruct (step "" finner) as [bs i]. exact IH.
+  - unfold step. cbn [step_fuel open_line].
+    destruct tcap; try destruct (caption_open ""); reflexivity.
+  - cbn [reached] in Hr. apply andb_true_iff in Hr as [Hr _].
+    unfold step. cbn [step_fuel open_line]. rewrite Hblank.
+    destruct (is_idle pinner); [reflexivity|].
+    rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
+    specialize (IH Hr Ho).
+    destruct (step "" pinner) as [bs st'].
+    destruct bs; cbn [pend_result snd lazy_ok]; exact IH.
+  - discriminate Hr.
+Qed.
+
 (** A blank line at the end of the input changes no block. *)
 Theorem trailing_blank_line : forall L,
   parse_lines (L ++ [EmptyString]) (PPara []) = parse_lines L (PPara []).

@@ -442,8 +442,8 @@ Program Definition p_list_uniformity : property := {|
   p_group := uniformity;
   p_statement := "Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.";
   p_implication := "Moving text into or out of a list item does not change its meaning.";
-  p_theorems := ["list_uniformity_shape"; "ordered_uniformity_shape";
-                 "list_uniformity"; "ordered_uniformity"];
+  p_theorems := ["list_uniformity_shape"; "list_uniformity_shape_tail";
+                 "ordered_uniformity_shape"; "list_uniformity"; "ordered_uniformity"];
   p_status := fun o =>
     if o_keyed o then Conditional keyed_items_condition else Proved;
   p_holds := fun o =>

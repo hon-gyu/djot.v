@@ -17,6 +17,7 @@ reference is at least a minor release.
 - list, ordered list and definition list uniformity hold for items of any lines when keys are off: `list_uniformity_shape`, `ordered_uniformity_shape`, `definition_list_uniformity_shape`
 - `Reached.v`: states a run reaches, and that a blank line after them changes no block (`reached_blank_finish`)
 - a blank line at the end of the input changes no block when keys are off: `trailing_blank_line`
+- the same list uniformity for a list closed by a blank and a following line, when the last item does not end inside an attribute spec: `list_uniformity_shape_tail`
 
 {syntax-reference-commit="d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7"}
 ### djot 2026-06-16
