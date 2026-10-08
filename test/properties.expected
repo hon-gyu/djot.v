@@ -7,8 +7,8 @@ block-replace: proved
 positions: proved
 linear-time: conjectured
 quote-uniformity: proved
-list-uniformity: conditional
-definition-list-uniformity: conditional
+list-uniformity: proved
+definition-list-uniformity: proved
 div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: proved
@@ -30,8 +30,8 @@ block-replace: proved
 positions: proved
 linear-time: conjectured
 quote-uniformity: proved
-list-uniformity: conditional
-definition-list-uniformity: conditional
+list-uniformity: proved
+definition-list-uniformity: proved
 div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: conditional
@@ -53,8 +53,8 @@ block-replace: proved
 positions: proved
 linear-time: conjectured
 quote-uniformity: proved
-list-uniformity: conditional
-definition-list-uniformity: conditional
+list-uniformity: proved
+definition-list-uniformity: proved
 div-uniformity: proved
 footnote-uniformity: conditional
 lazy-lines: proved
@@ -99,8 +99,8 @@ block-replace: proved
 positions: proved
 linear-time: conjectured
 quote-uniformity: broken
-list-uniformity: conditional
-definition-list-uniformity: conditional
+list-uniformity: proved
+definition-list-uniformity: proved
 div-uniformity: inapplicable
 footnote-uniformity: conditional
 lazy-lines: proved

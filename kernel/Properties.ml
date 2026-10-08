@@ -135,6 +135,11 @@ let p_quote_uniformity =
            ("A quote whose first line is a callout header is a callout, and the header is not part of its content.",
            "> [!note] Title\n> body\n")) }
 
+(** val keyed_items_condition : string **)
+
+let keyed_items_condition =
+  "With keys on, for items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line."
+
 (** val p_list_uniformity : property **)
 
 let p_list_uniformity =
@@ -142,10 +147,10 @@ let p_list_uniformity =
     "Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.";
     p_implication =
     "Moving text into or out of a list item does not change its meaning.";
-    p_theorems = ("list_uniformity" :: ("ordered_uniformity" :: []));
-    p_status =
-    (always (Conditional
-      "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.")) }
+    p_theorems =
+    ("list_uniformity_shape" :: ("ordered_uniformity_shape" :: ("list_uniformity" :: ("ordered_uniformity" :: []))));
+    p_status = (fun o ->
+    if o.o_keyed then Conditional keyed_items_condition else Proved) }
 
 (** val p_definition_list_uniformity : property **)
 
@@ -153,10 +158,11 @@ let p_definition_list_uniformity =
   { p_id = "definition-list-uniformity"; p_group = uniformity; p_statement =
     "The same, for the items of a definition list."; p_implication =
     "Moving text into or out of a definition does not change its meaning.";
-    p_theorems = ("definition_list_uniformity" :: []); p_status = (fun o ->
+    p_theorems =
+    ("definition_list_uniformity_shape" :: ("definition_list_uniformity" :: []));
+    p_status = (fun o ->
     if o.o_deflists
-    then Conditional
-           "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line."
+    then if o.o_keyed then Conditional keyed_items_condition else Proved
     else Inapplicable "Definition lists are off") }
 
 (** val p_div_uniformity : property **)
