@@ -2362,7 +2362,7 @@ parser loosens at a blank the rule does not count, and
 `item_loose_separates` is false without `run_safe`:
 `["- x"; "{.a}"; ""; ""; "para"]` is the counterexample.
 
-**Verdict: ours, open; the choice is the maintainer's.**  Two ways out:
+**Verdict: ours, decided 2026-10-06 (below).**  Two ways out:
 
 - Follow djot.js.  The blank is not directly after the list, a spec
   line lies between, so it counts.  That is a change to `separates` (the
@@ -2374,6 +2374,20 @@ parser loosens at a blank the rule does not count, and
   ended.
 
 Either way `run_safe` cannot be dropped before this is settled.
+
+**Decided 2026-10-06, by the maintainer: loose**, for a reason of its
+own, not djot.js's.  An attribute line with a blank or the end of its
+container after it attaches to nothing, and is a block of its own that
+renders nothing, as a reference definition is.  The blank then lies
+between that block and `para`, not directly after the nested list
+(`list-tightness.md`, D1 and "Dangling block attributes").  djot.js
+agrees on the output.  The parser decides tightness this way since
+2026-10-06, but still drops the attribute from the AST, and
+`Tightness.separates` reads the AST: on the input above it sees the
+nested list end before the blank and calls it tight.  So
+`item_loose_separates` is still false without `run_safe`, now with one
+blank as well as two.  What remains is the attribute block in the AST,
+and then the theorems without `run_safe`.
 
 ## 2026-10-05 -- SPEC-GAP: a heading is interrupted by any block opener
 

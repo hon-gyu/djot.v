@@ -344,9 +344,10 @@ Notes, not for the reference:
 
 ### Dangling block attributes
 
-Proposed 2026-10-06.  The parser decides tightness as if the attributes
-were a block since 2026-10-06; the AST does not have the block yet, and
-the parser still drops them.
+Proposed by the maintainer 2026-10-06, as the reason for D1's verdict.
+The parser decides tightness as if the attributes were a block since
+2026-10-06; the AST does not have the block yet, and the parser still
+drops them.  Until it does, the tightness theorems keep `run_safe`.
 
 Block attributes "attach to a block-level element" on "the line
 immediately before the block".  The reference defines them by that job
@@ -473,8 +474,8 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 | A | the basic ones | agreed with djot.js, except the open code block, now decided by the proposal |
 | B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
-| D | 2 shapes where our parser was inconsistent | both fixed |
-| | attributes with no block after them | proposed as a block of their own (2026-10-06); tightness follows it, the AST block is not implemented |
+| D | 2 shapes where our parser was inconsistent | both fixed; D1 decided by the maintainer (2026-10-06) |
+| | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser's tightness follows it, the AST block and the theorems without `run_safe` are not done |
 
 ## A. Agreed, not in question
 
@@ -718,11 +719,20 @@ Each was decided by reading the reference.  The log marks all four
 
 ### D1. A block attribute line between a nested list and a blank (fixed 2026-10-05)
 
-Found 2026-10-05.  The attribute line attaches to nothing, so it leaves
-no block.  Now loose for all five, as djot.js: a blank arms the list
-whatever the item has open, and the line after it decides
-(`Step.line_fate`).  Pinned: `list_blank_after_dropped_attribute`.  What
-follows is the record from before the fix.
+Found 2026-10-05.  Decided by the maintainer 2026-10-06: loose for all
+five.  The attribute line attaches to nothing, so it is a block of its
+own ("Dangling block attributes" above), and the blank lies between it
+and the next block, not directly after the nested list.  djot.js gives
+loose too, but that is not the reason.  The parser follows it: a blank
+arms the list whatever the item has open, and the line after it decides
+(`Step.line_fate`).  Pinned: `list_blank_after_dropped_attribute`.
+
+Not yet in the theorems.  The AST has no attribute block, so
+`Tightness.separates`, which reads the parse, sees the nested list end
+before the blank and calls all five tight.  `item_loose_separates` stays
+false without `run_safe` until the block is built.
+
+What follows is the record from before the fix.
 
 One blank, then a paragraph:
 
