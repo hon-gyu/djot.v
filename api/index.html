@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OCaml API</title>
+<title>API</title>
 <script>
 (function () {
   var root = document.documentElement, stored = null;
@@ -22,7 +22,7 @@
 <nav>
 <a href="../playground/">Playground</a>
 <a href="../extensions/">Extensions</a>
-<a href="../api/">OCaml API</a>
+<a href="../api/">API</a>
 </nav>
 <span class="tools">
 <a class="github" href="https://github.com/hon-gyu/djot.v"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
@@ -30,8 +30,10 @@
 </span>
 </header>
 <main>
-<section id="OCaml-API">
-<h1>OCaml API</h1>
+<section id="API">
+<h1>API</h1>
+<section id="OCaml">
+<h2>OCaml</h2>
 <p>The parser is available as an OCaml library, the <code>djot</code> package.</p>
 <pre><code class="language-ocaml">let doc = Djot.Doc.of_string ~locs:true "# hi\n\n*strong* and [a](b)\n"
 let html = Djot.Html.of_doc doc
@@ -47,9 +49,31 @@ let html = Djot.Html.of_doc doc
 <p>The package is not on opam yet. The repository’s <code>ocaml</code> branch holds the
 package at its root, for use as a vendored directory or a git submodule.</p>
 </section>
+<section id="Python">
+<h2>Python</h2>
+<p>The <code>djotv</code> package runs the parser compiled to WebAssembly, in Wasmtime.
+It is pure Python and needs no OCaml.</p>
+<pre><code class="language-python">import djotv
+
+doc = djotv.parse("# hi\n\n*strong* and [a](b)\n", locs=True)
+html = djotv.to_html(doc)
+</code></pre>
+<ul>
+<li>
+<a href="python/">API reference</a>: the generated documentation.
+</li>
+<li>
+<a href="https://github.com/hon-gyu/djot.v/tree/main/py">Source code</a>
+</li>
+</ul>
+<p>The package is not on PyPI yet. It installs from the repository:</p>
+<pre><code>uv add git+https://github.com/hon-gyu/djot.v#subdirectory=py
+</code></pre>
+</section>
+</section>
 </main>
 <footer>
-djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/df4eeb366cead02af1d8fe008bbfb95eb1cdfca1">df4eeb3</a> (2026-10-05).
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/3918c6165684414c5283ce8fa5a39676edbb4905">kernel-0.1.0-3-g3918c61</a> (2026-10-08).
 Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
 </footer>
 </html>

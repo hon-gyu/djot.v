@@ -22,7 +22,7 @@
 <nav>
 <a href="../playground/">Playground</a>
 <a href="../extensions/">Extensions</a>
-<a href="../api/">OCaml API</a>
+<a href="../api/">API</a>
 </nav>
 <span class="tools">
 <a class="github" href="https://github.com/hon-gyu/djot.v"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
@@ -360,6 +360,127 @@ it.</p>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
 <table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
 </section>
+<section id="Holes">
+<h2>Holes</h2>
+<p>Setting: <code>ext_holes</code>.</p>
+<p>A hole is an expression in a document, for a consumer to evaluate: the
+document is a template and the hole is where a value goes, as in an
+article template literal (Crichton and Krishnamurthi, “A Core Calculus
+for Documents”, POPL 2024). The parser records the expression as written
+and never reads it. What language it is in, how it is evaluated, and
+whether its value is a node, a list or an option are the consumer’s.</p>
+<div class="example">
+<pre class="source"><code>Today I am going shopping for %{List.length items} things.
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;Today I am going shopping for &lt;code data-hole=&quot;&quot;&gt;List.length items&lt;/code&gt; things.&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=Today%20I%20am%20going%20shopping%20for%20%25%7BList.length%20items%7D%20things.%0A">Open in the playground</a>
+</div><p>The HTML renderer shows a hole nobody evaluated as its expression, so it
+is not lost silently.</p>
+<section id="Where-a-hole-ends">
+<h3>Where a hole ends</h3>
+<p><code>%{</code> opens a hole. Inside, every <code>{</code> must be matched by a <code>}</code>, and the <code>}</code>
+that matches the opening one closes the hole.</p>
+<div class="example">
+<pre class="source"><code>%{ {r with x = 1} }
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt; {r with x = 1} &lt;/code&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%20%7Br%20with%20x%20%3D%201%7D%20%7D%0A">Open in the playground</a>
+</div><p>A brace that should not count is escaped. <code>\{</code>, <code>\}</code> and <code>\\</code> are read as
+<code>{</code>, <code>}</code> and <code>\</code>; a backslash before any other character is kept with it,
+so the expression’s own escapes reach the consumer as written.</p>
+<div class="example">
+<pre class="source"><code>%{ print_string &quot;\}\n&quot; }
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt; print_string &quot;}\n&quot; &lt;/code&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%20print_string%20%22%5C%7D%5Cn%22%20%7D%0A">Open in the playground</a>
+</div><p>A hole may cross a line break, which is part of the expression. It ends
+with its paragraph, heading or table cell like any inline.</p>
+<div class="example">
+<pre class="source"><code>a %{ f
+x } b
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;a &lt;code data-hole=&quot;&quot;&gt; f
+x &lt;/code&gt; b&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7B%20f%0Ax%20%7D%20b%0A">Open in the playground</a>
+</div></section>
+<section id="What-is-not-a-hole">
+<h3>What is not a hole</h3>
+<p>A hole is always closed. When no closing <code>}</code> arrives before the end of the
+block, there is no hole and the source reads as if the <code>%</code> had been
+escaped. Here the first <code>%{</code> never closes, so the second one opens a hole.</p>
+<div class="example">
+<pre class="source"><code>a %{x and %{y} b
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;a %{x and &lt;code data-hole=&quot;&quot;&gt;y&lt;/code&gt; b&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7Bx%20and%20%25%7By%7D%20b%0A">Open in the playground</a>
+</div><p>An empty expression is still a hole, for the consumer to reject.</p>
+<div class="example">
+<pre class="source"><code>%{}
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt;&lt;/code&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%7D%0A">Open in the playground</a>
+</div><p>Without the setting, <code>%{.c}</code> is a <code>%</code> with attributes. With it, <code>%{</code> is
+always a hole’s opener, and <code>\%</code> writes a <code>%</code> before braces.</p>
+<div class="example">
+<pre class="source"><code>a %{.c} b and \%{.c} c
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;a &lt;code data-hole=&quot;&quot;&gt;.c&lt;/code&gt; b and &lt;span class=&quot;c&quot;&gt;%&lt;/span&gt; c&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7B.c%7D%20b%20and%20%5C%25%7B.c%7D%20c%0A">Open in the playground</a>
+</div><p>A <code>%</code> inside a code span, an autolink or a link destination is not an
+opener.</p>
+<div class="example">
+<pre class="source"><code>`%{x}` and [a](%{u})
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;%{x}&lt;/code&gt; and &lt;a href=&quot;%{u}&quot;&gt;a&lt;/a&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%60%25%7Bx%7D%60%20and%20%5Ba%5D%28%25%7Bu%7D%29%0A">Open in the playground</a>
+</div></section>
+<section id="Priority-1">
+<h3>Priority</h3>
+<p>Once a hole closes, it wins over emphasis, links and spans that overlap
+it: its content is not markup.</p>
+<div class="example">
+<pre class="source"><code>*a %{b* c}
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;*a &lt;code data-hole=&quot;&quot;&gt;b* c&lt;/code&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%2Aa%20%25%7Bb%2A%20c%7D%0A">Open in the playground</a>
+</div><p>Between a hole and a code span, whichever opens first wins: a code span
+reads its content as text, and a hole that closes reads its own.</p>
+<div class="example">
+<pre class="source"><code>`a %{b` c} and %{ f &quot;`&quot; }
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;a %{b&lt;/code&gt; c} and &lt;code data-hole=&quot;&quot;&gt; f &quot;`&quot; &lt;/code&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%60a%20%25%7Bb%60%20c%7D%20and%20%25%7B%20f%20%22%60%22%20%7D%0A">Open in the playground</a>
+</div></section>
+<section id="Blocks">
+<h3>Blocks</h3>
+<p>There is no block syntax. A code block whose language is <code>%</code> is a code
+block to the parser; a consumer that evaluates holes may read it as one,
+with its content kept exactly, blank lines and indentation included.</p>
+<div class="example">
+<pre class="source"><code>``` %
+ul (List.map item items)
+```
+</code></pre>
+<pre class="rendered"><code>&lt;pre&gt;&lt;code class=&quot;language-%&quot;&gt;ul (List.map item items)
+&lt;/code&gt;&lt;/pre&gt;
+</code></pre>
+<a href="../playground/#profile=&amp;text=%60%60%60%20%25%0Aul%20%28List.map%20item%20items%29%0A%60%60%60%0A">Open in the playground</a>
+</div></section>
+<section id="Properties-3">
+<h3>Properties</h3>
+<p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+</section>
 <section id="Keyed-blocks">
 <h2>Keyed blocks</h2>
 <p>Setting: <code>ext_keyed</code>.</p>
@@ -529,7 +650,7 @@ first: a div fence <code>:::</code>, a definition list marker, a reference defin
 <p>A description list with one term and the class <code>keyed</code>. The tree keeps a
 node of its own, with the label and the block.</p>
 </section>
-<section id="Properties-3">
+<section id="Properties-4">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
 <table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status conjectured">conjectured</td></tr>
@@ -608,7 +729,7 @@ second
 <p>A paragraph can no longer be wrapped anywhere: a line that begins with a
 bullet or with <code>1.</code> starts a list.</p>
 </section>
-<section id="Properties-4">
+<section id="Properties-5">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
 <table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status broken">broken<small>A line that begins with a list marker starts a list.</small></td></tr></table></section>
@@ -670,7 +791,7 @@ on two lines&lt;/h1&gt;
 <p>A paragraph can no longer be wrapped anywhere: a line that is all <code>=</code>, or
 two or more <code>-</code>, ends the paragraph and changes what it is.</p>
 </section>
-<section id="Properties-5">
+<section id="Properties-6">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
 <table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A text line that continues a paragraph may leave out the prefixes of the quotes, list items and footnotes around it, and parses as it would with them written.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>Not for a line that underlines the paragraph: it makes a setext heading.</small></td></tr>
@@ -760,7 +881,7 @@ the alias, or the target when there is none, is the text. An embed renders
 as an image. The tree keeps a node of its own, with the target, the alias
 and whether it is an embed.</p>
 </section>
-<section id="Properties-6">
+<section id="Properties-7">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
 <table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
@@ -786,29 +907,35 @@ and whether it is an embed.</p>
 <a class="level3" href="#The-GitHub-form">The GitHub form</a>
 <a class="level3" href="#Priority">Priority</a>
 <a class="level3" href="#Properties-2">Properties</a>
+<a class="level2" href="#Holes">Holes</a>
+<a class="level3" href="#Where-a-hole-ends">Where a hole ends</a>
+<a class="level3" href="#What-is-not-a-hole">What is not a hole</a>
+<a class="level3" href="#Priority-1">Priority</a>
+<a class="level3" href="#Blocks">Blocks</a>
+<a class="level3" href="#Properties-3">Properties</a>
 <a class="level2" href="#Keyed-blocks">Keyed blocks</a>
 <a class="level3" href="#Where-a-colon-makes-a-key">Where a colon makes a key</a>
 <a class="level3" href="#The-value">The value</a>
 <a class="level3" href="#One-block">One block</a>
 <a class="level3" href="#Where-a-colon-is-not-a-key">Where a colon is not a key</a>
 <a class="level3" href="#Output-2">Output</a>
-<a class="level3" href="#Properties-3">Properties</a>
+<a class="level3" href="#Properties-4">Properties</a>
 <a class="level2" href="#List-interruption">List interruption</a>
 <a class="level3" href="#What-it-costs">What it costs</a>
-<a class="level3" href="#Properties-4">Properties</a>
+<a class="level3" href="#Properties-5">Properties</a>
 <a class="level2" href="#Setext-headings">Setext headings</a>
 <a class="level3" href="#What-it-costs-1">What it costs</a>
-<a class="level3" href="#Properties-5">Properties</a>
+<a class="level3" href="#Properties-6">Properties</a>
 <a class="level2" href="#Wikilinks">Wikilinks</a>
 <a class="level3" href="#Where-it-opens-and-closes">Where it opens and closes</a>
 <a class="level3" href="#Target-and-alias">Target and alias</a>
 <a class="level3" href="#What-it-changes-in-djot">What it changes in djot</a>
 <a class="level3" href="#Output-3">Output</a>
-<a class="level3" href="#Properties-6">Properties</a>
+<a class="level3" href="#Properties-7">Properties</a>
 </nav>
 </div>
 <footer>
-djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/df4eeb366cead02af1d8fe008bbfb95eb1cdfca1">df4eeb3</a> (2026-10-05).
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/3918c6165684414c5283ce8fa5a39676edbb4905">kernel-0.1.0-3-g3918c61</a> (2026-10-08).
 Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
 </footer>
 </html>
