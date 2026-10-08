@@ -1684,6 +1684,26 @@ Proof.
   exact (ck_uniformity LKDef sp lss Hne Hdefs Hok).
 Qed.
 
+(** The same of items of any lines, with keys off
+    (`list_uniformity_shape`). *)
+Theorem definition_list_uniformity_shape :
+  forall sp lss,
+    bkeyed = false ->
+    bdeflists = true ->
+    lss <> [] ->
+    forallb (item_shape_ok colon) lss = true ->
+    parse_lines (list_lines sp (map litem_lines (same_marker colon lss)))
+      (PPara []) =
+    [mk (DefinitionList (list_scan_spacing sp lss)
+      (def_items (map (fun L => parse_lines L (PPara [])) lss)))].
+Proof.
+  intros sp lss Hk Hdefs Hne Hok.
+  rewrite map_litem_lines_same_marker.
+  rewrite <- (marker_list_checked_colon _
+                (map (fun _ => mk_check colon) lss) _ Hdefs).
+  exact (list_uniformity_shape_same colon sp lss Hk colon_ok eq_refl Hne Hok).
+Qed.
+
 (** The same with the list closed by a following line. *)
 Theorem ck_uniformity_tail :
   forall k sp lss next tail,
@@ -1967,6 +1987,23 @@ Proof.
   exact (list_uniformity_same m sp itemss Hm Htasks).
 Qed.
 
+(* The same of items of any lines, with keys off. *)
+Corollary ordered_uniformity_shape :
+  forall m sp itemss,
+    bkeyed = false ->
+    marker_ok m = true -> itemss <> [] ->
+    forallb (item_shape_ok m) itemss = true ->
+    parse_lines (list_lines sp (map (indent_lines (mk_open m) (mk_cont m)) itemss))
+                (PPara [])
+    = [marker_list_checked m (list_scan_spacing sp itemss)
+             (map (fun _ => mk_check m) itemss)
+             (map (fun L => parse_lines L (PPara [])) itemss)].
+Proof.
+  intros m sp itemss Hk Hm.
+  assert (Htasks : marker_tasks_ok btasks m = true) by (destruct m; reflexivity).
+  exact (list_uniformity_shape_same m sp itemss Hk Hm Htasks).
+Qed.
+
 (* The point of a marker per item, and the case a repeated marker cannot
    express: a renumbering list whose continuation indent changes in the
    middle.  djot.js renders exactly these lines and parses them back to
@@ -2027,6 +2064,26 @@ Proof. reflexivity. Qed.
 Example star_item_ok : item_ok star ["a"] = true.
 Proof. reflexivity. Qed.
 
+
+(* What `item_shape_ok` admits and `item_ok` does not: an item that ends
+   on a block attribute, one that ends inside a code block, and one that
+   ends on a blank line. *)
+Example shape_items_ok :
+  items_shape_ok star
+    [(star, ["a"; "{.x}"]); (star, ["```"; "x"]); (star, ["b"; ""])] = true.
+Proof. reflexivity. Qed.
+
+Example shape_items_not_item_ok :
+  map (item_ok star) [["a"; "{.x}"]; ["```"; "x"]; ["b"; ""]]
+  = [false; false; false].
+Proof. reflexivity. Qed.
+
+(* A blank that ends an item is spent by the next item's marker, which
+   `list_spacing_of` does not count. *)
+Example trailing_blank_loosens :
+  list_scan_spacing Tight [["a"; ""]; ["b"]] = Loose
+  /\ list_spacing_of Tight [["a"; ""]; ["b"]] = Tight.
+Proof. split; reflexivity. Qed.
 
 (* Non-vacuity, and the shape of an instantiation: every hypothesis of
    `ordered_roman_uniformity` but the nonemptiness is decidable, so a
