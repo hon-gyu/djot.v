@@ -46,6 +46,8 @@ val p_linear_time : property
 
 val p_quote_uniformity : property
 
+val keyed_items_condition : string
+
 val p_list_uniformity : property
 
 val p_definition_list_uniformity : property
