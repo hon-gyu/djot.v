@@ -27,6 +27,7 @@ The `djot` opam package in `ocaml/`: the library, `djot.json` and the CLI.
 A new kernel is a new release of the package.
 
 ### [Unreleased]
+- `Doc.source_blocks`: the blocks without the identifiers derived from heading text, for `Doc.make` to give the same document
 
 ### [0.1.0]
 - initial release, with kernel 0.1.0
