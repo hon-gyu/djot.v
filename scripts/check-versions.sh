@@ -3,6 +3,7 @@
 # Fails unless the stated versions agree: ocaml/kernel/VERSION is VERSION,
 # the syntax reference is the `djot` submodule's commit or an ancestor of
 # it, and the changelog lists the kernel's and each package's version.
+# Given a release tag, also that the tag names the version stated.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 
@@ -27,9 +28,17 @@ released() {
     END { exit !found }' changelog ||
     err "changelog: no [$2] under \"$1\""
 }
-released "Kernel" "$(sed -n 's/^version: *//p' VERSION)"
-released "OCaml package" "$(sed -n 's/^(version \(.*\))$/\1/p' ocaml/dune-project)"
-released "Python package" "$(sed -n 's/^version = "\(.*\)"$/\1/p' py/pyproject.toml | head -1)"
+kernel=$(sed -n 's/^version: *//p' VERSION)
+ocaml=$(sed -n 's/^(version \(.*\))$/\1/p' ocaml/dune-project)
+py=$(sed -n 's/^version = "\(.*\)"$/\1/p' py/pyproject.toml | head -1)
+released "Kernel" "$kernel"
+released "OCaml package" "$ocaml"
+released "Python package" "$py"
+
+case ${1:-} in
+  "" | "kernel-$kernel" | "ocaml-$ocaml" | "py-$py") ;;
+  *) err "tag $1 is none of kernel-$kernel, ocaml-$ocaml, py-$py" ;;
+esac
 
 [ $bad = 0 ] && echo "versions agree"
 exit $bad

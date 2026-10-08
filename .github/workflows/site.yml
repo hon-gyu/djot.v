@@ -2,17 +2,18 @@
 #
 # Builds the site, the Python API reference included, in the devenv shell
 # and publishes it with one new commit on the gh-pages branch, which GitHub Pages serves.
+# A release tag publishes; a manual run is for changes to the site between releases.
 name: site
 
 on:
-  # push:
-  #   branches: [main]
+  push:
+    tags: ['kernel-*', 'ocaml-*', 'py-*']
   workflow_dispatch:
 
 permissions:
   contents: write  # site-publish.sh pushes to gh-pages
 
-# One publish at a time, in the order of the pushes to main.
+# One publish at a time.
 concurrency:
   group: site
   cancel-in-progress: false
@@ -30,6 +31,10 @@ jobs:
       - uses: ./.github/actions/devenv
         with:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: The tag names a stated version
+        if: github.ref_type == 'tag'
+        run: git submodule update --init djot && make check-versions TAG=${{ github.ref_name }}
 
       # site-publish.sh makes the commit with git commit-tree.
       - name: Set the git identity
