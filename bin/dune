@@ -13,6 +13,12 @@
    (run tail -n +2 %{dep:djot.css})
    (echo "|css}\n"))))
 
+; The (version) of ocaml/dune-project.
+(rule
+ (with-stdout-to
+  version.ml
+  (echo "let s = \"%{version:djot}\"\n")))
+
 (cram
  (applies_to cli cli_frontmatter oy)
  (enabled_if

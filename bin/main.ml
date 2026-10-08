@@ -101,7 +101,7 @@ let cmd : int Cmd.t =
   in
   let default : int Term.t = Term.(ret (const (`Help (`Auto, None)))) in
   Cmd.group
-    (Cmd.info "djot" ~version:"%%VERSION%%" ~doc ~man ~exits:Djot_cli.exits)
+    (Cmd.info "djot" ~version:Version.s ~doc ~man ~exits:Djot_cli.exits)
     ~default
     [ Cmd_html.cmd; djot_cmd; ast_cmd; json_cmd; profile_cmd ]
 ;;

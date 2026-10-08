@@ -158,6 +158,7 @@ The profile command prints the syntax the options select.
   ext_keyed: off
   ext_callouts: off
   ext_tags: off
+  ext_holes: off
   ext_setext_headings: off
   ext_list_interrupts: off
 
@@ -178,7 +179,7 @@ The profile command prints the syntax the options select.
   < ext_dollar_math: off
   ---
   > ext_dollar_math: on
-  27,28c27,28
+  28,29c28,29
   < ext_setext_headings: off
   < ext_list_interrupts: off
   ---
@@ -227,7 +228,7 @@ DJOT_SYNTAX gives the syntax the options start from.
   > heading_continuation: off
   > ext_wikilinks: on
   > ext_dollar_math: on
-  27,28c27,28
+  28,29c28,29
   < ext_setext_headings: off
   < ext_list_interrupts: off
   ---
