@@ -136,6 +136,16 @@ let () =
   assert (Doc.auto_identifiers d' = [])
 ;;
 
+(* Made from its source blocks, a document derives the same identifiers
+   again and prints as it did. *)
+let () =
+  let d = Doc.of_string "# a\n\n{#x}\n## b\n\n- # a\n\n# a\n" in
+  let d' = Doc.make (Doc.source_blocks d) in
+  assert (Doc.auto_identifiers d' = Doc.auto_identifiers d);
+  assert (Doc.to_string d' = Doc.to_string d);
+  assert (Doc.blocks d' = Doc.blocks d)
+;;
+
 (* Mapping derives the identifiers again: with the first heading deleted,
    the second takes the identifier it had. A written one stays. *)
 let () =

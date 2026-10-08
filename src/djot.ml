@@ -893,6 +893,7 @@ module Doc = struct
   ;;
 
   let blocks (d : t) : Block.t node list = d.kernel.doc_blocks
+  let source_blocks (d : t) : Block.t node list = K.Render.doc_source_blocks d.kernel
   let footnotes (d : t) : (string * Block.t node list) list = d.kernel.doc_footnotes
 
   let footnote (d : t) (l : string) : Block.t node list option =
