@@ -2,7 +2,7 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes \
         check-span-containment bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
-        site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-site
+        site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -124,6 +124,7 @@ endef
 
 ocaml-pkg-regen: build  ## Regenerate ocaml/kernel from the extraction and promtote to worktree
 	@$(call copy-extracted-modules,ocaml/kernel)
+	@cp VERSION ocaml/kernel/VERSION
 	@echo "ocaml/kernel regenerated from $(EXTRACTED)"
 
 # Compared with runs of whitespace as one space: where the extraction
@@ -212,6 +213,9 @@ check-axioms: build  ## Fail if a theory rests on an axiom or on a check the ker
 	  | awk '/^\* Axioms/ { on = 1 } on && NF { print } \
 	         /^\* (Axioms|Constants|Inductives)/ { n++; if ($$0 !~ /<none> *$$/) bad = 1 } \
 	         END { exit bad || n != 4 }'
+
+check-versions:  ## Fail if VERSION, its copy in ocaml/kernel, the djot submodule and the changelog disagree
+	@scripts/check-versions.sh
 
 check-site: site  ## test the ocaml/ package and build the site
 	cd ocaml && dune build @runtest @install

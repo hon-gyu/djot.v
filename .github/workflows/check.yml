@@ -53,6 +53,10 @@ jobs:
         with:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # The check compares against the commit the djot submodule is at.
+      - name: Versions
+        run: git submodule update --init djot && make check-versions
+
       - name: OCaml package tests and the site
         run: devenv shell -- make check-site
 

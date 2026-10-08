@@ -3,7 +3,7 @@
  (public_name djot)
  (package djot)
  (optional)
- (libraries djot djot.json cmdliner unix))
+ (libraries djot djot.kernel djot.json cmdliner unix))
 
 (rule
  (with-stdout-to
