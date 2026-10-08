@@ -129,15 +129,6 @@ Local Fixpoint scan_list_content (ls : list_state) (inner : pstate)
       scan_list_content ls' inner' rest
   end.
 
-(** The item state that scan threads, on its own.  Definitionally the
-    `inner` component of `scan_list_content`'s recursion, which is what
-    lets the scan be cut at a line boundary. *)
-Fixpoint scan_inner (inner : pstate) (lines : list string) : pstate :=
-  match lines with
-  | [] => inner
-  | l :: rest => scan_inner (snd (step (mk_cont mrk ++ l) inner)) rest
-  end.
-
 Local Lemma run_lines_list_cont :
   forall lines ls done inner bs inner',
     ls_indent ls = 0 ->
@@ -286,29 +277,6 @@ The scan's state algebra
 ------------------------
 *)
 
-Local Lemma scan_list_content_loose :
-  forall lines inner ind e ie ies marker blanks items,
-    ls_loose (scan_list_content
-                (LSt ind e ie ies marker true blanks items Incomplete [])
-                inner lines) = true.
-Proof.
-  induction lines as [|l lines IH]; intros inner ind e ie ies marker blanks items;
-    [reflexivity|].
-  cbn [scan_list_content].
-  destruct (classify l); try destruct_fate;
-    apply IH.
-Qed.
-
-Local Lemma scan_list_content_app :
-  forall xs ys ls inner,
-    scan_list_content ls inner (xs ++ ys)%list =
-    scan_list_content (scan_list_content ls inner xs) (scan_inner inner xs) ys.
-Proof.
-  induction xs as [|x xs IH]; intros ys ls inner; [reflexivity|].
-  cbn [app scan_inner]. destruct (classify x) eqn:Hclass;
-    cbn [scan_list_content]; rewrite Hclass; apply IH.
-Qed.
-
 Local Lemma scan_list_content_fields :
   forall lines inner ls,
     ls_indent (scan_list_content ls inner lines) = ls_indent ls /\
@@ -343,23 +311,6 @@ Proof.
     cbn [scan_list_content].
     destruct (classify l); try destruct_fate;
       rewrite IH; destruct ls; reflexivity.
-Qed.
-
-Local Lemma scan_list_content_loose_ext :
-  forall lines inner ind e ie ies e' ie' ies' marker loose blanks done,
-    ls_loose (scan_list_content
-                (LSt ind e ie ies marker loose blanks done Incomplete [])
-                inner lines) =
-    ls_loose (scan_list_content
-                (LSt 0 e' ie' ies' (mk_styles mrk) loose blanks [] Incomplete [])
-                inner lines).
-Proof.
-  induction lines as [|l lines IH];
-    intros inner ind e ie ies e' ie' ies' marker loose blanks done;
-    [reflexivity|].
-  cbn [scan_list_content].
-  destruct (classify l); try destruct_fate;
-    cbn [list_blank list_settle list_content]; apply IH.
 Qed.
 
 
@@ -663,13 +614,6 @@ Proof.
     remember (l2 :: lines') as tl eqn:Etl. cbn [lines_gap].
     destruct (classify l); try destruct_fate;
       (apply IH; [exact Hrest|subst tl; discriminate|exact Hlast]).
-Qed.
-
-Local Lemma scan_items_eq :
-  forall lines inner ls, ls_items (scan_list_content ls inner lines) = ls_items ls.
-Proof.
-  intros lines inner ls.
-  pose proof (scan_list_content_fields lines inner ls) as [_ [_ [H _]]]. exact H.
 Qed.
 
 (* The list state a first item leaves behind: its marker line opens the
