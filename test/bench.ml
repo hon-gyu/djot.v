@@ -92,12 +92,12 @@ let shapes = [
     (fun n -> wrap (rep "[a](b " (n / 6)));
   "nested-destinations", "link destinations nested and then closed",
     (fun n -> rep "[a](" (n / 5) ^ rep ")" (n / 5));
-  "open-holes", "unclosed holes, wrapped (holes enabled)",
-    (fun n -> wrap (rep "%{ x " (n / 5)));
-  "nested-holes", "holes nested and then closed (holes enabled)",
-    (fun n -> rep "%{a" (n / 4) ^ rep "}" (n / 4));
-  "open-mixed", "unclosed destinations and holes alternating (holes enabled)",
-    (fun n -> wrap (rep "[a](%{ " (n / 7)));
+  "holes", "holes, wrapped (holes enabled)",
+    (fun n -> wrap (rep "%`x` " (n / 5)));
+  "open-holes", "one unclosed hole holding hole openers (holes enabled)",
+    (fun n -> rep "%`a " (n / 4));
+  "open-mixed", "unclosed destinations with hole openers (holes enabled)",
+    (fun n -> wrap (rep "[a](%`" (n / 6)));
   "headings", "the same heading repeated",
     (fun n -> rep "# heading\n\n" (n / 11));
   "lists", "nested list items",
@@ -157,7 +157,7 @@ let run sizes (name, desc, gen) =
       let s = gen n in
       let parse, convert =
         if name = "wiki" then parse_wiki, convert_wiki
-        else if List.mem name [ "open-holes"; "nested-holes"; "open-mixed" ]
+        else if List.mem name [ "holes"; "open-holes"; "open-mixed" ]
         then parse_holes, convert_holes
         else parse_doc, Djot.Html.convert in
       let p = time parse s and c = time convert s in
