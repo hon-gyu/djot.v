@@ -636,9 +636,9 @@ Extract Constant DjotV.InlineLocated.sscan_str_located =>
      done;
      !state)".
 
-(* Two decoders a close runs over its whole payload, which recurse by
-   [String c rest].  Without a backslash both are the identity, and so
-   is [drop_nl] above without a newline: the common payload is returned
+(* The decoder a close runs over its whole payload, which recurses by
+   [String c rest].  Without a backslash it is the identity, and so is
+   [drop_nl] above without a newline: the common payload is returned
    rather than copied. *)
 Extract Constant DjotV.InlineScan.ddecode_from =>
   "(fun esc s ->
@@ -651,20 +651,6 @@ Extract Constant DjotV.InlineScan.ddecode_from =>
        end else if c = '\\' then esc := true
        else Buffer.add_char b c) s;
      Buffer.contents b)".
-Extract Constant DjotV.InlineView.hole_text =>
-  "(fun s ->
-     if not (String.contains s '\\') then s else
-     let n = String.length s in
-     let b = Buffer.create n and i = ref 0 in
-     while !i < n do
-       let c = s.[!i] in
-       if c = '\\' && !i + 1 < n
-          && (let d = s.[!i + 1] in d = '{' || d = '}' || d = '\\')
-       then (Buffer.add_char b s.[!i + 1]; i := !i + 2)
-       else (Buffer.add_char b c; incr i)
-     done;
-     Buffer.contents b)".
-
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
   DjotV.Document.unsection
   DjotV.Readable.readable_djot DjotV.Readable.readable_doc

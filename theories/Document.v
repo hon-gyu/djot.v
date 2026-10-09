@@ -64,6 +64,8 @@ Fixpoint inline_text (il : inline) : string :=
   | Verbatim s => s
   | Math _ s => s
   | RawInline _ s => s
+  (* a hole contributes its expression, as math contributes its formula *)
+  | Hole s => s
   | SoftBreak | HardBreak => nl
   | FootnoteReference _ => ""
   | Emph ils | Strong ils | Highlight ils | Insert ils | Delete ils
@@ -74,9 +76,7 @@ Fixpoint inline_text (il : inline) : string :=
   | UrlLink s | EmailLink s => s
   (* the text a wikilink displays, as its desugared link would push it *)
   | Ext_wikilink _ t al => wiki_display t al
-  (* a hole contributes nothing: its text is not known until it is
-     evaluated, and the consumer that evaluates it can number again *)
-  | Symbol _ | NonBreakingSpace | Hole _ => ""
+  | Symbol _ | NonBreakingSpace => ""
   end.
 
 Definition inlines_text (ils : inlines) : string :=

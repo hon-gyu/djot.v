@@ -230,8 +230,6 @@ Fixpoint of_iscan (st : iscan) : iscan :=
       ISymbol alias txt (of_iscan sh) (of_ostate o)
   | IRaw spec txt o => IRaw spec txt (of_ostate o)
   | IPercent txt prev o => IPercent txt prev (of_ostate o)
-  | IHole depth esc src txt sh o =>
-      IHole depth esc src txt (of_iscan sh) (of_ostate o)
   end.
 
 (* A node the policy built: its payload survives, its provenance does
@@ -521,7 +519,7 @@ Local Lemma of_auto_node : forall s, Erase.of_inline (auto_node s) = auto_node s
 Proof. intros s. unfold auto_node. destruct (auto_email s); reflexivity. Qed.
 
 Local Lemma of_vnode : forall vk s, Erase.of_inline (vnode vk s) = vnode vk s.
-Proof. intros [|st|prefix] s; reflexivity. Qed.
+Proof. intros [|st|prefix|] s; reflexivity. Qed.
 
 Local Lemma of_oclose : forall `{P : PosPolicy} k m stop o,
   sclose k m (of_ostate o) =
@@ -955,7 +953,7 @@ Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   of_iscan (@iresolve T _ _ P C st) =
   @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | | |];
     try reflexivity.
   cbn [of_iscan iresolve].
   destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
@@ -1134,7 +1132,7 @@ Proof.
     | esc rb image region open o
     | kids image open esc depth dst sh IHsh o | src txt o
     | alias txt sh IHsh o | spec txt o
-    | txt prev o | depth hesc src txt sh IHsh o ];
+    | txt prev o ];
     intros allow c.
   - (* IText *)
     destruct esc; cbn [of_iscan istep_at].
@@ -1158,7 +1156,7 @@ Proof.
     destruct (Ascii.eqb c rbrace); [exact Hr|].
     rewrite <- Hr.
     destruct (@idelim_resolve T _ _ P C k txt before false (Some c) o)
-      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | | | | | |];
+      as [esc' txt' prev' o'| | | | | | | | | | | | | | | | | | | | | |];
       try reflexivity.
     destruct esc'; [reflexivity|apply of_ilead].
   - (* IOpen *)
@@ -1166,7 +1164,7 @@ Proof.
   - (* IVerb *)
     cbn [of_iscan istep_at]. destruct (is_tick c); [reflexivity|].
     destruct (Nat.eqb run n); [|reflexivity].
-    destruct vk as [|sty|prefix].
+    destruct vk as [|sty|prefix|].
     + destruct (Ascii.eqb c lbrace); [reflexivity|].
       cbn [andb vkind_verb].
       rewrite of_ilead, of_oemit, of_imk, of_vnode. reflexivity.
@@ -1183,6 +1181,8 @@ Proof.
         rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
       * destruct (Ascii.eqb c lbrace); [reflexivity|].
         cbn [of_iscan]. rewrite of_ilead, of_oemit, of_imk. reflexivity.
+    + cbn [vkind_verb andb]. rewrite andb_false_r.
+      rewrite of_ilead, of_oemit, of_imk, of_vnode. reflexivity.
   - (* IDollar *) apply of_idollar_step.
   - (* IDollarMath *)
     cbn [istep_at]. destruct me.
@@ -1256,17 +1256,8 @@ Proof.
   - (* IRaw *) apply of_iraw_step_at.
   - (* IPercent *)
     cbn [of_iscan istep_at]. unfold ipercent_step.
-    destruct (Ascii.eqb c lbrace); cbn [of_iscan];
-      rewrite ?of_ilead; reflexivity.
-  - (* IHole *)
-    cbn [of_iscan istep_at]. unfold ihole_step.
-    destruct hesc; cbn [of_iscan]; [rewrite IHsh; reflexivity|].
-    destruct (is_bslash c); cbn [of_iscan]; [rewrite IHsh; reflexivity|].
-    destruct (Ascii.eqb c lbrace); cbn [of_iscan]; [rewrite IHsh; reflexivity|].
-    destruct (Ascii.eqb c rbrace); cbn [of_iscan]; [|rewrite IHsh; reflexivity].
-    destruct depth; cbn [of_iscan]; [|rewrite IHsh; reflexivity].
-    unfold ihole_close. cbn [of_iscan].
-    rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
+    destruct (is_tick c); cbn [of_iscan];
+      [rewrite of_flush_text_to_at|rewrite of_ilead]; reflexivity.
 Qed.
 
 Local Lemma of_ifinish_ostate_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
@@ -1284,7 +1275,7 @@ Proof.
     | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o
     | alias txt sh o | spec txt o
-    | txt prev o | depth hesc src txt sh o ];
+    | txt prev o ];
     cbn [of_iscan ifinish_ostate_flat];
     try reflexivity.
   - destruct esc; [apply of_iesc_hard|apply of_flush_text_at].
@@ -1329,7 +1320,6 @@ Proof.
     rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
   - rewrite iscan_attr. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_dest. cbn [ifinish_ostate]. assumption.
-  - cbn [of_iscan ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
 Qed.
 
@@ -1389,7 +1379,7 @@ Proof.
     | esc rb image region open o
     | kids image open esc depth dst sh IHdest o | src txt o
     | alias txt sh IHsh o | spec txt o
-    | txt prev o | depth hesc src txt sh IHsh o ];
+    | txt prev o ];
     cbn [of_iscan ibreak_flat];
     try reflexivity.
   - destruct esc; cbn [of_iscan];
@@ -1443,7 +1433,6 @@ Proof.
   - rewrite iscan_dest. cbn [ibreak_at].
     rewrite iscan_dest, IHst. reflexivity.
   - cbn [ibreak_at]. apply IHst.
-  - cbn [ibreak_at of_iscan]. rewrite IHst. reflexivity.
 Qed.
 
 End WithTable.

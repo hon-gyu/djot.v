@@ -1251,21 +1251,26 @@ Definition ofinish `{PosPolicy} (o : ostate) : inlines :=
   oresolve (oitems_of o).
 
 (* What a backtick run closes into, decided at the opening run: the `$`
-   prefix has already been read by then. *)
+   or `%` prefix has already been read by then. *)
 Inductive vkind : Type :=
   | VVerb | VMath (style : math_style)
-  | VMaybeDollarMath (prefix : string).
+  | VMaybeDollarMath (prefix : string)
+  | VHole.
 
 Definition vnode (vk : vkind) (s : string) : inline :=
   match vk with
   | VVerb | VMaybeDollarMath _ => Verbatim s
   | VMath st => Math st s
+  | VHole => Hole s
   end.
 
 (* Only a verbatim may take a raw format: `` $`x`{=html} `` is math
-   followed by literal text. *)
+   followed by literal text, and `` %`x`{=html} `` a hole. *)
 Definition vkind_verb (vk : vkind) : bool :=
-  match vk with VVerb | VMaybeDollarMath _ => true | VMath _ => false end.
+  match vk with
+  | VVerb | VMaybeDollarMath _ => true
+  | VMath _ | VHole => false
+  end.
 
 (* Every state below that carries pending text carries `prev`: the last
    byte of source read so far, `None` at the start of a paragraph or of a
@@ -1313,8 +1318,9 @@ Inductive iscan_g : Type :=
   | IDelim (k : dstyle) (extra : nat) (txt : Buf) (before : option ascii)
            (marked : bool) (o : ostate)
   (* counting an opening backtick run.  `vk` is what the run will close
-     into: a `$` or `$$` immediately before it makes the span math, so
-     math is a mode of verbatim rather than a construct of its own. *)
+     into: a `$` or `$$` immediately before it makes the span math, and a
+     `%` with holes on makes it a hole, so both are modes of verbatim
+     rather than constructs of their own. *)
   | IOpen (n : nat) (vk : vkind) (o : ostate)
   (* inside a width-`n` verbatim, with `run` unresolved trailing ticks *)
   | IVerb (n run : nat) (txt : Buf) (vk : vkind) (o : ostate)
@@ -1424,20 +1430,10 @@ Inductive iscan_g : Type :=
      `Verbatim` or `RawInline` is what the spec decides.  Only a verbatim
      reaches here, never math. *)
   | IRaw (spec : Buf) (txt : string) (o : ostate)
-  (* a `%` whose role the next byte decides: `{` opens a hole candidate,
-     and anything else makes it text.  `IBang`'s shape, for `IBang`'s
-     reason. *)
-  | IPercent (txt : Buf) (prev : option ascii) (o : ostate)
-  (* a hole candidate, `%{` and the source after it.  `depth` counts the
-     unclosed `{` inside it, `esc` is a pending backslash (an escaped
-     brace does not count), and `src` is the source since `%{`, escapes
-     and all: `hole_text` decodes it when the candidate closes.  `txt`
-     is the text pending when the `%` arrived.  `sh` is the ordinary
-     reading of the same bytes, from the `%` on, selected if no closing
-     `}` arrives; the closing one discards it, and with it anything it
-     closed, so a closed hole wins over what it overlaps. *)
-  | IHole (depth : nat) (esc : bool) (src : Buf) (txt : Buf)
-          (sh : iscan_g) (o : ostate).
+  (* a `%` whose role the next byte decides: a backtick run makes it a
+     hole's prefix, and anything else makes it text.  `IDollar`'s shape,
+     for `IDollar`'s reason. *)
+  | IPercent (txt : Buf) (prev : option ascii) (o : ostate).
 Local Notation iscan := iscan_g.
 
 (* The one position in which the table does not get the byte: right
@@ -1653,7 +1649,8 @@ Local Definition auto_lit (src : string) (txt : Buf) : Buf :=
    here: the escape it continues is settled at the boundary before it.)
    What crosses a boundary lives in the parser rather than in the slice:
    an open delimiter, a verbatim, a math prefix that peeks at the byte
-   after it.  Hence no `IDelim`, `IOpen`, `IVerb` or `IDollar` arm.
+   after it.  Hence no `IDelim`, `IOpen`, `IVerb`, `IDollar` or
+   `IPercent` arm: a hole's prefix peeks as a math prefix does.
    `IBang` is not here either: `!` is not a special byte, so no slice
    ends on it. *)
 Fixpoint islice_end (st : iscan) : iscan :=
@@ -1668,9 +1665,6 @@ Fixpoint islice_end (st : iscan) : iscan :=
   | IAuto src txt o =>
       IText false (auto_lit (tval src) txt) (blit_prev (String lt (tval src))) o
   | ISymbol _ _ sh _ => islice_end sh
-  (* a `%` never opens a hole inside a failed spec's region: the `{` after
-     it would start a new slice *)
-  | IPercent txt _ o => IText false (tpush txt (one percent)) (Some percent) o
   | _ => st
   end.
 
@@ -2076,43 +2070,15 @@ Definition idash_step `{PosPolicy} `{InlineCursor}
        end
   else ilead c (tpush txt (typography_dashes n)) (Some hyphen) o.
 
-(* Resolving a `%`: a `{` opens a hole candidate, whose ordinary reading
-   is the `%` as text and the `{` dispatched after it; anything else makes
-   the `%` text and is dispatched afresh. *)
+(* Resolving a `%`: a backtick run opens the hole it prefixes, which
+   then reads exactly as a verbatim does; anything else makes the `%`
+   text and is dispatched afresh. *)
 Definition ipercent_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (txt : Buf) (prev : option ascii) (o : ostate) : iscan :=
-  if Ascii.eqb c lbrace
-  then IHole 0 false tnil txt
-         (ilead c (tpush txt (one percent)) (Some percent) o) o
+  if is_tick c
+  then IOpen 1 VHole
+         (flush_text_to_at (spot_before cursor_start (one percent)) (tval txt) o)
   else ilead c (tpush txt (one percent)) (Some percent) o.
-
-(* The closing `}`: the hole is emitted onto the state from before the
-   `%`, with the text pending then flushed in front of it, and the
-   ordinary reading is dropped.  An empty payload is a hole too: `%{}` is
-   one, for the consumer to reject. *)
-Definition ihole_close `{PosPolicy} `{InlineCursor}
-  (src : string) (txt : Buf) (o : ostate) : iscan :=
-  let start := spot_before cursor_start
-                 (String percent (String lbrace src)) in
-  IText false tnil (Some rbrace)
-    (oemit (imk start cursor_stop (Hole (hole_text src)))
-       (flush_text_to_at start (tval txt) o)).
-
-(* One byte of a hole candidate, whose ordinary reading `sh'` has already
-   consumed it. *)
-Definition ihole_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (depth : nat) (esc : bool) (src txt : Buf)
-  (sh' : iscan) (o : ostate) : iscan :=
-  if esc then IHole depth false (tpush src (one c)) txt sh' o
-  else if is_bslash c then IHole depth true (tpush src (one c)) txt sh' o
-  else if Ascii.eqb c lbrace
-  then IHole (S depth) false (tpush src (one c)) txt sh' o
-  else if Ascii.eqb c rbrace
-  then match depth with
-       | O => ihole_close (tval src) txt o
-       | S d => IHole d false (tpush src (one c)) txt sh' o
-       end
-  else IHole depth false (tpush src (one c)) txt sh' o.
 
 (* No byte follows: the end of a line or of the paragraph.  Every state
    waiting on a next byte resolves here, so after it none remains, which
@@ -2383,8 +2349,6 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       else IDest kids image open false depth (tpush dst (one c))
              (istep_at attrs_enabled c sh) o
   | IPercent txt prev o => ipercent_step c txt prev o
-  | IHole depth esc src txt sh o =>
-      ihole_step c depth esc src txt (istep_at attrs_enabled c sh) o
   end.
 
 Definition istep `{PosPolicy} `{InlineCursor}
@@ -2442,7 +2406,7 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (* unreachable: `iresolve` leaves no `IBrace`, `IBang`, `IDollar`,
      `IPeriod`, `IDash`, `IDelim` or `IClosed` *)
   | IDollarMath _ _ _ _ _ _ o | IDollarMathClose _ _ _ _ _ o
-  | IHole _ _ _ _ _ o | IPercent _ _ o
+  | IPercent _ _ o
   | IBrace _ _ o | IBang _ _ o | IDollar _ _ _ o
   | IPeriod _ _ _ o | IDash _ _ _ o
   | IDelim _ _ _ _ _ o | IClosed _ o => o
@@ -2471,8 +2435,6 @@ Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   | IAttr _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | ISymbol _ _ sh _ => ifinish_ostate sh
-  (* a hole the paragraph ended inside never closed *)
-  | IHole _ _ _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
@@ -2565,7 +2527,7 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
       iattr_feed nl_char p src txt prev sh o
   (* unreachable, as in `ifinish_ostate` *)
   | (IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
-    | IHole _ _ _ _ _ _ | IPercent _ _ _
+    | IPercent _ _ _
     | IBrace _ _ _ | IBang _ _ _ | IDollar _ _ _ _
     | IPeriod _ _ _ _ | IDash _ _ _ _
     | IDelim _ _ _ _ _ _ | IClosed _ _) as st' => st'
@@ -2622,10 +2584,6 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
         (ibreak_at attrs_enabled sh) o
   | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
-  (* A hole crosses the break, which is part of its payload.  A pending
-     backslash before it escapes nothing, and is kept. *)
-  | IHole depth _ src txt sh o =>
-      IHole depth false (tpush src nl) txt (ibreak_at attrs_enabled sh) o
   | _ => ibreak_flat (iresolve st)
   end.
 
@@ -2651,7 +2609,7 @@ Definition iclosed_at (st : iscan) : bool :=
      text *)
   | IBrace _ _ _ | IAttr _ _ _ _ _ _ | IBang _ _ _ | IDollar _ _ _ _
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
-  | IHole _ _ _ _ _ _ | IPercent _ _ _
+  | IPercent _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _
   | INote _ _ _ _ _ | IReference _ _ _ _ _ _
@@ -2713,7 +2671,7 @@ Definition is_compound (st : iscan) : bool :=
              | None => false end))%bool
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
-  | ISymbol _ _ _ _ | IHole _ _ _ _ _ _ => true
+  | ISymbol _ _ _ _ => true
   | _ => false
   end.
 
@@ -2778,8 +2736,6 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
   | ISymbol alias t sh o => ISymbol (tval alias) (tval t) (map_text sh) o
   | IRaw spec v o => IRaw (tval spec) v o
   | IPercent t prev o => IPercent (tval t) prev o
-  | IHole depth esc src t sh o =>
-      IHole depth esc (tval src) (tval t) (map_text sh) o
   end.
 
 Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
@@ -2810,8 +2766,6 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
   | ISymbol alias t sh o => ISymbol (tof alias) (tof t) (lift sh) o
   | IRaw spec v o => IRaw (tof spec) v o
   | IPercent t prev o => IPercent (tof t) prev o
-  | IHole depth esc src t sh o =>
-      IHole depth esc (tof src) (tof t) (lift sh) o
   end.
 
 End Read.
@@ -2822,26 +2776,27 @@ The candidate stack
 
 The scanner the extraction runs.  It computes what the specification
 scanner computes (`InlineStack.v`), and differs in one place: the open
-link destinations and holes.
+link destinations.
 
-In the specification each of those carries the ordinary reading of its
-region, and that reading opens the next candidate inside itself, so k
-open candidates are a chain k deep that every byte walks.  Here they are
-frames on a stack over one ordinary reading, `s_cur`.  Two facts make
-that sound.  Candidates of one kind count the same bytes (`(` and `)`
-for a destination, `{` and `}` for a hole) under the same escapes, so
-the later one closes first and one counter per kind serves all of them,
-each frame keeping the counter's value at its opener.  And a close
-discards the ordinary reading it closes over, so every frame above the
-closing one goes with it, whatever its kind.
+In the specification each destination carries the ordinary reading of
+its region, and that reading opens the next destination inside itself,
+so k open destinations are a chain k deep that every byte walks.  Here
+they are frames on a stack over one ordinary reading, `s_cur`.  Two
+facts make that sound.  Destinations count the same bytes, `(` and `)`,
+under the same escapes, so the later one closes first and one counter
+serves all of them, each frame keeping the counter's value at its
+opener.  And a close discards the ordinary reading it closes over,
+which is where every later destination lived, so only the top frame
+can close.
 
 A frame's payload is not kept whole.  `cf_under` holds the source from
 the opener of the frame below it to its own opener, and `s_seg` the
 source since the top frame's opener, so a byte is pushed once whatever
-the depth, and a close joins the segments above the frame it closes.
+the depth, and a close joins the top frame's payload to the segment
+below it.
 
-A candidate the specification nests where the stack would not take it
-stays nested in `s_cur`: one opened inside an attribute, symbol or
+A destination the specification nests where the stack would not take
+it stays nested in `s_cur`: one opened inside an attribute, symbol or
 dollar math candidate's shadow, or one whose counter would not stay
 above the frame below.  That costs what it costs today, and nothing
 else depends on it.
@@ -2868,40 +2823,31 @@ Definition ddecode (s : string) : string := ddecode_from false s.
 (* What a frame builds at its close, on the state from before its
    opener. *)
 Inductive ckind : Type :=
-  | CDest (kids : inlines) (image : bool) (open : span) (o : ostate)
-  | CHole (txt : Buf) (o : ostate).
+  | CDest (kids : inlines) (image : bool) (open : span) (o : ostate).
 
-(* `cf_level` is the kind's counter just after the opener; `cf_dtop` and
-   `cf_htop` are the stack's from before the push, restored at the
-   pop. *)
+(* `cf_level` is the counter just after the opener. *)
 Record cframe : Type := CFrame {
   cf_kind : ckind;
   cf_level : nat;
-  cf_under : Buf;
-  cf_dtop : option nat;
-  cf_htop : option nat
+  cf_under : Buf
 }.
 
-(* `s_frames` is top first.  `s_dtop` and `s_htop` are the levels of the
-   topmost destination and hole frames, which are the only ones a byte
-   can close.  The counters and `s_esc` run over every byte; `s_seg`
-   only while a frame is open. *)
+(* `s_frames` is top first, and only the top frame can close.  The
+   counter and `s_esc` run over every byte; `s_seg` only while a frame is
+   open. *)
 Record sscan : Type := SScan {
   s_frames : list cframe;
-  s_dtop : option nat;
-  s_htop : option nat;
   s_parens : nat;
-  s_braces : nat;
   s_esc : bool;
   s_seg : Buf;
   s_cur : iscan_g (Buf:=Buf)
 }.
 
 Definition slift (st : iscan_g (Buf:=Buf)) : sscan :=
-  SScan [] None None 0 0 false tnil st.
+  SScan [] 0 false tnil st.
 
-Definition sat_level (top : option nat) (n : nat) : bool :=
-  match top with Some l => Nat.eqb l n | None => false end.
+Definition stop_level (fs : list cframe) : option nat :=
+  match fs with [] => None | f :: _ => Some (cf_level f) end.
 
 Definition sabove (top : option nat) (n : nat) : bool :=
   match top with Some l => Nat.ltb l n | None => true end.
@@ -2912,34 +2858,16 @@ Definition scount (esc : bool) (c up down : ascii) (n : nat) : nat :=
   else if Ascii.eqb c down then pred n
   else n.
 
-(* Down to the topmost frame of the kind, joining the payload: the
-   frames above it are discarded with the reading they lived in. *)
-Fixpoint spop (dest : bool) (fs : list cframe) (acc : list string)
-  : option (cframe * list cframe * string) :=
-  match fs with
-  | [] => None
-  | f :: fs' =>
-      if match cf_kind f with CDest _ _ _ _ => dest | CHole _ _ => negb dest end
-      then Some (f, fs', String.concat EmptyString acc)
-      else spop dest fs' (tval (cf_under f) :: acc)
-  end.
-
-(* A candidate the reading has just opened becomes a frame: nothing read
-   into it yet, and its counter above the frame below. *)
-Definition speel (fs : list cframe) (dtop htop : option nat) (p b : nat)
-  (esc : bool) (seg : Buf) (cur : iscan_g (Buf:=Buf)) : sscan :=
+(* A destination the reading has just opened becomes a frame: nothing
+   read into it yet, and its counter above the frame below. *)
+Definition speel (fs : list cframe) (p : nat) (esc : bool) (seg : Buf)
+  (cur : iscan_g (Buf:=Buf)) : sscan :=
   match cur with
   | IDest kids image open false O dst sh o =>
-      if (negb (tnonempty dst) && negb esc && sabove dtop p)%bool
-      then SScan (CFrame (CDest kids image open o) p seg dtop htop :: fs)
-             (Some p) htop p b esc tnil sh
-      else SScan fs dtop htop p b esc seg cur
-  | IHole O false src txt sh o =>
-      if (negb (tnonempty src) && negb esc && sabove htop b)%bool
-      then SScan (CFrame (CHole txt o) b seg dtop htop :: fs)
-             dtop (Some b) p b esc tnil sh
-      else SScan fs dtop htop p b esc seg cur
-  | _ => SScan fs dtop htop p b esc seg cur
+      if (negb (tnonempty dst) && negb esc && sabove (stop_level fs) p)%bool
+      then SScan (CFrame (CDest kids image open o) p seg :: fs) p esc tnil sh
+      else SScan fs p esc seg cur
+  | _ => SScan fs p esc seg cur
   end.
 
 Definition sframe_close `{PosPolicy} `{InlineCursor}
@@ -2949,32 +2877,28 @@ Definition sframe_close `{PosPolicy} `{InlineCursor}
       IText false tnil (Some rparen)
         (oemit (imk (span_start open) cursor_stop
                   (bnode image kids (Direct (drop_nl (ddecode pay))))) o)
-  | CHole txt o => ihole_close pay txt o
   end.
 
 Definition sstep_at `{PosPolicy} `{InlineCursor}
   (attrs_enabled : bool) (c : ascii) (s : sscan) : sscan :=
-  let '(SScan fs dtop htop p b esc seg cur) := s in
-  let dclose := (negb esc && Ascii.eqb c rparen && sat_level dtop p)%bool in
-  let hclose := (negb esc && Ascii.eqb c rbrace && sat_level htop b)%bool in
+  let '(SScan fs p esc seg cur) := s in
   let p' := scount esc c lparen rparen p in
-  let b' := scount esc c lbrace rbrace b in
-  match (if (dclose || hclose)%bool then spop dclose fs [tval seg] else None) with
-  | Some (f, fs', pay) =>
-      SScan fs' (cf_dtop f) (cf_htop f) p' b' false
-        (if null fs' then tnil else tpush (cf_under f) (pay ++ one c))
-        (sframe_close (cf_kind f) pay)
-  | None =>
-      speel fs dtop htop p' b' (negb esc && is_bslash c)%bool
-        (if null fs then seg else tpush seg (one c))
-        (istep_at attrs_enabled c cur)
+  let esc' := (negb esc && is_bslash c)%bool in
+  match fs with
+  | [] => speel [] p' esc' seg (istep_at attrs_enabled c cur)
+  | f :: fs' =>
+      if (negb esc && Ascii.eqb c rparen && Nat.eqb (cf_level f) p)%bool
+      then SScan fs' p' false
+             (if null fs' then tnil else tpush (cf_under f) (tval seg ++ one c))
+             (sframe_close (cf_kind f) (tval seg))
+      else speel fs p' esc' (tpush seg (one c)) (istep_at attrs_enabled c cur)
   end.
 
 (* A break is a byte of every open payload, and escapes nothing. *)
 Definition sbreak_at `{PosPolicy} `{InlineCursor}
   (attrs_enabled : bool) (s : sscan) : sscan :=
-  let '(SScan fs dtop htop p b _ seg cur) := s in
-  SScan fs dtop htop p b false (if null fs then seg else tpush seg nl)
+  let '(SScan fs p _ seg cur) := s in
+  SScan fs p false (if null fs then seg else tpush seg nl)
     (ibreak_at attrs_enabled cur).
 
 (* The paragraph ends with every frame open, and an open candidate keeps
@@ -3037,7 +2961,7 @@ Proof.
   rewrite (ifinish_ostate_flat_state st Hd).
   unfold iscan_closed, iclosed_at, ibreak_flat, ifinish_ostate_flat in *.
   cbn [tval tnonempty tpush tof tnil] in *.
-  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|? ? ? ? ? ? ?|? ? ? ? ? ?|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob|pctxt pcprev pcob|hd he hsrc htxt hsh hob];
+  destruct (iresolve st) as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|? ? ? ? ? ? ?|? ? ? ? ? ?|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sh so|rspec rtxt rob|pctxt pcprev pcob];
     try discriminate.
   - destruct o as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].

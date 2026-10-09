@@ -869,15 +869,15 @@ Fixpoint reference_text (il : inline) : string :=
       | n :: rest => reference_text (node_contents n) ++ go rest
       end in
   match il with
-  | Str s | Verbatim s | Math _ s | RawInline _ s => s
+  (* a hole's text is its expression, as math's is its formula *)
+  | Str s | Verbatim s | Math _ s | RawInline _ s | Hole s => s
   | SoftBreak | HardBreak => nl
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Span _ ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
   | Ext_wikilink _ t al => wiki_display t al
-  (* a hole's text is not known until it is evaluated *)
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _
-  | NonBreakingSpace | Hole _ => EmptyString
+  | NonBreakingSpace => EmptyString
   end.
 
 Definition reference_inlines_text (ns : inlines) : string :=

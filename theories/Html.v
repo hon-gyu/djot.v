@@ -295,7 +295,7 @@ Local Fixpoint plain_text (il : inline) : string :=
       | Node _ _ x :: rest => plain_text x ++ go rest
       end in
   match il with
-  | Str s | Verbatim s | Math _ s | RawInline _ s => s
+  | Str s | Verbatim s | Math _ s | RawInline _ s | Hole s => s
   | UrlLink s | EmailLink s => s
   | Ext_wikilink _ t al => wiki_display t al
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
@@ -303,7 +303,7 @@ Local Fixpoint plain_text (il : inline) : string :=
   | Link ns _ | Image ns _ => go ns
   | SoftBreak | HardBreak => nl
   | NonBreakingSpace => " "
-  | FootnoteReference _ | Symbol _ | Hole _ => ""
+  | FootnoteReference _ | Symbol _ => ""
   end.
 
 Local Definition plain_texts (ns : list (node inline)) : string :=

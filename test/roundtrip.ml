@@ -16,7 +16,7 @@
    pool with dollar math on plus text full of `$` (default depth 2), and
    `--tags` the ordinary pool with custom tag names on plus named spans
    and divs in the containers (default depth 2), and `--holes` the
-   ordinary pool with holes on plus text full of `%` and braces (default
+   ordinary pool with holes on plus text with `%` beside code spans (default
    depth 2); djot.js has none of these extensions.
 
    The pinned counts are the coverage witness: the fragment must grow when
