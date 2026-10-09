@@ -148,8 +148,9 @@ ocaml-pkg-check-current: build  ## Fail if ocaml/kernel is behind the extraction
 	fi
 
 # The ocaml branch holds ocaml/ at its root, for consumers that vendor the
-# package as a git submodule.
-# do `git push origin ocaml` to update the remote branch.
+# package as a git submodule.  CI runs this on main once the checks pass,
+# and pushes the branch (.github/workflows/check.yml); by hand, follow it
+# with `git push origin ocaml`.
 ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 	@git subtree split --prefix=ocaml --branch=ocaml -q >/dev/null
 	@echo "local ocaml branch:  `git rev-parse --short refs/heads/ocaml`"

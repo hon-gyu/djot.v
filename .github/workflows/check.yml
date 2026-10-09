@@ -65,3 +65,19 @@ jobs:
 
       - name: Python tests
         run: devenv shell -- make check-py
+
+  # The split gives the same commits wherever it is run, so the push is a
+  # fast-forward.
+  ocaml-branch:
+    needs: [proofs, packages]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Split ocaml/ and push it to the ocaml branch
+        run: make ocaml-pkg-split-branch && git push origin ocaml
